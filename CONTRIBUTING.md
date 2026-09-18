@@ -40,13 +40,15 @@ Integration tests require TLS certificates. See the [Security documentation](htt
 
 Async unit tests must **not** use `Thread.sleep` or deadline loops that poll mutable state to wait for work to finish. Block on an explicit cross-thread signal instead:
 
-- `CountDownLatch` / `CompletableFuture` counted down from a `ProtocolHandler`, executor callback, or test hook
+- `CountDownLatch` counted down from a `ProtocolHandler`, executor callback, or test hook
 - `RecordingStubEndpoint` for protocol offload tests (`awaitLineStartingWith`, etc.)
 - Production test-only observers where no callback exists yet (see existing QUIC/mailbox hooks)
 
 Use `@Test(timeout=…)` only as a hang guard, not as the synchronization mechanism.
 
 `NoThreadSleepGuardTest` enforces this across `test/junit/src` with a small allowlist for tests that intentionally exercise real time (rate limiters, timers, cache expiry, filesystem mtimes). Add allowlist entries only when sleeping is the behaviour under test.
+
+`ContributingStyleGuardTest` enforces the [prohibited language features](#java-version-compatibility) and [timer/callback concurrency](#timers-and-deferred-work) rules across main sources, unit tests, integration tests, and examples. Known debt is listed in `test/junit/resources/contributing-style-allowlist.properties`; remove entries as files are remediated, do not add new ones except for brief migration windows agreed in review.
 
 ## Submitting Changes
 
@@ -68,7 +70,7 @@ This document defines the coding standards and conventions for the Gumdrop proje
 
 This is enforced at compile time via the `--release` flag in `build.xml`.
 
-**The following language features are prohibited by project style policy,** even though they are available on this baseline. Gumdrop uses a traditional procedural style for clarity and maintainability:
+**The following language features are prohibited by project style policy,** even though they are available on this baseline. They apply to **all Java in this repository** (main sources, tests, integration tests, and examples), not only production code. Gumdrop uses a traditional procedural style for clarity and maintainability:
 - `var` keyword
 - Switch expressions
 - Text blocks
@@ -316,7 +318,7 @@ array[index++] = value;
 
 ### No Future/Promise
 
-Avoid `Future`, `CompletableFuture`, and similar constructs. Use traditional callback patterns instead, similar to SAX or JavaScript XMLHttpRequest.
+Avoid `Future`, `CompletableFuture`, `ScheduledFuture`, and similar constructs (including `ExecutorService.submit` when the return value is used to wait on or cancel work). Use traditional callback patterns instead, similar to SAX or JavaScript XMLHttpRequest. Tests must use `CountDownLatch` or handler callbacks for synchronization, not `CompletableFuture` or `Future.get()`.
 
 **Good:**
 ```java
@@ -407,6 +409,33 @@ public void compileAsync(String source, CompilationCallback callback) {
         }
     });
 }
+```
+
+### Timers and deferred work
+
+Do **not** use `ScheduledFuture`, `scheduleAtFixedRate`, or `scheduleWithFixedDelay` on `ScheduledExecutorService` for Gumdrop code paths. Prefer:
+
+- `ScheduledTimer` for work that must run on a `SelectorLoop` thread (keep-alives, connection timeouts, delayed cleanup)
+- One-shot or periodic callbacks scheduled from the selector/worker thread with explicit `Runnable` implementations and a stored cancel handle (timer id, `volatile boolean`, or similar), not a `Future` return value
+
+**Good:**
+```java
+timer.schedule(loop, delayMillis, new Runnable() {
+    @Override
+    public void run() {
+        connection.closeIdle();
+    }
+});
+```
+
+**Bad:**
+```java
+ScheduledFuture<?> tick = scheduler.scheduleAtFixedRate(new Runnable() {
+    @Override
+    public void run() {
+        connection.closeIdle();
+    }
+}, 0, period, TimeUnit.SECONDS);
 ```
 
 ## Localisation
