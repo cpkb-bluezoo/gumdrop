@@ -38,6 +38,7 @@ import org.bluezoo.gumdrop.http.Capsule;
 import org.bluezoo.gumdrop.http.CapsuleParser;
 import org.bluezoo.gumdrop.http.Header;
 import org.bluezoo.gumdrop.http.Headers;
+import org.bluezoo.gumdrop.http.HttpContentCoding;
 import org.bluezoo.gumdrop.http.HttpStatus;
 import org.bluezoo.gumdrop.http.HttpUtils;
 import org.bluezoo.gumdrop.http.HttpVersion;
@@ -161,6 +162,11 @@ class H3ClientStream implements ProtocolHandler, H3FrameHandler {
     private final List<byte[]> pendingBody = new ArrayList<byte[]>();
     private boolean pendingBodyFin;
 
+    private HttpContentCoding.Decoder inboundResponseDecoder;
+
+    private HttpContentCoding.Coding requestOutboundContentCoding;
+    private HttpContentCoding.Encoder requestContentEncoder;
+
     H3ClientStream(Http3ClientHandler connection, Decoder qpackDecoder, HttpResponseHandler responseHandler) {
         this.connection = connection;
         this.qpackDecoder = qpackDecoder;
@@ -188,10 +194,56 @@ class H3ClientStream implements ProtocolHandler, H3FrameHandler {
         return streamId;
     }
 
+    HttpResponseHandler getResponseHandler() {
+        return responseHandler;
+    }
+
+    HttpContentCoding.Decoder getInboundResponseDecoder() {
+        return inboundResponseDecoder;
+    }
+
+    void setInboundResponseDecoder(HttpContentCoding.Coding coding) {
+        if (inboundResponseDecoder != null) {
+            inboundResponseDecoder.close();
+            inboundResponseDecoder = null;
+        }
+        if (coding != null) {
+            inboundResponseDecoder = HttpContentCoding.createDecoder(coding,
+                    HttpContentCoding.DEFAULT_MAX_DECOMPRESSED_SIZE);
+        }
+    }
+
+    void closeInboundResponseDecoder() {
+        if (inboundResponseDecoder != null) {
+            inboundResponseDecoder.close();
+            inboundResponseDecoder = null;
+        }
+    }
+
+    HttpContentCoding.Coding getRequestOutboundContentCoding() {
+        return requestOutboundContentCoding;
+    }
+
+    HttpContentCoding.Encoder getOrCreateRequestContentEncoder() {
+        if (requestContentEncoder == null && requestOutboundContentCoding != null) {
+            requestContentEncoder = HttpContentCoding.createEncoder(requestOutboundContentCoding);
+        }
+        return requestContentEncoder;
+    }
+
+    void closeRequestContentEncoder() {
+        if (requestContentEncoder != null) {
+            requestContentEncoder.close();
+            requestContentEncoder = null;
+        }
+    }
+
     void prepareRequest(Headers headers, boolean fin) {
         this.pendingRequestHeaders = headers;
         this.pendingRequestFin = fin;
         this.requestMethod = headers.getValue(":method");
+        requestOutboundContentCoding = HttpContentCoding.parseContentEncoding(
+                headers.getCombinedValue("Content-Encoding"));
         // RFC 9114 section 4.4 / RFC 8441 section 4: Extended CONNECT is
         // exactly CONNECT with a :protocol pseudo-header.
         this.extendedConnect = "CONNECT".equals(requestMethod) && headers.getValue(":protocol") != null;
@@ -403,6 +455,9 @@ class H3ClientStream implements ProtocolHandler, H3FrameHandler {
             }
 
             Headers hdrs = toHeaders(fields);
+            if (connection != null) {
+                connection.prepareInboundResponseDecoding(this, hdrs);
+            }
             // Capture Content-Length before stripHttp1FramingHeaders removes
             // it (same ordering as H3Stream / HTTP/2 Stream).
             if (!captureContentLength(hdrs)) {
@@ -411,6 +466,9 @@ class H3ClientStream implements ProtocolHandler, H3FrameHandler {
             HttpVersion.stripHttp1FramingHeaders(hdrs);
             for (Header field : hdrs) {
                 if (!field.getName().startsWith(":")) {
+                    if (connection != null && connection.omitContentEncodingHeader(field.getName())) {
+                        continue;
+                    }
                     responseHandler.header(field.getName(), field.getValue());
                 }
             }
@@ -448,6 +506,9 @@ class H3ClientStream implements ProtocolHandler, H3FrameHandler {
         HttpVersion.stripHttp1FramingHeaders(hdrs);
         for (Header field : hdrs) {
             if (!field.getName().startsWith(":")) {
+                if (connection != null && connection.omitContentEncodingHeader(field.getName())) {
+                    continue;
+                }
                 responseHandler.header(field.getName(), field.getValue());
             }
         }
@@ -505,7 +566,11 @@ class H3ClientStream implements ProtocolHandler, H3FrameHandler {
             abortMessageError("DATA exceeds Content-Length");
             return;
         }
-        responseHandler.responseBodyContent(data);
+        if (connection != null) {
+            connection.feedResponseBody(this, data);
+        } else {
+            responseHandler.responseBodyContent(data);
+        }
     }
 
     private void dispatchCapsules(ByteBuffer data) {
@@ -548,7 +613,11 @@ class H3ClientStream implements ProtocolHandler, H3FrameHandler {
             return;
         }
         if (bodyStarted) {
-            responseHandler.endResponseBody();
+            if (connection != null) {
+                connection.finishResponseBody(this);
+            } else {
+                responseHandler.endResponseBody();
+            }
         }
         state = State.CLOSED;
         responseHandler.close();

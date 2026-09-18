@@ -8,7 +8,9 @@ package org.bluezoo.gumdrop.http;
 import java.io.ByteArrayOutputStream;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Deque;
 import java.util.List;
 import java.util.Locale;
 import java.util.zip.CRC32;
@@ -177,26 +179,108 @@ public final class HttpContentCoding {
      * @return decompressed bytes
      * @throws HttpContentCodingException if decoding fails
      */
+    /**
+     * Compresses a complete body with the given coding.
+     */
+    public static byte[] compressFully(Coding coding, byte[] input)
+            throws HttpContentCodingException {
+        if (coding == null) {
+            throw new NullPointerException("coding");
+        }
+        Encoder encoder = createEncoder(coding);
+        try {
+            encoder.write(ByteBuffer.wrap(input), true);
+            return drainEncoded(encoder);
+        } finally {
+            encoder.close();
+        }
+    }
+
+    /**
+     * Creates a streaming decoder for the given coding.
+     *
+     * @param coding content coding
+     * @param maxDecompressedSize output limit
+     * @return decoder instance
+     */
+    public static Decoder createDecoder(Coding coding, int maxDecompressedSize) {
+        if (coding == null) {
+            throw new NullPointerException("coding");
+        }
+        if (maxDecompressedSize <= 0) {
+            throw new IllegalArgumentException("maxDecompressedSize");
+        }
+        switch (coding) {
+            case BR:
+                return new BrotliBodyDecoder(maxDecompressedSize);
+            case GZIP:
+                return new GzipDecoder(maxDecompressedSize);
+            case DEFLATE:
+                return new ZlibDecoder(maxDecompressedSize);
+            default:
+                throw new IllegalArgumentException("unsupported coding");
+        }
+    }
+
     public static byte[] decompress(Coding coding, byte[] encoded, int maxDecompressedSize)
             throws HttpContentCodingException {
         if (coding == null) {
             throw new NullPointerException("coding");
         }
-        switch (coding) {
-            case BR:
-                return decompressBrotli(encoded, maxDecompressedSize);
-            case GZIP:
-                return decompressGzip(encoded, maxDecompressedSize);
-            case DEFLATE:
-                return decompressZlib(encoded, maxDecompressedSize);
-            default:
-                throw new HttpContentCodingException("unsupported coding");
+        if (encoded.length == 0) {
+            return encoded;
         }
+        Decoder decoder = createDecoder(coding, maxDecompressedSize);
+        try {
+            decoder.write(ByteBuffer.wrap(encoded), true);
+            return drainDecoded(decoder);
+        } finally {
+            decoder.close();
+        }
+    }
+
+    private static byte[] drainEncoded(Encoder encoder) throws HttpContentCodingException {
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        ByteBuffer chunk;
+        while ((chunk = encoder.readEncoded()) != null) {
+            out.write(chunk.array(), chunk.position(), chunk.remaining());
+        }
+        return out.toByteArray();
+    }
+
+    private static byte[] drainDecoded(Decoder decoder) throws HttpContentCodingException {
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        ByteBuffer chunk;
+        while ((chunk = decoder.readDecoded()) != null) {
+            out.write(chunk.array(), chunk.position(), chunk.remaining());
+        }
+        return out.toByteArray();
     }
 
     /**
      * Incremental HTTP response body encoder.
      */
+    /**
+     * Incremental HTTP message body decoder.
+     */
+    public interface Decoder {
+        /**
+         * Supplies encoded body bytes.
+         *
+         * @param data compressed bytes (may be empty)
+         * @param end true when no further compressed bytes will be supplied
+         */
+        void write(ByteBuffer data, boolean end) throws HttpContentCodingException;
+
+        /**
+         * Returns decoded output accumulated since the last call, or null if none.
+         */
+        ByteBuffer readDecoded();
+
+        /** Releases native decompressor state. */
+        void close();
+    }
+
     public interface Encoder {
         /**
          * Supplies plaintext body bytes.
@@ -218,7 +302,7 @@ public final class HttpContentCoding {
     private static final class ZlibEncoder implements Encoder {
         private final Deflater deflater = new Deflater(Deflater.DEFAULT_COMPRESSION, false);
         private final byte[] buf = new byte[4096];
-        private ByteBuffer pending;
+        private final Deque<ByteBuffer> pending = new ArrayDeque<ByteBuffer>();
 
         @Override
         public void write(ByteBuffer data, boolean end) throws HttpContentCodingException {
@@ -235,12 +319,7 @@ public final class HttpContentCoding {
 
         @Override
         public ByteBuffer readEncoded() {
-            if (pending == null) {
-                return null;
-            }
-            ByteBuffer copy = pending;
-            pending = null;
-            return copy;
+            return pending.pollFirst();
         }
 
         @Override
@@ -249,21 +328,17 @@ public final class HttpContentCoding {
         }
 
         private void drain() {
-            ByteArrayOutputStream out = new ByteArrayOutputStream();
             while (!deflater.needsInput() || deflater.finished()) {
                 int n = deflater.deflate(buf);
                 if (n <= 0 && !deflater.finished()) {
                     break;
                 }
                 if (n > 0) {
-                    out.write(buf, 0, n);
+                    pending.addLast(ByteBuffer.wrap(buf, 0, n));
                 }
                 if (deflater.finished() && n == 0) {
                     break;
                 }
-            }
-            if (out.size() > 0) {
-                pending = ByteBuffer.wrap(out.toByteArray());
             }
         }
     }
@@ -272,16 +347,15 @@ public final class HttpContentCoding {
         private final CRC32 crc = new CRC32();
         private final Deflater deflater = new Deflater(Deflater.DEFAULT_COMPRESSION, true);
         private final byte[] buf = new byte[4096];
-        private final ByteArrayOutputStream encoded = new ByteArrayOutputStream();
+        private final Deque<ByteBuffer> pending = new ArrayDeque<ByteBuffer>();
         private boolean headerWritten;
-        private ByteBuffer pending;
         private long uncompressedSize;
 
         @Override
         public void write(ByteBuffer data, boolean end) throws HttpContentCodingException {
             if (!headerWritten) {
                 headerWritten = true;
-                encoded.write(GZIP_HEADER, 0, GZIP_HEADER.length);
+                pending.addLast(ByteBuffer.wrap(GZIP_HEADER.clone()));
             }
             if (data != null && data.hasRemaining()) {
                 int len = data.remaining();
@@ -295,20 +369,11 @@ public final class HttpContentCoding {
                 deflater.finish();
             }
             drain(end);
-            if (encoded.size() > 0) {
-                pending = ByteBuffer.wrap(encoded.toByteArray());
-                encoded.reset();
-            }
         }
 
         @Override
         public ByteBuffer readEncoded() {
-            if (pending == null) {
-                return null;
-            }
-            ByteBuffer copy = pending;
-            pending = null;
-            return copy;
+            return pending.pollFirst();
         }
 
         @Override
@@ -323,45 +388,46 @@ public final class HttpContentCoding {
                     break;
                 }
                 if (n > 0) {
-                    encoded.write(buf, 0, n);
+                    pending.addLast(ByteBuffer.wrap(buf, 0, n));
                 }
                 if (deflater.finished() && n == 0) {
                     break;
                 }
             }
             if (end && deflater.finished()) {
-                writeGzipTrailer(encoded);
+                pending.addLast(ByteBuffer.wrap(gzipTrailerBytes()));
             }
         }
 
-        private void writeGzipTrailer(ByteArrayOutputStream out) {
+        private byte[] gzipTrailerBytes() {
+            byte[] trailer = new byte[8];
             long c = crc.getValue();
-            out.write((int) (c & 0xff));
-            out.write((int) ((c >> 8) & 0xff));
-            out.write((int) ((c >> 16) & 0xff));
-            out.write((int) ((c >> 24) & 0xff));
+            trailer[0] = (byte) (c & 0xff);
+            trailer[1] = (byte) ((c >> 8) & 0xff);
+            trailer[2] = (byte) ((c >> 16) & 0xff);
+            trailer[3] = (byte) ((c >> 24) & 0xff);
             long isize = uncompressedSize & 0xffffffffL;
-            out.write((int) (isize & 0xff));
-            out.write((int) ((isize >> 8) & 0xff));
-            out.write((int) ((isize >> 16) & 0xff));
-            out.write((int) ((isize >> 24) & 0xff));
+            trailer[4] = (byte) (isize & 0xff);
+            trailer[5] = (byte) ((isize >> 8) & 0xff);
+            trailer[6] = (byte) ((isize >> 16) & 0xff);
+            trailer[7] = (byte) ((isize >> 24) & 0xff);
+            return trailer;
         }
     }
 
     private static final class BrotliBodyEncoder implements Encoder {
-        private final ByteArrayOutputStream out = new ByteArrayOutputStream();
+        private final Deque<ByteBuffer> pending = new ArrayDeque<ByteBuffer>();
         private final BrotliSink sink = new BrotliSink() {
             @Override
             public void compressed(ByteBuffer data) throws BrotliException {
                 if (data != null && data.hasRemaining()) {
                     byte[] chunk = new byte[data.remaining()];
                     data.get(chunk);
-                    out.write(chunk, 0, chunk.length);
+                    pending.addLast(ByteBuffer.wrap(chunk));
                 }
             }
         };
         private org.bluezoo.micula.BrotliEncoder encoder;
-        private ByteBuffer pending;
         private boolean closed;
 
         @Override
@@ -386,20 +452,11 @@ public final class HttpContentCoding {
             } catch (BrotliException e) {
                 throw new HttpContentCodingException("brotli compression failed", e);
             }
-            if (out.size() > 0) {
-                pending = ByteBuffer.wrap(out.toByteArray());
-                out.reset();
-            }
         }
 
         @Override
         public ByteBuffer readEncoded() {
-            if (pending == null) {
-                return null;
-            }
-            ByteBuffer copy = pending;
-            pending = null;
-            return copy;
+            return pending.pollFirst();
         }
 
         @Override
@@ -416,76 +473,224 @@ public final class HttpContentCoding {
         }
     }
 
-    private static byte[] decompressZlib(byte[] encoded, int maxSize) throws HttpContentCodingException {
-        Inflater inflater = new Inflater(false);
-        try {
-            inflater.setInput(encoded);
-            return inflateToBytes(inflater, maxSize);
-        } finally {
-            inflater.end();
-        }
-    }
+    private static final class ZlibDecoder implements Decoder {
+        private final Inflater inflater = new Inflater(false);
+        private final byte[] buf = new byte[4096];
+        private final Deque<ByteBuffer> pending = new ArrayDeque<ByteBuffer>();
+        private final int maxDecompressedSize;
+        private long decompressedSize;
+        private boolean ended;
 
-    private static byte[] decompressGzip(byte[] encoded, int maxSize) throws HttpContentCodingException {
-        if (encoded.length < GZIP_HEADER.length + 8) {
-            throw new HttpContentCodingException("truncated gzip body");
+        ZlibDecoder(int maxDecompressedSize) {
+            this.maxDecompressedSize = maxDecompressedSize;
         }
-        Inflater inflater = new Inflater(true);
-        try {
-            inflater.setInput(encoded, GZIP_HEADER.length,
-                    encoded.length - GZIP_HEADER.length - 8);
-            return inflateToBytes(inflater, maxSize);
-        } finally {
-            inflater.end();
-        }
-    }
 
-    private static byte[] decompressBrotli(byte[] encoded, int maxSize) throws HttpContentCodingException {
-        final ByteArrayOutputStream out = new ByteArrayOutputStream(encoded.length * 2);
-        BrotliDecoder decoder = new BrotliDecoder();
-        decoder.setHandler(new BrotliDefaultHandler() {
-            @Override
-            public void content(ByteBuffer data, boolean end) throws BrotliException {
-                if (data != null && data.hasRemaining()) {
-                    byte[] chunk = new byte[data.remaining()];
-                    data.get(chunk);
-                    out.write(chunk, 0, chunk.length);
-                    if (out.size() > maxSize) {
-                        throw new BrotliException("decompressed body exceeds limit");
-                    }
-                }
+        @Override
+        public void write(ByteBuffer data, boolean end) throws HttpContentCodingException {
+            if (ended) {
+                return;
             }
-        });
-        try {
-            decoder.receive(ByteBuffer.wrap(encoded));
-            decoder.close();
-        } catch (BrotliException e) {
-            throw new HttpContentCodingException("brotli decompression failed", e);
-        }
-        return out.toByteArray();
-    }
-
-    private static byte[] inflateToBytes(Inflater inflater, int maxSize)
-            throws HttpContentCodingException {
-        ByteArrayOutputStream out = new ByteArrayOutputStream();
-        byte[] buf = new byte[4096];
-        try {
-            while (!inflater.finished()) {
-                int n = inflater.inflate(buf);
-                if (n == 0 && inflater.needsInput()) {
+            if (data != null && data.hasRemaining()) {
+                feedInflater(data);
+            }
+            if (end) {
+                ended = true;
+                if (!inflater.finished()) {
                     throw new HttpContentCodingException("truncated compressed body");
                 }
-                if (n > 0) {
-                    out.write(buf, 0, n);
-                    if (out.size() > maxSize) {
-                        throw new HttpContentCodingException("decompressed body exceeds limit");
+            }
+        }
+
+        @Override
+        public ByteBuffer readDecoded() {
+            return pending.pollFirst();
+        }
+
+        @Override
+        public void close() {
+            inflater.end();
+        }
+
+        private void feedInflater(ByteBuffer data) throws HttpContentCodingException {
+            byte[] in = new byte[data.remaining()];
+            data.get(in);
+            inflater.setInput(in);
+            inflateAvailable();
+        }
+
+        private void inflateAvailable() throws HttpContentCodingException {
+            try {
+                while (!inflater.needsInput()) {
+                    int n = inflater.inflate(buf);
+                    if (n == 0) {
+                        break;
                     }
+                    enqueueDecoded(n);
+                }
+            } catch (DataFormatException e) {
+                throw new HttpContentCodingException("inflation failed", e);
+            }
+        }
+
+        private void enqueueDecoded(int n) throws HttpContentCodingException {
+            decompressedSize += n;
+            if (decompressedSize > maxDecompressedSize) {
+                throw new HttpContentCodingException("decompressed body exceeds limit");
+            }
+            pending.addLast(ByteBuffer.wrap(buf, 0, n));
+        }
+    }
+
+    private static final class GzipDecoder implements Decoder {
+        private static final int TRAILER_LEN = 8;
+
+        private final int maxDecompressedSize;
+        private final Deque<ByteBuffer> pending = new ArrayDeque<ByteBuffer>();
+        private final byte[] buf = new byte[4096];
+        private int headerRemaining = GZIP_HEADER.length;
+        private Inflater inflater;
+        private long decompressedSize;
+        private boolean ended;
+
+        GzipDecoder(int maxDecompressedSize) {
+            this.maxDecompressedSize = maxDecompressedSize;
+        }
+
+        @Override
+        public void write(ByteBuffer data, boolean end) throws HttpContentCodingException {
+            if (ended) {
+                return;
+            }
+            if (data != null && data.hasRemaining()) {
+                skipHeader(data);
+                if (headerRemaining > 0) {
+                    if (end) {
+                        throw new HttpContentCodingException("truncated gzip body");
+                    }
+                    return;
+                }
+                if (inflater == null) {
+                    inflater = new Inflater(true);
+                }
+                byte[] in = new byte[data.remaining()];
+                data.get(in);
+                inflater.setInput(in);
+                inflateAvailable();
+            }
+            if (end) {
+                ended = true;
+                if (inflater == null || !inflater.finished()) {
+                    throw new HttpContentCodingException("truncated gzip body");
+                }
+                if (inflater.getRemaining() != TRAILER_LEN) {
+                    throw new HttpContentCodingException("truncated gzip body");
                 }
             }
-        } catch (DataFormatException e) {
-            throw new HttpContentCodingException("inflation failed", e);
         }
-        return out.toByteArray();
+
+        private void skipHeader(ByteBuffer data) {
+            while (headerRemaining > 0 && data.hasRemaining()) {
+                data.get();
+                headerRemaining--;
+            }
+        }
+
+        @Override
+        public ByteBuffer readDecoded() {
+            return pending.pollFirst();
+        }
+
+        @Override
+        public void close() {
+            if (inflater != null) {
+                inflater.end();
+            }
+        }
+
+        private void inflateAvailable() throws HttpContentCodingException {
+            try {
+                while (!inflater.needsInput()) {
+                    int n = inflater.inflate(buf);
+                    if (n == 0) {
+                        break;
+                    }
+                    decompressedSize += n;
+                    if (decompressedSize > maxDecompressedSize) {
+                        throw new HttpContentCodingException("decompressed body exceeds limit");
+                    }
+                    pending.addLast(ByteBuffer.wrap(buf, 0, n));
+                }
+            } catch (DataFormatException e) {
+                throw new HttpContentCodingException("inflation failed", e);
+            }
+        }
+    }
+
+    private static final class BrotliBodyDecoder implements Decoder {
+        private final Deque<ByteBuffer> pending = new ArrayDeque<ByteBuffer>();
+        private final int maxDecompressedSize;
+        private long decompressedSize;
+        private BrotliDecoder decoder;
+        private boolean closed;
+
+        BrotliBodyDecoder(int maxDecompressedSize) {
+            this.maxDecompressedSize = maxDecompressedSize;
+        }
+
+        @Override
+        public void write(ByteBuffer data, boolean end) throws HttpContentCodingException {
+            if (closed) {
+                return;
+            }
+            try {
+                if (decoder == null) {
+                    decoder = new BrotliDecoder();
+                    decoder.setHandler(new BrotliDefaultHandler() {
+                        @Override
+                        public void content(ByteBuffer chunk, boolean endOfStream) throws BrotliException {
+                            if (chunk != null && chunk.hasRemaining()) {
+                                int n = chunk.remaining();
+                                decompressedSize += n;
+                                if (decompressedSize > maxDecompressedSize) {
+                                    throw new BrotliException("decompressed body exceeds limit");
+                                }
+                                byte[] copy = new byte[n];
+                                chunk.get(copy);
+                                pending.addLast(ByteBuffer.wrap(copy));
+                            }
+                        }
+                    });
+                }
+                if (data != null && data.hasRemaining()) {
+                    decoder.receive(data);
+                }
+                if (end) {
+                    decoder.close();
+                    closed = true;
+                    decoder = null;
+                }
+            } catch (BrotliException e) {
+                throw new HttpContentCodingException("brotli decompression failed", e);
+            }
+        }
+
+        @Override
+        public ByteBuffer readDecoded() {
+            return pending.pollFirst();
+        }
+
+        @Override
+        public void close() {
+            if (!closed && decoder != null) {
+                try {
+                    decoder.close();
+                } catch (BrotliException ignored) {
+                    // best effort
+                }
+            }
+            closed = true;
+            decoder = null;
+        }
     }
 
     /**

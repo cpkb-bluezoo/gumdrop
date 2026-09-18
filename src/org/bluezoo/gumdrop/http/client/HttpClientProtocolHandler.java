@@ -53,6 +53,7 @@ import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.TimerHandle;
 import org.bluezoo.gumdrop.http.Header;
 import org.bluezoo.gumdrop.http.Headers;
+import org.bluezoo.gumdrop.http.HttpContentCoding;
 import org.bluezoo.gumdrop.http.HttpStatus;
 import org.bluezoo.gumdrop.http.HttpVersion;
 import org.bluezoo.gumdrop.http.h2.H2FlowControl;
@@ -127,6 +128,12 @@ public class HttpClientProtocolHandler
     private boolean h2cUpgradeInFlight;
     private HttpStream h2cUpgradeRequest;
     private boolean h2WithPriorKnowledge = false;
+
+    /** When true, add {@code Accept-Encoding: br, gzip, deflate} if absent. */
+    private boolean sendAcceptEncodingHeader = true;
+
+    /** When true, decode {@code Content-Encoding} on response bodies. */
+    private boolean decodeResponseContentCoding = true;
 
     // Active streams
     protected final Map<Integer, HttpStream> activeStreams = new ConcurrentHashMap<Integer, HttpStream>();
@@ -898,7 +905,51 @@ public class HttpClientProtocolHandler
     }
 
     @Override
+    public int sendRequestBodyEncoded(HttpStream request, ByteBuffer data, boolean end) {
+        int plainBytes = data != null ? data.remaining() : 0;
+        try {
+            HttpContentCoding.Encoder encoder = request.getOrCreateRequestContentEncoder();
+            if (encoder == null) {
+                return 0;
+            }
+            encoder.write(data, end);
+            flushRequestEncoded(request, encoder);
+            if (end) {
+                request.closeRequestContentEncoder();
+            }
+        } catch (HttpContentCoding.HttpContentCodingException e) {
+            HttpResponseHandler responseHandler = request.getHandler();
+            if (responseHandler != null) {
+                responseHandler.failed(new IOException(e.getMessage(), e));
+            }
+            return 0;
+        }
+        return plainBytes;
+    }
+
+    private void flushRequestEncoded(HttpStream request, HttpContentCoding.Encoder encoder)
+            throws HttpContentCoding.HttpContentCodingException {
+        ByteBuffer encoded;
+        while ((encoded = encoder.readEncoded()) != null) {
+            if (negotiatedVersion == HttpVersion.HTTP_2_0) {
+                sendHTTP2Data(request, encoded);
+            } else {
+                sendHTTP11Data(request, encoded);
+            }
+        }
+    }
+
+    @Override
     public void endRequestBody(HttpStream request) {
+        if (request.getRequestContentCoding() != null) {
+            sendRequestBodyEncoded(request, ByteBuffer.allocate(0), true);
+            if (negotiatedVersion == HttpVersion.HTTP_2_0) {
+                endHTTP2Data(request);
+            } else {
+                endHTTP11Data(request);
+            }
+            return;
+        }
         if (negotiatedVersion == HttpVersion.HTTP_2_0) {
             endHTTP2Data(request);
         } else {
@@ -984,6 +1035,8 @@ public class HttpClientProtocolHandler
                 sb.append("\r\n");
             }
         }
+
+        applyDefaultAcceptEncoding(request);
 
         Headers headers = request.getHeaders();
         for (Header header : headers) {
@@ -1141,6 +1194,7 @@ public class HttpClientProtocolHandler
     // :authority, :path) before regular headers;
     // RFC 9113 section 8.2.2: connection-specific headers MUST NOT appear
     private ByteBuffer encodeRequestHeaders(HttpStream request) throws IOException {
+        applyDefaultAcceptEncoding(request);
         List<Header> headerList = new ArrayList<Header>();
 
         // RFC 9113 section 8.3.1: required request pseudo-headers
@@ -1449,7 +1503,13 @@ public class HttpClientProtocolHandler
                         responseHandler.error(response);
                     }
 
+                    if (currentStream != null) {
+                        prepareInboundResponseDecoding(currentStream, responseHeaders);
+                    }
                     for (Header header : responseHeaders) {
+                        if (omitContentEncodingHeader(header.getName())) {
+                            continue;
+                        }
                         responseHandler.header(header.getName(), header.getValue());
                     }
                 }
@@ -1592,7 +1652,7 @@ public class HttpClientProtocolHandler
             bodyData.put(slice);
             bodyData.flip();
             try {
-                responseHandler.responseBodyContent(bodyData);
+                feedResponseBody(currentStream, bodyData);
             } finally {
                 ByteBufferPool.release(bodyData);
             }
@@ -1606,9 +1666,7 @@ public class HttpClientProtocolHandler
             if (discardingBody) {
                 completeBodyDiscard();
             } else {
-                if (responseHandler != null) {
-                    responseHandler.endResponseBody();
-                }
+                finishResponseBody(currentStream);
                 completeResponse();
             }
         }
@@ -1630,7 +1688,7 @@ public class HttpClientProtocolHandler
             bodyData.put(data);
             bodyData.flip();
             try {
-                responseHandler.responseBodyContent(bodyData);
+                feedResponseBody(currentStream, bodyData);
             } finally {
                 ByteBufferPool.release(bodyData);
             }
@@ -1689,7 +1747,7 @@ public class HttpClientProtocolHandler
                 bodyData.put(slice);
                 bodyData.flip();
                 try {
-                    responseHandler.responseBodyContent(bodyData);
+                    feedResponseBody(currentStream, bodyData);
                 } finally {
                     ByteBufferPool.release(bodyData);
                 }
@@ -1721,9 +1779,7 @@ public class HttpClientProtocolHandler
                 if (currentStream != null) {
                     responseHandler = currentStream.getHandler();
                 }
-                if (responseHandler != null) {
-                    responseHandler.endResponseBody();
-                }
+                finishResponseBody(currentStream);
                 completeResponse();
             }
             return;
@@ -1742,7 +1798,9 @@ public class HttpClientProtocolHandler
             if (colonPos > 0 && responseHandler != null) {
                 String name = line.substring(0, colonPos).trim();
                 String value = line.substring(colonPos + 1).trim();
-                responseHandler.header(name, value);
+                if (!omitContentEncodingHeader(name)) {
+                    responseHandler.header(name, value);
+                }
             }
         }
     }
@@ -2122,13 +2180,10 @@ public class HttpClientProtocolHandler
 
         int dataLength = data.remaining();
 
-        HttpResponseHandler responseHandler = stream.getHandler();
-        if (responseHandler != null) {
-            try {
-                responseHandler.responseBodyContent(data);
-            } catch (Exception e) {
-                LOGGER.log(Level.WARNING, "Error in response handler", e);
-            }
+        try {
+            feedResponseBody(stream, data);
+        } catch (Exception e) {
+            LOGGER.log(Level.WARNING, "Error in response handler", e);
         }
 
         // RFC 9113 section 6.9: receive-side flow control accounting;
@@ -2551,9 +2606,10 @@ public class HttpClientProtocolHandler
                         responseHandler.error(response);
                     }
 
+                    prepareInboundResponseDecoding(stream, headers);
                     for (Header header : headers) {
                         String name = header.getName();
-                        if (!name.startsWith(":")) {
+                        if (!name.startsWith(":") && !omitContentEncodingHeader(name)) {
                             responseHandler.header(name, header.getValue());
                         }
                     }
@@ -2590,10 +2646,10 @@ public class HttpClientProtocolHandler
         if (removed != null) {
             releasePendingData(removed);
         }
+        finishResponseBody(stream);
         HttpResponseHandler responseHandler = stream.getHandler();
         if (responseHandler != null) {
             try {
-                responseHandler.endResponseBody();
                 responseHandler.close();
             } catch (Exception e) {
                 LOGGER.log(Level.WARNING, "Error in response handler", e);
@@ -2601,6 +2657,87 @@ public class HttpClientProtocolHandler
         }
         drainPendingRequests();
         maybeCloseWhenIdle();
+    }
+
+    public void setSendAcceptEncodingHeader(boolean sendAcceptEncodingHeader) {
+        this.sendAcceptEncodingHeader = sendAcceptEncodingHeader;
+    }
+
+    public void setDecodeResponseContentCoding(boolean decodeResponseContentCoding) {
+        this.decodeResponseContentCoding = decodeResponseContentCoding;
+    }
+
+    private void applyDefaultAcceptEncoding(HttpStream request) {
+        if (!sendAcceptEncodingHeader) {
+            return;
+        }
+        Headers headers = request.getHeaders();
+        if (headers != null && !headers.containsName("Accept-Encoding")) {
+            headers.add("Accept-Encoding", "br, gzip, deflate");
+        }
+    }
+
+    private void prepareInboundResponseDecoding(HttpStream stream, Headers headers) {
+        if (!decodeResponseContentCoding || stream == null || headers == null) {
+            return;
+        }
+        HttpContentCoding.Coding coding = HttpContentCoding.parseContentEncoding(
+                headers.getValue("content-encoding"));
+        if (coding != null) {
+            stream.setInboundResponseDecoder(coding);
+        }
+    }
+
+    private boolean omitContentEncodingHeader(String name) {
+        return decodeResponseContentCoding
+                && name != null
+                && "content-encoding".equalsIgnoreCase(name);
+    }
+
+    private void feedResponseBody(HttpStream stream, ByteBuffer data) {
+        if (stream == null) {
+            return;
+        }
+        HttpResponseHandler responseHandler = stream.getHandler();
+        if (responseHandler == null) {
+            if (data != null) {
+                data.position(data.limit());
+            }
+            return;
+        }
+        if (!decodeResponseContentCoding || stream.getInboundResponseDecoder() == null) {
+            if (data != null && data.hasRemaining()) {
+                responseHandler.responseBodyContent(data);
+            }
+            return;
+        }
+        try {
+            stream.getInboundResponseDecoder().write(data, false);
+            stream.drainInboundResponseDecoded(responseHandler);
+        } catch (HttpContentCoding.HttpContentCodingException e) {
+            responseHandler.failed(new IOException(e.getMessage(), e));
+        }
+    }
+
+    private void finishResponseBody(HttpStream stream) {
+        if (stream == null) {
+            return;
+        }
+        HttpResponseHandler responseHandler = stream.getHandler();
+        if (responseHandler == null) {
+            return;
+        }
+        if (!decodeResponseContentCoding || stream.getInboundResponseDecoder() == null) {
+            responseHandler.endResponseBody();
+            return;
+        }
+        try {
+            stream.finishInboundResponseDecoded(responseHandler);
+        } catch (HttpContentCoding.HttpContentCodingException e) {
+            responseHandler.failed(new IOException(e.getMessage(), e));
+            return;
+        }
+        responseHandler.endResponseBody();
     }
 
     // RFC 9113 section 5.1.2: dispatch queued requests when capacity

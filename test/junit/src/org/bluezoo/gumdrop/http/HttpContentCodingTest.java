@@ -67,6 +67,29 @@ public class HttpContentCodingTest {
         assertArrayEquals(PAYLOAD, decoded);
     }
 
+    @Test
+    public void gzipIncrementalDecodeMatchesOneShot() throws Exception {
+        byte[] encoded = encodeFully(HttpContentCoding.Coding.GZIP, PAYLOAD);
+        HttpContentCoding.Decoder decoder = HttpContentCoding.createDecoder(
+                HttpContentCoding.Coding.GZIP, HttpContentCoding.DEFAULT_MAX_DECOMPRESSED_SIZE);
+        java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+        try {
+            int chunk = 37;
+            for (int off = 0; off < encoded.length; off += chunk) {
+                int len = Math.min(chunk, encoded.length - off);
+                boolean end = off + len >= encoded.length;
+                decoder.write(ByteBuffer.wrap(encoded, off, len), end);
+                ByteBuffer plain;
+                while ((plain = decoder.readDecoded()) != null) {
+                    out.write(plain.array(), plain.position(), plain.remaining());
+                }
+            }
+        } finally {
+            decoder.close();
+        }
+        assertArrayEquals(PAYLOAD, out.toByteArray());
+    }
+
     private static byte[] encodeFully(HttpContentCoding.Coding coding, byte[] payload)
             throws HttpContentCoding.HttpContentCodingException {
         HttpContentCoding.Encoder encoder = HttpContentCoding.createEncoder(coding);

@@ -54,6 +54,7 @@ import org.bluezoo.gumdrop.http.server.HttpRequestHandler;
 import org.bluezoo.gumdrop.http.server.HttpStreamHandler;
 import org.bluezoo.gumdrop.http.server.HttpResponseState;
 import org.bluezoo.gumdrop.http.server.HttpServerMetrics;
+import org.bluezoo.gumdrop.http.HttpContentCoding;
 import org.bluezoo.gumdrop.http.HttpUtils;
 import org.bluezoo.gumdrop.http.HttpVersion;
 import org.bluezoo.gumdrop.http.Header;
@@ -174,6 +175,13 @@ class H3Stream implements ProtocolHandler, H3FrameHandler, HttpResponseState {
     private int responseStatusCode;
     private long responseBodyBytes;
 
+    private HttpContentCoding.Encoder responseContentEncoder;
+    private boolean decodeRequestContentCoding;
+    private boolean encodeResponseContentCoding;
+    private HttpContentCoding.Coding requestInboundCoding;
+    private HttpContentCoding.Decoder requestContentDecoder;
+    private long requestDecodedBytesReceived;
+
     H3Stream(Http3ServerHandler connection, Encoder qpackEncoder, Decoder qpackDecoder) {
         this.connection = connection;
         this.qpackEncoder = qpackEncoder;
@@ -191,6 +199,10 @@ class H3Stream implements ProtocolHandler, H3FrameHandler, HttpResponseState {
         }
         applicationHandlerOpened = true;
         handler = streamHandler.openStream(this);
+        if (handler != null) {
+            decodeRequestContentCoding = handler.decodeRequestContentCoding();
+            encodeResponseContentCoding = handler.encodeResponseContentCoding();
+        }
     }
 
     HttpRequestHandler getHandler() {
@@ -392,6 +404,9 @@ class H3Stream implements ProtocolHandler, H3FrameHandler, HttpResponseState {
             }
 
             initTelemetrySpan();
+            if (!prepareRequestContentDecoding(headers)) {
+                return;
+            }
             handler.headers(this, headers);
         } else if (state == State.RECEIVING_BODY || state == State.HALF_CLOSED_REMOTE) {
             if (handler != null) {
@@ -419,7 +434,7 @@ class H3Stream implements ProtocolHandler, H3FrameHandler, HttpResponseState {
         }
         if (state == State.OPEN) {
             state = State.RECEIVING_BODY;
-            if (!bodyStarted && handler != null) {
+            if (requestInboundCoding == null && !bodyStarted && handler != null) {
                 bodyStarted = true;
                 handler.startRequestBody(this);
             }
@@ -428,6 +443,21 @@ class H3Stream implements ProtocolHandler, H3FrameHandler, HttpResponseState {
         if (contentLength >= 0 && bodyBytesReceived > contentLength) {
             // RFC 9114 section 4.1.2
             abortMessageError("DATA exceeds Content-Length");
+            return;
+        }
+        if (requestInboundCoding != null || requestContentDecoder != null) {
+            try {
+                ensureRequestContentDecoder();
+                if (data.hasRemaining()) {
+                    requestContentDecoder.write(data, false);
+                }
+                if (!drainDecodedRequestBody(false)) {
+                    return;
+                }
+            } catch (HttpContentCoding.HttpContentCodingException e) {
+                sendErrorResponse(400);
+                return;
+            }
             return;
         }
         if (handler != null) {
@@ -473,7 +503,11 @@ class H3Stream implements ProtocolHandler, H3FrameHandler, HttpResponseState {
             abortMessageError("Content-Length does not match DATA frame bytes");
             return;
         }
-        if (state == State.RECEIVING_BODY) {
+        if (requestInboundCoding != null) {
+            if (!drainDecodedRequestBody(true)) {
+                return;
+            }
+        } else if (state == State.RECEIVING_BODY) {
             if (handler != null) {
                 handler.endRequestBody(this);
             }
@@ -684,7 +718,11 @@ class H3Stream implements ProtocolHandler, H3FrameHandler, HttpResponseState {
             flushHeaders(false);
             responseBodyStarted = true;
         }
-        responseBodyBytes += data.remaining();
+        int len = data.remaining();
+        responseBodyBytes += len;
+        if ("HEAD".equals(method)) {
+            return;
+        }
         sendBody(data);
     }
 
@@ -698,6 +736,7 @@ class H3Stream implements ProtocolHandler, H3FrameHandler, HttpResponseState {
         if (!responseStarted) {
             flushHeaders(true);
         } else if (responseBodyStarted) {
+            finishResponseContentEncoder();
             endpoint.close();
         }
         state = State.CLOSED;
@@ -1248,6 +1287,18 @@ class H3Stream implements ProtocolHandler, H3FrameHandler, HttpResponseState {
             }
         }
 
+        if (shouldCompressResponse(fin)) {
+            String acceptEncoding = requestHeaders != null
+                    ? requestHeaders.getCombinedValue("Accept-Encoding") : null;
+            HttpContentCoding.Coding coding =
+                    HttpContentCoding.selectFromAcceptEncoding(acceptEncoding);
+            if (coding != null) {
+                responseContentEncoder = HttpContentCoding.createEncoder(coding);
+                pendingResponseHeaders.add(new Header("content-encoding", coding.token()));
+                removeHeaders(pendingResponseHeaders, "content-length");
+            }
+        }
+
         // Strip headers that are illegal in HTTP/3 (RFC 9114 section 4.2)
         HttpVersion.stripHttp1FramingHeaders(pendingResponseHeaders);
 
@@ -1289,6 +1340,23 @@ class H3Stream implements ProtocolHandler, H3FrameHandler, HttpResponseState {
     }
 
     private void sendBody(ByteBuffer data) {
+        if (responseContentEncoder != null) {
+            try {
+                responseContentEncoder.write(data, false);
+            } catch (HttpContentCoding.HttpContentCodingException e) {
+                abortMessageError("response Content-Encoding failed");
+                return;
+            }
+            ByteBuffer encoded;
+            while ((encoded = responseContentEncoder.readEncoded()) != null) {
+                sendBodyWire(encoded);
+            }
+            return;
+        }
+        sendBodyWire(data);
+    }
+
+    private void sendBodyWire(ByteBuffer data) {
         int length = data.remaining();
         byte[] bytes = new byte[length];
         data.get(bytes);
@@ -1305,6 +1373,120 @@ class H3Stream implements ProtocolHandler, H3FrameHandler, HttpResponseState {
             return;
         }
         emitBody(bytes);
+    }
+
+    private void finishResponseContentEncoder() {
+        if (responseContentEncoder == null) {
+            return;
+        }
+        try {
+            responseContentEncoder.write(ByteBuffer.allocate(0), true);
+            ByteBuffer encoded;
+            while ((encoded = responseContentEncoder.readEncoded()) != null) {
+                sendBodyWire(encoded);
+            }
+        } catch (HttpContentCoding.HttpContentCodingException e) {
+            abortMessageError("response Content-Encoding failed");
+        } finally {
+            responseContentEncoder.close();
+            responseContentEncoder = null;
+        }
+    }
+
+    private boolean shouldCompressResponse(boolean fin) {
+        if (responseContentEncoder != null || fin) {
+            return false;
+        }
+        if (pendingResponseHeaders == null) {
+            return false;
+        }
+        if (containsHeader(pendingResponseHeaders, "content-encoding")
+                || containsHeader(pendingResponseHeaders, "content-length")) {
+            return false;
+        }
+        if ("HEAD".equals(method) || responseStatusCode == 204 || responseStatusCode == 304) {
+            return false;
+        }
+        if (responseStatusCode < 200 || responseStatusCode >= 300) {
+            return false;
+        }
+        if (isWebSocketUpgraded()) {
+            return false;
+        }
+        if (!encodeResponseContentCoding || connection == null) {
+            return false;
+        }
+        return connection.getCompressResponses();
+    }
+
+    private boolean prepareRequestContentDecoding(Headers headers) {
+        if (!decodeRequestContentCoding || headers == null) {
+            return true;
+        }
+        String encoding = headers.getCombinedValue("Content-Encoding");
+        if (encoding == null || encoding.isEmpty()) {
+            return true;
+        }
+        HttpContentCoding.Coding coding = HttpContentCoding.parseContentEncoding(encoding);
+        if (coding == null) {
+            sendErrorResponse(415);
+            return false;
+        }
+        requestInboundCoding = coding;
+        headers.removeAll("Content-Encoding");
+        return true;
+    }
+
+    private void ensureRequestContentDecoder() throws HttpContentCoding.HttpContentCodingException {
+        if (requestContentDecoder != null || requestInboundCoding == null) {
+            return;
+        }
+        requestContentDecoder = HttpContentCoding.createDecoder(requestInboundCoding,
+                HttpContentCoding.DEFAULT_MAX_DECOMPRESSED_SIZE);
+        requestInboundCoding = null;
+    }
+
+    private boolean drainDecodedRequestBody(boolean finish) {
+        if (requestContentDecoder == null && requestInboundCoding == null) {
+            return true;
+        }
+        try {
+            ensureRequestContentDecoder();
+            if (finish) {
+                requestContentDecoder.write(ByteBuffer.allocate(0), true);
+            }
+            ByteBuffer decoded;
+            while ((decoded = requestContentDecoder.readDecoded()) != null) {
+                if (handler == null) {
+                    continue;
+                }
+                requestDecodedBytesReceived += decoded.remaining();
+                if (!bodyStarted) {
+                    bodyStarted = true;
+                    handler.startRequestBody(this);
+                }
+                handler.requestBodyContent(this, decoded);
+            }
+            if (finish) {
+                requestContentDecoder.close();
+                requestContentDecoder = null;
+                if (handler != null && bodyStarted) {
+                    handler.endRequestBody(this);
+                }
+            }
+        } catch (HttpContentCoding.HttpContentCodingException e) {
+            sendErrorResponse(400);
+            return false;
+        }
+        return true;
+    }
+
+    private static void removeHeaders(List<Header> headers, String name) {
+        for (int i = headers.size() - 1; i >= 0; i--) {
+            if (name.equalsIgnoreCase(headers.get(i).getName())) {
+                headers.remove(i);
+            }
+        }
     }
 
     boolean hasHeldBody() {
@@ -1324,7 +1506,7 @@ class H3Stream implements ProtocolHandler, H3FrameHandler, HttpResponseState {
         }
         byte[] bytes = heldBody.toByteArray();
         heldBody.reset();
-        emitBody(bytes);
+        sendBody(ByteBuffer.wrap(bytes));
     }
 
     private void emitBody(byte[] bytes) {

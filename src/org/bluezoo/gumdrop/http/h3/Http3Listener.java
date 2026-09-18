@@ -87,6 +87,12 @@ public class Http3Listener extends TcpListener
     private SelectorLoop selectorLoop;
     private boolean addSecurityHeaders = true;
 
+    /**
+     * Whether to compress response bodies when the handler opts in and the
+     * client sends {@code Accept-Encoding}. Default: true.
+     */
+    private boolean compressResponses = true;
+
     private Path certFile;
     private Path keyFile;
 
@@ -231,6 +237,18 @@ public class Http3Listener extends TcpListener
      */
     public boolean getAddSecurityHeaders() {
         return addSecurityHeaders;
+    }
+
+    /**
+     * Sets whether response body compression is allowed when handlers opt in.
+     * XML property: {@code compress-responses}
+     */
+    public void setCompressResponses(boolean compressResponses) {
+        this.compressResponses = compressResponses;
+    }
+
+    public boolean getCompressResponses() {
+        return compressResponses;
     }
 
     /**
@@ -413,7 +431,7 @@ public class Http3Listener extends TcpListener
     public void connectionAccepted(QuicConnection connection) {
         new Http3ServerHandler(connection, streamHandler,
                 authenticationProvider, metrics,
-                getTelemetryConfig(), addSecurityHeaders);
+                getTelemetryConfig(), addSecurityHeaders, compressResponses);
     }
 
     /**

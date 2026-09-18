@@ -51,6 +51,17 @@ interface HttpClientConnectionOps {
     int sendRequestBody(HttpStream request, ByteBuffer data);
 
     /**
+     * Compresses and sends request body data when {@code Content-Encoding}
+     * is set on the request.
+     *
+     * @param request the request
+     * @param data plaintext body data
+     * @param end true when finishing the compressed stream
+     * @return the number of plaintext bytes consumed
+     */
+    int sendRequestBodyEncoded(HttpStream request, ByteBuffer data, boolean end);
+
+    /**
      * Ends the request body.
      *
      * @param request the request

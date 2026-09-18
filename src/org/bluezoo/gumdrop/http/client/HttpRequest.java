@@ -96,6 +96,16 @@ public interface HttpRequest {
      */
     void header(String name, String value);
 
+    /**
+     * Requests {@code Content-Encoding} on the request body ({@code br},
+     * {@code gzip}, or {@code deflate}). Plaintext supplied via
+     * {@link #requestBodyContent} is compressed when {@link #endRequestBody()}
+     * is called.
+     *
+     * @param coding coding token, or {@code null} to send uncompressed
+     */
+    void requestContentCoding(String coding);
+
     // ─────────────────────────────────────────────────────────────────────────
     // HTTP/2 Priority (Optional)
     // ─────────────────────────────────────────────────────────────────────────

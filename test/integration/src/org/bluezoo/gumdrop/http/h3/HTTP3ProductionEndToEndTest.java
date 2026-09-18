@@ -201,7 +201,7 @@ public class HTTP3ProductionEndToEndTest {
                     new QuicEngine.ConnectionAcceptedHandler() {
                         @Override
                         public void connectionAccepted(QuicConnection connection) {
-                            new Http3ServerHandler(connection, streamHandler, null, null, null, false);
+                            new Http3ServerHandler(connection, streamHandler, null, null, null, false, false);
                         }
                     }, loop);
 
@@ -372,7 +372,7 @@ public class HTTP3ProductionEndToEndTest {
                     new QuicEngine.ConnectionAcceptedHandler() {
                         @Override
                         public void connectionAccepted(QuicConnection connection) {
-                            new Http3ServerHandler(connection, streamHandler, null, null, null, false);
+                            new Http3ServerHandler(connection, streamHandler, null, null, null, false, false);
                         }
                     }, loop);
 
@@ -576,7 +576,7 @@ public class HTTP3ProductionEndToEndTest {
                     new QuicEngine.ConnectionAcceptedHandler() {
                         @Override
                         public void connectionAccepted(QuicConnection connection) {
-                            new Http3ServerHandler(connection, streamHandler, null, null, null, false);
+                            new Http3ServerHandler(connection, streamHandler, null, null, null, false, false);
                         }
                     }, loop);
 
@@ -796,7 +796,7 @@ public class HTTP3ProductionEndToEndTest {
                         public void connectionAccepted(QuicConnection connection) {
                             serverHandlerRef.set(new Http3ServerHandler(
                                     connection, streamHandler,
-                                    null, null, null, false));
+                                    null, null, null, false, false));
                         }
                     }, loop);
 
@@ -936,7 +936,7 @@ public class HTTP3ProductionEndToEndTest {
                     new QuicEngine.ConnectionAcceptedHandler() {
                         @Override
                         public void connectionAccepted(QuicConnection connection) {
-                            new Http3ServerHandler(connection, streamHandler, null, null, null, false);
+                            new Http3ServerHandler(connection, streamHandler, null, null, null, false, false);
                         }
                     }, loop);
 
@@ -1192,7 +1192,7 @@ public class HTTP3ProductionEndToEndTest {
                             serverConnRef.set(connection);
                             serverHandlerRef.set(new Http3ServerHandler(
                                     connection, streamHandler,
-                                    null, null, null, false));
+                                    null, null, null, false, false));
                         }
                     }, loop);
 
@@ -1903,7 +1903,7 @@ public class HTTP3ProductionEndToEndTest {
                     new QuicEngine.ConnectionAcceptedHandler() {
                         @Override
                         public void connectionAccepted(QuicConnection connection) {
-                            new Http3ServerHandler(connection, streamHandler, null, null, null, false);
+                            new Http3ServerHandler(connection, streamHandler, null, null, null, false, false);
                         }
                     }, loop);
 
@@ -2010,7 +2010,7 @@ public class HTTP3ProductionEndToEndTest {
                     new QuicEngine.ConnectionAcceptedHandler() {
                         @Override
                         public void connectionAccepted(QuicConnection connection) {
-                            new Http3ServerHandler(connection, streamHandler, null, null, null, false);
+                            new Http3ServerHandler(connection, streamHandler, null, null, null, false, false);
                         }
                     }, loop);
 
@@ -2181,7 +2181,7 @@ public class HTTP3ProductionEndToEndTest {
                     new QuicEngine.ConnectionAcceptedHandler() {
                         @Override
                         public void connectionAccepted(QuicConnection connection) {
-                            new Http3ServerHandler(connection, streamHandler, null, null, null, false);
+                            new Http3ServerHandler(connection, streamHandler, null, null, null, false, false);
                         }
                     }, loop);
             int port = ((InetSocketAddress) serverEngine.getLocalAddress()).getPort();
@@ -2375,7 +2375,7 @@ public class HTTP3ProductionEndToEndTest {
                     new QuicEngine.ConnectionAcceptedHandler() {
                         @Override
                         public void connectionAccepted(QuicConnection connection) {
-                            new Http3ServerHandler(connection, streamHandler, null, null, null, false);
+                            new Http3ServerHandler(connection, streamHandler, null, null, null, false, false);
                         }
                     }, loop);
 

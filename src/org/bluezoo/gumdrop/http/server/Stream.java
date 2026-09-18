@@ -30,6 +30,7 @@ import org.bluezoo.gumdrop.http.HttpDateCache;
 import org.bluezoo.gumdrop.http.HttpUtils;
 import org.bluezoo.gumdrop.http.HttpVersion;
 
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.net.ProtocolException;
 import java.net.SocketAddress;
@@ -164,6 +165,12 @@ class Stream implements HttpResponseState {
     /** Non-null when the response body is compressed via {@code Content-Encoding}. */
     private HttpContentCoding.Encoder responseContentEncoder;
 
+    private boolean decodeRequestContentCoding;
+    private boolean encodeResponseContentCoding;
+    private HttpContentCoding.Coding requestInboundCoding;
+    private HttpContentCoding.Decoder requestContentDecoder;
+    private long requestDecodedBytesReceived;
+
     // ─────────────────────────────────────────────────────────────────────────
     // HttpResponseState implementation
     // ─────────────────────────────────────────────────────────────────────────
@@ -208,6 +215,10 @@ class Stream implements HttpResponseState {
         }
         applicationHandlerOpened = true;
         handler = streamHandler.openStream(this);
+        if (handler != null) {
+            decodeRequestContentCoding = handler.decodeRequestContentCoding();
+            encodeResponseContentCoding = handler.encodeResponseContentCoding();
+        }
     }
 
     /**
@@ -691,11 +702,16 @@ class Stream implements HttpResponseState {
                 // Body was in progress, this must be trailer headers
                 handlerBodyEnded = true;
                 handler.endRequestBody(this);
+            } else if (!handlerBodyStarted && !prepareRequestContentDecoding(headers)) {
+                return;
             }
             handler.headers(this, headers);
         } else {
             openApplicationHandler();
             if (handler != null) {
+                if (!prepareRequestContentDecoding(headers)) {
+                    return;
+                }
                 handler.headers(this, headers);
                 capsuleMode = Capsule.capsuleProtocolEnabled(headers);
             } else if (responseState == ResponseState.INITIAL) {
@@ -901,6 +917,31 @@ class Stream implements HttpResponseState {
 
         requestBodyBytesReceived += bytesToConsume;
 
+        if (requestInboundCoding != null || requestContentDecoder != null) {
+            try {
+                ensureRequestContentDecoder();
+                if (buf != null && buf.hasRemaining()) {
+                    requestContentDecoder.write(buf, false);
+                }
+                if (!drainDecodedRequestBody(false)) {
+                    buf.position(buf.limit());
+                    return;
+                }
+            } catch (HttpContentCoding.HttpContentCodingException e) {
+                buf.position(buf.limit());
+                try {
+                    sendError(400);
+                } catch (ProtocolException pe) {
+                    LOGGER.warning(MessageFormat.format(
+                            L10N.getString("warn.request_content_decoding_failed"),
+                            e.getMessage()));
+                }
+                return;
+            }
+            buf.position(buf.limit());
+            return;
+        }
+
         // Dispatch to handler if present
         if (handler != null) {
             if (!handlerBodyStarted) {
@@ -1023,6 +1064,10 @@ class Stream implements HttpResponseState {
                 // Body was started but not ended (no trailers)
                 handlerBodyEnded = true;
                 handler.endRequestBody(this);
+            } else if (requestInboundCoding != null || requestContentDecoder != null) {
+                if (!drainDecodedRequestBody(true)) {
+                    return;
+                }
             }
             // Handlers that fully answered from headers() (see
             // DefaultHttpRequestHandler) must not receive a second
@@ -1282,8 +1327,105 @@ class Stream implements HttpResponseState {
         if (!(connection instanceof HttpProtocolHandler)) {
             return false;
         }
+        if (!encodeResponseContentCoding) {
+            return false;
+        }
         Http2Listener listener = ((HttpProtocolHandler) connection).getListener();
         return listener != null && listener.getCompressResponses();
+    }
+
+    /**
+     * Parses {@code Content-Encoding} for inbound request bodies when the
+     * handler opts in to transparent decoding.
+     *
+     * @return false if a response was sent and dispatch must stop
+     */
+    private boolean prepareRequestContentDecoding(Headers headers) {
+        if (!decodeRequestContentCoding || headers == null) {
+            return true;
+        }
+        String encoding = headers.getCombinedValue("Content-Encoding");
+        if (encoding == null || encoding.isEmpty()) {
+            return true;
+        }
+        HttpContentCoding.Coding coding = HttpContentCoding.parseContentEncoding(encoding);
+        if (coding == null) {
+            try {
+                sendError(415);
+            } catch (ProtocolException e) {
+                LOGGER.warning(MessageFormat.format(
+                        L10N.getString("warn.unsupported_content_encoding"), encoding));
+            }
+            return false;
+        }
+        requestInboundCoding = coding;
+        headers.removeAll("Content-Encoding");
+        return true;
+    }
+
+    private void ensureRequestContentDecoder() throws HttpContentCoding.HttpContentCodingException {
+        if (requestContentDecoder != null || requestInboundCoding == null) {
+            return;
+        }
+        long maxBody = connection.getMaxRequestBodySize();
+        int maxDecoded = maxBody > 0 && maxBody <= Integer.MAX_VALUE
+                ? (int) maxBody : HttpContentCoding.DEFAULT_MAX_DECOMPRESSED_SIZE;
+        requestContentDecoder = HttpContentCoding.createDecoder(requestInboundCoding, maxDecoded);
+        requestInboundCoding = null;
+    }
+
+    /**
+     * Drains decoded request body bytes to the handler.
+     *
+     * @param finish true to finish the compressed stream
+     * @return false if an error response was sent
+     */
+    private boolean drainDecodedRequestBody(boolean finish) {
+        if (requestContentDecoder == null && requestInboundCoding == null) {
+            return true;
+        }
+        try {
+            ensureRequestContentDecoder();
+            if (finish) {
+                requestContentDecoder.write(ByteBuffer.allocate(0), true);
+            }
+            ByteBuffer decoded;
+            while ((decoded = requestContentDecoder.readDecoded()) != null) {
+                if (handler == null) {
+                    continue;
+                }
+                int n = decoded.remaining();
+                long maxBody = connection.getMaxRequestBodySize();
+                if (maxBody > 0 && requestDecodedBytesReceived + n > maxBody) {
+                    rejectRequestBodyTooLarge();
+                    return false;
+                }
+                requestDecodedBytesReceived += n;
+                if (!handlerBodyStarted) {
+                    handlerBodyStarted = true;
+                    handler.startRequestBody(this);
+                }
+                handler.requestBodyContent(this, decoded);
+            }
+            if (finish) {
+                requestContentDecoder.close();
+                requestContentDecoder = null;
+                if (handler != null && handlerBodyStarted && !handlerBodyEnded) {
+                    handlerBodyEnded = true;
+                    handler.endRequestBody(this);
+                }
+            }
+        } catch (HttpContentCoding.HttpContentCodingException e) {
+            try {
+                sendError(400);
+            } catch (ProtocolException pe) {
+                LOGGER.warning(MessageFormat.format(
+                        L10N.getString("warn.request_content_decoding_failed"),
+                        e.getMessage()));
+            }
+            return false;
+        }
+        return true;
     }
 
     /**
