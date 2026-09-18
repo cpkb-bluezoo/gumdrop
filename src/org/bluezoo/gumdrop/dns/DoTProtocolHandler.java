@@ -163,10 +163,8 @@ final class DoTProtocolHandler implements ProtocolHandler {
                 metrics.queryReceived(q.getType().name(), "dot");
             }
 
-            if (!query.isQuery()
-                    || query.getOpcode() != DnsMessage.OPCODE_QUERY) {
-                sendResponse(query.createErrorResponse(
-                        DnsMessage.RCODE_NOTIMP));
+            if (!DnsServer.isStandardQuery(query)) {
+                sendResponse(server.respondToNonQueryOpcode(query));
                 return;
             }
 

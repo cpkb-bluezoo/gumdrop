@@ -161,10 +161,8 @@ final class DoQStreamHandler implements ProtocolHandler {
                 metrics.queryReceived(q.getType().name(), "doq");
             }
 
-            if (!query.isQuery()
-                    || query.getOpcode() != DnsMessage.OPCODE_QUERY) {
-                sendResponseAndClose(query.createErrorResponse(
-                        DnsMessage.RCODE_NOTIMP));
+            if (!DnsServer.isStandardQuery(query)) {
+                sendResponseAndClose(server.respondToNonQueryOpcode(query));
                 return;
             }
 
