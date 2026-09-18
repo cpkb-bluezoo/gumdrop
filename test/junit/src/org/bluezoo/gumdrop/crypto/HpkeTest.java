@@ -124,9 +124,9 @@ public class HpkeTest {
         SecureRandom random = new SecureRandom();
         Hpke.RawKeyPair keys = Hpke.generateX25519KeyPair(random);
         byte[] info = new byte[] { 1, 2, 3 };
-        Hpke.SenderContext sender = hpke.setupBaseS(keys.publicKey, info, random);
+        Hpke.SenderContext sender = hpke.setupBaseS(keys.getPublicKey(), info, random);
         byte[] enc = sender.getEnc();
-        Hpke.RecipientContext recipient = hpke.setupBaseR(enc, keys.privateKey, keys.publicKey, info);
+        Hpke.RecipientContext recipient = hpke.setupBaseR(enc, keys.getPrivateKey(), keys.getPublicKey(), info);
         byte[] aad = "aad".getBytes(StandardCharsets.US_ASCII);
         byte[] plain = "hello ech".getBytes(StandardCharsets.US_ASCII);
         byte[] ciphertext = sender.seal(aad, plain);

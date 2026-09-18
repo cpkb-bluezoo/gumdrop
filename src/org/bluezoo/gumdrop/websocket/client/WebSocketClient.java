@@ -41,6 +41,7 @@ import org.bluezoo.gumdrop.TcpTransportFactory;
 import org.bluezoo.gumdrop.client.ClientConnect;
 import org.bluezoo.gumdrop.client.ClientDefaults;
 import org.bluezoo.gumdrop.dns.DnsMessage;
+import org.bluezoo.gumdrop.dns.HttpsRecordEch;
 import org.bluezoo.gumdrop.dns.DnsQueryCallback;
 import org.bluezoo.gumdrop.dns.DnsResourceRecord;
 import org.bluezoo.gumdrop.dns.DnsType;
@@ -56,7 +57,6 @@ import org.bluezoo.gumdrop.http.HttpClient;
 import org.bluezoo.gumdrop.http.client.HttpClientHandler;
 import org.bluezoo.gumdrop.http.client.HttpRequest;
 import org.bluezoo.gumdrop.http.client.HttpResponse;
-import org.bluezoo.gumdrop.tls.EchHttpsDiscovery;
 import org.bluezoo.gumdrop.tls.TlsConfig;
 import org.bluezoo.gumdrop.tls.ServerCredentials;
 import org.bluezoo.gumdrop.websocket.PerMessageDeflateExtension;
@@ -583,7 +583,7 @@ public class WebSocketClient implements AltSvcListener {
         resolver.queryHTTPS(host, new DnsQueryCallback() {
             @Override
             public void onResponse(DnsMessage response) {
-                byte[] echFromDns = EchHttpsDiscovery.firstEchConfigListFromHttpsAnswers(response.getAnswers());
+                byte[] echFromDns = HttpsRecordEch.firstEchConfigListFromAnswers(response.getAnswers());
                 if (echFromDns != null) {
                     dnsDiscoveredEchConfigList = echFromDns;
                 }

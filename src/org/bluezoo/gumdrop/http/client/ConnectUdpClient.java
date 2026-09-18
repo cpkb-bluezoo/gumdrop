@@ -35,6 +35,7 @@ import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.TcpTransportFactory;
 import org.bluezoo.gumdrop.dns.DnsMessage;
+import org.bluezoo.gumdrop.dns.HttpsRecordEch;
 import org.bluezoo.gumdrop.dns.DnsQueryCallback;
 import org.bluezoo.gumdrop.dns.DnsResourceRecord;
 import org.bluezoo.gumdrop.dns.DnsType;
@@ -45,7 +46,6 @@ import org.bluezoo.gumdrop.http.ConnectUdpTarget;
 import org.bluezoo.gumdrop.http.HttpClient;
 import org.bluezoo.gumdrop.http.HttpVersion;
 import org.bluezoo.gumdrop.client.ClientConnect;
-import org.bluezoo.gumdrop.tls.EchHttpsDiscovery;
 import org.bluezoo.gumdrop.tls.ServerCredentials;
 import org.bluezoo.gumdrop.tls.TlsConfig;
 import org.bluezoo.gumdrop.util.EmptyX509TrustManager;
@@ -451,7 +451,7 @@ public class ConnectUdpClient implements AltSvcListener {
         resolver.queryHTTPS(host, new DnsQueryCallback() {
             @Override
             public void onResponse(DnsMessage response) {
-                byte[] echFromDns = EchHttpsDiscovery.firstEchConfigListFromHttpsAnswers(response.getAnswers());
+                byte[] echFromDns = HttpsRecordEch.firstEchConfigListFromAnswers(response.getAnswers());
                 if (echFromDns != null) {
                     dnsDiscoveredEchConfigList = echFromDns;
                 }
