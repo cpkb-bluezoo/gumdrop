@@ -78,6 +78,6 @@
  * @see <a href="https://www.rfc-editor.org/rfc/rfc8441">RFC 8441 - WebSocket over HTTP/2</a>
  * @see <a href="https://www.rfc-editor.org/rfc/rfc9220">RFC 9220 - WebSocket over HTTP/3</a>
  * @see org.bluezoo.gumdrop.websocket.server.WebSocketRequestHandler
- * @see docs/COMPOSITION.md
+ * @see web/configuration.html
  */
 package org.bluezoo.gumdrop.websocket;

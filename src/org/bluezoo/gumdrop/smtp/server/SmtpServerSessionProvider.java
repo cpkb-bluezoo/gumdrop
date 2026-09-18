@@ -26,7 +26,7 @@ import org.bluezoo.gumdrop.ServerSessionProvider;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see ServerSessionProvider
- * @see docs/COMPOSITION.md
+ * @see web/configuration.html
  */
 public interface SmtpServerSessionProvider
         extends ServerSessionProvider<ClientConnected> {

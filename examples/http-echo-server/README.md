@@ -29,4 +29,4 @@ java -cp build/core:build/lib/* examples.http-echo-server.EchoServer cert.pem ke
 java -cp build/core:build/lib/* examples.http-echo-server.EchoServer --plaintext 8080
 ```
 
-See [docs/COMPOSITION.md](../../docs/COMPOSITION.md).
+See [web/configuration.html](../../web/configuration.html).

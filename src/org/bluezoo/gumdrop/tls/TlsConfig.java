@@ -54,7 +54,7 @@ import javax.net.ssl.X509TrustManager;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see Listener#tls(TlsConfig)
- * @see docs/COMPOSITION.md
+ * @see web/configuration.html
  */
 public final class TlsConfig {
 

@@ -44,7 +44,7 @@
  * {@link HelloHandler#tlsEstablished} and {@link HelloHandler#authenticated}.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see docs/COMPOSITION.md
+ * @see web/configuration.html
  * @see org.bluezoo.gumdrop.smtp
  * @see org.bluezoo.gumdrop.smtp.SmtpProtocolHandler
  * @see <a href="https://www.rfc-editor.org/rfc/rfc5321">RFC 5321</a> (SMTP)

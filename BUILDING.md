@@ -38,7 +38,7 @@ If you don't need the servlet container and want to develop pure async non-block
 
 Gumdrop 3 applications are assembled in Java — no configuration file to
 point at. Write a `main` that composes the servers you want (see
-[docs/COMPOSITION.md](docs/COMPOSITION.md) for the canonical patterns, and
+[web/configuration.html](web/configuration.html) for the canonical patterns, and
 `examples/*` for runnable ones), then run it with `gumdrop.jar` (plus any
 optional module jars it needs) on the classpath.
 

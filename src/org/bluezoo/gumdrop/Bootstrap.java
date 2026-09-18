@@ -54,7 +54,7 @@ import java.util.logging.Logger;
  * <p>This is specific to the servlet container use case — every other
  * protocol (SMTP, IMAP, DNS, …) is started via its own hand-written {@code
  * main()} composing servers directly in Java (see {@code
- * docs/COMPOSITION.md}), with no launcher or config file of its own.
+ * web/configuration.html}), with no launcher or config file of its own.
  *
  * <p>Two startup layouts are supported:</p>
  * <ul>

@@ -18,7 +18,7 @@ import org.bluezoo.gumdrop.dns.DnsQueryCallback;
  * <p>DNS is <strong>stateless</strong> at the application layer: each query is
  * handled independently. Compose {@link DnsServer} with a {@code DnsQueryHandler},
  * not {@link org.bluezoo.gumdrop.ServerSessionProvider}. Stateful protocols
- * (SMTP, FTP, …) use session providers instead — see {@code docs/COMPOSITION.md}.
+ * (SMTP, FTP, …) use session providers instead — see {@code web/configuration.html}.
  *
  * <p>The {@link DnsServer} protocol shell (listeners, validation, cookies,
  * MQTYPE merging) delegates to a handler after parsing each query. Stock

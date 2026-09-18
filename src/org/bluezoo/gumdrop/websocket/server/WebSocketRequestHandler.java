@@ -66,7 +66,7 @@ import java.util.logging.Logger;
  * }</pre>
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see docs/COMPOSITION.md
+ * @see web/configuration.html
  * @see <a href="https://tools.ietf.org/html/rfc6455">RFC 6455: The WebSocket Protocol</a>
  * @see <a href="https://www.rfc-editor.org/rfc/rfc8441">RFC 8441: Bootstrapping WebSockets with HTTP/2</a>
  * @see <a href="https://www.rfc-editor.org/rfc/rfc9220">RFC 9220: Bootstrapping WebSockets with HTTP/3</a>

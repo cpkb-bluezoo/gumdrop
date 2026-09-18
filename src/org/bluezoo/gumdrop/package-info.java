@@ -49,7 +49,7 @@
  * per protocol (e.g. {@code HttpServer.compose()}), an application {@code
  * main} constructing a {@link org.bluezoo.gumdrop.Gumdrop} instance via
  * {@link org.bluezoo.gumdrop.Gumdrop#boot()} and adding servers to it. See
- * {@code docs/COMPOSITION.md} for the canonical patterns.
+ * {@code web/configuration.html} for the canonical patterns.
  *
  * <h2>Subpackages</h2>
  *

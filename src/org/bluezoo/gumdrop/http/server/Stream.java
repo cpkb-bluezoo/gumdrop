@@ -1020,7 +1020,13 @@ class Stream implements HttpResponseState {
                 handlerBodyEnded = true;
                 handler.endRequestBody(this);
             }
-            handler.requestComplete(this);
+            // Handlers that fully answered from headers() (see
+            // DefaultHttpRequestHandler) must not receive a second
+            // requestComplete; neither must a stream whose response was
+            // already committed by an earlier streamEndRequest().
+            if (responseState != ResponseState.COMPLETE) {
+                handler.requestComplete(this);
+            }
         }
 
         if (closeAfterResponse) {

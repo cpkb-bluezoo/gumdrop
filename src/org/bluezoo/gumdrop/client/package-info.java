@@ -8,6 +8,6 @@
  *
  * @see org.bluezoo.gumdrop.client.ClientDial
  * @see org.bluezoo.gumdrop.tls.TlsConfig
- * @see docs/COMPOSITION.md
+ * @see web/configuration.html
  */
 package org.bluezoo.gumdrop.client;

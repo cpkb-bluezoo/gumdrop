@@ -27,7 +27,7 @@ package org.bluezoo.gumdrop;
  *
  * @deprecated as of Gumdrop 3.0; use {@link Server} instead. Protocol
  *             facades will be renamed {@code *Server} in subsequent taxonomy
- *             slices (see docs/NAMING-TAXONOMY.md).
+ *             slices (see CONTRIBUTING.md).
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 @Deprecated

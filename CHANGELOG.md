@@ -68,7 +68,7 @@ Planned as **3.0.0** (major bump: Java 25 baseline and in-tree TLS engine).
   reflective setter injection), the `GumdropConfigurator` SPI, and
   `Gumdrop.getInstance(File)` are gone, along with `Gumdrop.main()` itself.
   Applications compose servers in Java — see
-  [COMPOSITION.md](docs/COMPOSITION.md). The one exception is the stock
+  [web/configuration.html](web/configuration.html). The one exception is the stock
   servlet container distribution: its launcher
   (`Bootstrap`/`ContainerMain`) reads a new, minimal `server.xml` (contexts,
   realms, listeners only — not a `gumdroprc` replacement) — see

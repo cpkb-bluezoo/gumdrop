@@ -14,7 +14,7 @@ import org.bluezoo.gumdrop.ServerSessionProvider;
  * <p>Stock provider: {@link MailboxStorePop3SessionProvider}.
  *
  * @see ServerSessionProvider
- * @see docs/COMPOSITION.md
+ * @see web/configuration.html
  */
 public interface Pop3ServerSessionProvider
         extends ServerSessionProvider<ClientConnected> {

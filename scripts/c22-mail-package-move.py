@@ -162,7 +162,7 @@ package {pkg};
  * Protocol-root re-export of {{@link {target}}} (Gumdrop 3 §C.2 Option 2).
  *
  * @see {target}
- * @see docs/NAMING-TAXONOMY.md
+ * @see CONTRIBUTING.md
  */
 {decl} {{{body}}}
 """
@@ -201,7 +201,7 @@ import org.bluezoo.gumdrop.SelectorLoop;
  * Protocol-root re-export of {{@link {target}}} (Gumdrop 3 §C.2 Option 2).
  *
  * @see {target}
- * @see docs/NAMING-TAXONOMY.md
+ * @see CONTRIBUTING.md
  */
 public class {type_name} extends {target} {{
 

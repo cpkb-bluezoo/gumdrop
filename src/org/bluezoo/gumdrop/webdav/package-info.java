@@ -41,7 +41,7 @@
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see org.bluezoo.gumdrop.webdav.server.WebDAVRequestHandler
- * @see docs/COMPOSITION.md
+ * @see web/configuration.html
  * @see <a href="https://www.rfc-editor.org/rfc/rfc4918">RFC 4918</a>
  */
 package org.bluezoo.gumdrop.webdav;

@@ -47,7 +47,7 @@ import org.bluezoo.gumdrop.mailbox.MailboxFactory;
  *
  * <p>Stateless protocols (HTTP, DNS) do not use {@link
  * org.bluezoo.gumdrop.ServerSessionProvider}; they compose with request or
- * query handlers instead — see {@code docs/COMPOSITION.md}.
+ * query handlers instead — see {@code web/configuration.html}.
  *
  * <p>New applications should use {@link #compose()} rather than subclassing
  * {@code SmtpServer} or configuring XML services.

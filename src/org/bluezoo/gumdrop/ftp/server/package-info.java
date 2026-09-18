@@ -23,6 +23,6 @@
  * via {@link LegacyConnectionHandlerAdapter}.
  *
  * @see FtpServerSessionProvider
- * @see docs/COMPOSITION.md
+ * @see web/configuration.html
  */
 package org.bluezoo.gumdrop.ftp.server;

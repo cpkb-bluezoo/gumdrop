@@ -543,8 +543,8 @@ any error conditions ensure that they are logged into the trace.
 ## Gumdrop 3 naming conventions
 
 Gumdrop 3 renames public types for **role clarity** and **consistent camelCase
-acronyms** (hopf precedent). Full migration tables and slice order live in
-[docs/NAMING-TAXONOMY.md](docs/NAMING-TAXONOMY.md).
+acronyms** (hopf precedent). Remaining legacy public types and their targets
+are listed in `test/junit/resources/gumdrop3-legacy-type-renames.properties`.
 
 **New public types** in `src/org/bluezoo/gumdrop` must follow these rules:
 

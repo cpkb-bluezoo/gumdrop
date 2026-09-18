@@ -34,7 +34,7 @@ import org.bluezoo.gumdrop.servlet.ServletHandler;
  * }</pre>
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see docs/COMPOSITION.md
+ * @see web/configuration.html
  */
 public final class ServletRequestHandler
         implements HttpStreamHandler, HttpServerServiceHook {

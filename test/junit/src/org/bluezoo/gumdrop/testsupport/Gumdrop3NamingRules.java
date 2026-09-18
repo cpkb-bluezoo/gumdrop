@@ -10,7 +10,7 @@ package org.bluezoo.gumdrop.testsupport;
 /**
  * Helpers for Gumdrop 3 public type naming (workstream C.1).
  *
- * @see docs/NAMING-TAXONOMY.md
+ * @see CONTRIBUTING.md
  */
 public final class Gumdrop3NamingRules {
 

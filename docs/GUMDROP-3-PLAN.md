@@ -29,7 +29,7 @@ Design goals:
   symmetric for listen and dial paths.
 - **Composition over reflection** — explicit builder/composition APIs in Java;
   **no `gumdroprc` XML** in Gumdrop 3.0, removed entirely in C.5
-  (see [COMPOSITION.md](COMPOSITION.md)).
+  (see [web/configuration.html](../web/configuration.html)).
 - **Explicit runtime** — no process-wide singleton; a `Runtime` (name TBD)
   owns reactor loops, timers, executors, and listener registration.
 
@@ -170,7 +170,7 @@ Should `HttpServer` / `HttpClient` live at:
 
 **Decision (2026-09-13): Option 2** — main entry types re-exported at the
 protocol root; implementation detail in `server/` / `client/` subpackages.
-See [NAMING-TAXONOMY.md](NAMING-TAXONOMY.md).
+See [CONTRIBUTING.md](../CONTRIBUTING.md#gumdrop-3-naming-conventions).
 
 **C.2.1 (HTTP facades, done):** `HttpServer` and `HttpClient` live at the
 protocol root (canonical implementations). Handler interfaces must **not**
@@ -240,11 +240,11 @@ as the **primary implementer API**.
    `WebSocketListener`/`Http3WebSocketListener` transport listeners) deleted.
 3. Public `HttpRequestHandlerFactory` removed; routing lives in handler or a
    small composed router object.
-4. Examples and `web/` docs updated to [COMPOSITION.md](COMPOSITION.md).
+4. Examples and `web/` docs updated to [web/configuration.html](../web/configuration.html).
 5. `TlsConfig`/`ClientTlsConfig` unified into one material-only `TlsConfig`.
 6. WebDAV spelling (`Webdav` → `WebDAV`) fixed.
 
-See [COMPOSITION.md](COMPOSITION.md) for canonical patterns.
+See [web/configuration.html](../web/configuration.html) for canonical patterns.
 
 ### C.4 Runtime replaces `Gumdrop.getInstance()`
 
@@ -302,7 +302,7 @@ composition first (see below), then the XML fixtures
 (`test/integration/config/*.xml`, `etc/gumdroprc.*`, `conf/gumdroprc.xml.example`)
 were deleted. `Gumdrop.main()` itself is gone too — the general framework
 has no entry point of its own; applications write their own `main` (see
-`docs/COMPOSITION.md`).
+`web/configuration.html`).
 
 The one exception is the stock servlet container distribution: its
 `Bootstrap` launcher now reflectively invokes
@@ -327,7 +327,7 @@ reflection, scoped to the servlet container use case only) — see
 **Replace with:**
 
 - **Java composition** — explicit `Runtime`, listeners, handlers (see
-  [COMPOSITION.md](COMPOSITION.md))
+  [web/configuration.html](../web/configuration.html))
 - **Builder APIs** per protocol (`HttpServer.compose()`, `SmtpClient.builder()`, …)
 - **`main` or test harness** wiring for complex stacks (mailbox + SMTP, etc.)
   as hopf documents
@@ -512,7 +512,7 @@ consistent” public API:
 - [ ] Add **P2P / mesh** guide: one `Runtime`, two endpoints, same handler
   patterns — target audience for “new protocol in Gumdrop”.
 - [ ] Pair examples: `examples/*-server` and `examples/*-client` for each
-  major protocol; **Java composition** entry points (see [COMPOSITION.md](COMPOSITION.md)).
+  major protocol; **Java composition** entry points (see [web/configuration.html](../web/configuration.html)).
 - [ ] **FRAMEWORK-COMPARISON.md** — update hopf ↔ gumdrop mapping as 3.0
   lands.
 
@@ -543,7 +543,7 @@ consistent” public API:
 
 ### Configuration
 
-- [x] **Drop `gumdroprc` from 3.0 documentation** — [COMPOSITION.md](COMPOSITION.md)
+- [x] **Drop `gumdroprc` from 3.0 documentation** — [web/configuration.html](../web/configuration.html)
   and [web/configuration.html](../web/configuration.html) are composition-first.
 - [x] Remove `ComponentRegistry` / `ConfigurationParser` from runtime startup path (§C.5, done).
 - [x] Migrate `examples/*` and remaining `web/*.html` XML snippets to composition (§C.5, done — `examples/*` had none; `web/*.html` updated).
@@ -564,9 +564,9 @@ consistent” public API:
 - [ ] TLS stack production-ready (workstream A).
 - [ ] Introduce `Runtime` parallel to singleton (both work briefly).
 - [x] Define naming convention RFC (camelCase acronyms) in CONTRIBUTING +
-  [NAMING-TAXONOMY.md](NAMING-TAXONOMY.md); guard test
+  [CONTRIBUTING.md](../CONTRIBUTING.md#gumdrop-3-naming-conventions); guard test
   (`Gumdrop3NamingConventionTest`).
-- [ ] Introduce `HttpServer.compose()` + handler composition ([COMPOSITION.md](COMPOSITION.md)).
+- [ ] Introduce `HttpServer.compose()` + handler composition ([web/configuration.html](../web/configuration.html)).
 - [ ] Extract **jprotobuf** codec jar; fix grpc/telemetry dependency direction (§E.1).
 
 ### Phase 2 — Servlet + modular container (3.0 beta)
@@ -578,7 +578,7 @@ consistent” public API:
 ### Phase 3 — Role-agnostic migration (3.0 RC)
 
 - [ ] Rename `*Service` → `*Server` (application tier) — see
-  [NAMING-TAXONOMY.md](NAMING-TAXONOMY.md) slices C.1.1–C.1.6.
+  [CONTRIBUTING.md](../CONTRIBUTING.md#gumdrop-3-naming-conventions) slices C.1.1–C.1.6.
 - [ ] Protocol package moves (`server/`, `client/`).
 - [ ] Mass type renames (`HttpServer`, `AmqpClient`, …).
 - [x] Handler-first HTTP: `ServletRequestHandler`, `WebDAVRequestHandler`,
@@ -602,7 +602,7 @@ consistent” public API:
 3. **3.0 breaking change budget** — single rename flag day vs phased deprecations
    across 3.0 alphas?
 4. ~~**`gumdroprc` in 3.0**~~ — **Resolved: removed.** Java composition only;
-   see [COMPOSITION.md](COMPOSITION.md). No parallel XML tracking during C.3.
+   see [web/configuration.html](../web/configuration.html). No parallel XML tracking during C.3.
 5. ~~**WebDAV naming** — converge public API on **WebDAV** (tradename); rename
    interim `Webdav*` types when handler migration lands.~~ **Resolved:**
    `WebdavLock`/`WebdavLockManager`/`WebdavRequestParser` renamed to

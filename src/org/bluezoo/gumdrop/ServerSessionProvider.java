@@ -29,7 +29,7 @@ package org.bluezoo.gumdrop;
  * @param <S> the session pipeline entry type for one accepted connection
  *            (often the first staged server handler interface)
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see docs/COMPOSITION.md
+ * @see web/configuration.html
  */
 public interface ServerSessionProvider<S> {
 

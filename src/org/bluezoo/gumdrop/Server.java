@@ -48,11 +48,11 @@ import java.util.List;
  * compose application logic via {@link ServerSessionProvider}. Stateless
  * servers ({@link org.bluezoo.gumdrop.http.HttpServer},
  * {@link org.bluezoo.gumdrop.dns.server.DnsServer}) compose request or query
- * handlers instead — see {@code docs/COMPOSITION.md}.
+ * handlers instead — see {@code web/configuration.html}.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see ServerSessionProvider
- * @see docs/COMPOSITION.md
+ * @see web/configuration.html
  * @see Service
  */
 public interface Server {

@@ -38,7 +38,7 @@ import org.bluezoo.gumdrop.GumdropConfig;
  * ("Container already set")} for any context built with the {@link
  * Context#Context(Container, String, File)} constructor -- the
  * documented, composition-first way to add a context (see
- * docs/COMPOSITION.md) -- since that constructor already assigns the
+ * web/configuration.html) -- since that constructor already assigns the
  * container directly. Only the older no-arg-constructor-plus-external-setter
  * wiring path (XML DI) was actually exercised by {@code start()} before
  * this fix.

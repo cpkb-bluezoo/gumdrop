@@ -25,7 +25,7 @@ import org.bluezoo.gumdrop.dns.client.DnsResolver;
  * defaults land).
  *
  * @see org.bluezoo.gumdrop.tls.TlsConfig
- * @see docs/COMPOSITION.md
+ * @see web/configuration.html
  */
 public final class ClientDial {
 

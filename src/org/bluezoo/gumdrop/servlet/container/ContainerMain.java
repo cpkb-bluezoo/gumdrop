@@ -49,7 +49,7 @@ import org.bluezoo.gumdrop.http.HttpServer;
  *
  * <p>Anything more elaborate than "one server.xml, one JVM" — multiple
  * independently-configured containers, non-servlet protocols alongside it,
- * programmatic webapp discovery — is exactly what {@code docs/COMPOSITION.md}
+ * programmatic webapp discovery — is exactly what {@code web/configuration.html}
  * covers: write your own {@code main()} using {@link ServerXmlLoader} (or
  * skip it and compose {@link org.bluezoo.gumdrop.servlet.Container} /
  * {@link org.bluezoo.gumdrop.servlet.server.ServletRequestHandler} directly)

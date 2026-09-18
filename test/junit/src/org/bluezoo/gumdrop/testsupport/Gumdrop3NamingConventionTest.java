@@ -37,7 +37,7 @@ import static org.junit.Assert.fail;
  * {@code src/org/bluezoo/gumdrop} must be listed in
  * {@code gumdrop3-legacy-type-renames.properties} until it is renamed.
  *
- * @see docs/NAMING-TAXONOMY.md
+ * @see CONTRIBUTING.md
  */
 public class Gumdrop3NamingConventionTest {
 
@@ -73,7 +73,7 @@ public class Gumdrop3NamingConventionTest {
         }
         if (!undocumented.isEmpty()) {
             fail("Legacy public types missing from " + INVENTORY + " — add LegacyName=TargetName "
-                    + "lines (see docs/NAMING-TAXONOMY.md): " + undocumented);
+                    + "lines (see CONTRIBUTING.md): " + undocumented);
         }
 
         List<String> stale = new ArrayList<String>();

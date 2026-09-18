@@ -61,7 +61,7 @@ For a pure async microservice without servlets:
 
 **Total:** Single 5.2 MB JAR. No external runtime dependencies.
 
-**Startup:** `java -cp gumdrop.jar:... com.example.MyMain`, a compiled `main` that composes servers in Java (see [COMPOSITION.md](COMPOSITION.md)). Fast startup — no reflection-heavy DI/config parsing at all.
+**Startup:** `java -cp gumdrop.jar:... com.example.MyMain`, a compiled `main` that composes servers in Java (see [web/configuration.html](../web/configuration.html)). Fast startup — no reflection-heavy DI/config parsing at all.
 
 ### Gumdrop Measurements (from this repo)
 

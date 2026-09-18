@@ -62,7 +62,7 @@ import java.nio.file.StandardOpenOption;
  * org.bluezoo.gumdrop.Bootstrap}) can deploy webapps without a hand-written
  * {@code main()} — every other protocol, and any more elaborate servlet
  * deployment, still composes directly in Java (see {@code
- * docs/COMPOSITION.md}).
+ * web/configuration.html}).
  *
  * <h2>Format</h2>
  * <pre>{@code

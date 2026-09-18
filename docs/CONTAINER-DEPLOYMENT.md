@@ -2,7 +2,7 @@
 
 > **Gumdrop 3:** the general framework has no config file — new deployments
 > compose servers in **Java**, not `gumdroprc` XML. See
-> [COMPOSITION.md](COMPOSITION.md) and
+> [web/configuration.html](../web/configuration.html) and
 > [web/configuration.html](../web/configuration.html).
 >
 > The **stock servlet container distribution** (the one this Docker image
@@ -42,7 +42,7 @@ extraction), which launches
 [`Bootstrap`](../src/org/bluezoo/gumdrop/Bootstrap.java) →
 [`ContainerMain`](../src/org/bluezoo/gumdrop/servlet/container/ContainerMain.java),
 reading `conf/server.xml`. To run your own composed `main` instead (see
-[COMPOSITION.md](COMPOSITION.md)) in a container, replace the `ENTRYPOINT` —
+[web/configuration.html](../web/configuration.html)) in a container, replace the `ENTRYPOINT` —
 that path still has no configuration file and reads any environment
 variables it needs directly.
 
@@ -52,7 +52,7 @@ variables it needs directly.
 
 The **general framework** has no configuration file or file-based env-var
 interpolation — compose servers in Java (see
-[COMPOSITION.md](COMPOSITION.md)) and read `System.getenv(...)` directly in
+[web/configuration.html](../web/configuration.html)) and read `System.getenv(...)` directly in
 your `main` for anything that needs to vary per environment (ports, keystore
 passwords, etc.).
 
@@ -89,7 +89,7 @@ argument, the `GUMDROP_CONFIG` environment variable, then
 `$GUMDROP_HOME/conf/server.xml`, then `./conf/server.xml`. Anything more
 elaborate than "one `server.xml`, one JVM" — multiple independently
 configured containers, non-servlet protocols alongside it, programmatic
-webapp discovery — is exactly what [COMPOSITION.md](COMPOSITION.md) covers:
+webapp discovery — is exactly what [web/configuration.html](../web/configuration.html) covers:
 write your own `main` using `ServerXmlLoader` directly, or compose
 `Container`/`ServletRequestHandler` yourself.
 

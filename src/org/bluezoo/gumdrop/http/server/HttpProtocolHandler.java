@@ -344,6 +344,14 @@ public  class HttpProtocolHandler
     private final Set<Integer> activeStreams = new HashSet<Integer>();
 
     private boolean h2cUpgradePending;
+    /**
+     * Set when a bodyless h2c upgrade ({@link #completeH2cUpgrade()}) is
+     * committed before {@link Stream#streamEndRequest()} ran, so the
+     * upgrading stream still needs {@link HttpRequestHandler#requestComplete}.
+     * Cleared when that completion is delivered at the HTTP/2 SETTINGS
+     * handshake. Must not run for native h2 (ALPN / prior knowledge).
+     */
+    private boolean h2cBodylessUpgradeNeedsRequestComplete;
     private long lastStreamCleanup = 0L;
     private int webSocketStreamId = -1;
 
@@ -2039,6 +2047,7 @@ public  class HttpProtocolHandler
             long contentLength = stream.getContentLength();
             boolean chunked = stream.isChunked();
             if (contentLength == 0L && !chunked) {
+                h2cBodylessUpgradeNeedsRequestComplete = true;
                 completeH2cUpgrade();
                 return;
             } else {
@@ -2192,14 +2201,16 @@ public  class HttpProtocolHandler
         h2Parser.setMaxFrameSize(maxFrameSize);
         h2Writer = new H2Writer(new EndpointChannel());
         h2FlowControl = new H2FlowControl();
+        // Prior-knowledge cleartext parses "PRI * HTTP/2.0" as an HTTP/1
+        // request line (placeholder stream). It is not a real request and
+        // must not be reused when the client's first HTTP/2 stream opens.
+        int priorKnowledgePlaceholderId = clientStreamId;
+        streams.remove(priorKnowledgePlaceholderId);
+        activeStreams.remove(priorKnowledgePlaceholderId);
         // Over cleartext, streams may already have been created before
-        // h2FlowControl existed: the "PRI * HTTP/2.0" preface line is parsed
-        // as a request (creating a placeholder stream 1) for prior-knowledge,
-        // and the upgraded request occupies stream 1 for h2c upgrade. Because
-        // getStream() only registers flow control when h2FlowControl is
-        // non-null, those streams would otherwise have no send window and any
-        // response DATA would be queued forever (RFC 9113 section 5.2).
-        // Back-fill their flow-control state now that the tracker exists.
+        // h2FlowControl existed (h2c upgrade keeps the upgrading request on
+        // stream 1). getStream() only registers flow control when
+        // h2FlowControl is non-null; back-fill any survivors now.
         for (Integer existingStreamId : streams.keySet()) {
             h2FlowControl.openStream(existingStreamId.intValue());
         }
@@ -2898,9 +2909,12 @@ public  class HttpProtocolHandler
             state = State.HTTP2;
             // RFC 9113 section 6.7: start PING keep-alive if configured
             startPingKeepAlive();
-            Stream h2cStream = getStream(1);
-            if (h2cStream != null) {
-                h2cStream.streamEndRequest();
+            if (h2cBodylessUpgradeNeedsRequestComplete) {
+                h2cBodylessUpgradeNeedsRequestComplete = false;
+                Stream h2cStream = getStream(1);
+                if (h2cStream != null) {
+                    h2cStream.streamEndRequest();
+                }
             }
             return;
         }
