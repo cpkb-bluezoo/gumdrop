@@ -46,6 +46,11 @@
  * org.bluezoo.gumdrop.http.server.HttpResponseState#sendInformational}, across
  * all three HTTP versions.
  *
+ * <p>Origin-server caching semantics (validators, conditional GET,
+ * {@code 304 Not Modified}) follow RFC 9110 section 13 and RFC 9111;
+ * see {@link HttpConditionalRequests} and {@link
+ * org.bluezoo.gumdrop.servlet.DefaultServlet}.
+ *
  * <h2>Subpackages</h2>
  *
  * <ul>
