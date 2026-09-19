@@ -341,6 +341,27 @@ public final class ContentTypeParser {
 	}
 
 	/**
+	 * Concatenates plain (non-extended) RFC 2231 continuation segments,
+	 * unescaping quoted segments, and decodes the result.
+	 */
+	private static String joinPlainContinuations(ByteBuffer buf, TreeMap<Integer, int[]> parts, CharsetDecoder decoder) {
+		ByteArrayOutputStream joined = new ByteArrayOutputStream();
+		for (int[] range : parts.values()) {
+			byte[] segment;
+			if (range[2] == 1 && range[1] - range[0] >= 2) {
+				segment = unescapeQuotedValue(buf, range[0] + 1, range[1] - 1);
+			} else {
+				segment = new byte[range[1] - range[0]];
+				for (int i = 0; i < segment.length; i++) {
+					segment[i] = buf.get(range[0] + i);
+				}
+			}
+			joined.write(segment, 0, segment.length);
+		}
+		return MimeParser.decodeSlice(ByteBuffer.wrap(joined.toByteArray()), decoder);
+	}
+
+	/**
 	 * Processes raw parameter slices from ByteBuffer using Rfc2231Decoder and Rfc2047Decoder
 	 * (ByteBuffer-in). Merges name*0/name*1 continuations into one ByteBuffer before decode.
 	 */
@@ -356,6 +377,10 @@ public final class ContentTypeParser {
 			int starIdx = name.indexOf('*');
 			if (starIdx >= 0 && starIdx < name.length() - 1) {
 				String after = name.substring(starIdx + 1);
+				// RFC 2231 section 4.1: "name*0*" marks an extended continuation segment
+				if (after.endsWith("*")) {
+					after = after.substring(0, after.length() - 1);
+				}
 				if (isAllDigits(after)) {
 					String baseName = name.substring(0, starIdx);
 					int index = Integer.parseInt(after);
@@ -364,7 +389,7 @@ public final class ContentTypeParser {
 						ranges = new TreeMap<>();
 						continuationRanges.put(baseName, ranges);
 					}
-					ranges.put(index, new int[] { r.valueStart, r.valueEnd });
+					ranges.put(index, new int[] { r.valueStart, r.valueEnd, r.quoted ? 1 : 0 });
 					continue;
 				}
 			}
@@ -401,6 +426,11 @@ public final class ContentTypeParser {
 			}
 			ByteBuffer combinedBuf = ByteBuffer.wrap(combined);
 			String decoded = Rfc2231Decoder.decodeParameterValue(combinedBuf, decoder);
+			if (decoded == null) {
+				// RFC 2231 section 3: continuations without a charset are
+				// plain segments to be concatenated in index order.
+				decoded = joinPlainContinuations(buf, parts, decoder);
+			}
 			if (decoded != null) {
 				rfc2231Decoded.put(baseName, decoded);
 			}
@@ -444,6 +474,10 @@ public final class ContentTypeParser {
 		}
 		if (starIdx >= 0 && starIdx < name.length() - 1) {
 			String after = name.substring(starIdx + 1);
+				// RFC 2231 section 4.1: "name*0*" marks an extended continuation segment
+				if (after.endsWith("*")) {
+					after = after.substring(0, after.length() - 1);
+				}
 			if (isAllDigits(after)) {
 				return name.substring(0, starIdx);
 			}
@@ -464,6 +498,10 @@ public final class ContentTypeParser {
 			int starIdx = name.indexOf('*');
 			if (starIdx >= 0 && starIdx < name.length() - 1) {
 				String after = name.substring(starIdx + 1);
+				// RFC 2231 section 4.1: "name*0*" marks an extended continuation segment
+				if (after.endsWith("*")) {
+					after = after.substring(0, after.length() - 1);
+				}
 				if (isAllDigits(after)) {
 					String baseName = name.substring(0, starIdx);
 					int index = Integer.parseInt(after);
@@ -492,6 +530,15 @@ public final class ContentTypeParser {
 			TreeMap<Integer, String> parts = e.getValue();
 			String firstValue = parts.get(parts.firstKey());
 			int quote2 = firstValue.indexOf("''");
+			if (quote2 < 0) {
+				// RFC 2231 section 3: plain continuations are concatenated
+				StringBuilder plain = new StringBuilder();
+				for (String part : parts.values()) {
+					plain.append(part);
+				}
+				rfc2231Decoded.put(baseName, Rfc2047Decoder.decodeEncodedWords(plain.toString()));
+				continue;
+			}
 			StringBuilder encodedParts = new StringBuilder();
 			for (Integer idx : parts.keySet()) {
 				String part = parts.get(idx);
