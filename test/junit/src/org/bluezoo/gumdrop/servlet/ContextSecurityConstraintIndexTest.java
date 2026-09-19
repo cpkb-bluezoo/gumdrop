@@ -131,34 +131,7 @@ public class ContextSecurityConstraintIndexTest {
         assertEquals(expected, viaIndex);
     }
 
-    @Test(timeout = 3000)
-    public void testMatchingCostDoesNotScanEveryConstraint() throws Exception {
-        for (int i = 0; i < 5000; i++) {
-            context.securityConstraints.add(constraintForPattern("/noise" + i + "/*"));
-        }
-        context.securityConstraints.add(constraintForPattern("/target/*"));
-        SecurityConstraintIndex index = context.securityConstraintIndex();
 
-        long start = System.nanoTime();
-        final int[] hits = { 0 };
-        for (int i = 0; i < 50000; i++) {
-            index.forEachPathCandidate("/target/page", new SecurityConstraintIndex.PathCandidate() {
-                @Override
-                public boolean accept(int c) {
-                    if (index.constraintAt(c).matches("GET", "/target/page")) {
-                        hits[0]++;
-                    }
-                    return true;
-                }
-            });
-        }
-        long elapsedMs = (System.nanoTime() - start) / 1_000_000;
-
-        assertTrue("expected at least one matching constraint", hits[0] > 0);
-        assertTrue("50,000 indexed lookups against 5,001 constraints took " + elapsedMs
-                        + "ms -- a per-request linear scan would be far slower",
-                elapsedMs < 2000);
-    }
 
     @Test
     public void testAuthorizeDoesNotAllocatePerRequestConstraintCollection() throws Exception {

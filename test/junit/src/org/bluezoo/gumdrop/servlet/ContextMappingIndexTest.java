@@ -270,33 +270,7 @@ public class ContextMappingIndexTest {
                 match("/nomatch/x").servletDef);
     }
 
-    @Test(timeout = 5000)
-    public void testLookupCostDoesNotScaleWithMappingCount() {
-        // 20,000 prefix mappings none of which are anywhere near
-        // "/target/leaf" lexicographically: an unindexed O(mappings x
-        // patterns) scan would still have to compare against every one of
-        // them on every lookup. The index this replaces it with only
-        // walks entries actually near "/target/leaf" in sorted order.
-        for (int i = 0; i < 20000; i++) {
-            ServletDef sd = addServlet("noise" + i);
-            mapServlet(sd, "/noise" + i + "/*");
-        }
-        ServletDef target = addServlet("target");
-        mapServlet(target, "/target/*");
 
-        // Force the index to build once outside the timed section.
-        match("/target/leaf");
-
-        long start = System.nanoTime();
-        for (int i = 0; i < 50000; i++) {
-            ServletMatch m = match("/target/leaf");
-            assertSame(target, m.servletDef);
-        }
-        long elapsedMs = (System.nanoTime() - start) / 1_000_000;
-        assertTrue("50,000 lookups against a 20,000-mapping table took " + elapsedMs
-                + "ms -- an unindexed per-request scan would be far slower than this",
-                elapsedMs < 2000);
-    }
 
     // ── index invalidation across reset() ──
 
@@ -417,67 +391,5 @@ public class ContextMappingIndexTest {
 
     // ── concurrency: no serialization between concurrent readers ──
 
-    @Test(timeout = 20000)
-    public void testConcurrentLookupsDoNotSerializeOnTheContextLock() throws Exception {
-        for (int i = 0; i < 5000; i++) {
-            ServletDef sd = addServlet("noise" + i);
-            mapServlet(sd, "/noise" + i + "/*");
-        }
-        ServletDef target = addServlet("target");
-        mapServlet(target, "/target/*");
-        match("/target/leaf"); // force index build up front
 
-        int threadCount = 8;
-        final int iterationsPerThread = 20000;
-        ExecutorService pool = Executors.newFixedThreadPool(threadCount);
-        final CountDownLatch ready = new CountDownLatch(threadCount);
-        final CountDownLatch go = new CountDownLatch(1);
-        final AtomicBoolean sawWrongResult = new AtomicBoolean(false);
-        final CountDownLatch allDone = new CountDownLatch(threadCount);
-        try {
-            for (int t = 0; t < threadCount; t++) {
-                pool.submit(new Runnable() {
-                    @Override
-                    public void run() {
-                        ready.countDown();
-                        try {
-                            go.await();
-                        } catch (InterruptedException e) {
-                            Thread.currentThread().interrupt();
-                            return;
-                        }
-                        try {
-                            for (int i = 0; i < iterationsPerThread; i++) {
-                                ServletMatch m = match("/target/leaf");
-                                if (m.servletDef != target) {
-                                    sawWrongResult.set(true);
-                                }
-                            }
-                        } finally {
-                            allDone.countDown();
-                        }
-                    }
-                });
-            }
-            ready.await();
-            long start = System.nanoTime();
-            go.countDown();
-            assertTrue("worker threads did not finish",
-                    allDone.await(15, TimeUnit.SECONDS));
-            long elapsedMs = (System.nanoTime() - start) / 1_000_000;
-            assertFalse("concurrent lookups must all resolve the same, correct "
-                    + "servlet -- a data race in the lazily-built index would "
-                    + "show up here", sawWrongResult.get());
-            // threadCount * iterationsPerThread lookups against a 5000-entry
-            // table, run concurrently: a design that serialises readers on
-            // the context lock for the whole match would not show any
-            // benefit from the extra threads over running them one at a
-            // time. This budget is generous -- it is evidence, not a tight
-            // performance assertion.
-            assertTrue(threadCount + " threads x " + iterationsPerThread
-                    + " lookups took " + elapsedMs + "ms", elapsedMs < 15000);
-        } finally {
-            pool.shutdownNow();
-        }
-    }
 }

@@ -1,5 +1,5 @@
 /*
- * IMAPProtocolHandlerTest.java
+ * IMAPProtocolHandlerPerformanceTest.java
  * Copyright (C) 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -61,7 +61,11 @@ import static org.junit.Assert.*;
  * {@code testAppendSynchronizingLiteral}/{@code testAppendNonSynchronizingLiteral}.
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-public class IMAPProtocolHandlerTest {
+/*
+ * NOTE: wall-clock thresholds live here, not in the unit suite: unit tests must
+ * be deterministic (CONTRIBUTING.md). Extracted from IMAPProtocolHandlerTest.
+ */
+public class IMAPProtocolHandlerPerformanceTest {
 
     private ImapProtocolHandler handler;
     private StubEndpoint endpoint;
@@ -115,35 +119,13 @@ public class IMAPProtocolHandlerTest {
     // Greeting / basic dispatch
     // ═══════════════════════════════════════════════════════════════════
 
-    @Test
-    public void testGreeting() {
-        connect();
-        assertTrue(lastResponse().startsWith("* OK"));
-    }
 
-    @Test
-    public void testCapability() {
-        connect();
-        endpoint.sentData.clear();
-        sendCommand("a1 CAPABILITY");
-        assertTrue(lastResponse().startsWith("a1 OK"));
-    }
 
-    @Test
-    public void testNoop() {
-        connect();
-        endpoint.sentData.clear();
-        sendCommand("a1 NOOP");
-        assertTrue(lastResponse().startsWith("a1 OK"));
-    }
 
-    @Test
-    public void testLogout() {
-        connect();
-        endpoint.sentData.clear();
-        sendCommand("a1 LOGOUT");
-        assertTrue(lastResponse().startsWith("a1 OK"));
-    }
+
+
+
+
 
     // ═══════════════════════════════════════════════════════════════════
     // Issue #309: CRAM-MD5/DIGEST-MD5 challenge construction must not
@@ -168,133 +150,75 @@ public class IMAPProtocolHandlerTest {
                 143);
     }
 
-
-
-
-
-    @Test
-    public void testUnknownCommand() {
+    @Test(timeout = 15000)
+    public void testAuthCramMd5ChallengeDoesNotBlockOnReverseDns() throws Exception {
+        StubRealm realm = new StubRealm();
+        realm.supportedMechanisms.add(SaslMechanism.CRAM_MD5);
+        listener.setRealm(realm);
         connect();
         endpoint.sentData.clear();
-        sendCommand("a1 BOGUS");
-        assertTrue(lastResponse().startsWith("a1 BAD"));
+
+        long start = System.nanoTime();
+        for (int i = 0; i < 200; i++) {
+            endpoint.localAddress = addressWithNoCachedHostname(3, i);
+            sendCommand("a1 AUTHENTICATE CRAM-MD5");
+            assertTrue(lastResponse().startsWith("+ "));
+            sendCommand("*");
+            assertTrue(lastResponse().startsWith("a1 BAD"));
+        }
+        long elapsedMs = (System.nanoTime() - start) / 1000000;
+        assertTrue("200 AUTHENTICATE CRAM-MD5 challenge/abort cycles against distinct local "
+                + "addresses with no cached hostname took " + elapsedMs
+                + "ms -- expected getHostString() (never resolves) rather than "
+                + "getHostName() (attempts reverse DNS)", elapsedMs < 1000);
     }
 
-    @Test
-    public void testMissingTagNoSpaceAtAll() {
+    @Test(timeout = 15000)
+    public void testAuthDigestMd5ChallengeDoesNotBlockOnReverseDns() throws Exception {
+        StubRealm realm = new StubRealm();
+        realm.supportedMechanisms.add(SaslMechanism.DIGEST_MD5);
+        listener.setRealm(realm);
         connect();
         endpoint.sentData.clear();
-        sendCommand("a1");
-        assertTrue(lastResponse().startsWith("* BAD"));
+
+        long start = System.nanoTime();
+        for (int i = 0; i < 200; i++) {
+            endpoint.localAddress = addressWithNoCachedHostname(4, i);
+            sendCommand("a1 AUTHENTICATE DIGEST-MD5");
+            assertTrue(lastResponse().startsWith("+ "));
+            sendCommand("*");
+            assertTrue(lastResponse().startsWith("a1 BAD"));
+        }
+        long elapsedMs = (System.nanoTime() - start) / 1000000;
+        assertTrue("200 AUTHENTICATE DIGEST-MD5 challenge/abort cycles against distinct local "
+                + "addresses with no cached hostname took " + elapsedMs
+                + "ms -- expected getHostString() (never resolves) rather than "
+                + "getHostName() (attempts reverse DNS)", elapsedMs < 1000);
     }
 
-    @Test
-    public void testMissingTagLeadingSpace() {
-        connect();
-        endpoint.sentData.clear();
-        sendCommand(" NOOP");
-        assertTrue(lastResponse().startsWith("* BAD"));
-    }
 
-    @Test
-    public void testInvalidTag() {
-        connect();
-        endpoint.sentData.clear();
-        sendCommand("a{1 NOOP");
-        assertTrue(lastResponse().startsWith("* BAD"));
-    }
 
-    @Test
-    public void testCommandCaseInsensitive() {
-        connect();
-        endpoint.sentData.clear();
-        sendCommand("a1 noop");
-        assertTrue(lastResponse().startsWith("a1 OK"));
-    }
+
+
+
+
+
+
+
 
     // ═══════════════════════════════════════════════════════════════════
     // Streaming lexer: sliced-boundary and golden transcript coverage
     // ═══════════════════════════════════════════════════════════════════
 
-    @Test
-    public void testCommandSlicedByteAtATime() {
-        connect();
-        endpoint.sentData.clear();
-        sendSliced("a1 NOOP\r\n", 1);
-        assertTrue(lastResponse().startsWith("a1 OK"));
-    }
 
-    @Test
-    public void testCommandWithArgsSlicedAtEveryChunkSize() {
-        for (int chunkSize = 1; chunkSize <= 16; chunkSize++) {
-            listener = new ImapListener();
-            handler = new ImapProtocolHandler(listener);
-            endpoint = new StubEndpoint();
 
-            connect();
-            endpoint.sentData.clear();
-            sendSliced("a1 SELECT INBOX\r\n", chunkSize);
-            assertEquals("chunk size " + chunkSize,
-                    "a1", lastResponse().split(" ")[0]);
-        }
-    }
 
-    @Test
-    public void testMultipleCommandsInOneReceiveCall() {
-        connect();
-        endpoint.sentData.clear();
-        byte[] wire = "a1 NOOP\r\na2 NOOP\r\n".getBytes(StandardCharsets.US_ASCII);
-        handler.receive(ByteBuffer.wrap(wire));
-        List<String> responses = endpoint.getResponses();
-        assertEquals(2, responses.size());
-        assertTrue(responses.get(0).startsWith("a1 OK"));
-        assertTrue(responses.get(1).startsWith("a2 OK"));
-    }
 
-    @Test
-    public void testLongTagTriggersLineTooLongAndResyncs() {
-        connect();
-        endpoint.sentData.clear();
-        StringBuilder longTag = new StringBuilder();
-        for (int i = 0; i < listener.getMaxLineLength() + 100; i++) {
-            longTag.append('X');
-        }
-        ByteBuffer netIn = ByteBuffer.allocate(listener.getMaxLineLength() * 2);
-        netIn.put((longTag.toString() + "\r\n").getBytes(StandardCharsets.US_ASCII));
-        netIn.flip();
-        handler.receive(netIn);
-        netIn.compact();
 
-        assertEquals(1, endpoint.getResponses().size());
-        assertTrue("Should report line too long", lastResponse().startsWith("* BAD"));
 
-        netIn.put("a1 NOOP\r\n".getBytes(StandardCharsets.US_ASCII));
-        netIn.flip();
-        handler.receive(netIn);
-        netIn.compact();
 
-        assertEquals(2, endpoint.getResponses().size());
-        assertTrue(lastResponse().startsWith("a1 OK"));
-    }
 
-    @Test
-    public void testLongArgsTriggersLineTooLongAndResyncs() {
-        connect();
-        endpoint.sentData.clear();
-        StringBuilder longArgs = new StringBuilder();
-        for (int i = 0; i < listener.getMaxLineLength() + 100; i++) {
-            longArgs.append('a');
-        }
-        sendCommand("a1 SELECT " + longArgs);
-        // The pre-conversion code's own line-too-long check ran on the raw
-        // bytes before the tag was ever parsed out, so the error reply
-        // always used currentTag (still unset here) / "*", never the
-        // current line's own tag — faithfully replicated, not a bug.
-        assertTrue("Should report line too long", lastResponse().startsWith("* BAD"));
 
-        sendCommand("a2 NOOP");
-        assertTrue(lastResponse().startsWith("a2 OK"));
-    }
 
     // ═══════════════════════════════════════════════════════════════════
     // RFC 7888 general-purpose literals — the enterRaw()-driven splice
@@ -303,83 +227,15 @@ public class IMAPProtocolHandlerTest {
     // astring arguments and is reachable pre-authentication.
     // ═══════════════════════════════════════════════════════════════════
 
-    @Test
-    public void testSynchronizingLiteralInLoginIsSplicedAndDispatched() {
-        connect();
-        endpoint.sentData.clear();
-        sendCommand("a1 LOGIN {5}");
-        assertTrue("Should request continuation", lastResponse().startsWith("+"));
-        sendRaw("alice password\r\n");
-        // PRIVACYREQUIRED (no TLS, plaintext login disabled by default) or
-        // AUTHENTICATIONFAILED either way proves dispatchCommand() was
-        // reached with "alice" correctly spliced in as the literal value
-        // and "password" as the following plain-text argument.
-        assertTrue(lastResponse().startsWith("a1 NO"));
-    }
 
-    @Test
-    public void testNonSynchronizingLiteralInLoginPipelinedNoContinuation() {
-        connect();
-        endpoint.sentData.clear();
-        // LITERAL+: command line and literal are pipelined together in one
-        // buffer; no "+" continuation should be sent.
-        sendRaw("a1 LOGIN {5+}\r\nalice password\r\n");
-        List<String> responses = endpoint.getResponses();
-        assertEquals(1, responses.size());
-        assertTrue(responses.get(0).startsWith("a1 NO"));
-    }
 
-    @Test
-    public void testChainedLiteralsInLoginBothSpliced() {
-        connect();
-        endpoint.sentData.clear();
-        listener.setAllowPlaintextLogin(true);
-        sendCommand("a1 LOGIN {5}");
-        assertTrue(lastResponse().startsWith("+"));
-        sendRaw("alice {8}\r\n");
-        assertTrue("Second literal should also request continuation",
-                lastResponse().startsWith("+"));
-        sendRaw("password\r\n");
-        // allowPlaintextLogin=true clears the PRIVACYREQUIRED gate, so this
-        // now fails purely on authentication (no realm configured),
-        // proving both literals reached handleLogin() with the right text.
-        assertTrue(lastResponse().startsWith("a1 NO"));
-        assertTrue(lastResponse().contains("AUTHENTICATIONFAILED"));
-    }
 
-    @Test
-    public void testLiteralTooLargeRejectedAndResyncs() {
-        listener = new ImapListener();
-        listener.setMaxLiteralSize(10);
-        handler = new ImapProtocolHandler(listener);
-        endpoint = new StubEndpoint();
 
-        connect();
-        endpoint.sentData.clear();
-        sendCommand("a1 LOGIN {1000}");
-        assertTrue(lastResponse().startsWith("a1 NO"));
 
-        sendCommand("a2 NOOP");
-        assertTrue(lastResponse().startsWith("a2 OK"));
-    }
 
-    @Test
-    public void testLiteralSlicedAtEveryChunkSize() {
-        for (int chunkSize = 1; chunkSize <= 24; chunkSize++) {
-            listener = new ImapListener();
-            listener.setAllowPlaintextLogin(true);
-            handler = new ImapProtocolHandler(listener);
-            endpoint = new StubEndpoint();
 
-            connect();
-            endpoint.sentData.clear();
-            sendSliced("a1 LOGIN {5+}\r\nalice password\r\n", chunkSize);
-            assertEquals("chunk size " + chunkSize,
-                    "a1", lastResponse().split(" ")[0]);
-            assertTrue("chunk size " + chunkSize,
-                    lastResponse().contains("NO"));
-        }
-    }
+
+
 
     // ═══════════════════════════════════════════════════════════════════
     // Stub Endpoint

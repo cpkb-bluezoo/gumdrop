@@ -1,5 +1,5 @@
 /*
- * ContextSessionSweepOffRequestPathTest.java
+ * ContextSessionSweepOffRequestPathPerformanceTest.java
  * Copyright (C) 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -43,7 +43,11 @@ import static org.junit.Assert.*;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-public class ContextSessionSweepOffRequestPathTest {
+/*
+ * NOTE: wall-clock thresholds live here, not in the unit suite: unit tests must
+ * be deterministic (CONTRIBUTING.md). Extracted from ContextSessionSweepOffRequestPathTest.
+ */
+public class ContextSessionSweepOffRequestPathPerformanceTest {
 
     private static final int SESSION_COUNT = 5000;
 
@@ -76,25 +80,30 @@ public class ContextSessionSweepOffRequestPathTest {
         f.delete();
     }
 
-    @Test
-    public void testGetRequestDispatcherDoesNotSweepExpiredSessions() throws Exception {
-        HttpSession session = context.getSessionManager().createSession();
-        String id = session.getId();
 
-        Field lastAccessedTime = session.getClass().getDeclaredField("lastAccessedTime");
-        lastAccessedTime.setAccessible(true);
-        lastAccessedTime.setLong(session, System.currentTimeMillis() - 1500);
+
+    @Test(timeout = 3000)
+    public void testGetRequestDispatcherDoesNotPayInlineSweepCost() throws Exception {
+        Field lastAccessedTime = null;
+        for (int i = 0; i < SESSION_COUNT; i++) {
+            HttpSession session = context.getSessionManager().createSession();
+            if (lastAccessedTime == null) {
+                lastAccessedTime = session.getClass().getDeclaredField("lastAccessedTime");
+                lastAccessedTime.setAccessible(true);
+            }
+            lastAccessedTime.setLong(session, System.currentTimeMillis() - 1500);
+        }
         context.sessionsLastInvalidated = System.currentTimeMillis() - 2000;
 
-        context.getRequestDispatcher("/");
+        long start = System.nanoTime();
+        for (int i = 0; i < 200; i++) {
+            assertNotNull(context.getRequestDispatcher("/"));
+        }
+        long elapsedMs = (System.nanoTime() - start) / 1_000_000;
 
-        assertNotNull("getRequestDispatcher must not run session expiry inline",
-                context.getSessionManager().getSession(id));
-
-        context.invalidateSessions(true);
-        assertNull("explicit sweep must still remove expired sessions",
-                context.getSessionManager().getSession(id));
+        assertTrue("getRequestDispatcher must not run an inline session sweep "
+                        + "(200 lookups with " + SESSION_COUNT + " expired sessions took "
+                        + elapsedMs + "ms)",
+                elapsedMs < 500);
     }
-
-
 }

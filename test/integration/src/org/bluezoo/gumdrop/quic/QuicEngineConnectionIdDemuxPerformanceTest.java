@@ -1,5 +1,5 @@
 /*
- * QuicEngineConnectionIdDemuxTest.java
+ * QuicEngineConnectionIdDemuxPerformanceTest.java
  * Copyright (C) 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -43,7 +43,11 @@ import static org.junit.Assert.assertTrue;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-public class QuicEngineConnectionIdDemuxTest {
+/*
+ * NOTE: wall-clock thresholds live here, not in the unit suite: unit tests must
+ * be deterministic (CONTRIBUTING.md). Extracted from QuicEngineConnectionIdDemuxTest.
+ */
+public class QuicEngineConnectionIdDemuxPerformanceTest {
 
     private static final SecureRandom RANDOM = new SecureRandom();
 

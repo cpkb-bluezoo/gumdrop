@@ -1,5 +1,5 @@
 /*
- * MaildirConcurrentSessionTest.java
+ * MaildirConcurrentSessionPerformanceTest.java
  * Copyright (C) 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -51,7 +51,11 @@ import static org.junit.Assert.*;
  * on the first session's full open-to-close lifetime defeats that.
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-public class MaildirConcurrentSessionTest {
+/*
+ * NOTE: wall-clock thresholds live here, not in the unit suite: unit tests must
+ * be deterministic (CONTRIBUTING.md). Extracted from MaildirConcurrentSessionTest.
+ */
+public class MaildirConcurrentSessionPerformanceTest {
 
     private Path tempDir;
     private Path maildir;
@@ -92,87 +96,52 @@ public class MaildirConcurrentSessionTest {
         }
     }
 
-
-
     /**
-     * Two sessions appending concurrently must each get a distinct UID
-     * with no lost update to the shared {@code .uidlist} file -- the
-     * correctness property the old whole-session lock incidentally
-     * provided by preventing genuine concurrency in the first place.
+     * The core regression case: opening a second session on the same
+     * maildir path must not wait for a first, still-open session to close.
      */
     @Test(timeout = 15000)
-    public void concurrentAppendsFromTwoSessionsGetDistinctUids() throws Exception {
-        final CountDownLatch bothReady = new CountDownLatch(2);
-        final CountDownLatch go = new CountDownLatch(1);
-        final AtomicReference<Exception> errorA = new AtomicReference<>();
-        final AtomicReference<Exception> errorB = new AtomicReference<>();
-        final AtomicLong uidA = new AtomicLong(-1);
-        final AtomicLong uidB = new AtomicLong(-1);
+    public void secondSessionDoesNotBlockOnFirstSessionsWholeLifetime() throws Exception {
+        final CountDownLatch firstSessionOpened = new CountDownLatch(1);
+        final CountDownLatch releaseFirstSession = new CountDownLatch(1);
+        final AtomicReference<Exception> firstSessionError = new AtomicReference<>();
 
-        Thread threadA = new Thread(new Runnable() {
+        Thread firstSessionThread = new Thread(new Runnable() {
             @Override
             public void run() {
                 try {
-                    MaildirMailbox mailbox = new MaildirMailbox(maildir, "INBOX", false);
-                    bothReady.countDown();
-                    go.await(10, TimeUnit.SECONDS);
-                    uidA.set(appendMessage(mailbox,
-                            "From: a@example.com\r\nSubject: A\r\n\r\nmessage A\r\n"));
-                    mailbox.close(false);
+                    MaildirMailbox first = new MaildirMailbox(maildir, "INBOX", false);
+                    firstSessionOpened.countDown();
+                    // Hold the session open (simulating a live IMAP IDLE client)
+                    // well beyond how long the second session's own open should
+                    // ever legitimately take.
+                    releaseFirstSession.await(10, TimeUnit.SECONDS);
+                    first.close(false);
                 } catch (Exception e) {
-                    errorA.set(e);
+                    firstSessionError.set(e);
                 }
             }
         });
-        Thread threadB = new Thread(new Runnable() {
-            @Override
-            public void run() {
-                try {
-                    MaildirMailbox mailbox = new MaildirMailbox(maildir, "INBOX", false);
-                    bothReady.countDown();
-                    go.await(10, TimeUnit.SECONDS);
-                    uidB.set(appendMessage(mailbox,
-                            "From: b@example.com\r\nSubject: B\r\n\r\nmessage B\r\n"));
-                    mailbox.close(false);
-                } catch (Exception e) {
-                    errorB.set(e);
-                }
-            }
-        });
+        firstSessionThread.start();
 
-        threadA.start();
-        threadB.start();
-        assertTrue("both sessions never finished opening",
-                bothReady.await(5, TimeUnit.SECONDS));
-        go.countDown();
-        threadA.join(TimeUnit.SECONDS.toMillis(10));
-        threadB.join(TimeUnit.SECONDS.toMillis(10));
+        assertTrue("first session never finished opening",
+                firstSessionOpened.await(5, TimeUnit.SECONDS));
 
-        assertNull("session A failed", errorA.get());
-        assertNull("session B failed", errorB.get());
-        assertTrue("session A never assigned a UID", uidA.get() > 0);
-        assertTrue("session B never assigned a UID", uidB.get() > 0);
-        assertNotEquals("concurrent appends must not be assigned the same UID",
-                uidA.get(), uidB.get());
+        long startNs = System.nanoTime();
+        MaildirMailbox second = new MaildirMailbox(maildir, "INBOX", false);
+        long elapsedMs = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startNs);
+        second.close(false);
 
-        MaildirMailbox verify = new MaildirMailbox(maildir, "INBOX", false);
-        try {
-            assertEquals("both concurrently-appended messages must be present",
-                    2, verify.getMessageCount());
-            Set<String> seenUids = new HashSet<>();
-            java.util.Iterator<org.bluezoo.gumdrop.mailbox.MessageDescriptor> descriptors =
-                    verify.getMessageList();
-            while (descriptors.hasNext()) {
-                seenUids.add(descriptors.next().getUniqueId());
-            }
-            assertTrue("session A's UID must have been persisted",
-                    seenUids.contains(Long.toString(uidA.get())));
-            assertTrue("session B's UID must have been persisted",
-                    seenUids.contains(Long.toString(uidB.get())));
-        } finally {
-            verify.close(false);
-        }
+        releaseFirstSession.countDown();
+        firstSessionThread.join(TimeUnit.SECONDS.toMillis(10));
+
+        assertNull("first session thread failed", firstSessionError.get());
+        assertTrue("second session must not block on the first session's "
+                + "whole lifetime (took " + elapsedMs + "ms)",
+                elapsedMs < 2000);
     }
+
+
 
     private static long appendMessage(MaildirMailbox mailbox, String content) throws Exception {
         mailbox.startAppendMessage(java.util.EnumSet.noneOf(Flag.class), OffsetDateTime.now());

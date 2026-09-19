@@ -77,7 +77,8 @@ public class ContextSessionExpiryTest {
         // Simulate "more than a second has passed since the last sweep" —
         // exactly the state every context reaches one second after init,
         // and which the inverted guard treated as "never sweep again".
-        context.sessionsLastInvalidated = System.currentTimeMillis() - 2000;
+        long staleTimestamp = System.currentTimeMillis() - 2000;
+        context.sessionsLastInvalidated = staleTimestamp;
 
         context.invalidateSessions(false);
 
@@ -87,7 +88,7 @@ public class ContextSessionExpiryTest {
         // sessionsLastInvalidated untouched here, forever.
         assertTrue("invalidateSessions must run (and update the timestamp) "
                         + "once the throttle window has elapsed",
-                System.currentTimeMillis() - context.sessionsLastInvalidated < 1000);
+                context.sessionsLastInvalidated > staleTimestamp);
     }
 
     @Test

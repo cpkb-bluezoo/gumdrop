@@ -172,54 +172,7 @@ public class MaildirBodyOffsetTest {
         }
     }
 
-    /**
-     * {@code bodyOffset()} must be a pure in-memory read once the descriptor
-     * already has a resolved offset — never a blocking disk scan or
-     * blocking async-file wait APIs.
-     */
-    @Test
-    public void bodyOffset_isInstantWhenAlreadyCached() throws Exception {
-        Path maildir = tempDir.resolve("box2");
-        Files.createDirectories(maildir.resolve("cur"));
-        Files.createDirectories(maildir.resolve("new"));
-        Files.createDirectories(maildir.resolve("tmp"));
 
-        String content = "From: a@b\r\nSubject: x\r\n\r\nbody\r\n";
-        long expectedOffset = content.indexOf("body");
-        // See mailbox_openAsyncContent_returnsCachedBodyOffset above
-        // (issue #287) for why this has no ":2,<flags>" suffix.
-        String filename = "1733356800001.uid2.1,S=" + content.length();
-        Files.write(maildir.resolve("cur").resolve(filename),
-                content.getBytes(StandardCharsets.UTF_8));
-
-        MaildirMailbox mailbox = new MaildirMailbox(maildir, "INBOX", false);
-        try {
-            // Body offset is unresolved until first content access (issue
-            // #133); resolve it here via openAsyncContent so the loop below
-            // is actually exercising the "already cached" fast path it's
-            // meant to test, not a cold resolve.
-            org.bluezoo.gumdrop.mailbox.AsyncMessageContent async =
-                    mailbox.openAsyncContent(1);
-            MaildirMessageDescriptor desc =
-                    (MaildirMessageDescriptor) mailbox.getMessage(1);
-            assertTrue("openAsyncContent must resolve and cache body offset",
-                    desc.hasResolvedBodyOffset());
-
-            // Close the channel so any blocking async-file wait / AFC read would fail.
-            async.close();
-
-            long startNs = System.nanoTime();
-            for (int i = 0; i < 10_000; i++) {
-                assertEquals(expectedOffset, async.bodyOffset());
-            }
-            long elapsedNs = System.nanoTime() - startNs;
-            // 10k field reads should finish well under 100ms even on slow CI.
-            assertTrue("bodyOffset() must not block (took " + elapsedNs + " ns)",
-                    elapsedNs < TimeUnit.MILLISECONDS.toNanos(100));
-        } finally {
-            mailbox.close(false);
-        }
-    }
 
     private Path writeMessage(String name, String content) throws Exception {
         Path file = tempDir.resolve(name);

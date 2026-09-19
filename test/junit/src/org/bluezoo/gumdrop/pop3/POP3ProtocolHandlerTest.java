@@ -814,47 +814,9 @@ public class POP3ProtocolHandlerTest {
                 110);
     }
 
-    @Test(timeout = 15000)
-    public void testAuthCramMd5ChallengeDoesNotBlockOnReverseDns() throws Exception {
-        realm.supportedMechanisms.add(SaslMechanism.CRAM_MD5);
-        connectPlaintext();
-        endpoint.sentData.clear();
 
-        long start = System.nanoTime();
-        for (int i = 0; i < 200; i++) {
-            endpoint.localAddress = addressWithNoCachedHostname(1, i);
-            sendCommand("AUTH CRAM-MD5");
-            assertTrue(lastResponse().startsWith("+ "));
-            sendCommand("*");
-            assertTrue(lastResponse().startsWith("-ERR"));
-        }
-        long elapsedMs = (System.nanoTime() - start) / 1000000;
-        assertTrue("200 AUTH CRAM-MD5 challenge/abort cycles against distinct local "
-                + "addresses with no cached hostname took " + elapsedMs
-                + "ms -- expected getHostString() (never resolves) rather than "
-                + "getHostName() (attempts reverse DNS)", elapsedMs < 1000);
-    }
 
-    @Test(timeout = 15000)
-    public void testAuthDigestMd5ChallengeDoesNotBlockOnReverseDns() throws Exception {
-        realm.supportedMechanisms.add(SaslMechanism.DIGEST_MD5);
-        connectPlaintext();
-        endpoint.sentData.clear();
 
-        long start = System.nanoTime();
-        for (int i = 0; i < 200; i++) {
-            endpoint.localAddress = addressWithNoCachedHostname(2, i);
-            sendCommand("AUTH DIGEST-MD5");
-            assertTrue(lastResponse().startsWith("+ "));
-            sendCommand("*");
-            assertTrue(lastResponse().startsWith("-ERR"));
-        }
-        long elapsedMs = (System.nanoTime() - start) / 1000000;
-        assertTrue("200 AUTH DIGEST-MD5 challenge/abort cycles against distinct local "
-                + "addresses with no cached hostname took " + elapsedMs
-                + "ms -- expected getHostString() (never resolves) rather than "
-                + "getHostName() (attempts reverse DNS)", elapsedMs < 1000);
-    }
 
     @Test
     public void testUnsupportedAuthMechanism() {

@@ -982,6 +982,14 @@
     <integration-junit includes='**/TestCertificateManagerTest.java'/>
   </target>
 
+  <!-- Run performance tests: wall-clock thresholds (algorithmic-cost and
+       non-blocking checks) that depend on machine load, so they must not
+       live in the deterministic unit suite -->
+  <target name='integration-test-performance' depends='integration-build'
+          description='Run wall-clock performance tests'>
+    <integration-junit includes='**/*PerformanceTest.java'/>
+  </target>
+
   <!-- Run WebSocket integration tests -->
   <target name='integration-test-websocket' depends='integration-build'
           description='Run WebSocket server integration tests'>
@@ -1150,7 +1158,7 @@
 
   <!-- Run all integration tests -->
   <target name='integration-test'
-          depends='integration-test-loopback,integration-test-http,integration-test-http-client,integration-test-smtp,integration-test-pop3,integration-test-imap,integration-test-ftp,integration-test-servlet,integration-test-telemetry,integration-test-buffer,integration-test-tls,integration-test-websocket,integration-test-dtls'
+          depends='integration-test-loopback,integration-test-http,integration-test-http-client,integration-test-smtp,integration-test-pop3,integration-test-imap,integration-test-ftp,integration-test-servlet,integration-test-telemetry,integration-test-buffer,integration-test-tls,integration-test-websocket,integration-test-dtls,integration-test-performance'
           description='Run all integration tests'>
   </target>
 

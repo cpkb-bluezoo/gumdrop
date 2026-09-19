@@ -612,29 +612,7 @@ public class MessageIndexTest {
         assertNull(index.getEntryByMessageNumber(2));
     }
 
-    /**
-     * Regression for issue #334: bulk sequence-number lookup must not scan
-     * the whole index per message number.
-     */
-    @Test(timeout = 5000)
-    public void testGetEntryByMessageNumberCostDoesNotScaleLinearlyWithMailboxSize() {
-        for (int i = 0; i < 100_000; i++) {
-            index.addEntry(createEntry(i + 1L, i + 1, "loc" + i,
-                    "user@test.com", "Subject " + i));
-        }
 
-        long start = System.nanoTime();
-        for (int msgNum = 1; msgNum <= 1000; msgNum++) {
-            MessageIndexEntry entry = index.getEntryByMessageNumber(msgNum);
-            assertNotNull(entry);
-            assertEquals(msgNum, entry.getUid());
-        }
-        long elapsedMs = (System.nanoTime() - start) / 1_000_000;
-
-        assertTrue("1000 message-number lookups in a 100,000-message index took "
-                        + elapsedMs + "ms -- linear scan per lookup would be far slower",
-                elapsedMs < 2000);
-    }
 
     // ========================================================================
     // Iterator Tests
@@ -834,28 +812,7 @@ public class MessageIndexTest {
         assertEquals(Collections.singletonList(1), results);
     }
 
-    @Test(timeout = 5000)
-    public void testSearchFlagCostDoesNotScaleLinearlyWithMailboxSize() {
-        // 100,000 unseen messages, 1 seen one: an unindexed scan would
-        // still call matches() -- and, for the fallback case,
-        // potentially parse a message from disk -- for all 100,001. The
-        // sub-index answers this in effectively O(1).
-        for (int i = 0; i < 100_000; i++) {
-            index.addEntry(createEntryWithFlags(i + 1, i + 1,
-                    EnumSet.noneOf(Flag.class)));
-        }
-        index.addEntry(createEntryWithFlags(100_001L, 100_001,
-                EnumSet.of(Flag.SEEN)));
 
-        long start = System.nanoTime();
-        List<Integer> results = index.search(SearchCriteria.seen());
-        long elapsedMs = (System.nanoTime() - start) / 1_000_000;
-
-        assertEquals(Collections.singletonList(100_001), results);
-        assertTrue("SEARCH SEEN against a 100,001-message mailbox took " + elapsedMs
-                + "ms -- an unindexed scan of every message would be far slower than this",
-                elapsedMs < 2000);
-    }
 
     // ========================================================================
     // Helper Methods

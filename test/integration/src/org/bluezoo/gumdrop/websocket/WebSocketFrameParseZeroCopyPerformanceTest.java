@@ -1,5 +1,5 @@
 /*
- * WebSocketFrameParseZeroCopyTest.java
+ * WebSocketFrameParseZeroCopyPerformanceTest.java
  * Copyright (C) 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -39,7 +39,11 @@ import static org.junit.Assert.assertTrue;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-public class WebSocketFrameParseZeroCopyTest {
+/*
+ * NOTE: wall-clock thresholds live here, not in the unit suite: unit tests must
+ * be deterministic (CONTRIBUTING.md). Extracted from WebSocketFrameParseZeroCopyTest.
+ */
+public class WebSocketFrameParseZeroCopyPerformanceTest {
 
     private static final SecureRandom RANDOM = new SecureRandom();
 
@@ -79,31 +83,9 @@ public class WebSocketFrameParseZeroCopyTest {
     // and on either side of an 8-byte boundary, are exactly where an
     // off-by-one in that split would show up.
 
-    @Test
-    public void testUnmaskCorrectAcrossStrideBoundaryLengths() throws Exception {
-        byte[] maskingKey = { (byte) 0x12, (byte) 0x34, (byte) 0x56, (byte) 0x78 };
-        for (int len = 0; len <= 20; len++) {
-            byte[] original = randomBytes(len);
-            ByteBuffer wire = buildMaskedFrame(true, WebSocketFrame.OPCODE_BINARY, original, maskingKey);
-            WebSocketFrame parsed = WebSocketFrame.parse(wire);
-            ByteBuffer payload = parsed.getPayload();
-            byte[] result = new byte[payload.remaining()];
-            payload.get(result);
-            assertArrayEquals("mismatch at payload length " + len, original, result);
-        }
-    }
 
-    @Test
-    public void testUnmaskCorrectForLargeMultiStridePayload() throws Exception {
-        byte[] maskingKey = randomBytesKey();
-        byte[] original = randomBytes(100_003); // not a multiple of 8
-        ByteBuffer wire = buildMaskedFrame(true, WebSocketFrame.OPCODE_BINARY, original, maskingKey);
-        WebSocketFrame parsed = WebSocketFrame.parse(wire);
-        ByteBuffer payload = parsed.getPayload();
-        byte[] result = new byte[payload.remaining()];
-        payload.get(result);
-        assertArrayEquals(original, result);
-    }
+
+
 
     private static byte[] randomBytesKey() {
         return randomBytes(4);
@@ -136,39 +118,34 @@ public class WebSocketFrameParseZeroCopyTest {
         @Override protected void error(Throwable cause) { }
     }
 
-    @Test
-    public void testLargeMaskedFragmentedMessageReassemblesCorrectly() throws IOException {
-        TestConnection conn = new TestConnection();
-        byte[] maskingKey = randomBytesKey();
 
-        int fragmentCount = 20;
-        int fragmentSize = 5000; // large enough to exercise many unmask strides per fragment
-        byte[][] fragments = new byte[fragmentCount][];
-        int total = 0;
-        for (int i = 0; i < fragmentCount; i++) {
-            fragments[i] = randomBytes(fragmentSize + i); // vary lengths across the 8-byte boundary
-            total += fragments[i].length;
-        }
-
-        ByteBuffer expected = ByteBuffer.allocate(total);
-        for (int i = 0; i < fragmentCount; i++) {
-            boolean first = (i == 0);
-            boolean last = (i == fragmentCount - 1);
-            int opcode = first ? WebSocketFrame.OPCODE_BINARY : WebSocketFrame.OPCODE_CONTINUATION;
-            conn.processIncomingData(buildMaskedFrame(last, opcode, fragments[i], maskingKey));
-            expected.put(fragments[i]);
-        }
-        expected.flip();
-
-        byte[] expectedBytes = new byte[expected.remaining()];
-        expected.get(expectedBytes);
-        byte[] actualBytes = new byte[conn.lastBinaryMessage.remaining()];
-        conn.lastBinaryMessage.get(actualBytes);
-        assertArrayEquals("fragmented message must reassemble byte-for-byte via the "
-                + "bulk-transfer path", expectedBytes, actualBytes);
-    }
 
     // ── Performance: strided unmask should be far cheaper than byte-at-a-time ──
 
+    @Test(timeout = 20000)
+    public void testRepeatedLargeFrameParsingAvoidsByteAtATimeUnmask() throws Exception {
+        byte[] maskingKey = randomBytesKey();
+        byte[] payload = randomBytes(1_000_000);
+        ByteBuffer template = buildMaskedFrame(true, WebSocketFrame.OPCODE_BINARY, payload, maskingKey);
+        byte[] wireBytes = new byte[template.remaining()];
+        template.get(wireBytes);
 
+        int iterations = 300;
+        long start = System.nanoTime();
+        for (int i = 0; i < iterations; i++) {
+            WebSocketFrame frame = WebSocketFrame.parse(ByteBuffer.wrap(wireBytes));
+            ByteBuffer result = frame.getPayload();
+            // Touch the result so the JIT can't eliminate the parse/unmask as dead code.
+            if (result.remaining() != payload.length) {
+                throw new AssertionError("unexpected payload length");
+            }
+        }
+        long elapsedMs = (System.nanoTime() - start) / 1_000_000;
+
+        assertTrue(iterations + " parses of a " + payload.length
+                + "-byte masked frame took " + elapsedMs
+                + "ms -- expected strided (word-at-a-time) unmasking to keep this "
+                + "far below the cost of a byte-at-a-time XOR loop",
+                elapsedMs < 150);
+    }
 }

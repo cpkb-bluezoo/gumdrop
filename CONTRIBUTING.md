@@ -11,6 +11,7 @@ Production changes in `src/` should ship with **unit tests** that exercise the n
 **Unit tests** (`test/junit/src`):
 
 - Exercise **program logic only**. They **must not** open network sockets (including loopback), send datagrams, or perform **real file I/O** on disk. Use mocks, stubs, in-memory buffers, and fakes (for example `RecordingStubEndpoint`) to supply the data and callbacks production code would get from I/O.
+- Must be **deterministic**: they may not assert on wall-clock time or throughput (for example "N lookups took under X ms"), since the outcome would depend on machine load. Such algorithmic-cost and non-blocking checks belong in `test/integration/src` as `*PerformanceTest` classes, run with `ant integration-test-performance`.
 - Written with **JUnit** (and Hamcrest assertions already in `test/junit/lib/`). The suite is run by **`ant test`** and is what **CI** expects to pass on every change.
 
 **Integration tests** (`test/integration/src`):
@@ -78,6 +79,8 @@ Async unit tests must **not** use `Thread.sleep` or deadline loops that poll mut
 Use `@Test(timeout=…)` only as a hang guard, not as the synchronization mechanism.
 
 `NoThreadSleepGuardTest` enforces this across `test/junit/src` with a small allowlist for tests that intentionally exercise real time (rate limiters, timers, cache expiry, filesystem mtimes). Add allowlist entries only when sleeping is the behaviour under test.
+
+`WallClockAssertionGuardTest` enforces the determinism rule above: no unit test may assert on a duration computed from `System.nanoTime()` or `System.currentTimeMillis()`. Move such checks to a `*PerformanceTest` under `test/integration/src`.
 
 `ContributingStyleGuardTest` enforces the [prohibited language features](#java-version-compatibility) and [timer/callback concurrency](#timers-and-deferred-work) rules across main sources, unit tests, integration tests, and examples. Known debt is listed in `test/junit/resources/contributing-style-allowlist.properties`; remove entries as files are remediated, do not add new ones except for brief migration windows agreed in review.
 
