@@ -29,6 +29,7 @@ import java.util.List;
 
 /**
  * Outcome of an authoritative lookup in a {@link ZoneFile}.
+  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 final class ZoneLookupResult {
 

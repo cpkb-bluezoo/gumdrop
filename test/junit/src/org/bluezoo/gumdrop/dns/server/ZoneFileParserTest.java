@@ -1,6 +1,22 @@
 /*
  * ZoneFileParserTest.java
  * Copyright (C) 2026 Chris Burdess
+ *
+ * This file is part of gumdrop, a multipurpose Java server.
+ * For more information please visit https://www.nongnu.org/gumdrop/
+ *
+ * gumdrop is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * gumdrop is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with gumdrop.  If not, see <http://www.gnu.org/licenses/>.
  */
 
 package org.bluezoo.gumdrop.dns.server;
@@ -17,6 +33,9 @@ import java.util.List;
 
 import static org.junit.Assert.*;
 
+/**
+ * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
+ */
 public class ZoneFileParserTest {
 
     @Test
@@ -58,9 +77,9 @@ public class ZoneFileParserTest {
                 offset += chunk;
             }
             parser.close();
-            assertTrue(events.stream().anyMatch(e -> e.startsWith("record:@")));
-            assertTrue(events.stream().anyMatch(e -> e.startsWith("record:long")));
-            assertTrue(events.stream().filter(e -> e.equals("endRecord")).count() >= 3);
+            assertTrue(hasEventStartingWith(events, "record:@"));
+            assertTrue(hasEventStartingWith(events, "record:long"));
+            assertTrue(countEventsEqual(events, "endRecord") >= 3);
         } finally {
             Files.deleteIfExists(file);
         }
@@ -85,6 +104,25 @@ public class ZoneFileParserTest {
         } finally {
             Files.deleteIfExists(zone);
         }
+    }
+
+    private static boolean hasEventStartingWith(List<String> events, String prefix) {
+        for (int i = 0; i < events.size(); i++) {
+            if (events.get(i).startsWith(prefix)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static int countEventsEqual(List<String> events, String value) {
+        int count = 0;
+        for (int i = 0; i < events.size(); i++) {
+            if (value.equals(events.get(i))) {
+                count++;
+            }
+        }
+        return count;
     }
 
     private static final class CollectingHandler implements ZoneFileHandler {

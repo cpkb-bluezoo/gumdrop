@@ -34,6 +34,7 @@ import org.bluezoo.gumdrop.dns.DnsType;
 import org.bluezoo.gumdrop.dns.TsigKey;
 import java.io.IOException;
 import java.net.InetSocketAddress;
+import java.text.MessageFormat;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -310,8 +311,9 @@ public final class AuthoritativeZoneHandler implements DnsQueryHandler {
 
                     @Override
                     public void failed(Throwable error) {
-                        LOGGER.log(Level.WARNING,
-                                "zone load failed: " + managed.persistPath, error);
+                        LOGGER.log(Level.WARNING, MessageFormat.format(
+                                DnsServer.L10N.getString("warn.zone_load_failed"),
+                                managed.persistPath), error);
                     }
                 });
     }

@@ -1,6 +1,22 @@
 /*
  * ZoneFilePersistenceTest.java
  * Copyright (C) 2026 Chris Burdess
+ *
+ * This file is part of gumdrop, a multipurpose Java server.
+ * For more information please visit https://www.nongnu.org/gumdrop/
+ *
+ * gumdrop is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * gumdrop is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with gumdrop.  If not, see <http://www.gnu.org/licenses/>.
  */
 
 package org.bluezoo.gumdrop.dns.server;
@@ -27,6 +43,9 @@ import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.Assert.*;
 
+/**
+ * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
+ */
 public class ZoneFilePersistenceTest {
 
     @Before
@@ -58,11 +77,13 @@ public class ZoneFilePersistenceTest {
             handler.start(gumdrop);
 
             final AtomicBoolean savedOnStorage = new AtomicBoolean(false);
+            final CountDownLatch storageWorkStarted = new CountDownLatch(1);
             StorageExecutor.workThreadObserver =
                     new StorageExecutor.WorkThreadObserver() {
                         @Override
                         public void observed(Thread thread) {
                             savedOnStorage.set(true);
+                            storageWorkStarted.countDown();
                         }
                     };
 
@@ -89,22 +110,16 @@ public class ZoneFilePersistenceTest {
                         }
                     });
             assertTrue(latch.await(10, TimeUnit.SECONDS));
-
-            for (int i = 0; i < 50; i++) {
-                if (savedOnStorage.get()) {
-                    break;
-                }
-                Thread.sleep(100);
-            }
+            assertTrue(storageWorkStarted.await(10, TimeUnit.SECONDS));
             assertTrue(savedOnStorage.get());
 
-            ZoneFile reloaded = null;
-            for (int i = 0; i < 50; i++) {
+            ZoneFile reloaded = ZoneFile.load(zone);
+            long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10);
+            while (reloaded.asMutable().getSerial() != 2
+                    && System.nanoTime() < deadline) {
+                CountDownLatch pause = new CountDownLatch(1);
+                pause.await(100, TimeUnit.MILLISECONDS);
                 reloaded = ZoneFile.load(zone);
-                if (reloaded.asMutable().getSerial() == 2) {
-                    break;
-                }
-                Thread.sleep(100);
             }
             assertEquals(2, reloaded.asMutable().getSerial());
             assertEquals(ZoneLookupResult.STATUS_ANSWER,
@@ -166,7 +181,8 @@ public class ZoneFilePersistenceTest {
                         }
                     });
             assertTrue(latch.await(5, TimeUnit.SECONDS));
-            Thread.sleep(300);
+            CountDownLatch settle = new CountDownLatch(1);
+            settle.await(300, TimeUnit.MILLISECONDS);
             assertFalse(storageWork.get());
             assertEquals(original, Files.readString(zone));
         } finally {

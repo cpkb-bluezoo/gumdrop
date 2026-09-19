@@ -41,6 +41,7 @@ import java.util.Map;
 
 /**
  * Loads {@link ZoneFile} instances via {@link ZoneFileParser}.
+  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 final class ZoneFileLoader implements ZoneFileHandler {
 

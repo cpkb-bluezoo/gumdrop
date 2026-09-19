@@ -1,6 +1,22 @@
 /*
  * ZoneStorage.java
  * Copyright (C) 2026 Chris Burdess
+ *
+ * This file is part of gumdrop, a multipurpose Java server.
+ * For more information please visit https://www.nongnu.org/gumdrop/
+ *
+ * gumdrop is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * gumdrop is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with gumdrop.  If not, see <http://www.gnu.org/licenses/>.
  */
 
 package org.bluezoo.gumdrop.dns.server;
@@ -10,6 +26,7 @@ import org.bluezoo.gumdrop.StorageExecutor;
 
 import java.io.IOException;
 import java.nio.file.Path;
+import java.text.MessageFormat;
 import java.util.concurrent.Callable;
 import java.util.concurrent.Executor;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -18,6 +35,7 @@ import java.util.logging.Logger;
 
 /**
  * Loads and saves zone files on {@link StorageExecutor} workers.
+  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 final class ZoneStorage {
 
@@ -85,7 +103,9 @@ final class ZoneStorage {
                 @Override
                 public void failed(Throwable error) {
                     savePending.set(false);
-                    LOGGER.log(Level.WARNING, "zone save failed: " + path, error);
+                    LOGGER.log(Level.WARNING, MessageFormat.format(
+                            DnsServer.L10N.getString("warn.zone_save_failed"),
+                            path), error);
                 }
             });
         }
