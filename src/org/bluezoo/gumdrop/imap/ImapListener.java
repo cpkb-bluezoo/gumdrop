@@ -667,6 +667,7 @@ public class ImapListener extends TcpListener {
      *   <li>{@code CHILDREN} — RFC 3348</li>
      *   <li>{@code LIST-EXTENDED} — RFC 5258</li>
      *   <li>{@code LIST-STATUS} — RFC 5819</li>
+     *   <li>{@code STATUS=SIZE} — RFC 8438 (SIZE status data item)</li>
      * </ul>
      *
      * @param authenticated true if the user is authenticated
@@ -731,6 +732,7 @@ public class ImapListener extends TcpListener {
         caps.append(" CHILDREN");              // RFC 3348
         caps.append(" LIST-EXTENDED");         // RFC 5258
         caps.append(" LIST-STATUS");           // RFC 5819
+        caps.append(" STATUS=SIZE");           // RFC 8438
         caps.append(" LITERAL-");              // RFC 7888
         caps.append(" ID");                    // RFC 2971
 

@@ -120,4 +120,11 @@ public class IMAPListenerTest {
         assertFalse("NAMESPACE should not appear when disabled",
                 caps.contains("NAMESPACE"));
     }
+
+    @Test
+    public void testCapabilitiesIncludeStatusSize() {
+        String caps = listener.getCapabilities(true, true);
+        assertTrue("STATUS=SIZE should be advertised (RFC 8438)",
+                caps.contains("STATUS=SIZE"));
+    }
 }

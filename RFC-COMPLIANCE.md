@@ -1205,6 +1205,7 @@ implemented in Java, with TLS 1.3 integrated via the in-tree engine
 | LITERAL- | RFC 7888 | Compliant | `LITERAL-` advertised; non-sync literals ({N+}) up to 4096 bytes accepted in all commands; `processLine()` buffers partial commands and consumes literal data; APPEND uses its own specialized binary path |
 | ID | RFC 2971 | Compliant | `handleId()`, configurable server fields via `setServerIdFields()` |
 | CONDSTORE/QRESYNC | RFC 7162 | Implemented | Per-message MODSEQ via `Mailbox`, ENABLE CONDSTORE/QRESYNC, HIGHESTMODSEQ in SELECT, MODSEQ in FETCH/SEARCH/STORE (UNCHANGEDSINCE), VANISHED (EARLIER) on QRESYNC SELECT, session-wide VANISHED instead of EXPUNGE |
+| STATUS=SIZE | RFC 8438 | Compliant | Advertised; STATUS returns SIZE from `Mailbox.getMailboxSize()` |
 
 ## IMAP Client — RFC 9051
 
