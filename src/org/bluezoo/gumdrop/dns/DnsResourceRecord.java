@@ -167,6 +167,68 @@ public final class DnsResourceRecord {
     }
 
     /**
+     * Returns the SERIAL field from an SOA RDATA.
+     *
+     * @return the 32-bit serial number
+     * @throws IllegalStateException if this is not an SOA record
+     */
+    public int getSoaSerial() {
+        if (type != DnsType.SOA) {
+            throw new IllegalStateException("Not an SOA record: " + type);
+        }
+        ByteBuffer buf = ByteBuffer.wrap(rdata);
+        ByteBuffer original = buf.duplicate();
+        DnsMessage.decodeName(buf, original);
+        DnsMessage.decodeName(buf, original);
+        if (buf.remaining() < 4) {
+            throw new IllegalStateException("Truncated SOA RDATA");
+        }
+        return buf.getInt();
+    }
+
+    /**
+     * Parses all fixed fields from an SOA RDATA.
+     */
+    public SoaFields parseSoaFields() {
+        if (type != DnsType.SOA) {
+            throw new IllegalStateException("Not an SOA record: " + type);
+        }
+        ByteBuffer buf = ByteBuffer.wrap(rdata);
+        ByteBuffer original = buf.duplicate();
+        String mname = DnsMessage.decodeName(buf, original);
+        String rname = DnsMessage.decodeName(buf, original);
+        if (buf.remaining() < 20) {
+            throw new IllegalStateException("Truncated SOA RDATA");
+        }
+        return new SoaFields(mname, rname, buf.getInt(), buf.getInt(), buf.getInt(),
+                buf.getInt(), buf.getInt());
+    }
+
+    /**
+     * Fixed fields from an SOA RDATA (RFC 1035 section 3.3.13).
+     */
+    public static final class SoaFields {
+        public final String mname;
+        public final String rname;
+        public final int serial;
+        public final int refresh;
+        public final int retry;
+        public final int expire;
+        public final int minimum;
+
+        SoaFields(String mname, String rname, int serial, int refresh,
+                  int retry, int expire, int minimum) {
+            this.mname = mname;
+            this.rname = rname;
+            this.serial = serial;
+            this.refresh = refresh;
+            this.retry = retry;
+            this.expire = expire;
+            this.minimum = minimum;
+        }
+    }
+
+    /**
      * RFC 4035 section 3.2.1: the DNSSEC OK (DO) bit in the EDNS0
      * flags field of the OPT record TTL. Bit 15 of the 16-bit flags
      * portion (lower half of the 32-bit TTL).

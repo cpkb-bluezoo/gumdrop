@@ -60,6 +60,7 @@ DNS, etc.) so they're discoverable via Bonjour/Avahi/<code>dns-sd -B</code>.
 <li><a href="#records">Record Types</a></li>
 <li><a href="#configuration">Configuration</a></li>
 <li><a href="#authoritative">Authoritative zones</a></li>
+<li><a href="#authoritative-deployment">Authoritative deployment patterns</a></li>
 <li><a href="#listeners">Listeners</a></li>
 <li><a href="#resolver">DNS Resolver (Client)</a></li>
 <li><a href="#mdns">Multicast DNS &amp; DNS-SD</a></li>
@@ -303,6 +304,10 @@ connection rather than establishing new QUIC sessions, with automatic eviction
 of idle connections</li>
 <li><b>Padding (RFC 9250 section 5.4)</b> — all DoQ messages include EDNS(0)
 padding aligned to 128-byte blocks (RFC 8467) to mitigate traffic analysis</li>
+<li><b>Zone transfers</b> — AXFR/IXFR use the same multi-message length-prefixed
+framing as DoT/TCP on a single QUIC stream; the client reads until STREAM FIN.
+<code>DoQClientTransport</code> delivers multiple answers via
+<code>onReceiveSequence</code>.</li>
 </ul>
 
 <h4>DNS over HTTPS — DoH (RFC 8484)</h4>
@@ -543,7 +548,33 @@ reading the zone file is deferred to <code>start(Gumdrop)</code> instead of
 <li><code>zone(ZoneFile)</code> - use an already-loaded zone</li>
 <li><code>minimalAnyPolicy(MinimalAnyPolicy)</code> - RFC 8482 minimal ANY
 (default: enabled)</li>
+<li><code>notifyPeer(InetSocketAddress)</code> - RFC 1996 NOTIFY after successful
+RFC 2136 updates (sent asynchronously on the storage pool)</li>
+<li><code>notifyFromNsRecords(boolean)</code> - also NOTIFY in-zone NS names
+with glue A/AAAA on port 53 (default: <code>true</code>)</li>
+<li><code>slaveOf(origin, master)</code> - secondary: AXFR refresh from
+<code>master</code> over TCP on inbound NOTIFY (also off the selector thread;
+uses <code>DnsZoneOperations.axfrOverTcp</code>)</li>
+<li><code>tsigKey</code> / <code>requireTsig</code> - RFC 2845 / RFC 8945 TSIG for
+dynamic update (HMAC-MD5 and HMAC-SHA256 wire names match BIND:
+<code>hmac-md5.sig-alg.reg.int.</code>, <code>hmac-sha256.</code>); use
+<code>TsigKey.fromBase64(name, algorithm, secret)</code> with the same
+algorithm string as in <code>named.conf</code>. Signed UPDATE requests receive
+a TSIG-signed response (request MAC included) for <code>nsupdate</code>
+interop. Signed AXFR/IXFR over TCP receive a TSIG on each framed response
+message (MAC chained per RFC 8945).</li>
 </ul>
+
+<p>
+RFC 2136 dynamic update and RFC 1996 NOTIFY are handled via
+<code>handleNonQueryOpcode</code>. Dynamic updates append to an in-memory
+<code>ZoneJournal</code> (RFC 1995 IXFR): the client's SOA must appear in the
+IXFR query authority section. When the journal covers the requested serial
+range, the server returns TTL=0 deletions and additions; otherwise it falls
+back to AXFR. Multi-message transfers use length-prefixed framing on
+<code>DnsTcpListener</code>, DoT, or DoQ; UDP AXFR/IXFR set TC when the
+response does not fit in 512 octets.
+</p>
 
 <p>
 Supported directives: <code>$ORIGIN</code>, <code>$TTL</code>,
@@ -562,6 +593,7 @@ AuthoritativeZoneHandler auth = AuthoritativeZoneHandler.builder()
 
 DnsServer dns = DnsServer.compose()
     .listener(new DnsListener().port(5353))
+    .listener(new DnsTcpListener().port(5353))
     .handler(auth)
     .server();
 </pre>
@@ -570,6 +602,104 @@ DnsServer dns = DnsServer.compose()
 Multiple zones: call <code>zoneFile</code> or <code>zone</code> more than once.
 The longest matching origin wins when a query name could belong to several
 zones. See also <code>examples/dns-authoritative/</code> in the source tree.
+</p>
+
+<h4 id="authoritative-deployment">Deployment patterns</h4>
+
+<p>
+<code>AuthoritativeZoneHandler</code> is a toolkit for serving and maintaining
+zones inside Gumdrop, not a drop-in replacement for BIND. How you wire listeners,
+persistence, NOTIFY, and transfers depends on the role you need. Use the four
+questions below to pick APIs and configuration; several patterns can coexist on
+one server (different zones, different settings).
+</p>
+
+<ol>
+<li><b>Primary, secondary, or both?</b>
+<ul>
+<li><b>Primary only</b> - load or build zones, serve queries, optionally
+<code>notifyPeer</code> / <code>notifyFromNsRecords</code> after RFC 2136 updates.
+No <code>slaveOf</code>.</li>
+<li><b>Secondary only</b> - <code>slaveOf(origin, master)</code> plus a zone
+stub or empty SOA at the origin; inbound NOTIFY triggers a full AXFR refresh
+over TCP (see transfers below).</li>
+<li><b>Both</b> - multiple <code>zoneFile</code> / <code>zone</code> calls:
+some zones primary, some <code>slaveOf</code> for different origins.</li>
+</ul></li>
+<li><b>Mostly static files or dynamic updates in production?</b>
+<ul>
+<li><b>Static</b> - <code>zoneFile(path)</code> with default
+<code>READ_ONLY</code>; redeploy or reload the file when records change.</li>
+<li><b>Dynamic</b> - <code>zoneFile(path, READ_WRITE)</code>,
+<code>tsigKey</code>, and usually <code>requireTsig(true)</code>; clients use
+<code>nsupdate</code> or <code>DnsZoneOperations.sendUpdate</code>. Successful
+updates persist asynchronously on the storage pool.</li>
+</ul></li>
+<li><b>Zone transfers: never, backup only, or ongoing secondaries?</b>
+<ul>
+<li><b>Never</b> - do not expose AXFR to untrusted networks; many embedded
+deployments only need Q&amp;A plus UPDATE.</li>
+<li><b>Backup / tooling</b> - operators pull zones with
+<code>DnsZoneOperations.axfr</code> / <code>ixfr</code> (TCP, optional DoT via
+<code>TcpDnsClientTransport</code>, optional <code>TsigKey</code>). No
+<code>slaveOf</code> required.</li>
+<li><b>Secondaries</b> - master: NOTIFY after updates; secondary:
+<code>slaveOf</code>. Large zones: enable <code>DnsTcpListener</code>, DoT,
+and/or DoQ on the master so multi-message AXFR/IXFR use length-prefixed
+streams (UDP answers set TC when the zone does not fit in 512 octets).</li>
+</ul></li>
+<li><b>Trust: open network, private network, TSIG, or TLS?</b>
+<ul>
+<li><b>Private network</b> - restrict ports 53/853 with firewall rules; TSIG
+optional.</li>
+<li><b>TSIG</b> - same <code>tsigKey</code> on the handler for UPDATE and
+(incoming) AXFR/IXFR verification; sign outbound updates and transfer pulls with
+<code>DnsZoneOperations</code>. Built-in <code>slaveOf</code> refresh does
+<b>not</b> send TSIG today: use a custom job calling
+<code>axfrOverTcp(..., tsigKey, transport)</code> if the master requires it.</li>
+<li><b>TLS</b> - DoT/DoQ listeners on the server; for blocking client pulls use
+<code>axfrOverTls</code> or <code>axfrOverTcp</code> with
+<code>TcpDnsClientTransport.createDoT()</code>.</li>
+</ul></li>
+</ol>
+
+<p>
+Quick map from pattern to main APIs:
+</p>
+
+<table border="1" cellpadding="5">
+<tr><th>Goal</th><th>Server</th><th>Client / automation</th></tr>
+<tr><td>Answer queries for my zone</td>
+<td><code>AuthoritativeZoneHandler</code> + <code>DnsListener</code> (and TCP/DoT/DoQ if you need large responses or transfers)</td>
+<td><code>DnsResolver</code> (stub clients), or any DNS client</td></tr>
+<tr><td>Automate record changes</td>
+<td><code>READ_WRITE</code>, <code>tsigKey</code>, <code>requireTsig</code></td>
+<td><code>DnsZoneOperations.sendUpdate</code>, <code>nsupdate</code></td></tr>
+<tr><td>Notify downstream servers</td>
+<td><code>notifyPeer</code>, <code>notifyFromNsRecords</code></td>
+<td>Secondaries run Gumdrop (or BIND) with transfer allowed to them</td></tr>
+<tr><td>Pull zone from a master (Gumdrop secondary)</td>
+<td><code>slaveOf(origin, master)</code></td>
+<td>(Master serves AXFR; secondary pulls automatically on NOTIFY)</td></tr>
+<tr><td>Pull zone from any master (script/tool)</td>
+<td>-</td>
+<td><code>axfr</code>, <code>ixfr</code>, <code>axfrOverTcp</code>,
+<code>ixfrOverTcp</code>, optional TSIG / DoT transport</td></tr>
+<tr><td>Incremental transfer (IXFR)</td>
+<td>In-memory <code>ZoneJournal</code> after RFC 2136 updates on this instance</td>
+<td><code>ixfr(..., clientSoa)</code> with the slave's current SOA in the
+authority section</td></tr>
+</table>
+
+<p>
+<b>Limits to plan around</b> (not BIND parity): no <code>allow-transfer</code>
+ACL in the handler (use network policy until one exists); IXFR journal is
+in-memory and capped (restart or old serials fall back to AXFR); concurrent
+UPDATE, queries, and AXFR share one in-memory zone without explicit locking
+(keep change rate modest or serialize writers); NOTIFY and built-in secondary
+refresh are unsigned cleartext TCP AXFR unless you replace refresh with your
+own code. For resolver-only deployments, ignore this section and use
+<a href="#resolver">DNS Resolver (Client)</a>.
 </p>
 
 <h4>UpstreamRelayHandler</h4>
@@ -791,6 +921,25 @@ or <code>DoQConnectionPool</code> for persistent connections. For DoH, use
 When a UDP response has the TC (truncated) flag set, <code>DnsResolver</code>
 automatically retries over TCP using standard DNS-over-TCP framing (2-byte
 length prefix, RFC 1035 section 4.2.2). The retry is transparent to the caller.
+</p>
+
+<h4>Blocking zone operations (<code>DnsZoneOperations</code>)</h4>
+
+<p>
+For synchronous RFC 2136 updates and RFC 5936 zone transfers (e.g. tooling or
+secondary refresh), use <code>DnsZoneOperations</code>. <code>axfr(server,
+zone)</code> tries UDP first and retries with <code>axfrOverTcp</code> when the
+response is truncated. <code>ixfr(server, zone, clientSoa)</code> sends the
+slave SOA in the authority section (RFC 1995) and retries over TCP when truncated.
+<code>axfrOverTcp</code> and <code>ixfrOverTcp</code> use RFC 1035 TCP framing
+and read length-prefixed messages until the server closes the connection
+(multi-message AXFR/IXFR). Pass an optional <code>TsigKey</code> to sign requests
+and verify responses (including chained TSIG on multi-message TCP transfers).
+For DNS-over-TLS, pass a configured <code>TcpDnsClientTransport</code> (e.g.
+<code>TcpDnsClientTransport.createDoT()</code>) to <code>axfrOverTcp</code> /
+<code>ixfrOverTcp</code>, or use <code>axfrOverTls</code>. These calls block the
+calling thread; they are not tied to <code>DnsResolver</code> or Gumdrop selector
+loops.
 </p>
 
 <h4>SRV Record Queries</h4>

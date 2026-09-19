@@ -14,6 +14,7 @@ import java.util.Arrays;
 public final class TsigKey {
 
     public static final String HMAC_MD5 = "hmac-md5";
+    public static final String HMAC_SHA1 = "hmac-sha1";
     public static final String HMAC_SHA256 = "hmac-sha256";
 
     private final String name;

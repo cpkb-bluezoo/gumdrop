@@ -53,6 +53,7 @@ public class ZoneFilePersistenceTest {
             AuthoritativeZoneHandler handler = AuthoritativeZoneHandler.builder()
                     .zoneFile(zone, ZoneFileAccessMode.READ_WRITE)
                     .deferZoneFileLoad(false)
+                    .notifyFromNsRecords(false)
                     .build();
             handler.start(gumdrop);
 
@@ -97,7 +98,14 @@ public class ZoneFilePersistenceTest {
             }
             assertTrue(savedOnStorage.get());
 
-            ZoneFile reloaded = ZoneFile.load(zone);
+            ZoneFile reloaded = null;
+            for (int i = 0; i < 50; i++) {
+                reloaded = ZoneFile.load(zone);
+                if (reloaded.asMutable().getSerial() == 2) {
+                    break;
+                }
+                Thread.sleep(100);
+            }
             assertEquals(2, reloaded.asMutable().getSerial());
             assertEquals(ZoneLookupResult.STATUS_ANSWER,
                     reloaded.lookup("new.example.com.", DnsType.A).getStatus());
@@ -123,6 +131,7 @@ public class ZoneFilePersistenceTest {
             AuthoritativeZoneHandler handler = AuthoritativeZoneHandler.builder()
                     .zoneFile(zone, ZoneFileAccessMode.READ_ONLY)
                     .deferZoneFileLoad(false)
+                    .notifyFromNsRecords(false)
                     .build();
             handler.start(gumdrop);
 

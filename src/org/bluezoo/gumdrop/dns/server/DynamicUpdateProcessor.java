@@ -43,16 +43,15 @@ final class DynamicUpdateProcessor {
         }
 
         List<DnsResourceRecord> updates = request.getUpdateChanges();
-        boolean changed = false;
+        ZoneChangeBatch batch = new ZoneChangeBatch();
         for (int i = 0; i < updates.size(); i++) {
-            int rc = applyUpdate(zone, updates.get(i));
+            int rc = applyUpdate(zone, updates.get(i), batch);
             if (rc != DnsMessage.RCODE_NOERROR) {
                 return rc;
             }
-            changed = true;
         }
-        if (changed) {
-            zone.bumpSoaSerial();
+        if (!batch.isEmpty()) {
+            zone.commitDynamicUpdate(batch);
         }
         return DnsMessage.RCODE_NOERROR;
     }
@@ -92,7 +91,8 @@ final class DynamicUpdateProcessor {
         return DnsMessage.RCODE_NOERROR;
     }
 
-    private static int applyUpdate(MutableZone zone, DnsResourceRecord rr) {
+    private static int applyUpdate(MutableZone zone, DnsResourceRecord rr,
+                                   ZoneChangeBatch batch) {
         String owner = ZoneFile.normalizeName(rr.getName());
         if (!zone.isWithinZone(owner)) {
             return DnsMessage.RCODE_NOTZONE;
@@ -103,16 +103,16 @@ final class DynamicUpdateProcessor {
         }
         if (rr.getTTL() == 0 && rr.getRawClass() == DnsClass.ANY.getValue()) {
             if (type == DnsType.ANY) {
-                zone.deleteName(owner);
+                zone.deleteName(owner, batch);
             } else {
-                zone.deleteRrset(owner, type);
+                zone.deleteRrset(owner, type, batch);
             }
             return DnsMessage.RCODE_NOERROR;
         }
         if (type == DnsType.SOA) {
             return DnsMessage.RCODE_REFUSED;
         }
-        zone.addRecord(rr);
+        zone.addRecord(rr, batch);
         return DnsMessage.RCODE_NOERROR;
     }
 }

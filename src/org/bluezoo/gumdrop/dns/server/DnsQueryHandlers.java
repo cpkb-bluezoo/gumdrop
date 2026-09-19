@@ -24,6 +24,7 @@ package org.bluezoo.gumdrop.dns.server;
 import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.dns.DnsMessage;
 import org.bluezoo.gumdrop.dns.DnsQueryCallback;
+import org.bluezoo.gumdrop.dns.DnsQueryTransport;
 
 /**
  * Factory methods for {@link DnsQueryHandler} implementations.
@@ -124,12 +125,26 @@ public final class DnsQueryHandlers {
 
         @Override
         public void handleQuery(final DnsMessage query, final SelectorLoop loop,
+                                final DnsQueryTransport transport,
                                 final DnsQueryCallback callback) {
-            first.handleQuery(query, loop, new DnsQueryCallback() {
+            first.handleQuery(query, loop, transport, new DnsQueryCallback() {
+                @Override
+                public void onResponseSequence(java.util.List<DnsMessage> responses) {
+                    if (responses == null || responses.isEmpty()) {
+                        second.handleQuery(query, loop, transport, callback);
+                        return;
+                    }
+                    if (shouldDelegate(responses.get(0))) {
+                        second.handleQuery(query, loop, transport, callback);
+                    } else {
+                        callback.onResponseSequence(responses);
+                    }
+                }
+
                 @Override
                 public void onResponse(DnsMessage response) {
                     if (shouldDelegate(response)) {
-                        second.handleQuery(query, loop, callback);
+                        second.handleQuery(query, loop, transport, callback);
                     } else {
                         callback.onResponse(response);
                     }
@@ -137,9 +152,15 @@ public final class DnsQueryHandlers {
 
                 @Override
                 public void onError(String error) {
-                    second.handleQuery(query, loop, callback);
+                    second.handleQuery(query, loop, transport, callback);
                 }
             });
+        }
+
+        @Override
+        public void handleQuery(final DnsMessage query, final SelectorLoop loop,
+                                final DnsQueryCallback callback) {
+            handleQuery(query, loop, DnsQueryTransport.UDP, callback);
         }
 
         private static boolean shouldDelegate(DnsMessage response) {

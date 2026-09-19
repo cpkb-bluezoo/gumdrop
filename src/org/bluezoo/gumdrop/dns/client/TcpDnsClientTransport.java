@@ -21,11 +21,20 @@
 
 package org.bluezoo.gumdrop.dns.client;
 
+import org.bluezoo.gumdrop.dns.DnsMessage;
+
 import java.io.IOException;
 import java.net.InetAddress;
+import java.net.InetSocketAddress;
+import java.net.SocketTimeoutException;
 import java.nio.ByteBuffer;
+import java.util.List;
 import java.util.Set;
 
+import javax.net.ssl.SSLContext;
+import javax.net.ssl.SSLParameters;
+import javax.net.ssl.SSLSocket;
+import javax.net.ssl.TrustManager;
 import javax.net.ssl.X509TrustManager;
 
 import org.bluezoo.gumdrop.Endpoint;
@@ -145,6 +154,85 @@ public class TcpDnsClientTransport implements DnsClientTransport {
      */
     public void setDefaultPort(int port) {
         this.defaultPort = port;
+    }
+
+    /**
+     * Blocking DNS-over-TCP or DoT exchange using this transport's port, TLS,
+     * ALPN, and trust settings. Suitable for synchronous zone transfers from
+     * {@link DnsZoneOperations}.
+     */
+    public List<DnsMessage> exchangeBlocking(InetSocketAddress server,
+                                             DnsMessage request,
+                                             int timeoutMs,
+                                             boolean readUntilClose)
+            throws IOException {
+        InetSocketAddress target = resolveServerAddress(server);
+        if (!secure) {
+            return DnsZoneOperations.exchangeTcp(target, request, timeoutMs,
+                    readUntilClose);
+        }
+        SSLSocket socket = openDotSocket(target, timeoutMs);
+        try {
+            return DnsZoneOperations.readWriteFramed(socket.getInputStream(),
+                    socket.getOutputStream(), request, readUntilClose);
+        } catch (SocketTimeoutException e) {
+            throw new IOException("DNS DoT timeout", e);
+        } finally {
+            socket.close();
+        }
+    }
+
+    private InetSocketAddress resolveServerAddress(InetSocketAddress server) {
+        if (server.getPort() > 0) {
+            return server;
+        }
+        return new InetSocketAddress(server.getAddress(), defaultPort);
+    }
+
+    private SSLSocket openDotSocket(InetSocketAddress server, int timeoutMs)
+            throws IOException {
+        TrustManager[] trustManagers = createTrustManagers();
+        try {
+            SSLContext ctx = SSLContext.getInstance("TLS");
+            ctx.init(null, trustManagers, null);
+            SSLSocket socket = (SSLSocket) ctx.getSocketFactory().createSocket();
+            socket.connect(server, timeoutMs);
+            socket.setSoTimeout(timeoutMs);
+            SSLParameters params = socket.getSSLParameters();
+            params.setApplicationProtocols(new String[] { DOT_ALPN_PROTOCOL });
+            String host = server.getHostString();
+            if (host != null && host.length() > 0) {
+                params.setServerNames(java.util.Collections.singletonList(
+                        new javax.net.ssl.SNIHostName(host)));
+            }
+            socket.setSSLParameters(params);
+            socket.startHandshake();
+            return socket;
+        } catch (SocketTimeoutException e) {
+            throw new IOException("DNS DoT connect timeout", e);
+        } catch (IOException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new IOException("DNS DoT handshake failed", e);
+        }
+    }
+
+    private TrustManager[] createTrustManagers() {
+        if (spkiFingerprints != null && !spkiFingerprints.isEmpty()) {
+            String[] fingerprints = spkiFingerprints.toArray(new String[0]);
+            X509TrustManager delegate = trustManager;
+            org.bluezoo.gumdrop.util.SpkiPinnedCertTrustManager pinned =
+                    delegate != null
+                            ? new org.bluezoo.gumdrop.util.SpkiPinnedCertTrustManager(
+                                    delegate, fingerprints)
+                            : new org.bluezoo.gumdrop.util.SpkiPinnedCertTrustManager(
+                                    fingerprints);
+            return new TrustManager[] { pinned };
+        }
+        if (trustManager != null) {
+            return new TrustManager[] { trustManager };
+        }
+        return null;
     }
 
     @Override

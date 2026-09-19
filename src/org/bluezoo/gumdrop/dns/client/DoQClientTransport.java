@@ -35,6 +35,7 @@ import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.TimerHandle;
 import org.bluezoo.gumdrop.dns.DnsMessage;
+import org.bluezoo.gumdrop.dns.DnsTcpFraming;
 import org.bluezoo.gumdrop.quic.QuicConnection;
 import org.bluezoo.gumdrop.quic.QuicEngine;
 import org.bluezoo.gumdrop.quic.QuicTransportFactory;
@@ -275,7 +276,8 @@ public class DoQClientTransport implements DnsClientTransport {
      */
     private static class DoQStreamHandler implements ProtocolHandler {
 
-        private static final int MAX_DNS_MESSAGE_SIZE = 65535;
+        /** Upper bound on total stream bytes (multi-message AXFR/IXFR). */
+        private static final int MAX_STREAM_BYTES = 64 * 1024 * 1024;
 
         private final DnsClientTransportHandler handler;
         private final int originalId;
@@ -302,9 +304,9 @@ public class DoQClientTransport implements DnsClientTransport {
         @Override
         public void receive(ByteBuffer data) {
             int len = data.remaining();
-            if (accumulator.size() + len > MAX_DNS_MESSAGE_SIZE) {
+            if (accumulator.size() + len > MAX_STREAM_BYTES) {
                 handler.onError(new IOException(
-                        "DoQ response too large"));
+                        "DoQ response stream too large"));
                 return;
             }
             byte[] buf = new byte[len];
@@ -327,22 +329,30 @@ public class DoQClientTransport implements DnsClientTransport {
                 return;
             }
             byte[] raw = accumulator.toByteArray();
-            // RFC 9250 section 4.2: strip 2-octet length prefix
-            int msgLen = ((raw[0] & 0xFF) << 8) | (raw[1] & 0xFF);
-            if (msgLen > raw.length - 2) {
-                handler.onError(new IOException(
-                        "DoQ response length mismatch"));
+            final List<byte[]> frames;
+            try {
+                frames = DnsTcpFraming.readAllFramedMessages(raw);
+            } catch (IOException e) {
+                handler.onError(e);
                 return;
             }
-            // Restore the original Message ID (see sendNow) so
-            // DnsResolver's ID-keyed correlation finds the right
-            // pending query -- the server's ID field is 0 per RFC 9250
-            // section 4.2.1, same as what was actually sent.
-            if (msgLen >= 2) {
-                raw[2] = (byte) (originalId >> 8);
-                raw[3] = (byte) originalId;
+            if (frames.isEmpty()) {
+                return;
             }
-            handler.onReceive(ByteBuffer.wrap(raw, 2, msgLen));
+            List<ByteBuffer> buffers = new ArrayList<ByteBuffer>(frames.size());
+            for (int i = 0; i < frames.size(); i++) {
+                byte[] msg = frames.get(i);
+                if (msg.length >= 2) {
+                    msg[0] = (byte) (originalId >> 8);
+                    msg[1] = (byte) originalId;
+                }
+                buffers.add(ByteBuffer.wrap(msg));
+            }
+            if (buffers.size() == 1) {
+                handler.onReceive(buffers.get(0));
+            } else {
+                handler.onReceiveSequence(buffers);
+            }
         }
 
         @Override

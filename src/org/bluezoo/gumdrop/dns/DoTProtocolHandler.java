@@ -24,6 +24,7 @@ package org.bluezoo.gumdrop.dns;
 import java.net.InetSocketAddress;
 import java.net.SocketAddress;
 import java.nio.ByteBuffer;
+import java.util.List;
 import java.text.MessageFormat;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -32,6 +33,7 @@ import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.ProtocolHandler;
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.dns.server.DnsServer;
+import org.bluezoo.gumdrop.dns.DnsQueryTransport;
 
 /**
  * Protocol handler for DNS-over-TLS (DoT) connections.
@@ -63,11 +65,18 @@ final class DoTProtocolHandler implements ProtocolHandler {
     private static final int MAX_DNS_MESSAGE_SIZE = 65535;
 
     private final org.bluezoo.gumdrop.dns.server.DnsServer server;
+    private final String metricsTransport;
     private Endpoint endpoint;
     private ByteBuffer accumulator;
 
     DoTProtocolHandler(org.bluezoo.gumdrop.dns.server.DnsServer server) {
+        this(server, "dot");
+    }
+
+    DoTProtocolHandler(org.bluezoo.gumdrop.dns.server.DnsServer server,
+                       String metricsTransport) {
         this.server = server;
+        this.metricsTransport = metricsTransport;
         this.accumulator = ByteBuffer.allocate(4096);
         this.accumulator.flip();
     }
@@ -160,31 +169,13 @@ final class DoTProtocolHandler implements ProtocolHandler {
             if (metrics != null && !query.getQuestions().isEmpty()) {
                 DnsQuestion q =
                         query.getQuestions().get(0);
-                metrics.queryReceived(q.getType().name(), "dot");
+                metrics.queryReceived(q.getType().name(), metricsTransport);
             }
 
             if (!DnsServer.isStandardQuery(query)) {
                 final long startNanos = System.nanoTime();
                 server.dispatchNonQueryOpcode(query, endpoint.getSelectorLoop(),
-                        new DnsQueryCallback() {
-                    @Override
-                    public void onResponse(DnsMessage response) {
-                        if (metrics != null) {
-                            double durationMs = (System.nanoTime()
-                                    - startNanos) / 1_000_000.0;
-                            metrics.responseSent(
-                                    DnsServer.rcodeToString(response.getRcode()),
-                                    durationMs, "dot");
-                        }
-                        sendResponse(response);
-                    }
-
-                    @Override
-                    public void onError(String error) {
-                        sendResponse(query.createErrorResponse(
-                                DnsMessage.RCODE_SERVFAIL));
-                    }
-                });
+                        framedCallback(query, startNanos));
                 return;
             }
 
@@ -196,26 +187,8 @@ final class DoTProtocolHandler implements ProtocolHandler {
 
             final long startNanos = System.nanoTime();
             server.processQuery(query, endpoint.getSelectorLoop(),
-                    new DnsQueryCallback() {
-                        @Override
-                        public void onResponse(DnsMessage response) {
-                            if (metrics != null) {
-                                double durationMs = (System.nanoTime()
-                                        - startNanos) / 1_000_000.0;
-                                metrics.responseSent(
-                                        DnsServer.rcodeToString(
-                                                response.getRcode()),
-                                        durationMs, "dot");
-                            }
-                            sendResponse(response);
-                        }
-
-                        @Override
-                        public void onError(String error) {
-                            sendResponse(query.createErrorResponse(
-                                    DnsMessage.RCODE_SERVFAIL));
-                        }
-                    });
+                    DnsQueryTransport.FRAMED_TCP,
+                    framedCallback(query, startNanos));
 
         } catch (DnsFormatException e) {
             LOGGER.log(Level.FINE, MessageFormat.format(
@@ -225,6 +198,41 @@ final class DoTProtocolHandler implements ProtocolHandler {
             LOGGER.log(Level.WARNING, MessageFormat.format(
                     DnsServer.L10N.getString("err.dot_query_error"),
                     endpoint.getRemoteAddress()), e);
+        }
+    }
+
+    private DnsQueryCallback framedCallback(final DnsMessage query,
+                                            final long startNanos) {
+        return new DnsQueryCallback() {
+            @Override
+            public void onResponse(DnsMessage response) {
+                recordMetrics(response, startNanos);
+                sendResponse(response);
+            }
+
+            @Override
+            public void onResponseSequence(List<DnsMessage> responses) {
+                recordMetrics(responses.get(responses.size() - 1), startNanos);
+                for (int i = 0; i < responses.size(); i++) {
+                    sendResponse(responses.get(i));
+                }
+            }
+
+            @Override
+            public void onError(String error) {
+                sendResponse(query.createErrorResponse(
+                        DnsMessage.RCODE_SERVFAIL));
+            }
+        };
+    }
+
+    private void recordMetrics(DnsMessage response, long startNanos) {
+        DnsServerMetrics metrics = server.getMetrics();
+        if (metrics != null) {
+            double durationMs = (System.nanoTime() - startNanos) / 1_000_000.0;
+            metrics.responseSent(
+                    DnsServer.rcodeToString(response.getRcode()),
+                    durationMs, metricsTransport);
         }
     }
 

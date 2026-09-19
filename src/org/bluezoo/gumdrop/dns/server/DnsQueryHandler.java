@@ -25,6 +25,7 @@ import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.dns.DnsMessage;
 import org.bluezoo.gumdrop.dns.DnsQueryCallback;
+import org.bluezoo.gumdrop.dns.DnsQueryTransport;
 
 /**
  * Application logic for a {@link DnsServer} — resolves or declines DNS queries.
@@ -60,6 +61,16 @@ public interface DnsQueryHandler {
      * @param callback invoked exactly once with the response
      */
     void handleQuery(DnsMessage query, SelectorLoop loop, DnsQueryCallback callback);
+
+    /**
+     * Handles a query with transport context (UDP vs framed TCP).
+     * Default delegates to {@link #handleQuery(DnsMessage, SelectorLoop, DnsQueryCallback)}.
+     */
+    default void handleQuery(DnsMessage query, SelectorLoop loop,
+                             DnsQueryTransport transport,
+                             DnsQueryCallback callback) {
+        handleQuery(query, loop, callback);
+    }
 
     /**
      * Handles a message that is not a standard {@code OPCODE_QUERY}, if

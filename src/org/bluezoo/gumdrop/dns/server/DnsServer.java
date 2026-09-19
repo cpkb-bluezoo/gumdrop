@@ -31,6 +31,8 @@ import org.bluezoo.gumdrop.dns.DnsQuestion;
 import org.bluezoo.gumdrop.dns.DnsResourceRecord;
 import org.bluezoo.gumdrop.dns.DnsServerMetrics;
 import org.bluezoo.gumdrop.dns.DnsType;
+import org.bluezoo.gumdrop.dns.DnsQueryTransport;
+import org.bluezoo.gumdrop.dns.DnsTcpListener;
 import org.bluezoo.gumdrop.dns.DoQListener;
 import org.bluezoo.gumdrop.dns.DoTListener;
 
@@ -80,6 +82,7 @@ import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
  * <p>The service manages one or more listeners:
  * <ul>
  *   <li>{@link DnsListener} &ndash; standard DNS over UDP</li>
+ *   <li>{@link DnsTcpListener} &ndash; DNS over TCP (RFC 1035)</li>
  *   <li>{@link DoTListener} &ndash; DNS over TLS</li>
  *   <li>{@link DoQListener} &ndash; DNS over QUIC</li>
  * </ul>
@@ -151,7 +154,14 @@ public class DnsServer implements Server {
     }
 
     /**
-     * Adds a DNS-over-TLS listener (stub).
+     * Adds a cleartext DNS-over-TCP listener (RFC 1035 section 4.2.2).
+     */
+    public void addListener(DnsTcpListener endpoint) {
+        listeners.add(endpoint);
+    }
+
+    /**
+     * Adds a DNS-over-TLS listener.
      *
      * @param endpoint the DoT server endpoint
      */
@@ -170,7 +180,7 @@ public class DnsServer implements Server {
 
     /**
      * Sets the listeners from a configuration list. Each item must be
-     * a {@link DnsListener}, {@link DoTListener}, or
+     * a {@link DnsListener}, {@link DnsTcpListener}, {@link DoTListener}, or
      * {@link DoQListener}.
      *
      * @param list the list of listener endpoints
@@ -180,6 +190,8 @@ public class DnsServer implements Server {
             Object item = list.get(i);
             if (item instanceof DnsListener) {
                 addListener((DnsListener) item);
+            } else if (item instanceof DnsTcpListener) {
+                addListener((DnsTcpListener) item);
             } else if (item instanceof DoTListener) {
                 addListener((DoTListener) item);
             } else if (item instanceof DoQListener) {
@@ -444,10 +456,19 @@ public class DnsServer implements Server {
      */
     public void processQuery(final DnsMessage query, final SelectorLoop loop,
                              final DnsQueryCallback callback) {
+        processQuery(query, loop, DnsQueryTransport.UDP, callback);
+    }
+
+    /**
+     * Dispatches a query to the active handler with transport context.
+     */
+    public void processQuery(final DnsMessage query, final SelectorLoop loop,
+                             final DnsQueryTransport transport,
+                             final DnsQueryCallback callback) {
         final DnsQuestion question = query.getQuestions().get(0);
         DnsQueryHandler handler = activeHandler != null
                 ? activeHandler : resolveActiveHandler();
-        handler.handleQuery(query, loop, new DnsQueryCallback() {
+        handler.handleQuery(query, loop, transport, new DnsQueryCallback() {
             @Override
             public void onResponse(DnsMessage response) {
                 withMQTypeResponse(query, question, response, loop, callback);

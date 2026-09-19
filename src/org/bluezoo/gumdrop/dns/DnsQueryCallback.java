@@ -21,6 +21,8 @@
 
 package org.bluezoo.gumdrop.dns;
 
+import java.util.List;
+
 /**
  * Callback interface for asynchronous DNS query results.
  *
@@ -45,6 +47,20 @@ public interface DnsQueryCallback {
      * @param error a description of the error
      */
     void onError(String error);
+
+    /**
+     * Called for multi-message answers (RFC 5936 AXFR over TCP). The default
+     * sends only the first message (suitable for UDP listeners).
+     *
+     * @param responses one or more complete DNS response messages
+     */
+    default void onResponseSequence(List<DnsMessage> responses) {
+        if (responses == null || responses.isEmpty()) {
+            onError("empty response sequence");
+            return;
+        }
+        onResponse(responses.get(0));
+    }
 
 }
 

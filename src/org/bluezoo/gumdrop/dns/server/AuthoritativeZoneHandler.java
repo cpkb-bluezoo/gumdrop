@@ -25,14 +25,13 @@ import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.StorageExecutor;
 import org.bluezoo.gumdrop.dns.DnsMessage;
+import org.bluezoo.gumdrop.dns.DnsQueryTransport;
 import org.bluezoo.gumdrop.dns.DnsQueryCallback;
 import org.bluezoo.gumdrop.dns.DnsQuestion;
 import org.bluezoo.gumdrop.dns.DnsResourceRecord;
 import org.bluezoo.gumdrop.dns.DnsTsig;
 import org.bluezoo.gumdrop.dns.DnsType;
 import org.bluezoo.gumdrop.dns.TsigKey;
-import org.bluezoo.gumdrop.dns.client.DnsZoneOperations;
-
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.nio.file.Path;
@@ -72,7 +71,10 @@ public final class AuthoritativeZoneHandler implements DnsQueryHandler {
     private TsigKey tsigKey;
     private boolean tsigRequired;
     private final List<InetSocketAddress> notifyPeers;
+    private final boolean notifyFromNsRecords;
     private final Map<String, InetSocketAddress> mastersByOrigin;
+
+    private static final int UDP_AXFR_SIZE_LIMIT = 512;
 
     public AuthoritativeZoneHandler(MutableZone zone) {
         if (zone == null) {
@@ -81,11 +83,13 @@ public final class AuthoritativeZoneHandler implements DnsQueryHandler {
         this.managedZones = Collections.singletonList(ManagedZone.inMemory(zone));
         this.zones = buildZoneSnapshot(this.managedZones);
         this.notifyPeers = Collections.emptyList();
+        this.notifyFromNsRecords = true;
         this.mastersByOrigin = Collections.emptyMap();
     }
 
     AuthoritativeZoneHandler(List<ManagedZone> managedZones, TsigKey tsigKey,
                              boolean tsigRequired, List<InetSocketAddress> notifyPeers,
+                             boolean notifyFromNsRecords,
                              Map<String, InetSocketAddress> mastersByOrigin) {
         if (managedZones == null || managedZones.isEmpty()) {
             throw new IllegalArgumentException("at least one zone is required");
@@ -98,6 +102,7 @@ public final class AuthoritativeZoneHandler implements DnsQueryHandler {
         this.notifyPeers = notifyPeers == null
                 ? Collections.<InetSocketAddress>emptyList()
                 : Collections.unmodifiableList(new ArrayList<InetSocketAddress>(notifyPeers));
+        this.notifyFromNsRecords = notifyFromNsRecords;
         this.mastersByOrigin = mastersByOrigin == null
                 ? Collections.<String, InetSocketAddress>emptyMap()
                 : Collections.unmodifiableMap(new HashMap<String, InetSocketAddress>(mastersByOrigin));
@@ -163,7 +168,7 @@ public final class AuthoritativeZoneHandler implements DnsQueryHandler {
                                         DnsQueryCallback callback) {
         int opcode = query.getOpcode();
         if (opcode == DnsMessage.OPCODE_NOTIFY) {
-            handleNotify(query, callback);
+            handleNotify(query, loop, callback);
             return true;
         }
         if (opcode == DnsMessage.OPCODE_UPDATE) {
@@ -173,7 +178,8 @@ public final class AuthoritativeZoneHandler implements DnsQueryHandler {
         return false;
     }
 
-    private void handleNotify(DnsMessage query, DnsQueryCallback callback) {
+    private void handleNotify(DnsMessage query, SelectorLoop loop,
+                              DnsQueryCallback callback) {
         if (query.getQuestions().isEmpty()) {
             callback.onResponse(query.createAuthoritativeErrorResponse(
                     DnsMessage.RCODE_FORMERR));
@@ -188,7 +194,15 @@ public final class AuthoritativeZoneHandler implements DnsQueryHandler {
         }
         InetSocketAddress master = mastersByOrigin.get(zone.getOrigin());
         if (master != null) {
-            refreshFromMaster(zone, master);
+            final MutableZone refreshZone = zone;
+            final SelectorLoop dispatchLoop = loop != null ? loop : defaultLoop;
+            ZoneNetworkTasks.refreshFromMasterAsync(storageExecutor, dispatchLoop,
+                    refreshZone, master, new Runnable() {
+                        @Override
+                        public void run() {
+                            schedulePersist(refreshZone, dispatchLoop);
+                        }
+                    });
         }
         callback.onResponse(query.createAuthoritativeEmptyResponse(
                 DnsMessage.RCODE_NOERROR));
@@ -202,35 +216,77 @@ public final class AuthoritativeZoneHandler implements DnsQueryHandler {
             return;
         }
         if (query.getUpdateZoneSection().isEmpty()) {
-            callback.onResponse(query.createAuthoritativeErrorResponse(
-                    DnsMessage.RCODE_FORMERR));
+            respondToUpdate(query, callback, DnsMessage.RCODE_FORMERR);
             return;
         }
         String zname = ZoneFile.normalizeName(
                 query.getUpdateZoneSection().get(0).getName());
         MutableZone zone = zoneForOrigin(zname);
         if (zone == null) {
-            callback.onResponse(query.createAuthoritativeErrorResponse(
-                    DnsMessage.RCODE_NOTAUTH));
+            respondToUpdate(query, callback, DnsMessage.RCODE_NOTAUTH);
             return;
         }
         int rcode = DynamicUpdateProcessor.apply(zone, query);
         if (rcode == DnsMessage.RCODE_NOERROR) {
-            ZoneNotifySender.notifySecondaries(zone, notifyPeers);
+            sendNotify(zone, loop);
             schedulePersist(zone, loop);
         }
-        callback.onResponse(query.createAuthoritativeEmptyResponse(rcode));
+        respondToUpdate(query, callback, rcode);
     }
 
-    private void refreshFromMaster(MutableZone zone, InetSocketAddress master) {
-        try {
-            List<DnsResourceRecord> records = DnsZoneOperations.axfr(master,
-                    zone.getOrigin());
-            zone.replaceFromAxfr(records);
-            schedulePersist(zone, defaultLoop);
-        } catch (IOException e) {
-            // refresh is best-effort on NOTIFY
+    private void respondToUpdate(DnsMessage query, DnsQueryCallback callback,
+                                 int rcode) {
+        DnsMessage response = query.createAuthoritativeEmptyResponse(rcode);
+        callback.onResponse(tsigSignUpdateResponse(query, response));
+    }
+
+    private DnsMessage tsigSignUpdateResponse(DnsMessage query, DnsMessage response) {
+        if (query.getTsigRecord() == null || tsigKey == null) {
+            return response;
         }
+        try {
+            return DnsTsig.signResponse(response, tsigKey, query);
+        } catch (IOException e) {
+            return response;
+        }
+    }
+
+    private void sendNotify(MutableZone zone, SelectorLoop loop) {
+        List<InetSocketAddress> peers = notifyTargetsFor(zone);
+        if (peers.isEmpty()) {
+            return;
+        }
+        SelectorLoop dispatchLoop = loop != null ? loop : defaultLoop;
+        ZoneNetworkTasks.notifyPeersAsync(storageExecutor, dispatchLoop,
+                zone.getOrigin(), peers);
+    }
+
+    private List<InetSocketAddress> notifyTargetsFor(MutableZone zone) {
+        List<InetSocketAddress> targets = new ArrayList<InetSocketAddress>(notifyPeers);
+        if (notifyFromNsRecords) {
+            targets.addAll(zone.inZoneSecondaryAddresses());
+        }
+        if (targets.size() <= 1) {
+            return targets;
+        }
+        List<InetSocketAddress> unique = new ArrayList<InetSocketAddress>();
+        for (int i = 0; i < targets.size(); i++) {
+            InetSocketAddress candidate = targets.get(i);
+            if (candidate == null) {
+                continue;
+            }
+            boolean seen = false;
+            for (int j = 0; j < unique.size(); j++) {
+                if (unique.get(j).equals(candidate)) {
+                    seen = true;
+                    break;
+                }
+            }
+            if (!seen) {
+                unique.add(candidate);
+            }
+        }
+        return unique;
     }
 
     private void loadZoneFileAsync(final ManagedZone managed) {
@@ -281,6 +337,7 @@ public final class AuthoritativeZoneHandler implements DnsQueryHandler {
 
     @Override
     public void handleQuery(DnsMessage query, SelectorLoop loop,
+                            DnsQueryTransport transport,
                             DnsQueryCallback callback) {
         DnsQuestion question = query.getQuestions().get(0);
         String qname = question.getName();
@@ -292,18 +349,23 @@ public final class AuthoritativeZoneHandler implements DnsQueryHandler {
             return;
         }
 
-        if (qtype == DnsType.AXFR) {
+        if (qtype == DnsType.AXFR || qtype == DnsType.IXFR) {
             String normalized = ZoneFile.normalizeName(qname);
             if (!normalized.equals(zone.getOrigin())) {
                 callback.onResponse(query.createAuthoritativeErrorResponse(
                         DnsMessage.RCODE_REFUSED));
                 return;
             }
-            callback.onResponse(createAuthoritativeResponse(query, zone,
-                    zone.allRecords(),
-                    Collections.<DnsResourceRecord>emptyList(),
-                    Collections.<DnsResourceRecord>emptyList(),
-                    DnsMessage.RCODE_NOERROR));
+            if (!DnsTsig.verify(query, tsigKey, !tsigRequired)) {
+                callback.onResponse(query.createAuthoritativeErrorResponse(
+                        DnsMessage.RCODE_REFUSED));
+                return;
+            }
+            if (qtype == DnsType.IXFR) {
+                answerIxfr(query, zone, transport, callback);
+            } else {
+                answerAxfr(query, zone, transport, callback);
+            }
             return;
         }
 
@@ -362,6 +424,73 @@ public final class AuthoritativeZoneHandler implements DnsQueryHandler {
         callback.onResponse(createAuthoritativeResponse(query, zone,
                 resolved.answers, authorities, additionals,
                 DnsMessage.RCODE_NOERROR));
+    }
+
+    @Override
+    public void handleQuery(DnsMessage query, SelectorLoop loop,
+                            DnsQueryCallback callback) {
+        handleQuery(query, loop, DnsQueryTransport.UDP, callback);
+    }
+
+    private void answerAxfr(DnsMessage query, MutableZone zone,
+                            DnsQueryTransport transport,
+                            DnsQueryCallback callback) {
+        if (transport != null && transport.supportsMultiMessageAnswers()) {
+            callback.onResponseSequence(tsigSignTransferSequence(query,
+                    AxfrMessageSplitter.split(query, zone)));
+            return;
+        }
+        DnsMessage single = createAuthoritativeResponse(query, zone,
+                zone.allRecords(),
+                Collections.<DnsResourceRecord>emptyList(),
+                Collections.<DnsResourceRecord>emptyList(),
+                DnsMessage.RCODE_NOERROR);
+        if (single.serialize().remaining() > UDP_AXFR_SIZE_LIMIT) {
+            callback.onResponse(truncatedTransferHint(query));
+            return;
+        }
+        callback.onResponse(tsigSignUpdateResponse(query, single));
+    }
+
+    private void answerIxfr(DnsMessage query, MutableZone zone,
+                            DnsQueryTransport transport,
+                            DnsQueryCallback callback) {
+        List<DnsMessage> messages = IxfrMessageSplitter.split(query, zone);
+        if (transport != null && transport.supportsMultiMessageAnswers()) {
+            callback.onResponseSequence(tsigSignTransferSequence(query, messages));
+            return;
+        }
+        if (messages.size() == 1) {
+            DnsMessage single = messages.get(0);
+            if (single.serialize().remaining() > UDP_AXFR_SIZE_LIMIT) {
+                callback.onResponse(truncatedTransferHint(query));
+                return;
+            }
+            callback.onResponse(tsigSignUpdateResponse(query, single));
+            return;
+        }
+        callback.onResponse(truncatedTransferHint(query));
+    }
+
+    private List<DnsMessage> tsigSignTransferSequence(DnsMessage query,
+                                                      List<DnsMessage> messages) {
+        if (query.getTsigRecord() == null || tsigKey == null) {
+            return messages;
+        }
+        try {
+            return DnsTsig.signResponseSequence(messages, tsigKey, query);
+        } catch (IOException e) {
+            return messages;
+        }
+    }
+
+    private static DnsMessage truncatedTransferHint(DnsMessage query) {
+        int flags = DnsMessage.FLAG_QR | DnsMessage.FLAG_AA | DnsMessage.FLAG_TC
+                | (query.getFlags() & DnsMessage.FLAG_RD);
+        return new DnsMessage(query.getId(), flags, query.getQuestions(),
+                new ArrayList<DnsResourceRecord>(),
+                new ArrayList<DnsResourceRecord>(),
+                new ArrayList<DnsResourceRecord>());
     }
 
     private MutableZone zoneFor(String qname) {
@@ -428,7 +557,7 @@ public final class AuthoritativeZoneHandler implements DnsQueryHandler {
         return Collections.emptyList();
     }
 
-    private static DnsMessage createAuthoritativeResponse(DnsMessage query,
+    static DnsMessage createAuthoritativeResponse(DnsMessage query,
             MutableZone zone, List<DnsResourceRecord> answers,
             List<DnsResourceRecord> authorities,
             List<DnsResourceRecord> additionals, int rcode) {
@@ -478,6 +607,7 @@ public final class AuthoritativeZoneHandler implements DnsQueryHandler {
         private MinimalAnyPolicy minimalAnyPolicy = MinimalAnyPolicy.ENABLED;
         private TsigKey tsigKey;
         private boolean tsigRequired;
+        private boolean notifyFromNsRecords = true;
         private final List<InetSocketAddress> notifyPeers = new ArrayList<InetSocketAddress>();
         private final Map<String, InetSocketAddress> mastersByOrigin =
                 new HashMap<String, InetSocketAddress>();
@@ -555,6 +685,15 @@ public final class AuthoritativeZoneHandler implements DnsQueryHandler {
         }
 
         /**
+         * When {@code true} (default), NOTIFY after updates is also sent to
+         * in-zone NS targets that have glue A/AAAA records (port 53).
+         */
+        public Builder notifyFromNsRecords(boolean enabled) {
+            this.notifyFromNsRecords = enabled;
+            return this;
+        }
+
+        /**
          * Configures a secondary zone that refreshes from {@code master} on NOTIFY.
          */
         public Builder slaveOf(String zoneOrigin, InetSocketAddress master) {
@@ -590,7 +729,8 @@ public final class AuthoritativeZoneHandler implements DnsQueryHandler {
                 throw new IllegalStateException("at least one zone is required");
             }
             AuthoritativeZoneHandler handler = new AuthoritativeZoneHandler(managed,
-                    tsigKey, tsigRequired, notifyPeers, mastersByOrigin);
+                    tsigKey, tsigRequired, notifyPeers, notifyFromNsRecords,
+                    mastersByOrigin);
             handler.setMinimalAnyPolicy(minimalAnyPolicy);
             return handler;
         }

@@ -22,6 +22,7 @@
 package org.bluezoo.gumdrop.dns.client;
 
 import java.nio.ByteBuffer;
+import java.util.List;
 
 /**
  * Callback interface for DNS client transport events.
@@ -40,6 +41,17 @@ public interface DnsClientTransportHandler {
      * @param data the received data
      */
     void onReceive(ByteBuffer data);
+
+    /**
+     * Called when several length-prefixed DNS messages arrive on one DoQ stream
+     * (RFC 5936 AXFR/IXFR). The default delivers each message via
+     * {@link #onReceive} in order.
+     */
+    default void onReceiveSequence(List<ByteBuffer> messages) {
+        for (int i = 0; i < messages.size(); i++) {
+            onReceive(messages.get(i));
+        }
+    }
 
     /**
      * Called when a transport-level error occurs.

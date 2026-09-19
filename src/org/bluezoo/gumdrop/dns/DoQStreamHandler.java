@@ -24,6 +24,7 @@ package org.bluezoo.gumdrop.dns;
 import java.io.ByteArrayOutputStream;
 import java.nio.ByteBuffer;
 import java.text.MessageFormat;
+import java.util.List;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -164,25 +165,7 @@ final class DoQStreamHandler implements ProtocolHandler {
             if (!DnsServer.isStandardQuery(query)) {
                 final long startNanos = System.nanoTime();
                 server.dispatchNonQueryOpcode(query, endpoint.getSelectorLoop(),
-                        new DnsQueryCallback() {
-                    @Override
-                    public void onResponse(DnsMessage response) {
-                        if (metrics != null) {
-                            double durationMs = (System.nanoTime()
-                                    - startNanos) / 1_000_000.0;
-                            metrics.responseSent(
-                                    DnsServer.rcodeToString(response.getRcode()),
-                                    durationMs, "doq");
-                        }
-                        sendResponseAndClose(response);
-                    }
-
-                    @Override
-                    public void onError(String error) {
-                        sendResponseAndClose(query.createErrorResponse(
-                                DnsMessage.RCODE_SERVFAIL));
-                    }
-                });
+                        doqCallback(query, startNanos, metrics));
                 return;
             }
 
@@ -194,26 +177,8 @@ final class DoQStreamHandler implements ProtocolHandler {
 
             final long startNanos = System.nanoTime();
             server.processQuery(query, endpoint.getSelectorLoop(),
-                    new DnsQueryCallback() {
-                        @Override
-                        public void onResponse(DnsMessage response) {
-                            if (metrics != null) {
-                                double durationMs = (System.nanoTime()
-                                        - startNanos) / 1_000_000.0;
-                                metrics.responseSent(
-                                        DnsServer.rcodeToString(
-                                                response.getRcode()),
-                                        durationMs, "doq");
-                            }
-                            sendResponseAndClose(response);
-                        }
-
-                        @Override
-                        public void onError(String error) {
-                            sendResponseAndClose(query.createErrorResponse(
-                                    DnsMessage.RCODE_SERVFAIL));
-                        }
-                    });
+                    DnsQueryTransport.FRAMED_TCP,
+                    doqCallback(query, startNanos, metrics));
 
         } catch (DnsFormatException e) {
             LOGGER.log(Level.FINE, MessageFormat.format(
@@ -253,11 +218,63 @@ final class DoQStreamHandler implements ProtocolHandler {
     // RFC 9250 section 5.4: pad to 128-byte blocks
     private static final int PADDING_BLOCK_SIZE = 128;
 
+    private DnsQueryCallback doqCallback(final DnsMessage query,
+                                         final long startNanos,
+                                         final DnsServerMetrics metrics) {
+        return new DnsQueryCallback() {
+            @Override
+            public void onResponse(DnsMessage response) {
+                recordResponseMetrics(response, startNanos, metrics);
+                sendResponseAndClose(response);
+            }
+
+            @Override
+            public void onResponseSequence(List<DnsMessage> responses) {
+                if (responses.isEmpty()) {
+                    sendResponseAndClose(query.createErrorResponse(
+                            DnsMessage.RCODE_SERVFAIL));
+                    return;
+                }
+                recordResponseMetrics(responses.get(responses.size() - 1),
+                        startNanos, metrics);
+                for (int i = 0; i < responses.size(); i++) {
+                    sendFramedResponse(responses.get(i));
+                }
+                if (endpoint.isOpen()) {
+                    endpoint.close();
+                }
+            }
+
+            @Override
+            public void onError(String error) {
+                sendResponseAndClose(query.createErrorResponse(
+                        DnsMessage.RCODE_SERVFAIL));
+            }
+        };
+    }
+
+    private static void recordResponseMetrics(DnsMessage response,
+                                              long startNanos,
+                                              DnsServerMetrics metrics) {
+        if (metrics != null) {
+            double durationMs = (System.nanoTime() - startNanos) / 1_000_000.0;
+            metrics.responseSent(DnsServer.rcodeToString(response.getRcode()),
+                    durationMs, "doq");
+        }
+    }
+
     // RFC 9250 section 4.2: server MUST send response on the same stream
     // and indicate STREAM FIN after the last response.
     // RFC 9250 section 4.2: 2-octet length prefix required.
     // RFC 9250 section 5.4: EDNS(0) padding applied.
     private void sendResponseAndClose(DnsMessage response) {
+        sendFramedResponse(response);
+        if (endpoint.isOpen()) {
+            endpoint.close();
+        }
+    }
+
+    private void sendFramedResponse(DnsMessage response) {
         ByteBuffer payload = response.serialize();
         payload = DnsMessage.padToBlockSize(payload, PADDING_BLOCK_SIZE);
         int len = payload.remaining();
@@ -266,6 +283,5 @@ final class DoQStreamHandler implements ProtocolHandler {
         framed.put(payload);
         framed.flip();
         endpoint.send(framed);
-        endpoint.close();
     }
 }
