@@ -26,6 +26,7 @@ import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Deque;
 import java.util.List;
 import java.util.Locale;
@@ -352,7 +353,7 @@ public final class ContentEncoding {
                     break;
                 }
                 if (n > 0) {
-                    pending.addLast(ByteBuffer.wrap(buf, 0, n));
+                    pending.addLast(ByteBuffer.wrap(Arrays.copyOf(buf, n)));
                 }
                 if (deflater.finished() && n == 0) {
                     break;
@@ -406,7 +407,7 @@ public final class ContentEncoding {
                     break;
                 }
                 if (n > 0) {
-                    pending.addLast(ByteBuffer.wrap(buf, 0, n));
+                    pending.addLast(ByteBuffer.wrap(Arrays.copyOf(buf, n)));
                 }
                 if (deflater.finished() && n == 0) {
                     break;
@@ -555,7 +556,7 @@ public final class ContentEncoding {
             if (decompressedSize > maxDecompressedSize) {
                 throw new ContentEncodingException("decompressed body exceeds limit");
             }
-            pending.addLast(ByteBuffer.wrap(buf, 0, n));
+            pending.addLast(ByteBuffer.wrap(Arrays.copyOf(buf, n)));
         }
     }
 
@@ -636,7 +637,7 @@ public final class ContentEncoding {
                     if (decompressedSize > maxDecompressedSize) {
                         throw new ContentEncodingException("decompressed body exceeds limit");
                     }
-                    pending.addLast(ByteBuffer.wrap(buf, 0, n));
+                    pending.addLast(ByteBuffer.wrap(Arrays.copyOf(buf, n)));
                 }
             } catch (DataFormatException e) {
                 throw new ContentEncodingException("inflation failed", e);

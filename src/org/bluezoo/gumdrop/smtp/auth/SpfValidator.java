@@ -405,6 +405,10 @@ public class SpfValidator {
      */
     private boolean matchesIP4(InetAddress ip, String network) {
         try {
+            // RFC 7208 §5.6: the prefix length is optional and defaults to /32
+            if (network.indexOf('/') < 0) {
+                network = network + "/32";
+            }
             CidrNetwork cidr = new CidrNetwork(network);
             return cidr.matches(ip);
         } catch (Exception e) {
@@ -418,6 +422,10 @@ public class SpfValidator {
      */
     private boolean matchesIP6(InetAddress ip, String network) {
         try {
+            // RFC 7208 §5.6: the prefix length is optional and defaults to /128
+            if (network.indexOf('/') < 0) {
+                network = network + "/128";
+            }
             CidrNetwork cidr = new CidrNetwork(network);
             return cidr.matches(ip);
         } catch (Exception e) {
