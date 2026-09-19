@@ -503,6 +503,14 @@ public abstract class WebSocketConnection {
                 if (frame == null) {
                     break; // Insufficient data for complete frame
                 }
+                // RFC 6455 §5.1 — clients must mask every frame they send
+                // and servers must not mask theirs; the receiver must fail
+                // the connection on a violation.
+                if (frame.isMasked() == clientMode) {
+                    throw new WebSocketProtocolException(clientMode
+                            ? "Server frame must not be masked"
+                            : "Client frame must be masked");
+                }
                 processFrame(frame);
             }
         } catch (WebSocketMessageTooBigException e) {

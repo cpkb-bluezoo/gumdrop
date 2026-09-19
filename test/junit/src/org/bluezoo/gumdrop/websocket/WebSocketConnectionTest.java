@@ -24,6 +24,7 @@ package org.bluezoo.gumdrop.websocket;
 import org.junit.Test;
 import static org.junit.Assert.*;
 
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
@@ -39,6 +40,47 @@ import java.util.List;
 public class WebSocketConnectionTest {
 
     // ── Test infrastructure ──
+
+    /**
+     * Converts hand-built unmasked frames into the masked form a client
+     * must send (RFC 6455 §5.3), which a server-mode connection now
+     * requires.
+     */
+    private static ByteBuffer masked(ByteBuffer unmasked) {
+        byte[] in = new byte[unmasked.remaining()];
+        unmasked.duplicate().get(in);
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        byte[] key = {0x12, 0x34, 0x56, 0x78};
+        int i = 0;
+        while (i < in.length) {
+            out.write(in[i]);
+            int len7 = in[i + 1] & 0x7f;
+            int hdr = 2;
+            long len = len7;
+            if (len7 == 126) {
+                len = ((in[i + 2] & 0xff) << 8) | (in[i + 3] & 0xff);
+                hdr = 4;
+            } else if (len7 == 127) {
+                len = 0;
+                for (int k = 0; k < 8; k++) {
+                    len = (len << 8) | (in[i + 2 + k] & 0xff);
+                }
+                hdr = 10;
+            }
+            out.write(in[i + 1] | 0x80);
+            out.write(in, i + 2, hdr - 2);
+            out.write(key, 0, 4);
+            // Some tests declare a payload length larger than the bytes
+            // supplied; mask only what is present.
+            int present = (int) Math.min(len, in.length - i - hdr);
+            for (int k = 0; k < present; k++) {
+                out.write(in[i + hdr + k] ^ key[k % 4]);
+            }
+            i += hdr + present;
+        }
+        return ByteBuffer.wrap(out.toByteArray());
+    }
+
 
     private static class TestConnection extends WebSocketConnection {
         String lastTextMessage;
@@ -101,56 +143,56 @@ public class WebSocketConnectionTest {
     @Test
     public void testValidCloseCode1000() throws IOException {
         TestConnection conn = createOpenConnection();
-        conn.processIncomingData(buildCloseFrame(1000));
+        conn.processIncomingData(masked(buildCloseFrame(1000)));
         assertEquals(1000, conn.lastCloseCode);
     }
 
     @Test
     public void testValidCloseCode1001() throws IOException {
         TestConnection conn = createOpenConnection();
-        conn.processIncomingData(buildCloseFrame(1001));
+        conn.processIncomingData(masked(buildCloseFrame(1001)));
         assertEquals(1001, conn.lastCloseCode);
     }
 
     @Test
     public void testValidCloseCode1002() throws IOException {
         TestConnection conn = createOpenConnection();
-        conn.processIncomingData(buildCloseFrame(1002));
+        conn.processIncomingData(masked(buildCloseFrame(1002)));
         assertEquals(1002, conn.lastCloseCode);
     }
 
     @Test
     public void testValidCloseCode1003() throws IOException {
         TestConnection conn = createOpenConnection();
-        conn.processIncomingData(buildCloseFrame(1003));
+        conn.processIncomingData(masked(buildCloseFrame(1003)));
         assertEquals(1003, conn.lastCloseCode);
     }
 
     @Test
     public void testValidCloseCode1009() throws IOException {
         TestConnection conn = createOpenConnection();
-        conn.processIncomingData(buildCloseFrame(1009));
+        conn.processIncomingData(masked(buildCloseFrame(1009)));
         assertEquals(1009, conn.lastCloseCode);
     }
 
     @Test
     public void testValidCloseCode3000PrivateUse() throws IOException {
         TestConnection conn = createOpenConnection();
-        conn.processIncomingData(buildCloseFrame(3000));
+        conn.processIncomingData(masked(buildCloseFrame(3000)));
         assertEquals(3000, conn.lastCloseCode);
     }
 
     @Test
     public void testValidCloseCode4999PrivateUse() throws IOException {
         TestConnection conn = createOpenConnection();
-        conn.processIncomingData(buildCloseFrame(4999));
+        conn.processIncomingData(masked(buildCloseFrame(4999)));
         assertEquals(4999, conn.lastCloseCode);
     }
 
     @Test
     public void testInvalidCloseCode1004ReservedTriggersProtocolError() throws IOException {
         TestConnection conn = createOpenConnection();
-        conn.processIncomingData(buildCloseFrame(1004));
+        conn.processIncomingData(masked(buildCloseFrame(1004)));
         // Should have sent a close frame with 1002 (protocol error)
         assertTrue("Should have sent a close frame", conn.sentFrames.size() > 0);
         ByteBuffer sent = conn.sentFrames.get(0);
@@ -163,7 +205,7 @@ public class WebSocketConnectionTest {
     @Test
     public void testInvalidCloseCode1005Reserved() throws IOException {
         TestConnection conn = createOpenConnection();
-        conn.processIncomingData(buildCloseFrame(1005));
+        conn.processIncomingData(masked(buildCloseFrame(1005)));
         assertTrue(conn.sentFrames.size() > 0);
         WebSocketFrame closeFrame = WebSocketFrame.parse(conn.sentFrames.get(0));
         assertEquals(1002, closeFrame.getCloseCode());
@@ -172,7 +214,7 @@ public class WebSocketConnectionTest {
     @Test
     public void testInvalidCloseCode1006Reserved() throws IOException {
         TestConnection conn = createOpenConnection();
-        conn.processIncomingData(buildCloseFrame(1006));
+        conn.processIncomingData(masked(buildCloseFrame(1006)));
         assertTrue(conn.sentFrames.size() > 0);
         WebSocketFrame closeFrame = WebSocketFrame.parse(conn.sentFrames.get(0));
         assertEquals(1002, closeFrame.getCloseCode());
@@ -181,7 +223,7 @@ public class WebSocketConnectionTest {
     @Test
     public void testInvalidCloseCode1015Reserved() throws IOException {
         TestConnection conn = createOpenConnection();
-        conn.processIncomingData(buildCloseFrame(1015));
+        conn.processIncomingData(masked(buildCloseFrame(1015)));
         assertTrue(conn.sentFrames.size() > 0);
         WebSocketFrame closeFrame = WebSocketFrame.parse(conn.sentFrames.get(0));
         assertEquals(1002, closeFrame.getCloseCode());
@@ -190,7 +232,7 @@ public class WebSocketConnectionTest {
     @Test
     public void testInvalidCloseCode999OutOfRange() throws IOException {
         TestConnection conn = createOpenConnection();
-        conn.processIncomingData(buildCloseFrame(999));
+        conn.processIncomingData(masked(buildCloseFrame(999)));
         assertTrue(conn.sentFrames.size() > 0);
         WebSocketFrame closeFrame = WebSocketFrame.parse(conn.sentFrames.get(0));
         assertEquals(1002, closeFrame.getCloseCode());
@@ -199,7 +241,7 @@ public class WebSocketConnectionTest {
     @Test
     public void testInvalidCloseCode5000OutOfRange() throws IOException {
         TestConnection conn = createOpenConnection();
-        conn.processIncomingData(buildCloseFrame(5000));
+        conn.processIncomingData(masked(buildCloseFrame(5000)));
         assertTrue(conn.sentFrames.size() > 0);
         WebSocketFrame closeFrame = WebSocketFrame.parse(conn.sentFrames.get(0));
         assertEquals(1002, closeFrame.getCloseCode());
@@ -219,7 +261,7 @@ public class WebSocketConnectionTest {
         buf.putShort((short) 4096);
         buf.flip();
 
-        conn.processIncomingData(buf);
+        conn.processIncomingData(masked(buf));
 
         assertNull(conn.lastTextMessage);
         assertTrue(conn.sentFrames.size() > 0);
@@ -237,7 +279,7 @@ public class WebSocketConnectionTest {
         buf.putShort((short) 200);
         buf.flip();
 
-        conn.processIncomingData(buf);
+        conn.processIncomingData(masked(buf));
 
         assertTrue(conn.sentFrames.size() > 0);
         WebSocketFrame closeFrame = WebSocketFrame.parse(conn.sentFrames.get(0));
@@ -256,7 +298,7 @@ public class WebSocketConnectionTest {
         buf.put("123456789012345".getBytes(StandardCharsets.UTF_8));
         buf.flip();
 
-        conn.processIncomingData(buf);
+        conn.processIncomingData(masked(buf));
 
         assertNull("Message should not be delivered", conn.lastTextMessage);
         assertTrue(conn.sentFrames.size() > 0);
@@ -276,7 +318,7 @@ public class WebSocketConnectionTest {
         frag1.put("abcdef".getBytes(StandardCharsets.UTF_8));
         frag1.flip();
 
-        conn.processIncomingData(frag1);
+        conn.processIncomingData(masked(frag1));
         assertNull("Should not deliver yet", conn.lastTextMessage);
 
         // Second fragment: 6 bytes (total 12 > limit)
@@ -286,7 +328,7 @@ public class WebSocketConnectionTest {
         frag2.put("ghijkl".getBytes(StandardCharsets.UTF_8));
         frag2.flip();
 
-        conn.processIncomingData(frag2);
+        conn.processIncomingData(masked(frag2));
 
         assertNull("Message should not be delivered", conn.lastTextMessage);
         assertTrue(conn.sentFrames.size() > 0);
@@ -305,7 +347,7 @@ public class WebSocketConnectionTest {
         buf.put("hello".getBytes(StandardCharsets.UTF_8));
         buf.flip();
 
-        conn.processIncomingData(buf);
+        conn.processIncomingData(masked(buf));
         assertEquals("hello", conn.lastTextMessage);
     }
 
@@ -324,7 +366,7 @@ public class WebSocketConnectionTest {
         buf.put(bigPayload);
         buf.flip();
 
-        conn.processIncomingData(buf);
+        conn.processIncomingData(masked(buf));
         assertNotNull(conn.lastTextMessage);
         assertEquals(10000, conn.lastTextMessage.length());
     }
@@ -341,7 +383,7 @@ public class WebSocketConnectionTest {
         buf.put((byte) 'a');
         buf.flip();
 
-        conn.processIncomingData(buf);
+        conn.processIncomingData(masked(buf));
         // Should close with protocol error
         assertNull(conn.lastTextMessage);
         assertTrue(conn.sentFrames.size() > 0);
@@ -362,7 +404,7 @@ public class WebSocketConnectionTest {
         buf.put((byte) 'a');
         buf.flip();
 
-        conn.processIncomingData(buf);
+        conn.processIncomingData(masked(buf));
         assertEquals("a", conn.lastTextMessage);
     }
 
@@ -387,5 +429,49 @@ public class WebSocketConnectionTest {
         @Override public byte[] encode(byte[] payload) { return payload; }
         @Override public byte[] decode(byte[] payload) { return payload; }
         @Override public void close() { }
+    }
+
+    // ── RFC 6455 §5.1 masking direction ──
+
+    @Test
+    public void testServerRejectsUnmaskedClientFrame() throws IOException {
+        TestConnection conn = createOpenConnection();
+        conn.processIncomingData(
+                WebSocketFrame.createTextFrame("hi", false).encode());
+        assertNull(conn.lastTextMessage);
+        assertNotNull(conn.lastError);
+        assertFalse(conn.isOpen());
+    }
+
+    @Test
+    public void testServerAcceptsMaskedClientFrame() throws IOException {
+        TestConnection conn = createOpenConnection();
+        conn.processIncomingData(
+                WebSocketFrame.createTextFrame("hi", true).encode());
+        assertEquals("hi", conn.lastTextMessage);
+        assertNull(conn.lastError);
+    }
+
+    @Test
+    public void testClientRejectsMaskedServerFrame() throws IOException {
+        TestConnection conn = new TestConnection();
+        conn.setClientMode(true);
+        conn.openConnection();
+        conn.processIncomingData(
+                WebSocketFrame.createTextFrame("hi", true).encode());
+        assertNull(conn.lastTextMessage);
+        assertNotNull(conn.lastError);
+        assertFalse(conn.isOpen());
+    }
+
+    @Test
+    public void testClientAcceptsUnmaskedServerFrame() throws IOException {
+        TestConnection conn = new TestConnection();
+        conn.setClientMode(true);
+        conn.openConnection();
+        conn.processIncomingData(
+                WebSocketFrame.createTextFrame("hi", false).encode());
+        assertEquals("hi", conn.lastTextMessage);
+        assertNull(conn.lastError);
     }
 }

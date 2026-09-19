@@ -204,22 +204,50 @@ public final class ServerXmlLoader {
 
         private void finish() {
             closeQuietly(channel);
-            try {
-                parser.close();
-            } catch (SAXException e) {
-                callback.onError("server.xml parse error: " + e.getMessage());
-                return;
-            }
-            try {
-                callback.onServer(handler.build());
-            } catch (SAXException e) {
-                callback.onError(e.getMessage());
-            }
+            complete(parser, handler, callback);
         }
 
         private void fail(String message) {
             closeQuietly(channel);
             callback.onError(message);
+        }
+    }
+
+    /**
+     * Test-only entry point: parses {@code xml} held in memory instead of
+     * reading a file, so unit tests can exercise the configuration
+     * handling without disk I/O. Not for production use.
+     *
+     * @param baseDir directory that relative paths in the document resolve against
+     * @param xml the complete server.xml content
+     * @param callback receives the built server or the error
+     */
+    static void loadFromMemoryForTesting(File baseDir, ByteBuffer xml,
+            Callback callback) {
+        Handler handler = new Handler(baseDir);
+        Parser parser = new Parser();
+        parser.setContentHandler(handler);
+        parser.setEntityResolver(XMLParseUtils.DENY_EXTERNAL_ENTITIES);
+        try {
+            parser.receive(xml);
+        } catch (SAXException e) {
+            callback.onError("server.xml parse error: " + e.getMessage());
+            return;
+        }
+        complete(parser, handler, callback);
+    }
+
+    private static void complete(Parser parser, Handler handler, Callback callback) {
+        try {
+            parser.close();
+        } catch (SAXException e) {
+            callback.onError("server.xml parse error: " + e.getMessage());
+            return;
+        }
+        try {
+            callback.onServer(handler.build());
+        } catch (SAXException e) {
+            callback.onError(e.getMessage());
         }
     }
 
@@ -304,13 +332,17 @@ public final class ServerXmlLoader {
 
         private void startCluster(Attributes attrs) throws SAXException {
             String port = require(attrs, "port", "cluster");
-            container.setClusterPort(Integer.parseInt(port));
+            container.setClusterPort(parsePort(port, "cluster port"));
             String groupAddress = attrs.getValue("group-address");
             if (groupAddress != null) {
                 container.setClusterGroupAddress(groupAddress);
             }
             String key = require(attrs, "key", "cluster");
-            container.setClusterKey(key);
+            try {
+                container.setClusterKey(key);
+            } catch (NumberFormatException e) {
+                throw new SAXException("cluster key must be a hexadecimal string", e);
+            }
         }
 
         private void startContext(Attributes attrs) throws SAXException {
@@ -329,7 +361,7 @@ public final class ServerXmlLoader {
 
         private void startListener(Attributes attrs) throws SAXException {
             String portValue = require(attrs, "port", "listener");
-            int port = Integer.parseInt(portValue);
+            int port = parsePort(portValue, "listener port");
             boolean secure = Boolean.parseBoolean(attrs.getValue("secure"));
             boolean bindWildcard = Boolean.parseBoolean(attrs.getValue("bind-wildcard"));
 
@@ -364,6 +396,14 @@ public final class ServerXmlLoader {
                 composer.listener(http2);
             }
             haveListener = true;
+        }
+
+        private static int parsePort(String value, String what) throws SAXException {
+            try {
+                return Integer.parseInt(value.trim());
+            } catch (NumberFormatException e) {
+                throw new SAXException(what + " must be a number: " + value, e);
+            }
         }
 
         private static String require(Attributes attrs, String name, String element)

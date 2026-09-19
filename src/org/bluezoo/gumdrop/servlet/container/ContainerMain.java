@@ -110,7 +110,7 @@ public final class ContainerMain {
         Gumdrop.serve(serverRef.get());
     }
 
-    private static File resolveConfigFile(String[] args) {
+    static File resolveConfigFile(String[] args) {
         if (args.length > 0 && !args[0].isEmpty()) {
             return new File(args[0]);
         }

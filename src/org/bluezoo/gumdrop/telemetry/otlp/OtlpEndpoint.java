@@ -105,6 +105,12 @@ class OtlpEndpoint {
                 return null;
             }
 
+            // java.net.URI keeps the brackets of an IPv6 literal (RFC 3986
+            // section 3.2.2); address resolution needs the bare literal.
+            if (host.length() > 2 && host.charAt(0) == '[' && host.charAt(host.length() - 1) == ']') {
+                host = host.substring(1, host.length() - 1);
+            }
+
             boolean secure = "https".equalsIgnoreCase(uri.getScheme());
             int port = uri.getPort();
             if (port <= 0) {

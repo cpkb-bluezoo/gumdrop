@@ -164,19 +164,9 @@ class WebSocketClientProtocolHandler extends HttpClientProtocolHandler {
         currentStream = null;
         parseState = ParseState.IDLE;
 
-        // Drain any pipelined WebSocket bytes left in the current
-        // receive() call's buffer beyond what the lexer has consumed so
-        // far (see HttpClientProtocolHandler#currentReceiveBuffer) — the
-        // zero-copy design has no persistent accumulation buffer the way
-        // the removed parseBuffer field used to provide.
-        if (currentReceiveBuffer != null && currentReceiveBuffer.hasRemaining()) {
-            try {
-                webSocketConnection.processIncomingData(currentReceiveBuffer);
-            } catch (IOException e) {
-                LOGGER.log(Level.WARNING, L10N.getString("warn.buffered_data_error"), e);
-                eventHandler.error(e);
-            }
-        }
+        // Any WebSocket bytes that followed the upgrade response in the
+        // same buffer are re-dispatched to receive() by the HTTP layer
+        // once this hook returns.
 
         webSocketConnection.notifyConnectionOpen();
 

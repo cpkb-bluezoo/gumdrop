@@ -184,7 +184,7 @@ public class MockOTLPCollector {
      */
     public String getTracesEndpoint() {
         String scheme = secure ? "https" : "http";
-        return scheme + "://::1:" + port + "/v1/traces";
+        return scheme + "://[::1]:" + port + "/v1/traces";
     }
 
     /**
@@ -192,7 +192,7 @@ public class MockOTLPCollector {
      */
     public String getLogsEndpoint() {
         String scheme = secure ? "https" : "http";
-        return scheme + "://::1:" + port + "/v1/logs";
+        return scheme + "://[::1]:" + port + "/v1/logs";
     }
 
     /**
@@ -200,7 +200,7 @@ public class MockOTLPCollector {
      */
     public String getMetricsEndpoint() {
         String scheme = secure ? "https" : "http";
-        return scheme + "://::1:" + port + "/v1/metrics";
+        return scheme + "://[::1]:" + port + "/v1/metrics";
     }
 
     /**

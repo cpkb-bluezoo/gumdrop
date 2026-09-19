@@ -429,10 +429,13 @@ public class HttpClientProtocolHandler
             if (isExternallyHandled()) {
                 // A subclass hook (e.g. WebSocketClientProtocolHandler's
                 // handleProtocolSwitch()) took over synchronously during
-                // this same feed() call, and already drained whatever was
-                // left of currentReceiveBuffer (== data) for its own
-                // purposes. Nothing left for this base class to do with
-                // the rest of the buffer.
+                // this same feed() call. Bytes after the switching
+                // response's headers (already stopped from being lexed as
+                // HTTP) belong to the new protocol: re-dispatch them so
+                // the subclass's receive() consumes them.
+                if (data.hasRemaining()) {
+                    receive(data);
+                }
                 return;
             }
             if (data.position() == positionBefore) {
@@ -1447,6 +1450,10 @@ public class HttpClientProtocolHandler
                     h2cUpgradeInFlight = false;
                 } else if (responseStatus == HttpStatus.SWITCHING_PROTOCOLS) {
                     if (handleProtocolSwitch(responseStatus, responseHeaders)) {
+                        // The lexer must not lex bytes that follow the
+                        // response headers as HTTP: receive() hands them
+                        // to the subclass once feed() returns.
+                        lexer.stopForHandoff();
                         return;
                     }
                     LOGGER.warning(L10N.getString("warn.unexpected_101_response"));

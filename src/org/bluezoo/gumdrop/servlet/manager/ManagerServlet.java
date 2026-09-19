@@ -369,8 +369,8 @@ public class ManagerServlet extends HttpServlet {
     protected void doPost(HttpServletRequest request, HttpServletResponse response) throws ServletException, IOException {
         Locale locale = request.getLocale();
         ResourceBundle resources = (locale == null)
-                        ? ResourceBundle.getBundle(ManagerServlet.class.getName())
-                        : ResourceBundle.getBundle(ManagerServlet.class.getName(), locale);
+                        ? ResourceBundle.getBundle(L10N_NAME)
+                        : ResourceBundle.getBundle(L10N_NAME, locale);
 
         String contextPath = request.getContextPath();
         ManagerContextServer ctx = (ManagerContextServer) getServletContext();

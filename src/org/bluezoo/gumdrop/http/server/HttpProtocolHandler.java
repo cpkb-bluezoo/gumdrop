@@ -2429,37 +2429,42 @@ public  class HttpProtocolHandler
         }
     }
 
+    /**
+     * Appends a header value fragment, splitting it into words on unquoted
+     * whitespace. A quoted-string (RFC 9110 section 5.6.4) is part of its
+     * word verbatim, including the double quotes, escapes and inner
+     * whitespace: quotes are significant in field values such as
+     * entity-tags and parameters, so they must not be interpreted here.
+     */
     private void appendHeaderValue(String l) {
         int len = l.length();
-        StringBuilder quoteBuf = null;
+        boolean inQuote = false;
         boolean escaped = false;
         boolean text = false;
         int start = 0;
         for (int i = 0; i < len; i++) {
             char c = l.charAt(i);
-            if (quoteBuf != null) {
+            if (inQuote) {
                 if (escaped) {
-                    quoteBuf.append(c);
                     escaped = false;
                 } else if (c == '\\') {
                     escaped = true;
                 } else if (c == '"') {
-                    String word = quoteBuf.toString();
-                    appendHeaderWord(word, 0, word.length());
-                    quoteBuf = null;
-                } else {
-                    quoteBuf.append(c);
+                    inQuote = false;
                 }
             } else if (c == ' ' || c == '\t') {
                 if (text) {
                     appendHeaderWord(l, start, i);
                     text = false;
                 }
-                start = i + 1;
-            } else if (c == '"') {
-                quoteBuf = new StringBuilder();
             } else {
-                text = true;
+                if (!text) {
+                    text = true;
+                    start = i;
+                }
+                if (c == '"') {
+                    inQuote = true;
+                }
             }
         }
         if (text) {

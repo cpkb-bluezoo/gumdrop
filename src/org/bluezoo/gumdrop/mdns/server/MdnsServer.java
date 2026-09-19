@@ -355,6 +355,20 @@ public class MdnsServer implements Server {
         beginProbing();
     }
 
+    /**
+     * Test seam: begins the probe/announce sequence with the given
+     * addresses, bypassing interface enumeration and listener start-up so
+     * unit tests can drive the protocol deterministically. Not for
+     * production use.
+     *
+     * @param addresses the addresses this host claims for its name
+     */
+    void startProbingForTesting(List<InetAddress> addresses) {
+        hostnameLabel = resolveHostnameLabel();
+        ownAddresses = addresses;
+        beginProbing();
+    }
+
     @Override
     public void stop() {
         for (int i = 0; i < listeners.size(); i++) {

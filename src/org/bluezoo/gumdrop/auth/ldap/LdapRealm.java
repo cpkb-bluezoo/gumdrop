@@ -22,7 +22,9 @@
 package org.bluezoo.gumdrop.auth.ldap;
 
 
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.security.cert.X509Certificate;
 import java.text.MessageFormat;
@@ -416,8 +418,7 @@ public class LdapRealm implements Realm {
         final AtomicReference<Exception> error = new AtomicReference<>();
         final CountDownLatch latch = new CountDownLatch(1);
 
-        LdapClient client = createClient();
-        client.connect(selectorLoop.getGumdrop(), new LdapConnectionReady() {
+        connectClientForTesting(new LdapConnectionReady() {
             @Override
             public void handleReady(LdapConnected connection) {
                 BindResultHandler bindHandler = new BindResultHandler() {
@@ -502,8 +503,7 @@ public class LdapRealm implements Realm {
         final AtomicReference<Exception> error = new AtomicReference<>();
         final CountDownLatch latch = new CountDownLatch(1);
 
-        LdapClient client = createClient();
-        client.connect(selectorLoop.getGumdrop(), new LdapConnectionReady() {
+        connectClientForTesting(new LdapConnectionReady() {
             @Override
             public void handleReady(LdapConnected connection) {
                 performUserBind(connection, dn, password, new BindResultHandler() {
@@ -567,8 +567,7 @@ public class LdapRealm implements Realm {
         final AtomicReference<Exception> error = new AtomicReference<>();
         final CountDownLatch latch = new CountDownLatch(1);
 
-        LdapClient client = createClient();
-        client.connect(selectorLoop.getGumdrop(), new LdapConnectionReady() {
+        connectClientForTesting(new LdapConnectionReady() {
             @Override
             public void handleReady(LdapConnected connection) {
                 BindResultHandler bindHandler = new BindResultHandler() {
@@ -698,8 +697,7 @@ public class LdapRealm implements Realm {
         final AtomicReference<Exception> error = new AtomicReference<>();
         final CountDownLatch latch = new CountDownLatch(1);
 
-        LdapClient client = createClient();
-        client.connect(selectorLoop.getGumdrop(), new LdapConnectionReady() {
+        connectClientForTesting(new LdapConnectionReady() {
             @Override
             public void handleReady(LdapConnected connection) {
                 BindResultHandler bindHandler = new BindResultHandler() {
@@ -816,10 +814,53 @@ public class LdapRealm implements Realm {
             int comma = findUnescapedComma(dn, valStart);
             String value = dn.substring(valStart, comma).trim();
             result = result.replace("{" + type + "}",
-                    escapeLDAPFilter(value));
+                    escapeLDAPFilter(unescapeRDNValue(value)));
             start = comma < len ? comma + 1 : len;
         }
         return result;
+    }
+
+    /**
+     * Removes RFC 4514 escaping from an RDN value: {@code \X} yields the
+     * character X and {@code \HH} sequences are UTF-8 encoded bytes.
+     */
+    private static String unescapeRDNValue(String value) {
+        if (value.indexOf('\\') < 0) {
+            return value;
+        }
+        StringBuilder sb = new StringBuilder(value.length());
+        ByteArrayOutputStream pending = new ByteArrayOutputStream();
+        int len = value.length();
+        int i = 0;
+        while (i < len) {
+            char c = value.charAt(i);
+            if (c == '\\' && i + 1 < len) {
+                int hi = i + 2 < len ? Character.digit(value.charAt(i + 1), 16) : -1;
+                int lo = hi >= 0 ? Character.digit(value.charAt(i + 2), 16) : -1;
+                if (hi >= 0 && lo >= 0) {
+                    pending.write((hi << 4) | lo);
+                    i += 3;
+                    continue;
+                }
+                flushPending(sb, pending);
+                sb.append(value.charAt(i + 1));
+                i += 2;
+            } else {
+                flushPending(sb, pending);
+                sb.append(c);
+                i++;
+            }
+        }
+        flushPending(sb, pending);
+        return sb.toString();
+    }
+
+    private static void flushPending(StringBuilder sb,
+                                     ByteArrayOutputStream pending) {
+        if (pending.size() > 0) {
+            sb.append(new String(pending.toByteArray(), StandardCharsets.UTF_8));
+            pending.reset();
+        }
     }
 
     private static int findUnescapedComma(String s, int from) {
@@ -883,6 +924,19 @@ public class LdapRealm implements Realm {
     /**
      * Creates a new LDAP client with current configuration.
      */
+    /**
+     * Test seam: opens a connection to the LDAP server and reports the
+     * outcome to {@code ready}. Production behaviour is to create a
+     * client and connect it on this realm's runtime; unit tests override
+     * this to supply an in-memory server without any network I/O.
+     *
+     * @param ready receives the connection, or the connection error
+     */
+    void connectClientForTesting(LdapConnectionReady ready) {
+        LdapClient client = createClient();
+        client.connect(selectorLoop.getGumdrop(), ready);
+    }
+
     private LdapClient createClient() {
         if (selectorLoop == null) {
             throw new IllegalStateException(L10N.getString("err.ldap_no_selectorloop"));

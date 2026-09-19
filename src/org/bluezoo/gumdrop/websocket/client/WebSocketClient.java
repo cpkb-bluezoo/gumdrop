@@ -743,36 +743,49 @@ public class WebSocketClient implements AltSvcListener {
         protocolHandler.setAltSvcListener(this);
 
         try {
-            if (socketPath != null) {
-                clientEndpoint = (selectorLoop != null)
-                        ? new ClientEndpoint(transportFactory, selectorLoop, socketPath)
-                        : new ClientEndpoint(transportFactory, socketPath);
-            } else if (host != null) {
-                if (selectorLoop != null) {
-                    clientEndpoint = new ClientEndpoint(
-                            transportFactory, selectorLoop,
-                            host, port);
-                } else {
-                    clientEndpoint = new ClientEndpoint(
-                            transportFactory, host, port);
-                }
-            } else {
-                if (selectorLoop != null) {
-                    clientEndpoint = new ClientEndpoint(
-                            transportFactory, selectorLoop,
-                            hostAddress, port);
-                } else {
-                    clientEndpoint = new ClientEndpoint(
-                            transportFactory, hostAddress, port);
-                }
-            }
-            if (dnsResolver != null) {
-                clientEndpoint.setDnsResolver(dnsResolver);
-            }
-            clientEndpoint.connect(gumdrop, protocolHandler);
+            connectEndpointForTesting(protocolHandler);
         } catch (IOException e) {
             handler.error(e);
         }
+    }
+
+    /**
+     * Test seam: creates the client endpoint for the configured target and
+     * connects it to {@code ph}. Production behaviour opens a real socket;
+     * unit tests override this to attach an in-memory endpoint instead.
+     *
+     * @param ph the protocol handler that receives the connection
+     * @throws IOException if the endpoint cannot be created
+     */
+    void connectEndpointForTesting(WebSocketClientProtocolHandler ph)
+            throws IOException {
+        if (socketPath != null) {
+            clientEndpoint = (selectorLoop != null)
+                    ? new ClientEndpoint(transportFactory, selectorLoop, socketPath)
+                    : new ClientEndpoint(transportFactory, socketPath);
+        } else if (host != null) {
+            if (selectorLoop != null) {
+                clientEndpoint = new ClientEndpoint(
+                        transportFactory, selectorLoop,
+                        host, port);
+            } else {
+                clientEndpoint = new ClientEndpoint(
+                        transportFactory, host, port);
+            }
+        } else {
+            if (selectorLoop != null) {
+                clientEndpoint = new ClientEndpoint(
+                        transportFactory, selectorLoop,
+                        hostAddress, port);
+            } else {
+                clientEndpoint = new ClientEndpoint(
+                        transportFactory, hostAddress, port);
+            }
+        }
+        if (dnsResolver != null) {
+            clientEndpoint.setDnsResolver(dnsResolver);
+        }
+        clientEndpoint.connect(gumdrop, ph);
     }
 
     /**

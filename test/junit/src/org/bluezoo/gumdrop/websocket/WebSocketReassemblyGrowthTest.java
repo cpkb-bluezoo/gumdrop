@@ -92,10 +92,15 @@ public class WebSocketReassemblyGrowthTest {
         byte[] bytes = payload.getBytes(StandardCharsets.UTF_8);
         assertTrue("test fragments must stay under the 126-byte 1-byte-length "
                 + "encoding for simplicity", bytes.length < 126);
-        ByteBuffer buf = ByteBuffer.allocate(2 + bytes.length);
+        // RFC 6455 §5.3: frames a server receives must be masked
+        byte[] key = {0x01, 0x02, 0x03, 0x04};
+        ByteBuffer buf = ByteBuffer.allocate(6 + bytes.length);
         buf.put((byte) ((fin ? 0x80 : 0x00) | opcode));
-        buf.put((byte) bytes.length);
-        buf.put(bytes);
+        buf.put((byte) (0x80 | bytes.length));
+        buf.put(key);
+        for (int i = 0; i < bytes.length; i++) {
+            buf.put((byte) (bytes[i] ^ key[i % 4]));
+        }
         buf.flip();
         return buf;
     }
