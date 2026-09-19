@@ -258,6 +258,7 @@ Gumdrop is essentially at parity with Netty on plaintext HTTP/1.1 and JSON, ahea
         - CHILDREN - mailbox hierarchy indicators
         - LIST-EXTENDED, LIST-STATUS - enhanced mailbox listing
         - STATUS=SIZE (RFC 8438) - mailbox total size in STATUS
+        - COMPRESS=DEFLATE (RFC 4978) - zlib compression after authentication
         - LITERAL- (RFC 7888) - non-synchronizing literals
         - ID (RFC 2971) - server identification
         - CONDSTORE (RFC 7162) - per-message modification sequences

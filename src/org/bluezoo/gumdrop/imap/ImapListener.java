@@ -50,6 +50,7 @@ import org.bluezoo.gumdrop.tls.TlsConfig;
  *   <li>RFC 2342 - NAMESPACE</li>
  *   <li>RFC 6851 - MOVE</li>
  *   <li>RFC 9208 - QUOTA</li>
+ *   <li>RFC 4978 - COMPRESS=DEFLATE</li>
  * </ul>
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
@@ -88,6 +89,7 @@ public class ImapListener extends TcpListener {
     protected boolean enableNAMESPACE = true;
     protected boolean enableQUOTA = true;
     protected boolean enableMOVE = true;
+    protected boolean enableCOMPRESS = true;
     protected boolean enableCONDSTORE = true;
     protected boolean enableQRESYNC = true;
 
@@ -404,6 +406,24 @@ public class ImapListener extends TcpListener {
     }
 
     /**
+     * Returns whether the COMPRESS=DEFLATE extension is enabled.
+     *
+     * @return true if COMPRESS=DEFLATE is enabled
+     */
+    public boolean isEnableCOMPRESS() {
+        return enableCOMPRESS;
+    }
+
+    /**
+     * Sets whether the COMPRESS=DEFLATE extension is enabled (RFC 4978).
+     *
+     * @param enableCOMPRESS true to allow {@code COMPRESS DEFLATE}
+     */
+    public void setEnableCOMPRESS(boolean enableCOMPRESS) {
+        this.enableCOMPRESS = enableCOMPRESS;
+    }
+
+    /**
      * Returns whether CONDSTORE (RFC 7162) is enabled.
      *
      * @return true if CONDSTORE is enabled
@@ -668,6 +688,8 @@ public class ImapListener extends TcpListener {
      *   <li>{@code LIST-EXTENDED} — RFC 5258</li>
      *   <li>{@code LIST-STATUS} — RFC 5819</li>
      *   <li>{@code STATUS=SIZE} — RFC 8438 (SIZE status data item)</li>
+     *   <li>{@code COMPRESS=DEFLATE} — RFC 4978 (when authenticated and
+     *       compression is not yet active)</li>
      * </ul>
      *
      * @param authenticated true if the user is authenticated
@@ -675,6 +697,19 @@ public class ImapListener extends TcpListener {
      * @return space-separated capability string
      */
     protected String getCapabilities(boolean authenticated, boolean secure) {
+        return getCapabilities(authenticated, secure, false);
+    }
+
+    /**
+     * Returns capability tokens for the current session state.
+     *
+     * @param authenticated true if the user is authenticated
+     * @param secure true if the connection is using TLS
+     * @param compressionActive true if DEFLATE is already enabled on the wire
+     * @return space-separated capability string
+     */
+    protected String getCapabilities(boolean authenticated, boolean secure,
+            boolean compressionActive) {
         StringBuilder caps = new StringBuilder();
         caps.append("IMAP4rev2");
 
@@ -724,6 +759,9 @@ public class ImapListener extends TcpListener {
             }
             if (enableQRESYNC) {
                 caps.append(" QRESYNC");       // RFC 7162
+            }
+            if (enableCOMPRESS && !compressionActive) {
+                caps.append(" COMPRESS=DEFLATE"); // RFC 4978
             }
         }
 

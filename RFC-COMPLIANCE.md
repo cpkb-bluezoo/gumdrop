@@ -1206,6 +1206,7 @@ implemented in Java, with TLS 1.3 integrated via the in-tree engine
 | ID | RFC 2971 | Compliant | `handleId()`, configurable server fields via `setServerIdFields()` |
 | CONDSTORE/QRESYNC | RFC 7162 | Implemented | Per-message MODSEQ via `Mailbox`, ENABLE CONDSTORE/QRESYNC, HIGHESTMODSEQ in SELECT, MODSEQ in FETCH/SEARCH/STORE (UNCHANGEDSINCE), VANISHED (EARLIER) on QRESYNC SELECT, session-wide VANISHED instead of EXPUNGE |
 | STATUS=SIZE | RFC 8438 | Compliant | Advertised; STATUS returns SIZE from `Mailbox.getMailboxSize()` |
+| COMPRESS=DEFLATE | RFC 4978 | Compliant | Advertised when authenticated; `COMPRESS DEFLATE` enables `ImapDeflateLayer` on send/receive |
 
 ## IMAP Client — RFC 9051
 

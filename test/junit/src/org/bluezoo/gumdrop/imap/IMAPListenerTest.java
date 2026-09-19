@@ -127,4 +127,33 @@ public class IMAPListenerTest {
         assertTrue("STATUS=SIZE should be advertised (RFC 8438)",
                 caps.contains("STATUS=SIZE"));
     }
+
+    @Test
+    public void testAuthenticatedCapabilitiesIncludeCompressDeflate() {
+        String caps = listener.getCapabilities(true, true);
+        assertTrue("COMPRESS=DEFLATE should appear when authenticated",
+                caps.contains("COMPRESS=DEFLATE"));
+    }
+
+    @Test
+    public void testUnauthenticatedCapabilitiesExcludeCompressDeflate() {
+        String caps = listener.getCapabilities(false, true);
+        assertFalse("COMPRESS=DEFLATE must not appear before auth",
+                caps.contains("COMPRESS=DEFLATE"));
+    }
+
+    @Test
+    public void testCapabilitiesExcludeCompressWhenActive() {
+        String caps = listener.getCapabilities(true, true, true);
+        assertFalse("COMPRESS=DEFLATE must not appear when compression active",
+                caps.contains("COMPRESS=DEFLATE"));
+    }
+
+    @Test
+    public void testCapabilitiesExcludeCompressWhenDisabled() {
+        listener.setEnableCOMPRESS(false);
+        String caps = listener.getCapabilities(true, true);
+        assertFalse("COMPRESS=DEFLATE should not appear when disabled",
+                caps.contains("COMPRESS=DEFLATE"));
+    }
 }
