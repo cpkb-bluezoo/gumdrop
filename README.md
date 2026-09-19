@@ -389,8 +389,11 @@ Gumdrop is essentially at parity with Netty on plaintext HTTP/1.1 and JSON, ahea
     - caching forwarder (`UpstreamRelayHandler`) with TTL cache, RFC 8767
       serve-stale, RFC 8020 NXDOMAIN cut, and RFC 8198 aggressive use of
       DNSSEC-validated NSEC/NSEC3 proofs when DNSSEC validation is enabled
-    - caching with TTL support
-    - custom resolution via subclassing
+    - authoritative server (`AuthoritativeZoneHandler`) with BIND-style
+      zone files (SOA/NS/A/AAAA/CNAME/MX/TXT/PTR, wildcards, RFC 2308
+      negative answers, in-zone CNAME chains, glue records)
+    - compose handlers on `DnsServer` (`DnsQueryHandler`, chain, zone relay)
+    - example: `examples/dns-authoritative/`
     - DNSSEC validation (RFC 4033-4035, RFC 5155)
         - EDNS0 DO bit, AD/CD flags
         - RRSIG signature verification (RSA-SHA256/512, ECDSA P-256/P-384,

@@ -21,7 +21,6 @@
 
 package org.bluezoo.gumdrop.dns.server;
 
-import org.bluezoo.gumdrop.dns.DnsClass;
 import org.bluezoo.gumdrop.dns.DnsResourceRecord;
 import org.bluezoo.gumdrop.dns.DnsType;
 
@@ -39,10 +38,11 @@ import java.util.Locale;
 import java.util.Map;
 
 /**
- * Minimal BIND-style zone file loader for authoritative DNS.
+ * BIND-style zone file loader for authoritative DNS.
  *
- * <p>Supports {@code $ORIGIN}, {@code $TTL}, and common record types:
- * SOA, NS, A, AAAA, CNAME, MX, TXT.
+ * <p>Supports {@code $ORIGIN}, {@code $TTL}, wildcards ({@code *}), and
+ * record types SOA, NS, A, AAAA, CNAME, MX, TXT, PTR.
+ *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 public final class ZoneFile {
@@ -50,12 +50,19 @@ public final class ZoneFile {
     private final String origin;
     private final int defaultTtl;
     private final Map<String, List<DnsResourceRecord>> recordsByName;
+    private final DnsResourceRecord soaRecord;
+    private final int minimumTtl;
+    private final SoaData soaData;
 
     private ZoneFile(String origin, int defaultTtl,
-                     Map<String, List<DnsResourceRecord>> recordsByName) {
+                     Map<String, List<DnsResourceRecord>> recordsByName,
+                     DnsResourceRecord soaRecord, SoaData soaData) {
         this.origin = origin;
         this.defaultTtl = defaultTtl;
         this.recordsByName = recordsByName;
+        this.soaRecord = soaRecord;
+        this.soaData = soaData;
+        this.minimumTtl = soaData.minimum;
     }
 
     /**
@@ -65,6 +72,7 @@ public final class ZoneFile {
         String origin = null;
         int defaultTtl = 3600;
         Map<String, List<DnsResourceRecord>> records = new LinkedHashMap<String, List<DnsResourceRecord>>();
+        SoaData soaData = null;
 
         try (BufferedReader reader = Files.newBufferedReader(path, StandardCharsets.UTF_8)) {
             String line;
@@ -89,16 +97,13 @@ public final class ZoneFile {
                 int idx = 0;
                 String nameToken = tokens[idx++];
                 int ttl = defaultTtl;
-                DnsClass dnsClass = DnsClass.IN;
                 if (idx < tokens.length && Character.isDigit(tokens[idx].charAt(0))) {
                     ttl = Integer.parseInt(tokens[idx++]);
                 }
                 if (idx < tokens.length && "IN".equalsIgnoreCase(tokens[idx])) {
-                    dnsClass = DnsClass.IN;
                     idx++;
                 } else if (idx < tokens.length && tokens[idx].length() == 2
                         && Character.isLetter(tokens[idx].charAt(0))) {
-                    dnsClass = DnsClass.IN;
                     idx++;
                 }
                 if (idx + 1 >= tokens.length) {
@@ -106,8 +111,14 @@ public final class ZoneFile {
                 }
                 String typeToken = tokens[idx++].toUpperCase(Locale.ROOT);
                 DnsType type = DnsType.valueOf(typeToken);
-                String owner = expandName(nameToken, origin);
-                DnsResourceRecord rr = parseRecord(owner, type, dnsClass, ttl, tokens, idx, line);
+                if (origin == null) {
+                    throw new IOException("Zone record before $ORIGIN: " + line);
+                }
+                String owner = ownerName(nameToken, origin);
+                if (type == DnsType.SOA && owner.equals(origin)) {
+                    soaData = parseSoaTokens(tokens, idx, line);
+                }
+                DnsResourceRecord rr = parseRecord(owner, type, ttl, tokens, idx, line);
                 addRecord(records, owner, rr);
             }
         }
@@ -115,7 +126,20 @@ public final class ZoneFile {
         if (origin == null) {
             throw new IOException("Zone file missing $ORIGIN: " + path);
         }
-        return new ZoneFile(origin, defaultTtl, records);
+        List<DnsResourceRecord> originRecords = records.get(origin);
+        DnsResourceRecord soa = null;
+        if (originRecords != null) {
+            for (int i = 0; i < originRecords.size(); i++) {
+                if (originRecords.get(i).getType() == DnsType.SOA) {
+                    soa = originRecords.get(i);
+                    break;
+                }
+            }
+        }
+        if (soa == null || soaData == null) {
+            throw new IOException("Zone file missing SOA at origin: " + path);
+        }
+        return new ZoneFile(origin, defaultTtl, records, soa, soaData);
     }
 
     public String getOrigin() {
@@ -134,33 +158,47 @@ public final class ZoneFile {
     }
 
     /**
-     * Looks up records for a query name and type.
+     * Authoritative lookup for a name and type (RFC 1034 wildcards, CNAME at owner).
      */
-    public List<DnsResourceRecord> lookup(String qname, DnsType type) {
+    ZoneLookupResult lookup(String qname, DnsType type) {
         String normalized = normalizeName(qname);
-        List<DnsResourceRecord> exact = recordsByName.get(normalized);
-        if (exact == null || exact.isEmpty()) {
+        ZoneLookupResult exact = lookupAtOwner(normalized, type, false);
+        if (exact.getStatus() != ZoneLookupResult.STATUS_NXDOMAIN) {
+            return exact;
+        }
+        String wildcardOwner = wildcardOwnerName(normalized);
+        if (wildcardOwner == null) {
+            return ZoneLookupResult.nxdomain();
+        }
+        ZoneLookupResult wildcard = lookupAtOwner(wildcardOwner, type, true);
+        if (wildcard.getStatus() == ZoneLookupResult.STATUS_NXDOMAIN) {
+            return ZoneLookupResult.nxdomain();
+        }
+        return wildcard;
+    }
+
+    /**
+     * Looks up A/AAAA glue for in-zone names referred to by NS or MX targets.
+     */
+    List<DnsResourceRecord> glueFor(List<DnsResourceRecord> nameRecords) {
+        if (nameRecords == null || nameRecords.isEmpty()) {
             return Collections.emptyList();
         }
-        List<DnsResourceRecord> matches = new ArrayList<DnsResourceRecord>();
-        for (int i = 0; i < exact.size(); i++) {
-            DnsResourceRecord rr = exact.get(i);
-            if (rr.getType() == type || type == DnsType.ANY) {
-                matches.add(rr);
+        List<DnsResourceRecord> glue = new ArrayList<DnsResourceRecord>();
+        for (int i = 0; i < nameRecords.size(); i++) {
+            DnsResourceRecord rr = nameRecords.get(i);
+            String target = null;
+            if (rr.getType() == DnsType.NS || rr.getType() == DnsType.MX) {
+                target = rr.getType() == DnsType.NS
+                        ? rr.getTargetName()
+                        : rr.getMXExchange();
             }
-        }
-        if (!matches.isEmpty()) {
-            return matches;
-        }
-        if (type == DnsType.CNAME) {
-            return Collections.emptyList();
-        }
-        for (int i = 0; i < exact.size(); i++) {
-            if (exact.get(i).getType() == DnsType.CNAME) {
-                return Collections.singletonList(exact.get(i));
+            if (target == null || !isWithinZone(target)) {
+                continue;
             }
+            appendAddressRecords(glue, target);
         }
-        return Collections.emptyList();
+        return glue;
     }
 
     public List<DnsResourceRecord> getNsRecords() {
@@ -177,8 +215,135 @@ public final class ZoneFile {
         return ns;
     }
 
+    DnsResourceRecord getSoaRecord() {
+        return soaRecord;
+    }
+
+    int getMinimumTtl() {
+        return minimumTtl;
+    }
+
+    /**
+     * Returns SOA for authority sections (negative answers use minimum TTL).
+     */
+    DnsResourceRecord authoritySoa() {
+        return DnsResourceRecord.soa(soaRecord.getName(), minimumTtl,
+                soaData.mname, soaData.rname, soaData.serial, soaData.refresh,
+                soaData.retry, soaData.expire, minimumTtl);
+    }
+
+    private static SoaData parseSoaTokens(String[] tokens, int idx, String line)
+            throws IOException {
+        if (idx + 6 >= tokens.length) {
+            throw new IOException("Malformed SOA: " + line);
+        }
+        String mname = normalizeName(tokens[idx++]);
+        String rname = normalizeName(tokens[idx++]);
+        long serial = Long.parseLong(tokens[idx++]);
+        int refresh = Integer.parseInt(tokens[idx++]);
+        int retry = Integer.parseInt(tokens[idx++]);
+        int expire = Integer.parseInt(tokens[idx++]);
+        int minimum = Integer.parseInt(tokens[idx++]);
+        return new SoaData(mname, rname, (int) serial, refresh, retry, expire, minimum);
+    }
+
+    private static final class SoaData {
+        final String mname;
+        final String rname;
+        final int serial;
+        final int refresh;
+        final int retry;
+        final int expire;
+        final int minimum;
+
+        SoaData(String mname, String rname, int serial, int refresh,
+                int retry, int expire, int minimum) {
+            this.mname = mname;
+            this.rname = rname;
+            this.serial = serial;
+            this.refresh = refresh;
+            this.retry = retry;
+            this.expire = expire;
+            this.minimum = minimum;
+        }
+    }
+
+    private ZoneLookupResult lookupAtOwner(String owner, DnsType type,
+                                           boolean wildcard) {
+        List<DnsResourceRecord> atOwner = recordsByName.get(owner);
+        if (atOwner == null || atOwner.isEmpty()) {
+            return ZoneLookupResult.nxdomain();
+        }
+        List<DnsResourceRecord> matches = matchType(atOwner, type);
+        if (!matches.isEmpty()) {
+            return wildcard
+                    ? ZoneLookupResult.answerWildcard(matches)
+                    : ZoneLookupResult.answer(matches);
+        }
+        if (type == DnsType.CNAME) {
+            return ZoneLookupResult.nodata();
+        }
+        DnsResourceRecord cname = firstOfType(atOwner, DnsType.CNAME);
+        if (cname != null) {
+            List<DnsResourceRecord> answers = Collections.singletonList(cname);
+            return wildcard
+                    ? ZoneLookupResult.answerWildcard(answers)
+                    : ZoneLookupResult.answer(answers);
+        }
+        return ZoneLookupResult.nodata();
+    }
+
+    private static List<DnsResourceRecord> matchType(List<DnsResourceRecord> atOwner,
+                                                     DnsType type) {
+        List<DnsResourceRecord> matches = new ArrayList<DnsResourceRecord>();
+        for (int i = 0; i < atOwner.size(); i++) {
+            DnsResourceRecord rr = atOwner.get(i);
+            if (rr.getType() == type || type == DnsType.ANY) {
+                matches.add(rr);
+            }
+        }
+        return matches;
+    }
+
+    private static DnsResourceRecord firstOfType(List<DnsResourceRecord> atOwner,
+                                                 DnsType type) {
+        for (int i = 0; i < atOwner.size(); i++) {
+            if (atOwner.get(i).getType() == type) {
+                return atOwner.get(i);
+            }
+        }
+        return null;
+    }
+
+    private void appendAddressRecords(List<DnsResourceRecord> glue, String name) {
+        List<DnsResourceRecord> at = recordsByName.get(normalizeName(name));
+        if (at == null) {
+            return;
+        }
+        for (int i = 0; i < at.size(); i++) {
+            DnsResourceRecord rr = at.get(i);
+            if (rr.getType() == DnsType.A || rr.getType() == DnsType.AAAA) {
+                glue.add(rr);
+            }
+        }
+    }
+
+    /**
+     * RFC 1034: {@code *.label.rest} for {@code host.label.rest}.
+     */
+    static String wildcardOwnerName(String normalizedQname) {
+        if (normalizedQname == null || normalizedQname.isEmpty()) {
+            return null;
+        }
+        int dot = normalizedQname.indexOf('.');
+        if (dot < 0 || dot + 1 >= normalizedQname.length()) {
+            return null;
+        }
+        return "*." + normalizedQname.substring(dot + 1);
+    }
+
     private static DnsResourceRecord parseRecord(String owner, DnsType type,
-            DnsClass dnsClass, int ttl, String[] tokens, int idx, String line)
+            int ttl, String[] tokens, int idx, String line)
             throws IOException {
         switch (type) {
             case A:
@@ -191,6 +356,8 @@ public final class ZoneFile {
                 return DnsResourceRecord.ns(owner, ttl, normalizeName(tokens[idx]));
             case CNAME:
                 return DnsResourceRecord.cname(owner, ttl, normalizeName(tokens[idx]));
+            case PTR:
+                return DnsResourceRecord.ptr(owner, ttl, normalizeName(tokens[idx]));
             case MX: {
                 int preference = Integer.parseInt(tokens[idx++]);
                 return DnsResourceRecord.mx(owner, ttl, preference,
@@ -233,6 +400,13 @@ public final class ZoneFile {
             records.put(owner, list);
         }
         list.add(rr);
+    }
+
+    private static String ownerName(String nameToken, String origin) {
+        if ("*".equals(nameToken)) {
+            return "*." + origin;
+        }
+        return expandName(nameToken, origin);
     }
 
     private static String stripComment(String line) {

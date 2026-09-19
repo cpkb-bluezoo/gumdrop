@@ -21,7 +21,6 @@
 
 package org.bluezoo.gumdrop.dns.server;
 
-import org.bluezoo.gumdrop.dns.DnsCache;
 import org.bluezoo.gumdrop.dns.DnsCookie;
 import org.bluezoo.gumdrop.dns.DnsFormatException;
 import org.bluezoo.gumdrop.dns.DnsListener;
@@ -32,19 +31,11 @@ import org.bluezoo.gumdrop.dns.DnsQuestion;
 import org.bluezoo.gumdrop.dns.DnsResourceRecord;
 import org.bluezoo.gumdrop.dns.DnsServerMetrics;
 import org.bluezoo.gumdrop.dns.DnsType;
-import org.bluezoo.gumdrop.dns.client.DnssecTrustAnchor;
 import org.bluezoo.gumdrop.dns.DoQListener;
 import org.bluezoo.gumdrop.dns.DoTListener;
 
-import java.io.BufferedReader;
-import java.io.FileReader;
-import java.io.IOException;
-import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.text.MessageFormat;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -57,80 +48,41 @@ import org.bluezoo.gumdrop.dns.DnsQueryIdGenerator;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
-import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.Listener;
-import org.bluezoo.gumdrop.ProtocolHandler;
-import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.Server;
-import org.bluezoo.gumdrop.TcpTransportFactory;
-import org.bluezoo.gumdrop.TimerHandle;
-import org.bluezoo.gumdrop.UdpTransportFactory;
 import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
 
 /**
  * DNS protocol server — listeners, validation, and query dispatch to a
- * {@link DnsQueryHandler}. Default handler returns empty results.
- * RFC 1035 section 6: name server implementation. This service operates
- * as a caching forwarder (RFC 1035 section 7) rather than an authoritative
- * server. It validates incoming queries (section 4.1.1) and returns
- * appropriate error codes (FORMERR, NOTIMP, SERVFAIL, NXDOMAIN).
+ * {@link DnsQueryHandler}. With no handler, queries receive empty
+ * {@code NOERROR} answers. Attach {@link UpstreamRelayHandler} for
+ * caching forwarder behaviour, or {@link AuthoritativeZoneHandler} for
+ * zone-file authority.
  *
- * <p>The default implementation proxies all queries to configured upstream
- * DNS servers. Subclasses can override {@link #resolve(DnsMessage)} to
- * provide custom name resolution.
+ * <p>Forwarding, caching, and DNSSEC validation live on
+ * {@link UpstreamRelayHandler}, not on this class. Compose explicitly:
+ * <pre>{@code
+ * DnsServer dns = DnsServer.compose()
+ *     .listener(new DnsListener().port(5353))
+ *     .handler(UpstreamRelayHandler.builder()
+ *         .upstreamServers("8.8.8.8 1.1.1.1")
+ *         .cacheEnabled(true)
+ *         .build())
+ *     .server();
+ * }</pre>
  *
- * <p>Upstream forwarding is fully asynchronous: it runs on
- * {@link org.bluezoo.gumdrop.UdpEndpoint}/{@link
- * org.bluezoo.gumdrop.TcpEndpoint} client-mode connections registered
- * with a {@link SelectorLoop}, the same core transport primitives
- * {@code UdpListener}/{@code TcpListener} themselves are built on --
- * never a blocking socket, and never the {@code dns.client} resolver
- * stack (that's a stub-resolver abstraction for applications, not for
- * a server's own internal forwarding).
+ * <p>All resolution behaviour is supplied by the composed
+ * {@link DnsQueryHandler} ({@link DnsQueryHandlers#chain} local logic
+ * with {@link UpstreamRelayHandler} for split-horizon setups).
  *
- * <p>The service manages one or more listeners. Currently supported:
+ * <p>The service manages one or more listeners:
  * <ul>
  *   <li>{@link DnsListener} &ndash; standard DNS over UDP</li>
- *   <li>{@link DoTListener} &ndash; DNS over TLS (stub)</li>
- *   <li>{@link DoQListener} &ndash; DNS over QUIC (stub)</li>
+ *   <li>{@link DoTListener} &ndash; DNS over TLS</li>
+ *   <li>{@link DoQListener} &ndash; DNS over QUIC</li>
  * </ul>
- *
- * <p>Features:
- * <ul>
- * <li>Configurable upstream DNS servers</li>
- * <li>Optional system resolver fallback</li>
- * <li>In-memory response caching with TTL support</li>
- * <li>Negative caching for NXDOMAIN responses</li>
- * </ul>
- *
- * <h2>Configuration Example</h2>
- * <pre>{@code
- * <service class="org.bluezoo.gumdrop.dns.DnsServer">
- *   <property name="upstream-servers">8.8.8.8 1.1.1.1</property>
- *   <property name="cache-enabled">true</property>
- *   <listener class="org.bluezoo.gumdrop.dns.DnsListener"
- *           port="5353"/>
- * </service>
- * }</pre>
- *
- * <p>Example subclass for custom resolution:
- * <pre>{@code
- * public class MyDNSService extends DnsServer {
- *     @Override
- *     protected DnsMessage resolve(DnsMessage query) {
- *         DnsQuestion question = query.getQuestions().get(0);
- *         if ("internal.example.com".equals(question.getName())) {
- *             List answers = new ArrayList();
- *             answers.add(DnsResourceRecord.a("internal.example.com", 300,
- *                     InetAddress.getByName("10.0.0.1")));
- *             return query.createResponse(answers);
- *         }
- *         return null; // Fall through to upstream
- *     }
- * }
- * }</pre>
  *
  * <p>Non-QUERY opcodes (RFC 1996 NOTIFY, RFC 2136 dynamic update, and
  * others) are dispatched to {@link DnsQueryHandler#handleNonQueryOpcode}.
@@ -148,16 +100,11 @@ public class DnsServer implements Server {
     public static final ResourceBundle L10N =
             ResourceBundle.getBundle("org.bluezoo.gumdrop.dns.L10N");
 
-    private static final int DEFAULT_PORT = 53;
-    private static final long UPSTREAM_TIMEOUT_MS = 5000;
     // RFC 6891 section 6.2.5: with EDNS0, the UDP payload size is
     // negotiated via the OPT record. We use 4096 as the default.
     private static final int MAX_DNS_MESSAGE_SIZE =
             DnsMessage.DEFAULT_EDNS_UDP_SIZE;
     // RFC 1035 section 4.2.2: 2-byte big-endian length prefix
-    private static final int TCP_LENGTH_PREFIX_SIZE = 2;
-    private static final int MAX_TCP_MESSAGE_SIZE = 65535;
-
     private final List<Listener> listeners = new ArrayList<Listener>();
 
     // ── Configuration ──
@@ -169,7 +116,6 @@ public class DnsServer implements Server {
 
     private DnsQueryHandler queryHandler;
     private DnsQueryHandler activeHandler;
-    private UpstreamRelayHandler legacyRelay;
 
     /**
      * Creates a new DNS service.
@@ -184,14 +130,6 @@ public class DnsServer implements Server {
      */
     public static Composer compose() {
         return new Composer();
-    }
-
-    /**
-     * @deprecated use {@link #compose()}.
-     */
-    @Deprecated
-    public static Composer builder() {
-        return compose();
     }
 
     /**
@@ -258,77 +196,6 @@ public class DnsServer implements Server {
     // ── Configuration ──
 
     /**
-     * Sets the upstream DNS servers to use for proxying.
-     *
-     * <p>Format: space-separated list of addresses with optional port.
-     * Examples:
-     * <ul>
-     * <li>"8.8.8.8 1.1.1.1" &ndash; Google and Cloudflare DNS</li>
-     * <li>"192.168.1.1:53" &ndash; Local router with explicit port</li>
-     * </ul>
-     *
-     * @param servers space-separated list of server addresses
-     */
-    public void setUpstreamServers(String servers) {
-        legacyRelay().setUpstreamServers(servers);
-    }
-
-    /**
-     * Sets whether to use system resolvers from /etc/resolv.conf.
-     *
-     * @param useSystemResolvers true to use system resolvers as fallback
-     */
-    public void setUseSystemResolvers(boolean useSystemResolvers) {
-        legacyRelay().setUseSystemResolvers(useSystemResolvers);
-    }
-
-    /**
-     * Sets whether response caching is enabled.
-     *
-     * @param cacheEnabled true to enable caching
-     */
-    public void setCacheEnabled(boolean cacheEnabled) {
-        legacyRelay().setCacheEnabled(cacheEnabled);
-    }
-
-    /**
-     * Enables DNSSEC-aware upstream proxying.
-     * RFC 4035 section 3.2.1: when enabled, the DO bit is set in
-     * upstream queries so that DNSSEC records are returned. The AD
-     * bit on upstream responses is preserved when the upstream
-     * validated the answer. DNSSEC records are stripped from
-     * responses to clients that did not set DO.
-     *
-     * @param dnssecEnabled true to enable DNSSEC-aware proxying
-     */
-    public void setDnssecEnabled(boolean dnssecEnabled) {
-        legacyRelay().setDnssecEnabled(dnssecEnabled);
-    }
-
-    /**
-     * Sets the DNSSEC trust anchor used when validating upstream responses
-     * on the caching forwarder.
-     *
-     * @param trustAnchor trust anchor store
-     */
-    public void setTrustAnchor(DnssecTrustAnchor trustAnchor) {
-        legacyRelay().setTrustAnchor(trustAnchor);
-    }
-
-    /**
-     * Returns true if DNSSEC-aware proxying is enabled.
-     *
-     * @return true if DNSSEC is enabled
-     */
-    public boolean isDnssecEnabled() {
-        if (activeHandler instanceof UpstreamRelayHandler) {
-            return ((UpstreamRelayHandler) activeHandler).isDnssecEnabled();
-        }
-        UpstreamRelayHandler relay = getLegacyRelayIfConfigured();
-        return relay != null && relay.isDnssecEnabled();
-    }
-
-    /**
      * Sets the maximum number of additional RRTYPEs this server will
      * merge into one response via RFC 10029 (DNS Multiple QTYPEs). A
      * client's {@code MQTYPE-Query} option requesting more than this
@@ -339,16 +206,6 @@ public class DnsServer implements Server {
      */
     public void setMaxMQTypes(int maxMQTypes) {
         this.maxMQTypes = maxMQTypes;
-    }
-
-    /**
-     * Returns the DNS cache.
-     *
-     * @return the cache, or null if caching is disabled
-     */
-    public DnsCache getCache() {
-        UpstreamRelayHandler relay = getLegacyRelayIfConfigured();
-        return relay != null ? relay.getCache() : null;
     }
 
     /**
@@ -518,9 +375,8 @@ public class DnsServer implements Server {
                     // RFC 4035 section 3.2.1: strip DNSSEC records from
                     // responses when the client did not set DO.
                     DnsMessage finalResponse = response;
-                    if (isDnssecEnabled() && !query.hasDO()) {
-                        finalResponse = stripDNSSECRecords(finalResponse);
-                    }
+                    finalResponse = applyForwarderDnssecPresentation(query,
+                            finalResponse);
 
                     if (requestCookie != null) {
                         byte[] clientCookie = Arrays.copyOf(requestCookie,
@@ -545,7 +401,7 @@ public class DnsServer implements Server {
                     // processQuery's own pipeline never calls onError --
                     // an upstream failure is delivered as a SERVFAIL
                     // response, not an error -- but handle it defensively
-                    // in case a resolve() override's async delegate does.
+                    // in case a handler's async delegate does.
                     sendResponse(origin, query.createErrorResponse(
                             DnsMessage.RCODE_SERVFAIL), source);
                     onComplete.run();
@@ -566,14 +422,10 @@ public class DnsServer implements Server {
     }
 
     /**
-     * Processes a DNS query through the resolution pipeline:
-     * cache, custom resolve, upstream proxy.
-     * RFC 1035 section 7.1-7.4: stub/caching resolver algorithm.
-     * Pipeline: (1) cache lookup (section 7.4), (2) custom resolution,
-     * (3) upstream forwarding (section 7.2), fully asynchronously --
-     * upstream forwarding involves real network I/O, so {@code callback}
-     * may be invoked immediately (cache hit, {@link #resolve} hit) or
-     * only once an upstream round trip completes.
+     * Processes a DNS query through the configured {@link DnsQueryHandler},
+     * then applies RFC 10029 MQTYPE merging when requested. The handler
+     * may answer synchronously or after upstream I/O; {@code callback} is
+     * always invoked exactly once with a concrete response.
      *
      * <p>This method is public so that other listeners (DoT, DoQ)
      * can delegate to it.
@@ -759,8 +611,8 @@ public class DnsServer implements Server {
         // No OPT/additionals carried over: the client's MQTYPE-Query
         // (and any cookie) is scoped to the original multi-type
         // request, not to this single-type sub-resolution -- forwarding
-        // it upstream unchanged would be meaningless at best. resolve()
-        // and proxyToUpstream() apply their own EDNS/DO handling for a
+        // it upstream unchanged would be meaningless at best. Handlers
+        // apply their own EDNS/DO handling for a
         // query that arrives without an OPT record, same as any other
         // EDNS0-less query.
         DnsMessage subQuery = new DnsMessage(subId, query.getFlags(),
@@ -852,17 +704,21 @@ public class DnsServer implements Server {
     }
 
     /**
-     * Override this method to provide custom name resolution.
-     *
-     * <p>Return a response message to handle the query locally,
-     * or return {@code null} for an empty {@code NOERROR} response when
-     * no explicit handler is configured.
-     *
-     * @param query the DNS query
-     * @return a response message, or {@code null} for empty {@code NOERROR}
+     * RFC 4035 section 3.2.1: when the active handler is an
+     * {@link UpstreamRelayHandler} with DNSSEC enabled, strips DNSSEC
+     * records from responses to clients that did not set DO.
      */
-    protected DnsMessage resolve(DnsMessage query) {
-        return null;
+    private DnsMessage applyForwarderDnssecPresentation(DnsMessage query,
+            DnsMessage response) {
+        DnsQueryHandler handler = activeHandler != null
+                ? activeHandler : resolveActiveHandler();
+        if (handler instanceof UpstreamRelayHandler) {
+            UpstreamRelayHandler relay = (UpstreamRelayHandler) handler;
+            if (relay.isDnssecEnabled() && !query.hasDO()) {
+                return stripDNSSECRecords(response);
+            }
+        }
+        return response;
     }
 
     // ── DNSSEC helpers ──
@@ -1050,34 +906,9 @@ public class DnsServer implements Server {
         }
     }
 
-    private UpstreamRelayHandler legacyRelay() {
-        if (legacyRelay == null) {
-            legacyRelay = new UpstreamRelayHandler();
-        }
-        return legacyRelay;
-    }
-
-    private boolean legacyRelayConfigured() {
-        return legacyRelay != null;
-    }
-
-    private UpstreamRelayHandler getLegacyRelayIfConfigured() {
-        return legacyRelayConfigured() ? legacyRelay : null;
-    }
-
     private DnsQueryHandler resolveActiveHandler() {
         if (queryHandler != null) {
             return queryHandler;
-        }
-        if (getClass() != DnsServer.class) {
-            DnsQueryHandler resolveHandler = new LegacyResolveDnsHandler(this);
-            if (legacyRelayConfigured()) {
-                return DnsQueryHandlers.chain(resolveHandler, legacyRelay());
-            }
-            return resolveHandler;
-        }
-        if (legacyRelayConfigured()) {
-            return legacyRelay();
         }
         return DnsQueryHandlers.empty();
     }
@@ -1128,14 +959,6 @@ public class DnsServer implements Server {
                 server.listeners.add(listeners.get(i));
             }
             return server;
-        }
-
-        /**
-         * @deprecated use {@link #server()}.
-         */
-        @Deprecated
-        public DnsServer build() {
-            return server();
         }
     }
 

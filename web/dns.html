@@ -34,11 +34,11 @@
 <p class="back-link"><a href="index.html">&larr; Back to Main Page</a></p>
 
 <p>
-Gumdrop includes a full DNS proxy server that demonstrates the framework's UDP
-protocol support. The DNS server can resolve queries locally or proxy them to
-upstream servers, and is designed to be easily subclassed for custom name
-resolution. It serves both as a practical DNS proxy and as a reference
-implementation for developers building UDP-based services.
+Gumdrop includes a DNS server that demonstrates the framework's UDP protocol
+support. <code>DnsServer</code> handles listeners and wire format; you attach a
+<code>DnsQueryHandler</code> for local authority, caching forwarder behaviour
+(<code>UpstreamRelayHandler</code>), or custom policy. It serves as a practical
+DNS service and as a reference for UDP-based protocols.
 </p>
 
 <p>
@@ -59,6 +59,7 @@ DNS, etc.) so they're discoverable via Bonjour/Avahi/<code>dns-sd -B</code>.
 <li><a href="#custom">Custom Resolution</a></li>
 <li><a href="#records">Record Types</a></li>
 <li><a href="#configuration">Configuration</a></li>
+<li><a href="#authoritative">Authoritative zones</a></li>
 <li><a href="#listeners">Listeners</a></li>
 <li><a href="#resolver">DNS Resolver (Client)</a></li>
 <li><a href="#mdns">Multicast DNS &amp; DNS-SD</a></li>
@@ -84,10 +85,9 @@ the response is sent back—all within the event-driven framework.
 
 <ol>
 <li><b>Receive</b> - UDP datagram arrives, parsed into <code>DnsMessage</code></li>
-<li><b>Cache lookup</b> - check for cached response (if caching enabled)</li>
-<li><b>Custom resolution</b> - call <code>resolve()</code> for local handling</li>
-<li><b>Upstream proxy</b> - forward to upstream DNS servers if not resolved locally</li>
-<li><b>Cache storage</b> - cache the response respecting TTL</li>
+<li><b>Validate</b> - cookies, EDNS, opcode dispatch</li>
+<li><b>Handler</b> - <code>DnsQueryHandler</code> answers (sync or async upstream)</li>
+<li><b>MQTYPE merge</b> - optional RFC 10029 multi-type merge</li>
 <li><b>Send</b> - serialize response and send UDP datagram back to client</li>
 </ol>
 
@@ -221,9 +221,14 @@ resolver.setDnssecEnabled(true);
 resolver.addServer("8.8.8.8");
 resolver.open();
 
-// Enable DNSSEC-aware proxying on the server
-DnsServer service = new DnsServer();
-service.setDnssecEnabled(true);
+// Enable DNSSEC-aware proxying on the server (via UpstreamRelayHandler)
+DnsServer service = DnsServer.compose()
+    .listener(new DnsListener())
+    .handler(UpstreamRelayHandler.builder()
+        .upstreamServers("8.8.8.8")
+        .dnssecEnabled(true)
+        .build())
+    .server();
 </pre>
 
 <p>
@@ -320,21 +325,12 @@ UDP and port 853 are blocked</li>
 <h3 id="custom">Custom Resolution</h3>
 
 <p>
-The DNS service is designed for extension. By subclassing <code>DnsServer</code>
-and overriding the <code>resolve()</code> method, you can implement custom name
-resolution for any use case.
-</p>
-
-<h4>The resolve() Method</h4>
-
-<pre>
-protected DnsMessage resolve(DnsMessage query)
-</pre>
-
-<p>
-Return a <code>DnsMessage</code> response to handle the query locally, or return
-<code>null</code> to proxy the query to upstream servers. This simple contract
-makes it easy to:
+All query logic is implemented with a <code>DnsQueryHandler</code>. Use
+<code>DnsQueryHandlers.fromFunction</code> for synchronous rules, implement
+<code>DnsQueryHandler</code> directly for async work, or compose handlers with
+<code>DnsQueryHandlers.chain</code> (local policy first, then
+<code>UpstreamRelayHandler</code> when the first handler returns empty
+<code>NOERROR</code>).
 </p>
 
 <ul>
@@ -348,97 +344,74 @@ makes it easy to:
 <h4>Example: Internal Domain Resolution</h4>
 
 <pre>
-public class InternalDNSService extends DnsServer {
-    
-    private Map&lt;String, InetAddress&gt; internalHosts = new HashMap&lt;&gt;();
-    
-    public InternalDNSService() {
-        internalHosts.put("app.internal", InetAddress.getByName("10.0.1.10"));
-        internalHosts.put("db.internal", InetAddress.getByName("10.0.1.20"));
-        internalHosts.put("cache.internal", InetAddress.getByName("10.0.1.30"));
+UpstreamRelayHandler relay = UpstreamRelayHandler.builder()
+    .upstreamServers("8.8.8.8 1.1.1.1")
+    .build();
+
+DnsQueryHandler internal = DnsQueryHandlers.fromFunction(query -&gt; {
+    DnsQuestion question = query.getQuestions().get(0);
+    String name = question.getName();
+    if (!name.endsWith(".internal.")) {
+        return null; // chain to relay
     }
-    
-    @Override
-    protected DnsMessage resolve(DnsMessage query) {
-        DnsQuestion question = query.getQuestions().get(0);
-        String name = question.getName();
-        
-        // Handle .internal domain
-        if (name.endsWith(".internal")) {
-            InetAddress addr = internalHosts.get(name);
-            if (addr != null) {
-                List&lt;DnsResourceRecord&gt; answers = new ArrayList&lt;&gt;();
-                answers.add(DnsResourceRecord.a(name, 300, addr));
-                return query.createResponse(answers);
-            }
-            // Name not found in internal domain
-            return query.createErrorResponse(DnsMessage.RCODE_NXDOMAIN);
-        }
-        
-        // All other queries go to upstream
-        return null;
+    InetAddress addr = internalHosts.get(name);
+    if (addr != null) {
+        return query.createResponse(Collections.singletonList(
+            DnsResourceRecord.a(name, 300, addr)));
     }
-}
+    return query.createErrorResponse(DnsMessage.RCODE_NXDOMAIN);
+});
+
+DnsServer dns = DnsServer.compose()
+    .listener(new DnsListener().port(5353))
+    .handler(DnsQueryHandlers.chain(internal, relay))
+    .server();
 </pre>
 
 <h4>Example: DNS-Based Ad Blocking</h4>
 
 <pre>
-public class AdBlockingDNSService extends DnsServer {
-    
-    private Set&lt;String&gt; blockedDomains = new HashSet&lt;&gt;();
-    
-    public void loadBlocklist(Path file) throws IOException {
-        blockedDomains.addAll(Files.readAllLines(file));
+DnsQueryHandler blocklist = DnsQueryHandlers.fromFunction(query -&gt; {
+    String name = query.getQuestions().get(0).getName().toLowerCase(Locale.ROOT);
+    if (blockedDomains.contains(name)) {
+        return query.createErrorResponse(DnsMessage.RCODE_NXDOMAIN);
     }
-    
-    @Override
-    protected DnsMessage resolve(DnsMessage query) {
-        DnsQuestion question = query.getQuestions().get(0);
-        String name = question.getName().toLowerCase();
-        
-        // Check against blocklist
-        if (blockedDomains.contains(name)) {
-            // Return NXDOMAIN for blocked domains
-            return query.createErrorResponse(DnsMessage.RCODE_NXDOMAIN);
-        }
-        
-        // Allow through to upstream
-        return null;
-    }
-}
+    return null; // chain to UpstreamRelayHandler
+});
+
+DnsServer dns = DnsServer.compose()
+    .listener(new DnsListener())
+    .handler(DnsQueryHandlers.chain(blocklist, relay))
+    .server();
 </pre>
 
 <h4>Example: Dynamic Service Discovery</h4>
 
 <pre>
-public class ServiceDiscoveryDNS extends DnsServer {
-    
-    private ServiceRegistry registry;
-    
+DnsQueryHandler srvDiscovery = new DnsQueryHandler() {
     @Override
-    protected DnsMessage resolve(DnsMessage query) {
+    public void handleQuery(DnsMessage query, SelectorLoop loop,
+                            DnsQueryCallback callback) {
         DnsQuestion question = query.getQuestions().get(0);
-        
-        // Handle SRV queries for service discovery
-        if (question.getType() == DnsType.SRV) {
-            String serviceName = question.getName();
-            List&lt;ServiceInstance&gt; instances = registry.lookup(serviceName);
-            
-            if (!instances.isEmpty()) {
-                List&lt;DnsResourceRecord&gt; answers = new ArrayList&lt;&gt;();
-                for (ServiceInstance inst : instances) {
-                    answers.add(DnsResourceRecord.srv(serviceName, 300,
-                        inst.getPriority(), inst.getWeight(),
-                        inst.getPort(), inst.getHostname()));
-                }
-                return query.createResponse(answers);
-            }
+        if (question.getType() != DnsType.SRV) {
+            EmptyDnsQueryHandler.INSTANCE.handleQuery(query, loop, callback);
+            return;
         }
-        
-        return null;
+        List&lt;ServiceInstance&gt; instances =
+            registry.lookup(question.getName());
+        if (instances.isEmpty()) {
+            EmptyDnsQueryHandler.INSTANCE.handleQuery(query, loop, callback);
+            return;
+        }
+        List&lt;DnsResourceRecord&gt; answers = new ArrayList&lt;&gt;();
+        for (ServiceInstance inst : instances) {
+            answers.add(DnsResourceRecord.srv(question.getName(), 300,
+                inst.getPriority(), inst.getWeight(),
+                inst.getPort(), inst.getHostname()));
+        }
+        callback.onResponse(query.createResponse(answers));
     }
-}
+};
 </pre>
 
 <h3 id="records">Record Types</h3>
@@ -551,6 +524,47 @@ Attach one or more listeners per server with <code>.listener(...)</code>. For
 example, you can serve plain DNS on 5353 and DoT on 853 from the same server.
 </p>
 
+<h4 id="authoritative">AuthoritativeZoneHandler</h4>
+
+<p>
+<code>AuthoritativeZoneHandler</code> answers from one or more BIND-style zone
+files (<code>ZoneFile</code>). Out-of-zone queries receive <code>REFUSED</code>.
+Configure with the builder:
+</p>
+
+<ul>
+<li><code>zoneFile(Path)</code> - load a zone file from disk (requires
+<code>$ORIGIN</code> and an SOA at the origin)</li>
+<li><code>zone(ZoneFile)</code> - use an already-loaded zone</li>
+<li><code>minimalAnyPolicy(MinimalAnyPolicy)</code> - RFC 8482 minimal ANY
+(default: enabled)</li>
+</ul>
+
+<p>
+Supported record types in zone files: SOA, NS, A, AAAA, CNAME, MX, TXT, PTR.
+Wildcard owners (<code>*</code>) are supported. Negative answers follow RFC 2308
+(NXDOMAIN vs NODATA with SOA in the authority section). In-zone CNAME records
+are chased when answering other types. Glue A/AAAA records are added for
+in-bailiwick NS/MX targets when present in the zone.
+</p>
+
+<pre>
+AuthoritativeZoneHandler auth = AuthoritativeZoneHandler.builder()
+    .zoneFile(Path.of("example.com.zone"))
+    .build();
+
+DnsServer dns = DnsServer.compose()
+    .listener(new DnsListener().port(5353))
+    .handler(auth)
+    .server();
+</pre>
+
+<p>
+Multiple zones: call <code>zoneFile</code> or <code>zone</code> more than once.
+The longest matching origin wins when a query name could belong to several
+zones. See also <code>examples/dns-authoritative/</code> in the source tree.
+</p>
+
 <h4>UpstreamRelayHandler</h4>
 
 <p>
@@ -571,7 +585,7 @@ explicitly for the forwarding/caching behaviour:
 <li><code>nxDomainCutPolicy(NxDomainCutPolicy)</code> - RFC 8020: NXDOMAIN for subdomains of a proven-negative name (default: enabled)</li>
 <li><code>minimalAnyPolicy(MinimalAnyPolicy)</code> - RFC 8482: answer ANY with a minimal HINFO record (default: enabled)</li>
 <li><code>dnssecEnabled(boolean)</code> - validate upstream responses (sets DO on upstream queries; BOGUS answers → SERVFAIL; SECURE answers get AD)</li>
-<li><code>trustAnchor(DnssecTrustAnchor)</code> - trust anchor for validation (also via <code>DnsServer.setTrustAnchor</code>); defaults to an empty store unless you add anchors</li>
+<li><code>trustAnchor(DnssecTrustAnchor)</code> - trust anchor for validation; defaults to an empty store unless you add anchors</li>
 <li><code>aggressiveNsecEnabled(boolean)</code> - RFC 8198: synthesize NXDOMAIN/NODATA from validated NSEC/NSEC3 proofs before upstream (default: true when DNSSEC is on)</li>
 <li><code>aggressiveNsecPolicy(AggressiveNsecPolicy)</code> - override or disable per-query aggressive synthesis (default: synthesize when a proof covers the QNAME)</li>
 </ul>

@@ -1,0 +1,18 @@
+$ORIGIN example.com.
+$TTL 3600
+
+@       IN SOA   ns1.example.com. hostmaster.example.com. 2026031901 7200 3600 1209600 300
+
+@       IN NS    ns1.example.com.
+@       IN NS    ns2.example.com.
+
+ns1     IN A     127.0.0.1
+ns2     IN A     127.0.0.2
+
+@       IN A     192.0.2.1
+www     IN A     192.0.2.10
+mail    IN A     192.0.2.20
+mail    IN MX    10 mail.example.com.
+
+; Wildcard: anything else in the zone gets this address
+*       IN A     192.0.2.199

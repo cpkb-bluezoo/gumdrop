@@ -385,8 +385,9 @@ read-only public distribution)</li>
 accepts all operations using the configured Realm and MailboxFactory</li>
 <li><b>POP3</b> &ndash; <code>Pop3Server</code> with mailbox session provider
 accepts all operations using the configured Realm and MailboxFactory</li>
-<li><b>DNS</b> &ndash; <code>DnsServer</code> provides a DNS proxy with caching
-and custom resolution; subclass for custom name resolution logic</li>
+<li><b>DNS</b> &ndash; <code>DnsServer</code> with composed handlers: caching
+forwarder (<code>UpstreamRelayHandler</code>), authoritative zones
+(<code>AuthoritativeZoneHandler</code>); see <code>examples/dns-authoritative/</code></li>
 <li><b>MQTT</b> &ndash; <code>MqttServer.compose()</code> with no session
 provider is a complete MQTT 3.1.1/5.0 message broker; accepts all connections,
 publishes, and subscriptions using the configured Realm</li>

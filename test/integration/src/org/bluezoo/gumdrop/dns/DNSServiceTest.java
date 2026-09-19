@@ -43,7 +43,10 @@ import java.util.concurrent.atomic.AtomicReference;
 import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.GumdropConfig;
 import org.bluezoo.gumdrop.dns.server.DnsQueryHandler;
+import org.bluezoo.gumdrop.dns.server.DnsQueryHandlers;
+import org.bluezoo.gumdrop.dns.server.DnsQueryHandlers.DnsResolveFunction;
 import org.bluezoo.gumdrop.dns.server.DnsServer;
+import org.bluezoo.gumdrop.dns.server.UpstreamRelayHandler;
 import org.bluezoo.gumdrop.SelectorLoop;
 
 import static org.junit.Assert.*;
@@ -70,8 +73,8 @@ public class DNSServiceTest {
 
     /**
      * Drives {@link DnsServer#processQuery} to completion and returns
-     * its response. A cache hit or {@link DnsServer#resolve} hit
-     * completes synchronously (the latch is already at zero by the
+     * its response. A synchronous handler answer
+     * completes immediately (the latch is already at zero by the
      * time {@code await} runs); upstream forwarding is genuinely
      * asynchronous, so this always waits rather than assuming either
      * shape.
@@ -181,10 +184,7 @@ public class DNSServiceTest {
         responder.start();
 
         try {
-            DnsServer service = new DnsServer();
-            service.setUseSystemResolvers(false);
-            service.setCacheEnabled(false);
-            service.setUpstreamServers("127.0.0.1:" + mockPort);
+            DnsServer service = upstreamRelayServer("127.0.0.1:" + mockPort);
             service.start(gumdrop);
 
             try {
@@ -257,10 +257,7 @@ public class DNSServiceTest {
         // TCP fallback fails (graceful degradation).
 
         try {
-            DnsServer service = new DnsServer();
-            service.setUseSystemResolvers(false);
-            service.setCacheEnabled(false);
-            service.setUpstreamServers("127.0.0.1:" + mockPort);
+            DnsServer service = upstreamRelayServer("127.0.0.1:" + mockPort);
             service.start(gumdrop);
 
             try {
@@ -326,10 +323,7 @@ public class DNSServiceTest {
         responder.start();
 
         try {
-            DnsServer service = new DnsServer();
-            service.setUseSystemResolvers(false);
-            service.setCacheEnabled(false);
-            service.setUpstreamServers("127.0.0.1:" + mockPort);
+            DnsServer service = upstreamRelayServer("127.0.0.1:" + mockPort);
             service.start(gumdrop);
 
             try {
@@ -354,8 +348,6 @@ public class DNSServiceTest {
     public void testCookieOnlyResponseWithoutServerCookie() throws Exception {
         CapturingDNSListener listener = new CapturingDNSListener();
         DnsServer service = new DnsServer();
-        service.setUseSystemResolvers(false);
-        service.setCacheEnabled(false);
         listener.setServer(service);
 
         DnsCookie clientCookie = new DnsCookie();
@@ -485,10 +477,7 @@ public class DNSServiceTest {
 
         try {
             CapturingDNSListener listener = new CapturingDNSListener();
-            DnsServer service = new DnsServer();
-            service.setUseSystemResolvers(false);
-            service.setCacheEnabled(false);
-            service.setUpstreamServers("127.0.0.1:" + mockPort);
+            DnsServer service = upstreamRelayServer("127.0.0.1:" + mockPort);
             // Upstream forwarding needs the UDP/TCP transport factories
             // start() creates -- unlike testCookieOnlyResponseWithoutServerCookie,
             // this test's second query actually reaches proxyToUpstream.
@@ -578,9 +567,10 @@ public class DNSServiceTest {
 
     @Test
     public void testMQTypeExcludesTypeWithMismatchedRcode() throws Exception {
-        DnsServer service = new DnsServer() {
+        DnsServer service = new DnsServer();
+        service.setHandler(DnsQueryHandlers.fromFunction(new DnsResolveFunction() {
             @Override
-            protected DnsMessage resolve(DnsMessage query) {
+            public DnsMessage resolve(DnsMessage query) {
                 DnsQuestion q = query.getQuestions().get(0);
                 if (q.getType() == DnsType.A) {
                     return query.createResponse(Collections.singletonList(
@@ -592,7 +582,7 @@ public class DNSServiceTest {
                 // it be omitted from MQTYPE-Response.
                 return query.createErrorResponse(DnsMessage.RCODE_NXDOMAIN);
             }
-        };
+        }));
 
         DnsMessage query = buildMQTypeQuery(4, "mismatch.example.com", DnsType.A,
                 Collections.singletonList(DnsType.AAAA));
@@ -661,10 +651,23 @@ public class DNSServiceTest {
         }
     }
 
+    private static DnsServer upstreamRelayServer(String upstreamServers) {
+        UpstreamRelayHandler.Builder builder = UpstreamRelayHandler.builder()
+                .useSystemResolvers(false)
+                .cacheEnabled(false);
+        if (upstreamServers != null) {
+            builder.upstreamServers(upstreamServers);
+        }
+        DnsServer service = new DnsServer();
+        service.setHandler(builder.build());
+        return service;
+    }
+
     private static DnsServer serviceAnsweringPerType(final Map<DnsType, InetAddress> perType) {
-        return new DnsServer() {
+        DnsServer service = new DnsServer();
+        service.setHandler(DnsQueryHandlers.fromFunction(new DnsResolveFunction() {
             @Override
-            protected DnsMessage resolve(DnsMessage query) {
+            public DnsMessage resolve(DnsMessage query) {
                 DnsQuestion q = query.getQuestions().get(0);
                 InetAddress addr = perType.get(q.getType());
                 if (addr == null) {
@@ -675,7 +678,8 @@ public class DNSServiceTest {
                         : DnsResourceRecord.a(q.getName(), 60, addr);
                 return query.createResponse(Collections.singletonList(rr));
             }
-        };
+        }));
+        return service;
     }
 
     private static DnsMessage buildMQTypeQuery(int id, String name, DnsType primaryType,

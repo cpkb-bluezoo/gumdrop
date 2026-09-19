@@ -24,7 +24,8 @@ package org.bluezoo.gumdrop.dns.server;
 import org.bluezoo.gumdrop.dns.DnsQuestion;
 
 /**
- * RFC 8482 minimal ANY response policy for {@link UpstreamRelayHandler}.
+ * RFC 8482 minimal ANY response policy for {@link UpstreamRelayHandler}
+ * and {@link AuthoritativeZoneHandler}.
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 public interface MinimalAnyPolicy {

@@ -20,10 +20,12 @@
  */
 
 /**
- * DNS service: resolve locally, proxy to upstream servers, and cache
- * responses respecting TTL. {@link org.bluezoo.gumdrop.dns.server.DnsServer}
- * owns configuration, caching, and resolution logic, overridable for
- * custom name resolution. Three transport listeners share it: {@link
+ * DNS service: {@link org.bluezoo.gumdrop.dns.server.DnsServer} is the
+ * protocol shell (listeners, validation, dispatch); compose a
+ * {@link org.bluezoo.gumdrop.dns.server.DnsQueryHandler} such as
+ * {@link org.bluezoo.gumdrop.dns.server.UpstreamRelayHandler} or
+ * {@link org.bluezoo.gumdrop.dns.server.AuthoritativeZoneHandler} for
+ * application behaviour. Three transport listeners share the server: {@link
  * org.bluezoo.gumdrop.dns.DnsListener} for plain UDP queries, {@link
  * org.bluezoo.gumdrop.dns.DoTListener} for DNS-over-TLS (RFC 7858), and
  * {@link org.bluezoo.gumdrop.dns.DoQListener} for DNS-over-QUIC (RFC
