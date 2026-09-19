@@ -38,6 +38,7 @@ import static org.junit.Assert.*;
  * Loopback integration tests for {@link UdpEndpoint}: real datagram
  * channels, selector registration, and Gumdrop lifecycle. Pure buffer-
  * pool / queue logic lives in {@code org.bluezoo.gumdrop.UDPEndpointTest} ({@code ant test}).
+ * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 public class UdpEndpointIntegrationTest {
 

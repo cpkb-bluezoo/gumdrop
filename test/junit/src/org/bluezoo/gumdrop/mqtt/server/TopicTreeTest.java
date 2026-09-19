@@ -30,6 +30,9 @@ import java.util.concurrent.ConcurrentHashMap;
 
 import org.bluezoo.gumdrop.mqtt.codec.QoS;
 
+/**
+ * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
+ */
 public class TopicTreeTest {
 
     private TopicTree tree;

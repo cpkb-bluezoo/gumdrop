@@ -38,6 +38,7 @@ import java.util.Date;
 /**
  * Unit tests for {@link DmarcForensicReport} — DMARC forensic/failure reporting
  * (RFC 7489 §7.2, RFC 5965, RFC 6591).
+ * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 public class DMARCForensicReportTest {
 

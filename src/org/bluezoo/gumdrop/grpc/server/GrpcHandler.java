@@ -23,6 +23,7 @@ package org.bluezoo.gumdrop.grpc.server;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
+import java.util.ResourceBundle;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -53,6 +54,9 @@ import org.bluezoo.protobuf.ProtobufWriter;
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 public class GrpcHandler extends DefaultHttpRequestHandler {
+
+    private static final ResourceBundle L10N =
+            ResourceBundle.getBundle("org.bluezoo.gumdrop.grpc.L10N");
 
     private static final Logger LOGGER = Logger.getLogger(GrpcHandler.class.getName());
     private static final String CONTENT_TYPE_GRPC = "application/grpc";
@@ -111,7 +115,7 @@ public class GrpcHandler extends DefaultHttpRequestHandler {
         try {
             protoAdapter.startRootMessage(requestTypeName);
         } catch (ProtoParseException e) {
-            LOGGER.log(Level.WARNING, "Failed to start request message", e);
+            LOGGER.log(Level.WARNING, L10N.getString("log.grpc_start_request_failed"), e);
             reject(HttpStatus.BAD_REQUEST, "Invalid request type");
             return;
         }
@@ -157,7 +161,7 @@ public class GrpcHandler extends DefaultHttpRequestHandler {
             try {
                 protobufParser.receive(data);
             } catch (ProtobufParseException e) {
-                LOGGER.log(Level.WARNING, "Protobuf parse error", e);
+                LOGGER.log(Level.WARNING, L10N.getString("log.grpc_protobuf_parse_error"), e);
                 reject(HttpStatus.BAD_REQUEST, "Invalid request message");
             }
         }
@@ -168,7 +172,7 @@ public class GrpcHandler extends DefaultHttpRequestHandler {
                 protobufParser.close();
                 protoAdapter.endRootMessage();
             } catch (ProtoParseException | ProtobufParseException e) {
-                LOGGER.log(Level.WARNING, "Failed to complete request message", e);
+                LOGGER.log(Level.WARNING, L10N.getString("log.grpc_complete_request_failed"), e);
                 reject(HttpStatus.BAD_REQUEST, "Invalid request message");
             }
         }
@@ -242,7 +246,7 @@ public class GrpcHandler extends DefaultHttpRequestHandler {
                 return;
             }
             if (cause != null) {
-                LOGGER.log(Level.SEVERE, "gRPC internal error", cause);
+                LOGGER.log(Level.SEVERE, L10N.getString("log.grpc_internal_error"), cause);
             }
             sendError(13, "Internal error");
         }

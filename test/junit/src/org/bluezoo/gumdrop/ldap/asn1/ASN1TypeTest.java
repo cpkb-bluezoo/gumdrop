@@ -26,6 +26,7 @@ import static org.junit.Assert.*;
 
 /**
  * Unit tests for Asn1Type constants and utilities.
+ * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 public class ASN1TypeTest {
 

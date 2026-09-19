@@ -22,6 +22,8 @@
 package org.bluezoo.gumdrop;
 
 import java.io.IOException;
+import java.text.MessageFormat;
+import java.util.ResourceBundle;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -44,6 +46,9 @@ import java.util.logging.Logger;
  * @see Listener
  */
 public abstract class UdpListener extends Listener {
+
+    private static final ResourceBundle L10N =
+            ResourceBundle.getBundle("org.bluezoo.gumdrop.L10N");
 
     private static final Logger LOGGER =
             Logger.getLogger(UdpListener.class.getName());
@@ -89,9 +94,8 @@ public abstract class UdpListener extends Listener {
                     gumdrop, null, getPort(), handler);
             endpoint.setListener(this);
         } catch (IOException e) {
-            LOGGER.log(Level.SEVERE,
-                    "Failed to bind datagram endpoint on port "
-                            + getPort(), e);
+            LOGGER.log(Level.SEVERE, MessageFormat.format(
+                    L10N.getString("log.udp_bind_failed"), getPort()), e);
         }
     }
 

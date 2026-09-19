@@ -39,6 +39,7 @@ import org.bluezoo.gumdrop.util.SniCredentialsResolver;
 import org.bluezoo.gumdrop.util.TlsUtils;
 
 import java.io.IOException;
+import java.text.MessageFormat;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.StandardSocketOptions;
@@ -207,7 +208,8 @@ public class UdpTransportFactory extends TransportFactory {
             resolvedNamedGroups = resolveNamedGroups(namedGroups);
             if (namedGroups != null && !namedGroups.isEmpty() && dtlsVersion == DtlsVersion.DTLS_1_2
                     && LOGGER.isLoggable(Level.WARNING)) {
-                LOGGER.warning("namedGroups is meaningless under DTLS_1_2; ignoring \"" + namedGroups + "\"");
+                LOGGER.warning(MessageFormat.format(
+                        Gumdrop.L10N.getString("warn.dtls12_named_groups_ignored"), namedGroups));
             }
             if (secure && dtlsVersion == DtlsVersion.DTLS_1_2) {
                 sharedServerConfig = buildServerConfig12();
@@ -359,7 +361,8 @@ public class UdpTransportFactory extends TransportFactory {
                 resolved.add(Tls12CipherSuite.valueOf(name));
             } catch (IllegalArgumentException e) {
                 if (LOGGER.isLoggable(Level.WARNING)) {
-                    LOGGER.warning("Unrecognised TLS 1.2 cipher suite \"" + name + "\", ignoring");
+                    LOGGER.warning(MessageFormat.format(
+                            Gumdrop.L10N.getString("warn.unrecognized_tls12_cipher_suite"), name));
                 }
             }
         }
@@ -381,7 +384,8 @@ public class UdpTransportFactory extends TransportFactory {
                 resolved.add(CipherSuite.valueOf(name));
             } catch (IllegalArgumentException e) {
                 if (LOGGER.isLoggable(Level.WARNING)) {
-                    LOGGER.warning("Unrecognised cipher suite \"" + name + "\", ignoring");
+                    LOGGER.warning(MessageFormat.format(
+                            Gumdrop.L10N.getString("warn.unrecognized_cipher_suite"), name));
                 }
             }
         }
@@ -403,7 +407,8 @@ public class UdpTransportFactory extends TransportFactory {
                 resolved.add(NamedGroup.valueOf(name.toUpperCase(Locale.ROOT)));
             } catch (IllegalArgumentException e) {
                 if (LOGGER.isLoggable(Level.WARNING)) {
-                    LOGGER.warning("Unrecognised named group \"" + name + "\", ignoring");
+                    LOGGER.warning(MessageFormat.format(
+                            Gumdrop.L10N.getString("warn.unrecognized_named_group"), name));
                 }
             }
         }

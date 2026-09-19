@@ -19,6 +19,7 @@
 package org.bluezoo.gumdrop.servlet.jsp;
 
 import java.io.IOException;
+import java.text.MessageFormat;
 import java.util.ResourceBundle;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.logging.Level;
@@ -115,7 +116,7 @@ public class JspServlet extends HttpServlet {
         }
         
         if (LOGGER.isLoggable(Level.FINE)) {
-            LOGGER.fine("Processing JSP request for: " + jspPath);
+            LOGGER.fine(MessageFormat.format(L10N.getString("debug.jsp_processing_request"), jspPath));
         }
         
         try {
@@ -125,7 +126,7 @@ public class JspServlet extends HttpServlet {
             if (jspServlet == null) {
                 // Not in cache, need to compile
                 if (LOGGER.isLoggable(Level.FINE)) {
-                    LOGGER.fine("Compiling JSP: " + jspPath);
+                    LOGGER.fine(MessageFormat.format(L10N.getString("debug.jsp_compiling"), jspPath));
                 }
                 
                 // Get the servlet context (which should be our Context)
@@ -144,11 +145,11 @@ public class JspServlet extends HttpServlet {
                 compiledServletCache.put(jspPath, jspServlet);
                 
                 if (LOGGER.isLoggable(Level.FINE)) {
-                    LOGGER.fine("Cached compiled JSP servlet: " + jspPath);
+                    LOGGER.fine(MessageFormat.format(L10N.getString("debug.jsp_cached_servlet"), jspPath));
                 }
             } else {
                 if (LOGGER.isLoggable(Level.FINE)) {
-                    LOGGER.fine("Using cached JSP servlet: " + jspPath);
+                    LOGGER.fine(MessageFormat.format(L10N.getString("debug.jsp_using_cached_servlet"), jspPath));
                 }
             }
             
@@ -156,7 +157,7 @@ public class JspServlet extends HttpServlet {
             jspServlet.service(request, response);
             
         } catch (Exception e) {
-            LOGGER.log(Level.SEVERE, "JSP processing error for " + jspPath, e);
+            LOGGER.log(Level.SEVERE, MessageFormat.format(L10N.getString("severe.jsp_processing_error"), jspPath), e);
             // Full detail (including e.getMessage(), which can contain
             // internal file paths/class names/compiler output) stays in
             // the server log above; the client only gets a generic

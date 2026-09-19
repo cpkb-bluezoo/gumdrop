@@ -364,8 +364,8 @@ public class TcpTransportFactory extends TransportFactory {
         if (tlsVersion == TlsVersion.TLS_1_2) {
             resolvedTls12CipherSuites = resolveTls12CipherSuites(cipherSuites);
             if (namedGroups != null && !namedGroups.isEmpty() && LOGGER.isLoggable(Level.WARNING)) {
-                LOGGER.warning("namedGroups is meaningless under TLS_1_2 (fixed to secp256r1 ECDHE); ignoring \""
-                        + namedGroups + "\"");
+                LOGGER.warning(MessageFormat.format(
+                        Gumdrop.L10N.getString("warn.tls12_named_groups_ignored"), namedGroups));
             }
         } else {
             resolvedCipherSuites = resolveCipherSuites(cipherSuites);
@@ -423,7 +423,8 @@ public class TcpTransportFactory extends TransportFactory {
                 resolved.add(CipherSuite.valueOf(name));
             } catch (IllegalArgumentException e) {
                 if (LOGGER.isLoggable(Level.WARNING)) {
-                    LOGGER.warning("Unrecognised cipher suite \"" + name + "\", ignoring");
+                    LOGGER.warning(MessageFormat.format(
+                            Gumdrop.L10N.getString("warn.unrecognized_cipher_suite"), name));
                 }
             }
         }
@@ -445,7 +446,8 @@ public class TcpTransportFactory extends TransportFactory {
                 resolved.add(Tls12CipherSuite.valueOf(name));
             } catch (IllegalArgumentException e) {
                 if (LOGGER.isLoggable(Level.WARNING)) {
-                    LOGGER.warning("Unrecognised TLS 1.2 cipher suite \"" + name + "\", ignoring");
+                    LOGGER.warning(MessageFormat.format(
+                            Gumdrop.L10N.getString("warn.unrecognized_tls12_cipher_suite"), name));
                 }
             }
         }
@@ -467,7 +469,8 @@ public class TcpTransportFactory extends TransportFactory {
                 resolved.add(NamedGroup.valueOf(name.toUpperCase(Locale.ROOT)));
             } catch (IllegalArgumentException e) {
                 if (LOGGER.isLoggable(Level.WARNING)) {
-                    LOGGER.warning("Unrecognised named group \"" + name + "\", ignoring");
+                    LOGGER.warning(MessageFormat.format(
+                            Gumdrop.L10N.getString("warn.unrecognized_named_group"), name));
                 }
             }
         }
@@ -602,13 +605,12 @@ public class TcpTransportFactory extends TransportFactory {
                                         .get(null);
                 channel.setOption(tfo, Boolean.TRUE);
             } catch (UnsupportedOperationException e) {
-                LOGGER.fine("TCP Fast Open not supported on this "
-                        + "platform");
+                LOGGER.fine(Gumdrop.L10N.getString("log.tcp_fast_open_unsupported"));
             } catch (ClassNotFoundException e) {
-                LOGGER.fine("jdk.net.ExtendedSocketOptions not available");
+                LOGGER.fine(Gumdrop.L10N.getString("log.extended_socket_options_unavailable"));
             } catch (Exception e) {
                 LOGGER.log(Level.FINE,
-                        "Failed to enable TCP Fast Open", e);
+                        Gumdrop.L10N.getString("log.tcp_fast_open_enable_failed"), e);
             }
         }
 

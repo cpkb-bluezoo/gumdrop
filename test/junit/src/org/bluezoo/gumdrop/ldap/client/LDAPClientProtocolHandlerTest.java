@@ -43,6 +43,7 @@ import static org.junit.Assert.*;
  * abandon (RFC 4511 §4.11), controls (RFC 4511 §4.1.11),
  * unsolicited notifications (RFC 4511 §4.4),
  * intermediate responses (RFC 4511 §4.13).
+ * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 public class LDAPClientProtocolHandlerTest {
 

@@ -42,6 +42,7 @@ import org.bluezoo.gumdrop.GumdropConfig;
  * container directly. Only the older no-arg-constructor-plus-external-setter
  * wiring path (XML DI) was actually exercised by {@code start()} before
  * this fix.
+ * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 public class ContainerStartWithComposedContextTest {
 

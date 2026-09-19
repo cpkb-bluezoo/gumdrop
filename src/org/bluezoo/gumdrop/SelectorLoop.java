@@ -41,7 +41,7 @@ import java.util.logging.Logger;
 
 import org.bluezoo.gumdrop.quic.QuicEngine;
 import org.bluezoo.gumdrop.util.ByteBufferPool;
-
+import java.util.ResourceBundle;
 /**
  * Worker selector loop for handling I/O events.
  *
@@ -55,6 +55,9 @@ import org.bluezoo.gumdrop.util.ByteBufferPool;
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 public class SelectorLoop implements Runnable {
+
+    private static final ResourceBundle L10N =
+            ResourceBundle.getBundle("org.bluezoo.gumdrop.L10N");
 
     private static final Logger LOGGER = Logger.getLogger(SelectorLoop.class.getName());
 
@@ -257,7 +260,7 @@ public class SelectorLoop implements Runnable {
                             // Key was cancelled while dispatching, continue.
                         } catch (Exception e) {
                             LOGGER.log(Level.WARNING,
-                                    "Error dispatching I/O event", e);
+                                    L10N.getString("log.error_dispatching_io_event"), e);
                             isolateFailedHandler(key, handler, e);
                         }
                     }
@@ -267,18 +270,18 @@ public class SelectorLoop implements Runnable {
                     if ("Bad file descriptor".equals(e.getMessage())) {
                         // Selector was closed
                     } else {
-                        LOGGER.log(Level.WARNING, "Error in selector loop", e);
+                        LOGGER.log(Level.WARNING, L10N.getString("log.error_in_selector_loop"), e);
                     }
                 }
             }
         } catch (IOException e) {
-            LOGGER.log(Level.SEVERE, "Failed to initialize SelectorLoop", e);
+            LOGGER.log(Level.SEVERE, L10N.getString("log.failed_to_initialize_selectorloop"), e);
         } finally {
             if (selector != null) {
                 try {
                     selector.close();
                 } catch (IOException e) {
-                    LOGGER.log(Level.WARNING, "Error closing selector", e);
+                    LOGGER.log(Level.WARNING, L10N.getString("log.error_closing_selector_1"), e);
                 }
                 selector = null;
             }
@@ -297,7 +300,7 @@ public class SelectorLoop implements Runnable {
             } catch (ClosedChannelException e) {
                 // Channel was closed before we could register
                 if (LOGGER.isLoggable(Level.FINE)) {
-                    LOGGER.fine("Channel closed before registration");
+                    LOGGER.fine(L10N.getString("log.channel_closed_before_registration"));
                 }
             }
         }
@@ -310,7 +313,7 @@ public class SelectorLoop implements Runnable {
                 try {
                     entry.callback.run();
                 } catch (Exception e) {
-                    LOGGER.log(Level.WARNING, "Error in timer callback", e);
+                    LOGGER.log(Level.WARNING, L10N.getString("log.error_in_timer_callback"), e);
                 }
             }
         }
@@ -322,7 +325,7 @@ public class SelectorLoop implements Runnable {
             try {
                 task.run();
             } catch (Exception e) {
-                LOGGER.log(Level.WARNING, "Error in pending task", e);
+                LOGGER.log(Level.WARNING, L10N.getString("log.error_in_pending_task"), e);
             }
         }
     }
@@ -351,7 +354,7 @@ public class SelectorLoop implements Runnable {
                 }
             } catch (Exception closeError) {
                 LOGGER.log(Level.WARNING,
-                        "Error isolating failed handler", closeError);
+                        L10N.getString("log.error_isolating_failed_handler"), closeError);
             }
         }
         if (key != null && key.isValid()) {
@@ -546,7 +549,7 @@ public class SelectorLoop implements Runnable {
 
         } catch (IOException e) {
             LOGGER.log(Level.WARNING,
-                    "Error reading from datagram endpoint", e);
+                    L10N.getString("log.error_reading_datagram_endpoint"), e);
             endpoint.close();
         }
     }
@@ -587,7 +590,7 @@ public class SelectorLoop implements Runnable {
 
         } catch (IOException e) {
             LOGGER.log(Level.WARNING,
-                    "Error writing to datagram endpoint", e);
+                    L10N.getString("log.error_writing_datagram_endpoint"), e);
             endpoint.close();
         }
     }
@@ -684,7 +687,7 @@ public class SelectorLoop implements Runnable {
             try {
                 task.run();
             } catch (Exception e) {
-                LOGGER.log(Level.WARNING, "Error in invokeLater task", e);
+                LOGGER.log(Level.WARNING, L10N.getString("log.error_in_invokelater_task"), e);
             }
         } else {
             // Queue for execution on next selector wakeup

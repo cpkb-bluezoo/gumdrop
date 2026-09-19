@@ -328,7 +328,8 @@ public class MdnsServer implements Server {
             try {
                 l.start(gumdrop);
             } catch (Exception e) {
-                LOGGER.log(Level.SEVERE, "Failed to start mDNS listener: " + l, e);
+                LOGGER.log(Level.SEVERE, MessageFormat.format(
+                        L10N.getString("err.mdns_listener_start_failed"), l), e);
                 continue;
             }
             anyBound |= l.isBound();
@@ -360,8 +361,9 @@ public class MdnsServer implements Server {
             try {
                 listeners.get(i).stop();
             } catch (Exception e) {
-                LOGGER.log(Level.WARNING,
-                        "Failed to stop mDNS listener: " + listeners.get(i), e);
+                LOGGER.log(Level.WARNING, MessageFormat.format(
+                        L10N.getString("warn.mdns_listener_stop_failed"),
+                        listeners.get(i)), e);
             }
         }
         cancelTimer();

@@ -27,6 +27,9 @@ import static org.junit.Assert.*;
 import java.nio.ByteBuffer;
 import java.util.List;
 
+/**
+ * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
+ */
 public class MQTTPropertiesTest {
 
     @Test

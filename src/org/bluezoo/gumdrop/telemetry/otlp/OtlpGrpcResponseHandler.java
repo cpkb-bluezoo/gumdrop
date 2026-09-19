@@ -63,7 +63,7 @@ class OtlpGrpcResponseHandler extends DefaultHttpResponseHandler {
         this.success = true;
 
         if (logger.isLoggable(Level.FINE)) {
-            logger.fine("OTLP gRPC " + endpointName + " export successful: " + status);
+            logger.fine(MessageFormat.format(L10N.getString("fine.otlp_grpc_export_success"), endpointName, status));
         }
     }
 
@@ -89,7 +89,7 @@ class OtlpGrpcResponseHandler extends DefaultHttpResponseHandler {
         this.complete = true;
 
         if (logger.isLoggable(Level.WARNING)) {
-            logger.log(Level.WARNING, "OTLP gRPC " + endpointName + " export failed with exception", ex);
+            logger.log(Level.WARNING, MessageFormat.format(L10N.getString("warn.otlp_grpc_export_exception"), endpointName), ex);
         }
 
         exporter.onExportComplete(this);

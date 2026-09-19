@@ -22,6 +22,7 @@
 package org.bluezoo.gumdrop.http.client;
 
 import java.nio.ByteBuffer;
+import java.util.ResourceBundle;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -65,6 +66,8 @@ import java.util.logging.Logger;
 public class DefaultHttpResponseHandler implements HttpResponseHandler {
 
     private static final Logger logger = Logger.getLogger(DefaultHttpResponseHandler.class.getName());
+
+    private static final ResourceBundle L10N = ResourceBundle.getBundle("org.bluezoo.gumdrop.http.client.L10N");
 
     /**
      * Creates a new default response handler.
@@ -172,7 +175,7 @@ public class DefaultHttpResponseHandler implements HttpResponseHandler {
      */
     @Override
     public void failed(Exception ex) {
-        logger.log(Level.WARNING, "HTTP request failed", ex);
+        logger.log(Level.WARNING, L10N.getString("warn.http_request_failed"), ex);
     }
 }
 

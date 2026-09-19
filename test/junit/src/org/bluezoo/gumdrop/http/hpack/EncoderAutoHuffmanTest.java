@@ -39,6 +39,7 @@ import static org.junit.Assert.*;
  * {@code setAutoHuffman(false)} actually suppresses Huffman coding (the
  * 'H' bit stays clear even for a highly compressible value) and that a
  * round trip through {@link Decoder} still recovers the original headers.
+ * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 public class EncoderAutoHuffmanTest {
 

@@ -125,7 +125,7 @@ public class RoleBasedFTPHandler implements FtpConnectionHandler {
     @Override
     public String connected(FtpConnectionMetadata metadata) {
         if (LOGGER.isLoggable(Level.FINE)) {
-            LOGGER.fine("FTP connection from " + metadata.getClientAddress());
+            LOGGER.fine(MessageFormat.format(L10N.getString("debug.role_handler_connection"), metadata.getClientAddress()));
         }
         return welcomeMessage;
     }
@@ -228,8 +228,7 @@ public class RoleBasedFTPHandler implements FtpConnectionHandler {
         }
         
         if (!authorized && LOGGER.isLoggable(Level.FINE)) {
-            LOGGER.fine("Authorization denied: user=" + username + 
-                       ", operation=" + operation + ", path=" + path);
+            LOGGER.fine(MessageFormat.format(L10N.getString("debug.authorization_denied"), username, operation, path));
         }
         
         return authorized;
@@ -239,9 +238,8 @@ public class RoleBasedFTPHandler implements FtpConnectionHandler {
     public void transferStarting(String path, boolean upload, long size,
                                  FtpConnectionMetadata metadata) {
         if (LOGGER.isLoggable(Level.FINE)) {
-            String direction = upload ? "upload" : "download";
-            LOGGER.fine("Transfer starting: " + direction + " " + path + 
-                       " (size=" + size + ") by " + metadata.getAuthenticatedUser());
+            String direction = upload ? L10N.getString("transfer.upload") : L10N.getString("transfer.download");
+            LOGGER.fine(MessageFormat.format(L10N.getString("debug.transfer_starting_detail"), direction, path, size, metadata.getAuthenticatedUser()));
         }
     }
     
@@ -415,8 +413,7 @@ public class RoleBasedFTPHandler implements FtpConnectionHandler {
     public void disconnected(FtpConnectionMetadata metadata) {
         if (LOGGER.isLoggable(Level.FINE)) {
             long duration = metadata.getConnectionDurationMillis();
-            LOGGER.fine("FTP disconnected: user=" + metadata.getAuthenticatedUser() +
-                       ", duration=" + duration + "ms");
+            LOGGER.fine(MessageFormat.format(L10N.getString("debug.role_handler_disconnected"), metadata.getAuthenticatedUser(), duration));
         }
     }
     

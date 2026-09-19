@@ -1,9 +1,6 @@
 /*
  * PriorityDemoServlet.java
- * HTTP/2 Stream Priority Demonstration for Gumdrop Server
- * 
- * This example demonstrates HTTP/2 stream priority handling
- * with PriorityAwareHTTPServer.
+ * Example servlet demonstrating HTTP/2 stream priority benefits.
  */
 
 package examples.http2priority;

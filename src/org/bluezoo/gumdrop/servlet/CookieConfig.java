@@ -33,7 +33,6 @@ import jakarta.servlet.http.Cookie;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-@SuppressWarnings("removal") // SessionCookieConfig comment APIs + Cookie.setComment until Jakarta 6.x removes them
 final class CookieConfig implements SessionCookieConfig {
 
     enum SameSite {
@@ -62,6 +61,7 @@ final class CookieConfig implements SessionCookieConfig {
     /**
      * Builds a session {@code Set-Cookie} from this descriptor and a session id.
      */
+    @SuppressWarnings("removal") // Cookie.setComment until Jakarta 6.x removes it
     Cookie createSessionCookie(String sessionId, String contextPath) {
         Cookie cookie = new Cookie(name, sessionId);
         if (domain != null) {
@@ -120,11 +120,15 @@ final class CookieConfig implements SessionCookieConfig {
         return path;
     }
 
-    @Override public void setComment(String comment) {
+    @Override
+    @SuppressWarnings("removal") // SessionCookieConfig comment APIs until Jakarta 6.x
+    public void setComment(String comment) {
         this.comment = comment;
     }
 
-    @Override public String getComment() {
+    @Override
+    @SuppressWarnings("removal") // SessionCookieConfig comment APIs until Jakarta 6.x
+    public String getComment() {
         return comment;
     }
 

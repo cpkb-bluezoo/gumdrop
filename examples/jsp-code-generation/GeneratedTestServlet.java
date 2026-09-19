@@ -1,3 +1,8 @@
+/*
+ * GeneratedTestServlet.java
+ * Generated servlet from JSP: test-example.jsp
+ */
+
 import java.lang.*;
 import jakarta.servlet.http.*;
 import java.util.Date;

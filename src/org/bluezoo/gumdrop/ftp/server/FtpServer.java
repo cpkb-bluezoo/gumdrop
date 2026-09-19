@@ -24,9 +24,11 @@ package org.bluezoo.gumdrop.ftp.server;
 import org.bluezoo.gumdrop.ftp.FtpConnectionHandler;
 import org.bluezoo.gumdrop.ftp.FtpListener;
 
+import java.text.MessageFormat;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.ResourceBundle;
 import java.util.function.Supplier;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -72,6 +74,9 @@ public class FtpServer implements Server, FtpServerSessionProvider {
 
     private static final Logger LOGGER =
             Logger.getLogger(FtpServer.class.getName());
+
+    private static final ResourceBundle L10N =
+            ResourceBundle.getBundle("org.bluezoo.gumdrop.ftp.L10N");
 
     private final List<FtpListener> listeners = new ArrayList<FtpListener>();
     private final List<Listener> dynamicListeners = new ArrayList<Listener>();
@@ -289,7 +294,7 @@ public class FtpServer implements Server, FtpServerSessionProvider {
                 ((Listener) listener).start(gumdrop);
             } catch (Exception e) {
                 LOGGER.log(Level.SEVERE,
-                        "Failed to start listener: " + listener, e);
+                        MessageFormat.format(L10N.getString("log.listener_start_failed"), listener), e);
             }
         }
     }
@@ -300,7 +305,7 @@ public class FtpServer implements Server, FtpServerSessionProvider {
                 ((Listener) listener).stop();
             } catch (Exception e) {
                 LOGGER.log(Level.WARNING,
-                        "Error stopping listener: " + listener, e);
+                        MessageFormat.format(L10N.getString("log.listener_stop_error"), listener), e);
             }
         }
     }

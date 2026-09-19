@@ -29,6 +29,8 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.logging.Level;
 import java.util.logging.Logger;
+import java.text.MessageFormat;
+import java.util.ResourceBundle;
 
 import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.TimerHandle;
@@ -58,6 +60,8 @@ public class DoQConnectionPool implements DnsClientTransport {
 
     private static final Logger LOGGER =
             Logger.getLogger(DoQConnectionPool.class.getName());
+    private static final ResourceBundle L10N =
+            ResourceBundle.getBundle("org.bluezoo.gumdrop.dns.L10N");
 
     private static final ConcurrentHashMap<String, PoolEntry> pool =
             new ConcurrentHashMap<>();
@@ -179,8 +183,8 @@ public class DoQConnectionPool implements DnsClientTransport {
             PoolEntry pe = e.getValue();
             if (now - pe.lastUsed > maxIdleTimeMs) {
                 if (LOGGER.isLoggable(Level.FINE)) {
-                    LOGGER.fine("Evicting idle DoQ connection: "
-                            + e.getKey());
+                    LOGGER.fine(MessageFormat.format(
+                            L10N.getString("fine.doq_evict_idle"), e.getKey()));
                 }
                 pe.transport.close();
                 it.remove();

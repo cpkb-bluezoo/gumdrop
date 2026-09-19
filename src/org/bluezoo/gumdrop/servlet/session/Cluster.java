@@ -1020,7 +1020,7 @@ public class Cluster {
 
         @Override
         public void error(Exception cause) {
-            LOGGER.log(Level.WARNING, "Cluster endpoint error", cause);
+            LOGGER.log(Level.WARNING, L10N.getString("warn.cluster_endpoint_error"), cause);
         }
     }
 

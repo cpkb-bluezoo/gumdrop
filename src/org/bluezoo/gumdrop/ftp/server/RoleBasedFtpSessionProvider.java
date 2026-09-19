@@ -58,6 +58,7 @@ import java.nio.file.Path;
  * file system is wrapped in a {@link RoleAwareFTPFileSystem} decorator that
  * enforces role checks at the filesystem operation level, in addition to the
  * command-level checks in {@link RoleBasedFTPHandler}.
+ * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 public final class RoleBasedFtpSessionProvider implements FtpServerSessionProvider {
 

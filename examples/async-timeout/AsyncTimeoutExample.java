@@ -1,9 +1,6 @@
 /*
  * AsyncTimeoutExample.java
- * Servlet Async Context Timeout Example for Gumdrop Server
- * 
- * This example demonstrates how to use async servlet timeouts
- * with StreamAsyncContext timeout functionality.
+ * Example servlet demonstrating async context timeout handling.
  */
 
 package examples.asynctimeout;

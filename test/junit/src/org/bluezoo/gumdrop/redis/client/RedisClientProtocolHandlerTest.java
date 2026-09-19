@@ -40,6 +40,7 @@ import static org.junit.Assert.*;
 /**
  * Unit tests for new features in {@link RedisClientProtocolHandler}:
  * HELLO, CLIENT commands, SCAN, blocking commands, streams, RESET.
+ * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 public class RedisClientProtocolHandlerTest {
 

@@ -26,6 +26,9 @@ import static org.junit.Assert.*;
 
 import java.nio.ByteBuffer;
 
+/**
+ * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
+ */
 public class VariableLengthEncodingTest {
 
     @Test

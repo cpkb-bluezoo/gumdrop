@@ -1,6 +1,22 @@
 /*
  * SmtpServerCompositionTest.java
  * Copyright (C) 2026 Chris Burdess
+ *
+ * This file is part of gumdrop, a multipurpose Java server.
+ * For more information please visit https://www.nongnu.org/gumdrop/
+ *
+ * gumdrop is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * gumdrop is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with gumdrop.  If not, see <http://www.gnu.org/licenses/>.
  */
 
 package org.bluezoo.gumdrop.smtp;
@@ -32,6 +48,7 @@ import org.junit.Test;
 import java.net.InetAddress;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
+import java.util.function.Supplier;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
@@ -41,6 +58,7 @@ import static org.junit.Assert.*;
 /**
  * Workstream C.3.1 — {@link SmtpServer#compose()} and fluent
  * {@link SmtpClient} session-provider composition.
+ * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 public class SmtpServerCompositionTest {
 
@@ -83,8 +101,12 @@ public class SmtpServerCompositionTest {
 
         server = SmtpServer.compose()
                 .listener(listener)
-                .sessionPerConnection(() ->
-                        new BannerServerHandler(serverSessionsOpened))
+                .sessionPerConnection(new Supplier<ClientConnected>() {
+                    @Override
+                    public ClientConnected get() {
+                        return new BannerServerHandler(serverSessionsOpened);
+                    }
+                })
                 .server();
 
         gumdrop.addServer(server);
@@ -178,8 +200,12 @@ public class SmtpServerCompositionTest {
 
         server = SmtpServer.compose()
                 .listener(listener)
-                .sessionPerConnection(() ->
-                        new BannerServerHandler(serverSessionsOpened))
+                .sessionPerConnection(new Supplier<ClientConnected>() {
+                    @Override
+                    public ClientConnected get() {
+                        return new BannerServerHandler(serverSessionsOpened);
+                    }
+                })
                 .server();
 
         gumdrop.addServer(server);

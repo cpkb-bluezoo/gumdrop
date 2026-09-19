@@ -23,9 +23,11 @@ package org.bluezoo.gumdrop.pop3.server;
 
 import org.bluezoo.gumdrop.pop3.Pop3Listener;
 
+import java.text.MessageFormat;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.ResourceBundle;
 import java.util.function.Supplier;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -69,6 +71,8 @@ public class Pop3Server implements Server, Pop3ServerSessionProvider {
 
     private static final Logger LOGGER =
             Logger.getLogger(Pop3Server.class.getName());
+    private static final ResourceBundle L10N =
+            ResourceBundle.getBundle("org.bluezoo.gumdrop.pop3.L10N");
 
     private final List<Listener> listeners = new ArrayList<Listener>();
     private Pop3ServerSessionProvider sessionProvider;
@@ -323,7 +327,10 @@ public class Pop3Server implements Server, Pop3ServerSessionProvider {
                 ((Listener) listener).start(gumdrop);
             } catch (Exception e) {
                 LOGGER.log(Level.SEVERE,
-                        "Failed to start listener: " + listener, e);
+                        MessageFormat.format(
+                                L10N.getString("warn.failed_start_listener"),
+                                listener),
+                        e);
             }
         }
     }
@@ -334,7 +341,10 @@ public class Pop3Server implements Server, Pop3ServerSessionProvider {
                 ((Listener) listener).stop();
             } catch (Exception e) {
                 LOGGER.log(Level.WARNING,
-                        "Error stopping listener: " + listener, e);
+                        MessageFormat.format(
+                                L10N.getString("warn.error_stopping_listener"),
+                                listener),
+                        e);
             }
         }
     }

@@ -33,6 +33,7 @@ import java.nio.ByteBuffer;
  * {@link ProtocolException}. Same root cause as HPACK issue #255: both
  * decoders share {@link org.bluezoo.gumdrop.http.Header}, whose constructor
  * validates the name/value and throws unchecked on failure.
+ * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 public class DecoderMalformedInputTest {
 

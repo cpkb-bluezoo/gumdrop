@@ -26,6 +26,7 @@ import static org.junit.Assert.*;
 
 /**
  * Unit tests for {@link ImapTagGenerator}.
+ * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 public class IMAPTagGeneratorTest {
 

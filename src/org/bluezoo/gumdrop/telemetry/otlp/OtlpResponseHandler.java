@@ -72,7 +72,7 @@ class OtlpResponseHandler extends DefaultHttpResponseHandler {
         this.success = true;
 
         if (logger.isLoggable(Level.FINE)) {
-            logger.fine("OTLP " + endpointName + " export successful: " + status);
+            logger.fine(MessageFormat.format(L10N.getString("fine.otlp_export_success"), endpointName, status));
         }
     }
 
@@ -88,7 +88,7 @@ class OtlpResponseHandler extends DefaultHttpResponseHandler {
         // Check for retryable errors
         if (isRetryable(status)) {
             if (logger.isLoggable(Level.FINE)) {
-                logger.fine("OTLP " + endpointName + " error is retryable, will retry on next batch");
+                logger.fine(MessageFormat.format(L10N.getString("fine.otlp_export_retryable"), endpointName));
             }
         }
     }
@@ -105,7 +105,7 @@ class OtlpResponseHandler extends DefaultHttpResponseHandler {
         this.complete = true;
 
         if (logger.isLoggable(Level.WARNING)) {
-            logger.log(Level.WARNING, "OTLP " + endpointName + " export failed with exception", ex);
+            logger.log(Level.WARNING, MessageFormat.format(L10N.getString("warn.otlp_export_exception"), endpointName), ex);
         }
 
         exporter.onExportComplete(this);

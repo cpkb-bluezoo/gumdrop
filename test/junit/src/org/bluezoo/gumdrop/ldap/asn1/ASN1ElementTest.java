@@ -29,6 +29,7 @@ import java.util.List;
 
 /**
  * Unit tests for Asn1Element.
+ * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 public class ASN1ElementTest {
 

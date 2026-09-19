@@ -25,7 +25,9 @@ import org.bluezoo.gumdrop.telemetry.metrics.AggregationTemporality;
 import org.bluezoo.gumdrop.telemetry.metrics.Meter;
 
 import java.nio.file.Path;
+import java.text.MessageFormat;
 import java.util.Collections;
+import java.util.ResourceBundle;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.ServiceLoader;
@@ -53,6 +55,9 @@ import java.util.logging.Logger;
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 public class TelemetryConfig {
+
+    private static final ResourceBundle L10N =
+            ResourceBundle.getBundle("org.bluezoo.gumdrop.telemetry.L10N");
 
     private static final Logger logger = Logger.getLogger(TelemetryConfig.class.getName());
 
@@ -772,8 +777,7 @@ public class TelemetryConfig {
                 registerShutdownHook();
             } else {
                 logger.log(Level.WARNING,
-                        "Telemetry export is configured but no TelemetryExporterFactory "
-                                + "was found (add gumdrop-telemetry.jar to the classpath)");
+                        L10N.getString("warn.exporter_factory_not_found"));
             }
         }
         if (metricsEnabled && jmxBridgeEnabled) {
@@ -797,8 +801,9 @@ public class TelemetryConfig {
                     return created;
                 }
             } catch (Exception e) {
-                logger.log(Level.WARNING,
-                        "TelemetryExporterFactory " + factory.getClass().getName() + " failed", e);
+                logger.log(Level.WARNING, MessageFormat.format(
+                        L10N.getString("warn.exporter_factory_failed"),
+                        factory.getClass().getName()), e);
             }
         }
         return null;

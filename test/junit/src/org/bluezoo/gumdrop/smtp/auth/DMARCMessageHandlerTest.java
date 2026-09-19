@@ -37,6 +37,7 @@ import org.bluezoo.gumdrop.mime.rfc5322.EmailAddress;
  * {@code From:} header (which RFC 5322 §3.6.2 forbids) must not have its
  * From domain silently resolved from whichever occurrence happens to be
  * last; that domain must instead be invalidated so DMARC cannot pass on it.
+ * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 public class DMARCMessageHandlerTest {
 

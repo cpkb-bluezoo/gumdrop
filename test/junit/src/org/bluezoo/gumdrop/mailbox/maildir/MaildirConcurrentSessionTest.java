@@ -49,6 +49,7 @@ import static org.junit.Assert.*;
  * POP3 open at once -- is Maildir's whole reason for existing (lock-free
  * concurrent access via atomic per-file renames); a second session blocking
  * on the first session's full open-to-close lifetime defeats that.
+ * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 public class MaildirConcurrentSessionTest {
 
@@ -101,17 +102,20 @@ public class MaildirConcurrentSessionTest {
         final CountDownLatch releaseFirstSession = new CountDownLatch(1);
         final AtomicReference<Exception> firstSessionError = new AtomicReference<>();
 
-        Thread firstSessionThread = new Thread(() -> {
-            try {
-                MaildirMailbox first = new MaildirMailbox(maildir, "INBOX", false);
-                firstSessionOpened.countDown();
-                // Hold the session open (simulating a live IMAP IDLE client)
-                // well beyond how long the second session's own open should
-                // ever legitimately take.
-                releaseFirstSession.await(10, TimeUnit.SECONDS);
-                first.close(false);
-            } catch (Exception e) {
-                firstSessionError.set(e);
+        Thread firstSessionThread = new Thread(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    MaildirMailbox first = new MaildirMailbox(maildir, "INBOX", false);
+                    firstSessionOpened.countDown();
+                    // Hold the session open (simulating a live IMAP IDLE client)
+                    // well beyond how long the second session's own open should
+                    // ever legitimately take.
+                    releaseFirstSession.await(10, TimeUnit.SECONDS);
+                    first.close(false);
+                } catch (Exception e) {
+                    firstSessionError.set(e);
+                }
             }
         });
         firstSessionThread.start();
@@ -148,28 +152,34 @@ public class MaildirConcurrentSessionTest {
         final AtomicLong uidA = new AtomicLong(-1);
         final AtomicLong uidB = new AtomicLong(-1);
 
-        Thread threadA = new Thread(() -> {
-            try {
-                MaildirMailbox mailbox = new MaildirMailbox(maildir, "INBOX", false);
-                bothReady.countDown();
-                go.await(10, TimeUnit.SECONDS);
-                uidA.set(appendMessage(mailbox,
-                        "From: a@example.com\r\nSubject: A\r\n\r\nmessage A\r\n"));
-                mailbox.close(false);
-            } catch (Exception e) {
-                errorA.set(e);
+        Thread threadA = new Thread(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    MaildirMailbox mailbox = new MaildirMailbox(maildir, "INBOX", false);
+                    bothReady.countDown();
+                    go.await(10, TimeUnit.SECONDS);
+                    uidA.set(appendMessage(mailbox,
+                            "From: a@example.com\r\nSubject: A\r\n\r\nmessage A\r\n"));
+                    mailbox.close(false);
+                } catch (Exception e) {
+                    errorA.set(e);
+                }
             }
         });
-        Thread threadB = new Thread(() -> {
-            try {
-                MaildirMailbox mailbox = new MaildirMailbox(maildir, "INBOX", false);
-                bothReady.countDown();
-                go.await(10, TimeUnit.SECONDS);
-                uidB.set(appendMessage(mailbox,
-                        "From: b@example.com\r\nSubject: B\r\n\r\nmessage B\r\n"));
-                mailbox.close(false);
-            } catch (Exception e) {
-                errorB.set(e);
+        Thread threadB = new Thread(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    MaildirMailbox mailbox = new MaildirMailbox(maildir, "INBOX", false);
+                    bothReady.countDown();
+                    go.await(10, TimeUnit.SECONDS);
+                    uidB.set(appendMessage(mailbox,
+                            "From: b@example.com\r\nSubject: B\r\n\r\nmessage B\r\n"));
+                    mailbox.close(false);
+                } catch (Exception e) {
+                    errorB.set(e);
+                }
             }
         });
 

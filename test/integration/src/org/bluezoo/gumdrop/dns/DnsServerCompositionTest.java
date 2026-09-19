@@ -1,6 +1,22 @@
 /*
  * DnsServerCompositionTest.java
  * Copyright (C) 2026 Chris Burdess
+ *
+ * This file is part of gumdrop, a multipurpose Java server.
+ * For more information please visit https://www.nongnu.org/gumdrop/
+ *
+ * gumdrop is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * gumdrop is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with gumdrop.  If not, see <http://www.gnu.org/licenses/>.
  */
 
 package org.bluezoo.gumdrop.dns;
@@ -9,6 +25,7 @@ import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.GumdropConfig;
 import org.bluezoo.gumdrop.dns.server.AuthoritativeZoneHandler;
 import org.bluezoo.gumdrop.dns.server.DnsQueryHandlers;
+import org.bluezoo.gumdrop.dns.server.DnsQueryHandlers.DnsResolveFunction;
 import org.bluezoo.gumdrop.dns.server.DnsServer;
 import org.bluezoo.gumdrop.dns.server.UpstreamRelayHandler;
 import org.bluezoo.gumdrop.dns.server.ZoneFile;
@@ -26,6 +43,7 @@ import static org.junit.Assert.*;
 
 /**
  * Workstream C.3 — {@link DnsServer} composition API.
+ * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 public class DnsServerCompositionTest {
 
@@ -109,14 +127,17 @@ public class DnsServerCompositionTest {
     public void testFromFunctionHandler() throws Exception {
         DnsServer server = DnsServer.compose()
                 .listener(new DnsListener())
-                .handler(DnsQueryHandlers.fromFunction(query -> {
-                    DnsQuestion q = query.getQuestions().get(0);
-                    if ("local.test.".equals(q.getName())) {
-                        return query.createResponse(Collections.singletonList(
-                                DnsResourceRecord.a("local.test.", 60,
-                                        inetAddress("10.0.0.1"))));
+                .handler(DnsQueryHandlers.fromFunction(new DnsResolveFunction() {
+                    @Override
+                    public DnsMessage resolve(DnsMessage query) {
+                        DnsQuestion q = query.getQuestions().get(0);
+                        if ("local.test.".equals(q.getName())) {
+                            return query.createResponse(Collections.singletonList(
+                                    DnsResourceRecord.a("local.test.", 60,
+                                            inetAddress("10.0.0.1"))));
+                        }
+                        return null;
                     }
-                    return null;
                 }))
                 .server();
 

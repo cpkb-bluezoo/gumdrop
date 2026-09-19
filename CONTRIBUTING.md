@@ -4,7 +4,24 @@ Thank you for your interest in contributing to Gumdrop. This document covers how
 
 ## Testing
 
-Run the unit tests:
+### Test policy
+
+Production changes in `src/` should ship with **unit tests** that exercise the new or changed behaviour. Add **integration tests** when end-to-end behaviour over real I/O is important; they are optional but encouraged for protocol and server work.
+
+**Unit tests** (`test/junit/src`):
+
+- Exercise **program logic only**. They **must not** open network sockets (including loopback), send datagrams, or perform **real file I/O** on disk. Use mocks, stubs, in-memory buffers, and fakes (for example `RecordingStubEndpoint`) to supply the data and callbacks production code would get from I/O.
+- Written with **JUnit** (and Hamcrest assertions already in `test/junit/lib/`). The suite is run by **`ant test`** and is what **CI** expects to pass on every change.
+
+**Integration tests** (`test/integration/src`):
+
+- Anything that relies on **real I/O**: live sockets, the network stack, files on disk, subprocesses, or similar. They may use local development infrastructure (certificates, ports, services on your machine).
+- **Not guaranteed** to pass on every CI runner or in restricted environments. Run them **locally** when you touch behaviour they cover (`ant integration-test`, or `ant test-all` for unit plus integration).
+- May use different reporting styles (console checks, manual verification, ad hoc harnesses). Follow patterns in existing integration tests for the protocol or subsystem you are changing.
+
+**Test dependencies:** do not add new test frameworks or libraries (Mockito, TestNG, AssertJ, and so on) without **prior agreement** in review. Extend the existing JUnit-based suite and in-tree test support under `test/junit/src/org/bluezoo/gumdrop/testsupport/`.
+
+### Running unit tests
 
 ```bash
 ant test
@@ -26,9 +43,17 @@ This runs the same unit suite as `ant test` with the JaCoCo agent, writes execut
 data under `test/junit/coverage/`, and an HTML report under `test/junit/report/`
 (open `index.html` in a browser). JUnit plain results still go to `test/junit/results/`.
 
-This runs the JUnit suite under `test/junit/src`: **logic-only** tests with no real network I/O (no loopback sockets, no Gumdrop accept/worker loops driving live channels). Anything that opens sockets, sends datagrams, or runs end-to-end over the network stack belongs under `test/integration/src` and is run via `ant integration-test` (or `ant integration-test-loopback` for the loopback-only slice).
+This target runs only the [unit test](#test-policy) tree under `test/junit/src`.
 
-For a full test run including integration tests (HTTP, SMTP, IMAP, POP3, FTP, servlet, etc.):
+### Running integration tests
+
+Integration suite only (see [Test policy](#test-policy)):
+
+```bash
+ant integration-test
+```
+
+Unit plus integration tests (HTTP, SMTP, IMAP, POP3, FTP, servlet, etc.):
 
 ```bash
 ant test-all
@@ -36,11 +61,17 @@ ant test-all
 
 Integration tests require TLS certificates. See the [Security documentation](https://cpkb-bluezoo.github.io/gumdrop/web/security.html#tls-certificates) for generating local development certificates with `mkcert`.
 
+Loopback-only integration coverage (no wide-area network) can be run with:
+
+```bash
+ant integration-test-loopback
+```
+
 ### Unit test synchronization
 
 Async unit tests must **not** use `Thread.sleep` or deadline loops that poll mutable state to wait for work to finish. Block on an explicit cross-thread signal instead:
 
-- `CountDownLatch` / `CompletableFuture` counted down from a `ProtocolHandler`, executor callback, or test hook
+- `CountDownLatch` counted down from a `ProtocolHandler`, executor callback, or test hook
 - `RecordingStubEndpoint` for protocol offload tests (`awaitLineStartingWith`, etc.)
 - Production test-only observers where no callback exists yet (see existing QUIC/mailbox hooks)
 
@@ -48,13 +79,22 @@ Use `@Test(timeout=…)` only as a hang guard, not as the synchronization mechan
 
 `NoThreadSleepGuardTest` enforces this across `test/junit/src` with a small allowlist for tests that intentionally exercise real time (rate limiters, timers, cache expiry, filesystem mtimes). Add allowlist entries only when sleeping is the behaviour under test.
 
+`ContributingStyleGuardTest` enforces the [prohibited language features](#java-version-compatibility) and [timer/callback concurrency](#timers-and-deferred-work) rules across main sources, unit tests, integration tests, and examples. Known debt is listed in `test/junit/resources/contributing-style-allowlist.properties`; remove entries as files are remediated, do not add new ones except for brief migration windows agreed in review.
+
+`FileHeaderGuardTest` enforces the [file header](#file-headers) template on main sources, unit tests, and integration tests (not `examples/`).
+
+`JavadocAuthorGuardTest` enforces `@author` on compilation units under main sources, `test/junit/src`, and `test/integration/src` that declare a top-level type.
+
+`L10nLogGuardTest` flags hardcoded string literals in operator `Logger` calls across all of `src/org/bluezoo/gumdrop`, including multiline `LOGGER.log(...)` forms (see [Localisation](#localisation)); it does not check wire protocol reply text.
+
 ## Submitting Changes
 
 1. Fork the repository and create a branch for your changes
 2. Make your changes, following the [Coding Standards](#gumdrop-coding-standards) below
-3. Ensure `ant test` passes
-4. Submit a pull request with a clear description of the change
-5. Address any review feedback
+3. Add or update [unit tests](#test-policy) for production code changes; ensure `ant test` passes (CI requirement)
+4. Run relevant [integration tests](#running-integration-tests) locally when your change depends on real I/O
+5. Submit a pull request with a clear description of the change
+6. Address any review feedback
 
 ---
 
@@ -68,7 +108,7 @@ This document defines the coding standards and conventions for the Gumdrop proje
 
 This is enforced at compile time via the `--release` flag in `build.xml`.
 
-**The following language features are prohibited by project style policy,** even though they are available on this baseline. Gumdrop uses a traditional procedural style for clarity and maintainability:
+**The following language features are prohibited by project style policy,** even though they are available on this baseline. They apply to **all Java in this repository** (main sources, tests, integration tests, and examples), not only production code. Gumdrop uses a traditional procedural style for clarity and maintainability:
 - `var` keyword
 - Switch expressions
 - Text blocks
@@ -121,7 +161,7 @@ public interface Mailbox {
 
 ## File Headers
 
-All source files must include a proper file header containing:
+All source files under main, unit tests, and integration tests must include a proper file header containing:
 - Filename
 - Copyright owner and date (created/modified year)
 - Copyright notice with license reference
@@ -150,9 +190,13 @@ Example:
  */
 ```
 
+`FileHeaderGuardTest` checks main sources, unit tests, and integration tests for this full block (not a one-line “part of gumdrop” stub). To repair abbreviated headers in bulk, run `scripts/expand-lgpl-file-headers.py` from the repository root, then `ant junit-test -Djunit.includes=**/FileHeaderGuardTest.java`.
+
+**Examples** under `examples/` are teaching snippets: keep a **short** file comment (filename and one or two lines of purpose). Do not paste the full LGPL header block into examples; it obscures the code readers are meant to copy. Examples still follow the [prohibited language features](#java-version-compatibility) rules enforced by `ContributingStyleGuardTest`.
+
 ## Documentation
 
-- All Java classes must have proper Javadoc with `@author` tag
+- All Java classes must have proper Javadoc with `@author` tag (main sources, unit tests, and integration tests are checked by `JavadocAuthorGuardTest`; run `scripts/add-javadoc-author.py` when adding types)
 - Document the intent and purpose, not the obvious mechanics
 - Don't write comments that simply restate what the code does
 
@@ -215,12 +259,13 @@ public void process(java.util.List<String> items, java.util.Map<String, Object> 
 
 ## Annotations
 
-- Only `@Override`, `@Deprecated`, and `@SuppressWarnings` are permitted in main source code
-- `@SuppressWarnings` must be as narrowly scoped as possible (method or variable, not class-level) and should carry a comment explaining why the warning is a false positive or otherwise unavoidable, unless the reason is already obvious at the call site (e.g. a `@SuppressWarnings("unchecked")` immediately after an array-based generic cast)
-- Other annotations may be used in:
-  - Example code demonstrating annotation support (e.g., `@WebServlet`)
-  - JUnit tests (e.g., `@Test`, `@Before`)
-  - Code specifically designed to process annotations
+This section is **guidance**, not an exhaustive allowlist. The tree already uses specialist annotations and tool directives (for example CodeQL `codeql[…]` comments, servlet or injection annotations where a subsystem expects them, and JUnit annotations in tests). That is fine.
+
+**What to avoid** is using metadata to **change behaviour** in ways that are not visible in ordinary control flow: frameworks or reflection that run different code because of an annotation, `SuppressWarnings` that hides a real bug, or broad class-level suppression that obscures review. Prefer narrow `@SuppressWarnings` (method or local scope, not the whole class) and a short comment when the warning is a known false positive or genuinely unavoidable, unless the reason is obvious at the call site (e.g. `@SuppressWarnings("unchecked")` right after an array-based generic cast).
+
+**Routine in main code:** `@Override`, `@Deprecated`, and narrowly scoped `@SuppressWarnings`.
+
+**Also normal elsewhere:** example code that demonstrates annotation-based configuration (e.g. `@WebServlet`), tests (`@Test`, `@Before`, …), and modules whose job is to read or emit annotations.
 
 ## Language Features to Avoid
 
@@ -316,7 +361,7 @@ array[index++] = value;
 
 ### No Future/Promise
 
-Avoid `Future`, `CompletableFuture`, and similar constructs. Use traditional callback patterns instead, similar to SAX or JavaScript XMLHttpRequest.
+Avoid `Future`, `CompletableFuture`, `ScheduledFuture`, and similar constructs (including `ExecutorService.submit` when the return value is used to wait on or cancel work). Use traditional callback patterns instead, similar to SAX or JavaScript XMLHttpRequest. Tests must use `CountDownLatch` or handler callbacks for synchronization, not `CompletableFuture` or `Future.get()`.
 
 **Good:**
 ```java
@@ -409,9 +454,49 @@ public void compileAsync(String source, CompilationCallback callback) {
 }
 ```
 
+### Timers and deferred work
+
+Do **not** use `ScheduledFuture`, `scheduleAtFixedRate`, or `scheduleWithFixedDelay` on `ScheduledExecutorService` for Gumdrop code paths. Prefer:
+
+- `ScheduledTimer` for work that must run on a `SelectorLoop` thread (keep-alives, connection timeouts, delayed cleanup)
+- One-shot or periodic callbacks scheduled from the selector/worker thread with explicit `Runnable` implementations and a stored cancel handle (timer id, `volatile boolean`, or similar), not a `Future` return value
+
+**Good:**
+```java
+timer.schedule(loop, delayMillis, new Runnable() {
+    @Override
+    public void run() {
+        connection.closeIdle();
+    }
+});
+```
+
+**Bad:**
+```java
+ScheduledFuture<?> tick = scheduler.scheduleAtFixedRate(new Runnable() {
+    @Override
+    public void run() {
+        connection.closeIdle();
+    }
+}, 0, period, TimeUnit.SECONDS);
+```
+
 ## Localisation
 
-Gumdrop supports internationalisation (i18n) and localisation (l10n) for user-facing strings. We maintain translations for English, French, Spanish, and German.
+Gumdrop supports internationalisation (i18n) and localisation (l10n). The main audience is **operators** reading server logs (and similar diagnostics), not clients inspecting raw protocol lines on the wire. We maintain translations for English, French, Spanish, and German in each package's `L10N` bundles.
+
+### Policy summary
+
+| Category | Use L10N? | Notes |
+|----------|-----------|--------|
+| **Operator log messages** (`Logger` info/warning/severe/fine, etc.) | **Yes** | Primary requirement; enforced repo-wide in main source by `L10nLogGuardTest` |
+| **Startup / configuration errors** shown to the operator | **Yes** | Missing keystore, bad listener config, and similar |
+| **User-facing UI** | **Yes** | HTTP error pages, quota or auth messages meant for a person using an app |
+| **Wire protocol text** | **No (English)** | SMTP/IMAP/FTP/HTTP status lines and tokens on the socket; clients rarely display these verbatim |
+| **Programming / API misuse** (`NullPointerException`, bad arguments) | **No** | Hardcoded English |
+| **Internal parsers, codecs, util** | **No (exceptions)** | Prefer hardcoded English for pure library/parser throws; **operator `Logger` lines still use L10N** when the guard applies |
+
+Existing code may still load some wire replies from `L10N` (historical keys such as `ftp.welcome_banner`). **New work** should not add locale variants for protocol line text unless a feature is explicitly user-facing outside the wire format. Prefer English literals or shared constants for on-the-wire text; put localisation effort into **logs**.
 
 ### ResourceBundle Structure
 
@@ -433,44 +518,39 @@ String formatted = MessageFormat.format(L10N.getString("key.with.args"), arg1, a
 
 ### What MUST Be Localised
 
-The following categories of strings **must** use the L10N system:
+#### 1. Log messages (required)
 
-#### 1. Log Messages
-All log messages that operators will see in production logs:
+All messages written through `java.util.logging` (or equivalent) that operators will see in production logs **must** use `L10N`:
+
 ```java
 // Good
 logger.info(L10N.getString("info.connection_accepted"));
-logger.warning(L10N.getString("warn.auth_failed"));
+logger.warning(MessageFormat.format(L10N.getString("warn.auth_failed"), user));
 
 // Bad
 logger.info("Connection accepted from " + address);
 ```
 
-#### 2. Protocol Response Messages
-Text sent to clients as part of protocol responses (SMTP replies, IMAP responses, FTP messages, HTTP error pages):
-```java
-// Good - SMTP greeting
-String greeting = L10N.getString("smtp.greeting");
-send("220 " + hostname + " " + greeting);
+#### 2. Configuration and startup errors (required)
 
-// Good - IMAP error
-respond(tag, "NO " + L10N.getString("imap.err.mailbox_not_found"));
-```
+Errors reported when the server fails to start or parse configuration, when the operator is the reader:
 
-#### 3. Configuration and Startup Errors
-Errors shown during server startup or configuration parsing:
 ```java
-// Good
 throw new ConfigurationException(L10N.getString("err.missing_keystore"));
 ```
 
-#### 4. User-Facing Exceptions
-Exceptions whose messages may be displayed to end users (e.g., through error pages or API responses):
+#### 3. User-facing UI (required when applicable)
+
+Text shown to end users outside raw protocol traces: servlet error pages, WebDAV or HTTP bodies meant for humans, quota messages in a mailbox UI, and similar:
+
 ```java
-// Good - quota exceeded is shown to users
 throw new QuotaExceededException(
     MessageFormat.format(L10N.getString("err.quota_exceeded"), used, limit));
 ```
+
+#### Wire protocol (not required)
+
+Line-oriented protocol replies (SMTP `220`/`550`, IMAP tagged `OK`/`NO`, FTP `227`, and so on) **may stay in English** on the wire. Do not spend translation effort on telnet-style protocol text unless you are deliberately building a human-facing surface that reuses those strings.
 
 ### What Should NOT Be Localised
 
@@ -524,32 +604,33 @@ throw new JSONParseException("Expected ':' after object key");
 
 ### Naming Conventions for L10N Keys
 
-Use a hierarchical naming scheme:
-- `info.*` - Informational log messages
-- `warn.*` - Warning log messages  
-- `err.*` - Error messages and exceptions
-- `{protocol}.*` - Protocol-specific messages (e.g., `smtp.greeting`, `imap.err.auth_failed`)
-- `telemetry.*` - Telemetry span names and descriptions
+Use a hierarchical naming scheme (prefer **`log.*` / `info.*` / `warn.*` / `debug.*`** for new operator log keys):
+- `info.*`, `warn.*`, `debug.*` - Log messages by severity
+- `err.*` - Configuration, startup, and user-visible errors
+- `log.*` - General log lines when severity prefix is awkward
+- `{protocol}.*` - Legacy or shared protocol-package keys (including some on-the-wire text in older code)
+- `telemetry.*` - Telemetry span names and descriptions (localise sparingly)
 
 ### Package Guidelines
 
-| Package Type | Needs L10N | Rationale |
-|-------------|------------|-----------|
-| Protocol servers (smtp, imap, pop3, ftp, http, dns) | Yes | Protocol responses are user-facing |
-| Handler packages | Inherit from parent | Use parent package's L10N for responses |
-| Client packages | Yes | Log messages for operators |
-| Mailbox implementations | Minimal | Only for messages exposed to users |
-| Parsers/codecs (hpack, asn1, json) | No | Internal/developer errors only |
-| Utilities (util) | No | API contract errors only |
-| Telemetry/metrics | Minimal | Span names may be localised |
+| Area | Operator logs (L10N) | Wire / protocol line text |
+|------|----------------------|---------------------------|
+| All main source (`src/org/bluezoo/gumdrop/**`) | **Yes** (`L10nLogGuardTest`) | English on the wire where applicable; no new locale work for telnet-style lines |
+| Subpackages | Use the nearest package `L10N` bundle (same as today) | Same as parent |
+| User-facing UI (servlets, WebDAV bodies, quota text) | **Yes** when shown to a person | N/A |
 
 ### Adding New Translations
 
-When adding a new localised string:
-1. Add the key to `L10N.properties` (default)
+When adding a new **localised log or user-facing** string:
+
+1. Add the key to `L10N.properties` (default English)
 2. Add translations to all four language files (`_en`, `_fr`, `_es`, `_de`)
 3. Use `MessageFormat` placeholders `{0}`, `{1}` for dynamic values
 4. Keep messages concise and avoid culture-specific idioms
+
+`L10nLogGuardTest` enforces **logger** localisation across all main source with no allowlist. The test does **not** require L10N for on-the-wire protocol replies.
+
+Use `python3 scripts/operator-log-l10n.py scan` to list current violations (same rules as the guard). `apply` runs idempotent text replacements registered in that script.
 
 ## Telemetry
 

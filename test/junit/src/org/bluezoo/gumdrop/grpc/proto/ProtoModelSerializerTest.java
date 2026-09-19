@@ -34,6 +34,7 @@ import org.junit.Test;
 
 /**
  * Unit tests for ProtoModelSerializer.
+ * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 public class ProtoModelSerializerTest {
 

@@ -59,6 +59,7 @@ import static org.junit.Assert.*;
  * already covered end-to-end, including the async mailbox-open buffering
  * for non-synchronizing literals, by {@code IMAPServerIntegrationTest}'s
  * {@code testAppendSynchronizingLiteral}/{@code testAppendNonSynchronizingLiteral}.
+ * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 public class IMAPProtocolHandlerTest {
 

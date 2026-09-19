@@ -27,7 +27,8 @@ import org.bluezoo.gumdrop.dns.DnsQueryCallback;
 import org.bluezoo.gumdrop.dns.DnsResourceRecord;
 import org.bluezoo.gumdrop.dns.DnsType;
 
-import org.bluezoo.gumdrop.dns.client.DnsResolver;
+import org.bluezoo.gumdrop.ScheduledTimer;
+import org.bluezoo.gumdrop.TimerHandle;
 
 import java.io.File;
 import java.io.IOException;
@@ -45,10 +46,6 @@ import java.util.Map;
 import java.util.ResourceBundle;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.ScheduledFuture;
-import java.util.concurrent.TimeUnit;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -135,8 +132,8 @@ public class DnssecTrustAnchorUpdater {
 
     private final Map<String, List<TrackedKey>> trustPoints = new ConcurrentHashMap<>();
 
-    private ScheduledExecutorService scheduler;
-    private final Map<String, ScheduledFuture<?>> scheduledChecks = new ConcurrentHashMap<>();
+    private ScheduledTimer timer;
+    private final Map<String, TimerHandle> scheduledChecks = new ConcurrentHashMap<>();
 
     /**
      * Creates an updater. {@link #addTrustPoint} must be called at
@@ -235,7 +232,9 @@ public class DnssecTrustAnchorUpdater {
      */
     public void addTrustPoint(String zone) {
         String key = DnssecValidator.canonicalizeName(zone);
-        trustPoints.computeIfAbsent(key, z -> new ArrayList<>());
+        if (!trustPoints.containsKey(key)) {
+            trustPoints.put(key, new ArrayList<TrackedKey>());
+        }
     }
 
     /**
@@ -276,12 +275,9 @@ public class DnssecTrustAnchorUpdater {
      * again, or via {@link #checkNow}).
      */
     public synchronized void start() {
-        if (scheduler == null) {
-            scheduler = Executors.newScheduledThreadPool(1, r -> {
-                Thread t = new Thread(r, "gumdrop-rfc5011-updater");
-                t.setDaemon(true);
-                return t;
-            });
+        if (timer == null) {
+            timer = new ScheduledTimer("gumdrop-rfc5011-updater");
+            timer.start();
         }
         for (String zone : trustPoints.keySet()) {
             scheduleZone(zone);
@@ -292,20 +288,40 @@ public class DnssecTrustAnchorUpdater {
         if (scheduledChecks.containsKey(zone)) {
             return;
         }
-        ScheduledFuture<?> future = scheduler.scheduleAtFixedRate(() -> {
+        scheduleNextCheck(zone, 0);
+    }
+
+    private void scheduleNextCheck(final String zone, long delayMs) {
+        if (timer == null) {
+            return;
+        }
+        TimerHandle handle = timer.schedule(null, delayMs, new ZoneCheckTask(zone));
+        scheduledChecks.put(zone, handle);
+    }
+
+    private final class ZoneCheckTask implements Runnable {
+
+        private final String zone;
+
+        ZoneCheckTask(String zone) {
+            this.zone = zone;
+        }
+
+        @Override
+        public void run() {
+            if (!scheduledChecks.containsKey(zone)) {
+                return;
+            }
             try {
                 checkNow(zone);
             } catch (RuntimeException e) {
-                // A ScheduledExecutorService silently and permanently
-                // stops future runs of a periodic task if one
-                // invocation throws uncaught -- must never let that
-                // happen here, or this trust point stops being
-                // refreshed at all until the next process restart.
                 LOGGER.log(Level.WARNING, MessageFormat.format(
                         L10N.getString("rfc5011.check_failed"), zone), e);
             }
-        }, 0, checkIntervalMs, TimeUnit.MILLISECONDS);
-        scheduledChecks.put(zone, future);
+            if (scheduledChecks.containsKey(zone) && timer != null) {
+                scheduleNextCheck(zone, checkIntervalMs);
+            }
+        }
     }
 
     /**
@@ -314,13 +330,13 @@ public class DnssecTrustAnchorUpdater {
      * to resume.
      */
     public synchronized void stop() {
-        for (ScheduledFuture<?> future : scheduledChecks.values()) {
-            future.cancel(false);
+        for (TimerHandle handle : scheduledChecks.values()) {
+            handle.cancel();
         }
         scheduledChecks.clear();
-        if (scheduler != null) {
-            scheduler.shutdownNow();
-            scheduler = null;
+        if (timer != null) {
+            timer.shutdown();
+            timer = null;
         }
     }
 
@@ -382,8 +398,11 @@ public class DnssecTrustAnchorUpdater {
         List<DnsResourceRecord> rrsigs =
                 DnssecValidator.findRRSIGs(answers, DnsType.DNSKEY.getValue());
 
-        List<TrackedKey> tracked =
-                trustPoints.computeIfAbsent(zone, z -> new ArrayList<>());
+        List<TrackedKey> tracked = trustPoints.get(zone);
+        if (tracked == null) {
+            tracked = new ArrayList<TrackedKey>();
+            trustPoints.put(zone, tracked);
+        }
 
         if (!signedByCurrentlyTrustedKey(zone, dnskeys, rrsigs, tracked)) {
             if (LOGGER.isLoggable(Level.FINE)) {
@@ -620,7 +639,11 @@ public class DnssecTrustAnchorUpdater {
                 tk.state = state;
                 tk.stateChangedAt = stateChangedAt;
 
-                List<TrackedKey> tracked = trustPoints.computeIfAbsent(zone, z -> new ArrayList<>());
+                List<TrackedKey> tracked = trustPoints.get(zone);
+                if (tracked == null) {
+                    tracked = new ArrayList<TrackedKey>();
+                    trustPoints.put(zone, tracked);
+                }
                 if (find(tracked, tk.algorithm, tk.publicKey()) == null) {
                     tracked.add(tk);
                     if (state == KeyState.VALID) {

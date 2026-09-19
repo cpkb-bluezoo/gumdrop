@@ -23,6 +23,8 @@ package org.bluezoo.gumdrop.dns;
 
 import java.io.IOException;
 import java.net.InetAddress;
+import java.text.MessageFormat;
+import java.util.ResourceBundle;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Iterator;
@@ -70,6 +72,9 @@ import org.bluezoo.gumdrop.tls.TlsConfig;
  */
 public class DoQListener extends TcpListener
         implements StreamAcceptHandler {
+
+    private static final ResourceBundle L10N =
+            ResourceBundle.getBundle("org.bluezoo.gumdrop.dns.L10N");
 
     private static final Logger LOGGER =
             Logger.getLogger(DoQListener.class.getName());
@@ -288,15 +293,14 @@ public class DoQListener extends TcpListener
                         addr, port, this, selectorLoop);
                 engines.add(engine);
             } catch (IOException e) {
-                LOGGER.log(Level.WARNING,
-                        "Failed to bind DoQ on "
-                                + addr.getHostAddress() + ":" + port, e);
+                LOGGER.log(Level.WARNING, MessageFormat.format(
+                        L10N.getString("log.doq_bind_failed"),
+                        addr.getHostAddress(), port), e);
             }
         }
 
         if (engines.isEmpty()) {
-            LOGGER.warning(
-                    "DoQ server could not bind to any address");
+            LOGGER.warning(L10N.getString("warn.doq_no_bind_address"));
         }
     }
 

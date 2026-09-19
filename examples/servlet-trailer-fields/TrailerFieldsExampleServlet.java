@@ -1,7 +1,7 @@
 /*
  * TrailerFieldsExampleServlet.java
  * HTTP Trailer Fields Demonstration for Gumdrop Server
- * 
+ *
  * This example demonstrates HTTP trailer fields support in Servlet 4.0
  * using Response.setTrailerFields() functionality.
  */
@@ -75,12 +75,15 @@ public class TrailerFieldsExampleServlet extends HttpServlet {
         response.setContentType("text/html; charset=UTF-8");
         
         // Set up trailer fields that will be sent after the response body
-        response.setTrailerFields(() -> {
-            Map<String, String> trailers = new HashMap<>();
-            trailers.put("X-Content-Source", "Gumdrop-Server");
-            trailers.put("X-Processing-Complete", "true");
-            trailers.put("X-Response-ID", "basic-demo-" + System.currentTimeMillis());
-            return trailers;
+        response.setTrailerFields(new Supplier<Map<String, String>>() {
+            @Override
+            public Map<String, String> get() {
+                Map<String, String> trailers = new HashMap<>();
+                trailers.put("X-Content-Source", "Gumdrop-Server");
+                trailers.put("X-Processing-Complete", "true");
+                trailers.put("X-Response-ID", "basic-demo-" + System.currentTimeMillis());
+                return trailers;
+            }
         });
         
         try (PrintWriter out = response.getWriter()) {
@@ -117,16 +120,19 @@ public class TrailerFieldsExampleServlet extends HttpServlet {
         // We'll calculate a simple checksum of the response content
         final StringBuilder contentBuffer = new StringBuilder();
         
-        response.setTrailerFields(() -> {
-            String content = contentBuffer.toString();
-            int checksum = content.hashCode();
-            int contentLength = content.getBytes().length;
-            
-            Map<String, String> trailers = new HashMap<>();
-            trailers.put("X-Content-Checksum", String.valueOf(Math.abs(checksum)));
-            trailers.put("X-Content-Length-Computed", String.valueOf(contentLength));
-            trailers.put("X-Checksum-Algorithm", "Java-HashCode");
-            return trailers;
+        response.setTrailerFields(new Supplier<Map<String, String>>() {
+            @Override
+            public Map<String, String> get() {
+                String content = contentBuffer.toString();
+                int checksum = content.hashCode();
+                int contentLength = content.getBytes().length;
+
+                Map<String, String> trailers = new HashMap<>();
+                trailers.put("X-Content-Checksum", String.valueOf(Math.abs(checksum)));
+                trailers.put("X-Content-Length-Computed", String.valueOf(contentLength));
+                trailers.put("X-Checksum-Algorithm", "Java-HashCode");
+                return trailers;
+            }
         });
         
         try (PrintWriter out = response.getWriter()) {
@@ -161,16 +167,19 @@ public class TrailerFieldsExampleServlet extends HttpServlet {
         final long startTime = System.currentTimeMillis();
         response.setContentType("application/json; charset=UTF-8");
         
-        response.setTrailerFields(() -> {
-            long endTime = System.currentTimeMillis();
-            long processingTime = endTime - startTime;
-            
-            Map<String, String> trailers = new HashMap<>();
-            trailers.put("X-Processing-Time-Ms", String.valueOf(processingTime));
-            trailers.put("X-Start-Time", String.valueOf(startTime));
-            trailers.put("X-End-Time", String.valueOf(endTime));
-            trailers.put("X-Server-Performance", processingTime < 100 ? "fast" : "normal");
-            return trailers;
+        response.setTrailerFields(new Supplier<Map<String, String>>() {
+            @Override
+            public Map<String, String> get() {
+                long endTime = System.currentTimeMillis();
+                long processingTime = endTime - startTime;
+
+                Map<String, String> trailers = new HashMap<>();
+                trailers.put("X-Processing-Time-Ms", String.valueOf(processingTime));
+                trailers.put("X-Start-Time", String.valueOf(startTime));
+                trailers.put("X-End-Time", String.valueOf(endTime));
+                trailers.put("X-Server-Performance", processingTime < 100 ? "fast" : "normal");
+                return trailers;
+            }
         });
         
         try (PrintWriter out = response.getWriter()) {
@@ -275,12 +284,15 @@ public class TrailerFieldsExampleServlet extends HttpServlet {
         response.setContentType("text/html; charset=UTF-8");
         
         // Even the index page has trailer fields!
-        response.setTrailerFields(() -> {
-            Map<String, String> trailers = new HashMap<>();
-            trailers.put("X-Demo-Index", "true");
-            trailers.put("X-Available-Demos", "basic,checksum,timing,dynamic");
-            trailers.put("X-Servlet-Version", "4.0");
-            return trailers;
+        response.setTrailerFields(new Supplier<Map<String, String>>() {
+            @Override
+            public Map<String, String> get() {
+                Map<String, String> trailers = new HashMap<>();
+                trailers.put("X-Demo-Index", "true");
+                trailers.put("X-Available-Demos", "basic,checksum,timing,dynamic");
+                trailers.put("X-Servlet-Version", "4.0");
+                return trailers;
+            }
         });
         
         try (PrintWriter out = response.getWriter()) {

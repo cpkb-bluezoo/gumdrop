@@ -141,15 +141,19 @@ public class SecureBufferHandlingIntegrationTest extends AbstractServerIntegrati
         server.setMessagePattern(MESSAGE_PATTERN);
         server.clearConnections();
         
-        IntegrationTlsClient.withConnectedEndpoint("::1", TEST_PORT, TRUST_ALL, 10000, endpoint -> {
-            endpoint.send(ByteBuffer.wrap("0123456".getBytes("US-ASCII")));
-            pause(100);
-            endpoint.send(ByteBuffer.wrap("7890123".getBytes("US-ASCII")));
-            pause(100);
-            endpoint.send(ByteBuffer.wrap("456789".getBytes("US-ASCII")));
-            pause(100);
-            endpoint.close();
-        });
+        IntegrationTlsClient.withConnectedEndpoint("::1", TEST_PORT, TRUST_ALL, 10000,
+                new IntegrationTlsClient.ConnectedSession() {
+                    @Override
+                    public void run(org.bluezoo.gumdrop.Endpoint endpoint) throws Exception {
+                        endpoint.send(ByteBuffer.wrap("0123456".getBytes("US-ASCII")));
+                        pause(100);
+                        endpoint.send(ByteBuffer.wrap("7890123".getBytes("US-ASCII")));
+                        pause(100);
+                        endpoint.send(ByteBuffer.wrap("456789".getBytes("US-ASCII")));
+                        pause(100);
+                        endpoint.close();
+                    }
+                });
         
         pause(400);
         

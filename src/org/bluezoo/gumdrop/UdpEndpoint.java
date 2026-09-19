@@ -276,7 +276,8 @@ public class UdpEndpoint implements Endpoint, ChannelHandler {
         if (listener != null && !clientMode) {
             if (!listener.acceptConnection(peer)) {
                 if (LOGGER.isLoggable(Level.FINE)) {
-                    LOGGER.fine("DTLS session rejected for " + peer);
+                    LOGGER.fine(MessageFormat.format(
+                            Gumdrop.L10N.getString("log.dtls_session_rejected"), peer));
                 }
                 return false;
             }
@@ -517,8 +518,9 @@ public class UdpEndpoint implements Endpoint, ChannelHandler {
         }
         if (dtlsSessions.size() + dtls13Sessions.size() >= cap) {
             if (LOGGER.isLoggable(Level.FINE)) {
-                LOGGER.fine("DTLS peer limit reached (" + cap
-                        + "); refusing new session");
+                LOGGER.fine(MessageFormat.format(
+                        Gumdrop.L10N.getString("log.dtls_peer_limit_reached"),
+                        Integer.valueOf(cap)));
             }
             return false;
         }

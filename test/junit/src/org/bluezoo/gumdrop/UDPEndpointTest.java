@@ -35,6 +35,7 @@ import static org.junit.Assert.*;
  * Unit tests for {@link UdpEndpoint} buffer and pending-queue behaviour
  * (issue #193). No sockets or Gumdrop runtime: loopback coverage is in
  * {@link UdpEndpointIntegrationTest} ({@code ant integration-test-loopback}).
+ * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 public class UDPEndpointTest {
 

@@ -35,6 +35,7 @@ import static org.junit.Assert.*;
  * getRegistrableDomain} always returns a non-null string, returning the
  * input unchanged when it's already at or above the organizational level
  * (the official test file uses {@code null} for that case instead).
+ * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 public class PublicSuffixListTest {
 

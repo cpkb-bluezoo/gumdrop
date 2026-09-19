@@ -228,20 +228,26 @@ public class MessageIndexTest {
         AtomicReference<Exception> errorA = new AtomicReference<>();
         AtomicReference<Exception> errorB = new AtomicReference<>();
 
-        Thread threadA = new Thread(() -> {
-            try {
-                go.await(10, TimeUnit.SECONDS);
-                indexA.save();
-            } catch (Exception e) {
-                errorA.set(e);
+        Thread threadA = new Thread(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    go.await(10, TimeUnit.SECONDS);
+                    indexA.save();
+                } catch (Exception e) {
+                    errorA.set(e);
+                }
             }
         });
-        Thread threadB = new Thread(() -> {
-            try {
-                go.await(10, TimeUnit.SECONDS);
-                indexB.save();
-            } catch (Exception e) {
-                errorB.set(e);
+        Thread threadB = new Thread(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    go.await(10, TimeUnit.SECONDS);
+                    indexB.save();
+                } catch (Exception e) {
+                    errorB.set(e);
+                }
             }
         });
 

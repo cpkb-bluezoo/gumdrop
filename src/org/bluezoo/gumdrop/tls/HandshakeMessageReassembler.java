@@ -27,6 +27,7 @@ import java.util.Arrays;
  * Reassembles TLS handshake messages when the record layer splits one
  * message across multiple records (RFC 8446 section 4 framing over
  * RFC 8446 section 5.1 record boundaries).
+ * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 final class HandshakeMessageReassembler {
 

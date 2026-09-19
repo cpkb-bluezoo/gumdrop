@@ -48,6 +48,8 @@ import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.TimeUnit;
 import java.util.logging.Level;
 import java.util.logging.Logger;
+import java.text.MessageFormat;
+import java.util.ResourceBundle;
 
 /**
  * Exports telemetry data to OTLP JSON Lines files or stdout.
@@ -83,7 +85,8 @@ import java.util.logging.Logger;
  */
 public class OtlpFileExporter implements TelemetryExporter {
 
-    private static final Logger logger = Logger.getLogger(OtlpFileExporter.class.getName());
+        private static final ResourceBundle L10N = ResourceBundle.getBundle("org.bluezoo.gumdrop.telemetry.L10N");
+private static final Logger logger = Logger.getLogger(OtlpFileExporter.class.getName());
 
     private static final byte[] NEWLINE = "\n".getBytes(StandardCharsets.UTF_8);
 
@@ -164,7 +167,7 @@ public class OtlpFileExporter implements TelemetryExporter {
         this.exportThread = new ExportThread();
         this.exportThread.start();
 
-        logger.info("OTLP file exporter started");
+        logger.info(L10N.getString("info.file_exporter_started"));
     }
 
     private static WritableByteChannel openChannel(Path path) {
@@ -181,7 +184,7 @@ public class OtlpFileExporter implements TelemetryExporter {
                     StandardOpenOption.APPEND);
             return Channels.newChannel(out);
         } catch (IOException e) {
-            logger.warning("Failed to open file " + path + ", falling back to stdout: " + e.getMessage());
+            logger.warning(MessageFormat.format(L10N.getString("warn.file_open_fallback"), path, e.getMessage()));
             return Channels.newChannel(System.out);
         }
     }
@@ -193,7 +196,7 @@ public class OtlpFileExporter implements TelemetryExporter {
         }
         if (!traceQueue.offer(trace)) {
             if (logger.isLoggable(Level.FINE)) {
-                logger.fine("Trace queue full, dropping trace: " + trace.getTraceIdHex());
+                logger.fine(MessageFormat.format(L10N.getString("fine.trace_queue_full_dropping"), trace.getTraceIdHex()));
             }
         }
     }
@@ -205,7 +208,7 @@ public class OtlpFileExporter implements TelemetryExporter {
         }
         if (!logQueue.offer(record)) {
             if (logger.isLoggable(Level.FINE)) {
-                logger.fine("Log queue full, dropping log record");
+                logger.fine(L10N.getString("fine.log_queue_full_dropping"));
             }
         }
     }
@@ -217,7 +220,7 @@ public class OtlpFileExporter implements TelemetryExporter {
         }
         if (!metricQueue.offer(metrics)) {
             if (logger.isLoggable(Level.FINE)) {
-                logger.fine("Metric queue full, dropping metrics batch");
+                logger.fine(L10N.getString("fine.metric_queue_full_dropping"));
             }
         }
     }
@@ -243,7 +246,7 @@ public class OtlpFileExporter implements TelemetryExporter {
         closeChannel(logsChannel);
         closeChannel(metricsChannel);
 
-        logger.info("OTLP file exporter shut down");
+        logger.info(L10N.getString("info.file_exporter_shutdown"));
     }
 
     private static void closeChannel(WritableByteChannel channel) {
@@ -392,13 +395,13 @@ public class OtlpFileExporter implements TelemetryExporter {
                         traceSerializer.serialize(trace, tracesChannel);
                         writeNewline(tracesChannel);
                     } catch (IOException e) {
-                        logger.warning("Failed to write trace " + trace.getTraceIdHex() + ": " + e.getMessage());
+                        logger.warning(MessageFormat.format(L10N.getString("warn.file_write_trace_failed"), trace.getTraceIdHex(), e.getMessage()));
                     }
                 }
                 try {
                     tracesChannel.flush();
                 } catch (IOException e) {
-                    logger.warning("Failed to flush traces: " + e.getMessage());
+                    logger.warning(MessageFormat.format(L10N.getString("warn.file_flush_traces_failed"), e.getMessage()));
                 }
             }
         }
@@ -409,12 +412,12 @@ public class OtlpFileExporter implements TelemetryExporter {
                     logSerializer.serialize(records, logsChannel);
                     writeNewline(logsChannel);
                 } catch (IOException e) {
-                    logger.warning("Failed to write logs: " + e.getMessage());
+                    logger.warning(MessageFormat.format(L10N.getString("warn.file_write_logs_failed"), e.getMessage()));
                 }
                 try {
                     logsChannel.flush();
                 } catch (IOException e) {
-                    logger.warning("Failed to flush logs: " + e.getMessage());
+                    logger.warning(MessageFormat.format(L10N.getString("warn.file_flush_logs_failed"), e.getMessage()));
                 }
             }
         }
@@ -426,13 +429,13 @@ public class OtlpFileExporter implements TelemetryExporter {
                         metricSerializer.serialize(metrics, "gumdrop", Gumdrop.VERSION, metricsChannel);
                         writeNewline(metricsChannel);
                     } catch (IOException e) {
-                        logger.warning("Failed to write metrics: " + e.getMessage());
+                        logger.warning(MessageFormat.format(L10N.getString("warn.file_write_metrics_failed"), e.getMessage()));
                     }
                 }
                 try {
                     metricsChannel.flush();
                 } catch (IOException e) {
-                    logger.warning("Failed to flush metrics: " + e.getMessage());
+                    logger.warning(MessageFormat.format(L10N.getString("warn.file_flush_metrics_failed"), e.getMessage()));
                 }
             }
         }

@@ -1,9 +1,6 @@
 /*
  * ServerPushExampleServlet.java
- * HTTP/2 Server Push Demonstration for Gumdrop Server
- * 
- * This example demonstrates HTTP/2 server push functionality in Servlet 4.0
- * using Request.newPushBuilder() and PushBuilder methods.
+ * Example servlet demonstrating HTTP/2 server push functionality.
  */
 
 package examples.serverpush;

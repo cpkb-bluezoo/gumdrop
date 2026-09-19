@@ -332,11 +332,12 @@ public final class MaildirMailbox implements Mailbox {
                 );
                 scanned.add(descriptor);
             } catch (IllegalArgumentException e) {
-                LOGGER.log(Level.WARNING, "Skipping invalid Maildir file: " + filename, e);
+                LOGGER.log(Level.WARNING, MessageFormat.format(
+                        L10N.getString("warn.skipping_invalid_maildir_file"), filename), e);
             }
         }
         } catch (IOException e) {
-            LOGGER.log(Level.WARNING, "Error scanning cur directory", e);
+            LOGGER.log(Level.WARNING, L10N.getString("warn.error_scanning_cur_directory"), e);
             return;
         }
 
@@ -390,11 +391,12 @@ public final class MaildirMailbox implements Mailbox {
                 Files.move(filePath, destPath, StandardCopyOption.ATOMIC_MOVE);
 
             } catch (Exception e) {
-                LOGGER.log(Level.WARNING, "Error processing new message: " + filename, e);
+                LOGGER.log(Level.WARNING, MessageFormat.format(
+                        L10N.getString("warn.error_processing_new_message"), filename), e);
             }
         }
         } catch (IOException e) {
-            LOGGER.log(Level.WARNING, "Error listing new directory", e);
+            LOGGER.log(Level.WARNING, L10N.getString("warn.error_listing_new_directory"), e);
         }
     }
 
@@ -426,7 +428,8 @@ public final class MaildirMailbox implements Mailbox {
                     try {
                         searchIndex.save();
                     } catch (IOException e) {
-                        LOGGER.log(Level.WARNING, "Failed to save search index", e);
+                        LOGGER.log(Level.WARNING,
+                                L10N.getString("warn.failed_save_search_index"), e);
                     }
                 }
             }
@@ -871,7 +874,8 @@ public final class MaildirMailbox implements Mailbox {
                 try {
                     appendChannel.close();
                 } catch (IOException e) {
-                    LOGGER.log(Level.WARNING, "Error closing append channel", e);
+                    LOGGER.log(Level.WARNING,
+                            L10N.getString("warn.error_closing_append_channel"), e);
                 }
                 appendChannel = null;
             }
@@ -879,7 +883,8 @@ public final class MaildirMailbox implements Mailbox {
                 try {
                     Files.deleteIfExists(appendTempPath);
                 } catch (IOException e) {
-                    LOGGER.log(Level.WARNING, "Error cleaning up temp file", e);
+                    LOGGER.log(Level.WARNING,
+                            L10N.getString("warn.error_cleaning_up_temp_file"), e);
                 }
                 appendTempPath = null;
             }
@@ -992,8 +997,7 @@ public final class MaildirMailbox implements Mailbox {
                 }
             }
         } catch (Exception e) {
-            LOGGER.log(Level.WARNING,
-                    "Failed to load .modseq file, starting fresh", e);
+            LOGGER.log(Level.WARNING, L10N.getString("warn.failed_load_modseq_file"), e);
             highestModSeq = 0;
             uidModSeq.clear();
         }
@@ -1012,7 +1016,7 @@ public final class MaildirMailbox implements Mailbox {
             }
             Files.write(modSeqPath, lines);
         } catch (IOException e) {
-            LOGGER.log(Level.WARNING, "Failed to save .modseq file", e);
+            LOGGER.log(Level.WARNING, L10N.getString("warn.failed_save_modseq_file"), e);
         }
     }
 
@@ -1041,8 +1045,7 @@ public final class MaildirMailbox implements Mailbox {
                 expungedUids.put(uid, ms);
             }
         } catch (Exception e) {
-            LOGGER.log(Level.WARNING,
-                    "Failed to load .expunged file", e);
+            LOGGER.log(Level.WARNING, L10N.getString("warn.failed_load_expunged_file"), e);
             expungedUids.clear();
         }
     }
@@ -1060,8 +1063,7 @@ public final class MaildirMailbox implements Mailbox {
             }
             Files.write(expungedPath, lines);
         } catch (IOException e) {
-            LOGGER.log(Level.WARNING,
-                    "Failed to save .expunged file", e);
+            LOGGER.log(Level.WARNING, L10N.getString("warn.failed_save_expunged_file"), e);
         }
     }
 
@@ -1146,8 +1148,8 @@ public final class MaildirMailbox implements Mailbox {
             }
             return -1;
         } catch (IOException e) {
-            LOGGER.log(Level.WARNING,
-                    "Error detecting body offset for " + filePath, e);
+            LOGGER.log(Level.WARNING, MessageFormat.format(
+                    L10N.getString("warn.error_detecting_body_offset"), filePath), e);
             return -1;
         }
     }
@@ -1309,12 +1311,14 @@ public final class MaildirMailbox implements Mailbox {
             try {
                 channel.close();
             } catch (IOException e) {
-                LOGGER.log(Level.WARNING, "Error closing async append channel", e);
+                LOGGER.log(Level.WARNING,
+                        L10N.getString("warn.error_closing_async_append_channel"), e);
             }
             try {
                 Files.deleteIfExists(tempFile);
             } catch (IOException e) {
-                LOGGER.log(Level.WARNING, "Error cleaning up temp file", e);
+                LOGGER.log(Level.WARNING,
+                        L10N.getString("warn.error_cleaning_up_temp_file"), e);
             }
         }
 
@@ -1492,7 +1496,8 @@ public final class MaildirMailbox implements Mailbox {
                 if (validateSearchIndex()) {
                     // Index any new messages that aren't in the index
                     indexNewMessages();
-                    LOGGER.fine("Loaded search index for " + name);
+                    LOGGER.fine(MessageFormat.format(
+                            L10N.getString("fine.loaded_search_index_for"), name));
                     return;
                 } else {
                     LOGGER.info(L10N.getString("info.search_index_inconsistent"));
@@ -1534,7 +1539,7 @@ public final class MaildirMailbox implements Mailbox {
             rebuildSearchIndex();
         } catch (IOException e) {
             LOGGER.log(Level.WARNING,
-                    "Background index rebuild failed, rebuilding inline", e);
+                    L10N.getString("warn.background_index_rebuild_failed"), e);
             rebuildSearchIndex();
         }
     }
@@ -1585,8 +1590,9 @@ public final class MaildirMailbox implements Mailbox {
             try {
                 addMessageToSearchIndex(msg, msg.getFlags(), null);
             } catch (IOException e) {
-                LOGGER.log(Level.WARNING, "Failed to index message "
-                        + msg.getMessageNumber(), e);
+                LOGGER.log(Level.WARNING, MessageFormat.format(
+                        L10N.getString("warn.index_message_failed"),
+                        msg.getMessageNumber()), e);
             }
         }
     }

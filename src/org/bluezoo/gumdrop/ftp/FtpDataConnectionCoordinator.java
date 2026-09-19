@@ -192,7 +192,7 @@ public class FtpDataConnectionCoordinator {
     public void setDataProtection(boolean protect) {
         this.dataProtection = protect;
         if (LOGGER.isLoggable(Level.FINE)) {
-            LOGGER.fine("Data protection " + (protect ? "enabled" : "disabled"));
+            LOGGER.fine(FtpProtocolHandler.L10N.getString(protect ? "debug.data_protection_enabled" : "debug.data_protection_disabled"));
         }
     }
     
@@ -249,7 +249,7 @@ public class FtpDataConnectionCoordinator {
         mode = DataConnectionMode.PASSIVE;
         
         if (LOGGER.isLoggable(Level.FINE)) {
-            LOGGER.fine("Passive mode enabled on port " + passivePort);
+            LOGGER.fine(MessageFormat.format(FtpProtocolHandler.L10N.getString("debug.passive_mode_enabled_port"), passivePort));
         }
         
         return passivePort;
@@ -300,7 +300,7 @@ public class FtpDataConnectionCoordinator {
             }
         } catch (UnknownHostException e) {
             if (LOGGER.isLoggable(Level.FINE)) {
-                LOGGER.fine("Active mode rejected: unknown host " + host);
+                LOGGER.fine(MessageFormat.format(FtpProtocolHandler.L10N.getString("warn.active_mode_unknown_host"), host));
             }
             return false;
         }
@@ -312,7 +312,7 @@ public class FtpDataConnectionCoordinator {
         this.mode = DataConnectionMode.ACTIVE;
         
         if (LOGGER.isLoggable(Level.FINE)) {
-            LOGGER.fine("Active mode configured to " + host + ":" + port);
+            LOGGER.fine(MessageFormat.format(FtpProtocolHandler.L10N.getString("debug.active_mode_configured"), host, port));
         }
         return true;
     }
@@ -364,7 +364,7 @@ public class FtpDataConnectionCoordinator {
                 }
             }
         } catch (Exception e) {
-            LOGGER.log(Level.WARNING, "Error accepting data connection", e);
+            LOGGER.log(Level.WARNING, FtpProtocolHandler.L10N.getString("warn.err_accepting_data_connection"), e);
             try {
                 dataConnection.close();
             } catch (Exception closeEx) {
@@ -386,7 +386,7 @@ public class FtpDataConnectionCoordinator {
             if (waitingContinuation == null) {
                 incomingDataConnections.offer(dataConnection);
                 if (LOGGER.isLoggable(Level.FINE)) {
-                    LOGGER.fine("Data connection queued (arrived before command)");
+                    LOGGER.fine(FtpProtocolHandler.L10N.getString("debug.data_connection_queued"));
                 }
                 return;
             }
@@ -421,7 +421,7 @@ public class FtpDataConnectionCoordinator {
             try {
                 activeDataConnection.close();
             } catch (Exception e) {
-                LOGGER.log(Level.WARNING, "Error closing data connection during abort", e);
+                LOGGER.log(Level.WARNING, FtpProtocolHandler.L10N.getString("warn.err_closing_data_on_abort"), e);
             }
         }
         cleanup();
@@ -461,7 +461,7 @@ public class FtpDataConnectionCoordinator {
             try {
                 activeDataConnection.close();
             } catch (Exception e) {
-                LOGGER.log(Level.FINE, "Error closing data connection", e);
+                LOGGER.log(Level.FINE, FtpProtocolHandler.L10N.getString("debug.err_closing_data_connection"), e);
             }
             activeDataConnection = null;
         }
@@ -471,7 +471,7 @@ public class FtpDataConnectionCoordinator {
             try {
                 passiveConnector.stop();
             } catch (Exception e) {
-                LOGGER.log(Level.FINE, "Error stopping passive connector", e);
+                LOGGER.log(Level.FINE, FtpProtocolHandler.L10N.getString("debug.err_stopping_passive_connector"), e);
             }
             passiveConnector = null;
         }
@@ -607,7 +607,7 @@ public class FtpDataConnectionCoordinator {
         try {
             continuation.ready(connection);
         } catch (IOException e) {
-            LOGGER.log(Level.WARNING, "FTP data transfer setup failed", e);
+            LOGGER.log(Level.WARNING, FtpProtocolHandler.L10N.getString("warn.ftp_data_transfer_setup_failed"), e);
             cleanup();
             callback.transferFailed(e);
         }
@@ -799,12 +799,13 @@ public class FtpDataConnectionCoordinator {
                             transfer, callback);
                 } catch (IOException e) {
                     LOGGER.log(Level.WARNING,
-                            "FTP download registration failed", e);
+                            FtpProtocolHandler.L10N.getString("warn.ftp_download_registration_failed"), e);
                     try {
                         asyncChannel.close();
                     } catch (IOException closeEx) {
                         LOGGER.log(Level.FINE,
-                                "Error closing async channel after setup failure",
+                                FtpProtocolHandler.L10N.getString(
+                                        "debug.err_closing_async_channel_after_setup"),
                                 closeEx);
                     }
                     cleanup();
@@ -818,7 +819,7 @@ public class FtpDataConnectionCoordinator {
                         ? (IOException) error
                         : new IOException("Failed to open file: "
                                 + transfer.getPath(), error);
-                LOGGER.log(Level.WARNING, "FTP download open failed", e);
+                LOGGER.log(Level.WARNING, FtpProtocolHandler.L10N.getString("warn.ftp_download_open_failed"), e);
                 cleanup();
                 callback.transferFailed(e);
             }
@@ -958,7 +959,7 @@ public class FtpDataConnectionCoordinator {
                             transfer, callback);
                 } catch (IOException e) {
                     LOGGER.log(Level.WARNING,
-                            "FTP listing registration failed", e);
+                            FtpProtocolHandler.L10N.getString("warn.ftp_listing_registration_failed"), e);
                     cleanup();
                     callback.transferFailed(e);
                 }
@@ -970,7 +971,7 @@ public class FtpDataConnectionCoordinator {
                         ? (IOException) error
                         : new IOException("Failed to list directory: "
                                 + transfer.getPath(), error);
-                LOGGER.log(Level.WARNING, "FTP listing failed", e);
+                LOGGER.log(Level.WARNING, FtpProtocolHandler.L10N.getString("warn.ftp_listing_failed"), e);
                 cleanup();
                 callback.transferFailed(e);
             }
@@ -1115,12 +1116,13 @@ public class FtpDataConnectionCoordinator {
                             transfer, callback);
                 } catch (IOException e) {
                     LOGGER.log(Level.WARNING,
-                            "FTP upload registration failed", e);
+                            FtpProtocolHandler.L10N.getString("warn.ftp_upload_registration_failed"), e);
                     try {
                         openResult.channel.close();
                     } catch (IOException closeEx) {
                         LOGGER.log(Level.FINE,
-                                "Error closing async channel after setup failure",
+                                FtpProtocolHandler.L10N.getString(
+                                        "debug.err_closing_async_channel_after_setup"),
                                 closeEx);
                     }
                     cleanup();
@@ -1134,7 +1136,7 @@ public class FtpDataConnectionCoordinator {
                         ? (IOException) error
                         : new IOException("Failed to open file for upload",
                                 error);
-                LOGGER.log(Level.WARNING, "FTP upload open failed", e);
+                LOGGER.log(Level.WARNING, FtpProtocolHandler.L10N.getString("warn.ftp_upload_open_failed"), e);
                 cleanup();
                 callback.transferFailed(e);
             }
@@ -1288,7 +1290,7 @@ public class FtpDataConnectionCoordinator {
 
         @Override
         public void error(Exception e) {
-            LOGGER.log(Level.WARNING, "Data connection error during listing", e);
+            LOGGER.log(Level.WARNING, FtpProtocolHandler.L10N.getString("warn.data_connection_error_listing"), e);
             dataEndpoint.close();
             callback.transferFailed(
                     e instanceof IOException
@@ -1383,7 +1385,7 @@ public class FtpDataConnectionCoordinator {
                         public void failed(Throwable exc, Void attachment) {
                             ByteBufferPool.release(buf);
                             LOGGER.log(Level.WARNING,
-                                    "Async file read failed", exc);
+                                    FtpProtocolHandler.L10N.getString("warn.async_file_read_failed"), exc);
                             dataEndpoint.execute(new Runnable() {
                                 @Override
                                 public void run() {
@@ -1408,7 +1410,7 @@ public class FtpDataConnectionCoordinator {
                     asyncChannel.close();
                 } catch (IOException e) {
                     LOGGER.log(Level.WARNING,
-                            "Error closing async file channel", e);
+                            FtpProtocolHandler.L10N.getString("warn.err_closing_async_file_channel"), e);
                 }
             }
         }
@@ -1450,7 +1452,7 @@ public class FtpDataConnectionCoordinator {
 
         @Override
         public void error(Exception e) {
-            LOGGER.log(Level.WARNING, "Data connection error", e);
+            LOGGER.log(Level.WARNING, FtpProtocolHandler.L10N.getString("warn.data_connection_error"), e);
             closeChannels();
             if (e instanceof IOException) {
                 callback.transferFailed((IOException) e);
@@ -1561,7 +1563,7 @@ public class FtpDataConnectionCoordinator {
                             ByteBufferPool.release(buf);
                             writeInFlight = false;
                             LOGGER.log(Level.WARNING,
-                                    "Async file write failed", exc);
+                                    FtpProtocolHandler.L10N.getString("warn.async_file_write_failed"), exc);
                             dataEndpoint.execute(new Runnable() {
                                 @Override
                                 public void run() {
@@ -1607,7 +1609,7 @@ public class FtpDataConnectionCoordinator {
 
         @Override
         public void error(Exception e) {
-            LOGGER.log(Level.WARNING, "Data connection error", e);
+            LOGGER.log(Level.WARNING, FtpProtocolHandler.L10N.getString("warn.data_connection_error"), e);
             closeChannels();
             if (e instanceof IOException) {
                 callback.transferFailed((IOException) e);
@@ -1623,7 +1625,7 @@ public class FtpDataConnectionCoordinator {
                     asyncChannel.close();
                 } catch (IOException e) {
                     LOGGER.log(Level.WARNING,
-                            "Error closing async file channel", e);
+                            FtpProtocolHandler.L10N.getString("warn.err_closing_async_file_channel"), e);
                 }
             }
         }

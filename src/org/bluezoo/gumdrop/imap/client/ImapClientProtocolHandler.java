@@ -191,8 +191,7 @@ public final class ImapClientProtocolHandler
         state = ImapState.CONNECTING;
 
         if (LOGGER.isLoggable(Level.FINE)) {
-            LOGGER.fine("IMAP client connected to "
-                    + ep.getRemoteAddress());
+            LOGGER.fine(MessageFormat.format(L10N.getString("debug.client_connected"), ep.getRemoteAddress()));
         }
     }
 
@@ -213,7 +212,7 @@ public final class ImapClientProtocolHandler
     @Override
     public void securityEstablished(SecurityInfo info) {
         if (LOGGER.isLoggable(Level.FINE)) {
-            LOGGER.fine("TLS established: " + info.getCipherSuite());
+            LOGGER.fine(MessageFormat.format(L10N.getString("debug.tls_established"), info.getCipherSuite()));
         }
 
         handler.onSecurityEstablished(info);
@@ -230,7 +229,7 @@ public final class ImapClientProtocolHandler
     @Override
     public void error(Exception cause) {
         if (LOGGER.isLoggable(Level.WARNING)) {
-            LOGGER.log(Level.WARNING, "IMAP transport error", cause);
+            LOGGER.log(Level.WARNING, L10N.getString("warn.imap_transport_error"), cause);
         }
         state = ImapState.ERROR;
         handler.onError(cause);
@@ -760,11 +759,9 @@ public final class ImapClientProtocolHandler
             if (command.startsWith("LOGIN ")
                     || command.startsWith("AUTHENTICATE ")) {
                 int sp = command.indexOf(' ');
-                LOGGER.fine("Sent IMAP command: " + currentTag + " "
-                        + command.substring(0, sp + 1) + "***");
+                LOGGER.fine(MessageFormat.format(L10N.getString("debug.sent_imap_command_redacted"), currentTag, command.substring(0, sp + 1)));
             } else {
-                LOGGER.fine("Sent IMAP command: " + currentTag + " "
-                        + command);
+                LOGGER.fine(MessageFormat.format(L10N.getString("debug.sent_imap_command"), currentTag, command));
             }
         }
     }
@@ -781,7 +778,7 @@ public final class ImapClientProtocolHandler
         endpoint.send(ByteBuffer.wrap(data));
 
         if (LOGGER.isLoggable(Level.FINE)) {
-            LOGGER.fine("Sent IMAP raw line: ***");
+            LOGGER.fine(L10N.getString("debug.sent_imap_raw_line_redacted"));
         }
     }
 
@@ -790,7 +787,7 @@ public final class ImapClientProtocolHandler
     // RFC 9051 section 7 — server responses: tagged, untagged, continuation
     private void handleResponseLine(String line) {
         if (LOGGER.isLoggable(Level.FINE)) {
-            LOGGER.fine("Received IMAP response: " + line);
+            LOGGER.fine(MessageFormat.format(L10N.getString("debug.received_imap_response"), line));
         }
 
         try {
@@ -798,7 +795,7 @@ public final class ImapClientProtocolHandler
             if (response == null) {
                 if (LOGGER.isLoggable(Level.WARNING)) {
                     LOGGER.warning(
-                            "Unparseable IMAP response: " + line);
+                            MessageFormat.format(L10N.getString("warn.imap_unparseable_response"), line));
                 }
                 return;
             }
@@ -813,7 +810,7 @@ public final class ImapClientProtocolHandler
         } catch (Exception e) {
             if (LOGGER.isLoggable(Level.WARNING)) {
                 LOGGER.log(Level.WARNING,
-                        "Error handling IMAP response: " + line, e);
+                        MessageFormat.format(L10N.getString("warn.imap_error_handling_response"), line), e);
             }
             handler.onError(e);
         }
@@ -855,8 +852,7 @@ public final class ImapClientProtocolHandler
             default:
                 if (LOGGER.isLoggable(Level.WARNING)) {
                     LOGGER.warning(
-                            "Unexpected continuation in state "
-                            + state + ": " + response);
+                            MessageFormat.format(L10N.getString("warn.imap_unexpected_continuation"), state, response));
                 }
         }
     }
@@ -945,7 +941,7 @@ public final class ImapClientProtocolHandler
         }
 
         if (LOGGER.isLoggable(Level.FINE)) {
-            LOGGER.fine("Unhandled untagged response: " + msg);
+            LOGGER.fine(MessageFormat.format(L10N.getString("debug.unhandled_untagged_response"), msg));
         }
     }
 

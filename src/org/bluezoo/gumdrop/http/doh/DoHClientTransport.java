@@ -25,11 +25,7 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.net.InetAddress;
 import java.nio.ByteBuffer;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.ScheduledFuture;
-import java.util.concurrent.ScheduledThreadPoolExecutor;
-import java.util.concurrent.TimeUnit;
-
+import org.bluezoo.gumdrop.ScheduledTimer;
 import org.bluezoo.gumdrop.dns.client.DnsClientTransport;
 import org.bluezoo.gumdrop.dns.client.DnsClientTransportHandler;
 import org.bluezoo.gumdrop.Endpoint;
@@ -77,8 +73,12 @@ public class DoHClientTransport implements DnsClientTransport {
     // RFC 8484 section 4.1: default URI template path
     private static final String DEFAULT_PATH = "/dns-query";
 
-    private static final ScheduledExecutorService TIMER =
-            createTimerExecutor();
+    private static final ScheduledTimer TIMER =
+            new ScheduledTimer("gumdrop-doh-transport");
+
+    static {
+        TIMER.start();
+    }
 
     private HttpClient httpClient;
     private DnsClientTransportHandler handler;
@@ -87,14 +87,6 @@ public class DoHClientTransport implements DnsClientTransport {
     private String path = DEFAULT_PATH;
     private ServerCredentials clientCredentials;
     private X509TrustManager trustManager;
-
-    private static ScheduledExecutorService createTimerExecutor() {
-        ScheduledThreadPoolExecutor exec =
-                new ScheduledThreadPoolExecutor(1);
-        exec.setKeepAliveTime(60, TimeUnit.SECONDS);
-        exec.allowCoreThreadTimeOut(true);
-        return exec;
-    }
 
     /**
      * Sets the URI path for DoH queries.
@@ -206,19 +198,7 @@ public class DoHClientTransport implements DnsClientTransport {
 
     @Override
     public TimerHandle scheduleTimer(long delayMs, Runnable callback) {
-        final ScheduledFuture<?> future = TIMER.schedule(
-                callback, delayMs, TimeUnit.MILLISECONDS);
-        return new TimerHandle() {
-            @Override
-            public void cancel() {
-                future.cancel(false);
-            }
-
-            @Override
-            public boolean isCancelled() {
-                return future.isCancelled();
-            }
-        };
+        return TIMER.schedule(null, delayMs, callback);
     }
 
     @Override

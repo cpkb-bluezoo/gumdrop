@@ -185,8 +185,9 @@ public class MqttFrameParser {
             state = State.PUBLISH_HEADER;
 
             if (LOGGER.isLoggable(Level.FINEST)) {
-                LOGGER.finest("PUBLISH detected: flags=" + flags +
-                        ", remainingLength=" + remainingLength);
+                LOGGER.finest(MessageFormat.format(
+                        L10N.getString("log.mqtt_publish_detected"),
+                        Integer.valueOf(flags), Integer.valueOf(remainingLength)));
             }
             return true;
         }
@@ -204,8 +205,9 @@ public class MqttFrameParser {
         buf.position(buf.position() + remainingLength);
 
         if (LOGGER.isLoggable(Level.FINEST)) {
-            LOGGER.finest("Parsed MQTT packet: type=" + type.name() +
-                    ", flags=" + flags + ", length=" + remainingLength);
+            LOGGER.finest(MessageFormat.format(
+                    L10N.getString("log.mqtt_packet_parsed"),
+                    type.name(), Integer.valueOf(flags), Integer.valueOf(remainingLength)));
         }
 
         try {

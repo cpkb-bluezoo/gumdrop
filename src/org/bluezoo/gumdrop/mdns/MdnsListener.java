@@ -33,6 +33,7 @@ import java.nio.ByteBuffer;
 import java.nio.channels.DatagramChannel;
 import java.text.MessageFormat;
 import java.util.Enumeration;
+import java.util.ResourceBundle;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -60,6 +61,9 @@ import org.bluezoo.gumdrop.tls.TlsConfig;
  * @see MdnsServer
  */
 public class MdnsListener extends Listener {
+
+    private static final ResourceBundle L10N =
+            ResourceBundle.getBundle("org.bluezoo.gumdrop.mdns.L10N");
 
     private static final Logger LOGGER =
             Logger.getLogger(MdnsListener.class.getName());
@@ -202,9 +206,8 @@ public class MdnsListener extends Listener {
             endpoint = transportFactory.createServerEndpoint(
                     gumdrop, channel, new MdnsDatagramHandler());
         } catch (IOException e) {
-            LOGGER.log(Level.SEVERE,
-                    "Failed to bind mDNS datagram endpoint on port " + port,
-                    e);
+            LOGGER.log(Level.SEVERE, MessageFormat.format(
+                    MdnsServer.L10N.getString("log.mdns_bind_failed"), port), e);
         }
     }
 
@@ -373,7 +376,7 @@ public class MdnsListener extends Listener {
 
         @Override
         public void error(Exception cause) {
-            LOGGER.log(Level.WARNING, "mDNS endpoint error", cause);
+            LOGGER.log(Level.WARNING, L10N.getString("log.mdns_endpoint_error"), cause);
         }
     }
 

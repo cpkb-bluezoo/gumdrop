@@ -40,6 +40,7 @@ import static org.junit.Assert.*;
 /**
  * Tests for search filter encoding — approximate match (~=) and
  * extensible match (:=) per RFC 4515 section 4.
+ * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 public class FilterEncodingTest {
 

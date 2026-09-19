@@ -1,9 +1,6 @@
 /*
  * EchoWebSocketHandler.java
- * WebSocket Servlet Example for Gumdrop Server
- *
- * This example demonstrates how to create a WebSocket handler using
- * the Servlet 4.0 HttpUpgradeHandler API with Gumdrop's WebSocket support.
+ * Example WebSocket handler that echoes received messages back to the client.
  */
 
 package examples.websocket;

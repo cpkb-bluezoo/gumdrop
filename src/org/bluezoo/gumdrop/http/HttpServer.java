@@ -21,9 +21,11 @@
 
 package org.bluezoo.gumdrop.http;
 
+import java.text.MessageFormat;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.ResourceBundle;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -110,6 +112,9 @@ public abstract class HttpServer implements Server {
     public static Composer builder() {
         return compose();
     }
+
+    private static final ResourceBundle L10N =
+            ResourceBundle.getBundle("org.bluezoo.gumdrop.http.L10N");
 
     private static final Logger LOGGER =
             Logger.getLogger(HttpServer.class.getName());
@@ -403,8 +408,8 @@ public abstract class HttpServer implements Server {
             try {
                 ((Listener) listener).start(gumdrop);
             } catch (Exception e) {
-                LOGGER.log(Level.SEVERE,
-                        "Failed to start listener: " + listener, e);
+                LOGGER.log(Level.SEVERE, MessageFormat.format(
+                        L10N.getString("log.http_listener_start_failed"), listener), e);
             }
         }
     }
@@ -417,8 +422,8 @@ public abstract class HttpServer implements Server {
             try {
                 ((Listener) listener).stop();
             } catch (Exception e) {
-                LOGGER.log(Level.WARNING,
-                        "Error stopping listener: " + listener, e);
+                LOGGER.log(Level.WARNING, MessageFormat.format(
+                        L10N.getString("warn.http_listener_stop_error"), listener), e);
             }
         }
     }

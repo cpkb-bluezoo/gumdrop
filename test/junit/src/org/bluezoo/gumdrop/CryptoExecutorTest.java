@@ -46,6 +46,7 @@ import org.bluezoo.gumdrop.telemetry.Trace;
  * Unit tests for {@link CryptoExecutor}: results and failures must be
  * delivered back on the endpoint's loop thread (never a crypto thread), and
  * a saturated pool must fail fast rather than block the caller.
+ * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 public class CryptoExecutorTest {
 

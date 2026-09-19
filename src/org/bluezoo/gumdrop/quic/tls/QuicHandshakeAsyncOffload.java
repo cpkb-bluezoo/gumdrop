@@ -22,6 +22,7 @@
 package org.bluezoo.gumdrop.quic.tls;
 
 import java.util.concurrent.Executor;
+import java.util.ResourceBundle;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -42,6 +43,8 @@ import org.bluezoo.gumdrop.TlsHandshakeAsyncOffload;
 final class QuicHandshakeAsyncOffload {
 
     private static final Logger LOGGER = Logger.getLogger(QuicHandshakeAsyncOffload.class.getName());
+    private static final ResourceBundle L10N =
+            ResourceBundle.getBundle("org.bluezoo.gumdrop.quic.L10N");
 
     interface BatchProcessor {
         void process();
@@ -96,7 +99,7 @@ final class QuicHandshakeAsyncOffload {
         }, new TlsHandshakeAsyncOffload.FailureHandler() {
             @Override
             public void failed(Throwable error) {
-                LOGGER.log(Level.SEVERE, "QUIC handshake delegated processing failed", error);
+                LOGGER.log(Level.SEVERE, L10N.getString("severe.handshake_async_failed"), error);
                 listener.cryptoProcessingFailed(level, error);
             }
         });

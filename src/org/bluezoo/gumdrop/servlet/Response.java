@@ -48,6 +48,7 @@ import jakarta.servlet.ServletOutputStream;
 import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.servlet.http.HttpSession;
+import java.util.ResourceBundle;
 
 /**
  * An HTTP response.
@@ -58,7 +59,8 @@ import jakarta.servlet.http.HttpSession;
  */
 class Response implements HttpServletResponse {
 
-    private static final Logger LOGGER = Logger.getLogger(Response.class.getName());
+        private static final ResourceBundle L10N = ResourceBundle.getBundle("org.bluezoo.gumdrop.servlet.L10N");
+private static final Logger LOGGER = Logger.getLogger(Response.class.getName());
 
     // HttpDateFormat is thread-safe; these formatters are shared across worker
     // threads. expiresDateFormat is an immutable java.time formatter, and UTF-8
@@ -340,7 +342,7 @@ class Response implements HttpServletResponse {
                 buf.append("</p>\r\n");
             }
             if (err != null) {
-                LOGGER.log(Level.SEVERE, "Error", err);
+                LOGGER.log(Level.SEVERE, L10N.getString("severe.generic_error"), err);
                 boolean showStackTraces = context != null
                         && "true".equals(context.getInitParameter("org.bluezoo.gumdrop.show-stack-traces"));
                 if (showStackTraces) {

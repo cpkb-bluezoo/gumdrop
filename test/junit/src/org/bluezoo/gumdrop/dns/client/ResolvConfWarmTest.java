@@ -32,6 +32,7 @@ import static org.junit.Assert.*;
 /**
  * Asserts {@link ResolvConf#warm()} eagerly populates the in-memory cache so
  * subsequent {@link ResolvConf#getNameservers} calls reuse it (no re-parse).
+ * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 public class ResolvConfWarmTest {
 

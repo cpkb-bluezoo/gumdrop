@@ -1602,7 +1602,8 @@ public final class QuicConnection implements QuicTlsEngineListener {
                 unacked.add(Long.valueOf(fullPacketNumber));
             }
         } catch (PacketProtectionException e) {
-            LOGGER.log(Level.FINE, "Packet protection failure at " + level + "; dropping", e);
+            LOGGER.log(Level.FINE, MessageFormat.format(
+                    L10N.getString("fine.packet_protection_failure"), level), e);
             if (level == EncryptionLevel.ONE_RTT && !isZeroRtt) {
                 decryptFailedOrUnparseableThisDatagram = true;
             }
@@ -2160,7 +2161,8 @@ public final class QuicConnection implements QuicTlsEngineListener {
         try {
             return buildProtectedPacket(level, minDatagramSize);
         } catch (PacketProtectionException e) {
-            LOGGER.log(Level.WARNING, "Failed to protect outgoing packet at " + level, e);
+            LOGGER.log(Level.WARNING, MessageFormat.format(
+                    L10N.getString("warn.protect_outgoing_packet_failed"), level), e);
             return null;
         }
     }
@@ -2199,8 +2201,9 @@ public final class QuicConnection implements QuicTlsEngineListener {
     private void beginMigrationValidation(InetSocketAddress candidate) {
         if (pathValidationAttempts.size() >= MAX_CONCURRENT_PATH_VALIDATIONS) {
             if (LOGGER.isLoggable(Level.FINE)) {
-                LOGGER.fine("Ignoring path validation candidate " + candidate + ": already validating "
-                        + pathValidationAttempts.size() + " concurrently");
+                LOGGER.fine(MessageFormat.format(
+                        L10N.getString("fine.path_validation_candidate_ignored"),
+                        candidate, pathValidationAttempts.size()));
             }
             PathValidationRejectedObserver observer = pathValidationRejectedObserver;
             if (observer != null) {
@@ -2276,8 +2279,8 @@ public final class QuicConnection implements QuicTlsEngineListener {
             }
         }
         if (LOGGER.isLoggable(Level.FINE)) {
-            LOGGER.fine("Path validation abandoned for " + candidate
-                    + ": no PATH_RESPONSE within the deadline");
+            LOGGER.fine(MessageFormat.format(
+                    L10N.getString("fine.path_validation_abandoned"), candidate));
         }
     }
 
@@ -2392,7 +2395,8 @@ public final class QuicConnection implements QuicTlsEngineListener {
                 engine.sendTo(destination, packet);
             }
         } catch (PacketProtectionException e) {
-            LOGGER.log(Level.WARNING, "Failed to protect outgoing PATH_CHALLENGE/PATH_RESPONSE packet", e);
+            LOGGER.log(Level.WARNING,
+                    L10N.getString("warn.protect_path_frame_failed"), e);
         }
     }
 
@@ -3122,7 +3126,7 @@ public final class QuicConnection implements QuicTlsEngineListener {
         try {
             return buildZeroRttProtectedPacket();
         } catch (PacketProtectionException e) {
-            LOGGER.log(Level.WARNING, "Failed to protect outgoing 0-RTT packet", e);
+            LOGGER.log(Level.WARNING, L10N.getString("warn.protect_zero_rtt_failed"), e);
             return null;
         }
     }
@@ -3354,7 +3358,7 @@ public final class QuicConnection implements QuicTlsEngineListener {
                 sendConnectionClose(level, keys);
                 break;
             } catch (PacketProtectionException e) {
-                LOGGER.log(Level.FINE, "Failed to send CONNECTION_CLOSE", e);
+                LOGGER.log(Level.FINE, L10N.getString("fine.connection_close_send_failed"), e);
             }
         }
         tearDownStreams();
@@ -3477,7 +3481,8 @@ public final class QuicConnection implements QuicTlsEngineListener {
 
     @Override
     public void cryptoProcessingFailed(EncryptionLevel level, Throwable cause) {
-        LOGGER.log(Level.WARNING, "TLS error processing CRYPTO data at " + level, cause);
+        LOGGER.log(Level.WARNING, MessageFormat.format(
+                L10N.getString("warn.crypto_processing_failed"), level), cause);
     }
 
     @Override

@@ -28,6 +28,7 @@ import java.util.logging.Logger;
  * java.util.logging helpers that keep WARNING/SEVERE lines readable in
  * production without printing a full stack trace for expected client or
  * protocol errors (stack detail remains at FINE when a cause is present).
+ * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 public final class JulWarnings {
 

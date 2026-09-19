@@ -213,14 +213,14 @@ public class BasicFTPFileSystem implements FtpFileSystem {
             
             if (!Files.exists(dirPath)) {
                 if (LOGGER.isLoggable(Level.FINE)) {
-                    LOGGER.fine("Directory does not exist: " + path);
+                    LOGGER.fine(MessageFormat.format(L10N.getString("debug.directory_not_exist"), path));
                 }
                 return null;
             }
             
             if (!Files.isDirectory(dirPath)) {
                 if (LOGGER.isLoggable(Level.FINE)) {
-                    LOGGER.fine("Path is not a directory: " + path);
+                    LOGGER.fine(MessageFormat.format(L10N.getString("debug.path_not_directory"), path));
                 }
                 return null;
             }
@@ -238,23 +238,23 @@ public class BasicFTPFileSystem implements FtpFileSystem {
                     } catch (Exception e) {
                         // Skip files we can't read (permissions, etc.)
                         if (LOGGER.isLoggable(Level.FINE)) {
-                            LOGGER.fine("Skipping file due to error: " + child + " - " + e.getMessage());
+                            LOGGER.fine(MessageFormat.format(L10N.getString("debug.skip_list_child_error"), child, e.getMessage()));
                         }
                     }
                 }
             }
             
             if (LOGGER.isLoggable(Level.FINE)) {
-                LOGGER.fine("Listed " + files.size() + " items in directory: " + path);
+                LOGGER.fine(MessageFormat.format(L10N.getString("debug.listed_directory_items"), files.size(), path));
             }
             
             return files;
             
         } catch (SecurityException e) {
-            LOGGER.log(Level.WARNING, "Security violation in listDirectory: " + path, e);
+            LOGGER.log(Level.WARNING, MessageFormat.format(L10N.getString("warn.security_violation_list_directory"), path), e);
             return null;
         } catch (Exception e) {
-            LOGGER.log(Level.WARNING, "Error listing directory: " + path, e);
+            LOGGER.log(Level.WARNING, MessageFormat.format(L10N.getString("warn.error_listing_directory"), path), e);
             return null;
         }
     }
@@ -362,16 +362,16 @@ public class BasicFTPFileSystem implements FtpFileSystem {
             String newFtpPath = toFtpPath(dirPath);
             
             if (LOGGER.isLoggable(Level.FINE)) {
-                LOGGER.fine("Changed directory from " + currentDirectory + " to " + newFtpPath);
+                LOGGER.fine(MessageFormat.format(L10N.getString("debug.changed_directory"), currentDirectory, newFtpPath));
             }
             
             return new DirectoryChangeResult(FtpFileOperationResult.SUCCESS, newFtpPath);
             
         } catch (SecurityException e) {
-            LOGGER.log(Level.WARNING, "Security violation in changeDirectory: " + path, e);
+            LOGGER.log(Level.WARNING, MessageFormat.format(L10N.getString("warn.security_violation_change_directory"), path), e);
             return new DirectoryChangeResult(FtpFileOperationResult.ACCESS_DENIED, currentDirectory);
         } catch (Exception e) {
-            LOGGER.log(Level.WARNING, "Error changing directory: " + path, e);
+            LOGGER.log(Level.WARNING, MessageFormat.format(L10N.getString("warn.error_changing_directory"), path), e);
             return new DirectoryChangeResult(FtpFileOperationResult.FILE_SYSTEM_ERROR, currentDirectory);
         }
     }
@@ -383,7 +383,7 @@ public class BasicFTPFileSystem implements FtpFileSystem {
             return createFileInfo(filePath);
         } catch (Exception e) {
             if (LOGGER.isLoggable(Level.FINE)) {
-                LOGGER.fine("Error getting file info for " + path + ": " + e.getMessage());
+                LOGGER.fine(MessageFormat.format(L10N.getString("debug.error_file_info"), path, e.getMessage()));
             }
             return null;
         }
@@ -405,16 +405,16 @@ public class BasicFTPFileSystem implements FtpFileSystem {
             Files.createDirectories(dirPath);
             
             if (LOGGER.isLoggable(Level.FINE)) {
-                LOGGER.fine("Created directory: " + path);
+                LOGGER.fine(MessageFormat.format(L10N.getString("debug.created_directory"), path));
             }
             
             return FtpFileOperationResult.SUCCESS;
             
         } catch (SecurityException e) {
-            LOGGER.log(Level.WARNING, "Security violation in createDirectory: " + path, e);
+            LOGGER.log(Level.WARNING, MessageFormat.format(L10N.getString("warn.security_violation_create_directory"), path), e);
             return FtpFileOperationResult.ACCESS_DENIED;
         } catch (IOException e) {
-            LOGGER.log(Level.WARNING, "Error creating directory: " + path, e);
+            LOGGER.log(Level.WARNING, MessageFormat.format(L10N.getString("warn.error_creating_directory"), path), e);
             return FtpFileOperationResult.FILE_SYSTEM_ERROR;
         }
     }
@@ -448,16 +448,16 @@ public class BasicFTPFileSystem implements FtpFileSystem {
             Files.delete(dirPath);
             
             if (LOGGER.isLoggable(Level.FINE)) {
-                LOGGER.fine("Removed directory: " + path);
+                LOGGER.fine(MessageFormat.format(L10N.getString("debug.removed_directory"), path));
             }
             
             return FtpFileOperationResult.SUCCESS;
             
         } catch (SecurityException e) {
-            LOGGER.log(Level.WARNING, "Security violation in removeDirectory: " + path, e);
+            LOGGER.log(Level.WARNING, MessageFormat.format(L10N.getString("warn.security_violation_remove_directory"), path), e);
             return FtpFileOperationResult.ACCESS_DENIED;
         } catch (IOException e) {
-            LOGGER.log(Level.WARNING, "Error removing directory: " + path, e);
+            LOGGER.log(Level.WARNING, MessageFormat.format(L10N.getString("warn.error_removing_directory"), path), e);
             return FtpFileOperationResult.FILE_SYSTEM_ERROR;
         }
     }
@@ -482,16 +482,16 @@ public class BasicFTPFileSystem implements FtpFileSystem {
             Files.delete(filePath);
             
             if (LOGGER.isLoggable(Level.FINE)) {
-                LOGGER.fine("Deleted file: " + path);
+                LOGGER.fine(MessageFormat.format(L10N.getString("debug.deleted_file"), path));
             }
             
             return FtpFileOperationResult.SUCCESS;
             
         } catch (SecurityException e) {
-            LOGGER.log(Level.WARNING, "Security violation in deleteFile: " + path, e);
+            LOGGER.log(Level.WARNING, MessageFormat.format(L10N.getString("warn.security_violation_delete_file"), path), e);
             return FtpFileOperationResult.ACCESS_DENIED;
         } catch (IOException e) {
-            LOGGER.log(Level.WARNING, "Error deleting file: " + path, e);
+            LOGGER.log(Level.WARNING, MessageFormat.format(L10N.getString("warn.error_deleting_file"), path), e);
             return FtpFileOperationResult.FILE_SYSTEM_ERROR;
         }
     }
@@ -518,7 +518,7 @@ public class BasicFTPFileSystem implements FtpFileSystem {
             Files.move(sourceFile, targetFile);
             
             if (LOGGER.isLoggable(Level.FINE)) {
-                LOGGER.fine("Renamed " + fromPath + " to " + toPath);
+                LOGGER.fine(MessageFormat.format(L10N.getString("debug.renamed_file"), fromPath, toPath));
             }
             
             return FtpFileOperationResult.SUCCESS;
@@ -542,14 +542,14 @@ public class BasicFTPFileSystem implements FtpFileSystem {
             
             if (!Files.exists(filePath)) {
                 if (LOGGER.isLoggable(Level.FINE)) {
-                    LOGGER.fine("File not found for reading: " + path);
+                    LOGGER.fine(MessageFormat.format(L10N.getString("debug.file_not_found_reading"), path));
                 }
                 return null;
             }
             
             if (Files.isDirectory(filePath)) {
                 if (LOGGER.isLoggable(Level.FINE)) {
-                    LOGGER.fine("Cannot read directory as file: " + path);
+                    LOGGER.fine(MessageFormat.format(L10N.getString("debug.cannot_read_directory_as_file"), path));
                 }
                 return null;
             }
@@ -560,22 +560,22 @@ public class BasicFTPFileSystem implements FtpFileSystem {
             if (restartOffset > 0) {
                 fileChannel.position(restartOffset);
                 if (LOGGER.isLoggable(Level.FINE)) {
-                    LOGGER.fine("Positioned file channel at restart offset: " + restartOffset);
+                    LOGGER.fine(MessageFormat.format(L10N.getString("debug.file_channel_restart_offset"), restartOffset));
                 }
             }
             
             if (LOGGER.isLoggable(Level.FINE)) {
-                LOGGER.fine("Opened file for reading: " + path + 
-                           (restartOffset > 0 ? " (offset: " + restartOffset + ")" : ""));
+                LOGGER.fine(MessageFormat.format(L10N.getString("debug.opened_file_reading"), path,
+                        restartOffset > 0 ? MessageFormat.format(L10N.getString("debug.opened_file_reading_offset_suffix"), restartOffset) : ""));
             }
             
             return fileChannel;
             
         } catch (SecurityException e) {
-            LOGGER.log(Level.WARNING, "Security violation in openForReading: " + path, e);
+            LOGGER.log(Level.WARNING, MessageFormat.format(L10N.getString("warn.security_violation_open_reading"), path), e);
             return null;
         } catch (IOException e) {
-            LOGGER.log(Level.WARNING, "Error opening file for reading: " + path, e);
+            LOGGER.log(Level.WARNING, MessageFormat.format(L10N.getString("warn.error_opening_file_reading"), path), e);
             return null;
         }
     }
@@ -585,7 +585,7 @@ public class BasicFTPFileSystem implements FtpFileSystem {
                                             FtpConnectionMetadata metadata) {
         if (readOnly) {
             if (LOGGER.isLoggable(Level.FINE)) {
-                LOGGER.fine("Write denied - file system is read-only: " + path);
+                LOGGER.fine(MessageFormat.format(L10N.getString("debug.write_denied_readonly"), path));
             }
             return null;
         }
@@ -602,7 +602,7 @@ public class BasicFTPFileSystem implements FtpFileSystem {
             // Check if it's a directory
             if (Files.exists(filePath) && Files.isDirectory(filePath)) {
                 if (LOGGER.isLoggable(Level.FINE)) {
-                    LOGGER.fine("Cannot write to directory: " + path);
+                    LOGGER.fine(MessageFormat.format(L10N.getString("debug.cannot_write_to_directory"), path));
                 }
                 return null;
             }
@@ -615,17 +615,17 @@ public class BasicFTPFileSystem implements FtpFileSystem {
             FileChannel fileChannel = FileChannel.open(filePath, options);
             
             if (LOGGER.isLoggable(Level.FINE)) {
-                LOGGER.fine("Opened file for writing: " + path + 
-                           (append ? " (append mode)" : " (overwrite mode)"));
+                LOGGER.fine(MessageFormat.format(L10N.getString("debug.opened_file_writing"), path,
+                        append ? L10N.getString("debug.opened_file_writing_append") : L10N.getString("debug.opened_file_writing_overwrite")));
             }
             
             return fileChannel;
             
         } catch (SecurityException e) {
-            LOGGER.log(Level.WARNING, "Security violation in openForWriting: " + path, e);
+            LOGGER.log(Level.WARNING, MessageFormat.format(L10N.getString("warn.security_violation_open_writing"), path), e);
             return null;
         } catch (IOException e) {
-            LOGGER.log(Level.WARNING, "Error opening file for writing: " + path, e);
+            LOGGER.log(Level.WARNING, MessageFormat.format(L10N.getString("warn.error_opening_file_writing"), path), e);
             return null;
         }
     }
@@ -646,7 +646,7 @@ public class BasicFTPFileSystem implements FtpFileSystem {
             return resolveSecurePath(path);
         } catch (SecurityException e) {
             LOGGER.log(Level.WARNING,
-                    "Security violation in resolvePathForAsyncRead: " + path, e);
+                    MessageFormat.format(L10N.getString("warn.security_violation_resolve_async_read"), path), e);
             return null;
         }
     }
@@ -662,7 +662,7 @@ public class BasicFTPFileSystem implements FtpFileSystem {
             return resolveSecurePath(path);
         } catch (SecurityException e) {
             LOGGER.log(Level.WARNING,
-                    "Security violation in resolvePathForAsyncWrite: " + path, e);
+                    MessageFormat.format(L10N.getString("warn.security_violation_resolve_async_write"), path), e);
             return null;
         }
     }
@@ -722,16 +722,16 @@ public class BasicFTPFileSystem implements FtpFileSystem {
                            basePath + "/" + uniqueName;
             
             if (LOGGER.isLoggable(Level.FINE)) {
-                LOGGER.fine("Generated unique name: " + ftpPath);
+                LOGGER.fine(MessageFormat.format(L10N.getString("debug.generated_unique_name"), ftpPath));
             }
             
             return new UniqueNameResult(FtpFileOperationResult.SUCCESS, ftpPath);
             
         } catch (SecurityException e) {
-            LOGGER.log(Level.WARNING, "Security violation in generateUniqueName: " + basePath, e);
+            LOGGER.log(Level.WARNING, MessageFormat.format(L10N.getString("warn.security_violation_generate_unique_name"), basePath), e);
             return new UniqueNameResult(FtpFileOperationResult.ACCESS_DENIED, null);
         } catch (Exception e) {
-            LOGGER.log(Level.WARNING, "Error generating unique name: " + basePath, e);
+            LOGGER.log(Level.WARNING, MessageFormat.format(L10N.getString("warn.error_generating_unique_name"), basePath), e);
             return new UniqueNameResult(FtpFileOperationResult.FILE_SYSTEM_ERROR, null);
         }
     }
@@ -741,7 +741,7 @@ public class BasicFTPFileSystem implements FtpFileSystem {
                                               FtpConnectionMetadata metadata) {
         // ALLO is typically a no-op for modern file systems
         if (LOGGER.isLoggable(Level.FINE)) {
-            LOGGER.fine("ALLO command for " + path + " (" + size + " bytes) - no-op");
+            LOGGER.fine(MessageFormat.format(L10N.getString("debug.allo_noop"), path, size));
         }
         return FtpFileOperationResult.SUCCESS;
     }

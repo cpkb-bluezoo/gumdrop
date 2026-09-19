@@ -25,6 +25,7 @@ package org.bluezoo.gumdrop.pop3.server;
 /**
  * Implemented by {@link org.bluezoo.gumdrop.pop3.Pop3ProtocolHandler} so
  * transaction handlers can reuse its per-session LIST/UIDL listing cache.
+ * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 public interface MessageListingCacheHost {
 

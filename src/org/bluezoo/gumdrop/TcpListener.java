@@ -34,7 +34,7 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 
 import java.net.UnixDomainSocketAddress;
-
+import java.util.ResourceBundle;
 /**
  * Base class for TCP server connectors that listen on ports and accept
  * connections. Also supports UNIX domain sockets when a {@link #setPath
@@ -58,6 +58,9 @@ import java.net.UnixDomainSocketAddress;
  * @see ProtocolHandler
  */
 public abstract class TcpListener extends Listener {
+
+    private static final ResourceBundle L10N =
+            ResourceBundle.getBundle("org.bluezoo.gumdrop.L10N");
 
     private static final Logger LOGGER =
             Logger.getLogger(TcpListener.class.getName());
@@ -194,7 +197,7 @@ public abstract class TcpListener extends Listener {
                     Files.deleteIfExists(socketPath);
                 }
             } catch (IOException e) {
-                LOGGER.log(Level.WARNING, "Error closing server channel", e);
+                LOGGER.log(Level.WARNING, L10N.getString("log.error_closing_server_channel"), e);
             }
         }
         serverChannels.clear();

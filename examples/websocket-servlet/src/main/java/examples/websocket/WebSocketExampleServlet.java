@@ -1,9 +1,6 @@
 /*
  * WebSocketExampleServlet.java
- * WebSocket Servlet Example for Gumdrop Server
- * 
- * This servlet demonstrates how to upgrade HTTP connections to WebSocket
- * using the Servlet 4.0 API with Gumdrop's WebSocket implementation.
+ * Example servlet that provides WebSocket upgrade functionality.
  */
 
 package examples.websocket;

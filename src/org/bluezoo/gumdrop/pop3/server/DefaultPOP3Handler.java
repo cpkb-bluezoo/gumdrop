@@ -25,6 +25,7 @@ import java.io.IOException;
 import java.security.Principal;
 import java.util.Iterator;
 import java.util.List;
+import java.text.MessageFormat;
 import java.util.ResourceBundle;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -56,6 +57,9 @@ public class DefaultPOP3Handler implements ClientConnected, AuthorizationHandler
         TransactionHandler {
 
     private static final Logger LOGGER = Logger.getLogger(DefaultPOP3Handler.class.getName());
+
+    private static final ResourceBundle L10N =
+            ResourceBundle.getBundle("org.bluezoo.gumdrop.pop3.L10N");
 
     private final String greeting;
 
@@ -98,7 +102,7 @@ public class DefaultPOP3Handler implements ClientConnected, AuthorizationHandler
             long size = mailbox.getMailboxSize();
             state.sendStatus(count, size, this);
         } catch (IOException e) {
-            LOGGER.log(Level.WARNING, "Failed to get mailbox status", e);
+            LOGGER.log(Level.WARNING, L10N.getString("warn.failed_mailbox_status"), e);
             state.error("Unable to get mailbox status", this);
         }
     }
@@ -146,7 +150,7 @@ public class DefaultPOP3Handler implements ClientConnected, AuthorizationHandler
                 }
             }
         } catch (IOException e) {
-            LOGGER.log(Level.WARNING, "Failed to list messages", e);
+            LOGGER.log(Level.WARNING, L10N.getString("warn.failed_list_messages"), e);
             state.error("Unable to list messages", this);
         }
     }
@@ -164,7 +168,7 @@ public class DefaultPOP3Handler implements ClientConnected, AuthorizationHandler
                 state.proceed(msg.getSize(), this);
             }
         } catch (IOException e) {
-            LOGGER.log(Level.WARNING, "Failed to retrieve message " + messageNumber, e);
+            LOGGER.log(Level.WARNING, MessageFormat.format(L10N.getString("warn.failed_retrieve_message"), messageNumber), e);
             state.error("Unable to retrieve message", this);
         }
     }
@@ -182,7 +186,7 @@ public class DefaultPOP3Handler implements ClientConnected, AuthorizationHandler
                 state.markedDeleted(this);
             }
         } catch (IOException e) {
-            LOGGER.log(Level.WARNING, "Failed to mark message " + messageNumber + " as deleted", e);
+            LOGGER.log(Level.WARNING, MessageFormat.format(L10N.getString("warn.failed_mark_deleted"), messageNumber), e);
             state.error("Unable to delete message", this);
         }
     }
@@ -195,7 +199,7 @@ public class DefaultPOP3Handler implements ClientConnected, AuthorizationHandler
             long size = mailbox.getMailboxSize();
             state.resetComplete(count, size, this);
         } catch (IOException e) {
-            LOGGER.log(Level.WARNING, "Failed to reset mailbox", e);
+            LOGGER.log(Level.WARNING, L10N.getString("warn.failed_reset_mailbox"), e);
             state.error("Unable to reset mailbox", this);
         }
     }
@@ -213,7 +217,7 @@ public class DefaultPOP3Handler implements ClientConnected, AuthorizationHandler
                 state.proceed(lines, this);
             }
         } catch (IOException e) {
-            LOGGER.log(Level.WARNING, "Failed to get TOP for message " + messageNumber, e);
+            LOGGER.log(Level.WARNING, MessageFormat.format(L10N.getString("warn.failed_top_message"), messageNumber), e);
             Throwable cause = e.getCause();
             String msg = (cause instanceof HeaderLineTooLongException)
                 ? ResourceBundle.getBundle("org.bluezoo.gumdrop.pop3.L10N")
@@ -269,7 +273,7 @@ public class DefaultPOP3Handler implements ClientConnected, AuthorizationHandler
                 }
             }
         } catch (IOException e) {
-            LOGGER.log(Level.WARNING, "Failed to get UIDs", e);
+            LOGGER.log(Level.WARNING, L10N.getString("warn.failed_get_uids"), e);
             state.error("Unable to get unique identifiers", this);
         }
     }

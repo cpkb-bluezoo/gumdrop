@@ -28,6 +28,8 @@ import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.logging.Level;
 import java.util.logging.Logger;
+import java.text.MessageFormat;
+import java.util.ResourceBundle;
 
 /**
  * Timer scheduler for servlet async context timeouts.
@@ -39,7 +41,8 @@ import java.util.logging.Logger;
  */
 public final class AsyncTimeoutScheduler implements Runnable {
 
-    private static final Logger LOGGER = Logger.getLogger(AsyncTimeoutScheduler.class.getName());
+        private static final ResourceBundle L10N = ResourceBundle.getBundle("org.bluezoo.gumdrop.servlet.L10N");
+private static final Logger LOGGER = Logger.getLogger(AsyncTimeoutScheduler.class.getName());
     private static final AtomicLong TIMER_ID_GENERATOR = new AtomicLong(0);
 
     private final PriorityQueue<TimeoutEntry> queue;
@@ -105,7 +108,7 @@ public final class AsyncTimeoutScheduler implements Runnable {
         }
 
         if (LOGGER.isLoggable(Level.FINE)) {
-            LOGGER.fine("AsyncTimeoutScheduler shutdown");
+            LOGGER.fine(L10N.getString("log.async_timeout_scheduler_shutdown"));
         }
     }
 
@@ -117,7 +120,7 @@ public final class AsyncTimeoutScheduler implements Runnable {
         try {
             entry.callback.onTimeout();
         } catch (Exception e) {
-            LOGGER.log(Level.WARNING, "Error in async timeout callback", e);
+            LOGGER.log(Level.WARNING, L10N.getString("warn.async_timeout_callback"), e);
         }
     }
 

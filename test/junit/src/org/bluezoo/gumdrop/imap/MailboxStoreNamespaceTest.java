@@ -36,6 +36,7 @@ import static org.junit.Assert.*;
 
 /**
  * Tests the default namespace methods on {@link MailboxStore} (RFC 2342).
+ * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 public class MailboxStoreNamespaceTest {
 

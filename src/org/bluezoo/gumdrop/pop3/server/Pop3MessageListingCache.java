@@ -35,6 +35,7 @@ import org.bluezoo.gumdrop.mailbox.MessageDescriptor;
  * reused for subsequent bulk LIST/UIDL commands until the transaction
  * state changes (DELE removes one row; RSET drops the cache so the next
  * listing reflects restored messages).
+ * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 public final class Pop3MessageListingCache {
 

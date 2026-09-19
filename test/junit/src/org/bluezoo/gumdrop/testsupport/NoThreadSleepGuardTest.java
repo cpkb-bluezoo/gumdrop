@@ -49,6 +49,7 @@ import static org.junit.Assert.fail;
  * <p>A small allowlist covers tests that intentionally exercise real time
  * (rate limits, timers, cache expiry, filesystem mtimes). Add new entries
  * only when sleeping is the behaviour under test, not to paper over races.
+ * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 public class NoThreadSleepGuardTest {
 

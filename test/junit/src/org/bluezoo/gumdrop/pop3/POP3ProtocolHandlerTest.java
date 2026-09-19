@@ -79,6 +79,7 @@ import static org.junit.Assert.*;
  * through a stub Endpoint and verifying the responses sent back. Uses
  * stub implementations of Realm, Mailbox, MailboxFactory, and
  * MailboxStore for isolated unit testing without real I/O.
+ * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 public class POP3ProtocolHandlerTest {
 

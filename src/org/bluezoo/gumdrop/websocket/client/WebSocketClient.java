@@ -27,6 +27,7 @@ import java.nio.ByteBuffer;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.ResourceBundle;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -113,6 +114,8 @@ public class WebSocketClient implements AltSvcListener {
 
     private static final Logger LOGGER =
             Logger.getLogger(WebSocketClient.class.getName());
+    private static final ResourceBundle L10N =
+            ResourceBundle.getBundle("org.bluezoo.gumdrop.websocket.L10N");
 
     private String host;
     private InetAddress hostAddress;
@@ -1001,7 +1004,7 @@ public class WebSocketClient implements AltSvcListener {
             try {
                 conn.close();
             } catch (IOException e) {
-                LOGGER.log(Level.FINE, "Error during WebSocket close", e);
+                LOGGER.log(Level.FINE, L10N.getString("fine.close_error"), e);
             }
         }
         if (protocolHandler != null) {

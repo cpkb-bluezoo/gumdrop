@@ -32,6 +32,7 @@ import static org.junit.Assert.assertTrue;
 
 /**
  * RFC 9110 section 6.6.1 cached Date header tests.
+ * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 public class HTTPDateCacheTest {
 

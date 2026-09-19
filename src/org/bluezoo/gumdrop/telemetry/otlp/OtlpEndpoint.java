@@ -214,12 +214,12 @@ class OtlpEndpoint {
                     for (int i = 0; i < managers.length; i++) {
                         if (managers[i] instanceof X509TrustManager) {
                             trustManager = (X509TrustManager) managers[i];
-                            logger.fine("Loaded truststore for " + name + " endpoint: " + truststoreFile);
+                            logger.fine(MessageFormat.format(L10N.getString("debug.truststore_loaded"), name, truststoreFile));
                             return trustManager;
                         }
                     }
                 } catch (Exception e) {
-                    logger.log(Level.WARNING, "Failed to load truststore for " + name + " endpoint", e);
+                    logger.log(Level.WARNING, MessageFormat.format(L10N.getString("warn.truststore_load_failed"), name), e);
                 }
             }
         }
@@ -332,7 +332,7 @@ class OtlpEndpoint {
             return null;
 
         } catch (Exception e) {
-            logger.log(Level.WARNING, "Failed to create OTLP " + name + " connection", e);
+            logger.log(Level.WARNING, MessageFormat.format(L10N.getString("warn.otlp_connection_create_failed"), name), e);
             connecting = false;
             if (connectLatch != null) {
                 connectLatch.countDown();
@@ -367,14 +367,14 @@ class OtlpEndpoint {
         @Override
         public void onSecurityEstablished(SecurityInfo info) {
             // Security handshake complete - connection is now secure
-            logger.fine("TLS established with OTLP " + name + " endpoint");
+            logger.fine(MessageFormat.format(L10N.getString("debug.otlp_tls_established"), name));
         }
 
         @Override
         public void onError(Exception cause) {
             connecting = false;
             connected = false;
-            logger.log(Level.WARNING, "OTLP " + name + " connection error", cause);
+            logger.log(Level.WARNING, MessageFormat.format(L10N.getString("warn.otlp_connection_error"), name), cause);
         }
 
         @Override
@@ -417,7 +417,7 @@ class OtlpEndpoint {
         request.endRequestBody();
 
         if (logger.isLoggable(Level.FINEST)) {
-            logger.finest("Sent " + data.limit() + " bytes to OTLP " + name + " endpoint");
+            logger.finest(MessageFormat.format(L10N.getString("finest.otlp_sent_bytes"), data.limit(), name));
         }
     }
 
@@ -454,7 +454,7 @@ class OtlpEndpoint {
         request.startRequestBody(handler);
 
         if (logger.isLoggable(Level.FINEST)) {
-            logger.finest("Opened streaming channel to OTLP " + name + " endpoint");
+            logger.finest(MessageFormat.format(L10N.getString("finest.otlp_streaming_opened"), name));
         }
 
         return new HttpRequestChannel(request);
@@ -470,7 +470,7 @@ class OtlpEndpoint {
             try {
                 client.close();
             } catch (Exception e) {
-                logger.log(Level.FINE, "Error closing OTLP " + name + " connection", e);
+                logger.log(Level.FINE, MessageFormat.format(L10N.getString("fine.otlp_close_error"), name), e);
             }
             client = null;
         }

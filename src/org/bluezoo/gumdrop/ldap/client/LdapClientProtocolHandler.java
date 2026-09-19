@@ -142,7 +142,7 @@ public class LdapClientProtocolHandler
     @Override
     public void connected(Endpoint ep) {
         this.endpoint = ep;
-        logger.fine("LDAP connection established");
+        logger.fine(L10N.getString("fine.connection_established"));
         handler.onConnected(ep);
         handler.handleReady(this);
     }
@@ -158,7 +158,7 @@ public class LdapClientProtocolHandler
                 processMessage(message);
             }
         } catch (Asn1Exception e) {
-            logger.log(Level.WARNING, "LDAP protocol error", e);
+            logger.log(Level.WARNING, L10N.getString("warn.protocol_error"), e);
             handler.onError(e);
             close();
         }
@@ -173,7 +173,8 @@ public class LdapClientProtocolHandler
     // RFC 4513 section 3 — TLS establishment (LDAPS or post-STARTTLS)
     @Override
     public void securityEstablished(SecurityInfo info) {
-        logger.fine("TLS handshake complete: " + info.getCipherSuite());
+        logger.fine(MessageFormat.format(L10N.getString("fine.tls_handshake_complete"),
+                info.getCipherSuite()));
         tlsEstablished = true;
         handler.onSecurityEstablished(info);
 
@@ -211,7 +212,7 @@ public class LdapClientProtocolHandler
             return;
         }
         closed = true;
-        logger.fine("Closing LDAP connection");
+        logger.fine(L10N.getString("fine.closing_connection"));
         clearSaslClient();
         if (endpoint != null) {
             endpoint.close();
@@ -255,7 +256,8 @@ public class LdapClientProtocolHandler
         encoder.endSequence();
 
         send(encoder.toByteBuffer());
-        logger.fine("Sent BindRequest (messageId=" + messageId + ", dn=" + dn + ")");
+        logger.fine(MessageFormat.format(L10N.getString("fine.sent_bind_request"),
+                messageId, dn));
     }
 
     // RFC 4511 section 4.2.1 — anonymous bind (empty DN and password)
@@ -306,7 +308,7 @@ public class LdapClientProtocolHandler
                         initialResponse, callback);
             } catch (IOException e) {
                 clearSaslClient();
-                logger.log(Level.WARNING, "LDAP bind failed", e);
+                logger.log(Level.WARNING, L10N.getString("warn.bind_failed"), e);
                 callback.handleBindFailure(
                         new LdapResult(LdapResultCode.OTHER, "",
                                 "Operation failed", null),
@@ -334,7 +336,7 @@ public class LdapClientProtocolHandler
                         }
                     });
                 } catch (IOException e) {
-                    logger.log(Level.WARNING, "LDAP bind failed", e);
+                    logger.log(Level.WARNING, L10N.getString("warn.bind_failed"), e);
                     endpoint.execute(new Runnable() {
                         @Override
                         public void run() {
@@ -371,8 +373,8 @@ public class LdapClientProtocolHandler
         encoder.endSequence();
 
         send(encoder.toByteBuffer());
-        logger.fine("Sent SASL BindRequest (messageId=" + messageId
-                + ", mechanism=" + mechanism + ")");
+        logger.fine(MessageFormat.format(L10N.getString("fine.sent_sasl_bind_request"),
+                messageId, mechanism));
     }
 
     // RFC 4511 section 4.14 — STARTTLS via ExtendedRequest
@@ -391,7 +393,7 @@ public class LdapClientProtocolHandler
         encoder.endSequence();
 
         send(encoder.toByteBuffer());
-        logger.fine("Sent STARTTLS ExtendedRequest");
+        logger.fine(L10N.getString("fine.sent_starttls_extended_request"));
     }
 
     // RFC 4511 section 4.3 — UnbindRequest (no response expected)
@@ -406,7 +408,7 @@ public class LdapClientProtocolHandler
         encoder.endSequence();
 
         send(encoder.toByteBuffer());
-        logger.fine("Sent UnbindRequest");
+        logger.fine(L10N.getString("fine.sent_unbind_request"));
         close();
     }
 
@@ -429,8 +431,8 @@ public class LdapClientProtocolHandler
         encoder.endSequence();
 
         send(encoder.toByteBuffer());
-        logger.fine("Sent AbandonRequest (messageId=" + messageId
-                + ", target=" + targetMessageId + ")");
+        logger.fine(MessageFormat.format(L10N.getString("fine.sent_abandon_request"),
+                messageId, targetMessageId));
     }
 
     private byte[] encodeIntegerValue(int value) {
@@ -479,7 +481,7 @@ public class LdapClientProtocolHandler
         encoder.endSequence();
 
         send(encoder.toByteBuffer());
-        logger.fine("Sent SearchRequest (messageId=" + messageId + ")");
+        logger.fine(MessageFormat.format(L10N.getString("fine.sent_search_request"), messageId));
     }
 
     // RFC 4511 section 4.6 — ModifyRequest
@@ -516,7 +518,8 @@ public class LdapClientProtocolHandler
         encoder.endSequence();
 
         send(encoder.toByteBuffer());
-        logger.fine("Sent ModifyRequest (messageId=" + messageId + ", dn=" + dn + ")");
+        logger.fine(MessageFormat.format(L10N.getString("fine.sent_modify_request"),
+                messageId, dn));
     }
 
     // RFC 4511 section 4.7 — AddRequest
@@ -550,7 +553,8 @@ public class LdapClientProtocolHandler
         encoder.endSequence();
 
         send(encoder.toByteBuffer());
-        logger.fine("Sent AddRequest (messageId=" + messageId + ", dn=" + dn + ")");
+        logger.fine(MessageFormat.format(L10N.getString("fine.sent_add_request"),
+                messageId, dn));
     }
 
     // RFC 4511 section 4.8 — DelRequest
@@ -567,7 +571,8 @@ public class LdapClientProtocolHandler
         encoder.endSequence();
 
         send(encoder.toByteBuffer());
-        logger.fine("Sent DeleteRequest (messageId=" + messageId + ", dn=" + dn + ")");
+        logger.fine(MessageFormat.format(L10N.getString("fine.sent_delete_request"),
+                messageId, dn));
     }
 
     // RFC 4511 section 4.10 — CompareRequest
@@ -590,7 +595,8 @@ public class LdapClientProtocolHandler
         encoder.endSequence();
 
         send(encoder.toByteBuffer());
-        logger.fine("Sent CompareRequest (messageId=" + messageId + ", dn=" + dn + ")");
+        logger.fine(MessageFormat.format(L10N.getString("fine.sent_compare_request"),
+                messageId, dn));
     }
 
     // RFC 4511 section 4.9 — ModifyDNRequest (without newSuperior)
@@ -622,7 +628,8 @@ public class LdapClientProtocolHandler
         encoder.endSequence();
 
         send(encoder.toByteBuffer());
-        logger.fine("Sent ModifyDNRequest (messageId=" + messageId + ", dn=" + dn + ")");
+        logger.fine(MessageFormat.format(L10N.getString("fine.sent_modify_dn_request"),
+                messageId, dn));
     }
 
     // RFC 4511 section 4.12 — ExtendedRequest
@@ -644,7 +651,8 @@ public class LdapClientProtocolHandler
         encoder.endSequence();
 
         send(encoder.toByteBuffer());
-        logger.fine("Sent ExtendedRequest (messageId=" + messageId + ", oid=" + oid + ")");
+        logger.fine(MessageFormat.format(L10N.getString("fine.sent_extended_request"),
+                messageId, oid));
     }
 
     // RFC 4511 section 4.2 — rebind delegates to bind()
@@ -870,8 +878,8 @@ public class LdapClientProtocolHandler
         }
         this.lastResponseControls = responseControls;
 
-        logger.fine("Received LDAP response (messageId=" + messageId + ", tag=0x"
-                + Integer.toHexString(tag) + ")");
+        logger.fine(MessageFormat.format(L10N.getString("fine.received_ldap_response"),
+                messageId, Integer.toHexString(tag)));
 
         // RFC 4511 section 4.4 — Unsolicited Notification (messageID 0)
         if (messageId == 0) {
@@ -1001,7 +1009,7 @@ public class LdapClientProtocolHandler
                                 response, bindCallback);
                     } catch (IOException e) {
                         clearSaslClient();
-                        logger.log(Level.WARNING, "LDAP bind failed", e);
+                        logger.log(Level.WARNING, L10N.getString("warn.bind_failed"), e);
                         bindCallback.handleBindFailure(
                                 new LdapResult(LdapResultCode.OTHER, "",
                                         "Operation failed", null),
@@ -1027,7 +1035,7 @@ public class LdapClientProtocolHandler
                     }
                 } catch (IOException e) {
                     clearSaslClient();
-                    logger.log(Level.WARNING, "LDAP bind failed", e);
+                    logger.log(Level.WARNING, L10N.getString("warn.bind_failed"), e);
                     bindCallback.handleBindFailure(
                             new LdapResult(LdapResultCode.OTHER, "",
                                     "Operation failed", null),
@@ -1243,9 +1251,9 @@ public class LdapClientProtocolHandler
                     if (endpoint != null) {
                         endpoint.startTLS();
                     }
-                    logger.fine("TLS upgrade initiated after STARTTLS response");
+                    logger.fine(L10N.getString("fine.tls_upgrade_after_starttls"));
                 } catch (IOException e) {
-                    logger.log(Level.WARNING, "LDAP STARTTLS failed", e);
+                    logger.log(Level.WARNING, L10N.getString("warn.ldap_starttls_failed"), e);
                     if (startTLSCallback != null) {
                         StartTLSResultHandler callback = startTLSCallback;
                         startTLSCallback = null;
@@ -1293,15 +1301,14 @@ public class LdapClientProtocolHandler
         }
 
         if (LdapConstants.OID_NOTICE_OF_DISCONNECTION.equals(responseName)) {
-            logger.warning("Notice of Disconnection from server: "
-                    + result.getDiagnosticMessage()
-                    + " (code=" + result.getResultCode() + ")");
+            logger.warning(MessageFormat.format(L10N.getString("warn.notice_of_disconnection"),
+                    result.getDiagnosticMessage(), result.getResultCode()));
             handler.onError(new IOException("Server sent Notice of Disconnection: "
                     + result.getDiagnosticMessage()));
             close();
         } else {
-            logger.info("Unsolicited notification: oid="
-                    + responseName + ", " + result);
+            logger.info(MessageFormat.format(L10N.getString("info.unsolicited_notification"),
+                    responseName, result));
         }
     }
 
@@ -1327,8 +1334,9 @@ public class LdapClientProtocolHandler
             ((IntermediateResponseHandler) callback)
                     .handleIntermediateResponse(responseName, responseValue);
         } else {
-            logger.fine("IntermediateResponse (messageId=" + messageId
-                    + ", oid=" + responseName + ") — no handler registered");
+            logger.fine(MessageFormat.format(
+                    L10N.getString("fine.intermediate_response_no_handler"),
+                    messageId, responseName));
         }
     }
 }

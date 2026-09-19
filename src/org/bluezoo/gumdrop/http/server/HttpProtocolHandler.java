@@ -565,7 +565,7 @@ public  class HttpProtocolHandler
 
     @Override
     public void error(Exception cause) {
-        LOGGER.log(Level.WARNING, "HTTP transport error", cause);
+        LOGGER.log(Level.WARNING, L10N.getString("warn.http_transport_error"), cause);
         closeEndpoint();
     }
 
@@ -850,7 +850,7 @@ public  class HttpProtocolHandler
                     }
                     requestH2Flush();
                 } catch (IOException e) {
-                    LOGGER.log(Level.WARNING, "Error sending headers", e);
+                    LOGGER.log(Level.WARNING, L10N.getString("warn.error_sending_headers"), e);
                 } finally {
                     ByteBufferPool.release(buf);
                 }
@@ -907,7 +907,7 @@ public  class HttpProtocolHandler
                 try {
                     h2Writer.flush();
                 } catch (IOException e) {
-                    LOGGER.log(Level.WARNING, "Error flushing HTTP/2 frames", e);
+                    LOGGER.log(Level.WARNING, L10N.getString("warn.error_flushing_h2_frames"), e);
                 }
             }
         }
@@ -925,7 +925,7 @@ public  class HttpProtocolHandler
         try {
             h2Writer.flush();
         } catch (IOException e) {
-            LOGGER.log(Level.WARNING, "Error flushing HTTP/2 frames", e);
+            LOGGER.log(Level.WARNING, L10N.getString("warn.error_flushing_h2_frames"), e);
         }
     }
 
@@ -1037,7 +1037,7 @@ public  class HttpProtocolHandler
             }
             h2Writer.writeData(streamId, buf, endStream, framePadding);
         } catch (IOException e) {
-            LOGGER.log(Level.WARNING, "Error sending data frame", e);
+            LOGGER.log(Level.WARNING, L10N.getString("warn.error_sending_data_frame"), e);
         }
     }
 
@@ -1270,7 +1270,7 @@ public  class HttpProtocolHandler
         }
         switchToStreamTunnelMode(streamId);
         if (LOGGER.isLoggable(Level.FINE)) {
-            LOGGER.fine("Switched to WebSocket mode for stream " + streamId);
+            LOGGER.fine(MessageFormat.format(L10N.getString("debug.switched_websocket_mode"), streamId));
         }
     }
 
@@ -1429,7 +1429,7 @@ public  class HttpProtocolHandler
                 ByteBufferPool.release(buffer);
             }
         } catch (Exception e) {
-            LOGGER.log(Level.WARNING, "Failed to encode headers using HPACK", e);
+            LOGGER.log(Level.WARNING, L10N.getString("warn.hpack_encode_failed"), e);
             return new byte[0];
         }
     }
@@ -1448,7 +1448,7 @@ public  class HttpProtocolHandler
                 h2Writer.writePushPromise(streamId, promisedStreamId, headerBlock, endHeaders);
                 requestH2Flush();
             } catch (IOException e) {
-                LOGGER.log(Level.WARNING, "Error sending PUSH_PROMISE", e);
+                LOGGER.log(Level.WARNING, L10N.getString("warn.error_sending_push_promise"), e);
             }
         }
     }
@@ -1465,7 +1465,7 @@ public  class HttpProtocolHandler
             pushedStream.openApplicationHandler();
             return pushedStream;
         } catch (Exception e) {
-            LOGGER.log(Level.WARNING, "Failed to create pushed stream " + streamId, e);
+            LOGGER.log(Level.WARNING, MessageFormat.format(L10N.getString("warn.failed_create_pushed_stream"), streamId), e);
             return null;
         }
     }
@@ -1520,7 +1520,7 @@ public  class HttpProtocolHandler
                     h2Writer.writeWindowUpdate(streamId, increment);
                     requestH2Flush();
                 } catch (IOException e) {
-                    LOGGER.log(Level.WARNING, "Error sending deferred WINDOW_UPDATE", e);
+                    LOGGER.log(Level.WARNING, L10N.getString("warn.error_deferred_window_update"), e);
                 }
             }
         } else {
@@ -1548,8 +1548,7 @@ public  class HttpProtocolHandler
                 @Override
                 public void run() {
                     if (LOGGER.isLoggable(Level.FINE)) {
-                        LOGGER.fine("Closing idle HTTP connection after "
-                                + timeoutMs + "ms");
+                        LOGGER.fine(MessageFormat.format(L10N.getString("debug.closing_idle_http_connection"), timeoutMs));
                     }
                     // RFC 9113 section 9.1: use graceful GOAWAY for HTTP/2
                     if (version == HttpVersion.HTTP_2_0) {
@@ -1629,7 +1628,7 @@ public  class HttpProtocolHandler
             headers.add("Content-Length", "0");
             stream.sendResponseHeaders(200, headers, true);
         } catch (ProtocolException e) {
-            LOGGER.log(Level.WARNING, "Error sending OPTIONS * response", e);
+            LOGGER.log(Level.WARNING, L10N.getString("warn.error_options_star_response"), e);
         }
         state = State.REQUEST_LINE;
         clientStreamId += 2;
@@ -1674,7 +1673,7 @@ public  class HttpProtocolHandler
             stream.sendResponseHeaders(200, headers, false);
             stream.sendResponseBody(ByteBuffer.wrap(body), true);
         } catch (ProtocolException e) {
-            LOGGER.log(Level.WARNING, "Error sending TRACE response", e);
+            LOGGER.log(Level.WARNING, L10N.getString("warn.error_trace_response"), e);
         }
         state = State.REQUEST_LINE;
         clientStreamId += 2;
@@ -2053,7 +2052,7 @@ public  class HttpProtocolHandler
             } else {
                 h2cUpgradePending = true;
                 if (LOGGER.isLoggable(Level.FINE)) {
-                    LOGGER.fine("h2c upgrade pending until request body consumed");
+                    LOGGER.fine(L10N.getString("debug.h2c_upgrade_pending_body"));
                 }
             }
         }
@@ -2261,8 +2260,7 @@ public  class HttpProtocolHandler
                     && buf.get(pos + 23) == '\n') {
                 buf.position(pos + 24);
                 if (LOGGER.isLoggable(Level.FINE)) {
-                    LOGGER.fine("Consumed HTTP/2 connection preface"
-                            + " (24 bytes)");
+                    LOGGER.fine(L10N.getString("debug.consumed_h2_connection_preface"));
                 }
             }
         }
@@ -2281,8 +2279,7 @@ public  class HttpProtocolHandler
                 char c = (char) (preview[i] & 0xff);
                 ascii.append((c >= 32 && c < 127) ? c : '.');
             }
-            LOGGER.fine("HTTP/2 frame data (first 9 bytes): hex=[" + hex.toString().trim() 
-                + "] ascii=[" + ascii.toString() + "]");
+            LOGGER.fine(MessageFormat.format(L10N.getString("debug.h2_frame_data_preview"), hex.toString().trim(), ascii.toString()));
         }
         h2Parser.receive(buf);
     }
@@ -2355,7 +2352,7 @@ public  class HttpProtocolHandler
         h2cPrefacePos = 0;
         state = State.H2C_PREFACE;
         if (LOGGER.isLoggable(Level.FINE)) {
-            LOGGER.fine("Sent 101 Switching Protocols, waiting for client preface");
+            LOGGER.fine(L10N.getString("debug.sent_101_switching_protocols"));
         }
     }
 
@@ -2706,7 +2703,9 @@ public  class HttpProtocolHandler
         if (expectingInitialSettings()) {
             return;
         }
-        h2Dispatch(() -> {
+        h2Dispatch(new Runnable() {
+            @Override
+            public void run() {
             int dataLength = data.remaining();
             Stream stream = getStream(streamId);
             stream.appendRequestBody(data);
@@ -2726,7 +2725,7 @@ public  class HttpProtocolHandler
                         requestH2Flush();
                     }
                 } catch (IOException e) {
-                    LOGGER.log(Level.WARNING, "Error sending WINDOW_UPDATE", e);
+                    LOGGER.log(Level.WARNING, L10N.getString("warn.error_sending_window_update"), e);
                 }
             }
 
@@ -2735,6 +2734,7 @@ public  class HttpProtocolHandler
                 if (stream.isActive()) {
                     activeStreams.add(streamId);
                 }
+            }
             }
         });
     }
@@ -2747,7 +2747,9 @@ public  class HttpProtocolHandler
         if (expectingInitialSettings()) {
             return;
         }
-        h2Dispatch(() -> {
+        h2Dispatch(new Runnable() {
+            @Override
+            public void run() {
             // RFC 9113 section 5.1.1: client-initiated streams MUST use odd
             // stream IDs and MUST be monotonically increasing; violation is
             // a connection error of type PROTOCOL_ERROR
@@ -2780,6 +2782,7 @@ public  class HttpProtocolHandler
                 state = State.HTTP2_CONTINUATION;
                 continuationStream = streamId;
                 continuationEndStream = endStream;
+            }
             }
         });
     }
@@ -2823,9 +2826,7 @@ public  class HttpProtocolHandler
         }
         checkRstStreamRate();
         if (LOGGER.isLoggable(Level.FINE)) {
-            LOGGER.fine("RST_STREAM received: stream=" + streamId
-                    + ", error="
-                    + H2FrameHandler.errorToString(errorCode));
+            LOGGER.fine(MessageFormat.format(L10N.getString("debug.rst_stream_received"), streamId, H2FrameHandler.errorToString(errorCode)));
         }
         Stream stream = getStream(streamId);
         stream.streamClose();
@@ -3019,7 +3020,9 @@ public  class HttpProtocolHandler
         if (h2FlowControl == null) {
             return;
         }
-        h2Dispatch(() -> {
+        h2Dispatch(new Runnable() {
+            @Override
+            public void run() {
             boolean overflow = h2FlowControl.onWindowUpdate(streamId, windowSizeIncrement);
             // RFC 9113 section 6.9.1: window exceeding 2^31-1 is a
             // connection error (stream 0) or stream error
@@ -3048,6 +3051,7 @@ public  class HttpProtocolHandler
                     drainPendingData(streamId);
                 }
             }
+            }
         });
     }
 
@@ -3058,7 +3062,9 @@ public  class HttpProtocolHandler
         if (expectingInitialSettings()) {
             return;
         }
-        h2Dispatch(() -> {
+        h2Dispatch(new Runnable() {
+            @Override
+            public void run() {
             checkContinuationLimit();
             Stream stream = getStream(streamId);
             stream.appendHeaderBlockFragment(headerBlockFragment);
@@ -3073,6 +3079,7 @@ public  class HttpProtocolHandler
                 if (stream.isActive()) {
                     activeStreams.add(streamId);
                 }
+            }
             }
         });
     }

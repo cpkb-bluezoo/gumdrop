@@ -1366,7 +1366,7 @@ public class Gumdrop {
             try {
                 lifecycle.onServerStart();
             } catch (IOException e) {
-                LOGGER.log(Level.WARNING, "Could not start mailbox infrastructure", e);
+                LOGGER.log(Level.WARNING, L10N.getString("log.could_not_start_mailbox_infrastructure"), e);
             }
         }
     }
@@ -1376,7 +1376,7 @@ public class Gumdrop {
             try {
                 lifecycle.onServerStop();
             } catch (Exception e) {
-                LOGGER.log(Level.WARNING, "Error stopping mailbox infrastructure", e);
+                LOGGER.log(Level.WARNING, L10N.getString("log.error_stopping_mailbox_infrastructure"), e);
             }
         }
     }

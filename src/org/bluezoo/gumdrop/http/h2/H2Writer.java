@@ -646,8 +646,7 @@ public class H2Writer {
 
     private void logFrame(String type, int streamId, int length, int flags) {
         if (LOGGER.isLoggable(Level.FINEST)) {
-            LOGGER.finest("Wrote " + type + " frame: stream=" + streamId +
-                ", length=" + length + ", flags=" + flags);
+            LOGGER.finest(MessageFormat.format(L10N.getString("debug.finest_wrote_frame"), type, streamId, length, flags));
         }
     }
 

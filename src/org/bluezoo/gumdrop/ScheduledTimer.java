@@ -31,7 +31,7 @@ import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.logging.Level;
 import java.util.logging.Logger;
-
+import java.util.ResourceBundle;
 /**
  * Timer service for scheduling callbacks on SelectorLoop threads.
  *
@@ -52,7 +52,10 @@ import java.util.logging.Logger;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-final class ScheduledTimer implements Runnable {
+public final class ScheduledTimer implements Runnable {
+
+    private static final ResourceBundle L10N =
+            ResourceBundle.getBundle("org.bluezoo.gumdrop.L10N");
 
     private static final Logger LOGGER = Logger.getLogger(ScheduledTimer.class.getName());
 
@@ -81,11 +84,11 @@ final class ScheduledTimer implements Runnable {
     private volatile boolean active;
     private final String name;
 
-    ScheduledTimer() {
+    public ScheduledTimer() {
         this("ScheduledTimer");
     }
 
-    ScheduledTimer(String name) {
+    public ScheduledTimer(String name) {
         this.name = name;
         this.queue = new PriorityQueue<TimerEntry>();
         this.lock = new ReentrantLock();
@@ -180,14 +183,14 @@ final class ScheduledTimer implements Runnable {
                 try {
                     dispatchTimer(toDispatch);
                 } catch (RuntimeException e) {
-                    LOGGER.log(Level.WARNING, "Uncaught exception from timer callback", e);
+                    LOGGER.log(Level.WARNING, L10N.getString("log.uncaught_exception_from_timer_callback"), e);
                 }
                 toDispatch = null;
             }
         }
 
         if (LOGGER.isLoggable(Level.FINE)) {
-            LOGGER.fine("ScheduledTimer shutdown");
+            LOGGER.fine(L10N.getString("log.scheduledtimer_shutdown"));
         }
     }
 
@@ -219,7 +222,7 @@ final class ScheduledTimer implements Runnable {
      * @param callback the callback to execute
      * @return a TimerHandle that can be used to cancel the timer
      */
-    TimerHandle schedule(ChannelHandler handler, long delayMs, Runnable callback) {
+    public TimerHandle schedule(ChannelHandler handler, long delayMs, Runnable callback) {
         long fireTime = System.currentTimeMillis() + delayMs;
         TimerEntry entry = new TimerEntry(
                 this,
@@ -310,7 +313,7 @@ final class ScheduledTimer implements Runnable {
     /**
      * Shuts down the timer thread.
      */
-    void shutdown() {
+    public void shutdown() {
         active = false;
         lock.lock();
         try {

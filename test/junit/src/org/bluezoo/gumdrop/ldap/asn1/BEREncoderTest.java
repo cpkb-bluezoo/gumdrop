@@ -29,6 +29,7 @@ import java.nio.charset.StandardCharsets;
 
 /**
  * Unit tests for BerEncoder.
+ * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 public class BEREncoderTest {
 

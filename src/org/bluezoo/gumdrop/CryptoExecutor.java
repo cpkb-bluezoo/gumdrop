@@ -28,6 +28,7 @@ import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
+import java.util.ResourceBundle;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -77,6 +78,9 @@ import java.util.logging.Logger;
  * @see StorageExecutor
  */
 public final class CryptoExecutor {
+
+    private static final ResourceBundle L10N =
+            ResourceBundle.getBundle("org.bluezoo.gumdrop.L10N");
 
     private static final Logger LOGGER =
             Logger.getLogger(CryptoExecutor.class.getName());
@@ -290,8 +294,8 @@ public final class CryptoExecutor {
                     // there is nowhere to deliver the result. Drop it.
                     if (LOGGER.isLoggable(Level.FINE)) {
                         LOGGER.log(Level.FINE,
-                                "Crypto result could not be dispatched back "
-                                + "to a closed connection", dispatchError);
+                                L10N.getString("log.crypto_result_dispatch_failed"),
+                                dispatchError);
                     }
                 }
             }
@@ -311,8 +315,8 @@ public final class CryptoExecutor {
             } catch (Throwable dispatchError) {
                 if (LOGGER.isLoggable(Level.FINE)) {
                     LOGGER.log(Level.FINE,
-                            "Crypto rejection could not be dispatched back "
-                            + "to a closed connection", dispatchError);
+                            L10N.getString("log.crypto_rejection_dispatch_failed"),
+                            dispatchError);
                 }
             }
         }

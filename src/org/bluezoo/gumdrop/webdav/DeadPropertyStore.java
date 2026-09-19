@@ -379,8 +379,8 @@ public final class DeadPropertyStore {
                 Files.copy(srcSidecar, dstSidecar,
                         StandardCopyOption.REPLACE_EXISTING);
             } catch (IOException e) {
-                LOGGER.log(Level.WARNING,
-                        "Failed to copy sidecar: " + srcSidecar, e);
+                LOGGER.log(Level.WARNING, MessageFormat.format(
+                        L10N.getString("warn.sidecar_copy_failed"), srcSidecar), e);
             }
         }
     }
@@ -401,8 +401,8 @@ public final class DeadPropertyStore {
         try {
             Files.deleteIfExists(sidecar);
         } catch (IOException e) {
-            LOGGER.log(Level.WARNING,
-                    "Failed to delete sidecar: " + sidecar, e);
+            LOGGER.log(Level.WARNING, MessageFormat.format(
+                    L10N.getString("warn.sidecar_delete_failed"), sidecar), e);
         }
     }
 
@@ -529,8 +529,8 @@ public final class DeadPropertyStore {
                 }
             }
         } catch (IOException e) {
-            LOGGER.log(Level.FINE, "xattr read failed for "
-                    + resource, e);
+            LOGGER.log(Level.FINE, MessageFormat.format(
+                    L10N.getString("fine.xattr_read_failed"), resource), e);
         }
         return props;
     }

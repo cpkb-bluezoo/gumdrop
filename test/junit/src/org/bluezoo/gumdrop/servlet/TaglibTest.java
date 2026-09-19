@@ -28,6 +28,7 @@ import jakarta.servlet.descriptor.TaglibDescriptor;
 
 /**
  * Unit tests for Taglib class.
+ * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 public class TaglibTest {
 

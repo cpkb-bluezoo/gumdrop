@@ -37,6 +37,7 @@ import org.bluezoo.gumdrop.websocket.WebSocketServerMetrics;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.ResourceBundle;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -75,6 +76,8 @@ public final class WebSocketRequestHandler implements HttpStreamHandler {
 
     private static final Logger LOGGER =
             Logger.getLogger(WebSocketRequestHandler.class.getName());
+    private static final ResourceBundle L10N =
+            ResourceBundle.getBundle("org.bluezoo.gumdrop.websocket.L10N");
 
     private final ConnectionHandlerFactory connectionHandlerFactory;
     private final SubprotocolSelector subprotocolSelector;
@@ -107,7 +110,6 @@ public final class WebSocketRequestHandler implements HttpStreamHandler {
      * Creates a {@link WebSocketEventHandler} for an incoming WebSocket
      * connection.
      */
-    @FunctionalInterface
     public interface ConnectionHandlerFactory {
 
         /**
@@ -126,7 +128,6 @@ public final class WebSocketRequestHandler implements HttpStreamHandler {
      * RFC 6455 §4.2.2 — selects a WebSocket subprotocol from the client's
      * {@code Sec-WebSocket-Protocol} header.
      */
-    @FunctionalInterface
     public interface SubprotocolSelector {
 
         /**
@@ -267,7 +268,7 @@ public final class WebSocketRequestHandler implements HttpStreamHandler {
             try {
                 state.upgradeToWebSocket(subprotocol, negotiated, handler);
             } catch (IllegalStateException e) {
-                LOGGER.log(Level.WARNING, "WebSocket upgrade failed", e);
+                LOGGER.log(Level.WARNING, L10N.getString("warn.upgrade_failed"), e);
                 sendError(state, HttpStatus.BAD_REQUEST);
             }
         }

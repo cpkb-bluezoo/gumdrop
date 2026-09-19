@@ -317,7 +317,8 @@ public class LdapRealm implements Realm {
             // First, find the user's DN
             String userDN = findUserDN(username);
             if (userDN == null) {
-                LOGGER.fine("User not found: " + username);
+                LOGGER.fine(MessageFormat.format(
+                        L10N.getString("debug.ldap_user_not_found"), username));
                 return false;
             }
 
@@ -398,7 +399,7 @@ public class LdapRealm implements Realm {
             return CertificateAuthenticationResult.failure();
         } catch (Exception e) {
             LOGGER.log(Level.WARNING,
-                    "Certificate authentication error", e);
+                    L10N.getString("warn.certificate_authentication_error"), e);
             return CertificateAuthenticationResult.failure();
         }
     }

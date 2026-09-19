@@ -158,7 +158,7 @@ public class OtlpGrpcExporter implements TelemetryExporter {
         }
         if (!traceQueue.offer(trace)) {
             if (logger.isLoggable(Level.FINE)) {
-                logger.fine("Trace queue full, dropping trace: " + trace.getTraceIdHex());
+                logger.fine(MessageFormat.format(L10N.getString("fine.trace_queue_full_dropping"), trace.getTraceIdHex()));
             }
         }
     }
@@ -170,7 +170,7 @@ public class OtlpGrpcExporter implements TelemetryExporter {
         }
         if (!logQueue.offer(record)) {
             if (logger.isLoggable(Level.FINE)) {
-                logger.fine("Log queue full, dropping log record");
+                logger.fine(L10N.getString("fine.log_queue_full_dropping"));
             }
         }
     }
@@ -182,7 +182,7 @@ public class OtlpGrpcExporter implements TelemetryExporter {
         }
         if (!metricQueue.offer(metrics)) {
             if (logger.isLoggable(Level.FINE)) {
-                logger.fine("Metric queue full, dropping metrics batch");
+                logger.fine(L10N.getString("fine.metric_queue_full_dropping"));
             }
         }
     }

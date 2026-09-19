@@ -49,6 +49,7 @@ import static org.junit.Assert.*;
  * (only exploded-directory contexts) — this file builds a real WAR (zip)
  * file, including a WEB-INF/lib jar with a META-INF/resources entry, so
  * the rewritten caching logic is actually verified end to end.
+ * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 public class ContextWarResourceTest {
 

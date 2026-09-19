@@ -55,6 +55,7 @@ import static org.junit.Assert.*;
  *
  * <p>The key test is concurrent writes from multiple threads to detect
  * any race conditions in the SSL wrap/unwrap synchronization.
+ * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 public class TLSConcurrentWriteTest extends AbstractServerIntegrationTest {
     
@@ -90,13 +91,16 @@ public class TLSConcurrentWriteTest extends AbstractServerIntegrationTest {
     private static byte[] echoExchange(String message) throws Exception {
         byte[] outbound = message.getBytes(StandardCharsets.UTF_8);
         return IntegrationTlsClient.exchangeWhenComplete("::1", TEST_PORT, outbound, TRUST_ALL, 10000,
-                inbound -> {
-                    for (int i = 0; i < inbound.length; i++) {
-                        if (inbound[i] == '\n') {
-                            return true;
+                new IntegrationTlsClient.ResponseComplete() {
+                    @Override
+                    public boolean isComplete(byte[] inbound) {
+                        for (int i = 0; i < inbound.length; i++) {
+                            if (inbound[i] == '\n') {
+                                return true;
+                            }
                         }
+                        return false;
                     }
-                    return false;
                 });
     }
 

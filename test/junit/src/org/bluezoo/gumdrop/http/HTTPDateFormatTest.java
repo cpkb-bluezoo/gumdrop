@@ -33,7 +33,7 @@ import java.util.List;
 import java.util.TimeZone;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import java.util.concurrent.Future;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.Assert.*;
@@ -289,9 +289,9 @@ public class HTTPDateFormatTest {
         final AtomicReference<String> corrupt = new AtomicReference<String>();
         final AtomicReference<Throwable> thrown = new AtomicReference<Throwable>();
         try {
-            List<Future<?>> futures = new ArrayList<Future<?>>();
+            final CountDownLatch done = new CountDownLatch(threads);
             for (int t = 0; t < threads; t++) {
-                futures.add(pool.submit(new Runnable() {
+                pool.submit(new Runnable() {
                     public void run() {
                         try {
                             for (int i = 0; i < iterations; i++) {
@@ -308,13 +308,13 @@ public class HTTPDateFormatTest {
                             }
                         } catch (Throwable ex) {
                             thrown.compareAndSet(null, ex);
+                        } finally {
+                            done.countDown();
                         }
                     }
-                }));
+                });
             }
-            for (Future<?> f : futures) {
-                f.get();
-            }
+            done.await();
         } finally {
             pool.shutdownNow();
         }

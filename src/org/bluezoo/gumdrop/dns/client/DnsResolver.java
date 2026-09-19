@@ -170,7 +170,7 @@ public class DnsResolver {
         try {
             r.open();
         } catch (IOException e) {
-            LOGGER.log(Level.WARNING, "Failed to open resolver for loop", e);
+            LOGGER.log(Level.WARNING, L10N.getString("warn.resolver_open_failed"), e);
             return r;
         }
         DnsResolver race = resolvers.putIfAbsent(loop, r);
@@ -499,8 +499,8 @@ public class DnsResolver {
                 addServer(ns);
             } catch (UnknownHostException e) {
                 if (LOGGER.isLoggable(Level.FINE)) {
-                    LOGGER.fine("Skipping invalid system "
-                            + "nameserver: " + ns);
+                    LOGGER.fine(MessageFormat.format(
+                            L10N.getString("fine.skip_invalid_system_nameserver"), ns));
                 }
             }
         }
@@ -1241,7 +1241,7 @@ public class DnsResolver {
             if (cname != null && pending.cnameDepth < MAX_CNAME_DEPTH) {
                 if (LOGGER.isLoggable(Level.FINE)) {
                     LOGGER.fine(MessageFormat.format(
-                            "Following CNAME {0} -> {1} (depth {2})",
+                            L10N.getString("fine.cname_follow"),
                             pending.name, cname, pending.cnameDepth + 1));
                 }
                 query(cname, pending.type, pending.additionalTypes, pending.callback,
@@ -1264,7 +1264,8 @@ public class DnsResolver {
                         public void onValidated(DnssecStatus status,
                                                 DnsMessage validated) {
                             if (LOGGER.isLoggable(Level.FINE)) {
-                                LOGGER.fine("DNSSEC status: " + status);
+                                LOGGER.fine(MessageFormat.format(
+                                        L10N.getString("fine.dnssec_status"), status));
                             }
                             deliverToCallback(cb, validated, status);
                         }
@@ -1302,7 +1303,7 @@ public class DnsResolver {
             pending.serverIndex = nextIndex;
             if (LOGGER.isLoggable(Level.FINE)) {
                 LOGGER.fine(MessageFormat.format(
-                        "Retrying query {0} on server {1}",
+                        L10N.getString("fine.query_retry_server"),
                         pending.name, nextIndex));
             }
             sendToServer(pending);
@@ -1343,8 +1344,8 @@ public class DnsResolver {
             pending.queryData.rewind();
             tcpTransport.send(pending.queryData);
         } catch (IOException e) {
-            LOGGER.log(Level.FINE,
-                    "TCP retry failed for " + pending.name, e);
+            LOGGER.log(Level.FINE, MessageFormat.format(
+                    L10N.getString("fine.tcp_retry_failed"), pending.name), e);
             deliverResponse(pending, truncatedResponse);
         }
     }
@@ -1378,14 +1379,14 @@ public class DnsResolver {
                 DnsMessage tcpResponse = DnsMessage.parse(data);
                 if (LOGGER.isLoggable(Level.FINE)) {
                     LOGGER.fine(MessageFormat.format(
-                            "TCP retry for {0} succeeded ({1} answers)",
+                            L10N.getString("fine.tcp_retry_succeeded"),
                             pending.name,
                             tcpResponse.getAnswers().size()));
                 }
                 deliverResponse(pending, tcpResponse);
             } catch (DnsFormatException e) {
-                LOGGER.log(Level.WARNING,
-                        "TCP retry parse error for " + pending.name, e);
+                LOGGER.log(Level.WARNING, MessageFormat.format(
+                        L10N.getString("warn.tcp_retry_parse_error"), pending.name), e);
                 deliverResponse(pending, truncatedResponse);
             }
             transport.close();
@@ -1400,8 +1401,8 @@ public class DnsResolver {
             if (timeoutHandle != null) {
                 timeoutHandle.cancel();
             }
-            LOGGER.log(Level.FINE,
-                    "TCP retry failed for " + pending.name, cause);
+            LOGGER.log(Level.FINE, MessageFormat.format(
+                    L10N.getString("fine.tcp_retry_failed"), pending.name), cause);
             deliverResponse(pending, truncatedResponse);
             transport.close();
         }
@@ -1412,7 +1413,8 @@ public class DnsResolver {
             }
             completed = true;
             if (LOGGER.isLoggable(Level.FINE)) {
-                LOGGER.fine("TCP retry timed out for " + pending.name);
+                LOGGER.fine(MessageFormat.format(
+                        L10N.getString("fine.tcp_retry_timed_out"), pending.name));
             }
             deliverResponse(pending, truncatedResponse);
             transport.close();
@@ -1467,7 +1469,8 @@ public class DnsResolver {
             transport.send(queryMsg.serialize());
         } catch (IOException e) {
             if (LOGGER.isLoggable(Level.FINE)) {
-                LOGGER.log(Level.FINE, "DDR discovery failed to start for " + server, e);
+                LOGGER.log(Level.FINE, MessageFormat.format(
+                        L10N.getString("fine.ddr_discovery_failed"), server), e);
             }
         }
     }
@@ -1560,7 +1563,8 @@ public class DnsResolver {
             }
         } catch (IOException e) {
             if (LOGGER.isLoggable(Level.FINE)) {
-                LOGGER.log(Level.FINE, "DDR-triggered transport upgrade failed for " + server, e);
+                LOGGER.log(Level.FINE, MessageFormat.format(
+                        L10N.getString("fine.ddr_transport_upgrade_failed"), server), e);
             }
         }
     }
@@ -1610,7 +1614,8 @@ public class DnsResolver {
                 }
             } catch (DnsFormatException e) {
                 if (LOGGER.isLoggable(Level.FINE)) {
-                    LOGGER.log(Level.FINE, "Malformed DDR response from " + server, e);
+                    LOGGER.log(Level.FINE, MessageFormat.format(
+                            L10N.getString("fine.ddr_malformed_response"), server), e);
                 }
             }
             transport.close();
@@ -1798,7 +1803,8 @@ public class DnsResolver {
                 return DnsMultiQType.parseMQTypeResponseOption(responseData);
             } catch (DnsFormatException e) {
                 if (LOGGER.isLoggable(Level.FINE)) {
-                    LOGGER.log(Level.FINE, "Malformed MQTYPE-Response option", e);
+                    LOGGER.log(Level.FINE,
+                            L10N.getString("fine.mqtype_response_malformed"), e);
                 }
                 return Collections.emptyList();
             }

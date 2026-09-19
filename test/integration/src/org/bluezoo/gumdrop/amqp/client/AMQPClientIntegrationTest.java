@@ -63,6 +63,7 @@ import static org.junit.Assert.*;
  * <p>Real sockets and a background thread mean these tests are
  * necessarily async; each waits on a {@link CountDownLatch} with a
  * generous timeout rather than asserting immediately.
+ * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 public class AMQPClientIntegrationTest {
 

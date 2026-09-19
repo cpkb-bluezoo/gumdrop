@@ -24,6 +24,8 @@ package org.bluezoo.gumdrop.ftp.file;
 import java.nio.channels.ReadableByteChannel;
 import java.nio.channels.WritableByteChannel;
 import java.nio.file.Path;
+import java.text.MessageFormat;
+import java.util.ResourceBundle;
 import java.util.List;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -77,6 +79,9 @@ public class RoleAwareFTPFileSystem implements FtpFileSystem {
 
     private static final Logger LOGGER =
             Logger.getLogger(RoleAwareFTPFileSystem.class.getName());
+
+    private static final ResourceBundle L10N =
+            ResourceBundle.getBundle("org.bluezoo.gumdrop.ftp.L10N");
 
     private final FtpFileSystem delegate;
     private final Realm realm;
@@ -286,8 +291,7 @@ public class RoleAwareFTPFileSystem implements FtpFileSystem {
             return true;
         }
         if (LOGGER.isLoggable(Level.FINE)) {
-            LOGGER.fine("Access denied for user " + user
-                    + ": missing role " + role);
+            LOGGER.fine(MessageFormat.format(L10N.getString("debug.access_denied_missing_role"), user, role));
         }
         return false;
     }
@@ -308,8 +312,7 @@ public class RoleAwareFTPFileSystem implements FtpFileSystem {
             return true;
         }
         if (LOGGER.isLoggable(Level.FINE)) {
-            LOGGER.fine("Home confinement denied for user " + user
-                    + ": path " + path + " is outside " + homePath);
+            LOGGER.fine(MessageFormat.format(L10N.getString("debug.home_confinement_denied"), user, path, homePath));
         }
         return false;
     }

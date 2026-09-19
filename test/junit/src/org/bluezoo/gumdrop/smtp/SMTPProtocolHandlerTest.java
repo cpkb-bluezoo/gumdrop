@@ -47,6 +47,7 @@ import static org.junit.Assert.*;
  * edge case), and sliced-boundary fuzzing, using a stub {@link Endpoint}
  * with {@code handler == null} (business logic beyond command sequencing
  * is out of scope for this conversion).
+ * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 public class SMTPProtocolHandlerTest {
 

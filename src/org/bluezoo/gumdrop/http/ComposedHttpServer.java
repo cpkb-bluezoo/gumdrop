@@ -30,6 +30,7 @@ import org.bluezoo.gumdrop.http.server.HttpStreamHandler;
  * Concrete {@link HttpServer} assembled from listeners and a stream handler.
  *
  * <p>Created via {@link HttpServer#compose()}; not intended for subclassing.
+ * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 final class ComposedHttpServer extends HttpServer {
 

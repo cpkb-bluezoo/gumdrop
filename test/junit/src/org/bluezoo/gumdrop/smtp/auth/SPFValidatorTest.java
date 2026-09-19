@@ -38,6 +38,7 @@ import java.util.Map;
 
 /**
  * Unit tests for {@link SpfValidator} modifier handling (RFC 7208 §6).
+ * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 public class SPFValidatorTest {
 

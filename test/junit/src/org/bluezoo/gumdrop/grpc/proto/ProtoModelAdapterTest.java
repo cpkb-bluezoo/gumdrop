@@ -36,6 +36,7 @@ import org.junit.Test;
 
 /**
  * Unit tests for ProtoModelAdapter and round-trip serialize/parse.
+ * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 public class ProtoModelAdapterTest {
 
@@ -186,7 +187,6 @@ public class ProtoModelAdapterTest {
         return channel.toByteBuffer();
     }
 
-    @FunctionalInterface
     private interface SerializeCallback {
         void serialize(ProtoModelSerializer s, ProtobufWriter w) throws Exception;
     }

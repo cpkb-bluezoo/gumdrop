@@ -256,7 +256,6 @@ public class VsftpdFtpIntegrationTest {
 
     // ── Shared PASV STOR/RETR/list plumbing (used by all three tests above) ──
 
-    @FunctionalInterface
     private interface AuthCallback {
         void accept(ClientAuthenticatedState auth);
     }

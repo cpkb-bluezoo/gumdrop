@@ -2000,7 +2000,7 @@ public class HttpClient implements AltSvcListener {
                     }
                 } catch (IOException e) {
                     LOGGER.log(Level.WARNING,
-                            "Error writing response body", e);
+                            L10N.getString("warn.response_body_write_error"), e);
                 }
             }
 

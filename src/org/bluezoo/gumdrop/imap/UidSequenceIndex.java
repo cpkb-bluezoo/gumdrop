@@ -32,6 +32,7 @@ import java.util.List;
 /**
  * Sorted UID-to-sequence mapping for a mailbox snapshot, used to resolve
  * UID {@link MessageSet}s without scanning every message.
+ * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 final class UidSequenceIndex {
 

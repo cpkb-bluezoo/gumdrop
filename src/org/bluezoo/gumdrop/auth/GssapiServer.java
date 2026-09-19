@@ -121,15 +121,18 @@ public final class GssapiServer {
             this.serviceSubject = loginContext.getSubject();
 
             this.serverCredential = Subject.callAs(serviceSubject,
-                    (Callable<GSSCredential>) () -> {
-                        GSSManager manager = GSSManager.getInstance();
-                        GSSName serverName = manager.createName(
-                                servicePrincipal,
-                                GSSName.NT_HOSTBASED_SERVICE);
-                        return manager.createCredential(serverName,
-                                GSSCredential.DEFAULT_LIFETIME,
-                                KRB5_OID,
-                                GSSCredential.ACCEPT_ONLY);
+                    new Callable<GSSCredential>() {
+                        @Override
+                        public GSSCredential call() throws GSSException {
+                            GSSManager manager = GSSManager.getInstance();
+                            GSSName serverName = manager.createName(
+                                    servicePrincipal,
+                                    GSSName.NT_HOSTBASED_SERVICE);
+                            return manager.createCredential(serverName,
+                                    GSSCredential.DEFAULT_LIFETIME,
+                                    KRB5_OID,
+                                    GSSCredential.ACCEPT_ONLY);
+                        }
                     });
         } catch (LoginException e) {
             String msg = MessageFormat.format(
@@ -166,9 +169,12 @@ public final class GssapiServer {
     public GssapiExchange createExchange() throws IOException {
         try {
             GSSContext context = Subject.callAs(serviceSubject,
-                    (Callable<GSSContext>) () -> {
-                        GSSManager manager = GSSManager.getInstance();
-                        return manager.createContext(serverCredential);
+                    new Callable<GSSContext>() {
+                        @Override
+                        public GSSContext call() throws GSSException {
+                            GSSManager manager = GSSManager.getInstance();
+                            return manager.createContext(serverCredential);
+                        }
                     });
             context.requestMutualAuth(true);
             return new GssapiExchange(context);
@@ -215,8 +221,13 @@ public final class GssapiServer {
         public byte[] acceptToken(byte[] clientToken) throws IOException {
             try {
                 return Subject.callAs(serviceSubject,
-                        (Callable<byte[]>) () -> context.acceptSecContext(
-                                clientToken, 0, clientToken.length));
+                        new Callable<byte[]>() {
+                            @Override
+                            public byte[] call() throws GSSException {
+                                return context.acceptSecContext(
+                                        clientToken, 0, clientToken.length);
+                            }
+                        });
             } catch (CompletionException e) {
                 Throwable cause = e.getCause();
                 if (cause instanceof GSSException) {
@@ -261,9 +272,13 @@ public final class GssapiServer {
             offer[3] = 0;
             try {
                 byte[] wrapped = Subject.callAs(serviceSubject,
-                        (Callable<byte[]>) () -> context.wrap(offer, 0,
-                                offer.length,
-                                new org.ietf.jgss.MessageProp(0, false)));
+                        new Callable<byte[]>() {
+                            @Override
+                            public byte[] call() throws GSSException {
+                                return context.wrap(offer, 0, offer.length,
+                                        new org.ietf.jgss.MessageProp(0, false));
+                            }
+                        });
                 securityLayerSent = true;
                 return wrapped;
             } catch (CompletionException e) {
@@ -299,8 +314,13 @@ public final class GssapiServer {
                 org.ietf.jgss.MessageProp prop =
                         new org.ietf.jgss.MessageProp(0, false);
                 byte[] unwrapped = Subject.callAs(serviceSubject,
-                        (Callable<byte[]>) () -> context.unwrap(wrapped, 0,
-                                wrapped.length, prop));
+                        new Callable<byte[]>() {
+                            @Override
+                            public byte[] call() throws GSSException {
+                                return context.unwrap(wrapped, 0,
+                                        wrapped.length, prop);
+                            }
+                        });
                 if (unwrapped.length < 4) {
                     throw new IOException(
                             L10N.getString("err.gssapi_invalid_layer"));
@@ -330,7 +350,7 @@ public final class GssapiServer {
             try {
                 context.dispose();
             } catch (GSSException e) {
-                logger.log(Level.FINE, "GSSContext dispose error", e);
+                logger.log(Level.FINE, L10N.getString("debug.gssapi_context_dispose_error"), e);
             }
         }
     }

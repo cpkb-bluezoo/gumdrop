@@ -115,8 +115,8 @@ public class BasicJCAConnectionFactory {
             BasicJCAConnection connection = new BasicJCAConnection(this, properties);
             poolSize++;
             
-            LOGGER.fine("Created Basic JCA connection for: " + config.jndiName + 
-                       " (pool size: " + poolSize + "/" + maxPoolSize + ")");
+            LOGGER.fine(MessageFormat.format(L10N.getString("debug.jca_connection_created"),
+                       config.jndiName, poolSize, maxPoolSize));
             
             return connection;
         }
@@ -129,8 +129,8 @@ public class BasicJCAConnectionFactory {
     void returnConnection(BasicJCAConnection connection) {
         synchronized (poolLock) {
             poolSize--;
-            LOGGER.fine("Returned Basic JCA connection for: " + config.jndiName + 
-                       " (pool size: " + poolSize + "/" + maxPoolSize + ")");
+            LOGGER.fine(MessageFormat.format(L10N.getString("debug.jca_connection_returned"),
+                       config.jndiName, poolSize, maxPoolSize));
         }
     }
     

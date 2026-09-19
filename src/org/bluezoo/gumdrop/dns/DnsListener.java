@@ -25,6 +25,7 @@ import java.net.InetSocketAddress;
 import java.net.InetAddress;
 import java.net.SocketAddress;
 import java.nio.ByteBuffer;
+import java.text.MessageFormat;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -160,7 +161,9 @@ public class DnsListener extends UdpListener {
 
         private void logRejection(SocketAddress remoteAddress) {
             if (LOGGER.isLoggable(Level.FINE)) {
-                LOGGER.fine("Connection rejected from " + remoteAddress);
+                LOGGER.fine(MessageFormat.format(
+                        DnsMessage.L10N.getString("fine.connection_rejected_from"),
+                        remoteAddress));
             }
         }
 
@@ -176,7 +179,8 @@ public class DnsListener extends UdpListener {
 
         @Override
         public void error(Exception cause) {
-            LOGGER.log(Level.WARNING, "DNS endpoint error", cause);
+            LOGGER.log(Level.WARNING,
+                    DnsMessage.L10N.getString("warn.dns_endpoint_error"), cause);
         }
     }
 

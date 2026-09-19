@@ -408,7 +408,7 @@ public class ServletHandler extends DefaultHttpRequestHandler {
         try {
             if (!latch.await(PENDING_RESPONSE_WAIT_TIMEOUT_MS, java.util.concurrent.TimeUnit.MILLISECONDS)) {
                 LOGGER.log(Level.WARNING,
-                        "Timed out waiting for response backpressure to clear; cancelling stream");
+                        L10N.getString("warn.backpressure_timeout"));
                 state.execute(new Runnable() {
                     @Override
                     public void run() {
@@ -618,7 +618,7 @@ public class ServletHandler extends DefaultHttpRequestHandler {
             state.complete();
 
         } catch (Exception e) {
-            LOGGER.log(Level.SEVERE, "Error sending response", e);
+            LOGGER.log(Level.SEVERE, L10N.getString("severe.error_sending_response"), e);
             state.cancel();
         }
     }

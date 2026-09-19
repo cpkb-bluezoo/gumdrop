@@ -25,6 +25,7 @@ import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.security.Principal;
 import java.util.List;
+import java.util.ResourceBundle;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -61,6 +62,8 @@ class H2WebSocketResponseHandler extends DefaultHttpResponseHandler {
 
     private static final Logger LOGGER =
             Logger.getLogger(H2WebSocketResponseHandler.class.getName());
+    private static final ResourceBundle L10N =
+            ResourceBundle.getBundle("org.bluezoo.gumdrop.websocket.L10N");
 
     private final HttpRequest request;
     private final List<WebSocketExtension> requestedExtensions;
@@ -127,7 +130,7 @@ class H2WebSocketResponseHandler extends DefaultHttpResponseHandler {
         try {
             webSocketAdapter.processIncomingData(data);
         } catch (IOException e) {
-            LOGGER.log(Level.WARNING, "WebSocket frame processing error", e);
+            LOGGER.log(Level.WARNING, L10N.getString("warn.frame_processing_error"), e);
             webSocketAdapter.notifyError(e);
         }
     }

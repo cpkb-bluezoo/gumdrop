@@ -40,6 +40,7 @@ import static org.junit.Assert.assertTrue;
 /**
  * Concurrency regressions for {@link TlsHandshakeAsyncOffload}, shared by
  * TCP, DTLS, and QUIC record engines.
+ * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 public class TlsHandshakeAsyncOffloadTest {
 

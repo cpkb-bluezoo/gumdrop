@@ -31,7 +31,8 @@ import org.bluezoo.gumdrop.auth.SaslClientMechanism;
 
 import static org.junit.Assert.*;
 
-/** Unit tests for the AMQPLAIN SASL mechanism (issue #188). */
+/** Unit tests for the AMQPLAIN SASL mechanism (issue #188). * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
+ */
 public class AMQPLainClientMechanismTest {
 
     @Test

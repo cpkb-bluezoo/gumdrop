@@ -146,7 +146,7 @@ class WebSocketClientProtocolHandler extends HttpClientProtocolHandler {
             return false;
         }
 
-        LOGGER.fine("WebSocket upgrade accepted, switching to WebSocket mode");
+        LOGGER.fine(L10N.getString("fine.upgrade_accepted"));
 
         // RFC 6455 §9 — negotiate extensions from server response
         List<WebSocketExtension> activeExtensions = negotiateResponseExtensions(headers);
@@ -173,7 +173,7 @@ class WebSocketClientProtocolHandler extends HttpClientProtocolHandler {
             try {
                 webSocketConnection.processIncomingData(currentReceiveBuffer);
             } catch (IOException e) {
-                LOGGER.log(Level.WARNING, "Error processing buffered data", e);
+                LOGGER.log(Level.WARNING, L10N.getString("warn.buffered_data_error"), e);
                 eventHandler.error(e);
             }
         }
@@ -201,7 +201,7 @@ class WebSocketClientProtocolHandler extends HttpClientProtocolHandler {
             try {
                 webSocketConnection.processIncomingData(data);
             } catch (IOException e) {
-                LOGGER.log(Level.WARNING, "Error processing WebSocket data", e);
+                LOGGER.log(Level.WARNING, L10N.getString("warn.websocket_data_error"), e);
                 eventHandler.error(e);
             }
             return;

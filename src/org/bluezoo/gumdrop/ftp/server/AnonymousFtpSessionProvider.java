@@ -39,6 +39,7 @@ import java.nio.file.Path;
  *                 .welcomeMessage("Welcome to Anonymous FTP"))
  *         .server();
  * }</pre>
+ * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 public final class AnonymousFtpSessionProvider implements FtpServerSessionProvider {
 

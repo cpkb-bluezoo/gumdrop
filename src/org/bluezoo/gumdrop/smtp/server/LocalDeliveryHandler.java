@@ -23,6 +23,7 @@ package org.bluezoo.gumdrop.smtp.server;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.text.MessageFormat;
 import java.nio.ByteBuffer;
 import java.nio.channels.CompletionHandler;
 import java.security.Principal;
@@ -274,7 +275,7 @@ public class LocalDeliveryHandler
             @Override
             public void failed(Throwable error) {
                 LOGGER.log(Level.FINE,
-                        "Async append unavailable; buffering", error);
+                        L10N.getString("debug.async_append_unavailable"), error);
                 onTargetsOpened(null);
             }
         });
@@ -331,13 +332,13 @@ public class LocalDeliveryHandler
                 }
             } catch (IOException e) {
                 LOGGER.log(Level.FINE,
-                        "Async append unavailable for " + username, e);
+                        MessageFormat.format(L10N.getString("debug.async_append_unavailable_user"), username), e);
                 if (store != null) {
                     try {
                         store.close();
                     } catch (IOException ce) {
                         LOGGER.log(Level.FINE,
-                                "Error closing store after failure", ce);
+                                L10N.getString("debug.error_closing_store_after_failure"), ce);
                     }
                 }
                 abortAll(targets);
@@ -374,7 +375,7 @@ public class LocalDeliveryHandler
                 messageBuffer.write(bytes);
             } catch (IOException e) {
                 LOGGER.log(Level.WARNING,
-                        "Error buffering message content", e);
+                        L10N.getString("warn.error_buffering_message"), e);
             }
         }
     }
@@ -396,7 +397,7 @@ public class LocalDeliveryHandler
                 @Override
                 public void failed(Throwable exc, ByteBuffer attachment) {
                     LOGGER.log(Level.WARNING,
-                            "Async write failed for " + target.username, exc);
+                            MessageFormat.format(L10N.getString("warn.async_write_failed"), target.username), exc);
                 }
             });
         }
@@ -492,11 +493,11 @@ public class LocalDeliveryHandler
         for (String username : recips) {
             try {
                 deliverToMailbox(username, messageData);
-                LOGGER.log(Level.FINE, "Delivered message to {0}@{1}",
+                LOGGER.log(Level.FINE, L10N.getString("debug.delivered_message"),
                         new Object[] { username, localDomain });
             } catch (IOException e) {
                 LOGGER.log(Level.WARNING,
-                        "Failed to deliver to " + username, e);
+                        MessageFormat.format(L10N.getString("warn.deliver_to_mailbox_failed"), username), e);
                 if (errorMessage == null) {
                     errorMessage = e.getMessage();
                 }
@@ -551,7 +552,7 @@ public class LocalDeliveryHandler
                     @Override
                     public void completed(Long uid, Void att) {
                         LOGGER.log(Level.FINE,
-                                "Async delivered to {0}@{1} uid={2}",
+                                L10N.getString("debug.async_delivered"),
                                 new Object[] { target.username,
                                         localDomain, uid });
                         latch.countDown();
@@ -580,7 +581,7 @@ public class LocalDeliveryHandler
                 }
             } catch (IOException e) {
                 LOGGER.log(Level.WARNING,
-                        "Failed async delivery to " + target.username,
+                        MessageFormat.format(L10N.getString("warn.async_delivery_failed"), target.username),
                         e);
                 if (errorMessage == null) {
                     errorMessage = e.getMessage();
@@ -648,14 +649,14 @@ public class LocalDeliveryHandler
                 try {
                     mailbox.close(true);
                 } catch (IOException e) {
-                    LOGGER.log(Level.FINE, "Error closing mailbox", e);
+                    LOGGER.log(Level.FINE, L10N.getString("debug.error_closing_mailbox"), e);
                 }
             }
             if (store != null) {
                 try {
                     store.close();
                 } catch (IOException e) {
-                    LOGGER.log(Level.FINE, "Error closing store", e);
+                    LOGGER.log(Level.FINE, L10N.getString("debug.error_closing_store"), e);
                 }
             }
         }

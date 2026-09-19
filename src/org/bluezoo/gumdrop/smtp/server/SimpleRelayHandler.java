@@ -129,7 +129,7 @@ public class SimpleRelayHandler implements ClientConnected, HelloHandler,
     @Override
     public void connected(ConnectedState state, Endpoint endpoint) {
         if (LOGGER.isLoggable(Level.FINE)) {
-            LOGGER.fine("Client connected from " + endpoint.getRemoteAddress());
+            LOGGER.fine(MessageFormat.format(L10N.getString("relay.fine.client_connected"), endpoint.getRemoteAddress()));
         }
         state.acceptConnection(localHostname + " ESMTP SimpleRelay", this);
     }
@@ -137,7 +137,7 @@ public class SimpleRelayHandler implements ClientConnected, HelloHandler,
     @Override
     public void disconnected() {
         if (LOGGER.isLoggable(Level.FINE)) {
-            LOGGER.fine("Client disconnected");
+            LOGGER.fine(L10N.getString("relay.fine.client_disconnected"));
         }
         resetTransaction();
     }
@@ -149,7 +149,7 @@ public class SimpleRelayHandler implements ClientConnected, HelloHandler,
     @Override
     public void hello(HelloState state, boolean extended, String hostname) {
         if (LOGGER.isLoggable(Level.FINE)) {
-            LOGGER.fine("Client HELO/EHLO: " + hostname);
+            LOGGER.fine(MessageFormat.format(L10N.getString("relay.fine.client_helo"), hostname));
         }
         state.acceptHello(this);
     }
@@ -157,14 +157,14 @@ public class SimpleRelayHandler implements ClientConnected, HelloHandler,
     @Override
     public void tlsEstablished(SecurityInfo securityInfo) {
         if (LOGGER.isLoggable(Level.FINE)) {
-            LOGGER.fine("TLS established: " + securityInfo.getProtocol() + " " + securityInfo.getCipherSuite());
+            LOGGER.fine(MessageFormat.format(L10N.getString("relay.fine.tls_established"), securityInfo.getProtocol(), securityInfo.getCipherSuite()));
         }
     }
 
     @Override
     public void authenticated(AuthenticateState state, Principal principal) {
         if (LOGGER.isLoggable(Level.FINE)) {
-            LOGGER.fine("Authenticated: " + principal.getName());
+            LOGGER.fine(MessageFormat.format(L10N.getString("relay.fine.authenticated"), principal.getName()));
         }
         state.accept(this);
     }
@@ -187,7 +187,7 @@ public class SimpleRelayHandler implements ClientConnected, HelloHandler,
         this.recipients.clear();
         
         if (LOGGER.isLoggable(Level.FINE)) {
-            LOGGER.fine("MAIL FROM: " + (sender != null ? sender : "<>"));
+            LOGGER.fine(MessageFormat.format(L10N.getString("relay.fine.mail_from"), sender != null ? sender : "<>"));
             if (deliveryRequirements != null && !deliveryRequirements.isEmpty()) {
                 logDeliveryRequirements(deliveryRequirements);
             }
@@ -220,8 +220,9 @@ public class SimpleRelayHandler implements ClientConnected, HelloHandler,
             // A production MTA would use priority queues to process higher
             // priority messages first. This simple relay uses FIFO ordering.
             if (LOGGER.isLoggable(Level.FINE)) {
-                LOGGER.fine("MT-PRIORITY=" + deliveryRequirements.getPriority() + 
-                           " (priority queuing not implemented)");
+                LOGGER.fine(MessageFormat.format(
+                        L10N.getString("relay.fine.mt_priority"),
+                        deliveryRequirements.getPriority()));
             }
         }
         
@@ -271,7 +272,7 @@ public class SimpleRelayHandler implements ClientConnected, HelloHandler,
     public void rcptTo(RecipientState state, EmailAddress recipient, MailboxFactory factory) {
         recipients.add(recipient);
         if (LOGGER.isLoggable(Level.FINE)) {
-            LOGGER.fine("RCPT TO: " + recipient);
+            LOGGER.fine(MessageFormat.format(L10N.getString("relay.fine.rcpt_to"), recipient));
         }
         state.acceptRecipient(this);
     }
@@ -279,7 +280,7 @@ public class SimpleRelayHandler implements ClientConnected, HelloHandler,
     @Override
     public void startMessage(MessageStartState state) {
         if (LOGGER.isLoggable(Level.FINE)) {
-            LOGGER.fine("DATA/BDAT started, " + recipients.size() + " recipients");
+            LOGGER.fine(MessageFormat.format(L10N.getString("relay.fine.data_started"), recipients.size()));
         }
         state.acceptMessage(this);
     }
@@ -297,7 +298,7 @@ public class SimpleRelayHandler implements ClientConnected, HelloHandler,
     public void messageComplete(MessageEndState state) {
         byte[] messageData = pipeline.getMessageData();
         if (LOGGER.isLoggable(Level.FINE)) {
-            LOGGER.fine("Message complete: " + messageData.length + " bytes");
+            LOGGER.fine(MessageFormat.format(L10N.getString("relay.fine.message_complete"), messageData.length));
         }
 
         // Group recipients by domain for delivery
@@ -482,7 +483,7 @@ public class SimpleRelayHandler implements ClientConnected, HelloHandler,
             List<EmailAddress> domainRecipients = recipientsByDomain.get(domain);
 
             if (LOGGER.isLoggable(Level.FINE)) {
-                LOGGER.fine("Looking up MX for domain: " + domain);
+                LOGGER.fine(MessageFormat.format(L10N.getString("relay.fine.mx_lookup"), domain));
             }
 
             // Look up MX records
@@ -531,7 +532,7 @@ public class SimpleRelayHandler implements ClientConnected, HelloHandler,
                 if (mxRecords.isEmpty()) {
                     // No MX records - try A record fallback
                     if (LOGGER.isLoggable(Level.FINE)) {
-                        LOGGER.fine("No MX records for " + domain + ", using domain directly");
+                        LOGGER.fine(MessageFormat.format(L10N.getString("relay.fine.no_mx_records"), domain));
                     }
                     deliverToDomain(domain, domainRecipients);
                 } else {
@@ -539,7 +540,7 @@ public class SimpleRelayHandler implements ClientConnected, HelloHandler,
                     Collections.sort(mxRecords);
                     String mxHost = mxRecords.get(0).exchange;
                     if (LOGGER.isLoggable(Level.FINE)) {
-                        LOGGER.fine("MX for " + domain + ": " + mxHost);
+                        LOGGER.fine(MessageFormat.format(L10N.getString("relay.fine.mx_host"), domain, mxHost));
                     }
                     deliverToDomain(mxHost, domainRecipients);
                 }
@@ -666,7 +667,7 @@ public class SimpleRelayHandler implements ClientConnected, HelloHandler,
                     if (starttls) {
                         // Upgrade to TLS before proceeding
                         if (LOGGER.isLoggable(Level.FINE)) {
-                            LOGGER.fine("REQUIRETLS: upgrading connection to TLS");
+                            LOGGER.fine(L10N.getString("relay.fine.requiretls_upgrading"));
                         }
                         session.starttls(this);
                         return;
@@ -720,7 +721,7 @@ public class SimpleRelayHandler implements ClientConnected, HelloHandler,
             public void handleTlsEstablished(ClientPostTls postTls) {
                 tlsEstablished = true;
                 if (LOGGER.isLoggable(Level.FINE)) {
-                    LOGGER.fine("TLS established, re-issuing EHLO");
+                    LOGGER.fine(L10N.getString("relay.fine.tls_reissue_ehlo"));
                 }
                 // Must re-EHLO after STARTTLS per RFC 3207
                 postTls.ehlo(localHostname, this);

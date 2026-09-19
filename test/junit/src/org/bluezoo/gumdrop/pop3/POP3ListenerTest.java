@@ -27,6 +27,7 @@ import static org.junit.Assert.*;
 
 /**
  * Unit tests for {@link Pop3Listener} configuration properties.
+ * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 public class POP3ListenerTest {
 

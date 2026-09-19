@@ -584,17 +584,14 @@ public class PostfixSmtpIntegrationTest {
 
     // ── Shared plumbing ──
 
-    @FunctionalInterface
     private interface MailFromOk {
         void accept(ClientEnvelope envelope);
     }
 
-    @FunctionalInterface
     private interface RcptToOk {
         void accept(ClientEnvelopeReady ready);
     }
 
-    @FunctionalInterface
     private interface DataReady {
         void accept(ClientMessageData data);
     }

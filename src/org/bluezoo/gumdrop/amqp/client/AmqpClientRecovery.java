@@ -30,10 +30,6 @@ import java.text.MessageFormat;
 import java.util.ResourceBundle;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.ScheduledFuture;
-import java.util.concurrent.ThreadFactory;
-import java.util.concurrent.TimeUnit;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -43,8 +39,10 @@ import javax.security.auth.Subject;
 import org.bluezoo.gumdrop.ClientEndpoint;
 import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.Gumdrop;
+import org.bluezoo.gumdrop.ScheduledTimer;
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.SelectorLoop;
+import org.bluezoo.gumdrop.TimerHandle;
 import org.bluezoo.gumdrop.TcpTransportFactory;
 import org.bluezoo.gumdrop.amqp.client.ClientConnection;
 import org.bluezoo.gumdrop.amqp.client.ClientHandshake;
@@ -103,7 +101,7 @@ import org.bluezoo.gumdrop.tls.ServerCredentials;
  * needed from the application.
  *
  * <p>Reconnect delays are scheduled on a small dedicated daemon thread
- * (see {@code RETRY_EXECUTOR}'s javadoc), deliberately <em>not</em>
+ * (see {@code RETRY_TIMER}'s javadoc), deliberately <em>not</em>
  * gumdrop's own {@link SelectorLoop} timer infrastructure that the rest
  * of this codebase prefers: {@link Gumdrop} auto-shuts-down every worker
  * loop (and any timers on them) once it has no active clients, services,
@@ -140,16 +138,11 @@ public class AmqpClientRecovery {
      * delay elapses still goes through the normal, gumdrop-managed
      * {@link ClientEndpoint#connect} path like any other connection.
      */
-    private static final ScheduledExecutorService RETRY_EXECUTOR =
-            Executors.newSingleThreadScheduledExecutor(new RecoveryThreadFactory());
+    private static final ScheduledTimer RETRY_TIMER =
+            new ScheduledTimer("gumdrop-amqp-recovery");
 
-    private static final class RecoveryThreadFactory implements ThreadFactory {
-        @Override
-        public Thread newThread(Runnable r) {
-            Thread t = new Thread(r, "gumdrop-amqp-recovery");
-            t.setDaemon(true);
-            return t;
-        }
+    static {
+        RETRY_TIMER.start();
     }
 
     private final String host;
@@ -184,7 +177,7 @@ public class AmqpClientRecovery {
     private volatile boolean closed;
     private volatile AmqpClientProtocolHandler currentHandler;
     private volatile ClientEndpoint currentEndpoint;
-    private volatile ScheduledFuture<?> pendingRetry;
+    private volatile TimerHandle pendingRetry;
 
     public AmqpClientRecovery(String host, int port) {
         this(null, host, port);
@@ -424,20 +417,20 @@ public class AmqpClientRecovery {
             listener.onReconnecting(attempt, delay);
         }
 
-        pendingRetry = RETRY_EXECUTOR.schedule(new Runnable() {
+        pendingRetry = RETRY_TIMER.schedule(null, delay, new Runnable() {
             @Override
             public void run() {
                 doConnect(false);
             }
-        }, delay, TimeUnit.MILLISECONDS);
+        });
     }
 
     /** Closes the connection and stops reconnecting. */
     public void close() {
         closed = true;
-        ScheduledFuture<?> retry = pendingRetry;
+        TimerHandle retry = pendingRetry;
         if (retry != null) {
-            retry.cancel(false);
+            retry.cancel();
         }
         ClientEndpoint endpoint = currentEndpoint;
         if (endpoint != null) {

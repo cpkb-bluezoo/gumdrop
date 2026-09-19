@@ -36,6 +36,7 @@ import static org.junit.Assert.*;
 /**
  * Regression tests for HTTP Digest authentication verification in
  * {@link HttpAuthenticationProvider}.
+ * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 public class HTTPAuthenticationProviderDigestTest {
 

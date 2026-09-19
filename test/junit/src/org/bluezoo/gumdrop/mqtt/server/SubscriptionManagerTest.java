@@ -34,6 +34,7 @@ import static org.junit.Assert.*;
  * Regression coverage for {@link SubscriptionManager}, including issue
  * #331: per-client subscription listing must come from {@link TopicTree}'s
  * reverse index rather than a duplicated map in the manager.
+ * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 public class SubscriptionManagerTest {
 
