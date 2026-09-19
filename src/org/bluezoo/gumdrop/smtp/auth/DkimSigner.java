@@ -28,7 +28,9 @@ import java.security.PrivateKey;
 import java.security.Signature;
 import java.util.ArrayList;
 import java.util.Base64;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * RFC 6376 §5 — DKIM message signer.
@@ -221,6 +223,22 @@ public class DkimSigner {
     }
 
     /**
+     * Returns the base64-encoded body hash after {@link #endBody()}, without
+     * building a signature. The digest is consumed; create a new {@link
+     * DkimSigner} if further signing on the same body is required.
+     *
+     * @return the {@code bh=} value
+     */
+    public String computeBodyHashBase64() {
+        if (bodyDigest == null) {
+            initBodyDigest();
+        }
+        endBody();
+        byte[] bodyHashBytes = bodyDigest.digest();
+        return Base64.getEncoder().encodeToString(bodyHashBytes);
+    }
+
+    /**
      * RFC 6376 §5.4–5.6 — signs the message headers and returns a complete
      * DKIM-Signature header (including the "DKIM-Signature: " prefix and
      * trailing CRLF).
@@ -262,6 +280,113 @@ public class DkimSigner {
 
         String finalValue = buildSignatureHeaderValue(bodyHashB64, sigB64);
         return "DKIM-Signature: " + finalValue + CRLF;
+    }
+
+    /**
+     * RFC 8617 — signs an {@code ARC-Message-Signature} or {@code ARC-Seal}
+     * header using a precomputed body hash ({@code bh=}).
+     *
+     * @param rawHeaders headers available when signing
+     * @param headerFieldName {@code ARC-Message-Signature} or {@code ARC-Seal}
+     * @param instance ARC instance number ({@code i=})
+     * @param headerNamesToSign {@code h=} tag contents
+     * @param bodyHashB64 base64 body hash (same {@code bh=} for AMS and AS on
+     *                      this hop)
+     * @param chainCv {@code cv=} for ARC-Seal, or null for AMS
+     * @return complete header line with CRLF
+     * @throws Exception if signing fails
+     */
+    public String signArc(List<String> rawHeaders, String headerFieldName,
+                          int instance, List<String> headerNamesToSign,
+                          String bodyHashB64, ArcCvResult chainCv) throws Exception {
+        String headerValue = buildArcSignatureHeaderValue(instance, headerNamesToSign,
+                bodyHashB64, "", chainCv, headerFieldName);
+
+        boolean relaxed = "relaxed".equals(headerCanonicalization);
+        boolean signingSeal = "ARC-Seal".equalsIgnoreCase(headerFieldName);
+        StringBuilder dataToSign = new StringBuilder();
+        Map<String, Integer> usedCount = new HashMap<String, Integer>();
+        for (int i = 0; i < headerNamesToSign.size(); i++) {
+            String hn = headerNamesToSign.get(i);
+            String headerLine = selectHeaderForArc(rawHeaders, hn, usedCount);
+            if (headerLine == null && signingSeal
+                    && "arc-seal".equals(hn.toLowerCase())) {
+                String selfLine = headerFieldName + ": " + headerValue;
+                String selfCanon = canonicalizeHeader(selfLine, relaxed);
+                if (selfCanon.endsWith(CRLF)) {
+                    selfCanon = selfCanon.substring(0, selfCanon.length() - 2);
+                }
+                dataToSign.append(selfCanon);
+            } else if (headerLine != null) {
+                dataToSign.append(canonicalizeHeader(headerLine, relaxed));
+            }
+        }
+        if (!signingSeal) {
+            String selfLine = headerFieldName.toLowerCase() + ":" + headerValue;
+            String selfCanon = canonicalizeHeader(selfLine, relaxed);
+            if (selfCanon.endsWith(CRLF)) {
+                selfCanon = selfCanon.substring(0, selfCanon.length() - 2);
+            }
+            dataToSign.append(selfCanon);
+        }
+
+        byte[] sigBytes = computeSignature(
+                dataToSign.toString().getBytes(StandardCharsets.UTF_8));
+        String sigB64 = Base64.getEncoder().encodeToString(sigBytes);
+        String finalValue = buildArcSignatureHeaderValue(instance, headerNamesToSign,
+                bodyHashB64, sigB64, chainCv, headerFieldName);
+        return headerFieldName + ": " + finalValue + CRLF;
+    }
+
+    private String buildArcSignatureHeaderValue(int instance,
+            List<String> headerNamesToSign, String bodyHash,
+            String signatureValue, ArcCvResult chainCv, String headerFieldName) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("i=").append(instance);
+        sb.append("; v=1; a=").append(algorithm);
+        sb.append("; c=").append(headerCanonicalization).append("/")
+                .append(bodyCanonicalization);
+        sb.append("; d=").append(domain);
+        sb.append("; s=").append(selector);
+        sb.append("; h=");
+        for (int i = 0; i < headerNamesToSign.size(); i++) {
+            if (i > 0) {
+                sb.append(":");
+            }
+            sb.append(headerNamesToSign.get(i));
+        }
+        sb.append("; bh=").append(bodyHash);
+        if (chainCv != null && "ARC-Seal".equalsIgnoreCase(headerFieldName)) {
+            sb.append("; cv=").append(chainCv.name().toLowerCase());
+        }
+        sb.append("; b=").append(signatureValue);
+        return sb.toString();
+    }
+
+    private static String selectHeaderForArc(List<String> rawHeaders, String name,
+            Map<String, Integer> usedCount) {
+        String lower = name.toLowerCase();
+        List<String> matches = new ArrayList<String>();
+        for (int i = 0; i < rawHeaders.size(); i++) {
+            String line = rawHeaders.get(i);
+            int colon = line.indexOf(':');
+            if (colon > 0) {
+                String hName = line.substring(0, colon).trim().toLowerCase();
+                if (hName.equals(lower)) {
+                    matches.add(line);
+                }
+            }
+        }
+        if (matches.isEmpty()) {
+            return null;
+        }
+        Integer used = usedCount.get(name);
+        int idx = (used == null) ? matches.size() - 1 : used.intValue() - 1;
+        if (idx < 0) {
+            return null;
+        }
+        usedCount.put(name, Integer.valueOf(idx));
+        return matches.get(idx);
     }
 
     /** RFC 6376 §3.5 — builds the tag=value string for the DKIM-Signature header. */

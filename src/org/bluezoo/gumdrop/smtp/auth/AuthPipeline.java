@@ -36,8 +36,8 @@ import org.bluezoo.gumdrop.mime.rfc5322.MessageHandler;
 import org.bluezoo.gumdrop.smtp.SmtpPipeline;
 
 /**
- * Authentication pipeline for SPF, DKIM, and DMARC checks.
- * Integrates RFC 7208 (SPF), RFC 6376 (DKIM), RFC 7489 (DMARC).
+ * Authentication pipeline for SPF, DKIM, DMARC, and optional ARC checks.
+ * Integrates RFC 7208 (SPF), RFC 6376 (DKIM), RFC 7489 (DMARC), RFC 8617 (ARC).
  *
  * <p>AuthPipeline implements {@link SmtpPipeline} to integrate with
  * SMTPConnection. Configure it with callbacks for the checks you want,
@@ -91,6 +91,8 @@ public class AuthPipeline implements SmtpPipeline {
     private final SpfCallback spfCallback;
     private final DkimCallback dkimCallback;
     private final DmarcCallback dmarcCallback;
+    private final ArcCallback arcCallback;
+    private final ArcDmarcPolicy arcDmarcPolicy;
 
     // User's message handler for teed content
     private final MessageHandler messageHandler;
@@ -98,6 +100,7 @@ public class AuthPipeline implements SmtpPipeline {
     // Validators
     private final SpfValidator spfValidator;
     private final DkimValidator dkimValidator;
+    private final ArcValidator arcValidator;
 
     // Per-message state
     private DkimMessageParser parser;
@@ -114,11 +117,18 @@ public class AuthPipeline implements SmtpPipeline {
         this.spfCallback = builder.spfCallback;
         this.dkimCallback = builder.dkimCallback;
         this.dmarcCallback = builder.dmarcCallback;
+        this.arcCallback = builder.arcCallback;
+        this.arcDmarcPolicy = builder.arcDmarcPolicy;
         this.messageHandler = builder.messageHandler;
 
         // Create validators
         this.spfValidator = new SpfValidator(resolver);
         this.dkimValidator = new DkimValidator(resolver);
+        if (builder.arcCallback != null || builder.arcDmarcPolicy != null) {
+            this.arcValidator = new ArcValidator(resolver);
+        } else {
+            this.arcValidator = null;
+        }
     }
 
     // -- SmtpPipeline implementation --
@@ -127,6 +137,9 @@ public class AuthPipeline implements SmtpPipeline {
     public void mailFrom(EmailAddress sender) {
         // Create DmarcValidator for this message (it aggregates SPF + DKIM results)
         dmarcValidator = new DmarcValidator(resolver, dmarcCallback);
+        if (arcDmarcPolicy != null) {
+            dmarcValidator.setArcDmarcPolicy(arcDmarcPolicy);
+        }
 
         // Set SPF domain on DmarcValidator
         String spfDomain = (sender != null) ? sender.getDomain() : heloHost;
@@ -163,6 +176,10 @@ public class AuthPipeline implements SmtpPipeline {
                 };
         DmarcMessageHandler dmarcHandler = new DmarcMessageHandler(fromDomainCallback, messageHandler);
         parser.setMessageHandler(dmarcHandler);
+        if (arcValidator != null) {
+            arcValidator.resetForMessage();
+            parser.setArcHeaderParser(arcValidator.getArcHeaderParser());
+        }
     }
 
     @Override
@@ -191,22 +208,41 @@ public class AuthPipeline implements SmtpPipeline {
             LOGGER.log(Level.WARNING, L10N.getString("err.close_parser"), e);
         }
 
-        // Create DKIM callback that forwards to both user callback and DmarcValidator
+        final byte[] bodyHash = parser.getBodyHash();
+
+        if (arcValidator != null) {
+            arcValidator.setMessageParser(parser);
+            if (bodyHash != null) {
+                arcValidator.setBodyHash(bodyHash);
+            }
+            arcValidator.verify(new ArcCallback() {
+                @Override
+                public void arcResult(ArcValidationResult result) {
+                    dmarcValidator.setArcValidationResult(result);
+                    if (arcCallback != null) {
+                        arcCallback.arcResult(result);
+                    }
+                    verifyDkim(bodyHash);
+                }
+            });
+        } else {
+            verifyDkim(bodyHash);
+        }
+    }
+
+    private void verifyDkim(byte[] bodyHash) {
         DkimCallback effectiveDkimCallback = new DkimCallback() {
             @Override
-            public void dkimResult(DkimResult result, String signingDomain, String selector) {
-                // Forward to user callback if registered
+            public void dkimResult(DkimResult result, String signingDomain,
+                                   String selector) {
                 if (dkimCallback != null) {
                     dkimCallback.dkimResult(result, signingDomain, selector);
                 }
-                // Forward to DmarcValidator - this triggers DMARC evaluation
                 dmarcValidator.dkimResult(result, signingDomain, selector);
             }
         };
 
-        // Verify DKIM signature
         dkimValidator.setMessageParser(parser);
-        byte[] bodyHash = parser.getBodyHash();
         if (bodyHash != null) {
             dkimValidator.setBodyHash(bodyHash);
         }
@@ -272,6 +308,8 @@ public class AuthPipeline implements SmtpPipeline {
         private SpfCallback spfCallback;
         private DkimCallback dkimCallback;
         private DmarcCallback dmarcCallback;
+        private ArcCallback arcCallback;
+        private ArcDmarcPolicy arcDmarcPolicy;
         private MessageHandler messageHandler;
 
         /**
@@ -329,6 +367,37 @@ public class AuthPipeline implements SmtpPipeline {
          */
         public Builder onDMARC(DmarcCallback callback) {
             this.dmarcCallback = callback;
+            return this;
+        }
+
+        /**
+         * Registers a callback for ARC chain validation (RFC 8617).
+         *
+         * <p>Enables {@link ArcValidator} at end-of-data before DKIM verification.
+         * The validation result is also passed to {@link DmarcValidator} when
+         * {@link #arcDmarcPolicy} is set.
+         *
+         * @param callback the ARC result callback
+         * @return this builder
+         */
+        public Builder onARC(ArcCallback callback) {
+            this.arcCallback = callback;
+            return this;
+        }
+
+        /**
+         * Registers a policy for ARC-aware DMARC alignment.
+         *
+         * <p>When the ARC chain validates with {@link ArcCvResult#PASS}, the
+         * policy may supply alternate SPF/DKIM inputs for
+         * {@link DmarcValidator} via {@link ArcAuthSnapshot}. Enabling a policy
+         * also activates {@link ArcValidator} even if {@link #onARC} is not used.
+         *
+         * @param policy the trust policy, or null for local SPF/DKIM only
+         * @return this builder
+         */
+        public Builder arcDmarcPolicy(ArcDmarcPolicy policy) {
+            this.arcDmarcPolicy = policy;
             return this;
         }
 
