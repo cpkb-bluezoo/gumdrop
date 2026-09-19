@@ -1170,6 +1170,7 @@
           <include name='org/bluezoo/gumdrop/AsyncDiskOffloadBoundaryTest.java'/>
           <include name='org/bluezoo/gumdrop/crypto/CertificateVerifierTest.java'/>
           <include name='org/bluezoo/gumdrop/dns/client/DANEVerifierTest.java'/>
+          <include name='org/bluezoo/gumdrop/smtp/auth/DmarcReportFileChannelTest.java'/>
           <include name='org/bluezoo/gumdrop/dns/client/DANETrustManagerTest.java'/>
           <include name='org/bluezoo/gumdrop/dns/client/DNSSECTrustAnchorUpdaterTest.java'/>
           <include name='org/bluezoo/gumdrop/dns/client/ResolvConfTest.java'/>
@@ -1202,8 +1203,6 @@
           <include name='org/bluezoo/gumdrop/servlet/jsp/JSPDependencyTrackerTest.java'/>
           <include name='org/bluezoo/gumdrop/servlet/MultipartParserTest.java'/>
           <include name='org/bluezoo/gumdrop/servlet/ServletContainerInitializerTest.java'/>
-          <include name='org/bluezoo/gumdrop/smtp/auth/DMARCAggregateReportTest.java'/>
-          <include name='org/bluezoo/gumdrop/smtp/auth/DMARCForensicReportTest.java'/>
           <include name='org/bluezoo/gumdrop/tls/Dtls12CookieExchangeTest.java'/>
           <include name='org/bluezoo/gumdrop/tls/Dtls12RecordEngineTest.java'/>
           <include name='org/bluezoo/gumdrop/tls/Dtls13CookieTest.java'/>

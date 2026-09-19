@@ -27,10 +27,6 @@ import static org.junit.Assert.*;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.nio.channels.Channels;
-import java.nio.channels.FileChannel;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.StandardOpenOption;
 
 /**
  * Unit tests for {@link DmarcAggregateReport} — DMARC aggregate reporting
@@ -408,28 +404,6 @@ public class DMARCAggregateReportTest {
                 DkimResult.PASS, "sender.example.com", "sel1");
 
         return report;
-    }
-
-    /**
-     * {@code writeXML} must accept any {@code WritableByteChannel}, not
-     * just the {@code Channels.newChannel} adapter the other tests use
-     * -- verify against a genuine {@link FileChannel}.
-     */
-    @Test
-    public void testWriteXMLAcceptsARealFileChannel() throws IOException {
-        DmarcAggregateReport report = createMinimalReport();
-        Path tempFile = Files.createTempFile("dmarc-aggregate-", ".xml");
-        try {
-            try (FileChannel channel = FileChannel.open(tempFile,
-                    StandardOpenOption.WRITE, StandardOpenOption.TRUNCATE_EXISTING)) {
-                report.writeXML(channel);
-            }
-            String xml = new String(Files.readAllBytes(tempFile), "UTF-8");
-            assertTrue(xml.startsWith("<?xml version=\"1.0\" encoding=\"UTF-8\"?>"));
-            assertTrue(xml.contains("<report_id>min-001</report_id>"));
-        } finally {
-            Files.deleteIfExists(tempFile);
-        }
     }
 
     private String writeToString(DmarcAggregateReport report) throws IOException {
