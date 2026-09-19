@@ -1219,6 +1219,7 @@ implemented in Java, with TLS 1.3 integrated via the in-tree engine
 | STARTTLS upgrade | RFC 9051 §6.2.1 | Compliant | `starttls()` sends STARTTLS, handler upgrades |
 | Server greeting parsing (OK/PREAUTH/BYE) | RFC 9051 §7.1 | Compliant | `dispatchGreeting()` |
 | CAPABILITY from greeting | RFC 9051 §6.1.1 | Compliant | Parsed from OK [CAPABILITY ...] response code |
+| COMPRESS=DEFLATE | RFC 4978 | Compliant | `compress()` sends COMPRESS DEFLATE; `ImapDeflateLayer` on send/receive after OK |
 
 ### Authentication
 

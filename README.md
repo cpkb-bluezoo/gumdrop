@@ -275,6 +275,7 @@ Gumdrop is essentially at parity with Netty on plaintext HTTP/1.1 and JSON, ahea
         - sequence sets and UID sets
     - pluggable mailbox backend via standardized API
     - IMAP client with IMAPS and STARTTLS support
+        - COMPRESS=DEFLATE (RFC 4978) - `compress()` on authenticated sessions
         - QUOTA commands (RFC 9208) - GETQUOTA/GETQUOTAROOT
 - POP3
     - complete POP3 implementation (RFC 1939)

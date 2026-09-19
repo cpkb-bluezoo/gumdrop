@@ -30,6 +30,9 @@ import java.security.cert.Certificate;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.List;
+import java.util.zip.DataFormatException;
+
+import org.bluezoo.gumdrop.imap.ImapDeflateLayer;
 
 import org.junit.Before;
 import org.junit.Test;
@@ -50,6 +53,7 @@ import org.bluezoo.gumdrop.imap.client.AppendReplyHandler;
 import org.bluezoo.gumdrop.imap.client.AuthAbortHandler;
 import org.bluezoo.gumdrop.imap.client.AuthReplyHandler;
 import org.bluezoo.gumdrop.imap.client.CapabilityReplyHandler;
+import org.bluezoo.gumdrop.imap.client.CompressReplyHandler;
 import org.bluezoo.gumdrop.imap.client.CloseReplyHandler;
 import org.bluezoo.gumdrop.imap.client.CopyReplyHandler;
 import org.bluezoo.gumdrop.imap.client.ExpungeReplyHandler;
@@ -1222,6 +1226,45 @@ public class IMAPClientProtocolHandlerTest {
         assertEquals("Permission denied", quotaHandler.errorMessage);
     }
 
+    // ── COMPRESS DEFLATE tests ──
+
+    @Test
+    public void testCompressDeflateThenNoopOnWire() throws DataFormatException {
+        enterAuthenticatedState();
+
+        RecordingCompressHandler compressHandler =
+                new RecordingCompressHandler();
+        greetingHandler.session.compress(compressHandler);
+        assertEquals("COMPRESS DEFLATE", lastSentCommand());
+
+        String compressTag = lastSentTag();
+        receiveResponse(compressTag + " OK DEFLATE active");
+
+        assertTrue(compressHandler.ok);
+        assertTrue(handler.isDeflateActive());
+
+        RecordingNoopHandler noopHandler = new RecordingNoopHandler();
+        compressHandler.session.noop(noopHandler);
+        String noopTag = handler.getPendingTag();
+
+        byte[] noopWire = endpoint.getLastSentRaw();
+        assertFalse(new String(noopWire, StandardCharsets.US_ASCII)
+                .contains(" NOOP"));
+
+        ImapDeflateLayer serverToClient = new ImapDeflateLayer();
+        receiveCompressed(serverToClient,
+                noopTag + " OK NOOP completed");
+        assertTrue(noopHandler.ok);
+        serverToClient.close();
+    }
+
+    private void receiveCompressed(ImapDeflateLayer serverEncoder,
+            String line) {
+        byte[] plain = (line + "\r\n").getBytes(StandardCharsets.US_ASCII);
+        handler.receive(ByteBuffer.wrap(
+                serverEncoder.compressAndFlush(plain)));
+    }
+
     // ── LOGOUT tests ──
 
     @Test
@@ -1398,6 +1441,11 @@ public class IMAPClientProtocolHandlerTest {
                 result.add(s);
             }
             return result;
+        }
+
+        byte[] getLastSentRaw() {
+            assertFalse("No data sent", sentData.isEmpty());
+            return sentData.get(sentData.size() - 1);
         }
 
         @Override public boolean isOpen() { return open; }
@@ -2173,6 +2221,30 @@ public class IMAPClientProtocolHandlerTest {
         public void handleIdleComplete(
                 ClientAuthenticatedState session) {
             idleComplete = true;
+        }
+
+        @Override
+        public void handleServiceClosing(String message) {}
+    }
+
+    static class RecordingCompressHandler
+            implements CompressReplyHandler {
+        boolean ok;
+        ClientAuthenticatedState session;
+        boolean error;
+        String errorMessage;
+
+        @Override
+        public void handleOk(ClientAuthenticatedState session) {
+            ok = true;
+            this.session = session;
+        }
+
+        @Override
+        public void handleError(ClientAuthenticatedState session,
+                String message) {
+            error = true;
+            errorMessage = message;
         }
 
         @Override

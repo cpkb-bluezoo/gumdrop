@@ -36,6 +36,9 @@ import org.bluezoo.gumdrop.ByteStreamLexer;
 import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.ProtocolHandler;
 import org.bluezoo.gumdrop.SecurityInfo;
+import org.bluezoo.gumdrop.imap.ImapDeflateLayer;
+
+import java.util.zip.DataFormatException;
 
 /**
  * IMAP4rev2 client protocol handler (RFC 9051).
@@ -61,6 +64,7 @@ import org.bluezoo.gumdrop.SecurityInfo;
  *   <li>NAMESPACE — RFC 2342</li>
  *   <li>MOVE — RFC 6851</li>
  *   <li>APPEND with literal streaming</li>
+ *   <li>COMPRESS=DEFLATE — RFC 4978</li>
  * </ul>
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
@@ -110,6 +114,9 @@ public final class ImapClientProtocolHandler
 
     // Capabilities from CAPABILITY response or greeting
     private List<String> capabilities;
+
+    // RFC 4978 — DEFLATE on the wire (null until COMPRESS DEFLATE succeeds)
+    private ImapDeflateLayer deflateLayer;
 
     // SELECT/EXAMINE accumulation
     private MailboxInfo pendingMailboxInfo;
@@ -199,13 +206,31 @@ public final class ImapClientProtocolHandler
 
     @Override
     public void receive(ByteBuffer data) {
-        lexer.feed(data);
+        if (deflateLayer == null) {
+            lexer.feed(data);
+            return;
+        }
+        try {
+            byte[] plain = deflateLayer.inflate(data);
+            if (plain.length > 0) {
+                lexer.feed(ByteBuffer.wrap(plain));
+            }
+        } catch (DataFormatException e) {
+            LOGGER.log(Level.WARNING,
+                    L10N.getString("warn.compress_inflate_failed"), e);
+            handler.onError(new IOException("DEFLATE decompression failed", e));
+            close();
+        }
     }
 
     @Override
     public void disconnected() {
         if (LOGGER.isLoggable(Level.INFO)) {
             LOGGER.info(L10N.getString("info.imap_client_disconnected"));
+        }
+        if (deflateLayer != null) {
+            deflateLayer.close();
+            deflateLayer = null;
         }
         state = ImapState.CLOSED;
         handler.onDisconnected();
@@ -601,6 +626,36 @@ public final class ImapClientProtocolHandler
         sendTaggedCommand("NOOP", ImapState.NOOP_SENT);
     }
 
+    // RFC 4978 — COMPRESS DEFLATE
+    @Override
+    public void compress(CompressReplyHandler callback) {
+        if (deflateLayer != null) {
+            callback.handleError(this,
+                    L10N.getString("imap.err.compress_active"));
+            return;
+        }
+        this.currentCallback = callback;
+        sendTaggedCommand("COMPRESS DEFLATE", ImapState.COMPRESS_SENT);
+    }
+
+    /**
+     * Returns whether RFC 4978 DEFLATE is active on this connection.
+     *
+     * @return true after a successful {@link #compress(CompressReplyHandler)}
+     */
+    public boolean isDeflateActive() {
+        return deflateLayer != null;
+    }
+
+    /**
+     * Returns the tag of the command awaiting a tagged response, or null.
+     *
+     * @return in-flight command tag
+     */
+    public String getPendingTag() {
+        return currentTag;
+    }
+
     // ── ClientSelectedState (RFC 9051 section 6.4) ──
 
     // RFC 9051 section 6.4.1 — CLOSE command
@@ -750,7 +805,7 @@ public final class ImapClientProtocolHandler
         ByteBuffer copy = ByteBuffer.allocate(data.remaining());
         copy.put(data);
         copy.flip();
-        endpoint.send(copy);
+        sendWireBuffer(copy);
     }
 
     @Override
@@ -763,8 +818,7 @@ public final class ImapClientProtocolHandler
         if (state != ImapState.APPEND_DATA || !isOpen()) {
             return;
         }
-        byte[] crlf = CRLF.getBytes(StandardCharsets.US_ASCII);
-        endpoint.send(ByteBuffer.wrap(crlf));
+        sendWireBytes(CRLF.getBytes(StandardCharsets.US_ASCII));
     }
 
     // ── Command sending ──
@@ -783,8 +837,7 @@ public final class ImapClientProtocolHandler
         state = newState;
 
         String line = currentTag + " " + command + CRLF;
-        byte[] data = line.getBytes(StandardCharsets.US_ASCII);
-        endpoint.send(ByteBuffer.wrap(data));
+        sendWireBytes(line.getBytes(StandardCharsets.US_ASCII));
 
         if (LOGGER.isLoggable(Level.FINE)) {
             if (command.startsWith("LOGIN ")
@@ -805,8 +858,7 @@ public final class ImapClientProtocolHandler
 
         state = newState;
 
-        byte[] data = (line + CRLF).getBytes(StandardCharsets.US_ASCII);
-        endpoint.send(ByteBuffer.wrap(data));
+        sendWireBytes((line + CRLF).getBytes(StandardCharsets.US_ASCII));
 
         if (LOGGER.isLoggable(Level.FINE)) {
             LOGGER.fine(L10N.getString("debug.sent_imap_raw_line_redacted"));
@@ -1567,6 +1619,9 @@ public final class ImapClientProtocolHandler
             case NOOP_SENT:
                 dispatchNoopComplete(response);
                 break;
+            case COMPRESS_SENT:
+                dispatchCompressComplete(response);
+                break;
             case LOGOUT_SENT:
                 state = ImapState.CLOSED;
                 close();
@@ -1913,7 +1968,49 @@ public final class ImapClientProtocolHandler
         callback.handleOk(this);
     }
 
+    private void dispatchCompressComplete(ImapResponse response) {
+        CompressReplyHandler callback =
+                (CompressReplyHandler) currentCallback;
+        currentCallback = null;
+        ImapState base = restoreBaseState();
+        if (response.isOk()) {
+            deflateLayer = new ImapDeflateLayer();
+            stripCompressCapability();
+            state = base;
+            callback.handleOk(this);
+        } else {
+            state = base;
+            callback.handleError(this, response.getMessage());
+        }
+    }
+
     // ── Helpers ──
+
+    private void sendWireBytes(byte[] plaintext) {
+        if (deflateLayer != null) {
+            plaintext = deflateLayer.compressAndFlush(plaintext);
+        }
+        endpoint.send(ByteBuffer.wrap(plaintext));
+    }
+
+    private void sendWireBuffer(ByteBuffer plaintext) {
+        if (deflateLayer != null) {
+            byte[] in = new byte[plaintext.remaining()];
+            plaintext.get(in);
+            sendWireBytes(in);
+        } else {
+            endpoint.send(plaintext);
+        }
+    }
+
+    private void stripCompressCapability() {
+        for (int i = capabilities.size() - 1; i >= 0; i--) {
+            if ("COMPRESS=DEFLATE".equalsIgnoreCase(
+                    capabilities.get(i))) {
+                capabilities.remove(i);
+            }
+        }
+    }
 
     private ImapState restoreBaseState() {
         return wasSelected ? ImapState.SELECTED

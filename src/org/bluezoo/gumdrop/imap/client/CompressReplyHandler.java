@@ -1,5 +1,5 @@
 /*
- * ImapState.java
+ * CompressReplyHandler.java
  * Copyright (C) 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -22,55 +22,24 @@
 package org.bluezoo.gumdrop.imap.client;
 
 /**
- * Internal state of the IMAP client protocol handler.
+ * Handler for {@code COMPRESS DEFLATE} replies (RFC 4978).
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-enum ImapState {
+public interface CompressReplyHandler extends ReplyHandler {
 
-    DISCONNECTED,
-    CONNECTING,
+    /**
+     * Called when the server accepts DEFLATE compression.
+     *
+     * @param session authenticated (or selected) session for further commands
+     */
+    void handleOk(ClientAuthenticatedState session);
 
-    NOT_AUTHENTICATED,
-    CAPABILITY_SENT,
-    LOGIN_SENT,
-    AUTHENTICATE_SENT,
-    AUTH_ABORT_SENT,
-    STARTTLS_SENT,
-
-    AUTHENTICATED,
-    SELECT_SENT,
-    EXAMINE_SENT,
-    CREATE_SENT,
-    DELETE_SENT,
-    RENAME_SENT,
-    SUBSCRIBE_SENT,
-    UNSUBSCRIBE_SENT,
-    LIST_SENT,
-    LSUB_SENT,
-    STATUS_SENT,
-    NAMESPACE_SENT,
-    GETQUOTA_SENT,
-    GETQUOTAROOT_SENT,
-    APPEND_SENT,
-    APPEND_DATA,
-    IDLE_SENT,
-    IDLE_ACTIVE,
-    NOOP_SENT,
-    COMPRESS_SENT,
-
-    SELECTED,
-    CLOSE_SENT,
-    UNSELECT_SENT,
-    EXPUNGE_SENT,
-    SEARCH_SENT,
-    FETCH_SENT,
-    FETCH_LITERAL,
-    STORE_SENT,
-    COPY_SENT,
-    MOVE_SENT,
-
-    LOGOUT_SENT,
-    ERROR,
-    CLOSED
+    /**
+     * Called when the server rejects compression negotiation.
+     *
+     * @param session session in the pre-compression state
+     * @param message server NO or BAD text
+     */
+    void handleError(ClientAuthenticatedState session, String message);
 }

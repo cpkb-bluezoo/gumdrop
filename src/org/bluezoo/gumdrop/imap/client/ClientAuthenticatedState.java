@@ -56,6 +56,13 @@ public interface ClientAuthenticatedState {
 
     void noop(NoopReplyHandler callback);
 
+    /**
+     * Negotiates RFC 4978 DEFLATE compression on the connection.
+     *
+     * @param callback invoked when the server responds to {@code COMPRESS DEFLATE}
+     */
+    void compress(CompressReplyHandler callback);
+
     // RFC 9208 — QUOTA commands
     void getQuota(String quotaRoot, QuotaReplyHandler callback);
 
