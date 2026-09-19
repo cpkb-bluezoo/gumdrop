@@ -34,18 +34,21 @@
 <p class="back-link"><a href="index.html">&larr; Back to Main Page</a></p>
 
 <p>
-Gumdrop includes a native OpenTelemetry implementation for distributed tracing,
-metrics, and observability. The telemetry system integrates with Gumdrop's
-event-driven architecture and exports data via OTLP/HTTP or OTLP/gRPC to any
-OpenTelemetry Collector, or to local JSONL files for offline analysis and debugging.
-Built-in instrumentation is provided for HTTP, SMTP, IMAP, POP3, and
-FTP servers, as well as the session replication cluster. The API enables custom
-instrumentation for any Gumdrop-based service.
+Gumdrop includes a native telemetry implementation for distributed tracing,
+metrics, and observability. It speaks the same wire formats and conventions
+as the OpenTelemetry ecosystem (OTLP export, W3C Trace Context, semantic
+attributes) but provides its own Java API for instrumentation, designed for
+Gumdrop's event-driven, multiplexed I/O model. Data is exported via OTLP/HTTP
+or OTLP/gRPC to any OpenTelemetry Collector, or to local JSONL files for
+offline analysis and debugging. Built-in instrumentation is provided for
+HTTP, SMTP, IMAP, POP3, and FTP servers, as well as the session replication
+cluster. The API enables custom instrumentation for any Gumdrop-based service.
 </p>
 
 <h3>Contents</h3>
 <ul>
 <li><a href="#overview">Overview</a></li>
+<li><a href="#api-design">Gumdrop API vs OpenTelemetry Java API</a></li>
 <li><a href="#configuration">Configuration</a></li>
 <li><a href="#builtin">Built-in Instrumentation</a></li>
 <li><a href="#custom">Custom Instrumentation</a></li>
@@ -69,12 +72,13 @@ W3C Trace Context (traceparent header)</li>
 aggregation temporality (delta or cumulative)</li>
 <li><b>Hierarchical spans</b> - represent operations as a tree of spans with
 timing, attributes, and events</li>
-<li><b>OpenTelemetry compatibility</b> - exports via OTLP/HTTP or OTLP/gRPC to any
-OpenTelemetry Collector, or to JSONL files for local analysis</li>
+<li><b>OpenTelemetry ecosystem compatibility</b> - exports via OTLP/HTTP or
+OTLP/gRPC to any OpenTelemetry Collector, or to JSONL files for local analysis;
+uses W3C Trace Context and familiar span kinds and attributes</li>
 <li><b>Native integration</b> - uses Gumdrop's HTTP client for non-blocking
 export with SelectorLoop affinity and endpoint pooling</li>
-<li><b>Zero-dependency</b> - self-contained protobuf serialization, no external
-OpenTelemetry SDK required</li>
+<li><b>Zero-dependency</b> - self-contained protobuf serialization; no
+OpenTelemetry Java SDK or agent on the application classpath</li>
 </ul>
 
 <h4>Core Concepts</h4>
@@ -91,6 +95,102 @@ integer, or double)</li>
 <li><b>Event</b> - timestamped occurrence within a span (e.g., "message sent",
 "exception thrown")</li>
 </ul>
+
+<h3 id="api-design">Gumdrop API vs OpenTelemetry Java API</h3>
+
+<p>
+Gumdrop deliberately does <b>not</b> adopt the OpenTelemetry Java API
+(<code>io.opentelemetry.api</code>) or SDK for application instrumentation.
+Observability backends and collectors are unchanged: you still send standard
+OTLP to an OpenTelemetry Collector and use the same trace IDs, span kinds,
+and semantic conventions in your dashboards. What differs is only how you
+instrument Java code running on Gumdrop.
+</p>
+
+<h4>Why a native API</h4>
+
+<p>
+Gumdrop servers use a small number of worker threads (SelectorLoops). Each
+worker multiplexes many concurrent connections: it is <b>not</b> a
+thread-per-connection or thread-per-request model. A single thread may handle
+events for connection A, then connection B, then a timer or client callback,
+before returning to A. That design is efficient and is the same model used
+for non-blocking HTTP clients, OTLP export, and protocol handlers throughout
+the stack.
+</p>
+
+<p>
+The OpenTelemetry Java API is commonly used with implicit context:
+<code>Context.current()</code> is stored in thread-local storage by default,
+and many libraries assume that whatever span is &ldquo;current&rdquo; on this
+thread belongs to the operation in progress. On a multiplexed worker that
+assumption breaks unless every entry and exit point perfectly installs and
+clears context. A missed <code>Scope</code> close, or an async continuation
+that runs later on the same thread without restored context, can attach
+attributes or outbound trace headers to the <b>wrong connection</b>. Under
+load these mistakes are easy to make and hard to spot in tests.
+</p>
+
+<p>
+Gumdrop's telemetry API is built for this runtime:
+</p>
+
+<ul>
+<li><b>Explicit trace carrier</b> - the active trace lives on the connection
+(<code>Endpoint.getTrace()</code> / <code>setTrace()</code>) and on request
+objects (for example HTTP streams), not on an implicit thread slot.</li>
+<li><b>Current span within a trace</b> - <code>Trace.startSpan()</code> and
+<code>Span.makeCurrent()</code> update the current span on that
+<code>Trace</code> instance. Scopes restore the previous span on the same
+trace when closed; they do not claim the whole thread for unrelated work.</li>
+<li><b>Explicit outbound propagation</b> - the HTTP client propagates
+<code>traceparent</code> when you call <code>HttpClient.setTrace(...)</code>
+(or set the header yourself). There is no hidden reliance on thread-local
+state at send time.</li>
+<li><b>Async-friendly discipline</b> - continuations should receive the
+<code>Trace</code> (or span) they belong to, the same way Gumdrop passes
+<code>Endpoint</code> and handler state. That matches how built-in
+instrumentation already works.</li>
+</ul>
+
+<p>
+Importing the OpenTelemetry Java SDK would add classpath weight and invite
+use of patterns (global <code>OpenTelemetry</code>, auto-configuration,
+libraries that read <code>Context.current()</code>) that are a poor fit for
+multiplexed SelectorLoop servers. Gumdrop 3 standardises on the native
+<code>org.bluezoo.gumdrop.telemetry</code> types for custom spans and
+metrics; they are consistent with built-in protocol instrumentation and safe
+when used with explicit trace and client wiring as documented below.
+</p>
+
+<h4>What this means for you</h4>
+
+<ul>
+<li><b>Use Gumdrop types</b> - <code>TelemetryConfig</code>,
+<code>Trace</code>, <code>Span</code>, and <code>metrics.Meter</code> for
+custom instrumentation, servlets, protocol handlers, and microservices hosted
+on Gumdrop.</li>
+<li><b>Interoperate at the wire</b> - propagate W3C <code>traceparent</code>
+to and from other services (Java or not) that use OpenTelemetry, Jaeger,
+Zipkin, or any collector that understands Trace Context.</li>
+<li><b>Do not expect the OTel Java agent or API</b> - dropping the OpenTelemetry
+Java agent or depending on third-party libraries that require the OTel Java
+API and implicit context is unsupported and likely to produce incorrect traces
+on Gumdrop.</li>
+<li><b>Prefer explicit propagation for outbound calls</b> - pass
+<code>state.getTrace()</code> (or the relevant trace) into
+<code>HttpClient.setTrace()</code> before outbound requests so client spans
+stay on the same distributed trace; see
+<a href="#distributed">Distributed Tracing</a>.</li>
+</ul>
+
+<p>
+If you are migrating from a thread-per-request framework, replace
+&ldquo;start span and rely on thread context&rdquo; with &ldquo;obtain the
+trace from the Gumdrop request or endpoint, start child spans on that trace,
+and pass that trace into clients and async callbacks.&rdquo; The extra clarity
+is intentional: it matches how the server actually schedules work.
+</p>
 
 <h3 id="configuration">Configuration</h3>
 
