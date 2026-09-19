@@ -1815,6 +1815,21 @@ implemented in Java, with TLS 1.3 integrated via the in-tree engine
 
 ---
 
+## ARC — RFC 8617
+
+| Feature | RFC Section | Status | Notes |
+|---------|-------------|--------|-------|
+| ARC header fields (AAR, AMS, AS) | §4 | **Compliant** | Grouped by `i=` via push-parser |
+| Incremental header capture | §4 | **Compliant** | `ArcHeaderParser` + `ArcHeaderHandler` on `DkimMessageParser` |
+| AMS / AS signature verification | §5.2 | **Compliant** | `ArcValidator` reuses DKIM machinery (`DkimValidator.verifyHeaderSignature`) |
+| Chain validation (`cv=`) | §5.2 | **Compliant** | Instances verified in order; `ArcCvResult` |
+| Intermediary sealing | §5.1 | **Compliant** | `ArcSealer` emits AAR, AMS, AS for a new hop |
+| `ARC-Authentication-Results` | §5.1.1 | **Compliant** | `ArcAuthenticationResults` (RFC 8601 format) |
+| AuthPipeline integration | — | **Compliant** | ARC at end-of-data before DKIM; result to `DmarcValidator` |
+| DMARC identifier override | §4.2 | **Compliant** | Optional `ArcDmarcPolicy` when chain `cv=pass` |
+
+---
+
 ## DMARC — RFC 7489
 
 | Feature | RFC Section | Status | Notes |
@@ -1828,7 +1843,8 @@ implemented in Java, with TLS 1.3 integrated via the in-tree engine
 | Policy evaluation / verdict | §6.3 | **Compliant** | PASS, FAIL, NONE, TEMPERROR, PERMERROR |
 | Policy actions | §6.3 | **Compliant** | NONE, QUARANTINE, REJECT |
 | From domain extraction | §6 | **Compliant** | DmarcMessageHandler |
-| AuthPipeline integration | — | **Compliant** | SPF at MAIL FROM, DKIM/DMARC at end-of-data |
+| AuthPipeline integration | — | **Compliant** | SPF at MAIL FROM; optional ARC then DKIM/DMARC at end-of-data |
+| ARC-aware alignment | RFC 8617 §4.2 | **Compliant** | `ArcDmarcPolicy` when validated chain present |
 | Aggregate reporting (rua=) | §7.1 | **Compliant** | DmarcAggregateReport — XML report per Appendix C schema |
 | Forensic / failure reporting | §7.2 | **Compliant** | DmarcForensicReport — ARF format per RFC 5965/6591; fo=/rf= parsing |
 

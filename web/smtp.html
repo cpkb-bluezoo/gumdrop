@@ -46,7 +46,7 @@ resource consumption.
 <li><a href="#architecture">Architecture</a></li>
 <li><a href="#handler">Connection Handler</a></li>
 <li><a href="#pipeline">Processing Pipelines</a></li>
-<li><a href="#email-auth">Email Authentication (SPF/DKIM/DMARC)</a></li>
+<li><a href="#email-auth">Email Authentication (SPF/DKIM/DMARC/ARC)</a></li>
 <li><a href="#policy">Security Policies</a></li>
 <li><a href="#authentication">SMTP Authentication</a></li>
 <li><a href="#extensions">SMTP Extensions</a></li>
@@ -234,7 +234,7 @@ This design supports various use cases:
 </p>
 
 <ul>
-<li><b>Email authentication</b> - SPF, DKIM, DMARC validation</li>
+<li><b>Email authentication</b> - SPF, DKIM, DMARC, and optional ARC validation</li>
 <li><b>Content filtering</b> - spam detection, virus scanning</li>
 <li><b>Archiving</b> - message journaling, compliance storage</li>
 <li><b>Quota enforcement</b> - per-user or per-domain limits</li>
@@ -258,12 +258,14 @@ This allows pipelines to process arbitrarily large messages without buffering
 the entire content in memory.
 </p>
 
-<h3 id="email-auth">Email Authentication (SPF/DKIM/DMARC)</h3>
+<h3 id="email-auth">Email Authentication (SPF/DKIM/DMARC/ARC)</h3>
 
 <p>
 The <code>org.bluezoo.gumdrop.smtp.auth</code> package provides
 <code>AuthPipeline</code>, an implementation of <code>SmtpPipeline</code>
-that performs SPF, DKIM, and DMARC validation.
+that performs SPF, DKIM, and DMARC validation, with optional
+<a href="https://www.rfc-editor.org/rfc/rfc8617">RFC 8617</a> Authenticated
+Received Chain (ARC) validation and sealing for forwarded mail.
 </p>
 
 <h4>How It Works</h4>
@@ -276,13 +278,18 @@ When associated with a connection, AuthPipeline automatically:
 <li><b>SPF check</b> - runs asynchronously when MAIL FROM is received,
 using DNS TXT record lookup to validate sender authorization</li>
 <li><b>Header parsing</b> - as message bytes stream in, headers are parsed
-to collect DKIM-Signature and extract the From domain</li>
+to collect DKIM-Signature and extract the From domain; when ARC is enabled,
+<code>ArcHeaderParser</code> delivers ARC header events to the validator as
+each line is captured (push-parser, no batch materialisation)</li>
 <li><b>Body hashing</b> - raw body bytes (after CRLFCRLF) are hashed for
-DKIM verification</li>
-<li><b>DKIM verification</b> - at end-of-data, the signature is verified
-against the DNS public key</li>
+DKIM and ARC-Message-Signature verification</li>
+<li><b>ARC verification</b> (optional) - at end-of-data, before DKIM,
+<code>ArcValidator</code> verifies each AMS/AS instance asynchronously</li>
+<li><b>DKIM verification</b> - after ARC completes, the DKIM-Signature is
+verified against the DNS public key</li>
 <li><b>DMARC evaluation</b> - after DKIM, DMARC policy is checked with
-SPF/DKIM alignment</li>
+SPF/DKIM alignment; a validated ARC chain may supply alternate identifiers
+via <code>ArcDmarcPolicy</code></li>
 </ol>
 
 <h4>Pipeline Flow Diagram</h4>
@@ -298,7 +305,8 @@ stage, including the optional user MessageHandler for receiving teed content:
 </object>
 <figcaption style="margin-top: 0.5em; font-style: italic; color: #666;">
 AuthPipeline processes messages in three stages: MAIL FROM (SPF), DATA streaming
-(header parsing + body hashing), and End of DATA (DKIM + DMARC verification).
+(header parsing + body hashing, including incremental ARC capture), and End of
+DATA (optional ARC, then DKIM + DMARC verification).
 </figcaption>
 </figure>
 
@@ -341,6 +349,25 @@ builder.onDMARC(new DmarcCallback() {
         } else {
             dataEndCallback.reply(DataEndReply.ACCEPT);
         }
+    }
+});
+
+// Optional ARC chain validation (RFC 8617) - before DKIM at end-of-data
+builder.onARC(new ArcCallback() {
+    @Override
+    public void arcResult(ArcValidationResult result) {
+        // Log chain cv= outcome; result is also passed to DmarcValidator
+    }
+});
+
+// Optional: trust validated ARC for DMARC alignment (RFC 8617 §4.2)
+builder.arcDmarcPolicy(new ArcDmarcPolicy() {
+    @Override
+    public ArcAuthSnapshot authSnapshot(ArcValidationResult chain,
+            String fromDomain, SpfResult localSpf, String localSpfDomain,
+            DkimResult localDkim, String localDkimDomain) {
+        // Return snapshot with trusted SPF/DKIM from an earlier hop, or null
+        return null;
     }
 });
 
@@ -475,6 +502,45 @@ a combined <code>AuthVerdict</code>:
 <p>
 Convenience methods: <code>result.passed()</code>, <code>result.shouldReject()</code>,
 <code>result.shouldQuarantine()</code>.
+</p>
+
+<h4>Authenticated Received Chain (RFC 8617)</h4>
+
+<p>
+ARC preserves authentication results across intermediaries that modify
+messages (mailing lists, forwarders, gateways). Each hop adds an instance
+(<code>i=1</code>, <code>i=2</code>, …) comprising
+<code>ARC-Authentication-Results</code>, <code>ARC-Message-Signature</code>,
+and <code>ARC-Seal</code>. Gumdrop follows the same event-driven style as
+HTTP/2 and MQTT parsers: <code>ArcHeaderParser</code> forwards each ARC header
+to an <code>ArcHeaderHandler</code> while <code>DkimMessageParser</code>
+streams the message; <code>ArcValidator</code> verifies signatures
+asynchronously at end-of-data.
+</p>
+
+<p>
+Relays that seal after local SPF/DKIM/DMARC use <code>ArcSealer</code> (same
+signing keys and canonicalization options as <code>DkimSigner</code>):
+</p>
+
+<pre><code>ArcSealer sealer = new ArcSealer(privateKey, "example.com", "arcsel");
+sealer.setAuthservId("mx.example.com");
+// Feed the same body bytes as for DKIM hashing
+sealer.bodyLine(bodyBytes, 0, bodyBytes.length);
+sealer.endBody();
+
+ArcAuthenticationResults aar = new ArcAuthenticationResults();
+aar.setSpf(SpfResult.PASS, "example.com");
+aar.setDkim(DkimResult.PASS, "example.com");
+aar.setDmarc(DmarcResult.PASS, DmarcPolicy.NONE);
+
+List&lt;String&gt; newSet = sealer.seal(existingChain, messageHeaders,
+        incomingCv, aar);
+// Prepend newSet lines (AAR, AMS, AS) before relay</code></pre>
+
+<p>
+RFC conformance details for ARC are listed in
+<a href="../RFC-COMPLIANCE.md#arc--rfc-8617">RFC-COMPLIANCE.md</a>.
 </p>
 
 <h4>DKIM Signing (RFC 6376 §5)</h4>

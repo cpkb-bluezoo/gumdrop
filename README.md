@@ -217,6 +217,7 @@ Gumdrop is essentially at parity with Netty on plaintext HTTP/1.1 and JSON, ahea
         - SPF
         - DKIM (verification and signing, RSA-SHA256 and Ed25519-SHA256)
         - DMARC (policy evaluation, aggregate XML reporting, forensic/failure reporting)
+        - ARC (RFC 8617 chain validation and sealing for forwarded mail, optional ARC-aware DMARC via `ArcDmarcPolicy`)
         - custom parsed message processing
     - simple, extensible asynchronous handler mechanism for implementations
     - CHUNKING/BDAT

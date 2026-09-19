@@ -13,6 +13,10 @@ user-visible themes since 2.2.x.
 
 ### Added
 
+- **RFC 8617 Authenticated Received Chain (ARC)** in `org.bluezoo.gumdrop.smtp.auth`:
+  push-parser header grouping (`ArcHeaderParser`), asynchronous chain validation
+  (`ArcValidator`), intermediary sealing (`ArcSealer`), and optional ARC-aware DMARC
+  alignment (`ArcDmarcPolicy` on `AuthPipeline.Builder`). See [web/smtp.html](web/smtp.html#email-auth).
 - **RFC 9849 Encrypted Client Hello (ECH)** in the TLS 1.3 `HandshakeEngine`
   (RFC 9180 HPKE, X25519 + AES-128-GCM): client offer, server decrypt, acceptance
   confirmations, HelloRetryRequest, `retry_configs` / `ech_required`, client GREASE,
