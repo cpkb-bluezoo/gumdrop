@@ -1,6 +1,7 @@
 *~
 *.swp
 .DS_Store
+.vscode
 
 # External dependencies downloaded by 'ant resolve-deps'
 lib/*.jar
