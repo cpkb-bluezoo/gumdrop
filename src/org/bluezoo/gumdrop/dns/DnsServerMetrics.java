@@ -42,6 +42,7 @@ import org.bluezoo.gumdrop.telemetry.metrics.Meter;
  *   <li>{@code dns.server.cache.hits} - Cache hits</li>
  *   <li>{@code dns.server.cache.misses} - Cache misses</li>
  *   <li>{@code dns.server.cache.stale_served} - RFC 8767 stale answers served</li>
+ *   <li>{@code dns.server.cache.aggressive_nsec} - RFC 8198 NSEC-synthesized answers</li>
  *   <li>{@code dns.server.upstream.queries} - Queries forwarded upstream</li>
  *   <li>{@code dns.server.upstream.duration} - Upstream query duration</li>
  * </ul>
@@ -59,6 +60,7 @@ public class DnsServerMetrics {
     private final LongCounter cacheHits;
     private final LongCounter cacheMisses;
     private final LongCounter cacheStaleServed;
+    private final LongCounter cacheAggressiveNsecServed;
 
     private final LongCounter upstreamQueries;
     private final DoubleHistogram upstreamDuration;
@@ -100,6 +102,12 @@ public class DnsServerMetrics {
 
         this.cacheStaleServed = meter.counterBuilder("dns.server.cache.stale_served")
                 .setDescription("DNS answers served stale after upstream failure")
+                .setUnit("responses")
+                .build();
+
+        this.cacheAggressiveNsecServed = meter.counterBuilder(
+                        "dns.server.cache.aggressive_nsec")
+                .setDescription("DNS answers synthesized from validated NSEC cache")
                 .setUnit("responses")
                 .build();
 
@@ -167,6 +175,13 @@ public class DnsServerMetrics {
      */
     public void cacheStaleServed() {
         cacheStaleServed.add(1);
+    }
+
+    /**
+     * Records an RFC 8198 aggressively cached NSEC/NSEC3 synthesis.
+     */
+    public void cacheAggressiveNsecServed() {
+        cacheAggressiveNsecServed.add(1);
     }
 
     /**

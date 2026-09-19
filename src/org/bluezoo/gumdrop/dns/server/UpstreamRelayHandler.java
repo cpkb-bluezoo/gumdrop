@@ -26,6 +26,7 @@ import org.bluezoo.gumdrop.dns.DnsFormatException;
 import org.bluezoo.gumdrop.dns.DnsMessage;
 import org.bluezoo.gumdrop.dns.DnsNsecProofCache;
 import org.bluezoo.gumdrop.dns.DnsNsecProofIngester;
+import org.bluezoo.gumdrop.dns.DnsNsecSynthesisCollector;
 import org.bluezoo.gumdrop.dns.DnsQueryCallback;
 import org.bluezoo.gumdrop.dns.DnsQueryIdGenerator;
 import org.bluezoo.gumdrop.dns.DnsQuestion;
@@ -99,6 +100,9 @@ public final class UpstreamRelayHandler implements DnsQueryHandler {
     private ServeStalePolicy serveStalePolicy = ServeStalePolicy.ENABLED;
     private NxDomainCutPolicy nxDomainCutPolicy = NxDomainCutPolicy.ENABLED;
     private MinimalAnyPolicy minimalAnyPolicy = MinimalAnyPolicy.ENABLED;
+    private boolean aggressiveNsecEnabled = true;
+    private AggressiveNsecPolicy aggressiveNsecPolicy =
+            AggressiveNsecPolicy.ENABLED;
     private DnsCache cache;
     private DnsNsecProofCache nsecProofCache;
     private DnsServerMetrics metrics;
@@ -170,6 +174,15 @@ public final class UpstreamRelayHandler implements DnsQueryHandler {
     public void setMinimalAnyPolicy(MinimalAnyPolicy minimalAnyPolicy) {
         this.minimalAnyPolicy = minimalAnyPolicy != null
                 ? minimalAnyPolicy : MinimalAnyPolicy.DISABLED;
+    }
+
+    public void setAggressiveNsecEnabled(boolean aggressiveNsecEnabled) {
+        this.aggressiveNsecEnabled = aggressiveNsecEnabled;
+    }
+
+    public void setAggressiveNsecPolicy(AggressiveNsecPolicy aggressiveNsecPolicy) {
+        this.aggressiveNsecPolicy = aggressiveNsecPolicy != null
+                ? aggressiveNsecPolicy : AggressiveNsecPolicy.DISABLED;
     }
 
     public void setDnssecEnabled(boolean dnssecEnabled) {
@@ -285,6 +298,10 @@ public final class UpstreamRelayHandler implements DnsQueryHandler {
             if (metrics != null) { metrics.cacheMiss(); }
         }
 
+        if (tryAggressiveNsec(query, question, callback)) {
+            return;
+        }
+
         proxyToUpstream(query, loop, new DnsQueryCallback() {
             @Override
             public void onResponse(DnsMessage upstreamResponse) {
@@ -309,6 +326,35 @@ public final class UpstreamRelayHandler implements DnsQueryHandler {
                         DnsMessage.RCODE_SERVFAIL));
             }
         });
+    }
+
+    /**
+     * RFC 8198: answer from validated NSEC/NSEC3 proofs before upstream.
+     *
+     * @return {@code true} if {@code callback} was invoked with a synthesis
+     */
+    private boolean tryAggressiveNsec(final DnsMessage query,
+                                      final DnsQuestion question,
+                                      final DnsQueryCallback callback) {
+        if (!dnssecEnabled || !aggressiveNsecEnabled
+                || nsecProofCache == null
+                || aggressiveNsecPolicy == AggressiveNsecPolicy.DISABLED) {
+            return false;
+        }
+        if (!aggressiveNsecPolicy.shouldSynthesizeFromNsecCache(question)) {
+            return false;
+        }
+        DnsNsecSynthesisCollector synthesis = new DnsNsecSynthesisCollector();
+        nsecProofCache.lookup(question, synthesis);
+        if (synthesis.isMiss()) {
+            return false;
+        }
+        if (metrics != null) {
+            metrics.cacheHit();
+            metrics.cacheAggressiveNsecServed();
+        }
+        callback.onResponse(synthesis.toResponse(query));
+        return true;
     }
 
     private void startDnssecValidation() {
@@ -1041,6 +1087,16 @@ public final class UpstreamRelayHandler implements DnsQueryHandler {
 
         public Builder minimalAnyPolicy(MinimalAnyPolicy policy) {
             handler.setMinimalAnyPolicy(policy);
+            return this;
+        }
+
+        public Builder aggressiveNsecEnabled(boolean enabled) {
+            handler.setAggressiveNsecEnabled(enabled);
+            return this;
+        }
+
+        public Builder aggressiveNsecPolicy(AggressiveNsecPolicy policy) {
+            handler.setAggressiveNsecPolicy(policy);
             return this;
         }
 
