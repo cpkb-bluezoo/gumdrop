@@ -47,14 +47,17 @@ public class ServeStaleTest {
 
     @Before
     public void bootGumdrop() {
-        gumdrop = Gumdrop.boot(GumdropConfig.create().workerThreads(1));
+        gumdrop = Gumdrop.boot(GumdropConfig.create()
+                .workerThreads(1)
+                .drainTimeoutMs(0));
     }
 
     @After
-    public void shutdownGumdrop() throws InterruptedException {
+    public void shutdownGumdrop() {
         DnsCache.testingResetClock();
-        gumdrop.shutdown();
-        gumdrop.join();
+        if (gumdrop != null) {
+            gumdrop.shutdown();
+        }
     }
 
     private static DnsQuestion question(String name) {
@@ -67,7 +70,7 @@ public class ServeStaleTest {
                 InetAddress.getByName("192.0.2.55")));
     }
 
-    @Test
+    @Test(timeout = 30_000)
     public void testLookupStaleAfterLiveExpiry() throws Exception {
         DnsCache cache = new DnsCache(100, 300, 3600);
         DnsQuestion q = question("stale.example.com");
@@ -83,10 +86,11 @@ public class ServeStaleTest {
                 stale.records.get(0).getTTL());
     }
 
-    @Test
+    @Test(timeout = 30_000)
     public void testUpstreamFailureServesStaleRecord() throws Exception {
         UpstreamRelayHandler handler = UpstreamRelayHandler.builder()
                 .upstreamServers("")
+                .useSystemResolvers(false)
                 .serveStaleEnabled(true)
                 .staleRetentionSeconds(3600)
                 .build();
@@ -110,10 +114,11 @@ public class ServeStaleTest {
         }
     }
 
-    @Test
+    @Test(timeout = 30_000)
     public void testServeStaleDisabledReturnsServfail() throws Exception {
         UpstreamRelayHandler handler = UpstreamRelayHandler.builder()
                 .upstreamServers("")
+                .useSystemResolvers(false)
                 .serveStaleEnabled(false)
                 .build();
         handler.start(gumdrop);

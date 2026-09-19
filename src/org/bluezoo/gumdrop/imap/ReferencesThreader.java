@@ -1,6 +1,22 @@
 /*
  * ReferencesThreader.java
  * Copyright (C) 2026 Chris Burdess
+ *
+ * This file is part of gumdrop, a multipurpose Java server.
+ * For more information please visit https://www.nongnu.org/gumdrop/
+ *
+ * gumdrop is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * gumdrop is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with gumdrop.  If not, see <http://www.gnu.org/licenses/>.
  */
 
 package org.bluezoo.gumdrop.imap;
@@ -20,6 +36,7 @@ import java.util.Set;
 
 /**
  * RFC 5256 REFERENCES threading.
+  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 public final class ReferencesThreader {
 
@@ -32,7 +49,12 @@ public final class ReferencesThreader {
             return new ArrayList<>();
         }
         List<Integer> seqOrder = new ArrayList<>(matches);
-        seqOrder.sort(Integer::compareTo);
+        seqOrder.sort(new Comparator<Integer>() {
+            @Override
+            public int compare(Integer a, Integer b) {
+                return a.compareTo(b);
+            }
+        });
 
         List<ThreadMessageRecord> records =
                 ThreadMessageRecord.load(mailbox, seqOrder);
@@ -168,12 +190,15 @@ public final class ReferencesThreader {
     }
 
     private static Comparator<RefNode> sentDateComparator() {
-        return (a, b) -> {
-            int c = sentDateForSort(a).compareTo(sentDateForSort(b));
-            if (c != 0) {
-                return c;
+        return new Comparator<RefNode>() {
+            @Override
+            public int compare(RefNode a, RefNode b) {
+                int c = sentDateForSort(a).compareTo(sentDateForSort(b));
+                if (c != 0) {
+                    return c;
+                }
+                return Integer.compare(seqOrMax(a), seqOrMax(b));
             }
-            return Integer.compare(seqOrMax(a), seqOrMax(b));
         };
     }
 

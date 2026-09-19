@@ -1,6 +1,22 @@
 /*
  * ThreadMessageRecord.java
  * Copyright (C) 2026 Chris Burdess
+ *
+ * This file is part of gumdrop, a multipurpose Java server.
+ * For more information please visit https://www.nongnu.org/gumdrop/
+ *
+ * gumdrop is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * gumdrop is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with gumdrop.  If not, see <http://www.gnu.org/licenses/>.
  */
 
 package org.bluezoo.gumdrop.imap;
@@ -12,10 +28,12 @@ import java.io.IOException;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.List;
 
 /**
  * Per-message data used by RFC 5256 threading.
+  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 final class ThreadMessageRecord {
 
@@ -65,16 +83,19 @@ final class ThreadMessageRecord {
     static List<ThreadMessageRecord> sortedBySubjectDateSeq(
             List<ThreadMessageRecord> records) {
         List<ThreadMessageRecord> copy = new ArrayList<>(records);
-        copy.sort((a, b) -> {
-            int c = ImapUnicodeCasemap.compare(a.baseSubject, b.baseSubject);
-            if (c != 0) {
-                return c;
+        copy.sort(new Comparator<ThreadMessageRecord>() {
+            @Override
+            public int compare(ThreadMessageRecord a, ThreadMessageRecord b) {
+                int c = ImapUnicodeCasemap.compare(a.baseSubject, b.baseSubject);
+                if (c != 0) {
+                    return c;
+                }
+                c = a.sentDate.compareTo(b.sentDate);
+                if (c != 0) {
+                    return c;
+                }
+                return Integer.compare(a.sequenceNumber, b.sequenceNumber);
             }
-            c = a.sentDate.compareTo(b.sentDate);
-            if (c != 0) {
-                return c;
-            }
-            return Integer.compare(a.sequenceNumber, b.sequenceNumber);
         });
         return copy;
     }

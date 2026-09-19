@@ -46,14 +46,17 @@ public class ForwarderRfc436Test {
 
     @Before
     public void bootGumdrop() {
-        gumdrop = Gumdrop.boot(GumdropConfig.create().workerThreads(1));
+        gumdrop = Gumdrop.boot(GumdropConfig.create()
+                .workerThreads(1)
+                .drainTimeoutMs(0));
     }
 
     @After
-    public void shutdownGumdrop() throws InterruptedException {
+    public void shutdownGumdrop() {
         DnsCache.testingResetClock();
-        gumdrop.shutdown();
-        gumdrop.join();
+        if (gumdrop != null) {
+            gumdrop.shutdown();
+        }
     }
 
     @Test

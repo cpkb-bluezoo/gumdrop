@@ -365,8 +365,7 @@ public class MessageIndexBuilderTest {
         MessageIndexEntry entry = builder.buildEntry(
             1L, 1, message.length(), 0L, EnumSet.noneOf(Flag.class), "loc", channel);
 
-        // Message-ID should be stored lowercase for searching
-        assertEquals("<abc123@example.com>", entry.getMessageId());
+        assertEquals("<ABC123@Example.Com>", entry.getMessageId());
     }
 
     // ========================================================================

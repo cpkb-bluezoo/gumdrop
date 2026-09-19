@@ -1,6 +1,22 @@
 /*
  * MessageSorter.java
  * Copyright (C) 2026 Chris Burdess
+ *
+ * This file is part of gumdrop, a multipurpose Java server.
+ * For more information please visit https://www.nongnu.org/gumdrop/
+ *
+ * gumdrop is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * gumdrop is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with gumdrop.  If not, see <http://www.gnu.org/licenses/>.
  */
 
 package org.bluezoo.gumdrop.imap;
@@ -19,6 +35,7 @@ import java.util.Map;
 
 /**
  * RFC 5256 SORT ordering over a list of matching message sequence numbers.
+  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 public final class MessageSorter {
 
@@ -60,24 +77,31 @@ public final class MessageSorter {
             parts.add(keyCmp);
         }
         parts.add(Comparator.naturalOrder());
-        return (a, b) -> {
-            for (Comparator<Integer> part : parts) {
-                int c = part.compare(a, b);
-                if (c != 0) {
-                    return c;
+        return new Comparator<Integer>() {
+            @Override
+            public int compare(Integer a, Integer b) {
+                for (Comparator<Integer> part : parts) {
+                    int c = part.compare(a, b);
+                    if (c != 0) {
+                        return c;
+                    }
                 }
+                return 0;
             }
-            return 0;
         };
     }
 
-    private static Comparator<Integer> keyComparator(SortKey key,
-            Map<Integer, MessageContext> contexts) {
-        return (a, b) -> {
-            try {
-                return compareKey(key, contexts.get(a), contexts.get(b), a, b);
-            } catch (IOException e) {
-                return Integer.compare(a, b);
+    private static Comparator<Integer> keyComparator(final SortKey key,
+            final Map<Integer, MessageContext> contexts) {
+        return new Comparator<Integer>() {
+            @Override
+            public int compare(Integer a, Integer b) {
+                try {
+                    return compareKey(key, contexts.get(a), contexts.get(b),
+                            a, b);
+                } catch (IOException e) {
+                    return Integer.compare(a, b);
+                }
             }
         };
     }

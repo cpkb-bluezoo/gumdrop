@@ -1,6 +1,22 @@
 /*
  * OrderedSubjectThreader.java
  * Copyright (C) 2026 Chris Burdess
+ *
+ * This file is part of gumdrop, a multipurpose Java server.
+ * For more information please visit https://www.nongnu.org/gumdrop/
+ *
+ * gumdrop is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * gumdrop is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with gumdrop.  If not, see <http://www.gnu.org/licenses/>.
  */
 
 package org.bluezoo.gumdrop.imap;
@@ -9,10 +25,12 @@ import org.bluezoo.gumdrop.mailbox.Mailbox;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 
 /**
  * RFC 5256 ORDEREDSUBJECT threading.
+  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 public final class OrderedSubjectThreader {
 
@@ -48,13 +66,17 @@ public final class OrderedSubjectThreader {
             groups.add(current);
         }
 
-        groups.sort((a, b) -> {
-            int c = a.get(0).sentDate.compareTo(b.get(0).sentDate);
-            if (c != 0) {
-                return c;
+        groups.sort(new Comparator<List<ThreadMessageRecord>>() {
+            @Override
+            public int compare(List<ThreadMessageRecord> a,
+                    List<ThreadMessageRecord> b) {
+                int c = a.get(0).sentDate.compareTo(b.get(0).sentDate);
+                if (c != 0) {
+                    return c;
+                }
+                return Integer.compare(a.get(0).sequenceNumber,
+                        b.get(0).sequenceNumber);
             }
-            return Integer.compare(a.get(0).sequenceNumber,
-                    b.get(0).sequenceNumber);
         });
 
         List<ThreadBranch> threads = new ArrayList<>(groups.size());
