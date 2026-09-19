@@ -30,18 +30,24 @@ import java.net.InetAddress;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Deque;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * BIND-style zone file loader for authoritative DNS.
  *
- * <p>Supports {@code $ORIGIN}, {@code $TTL}, wildcards ({@code *}), and
- * record types SOA, NS, A, AAAA, CNAME, MX, TXT, PTR.
+ * <p>Supports {@code $ORIGIN}, {@code $TTL}, {@code $INCLUDE}, wildcards
+ * ({@code *}), and record types SOA, NS, A, AAAA, CNAME, MX, TXT, PTR.
+ * Include paths are resolved relative to the file that contains the
+ * {@code $INCLUDE} directive unless absolute.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
@@ -69,64 +75,14 @@ public final class ZoneFile {
      * Loads a zone file from disk.
      */
     public static ZoneFile load(Path path) throws IOException {
-        String origin = null;
-        int defaultTtl = 3600;
-        Map<String, List<DnsResourceRecord>> records = new LinkedHashMap<String, List<DnsResourceRecord>>();
-        SoaData soaData = null;
-
-        try (BufferedReader reader = Files.newBufferedReader(path, StandardCharsets.UTF_8)) {
-            String line;
-            while ((line = reader.readLine()) != null) {
-                line = stripComment(line).trim();
-                if (line.isEmpty()) {
-                    continue;
-                }
-                if (line.startsWith("$ORIGIN")) {
-                    origin = normalizeName(tokenize(line)[1]);
-                    continue;
-                }
-                if (line.startsWith("$TTL")) {
-                    defaultTtl = Integer.parseInt(tokenize(line)[1]);
-                    continue;
-                }
-                if (line.startsWith("$")) {
-                    continue;
-                }
-
-                String[] tokens = tokenize(line);
-                int idx = 0;
-                String nameToken = tokens[idx++];
-                int ttl = defaultTtl;
-                if (idx < tokens.length && Character.isDigit(tokens[idx].charAt(0))) {
-                    ttl = Integer.parseInt(tokens[idx++]);
-                }
-                if (idx < tokens.length && "IN".equalsIgnoreCase(tokens[idx])) {
-                    idx++;
-                } else if (idx < tokens.length && tokens[idx].length() == 2
-                        && Character.isLetter(tokens[idx].charAt(0))) {
-                    idx++;
-                }
-                if (idx + 1 >= tokens.length) {
-                    throw new IOException("Malformed zone record: " + line);
-                }
-                String typeToken = tokens[idx++].toUpperCase(Locale.ROOT);
-                DnsType type = DnsType.valueOf(typeToken);
-                if (origin == null) {
-                    throw new IOException("Zone record before $ORIGIN: " + line);
-                }
-                String owner = ownerName(nameToken, origin);
-                if (type == DnsType.SOA && owner.equals(origin)) {
-                    soaData = parseSoaTokens(tokens, idx, line);
-                }
-                DnsResourceRecord rr = parseRecord(owner, type, ttl, tokens, idx, line);
-                addRecord(records, owner, rr);
-            }
+        Path absolute = path.toAbsolutePath().normalize();
+        ParseState state = new ParseState();
+        state.zoneRoot = absolute;
+        parseFile(absolute, state, new ArrayDeque<Path>());
+        if (state.origin == null) {
+            throw new IOException("Zone file missing $ORIGIN: " + absolute);
         }
-
-        if (origin == null) {
-            throw new IOException("Zone file missing $ORIGIN: " + path);
-        }
-        List<DnsResourceRecord> originRecords = records.get(origin);
+        List<DnsResourceRecord> originRecords = state.records.get(state.origin);
         DnsResourceRecord soa = null;
         if (originRecords != null) {
             for (int i = 0; i < originRecords.size(); i++) {
@@ -136,10 +92,141 @@ public final class ZoneFile {
                 }
             }
         }
-        if (soa == null || soaData == null) {
-            throw new IOException("Zone file missing SOA at origin: " + path);
+        if (soa == null || state.soaData == null) {
+            throw new IOException("Zone file missing SOA at origin: " + absolute);
         }
-        return new ZoneFile(origin, defaultTtl, records, soa, soaData);
+        return new ZoneFile(state.origin, state.defaultTtl, state.records, soa,
+                state.soaData);
+    }
+
+    private static void parseFile(Path file, ParseState state,
+                                  Deque<Path> includeStack) throws IOException {
+        Path absolute = file.toAbsolutePath().normalize();
+        for (Path open : includeStack) {
+            if (open.equals(absolute)) {
+                throw new IOException("$INCLUDE cycle: " + formatIncludeChain(
+                        includeStack, absolute));
+            }
+        }
+        boolean nested = !includeStack.isEmpty();
+        includeStack.addLast(absolute);
+        String savedOrigin = state.origin;
+        int savedTtl = state.defaultTtl;
+        Path parentDir = absolute.getParent();
+        try (BufferedReader reader = Files.newBufferedReader(absolute, StandardCharsets.UTF_8)) {
+            String line;
+            while ((line = reader.readLine()) != null) {
+                line = stripComment(line).trim();
+                if (line.isEmpty()) {
+                    continue;
+                }
+                if (line.startsWith("$ORIGIN")) {
+                    state.origin = normalizeName(tokenize(line)[1]);
+                    continue;
+                }
+                if (line.startsWith("$TTL")) {
+                    state.defaultTtl = Integer.parseInt(tokenize(line)[1]);
+                    continue;
+                }
+                if (line.startsWith("$INCLUDE")) {
+                    parseInclude(line, parentDir, state, includeStack);
+                    continue;
+                }
+                if (line.startsWith("$")) {
+                    continue;
+                }
+                parseRecordLine(line, state);
+            }
+        } finally {
+            if (nested) {
+                state.origin = savedOrigin;
+                state.defaultTtl = savedTtl;
+            }
+            if (!includeStack.isEmpty() && includeStack.peekLast().equals(absolute)) {
+                includeStack.pollLast();
+            }
+        }
+    }
+
+    private static void parseInclude(String line, Path parentDir, ParseState state,
+                                     Deque<Path> includeStack) throws IOException {
+        String[] tokens = tokenize(line);
+        if (tokens.length < 2) {
+            throw new IOException("Malformed $INCLUDE: " + line);
+        }
+        String filename = unquote(tokens[1]);
+        Path includePath = resolveIncludePath(parentDir, filename);
+        if (!Files.isRegularFile(includePath)) {
+            throw new IOException("$INCLUDE file not found: " + includePath);
+        }
+        String savedOrigin = state.origin;
+        if (tokens.length >= 3) {
+            state.origin = normalizeName(tokens[2]);
+        }
+        parseFile(includePath, state, includeStack);
+        state.origin = savedOrigin;
+    }
+
+    private static Path resolveIncludePath(Path parentDir, String filename) {
+        Path candidate = Paths.get(filename);
+        if (candidate.isAbsolute()) {
+            return candidate.normalize();
+        }
+        if (parentDir != null) {
+            return parentDir.resolve(candidate).normalize();
+        }
+        return candidate.normalize();
+    }
+
+    private static void parseRecordLine(String line, ParseState state) throws IOException {
+        String[] tokens = tokenize(line);
+        int idx = 0;
+        String nameToken = tokens[idx++];
+        int ttl = state.defaultTtl;
+        if (idx < tokens.length && Character.isDigit(tokens[idx].charAt(0))) {
+            ttl = Integer.parseInt(tokens[idx++]);
+        }
+        if (idx < tokens.length && "IN".equalsIgnoreCase(tokens[idx])) {
+            idx++;
+        } else if (idx < tokens.length && tokens[idx].length() == 2
+                && Character.isLetter(tokens[idx].charAt(0))) {
+            idx++;
+        }
+        if (idx + 1 >= tokens.length) {
+            throw new IOException("Malformed zone record: " + line);
+        }
+        String typeToken = tokens[idx++].toUpperCase(Locale.ROOT);
+        DnsType type = DnsType.valueOf(typeToken);
+        if (state.origin == null) {
+            throw new IOException("Zone record before $ORIGIN: " + line);
+        }
+        String owner = ownerName(nameToken, state.origin);
+        if (type == DnsType.SOA && owner.equals(state.origin) && state.soaData == null) {
+            state.soaData = parseSoaTokens(tokens, idx, line);
+        }
+        DnsResourceRecord rr = parseRecord(owner, type, ttl, tokens, idx, line);
+        addRecord(state.records, owner, rr);
+    }
+
+    private static String formatIncludeChain(Deque<Path> stack, Path cycle) {
+        StringBuilder sb = new StringBuilder();
+        for (Path p : stack) {
+            if (sb.length() > 0) {
+                sb.append(" -> ");
+            }
+            sb.append(p);
+        }
+        sb.append(" -> ").append(cycle);
+        return sb.toString();
+    }
+
+    private static final class ParseState {
+        String origin;
+        int defaultTtl = 3600;
+        final Map<String, List<DnsResourceRecord>> records =
+                new LinkedHashMap<String, List<DnsResourceRecord>>();
+        SoaData soaData;
+        Path zoneRoot;
     }
 
     public String getOrigin() {

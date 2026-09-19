@@ -1,0 +1,4 @@
+; Included from example.com.zone ($INCLUDE)
+www     IN A     192.0.2.10
+mail    IN A     192.0.2.20
+mail    IN MX    10 mail.example.com.

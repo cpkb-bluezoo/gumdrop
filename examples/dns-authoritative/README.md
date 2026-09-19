@@ -47,7 +47,7 @@ The last query should receive `REFUSED` (not authoritative for that name).
 
 See `example.com.zone`. Supported directives and types:
 
-- `$ORIGIN`, `$TTL`
+- `$ORIGIN`, `$TTL`, `$INCLUDE` (path relative to the including file)
 - SOA, NS, A, AAAA, CNAME, MX, TXT, PTR
 - Wildcard owner `*` (becomes `*.origin`)
 

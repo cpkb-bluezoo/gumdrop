@@ -8,6 +8,7 @@ package org.bluezoo.gumdrop.dns.server;
 import org.bluezoo.gumdrop.dns.DnsType;
 import org.junit.Test;
 
+import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 
@@ -82,6 +83,83 @@ public class ZoneFileTest {
             }
         } finally {
             Files.deleteIfExists(zone);
+        }
+    }
+
+    @Test
+    public void testIncludeMergesRecords() throws Exception {
+        Path dir = Files.createTempDirectory("zone-include");
+        Path main = dir.resolve("example.com.zone");
+        Path hosts = dir.resolve("hosts.inc");
+        Files.writeString(main, ""
+                + "$ORIGIN example.com.\n"
+                + "@ IN SOA ns1.example.com. host.example.com. 1 7200 3600 1209600 300\n"
+                + "@ IN NS ns1.example.com.\n"
+                + "ns1 IN A 127.0.0.1\n"
+                + "$INCLUDE hosts.inc\n");
+        Files.writeString(hosts, ""
+                + "www IN A 192.0.2.77\n"
+                + "txt IN TXT \"from-include\"\n");
+        try {
+            ZoneFile loaded = ZoneFile.load(main);
+            ZoneLookupResult www = loaded.lookup("www.example.com.", DnsType.A);
+            assertEquals(ZoneLookupResult.STATUS_ANSWER, www.getStatus());
+            assertEquals("192.0.2.77",
+                    www.getAnswers().get(0).getAddress().getHostAddress());
+            ZoneLookupResult txt = loaded.lookup("txt.example.com.", DnsType.TXT);
+            assertEquals(ZoneLookupResult.STATUS_ANSWER, txt.getStatus());
+        } finally {
+            Files.deleteIfExists(hosts);
+            Files.deleteIfExists(main);
+            Files.deleteIfExists(dir);
+        }
+    }
+
+    @Test
+    public void testIncludeWithOriginOverride() throws Exception {
+        Path dir = Files.createTempDirectory("zone-include-origin");
+        Path main = dir.resolve("parent.zone");
+        Path sub = dir.resolve("sub.inc");
+        Files.writeString(main, ""
+                + "$ORIGIN example.com.\n"
+                + "@ IN SOA ns1.example.com. host.example.com. 1 7200 3600 1209600 300\n"
+                + "@ IN NS ns1.example.com.\n"
+                + "$INCLUDE sub.inc sub.example.com.\n");
+        Files.writeString(sub, ""
+                + "app IN A 192.0.2.55\n");
+        try {
+            ZoneFile loaded = ZoneFile.load(main);
+            ZoneLookupResult app = loaded.lookup("app.sub.example.com.", DnsType.A);
+            assertEquals(ZoneLookupResult.STATUS_ANSWER, app.getStatus());
+        } finally {
+            Files.deleteIfExists(sub);
+            Files.deleteIfExists(main);
+            Files.deleteIfExists(dir);
+        }
+    }
+
+    @Test
+    public void testIncludeCycleRejected() throws Exception {
+        Path dir = Files.createTempDirectory("zone-cycle");
+        Path a = dir.resolve("a.zone");
+        Path b = dir.resolve("b.zone");
+        Files.writeString(a, ""
+                + "$ORIGIN example.com.\n"
+                + "@ IN SOA ns1.example.com. host.example.com. 1 7200 3600 1209600 300\n"
+                + "$INCLUDE b.zone\n");
+        Files.writeString(b, ""
+                + "$INCLUDE a.zone\n");
+        try {
+            try {
+                ZoneFile.load(a);
+                fail("expected IOException");
+            } catch (IOException e) {
+                assertTrue(e.getMessage().contains("cycle"));
+            }
+        } finally {
+            Files.deleteIfExists(b);
+            Files.deleteIfExists(a);
+            Files.deleteIfExists(dir);
         }
     }
 

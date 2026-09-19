@@ -541,8 +541,10 @@ Configure with the builder:
 </ul>
 
 <p>
-Supported record types in zone files: SOA, NS, A, AAAA, CNAME, MX, TXT, PTR.
-Wildcard owners (<code>*</code>) are supported. Negative answers follow RFC 2308
+Supported directives: <code>$ORIGIN</code>, <code>$TTL</code>,
+<code>$INCLUDE filename [origin]</code> (include paths are relative to the
+file containing the directive). Record types: SOA, NS, A, AAAA, CNAME, MX,
+TXT, PTR. Wildcard owners (<code>*</code>) are supported. Negative answers follow RFC 2308
 (NXDOMAIN vs NODATA with SOA in the authority section). In-zone CNAME records
 are chased when answering other types. Glue A/AAAA records are added for
 in-bailiwick NS/MX targets when present in the zone.
