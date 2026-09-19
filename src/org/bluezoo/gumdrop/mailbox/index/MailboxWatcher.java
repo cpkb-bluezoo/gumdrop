@@ -93,8 +93,41 @@ public final class MailboxWatcher implements Runnable {
     private final Thread thread;
     private volatile boolean running = true;
 
+    /**
+     * Test seam: how a directory gets registered with the watcher's {@code
+     * WatchService}. Production registers it for real; unit tests supply one
+     * that leaves the file system alone.
+     */
+    interface DirectoryRegistrar {
+        void register(Path dir) throws IOException;
+    }
+
+    private final DirectoryRegistrar registrar;
+
     public MailboxWatcher() throws IOException {
-        watchService = FileSystems.getDefault().newWatchService();
+        this(FileSystems.getDefault().newWatchService(), null);
+    }
+
+    /**
+     * Test seam: creates a watcher draining the given {@code WatchService}
+     * and registering directories through {@code registrar}, so unit tests
+     * can feed events without touching disk. Not for production use.
+     *
+     * @param service the event source to drain
+     * @param registrar how directories are registered, or {@code null} for
+     *        real registration with {@code service}
+     */
+    MailboxWatcher(WatchService service, DirectoryRegistrar registrar) {
+        watchService = service;
+        this.registrar = registrar != null ? registrar : new DirectoryRegistrar() {
+            @Override
+            public void register(Path dir) throws IOException {
+                dir.register(watchService,
+                        StandardWatchEventKinds.ENTRY_CREATE,
+                        StandardWatchEventKinds.ENTRY_MODIFY,
+                        StandardWatchEventKinds.ENTRY_DELETE);
+            }
+        };
         thread = new Thread(this, "gumdrop-mailbox-watcher");
         thread.setDaemon(true);
         thread.start();
@@ -128,10 +161,7 @@ public final class MailboxWatcher implements Runnable {
 
     private WatchedDir registerDirectory(Path dir) {
         try {
-            dir.register(watchService,
-                    StandardWatchEventKinds.ENTRY_CREATE,
-                    StandardWatchEventKinds.ENTRY_MODIFY,
-                    StandardWatchEventKinds.ENTRY_DELETE);
+            registrar.register(dir);
             return new WatchedDir();
         } catch (IOException e) {
             LOGGER.log(Level.WARNING, MessageFormat.format(

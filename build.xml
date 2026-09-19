@@ -1139,6 +1139,7 @@
           <include name='**/Connect*WireTest.java'/>
           <include name='**/amqp/client/AMQPClientIntegrationTest.java'/>
           <include name='**/QuicPluggableDatagramPathTest.java'/>
+          <include name='**/MailboxWatcherIntegrationTest.java'/>
           <include name='**/QuicHandshakeAsyncOffloadTest.java'/>
           <include name='**/DNSServiceTest.java'/>
           <include name='**/MDNSServiceTest.java'/>
