@@ -5839,8 +5839,8 @@ public final class ImapProtocolHandler
         submitStorage(new Callable<CopyResult>() {
             @Override
             public CopyResult call() throws IOException {
-                Map<Integer, Long> uidMap = mailbox.copyMessages(matching,
-                        targetMailboxName);
+                Map<Integer, Long> uidMap = currentStore.copyMessages(mailbox,
+                        matching, targetMailboxName);
                 long uidValidity = 0;
                 if (uidMap != null && !uidMap.isEmpty()) {
                     Mailbox target = currentStore.openMailbox(
@@ -5947,8 +5947,8 @@ public final class ImapProtocolHandler
         submitStorage(new Callable<CopyResult>() {
             @Override
             public CopyResult call() throws IOException {
-                Map<Integer, Long> uidMap = mailbox.moveMessages(matching,
-                        targetMailboxName);
+                Map<Integer, Long> uidMap = currentStore.moveMessages(mailbox,
+                        matching, targetMailboxName);
                 long uidValidity = 0;
                 if (uidMap != null && !uidMap.isEmpty()) {
                     Mailbox target = currentStore.openMailbox(

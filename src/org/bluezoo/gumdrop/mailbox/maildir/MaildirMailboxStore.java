@@ -25,7 +25,9 @@ import org.bluezoo.gumdrop.mailbox.Mailbox;
 import org.bluezoo.gumdrop.mailbox.MailboxAttribute;
 import org.bluezoo.gumdrop.mailbox.MailboxNameCodec;
 import org.bluezoo.gumdrop.mailbox.MailboxRuntime;
+import org.bluezoo.gumdrop.mailbox.Flag;
 import org.bluezoo.gumdrop.mailbox.MailboxStore;
+import org.bluezoo.gumdrop.mailbox.MessageDescriptor;
 import org.bluezoo.gumdrop.mailbox.index.MailboxIndexKey;
 import org.bluezoo.gumdrop.mailbox.index.MailboxIndexer;
 import org.bluezoo.gumdrop.mailbox.index.MailboxWatcher;
@@ -34,18 +36,23 @@ import java.io.BufferedReader;
 import java.io.BufferedWriter;
 import java.io.File;
 import java.io.IOException;
+import java.nio.ByteBuffer;
+import java.nio.channels.ReadableByteChannel;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.text.MessageFormat;
+import java.time.OffsetDateTime;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Deque;
 import java.util.EnumSet;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.ResourceBundle;
 import java.util.Set;
 import java.util.logging.Level;
@@ -87,6 +94,9 @@ import java.util.logging.Logger;
 public class MaildirMailboxStore implements MailboxStore {
 
     private static final Logger LOGGER = Logger.getLogger(MaildirMailboxStore.class.getName());
+
+    /** Chunk size used when copying message content between mailboxes. */
+    private static final int COPY_BUFFER_SIZE = 65536;
     private static final ResourceBundle L10N =
             ResourceBundle.getBundle("org.bluezoo.gumdrop.mailbox.L10N");
 
@@ -597,6 +607,61 @@ public class MaildirMailboxStore implements MailboxStore {
         }
         
         return new MaildirMailbox(mailboxPath, normalized, readOnly);
+    }
+
+    /**
+     * Copies messages between mailboxes by appending each source message to
+     * the destination. When the destination is the source mailbox itself the
+     * already-open instance is used, so its UID list stays authoritative.
+     */
+    @Override
+    public Map<Integer, Long> copyMessages(Mailbox source,
+            List<Integer> messageNumbers, String destinationMailbox)
+            throws IOException {
+        boolean sameMailbox = normalizeMailboxName(destinationMailbox)
+                .equals(normalizeMailboxName(source.getName()));
+        Mailbox destination = sameMailbox
+                ? source : openMailbox(destinationMailbox, false);
+        try {
+            Map<Integer, Long> uids = new LinkedHashMap<Integer, Long>();
+            for (int i = 0; i < messageNumbers.size(); i++) {
+                Integer number = messageNumbers.get(i);
+                long uid = copyMessage(source, number.intValue(),
+                        destination);
+                uids.put(number, Long.valueOf(uid));
+            }
+            return uids;
+        } finally {
+            if (!sameMailbox) {
+                destination.close(false);
+            }
+        }
+    }
+
+    private long copyMessage(Mailbox source, int messageNumber,
+            Mailbox destination) throws IOException {
+        Set<Flag> flags = EnumSet.noneOf(Flag.class);
+        flags.addAll(source.getFlags(messageNumber));
+        flags.remove(Flag.RECENT);
+        OffsetDateTime date = null;
+        MessageDescriptor descriptor = source.getMessage(messageNumber);
+        if (descriptor instanceof MaildirMessageDescriptor) {
+            date = ((MaildirMessageDescriptor) descriptor).getInternalDate();
+        }
+
+        destination.startAppendMessage(flags, date);
+        ReadableByteChannel in = source.getMessageContent(messageNumber);
+        try {
+            ByteBuffer buf = ByteBuffer.allocate(COPY_BUFFER_SIZE);
+            while (in.read(buf) >= 0) {
+                buf.flip();
+                destination.appendMessageContent(buf);
+                buf.clear();
+            }
+        } finally {
+            in.close();
+        }
+        return destination.endAppendMessage();
     }
 
     @Override

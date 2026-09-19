@@ -296,7 +296,7 @@ public class ImapClientEndToEndTest {
                 } else if ("selected".equals(event)) {
                     pending = "copy";
                     sel.copy("1", "Dest", this);
-                } else if ("copy".equals(event) || "copy:error".equals(event)) {
+                } else if ("copy".equals(event)) {
                     pending = "close";
                     sel.unselect(this);
                 } else if ("closed".equals(event)) {
@@ -315,10 +315,21 @@ public class ImapClientEndToEndTest {
         });
         String log = s.log.toString();
         assertTrue(log, s.log.contains("append"));
-        // The built-in stores do not implement COPY, so the server answers NO.
-        assertTrue(log, s.log.contains("copy:error"));
+        assertTrue(log, s.log.contains("copy"));
+        assertFalse(log, s.log.contains("copy:error"));
+        // INBOX has 2 messages; Dest holds the appended one plus the copy
         assertTrue(log, s.log.contains("exists=2"));
-        assertTrue(log, s.log.contains("exists=1"));
+        assertEquals(log, 2, countOf(s.log, "exists=2"));
+    }
+
+    private static int countOf(List<String> log, String entry) {
+        int count = 0;
+        for (int i = 0; i < log.size(); i++) {
+            if (entry.equals(log.get(i))) {
+                count++;
+            }
+        }
+        return count;
     }
 
     // ---- scripted client ----

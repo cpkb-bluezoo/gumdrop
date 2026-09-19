@@ -31,7 +31,6 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Iterator;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
 
 /**
@@ -475,37 +474,6 @@ public interface Mailbox {
      */
     default long endAppendMessage() throws IOException {
         throw new UnsupportedOperationException("Append not supported");
-    }
-
-    // ========================================================================
-    // Message Copy/Move (IMAP)
-    // ========================================================================
-
-    /**
-     * Copies messages to another mailbox.
-     * 
-     * @param messageNumbers the message sequence numbers to copy
-     * @param destinationMailbox the destination mailbox name
-     * @return mapping of source sequence numbers to destination UIDs
-     * @throws IOException if the copy fails
-     */
-    default Map<Integer, Long> copyMessages(List<Integer> messageNumbers, 
-            String destinationMailbox) throws IOException {
-        throw new UnsupportedOperationException("Copy not supported");
-    }
-
-    /**
-     * Moves messages to another mailbox.
-     * This is equivalent to COPY followed by marking as deleted.
-     * 
-     * @param messageNumbers the message sequence numbers to move
-     * @param destinationMailbox the destination mailbox name
-     * @return mapping of source sequence numbers to destination UIDs
-     * @throws IOException if the move fails
-     */
-    default Map<Integer, Long> moveMessages(List<Integer> messageNumbers, 
-            String destinationMailbox) throws IOException {
-        throw new UnsupportedOperationException("Move not supported");
     }
 
     // ========================================================================

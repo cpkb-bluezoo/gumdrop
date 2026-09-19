@@ -38,7 +38,6 @@ import java.time.OffsetDateTime;
 import java.util.Collections;
 import java.util.Iterator;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
 
 /**
@@ -153,14 +152,6 @@ public class UidSequenceIndexTest {
         @Override public void startAppendMessage(Set<Flag> flags, OffsetDateTime internalDate) { }
         @Override public void appendMessageContent(ByteBuffer data) { }
         @Override public long endAppendMessage() { return 0; }
-        @Override public Map<Integer, Long> copyMessages(List<Integer> messageNumbers,
-                String targetMailboxName) {
-            return null;
-        }
-        @Override public Map<Integer, Long> moveMessages(List<Integer> messageNumbers,
-                String targetMailboxName) {
-            return null;
-        }
         @Override public Set<Flag> getPermanentFlags() {
             return Collections.emptySet();
         }

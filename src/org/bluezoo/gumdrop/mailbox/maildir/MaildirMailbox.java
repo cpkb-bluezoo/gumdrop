@@ -436,11 +436,41 @@ public final class MaildirMailbox implements Mailbox {
 
             searchIndex = null;
         } finally {
+            abortAppendInProgress();
             if (gate != null) {
                 releaseGateRef(gatePath, gate);
                 gate = null;
             }
         }
+    }
+
+    /**
+     * Discards a partially written append (one that was started but never
+     * completed with {@link #endAppendMessage()}), closing its channel and
+     * removing the temporary file.
+     */
+    private void abortAppendInProgress() {
+        if (appendChannel != null) {
+            try {
+                appendChannel.close();
+            } catch (IOException e) {
+                LOGGER.log(Level.WARNING,
+                        L10N.getString("warn.error_closing_append_channel"), e);
+            }
+            appendChannel = null;
+        }
+        if (appendTempPath != null) {
+            try {
+                Files.deleteIfExists(appendTempPath);
+            } catch (IOException e) {
+                LOGGER.log(Level.WARNING,
+                        L10N.getString("warn.error_cleaning_up_temp_file"), e);
+            }
+            appendTempPath = null;
+        }
+        appendFlags = null;
+        appendDate = null;
+        appendKeywords = null;
     }
 
     @Override

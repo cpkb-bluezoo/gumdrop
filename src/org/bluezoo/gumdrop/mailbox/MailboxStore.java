@@ -23,6 +23,7 @@ package org.bluezoo.gumdrop.mailbox;
 
 import java.io.IOException;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 /**
@@ -191,6 +192,49 @@ public interface MailboxStore {
      * @throws IOException if attributes cannot be retrieved
      */
     Set<MailboxAttribute> getMailboxAttributes(String mailboxName) throws IOException;
+
+    /**
+     * Copies messages from one mailbox of this store to another (IMAP COPY).
+     * Message content, flags and internal date are preserved; the copies are
+     * assigned new UIDs in the destination.
+     *
+     * <p>This performs blocking I/O and must be called from a storage
+     * thread, never from a selector loop.
+     *
+     * @param source the open source mailbox
+     * @param messageNumbers the source message sequence numbers to copy
+     * @param destinationMailbox the name of an existing destination mailbox
+     * @return mapping of source sequence numbers to destination UIDs
+     * @throws IOException if the destination does not exist or the copy fails
+     * @throws UnsupportedOperationException if the store cannot copy between
+     *         mailboxes
+     */
+    default Map<Integer, Long> copyMessages(Mailbox source,
+            List<Integer> messageNumbers, String destinationMailbox)
+            throws IOException {
+        throw new UnsupportedOperationException("Copy not supported");
+    }
+
+    /**
+     * Moves messages from one mailbox of this store to another (IMAP MOVE):
+     * a copy followed by removal of the source messages.
+     *
+     * <p>This performs blocking I/O and must be called from a storage
+     * thread, never from a selector loop.
+     *
+     * @param source the open source mailbox
+     * @param messageNumbers the source message sequence numbers to move
+     * @param destinationMailbox the name of an existing destination mailbox
+     * @return mapping of source sequence numbers to destination UIDs
+     * @throws IOException if the destination does not exist or the move fails
+     * @throws UnsupportedOperationException if the store cannot move between
+     *         mailboxes
+     */
+    default Map<Integer, Long> moveMessages(Mailbox source,
+            List<Integer> messageNumbers, String destinationMailbox)
+            throws IOException {
+        throw new UnsupportedOperationException("Move not supported");
+    }
 
     /**
      * Returns the quota root for the specified mailbox.
