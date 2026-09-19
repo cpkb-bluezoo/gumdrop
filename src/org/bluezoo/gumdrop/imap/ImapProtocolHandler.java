@@ -1340,6 +1340,9 @@ public final class ImapProtocolHandler
             case "SORT":
                 handleSort(tag, args, false);
                 break;
+            case "THREAD":
+                handleThread(tag, args, false);
+                break;
             case "UID":
                 handleUid(tag, args);
                 break;
@@ -4605,6 +4608,79 @@ public final class ImapProtocolHandler
         });
     }
 
+    // RFC 5256 — THREAD and UID THREAD
+    private void handleThread(String tag, String args, boolean uid)
+            throws IOException {
+        if (!server.isEnableSORT()) {
+            sendTaggedBad(tag, MessageFormat.format(
+                    L10N.getString("imap.err.unknown_command"), "THREAD"));
+            return;
+        }
+        if (selectedMailbox == null) {
+            sendTaggedNo(tag, L10N.getString("imap.err.no_mailbox_selected"));
+            return;
+        }
+        try {
+            ThreadRequest request = new ThreadParser(args).parse();
+            if (!ImapCharset.isSortThreadSupported(request.getCharset())) {
+                sendTaggedNo(tag,
+                        L10N.getString("imap.err.thread_charset"));
+                return;
+            }
+            executeThread(tag, request, uid);
+        } catch (ParseException e) {
+            sendTaggedBad(tag, MessageFormat.format(
+                    L10N.getString("imap.err.thread_syntax"), e.getMessage()));
+        }
+    }
+
+    private void executeThread(String tag, ThreadRequest request, boolean uid)
+            throws IOException {
+        final Mailbox mbox = selectedMailbox;
+        final SearchCriteria crit = request.getSearchCriteria();
+        final ThreadAlgorithm algorithm = request.getAlgorithm();
+        final boolean uidMode = uid;
+
+        submitStorage(new Callable<String>() {
+            @Override
+            public String call() throws IOException {
+                List<Integer> results = new ArrayList<>(mbox.search(crit));
+                return MessageThreader.thread(mbox, results, algorithm,
+                        uidMode);
+            }
+        }, new StorageExecutor.Callback<String>() {
+            @Override
+            public void completed(String threadData) {
+                try {
+                    StringBuilder response = new StringBuilder("THREAD");
+                    if (threadData != null && !threadData.isEmpty()) {
+                        response.append(' ');
+                        response.append(threadData);
+                    }
+                    sendUntagged(response.toString());
+                    sendTaggedOk(tag,
+                            L10N.getString("imap.thread_complete"));
+                } catch (IOException e) {
+                    LOGGER.log(Level.WARNING,
+                            L10N.getString("warn.failed_send_thread_response"),
+                            e);
+                }
+            }
+
+            @Override
+            public void failed(Throwable error) {
+                if (error instanceof UnsupportedOperationException) {
+                    sendTaggedNoQuietly(tag, "imap.err.search_not_supported");
+                } else {
+                    LOGGER.log(Level.WARNING,
+                            L10N.getString("warn.thread_failed"), error);
+                    recordSessionException(error);
+                    sendTaggedNoQuietly(tag, "imap.err.internal_error");
+                }
+            }
+        });
+    }
+
     // RFC 9051 section 6.4.9 — UID command prefix
     private void handleUid(String tag, String args) throws IOException {
         int spaceIndex = args.indexOf(' ');
@@ -4625,6 +4701,9 @@ public final class ImapProtocolHandler
                 break;
             case "SORT":
                 handleSort(tag, subArgs, true);
+                break;
+            case "THREAD":
+                handleThread(tag, subArgs, true);
                 break;
             case "STORE":
                 handleStore(tag, subArgs, true);

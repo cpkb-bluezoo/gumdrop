@@ -59,11 +59,11 @@ public class MessageSorterTest {
         assertEquals(Arrays.asList(1, 3, 2), matches);
     }
 
-    private static String msg(int num, String subject, String from) {
+    static String msg(int num, String subject, String from) {
         return msg(num, subject, from, 50);
     }
 
-    private static String msg(int num, String subject, String from,
+    static String msg(int num, String subject, String from,
             int pad) {
         StringBuilder body = new StringBuilder();
         for (int i = 0; i < pad; i++) {
@@ -77,7 +77,7 @@ public class MessageSorterTest {
                 + body + "\r\n";
     }
 
-    private static final class SortMailbox implements Mailbox {
+    static final class SortMailbox implements Mailbox {
         private final String[] bodies;
 
         SortMailbox(String... bodies) {

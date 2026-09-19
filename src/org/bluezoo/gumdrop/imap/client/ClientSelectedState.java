@@ -42,6 +42,10 @@ public interface ClientSelectedState extends ClientAuthenticatedState {
 
     void uidSort(String arguments, SearchReplyHandler callback);
 
+    void thread(String arguments, ThreadReplyHandler callback);
+
+    void uidThread(String arguments, ThreadReplyHandler callback);
+
     void fetch(String sequenceSet, String dataItems, FetchReplyHandler callback);
 
     void uidFetch(String sequenceSet, String dataItems, FetchReplyHandler callback);

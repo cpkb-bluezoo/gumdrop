@@ -807,6 +807,8 @@ public class ImapListener extends TcpListener {
             }
             if (enableSORT) {
                 caps.append(" SORT");          // RFC 5256
+                caps.append(" THREAD=ORDEREDSUBJECT");
+                caps.append(" THREAD=REFERENCES");
                 caps.append(" I18NLEVEL=1");   // RFC 5256 / RFC 5255
             }
         }

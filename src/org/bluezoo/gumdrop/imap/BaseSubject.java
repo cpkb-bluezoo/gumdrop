@@ -20,6 +20,28 @@ public final class BaseSubject {
     }
 
     /**
+     * Returns true if RFC 5256 treats the message as a reply or forward
+     * based on the original Subject value.
+     */
+    public static boolean isReplyOrForward(String rawSubject) {
+        if (rawSubject == null || rawSubject.isEmpty()) {
+            return false;
+        }
+        String subject = Rfc2047Decoder.decodeHeaderValue(rawSubject);
+        subject = ImapUnicodeCasemap.normalizeSpaces(subject);
+        String before = subject;
+        subject = removeTrailers(subject);
+        if (!subject.equals(before)) {
+            return true;
+        }
+        if (stripOneLeaderOrBlob(subject) != null) {
+            return true;
+        }
+        String lower = subject.trim().toLowerCase(Locale.ROOT);
+        return lower.startsWith("[fwd:") && subject.trim().endsWith("]");
+    }
+
+    /**
      * Extracts the base subject from a raw Subject header value.
      */
     public static String extract(String rawSubject) {

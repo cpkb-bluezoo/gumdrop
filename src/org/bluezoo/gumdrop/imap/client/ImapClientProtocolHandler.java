@@ -132,6 +132,9 @@ public final class ImapClientProtocolHandler
     // SEARCH result accumulation
     private List<Long> searchResults;
 
+    // THREAD result (parenthesized thread data after "THREAD ")
+    private String pendingThreadData;
+
     // FETCH state
     private int fetchMessageNumber;
     private FetchData fetchData;
@@ -744,6 +747,20 @@ public final class ImapClientProtocolHandler
         sendTaggedCommand("UID SORT " + arguments, ImapState.SORT_SENT);
     }
 
+    @Override
+    public void thread(String arguments, ThreadReplyHandler callback) {
+        this.currentCallback = callback;
+        pendingThreadData = "";
+        sendTaggedCommand("THREAD " + arguments, ImapState.THREAD_SENT);
+    }
+
+    @Override
+    public void uidThread(String arguments, ThreadReplyHandler callback) {
+        this.currentCallback = callback;
+        pendingThreadData = "";
+        sendTaggedCommand("UID THREAD " + arguments, ImapState.THREAD_SENT);
+    }
+
     // RFC 9051 section 6.4.5 — FETCH command
     @Override
     public void fetch(String sequenceSet, String dataItems,
@@ -1048,6 +1065,11 @@ public final class ImapClientProtocolHandler
 
         if (upper.startsWith("SORT")) {
             dispatchSortLine(msg);
+            return;
+        }
+
+        if (upper.startsWith("THREAD")) {
+            dispatchThreadLine(msg);
             return;
         }
 
@@ -1490,6 +1512,10 @@ public final class ImapClientProtocolHandler
         accumulateSearchNumbers(data);
     }
 
+    private void dispatchThreadLine(String msg) {
+        pendingThreadData = msg.length() > 6 ? msg.substring(6).trim() : "";
+    }
+
     private void dispatchSearchLine(String msg) {
         // Format: SEARCH 1 2 3 4 or just SEARCH (empty result)
         String data = msg.length() > 6 ? msg.substring(7).trim() : "";
@@ -1678,6 +1704,9 @@ public final class ImapClientProtocolHandler
             case SEARCH_SENT:
             case SORT_SENT:
                 dispatchSearchComplete(response);
+                break;
+            case THREAD_SENT:
+                dispatchThreadComplete(response);
                 break;
             case FETCH_SENT:
                 dispatchFetchComplete(response);
@@ -1979,6 +2008,20 @@ public final class ImapClientProtocolHandler
             searchResults.clear();
             callback.handleError(this, response.getMessage());
         }
+    }
+
+    private void dispatchThreadComplete(ImapResponse response) {
+        ThreadReplyHandler callback =
+                (ThreadReplyHandler) currentCallback;
+        currentCallback = null;
+        state = ImapState.SELECTED;
+
+        if (response.isOk()) {
+            callback.handleThread(this, pendingThreadData);
+        } else {
+            callback.handleError(this, response.getMessage());
+        }
+        pendingThreadData = "";
     }
 
     private void dispatchFetchComplete(ImapResponse response) {

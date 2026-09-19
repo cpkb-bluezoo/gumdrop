@@ -179,6 +179,10 @@ public class IMAPListenerTest {
                 caps.contains(" SORT"));
         assertTrue("I18NLEVEL=1 should appear with SORT",
                 caps.contains("I18NLEVEL=1"));
+        assertTrue("THREAD=ORDEREDSUBJECT should be advertised",
+                caps.contains("THREAD=ORDEREDSUBJECT"));
+        assertTrue("THREAD=REFERENCES should be advertised",
+                caps.contains("THREAD=REFERENCES"));
     }
 
     @Test
