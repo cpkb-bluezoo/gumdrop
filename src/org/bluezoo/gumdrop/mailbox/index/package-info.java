@@ -33,12 +33,15 @@
  * org.bluezoo.gumdrop.mailbox.index.IndexedMessageContext} then answers
  * search evaluation directly from the indexed entry. UID, message
  * number, size, dates, system flags, keywords, and the From/To/Cc/Bcc/
- * Subject/Message-ID headers are indexed; body text and full headers are
- * not, so TEXT/BODY searches fall back to parsing the actual message.
+ * Subject headers (lowercase for search), plus Message-ID, References,
+ * and In-Reply-To (canonical, case preserved for RFC 5256 threading).
+ * Body text and other headers are not indexed; TEXT/BODY searches fall
+ * back to parsing the actual message.
  *
  * <p>Indexes persist as a {@code .gidx} file alongside the mailbox
- * (mbox) or inside its directory (Maildir), versioned with a magic
- * number and CRC32 checksums; a failed checksum triggers a full rebuild
+ * (mbox) or inside its directory (Maildir), format version 2,
+ * magic number and CRC32 checksums; stale versions or failed checksums
+ * trigger a full rebuild
  * rather than serving stale or corrupt data. Each session loads its own
  * copy, so there is no cross-session locking, and updates (append,
  * expunge, flag change) apply incrementally and persist on close.

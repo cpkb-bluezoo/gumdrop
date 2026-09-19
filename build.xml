@@ -739,7 +739,7 @@
   <target name='junit-test' depends='junit-build'>
     <mkdir dir='${testdir}/junit/results'/>
     <junit printsummary='yes' haltonfailure='yes' haltonerror='yes'
-           logfailedtests='true'>
+           logfailedtests='true' forkmode='perTest' timeout='120000'>
       <sysproperty key='java.util.logging.config.file'
                    value='${testdir}/junit/resources/logging-unit-test.properties'/>
       <classpath>

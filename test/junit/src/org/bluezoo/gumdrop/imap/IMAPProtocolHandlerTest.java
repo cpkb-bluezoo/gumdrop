@@ -286,11 +286,7 @@ public class IMAPProtocolHandlerTest {
             longArgs.append('a');
         }
         sendCommand("a1 SELECT " + longArgs);
-        // The pre-conversion code's own line-too-long check ran on the raw
-        // bytes before the tag was ever parsed out, so the error reply
-        // always used currentTag (still unset here) / "*", never the
-        // current line's own tag — faithfully replicated, not a bug.
-        assertTrue("Should report line too long", lastResponse().startsWith("* BAD"));
+        assertTrue("Should report line too long", lastResponse().startsWith("a1 BAD"));
 
         sendCommand("a2 NOOP");
         assertTrue(lastResponse().startsWith("a2 OK"));

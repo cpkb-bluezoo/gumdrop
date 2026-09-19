@@ -31,6 +31,7 @@ import java.nio.channels.ReadableByteChannel;
 import java.nio.charset.CharacterCodingException;
 import java.nio.charset.Charset;
 import java.nio.charset.CharsetDecoder;
+import java.nio.charset.CodingErrorAction;
 import java.nio.charset.StandardCharsets;
 import java.security.Principal;
 import java.security.SecureRandom;
@@ -63,6 +64,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.logging.Level;
 import java.util.logging.Logger;
+import java.util.zip.DataFormatException;
 
 import org.bluezoo.gumdrop.ByteStreamLexer;
 import org.bluezoo.gumdrop.Endpoint;
@@ -183,7 +185,12 @@ public final class ImapProtocolHandler
 
     static final Charset US_ASCII = StandardCharsets.US_ASCII;
     static final Charset UTF_8 = StandardCharsets.UTF_8;
-    static final CharsetDecoder US_ASCII_DECODER = US_ASCII.newDecoder();
+    static final CharsetDecoder US_ASCII_DECODER = US_ASCII.newDecoder()
+            .onMalformedInput(CodingErrorAction.REPORT)
+            .onUnmappableCharacter(CodingErrorAction.REPORT);
+    static final CharsetDecoder UTF_8_DECODER = UTF_8.newDecoder()
+            .onMalformedInput(CodingErrorAction.REPORT)
+            .onUnmappableCharacter(CodingErrorAction.REPORT);
 
     private static final String CRLF = "\r\n";
     private static final SecureRandom RANDOM = new SecureRandom();
@@ -294,6 +301,12 @@ public final class ImapProtocolHandler
     private boolean condstoreEnabled = false;
     private boolean qresyncEnabled = false;
 
+    // RFC 4978 — COMPRESS=DEFLATE wire encoding (null until negotiated)
+    private ImapDeflateLayer deflateLayer;
+
+    // RFC 6855 — UTF8=ACCEPT (UTF-8 on the wire after ENABLE)
+    private boolean utf8AcceptEnabled;
+
     // APPEND literal state
     private String appendTag = null;
     private Mailbox appendMailbox = null;
@@ -366,7 +379,19 @@ public final class ImapProtocolHandler
 
     @Override
     public void receive(ByteBuffer buffer) {
-        lexer.feed(buffer);
+        if (deflateLayer == null) {
+            lexer.feed(buffer);
+            return;
+        }
+        try {
+            byte[] plain = deflateLayer.inflate(buffer);
+            if (plain.length > 0) {
+                lexer.feed(ByteBuffer.wrap(plain));
+            }
+        } catch (DataFormatException e) {
+            LOGGER.log(Level.WARNING, L10N.getString("warn.compress_inflate_failed"), e);
+            endpoint.close();
+        }
     }
 
     @Override
@@ -384,6 +409,10 @@ public final class ImapProtocolHandler
         } finally {
             cancelIdleTimer();
             offloadCloseMailboxAndStore();
+            if (deflateLayer != null) {
+                deflateLayer.close();
+                deflateLayer = null;
+            }
         }
     }
 
@@ -485,7 +514,7 @@ public final class ImapProtocolHandler
                 segmentByteCount = window.remaining();
                 if (segmentError == null) {
                     try {
-                        String text = decodeAscii(window);
+                        String text = decodeCommandText(window);
                         if (freshCommand) {
                             pendingTagText = text;
                         } else {
@@ -515,7 +544,7 @@ public final class ImapProtocolHandler
                         segmentError = L10N.getString("imap.err.line_too_long");
                     } else {
                         try {
-                            argsBuilder.append(decodeAscii(window));
+                            argsBuilder.append(decodeCommandText(window));
                             segmentByteCount += len;
                         } catch (CharacterCodingException e) {
                             segmentError = L10N.getString(
@@ -565,6 +594,41 @@ public final class ImapProtocolHandler
 
     private static String decodeAscii(ByteBuffer window) throws CharacterCodingException {
         return US_ASCII_DECODER.decode(window).toString();
+    }
+
+    private static boolean containsNonAscii(String text) {
+        for (int i = 0; i < text.length(); i++) {
+            if (text.charAt(i) > 0x7f) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private String decodeCommandText(ByteBuffer window)
+            throws CharacterCodingException {
+        ByteBuffer dup = window.duplicate();
+        if (utf8AcceptEnabled) {
+            try {
+                return UTF_8_DECODER.decode(dup).toString();
+            } finally {
+                UTF_8_DECODER.reset();
+            }
+        }
+        try {
+            return US_ASCII_DECODER.decode(dup).toString();
+        } finally {
+            US_ASCII_DECODER.reset();
+        }
+    }
+
+    /**
+     * Returns whether RFC 6855 UTF8=ACCEPT is active on this connection.
+     *
+     * @return true after successful {@code ENABLE UTF8=ACCEPT}
+     */
+    public boolean isUtf8AcceptEnabled() {
+        return utf8AcceptEnabled;
     }
 
     private void resetSegmentState() {
@@ -728,7 +792,8 @@ public final class ImapProtocolHandler
         try {
             if (segmentError != null) {
                 String err = segmentError;
-                String tag = currentTag != null ? currentTag : "*";
+                String tag = currentTag != null ? currentTag
+                        : (!pendingTagText.isEmpty() ? pendingTagText : "*");
                 resetCommandState();
                 sendTaggedBad(tag, err);
                 return;
@@ -808,6 +873,13 @@ public final class ImapProtocolHandler
             return;
         }
         currentTag = tag;
+
+        if (!utf8AcceptEnabled && containsNonAscii(args)) {
+            sendTaggedBad(tag,
+                    L10N.getString("imap.err.invalid_command_encoding"));
+            resetCommandState();
+            return;
+        }
 
         int spaceIndex = args.indexOf(' ');
         String command;
@@ -931,8 +1003,7 @@ public final class ImapProtocolHandler
         if (clientConnected != null) {
             clientConnected.connected(new ConnectedStateImpl(), endpoint);
         } else {
-            String caps = server.getCapabilities(false, endpoint.isSecure());
-            sendUntagged("OK [CAPABILITY " + caps + "] "
+            sendUntagged("OK [CAPABILITY " + getAdvertisedCapabilities() + "] "
                     + L10N.getString("imap.greeting"));
         }
     }
@@ -1190,6 +1261,9 @@ public final class ImapProtocolHandler
             case "SETQUOTA":
                 handleSetQuota(tag, args);
                 break;
+            case "COMPRESS":
+                handleCompress(tag, args);
+                break;
             default:
                 sendTaggedBad(tag, MessageFormat.format(
                         L10N.getString("imap.err.unknown_command"), command));
@@ -1263,6 +1337,12 @@ public final class ImapProtocolHandler
             case "SEARCH":
                 handleSearch(tag, args, false);
                 break;
+            case "SORT":
+                handleSort(tag, args, false);
+                break;
+            case "THREAD":
+                handleThread(tag, args, false);
+                break;
             case "UID":
                 handleUid(tag, args);
                 break;
@@ -1278,6 +1358,9 @@ public final class ImapProtocolHandler
             case "MOVE":
                 handleMove(tag, args, false);
                 break;
+            case "COMPRESS":
+                handleCompress(tag, args);
+                break;
             default:
                 sendTaggedBad(tag, MessageFormat.format(
                         L10N.getString("imap.err.unknown_command"), command));
@@ -1288,10 +1371,35 @@ public final class ImapProtocolHandler
 
     // RFC 9051 section 6.1.1 — CAPABILITY command
     private void handleCapability(String tag) throws IOException {
-        String caps = server.getCapabilities(
-                state != ImapState.NOT_AUTHENTICATED, endpoint.isSecure());
-        sendUntagged("CAPABILITY " + caps);
+        sendUntagged("CAPABILITY " + getAdvertisedCapabilities());
         sendTaggedOk(tag, L10N.getString("imap.capability_complete"));
+    }
+
+    // RFC 4978 — COMPRESS DEFLATE
+    private void handleCompress(String tag, String args) throws IOException {
+        if (!server.isEnableCOMPRESS()) {
+            sendTaggedBad(tag, MessageFormat.format(
+                    L10N.getString("imap.err.unknown_command"), "COMPRESS"));
+            return;
+        }
+        if (deflateLayer != null) {
+            sendTaggedNo(tag, L10N.getString("imap.err.compress_active"));
+            return;
+        }
+        if (args == null || !args.trim().equalsIgnoreCase("DEFLATE")) {
+            sendTaggedBad(tag, L10N.getString("imap.err.compress_syntax"));
+            return;
+        }
+        // RFC 4978 section 3.1 — OK must not be compressed
+        sendTaggedOk(tag, L10N.getString("imap.compress_active"));
+        deflateLayer = new ImapDeflateLayer();
+    }
+
+    private String getAdvertisedCapabilities() {
+        return server.getCapabilities(
+                state != ImapState.NOT_AUTHENTICATED,
+                endpoint.isSecure(),
+                deflateLayer != null);
     }
 
     // RFC 2971 — ID command
@@ -1413,7 +1521,7 @@ public final class ImapProtocolHandler
                         public void run() {
                             try {
                                 sendTaggedOk(tag, "[CAPABILITY "
-                                        + server.getCapabilities(true, endpoint.isSecure())
+                                        + getAdvertisedCapabilities()
                                         + "] " + L10N.getString("imap.login_complete"));
                             } catch (IOException e) {
                                 LOGGER.log(Level.WARNING,
@@ -2100,7 +2208,7 @@ public final class ImapProtocolHandler
 
     private void authSucceeded() throws IOException {
         sendTaggedOk(pendingAuthTag, "[CAPABILITY "
-                + server.getCapabilities(true, endpoint.isSecure()) + "] "
+                + getAdvertisedCapabilities() + "] "
                 + L10N.getString("imap.auth_complete"));
         resetAuthState();
     }
@@ -3813,6 +3921,14 @@ public final class ImapProtocolHandler
                     enabled.append(' ');
                 }
                 enabled.append("QRESYNC");
+            } else if (ext.equals("UTF8=ACCEPT")
+                    && server.isEnableUTF8ACCEPT()
+                    && !utf8AcceptEnabled) {
+                utf8AcceptEnabled = true;
+                if (enabled.length() > 0) {
+                    enabled.append(' ');
+                }
+                enabled.append("UTF8=ACCEPT");
             }
         }
         if (enabled.length() > 0) {
@@ -4416,6 +4532,155 @@ public final class ImapProtocolHandler
         });
     }
 
+    // RFC 5256 — SORT and UID SORT
+    private void handleSort(String tag, String args, boolean uid)
+            throws IOException {
+        if (!server.isEnableSORT()) {
+            sendTaggedBad(tag, MessageFormat.format(
+                    L10N.getString("imap.err.unknown_command"), "SORT"));
+            return;
+        }
+        if (selectedMailbox == null) {
+            sendTaggedNo(tag, L10N.getString("imap.err.no_mailbox_selected"));
+            return;
+        }
+        try {
+            SortRequest request = new SortParser(args).parse();
+            if (!ImapCharset.isSortThreadSupported(request.getCharset())) {
+                sendTaggedNo(tag,
+                        L10N.getString("imap.err.sort_charset"));
+                return;
+            }
+            executeSort(tag, request, uid);
+        } catch (ParseException e) {
+            sendTaggedBad(tag, MessageFormat.format(
+                    L10N.getString("imap.err.sort_syntax"), e.getMessage()));
+        }
+    }
+
+    private void executeSort(String tag, SortRequest request, boolean uid)
+            throws IOException {
+        final Mailbox mbox = selectedMailbox;
+        final SearchCriteria crit = request.getSearchCriteria();
+        final List<SortCriterion> program = request.getSortProgram();
+        final boolean uidMode = uid;
+
+        submitStorage(new Callable<List<Integer>>() {
+            @Override
+            public List<Integer> call() throws IOException {
+                List<Integer> results = new ArrayList<>(mbox.search(crit));
+                MessageSorter.sort(mbox, results, program);
+                return results;
+            }
+        }, new StorageExecutor.Callback<List<Integer>>() {
+            @Override
+            public void completed(List<Integer> results) {
+                try {
+                    StringBuilder response = new StringBuilder("SORT");
+                    for (Integer msgNum : results) {
+                        response.append(' ');
+                        if (uidMode) {
+                            response.append(mbox.getUniqueId(msgNum));
+                        } else {
+                            response.append(msgNum);
+                        }
+                    }
+                    sendUntagged(response.toString());
+                    sendTaggedOk(tag,
+                            L10N.getString("imap.sort_complete"));
+                } catch (IOException e) {
+                    LOGGER.log(Level.WARNING,
+                            L10N.getString("warn.failed_send_sort_response"), e);
+                }
+            }
+
+            @Override
+            public void failed(Throwable error) {
+                if (error instanceof UnsupportedOperationException) {
+                    sendTaggedNoQuietly(tag, "imap.err.search_not_supported");
+                } else {
+                    LOGGER.log(Level.WARNING,
+                            L10N.getString("warn.sort_failed"), error);
+                    recordSessionException(error);
+                    sendTaggedNoQuietly(tag, "imap.err.internal_error");
+                }
+            }
+        });
+    }
+
+    // RFC 5256 — THREAD and UID THREAD
+    private void handleThread(String tag, String args, boolean uid)
+            throws IOException {
+        if (!server.isEnableSORT()) {
+            sendTaggedBad(tag, MessageFormat.format(
+                    L10N.getString("imap.err.unknown_command"), "THREAD"));
+            return;
+        }
+        if (selectedMailbox == null) {
+            sendTaggedNo(tag, L10N.getString("imap.err.no_mailbox_selected"));
+            return;
+        }
+        try {
+            ThreadRequest request = new ThreadParser(args).parse();
+            if (!ImapCharset.isSortThreadSupported(request.getCharset())) {
+                sendTaggedNo(tag,
+                        L10N.getString("imap.err.thread_charset"));
+                return;
+            }
+            executeThread(tag, request, uid);
+        } catch (ParseException e) {
+            sendTaggedBad(tag, MessageFormat.format(
+                    L10N.getString("imap.err.thread_syntax"), e.getMessage()));
+        }
+    }
+
+    private void executeThread(String tag, ThreadRequest request, boolean uid)
+            throws IOException {
+        final Mailbox mbox = selectedMailbox;
+        final SearchCriteria crit = request.getSearchCriteria();
+        final ThreadAlgorithm algorithm = request.getAlgorithm();
+        final boolean uidMode = uid;
+
+        submitStorage(new Callable<String>() {
+            @Override
+            public String call() throws IOException {
+                List<Integer> results = new ArrayList<>(mbox.search(crit));
+                return MessageThreader.thread(mbox, results, algorithm,
+                        uidMode);
+            }
+        }, new StorageExecutor.Callback<String>() {
+            @Override
+            public void completed(String threadData) {
+                try {
+                    StringBuilder response = new StringBuilder("THREAD");
+                    if (threadData != null && !threadData.isEmpty()) {
+                        response.append(' ');
+                        response.append(threadData);
+                    }
+                    sendUntagged(response.toString());
+                    sendTaggedOk(tag,
+                            L10N.getString("imap.thread_complete"));
+                } catch (IOException e) {
+                    LOGGER.log(Level.WARNING,
+                            L10N.getString("warn.failed_send_thread_response"),
+                            e);
+                }
+            }
+
+            @Override
+            public void failed(Throwable error) {
+                if (error instanceof UnsupportedOperationException) {
+                    sendTaggedNoQuietly(tag, "imap.err.search_not_supported");
+                } else {
+                    LOGGER.log(Level.WARNING,
+                            L10N.getString("warn.thread_failed"), error);
+                    recordSessionException(error);
+                    sendTaggedNoQuietly(tag, "imap.err.internal_error");
+                }
+            }
+        });
+    }
+
     // RFC 9051 section 6.4.9 — UID command prefix
     private void handleUid(String tag, String args) throws IOException {
         int spaceIndex = args.indexOf(' ');
@@ -4433,6 +4698,12 @@ public final class ImapProtocolHandler
                 break;
             case "SEARCH":
                 handleSearch(tag, subArgs, true);
+                break;
+            case "SORT":
+                handleSort(tag, subArgs, true);
+                break;
+            case "THREAD":
+                handleThread(tag, subArgs, true);
                 break;
             case "STORE":
                 handleStore(tag, subArgs, true);
@@ -6893,7 +7164,11 @@ public final class ImapProtocolHandler
     }
 
     private void sendLine(String line) throws IOException {
-        byte[] bytes = (line + CRLF).getBytes(US_ASCII);
+        Charset wireCs = utf8AcceptEnabled ? UTF_8 : US_ASCII;
+        byte[] bytes = (line + CRLF).getBytes(wireCs);
+        if (deflateLayer != null) {
+            bytes = deflateLayer.compressAndFlush(bytes);
+        }
         endpoint.send(ByteBuffer.wrap(bytes));
     }
 
@@ -6906,8 +7181,8 @@ public final class ImapProtocolHandler
                 NotAuthenticatedHandler handler) {
             notAuthenticatedHandler = handler;
             try {
-                String caps = server.getCapabilities(false, endpoint.isSecure());
-                sendUntagged("OK [CAPABILITY " + caps + "] " + greeting);
+                sendUntagged("OK [CAPABILITY " + getAdvertisedCapabilities()
+                        + "] " + greeting);
             } catch (IOException e) {
                 LOGGER.log(Level.WARNING, L10N.getString("warn.failed_send_greeting"), e);
                 closeEndpoint();
@@ -6919,8 +7194,8 @@ public final class ImapProtocolHandler
             authenticatedHandler = handler;
             state = ImapState.AUTHENTICATED;
             try {
-                String caps = server.getCapabilities(true, endpoint.isSecure());
-                sendUntagged("PREAUTH [CAPABILITY " + caps + "] " + greeting);
+                sendUntagged("PREAUTH [CAPABILITY "
+                        + getAdvertisedCapabilities() + "] " + greeting);
             } catch (IOException e) {
                 LOGGER.log(Level.WARNING, L10N.getString("warn.failed_send_preauth_greeting"), e);
                 closeEndpoint();
@@ -6982,10 +7257,8 @@ public final class ImapProtocolHandler
                         if (success != null) {
                             success.run();
                         } else {
-                            String caps = server.getCapabilities(true,
-                                    endpoint.isSecure());
-                            sendTaggedOk(responseTag, "[CAPABILITY " + caps
-                                    + "] "
+                            sendTaggedOk(responseTag, "[CAPABILITY "
+                                    + getAdvertisedCapabilities() + "] "
                                     + L10N.getString("imap.auth_complete"));
                         }
                     } catch (IOException e) {
@@ -7012,8 +7285,8 @@ public final class ImapProtocolHandler
             startAuthenticatedSpan(authenticatedUser, mechanism);
             resetAuthState();
             try {
-                String caps = server.getCapabilities(true, endpoint.isSecure());
-                sendTaggedOk(tag, "[CAPABILITY " + caps + "] " + message);
+                sendTaggedOk(tag, "[CAPABILITY " + getAdvertisedCapabilities()
+                        + "] " + message);
             } catch (IOException e) {
                 LOGGER.log(Level.WARNING, L10N.getString("warn.failed_send_auth_ok"), e);
             }

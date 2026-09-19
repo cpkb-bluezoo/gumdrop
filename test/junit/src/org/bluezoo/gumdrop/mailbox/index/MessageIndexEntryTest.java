@@ -205,6 +205,28 @@ public class MessageIndexEntryTest {
     }
 
     @Test
+    public void testSerializationRoundTripWithThreadingHeaders() throws IOException {
+        MessageIndexEntry original = new MessageIndexEntry(
+            1L, 1, 100L, 0L, 0L, EnumSet.noneOf(Flag.class),
+            "loc", "from@test.com", "to@test.com", "", "",
+            "subject", "<Case@Example.COM>",
+            "<a@test.com> <b@test.com>", "<a@test.com>", "kw");
+
+        ByteArrayOutputStream baos = new ByteArrayOutputStream();
+        DataOutputStream dos = new DataOutputStream(baos);
+        original.writeTo(dos);
+        dos.flush();
+
+        MessageIndexEntry restored =
+                MessageIndexEntry.readFrom(new DataInputStream(
+                        new ByteArrayInputStream(baos.toByteArray())));
+
+        assertEquals("<Case@Example.COM>", restored.getMessageId());
+        assertEquals("<a@test.com> <b@test.com>", restored.getReferences());
+        assertEquals("<a@test.com>", restored.getInReplyTo());
+    }
+
+    @Test
     public void testSerializationWithEmptyStrings() throws IOException {
         MessageIndexEntry original = new MessageIndexEntry(
             1L, 1, 0L, 0L, 0L, EnumSet.noneOf(Flag.class),

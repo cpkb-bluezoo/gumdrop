@@ -141,6 +141,10 @@ public class IndexedMessageContext implements MessageContext {
                 return entry.getSubject();
             case "message-id":
                 return entry.getMessageId();
+            case "references":
+                return entry.getReferences();
+            case "in-reply-to":
+                return entry.getInReplyTo();
             default:
                 // Header not indexed - return empty
                 // Searches on non-indexed headers will need to fall back to parsing
@@ -167,6 +171,8 @@ public class IndexedMessageContext implements MessageContext {
         appendHeader(sb, "Cc", entry.getCc());
         appendHeader(sb, "Subject", entry.getSubject());
         appendHeader(sb, "Message-ID", entry.getMessageId());
+        appendHeader(sb, "References", entry.getReferences());
+        appendHeader(sb, "In-Reply-To", entry.getInReplyTo());
         return sb;
     }
 

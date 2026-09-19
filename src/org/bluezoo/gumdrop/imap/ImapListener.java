@@ -50,6 +50,8 @@ import org.bluezoo.gumdrop.tls.TlsConfig;
  *   <li>RFC 2342 - NAMESPACE</li>
  *   <li>RFC 6851 - MOVE</li>
  *   <li>RFC 9208 - QUOTA</li>
+ *   <li>RFC 4978 - COMPRESS=DEFLATE</li>
+ *   <li>RFC 6855 - UTF8=ACCEPT</li>
  * </ul>
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
@@ -88,6 +90,9 @@ public class ImapListener extends TcpListener {
     protected boolean enableNAMESPACE = true;
     protected boolean enableQUOTA = true;
     protected boolean enableMOVE = true;
+    protected boolean enableCOMPRESS = true;
+    protected boolean enableUTF8ACCEPT = true;
+    protected boolean enableSORT = true;
     protected boolean enableCONDSTORE = true;
     protected boolean enableQRESYNC = true;
 
@@ -404,6 +409,60 @@ public class ImapListener extends TcpListener {
     }
 
     /**
+     * Returns whether the COMPRESS=DEFLATE extension is enabled.
+     *
+     * @return true if COMPRESS=DEFLATE is enabled
+     */
+    public boolean isEnableCOMPRESS() {
+        return enableCOMPRESS;
+    }
+
+    /**
+     * Sets whether the COMPRESS=DEFLATE extension is enabled (RFC 4978).
+     *
+     * @param enableCOMPRESS true to allow {@code COMPRESS DEFLATE}
+     */
+    public void setEnableCOMPRESS(boolean enableCOMPRESS) {
+        this.enableCOMPRESS = enableCOMPRESS;
+    }
+
+    /**
+     * Returns whether the UTF8=ACCEPT extension is enabled.
+     *
+     * @return true if UTF8=ACCEPT is enabled
+     */
+    public boolean isEnableUTF8ACCEPT() {
+        return enableUTF8ACCEPT;
+    }
+
+    /**
+     * Sets whether the UTF8=ACCEPT extension is enabled (RFC 6855).
+     *
+     * @param enableUTF8ACCEPT true to advertise and allow ENABLE UTF8=ACCEPT
+     */
+    public void setEnableUTF8ACCEPT(boolean enableUTF8ACCEPT) {
+        this.enableUTF8ACCEPT = enableUTF8ACCEPT;
+    }
+
+    /**
+     * Returns whether the SORT extension (RFC 5256) is enabled.
+     *
+     * @return true if SORT is enabled
+     */
+    public boolean isEnableSORT() {
+        return enableSORT;
+    }
+
+    /**
+     * Sets whether the SORT extension (RFC 5256) is enabled.
+     *
+     * @param enableSORT true to advertise SORT and I18NLEVEL=1
+     */
+    public void setEnableSORT(boolean enableSORT) {
+        this.enableSORT = enableSORT;
+    }
+
+    /**
      * Returns whether CONDSTORE (RFC 7162) is enabled.
      *
      * @return true if CONDSTORE is enabled
@@ -667,6 +726,9 @@ public class ImapListener extends TcpListener {
      *   <li>{@code CHILDREN} — RFC 3348</li>
      *   <li>{@code LIST-EXTENDED} — RFC 5258</li>
      *   <li>{@code LIST-STATUS} — RFC 5819</li>
+     *   <li>{@code STATUS=SIZE} — RFC 8438 (SIZE status data item)</li>
+     *   <li>{@code COMPRESS=DEFLATE} — RFC 4978 (when authenticated and
+     *       compression is not yet active)</li>
      * </ul>
      *
      * @param authenticated true if the user is authenticated
@@ -674,6 +736,19 @@ public class ImapListener extends TcpListener {
      * @return space-separated capability string
      */
     protected String getCapabilities(boolean authenticated, boolean secure) {
+        return getCapabilities(authenticated, secure, false);
+    }
+
+    /**
+     * Returns capability tokens for the current session state.
+     *
+     * @param authenticated true if the user is authenticated
+     * @param secure true if the connection is using TLS
+     * @param compressionActive true if DEFLATE is already enabled on the wire
+     * @return space-separated capability string
+     */
+    protected String getCapabilities(boolean authenticated, boolean secure,
+            boolean compressionActive) {
         StringBuilder caps = new StringBuilder();
         caps.append("IMAP4rev2");
 
@@ -724,6 +799,18 @@ public class ImapListener extends TcpListener {
             if (enableQRESYNC) {
                 caps.append(" QRESYNC");       // RFC 7162
             }
+            if (enableCOMPRESS && !compressionActive) {
+                caps.append(" COMPRESS=DEFLATE"); // RFC 4978
+            }
+            if (enableUTF8ACCEPT) {
+                caps.append(" UTF8=ACCEPT");   // RFC 6855
+            }
+            if (enableSORT) {
+                caps.append(" SORT");          // RFC 5256
+                caps.append(" THREAD=ORDEREDSUBJECT");
+                caps.append(" THREAD=REFERENCES");
+                caps.append(" I18NLEVEL=1");   // RFC 5256 / RFC 5255
+            }
         }
 
         caps.append(" UNSELECT");              // RFC 9051 section 6.4.2
@@ -731,6 +818,7 @@ public class ImapListener extends TcpListener {
         caps.append(" CHILDREN");              // RFC 3348
         caps.append(" LIST-EXTENDED");         // RFC 5258
         caps.append(" LIST-STATUS");           // RFC 5819
+        caps.append(" STATUS=SIZE");           // RFC 8438
         caps.append(" LITERAL-");              // RFC 7888
         caps.append(" ID");                    // RFC 2971
 

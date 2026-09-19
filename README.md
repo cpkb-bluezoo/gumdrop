@@ -257,6 +257,9 @@ Gumdrop is essentially at parity with Netty on plaintext HTTP/1.1 and JSON, ahea
         - UNSELECT - close without expunge
         - CHILDREN - mailbox hierarchy indicators
         - LIST-EXTENDED, LIST-STATUS - enhanced mailbox listing
+        - STATUS=SIZE (RFC 8438) - mailbox total size in STATUS
+        - COMPRESS=DEFLATE (RFC 4978) - zlib compression after authentication
+        - UTF8=ACCEPT (RFC 6855) - UTF-8 mailbox names after ENABLE
         - LITERAL- (RFC 7888) - non-synchronizing literals
         - ID (RFC 2971) - server identification
         - CONDSTORE (RFC 7162) - per-message modification sequences
@@ -273,6 +276,8 @@ Gumdrop is essentially at parity with Netty on plaintext HTTP/1.1 and JSON, ahea
         - sequence sets and UID sets
     - pluggable mailbox backend via standardized API
     - IMAP client with IMAPS and STARTTLS support
+        - COMPRESS=DEFLATE (RFC 4978) - `compress()` on authenticated sessions
+        - UTF8=ACCEPT (RFC 6855) - `enable(new String[]{"UTF8=ACCEPT"}, …)` for UTF-8 on the wire
         - QUOTA commands (RFC 9208) - GETQUOTA/GETQUOTAROOT
 - POP3
     - complete POP3 implementation (RFC 1939)

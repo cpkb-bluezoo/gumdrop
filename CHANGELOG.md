@@ -13,6 +13,17 @@ user-visible themes since 2.2.x.
 
 ### Added
 
+- **IMAP `STATUS=SIZE` (RFC 8438)**, **`COMPRESS=DEFLATE` (RFC 4978)**, and
+  **`UTF8=ACCEPT` (RFC 6855)** on the IMAP server and client: capability
+  advertisement, `COMPRESS DEFLATE`, `ENABLE UTF8=ACCEPT`, client `compress()`
+  / `enable()` APIs, and matching wire encoding (Part of #431).
+- **IMAP `SORT` / `UID SORT` and `THREAD` / `UID THREAD` (RFC 5256)** with
+  **`I18NLEVEL=1`** and `i;unicode-casemap`: `THREAD=ORDEREDSUBJECT`,
+  `THREAD=REFERENCES`, server handlers, client `sort()` / `thread()` APIs
+  (Part of #431).
+- **Mailbox search index format v2** (`.gidx`): indexes **References** and
+  **In-Reply-To** with case-preserved canonical Message-IDs; **version 1
+  indexes are rejected** and rebuilt on open (Part of #431).
 - **RFC 8617 Authenticated Received Chain (ARC)** in `org.bluezoo.gumdrop.smtp.auth`:
   push-parser header grouping (`ArcHeaderParser`), asynchronous chain validation
   (`ArcValidator`), intermediary sealing (`ArcSealer`), and optional ARC-aware DMARC

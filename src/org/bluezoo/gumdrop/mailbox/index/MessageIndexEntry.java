@@ -56,7 +56,8 @@ import java.util.Set;
  * 
  * PROPERTY DESCRIPTORS (N x 8 bytes):
  *   Each: offset(4) + length(4) relative to variable data start
- *   Order: location, from, to, cc, bcc, subject, messageId, keywords
+ *   Order: location, from, to, cc, bcc, subject, messageId, references,
+ *           inReplyTo, keywords
  * 
  * VARIABLE DATA:
  *   String data in order matching descriptors
@@ -66,8 +67,11 @@ import java.util.Set;
  */
 public class MessageIndexEntry {
 
-    /** Number of property descriptors in each entry. */
-    public static final int DESCRIPTOR_COUNT = 8;
+    /** Descriptor count in index file format version 1. */
+    public static final int DESCRIPTOR_COUNT_V1 = 8;
+
+    /** Number of property descriptors in each entry (format version 2+). */
+    public static final int DESCRIPTOR_COUNT = 10;
 
     /** Size of the fixed header in bytes. */
     public static final int FIXED_HEADER_SIZE = 48;
@@ -83,7 +87,9 @@ public class MessageIndexEntry {
     public static final int DESC_BCC = 4;
     public static final int DESC_SUBJECT = 5;
     public static final int DESC_MESSAGE_ID = 6;
-    public static final int DESC_KEYWORDS = 7;
+    public static final int DESC_REFERENCES = 7;
+    public static final int DESC_IN_REPLY_TO = 8;
+    public static final int DESC_KEYWORDS = 9;
 
     // Flag bit positions
     private static final int FLAG_BIT_SEEN = 0;
@@ -130,13 +136,29 @@ public class MessageIndexEntry {
      * @param cc the Cc header value (lowercase)
      * @param bcc the Bcc header value (lowercase)
      * @param subject the Subject header value (lowercase)
-     * @param messageId the Message-ID header value (lowercase)
+     * @param messageId the Message-ID (canonical {@code <local@domain>}, case preserved)
      * @param keywords comma-separated keywords (lowercase)
      */
     public MessageIndexEntry(long uid, int messageNumber, long size,
             long internalDate, long sentDate, Set<Flag> flags,
             String location, String from, String to, String cc, String bcc,
             String subject, String messageId, String keywords) {
+        this(uid, messageNumber, size, internalDate, sentDate, flags,
+                location, from, to, cc, bcc, subject, messageId,
+                "", "", keywords);
+    }
+
+    /**
+     * Creates a new index entry with the specified values.
+     *
+     * @param references space-separated canonical Message-IDs from References
+     * @param inReplyTo canonical Message-ID from In-Reply-To (first id)
+     */
+    public MessageIndexEntry(long uid, int messageNumber, long size,
+            long internalDate, long sentDate, Set<Flag> flags,
+            String location, String from, String to, String cc, String bcc,
+            String subject, String messageId, String references,
+            String inReplyTo, String keywords) {
         this.uid = uid;
         this.messageNumber = messageNumber;
         this.size = size;
@@ -145,16 +167,16 @@ public class MessageIndexEntry {
         this.flagsByte = flagsToBytes(flags);
         this.descriptors = new int[DESCRIPTOR_COUNT * 2];
 
-        // Build variable data and descriptors
-        buildVariableData(location, from, to, cc, bcc, subject, messageId, keywords);
+        buildVariableData(location, from, to, cc, bcc, subject, messageId,
+                references, inReplyTo, keywords);
     }
 
     /**
      * Builds the variable data section and populates descriptors.
      */
     private void buildVariableData(String location, String from, String to,
-            String cc, String bcc, String subject, String messageId, String keywords) {
-        // Convert strings to bytes
+            String cc, String bcc, String subject, String messageId,
+            String references, String inReplyTo, String keywords) {
         byte[][] values = new byte[DESCRIPTOR_COUNT][];
         values[DESC_LOCATION] = toBytes(location);
         values[DESC_FROM] = toBytes(from);
@@ -163,6 +185,8 @@ public class MessageIndexEntry {
         values[DESC_BCC] = toBytes(bcc);
         values[DESC_SUBJECT] = toBytes(subject);
         values[DESC_MESSAGE_ID] = toBytes(messageId);
+        values[DESC_REFERENCES] = toBytes(references);
+        values[DESC_IN_REPLY_TO] = toBytes(inReplyTo);
         values[DESC_KEYWORDS] = toBytes(keywords);
 
         // Calculate total size
@@ -349,6 +373,14 @@ public class MessageIndexEntry {
 
     public String getMessageId() {
         return getProperty(DESC_MESSAGE_ID);
+    }
+
+    public String getReferences() {
+        return getProperty(DESC_REFERENCES);
+    }
+
+    public String getInReplyTo() {
+        return getProperty(DESC_IN_REPLY_TO);
     }
 
     public String getKeywords() {

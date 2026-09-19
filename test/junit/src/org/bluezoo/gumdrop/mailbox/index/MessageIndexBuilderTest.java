@@ -85,6 +85,29 @@ public class MessageIndexBuilderTest {
     }
 
     @Test
+    public void testBuildEntryIndexesReferencesAndPreservesMessageIdCase()
+            throws IOException {
+        String message =
+            "From: a@example.com\r\n"
+            + "To: b@example.com\r\n"
+            + "Subject: Thread test\r\n"
+            + "Message-ID: <MsgID@Example.COM>\r\n"
+            + "References: <parent@example.com> <other@example.com>\r\n"
+            + "In-Reply-To: <parent@example.com>\r\n"
+            + "\r\n"
+            + "Body.\r\n";
+
+        MessageIndexEntry entry = builder.buildEntry(
+            2L, 1, message.length(), 0L, EnumSet.noneOf(Flag.class),
+            "loc", createChannel(message));
+
+        assertEquals("<MsgID@Example.COM>", entry.getMessageId());
+        assertTrue(entry.getReferences().contains("<parent@example.com>"));
+        assertTrue(entry.getReferences().contains("<other@example.com>"));
+        assertEquals("<parent@example.com>", entry.getInReplyTo());
+    }
+
+    @Test
     public void testBuildEntryWithMultipleRecipients() throws IOException {
         String message = 
             "From: sender@example.com\r\n" +
@@ -342,8 +365,7 @@ public class MessageIndexBuilderTest {
         MessageIndexEntry entry = builder.buildEntry(
             1L, 1, message.length(), 0L, EnumSet.noneOf(Flag.class), "loc", channel);
 
-        // Message-ID should be stored lowercase for searching
-        assertEquals("<abc123@example.com>", entry.getMessageId());
+        assertEquals("<ABC123@Example.Com>", entry.getMessageId());
     }
 
     // ========================================================================

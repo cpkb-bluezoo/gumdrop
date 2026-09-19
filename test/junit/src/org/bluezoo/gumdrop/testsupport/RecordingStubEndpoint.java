@@ -45,6 +45,18 @@ import java.util.concurrent.CountDownLatch;
  */
 public final class RecordingStubEndpoint implements Endpoint {
 
+    /**
+     * Optional transform applied to outbound bytes before line recording
+     * (for example RFC 4978 DEFLATE decompression in tests).
+     */
+    public interface SendFilter {
+        /**
+         * @param outbound bytes the protocol handler sent
+         * @return bytes to decode as US-ASCII lines
+         */
+        byte[] filter(byte[] outbound);
+    }
+
     private enum MatchKind {
         STARTS_WITH, CONTAINS, EQUALS
     }
@@ -81,6 +93,7 @@ public final class RecordingStubEndpoint implements Endpoint {
     private boolean open = true;
     private boolean secure;
     private SelectorLoop selectorLoop;
+    private SendFilter sendFilter;
 
     public RecordingStubEndpoint() {
         this(0);
@@ -109,10 +122,22 @@ public final class RecordingStubEndpoint implements Endpoint {
         this.selectorLoop = selectorLoop;
     }
 
+    /**
+     * Sets a filter for outbound data (cleared with {@code null}).
+     *
+     * @param sendFilter transform to apply before recording lines
+     */
+    public void setSendFilter(SendFilter sendFilter) {
+        this.sendFilter = sendFilter;
+    }
+
     @Override
     public void send(ByteBuffer data) {
         byte[] bytes = new byte[data.remaining()];
         data.get(bytes);
+        if (sendFilter != null) {
+            bytes = sendFilter.filter(bytes);
+        }
         String payload = new String(bytes, StandardCharsets.US_ASCII);
         synchronized (lock) {
             for (String line : payload.split("\r\n", -1)) {

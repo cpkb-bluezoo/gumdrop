@@ -36,6 +36,9 @@ import org.bluezoo.gumdrop.ByteStreamLexer;
 import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.ProtocolHandler;
 import org.bluezoo.gumdrop.SecurityInfo;
+import org.bluezoo.gumdrop.imap.ImapDeflateLayer;
+
+import java.util.zip.DataFormatException;
 
 /**
  * IMAP4rev2 client protocol handler (RFC 9051).
@@ -61,6 +64,8 @@ import org.bluezoo.gumdrop.SecurityInfo;
  *   <li>NAMESPACE — RFC 2342</li>
  *   <li>MOVE — RFC 6851</li>
  *   <li>APPEND with literal streaming</li>
+ *   <li>COMPRESS=DEFLATE — RFC 4978</li>
+ *   <li>UTF8=ACCEPT — RFC 6855</li>
  * </ul>
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
@@ -111,6 +116,13 @@ public final class ImapClientProtocolHandler
     // Capabilities from CAPABILITY response or greeting
     private List<String> capabilities;
 
+    // RFC 4978 — DEFLATE on the wire (null until COMPRESS DEFLATE succeeds)
+    private ImapDeflateLayer deflateLayer;
+
+    // RFC 6855 — UTF8=ACCEPT
+    private boolean utf8AcceptEnabled;
+    private final List<String> pendingEnabled = new ArrayList<String>();
+
     // SELECT/EXAMINE accumulation
     private MailboxInfo pendingMailboxInfo;
 
@@ -119,6 +131,9 @@ public final class ImapClientProtocolHandler
 
     // SEARCH result accumulation
     private List<Long> searchResults;
+
+    // THREAD result (parenthesized thread data after "THREAD ")
+    private String pendingThreadData;
 
     // FETCH state
     private int fetchMessageNumber;
@@ -199,13 +214,31 @@ public final class ImapClientProtocolHandler
 
     @Override
     public void receive(ByteBuffer data) {
-        lexer.feed(data);
+        if (deflateLayer == null) {
+            lexer.feed(data);
+            return;
+        }
+        try {
+            byte[] plain = deflateLayer.inflate(data);
+            if (plain.length > 0) {
+                lexer.feed(ByteBuffer.wrap(plain));
+            }
+        } catch (DataFormatException e) {
+            LOGGER.log(Level.WARNING,
+                    L10N.getString("warn.compress_inflate_failed"), e);
+            handler.onError(new IOException("DEFLATE decompression failed", e));
+            close();
+        }
     }
 
     @Override
     public void disconnected() {
         if (LOGGER.isLoggable(Level.INFO)) {
             LOGGER.info(L10N.getString("info.imap_client_disconnected"));
+        }
+        if (deflateLayer != null) {
+            deflateLayer.close();
+            deflateLayer = null;
         }
         state = ImapState.CLOSED;
         handler.onDisconnected();
@@ -601,6 +634,62 @@ public final class ImapClientProtocolHandler
         sendTaggedCommand("NOOP", ImapState.NOOP_SENT);
     }
 
+    // RFC 4978 — COMPRESS DEFLATE
+    @Override
+    public void compress(CompressReplyHandler callback) {
+        if (deflateLayer != null) {
+            callback.handleError(this,
+                    L10N.getString("imap.err.compress_active"));
+            return;
+        }
+        this.currentCallback = callback;
+        sendTaggedCommand("COMPRESS DEFLATE", ImapState.COMPRESS_SENT);
+    }
+
+    /**
+     * Returns whether RFC 4978 DEFLATE is active on this connection.
+     *
+     * @return true after a successful {@link #compress(CompressReplyHandler)}
+     */
+    public boolean isDeflateActive() {
+        return deflateLayer != null;
+    }
+
+    /**
+     * Returns the tag of the command awaiting a tagged response, or null.
+     *
+     * @return in-flight command tag
+     */
+    public String getPendingTag() {
+        return currentTag;
+    }
+
+    // RFC 5161 / RFC 6855 — ENABLE
+    @Override
+    public void enable(String[] extensions, EnableReplyHandler callback) {
+        if (extensions == null || extensions.length == 0) {
+            callback.handleError(this,
+                    L10N.getString("imap.err.invalid_arguments"));
+            return;
+        }
+        this.currentCallback = callback;
+        pendingEnabled.clear();
+        StringBuilder cmd = new StringBuilder("ENABLE");
+        for (String ext : extensions) {
+            cmd.append(' ').append(ext);
+        }
+        sendTaggedCommand(cmd.toString(), ImapState.ENABLE_SENT);
+    }
+
+    /**
+     * Returns whether RFC 6855 UTF8=ACCEPT is active on this connection.
+     *
+     * @return true after ENABLED UTF8=ACCEPT
+     */
+    public boolean isUtf8AcceptEnabled() {
+        return utf8AcceptEnabled;
+    }
+
     // ── ClientSelectedState (RFC 9051 section 6.4) ──
 
     // RFC 9051 section 6.4.1 — CLOSE command
@@ -641,6 +730,35 @@ public final class ImapClientProtocolHandler
         searchResults.clear();
         sendTaggedCommand("UID SEARCH " + criteria,
                 ImapState.SEARCH_SENT);
+    }
+
+    // RFC 5256 — SORT and UID SORT
+    @Override
+    public void sort(String arguments, SearchReplyHandler callback) {
+        this.currentCallback = callback;
+        searchResults.clear();
+        sendTaggedCommand("SORT " + arguments, ImapState.SORT_SENT);
+    }
+
+    @Override
+    public void uidSort(String arguments, SearchReplyHandler callback) {
+        this.currentCallback = callback;
+        searchResults.clear();
+        sendTaggedCommand("UID SORT " + arguments, ImapState.SORT_SENT);
+    }
+
+    @Override
+    public void thread(String arguments, ThreadReplyHandler callback) {
+        this.currentCallback = callback;
+        pendingThreadData = "";
+        sendTaggedCommand("THREAD " + arguments, ImapState.THREAD_SENT);
+    }
+
+    @Override
+    public void uidThread(String arguments, ThreadReplyHandler callback) {
+        this.currentCallback = callback;
+        pendingThreadData = "";
+        sendTaggedCommand("UID THREAD " + arguments, ImapState.THREAD_SENT);
     }
 
     // RFC 9051 section 6.4.5 — FETCH command
@@ -750,7 +868,7 @@ public final class ImapClientProtocolHandler
         ByteBuffer copy = ByteBuffer.allocate(data.remaining());
         copy.put(data);
         copy.flip();
-        endpoint.send(copy);
+        sendWireBuffer(copy);
     }
 
     @Override
@@ -763,8 +881,7 @@ public final class ImapClientProtocolHandler
         if (state != ImapState.APPEND_DATA || !isOpen()) {
             return;
         }
-        byte[] crlf = CRLF.getBytes(StandardCharsets.US_ASCII);
-        endpoint.send(ByteBuffer.wrap(crlf));
+        sendWireBytes(CRLF.getBytes(StandardCharsets.US_ASCII));
     }
 
     // ── Command sending ──
@@ -783,8 +900,7 @@ public final class ImapClientProtocolHandler
         state = newState;
 
         String line = currentTag + " " + command + CRLF;
-        byte[] data = line.getBytes(StandardCharsets.US_ASCII);
-        endpoint.send(ByteBuffer.wrap(data));
+        sendWireBytes(line.getBytes(wireCharset()));
 
         if (LOGGER.isLoggable(Level.FINE)) {
             if (command.startsWith("LOGIN ")
@@ -805,8 +921,7 @@ public final class ImapClientProtocolHandler
 
         state = newState;
 
-        byte[] data = (line + CRLF).getBytes(StandardCharsets.US_ASCII);
-        endpoint.send(ByteBuffer.wrap(data));
+        sendWireBytes((line + CRLF).getBytes(wireCharset()));
 
         if (LOGGER.isLoggable(Level.FINE)) {
             LOGGER.fine(L10N.getString("debug.sent_imap_raw_line_redacted"));
@@ -948,6 +1063,16 @@ public final class ImapClientProtocolHandler
             return;
         }
 
+        if (upper.startsWith("SORT")) {
+            dispatchSortLine(msg);
+            return;
+        }
+
+        if (upper.startsWith("THREAD")) {
+            dispatchThreadLine(msg);
+            return;
+        }
+
         if (upper.startsWith("NAMESPACE ")) {
             dispatchNamespaceLine(msg.substring(10));
             return;
@@ -960,6 +1085,18 @@ public final class ImapClientProtocolHandler
         }
         if (upper.startsWith("QUOTAROOT ")) {
             dispatchQuotaRootLine(msg.substring(10));
+            return;
+        }
+
+        if (upper.startsWith("ENABLED ")) {
+            if (state == ImapState.ENABLE_SENT) {
+                String[] tokens = msg.substring(8).trim().split("\\s+");
+                for (String token : tokens) {
+                    if (!token.isEmpty()) {
+                        pendingEnabled.add(token);
+                    }
+                }
+            }
             return;
         }
 
@@ -1370,9 +1507,22 @@ public final class ImapClientProtocolHandler
 
     // ── SEARCH parsing ──
 
+    private void dispatchSortLine(String msg) {
+        String data = msg.length() > 4 ? msg.substring(4).trim() : "";
+        accumulateSearchNumbers(data);
+    }
+
+    private void dispatchThreadLine(String msg) {
+        pendingThreadData = msg.length() > 6 ? msg.substring(6).trim() : "";
+    }
+
     private void dispatchSearchLine(String msg) {
         // Format: SEARCH 1 2 3 4 or just SEARCH (empty result)
         String data = msg.length() > 6 ? msg.substring(7).trim() : "";
+        accumulateSearchNumbers(data);
+    }
+
+    private void accumulateSearchNumbers(String data) {
         if (!data.isEmpty()) {
             String[] tokens = data.split("\\s+");
             for (String token : tokens) {
@@ -1552,7 +1702,11 @@ public final class ImapClientProtocolHandler
                 dispatchExpungeComplete(response);
                 break;
             case SEARCH_SENT:
+            case SORT_SENT:
                 dispatchSearchComplete(response);
+                break;
+            case THREAD_SENT:
+                dispatchThreadComplete(response);
                 break;
             case FETCH_SENT:
                 dispatchFetchComplete(response);
@@ -1566,6 +1720,12 @@ public final class ImapClientProtocolHandler
                 break;
             case NOOP_SENT:
                 dispatchNoopComplete(response);
+                break;
+            case COMPRESS_SENT:
+                dispatchCompressComplete(response);
+                break;
+            case ENABLE_SENT:
+                dispatchEnableComplete(response);
                 break;
             case LOGOUT_SENT:
                 state = ImapState.CLOSED;
@@ -1850,6 +2010,20 @@ public final class ImapClientProtocolHandler
         }
     }
 
+    private void dispatchThreadComplete(ImapResponse response) {
+        ThreadReplyHandler callback =
+                (ThreadReplyHandler) currentCallback;
+        currentCallback = null;
+        state = ImapState.SELECTED;
+
+        if (response.isOk()) {
+            callback.handleThread(this, pendingThreadData);
+        } else {
+            callback.handleError(this, response.getMessage());
+        }
+        pendingThreadData = "";
+    }
+
     private void dispatchFetchComplete(ImapResponse response) {
         FetchReplyHandler callback =
                 (FetchReplyHandler) currentCallback;
@@ -1913,7 +2087,75 @@ public final class ImapClientProtocolHandler
         callback.handleOk(this);
     }
 
+    private void dispatchEnableComplete(ImapResponse response) {
+        EnableReplyHandler callback =
+                (EnableReplyHandler) currentCallback;
+        currentCallback = null;
+        ImapState base = restoreBaseState();
+        state = base;
+        if (response.isOk()) {
+            for (String ext : pendingEnabled) {
+                if ("UTF8=ACCEPT".equalsIgnoreCase(ext)) {
+                    utf8AcceptEnabled = true;
+                }
+            }
+            callback.handleEnabled(this,
+                    new ArrayList<String>(pendingEnabled));
+        } else {
+            callback.handleError(this, response.getMessage());
+        }
+        pendingEnabled.clear();
+    }
+
+    private void dispatchCompressComplete(ImapResponse response) {
+        CompressReplyHandler callback =
+                (CompressReplyHandler) currentCallback;
+        currentCallback = null;
+        ImapState base = restoreBaseState();
+        if (response.isOk()) {
+            deflateLayer = new ImapDeflateLayer();
+            stripCompressCapability();
+            state = base;
+            callback.handleOk(this);
+        } else {
+            state = base;
+            callback.handleError(this, response.getMessage());
+        }
+    }
+
     // ── Helpers ──
+
+    private void sendWireBytes(byte[] plaintext) {
+        if (deflateLayer != null) {
+            plaintext = deflateLayer.compressAndFlush(plaintext);
+        }
+        endpoint.send(ByteBuffer.wrap(plaintext));
+    }
+
+    private java.nio.charset.Charset wireCharset() {
+        return utf8AcceptEnabled
+                ? StandardCharsets.UTF_8
+                : StandardCharsets.US_ASCII;
+    }
+
+    private void sendWireBuffer(ByteBuffer plaintext) {
+        if (deflateLayer != null) {
+            byte[] in = new byte[plaintext.remaining()];
+            plaintext.get(in);
+            sendWireBytes(in);
+        } else {
+            endpoint.send(plaintext);
+        }
+    }
+
+    private void stripCompressCapability() {
+        for (int i = capabilities.size() - 1; i >= 0; i--) {
+            if ("COMPRESS=DEFLATE".equalsIgnoreCase(
+                    capabilities.get(i))) {
+                capabilities.remove(i);
+            }
+        }
+    }
 
     private ImapState restoreBaseState() {
         return wasSelected ? ImapState.SELECTED

@@ -120,4 +120,78 @@ public class IMAPListenerTest {
         assertFalse("NAMESPACE should not appear when disabled",
                 caps.contains("NAMESPACE"));
     }
+
+    @Test
+    public void testCapabilitiesIncludeStatusSize() {
+        String caps = listener.getCapabilities(true, true);
+        assertTrue("STATUS=SIZE should be advertised (RFC 8438)",
+                caps.contains("STATUS=SIZE"));
+    }
+
+    @Test
+    public void testAuthenticatedCapabilitiesIncludeCompressDeflate() {
+        String caps = listener.getCapabilities(true, true);
+        assertTrue("COMPRESS=DEFLATE should appear when authenticated",
+                caps.contains("COMPRESS=DEFLATE"));
+    }
+
+    @Test
+    public void testUnauthenticatedCapabilitiesExcludeCompressDeflate() {
+        String caps = listener.getCapabilities(false, true);
+        assertFalse("COMPRESS=DEFLATE must not appear before auth",
+                caps.contains("COMPRESS=DEFLATE"));
+    }
+
+    @Test
+    public void testCapabilitiesExcludeCompressWhenActive() {
+        String caps = listener.getCapabilities(true, true, true);
+        assertFalse("COMPRESS=DEFLATE must not appear when compression active",
+                caps.contains("COMPRESS=DEFLATE"));
+    }
+
+    @Test
+    public void testCapabilitiesExcludeCompressWhenDisabled() {
+        listener.setEnableCOMPRESS(false);
+        String caps = listener.getCapabilities(true, true);
+        assertFalse("COMPRESS=DEFLATE should not appear when disabled",
+                caps.contains("COMPRESS=DEFLATE"));
+    }
+
+    @Test
+    public void testAuthenticatedCapabilitiesIncludeUtf8Accept() {
+        String caps = listener.getCapabilities(true, true);
+        assertTrue("UTF8=ACCEPT should appear when authenticated",
+                caps.contains("UTF8=ACCEPT"));
+    }
+
+    @Test
+    public void testCapabilitiesExcludeUtf8AcceptWhenDisabled() {
+        listener.setEnableUTF8ACCEPT(false);
+        String caps = listener.getCapabilities(true, true);
+        assertFalse("UTF8=ACCEPT should not appear when disabled",
+                caps.contains("UTF8=ACCEPT"));
+    }
+
+    @Test
+    public void testAuthenticatedCapabilitiesIncludeSortAndI18n() {
+        String caps = listener.getCapabilities(true, true);
+        assertTrue("SORT should appear when authenticated",
+                caps.contains(" SORT"));
+        assertTrue("I18NLEVEL=1 should appear with SORT",
+                caps.contains("I18NLEVEL=1"));
+        assertTrue("THREAD=ORDEREDSUBJECT should be advertised",
+                caps.contains("THREAD=ORDEREDSUBJECT"));
+        assertTrue("THREAD=REFERENCES should be advertised",
+                caps.contains("THREAD=REFERENCES"));
+    }
+
+    @Test
+    public void testCapabilitiesExcludeSortWhenDisabled() {
+        listener.setEnableSORT(false);
+        String caps = listener.getCapabilities(true, true);
+        assertFalse("SORT should not appear when disabled",
+                caps.contains(" SORT"));
+        assertFalse("I18NLEVEL=1 should not appear when SORT disabled",
+                caps.contains("I18NLEVEL=1"));
+    }
 }

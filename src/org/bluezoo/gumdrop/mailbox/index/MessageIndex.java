@@ -107,8 +107,11 @@ public class MessageIndex {
     /** Magic bytes identifying the index file format. */
     private static final byte[] MAGIC = {'G', 'I', 'D', 'X'};
 
-    /** Current format version. */
-    private static final short VERSION = 1;
+    /** Current on-disk format version. */
+    public static final short VERSION = 2;
+
+    /** Minimum version this reader accepts without rebuild. */
+    public static final short MIN_VERSION = 2;
 
     /** Header size in bytes (excluding checksum). */
     private static final int HEADER_SIZE = 28;
@@ -959,6 +962,11 @@ public class MessageIndex {
             updateCRC(crc, version);
             if (version > VERSION) {
                 throw new CorruptIndexException("Unsupported version: " + version);
+            }
+            if (version < MIN_VERSION) {
+                throw new CorruptIndexException(
+                        "Index format version " + version
+                                + " is stale; rebuild required");
             }
 
             // Read flags

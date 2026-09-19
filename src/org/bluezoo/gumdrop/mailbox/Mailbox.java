@@ -497,6 +497,40 @@ public interface Mailbox {
     // ========================================================================
 
     /**
+     * Returns a {@link MessageContext} for SORT, THREAD, and search evaluation.
+     *
+     * <p>The default builds a {@link ParsedMessageContext}. Mailstore
+     * implementations may override to use an index when headers are indexed.
+     *
+     * @param messageNumber message sequence number (1-based)
+     * @return context, or null if the message does not exist or is deleted
+     * @throws IOException if message data cannot be read
+     */
+    default MessageContext getMessageContext(int messageNumber)
+            throws IOException {
+        if (isDeleted(messageNumber)) {
+            return null;
+        }
+        MessageDescriptor msg = getMessage(messageNumber);
+        if (msg == null) {
+            return null;
+        }
+        long uid;
+        try {
+            uid = Long.parseLong(getUniqueId(messageNumber));
+        } catch (NumberFormatException e) {
+            uid = messageNumber;
+        }
+        return new ParsedMessageContext(
+                this,
+                messageNumber,
+                uid,
+                msg.getSize(),
+                getFlags(messageNumber),
+                null);
+    }
+
+    /**
      * Searches for messages matching the given criteria.
      * 
      * <p>The default implementation iterates through all messages, parses
