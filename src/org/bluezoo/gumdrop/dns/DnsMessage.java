@@ -952,7 +952,7 @@ public final class DnsMessage {
             responseFlags |= FLAG_AA;
         }
         if ((flags & FLAG_RD) != 0) {
-            responseFlags |= FLAG_RA;
+            responseFlags |= FLAG_RD | FLAG_RA;
         }
         return responseFlags;
     }
