@@ -21,7 +21,9 @@
 
 package org.bluezoo.gumdrop.dns.server;
 
+import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.SelectorLoop;
+import org.bluezoo.gumdrop.StorageExecutor;
 import org.bluezoo.gumdrop.dns.DnsMessage;
 import org.bluezoo.gumdrop.dns.DnsQueryCallback;
 import org.bluezoo.gumdrop.dns.DnsQuestion;
@@ -40,6 +42,8 @@ import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 
 /**
  * Authoritative DNS {@link DnsQueryHandler} backed by one or more
@@ -55,9 +59,15 @@ import java.util.Map;
  */
 public final class AuthoritativeZoneHandler implements DnsQueryHandler {
 
+    private static final Logger LOGGER = Logger.getLogger(
+            AuthoritativeZoneHandler.class.getName());
+
     private static final int MAX_CNAME_CHAIN = 16;
 
-    private final List<MutableZone> zones;
+    private final List<ManagedZone> managedZones;
+    private volatile List<MutableZone> zones;
+    private StorageExecutor storageExecutor;
+    private SelectorLoop defaultLoop;
     private MinimalAnyPolicy minimalAnyPolicy = MinimalAnyPolicy.ENABLED;
     private TsigKey tsigKey;
     private boolean tsigRequired;
@@ -68,18 +78,21 @@ public final class AuthoritativeZoneHandler implements DnsQueryHandler {
         if (zone == null) {
             throw new NullPointerException("zone");
         }
-        this.zones = Collections.singletonList(zone);
+        this.managedZones = Collections.singletonList(ManagedZone.inMemory(zone));
+        this.zones = buildZoneSnapshot(this.managedZones);
         this.notifyPeers = Collections.emptyList();
         this.mastersByOrigin = Collections.emptyMap();
     }
 
-    AuthoritativeZoneHandler(List<MutableZone> zones, TsigKey tsigKey,
+    AuthoritativeZoneHandler(List<ManagedZone> managedZones, TsigKey tsigKey,
                              boolean tsigRequired, List<InetSocketAddress> notifyPeers,
                              Map<String, InetSocketAddress> mastersByOrigin) {
-        if (zones == null || zones.isEmpty()) {
+        if (managedZones == null || managedZones.isEmpty()) {
             throw new IllegalArgumentException("at least one zone is required");
         }
-        this.zones = Collections.unmodifiableList(new ArrayList<MutableZone>(zones));
+        this.managedZones = Collections.unmodifiableList(
+                new ArrayList<ManagedZone>(managedZones));
+        this.zones = buildZoneSnapshot(this.managedZones);
         this.tsigKey = tsigKey;
         this.tsigRequired = tsigRequired;
         this.notifyPeers = notifyPeers == null
@@ -109,7 +122,26 @@ public final class AuthoritativeZoneHandler implements DnsQueryHandler {
      * Loads a single zone file from disk.
      */
     public static AuthoritativeZoneHandler load(Path zoneFile) throws IOException {
-        return builder().zoneFile(zoneFile).build();
+        return builder().zoneFile(zoneFile).deferZoneFileLoad(false).build();
+    }
+
+    @Override
+    public void start(Gumdrop gumdrop) {
+        if (gumdrop == null) {
+            return;
+        }
+        storageExecutor = gumdrop.getStorageExecutor();
+        defaultLoop = gumdrop.nextWorkerLoop();
+        for (int i = 0; i < managedZones.size(); i++) {
+            ManagedZone managed = managedZones.get(i);
+            if (managed.persistPath != null && managed.accessMode == ZoneFileAccessMode.READ_WRITE) {
+                managed.saveQueue = new ZoneStorage.SaveQueue(storageExecutor,
+                        managed.persistPath);
+            }
+            if (managed.persistPath != null && managed.zone == null) {
+                loadZoneFileAsync(managed);
+            }
+        }
     }
 
     /**
@@ -135,7 +167,7 @@ public final class AuthoritativeZoneHandler implements DnsQueryHandler {
             return true;
         }
         if (opcode == DnsMessage.OPCODE_UPDATE) {
-            handleUpdate(query, callback);
+            handleUpdate(query, loop, callback);
             return true;
         }
         return false;
@@ -162,7 +194,8 @@ public final class AuthoritativeZoneHandler implements DnsQueryHandler {
                 DnsMessage.RCODE_NOERROR));
     }
 
-    private void handleUpdate(DnsMessage query, DnsQueryCallback callback) {
+    private void handleUpdate(DnsMessage query, SelectorLoop loop,
+                            DnsQueryCallback callback) {
         if (!DnsTsig.verify(query, tsigKey, !tsigRequired)) {
             callback.onResponse(query.createAuthoritativeErrorResponse(
                     DnsMessage.RCODE_REFUSED));
@@ -184,6 +217,7 @@ public final class AuthoritativeZoneHandler implements DnsQueryHandler {
         int rcode = DynamicUpdateProcessor.apply(zone, query);
         if (rcode == DnsMessage.RCODE_NOERROR) {
             ZoneNotifySender.notifySecondaries(zone, notifyPeers);
+            schedulePersist(zone, loop);
         }
         callback.onResponse(query.createAuthoritativeEmptyResponse(rcode));
     }
@@ -193,9 +227,56 @@ public final class AuthoritativeZoneHandler implements DnsQueryHandler {
             List<DnsResourceRecord> records = DnsZoneOperations.axfr(master,
                     zone.getOrigin());
             zone.replaceFromAxfr(records);
+            schedulePersist(zone, defaultLoop);
         } catch (IOException e) {
             // refresh is best-effort on NOTIFY
         }
+    }
+
+    private void loadZoneFileAsync(final ManagedZone managed) {
+        if (storageExecutor == null || managed.persistPath == null) {
+            return;
+        }
+        SelectorLoop loop = defaultLoop;
+        ZoneStorage.loadAsync(storageExecutor, managed.persistPath,
+                ZoneStorage.loopDispatcher(loop),
+                new StorageExecutor.Callback<MutableZone>() {
+                    @Override
+                    public void completed(MutableZone result) {
+                        managed.zone = result;
+                        if (managed.accessMode == ZoneFileAccessMode.READ_WRITE
+                                && managed.saveQueue == null) {
+                            managed.saveQueue = new ZoneStorage.SaveQueue(
+                                    storageExecutor, managed.persistPath);
+                        }
+                        zones = buildZoneSnapshot(managedZones);
+                    }
+
+                    @Override
+                    public void failed(Throwable error) {
+                        LOGGER.log(Level.WARNING,
+                                "zone load failed: " + managed.persistPath, error);
+                    }
+                });
+    }
+
+    private void schedulePersist(MutableZone zone, SelectorLoop loop) {
+        ManagedZone managed = managedFor(zone);
+        if (managed == null || managed.accessMode != ZoneFileAccessMode.READ_WRITE
+                || managed.saveQueue == null) {
+            return;
+        }
+        managed.saveQueue.schedule(zone, loop != null ? loop : defaultLoop);
+    }
+
+    private ManagedZone managedFor(MutableZone zone) {
+        for (int i = 0; i < managedZones.size(); i++) {
+            ManagedZone managed = managedZones.get(i);
+            if (managed.zone == zone) {
+                return managed;
+            }
+        }
+        return null;
     }
 
     @Override
@@ -391,8 +472,9 @@ public final class AuthoritativeZoneHandler implements DnsQueryHandler {
      */
     public static final class Builder {
 
-        private final List<Path> zonePaths = new ArrayList<Path>();
         private final List<MutableZone> loadedZones = new ArrayList<MutableZone>();
+        private final List<ZoneFileSpec> zoneFileSpecs = new ArrayList<ZoneFileSpec>();
+        private boolean deferZoneFileLoad = true;
         private MinimalAnyPolicy minimalAnyPolicy = MinimalAnyPolicy.ENABLED;
         private TsigKey tsigKey;
         private boolean tsigRequired;
@@ -403,11 +485,39 @@ public final class AuthoritativeZoneHandler implements DnsQueryHandler {
         private Builder() {
         }
 
+        /**
+         * Loads a zone file from {@code path} on the storage pool when
+         * {@link #deferZoneFileLoad(boolean) deferred loading} is enabled
+         * (the default). Disk writes after dynamic update are disabled
+         * ({@link ZoneFileAccessMode#READ_ONLY}).
+         */
         public Builder zoneFile(Path path) {
+            return zoneFile(path, ZoneFileAccessMode.READ_ONLY);
+        }
+
+        /**
+         * Loads a zone file with the given access mode. {@link ZoneFileAccessMode#READ_WRITE}
+         * persists successful RFC 2136 updates and AXFR refreshes via NIO on the
+         * {@link StorageExecutor}.
+         */
+        public Builder zoneFile(Path path, ZoneFileAccessMode accessMode) {
             if (path == null) {
                 throw new NullPointerException("path");
             }
-            zonePaths.add(path);
+            if (accessMode == null) {
+                throw new NullPointerException("accessMode");
+            }
+            zoneFileSpecs.add(new ZoneFileSpec(path, accessMode));
+            return this;
+        }
+
+        /**
+         * When {@code true} (default), zone files are read on
+         * {@link #start(Gumdrop)} via the storage pool instead of during
+         * {@link #build()}.
+         */
+        public Builder deferZoneFileLoad(boolean defer) {
+            this.deferZoneFileLoad = defer;
             return this;
         }
 
@@ -458,39 +568,95 @@ public final class AuthoritativeZoneHandler implements DnsQueryHandler {
         }
 
         public AuthoritativeZoneHandler build() {
-            List<MutableZone> zoneFiles = new ArrayList<MutableZone>(loadedZones);
-            for (int i = 0; i < zonePaths.size(); i++) {
-                try {
-                    zoneFiles.add(ZoneFile.load(zonePaths.get(i)).asMutable());
-                } catch (IOException e) {
-                    throw new IllegalStateException(
-                            "failed to load zone file: " + zonePaths.get(i), e);
+            List<ManagedZone> managed = new ArrayList<ManagedZone>();
+            for (int i = 0; i < loadedZones.size(); i++) {
+                managed.add(ManagedZone.inMemory(loadedZones.get(i)));
+            }
+            for (int i = 0; i < zoneFileSpecs.size(); i++) {
+                ZoneFileSpec spec = zoneFileSpecs.get(i);
+                if (deferZoneFileLoad) {
+                    managed.add(ManagedZone.deferred(spec.path, spec.accessMode));
+                } else {
+                    try {
+                        MutableZone zone = ZoneStorage.loadBlocking(spec.path);
+                        managed.add(ManagedZone.onDisk(spec.path, spec.accessMode, zone));
+                    } catch (IOException e) {
+                        throw new IllegalStateException(
+                                "failed to load zone file: " + spec.path, e);
+                    }
                 }
             }
-            if (zoneFiles.isEmpty()) {
+            if (managed.isEmpty()) {
                 throw new IllegalStateException("at least one zone is required");
             }
-            List<MutableZone> ordered = new ArrayList<MutableZone>(zoneFiles);
-            Collections.sort(ordered, new Comparator<MutableZone>() {
-                @Override
-                public int compare(MutableZone a, MutableZone b) {
-                    return labelCount(b.getOrigin()) - labelCount(a.getOrigin());
-                }
-            });
-            AuthoritativeZoneHandler handler = new AuthoritativeZoneHandler(ordered,
+            AuthoritativeZoneHandler handler = new AuthoritativeZoneHandler(managed,
                     tsigKey, tsigRequired, notifyPeers, mastersByOrigin);
             handler.setMinimalAnyPolicy(minimalAnyPolicy);
             return handler;
         }
+    }
 
-        private static int labelCount(String origin) {
-            int dots = 0;
-            for (int i = 0; i < origin.length(); i++) {
-                if (origin.charAt(i) == '.') {
-                    dots++;
-                }
-            }
-            return dots;
+    private static final class ZoneFileSpec {
+        final Path path;
+        final ZoneFileAccessMode accessMode;
+
+        ZoneFileSpec(Path path, ZoneFileAccessMode accessMode) {
+            this.path = path;
+            this.accessMode = accessMode;
         }
+    }
+
+    static final class ManagedZone {
+        volatile MutableZone zone;
+        final Path persistPath;
+        final ZoneFileAccessMode accessMode;
+        ZoneStorage.SaveQueue saveQueue;
+
+        private ManagedZone(MutableZone zone, Path persistPath,
+                            ZoneFileAccessMode accessMode) {
+            this.zone = zone;
+            this.persistPath = persistPath;
+            this.accessMode = accessMode;
+        }
+
+        static ManagedZone inMemory(MutableZone zone) {
+            return new ManagedZone(zone, null, ZoneFileAccessMode.READ_ONLY);
+        }
+
+        static ManagedZone deferred(Path path, ZoneFileAccessMode accessMode) {
+            return new ManagedZone(null, path, accessMode);
+        }
+
+        static ManagedZone onDisk(Path path, ZoneFileAccessMode accessMode,
+                                  MutableZone zone) {
+            return new ManagedZone(zone, path, accessMode);
+        }
+    }
+
+    private static List<MutableZone> buildZoneSnapshot(List<ManagedZone> managed) {
+        List<MutableZone> snapshot = new ArrayList<MutableZone>();
+        for (int i = 0; i < managed.size(); i++) {
+            MutableZone zone = managed.get(i).zone;
+            if (zone != null) {
+                snapshot.add(zone);
+            }
+        }
+        Collections.sort(snapshot, new Comparator<MutableZone>() {
+            @Override
+            public int compare(MutableZone a, MutableZone b) {
+                return labelCount(b.getOrigin()) - labelCount(a.getOrigin());
+            }
+        });
+        return Collections.unmodifiableList(snapshot);
+    }
+
+    private static int labelCount(String origin) {
+        int dots = 0;
+        for (int i = 0; i < origin.length(); i++) {
+            if (origin.charAt(i) == '.') {
+                dots++;
+            }
+        }
+        return dots;
     }
 }

@@ -52,8 +52,16 @@ public final class MutableZone {
         return origin;
     }
 
-    int getDefaultTtl() {
+    public int getDefaultTtl() {
         return defaultTtl;
+    }
+
+    java.util.Set<String> ownerNames() {
+        return recordsByName.keySet();
+    }
+
+    ZoneFile.SoaData getSoaData() {
+        return soaData;
     }
 
     public boolean isWithinZone(String qname) {

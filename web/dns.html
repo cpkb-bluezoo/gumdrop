@@ -533,8 +533,13 @@ Configure with the builder:
 </p>
 
 <ul>
-<li><code>zoneFile(Path)</code> - load a zone file from disk (requires
-<code>$ORIGIN</code> and an SOA at the origin)</li>
+<li><code>zoneFile(Path)</code> - load a zone file from disk on the storage
+pool at <code>DnsServer</code> start (default <code>READ_ONLY</code>; use
+<code>zoneFile(path, READ_WRITE)</code> to persist RFC 2136 updates via NIO).
+Requires <code>$ORIGIN</code> and an SOA at the origin.</li>
+<li><code>deferZoneFileLoad(boolean)</code> - when <code>true</code> (default),
+reading the zone file is deferred to <code>start(Gumdrop)</code> instead of
+<code>build()</code></li>
 <li><code>zone(ZoneFile)</code> - use an already-loaded zone</li>
 <li><code>minimalAnyPolicy(MinimalAnyPolicy)</code> - RFC 8482 minimal ANY
 (default: enabled)</li>
