@@ -146,7 +146,9 @@ public class MessageIndexBuilder {
             toLowerCase(handler.getCc()),
             toLowerCase(handler.getBcc()),
             toLowerCase(handler.getSubject()),
-            toLowerCase(handler.getMessageId()),
+            handler.getMessageId(),
+            handler.getReferences(),
+            handler.getInReplyTo(),
             toLowerCase(handler.getKeywords())
         );
     }
@@ -172,6 +174,8 @@ public class MessageIndexBuilder {
         private final List<String> bccAddresses = new ArrayList<>();
         private String subject;
         private String messageId;
+        private final List<String> referenceIds = new ArrayList<>();
+        private String inReplyToId;
         private OffsetDateTime sentDate;
         private boolean headersComplete = false;
 
@@ -294,13 +298,25 @@ public class MessageIndexBuilder {
         }
 
         @Override
-        public void messageIDHeader(String name, List<ContentID> messageIDs) 
+        public void messageIDHeader(String name, List<ContentID> messageIDs)
                 throws MimeParseException {
-            if ("Message-ID".equalsIgnoreCase(name) && messageId == null && !messageIDs.isEmpty()) {
-                // Use the structured ContentID - format as <local@domain>
-                ContentID mid = messageIDs.get(0);
-                messageId = "<" + mid.getLocalPart() + "@" + mid.getDomain() + ">";
+            if (messageIDs == null || messageIDs.isEmpty()) {
+                return;
             }
+            if ("Message-ID".equalsIgnoreCase(name) && messageId == null) {
+                messageId = formatMessageId(messageIDs.get(0));
+            } else if ("References".equalsIgnoreCase(name)) {
+                for (ContentID id : messageIDs) {
+                    referenceIds.add(formatMessageId(id));
+                }
+            } else if ("In-Reply-To".equalsIgnoreCase(name)
+                    && inReplyToId == null) {
+                inReplyToId = formatMessageId(messageIDs.get(0));
+            }
+        }
+
+        private static String formatMessageId(ContentID id) {
+            return "<" + id.getLocalPart() + "@" + id.getDomain() + ">";
         }
 
         @Override
@@ -335,7 +351,15 @@ public class MessageIndexBuilder {
         }
 
         public String getMessageId() {
-            return messageId;
+            return messageId != null ? messageId : "";
+        }
+
+        public String getReferences() {
+            return joinValues(referenceIds);
+        }
+
+        public String getInReplyTo() {
+            return inReplyToId != null ? inReplyToId : "";
         }
 
         public OffsetDateTime getSentDate() {

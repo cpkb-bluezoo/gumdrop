@@ -21,6 +21,9 @@ user-visible themes since 2.2.x.
   **`I18NLEVEL=1`** and `i;unicode-casemap`: `THREAD=ORDEREDSUBJECT`,
   `THREAD=REFERENCES`, server handlers, client `sort()` / `thread()` APIs
   (Part of #431).
+- **Mailbox search index format v2** (`.gidx`): indexes **References** and
+  **In-Reply-To** with case-preserved canonical Message-IDs; **version 1
+  indexes are rejected** and rebuilt on open (Part of #431).
 - **RFC 8617 Authenticated Received Chain (ARC)** in `org.bluezoo.gumdrop.smtp.auth`:
   push-parser header grouping (`ArcHeaderParser`), asynchronous chain validation
   (`ArcValidator`), intermediary sealing (`ArcSealer`), and optional ARC-aware DMARC
