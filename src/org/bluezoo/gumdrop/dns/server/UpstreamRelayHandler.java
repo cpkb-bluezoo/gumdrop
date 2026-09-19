@@ -24,12 +24,21 @@ package org.bluezoo.gumdrop.dns.server;
 import org.bluezoo.gumdrop.dns.DnsCache;
 import org.bluezoo.gumdrop.dns.DnsFormatException;
 import org.bluezoo.gumdrop.dns.DnsMessage;
+import org.bluezoo.gumdrop.dns.DnsNsecProofCache;
+import org.bluezoo.gumdrop.dns.DnsNsecProofIngester;
+import org.bluezoo.gumdrop.dns.DnsNsecSynthesisCollector;
 import org.bluezoo.gumdrop.dns.DnsQueryCallback;
 import org.bluezoo.gumdrop.dns.DnsQueryIdGenerator;
 import org.bluezoo.gumdrop.dns.DnsQuestion;
 import org.bluezoo.gumdrop.dns.DnsResourceRecord;
 import org.bluezoo.gumdrop.dns.DnsServerMetrics;
 import org.bluezoo.gumdrop.dns.DnsType;
+import org.bluezoo.gumdrop.dns.DnssecStatus;
+import org.bluezoo.gumdrop.dns.client.DnsResolver;
+import org.bluezoo.gumdrop.dns.client.DnssecChainValidator;
+import org.bluezoo.gumdrop.dns.client.DnssecTrustAnchor;
+import org.bluezoo.gumdrop.dns.client.DnssecValidationCallback;
+import org.bluezoo.gumdrop.dns.client.DnssecValidator;
 
 import java.io.BufferedReader;
 import java.io.FileReader;
@@ -91,8 +100,16 @@ public final class UpstreamRelayHandler implements DnsQueryHandler {
     private ServeStalePolicy serveStalePolicy = ServeStalePolicy.ENABLED;
     private NxDomainCutPolicy nxDomainCutPolicy = NxDomainCutPolicy.ENABLED;
     private MinimalAnyPolicy minimalAnyPolicy = MinimalAnyPolicy.ENABLED;
+    private boolean aggressiveNsecEnabled = true;
+    private AggressiveNsecPolicy aggressiveNsecPolicy =
+            AggressiveNsecPolicy.ENABLED;
     private DnsCache cache;
+    private DnsNsecProofCache nsecProofCache;
     private DnsServerMetrics metrics;
+
+    private DnsResolver validationResolver;
+    private DnssecChainValidator chainValidator;
+    private DnssecTrustAnchor trustAnchor;
 
     private UdpTransportFactory upstreamUdpFactory;
     private TcpTransportFactory upstreamTcpFactory;
@@ -159,8 +176,27 @@ public final class UpstreamRelayHandler implements DnsQueryHandler {
                 ? minimalAnyPolicy : MinimalAnyPolicy.DISABLED;
     }
 
+    public void setAggressiveNsecEnabled(boolean aggressiveNsecEnabled) {
+        this.aggressiveNsecEnabled = aggressiveNsecEnabled;
+    }
+
+    public void setAggressiveNsecPolicy(AggressiveNsecPolicy aggressiveNsecPolicy) {
+        this.aggressiveNsecPolicy = aggressiveNsecPolicy != null
+                ? aggressiveNsecPolicy : AggressiveNsecPolicy.DISABLED;
+    }
+
     public void setDnssecEnabled(boolean dnssecEnabled) {
         this.dnssecEnabled = dnssecEnabled;
+    }
+
+    /**
+     * Trust anchor for validating upstream DNSSEC responses when
+     * {@link #setDnssecEnabled(boolean)} is true.
+     *
+     * @param trustAnchor anchor store, or null to use a default empty store
+     */
+    public void setTrustAnchor(DnssecTrustAnchor trustAnchor) {
+        this.trustAnchor = trustAnchor;
     }
 
     public void setMetrics(DnsServerMetrics metrics) {
@@ -173,6 +209,16 @@ public final class UpstreamRelayHandler implements DnsQueryHandler {
 
     public DnsCache getCache() {
         return cache;
+    }
+
+    /**
+     * RFC 8198 validated NSEC/NSEC3 proof cache (non-null when DNSSEC
+     * validation is active).
+     *
+     * @return the proof cache, or null if DNSSEC is disabled or failed to start
+     */
+    public DnsNsecProofCache getNsecProofCache() {
+        return nsecProofCache;
     }
 
     @Override
@@ -198,6 +244,9 @@ public final class UpstreamRelayHandler implements DnsQueryHandler {
         if (upstreamServers.isEmpty()) {
             LOGGER.warning(L10N.getString("warn.no_upstream_servers"));
         }
+        if (dnssecEnabled) {
+            startDnssecValidation();
+        }
     }
 
     @Override
@@ -206,6 +255,15 @@ public final class UpstreamRelayHandler implements DnsQueryHandler {
             cache.clear();
             cache = null;
         }
+        if (nsecProofCache != null) {
+            nsecProofCache.clear();
+            nsecProofCache = null;
+        }
+        if (validationResolver != null) {
+            validationResolver.close();
+            validationResolver = null;
+        }
+        chainValidator = null;
         upstreamUdpFactory = null;
         upstreamTcpFactory = null;
     }
@@ -240,6 +298,10 @@ public final class UpstreamRelayHandler implements DnsQueryHandler {
             if (metrics != null) { metrics.cacheMiss(); }
         }
 
+        if (tryAggressiveNsec(query, question, callback)) {
+            return;
+        }
+
         proxyToUpstream(query, loop, new DnsQueryCallback() {
             @Override
             public void onResponse(DnsMessage upstreamResponse) {
@@ -251,15 +313,8 @@ public final class UpstreamRelayHandler implements DnsQueryHandler {
                             DnsMessage.RCODE_SERVFAIL));
                     return;
                 }
-                if (cacheEnabled && cache != null) {
-                    if (upstreamResponse.getRcode() == DnsMessage.RCODE_NXDOMAIN) {
-                        cache.cacheNegative(question.getName(),
-                                upstreamResponse.getAuthorities());
-                    } else if (!upstreamResponse.getAnswers().isEmpty()) {
-                        cache.cache(question, upstreamResponse.getAnswers());
-                    }
-                }
-                callback.onResponse(upstreamResponse);
+                deliverUpstreamResponse(query, question, loop,
+                        upstreamResponse, callback);
             }
 
             @Override
@@ -271,6 +326,153 @@ public final class UpstreamRelayHandler implements DnsQueryHandler {
                         DnsMessage.RCODE_SERVFAIL));
             }
         });
+    }
+
+    /**
+     * RFC 8198: answer from validated NSEC/NSEC3 proofs before upstream.
+     *
+     * @return {@code true} if {@code callback} was invoked with a synthesis
+     */
+    private boolean tryAggressiveNsec(final DnsMessage query,
+                                      final DnsQuestion question,
+                                      final DnsQueryCallback callback) {
+        if (!dnssecEnabled || !aggressiveNsecEnabled
+                || nsecProofCache == null
+                || aggressiveNsecPolicy == AggressiveNsecPolicy.DISABLED) {
+            return false;
+        }
+        if (!aggressiveNsecPolicy.shouldSynthesizeFromNsecCache(question)) {
+            return false;
+        }
+        DnsNsecSynthesisCollector synthesis = new DnsNsecSynthesisCollector();
+        nsecProofCache.lookup(question, synthesis);
+        if (synthesis.isMiss()) {
+            return false;
+        }
+        if (metrics != null) {
+            metrics.cacheHit();
+            metrics.cacheAggressiveNsecServed();
+        }
+        callback.onResponse(synthesis.toResponse(query));
+        return true;
+    }
+
+    private void startDnssecValidation() {
+        nsecProofCache = new DnsNsecProofCache();
+        if (trustAnchor == null) {
+            trustAnchor = new DnssecTrustAnchor();
+        }
+        validationResolver = new DnsResolver();
+        validationResolver.setDnssecEnabled(false);
+        validationResolver.setTrustAnchor(trustAnchor);
+        for (int i = 0; i < upstreamServers.size(); i++) {
+            InetSocketAddress addr = upstreamServers.get(i);
+            try {
+                validationResolver.addServer(
+                        addr.getAddress().getHostAddress());
+            } catch (Exception e) {
+                String msg = MessageFormat.format(
+                        L10N.getString("err.invalid_upstream_server"),
+                        addr.getAddress().getHostAddress());
+                LOGGER.log(Level.FINE, msg, e);
+            }
+        }
+        try {
+            validationResolver.open();
+            chainValidator = new DnssecChainValidator(
+                    validationResolver, trustAnchor);
+        } catch (IOException e) {
+            LOGGER.log(Level.WARNING,
+                    L10N.getString("warn.dnssec_validation_unavailable"), e);
+            validationResolver = null;
+            chainValidator = null;
+        }
+    }
+
+    private void deliverUpstreamResponse(final DnsMessage query,
+                                         final DnsQuestion question,
+                                         final SelectorLoop loop,
+                                         final DnsMessage upstreamResponse,
+                                         final DnsQueryCallback callback) {
+        if (!dnssecEnabled || chainValidator == null) {
+            cacheFromUpstream(question, upstreamResponse, null);
+            callback.onResponse(upstreamResponse);
+            return;
+        }
+        if (validationResolver != null && loop != null) {
+            validationResolver.setSelectorLoop(loop);
+        }
+        chainValidator.validate(upstreamResponse,
+                new DnssecValidationCallback() {
+                    @Override
+                    public void onValidated(DnssecStatus status,
+                                            DnsMessage response) {
+                        if (status == DnssecStatus.BOGUS) {
+                            callback.onResponse(query.createErrorResponse(
+                                    DnsMessage.RCODE_SERVFAIL));
+                            return;
+                        }
+                        if (status == DnssecStatus.SECURE
+                                && isDenialResponse(response)
+                                && nsecProofCache != null) {
+                            DnsNsecProofIngester.ingestSecureNegative(
+                                    question.getName(), response,
+                                    nsecProofCache);
+                        }
+                        cacheFromUpstream(question, response, status);
+                        DnsMessage clientResponse = response;
+                        if (status == DnssecStatus.SECURE) {
+                            clientResponse = withAuthenticatedData(response);
+                        }
+                        callback.onResponse(clientResponse);
+                    }
+                });
+    }
+
+    private void cacheFromUpstream(DnsQuestion question,
+                                   DnsMessage response,
+                                   DnssecStatus status) {
+        if (!cacheEnabled || cache == null) {
+            return;
+        }
+        if (response.getRcode() == DnsMessage.RCODE_NXDOMAIN) {
+            cache.cacheNegative(question.getName(),
+                    response.getAuthorities());
+        } else if (!response.getAnswers().isEmpty()) {
+            cache.cache(question, response.getAnswers(), status);
+        }
+    }
+
+    private static boolean isDenialResponse(DnsMessage response) {
+        if (response.getRcode() == DnsMessage.RCODE_NXDOMAIN) {
+            return true;
+        }
+        if (response.getRcode() != DnsMessage.RCODE_NOERROR) {
+            return false;
+        }
+        if (!response.getAnswers().isEmpty()) {
+            return false;
+        }
+        List<DnsResourceRecord> authorities = response.getAuthorities();
+        if (authorities.isEmpty()) {
+            return false;
+        }
+        List<DnsResourceRecord> nsec =
+                DnssecValidator.filterByType(authorities, DnsType.NSEC);
+        List<DnsResourceRecord> nsec3 =
+                DnssecValidator.filterByType(authorities, DnsType.NSEC3);
+        return !nsec.isEmpty() || !nsec3.isEmpty();
+    }
+
+    private static DnsMessage withAuthenticatedData(DnsMessage response) {
+        int flags = response.getFlags() | DnsMessage.FLAG_AD;
+        return new DnsMessage(
+                response.getId(),
+                flags,
+                response.getQuestions(),
+                response.getAnswers(),
+                response.getAuthorities(),
+                response.getAdditionals());
     }
 
     /**
@@ -317,16 +519,21 @@ public final class UpstreamRelayHandler implements DnsQueryHandler {
         proxyToUpstream(query, loop, new DnsQueryCallback() {
             @Override
             public void onResponse(DnsMessage upstreamResponse) {
-                if (upstreamResponse == null || !cacheEnabled || cache == null) {
+                if (upstreamResponse == null) {
                     return;
                 }
                 DnsQuestion question = query.getQuestions().get(0);
-                if (upstreamResponse.getRcode() == DnsMessage.RCODE_NXDOMAIN) {
-                    cache.cacheNegative(question.getName(),
-                            upstreamResponse.getAuthorities());
-                } else if (!upstreamResponse.getAnswers().isEmpty()) {
-                    cache.cache(question, upstreamResponse.getAnswers());
-                }
+                deliverUpstreamResponse(query, question, loop,
+                        upstreamResponse, new DnsQueryCallback() {
+                            @Override
+                            public void onResponse(DnsMessage response) {
+                                // Background refresh: cache updated in deliver.
+                            }
+
+                            @Override
+                            public void onError(String error) {
+                            }
+                        });
             }
 
             @Override
@@ -883,8 +1090,23 @@ public final class UpstreamRelayHandler implements DnsQueryHandler {
             return this;
         }
 
+        public Builder aggressiveNsecEnabled(boolean enabled) {
+            handler.setAggressiveNsecEnabled(enabled);
+            return this;
+        }
+
+        public Builder aggressiveNsecPolicy(AggressiveNsecPolicy policy) {
+            handler.setAggressiveNsecPolicy(policy);
+            return this;
+        }
+
         public Builder dnssecEnabled(boolean enabled) {
             handler.setDnssecEnabled(enabled);
+            return this;
+        }
+
+        public Builder trustAnchor(DnssecTrustAnchor trustAnchor) {
+            handler.setTrustAnchor(trustAnchor);
             return this;
         }
 

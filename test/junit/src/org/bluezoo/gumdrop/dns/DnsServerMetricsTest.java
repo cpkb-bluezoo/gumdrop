@@ -1,6 +1,6 @@
 /*
  * DnsServerMetricsTest.java
- * Copyright (C) 2025 Chris Burdess
+ * Copyright (C) 2025, 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
  * For more information please visit https://www.nongnu.org/gumdrop/
@@ -68,6 +68,7 @@ public class DnsServerMetricsTest {
         metrics.cacheHit();
         metrics.cacheMiss();
         metrics.cacheStaleServed();
+        metrics.cacheAggressiveNsecServed();
         metrics.upstreamQuery(12.0d);
         metrics.upstreamFailure();
 
@@ -78,6 +79,7 @@ public class DnsServerMetricsTest {
         assertTrue(names.contains("dns.server.cache.hits"));
         assertTrue(names.contains("dns.server.cache.misses"));
         assertTrue(names.contains("dns.server.cache.stale_served"));
+        assertTrue(names.contains("dns.server.cache.aggressive_nsec"));
         assertTrue(names.contains("dns.server.upstream.queries"));
         assertTrue(names.contains("dns.server.upstream.duration"));
         assertTrue(names.contains("dns.server.upstream.failures"));

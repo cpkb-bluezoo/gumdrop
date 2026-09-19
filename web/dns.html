@@ -523,6 +523,8 @@ records the following OpenTelemetry metrics. Each metric includes a
 <tr><td><code>dns.server.query.duration</code></td><td>Histogram</td><td>Query processing time (ms)</td></tr>
 <tr><td><code>dns.server.cache.hits</code></td><td>Counter</td><td>Cache hits</td></tr>
 <tr><td><code>dns.server.cache.misses</code></td><td>Counter</td><td>Cache misses</td></tr>
+<tr><td><code>dns.server.cache.stale_served</code></td><td>Counter</td><td>RFC 8767 answers served from expired cache after upstream failure</td></tr>
+<tr><td><code>dns.server.cache.aggressive_nsec</code></td><td>Counter</td><td>RFC 8198 answers synthesized from validated NSEC/NSEC3 proof cache</td></tr>
 <tr><td><code>dns.server.upstream.queries</code></td><td>Counter</td><td>Queries forwarded upstream</td></tr>
 <tr><td><code>dns.server.upstream.duration</code></td><td>Histogram</td><td>Upstream query duration (ms)</td></tr>
 <tr><td><code>dns.server.upstream.failures</code></td><td>Counter</td><td>Upstream query failures</td></tr>
@@ -568,8 +570,20 @@ explicitly for the forwarding/caching behaviour:
 <li><code>serveStalePolicy(ServeStalePolicy)</code> - override or disable per-query stale policy (default: serve when stale data exists)</li>
 <li><code>nxDomainCutPolicy(NxDomainCutPolicy)</code> - RFC 8020: NXDOMAIN for subdomains of a proven-negative name (default: enabled)</li>
 <li><code>minimalAnyPolicy(MinimalAnyPolicy)</code> - RFC 8482: answer ANY with a minimal HINFO record (default: enabled)</li>
-<li><code>dnssecEnabled(boolean)</code> - enable DNSSEC validation</li>
+<li><code>dnssecEnabled(boolean)</code> - validate upstream responses (sets DO on upstream queries; BOGUS answers → SERVFAIL; SECURE answers get AD)</li>
+<li><code>trustAnchor(DnssecTrustAnchor)</code> - trust anchor for validation (also via <code>DnsServer.setTrustAnchor</code>); defaults to an empty store unless you add anchors</li>
+<li><code>aggressiveNsecEnabled(boolean)</code> - RFC 8198: synthesize NXDOMAIN/NODATA from validated NSEC/NSEC3 proofs before upstream (default: true when DNSSEC is on)</li>
+<li><code>aggressiveNsecPolicy(AggressiveNsecPolicy)</code> - override or disable per-query aggressive synthesis (default: synthesize when a proof covers the QNAME)</li>
 </ul>
+
+<p>
+When <code>dnssecEnabled</code> is true, the relay validates each upstream
+answer with <code>DnssecChainValidator</code>, retains SECURE denial proofs in
+<code>DnsNsecProofCache</code>, and on later cache misses may answer from those
+proofs without an upstream round trip (RFC 8198). Disable with
+<code>aggressiveNsecPolicy(AggressiveNsecPolicy.DISABLED)</code> if every query
+must reach upstream.
+</p>
 
 <h4>Listener Options</h4>
 

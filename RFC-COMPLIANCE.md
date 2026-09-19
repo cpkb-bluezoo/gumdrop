@@ -14,6 +14,7 @@
 | RFC 8484 | DNS Queries over HTTPS (DoH) | Implemented |
 | RFC 2308 | Negative Caching of DNS Queries | Implemented |
 | RFC 8767 | Serving Stale DNS Data | Implemented |
+| RFC 8198 | Aggressive Use of DNSSEC-Validated Cache | Implemented |
 | RFC 8020 | NXDOMAIN: There Really Is Nothing Underneath | Implemented |
 | RFC 8482 | Minimal-Sized Responses to DNS Queries That Have QTYPE=ANY | Implemented |
 | RFC 6891 | Extension Mechanisms for DNS (EDNS0) | Implemented |
@@ -90,6 +91,7 @@
 | Processing responses (ID matching) | 7.3 | Compliant | `handleResponse()` matches by ID |
 | Using the cache (TTL-based) | 7.4 | Compliant | `DnsCache` with TTL expiry |
 | Serve stale on upstream failure | RFC 8767 | Compliant | `DnsCache` stale retention; `UpstreamRelayHandler` + `ServeStalePolicy` |
+| Aggressive NSEC/NSEC3 cache use | RFC 8198 | Compliant | `DnsNsecProofCache`; `UpstreamRelayHandler.tryAggressiveNsec()` + `AggressiveNsecPolicy` |
 | NXDOMAIN cut for subdomains | RFC 8020 | Compliant | `DnsCache.isNegativelyCached`; `NxDomainCutPolicy` on relay |
 | Minimal ANY responses | RFC 8482 | Compliant | `MinimalAnyResponse`; `MinimalAnyPolicy` on relay and zone handler |
 | RD flag set in queries | 4.1.1 | Compliant | Stub resolver sets `FLAG_RD` |
@@ -211,6 +213,17 @@
 
 ---
 
+### RFC 8198 — Aggressive Use of DNSSEC-Validated Cache
+
+| Requirement | Section | Status | Notes |
+|-------------|---------|--------|-------|
+| Cache validated NSEC/NSEC3 proofs | 5 | Compliant | `DnsNsecProofCache` keyed by signer zone; populated after `DnssecChainValidator` reports SECURE |
+| Synthesize NXDOMAIN/NODATA before upstream | 5 | Compliant | `UpstreamRelayHandler.tryAggressiveNsec()`; `DnsNsecSynthesisCollector` builds wire response from events |
+| Requires DNSSEC validation | 5 | Compliant | Only when `dnssecEnabled`; proofs ingested via `DnsNsecProofIngester` |
+| Configurable policy | — | Compliant | `AggressiveNsecPolicy`, builder toggles; metric `dns.server.cache.aggressive_nsec` |
+
+---
+
 ### RFC 6891 — Extension Mechanisms for DNS (EDNS0)
 
 | Requirement | Section | Status | Notes |
@@ -257,6 +270,7 @@
 | CD flag (Checking Disabled) | 3.2.2 | Compliant | `DnsMessage.FLAG_CD`, `isCheckingDisabled()` |
 | RRSIG signature validation | 5.3 | Compliant | RSA-SHA256/512, ECDSA P-256/P-384, Ed25519, Ed448 via JCA |
 | Chain of trust validation | 5.3.1 | Compliant | `DnssecChainValidator` — async DNSKEY/DS fetching to trust anchor |
+| Validating caching forwarder | 5.3 | Compliant | `UpstreamRelayHandler` validates upstream responses when `dnssecEnabled`; BOGUS → SERVFAIL, SECURE sets AD |
 | NSEC denial-of-existence | 5.4 | Compliant | `DnssecValidator.verifyNSEC()` — name-between and type absence |
 | Strip DNSSEC records when DO not set | 3.2.1 | Compliant | `DnsServer.stripDNSSECRecords()` |
 

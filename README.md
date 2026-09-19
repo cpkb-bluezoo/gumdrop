@@ -386,6 +386,9 @@ Gumdrop is essentially at parity with Netty on plaintext HTTP/1.1 and JSON, ahea
     - EDNS0 support with DNS cookies (RFC 7873)
     - DNS message compression (RFC 1035 section 4.1.4)
     - upstream proxying with response ID validation and TCP fallback
+    - caching forwarder (`UpstreamRelayHandler`) with TTL cache, RFC 8767
+      serve-stale, RFC 8020 NXDOMAIN cut, and RFC 8198 aggressive use of
+      DNSSEC-validated NSEC/NSEC3 proofs when DNSSEC validation is enabled
     - caching with TTL support
     - custom resolution via subclassing
     - DNSSEC validation (RFC 4033-4035, RFC 5155)
