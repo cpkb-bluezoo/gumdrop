@@ -328,6 +328,22 @@ public interface Mailbox {
         throw new UnsupportedOperationException("Expunge not supported");
     }
 
+    /**
+     * Permanently removes exactly the given messages, regardless of their
+     * deleted flag or mark, and leaves all other messages (including ones
+     * flagged deleted) in place. Used to implement IMAP MOVE.
+     *
+     * @param messageNumbers the message sequence numbers to remove
+     * @return the sequence numbers removed, in ascending order
+     * @throws IOException if the messages cannot be removed
+     * @throws UnsupportedOperationException if the mailbox does not support
+     *         targeted removal
+     */
+    default List<Integer> expungeMessages(List<Integer> messageNumbers)
+            throws IOException {
+        throw new UnsupportedOperationException("Expunge not supported");
+    }
+
     // ========================================================================
     // Unique Identifiers
     // ========================================================================

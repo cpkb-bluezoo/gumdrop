@@ -227,4 +227,71 @@ public class MaildirStoreCopyTest {
             dest.close(false);
         }
     }
+
+    @Test
+    public void moveTransfersMessagesAndRemovesThemFromSource()
+            throws Exception {
+        Mailbox inbox = store.openMailbox("INBOX", false);
+        String first;
+        String second;
+        try {
+            first = read(inbox, 1);
+            second = read(inbox, 2);
+
+            Map<Integer, Long> uids = store.moveMessages(inbox,
+                    numbers(1), "Dest");
+
+            assertEquals(1, uids.size());
+            assertEquals(1, inbox.getMessageCount());
+            assertEquals(second, read(inbox, 1));
+        } finally {
+            inbox.close(false);
+        }
+
+        Mailbox dest = store.openMailbox("Dest", true);
+        try {
+            assertEquals(1, dest.getMessageCount());
+            assertEquals(first, read(dest, 1));
+        } finally {
+            dest.close(false);
+        }
+        assertEquals(1, Files.list(root.resolve("editor").resolve("cur"))
+                .count());
+    }
+
+    /**
+     * MOVE removes only the moved messages: another message the client has
+     * flagged \Deleted but not yet expunged must survive.
+     */
+    @Test
+    public void moveLeavesOtherDeletedFlaggedMessagesInPlace()
+            throws Exception {
+        Mailbox inbox = store.openMailbox("INBOX", false);
+        try {
+            inbox.setFlags(2, EnumSet.of(Flag.DELETED), true);
+
+            store.moveMessages(inbox, numbers(1), "Dest");
+
+            assertEquals(1, inbox.getMessageCount());
+            assertTrue(inbox.getFlags(1).contains(Flag.DELETED));
+        } finally {
+            inbox.close(false);
+        }
+    }
+
+    @Test
+    public void moveToMissingMailboxKeepsSource() throws Exception {
+        Mailbox inbox = store.openMailbox("INBOX", false);
+        try {
+            try {
+                store.moveMessages(inbox, numbers(1), "NoSuchBox");
+                fail("expected IOException");
+            } catch (IOException expected) {
+                // TRYCREATE case
+            }
+            assertEquals(2, inbox.getMessageCount());
+        } finally {
+            inbox.close(false);
+        }
+    }
 }

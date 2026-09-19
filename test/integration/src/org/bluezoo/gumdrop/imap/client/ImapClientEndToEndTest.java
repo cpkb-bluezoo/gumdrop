@@ -322,6 +322,39 @@ public class ImapClientEndToEndTest {
         assertEquals(log, 2, countOf(s.log, "exists=2"));
     }
 
+    @Test
+    public void testMove() throws Exception {
+        Script s = run(new Script(USER, PASS) {
+            void step(String event, ClientAuthenticatedState a,
+                    ClientSelectedState sel) {
+                if ("authenticated".equals(event)) {
+                    pending = "create";
+                    a.create("Moved", this);
+                } else if ("create:ok".equals(event)) {
+                    pending = "select";
+                    a.select("INBOX", this);
+                } else if ("selected".equals(event)) {
+                    pending = "move";
+                    sel.move("1", "Moved", this);
+                } else if ("copy".equals(event) || "move:error".equals(event)) {
+                    pending = "status";
+                    a.status("INBOX", new String[] {"MESSAGES"}, this);
+                } else if ("status".equals(event) && !log.contains("moved")) {
+                    log.add("moved");
+                    pending = "status";
+                    a.status("Moved", new String[] {"MESSAGES"}, this);
+                } else if ("status".equals(event)) {
+                    a.logout();
+                }
+            }
+        });
+        String log = s.log.toString();
+        assertFalse(log, s.log.contains("move:error"));
+        assertTrue(log, s.log.contains("copy"));
+        assertTrue(log, s.log.contains("status:INBOX:1"));
+        assertTrue(log, s.log.contains("status:Moved:1"));
+    }
+
     private static int countOf(List<String> log, String entry) {
         int count = 0;
         for (int i = 0; i < log.size(); i++) {

@@ -404,7 +404,7 @@ public final class MaildirMailbox implements Mailbox {
     public void close(boolean expunge) throws IOException {
         try {
             if (expunge) {
-                doExpunge();
+                doExpunge(null);
             } else {
                 // Clear deletion marks
                 deletedMessages.clear();
@@ -738,13 +738,25 @@ public final class MaildirMailbox implements Mailbox {
         if (readOnly) {
             throw new IOException("Mailbox is read-only");
         }
-        return doExpunge();
+        return doExpunge(null);
+    }
+
+    @Override
+    public List<Integer> expungeMessages(List<Integer> messageNumbers)
+            throws IOException {
+        if (readOnly) {
+            throw new IOException("Mailbox is read-only");
+        }
+        return doExpunge(new HashSet<Integer>(messageNumbers));
     }
 
     /**
      * Performs the actual expunge operation.
+     *
+     * @param only the message numbers to remove, or null to remove every
+     *        message marked or flagged as deleted
      */
-    private List<Integer> doExpunge() throws IOException {
+    private List<Integer> doExpunge(Set<Integer> only) throws IOException {
         List<Integer> expunged = new ArrayList<>();
         List<Long> removedUids = new ArrayList<>();
         List<MaildirMessageDescriptor> toKeep = new ArrayList<>();
@@ -752,9 +764,16 @@ public final class MaildirMailbox implements Mailbox {
         for (MaildirMessageDescriptor msg : messages) {
             // Removed either by an in-memory mark (POP3 DELE) or by the
             // \Deleted flag persisted in the filename (IMAP STORE).
-            if (deletedMessages.contains(msg.getUid())
-                    || msg.getFlags().contains(Flag.DELETED)) {
+            boolean remove;
+            if (only != null) {
+                remove = only.contains(Integer.valueOf(msg.getMessageNumber()));
+            } else {
+                remove = deletedMessages.contains(msg.getUid())
+                        || msg.getFlags().contains(Flag.DELETED);
+            }
+            if (remove) {
                 Files.deleteIfExists(msg.getFilePath());
+                deletedMessages.remove(msg.getUid());
                 uidList.removeUid(msg.getBaseFilename());
                 expunged.add(msg.getMessageNumber());
                 removedUids.add(msg.getUid());
@@ -773,7 +792,9 @@ public final class MaildirMailbox implements Mailbox {
         }
 
         messages = toKeep;
-        deletedMessages.clear();
+        if (only == null) {
+            deletedMessages.clear();
+        }
 
         // Renumber remaining messages (preserve cached body offsets)
         for (int i = 0; i < messages.size(); i++) {

@@ -638,6 +638,20 @@ public class MaildirMailboxStore implements MailboxStore {
         }
     }
 
+    /**
+     * Moves messages: a copy followed by removal of exactly the moved
+     * source messages. If the copy fails the source is left untouched.
+     */
+    @Override
+    public Map<Integer, Long> moveMessages(Mailbox source,
+            List<Integer> messageNumbers, String destinationMailbox)
+            throws IOException {
+        Map<Integer, Long> uids = copyMessages(source, messageNumbers,
+                destinationMailbox);
+        source.expungeMessages(messageNumbers);
+        return uids;
+    }
+
     private long copyMessage(Mailbox source, int messageNumber,
             Mailbox destination) throws IOException {
         Set<Flag> flags = EnumSet.noneOf(Flag.class);
