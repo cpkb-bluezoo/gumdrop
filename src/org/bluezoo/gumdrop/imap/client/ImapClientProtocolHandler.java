@@ -125,6 +125,8 @@ public final class ImapClientProtocolHandler
     private FetchData fetchData;
     private String fetchLiteralSection;
     private LiteralTracker literalTracker;
+    /** True between the end of a FETCH literal and the line that follows it. */
+    private boolean fetchTailPending;
 
     // IDLE event handler (separate from currentCallback for clarity)
     private IdleEventHandler idleEventHandler;
@@ -282,7 +284,12 @@ public final class ImapClientProtocolHandler
         if (line.isEmpty()) {
             return;
         }
-        handleResponseLine(line);
+        if (fetchTailPending) {
+            fetchTailPending = false;
+            handleFetchTail(line);
+        } else {
+            handleResponseLine(line);
+        }
         if (literalTracker != null) {
             lexer.enterLiteral(literalTracker.getRemaining());
         }
@@ -312,6 +319,30 @@ public final class ImapClientProtocolHandler
         }
         state = ImapState.FETCH_SENT;
         literalTracker = null;
+        fetchTailPending = true;
+    }
+
+    /**
+     * Handles the remainder of a FETCH response after a literal
+     * (RFC 9051 section 7.5.2): further data items, possibly another
+     * literal, and the closing parenthesis. The items are merged into the
+     * {@link FetchData} already delivered for this message.
+     */
+    private void handleFetchTail(String line) {
+        if (fetchData != null) {
+            parseFetchData(line, fetchData);
+        }
+        long literalSize = ImapResponse.parseLiteralSize(line);
+        if (literalSize > 0
+                && currentCallback instanceof FetchReplyHandler) {
+            FetchReplyHandler callback =
+                    (FetchReplyHandler) currentCallback;
+            fetchLiteralSection = parseFetchBodySection(line);
+            callback.handleFetchLiteralBegin(
+                    fetchMessageNumber, fetchLiteralSection, literalSize);
+            state = ImapState.FETCH_LITERAL;
+            literalTracker = new LiteralTracker(literalSize, this);
+        }
     }
 
     // ── Connection state ──

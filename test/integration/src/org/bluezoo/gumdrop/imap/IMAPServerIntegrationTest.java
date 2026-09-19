@@ -577,12 +577,13 @@ public class IMAPServerIntegrationTest {
 
     // ==================== COPY / MOVE Tests ====================
     //
-    // The built-in mbox/maildir stores do not implement copyMessages/
-    // moveMessages (the Mailbox default throws UnsupportedOperationException),
-    // so a successful COPY/MOVE cannot be exercised here. These tests instead
-    // verify that the offloaded COPY/MOVE path delivers the correct tagged NO
-    // on the loop thread end-to-end (i.e. it does not hang and reports the
-    // unsupported operation), which validates the async offload plumbing.
+    // The mbox store keeps a single mailbox per file and cannot copy between
+    // mailboxes, so MailboxStore.copyMessages/moveMessages keep their default
+    // UnsupportedOperationException. These tests verify that the offloaded
+    // COPY/MOVE path delivers the correct tagged NO on the loop thread
+    // end-to-end (i.e. it does not hang and reports the unsupported
+    // operation), which validates the async offload plumbing. Successful
+    // Maildir COPY is covered by ImapClientEndToEndTest.
 
     @Test
     public void testCopyUnsupportedReportsNo() throws Exception {

@@ -97,6 +97,9 @@ public class DkimValidator {
     private DkimSignature signature;
     private byte[] bodyHash;
 
+    /** When set, used instead of {@code getRawHeader("dkim-signature")}. */
+    private String explicitSignatureHeaderLine;
+
     /**
      * Creates a new DKIM validator using the specified DNS resolver.
      *
@@ -124,11 +127,13 @@ public class DkimValidator {
     }
 
     /**
-     * Sets the computed body hash.
-     * This should be computed using the algorithm from the DKIM signature
-     * (SHA-256 for rsa-sha256) after canonicalizing the body.
+     * Sets the computed body hash for {@code bh=} verification.
      *
-     * @param hash the computed body hash
+     * <p>The hash must match the algorithm in the signature (SHA-256 for
+     * {@code rsa-sha256}) after body canonicalization. For ARC, pass the same
+     * digest used for all {@code ARC-Message-Signature} checks on the message.
+     *
+     * @param hash the computed body hash, or null to skip body-hash comparison
      */
     public void setBodyHash(byte[] hash) {
         this.bodyHash = hash;
@@ -147,8 +152,31 @@ public class DkimValidator {
     }
 
     /**
-     * Verifies the DKIM signature asynchronously.
-     * RFC 6376 §6 — verifier actions.
+     * Verifies a parsed signature using an explicit raw header line (for
+     * example {@code ARC-Message-Signature} or {@code ARC-Seal} per RFC 8617).
+     *
+     * <p>The parser must still be set via {@link #setMessageParser} so signed
+     * headers listed in {@code h=} can be loaded. {@link #setBodyHash} should
+     * be set when the signature includes a {@code bh=} tag.
+     *
+     * @param parsed the parsed signature tags
+     * @param rawSignatureHeaderLine the full header line as received (including
+     *                               field name and line ending)
+     * @param callback the result callback
+     */
+    public void verifyHeaderSignature(DkimSignature parsed,
+                                      String rawSignatureHeaderLine,
+                                      final DkimCallback callback) {
+        this.signature = parsed;
+        this.explicitSignatureHeaderLine = rawSignatureHeaderLine;
+        verify(callback);
+    }
+
+    /**
+     * Verifies the DKIM signature asynchronously (RFC 6376 §6).
+     *
+     * <p>Uses {@link #getSignature()} from the message parser unless
+     * {@link #verifyHeaderSignature} was called first for an ARC header.
      *
      * @param callback the callback to receive the result
      */
@@ -175,7 +203,10 @@ public class DkimValidator {
         // From domain. A signature that never covers From can be replayed
         // unmodified under an arbitrary From address at the same signing
         // domain, so treat it as unusable rather than PASS.
-        if (!signature.getSignedHeaders().contains("from")) {
+        boolean arcSeal = explicitSignatureHeaderLine != null
+                && explicitSignatureHeaderLine.toLowerCase()
+                        .startsWith("arc-seal:");
+        if (!arcSeal && !signature.getSignedHeaders().contains("from")) {
             callback.dkimResult(DkimResult.PERMERROR, signature.getDomain(),
                     signature.getSelector());
             return;
@@ -395,6 +426,9 @@ public class DkimValidator {
         // Add signed headers in the order specified
         List<String> signedHeaders = signature.getSignedHeaders();
         Map<String, Integer> usedCount = new HashMap<String, Integer>();
+        boolean explicitArcSeal = explicitSignatureHeaderLine != null
+                && explicitSignatureHeaderLine.toLowerCase()
+                        .startsWith("arc-seal:");
 
         for (int i = 0; i < signedHeaders.size(); i++) {
             String headerName = signedHeaders.get(i);
@@ -414,13 +448,23 @@ public class DkimValidator {
             usedCount.put(headerName, idx);
 
             DkimMessageParser.RawHeader rawHeader = rawHeaders.get(idx);
-            String line = canonicalizeRawHeader(rawHeader, relaxed);
-            sb.append(line);
+            if (explicitArcSeal && "arc-seal".equals(headerName)) {
+                String raw = relaxed ? rawHeader.asStringUnfolded()
+                        : rawHeader.asString();
+                sb.append(canonicalizeSignedHeaderField(raw, relaxed));
+            } else {
+                String line = canonicalizeRawHeader(rawHeader, relaxed);
+                sb.append(line);
+            }
         }
 
-        // Add the DKIM-Signature header (without the b= value)
-        String dkimHeader = canonicalizeDKIMHeader(relaxed);
-        sb.append(dkimHeader);
+        // RFC 8617 ARC-Seal: h= already lists arc-seal with b= removed in the loop.
+        boolean arcSealSignedInH = explicitArcSeal
+                && signedHeaders.contains("arc-seal");
+        if (!arcSealSignedInH) {
+            String dkimHeader = canonicalizeDKIMHeader(relaxed);
+            sb.append(dkimHeader);
+        }
 
         return sb.toString();
     }
@@ -474,54 +518,72 @@ public class DkimValidator {
      * The b= tag value is removed (replaced with empty).
      */
     private String canonicalizeDKIMHeader(boolean relaxed) {
-        // Get the raw DKIM-Signature header
-        DkimMessageParser.RawHeader rawHeader = messageParser.getRawHeader("dkim-signature");
-        if (rawHeader == null) {
-            return "";
-        }
-
         String header;
-        if (relaxed) {
-            header = rawHeader.asStringUnfolded();
+        if (explicitSignatureHeaderLine != null) {
+            header = explicitSignatureHeaderLine;
+            if (relaxed) {
+                header = unfoldHeaderLine(header);
+            }
+            return canonicalizeSignedHeaderField(header, relaxed);
         } else {
-            header = rawHeader.asString();
+            DkimMessageParser.RawHeader rawHeader =
+                    messageParser.getRawHeader("dkim-signature");
+            if (rawHeader == null) {
+                return "";
+            }
+            if (relaxed) {
+                header = rawHeader.asStringUnfolded();
+            } else {
+                header = rawHeader.asString();
+            }
+            return canonicalizeSignedHeaderField(header, relaxed);
         }
+    }
 
-        // Remove the b= value (but keep the tag)
+    /**
+     * Canonicalizes a signature header field (DKIM-Signature, ARC-Seal, etc.)
+     * with the {@code b=} value removed.
+     */
+    private String canonicalizeSignedHeaderField(String header, boolean relaxed) {
         int bPos = header.indexOf("b=");
         if (bPos < 0) {
-            // No b= found, return as-is but without trailing CRLF for final header
-            return stripTrailingCRLF(relaxed ? relaxedCanonicalizeHeader(header) : header);
+            return stripTrailingCRLF(relaxed ? relaxedCanonicalizeHeader(header)
+                    : header);
         }
-
-        // Find the end of the b= value (next semicolon or end of header)
         int endPos = bPos + 2;
         while (endPos < header.length()) {
             char c = header.charAt(endPos);
             if (c == ';') {
                 break;
             }
-            // Skip to end of line ignoring whitespace in the value
             endPos++;
         }
-
         String beforeB = header.substring(0, bPos + 2);
         String afterB = (endPos < header.length()) ? header.substring(endPos) : "";
-
         String modified = beforeB + afterB;
-
         if (relaxed) {
-            // Apply relaxed canonicalization, then remove trailing CRLF
             return stripTrailingCRLF(relaxedCanonicalizeHeader(modified));
-        } else {
-            // Simple: remove trailing CRLF for final header
-            return stripTrailingCRLF(modified);
         }
+        return stripTrailingCRLF(modified);
     }
 
     /**
      * Removes trailing CRLF or LF from a string.
      */
+    private static String unfoldHeaderLine(String header) {
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < header.length(); i++) {
+            char c = header.charAt(i);
+            if (c != '\r' && c != '\n') {
+                sb.append(c);
+            }
+        }
+        if (sb.length() > 0 && sb.charAt(sb.length() - 1) == ' ') {
+            sb.setLength(sb.length() - 1);
+        }
+        return sb.toString();
+    }
+
     private String stripTrailingCRLF(String s) {
         int len = s.length();
         if (len >= 2 && s.charAt(len - 2) == '\r' && s.charAt(len - 1) == '\n') {

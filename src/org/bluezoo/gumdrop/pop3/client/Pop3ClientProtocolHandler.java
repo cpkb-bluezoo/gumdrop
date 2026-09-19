@@ -161,16 +161,22 @@ public final class Pop3ClientProtocolHandler
 
     @Override
     public void receive(ByteBuffer data) {
-        if (dotUnstufferActive) {
-            boolean more = dotUnstuffer.process(data);
-            if (!more) {
-                dotUnstufferActive = false;
-            }
-            if (data.hasRemaining()) {
+        // A status line and the multi-line body that follows it may arrive in
+        // one read: the lexer hands off part-way through the buffer, so keep
+        // alternating until the buffer is drained.
+        while (data.hasRemaining()) {
+            if (dotUnstufferActive) {
+                boolean more = dotUnstuffer.process(data);
+                if (!more) {
+                    dotUnstufferActive = false;
+                }
+            } else {
+                int before = data.remaining();
                 lexer.feed(data);
+                if (!dotUnstufferActive && data.remaining() == before) {
+                    break;
+                }
             }
-        } else {
-            lexer.feed(data);
         }
     }
 

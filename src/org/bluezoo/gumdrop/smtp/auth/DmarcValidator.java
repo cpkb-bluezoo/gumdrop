@@ -120,6 +120,12 @@ public class DmarcValidator implements SpfCallback, DkimCallback {
     /** How the effective DMARC record was found: "author", "psl", or "treewalk". */
     private String lastDiscoveryMethod;
 
+    /** Validated ARC chain for optional {@link ArcDmarcPolicy} integration. */
+    private ArcValidationResult arcValidationResult;
+
+    /** When non-null, may override local SPF/DKIM for alignment. */
+    private ArcDmarcPolicy arcDmarcPolicy;
+
     /**
      * Creates a new DMARC validator using the specified DNS resolver.
      *
@@ -189,6 +195,31 @@ public class DmarcValidator implements SpfCallback, DkimCallback {
     }
 
     /**
+     * Supplies the outcome of {@link ArcValidator} for this message.
+     * Call before {@link #dkimResult} when ARC validation runs in the
+     * pipeline ahead of DMARC evaluation.
+     *
+     * @param result ARC validation outcome, or null if not checked
+     */
+    public void setArcValidationResult(ArcValidationResult result) {
+        this.arcValidationResult = result;
+    }
+
+    /**
+     * Registers a policy that may substitute authentication identifiers
+     * from a validated ARC chain during DMARC alignment.
+     *
+     * <p>The policy is consulted in {@link #evaluateAlignment} only when
+     * {@link #setArcValidationResult} reports {@link ArcCvResult#PASS}.
+     *
+     * @param policy the policy, or null for local SPF/DKIM only
+     * @see ArcDmarcPolicy#authSnapshot
+     */
+    public void setArcDmarcPolicy(ArcDmarcPolicy policy) {
+        this.arcDmarcPolicy = policy;
+    }
+
+    /**
      * Receives the DKIM result and triggers DMARC evaluation.
      *
      * <p>Called by {@link DkimValidator} when DKIM verification completes.
@@ -222,6 +253,7 @@ public class DmarcValidator implements SpfCallback, DkimCallback {
         this.lastSpfAligned = false;
         this.lastDkimAligned = false;
         this.lastDiscoveryMethod = null;
+        this.arcValidationResult = null;
     }
 
     /**
@@ -660,17 +692,43 @@ public class DmarcValidator implements SpfCallback, DkimCallback {
                                            DkimResult dkimResult, String dkimDomain,
                                            DmarcRecord record) {
 
+        SpfResult effectiveSpf = spfResult;
+        String effectiveSpfDomain = spfDomain;
+        DkimResult effectiveDkim = dkimResult;
+        String effectiveDkimDomain = dkimDomain;
+
+        if (arcDmarcPolicy != null && arcValidationResult != null
+                && arcValidationResult.getChainCv() == ArcCvResult.PASS) {
+            ArcAuthSnapshot snapshot = arcDmarcPolicy.authSnapshot(
+                    arcValidationResult, fromDomain, spfResult, spfDomain,
+                    dkimResult, dkimDomain);
+            if (snapshot != null) {
+                if (snapshot.getSpfResult() != null) {
+                    effectiveSpf = snapshot.getSpfResult();
+                }
+                if (snapshot.getSpfDomain() != null) {
+                    effectiveSpfDomain = snapshot.getSpfDomain();
+                }
+                if (snapshot.getDkimResult() != null) {
+                    effectiveDkim = snapshot.getDkimResult();
+                }
+                if (snapshot.getDkimDomain() != null) {
+                    effectiveDkimDomain = snapshot.getDkimDomain();
+                }
+            }
+        }
+
         boolean spfAligned = false;
         boolean dkimAligned = false;
 
         // Check SPF alignment
-        if (spfResult == SpfResult.PASS && spfDomain != null) {
-            spfAligned = checkAlignment(fromDomain, spfDomain, record.aspf);
+        if (effectiveSpf == SpfResult.PASS && effectiveSpfDomain != null) {
+            spfAligned = checkAlignment(fromDomain, effectiveSpfDomain, record.aspf);
         }
 
         // Check DKIM alignment
-        if (dkimResult == DkimResult.PASS && dkimDomain != null) {
-            dkimAligned = checkAlignment(fromDomain, dkimDomain, record.adkim);
+        if (effectiveDkim == DkimResult.PASS && effectiveDkimDomain != null) {
+            dkimAligned = checkAlignment(fromDomain, effectiveDkimDomain, record.adkim);
         }
 
         // FEAT-002: retained for RFC 9991 Identity-Alignment reporting

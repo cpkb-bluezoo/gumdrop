@@ -259,6 +259,9 @@ public class DkimMessageParser extends MessageParser {
     /** Bytes processed so far (for body length limit) */
     private long bodyBytesProcessed;
 
+    /** Optional push-parser for ARC headers (RFC 8617). */
+    private ArcHeaderParser arcHeaderParser;
+
     /**
      * Creates a new DKIM message parser.
      */
@@ -303,6 +306,9 @@ public class DkimMessageParser extends MessageParser {
             // Flush any pending header before ending
             flushCurrentHeader();
             headersComplete = true;
+            if (arcHeaderParser != null) {
+                arcHeaderParser.endHeaders();
+            }
             super.headerLine(buffer);
             return;
         }
@@ -401,9 +407,22 @@ public class DkimMessageParser extends MessageParser {
         }
         list.add(header);
 
+        if (arcHeaderParser != null) {
+            arcHeaderParser.header(header);
+        }
+
         // Reset for next header
         currentHeaderName = null;
         currentHeaderBytes.reset();
+    }
+
+    /**
+     * Registers a push-parser that receives ARC headers as they are captured.
+     *
+     * @param arcHeaderParser the ARC parser, or null to disable
+     */
+    public void setArcHeaderParser(ArcHeaderParser arcHeaderParser) {
+        this.arcHeaderParser = arcHeaderParser;
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -506,6 +525,27 @@ public class DkimMessageParser extends MessageParser {
         return DkimSignature.parse(value);
     }
 
+    /**
+     * Returns the first {@code ARC-Message-Signature} header if present.
+     * RFC 8617 — used for body-hash initialization when no DKIM signature
+     * exists on the message.
+     *
+     * @return parsed AMS tags, or null
+     */
+    public DkimSignature getArcMessageSignature() {
+        RawHeader sigHeader = getRawHeader("arc-message-signature");
+        if (sigHeader == null) {
+            return null;
+        }
+        String full = sigHeader.asString();
+        int colonPos = full.indexOf(':');
+        if (colonPos < 0) {
+            return null;
+        }
+        String value = full.substring(colonPos + 1);
+        return DkimSignature.parse(value);
+    }
+
     @Override
     public void reset() {
         super.reset();
@@ -514,6 +554,9 @@ public class DkimMessageParser extends MessageParser {
         currentHeaderBytes.reset();
         currentHeaderName = null;
         headersComplete = false;
+        if (arcHeaderParser != null) {
+            arcHeaderParser.reset();
+        }
         bodyHashDigest = null;
         if (trailingSink != null) {
             trailingSink.reset();
@@ -591,6 +634,9 @@ public class DkimMessageParser extends MessageParser {
      */
     private void autoInitBodyHash() {
         DkimSignature sig = getDKIMSignature();
+        if (sig == null) {
+            sig = getArcMessageSignature();
+        }
         if (sig == null) {
             return;
         }

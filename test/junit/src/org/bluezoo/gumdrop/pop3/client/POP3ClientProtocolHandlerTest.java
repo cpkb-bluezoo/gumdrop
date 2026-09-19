@@ -190,34 +190,22 @@ public class POP3ClientProtocolHandlerTest {
         RecordingRetrHandler retrHandler = new RecordingRetrHandler();
         greetingHandler.transactionState.retr(1, retrHandler);
 
-        // "+OK" and the start of the message content arrive in the SAME
-        // network read. requestStop() must stop the lexer exactly at the
-        // CRLF ending "+OK ...", leaving the content bytes unconsumed —
-        // proving the lexer does not try to tokenise message content as
-        // more response lines. Matches the pre-streaming
-        // LineParser.Callback.continueLineProcessing() contract this
-        // replaces: content in the same buffer as the triggering "+OK"
-        // is not drained within that same receive() call.
+        // "+OK" and the message content arrive in the SAME network read.
+        // The lexer stops exactly at the CRLF ending "+OK ..." (it must not
+        // tokenise message content as more response lines) and the content
+        // that follows in the same buffer must then be drained within that
+        // same receive() call: the transport only calls receive() again when
+        // more bytes arrive, so leaving it unconsumed stalls the RETR when
+        // the whole reply is delivered in a single read.
         ByteBuffer netIn = ByteBuffer.allocate(1024);
         netIn.put(("+OK 13 octets\r\n" + "Hello World\r\n.\r\n")
                 .getBytes(StandardCharsets.US_ASCII));
         netIn.flip();
         handler.receive(netIn);
-        netIn.compact();
-
-        assertFalse("content should not be drained within the same "
-                + "receive() call as the triggering +OK",
-                retrHandler.messageComplete);
-
-        // The next receive() call (transport's compact() has preserved
-        // the leftover bytes) sees dotUnstufferActive already true and
-        // correctly hands them to DotUnstuffer.
-        netIn.flip();
-        handler.receive(netIn);
-        netIn.compact();
 
         assertTrue(retrHandler.messageComplete);
         assertEquals("Hello World\r\n", retrHandler.collectedContent());
+        assertFalse(netIn.hasRemaining());
     }
 
     @Test
