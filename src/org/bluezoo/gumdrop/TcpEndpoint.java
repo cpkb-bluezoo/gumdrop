@@ -95,6 +95,8 @@ public class TcpEndpoint implements Endpoint, ChannelHandler, TlsRecordState.Cal
     // -- Network I/O buffers --
 
     ByteBuffer netIn;
+    /** Decrypted bytes the handler has not yet consumed (TLS only). */
+    private ByteBuffer tlsPendingIn;
     ByteBuffer netOut;
     /**
      * Guards {@link #netOut} append, grow, socket write, and release.
@@ -989,7 +991,28 @@ public class TcpEndpoint implements Endpoint, ChannelHandler, TlsRecordState.Cal
         // First decrypted application data: release the post-handshake
         // first-byte establishment timeout.
         cancelFirstByteTimeout();
-        handler.receive(data);
+        ByteBuffer input = data;
+        if (tlsPendingIn != null) {
+            // Bytes the handler left unconsumed from the previous record
+            // come first, as with plaintext reads (ProtocolHandler.receive).
+            input = ByteBuffer.allocate(tlsPendingIn.remaining() + data.remaining());
+            input.put(tlsPendingIn);
+            input.put(data);
+            input.flip();
+            tlsPendingIn = null;
+        }
+        handler.receive(input);
+        if (input.hasRemaining()) {
+            int maxSize = factory != null ? factory.getMaxNetInSize() : 0;
+            if (maxSize > 0 && input.remaining() > maxSize) {
+                handler.error(new IOException("Application input buffer exceeded maximum size ("
+                        + maxSize + " bytes)"));
+                return;
+            }
+            tlsPendingIn = ByteBuffer.allocate(input.remaining());
+            tlsPendingIn.put(input);
+            tlsPendingIn.flip();
+        }
     }
 
     @Override

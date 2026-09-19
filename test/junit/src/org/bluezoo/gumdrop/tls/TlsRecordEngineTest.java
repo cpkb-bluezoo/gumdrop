@@ -365,6 +365,56 @@ public class TlsRecordEngineTest {
         assertTrue("server must complete: " + serverSink.events, server.isComplete());
     }
 
+    /**
+     * A zero-length application write (for example an empty response body
+     * flushed by an HTTP handler) must be a no-op, not an error: nothing is
+     * framed and the connection stays usable.
+     */
+    @Test
+    public void emptyApplicationDataSendIsANoOp() throws Exception {
+        Loopback lb = runLoopback();
+
+        lb.client.sendApplicationData(new byte[0], lb.clientSink);
+        assertTrue(lb.clientSink.outbound.isEmpty());
+        assertEquals(null, lb.clientSink.error);
+
+        lb.client.sendApplicationData("still works".getBytes("US-ASCII"), lb.clientSink);
+        lb.server.feedCiphertext(lb.clientSink.drainOutbound(), lb.serverSink);
+        assertArrayEquals("still works".getBytes("US-ASCII"), lb.serverSink.appData.get(0));
+    }
+
+    /**
+     * Large application data is fragmented into several records; however the
+     * receiver's reads split that ciphertext, the plaintext delivered must
+     * be the original bytes in order.
+     */
+    @Test
+    public void largeApplicationDataSurvivesArbitraryReadBoundaries() throws Exception {
+        int[] chunkSizes = {1, 7, 1000, 4096, 16389, 20000, 65536};
+        for (int c = 0; c < chunkSizes.length; c++) {
+            Loopback lb = runLoopback();
+            byte[] payload = new byte[50000];
+            for (int i = 0; i < payload.length; i++) {
+                payload[i] = (byte) (i * 31 + 7);
+            }
+            lb.client.sendApplicationData(payload, lb.clientSink);
+            byte[] wire = lb.clientSink.drainOutbound();
+            int chunk = chunkSizes[c];
+            for (int pos = 0; pos < wire.length; pos += chunk) {
+                int n = Math.min(chunk, wire.length - pos);
+                byte[] part = new byte[n];
+                System.arraycopy(wire, pos, part, 0, n);
+                lb.server.feedCiphertext(part, lb.serverSink);
+            }
+            ByteArrayOutputStream got = new ByteArrayOutputStream();
+            for (int i = 0; i < lb.serverSink.appData.size(); i++) {
+                byte[] d = lb.serverSink.appData.get(i);
+                got.write(d, 0, d.length);
+            }
+            assertArrayEquals("read chunk size " + chunk, payload, got.toByteArray());
+        }
+    }
+
     @Test
     public void applicationDataRoundTripsAfterHandshake() throws Exception {
         Loopback lb = runLoopback();

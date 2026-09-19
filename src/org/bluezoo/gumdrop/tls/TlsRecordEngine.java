@@ -315,6 +315,11 @@ public final class TlsRecordEngine {
                     "application data sent before handshake completed"));
             return;
         }
+        if (length == 0) {
+            // Nothing to protect; an empty write (e.g. a flushed empty body)
+            // is not an error and needs no record.
+            return;
+        }
         writeFragmented(CONTENT_APPLICATION_DATA, plaintext, offset, length, sink);
         // RFC 8446 section 5.5 / RFC 9325 section 4.4: retire our own
         // write key before it exceeds the AES-GCM confidentiality limit.
