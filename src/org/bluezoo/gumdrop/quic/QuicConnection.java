@@ -1306,10 +1306,17 @@ public final class QuicConnection implements QuicTlsEngineListener {
     // The peer finishing their send direction must not stop this side
     // from still sending its own response on the same (bidirectional)
     // stream -- see QuicStreamEndpoint's markPeerFinished javadoc.
-    private void completeStreamFin(long streamId, QuicStreamEndpoint stream) {
-        stream.markPeerFinished();
-        stream.getHandler().readFinished();
-        retireStreamIfFullyClosed(streamId, stream);
+    private void completeStreamFin(final long streamId, final QuicStreamEndpoint stream) {
+        // The FIN is delivered after any data the handler has paused
+        // reading (or left unconsumed) so it can never overtake that data.
+        stream.afterDelivery(new Runnable() {
+            @Override
+            public void run() {
+                stream.markPeerFinished();
+                stream.getHandler().readFinished();
+                retireStreamIfFullyClosed(streamId, stream);
+            }
+        });
     }
 
     // ── Receive path ──

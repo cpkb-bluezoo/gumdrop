@@ -1186,8 +1186,16 @@ class Stream implements HttpResponseState {
                 && !"HEAD".equals(method)
                 && !hasContentLength
                 && !hasTransferEncoding) {
-            headers.add("Transfer-Encoding", HttpProtocolHandler.TRANSFER_ENCODING_CHUNKED_VALUE);
-            responseChunked = true;
+            if (endStream) {
+                // The response ends with its headers: there is no body and
+                // so no last-chunk will ever follow. Chunked framing here
+                // would leave the client waiting for a terminator that
+                // never comes, so delimit the (empty) body explicitly.
+                headers.add("Content-Length", "0");
+            } else {
+                headers.add("Transfer-Encoding", HttpProtocolHandler.TRANSFER_ENCODING_CHUNKED_VALUE);
+                responseChunked = true;
+            }
         }
 
         // Save status code for telemetry

@@ -70,6 +70,9 @@ public final class QuicStreamEndpoint implements Endpoint {
     private volatile boolean closing;
     private volatile boolean peerFinished;
     private boolean readPaused;
+    private boolean draining;
+    private ByteBuffer pendingIn;
+    private Runnable pendingCompletion;
     private Runnable writeReadyCallback;
     private Trace trace;
 
@@ -133,18 +136,89 @@ public final class QuicStreamEndpoint implements Endpoint {
     }
 
     /**
-     * Delivers received stream data to the handler, unless
-     * {@link #pauseRead} is in effect (in which case it is silently
-     * dropped -- QUIC's own transport-level flow control, left
-     * unacknowledged while paused, is relied on to hold the peer back).
+     * Delivers received stream data to the handler in order and exactly
+     * once. Bytes the handler leaves unconsumed are kept and offered again,
+     * ahead of newer data, on the next call (the {@link
+     * ProtocolHandler#receive} contract); while {@link #pauseRead} is in
+     * effect nothing is delivered and the data is held until {@link
+     * #resumeRead}. The bytes have already been received and acknowledged
+     * by the QUIC layer, so dropping them would lose them for good.
      *
-     * @param data the received data (a slice -- not retained)
+     * @param data the received data (copied if it has to be held back)
      */
     void deliverData(ByteBuffer data) {
-        if (readPaused) {
+        if (pendingIn == null) {
+            pendingIn = data;
+        } else {
+            ByteBuffer merged = ByteBuffer.allocate(pendingIn.remaining() + data.remaining());
+            merged.put(pendingIn);
+            merged.put(data);
+            merged.flip();
+            pendingIn = merged;
+        }
+        drain();
+    }
+
+    /**
+     * Runs {@code completion} once the peer's FIN has been reached and all
+     * data received before it has been delivered to the handler: at once
+     * when nothing is held back, otherwise after {@link #resumeRead} has
+     * let the held data through. The FIN must not overtake buffered data.
+     */
+    void afterDelivery(Runnable completion) {
+        if (pendingIn == null && !readPaused && !draining) {
+            completion.run();
             return;
         }
-        handler.receive(data);
+        pendingCompletion = completion;
+        drain();
+    }
+
+    private void drain() {
+        if (draining) {
+            return;
+        }
+        draining = true;
+        try {
+            while (!readPaused && pendingIn != null && pendingIn.hasRemaining()) {
+                ByteBuffer in = pendingIn;
+                pendingIn = null;
+                int before = in.remaining();
+                handler.receive(in);
+                if (in.hasRemaining()) {
+                    if (pendingIn == null) {
+                        // Copy so the next merge does not depend on a
+                        // buffer the caller may reuse.
+                        ByteBuffer rest = ByteBuffer.allocate(in.remaining());
+                        rest.put(in);
+                        rest.flip();
+                        pendingIn = rest;
+                    } else {
+                        ByteBuffer merged = ByteBuffer.allocate(in.remaining() + pendingIn.remaining());
+                        merged.put(in);
+                        merged.put(pendingIn);
+                        merged.flip();
+                        pendingIn = merged;
+                    }
+                    if (pendingIn.remaining() == before) {
+                        break; // no progress: wait for more data
+                    }
+                }
+            }
+            if (pendingIn != null && !pendingIn.hasRemaining()) {
+                pendingIn = null;
+            }
+            // The completion runs only once every byte has been taken or
+            // the handler can take no more without further data.
+            if (!readPaused && pendingCompletion != null) {
+                Runnable completion = pendingCompletion;
+                pendingCompletion = null;
+                pendingIn = null;
+                completion.run();
+            }
+        } finally {
+            draining = false;
+        }
     }
 
     /**
@@ -250,6 +324,7 @@ public final class QuicStreamEndpoint implements Endpoint {
     @Override
     public void resumeRead() {
         readPaused = false;
+        drain();
     }
 
     @Override

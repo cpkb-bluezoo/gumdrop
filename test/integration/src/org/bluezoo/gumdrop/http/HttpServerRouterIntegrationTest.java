@@ -100,16 +100,22 @@ public class HttpServerRouterIntegrationTest {
         AtomicReference<Integer> statusRef = new AtomicReference<Integer>();
         AtomicReference<Exception> errorRef = new AtomicReference<Exception>();
 
+        // Complete on close(), not ok(): ok() only means the response
+        // headers have arrived, and the next request on this connection
+        // must not be issued while this response is still being parsed.
         request.send(new DefaultHttpResponseHandler() {
             @Override
             public void ok(HttpResponse response) {
                 statusRef.set(Integer.valueOf(response.getStatus().code));
-                latch.countDown();
             }
 
             @Override
             public void error(HttpResponse response) {
                 statusRef.set(Integer.valueOf(response.getStatus().code));
+            }
+
+            @Override
+            public void close() {
                 latch.countDown();
             }
 
