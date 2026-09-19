@@ -270,6 +270,7 @@
 | CD flag (Checking Disabled) | 3.2.2 | Compliant | `DnsMessage.FLAG_CD`, `isCheckingDisabled()` |
 | RRSIG signature validation | 5.3 | Compliant | RSA-SHA256/512, ECDSA P-256/P-384, Ed25519, Ed448 via JCA |
 | Chain of trust validation | 5.3.1 | Compliant | `DnssecChainValidator` — async DNSKEY/DS fetching to trust anchor |
+| Validating caching forwarder | 5.3 | Compliant | `UpstreamRelayHandler` validates upstream responses when `dnssecEnabled`; BOGUS → SERVFAIL, SECURE sets AD |
 | NSEC denial-of-existence | 5.4 | Compliant | `DnssecValidator.verifyNSEC()` — name-between and type absence |
 | Strip DNSSEC records when DO not set | 3.2.1 | Compliant | `DnsServer.stripDNSSECRecords()` |
 
