@@ -32,6 +32,7 @@ import org.bluezoo.gumdrop.dns.DnsQuestion;
 import org.bluezoo.gumdrop.dns.DnsResourceRecord;
 import org.bluezoo.gumdrop.dns.DnsServerMetrics;
 import org.bluezoo.gumdrop.dns.DnsType;
+import org.bluezoo.gumdrop.dns.client.DnssecTrustAnchor;
 import org.bluezoo.gumdrop.dns.DoQListener;
 import org.bluezoo.gumdrop.dns.DoTListener;
 
@@ -302,6 +303,16 @@ public class DnsServer implements Server {
      */
     public void setDnssecEnabled(boolean dnssecEnabled) {
         legacyRelay().setDnssecEnabled(dnssecEnabled);
+    }
+
+    /**
+     * Sets the DNSSEC trust anchor used when validating upstream responses
+     * on the caching forwarder.
+     *
+     * @param trustAnchor trust anchor store
+     */
+    public void setTrustAnchor(DnssecTrustAnchor trustAnchor) {
+        legacyRelay().setTrustAnchor(trustAnchor);
     }
 
     /**

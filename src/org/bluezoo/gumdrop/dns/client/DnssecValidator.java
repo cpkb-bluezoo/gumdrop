@@ -284,6 +284,69 @@ public final class DnssecValidator {
         return false;
     }
 
+    /**
+     * Returns the synthesized response code when {@link #verifyNSEC} is
+     * true: NXDOMAIN for a name in an empty range, NOERROR for NODATA
+     * (name exists, type absent).
+     *
+     * @param queryName the queried name
+     * @param nsecRecords NSEC records that proved denial
+     * @return {@link org.bluezoo.gumdrop.dns.DnsMessage#RCODE_NXDOMAIN} or
+     *         {@link org.bluezoo.gumdrop.dns.DnsMessage#RCODE_NOERROR}
+     */
+    public static int nsecDenialRcode(String queryName,
+                                      List<DnsResourceRecord> nsecRecords) {
+        String qLower = canonicalizeName(queryName);
+        for (int i = 0; i < nsecRecords.size(); i++) {
+            DnsResourceRecord nsec = nsecRecords.get(i);
+            if (nsec.getType() != DnsType.NSEC) {
+                continue;
+            }
+            String owner = canonicalizeName(nsec.getName());
+            if (owner.equals(qLower)) {
+                return DnsMessage.RCODE_NOERROR;
+            }
+        }
+        return DnsMessage.RCODE_NXDOMAIN;
+    }
+
+    /**
+     * Returns the synthesized response code when {@link #verifyNSEC3} is
+     * true.
+     *
+     * @param queryName the queried name
+     * @param nsec3Records NSEC3 records that proved denial
+     * @return {@link org.bluezoo.gumdrop.dns.DnsMessage#RCODE_NXDOMAIN} or
+     *         {@link org.bluezoo.gumdrop.dns.DnsMessage#RCODE_NOERROR}
+     */
+    public static int nsec3DenialRcode(String queryName,
+                                       List<DnsResourceRecord> nsec3Records) {
+        if (nsec3Records.isEmpty()) {
+            return DnsMessage.RCODE_NXDOMAIN;
+        }
+        DnsResourceRecord first = nsec3Records.get(0);
+        byte[] queryHash = nsec3Hash(queryName,
+                first.getNSEC3HashAlgorithm(),
+                first.getNSEC3Iterations(),
+                first.getNSEC3Salt());
+        if (queryHash == null) {
+            return DnsMessage.RCODE_NXDOMAIN;
+        }
+        String qHashB32 = base32HexEncode(queryHash);
+        for (int i = 0; i < nsec3Records.size(); i++) {
+            DnsResourceRecord nsec3 = nsec3Records.get(i);
+            String ownerLabel = nsec3.getName();
+            int dot = ownerLabel.indexOf('.');
+            String ownerHash = dot > 0
+                    ? ownerLabel.substring(0, dot).toUpperCase()
+                    : ownerLabel.toUpperCase();
+            if (ownerHash.equalsIgnoreCase(qHashB32)) {
+                return DnsMessage.RCODE_NOERROR;
+            }
+        }
+        return DnsMessage.RCODE_NXDOMAIN;
+    }
+
     // -- Public key construction --
 
     /**
