@@ -757,6 +757,33 @@ public class IMAPClientProtocolHandlerTest {
         assertTrue(fetchHandler.fetchComplete);
     }
 
+    /**
+     * Data items that follow a literal on the closing line of a FETCH
+     * response (RFC 9051 section 7.5.2) must not be dropped.
+     */
+    @Test
+    public void testFetchItemsAfterLiteralAreParsed() {
+        enterSelectedState();
+
+        RecordingFetchHandler fetchHandler = new RecordingFetchHandler();
+        greetingHandler.selectedState.fetch("1", "(BODY[TEXT] UID)",
+                fetchHandler);
+        String tag = lastSentTag();
+
+        String wire = "* 1 FETCH (BODY[TEXT] {11}\r\n" + "Hello World"
+                + " UID 7 FLAGS (\\Seen))\r\n"
+                + tag + " OK FETCH completed\r\n";
+        handler.receive(ByteBuffer.wrap(
+                wire.getBytes(StandardCharsets.US_ASCII)));
+
+        assertTrue(fetchHandler.literalEndReceived);
+        assertTrue(fetchHandler.fetchComplete);
+        assertEquals(1, fetchHandler.fetchResponses.size());
+        FetchData fd = fetchHandler.fetchResponses.get(0).data;
+        assertEquals(7, fd.getUid());
+        assertEquals(1, fd.getFlags().length);
+    }
+
     // Streaming lexer conversion (issue #85): the FETCH-literal transcript
     // above, fed one byte at a time across many receive() calls, mirroring
     // the real transport contract (TcpEndpoint.processInbound()) — a
