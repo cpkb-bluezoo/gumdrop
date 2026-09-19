@@ -55,6 +55,7 @@ import static org.junit.Assert.*;
  * Tests the recovery layer's recording/replay behaviour using fake
  * {@link ClientChannel}/{@link ClientConnection} implementations — no
  * real network or broker involved.
+ * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 public class RecoverableChannelImplTest {
 

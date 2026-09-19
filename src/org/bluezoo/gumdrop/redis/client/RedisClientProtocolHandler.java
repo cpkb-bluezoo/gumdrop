@@ -153,7 +153,8 @@ public class RedisClientProtocolHandler implements ProtocolHandler, RedisSession
                 protocol != null ? protocol : "unknown");
             LOGGER.fine(msg);
             if (cipher != null && LOGGER.isLoggable(Level.FINER)) {
-                LOGGER.finer("Cipher suite: " + cipher);
+                LOGGER.finer(MessageFormat.format(
+                        L10N.getString("log.cipher_suite"), cipher));
             }
         }
     }

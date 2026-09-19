@@ -33,6 +33,7 @@ import org.bluezoo.gumdrop.http.Header;
  * Regression tests for issue #255 — malformed HPACK input found by JQF/Zest
  * fuzzing that threw an unchecked exception instead of the documented
  * {@link IOException}.
+ * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 public class DecoderMalformedInputTest {
 

@@ -166,7 +166,7 @@ public class ConnectUdpRequestHandler extends DefaultHttpRequestHandler {
         try {
             relay.start(resolvedTarget);
         } catch (java.io.IOException e) {
-            LOGGER.log(Level.WARNING, "Failed to open CONNECT-UDP upstream socket", e);
+            LOGGER.log(Level.WARNING, L10N.getString("warn.connect_udp_upstream_open_failed"), e);
             relay = null;
             rejectRequest(state, 502);
             return;

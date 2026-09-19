@@ -46,6 +46,7 @@ import java.util.Deque;
 import java.util.EnumSet;
 import java.util.HashSet;
 import java.util.List;
+import java.util.ResourceBundle;
 import java.util.Set;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -86,6 +87,8 @@ import java.util.logging.Logger;
 public class MaildirMailboxStore implements MailboxStore {
 
     private static final Logger LOGGER = Logger.getLogger(MaildirMailboxStore.class.getName());
+    private static final ResourceBundle L10N =
+            ResourceBundle.getBundle("org.bluezoo.gumdrop.mailbox.L10N");
 
     /** The hierarchy delimiter for mailbox names (IMAP visible) */
     private static final char HIERARCHY_DELIMITER = '/';
@@ -157,7 +160,8 @@ public class MaildirMailboxStore implements MailboxStore {
         enqueueEagerIndexWarming();
 
         if (LOGGER.isLoggable(Level.FINE)) {
-            LOGGER.fine("Opened Maildir store for user: " + username);
+            LOGGER.fine(MessageFormat.format(
+                    L10N.getString("fine.opened_maildir_store"), username));
         }
     }
 
@@ -170,7 +174,8 @@ public class MaildirMailboxStore implements MailboxStore {
         try {
             names = listMailboxes("", "*");
         } catch (IOException e) {
-            LOGGER.log(Level.FINE, "Could not enumerate mailboxes for eager index warming", e);
+            LOGGER.log(Level.FINE,
+                    L10N.getString("fine.could_not_enumerate_mailboxes_eager_warm"), e);
             return;
         }
         MailboxWatcher watcher = MailboxRuntime.getWatcher();
@@ -215,7 +220,8 @@ public class MaildirMailboxStore implements MailboxStore {
                     watcher.register(maildirPath.resolve("new"), null, onChange);
                 }
             } catch (Exception e) {
-                LOGGER.log(Level.FINE, "Skipping eager index warm for " + mailboxName, e);
+                LOGGER.log(Level.FINE, MessageFormat.format(
+                        L10N.getString("fine.skipping_eager_index_warm"), mailboxName), e);
             }
         }
     }
@@ -614,7 +620,8 @@ public class MaildirMailboxStore implements MailboxStore {
         Files.createDirectories(mailboxPath.resolve("tmp"));
         
         if (LOGGER.isLoggable(Level.FINE)) {
-            LOGGER.fine("Created mailbox: " + mailboxName);
+            LOGGER.fine(MessageFormat.format(
+                    L10N.getString("info.mailbox_created"), mailboxName));
         }
     }
 
@@ -648,7 +655,8 @@ public class MaildirMailboxStore implements MailboxStore {
         subscriptions.remove(normalized);
         
         if (LOGGER.isLoggable(Level.FINE)) {
-            LOGGER.fine("Deleted mailbox: " + mailboxName);
+            LOGGER.fine(MessageFormat.format(
+                    L10N.getString("info.mailbox_deleted"), mailboxName));
         }
     }
 
@@ -705,7 +713,8 @@ public class MaildirMailboxStore implements MailboxStore {
         }
         
         if (LOGGER.isLoggable(Level.FINE)) {
-            LOGGER.fine("Renamed mailbox: " + normalizedOld + " -> " + normalizedNew);
+            LOGGER.fine(MessageFormat.format(
+                    L10N.getString("info.mailbox_renamed"), normalizedOld, normalizedNew));
         }
     }
 

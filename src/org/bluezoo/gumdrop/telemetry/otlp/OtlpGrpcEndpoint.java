@@ -179,12 +179,12 @@ class OtlpGrpcEndpoint {
                     for (int i = 0; i < managers.length; i++) {
                         if (managers[i] instanceof X509TrustManager) {
                             trustManager = (X509TrustManager) managers[i];
-                            logger.fine("Loaded truststore for OTLP gRPC " + name + " endpoint: " + truststoreFile);
+                            logger.fine(MessageFormat.format(L10N.getString("debug.grpc_truststore_loaded"), name, truststoreFile));
                             return trustManager;
                         }
                     }
                 } catch (Exception e) {
-                    logger.log(Level.WARNING, "Failed to load truststore for OTLP gRPC " + name + " endpoint", e);
+                    logger.log(Level.WARNING, MessageFormat.format(L10N.getString("warn.grpc_truststore_load_failed"), name), e);
                 }
             }
         }
@@ -258,7 +258,7 @@ class OtlpGrpcEndpoint {
             return null;
 
         } catch (Exception e) {
-            logger.log(Level.WARNING, "Failed to create OTLP gRPC " + name + " connection", e);
+            logger.log(Level.WARNING, MessageFormat.format(L10N.getString("warn.grpc_connection_create_failed"), name), e);
             connecting = false;
             if (connectLatch != null) {
                 connectLatch.countDown();
@@ -289,14 +289,14 @@ class OtlpGrpcEndpoint {
 
         @Override
         public void onSecurityEstablished(SecurityInfo info) {
-            logger.fine("TLS established with OTLP gRPC " + name + " endpoint");
+            logger.fine(MessageFormat.format(L10N.getString("debug.grpc_tls_established"), name));
         }
 
         @Override
         public void onError(Exception cause) {
             connecting = false;
             connected = false;
-            logger.log(Level.WARNING, "OTLP gRPC " + name + " connection error", cause);
+            logger.log(Level.WARNING, MessageFormat.format(L10N.getString("warn.grpc_connection_error"), name), cause);
         }
 
         @Override
@@ -337,7 +337,7 @@ class OtlpGrpcEndpoint {
         request.endRequestBody();
 
         if (logger.isLoggable(Level.FINEST)) {
-            logger.finest("Sent " + framed.remaining() + " bytes (gRPC framed) to OTLP " + name + " endpoint");
+            logger.finest(MessageFormat.format(L10N.getString("finest.grpc_sent_bytes"), framed.remaining(), name));
         }
     }
 
@@ -348,7 +348,7 @@ class OtlpGrpcEndpoint {
             try {
                 client.close();
             } catch (Exception e) {
-                logger.log(Level.FINE, "Error closing OTLP gRPC " + name + " connection", e);
+                logger.log(Level.FINE, MessageFormat.format(L10N.getString("fine.grpc_close_error"), name), e);
             }
             client = null;
         }

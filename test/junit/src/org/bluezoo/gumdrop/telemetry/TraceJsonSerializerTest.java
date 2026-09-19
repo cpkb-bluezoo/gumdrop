@@ -39,6 +39,7 @@ import org.bluezoo.gumdrop.telemetry.json.TraceJsonSerializer;
 /**
  * Tests for TraceJsonSerializer.
  * Verifies OTLP JSON trace serialization.
+ * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 public class TraceJsonSerializerTest {
 

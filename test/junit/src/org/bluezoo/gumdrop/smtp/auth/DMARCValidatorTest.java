@@ -40,6 +40,7 @@ import static org.junit.Assert.*;
  * Unit tests for {@link DmarcValidator} (FEAT-001, RFC 9989 "DMARCbis"
  * additions: {@code t=}, {@code np=}, {@code psd=} tags, PSD policy
  * lookup, and {@code v=DMARC1} first-tag validation).
+ * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 public class DMARCValidatorTest {
 

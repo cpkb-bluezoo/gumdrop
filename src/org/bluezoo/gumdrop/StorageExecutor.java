@@ -28,6 +28,7 @@ import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
+import java.util.ResourceBundle;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -75,6 +76,9 @@ import java.util.logging.Logger;
  * @see Endpoint#execute(Runnable)
  */
 public final class StorageExecutor {
+
+    private static final ResourceBundle L10N =
+            ResourceBundle.getBundle("org.bluezoo.gumdrop.L10N");
 
     private static final Logger LOGGER =
             Logger.getLogger(StorageExecutor.class.getName());
@@ -287,8 +291,8 @@ public final class StorageExecutor {
                     // there is nowhere to deliver the result. Drop it.
                     if (LOGGER.isLoggable(Level.FINE)) {
                         LOGGER.log(Level.FINE,
-                                "Storage result could not be dispatched back "
-                                + "to a closed connection", dispatchError);
+                                L10N.getString("log.storage_result_dispatch_failed"),
+                                dispatchError);
                     }
                 }
             }
@@ -308,8 +312,8 @@ public final class StorageExecutor {
             } catch (Throwable dispatchError) {
                 if (LOGGER.isLoggable(Level.FINE)) {
                     LOGGER.log(Level.FINE,
-                            "Storage rejection could not be dispatched back "
-                            + "to a closed connection", dispatchError);
+                            L10N.getString("log.storage_rejection_dispatch_failed"),
+                            dispatchError);
                 }
             }
         }

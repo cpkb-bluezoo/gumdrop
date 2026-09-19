@@ -339,7 +339,7 @@ public abstract class WebSocketConnection {
         try {
             sendPong(payload);
         } catch (IOException e) {
-            LOGGER.log(Level.WARNING, "Failed to send pong response", e);
+            LOGGER.log(Level.WARNING, L10N.getString("warn.pong_send_failed"), e);
             error(e);
         }
     }
@@ -536,7 +536,7 @@ public abstract class WebSocketConnection {
             try {
                 opened();
             } catch (Exception e) {
-                LOGGER.log(Level.SEVERE, "Error in opened handler", e);
+                LOGGER.log(Level.SEVERE, L10N.getString("severe.opened_handler_error"), e);
                 error(e);
             }
         }
@@ -746,7 +746,7 @@ public abstract class WebSocketConnection {
                 binaryMessageReceived(ByteBuffer.wrap(decoded));
             }
         } catch (Exception e) {
-            LOGGER.log(Level.SEVERE, "Error delivering WebSocket message", e);
+            LOGGER.log(Level.SEVERE, L10N.getString("severe.message_delivery_error"), e);
             error(e);
         }
     }
@@ -788,7 +788,7 @@ public abstract class WebSocketConnection {
                     
                     span.end();
                 } catch (Exception e) {
-                    LOGGER.log(Level.WARNING, "Error recording telemetry", e);
+                    LOGGER.log(Level.WARNING, L10N.getString("warn.telemetry_record_error"), e);
                 }
             }
             
@@ -804,7 +804,7 @@ public abstract class WebSocketConnection {
                 }
                 closed(code, reason);
             } catch (Exception e) {
-                LOGGER.log(Level.SEVERE, "Error in closed handler", e);
+                LOGGER.log(Level.SEVERE, L10N.getString("severe.closed_handler_error"), e);
             }
         }
     }

@@ -29,6 +29,7 @@ import java.util.List;
 
 /**
  * Unit tests for SearchRequest.
+ * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 public class SearchRequestTest {
 

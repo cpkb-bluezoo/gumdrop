@@ -1,8 +1,6 @@
 /*
  * EchoServer.java
- * Copyright (C) 2026 Chris Burdess
- *
- * Minimal HTTP server built with Gumdrop 3 composition (no XML).
+ * Minimal HTTPS (or plaintext) echo server for quick HTTP client checks.
  */
 
 import org.bluezoo.gumdrop.Gumdrop;

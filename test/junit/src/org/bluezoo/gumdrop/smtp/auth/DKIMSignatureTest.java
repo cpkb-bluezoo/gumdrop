@@ -28,6 +28,7 @@ import java.util.List;
 
 /**
  * Unit tests for DkimSignature parsing.
+ * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 public class DKIMSignatureTest {
 

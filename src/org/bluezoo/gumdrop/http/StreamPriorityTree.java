@@ -189,7 +189,7 @@ public class StreamPriorityTree {
         // Recalculate priorities after tree structure change
         recalculatePriorities();
         
-        LOGGER.fine("Updated stream priority: " + nodes.get(streamId));
+        LOGGER.fine(MessageFormat.format(L10N.getString("debug.updated_stream_priority"), nodes.get(streamId)));
     }
     
     /**
@@ -233,7 +233,7 @@ public class StreamPriorityTree {
         // Recalculate priorities
         recalculatePriorities();
         
-        LOGGER.fine("Removed stream " + streamId + " from priority tree");
+        LOGGER.fine(MessageFormat.format(L10N.getString("debug.removed_stream_priority_tree"), streamId));
     }
     
     /**

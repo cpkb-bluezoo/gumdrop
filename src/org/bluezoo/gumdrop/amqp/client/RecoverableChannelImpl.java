@@ -28,6 +28,8 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
+import java.text.MessageFormat;
+import java.util.ResourceBundle;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -62,6 +64,9 @@ import java.util.logging.Logger;
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 final class RecoverableChannelImpl implements ClientChannel {
+
+    private static final ResourceBundle L10N =
+            ResourceBundle.getBundle("org.bluezoo.gumdrop.amqp.client.L10N");
 
     private static final Logger LOGGER = Logger.getLogger(RecoverableChannelImpl.class.getName());
 
@@ -226,7 +231,9 @@ final class RecoverableChannelImpl implements ClientChannel {
         try {
             op.replay(newLive);
         } catch (RuntimeException e) {
-            LOGGER.log(Level.WARNING, "Failed to replay topology on channel " + channelId, e);
+            LOGGER.log(Level.WARNING, MessageFormat.format(
+                    L10N.getString("log.topology_replay_failed"),
+                    Long.valueOf(channelId)), e);
         }
     }
 

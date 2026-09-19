@@ -53,7 +53,7 @@ import org.bluezoo.gumdrop.tls.ServerCredentials;
 import org.bluezoo.gumdrop.tls.DtlsVersion;
 import org.bluezoo.gumdrop.tls.TlsVersion;
 import org.bluezoo.gumdrop.util.CidrNetwork;
-
+import java.util.ResourceBundle;
 /**
  * Common base class for all server endpoint types (TCP and UDP).
  *
@@ -70,6 +70,9 @@ import org.bluezoo.gumdrop.util.CidrNetwork;
  * @see UdpListener
  */
 public abstract class Listener {
+
+    private static final ResourceBundle L10N =
+            ResourceBundle.getBundle("org.bluezoo.gumdrop.L10N");
 
     private static final Logger LOGGER =
             Logger.getLogger(Listener.class.getName());
@@ -938,7 +941,7 @@ public abstract class Listener {
             }
         } catch (IOException e) {
             LOGGER.log(Level.WARNING,
-                    "Failed to enumerate network interfaces", e);
+                    L10N.getString("log.failed_to_enumerate_network_interfaces"), e);
         }
         return all;
     }
@@ -957,8 +960,7 @@ public abstract class Listener {
         if (maxConnections > 0
                 && activeConnectionCount.get() >= maxConnections) {
             if (LOGGER.isLoggable(Level.FINE)) {
-                LOGGER.fine("Connection cap reached (" + maxConnections
-                        + "); rejecting " + remoteAddress);
+                LOGGER.fine(MessageFormat.format(L10N.getString("log.connection_cap_reached_0_rejecting_1"), maxConnections, remoteAddress));
             }
             return false;
         }
@@ -974,7 +976,7 @@ public abstract class Listener {
                  it.hasNext(); ) {
                 if (it.next().matches(addr)) {
                     if (LOGGER.isLoggable(Level.FINE)) {
-                        LOGGER.fine("Blocked connection from " + addr);
+                        LOGGER.fine(MessageFormat.format(L10N.getString("log.blocked_connection_from_0"), addr));
                     }
                     return false;
                 }
@@ -992,8 +994,7 @@ public abstract class Listener {
             }
             if (!allowed) {
                 if (LOGGER.isLoggable(Level.FINE)) {
-                    LOGGER.fine("Connection not in allowed networks: "
-                            + addr);
+                    LOGGER.fine(MessageFormat.format(L10N.getString("log.connection_not_in_allowed_networks_0"), addr));
                 }
                 return false;
             }
@@ -1002,7 +1003,7 @@ public abstract class Listener {
         if (connectionRateLimiter != null) {
             if (!connectionRateLimiter.allowConnection(addr)) {
                 if (LOGGER.isLoggable(Level.FINE)) {
-                    LOGGER.fine("Rate limit exceeded for " + addr);
+                    LOGGER.fine(MessageFormat.format(L10N.getString("log.rate_limit_exceeded_for_0"), addr));
                 }
                 return false;
             }

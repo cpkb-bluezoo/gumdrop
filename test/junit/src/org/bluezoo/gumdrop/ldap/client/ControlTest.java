@@ -26,6 +26,7 @@ import static org.junit.Assert.*;
 
 /**
  * Unit tests for Control (RFC 4511 section 4.1.11).
+ * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 public class ControlTest {
 

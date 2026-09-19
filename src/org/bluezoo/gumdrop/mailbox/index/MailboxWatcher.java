@@ -29,8 +29,10 @@ import java.nio.file.StandardWatchEventKinds;
 import java.nio.file.WatchEvent;
 import java.nio.file.WatchKey;
 import java.nio.file.WatchService;
+import java.text.MessageFormat;
 import java.util.List;
 import java.util.Map;
+import java.util.ResourceBundle;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.logging.Level;
@@ -61,6 +63,8 @@ import java.util.logging.Logger;
 public final class MailboxWatcher implements Runnable {
 
     private static final Logger LOGGER = Logger.getLogger(MailboxWatcher.class.getName());
+    private static final ResourceBundle L10N =
+            ResourceBundle.getBundle("org.bluezoo.gumdrop.mailbox.L10N");
 
     /**
      * Notified when a watched directory reports a change to a file
@@ -130,7 +134,8 @@ public final class MailboxWatcher implements Runnable {
                     StandardWatchEventKinds.ENTRY_DELETE);
             return new WatchedDir();
         } catch (IOException e) {
-            LOGGER.log(Level.WARNING, "Could not watch directory: " + dir, e);
+            LOGGER.log(Level.WARNING, MessageFormat.format(
+                    L10N.getString("warn.could_not_watch_directory"), dir), e);
             return null;
         }
     }
@@ -171,7 +176,8 @@ public final class MailboxWatcher implements Runnable {
                             try {
                                 r.listener.onChange(changedName);
                             } catch (Exception e) {
-                                LOGGER.log(Level.WARNING, "Mailbox watch listener failed", e);
+                                LOGGER.log(Level.WARNING,
+                                        L10N.getString("warn.mailbox_watch_listener_failed"), e);
                             }
                         }
                     }

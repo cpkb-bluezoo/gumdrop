@@ -1,9 +1,6 @@
 /*
- * JCAExampleServlet.java  
- * JCA and JNDI Demonstration for Gumdrop Server
- * 
- * This example demonstrates complete JCA (Java Connector Architecture) and 
- * JNDI (Java Naming and Directory Interface) support in Servlet containers.
+ * JCAExampleServlet.java
+ * Comprehensive example demonstrating JCA and JNDI resource usage.
  */
 
 package examples.jcajndi;

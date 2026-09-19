@@ -36,6 +36,7 @@ import org.bluezoo.gumdrop.telemetry.json.LogJsonSerializer;
 /**
  * Tests for LogJsonSerializer.
  * Verifies OTLP JSON log serialization.
+ * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 public class LogJsonSerializerTest {
 

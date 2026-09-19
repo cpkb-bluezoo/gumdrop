@@ -49,6 +49,8 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.logging.Logger;
+import java.text.MessageFormat;
+import java.util.ResourceBundle;
 
 /**
  * JMX bridge that exposes OpenTelemetry metrics via MBeans.
@@ -66,7 +68,8 @@ public class TelemetryJMXBridge {
 
     private static final String DOMAIN = "org.bluezoo.gumdrop";
     private static final String TYPE = "Telemetry";
-    private static final Logger logger = Logger.getLogger(TelemetryJMXBridge.class.getName());
+        private static final ResourceBundle L10N = ResourceBundle.getBundle("org.bluezoo.gumdrop.telemetry.L10N");
+private static final Logger logger = Logger.getLogger(TelemetryJMXBridge.class.getName());
 
     private final TelemetryConfig config;
     private ObjectName objectName;
@@ -99,10 +102,10 @@ public class TelemetryJMXBridge {
             MBeanServer server = ManagementFactory.getPlatformMBeanServer();
             server.registerMBean(new TelemetryMetricsMBean(), objectName);
             registered = true;
-            logger.info("Telemetry JMX bridge registered: " + objectName);
+            logger.info(MessageFormat.format(L10N.getString("info.jmx_bridge_registered"), objectName));
             return true;
         } catch (MalformedObjectNameException | MBeanRegistrationException | InstanceAlreadyExistsException | NotCompliantMBeanException e) {
-            logger.warning("Failed to register Telemetry JMX bridge: " + e.getMessage());
+            logger.warning(MessageFormat.format(L10N.getString("warn.jmx_bridge_register_failed"), e.getMessage()));
             return false;
         }
     }
@@ -120,9 +123,9 @@ public class TelemetryJMXBridge {
                 server.unregisterMBean(objectName);
             }
             registered = false;
-            logger.info("Telemetry JMX bridge unregistered: " + objectName);
+            logger.info(MessageFormat.format(L10N.getString("info.jmx_bridge_unregistered"), objectName));
         } catch (Exception e) {
-            logger.warning("Failed to unregister Telemetry JMX bridge: " + e.getMessage());
+            logger.warning(MessageFormat.format(L10N.getString("warn.jmx_bridge_unregister_failed"), e.getMessage()));
         }
     }
 

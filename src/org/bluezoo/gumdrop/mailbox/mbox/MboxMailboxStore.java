@@ -38,7 +38,9 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
+import java.text.MessageFormat;
 import java.util.ArrayDeque;
+import java.util.ResourceBundle;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Deque;
@@ -80,6 +82,8 @@ import java.util.logging.Logger;
 public class MboxMailboxStore implements MailboxStore {
 
     private static final Logger LOGGER = Logger.getLogger(MboxMailboxStore.class.getName());
+    private static final ResourceBundle L10N =
+            ResourceBundle.getBundle("org.bluezoo.gumdrop.mailbox.L10N");
 
     /** The default file extension for mbox files */
     public static final String DEFAULT_EXTENSION = ".mbox";
@@ -194,7 +198,8 @@ public class MboxMailboxStore implements MailboxStore {
         enqueueEagerIndexWarming();
 
         if (LOGGER.isLoggable(Level.FINE)) {
-            LOGGER.fine("Opened mail store for user: " + username);
+            LOGGER.fine(MessageFormat.format(
+                    L10N.getString("fine.opened_mbox_store"), username));
         }
     }
 
@@ -207,7 +212,8 @@ public class MboxMailboxStore implements MailboxStore {
         try {
             names = listMailboxes("", "*");
         } catch (IOException e) {
-            LOGGER.log(Level.FINE, "Could not enumerate mailboxes for eager index warming", e);
+            LOGGER.log(Level.FINE,
+                    L10N.getString("fine.could_not_enumerate_mailboxes_eager_warm"), e);
             return;
         }
         MailboxWatcher watcher = MailboxRuntime.getWatcher();
@@ -252,7 +258,8 @@ public class MboxMailboxStore implements MailboxStore {
                     });
                 }
             } catch (Exception e) {
-                LOGGER.log(Level.FINE, "Skipping eager index warm for " + mailboxName, e);
+                LOGGER.log(Level.FINE, MessageFormat.format(
+                        L10N.getString("fine.skipping_eager_index_warm"), mailboxName), e);
             }
         }
     }
@@ -272,7 +279,7 @@ public class MboxMailboxStore implements MailboxStore {
         this.open = false;
         
         if (LOGGER.isLoggable(Level.FINE)) {
-            LOGGER.fine("Closed mail store");
+            LOGGER.fine(L10N.getString("fine.closed_mbox_store"));
         }
     }
 
@@ -452,7 +459,8 @@ public class MboxMailboxStore implements MailboxStore {
         Files.createFile(mailboxPath);
         
         if (LOGGER.isLoggable(Level.FINE)) {
-            LOGGER.fine("Created mailbox: " + normalized);
+            LOGGER.fine(MessageFormat.format(
+                    L10N.getString("info.mailbox_created"), normalized));
         }
     }
 
@@ -485,7 +493,8 @@ public class MboxMailboxStore implements MailboxStore {
         subscriptions.remove(normalized);
         
         if (LOGGER.isLoggable(Level.FINE)) {
-            LOGGER.fine("Deleted mailbox: " + normalized);
+            LOGGER.fine(MessageFormat.format(
+                    L10N.getString("info.mailbox_deleted"), normalized));
         }
     }
 
@@ -530,7 +539,8 @@ public class MboxMailboxStore implements MailboxStore {
         }
         
         if (LOGGER.isLoggable(Level.FINE)) {
-            LOGGER.fine("Renamed mailbox: " + normalizedOld + " -> " + normalizedNew);
+            LOGGER.fine(MessageFormat.format(
+                    L10N.getString("info.mailbox_renamed"), normalizedOld, normalizedNew));
         }
     }
 

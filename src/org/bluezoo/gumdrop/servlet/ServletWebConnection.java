@@ -197,7 +197,7 @@ class ServletWebConnection implements WebConnection {
                 try {
                     sendMessageDirect(message, asText);
                 } catch (IOException e) {
-                    LOGGER.log(Level.WARNING, "Error sending WebSocket message", e);
+                    LOGGER.log(Level.WARNING, L10N.getString("warn.websocket_send_message"), e);
                 }
                 if (outputStream.hasWriteListener()) {
                     dispatchContainerCallback(new Runnable() {
@@ -332,7 +332,7 @@ class ServletWebConnection implements WebConnection {
                     try {
                         session.close();
                     } catch (IOException e) {
-                        LOGGER.log(Level.FINE, "Error closing WebSocket session", e);
+                        LOGGER.log(Level.FINE, L10N.getString("fine.websocket_close_session"), e);
                     }
                 }
             });
@@ -340,7 +340,7 @@ class ServletWebConnection implements WebConnection {
             try {
                 session.close();
             } catch (IOException e) {
-                LOGGER.log(Level.FINE, "Error closing WebSocket session", e);
+                LOGGER.log(Level.FINE, L10N.getString("fine.websocket_close_session"), e);
             }
         }
     }
@@ -417,7 +417,7 @@ class ServletWebConnection implements WebConnection {
 
         @Override
         public void error(Throwable cause) {
-            LOGGER.log(Level.WARNING, "WebSocket error", cause);
+            LOGGER.log(Level.WARNING, L10N.getString("warn.websocket_error"), cause);
             if (!closed) {
                 messageStream.fail(new IOException("WebSocket error", cause));
                 inputStream.dispatchDataAvailable();
@@ -425,7 +425,7 @@ class ServletWebConnection implements WebConnection {
             try {
                 close();
             } catch (IOException e) {
-                LOGGER.log(Level.FINE, "Error closing on WebSocket error", e);
+                LOGGER.log(Level.FINE, L10N.getString("fine.websocket_close_on_error"), e);
             }
         }
     }
@@ -457,11 +457,11 @@ class ServletWebConnection implements WebConnection {
             public void run() {
                 upgradeInitStarted.countDown();
                 LOGGER.log(Level.WARNING,
-                        "Worker pool saturated; closing WebSocket upgrade");
+                        L10N.getString("warn.websocket_worker_pool_saturated"));
                 try {
                     close();
                 } catch (IOException e) {
-                    LOGGER.log(Level.FINE, "Error closing rejected upgrade", e);
+                    LOGGER.log(Level.FINE, L10N.getString("fine.websocket_close_rejected_upgrade"), e);
                 }
             }
         };
@@ -494,31 +494,31 @@ class ServletWebConnection implements WebConnection {
             if (!upgradeInitStarted.await(PENDING_RESPONSE_WAIT_TIMEOUT_MS,
                     TimeUnit.MILLISECONDS)) {
                 LOGGER.log(Level.WARNING,
-                        "Timed out waiting for upgrade handler init before destroy");
+                        L10N.getString("warn.websocket_upgrade_destroy_timeout"));
                 return;
             }
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             LOGGER.log(Level.FINE,
-                    "Interrupted waiting for upgrade handler init before destroy", e);
+                    L10N.getString("fine.websocket_upgrade_init_interrupt"), e);
             return;
         }
         try {
             upgradeHandler.destroy();
         } catch (Exception e) {
-            LOGGER.log(Level.WARNING, "Error destroying upgrade handler", e);
+            LOGGER.log(Level.WARNING, L10N.getString("warn.websocket_upgrade_destroy"), e);
         }
     }
 
     private void handleUpgradeInitFailure(final Exception e) {
-        LOGGER.log(Level.WARNING, "Error initializing upgrade handler", e);
+        LOGGER.log(Level.WARNING, L10N.getString("warn.websocket_upgrade_init"), e);
         Runnable closeTask = new Runnable() {
             @Override
             public void run() {
                 try {
                     close();
                 } catch (IOException ioe) {
-                    LOGGER.log(Level.FINE, "Error closing after upgrade init failure", ioe);
+                    LOGGER.log(Level.FINE, L10N.getString("fine.websocket_close_after_upgrade_init_failure"), ioe);
                 }
             }
         };

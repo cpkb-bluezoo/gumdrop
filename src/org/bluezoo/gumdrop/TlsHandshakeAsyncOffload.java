@@ -198,7 +198,8 @@ public final class TlsHandshakeAsyncOffload implements HandshakeAsyncOffload {
 
             @Override
             public void failed(Throwable error) {
-                LOGGER.log(Level.SEVERE, "TLS handshake delegated processing failed", error);
+                LOGGER.log(Level.SEVERE,
+                        Gumdrop.L10N.getString("err.tls_handshake_offload_failed"), error);
                 onFailure.failed(error);
                 boolean idle = false;
                 synchronized (lock) {

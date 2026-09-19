@@ -307,7 +307,8 @@ public final class MboxMailbox implements Mailbox {
                 try {
                     searchIndex.save();
                 } catch (IOException e) {
-                    LOGGER.log(Level.WARNING, "Failed to save search index", e);
+                    LOGGER.log(Level.WARNING,
+                            L10N.getString("warn.failed_save_search_index"), e);
                 }
             }
         } finally {
@@ -671,7 +672,8 @@ public final class MboxMailbox implements Mailbox {
         }
         
         if (LOGGER.isLoggable(Level.FINE)) {
-            LOGGER.fine("Indexed " + messages.size() + " messages in " + mboxFile);
+            LOGGER.fine(MessageFormat.format(
+                    L10N.getString("fine.indexed_mbox_messages"), messages.size(), mboxFile));
         }
     }
 
@@ -1078,7 +1080,8 @@ public final class MboxMailbox implements Mailbox {
                 if (validateSearchIndex()) {
                     // Index any new messages that aren't in the index
                     indexNewMessages();
-                    LOGGER.fine("Loaded search index for " + name);
+                    LOGGER.fine(MessageFormat.format(
+                            L10N.getString("fine.loaded_search_index_for"), name));
                     return;
                 } else {
                     LOGGER.info(L10N.getString("info.search_index_inconsistent"));
@@ -1120,7 +1123,7 @@ public final class MboxMailbox implements Mailbox {
             rebuildSearchIndex();
         } catch (IOException e) {
             LOGGER.log(Level.WARNING,
-                    "Background index rebuild failed, rebuilding inline", e);
+                    L10N.getString("warn.background_index_rebuild_failed"), e);
             rebuildSearchIndex();
         }
     }
@@ -1171,7 +1174,8 @@ public final class MboxMailbox implements Mailbox {
             try {
                 addMessageToSearchIndex(msg, uid, EnumSet.noneOf(Flag.class), null);
             } catch (IOException e) {
-                LOGGER.log(Level.WARNING, "Failed to index message " + (i + 1), e);
+                LOGGER.log(Level.WARNING, MessageFormat.format(
+                        L10N.getString("warn.index_message_failed"), i + 1), e);
             }
         }
     }

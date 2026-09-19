@@ -34,6 +34,9 @@ import java.util.List;
 
 import static org.junit.Assert.*;
 
+/**
+ * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
+ */
 public class FieldTableTest {
 
     private static FieldTable roundTrip(FieldTable original) throws AmqpProtocolException {

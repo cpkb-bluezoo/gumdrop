@@ -303,7 +303,7 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
                 try {
                     warJarFile.close();
                 } catch (IOException e) {
-                    LOGGER.log(Level.WARNING, "Error closing WAR file", e);
+                    LOGGER.log(Level.WARNING, L10N.getString("warn.error_closing_war"), e);
                 }
                 warJarFile = null;
             }
@@ -313,7 +313,7 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
             try {
                 jar.close();
             } catch (IOException e) {
-                LOGGER.log(Level.WARNING, "Error closing lib jar", e);
+                LOGGER.log(Level.WARNING, L10N.getString("warn.error_closing_lib_jar"), e);
             }
         }
         libJarFileCache.clear();
@@ -3055,7 +3055,7 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
             jspDependencyTracker.recordCompilation(path, dependencies);
             
             if (LOGGER.isLoggable(Level.FINE)) {
-                LOGGER.fine("Compiled JSP: " + path + " -> " + className);
+                LOGGER.fine(MessageFormat.format(L10N.getString("info.jsp_compiled"), path, className));
             }
 
             return (Servlet) instance;
@@ -3085,7 +3085,7 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
                 try {
                     jspCompiler.setClasspath(((DependencyClassLoader) cl).getClasspathFiles());
                 } catch (IOException e) {
-                    LOGGER.log(Level.WARNING, "Failed to build JSP compilation classpath", e);
+                    LOGGER.log(Level.WARNING, L10N.getString("warn.jsp_compilation_classpath_failed"), e);
                 }
             }
         }
@@ -3196,7 +3196,7 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
                     String pageEncoding = propertyGroup.getPageEncoding();
                     if (pageEncoding != null && !pageEncoding.isEmpty()) {
                         encoding = pageEncoding;
-                        LOGGER.fine("Using encoding '" + encoding + "' from JSP property group for: " + path);
+                        LOGGER.fine(MessageFormat.format(L10N.getString("debug.jsp_encoding_from_property_group"), encoding, path));
                         break; // Use the first matching property group
                     }
                 }
@@ -3345,7 +3345,7 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
 
             // Debug logging for classpath
             if (LOGGER.isLoggable(Level.FINE)) {
-                LOGGER.fine("JSP compilation classpath: " + classpath.toString());
+                LOGGER.fine(MessageFormat.format(L10N.getString("debug.jsp_compilation_classpath"), classpath.toString()));
             }
 
             // Compile the source file
@@ -3362,7 +3362,7 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
             return success && classFile.exists();
 
         } catch (IOException e) {
-            LOGGER.log(Level.SEVERE, "Error during JSP compilation", e);
+            LOGGER.log(Level.SEVERE, L10N.getString("severe.jsp_compilation_error"), e);
             return false;
         }
     }

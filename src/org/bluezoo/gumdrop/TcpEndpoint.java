@@ -38,7 +38,7 @@ import java.nio.channels.SocketChannel;
 import java.text.MessageFormat;
 import java.util.logging.Level;
 import java.util.logging.Logger;
-
+import java.util.ResourceBundle;
 /**
  * TCP transport implementation of {@link Endpoint}.
  *
@@ -66,6 +66,9 @@ import java.util.logging.Logger;
  * @see ProtocolHandler
  */
 public class TcpEndpoint implements Endpoint, ChannelHandler, TlsRecordState.Callback {
+
+    private static final ResourceBundle L10N =
+            ResourceBundle.getBundle("org.bluezoo.gumdrop.L10N");
 
     private static final Logger LOGGER =
             Logger.getLogger(TcpEndpoint.class.getName());
@@ -696,7 +699,7 @@ public class TcpEndpoint implements Endpoint, ChannelHandler, TlsRecordState.Cal
         try {
             handler.disconnected();
         } catch (Exception e) {
-            LOGGER.log(Level.WARNING, "Error in disconnected handler", e);
+            LOGGER.log(Level.WARNING, L10N.getString("log.error_in_disconnected_handler"), e);
             if (trace != null && trace.getRootSpan() != null) {
                 trace.getRootSpan().recordException(e);
             }
@@ -718,7 +721,7 @@ public class TcpEndpoint implements Endpoint, ChannelHandler, TlsRecordState.Cal
                 category = ErrorCategory.CONNECTION_LOST;
                 if (LOGGER.isLoggable(Level.FINE)) {
                     Object sa = channel.socket().getRemoteSocketAddress();
-                    LOGGER.fine("Client disconnected: " + sa);
+                    LOGGER.fine(MessageFormat.format(L10N.getString("log.client_disconnected_0"), sa));
                 }
             } else if (LOGGER.isLoggable(Level.WARNING)) {
                 Object sa = channel.socket().getRemoteSocketAddress();
@@ -748,7 +751,7 @@ public class TcpEndpoint implements Endpoint, ChannelHandler, TlsRecordState.Cal
                 category = ErrorCategory.CONNECTION_LOST;
                 if (LOGGER.isLoggable(Level.FINE)) {
                     Object sa = channel.socket().getRemoteSocketAddress();
-                    LOGGER.fine("Client disconnected: " + sa);
+                    LOGGER.fine(MessageFormat.format(L10N.getString("log.client_disconnected_0_1"), sa));
                 }
             } else if (LOGGER.isLoggable(Level.WARNING)) {
                 Object sa = channel.socket().getRemoteSocketAddress();
@@ -800,8 +803,8 @@ public class TcpEndpoint implements Endpoint, ChannelHandler, TlsRecordState.Cal
             if (LOGGER.isLoggable(Level.WARNING)) {
                 Object sa = channel != null
                         ? channel.socket().getRemoteSocketAddress() : null;
-                LOGGER.log(Level.WARNING,
-                        "Dispatch error on TCP connection: " + sa, e);
+                LOGGER.log(Level.WARNING, MessageFormat.format(
+                        L10N.getString("log.tcp_dispatch_error"), sa), e);
             }
             if (trace != null && trace.getRootSpan() != null) {
                 trace.getRootSpan().recordException(e,
@@ -874,9 +877,7 @@ public class TcpEndpoint implements Endpoint, ChannelHandler, TlsRecordState.Cal
             return;
         }
         if (LOGGER.isLoggable(Level.FINE)) {
-            LOGGER.fine("TLS handshake timeout after "
-                    + (listener != null ? listener.getConnectionTimeoutMs() : 0)
-                    + "ms; closing " + getRemoteAddress());
+            LOGGER.fine(MessageFormat.format(L10N.getString("log.tls_handshake_timeout_after_0_ms_closing_1"), (listener != null ? listener.getConnectionTimeoutMs() : 0), getRemoteAddress()));
         }
         close();
     }
@@ -886,9 +887,7 @@ public class TcpEndpoint implements Endpoint, ChannelHandler, TlsRecordState.Cal
             return;
         }
         if (LOGGER.isLoggable(Level.FINE)) {
-            LOGGER.fine("Read timeout waiting for first data after "
-                    + (listener != null ? listener.getReadTimeoutMs() : 0)
-                    + "ms; closing " + getRemoteAddress());
+            LOGGER.fine(MessageFormat.format(L10N.getString("log.read_timeout_waiting_for_first_data_after_0_ms_c"), (listener != null ? listener.getReadTimeoutMs() : 0), getRemoteAddress()));
         }
         close();
     }

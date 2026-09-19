@@ -363,7 +363,7 @@ public final class SmtpProtocolHandler
             // no per-handler connectionClosed call is needed here.
         } catch (Exception e) {
             if (LOGGER.isLoggable(Level.WARNING)) {
-                LOGGER.log(Level.WARNING, "Error in disconnected handler", e);
+                LOGGER.log(Level.WARNING, L10N.getString("warn.error_disconnected_handler"), e);
             }
         } finally {
             if (recipients != null) {
@@ -392,7 +392,7 @@ public final class SmtpProtocolHandler
 
     @Override
     public void error(Exception cause) {
-        LOGGER.log(Level.WARNING, "SMTP transport error", cause);
+        LOGGER.log(Level.WARNING, L10N.getString("warn.smtp_transport_error"), cause);
         if (endpoint != null) {
             endpoint.close();
         }
@@ -493,7 +493,7 @@ public final class SmtpProtocolHandler
         try {
             reply(500, L10N.getString("smtp.err.line_too_long"));
         } catch (IOException e) {
-            LOGGER.log(Level.WARNING, "Error sending line-too-long reply", e);
+            LOGGER.log(Level.WARNING, L10N.getString("warn.error_sending_line_too_long_reply"), e);
         }
     }
 
@@ -773,7 +773,7 @@ public final class SmtpProtocolHandler
             try {
                 reply(220, endpoint.getLocalAddress().toString() + " ESMTP Service ready");
             } catch (IOException e) {
-                LOGGER.log(Level.SEVERE, "Error sending greeting", e);
+                LOGGER.log(Level.SEVERE, L10N.getString("err.error_sending_greeting"), e);
                 closeEndpoint();
             }
         }
@@ -939,7 +939,7 @@ public final class SmtpProtocolHandler
                     : (cause instanceof HeaderValueTooLongException)
                         ? L10N.getString("smtp.err.header_value_too_long")
                         : L10N.getString("smtp.err.syntax_error");
-                LOGGER.log(Level.WARNING, "Error writing to pipeline", e);
+                LOGGER.log(Level.WARNING, L10N.getString("warn.error_writing_pipeline"), e);
             }
         }
     }
@@ -1451,7 +1451,7 @@ public final class SmtpProtocolHandler
             } catch (IOException ioe) {
                 // Ignore
             }
-            LOGGER.log(Level.WARNING, "STARTTLS failed", e);
+            LOGGER.log(Level.WARNING, L10N.getString("warn.starttls_failed"), e);
         }
     }
 
@@ -1562,18 +1562,18 @@ public final class SmtpProtocolHandler
                             notifyAuthenticationFailure(username, "PLAIN");
                         }
                     } catch (IOException e) {
-                        LOGGER.log(Level.WARNING, "Failed to complete AUTH PLAIN", e);
+                        LOGGER.log(Level.WARNING, L10N.getString("warn.auth_plain_complete_failed"), e);
                     }
                     resetAuthState();
                 }
 
                 @Override
                 public void failed(Throwable t) {
-                    LOGGER.log(Level.WARNING, "AUTH PLAIN authentication check failed", t);
+                    LOGGER.log(Level.WARNING, L10N.getString("warn.auth_plain_check_failed"), t);
                     try {
                         notifyAuthenticationFailure(username, "PLAIN");
                     } catch (IOException e) {
-                        LOGGER.log(Level.WARNING, "Failed to send AUTH failure", e);
+                        LOGGER.log(Level.WARNING, L10N.getString("warn.auth_send_failure_failed"), e);
                     }
                     resetAuthState();
                 }
@@ -1582,7 +1582,7 @@ public final class SmtpProtocolHandler
             reply(535, "5.7.8 Authentication credentials invalid");
             resetAuthState();
             if (LOGGER.isLoggable(Level.WARNING)) {
-                LOGGER.log(Level.WARNING, "AUTH PLAIN error", e);
+                LOGGER.log(Level.WARNING, L10N.getString("warn.auth_plain_error"), e);
             }
         }
     }
@@ -1644,7 +1644,7 @@ public final class SmtpProtocolHandler
             reply(535, "5.7.8 Authentication credentials invalid");
             resetAuthState();
             if (LOGGER.isLoggable(Level.WARNING)) {
-                LOGGER.log(Level.WARNING, "AUTH LOGIN error", e);
+                LOGGER.log(Level.WARNING, L10N.getString("warn.auth_login_error"), e);
             }
         }
     }
@@ -1666,7 +1666,7 @@ public final class SmtpProtocolHandler
             reply(454, "4.7.0 Temporary authentication failure");
             resetAuthState();
             if (LOGGER.isLoggable(Level.WARNING)) {
-                LOGGER.log(Level.WARNING, "AUTH CRAM-MD5 error", e);
+                LOGGER.log(Level.WARNING, L10N.getString("warn.auth_cram_md5_error"), e);
             }
         }
     }
@@ -1690,7 +1690,7 @@ public final class SmtpProtocolHandler
             reply(454, "4.7.0 Temporary authentication failure");
             resetAuthState();
             if (LOGGER.isLoggable(Level.WARNING)) {
-                LOGGER.log(Level.WARNING, "AUTH DIGEST-MD5 error", e);
+                LOGGER.log(Level.WARNING, L10N.getString("warn.auth_digest_md5_error"), e);
             }
         }
     }
@@ -1712,7 +1712,7 @@ public final class SmtpProtocolHandler
             reply(535, "5.7.8 Authentication credentials invalid");
             resetAuthState();
             if (LOGGER.isLoggable(Level.WARNING)) {
-                LOGGER.log(Level.WARNING, "AUTH SCRAM-SHA-256 error", e);
+                LOGGER.log(Level.WARNING, L10N.getString("warn.auth_scram_sha256_error"), e);
             }
         }
     }
@@ -1763,7 +1763,7 @@ public final class SmtpProtocolHandler
             reply(535, "5.7.8 Authentication credentials invalid");
             resetAuthState();
             if (LOGGER.isLoggable(Level.WARNING)) {
-                LOGGER.log(Level.WARNING, "AUTH SCRAM-SHA-256 error", e);
+                LOGGER.log(Level.WARNING, L10N.getString("warn.auth_scram_sha256_error"), e);
             }
             return;
         }
@@ -1797,7 +1797,7 @@ public final class SmtpProtocolHandler
                     authState = AuthState.SCRAM_FINAL;
                     authMechanism = "SCRAM-SHA-256";
                 } catch (IOException e) {
-                    LOGGER.log(Level.WARNING, "Failed to complete SCRAM-SHA-256 client-first", e);
+                    LOGGER.log(Level.WARNING, L10N.getString("warn.auth_scram_client_first_failed"), e);
                 }
             }
 
@@ -1807,10 +1807,10 @@ public final class SmtpProtocolHandler
                     reply(535, "5.7.8 Authentication credentials invalid");
                     resetAuthState();
                     if (LOGGER.isLoggable(Level.WARNING)) {
-                        LOGGER.log(Level.WARNING, "AUTH SCRAM-SHA-256 error", error);
+                        LOGGER.log(Level.WARNING, L10N.getString("warn.auth_scram_sha256_error"), error);
                     }
                 } catch (IOException e) {
-                    LOGGER.log(Level.WARNING, "Failed to send auth failure", e);
+                    LOGGER.log(Level.WARNING, L10N.getString("warn.auth_send_failure_failed"), e);
                 }
             }
         });
@@ -1830,7 +1830,7 @@ public final class SmtpProtocolHandler
             reply(535, "5.7.8 Authentication credentials invalid");
             resetAuthState();
             if (LOGGER.isLoggable(Level.WARNING)) {
-                LOGGER.log(Level.WARNING, "AUTH SCRAM-SHA-256 error", e);
+                LOGGER.log(Level.WARNING, L10N.getString("warn.auth_scram_sha256_error"), e);
             }
             return;
         }
@@ -1858,7 +1858,7 @@ public final class SmtpProtocolHandler
                     reply(235, "2.7.0 " + Base64.getEncoder().encodeToString(serverFinal.getBytes(UTF_8)));
                     resetAuthState();
                 } catch (IOException e) {
-                    LOGGER.log(Level.WARNING, "Failed to complete SCRAM-SHA-256 client-final", e);
+                    LOGGER.log(Level.WARNING, L10N.getString("warn.auth_scram_client_final_failed"), e);
                 }
             }
 
@@ -1868,10 +1868,10 @@ public final class SmtpProtocolHandler
                     reply(535, "5.7.8 Authentication credentials invalid");
                     resetAuthState();
                     if (LOGGER.isLoggable(Level.WARNING)) {
-                        LOGGER.log(Level.WARNING, "AUTH SCRAM-SHA-256 error", error);
+                        LOGGER.log(Level.WARNING, L10N.getString("warn.auth_scram_sha256_error"), error);
                     }
                 } catch (IOException e) {
-                    LOGGER.log(Level.WARNING, "Failed to send auth failure", e);
+                    LOGGER.log(Level.WARNING, L10N.getString("warn.auth_send_failure_failed"), e);
                 }
             }
         });
@@ -1894,7 +1894,7 @@ public final class SmtpProtocolHandler
             reply(535, "5.7.8 Authentication credentials invalid");
             resetAuthState();
             if (LOGGER.isLoggable(Level.WARNING)) {
-                LOGGER.log(Level.WARNING, "AUTH OAUTHBEARER error", e);
+                LOGGER.log(Level.WARNING, L10N.getString("warn.auth_oauthbearer_error"), e);
             }
         }
     }
@@ -1942,7 +1942,7 @@ public final class SmtpProtocolHandler
         try {
             gssapiExchange = gssapiServer.createExchange();
         } catch (IOException e) {
-            LOGGER.log(Level.WARNING, "GSSAPI exchange creation failed", e);
+            LOGGER.log(Level.WARNING, L10N.getString("warn.gssapi_exchange_creation_failed"), e);
             reply(454, "4.7.0 Temporary authentication failure");
             return;
         }
@@ -1978,7 +1978,7 @@ public final class SmtpProtocolHandler
                 reply(334, "");
             }
         } catch (IOException e) {
-            LOGGER.log(Level.FINE, "GSSAPI token rejected", e);
+            LOGGER.log(Level.FINE, L10N.getString("debug.gssapi_token_rejected"), e);
             reply(535, "5.7.8 Authentication credentials invalid");
             resetAuthState();
         } catch (IllegalArgumentException e) {
@@ -2007,7 +2007,7 @@ public final class SmtpProtocolHandler
             }
             notifyAuthenticationSuccess(localUser, "GSSAPI");
         } catch (IOException e) {
-            LOGGER.log(Level.FINE, "GSSAPI security layer failed", e);
+            LOGGER.log(Level.FINE, L10N.getString("debug.gssapi_security_layer_failed"), e);
             reply(535, "5.7.8 Authentication credentials invalid");
         } catch (IllegalArgumentException e) {
             reply(535, "5.7.8 Authentication credentials invalid");
@@ -2086,7 +2086,7 @@ public final class SmtpProtocolHandler
                                     notifyAuthenticationFailure(loginUsername, "LOGIN");
                                 }
                             } catch (IOException e) {
-                                LOGGER.log(Level.WARNING, "Failed to complete AUTH LOGIN", e);
+                                LOGGER.log(Level.WARNING, L10N.getString("warn.auth_login_complete_failed"), e);
                             }
                             resetAuthState();
                         }
@@ -2094,11 +2094,11 @@ public final class SmtpProtocolHandler
                         @Override
                         public void failed(Throwable t) {
                             LOGGER.log(Level.WARNING,
-                                    "AUTH LOGIN authentication check failed", t);
+                                    L10N.getString("warn.auth_login_check_failed"), t);
                             try {
                                 notifyAuthenticationFailure(loginUsername, "LOGIN");
                             } catch (IOException e) {
-                                LOGGER.log(Level.WARNING, "Failed to send AUTH failure", e);
+                                LOGGER.log(Level.WARNING, L10N.getString("warn.auth_send_failure_failed"), e);
                             }
                             resetAuthState();
                         }
@@ -2136,7 +2136,7 @@ public final class SmtpProtocolHandler
             reply(535, "5.7.8 Authentication credentials invalid");
             resetAuthState();
             if (LOGGER.isLoggable(Level.WARNING)) {
-                LOGGER.log(Level.WARNING, "AUTH data handling error", e);
+                LOGGER.log(Level.WARNING, L10N.getString("warn.auth_data_handling_error"), e);
             }
         }
     }
@@ -3119,7 +3119,7 @@ public final class SmtpProtocolHandler
         try {
             reply(354, "Start mail input; end with <CRLF>.<CRLF>");
         } catch (IOException e) {
-            LOGGER.log(Level.SEVERE, "Error sending 354 response", e);
+            LOGGER.log(Level.SEVERE, L10N.getString("err.error_sending_354_response"), e);
             closeEndpoint();
         }
     }
@@ -3252,7 +3252,7 @@ public final class SmtpProtocolHandler
         try {
             reply(452, "4.3.1 Insufficient system storage");
         } catch (IOException e) {
-            LOGGER.log(Level.SEVERE, "Error sending rejection", e);
+            LOGGER.log(Level.SEVERE, L10N.getString("err.error_sending_rejection"), e);
             closeEndpoint();
         }
     }
@@ -3263,7 +3263,7 @@ public final class SmtpProtocolHandler
         try {
             reply(451, "4.3.0 Local processing error");
         } catch (IOException e) {
-            LOGGER.log(Level.SEVERE, "Error sending rejection", e);
+            LOGGER.log(Level.SEVERE, L10N.getString("err.error_sending_rejection"), e);
             closeEndpoint();
         }
     }
@@ -3275,7 +3275,7 @@ public final class SmtpProtocolHandler
         try {
             reply(550, "5.7.0 " + message);
         } catch (IOException e) {
-            LOGGER.log(Level.SEVERE, "Error sending rejection", e);
+            LOGGER.log(Level.SEVERE, L10N.getString("err.error_sending_rejection"), e);
             closeEndpoint();
         }
     }
@@ -3290,7 +3290,7 @@ public final class SmtpProtocolHandler
             startSessionSpan();
             reply(220, greeting);
         } catch (IOException e) {
-            LOGGER.log(Level.SEVERE, "Error sending greeting", e);
+            LOGGER.log(Level.SEVERE, L10N.getString("err.error_sending_greeting"), e);
             closeEndpoint();
         }
     }
@@ -3307,7 +3307,7 @@ public final class SmtpProtocolHandler
         try {
             reply(554, "5.0.0 " + message);
         } catch (IOException e) {
-            LOGGER.log(Level.SEVERE, "Error sending rejection", e);
+            LOGGER.log(Level.SEVERE, L10N.getString("err.error_sending_rejection"), e);
         }
         closeEndpoint();
         if (connectedHandler != null) {
@@ -3325,7 +3325,7 @@ public final class SmtpProtocolHandler
         try {
             sendEhloResponse();
         } catch (IOException e) {
-            LOGGER.log(Level.SEVERE, "Error sending EHLO response", e);
+            LOGGER.log(Level.SEVERE, L10N.getString("err.error_sending_ehlo_response"), e);
             closeEndpoint();
         }
     }
@@ -3336,7 +3336,7 @@ public final class SmtpProtocolHandler
         try {
             reply(421, "4.3.0 " + message);
         } catch (IOException e) {
-            LOGGER.log(Level.SEVERE, "Error sending rejection", e);
+            LOGGER.log(Level.SEVERE, L10N.getString("err.error_sending_rejection"), e);
         }
     }
 
@@ -3346,7 +3346,7 @@ public final class SmtpProtocolHandler
         try {
             reply(550, "5.0.0 " + message);
         } catch (IOException e) {
-            LOGGER.log(Level.SEVERE, "Error sending rejection", e);
+            LOGGER.log(Level.SEVERE, L10N.getString("err.error_sending_rejection"), e);
         }
     }
 
@@ -3356,7 +3356,7 @@ public final class SmtpProtocolHandler
         try {
             reply(554, "5.0.0 " + message);
         } catch (IOException e) {
-            LOGGER.log(Level.SEVERE, "Error sending rejection", e);
+            LOGGER.log(Level.SEVERE, L10N.getString("err.error_sending_rejection"), e);
         }
         closeEndpoint();
     }
@@ -3366,7 +3366,7 @@ public final class SmtpProtocolHandler
         try {
             reply(421, "4.3.0 Server shutting down");
         } catch (IOException e) {
-            LOGGER.log(Level.SEVERE, "Error sending shutdown notice", e);
+            LOGGER.log(Level.SEVERE, L10N.getString("err.error_sending_shutdown_notice"), e);
         }
         closeEndpoint();
     }
@@ -3383,7 +3383,7 @@ public final class SmtpProtocolHandler
         try {
             reply(235, "2.7.0 Authentication successful");
         } catch (IOException e) {
-            LOGGER.log(Level.SEVERE, "Error sending auth success", e);
+            LOGGER.log(Level.SEVERE, L10N.getString("err.error_sending_auth_success"), e);
             closeEndpoint();
         }
     }
@@ -3400,7 +3400,7 @@ public final class SmtpProtocolHandler
         try {
             reply(535, "5.7.8 Authentication rejected");
         } catch (IOException e) {
-            LOGGER.log(Level.SEVERE, "Error sending auth failure", e);
+            LOGGER.log(Level.SEVERE, L10N.getString("err.error_sending_auth_failure"), e);
             closeEndpoint();
         }
     }
@@ -3415,7 +3415,7 @@ public final class SmtpProtocolHandler
         try {
             reply(535, "5.7.8 Authentication rejected");
         } catch (IOException e) {
-            LOGGER.log(Level.SEVERE, "Error sending auth failure", e);
+            LOGGER.log(Level.SEVERE, L10N.getString("err.error_sending_auth_failure"), e);
         }
         closeEndpoint();
     }
@@ -3439,7 +3439,7 @@ public final class SmtpProtocolHandler
         try {
             reply(250, "2.1.0 Sender ok");
         } catch (IOException e) {
-            LOGGER.log(Level.SEVERE, "Error sending acceptance", e);
+            LOGGER.log(Level.SEVERE, L10N.getString("err.error_sending_acceptance"), e);
             closeEndpoint();
         }
     }
@@ -3450,7 +3450,7 @@ public final class SmtpProtocolHandler
         try {
             reply(450, "4.7.1 Greylisting in effect, please try again later");
         } catch (IOException e) {
-            LOGGER.log(Level.SEVERE, "Error sending rejection", e);
+            LOGGER.log(Level.SEVERE, L10N.getString("err.error_sending_rejection"), e);
         }
     }
 
@@ -3460,7 +3460,7 @@ public final class SmtpProtocolHandler
         try {
             reply(450, "4.7.1 Rate limit exceeded, please try again later");
         } catch (IOException e) {
-            LOGGER.log(Level.SEVERE, "Error sending rejection", e);
+            LOGGER.log(Level.SEVERE, L10N.getString("err.error_sending_rejection"), e);
         }
     }
 
@@ -3470,7 +3470,7 @@ public final class SmtpProtocolHandler
         try {
             reply(452, "4.3.1 Insufficient system storage");
         } catch (IOException e) {
-            LOGGER.log(Level.SEVERE, "Error sending rejection", e);
+            LOGGER.log(Level.SEVERE, L10N.getString("err.error_sending_rejection"), e);
         }
     }
 
@@ -3480,7 +3480,7 @@ public final class SmtpProtocolHandler
         try {
             reply(550, "5.1.1 Sender domain blocked by policy");
         } catch (IOException e) {
-            LOGGER.log(Level.SEVERE, "Error sending rejection", e);
+            LOGGER.log(Level.SEVERE, L10N.getString("err.error_sending_rejection"), e);
         }
     }
 
@@ -3490,7 +3490,7 @@ public final class SmtpProtocolHandler
         try {
             reply(550, "5.1.1 Sender domain does not exist");
         } catch (IOException e) {
-            LOGGER.log(Level.SEVERE, "Error sending rejection", e);
+            LOGGER.log(Level.SEVERE, L10N.getString("err.error_sending_rejection"), e);
         }
     }
 
@@ -3500,7 +3500,7 @@ public final class SmtpProtocolHandler
         try {
             reply(553, "5.7.1 " + message);
         } catch (IOException e) {
-            LOGGER.log(Level.SEVERE, "Error sending rejection", e);
+            LOGGER.log(Level.SEVERE, L10N.getString("err.error_sending_rejection"), e);
         }
     }
 
@@ -3510,7 +3510,7 @@ public final class SmtpProtocolHandler
         try {
             reply(554, "5.7.1 Sender has poor reputation");
         } catch (IOException e) {
-            LOGGER.log(Level.SEVERE, "Error sending rejection", e);
+            LOGGER.log(Level.SEVERE, L10N.getString("err.error_sending_rejection"), e);
         }
     }
 
@@ -3520,7 +3520,7 @@ public final class SmtpProtocolHandler
         try {
             reply(501, "5.1.3 Invalid sender address format");
         } catch (IOException e) {
-            LOGGER.log(Level.SEVERE, "Error sending rejection", e);
+            LOGGER.log(Level.SEVERE, L10N.getString("err.error_sending_rejection"), e);
         }
     }
 
@@ -3546,7 +3546,7 @@ public final class SmtpProtocolHandler
         try {
             reply(250, "2.1.5 " + addr + "... Recipient ok");
         } catch (IOException e) {
-            LOGGER.log(Level.SEVERE, "Error sending acceptance", e);
+            LOGGER.log(Level.SEVERE, L10N.getString("err.error_sending_acceptance"), e);
             closeEndpoint();
         }
     }
@@ -3567,7 +3567,7 @@ public final class SmtpProtocolHandler
         try {
             reply(251, "2.1.5 User not local; will forward to " + forwardPath);
         } catch (IOException e) {
-            LOGGER.log(Level.SEVERE, "Error sending acceptance", e);
+            LOGGER.log(Level.SEVERE, L10N.getString("err.error_sending_acceptance"), e);
         }
     }
 
@@ -3577,7 +3577,7 @@ public final class SmtpProtocolHandler
         try {
             reply(450, "4.2.1 Mailbox temporarily unavailable");
         } catch (IOException e) {
-            LOGGER.log(Level.SEVERE, "Error sending rejection", e);
+            LOGGER.log(Level.SEVERE, L10N.getString("err.error_sending_rejection"), e);
         }
     }
 
@@ -3587,7 +3587,7 @@ public final class SmtpProtocolHandler
         try {
             reply(451, "4.3.0 Local error in processing");
         } catch (IOException e) {
-            LOGGER.log(Level.SEVERE, "Error sending rejection", e);
+            LOGGER.log(Level.SEVERE, L10N.getString("err.error_sending_rejection"), e);
         }
     }
 
@@ -3597,7 +3597,7 @@ public final class SmtpProtocolHandler
         try {
             reply(452, "4.3.1 Insufficient system storage");
         } catch (IOException e) {
-            LOGGER.log(Level.SEVERE, "Error sending rejection", e);
+            LOGGER.log(Level.SEVERE, L10N.getString("err.error_sending_rejection"), e);
         }
     }
 
@@ -3607,7 +3607,7 @@ public final class SmtpProtocolHandler
         try {
             reply(550, "5.1.1 Mailbox unavailable");
         } catch (IOException e) {
-            LOGGER.log(Level.SEVERE, "Error sending rejection", e);
+            LOGGER.log(Level.SEVERE, L10N.getString("err.error_sending_rejection"), e);
         }
     }
 
@@ -3617,7 +3617,7 @@ public final class SmtpProtocolHandler
         try {
             reply(551, "5.1.1 User not local");
         } catch (IOException e) {
-            LOGGER.log(Level.SEVERE, "Error sending rejection", e);
+            LOGGER.log(Level.SEVERE, L10N.getString("err.error_sending_rejection"), e);
         }
     }
 
@@ -3627,7 +3627,7 @@ public final class SmtpProtocolHandler
         try {
             reply(552, "5.2.2 Mailbox full, quota exceeded");
         } catch (IOException e) {
-            LOGGER.log(Level.SEVERE, "Error sending rejection", e);
+            LOGGER.log(Level.SEVERE, L10N.getString("err.error_sending_rejection"), e);
         }
     }
 
@@ -3637,7 +3637,7 @@ public final class SmtpProtocolHandler
         try {
             reply(553, "5.1.3 Mailbox name not allowed");
         } catch (IOException e) {
-            LOGGER.log(Level.SEVERE, "Error sending rejection", e);
+            LOGGER.log(Level.SEVERE, L10N.getString("err.error_sending_rejection"), e);
         }
     }
 
@@ -3647,7 +3647,7 @@ public final class SmtpProtocolHandler
         try {
             reply(551, "5.7.1 Relaying denied");
         } catch (IOException e) {
-            LOGGER.log(Level.SEVERE, "Error sending rejection", e);
+            LOGGER.log(Level.SEVERE, L10N.getString("err.error_sending_rejection"), e);
         }
     }
 
@@ -3657,7 +3657,7 @@ public final class SmtpProtocolHandler
         try {
             reply(553, "5.7.1 " + message);
         } catch (IOException e) {
-            LOGGER.log(Level.SEVERE, "Error sending rejection", e);
+            LOGGER.log(Level.SEVERE, L10N.getString("err.error_sending_rejection"), e);
         }
     }
 
@@ -3684,7 +3684,7 @@ public final class SmtpProtocolHandler
             }
             reply(250, msg);
         } catch (IOException e) {
-            LOGGER.log(Level.SEVERE, "Error sending acceptance", e);
+            LOGGER.log(Level.SEVERE, L10N.getString("err.error_sending_acceptance"), e);
             closeEndpoint();
         }
         endDelivery();
@@ -3697,7 +3697,7 @@ public final class SmtpProtocolHandler
         try {
             reply(450, "4.0.0 " + message);
         } catch (IOException e) {
-            LOGGER.log(Level.SEVERE, "Error sending rejection", e);
+            LOGGER.log(Level.SEVERE, L10N.getString("err.error_sending_rejection"), e);
         }
         endDelivery();
     }
@@ -3709,7 +3709,7 @@ public final class SmtpProtocolHandler
         try {
             reply(550, "5.0.0 " + message);
         } catch (IOException e) {
-            LOGGER.log(Level.SEVERE, "Error sending rejection", e);
+            LOGGER.log(Level.SEVERE, L10N.getString("err.error_sending_rejection"), e);
         }
         endDelivery();
     }
@@ -3721,7 +3721,7 @@ public final class SmtpProtocolHandler
         try {
             reply(553, "5.7.1 " + message);
         } catch (IOException e) {
-            LOGGER.log(Level.SEVERE, "Error sending rejection", e);
+            LOGGER.log(Level.SEVERE, L10N.getString("err.error_sending_rejection"), e);
         }
         endDelivery();
     }
@@ -3736,7 +3736,7 @@ public final class SmtpProtocolHandler
         try {
             reply(250, "2.0.0 Reset OK");
         } catch (IOException e) {
-            LOGGER.log(Level.SEVERE, "Error sending reset response", e);
+            LOGGER.log(Level.SEVERE, L10N.getString("err.error_sending_reset_response"), e);
             closeEndpoint();
         }
     }

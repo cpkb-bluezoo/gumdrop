@@ -1,7 +1,7 @@
 /*
  * TrailerFieldsExampleServlet.java
  * HTTP Trailer Fields Demonstration for Gumdrop Server
- * 
+ *
  * This example demonstrates HTTP trailer fields support in Servlet 4.0
  * using Response.setTrailerFields() functionality.
  */

@@ -89,8 +89,9 @@ public class Container implements ManagerContainerServer, ClusterContainer {
     private static final ThreadFactory WORKER_THREAD_FACTORY = new ThreadFactory() {
         @Override
         public Thread newThread(Runnable r) {
-            Thread t = new Thread(r,
-                    "servlet-worker-" + WORKER_THREAD_NUM.incrementAndGet());
+            Thread t = Thread.ofVirtual()
+                    .name("servlet-worker-", WORKER_THREAD_NUM.incrementAndGet())
+                    .unstarted(r);
             t.setDaemon(true);
             return t;
         }
@@ -340,8 +341,9 @@ public class Container implements ManagerContainerServer, ClusterContainer {
                 workerThreadPool.setKeepAliveTime(
                         keepAliveTime, timeUnit);
             } catch (NumberFormatException e) {
-                Context.LOGGER.warning(
-                        "Invalid keep-alive format: " + keepAlive);
+                Context.LOGGER.warning(MessageFormat.format(
+                        Context.L10N.getString("warn.invalid_keep_alive_format"),
+                        keepAlive));
             }
         }
     }
@@ -388,11 +390,10 @@ public class Container implements ManagerContainerServer, ClusterContainer {
             workerThreadPool.execute(task);
         } catch (RejectedExecutionException e) {
             if (Context.LOGGER.isLoggable(Level.WARNING)) {
-                Context.LOGGER.warning(
-                        "Worker pool saturated (active="
-                        + workerThreadPool.getActiveCount()
-                        + ", queued=" + workerThreadPool.getQueue().size()
-                        + "); rejecting worker task");
+                Context.LOGGER.warning(MessageFormat.format(
+                        Context.L10N.getString("warn.worker_pool_saturated"),
+                        workerThreadPool.getActiveCount(),
+                        workerThreadPool.getQueue().size()));
             }
             if (onRejected != null) {
                 onRejected.run();
@@ -411,7 +412,7 @@ public class Container implements ManagerContainerServer, ClusterContainer {
         } catch (Error e) {
             // Already set - this is okay if reloading
             if (Context.LOGGER.isLoggable(Level.FINE)) {
-                Context.LOGGER.fine("URL stream handler factory already set");
+                Context.LOGGER.fine(Context.L10N.getString("debug.url_stream_handler_factory_set"));
             }
         }
         // Unit tests call init() without initContexts(); Context.init() still

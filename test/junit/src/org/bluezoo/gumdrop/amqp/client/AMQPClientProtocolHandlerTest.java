@@ -73,6 +73,7 @@ import static org.junit.Assert.*;
  * involved, per issue #154's "no real broker in the test environment"
  * requirement (a fuller fake in-process AMQP server for
  * end-to-end/integration-style testing is separate follow-up work).
+ * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 public class AMQPClientProtocolHandlerTest {
 

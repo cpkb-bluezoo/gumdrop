@@ -374,7 +374,8 @@ public class FtpListener extends TcpListener {
             } catch (Exception e) {
                 if (LOGGER.isLoggable(Level.WARNING)) {
                     LOGGER.log(Level.WARNING,
-                            "Failed to create FTP handler from session provider",
+                            FtpProtocolHandler.L10N.getString(
+                                    "warn.ftp_handler_session_provider_failed"),
                             e);
                 }
             }
@@ -386,7 +387,8 @@ public class FtpListener extends TcpListener {
             } catch (Exception e) {
                 if (LOGGER.isLoggable(Level.WARNING)) {
                     LOGGER.log(Level.WARNING,
-                            "Failed to create FTP handler from server", e);
+                            FtpProtocolHandler.L10N.getString(
+                                    "warn.ftp_handler_server_failed"), e);
                 }
             }
         }
@@ -416,8 +418,8 @@ public class FtpListener extends TcpListener {
             } catch (Exception e) {
                 if (LOGGER.isLoggable(Level.WARNING)) {
                     LOGGER.log(Level.WARNING,
-                            "Failed to create FTP handler from server,"
-                                    + " using default behaviour", e);
+                            FtpProtocolHandler.L10N.getString(
+                                    "warn.ftp_handler_server_default"), e);
                 }
             }
         } else if (handlerFactory != null) {
@@ -426,8 +428,8 @@ public class FtpListener extends TcpListener {
             } catch (Exception e) {
                 if (LOGGER.isLoggable(Level.WARNING)) {
                     LOGGER.log(Level.WARNING,
-                            "Failed to create FTP handler,"
-                                    + " using default behaviour", e);
+                            FtpProtocolHandler.L10N.getString(
+                                    "warn.ftp_handler_factory_default"), e);
                 }
             }
         }

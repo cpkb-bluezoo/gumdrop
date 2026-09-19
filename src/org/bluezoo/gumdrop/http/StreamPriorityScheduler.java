@@ -24,6 +24,8 @@ package org.bluezoo.gumdrop.http;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.locks.ReentrantLock;
+import java.text.MessageFormat;
+import java.util.ResourceBundle;
 import java.util.logging.Logger;
 
 /**
@@ -51,6 +53,8 @@ import java.util.logging.Logger;
 public class StreamPriorityScheduler {
     
     private static final Logger LOGGER = Logger.getLogger(StreamPriorityScheduler.class.getName());
+
+    private static final ResourceBundle L10N = ResourceBundle.getBundle("org.bluezoo.gumdrop.http.L10N");
     
     /**
      * Minimum time slice for low-priority streams to prevent starvation (ms).
@@ -128,7 +132,7 @@ public class StreamPriorityScheduler {
             }
             allocation.reset();
             
-            LOGGER.fine("Scheduled stream " + selectedStream + " for processing (priority-based)");
+            LOGGER.fine(MessageFormat.format(L10N.getString("debug.scheduled_stream_priority"), selectedStream));
             return selectedStream;
             
         } finally {
@@ -160,7 +164,7 @@ public class StreamPriorityScheduler {
      */
     public void removeStream(int streamId) {
         allocations.remove(streamId);
-        LOGGER.fine("Removed stream " + streamId + " from scheduler");
+        LOGGER.fine(MessageFormat.format(L10N.getString("debug.removed_stream_scheduler"), streamId));
     }
     
     /**
@@ -205,8 +209,7 @@ public class StreamPriorityScheduler {
                 
                 // If a low-priority stream hasn't been scheduled recently, give it a turn
                 if (timeSinceLastSchedule > MIN_LOW_PRIORITY_TIME_SLICE) {
-                    LOGGER.fine("Selected stream " + streamId + " for starvation prevention (idle " + 
-                        timeSinceLastSchedule + "ms)");
+                    LOGGER.fine(MessageFormat.format(L10N.getString("debug.selected_stream_starvation"), streamId, timeSinceLastSchedule));
                     return streamId;
                 }
             }
@@ -227,8 +230,7 @@ public class StreamPriorityScheduler {
                 if (candidateAllocation == null || 
                     candidateAllocation.consecutiveSchedules < MAX_HIGH_PRIORITY_BURST / 2) {
                     
-                    LOGGER.fine("Selected stream " + candidateStream + " for burst control (avoiding " + 
-                        highestPriorityStream + " burst)");
+                    LOGGER.fine(MessageFormat.format(L10N.getString("debug.selected_stream_burst"), candidateStream, highestPriorityStream));
                     return candidateStream;
                 }
             }

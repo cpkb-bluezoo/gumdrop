@@ -29,6 +29,7 @@ import java.util.List;
 
 /**
  * Unit tests for LdapResult response controls (RFC 4511 section 4.1.11).
+ * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 public class LDAPResultControlsTest {
 

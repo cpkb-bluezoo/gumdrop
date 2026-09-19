@@ -28,6 +28,7 @@ import java.io.UnsupportedEncodingException;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
+import java.text.MessageFormat;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.LinkedHashMap;
@@ -278,26 +279,26 @@ public class WebSocketHandshake {
                                                   Headers responseHeaders) {
         String upgradeValue = responseHeaders.getCombinedValue("Upgrade");
         if (!containsIgnoreCase(upgradeValue, "websocket")) {
-            LOGGER.fine("WebSocket upgrade response missing Upgrade: websocket");
+            LOGGER.fine(L10N.getString("fine.upgrade_missing_upgrade"));
             return false;
         }
 
         String connectionValue = responseHeaders.getCombinedValue("Connection");
         if (!containsIgnoreCase(connectionValue, "Upgrade")) {
-            LOGGER.fine("WebSocket upgrade response missing Connection: Upgrade");
+            LOGGER.fine(L10N.getString("fine.upgrade_missing_connection"));
             return false;
         }
 
         String accept = responseHeaders.getValue("Sec-WebSocket-Accept");
         if (accept == null) {
-            LOGGER.fine("WebSocket upgrade response missing Sec-WebSocket-Accept");
+            LOGGER.fine(L10N.getString("fine.upgrade_missing_accept"));
             return false;
         }
 
         String expected = calculateAccept(sentKey);
         if (!expected.equals(accept.trim())) {
-            LOGGER.fine("WebSocket Sec-WebSocket-Accept mismatch: expected "
-                    + expected + ", got " + accept);
+            LOGGER.fine(MessageFormat.format(
+                    L10N.getString("fine.upgrade_accept_mismatch"), expected, accept));
             return false;
         }
 

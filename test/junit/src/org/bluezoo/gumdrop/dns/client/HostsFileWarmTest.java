@@ -34,6 +34,7 @@ import static org.junit.Assert.*;
 /**
  * Asserts {@link HostsFile#warm()} eagerly populates the in-memory cache so
  * subsequent {@link HostsFile#lookup} calls reuse it (no re-parse).
+ * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 public class HostsFileWarmTest {
 

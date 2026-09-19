@@ -51,6 +51,7 @@ import static org.junit.Assert.*;
  * handler == null} (business logic — authentication, filesystem access —
  * is out of scope; only command recognition and dispatch, which this
  * conversion changes, is under test) and verify the reply codes sent back.
+ * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 public class FTPProtocolHandlerTest {
 

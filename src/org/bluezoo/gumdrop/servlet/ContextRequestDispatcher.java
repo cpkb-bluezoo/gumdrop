@@ -47,6 +47,8 @@ import jakarta.servlet.http.HttpServletResponse;
 
 import java.util.logging.Level;
 import java.util.logging.Logger;
+import java.text.MessageFormat;
+import java.util.ResourceBundle;
 
 /**
  * The handler chain for a request.
@@ -55,7 +57,8 @@ import java.util.logging.Logger;
  */
 class ContextRequestDispatcher implements RequestDispatcher, FilterChain {
 
-    private static final Logger LOGGER = Logger.getLogger(ContextRequestDispatcher.class.getName());
+        private static final ResourceBundle L10N = ResourceBundle.getBundle("org.bluezoo.gumdrop.servlet.L10N");
+private static final Logger LOGGER = Logger.getLogger(ContextRequestDispatcher.class.getName());
 
     final Context context;
     final ServletMatch match;
@@ -83,12 +86,14 @@ class ContextRequestDispatcher implements RequestDispatcher, FilterChain {
         if (LOGGER.isLoggable(Level.FINEST)) {
             String servletName = (match.servletDef != null) ? match.servletDef.name : "null";
             String servletClass = (match.servletDef != null) ? match.servletDef.className : "null";
-            LOGGER.finest("Dispatching request: uri=" + request.getRequestURI() 
-                + ", servletPath=" + match.servletPath 
-                + ", pathInfo=" + match.pathInfo
-                + ", servlet=" + servletName + " (" + servletClass + ")"
-                + ", queryString=" + request.getQueryString()
-                + ", matchType=" + match.mappingMatch);
+            LOGGER.finest(MessageFormat.format(L10N.getString("debug.dispatch_request"),
+                    request.getRequestURI(),
+                    match.servletPath,
+                    match.pathInfo,
+                    servletName,
+                    servletClass,
+                    request.getQueryString(),
+                    match.mappingMatch));
         }
         
         originalRequest = request;

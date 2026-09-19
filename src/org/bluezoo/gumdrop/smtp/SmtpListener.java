@@ -24,6 +24,7 @@ package org.bluezoo.gumdrop.smtp;
 import java.io.IOException;
 import java.net.InetAddress;
 import java.nio.file.Path;
+import java.util.ResourceBundle;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -55,6 +56,9 @@ import org.bluezoo.gumdrop.tls.TlsConfig;
  * @see <a href="https://www.rfc-editor.org/rfc/rfc8314">RFC 8314 - Implicit TLS (port 465)</a>
  */
 public class SmtpListener extends TcpListener {
+
+    private static final ResourceBundle L10N =
+            ResourceBundle.getBundle(SmtpListener.class.getPackage().getName() + ".L10N");
 
     private static final Logger LOGGER =
             Logger.getLogger(SmtpListener.class.getName());
@@ -414,8 +418,7 @@ public class SmtpListener extends TcpListener {
             } catch (Exception e) {
                 if (LOGGER.isLoggable(Level.WARNING)) {
                     LOGGER.log(Level.WARNING,
-                            "Failed to create SMTP handler from session provider,"
-                                    + " using default behaviour", e);
+                            L10N.getString("warn.smtp_session_provider_failed"), e);
                 }
             }
         } else {
@@ -426,8 +429,7 @@ public class SmtpListener extends TcpListener {
                 } catch (Exception e) {
                     if (LOGGER.isLoggable(Level.WARNING)) {
                         LOGGER.log(Level.WARNING,
-                                "Failed to create SMTP handler from server,"
-                                        + " using default behaviour", e);
+                                L10N.getString("warn.smtp_server_session_failed"), e);
                     }
                 }
             }

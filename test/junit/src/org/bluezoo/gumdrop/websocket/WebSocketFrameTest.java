@@ -33,6 +33,7 @@ import java.util.Set;
  * Unit tests for {@link WebSocketFrame} — RFC 6455 §5.
  * Covers masking key entropy (§5.3), RSV bit handling (§5.2/§9),
  * frame encoding/decoding, and close code extraction.
+ * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 public class WebSocketFrameTest {
 

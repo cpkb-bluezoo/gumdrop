@@ -46,6 +46,7 @@ import static org.junit.Assert.*;
  * encodes a method, strips the 4-byte class/method-ID header the same
  * way {@link AmqpFrameParser} + a dispatcher would, and decodes the
  * remaining arguments.
+ * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 public class MethodCodecTest {
 

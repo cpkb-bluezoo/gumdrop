@@ -1022,8 +1022,8 @@ public class DnsServer implements Server {
             try {
                 ((Listener) listener).start(gumdrop);
             } catch (Exception e) {
-                LOGGER.log(Level.SEVERE,
-                        "Failed to start DNS listener: " + listener, e);
+                LOGGER.log(Level.SEVERE, MessageFormat.format(
+                        L10N.getString("log.dns_listener_start_failed"), listener), e);
             }
         }
     }
@@ -1033,8 +1033,8 @@ public class DnsServer implements Server {
             try {
                 ((Listener) listener).stop();
             } catch (Exception e) {
-                LOGGER.log(Level.WARNING,
-                        "Error stopping DNS listener: " + listener, e);
+                LOGGER.log(Level.WARNING, MessageFormat.format(
+                        L10N.getString("warn.dns_listener_stop_error"), listener), e);
             }
         }
     }

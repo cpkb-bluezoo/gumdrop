@@ -31,6 +31,8 @@ import java.util.Collections;
 import java.util.List;
 import java.util.logging.Level;
 import java.util.logging.Logger;
+import java.text.MessageFormat;
+import java.util.ResourceBundle;
 
 /**
  * Platform-aware parser for the system DNS resolver configuration
@@ -59,6 +61,8 @@ import java.util.logging.Logger;
 public final class ResolvConf {
 
     private static final Logger LOGGER = Logger.getLogger(ResolvConf.class.getName());
+    private static final ResourceBundle L10N =
+            ResourceBundle.getBundle("org.bluezoo.gumdrop.dns.L10N");
 
     private static volatile List<String> nameservers;
 
@@ -145,7 +149,8 @@ public final class ResolvConf {
                 reader.close();
             }
         } catch (IOException e) {
-            LOGGER.log(Level.FINE, "Could not read resolver configuration: " + path, e);
+            LOGGER.log(Level.FINE, MessageFormat.format(
+                    L10N.getString("fine.resolv_conf_read_failed"), path), e);
         }
         return Collections.unmodifiableList(list);
     }

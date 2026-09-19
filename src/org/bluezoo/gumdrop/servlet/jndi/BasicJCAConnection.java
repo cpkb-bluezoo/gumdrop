@@ -23,6 +23,8 @@ package org.bluezoo.gumdrop.servlet.jndi;
 
 import java.util.Map;
 import java.util.logging.Logger;
+import java.text.MessageFormat;
+import java.util.ResourceBundle;
 
 /**
  * Basic implementation of a JCA-style Connection for Gumdrop servlet container.
@@ -37,7 +39,8 @@ import java.util.logging.Logger;
  */
 public class BasicJCAConnection {
     
-    private static final Logger LOGGER = Logger.getLogger(BasicJCAConnection.class.getName());
+        private static final ResourceBundle L10N = ResourceBundle.getBundle("org.bluezoo.gumdrop.servlet.jndi.L10N");
+private static final Logger LOGGER = Logger.getLogger(BasicJCAConnection.class.getName());
     
     private final BasicJCAConnectionFactory factory;
     private final Map<String, String> connectionProperties;
@@ -65,7 +68,7 @@ public class BasicJCAConnection {
         // 2. Execute the business operation
         // 3. Return the results
         
-        LOGGER.fine("Executing operation '" + operation + "' on " + factory.getConfig().jndiName);
+        LOGGER.fine(MessageFormat.format(L10N.getString("debug.jca_executing_operation"), operation, factory.getConfig().jndiName));
         
         // Placeholder implementation
         return "Operation '" + operation + "' completed successfully";
@@ -105,7 +108,7 @@ public class BasicJCAConnection {
         if (!closed) {
             closed = true;
             factory.returnConnection(this);
-            LOGGER.fine("Closed Basic JCA connection for: " + factory.getConfig().jndiName);
+            LOGGER.fine(MessageFormat.format(L10N.getString("debug.jca_connection_closed"), factory.getConfig().jndiName));
         }
     }
     

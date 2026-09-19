@@ -26,7 +26,9 @@ import org.bluezoo.gumdrop.imap.ImapListener;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.ResourceBundle;
 import java.util.function.Supplier;
+import java.text.MessageFormat;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -69,6 +71,9 @@ import org.bluezoo.gumdrop.quota.RoleBasedQuotaManager;
  * @see ImapListener
  */
 public class ImapServer implements Server, ImapServerSessionProvider {
+
+    private static final ResourceBundle L10N =
+            ResourceBundle.getBundle("org.bluezoo.gumdrop.imap.L10N");
 
     private static final Logger LOGGER =
             Logger.getLogger(ImapServer.class.getName());
@@ -355,7 +360,7 @@ public class ImapServer implements Server, ImapServerSessionProvider {
                 ((Listener) listener).start(gumdrop);
             } catch (Exception e) {
                 LOGGER.log(Level.SEVERE,
-                        "Failed to start listener: " + listener, e);
+                        MessageFormat.format(L10N.getString("warn.failed_start_imap_listener"), listener), e);
             }
         }
     }
@@ -366,7 +371,7 @@ public class ImapServer implements Server, ImapServerSessionProvider {
                 ((Listener) listener).stop();
             } catch (Exception e) {
                 LOGGER.log(Level.WARNING,
-                        "Error stopping listener: " + listener, e);
+                        MessageFormat.format(L10N.getString("warn.error_stopping_imap_listener"), listener), e);
             }
         }
     }

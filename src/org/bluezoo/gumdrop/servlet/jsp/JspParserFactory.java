@@ -28,6 +28,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.logging.Level;
 import java.util.logging.Logger;
+import java.text.MessageFormat;
+import java.util.ResourceBundle;
 
 /**
  * Factory for creating JSP parsers and automatically detecting JSP format.
@@ -48,7 +50,8 @@ import java.util.logging.Logger;
  */
 public class JspParserFactory {
     
-    private static final Logger LOGGER = Logger.getLogger(JspParserFactory.class.getName());
+        private static final ResourceBundle L10N = ResourceBundle.getBundle("org.bluezoo.gumdrop.servlet.jsp.L10N");
+private static final Logger LOGGER = Logger.getLogger(JspParserFactory.class.getName());
     
     // Registry of available parsers  
     private final List<JspParser> availableParsers = new ArrayList<>();
@@ -90,7 +93,7 @@ public class JspParserFactory {
         }
         
         if (LOGGER.isLoggable(Level.FINE)) {
-            LOGGER.fine("Using " + parser.getParserName() + " for: " + jspUri);
+            LOGGER.fine(MessageFormat.format(L10N.getString("debug.jsp_using_parser"), parser.getParserName(), jspUri));
         }
         
         return parser.parse(input, encoding, jspUri);
@@ -125,7 +128,7 @@ public class JspParserFactory {
             // Force XML parsing
             parser = createParser(ParserType.XML);
             if (LOGGER.isLoggable(Level.FINE)) {
-                LOGGER.fine("Forcing XML parser due to isXml=true for: " + jspUri);
+                LOGGER.fine(MessageFormat.format(L10N.getString("debug.jsp_forcing_xml_parser"), jspUri));
             }
         } else {
             // Use automatic detection
@@ -137,7 +140,7 @@ public class JspParserFactory {
         }
         
         if (LOGGER.isLoggable(Level.FINE)) {
-            LOGGER.fine("Using " + parser.getParserName() + " for: " + jspUri);
+            LOGGER.fine(MessageFormat.format(L10N.getString("debug.jsp_using_parser"), parser.getParserName(), jspUri));
         }
         
         // Use standard JspParser interface - SAX factory already injected into XML parser
@@ -178,13 +181,14 @@ public class JspParserFactory {
             try {
                 if (parser.canParse(input, encoding)) {
                     if (LOGGER.isLoggable(Level.FINE)) {
-                        LOGGER.fine("Detected JSP format: " + parser.getParserName());
+                        LOGGER.fine(MessageFormat.format(L10N.getString("debug.jsp_detected_format"), parser.getParserName()));
                     }
                     return parser;
                 }
             } catch (IOException e) {
-                LOGGER.log(Level.WARNING, 
-                    "Error during format detection with " + parser.getParserName(), e);
+                LOGGER.log(Level.WARNING, MessageFormat.format(
+                        L10N.getString("warn.jsp_format_detection_error"),
+                        parser.getParserName()), e);
                 // Continue with next parser
             }
         }

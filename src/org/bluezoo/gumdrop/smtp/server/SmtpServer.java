@@ -23,9 +23,11 @@ package org.bluezoo.gumdrop.smtp.server;
 
 import org.bluezoo.gumdrop.smtp.SmtpListener;
 
+import java.text.MessageFormat;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.ResourceBundle;
 import java.util.function.Supplier;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -56,7 +58,9 @@ import org.bluezoo.gumdrop.mailbox.MailboxFactory;
  * <pre>{@code
  * SmtpServer server = SmtpServer.compose()
  *         .listener(new SmtpListener().port(2525).bindWildcard())
- *         .sessionPerConnection(() -> new MyMailHandler())
+ *         .sessionPerConnection(new Supplier&lt;ClientConnected&gt;() {
+ *             public ClientConnected get() { return new MyMailHandler(); }
+ *         })
  *         .server();
  * gumdrop.addServer(server);
  * }</pre>
@@ -88,6 +92,9 @@ public abstract class SmtpServer implements Server, SmtpServerSessionProvider {
 
     private static final Logger LOGGER =
             Logger.getLogger(SmtpServer.class.getName());
+
+    private static final ResourceBundle L10N =
+            ResourceBundle.getBundle("org.bluezoo.gumdrop.smtp.L10N");
 
     private final List<Listener> listeners = new ArrayList<Listener>();
 
@@ -300,7 +307,7 @@ public abstract class SmtpServer implements Server, SmtpServerSessionProvider {
                 ((Listener) listener).start(gumdrop);
             } catch (Exception e) {
                 LOGGER.log(Level.SEVERE,
-                        "Failed to start listener: " + listener, e);
+                        MessageFormat.format(L10N.getString("log.listener_start_failed"), listener), e);
             }
         }
     }
@@ -311,7 +318,7 @@ public abstract class SmtpServer implements Server, SmtpServerSessionProvider {
                 ((Listener) listener).stop();
             } catch (Exception e) {
                 LOGGER.log(Level.WARNING,
-                        "Error stopping listener: " + listener, e);
+                        MessageFormat.format(L10N.getString("log.listener_stop_error"), listener), e);
             }
         }
     }

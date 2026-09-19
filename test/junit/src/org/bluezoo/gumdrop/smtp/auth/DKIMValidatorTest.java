@@ -56,6 +56,7 @@ import org.bluezoo.gumdrop.dns.client.DnsResolver;
  * does not cover the {@code From} header must not be reported as PASS,
  * since a PASS is used elsewhere (DmarcValidator) to authenticate the
  * message's From domain.
+ * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 public class DKIMValidatorTest {
 

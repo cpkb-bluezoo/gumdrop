@@ -35,6 +35,7 @@ import static org.junit.Assert.*;
 /**
  * Unit tests for SMTP server-side SASL authentication mechanisms
  * (items 81-83) and supporting SaslUtils methods.
+ * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 public class SMTPServerAuthTest {
 

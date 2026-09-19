@@ -189,8 +189,7 @@ public class H2Parser {
 
             // Dispatch to typed handler method
             if (LOGGER.isLoggable(Level.FINEST)) {
-                LOGGER.finest("Parsing frame: type=" + type + ", flags=" + flags +
-                    ", stream=" + streamId + ", length=" + length);
+                LOGGER.finest(MessageFormat.format(L10N.getString("debug.finest_parsing_frame"), type, flags, streamId, length));
             }
             try {
                 dispatchFrame(type, flags, streamId, payload);
@@ -263,7 +262,7 @@ public class H2Parser {
             default:
                 // RFC 9113 section 4.1: implementations MUST ignore unknown frame types
                 if (LOGGER.isLoggable(Level.FINE)) {
-                    LOGGER.fine("Ignoring unknown frame type: " + type);
+                    LOGGER.fine(MessageFormat.format(L10N.getString("debug.ignoring_unknown_frame_type"), type));
                 }
                 break;
         }

@@ -49,6 +49,7 @@ import static org.junit.Assert.*;
  * POP3 open at once -- is Maildir's whole reason for existing (lock-free
  * concurrent access via atomic per-file renames); a second session blocking
  * on the first session's full open-to-close lifetime defeats that.
+ * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 public class MaildirConcurrentSessionTest {
 

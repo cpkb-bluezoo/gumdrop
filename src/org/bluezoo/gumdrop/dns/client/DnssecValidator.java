@@ -312,7 +312,7 @@ public final class DnssecValidator {
             }
         } catch (Exception e) {
             if (LOGGER.isLoggable(Level.FINE)) {
-                LOGGER.log(Level.FINE, "Failed to build public key", e);
+                LOGGER.log(Level.FINE, L10N.getString("fine.dnssec_public_key_build_failed"), e);
             }
             return null;
         }

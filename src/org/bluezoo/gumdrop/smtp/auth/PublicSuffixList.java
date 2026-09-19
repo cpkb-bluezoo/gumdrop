@@ -93,7 +93,7 @@ class PublicSuffixList {
             }
             parse(in);
         } catch (IOException e) {
-            LOGGER.log(Level.WARNING, "Failed to load public_suffix_list.dat", e);
+            LOGGER.log(Level.WARNING, L10N.getString("warn.public_suffix_list_load_failed"), e);
         }
     }
 

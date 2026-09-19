@@ -55,6 +55,7 @@ import static org.junit.Assert.*;
  *
  * <p>The key test is concurrent writes from multiple threads to detect
  * any race conditions in the SSL wrap/unwrap synchronization.
+ * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 public class TLSConcurrentWriteTest extends AbstractServerIntegrationTest {
     

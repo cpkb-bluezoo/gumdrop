@@ -34,6 +34,7 @@ import java.util.List;
  * Unit tests for {@link WebSocketConnection} — RFC 6455.
  * Covers close code validation (§7.4), maximum message size enforcement
  * (§7.4.1 code 1009), and RSV bit validation with extensions (§9).
+ * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 public class WebSocketConnectionTest {
 

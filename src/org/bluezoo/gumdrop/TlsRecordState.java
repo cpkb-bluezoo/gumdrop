@@ -22,6 +22,7 @@
 package org.bluezoo.gumdrop;
 
 import java.nio.ByteBuffer;
+import java.text.MessageFormat;
 import java.util.concurrent.Executor;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -303,7 +304,9 @@ final class TlsRecordState implements TlsRecordSink {
     @Override
     public void protocolError(TlsProtocolError error) {
         if (LOGGER.isLoggable(Level.FINE)) {
-            LOGGER.fine("TLS protocol error from " + callback.getRemoteAddress() + ": " + error);
+            LOGGER.fine(MessageFormat.format(
+                    Gumdrop.L10N.getString("log.tls_protocol_error"),
+                    callback.getRemoteAddress(), error));
         }
         callback.onProtocolError(error);
         handleClosed("protocol-error");
@@ -365,8 +368,10 @@ final class TlsRecordState implements TlsRecordSink {
 
     private void handleOverflow() {
         if (LOGGER.isLoggable(Level.WARNING)) {
-            LOGGER.warning("Outbound TLS buffer exceeded maximum size ("
-                    + tcpEndpoint.getMaxNetOutSize() + " bytes); peer not reading: " + callback.getRemoteAddress());
+            LOGGER.warning(MessageFormat.format(
+                    Gumdrop.L10N.getString("warn.tls_outbound_buffer_overflow"),
+                    Integer.valueOf(tcpEndpoint.getMaxNetOutSize()),
+                    callback.getRemoteAddress()));
         }
         handleClosed("outbound-overflow");
     }
@@ -377,7 +382,8 @@ final class TlsRecordState implements TlsRecordSink {
         }
         closed = true;
         if (LOGGER.isLoggable(Level.FINE)) {
-            LOGGER.fine("TLS closed during " + context);
+            LOGGER.fine(MessageFormat.format(
+                    Gumdrop.L10N.getString("log.tls_closed_during"), context));
         }
         callback.onClosed();
     }

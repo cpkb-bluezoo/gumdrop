@@ -28,6 +28,9 @@ import static org.junit.Assert.*;
 import org.bluezoo.gumdrop.mqtt.codec.QoS;
 import org.bluezoo.gumdrop.mqtt.store.InMemoryMessageStore;
 
+/**
+ * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
+ */
 public class QoSManagerTest {
 
     private QoSManager mgr;

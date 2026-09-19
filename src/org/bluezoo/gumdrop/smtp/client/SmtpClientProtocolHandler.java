@@ -193,8 +193,7 @@ public final class SmtpClientProtocolHandler
         state = SmtpState.CONNECTING;
 
         if (LOGGER.isLoggable(Level.FINE)) {
-            LOGGER.fine("SMTP client connected to "
-                    + ep.getRemoteAddress());
+            LOGGER.fine(MessageFormat.format(L10N.getString("client.fine.connected_endpoint"), ep.getRemoteAddress()));
         }
     }
 
@@ -218,7 +217,7 @@ public final class SmtpClientProtocolHandler
     @Override
     public void securityEstablished(SecurityInfo info) {
         if (LOGGER.isLoggable(Level.FINE)) {
-            LOGGER.fine("TLS established: " + info.getCipherSuite());
+            LOGGER.fine(MessageFormat.format(L10N.getString("client.fine.tls_established"), info.getCipherSuite()));
         }
 
         if (currentCallback instanceof StarttlsReplyHandler) {
@@ -752,9 +751,9 @@ public final class SmtpClientProtocolHandler
 
         if (LOGGER.isLoggable(Level.FINE)) {
             if (command.startsWith("AUTH ")) {
-                LOGGER.fine("Sent SMTP command: AUTH ***");
+                LOGGER.fine(L10N.getString("client.fine.sent_auth"));
             } else {
-                LOGGER.fine("Sent SMTP command: " + command);
+                LOGGER.fine(MessageFormat.format(L10N.getString("client.fine.sent_command"), command));
             }
         }
     }
@@ -774,7 +773,7 @@ public final class SmtpClientProtocolHandler
         endpoint.send(buf);
 
         if (LOGGER.isLoggable(Level.FINE)) {
-            LOGGER.fine("Sent SMTP line: ***");
+            LOGGER.fine(L10N.getString("client.fine.sent_line"));
         }
     }
 
@@ -806,8 +805,9 @@ public final class SmtpClientProtocolHandler
         if (state == SmtpState.CLOSED
                 || state == SmtpState.DISCONNECTED) {
             if (LOGGER.isLoggable(Level.FINE)) {
-                LOGGER.fine("Ignoring response in state "
-                        + state + ": " + code);
+                LOGGER.fine(MessageFormat.format(
+                        L10N.getString("client.fine.ignoring_response"),
+                        state, code, ""));
             }
             return;
         }
@@ -816,8 +816,8 @@ public final class SmtpClientProtocolHandler
                 ? "" : messages.get(0);
 
         if (LOGGER.isLoggable(Level.FINE)) {
-            LOGGER.fine("Received SMTP response: "
-                    + code + " " + message);
+            LOGGER.fine(MessageFormat.format(
+                    L10N.getString("client.fine.received_response"), code, message));
         }
 
         switch (state) {

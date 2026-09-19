@@ -327,7 +327,7 @@ class Stream implements HttpResponseState {
         } catch (Exception e) {
             // Log error but don't throw - server push failures should not break main response
             if (LOGGER.isLoggable(Level.WARNING)) {
-                LOGGER.log(Level.WARNING, "Failed to execute server push for " + uri, e);
+                LOGGER.log(Level.WARNING, MessageFormat.format(L10N.getString("warn.server_push_failed"), uri), e);
             }
         }
         
@@ -460,8 +460,8 @@ class Stream implements HttpResponseState {
             } catch (IOException e) {
                 // RFC 9113 section 4.3: HPACK decompression failure MUST
                 // be treated as a connection error of type COMPRESSION_ERROR
-                LOGGER.log(Level.WARNING, 
-                    "HPACK decompression error", e);
+                LOGGER.log(Level.WARNING,
+                        L10N.getString("warn.hpack_decompression_error"), e);
                 ByteBufferPool.release(headerBlock);
                 headerBlock = null;
                 connection.sendGoaway(H2FrameHandler.ERROR_COMPRESSION_ERROR);
@@ -529,8 +529,7 @@ class Stream implements HttpResponseState {
                         }
                     } else if ("Content-Length".equalsIgnoreCase(name)) {
                         if (chunked) {
-                            LOGGER.fine("Ignoring Content-Length; chunked "
-                                    + "encoding already set");
+                            LOGGER.fine(L10N.getString("debug.ignore_content_length_chunked_set"));
                             i.remove();
                         } else {
                         // RFC 9112 section 6.2 / RFC 9110 section 8.6: a
@@ -546,7 +545,7 @@ class Stream implements HttpResponseState {
                         long parsed = HttpUtils.validateContentLength(value);
                         if (parsed < 0) {
                             LOGGER.warning(MessageFormat.format(
-                                    "Rejecting invalid Content-Length: {0}",
+                                    L10N.getString("warn.reject_invalid_content_length"),
                                     value));
                             try {
                                 sendError(400);
@@ -559,8 +558,7 @@ class Stream implements HttpResponseState {
                         } else if (hasExplicitContentLength
                                 && parsed != contentLength) {
                             LOGGER.warning(MessageFormat.format(
-                                    "Rejecting conflicting Content-Length: {0} "
-                                            + "vs {1}",
+                                    L10N.getString("warn.reject_conflicting_content_length"),
                                     parsed, contentLength));
                             try {
                                 sendError(400);
@@ -616,8 +614,9 @@ class Stream implements HttpResponseState {
                             http2Settings = parseH2cSettings(ByteBuffer.wrap(settings));
                         } catch (IllegalArgumentException e) {
                             // Invalid base64 in HTTP2-Settings header - ignore it
-                            LOGGER.log(Level.WARNING, 
-                                "Invalid base64 in HTTP2-Settings header: " + value, e);
+                            LOGGER.log(Level.WARNING, MessageFormat.format(
+                                    L10N.getString("warn.invalid_http2_settings_base64"),
+                                    value), e);
                         }
                     }
                 }
@@ -629,8 +628,7 @@ class Stream implements HttpResponseState {
         }
         // RFC 9112 section 6.3: chunked Transfer-Encoding overrides Content-Length
         if (chunked && hasExplicitContentLength && headers != null) {
-            LOGGER.fine("Ignoring Content-Length; chunked encoding takes "
-                    + "precedence");
+            LOGGER.fine(L10N.getString("debug.ignore_content_length_chunked_precedence"));
             hasExplicitContentLength = false;
             headers.removeAll("Content-Length");
         }
@@ -1549,7 +1547,7 @@ class Stream implements HttpResponseState {
             webSocketAdapter.processIncomingData(buf);
         } catch (IOException e) {
             if (LOGGER.isLoggable(Level.WARNING)) {
-                LOGGER.log(Level.WARNING, "Error processing WebSocket data", e);
+                LOGGER.log(Level.WARNING, L10N.getString("warn.error_websocket_data"), e);
             }
         }
     }

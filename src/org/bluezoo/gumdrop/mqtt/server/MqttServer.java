@@ -53,7 +53,9 @@ import org.bluezoo.gumdrop.mqtt.store.MqttMessageStore;
  * <pre>{@code
  * MqttServer server = MqttServer.compose()
  *         .listener(new MqttListener().port(1883).bindWildcard())
- *         .sessionPerConnection(() -> new MyConnectHandler())
+ *         .sessionPerConnection(new Supplier&lt;ConnectHandler&gt;() {
+ *             public ConnectHandler get() { return new MyConnectHandler(); }
+ *         })
  *         .server();
  * gumdrop.addServer(server);
  * }</pre>

@@ -77,7 +77,7 @@ class FtpDataConnection {
             }
         } catch (IOException e) {
             if (LOGGER.isLoggable(Level.FINE)) {
-                LOGGER.log(Level.FINE, "Error closing data connection", e);
+                LOGGER.log(Level.FINE, FtpProtocolHandler.L10N.getString("debug.err_closing_data_connection"), e);
             }
         }
     }

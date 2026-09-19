@@ -188,7 +188,7 @@ public class AuthPipeline implements SmtpPipeline {
         try {
             parser.close();
         } catch (MimeParseException e) {
-            LOGGER.log(Level.WARNING, "Error closing message parser", e);
+            LOGGER.log(Level.WARNING, L10N.getString("err.close_parser"), e);
         }
 
         // Create DKIM callback that forwards to both user callback and DmarcValidator

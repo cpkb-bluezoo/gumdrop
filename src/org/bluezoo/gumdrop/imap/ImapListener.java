@@ -605,7 +605,7 @@ public class ImapListener extends TcpListener {
             } catch (Exception e) {
                 if (LOGGER.isLoggable(Level.WARNING)) {
                     LOGGER.log(Level.WARNING,
-                            "Failed to create IMAP handler from session provider",
+                            ImapProtocolHandler.L10N.getString("warn.failed_create_imap_handler_session_provider"),
                             e);
                 }
             }
@@ -617,7 +617,7 @@ public class ImapListener extends TcpListener {
             } catch (Exception e) {
                 if (LOGGER.isLoggable(Level.WARNING)) {
                     LOGGER.log(Level.WARNING,
-                            "Failed to create IMAP handler from server", e);
+                            ImapProtocolHandler.L10N.getString("warn.failed_create_imap_handler_server"), e);
                 }
             }
         }

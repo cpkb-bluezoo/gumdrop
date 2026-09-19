@@ -174,7 +174,7 @@ public final class FtpClientProtocolHandler
         state = FtpState.CONNECTING;
 
         if (LOGGER.isLoggable(Level.FINE)) {
-            LOGGER.fine("FTP client connected to " + ep.getRemoteAddress());
+            LOGGER.fine(MessageFormat.format(L10N.getString("debug.client_connected"), ep.getRemoteAddress()));
         }
     }
 
@@ -198,7 +198,7 @@ public final class FtpClientProtocolHandler
     @Override
     public void securityEstablished(SecurityInfo info) {
         if (LOGGER.isLoggable(Level.FINE)) {
-            LOGGER.fine("TLS established: " + info.getCipherSuite());
+            LOGGER.fine(MessageFormat.format(L10N.getString("debug.tls_established"), info.getCipherSuite()));
         }
 
         if (currentCallback instanceof AuthTlsReplyHandler) {
@@ -658,9 +658,9 @@ public final class FtpClientProtocolHandler
 
         if (LOGGER.isLoggable(Level.FINE)) {
             if (command.startsWith("PASS ")) {
-                LOGGER.fine("Sent FTP command: PASS ***");
+                LOGGER.fine(L10N.getString("debug.sent_ftp_command_pass"));
             } else {
-                LOGGER.fine("Sent FTP command: " + command);
+                LOGGER.fine(MessageFormat.format(L10N.getString("debug.sent_ftp_command"), command));
             }
         }
     }
@@ -683,7 +683,7 @@ public final class FtpClientProtocolHandler
     private void dispatchResponse(int code, List<String> messages) {
         if (state == FtpState.CLOSED || state == FtpState.DISCONNECTED) {
             if (LOGGER.isLoggable(Level.FINE)) {
-                LOGGER.fine("Ignoring response in state " + state + ": " + code);
+                LOGGER.fine(MessageFormat.format(L10N.getString("debug.ignoring_response_in_state"), state, code));
             }
             return;
         }
@@ -691,7 +691,7 @@ public final class FtpClientProtocolHandler
         String message = messages.isEmpty() ? "" : messages.get(0);
 
         if (LOGGER.isLoggable(Level.FINE)) {
-            LOGGER.fine("Received FTP response: " + code + " " + message);
+            LOGGER.fine(MessageFormat.format(L10N.getString("debug.received_ftp_response"), code, message));
         }
 
         switch (state) {

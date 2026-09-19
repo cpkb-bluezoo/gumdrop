@@ -44,6 +44,7 @@ import java.util.Set;
 /**
  * Regression coverage for issue #315: UID FETCH/STORE/COPY/MOVE previously
  * scanned every message to resolve a narrow UID set.
+ * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 public class UidSequenceIndexTest {
 

@@ -33,8 +33,8 @@ import java.util.concurrent.ConcurrentLinkedDeque;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.logging.Level;
 import java.util.logging.Logger;
-
-/**
+import java.util.ResourceBundle;
+import java.text.MessageFormat;/**
  * A connection pool for {@link Endpoint} objects.
  *
  * <p>Maintains idle endpoints keyed by target (host, port, secure,
@@ -86,6 +86,9 @@ import java.util.logging.Logger;
  * @see org.bluezoo.gumdrop.http.HttpClient#setConnectionPool
  */
 public class ClientEndpointPool {
+
+    private static final ResourceBundle L10N =
+            ResourceBundle.getBundle("org.bluezoo.gumdrop.L10N");
 
     private static final Logger LOGGER =
             Logger.getLogger(ClientEndpointPool.class.getName());
@@ -198,7 +201,7 @@ public class ClientEndpointPool {
 
         entry.markBusy();
         if (LOGGER.isLoggable(Level.FINE)) {
-            LOGGER.fine("Acquired pooled endpoint to " + target);
+            LOGGER.fine(MessageFormat.format(L10N.getString("log.acquired_pooled_endpoint_to_0"), target));
         }
         return entry;
     }
@@ -236,8 +239,7 @@ public class ClientEndpointPool {
         scheduleCleanupIfNeeded();
 
         if (LOGGER.isLoggable(Level.FINE)) {
-            LOGGER.fine("Registered endpoint in pool: " + target
-                    + " (total: " + list.totalCount() + ")");
+            LOGGER.fine(MessageFormat.format(L10N.getString("log.registered_endpoint_in_pool_0_total_1"), target, list.totalCount()));
         }
         return entry;
     }
@@ -271,7 +273,7 @@ public class ClientEndpointPool {
 
         entry.markIdle();
         if (LOGGER.isLoggable(Level.FINE)) {
-            LOGGER.fine("Released endpoint to pool: " + entry.target);
+            LOGGER.fine(MessageFormat.format(L10N.getString("log.released_endpoint_to_pool_0"), entry.target));
         }
     }
 
@@ -315,7 +317,7 @@ public class ClientEndpointPool {
         pool.clear();
 
         if (LOGGER.isLoggable(Level.FINE)) {
-            LOGGER.fine("Endpoint pool shutdown complete");
+            LOGGER.fine(L10N.getString("log.endpoint_pool_shutdown_complete"));
         }
     }
 
@@ -373,8 +375,7 @@ public class ClientEndpointPool {
         }
 
         if (closedCount > 0 && LOGGER.isLoggable(Level.FINE)) {
-            LOGGER.fine("Closed " + closedCount
-                    + " expired idle endpoints");
+            LOGGER.fine(MessageFormat.format(L10N.getString("log.closed_0_expired_idle_endpoints"), closedCount));
         }
 
         if (getIdleEndpointCount() > 0) {
@@ -628,7 +629,7 @@ public class ClientEndpointPool {
                 cleanupIdleEndpoints();
             } catch (Exception e) {
                 LOGGER.log(Level.WARNING,
-                        "Error in endpoint pool cleanup", e);
+                        L10N.getString("log.error_endpoint_pool_cleanup"), e);
             }
         }
     }

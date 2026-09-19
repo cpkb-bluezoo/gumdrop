@@ -350,7 +350,7 @@ public final class GssapiServer {
             try {
                 context.dispose();
             } catch (GSSException e) {
-                logger.log(Level.FINE, "GSSContext dispose error", e);
+                logger.log(Level.FINE, L10N.getString("debug.gssapi_context_dispose_error"), e);
             }
         }
     }

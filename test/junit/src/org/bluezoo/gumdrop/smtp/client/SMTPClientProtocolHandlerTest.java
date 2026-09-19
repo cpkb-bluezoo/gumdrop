@@ -43,6 +43,7 @@ import static org.junit.Assert.*;
  * Unit tests for SmtpClientProtocolHandler — items 84-87:
  * EHLO capability parsing, MAIL FROM extension parameters,
  * RCPT TO DSN parameters, and VRFY/EXPN commands.
+ * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 public class SMTPClientProtocolHandlerTest {
 

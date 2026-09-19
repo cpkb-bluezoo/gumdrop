@@ -35,6 +35,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.logging.Level;
 import java.util.logging.Logger;
+import java.text.MessageFormat;
+import java.util.ResourceBundle;
 
 /**
  * Platform-aware parser for the system hosts file.
@@ -52,6 +54,8 @@ import java.util.logging.Logger;
 public final class HostsFile {
 
     private static final Logger LOGGER = Logger.getLogger(HostsFile.class.getName());
+    private static final ResourceBundle L10N =
+            ResourceBundle.getBundle("org.bluezoo.gumdrop.dns.L10N");
 
     private static volatile Map<String, List<InetAddress>> entries;
 
@@ -261,7 +265,8 @@ public final class HostsFile {
                 reader.close();
             }
         } catch (IOException e) {
-            LOGGER.log(Level.FINE, "Could not read hosts file: " + path, e);
+            LOGGER.log(Level.FINE, MessageFormat.format(
+                    L10N.getString("fine.hosts_file_read_failed"), path), e);
         }
         return Collections.unmodifiableMap(map);
     }

@@ -42,7 +42,9 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import java.text.MessageFormat;
 import java.util.ArrayList;
+import java.util.ResourceBundle;
 import java.util.BitSet;
 import java.util.EnumMap;
 import java.util.HashMap;
@@ -99,6 +101,8 @@ import java.util.zip.CRC32;
 public class MessageIndex {
 
     private static final Logger LOGGER = Logger.getLogger(MessageIndex.class.getName());
+    private static final ResourceBundle L10N =
+            ResourceBundle.getBundle("org.bluezoo.gumdrop.mailbox.L10N");
 
     /** Magic bytes identifying the index file format. */
     private static final byte[] MAGIC = {'G', 'I', 'D', 'X'};
@@ -479,7 +483,8 @@ public class MessageIndex {
                 }
             } catch (IOException e) {
                 // IndexedMessageContext shouldn't throw, but handle anyway
-                LOGGER.log(Level.WARNING, "Error evaluating search criteria", e);
+                LOGGER.log(Level.WARNING,
+                        L10N.getString("warn.error_evaluating_search_criteria"), e);
             }
         }
 
@@ -905,7 +910,8 @@ public class MessageIndex {
             Files.move(tempPath, indexPath, StandardCopyOption.REPLACE_EXISTING);
             dirty = false;
 
-            LOGGER.fine("Saved index with " + getEntryCount() + " entries to " + indexPath);
+            LOGGER.fine(MessageFormat.format(L10N.getString("fine.index_saved"),
+                    getEntryCount(), indexPath));
         } catch (IOException | RuntimeException e) {
             try {
                 Files.deleteIfExists(tempPath);
@@ -1017,7 +1023,8 @@ public class MessageIndex {
             in.readInt();
 
             index.dirty = false;
-            LOGGER.fine("Loaded index with " + index.getEntryCount() + " entries from " + indexPath);
+            LOGGER.fine(MessageFormat.format(L10N.getString("fine.index_loaded"),
+                    index.getEntryCount(), indexPath));
             return index;
         }
     }

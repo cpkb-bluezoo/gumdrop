@@ -35,6 +35,7 @@ import java.util.Map;
 /**
  * Unit tests for the WebSocket extension framework (RFC 6455 §9)
  * and permessage-deflate (RFC 7692).
+ * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 public class WebSocketExtensionTest {
 

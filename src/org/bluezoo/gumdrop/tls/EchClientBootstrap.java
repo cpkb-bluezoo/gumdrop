@@ -23,6 +23,8 @@ package org.bluezoo.gumdrop.tls;
 
 import java.io.IOException;
 import java.nio.file.Path;
+import java.text.MessageFormat;
+import java.util.ResourceBundle;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -35,6 +37,8 @@ import java.util.logging.Logger;
 public final class EchClientBootstrap {
 
     private static final Logger LOGGER = Logger.getLogger(EchClientBootstrap.class.getName());
+    private static final ResourceBundle L10N =
+            ResourceBundle.getBundle("org.bluezoo.gumdrop.L10N");
 
     private EchClientBootstrap() {
     }
@@ -54,7 +58,9 @@ public final class EchClientBootstrap {
             return EchHttpsDiscovery.selectClientConfig(
                     EchKeyMaterial.readConfigListFile(clientEchConfigListFile));
         } catch (IOException e) {
-            LOGGER.log(Level.WARNING, "Could not load client ECHConfigList from " + clientEchConfigListFile, e);
+            LOGGER.log(Level.WARNING, MessageFormat.format(
+                    L10N.getString("warn.ech_client_config_load_failed"),
+                    clientEchConfigListFile), e);
         }
         return null;
     }

@@ -26,6 +26,7 @@ import static org.junit.Assert.*;
 
 /**
  * Unit tests for {@link Pop3Response}.
+ * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 public class POP3ResponseTest {
 

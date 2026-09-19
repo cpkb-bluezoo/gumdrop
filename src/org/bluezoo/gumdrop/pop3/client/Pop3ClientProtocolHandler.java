@@ -155,8 +155,7 @@ public final class Pop3ClientProtocolHandler
         state = Pop3State.CONNECTING;
 
         if (LOGGER.isLoggable(Level.FINE)) {
-            LOGGER.fine("POP3 client connected to "
-                    + ep.getRemoteAddress());
+            LOGGER.fine(MessageFormat.format(L10N.getString("debug.client_connected"), ep.getRemoteAddress()));
         }
     }
 
@@ -187,7 +186,7 @@ public final class Pop3ClientProtocolHandler
     @Override
     public void securityEstablished(SecurityInfo info) {
         if (LOGGER.isLoggable(Level.FINE)) {
-            LOGGER.fine("TLS established: " + info.getCipherSuite());
+            LOGGER.fine(MessageFormat.format(L10N.getString("debug.tls_established"), info.getCipherSuite()));
         }
 
         handler.onSecurityEstablished(info);
@@ -340,14 +339,13 @@ public final class Pop3ClientProtocolHandler
             }
 
             if (LOGGER.isLoggable(Level.FINE)) {
-                LOGGER.fine("Received POP3 response: "
-                        + (hadSp ? (wordText + " " + text) : wordText));
+                LOGGER.fine(MessageFormat.format(L10N.getString("debug.received_pop3_response"), hadSp ? (wordText + " " + text) : wordText));
             }
 
             dispatchResponse(new Pop3Response(status, text));
         } catch (Exception e) {
             if (LOGGER.isLoggable(Level.WARNING)) {
-                LOGGER.log(Level.WARNING, "Error handling POP3 response", e);
+                LOGGER.log(Level.WARNING, L10N.getString("warn.error_handling_pop3_response"), e);
             }
             handler.onError(e);
         }
@@ -605,12 +603,9 @@ public final class Pop3ClientProtocolHandler
         if (LOGGER.isLoggable(Level.FINE)) {
             if (command.startsWith("PASS ")
                     || command.startsWith("AUTH ")) {
-                LOGGER.fine("Sent POP3 command: "
-                        + command.substring(0,
-                                command.indexOf(' ') + 1)
-                        + "***");
+                LOGGER.fine(MessageFormat.format(L10N.getString("debug.sent_pop3_command_redacted"), command.substring(0, command.indexOf(' ') + 1)));
             } else {
-                LOGGER.fine("Sent POP3 command: " + command);
+                LOGGER.fine(MessageFormat.format(L10N.getString("debug.sent_pop3_command"), command));
             }
         }
     }
@@ -627,7 +622,7 @@ public final class Pop3ClientProtocolHandler
         endpoint.send(ByteBuffer.wrap(data));
 
         if (LOGGER.isLoggable(Level.FINE)) {
-            LOGGER.fine("Sent POP3 line: ***");
+            LOGGER.fine(L10N.getString("debug.sent_pop3_line_redacted"));
         }
     }
 
@@ -927,7 +922,10 @@ public final class Pop3ClientProtocolHandler
                 }
             } catch (NumberFormatException e) {
                 LOGGER.log(Level.WARNING,
-                        "Failed to parse STAT response: " + msg, e);
+                        MessageFormat.format(
+                                L10N.getString("warn.failed_parse_stat_response"),
+                                msg),
+                        e);
             }
             callback.handleStat(this, messageCount, totalSize);
         } else {
@@ -991,7 +989,10 @@ public final class Pop3ClientProtocolHandler
             }
         } catch (NumberFormatException e) {
             LOGGER.log(Level.WARNING,
-                    "Failed to parse LIST response: " + msg, e);
+                    MessageFormat.format(
+                            L10N.getString("warn.failed_parse_list_response"),
+                            msg),
+                    e);
         }
         callback.handleError(this, msg);
     }
@@ -1009,7 +1010,10 @@ public final class Pop3ClientProtocolHandler
             }
         } catch (NumberFormatException e) {
             LOGGER.log(Level.WARNING,
-                    "Failed to parse LIST entry: " + line, e);
+                    MessageFormat.format(
+                            L10N.getString("warn.failed_parse_list_entry"),
+                            line),
+                    e);
         }
     }
 
@@ -1067,7 +1071,10 @@ public final class Pop3ClientProtocolHandler
                 return;
             } catch (NumberFormatException e) {
                 LOGGER.log(Level.WARNING,
-                        "Failed to parse UIDL response: " + msg, e);
+                        MessageFormat.format(
+                                L10N.getString("warn.failed_parse_uidl_response"),
+                                msg),
+                        e);
             }
         }
         callback.handleError(this, msg);
@@ -1084,7 +1091,10 @@ public final class Pop3ClientProtocolHandler
                 callback.handleUidEntry(num, uid);
             } catch (NumberFormatException e) {
                 LOGGER.log(Level.WARNING,
-                        "Failed to parse UIDL entry: " + line, e);
+                        MessageFormat.format(
+                                L10N.getString("warn.failed_parse_uidl_entry"),
+                                line),
+                        e);
             }
         }
     }

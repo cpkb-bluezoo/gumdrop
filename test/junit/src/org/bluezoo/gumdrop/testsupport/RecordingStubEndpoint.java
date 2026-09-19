@@ -41,6 +41,7 @@ import java.util.concurrent.CountDownLatch;
  * Test {@link Endpoint} that records outbound protocol lines and signals
  * waiters when a matching line arrives. Used instead of polling
  * {@code Thread.sleep} loops over {@link #getResponses()}.
+ * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 public final class RecordingStubEndpoint implements Endpoint {
 

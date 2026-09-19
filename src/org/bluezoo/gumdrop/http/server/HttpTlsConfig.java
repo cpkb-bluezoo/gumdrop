@@ -31,7 +31,8 @@ import java.nio.file.Path;
 /**
  * @deprecated use {@link TlsConfig} for all secure listeners (HTTP, SMTP,
  * DNS-over-TLS, …).
- */
+ * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
+*/
 @Deprecated
 public final class HttpTlsConfig {
 

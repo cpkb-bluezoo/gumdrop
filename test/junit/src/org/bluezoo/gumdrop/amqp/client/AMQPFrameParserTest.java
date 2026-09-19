@@ -35,6 +35,9 @@ import java.util.List;
 
 import static org.junit.Assert.*;
 
+/**
+ * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
+ */
 public class AMQPFrameParserTest {
 
     private RecordingHandler handler;

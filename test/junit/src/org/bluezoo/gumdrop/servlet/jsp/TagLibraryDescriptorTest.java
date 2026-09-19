@@ -28,6 +28,7 @@ import java.util.Map;
 
 /**
  * Unit tests for TagLibraryDescriptor and its inner classes.
+ * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 public class TagLibraryDescriptorTest {
 

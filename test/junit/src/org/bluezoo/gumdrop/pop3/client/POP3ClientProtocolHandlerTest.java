@@ -71,6 +71,7 @@ import static org.junit.Assert.*;
  * <p>Tests the POP3 client state machine by simulating server responses
  * through a stub Endpoint and verifying that the correct callbacks are
  * invoked on recording handler implementations.
+ * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 public class POP3ClientProtocolHandlerTest {
 

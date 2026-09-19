@@ -35,6 +35,7 @@ import java.nio.file.StandardOpenOption;
 /**
  * Unit tests for {@link DmarcAggregateReport} — DMARC aggregate reporting
  * (RFC 7489 §7.1, Appendix C).
+ * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 public class DMARCAggregateReportTest {
 

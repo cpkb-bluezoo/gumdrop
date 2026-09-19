@@ -28,6 +28,7 @@ import java.io.IOException;
  * not to open a mailbox because another session already holds it open
  * (issue #163). Not an error; {@link org.bluezoo.gumdrop.mailbox.index.MailboxIndexer}
  * treats this as success with no client-visible failure.
+ * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 public final class BackgroundWarmSkippedException extends IOException {
 

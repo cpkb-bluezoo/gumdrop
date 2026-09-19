@@ -24,6 +24,7 @@ package org.bluezoo.gumdrop.http;
 import org.bluezoo.gumdrop.ScheduledTimer;
 
 import java.nio.charset.StandardCharsets;
+import java.util.ResourceBundle;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -41,8 +42,12 @@ import java.util.logging.Logger;
  * <p>The timer is created when this class is first referenced (lazy
  * initialization) and its thread is a daemon, so it never prevents JVM
  * shutdown.
+ * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 public final class HttpDateCache {
+
+    private static final ResourceBundle L10N =
+            ResourceBundle.getBundle("org.bluezoo.gumdrop.http.L10N");
 
     private static final Logger LOGGER = Logger.getLogger(HttpDateCache.class.getName());
 
@@ -87,9 +92,7 @@ public final class HttpDateCache {
                     refresh();
                 } catch (RuntimeException e) {
                     LOGGER.log(Level.WARNING,
-                            "Failed to refresh cached Date header value; "
-                            + "keeping the previous value until the next tick",
-                            e);
+                            L10N.getString("warn.date_cache_refresh_failed"), e);
                 } finally {
                     scheduleNextRefresh();
                 }

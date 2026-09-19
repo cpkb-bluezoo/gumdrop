@@ -24,7 +24,8 @@ package org.bluezoo.gumdrop.http.server;
 /**
  * @deprecated use {@link Http2Listener} (HTTP/2 over TCP with HTTP/1.1
  * fallback). This type remains for legacy XML configuration class names.
- */
+ * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
+*/
 @Deprecated
 public class HttpListener extends Http2Listener {
 }

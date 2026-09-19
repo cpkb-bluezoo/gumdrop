@@ -32,6 +32,8 @@ import java.io.InputStream;
 import java.util.Stack;
 import java.util.logging.Level;
 import java.util.logging.Logger;
+import java.text.MessageFormat;
+import java.util.ResourceBundle;
 
 /**
  * SAX-based parser for Tag Library Descriptor (TLD) files.
@@ -68,7 +70,8 @@ import java.util.logging.Logger;
  */
 public class TldParser {
 
-    private static final Logger LOGGER = Logger.getLogger(TldParser.class.getName());
+        private static final ResourceBundle L10N = ResourceBundle.getBundle("org.bluezoo.gumdrop.servlet.jsp.L10N");
+private static final Logger LOGGER = Logger.getLogger(TldParser.class.getName());
 
     /**
      * Parses a TLD file from an InputStream and returns a TagLibraryDescriptor.
@@ -86,7 +89,7 @@ public class TldParser {
             TagLibraryDescriptor tld = handler.getTagLibraryDescriptor();
             if (tld != null) {
                 tld.setSourceLocation(sourceLocation);
-                LOGGER.fine("Successfully parsed TLD: " + sourceLocation);
+                LOGGER.fine(MessageFormat.format(L10N.getString("debug.tld_parsed"), sourceLocation));
             }
 
             return tld;
@@ -343,7 +346,7 @@ public class TldParser {
 
         @Override
         public void warning(org.xml.sax.SAXParseException e) throws SAXException {
-            LOGGER.log(Level.WARNING, "TLD parsing warning in " + sourceLocation + " at line " + e.getLineNumber(), e);
+            LOGGER.log(Level.WARNING, MessageFormat.format(L10N.getString("warn.tld_parse_warning"), sourceLocation, e.getLineNumber()), e);
         }
 
         @Override

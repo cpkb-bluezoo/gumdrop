@@ -36,6 +36,7 @@ import java.util.List;
 /**
  * Unit tests for {@link DkimSigner} — DKIM signing (RFC 6376 §5)
  * and Ed25519-SHA256 (RFC 8463).
+ * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 public class DKIMSignerTest {
 

@@ -32,6 +32,9 @@ import java.util.Date;
 
 import static org.junit.Assert.*;
 
+/**
+ * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
+ */
 public class BasicPropertiesTest {
 
     @Test

@@ -230,7 +230,7 @@ class FileHandler extends DefaultHttpRequestHandler {
         try {
             processRequest(state);
         } catch (Exception e) {
-            LOGGER.log(Level.SEVERE, "Error processing file request", e);
+            LOGGER.log(Level.SEVERE, L10N.getString("severe.error_processing_file_request"), e);
             sendError(state, HttpStatus.INTERNAL_SERVER_ERROR);
         }
     }
@@ -254,7 +254,7 @@ class FileHandler extends DefaultHttpRequestHandler {
             try {
                 webdavParser.receive(data.duplicate());
             } catch (IOException e) {
-                LOGGER.log(Level.WARNING, "Error parsing WebDAV request body", e);
+                LOGGER.log(Level.WARNING, L10N.getString("warn.error_parsing_webdav_request_body"), e);
             }
             return;
         }
@@ -303,7 +303,7 @@ class FileHandler extends DefaultHttpRequestHandler {
 
             @Override
             public void failed(Throwable exc, ByteBuffer attachment) {
-                LOGGER.log(Level.SEVERE, "Error writing request body to file", exc);
+                LOGGER.log(Level.SEVERE, L10N.getString("severe.error_writing_request_body_to_file"), exc);
                 closeWriteChannel();
                 ByteBufferPool.release(attachment);
                 state.execute(new Runnable() {
@@ -328,7 +328,7 @@ class FileHandler extends DefaultHttpRequestHandler {
                 webdavParser.close();
                 finalizeWebDAVRequest(state);
             } catch (IOException e) {
-                LOGGER.log(Level.WARNING, "Error finalizing WebDAV request", e);
+                LOGGER.log(Level.WARNING, L10N.getString("warn.error_finalizing_webdav_request"), e);
                 sendError(state, HttpStatus.BAD_REQUEST);
             }
             return;
@@ -454,7 +454,7 @@ class FileHandler extends DefaultHttpRequestHandler {
 
             @Override
             public void failed(Throwable error) {
-                LOGGER.log(Level.SEVERE, "Error processing GET/HEAD", error);
+                LOGGER.log(Level.SEVERE, L10N.getString("severe.error_processing_get_head"), error);
                 sendError(state, HttpStatus.INTERNAL_SERVER_ERROR);
             }
         });
@@ -624,7 +624,7 @@ class FileHandler extends DefaultHttpRequestHandler {
 
             @Override
             public void failed(Throwable exc, ByteBuffer attachment) {
-                LOGGER.log(Level.SEVERE, "Error reading file", exc);
+                LOGGER.log(Level.SEVERE, L10N.getString("severe.error_reading_file"), exc);
                 closeReadChannel();
                 ByteBufferPool.release(attachment);
                 state.execute(new Runnable() {
@@ -642,7 +642,7 @@ class FileHandler extends DefaultHttpRequestHandler {
             try {
                 asyncReadChannel.close();
             } catch (IOException e) {
-                LOGGER.log(Level.WARNING, "Error closing read channel", e);
+                LOGGER.log(Level.WARNING, L10N.getString("warn.error_closing_read_channel"), e);
             }
             asyncReadChannel = null;
         }
@@ -687,7 +687,7 @@ class FileHandler extends DefaultHttpRequestHandler {
 
             @Override
             public void failed(Throwable error) {
-                LOGGER.log(Level.SEVERE, "Error processing DELETE", error);
+                LOGGER.log(Level.SEVERE, L10N.getString("severe.error_processing_delete"), error);
                 sendError(state, HttpStatus.INTERNAL_SERVER_ERROR);
             }
         });
@@ -737,7 +737,8 @@ class FileHandler extends DefaultHttpRequestHandler {
             plan.status = HttpStatus.NO_CONTENT;
             LOGGER.info(MessageFormat.format(L10N.getString("info.deleted_file"), path));
         } catch (IOException e) {
-            LOGGER.log(Level.WARNING, "Failed to delete file: " + path, e);
+            LOGGER.log(Level.WARNING, MessageFormat.format(
+                    L10N.getString("warn.failed_delete_file"), path), e);
             plan.status = HttpStatus.FORBIDDEN;
         }
         return plan;
@@ -749,7 +750,7 @@ class FileHandler extends DefaultHttpRequestHandler {
             try {
                 sendDeleteMultiStatus(state, plan.multiStatus);
             } catch (IOException e) {
-                LOGGER.log(Level.SEVERE, "DELETE multi-status error", e);
+                LOGGER.log(Level.SEVERE, L10N.getString("severe.delete_multi_status_error"), e);
                 sendError(state, HttpStatus.INTERNAL_SERVER_ERROR);
             }
             return;
@@ -895,7 +896,7 @@ class FileHandler extends DefaultHttpRequestHandler {
             @Override
             public void failed(Throwable error) {
                 state.resumeRequestBody();
-                LOGGER.log(Level.SEVERE, "Error processing PUT", error);
+                LOGGER.log(Level.SEVERE, L10N.getString("severe.error_processing_put"), error);
                 sendError(state, HttpStatus.INTERNAL_SERVER_ERROR);
             }
         });
@@ -919,8 +920,8 @@ class FileHandler extends DefaultHttpRequestHandler {
             try {
                 Files.createDirectories(parentDir);
             } catch (IOException e) {
-                LOGGER.log(Level.WARNING,
-                        "Failed to create parent directories for: " + path, e);
+                LOGGER.log(Level.WARNING, MessageFormat.format(
+                        L10N.getString("warn.put_create_parent_dirs_failed"), path), e);
                 plan.error = HttpStatus.CONFLICT;
                 return plan;
             }
@@ -932,8 +933,8 @@ class FileHandler extends DefaultHttpRequestHandler {
                     StandardOpenOption.CREATE,
                     StandardOpenOption.TRUNCATE_EXISTING);
         } catch (IOException e) {
-            LOGGER.log(Level.WARNING,
-                    "Failed to create/open file for writing: " + path, e);
+            LOGGER.log(Level.WARNING, MessageFormat.format(
+                    L10N.getString("warn.put_open_file_failed"), path), e);
             plan.error = HttpStatus.FORBIDDEN;
         }
         return plan;
@@ -965,7 +966,7 @@ class FileHandler extends DefaultHttpRequestHandler {
             try {
                 asyncWriteChannel.close();
             } catch (IOException e) {
-                LOGGER.log(Level.WARNING, "Error closing write channel", e);
+                LOGGER.log(Level.WARNING, L10N.getString("warn.error_closing_write_channel"), e);
             }
             asyncWriteChannel = null;
         }
@@ -1058,7 +1059,7 @@ class FileHandler extends DefaultHttpRequestHandler {
             @Override
             public void failed(Throwable error) {
                 state.resumeRequestBody();
-                LOGGER.log(Level.SEVERE, "Error preparing PROPPATCH", error);
+                LOGGER.log(Level.SEVERE, L10N.getString("severe.error_preparing_proppatch"), error);
                 sendError(state, HttpStatus.INTERNAL_SERVER_ERROR);
             }
         });
@@ -1126,7 +1127,7 @@ class FileHandler extends DefaultHttpRequestHandler {
 
             @Override
             public void failed(Throwable error) {
-                LOGGER.log(Level.SEVERE, "Error processing MKCOL", error);
+                LOGGER.log(Level.SEVERE, L10N.getString("severe.error_processing_mkcol"), error);
                 sendError(state, HttpStatus.INTERNAL_SERVER_ERROR);
             }
         });
@@ -1154,7 +1155,8 @@ class FileHandler extends DefaultHttpRequestHandler {
             LOGGER.info(MessageFormat.format(L10N.getString("info.created_collection"), path));
             return HttpStatus.CREATED;
         } catch (IOException e) {
-            LOGGER.log(Level.WARNING, "Failed to create collection: " + path, e);
+            LOGGER.log(Level.WARNING, MessageFormat.format(
+                    L10N.getString("warn.failed_create_collection"), path), e);
             return HttpStatus.FORBIDDEN;
         }
     }
@@ -1179,7 +1181,7 @@ class FileHandler extends DefaultHttpRequestHandler {
 
             @Override
             public void failed(Throwable error) {
-                LOGGER.log(Level.SEVERE, "Error processing COPY", error);
+                LOGGER.log(Level.SEVERE, L10N.getString("severe.error_processing_copy"), error);
                 sendError(state, HttpStatus.INTERNAL_SERVER_ERROR);
             }
         });
@@ -1223,7 +1225,8 @@ class FileHandler extends DefaultHttpRequestHandler {
             LOGGER.info(MessageFormat.format(L10N.getString("info.copied"), path, destPath));
             return destExists ? HttpStatus.NO_CONTENT : HttpStatus.CREATED;
         } catch (IOException e) {
-            LOGGER.log(Level.WARNING, "Failed to copy: " + path, e);
+            LOGGER.log(Level.WARNING, MessageFormat.format(
+                    L10N.getString("warn.failed_copy"), path), e);
             return HttpStatus.FORBIDDEN;
         }
     }
@@ -1248,7 +1251,7 @@ class FileHandler extends DefaultHttpRequestHandler {
 
             @Override
             public void failed(Throwable error) {
-                LOGGER.log(Level.SEVERE, "Error processing MOVE", error);
+                LOGGER.log(Level.SEVERE, L10N.getString("severe.error_processing_move"), error);
                 sendError(state, HttpStatus.INTERNAL_SERVER_ERROR);
             }
         });
@@ -1306,14 +1309,15 @@ class FileHandler extends DefaultHttpRequestHandler {
                     Files.move(srcSidecar, dstSidecar,
                             StandardCopyOption.REPLACE_EXISTING);
                 } catch (IOException e) {
-                    LOGGER.log(Level.FINE, "Sidecar move failed", e);
+                    LOGGER.log(Level.FINE, L10N.getString("fine.sidecar_move_failed"), e);
                 }
             }
 
             LOGGER.info(MessageFormat.format(L10N.getString("info.moved"), path, destPath));
             return destExists ? HttpStatus.NO_CONTENT : HttpStatus.CREATED;
         } catch (IOException e) {
-            LOGGER.log(Level.WARNING, "Failed to move: " + path, e);
+            LOGGER.log(Level.WARNING, MessageFormat.format(
+                    L10N.getString("warn.failed_move"), path), e);
             return HttpStatus.FORBIDDEN;
         }
     }
@@ -1449,7 +1453,7 @@ class FileHandler extends DefaultHttpRequestHandler {
 
             @Override
             public void failed(Throwable error) {
-                LOGGER.log(Level.SEVERE, "PROPFIND enumeration error", error);
+                LOGGER.log(Level.SEVERE, L10N.getString("severe.propfind_enumeration_error"), error);
                 sendError(state, HttpStatus.INTERNAL_SERVER_ERROR);
             }
         });
@@ -1488,8 +1492,8 @@ class FileHandler extends DefaultHttpRequestHandler {
                         BasicFileAttributes.class));
                 usable.add(resource);
             } catch (IOException e) {
-                LOGGER.log(Level.FINE,
-                        "Skipping unreadable PROPFIND resource: " + resource, e);
+                LOGGER.log(Level.FINE, MessageFormat.format(
+                        L10N.getString("fine.propfind_skip_unreadable"), resource), e);
             }
         }
         data.resources = usable;
@@ -1587,7 +1591,7 @@ class FileHandler extends DefaultHttpRequestHandler {
             state.endResponseBody();
             state.complete();
         } catch (IOException e) {
-            LOGGER.log(Level.SEVERE, "PROPFIND response error", e);
+            LOGGER.log(Level.SEVERE, L10N.getString("severe.propfind_response_error"), e);
         }
     }
 
@@ -2059,7 +2063,7 @@ class FileHandler extends DefaultHttpRequestHandler {
             state.endResponseBody();
             state.complete();
         } catch (IOException e) {
-            LOGGER.log(Level.SEVERE, "PROPPATCH response error", e);
+            LOGGER.log(Level.SEVERE, L10N.getString("severe.proppatch_response_error"), e);
         }
     }
 
@@ -2157,14 +2161,14 @@ class FileHandler extends DefaultHttpRequestHandler {
                     sendLockResponse(state, plan.lock, plan.created,
                             plan.isDirectory);
                 } catch (IOException e) {
-                    LOGGER.log(Level.SEVERE, "LOCK response error", e);
+                    LOGGER.log(Level.SEVERE, L10N.getString("severe.lock_response_error"), e);
                     sendError(state, HttpStatus.INTERNAL_SERVER_ERROR);
                 }
             }
 
             @Override
             public void failed(Throwable error) {
-                LOGGER.log(Level.SEVERE, "Error processing LOCK", error);
+                LOGGER.log(Level.SEVERE, L10N.getString("severe.error_processing_lock"), error);
                 sendError(state, HttpStatus.INTERNAL_SERVER_ERROR);
             }
         });

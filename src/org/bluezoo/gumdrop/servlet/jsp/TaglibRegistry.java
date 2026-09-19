@@ -107,7 +107,7 @@ public class TaglibRegistry {
         if (tld != null) {
             // Cache the resolved TLD
             taglibCache.put(uri, tld);
-            LOGGER.fine("Resolved taglib URI '" + uri + "' to TLD: " + tld.getShortName());
+            LOGGER.fine(MessageFormat.format(L10N.getString("debug.taglib_resolved"), uri, tld.getShortName()));
         } else {
             LOGGER.warning(MessageFormat.format(
                     L10N.getString("warn.taglib_uri_resolve_failed"), uri));
@@ -124,7 +124,7 @@ public class TaglibRegistry {
             loadJspConfigMappings();
             scanForTldFiles();
         } catch (IOException e) {
-            LOGGER.log(Level.WARNING, "Error initializing taglib registry", e);
+            LOGGER.log(Level.WARNING, L10N.getString("warn.taglib_registry_init"), e);
         }
     }
 
@@ -140,7 +140,7 @@ public class TaglibRegistry {
                 String location = taglib.getTaglibLocation();
                 if (uri != null && location != null) {
                     uriToLocationMap.put(uri, location);
-                    LOGGER.fine("Mapped taglib URI '" + uri + "' to location: " + location);
+                    LOGGER.fine(MessageFormat.format(L10N.getString("debug.taglib_mapped"), uri, location));
                 }
             }
         }
@@ -186,7 +186,7 @@ public class TaglibRegistry {
                 }
             }
         } catch (Exception e) {
-            LOGGER.log(Level.FINE, "Error scanning directory " + directoryPath + " for TLD files", e);
+            LOGGER.log(Level.FINE, MessageFormat.format(L10N.getString("fine.taglib_scan_directory"), directoryPath), e);
         }
     }
 
@@ -204,7 +204,7 @@ public class TaglibRegistry {
                 }
             }
         } catch (Exception e) {
-            LOGGER.log(Level.FINE, "Error scanning /WEB-INF/lib/ for JAR files", e);
+            LOGGER.log(Level.FINE, L10N.getString("fine.taglib_scan_web_inf_lib"), e);
         }
     }
 
@@ -243,17 +243,17 @@ public class TaglibRegistry {
                             TagLibraryDescriptor tld = TldParser.parseTld(tldStream, tldLocation);
                             if (tld != null && tld.getUri() != null) {
                                 uriToLocationMap.put(tld.getUri(), tldLocation);
-                                LOGGER.fine("Found TLD in JAR resource: " + tld.getUri() + " -> " + entryName);
+                                LOGGER.fine(MessageFormat.format(L10N.getString("debug.taglib_tld_in_jar_resource"), tld.getUri(), entryName));
                             }
                         }
                     } catch (Exception e) {
-                        LOGGER.log(Level.FINE, "Error processing TLD entry " + entryName + " in " + jarResourcePath, e);
+                        LOGGER.log(Level.FINE, MessageFormat.format(L10N.getString("fine.taglib_process_jar_resource_entry"), entryName, jarResourcePath), e);
                     }
                 }
                 jar.closeEntry();
             }
         } catch (IOException e) {
-            LOGGER.log(Level.FINE, "Error scanning JAR resource for TLDs: " + jarResourcePath, e);
+            LOGGER.log(Level.FINE, MessageFormat.format(L10N.getString("fine.taglib_scan_jar_resource"), jarResourcePath), e);
         }
     }
 
@@ -272,15 +272,15 @@ public class TaglibRegistry {
                         TagLibraryDescriptor tld = TldParser.parseTld(tldStream, "jar:" + jarFile.toURI() + "!/" + entryName);
                         if (tld != null && tld.getUri() != null) {
                             uriToLocationMap.put(tld.getUri(), "jar:" + jarFile.toURI() + "!/" + entryName);
-                            LOGGER.fine("Found TLD in JAR: " + tld.getUri() + " -> " + entryName);
+                            LOGGER.fine(MessageFormat.format(L10N.getString("debug.taglib_tld_in_jar"), tld.getUri(), entryName));
                         }
                     } catch (Exception e) {
-                        LOGGER.log(Level.FINE, "Error processing TLD entry " + entryName + " in " + jarFile.getName(), e);
+                        LOGGER.log(Level.FINE, MessageFormat.format(L10N.getString("fine.taglib_process_jar_entry"), entryName, jarFile.getName()), e);
                     }
                 }
             }
         } catch (IOException e) {
-            LOGGER.log(Level.FINE, "Error scanning JAR file for TLDs: " + jarFile.getName(), e);
+            LOGGER.log(Level.FINE, MessageFormat.format(L10N.getString("fine.taglib_scan_jar"), jarFile.getName()), e);
         }
     }
 
@@ -293,11 +293,11 @@ public class TaglibRegistry {
                 TagLibraryDescriptor tld = TldParser.parseTld(tldStream, tldPath);
                 if (tld != null && tld.getUri() != null) {
                     uriToLocationMap.put(tld.getUri(), tldPath);
-                    LOGGER.fine("Found TLD: " + tld.getUri() + " -> " + tldPath);
+                    LOGGER.fine(MessageFormat.format(L10N.getString("debug.taglib_tld_found"), tld.getUri(), tldPath));
                 }
             }
         } catch (Exception e) {
-            LOGGER.log(Level.FINE, "Error processing TLD file: " + tldPath, e);
+            LOGGER.log(Level.FINE, MessageFormat.format(L10N.getString("fine.taglib_process_tld_file"), tldPath), e);
         }
     }
 
@@ -362,7 +362,7 @@ public class TaglibRegistry {
                     tldStream.close();
                 } catch (IOException e) {
                     // Log but don't fail
-                    LOGGER.fine("Error closing TLD stream for: " + location);
+                    LOGGER.fine(MessageFormat.format(L10N.getString("debug.taglib_close_stream_error"), location));
                 }
             }
         }
@@ -375,7 +375,7 @@ public class TaglibRegistry {
      */
     public void clearCache() {
         taglibCache.clear();
-        LOGGER.fine("Cleared taglib cache");
+        LOGGER.fine(L10N.getString("debug.taglib_cache_cleared"));
     }
 
     /**

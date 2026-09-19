@@ -28,6 +28,8 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
 import java.util.logging.Logger;
+import java.text.MessageFormat;
+import java.util.ResourceBundle;
 
 /**
  * Resolves JSP property group configurations according to the JSP specification.
@@ -42,7 +44,8 @@ import java.util.logging.Logger;
  */
 public class JspPropertyGroupResolver {
 
-    private static final Logger LOGGER = Logger.getLogger(JspPropertyGroupResolver.class.getName());
+        private static final ResourceBundle L10N = ResourceBundle.getBundle("org.bluezoo.gumdrop.servlet.jsp.L10N");
+private static final Logger LOGGER = Logger.getLogger(JspPropertyGroupResolver.class.getName());
 
     /**
      * Represents the resolved JSP configuration properties for a specific JSP page.
@@ -119,13 +122,13 @@ public class JspPropertyGroupResolver {
         ResolvedJSPProperties resolved = new ResolvedJSPProperties();
 
         if (jspConfig == null || jspPath == null) {
-            LOGGER.fine("No JSP configuration or path provided, using defaults");
+            LOGGER.fine(L10N.getString("debug.jsp_no_config_defaults"));
             return resolved;
         }
 
         Collection<JspPropertyGroupDescriptor> propertyGroups = jspConfig.getJspPropertyGroups();
         if (propertyGroups == null || propertyGroups.isEmpty()) {
-            LOGGER.fine("No JSP property groups configured, using defaults");
+            LOGGER.fine(L10N.getString("debug.jsp_no_property_groups"));
             return resolved;
         }
 
@@ -135,14 +138,14 @@ public class JspPropertyGroupResolver {
             if (matchesPropertyGroup(jspPath, propertyGroup)) {
                 applyPropertyGroup(resolved, propertyGroup);
                 matchCount++;
-                LOGGER.fine("Applied JSP property group to '" + jspPath + "' (match " + matchCount + ")");
+                LOGGER.fine(MessageFormat.format(L10N.getString("debug.jsp_property_group_applied"), jspPath, matchCount));
             }
         }
 
         if (matchCount == 0) {
-            LOGGER.fine("No JSP property groups matched '" + jspPath + "', using defaults");
+            LOGGER.fine(MessageFormat.format(L10N.getString("debug.jsp_no_property_group_match"), jspPath));
         } else {
-            LOGGER.fine("Resolved JSP properties for '" + jspPath + "': " + resolved);
+            LOGGER.fine(MessageFormat.format(L10N.getString("debug.jsp_resolved_properties"), jspPath, resolved));
         }
 
         return resolved;

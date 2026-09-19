@@ -312,13 +312,13 @@ public class HttpClientProtocolHandler
                 initializeHTTP2();
                 sendConnectionPreface();
                 parseState = ParseState.H2C_UPGRADE_PENDING;
-                LOGGER.fine("HTTP/2 connection established to " + host + ":" + port + " (prior knowledge)");
+                LOGGER.fine(MessageFormat.format(L10N.getString("debug.h2_prior_knowledge_connected"), host, port));
             } else {
                 negotiatedVersion = HttpVersion.HTTP_1_1;
                 if (h2cUpgradeEnabled) {
-                    LOGGER.fine("HTTP/1.1 connection established to " + host + ":" + port + ", will attempt h2c upgrade");
+                    LOGGER.fine(MessageFormat.format(L10N.getString("debug.http11_h2c_upgrade_pending"), host, port));
                 } else {
-                    LOGGER.fine("HTTP/1.1 connection established to " + host + ":" + port);
+                    LOGGER.fine(MessageFormat.format(L10N.getString("debug.http11_connected"), host, port));
                 }
             }
             // RFC 9113 section 9.1: start idle timer
@@ -346,7 +346,7 @@ public class HttpClientProtocolHandler
             // RFC 9113 section 9.2.2: validate cipher suite for TLS 1.2
             if (isBlockedH2CipherSuite(info)) {
                 String cipher = info.getCipherSuite();
-                LOGGER.warning("HTTP/2 blocked cipher suite: " + cipher);
+                LOGGER.warning(MessageFormat.format(L10N.getString("warn.blocked_h2_cipher_suite_client"), cipher));
                 sendGoaway(H2FrameHandler.ERROR_INADEQUATE_SECURITY,
                         "blocked cipher suite: " + cipher);
                 return;
@@ -355,10 +355,10 @@ public class HttpClientProtocolHandler
             initializeHTTP2();
             sendConnectionPreface();
             parseState = ParseState.H2C_UPGRADE_PENDING;
-            LOGGER.fine("HTTP/2 (ALPN) connection established to " + host + ":" + port);
+            LOGGER.fine(MessageFormat.format(L10N.getString("debug.h2_alpn_connected"), host, port));
         } else {
             negotiatedVersion = HttpVersion.HTTP_1_1;
-            LOGGER.fine("HTTP/1.1 connection established to " + host + ":" + port);
+            LOGGER.fine(MessageFormat.format(L10N.getString("debug.http11_connected"), host, port));
         }
         // RFC 9113 section 9.1: start idle timer after TLS handshake
         resetIdleTimeout();
@@ -490,7 +490,7 @@ public class HttpClientProtocolHandler
                 try {
                     responseHandler.failed(cause);
                 } catch (Exception e) {
-                    LOGGER.log(Level.WARNING, "Error notifying handler", e);
+                    LOGGER.log(Level.WARNING, L10N.getString("warn.error_notifying_handler"), e);
                 }
             }
         }
@@ -502,7 +502,7 @@ public class HttpClientProtocolHandler
                 try {
                     responseHandler.failed(cause);
                 } catch (Exception e) {
-                    LOGGER.log(Level.WARNING, "Error notifying handler", e);
+                    LOGGER.log(Level.WARNING, L10N.getString("warn.error_notifying_handler"), e);
                 }
             }
         }
@@ -517,7 +517,7 @@ public class HttpClientProtocolHandler
                 @Override
                 public void run() {
                     if (LOGGER.isLoggable(Level.FINE)) {
-                        LOGGER.fine("Idle timeout (" + idleTimeoutMs + "ms) — closing connection");
+                        LOGGER.fine(MessageFormat.format(L10N.getString("debug.idle_timeout_closing"), idleTimeoutMs));
                     }
                     if (negotiatedVersion == HttpVersion.HTTP_2_0) {
                         sendGoaway(H2FrameHandler.ERROR_NO_ERROR, "idle timeout");
@@ -741,7 +741,7 @@ public class HttpClientProtocolHandler
                 endpoint.close();
             }
         } catch (Exception e) {
-            LOGGER.log(Level.FINE, "Error closing connection", e);
+            LOGGER.log(Level.FINE, L10N.getString("debug.error_closing_connection"), e);
         }
     }
 
@@ -1086,9 +1086,9 @@ public class HttpClientProtocolHandler
         chunkedEncoding = false;
 
         if (attemptingH2cUpgrade) {
-            LOGGER.fine("Sent HTTP/1.1 request with h2c upgrade: " + request.getMethod() + " " + request.getPath());
+            LOGGER.fine(MessageFormat.format(L10N.getString("debug.sent_http11_h2c_upgrade"), request.getMethod(), request.getPath()));
         } else {
-            LOGGER.fine("Sent HTTP/1.1 request: " + request.getMethod() + " " + request.getPath());
+            LOGGER.fine(MessageFormat.format(L10N.getString("debug.sent_http11_request"), request.getMethod(), request.getPath()));
         }
     }
 
@@ -1142,13 +1142,13 @@ public class HttpClientProtocolHandler
             final boolean fHasBody = hasBody;
             endpoint.getSelectorLoop().invokeLater(new SendHeadersTask(fStreamId, headerBlock, fHasBody, request));
         } catch (IOException e) {
-            LOGGER.log(Level.WARNING, "Error encoding HTTP/2 request headers", e);
+            LOGGER.log(Level.WARNING, L10N.getString("warn.error_encoding_h2_request_headers"), e);
             HttpResponseHandler responseHandler = request.getHandler();
             if (responseHandler != null) {
                 try {
                     responseHandler.failed(e);
                 } catch (Exception ex) {
-                    LOGGER.log(Level.WARNING, "Error in response handler", ex);
+                    LOGGER.log(Level.WARNING, L10N.getString("warn.error_in_response_handler"), ex);
                 }
             }
             activeStreams.remove(streamId);
@@ -1279,7 +1279,7 @@ public class HttpClientProtocolHandler
 
         parseState = ParseState.H2C_UPGRADE_PENDING;
 
-        LOGGER.fine("HTTP/2 connection preface sent, h2c upgrade complete to " + host + ":" + port);
+        LOGGER.fine(MessageFormat.format(L10N.getString("debug.h2_preface_h2c_complete"), host, port));
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -1438,7 +1438,7 @@ public class HttpClientProtocolHandler
                 if (h2cUpgradeInFlight && responseStatus == HttpStatus.SWITCHING_PROTOCOLS) {
                     String upgrade = responseHeaders.getValue("upgrade");
                     if (upgrade != null && upgrade.equalsIgnoreCase("h2c")) {
-                        LOGGER.fine("h2c upgrade accepted, switching to HTTP/2");
+                        LOGGER.fine(L10N.getString("debug.h2c_upgrade_accepted"));
                         completeH2cUpgrade();
                         return;
                     } else if (!handleProtocolSwitch(responseStatus, responseHeaders)) {
@@ -1451,7 +1451,7 @@ public class HttpClientProtocolHandler
                     }
                     LOGGER.warning(L10N.getString("warn.unexpected_101_response"));
                 } else if (h2cUpgradeInFlight) {
-                    LOGGER.fine("Server declined h2c upgrade, continuing with HTTP/1.1");
+                    LOGGER.fine(L10N.getString("debug.h2c_upgrade_declined"));
                     h2cUpgradeInFlight = false;
                     h2cUpgradeRequest = null;
                 }
@@ -1839,10 +1839,10 @@ public class HttpClientProtocolHandler
         parseState = ParseState.IDLE;
 
         if (serverClose) {
-            LOGGER.fine("Server sent Connection: close — closing connection");
+            LOGGER.fine(L10N.getString("debug.connection_close_closing"));
             close();
         } else {
-            LOGGER.fine("Response complete");
+            LOGGER.fine(L10N.getString("debug.response_complete"));
             maybeCloseWhenIdle();
         }
     }
@@ -1921,7 +1921,7 @@ public class HttpClientProtocolHandler
 
             retryStream.send(responseHandler);
 
-            LOGGER.fine("Authentication retry initiated with " + scheme);
+            LOGGER.fine(MessageFormat.format(L10N.getString("debug.auth_retry_scheme"), scheme));
             return true;
         }
 
@@ -2186,7 +2186,7 @@ public class HttpClientProtocolHandler
         try {
             feedResponseBody(stream, data);
         } catch (Exception e) {
-            LOGGER.log(Level.WARNING, "Error in response handler", e);
+            LOGGER.log(Level.WARNING, L10N.getString("warn.error_in_response_handler"), e);
         }
 
         // RFC 9113 section 6.9: receive-side flow control accounting;
@@ -2204,7 +2204,7 @@ public class HttpClientProtocolHandler
                     h2Writer.flush();
                 }
             } catch (IOException e) {
-                LOGGER.log(Level.WARNING, "Error sending WINDOW_UPDATE", e);
+                LOGGER.log(Level.WARNING, L10N.getString("warn.error_sending_window_update"), e);
             }
         }
 
@@ -2258,7 +2258,7 @@ public class HttpClientProtocolHandler
                     String msg = MessageFormat.format(L10N.getString("err.stream_reset"), errorName);
                     responseHandler.failed(new IOException(msg));
                 } catch (Exception e) {
-                    LOGGER.log(Level.WARNING, "Error in response handler", e);
+                    LOGGER.log(Level.WARNING, L10N.getString("warn.error_in_response_handler"), e);
                 }
             }
             drainPendingRequests();
@@ -2271,7 +2271,7 @@ public class HttpClientProtocolHandler
     public void settingsFrameReceived(boolean ack, Map<Integer, Integer> settings) {
         if (parseState == ParseState.H2C_UPGRADE_PENDING) {
             parseState = ParseState.HTTP2;
-            LOGGER.fine("HTTP/2 handshake complete, ready for requests");
+            LOGGER.fine(L10N.getString("debug.h2_handshake_complete"));
         }
 
         if (!ack) {
@@ -2374,7 +2374,7 @@ public class HttpClientProtocolHandler
                 }
             });
         } catch (IOException e) {
-            LOGGER.log(Level.WARNING, "HPACK decode error in PUSH_PROMISE", e);
+            LOGGER.log(Level.WARNING, L10N.getString("warn.hpack_decode_push_promise"), e);
             sendGoaway(H2FrameHandler.ERROR_COMPRESSION_ERROR,
                     "HPACK decode error in PUSH_PROMISE");
             return;
@@ -2396,7 +2396,7 @@ public class HttpClientProtocolHandler
         try {
             responseHandler.pushPromise(promise);
         } catch (Exception e) {
-            LOGGER.log(Level.WARNING, "Error in pushPromise callback", e);
+            LOGGER.log(Level.WARNING, L10N.getString("warn.error_push_promise_callback"), e);
         }
 
         if (!promise.handled) {
@@ -2463,7 +2463,7 @@ public class HttpClientProtocolHandler
                 h2Writer.writePing(opaqueData, true);
                 h2Writer.flush();
             } catch (IOException e) {
-                LOGGER.log(Level.WARNING, "Error sending PING ACK", e);
+                LOGGER.log(Level.WARNING, L10N.getString("warn.error_sending_ping_ack"), e);
             }
         }
     }
@@ -2484,7 +2484,7 @@ public class HttpClientProtocolHandler
                         try {
                             responseHandler.failed(new IOException(L10N.getString("err.connection_closed_by_server")));
                         } catch (Exception e) {
-                            LOGGER.log(Level.WARNING, "Error in response handler", e);
+                            LOGGER.log(Level.WARNING, L10N.getString("warn.error_in_response_handler"), e);
                         }
                     }
                 }
@@ -2587,7 +2587,7 @@ public class HttpClientProtocolHandler
                 }
             });
         } catch (IOException e) {
-            LOGGER.log(Level.WARNING, "HPACK decode error", e);
+            LOGGER.log(Level.WARNING, L10N.getString("warn.hpack_decode_error"), e);
             sendGoaway(H2FrameHandler.ERROR_COMPRESSION_ERROR,
                     "HPACK decode error");
             return;
@@ -2621,7 +2621,7 @@ public class HttpClientProtocolHandler
                         responseHandler.startResponseBody();
                     }
                 } catch (Exception e) {
-                    LOGGER.log(Level.WARNING, "Error in response handler", e);
+                    LOGGER.log(Level.WARNING, L10N.getString("warn.error_in_response_handler"), e);
                 }
             }
 
@@ -2655,7 +2655,7 @@ public class HttpClientProtocolHandler
             try {
                 responseHandler.close();
             } catch (Exception e) {
-                LOGGER.log(Level.WARNING, "Error in response handler", e);
+                LOGGER.log(Level.WARNING, L10N.getString("warn.error_in_response_handler"), e);
             }
         }
         drainPendingRequests();
@@ -2920,7 +2920,7 @@ public class HttpClientProtocolHandler
                     h2Writer.writeData(streamId, head, fin, 0);
                     h2Writer.flush();
                 } catch (IOException e) {
-                    LOGGER.log(Level.WARNING, "Error draining pending data", e);
+                    LOGGER.log(Level.WARNING, L10N.getString("warn.error_draining_pending_data"), e);
                     return;
                 } finally {
                     ByteBufferPool.release(head);
@@ -2937,7 +2937,7 @@ public class HttpClientProtocolHandler
                     h2Writer.writeData(streamId, slice, false, 0);
                     h2Writer.flush();
                 } catch (IOException e) {
-                    LOGGER.log(Level.WARNING, "Error draining pending data", e);
+                    LOGGER.log(Level.WARNING, L10N.getString("warn.error_draining_pending_data"), e);
                     return;
                 }
             }
@@ -2995,13 +2995,13 @@ public class HttpClientProtocolHandler
                 }
                 h2Writer.flush();
             } catch (IOException e) {
-                LOGGER.log(Level.WARNING, "Error sending HTTP/2 request", e);
+                LOGGER.log(Level.WARNING, L10N.getString("warn.error_sending_h2_request"), e);
                 HttpResponseHandler responseHandler = request.getHandler();
                 if (responseHandler != null) {
                     try {
                         responseHandler.failed(e);
                     } catch (Exception ex) {
-                        LOGGER.log(Level.WARNING, "Error in response handler", ex);
+                        LOGGER.log(Level.WARNING, L10N.getString("warn.error_in_response_handler"), ex);
                     }
                 }
                 activeStreams.remove(streamId);
@@ -3076,7 +3076,7 @@ public class HttpClientProtocolHandler
                 h2Writer.writeSettings(settings);
                 h2Writer.flush();
             } catch (IOException e) {
-                LOGGER.log(Level.WARNING, "Error sending HTTP/2 connection preface", e);
+                LOGGER.log(Level.WARNING, L10N.getString("warn.error_sending_h2_preface"), e);
                 close();
             }
         }
@@ -3089,7 +3089,7 @@ public class HttpClientProtocolHandler
                 h2Writer.writeSettingsAck();
                 h2Writer.flush();
             } catch (IOException e) {
-                LOGGER.log(Level.WARNING, "Error sending SETTINGS ACK", e);
+                LOGGER.log(Level.WARNING, L10N.getString("warn.error_sending_settings_ack"), e);
             }
         }
     }
@@ -3109,7 +3109,7 @@ public class HttpClientProtocolHandler
                 h2Writer.writeRstStream(streamId, errorCode);
                 h2Writer.flush();
             } catch (IOException e) {
-                LOGGER.log(Level.WARNING, "Error sending RST_STREAM", e);
+                LOGGER.log(Level.WARNING, L10N.getString("warn.error_sending_rst_stream"), e);
             }
         }
     }
@@ -3134,7 +3134,7 @@ public class HttpClientProtocolHandler
                         ByteBuffer.wrap(debugData));
                 h2Writer.flush();
             } catch (IOException e) {
-                LOGGER.log(Level.WARNING, "Error sending GOAWAY", e);
+                LOGGER.log(Level.WARNING, L10N.getString("warn.error_sending_goaway"), e);
             } finally {
                 close();
             }

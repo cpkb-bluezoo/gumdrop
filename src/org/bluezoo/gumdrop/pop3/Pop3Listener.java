@@ -449,7 +449,8 @@ public class Pop3Listener extends TcpListener {
             } catch (Exception e) {
                 if (LOGGER.isLoggable(Level.WARNING)) {
                     LOGGER.log(Level.WARNING,
-                            "Failed to create POP3 handler from session provider",
+                            Pop3ProtocolHandler.L10N.getString(
+                                    "warn.failed_create_handler_from_session_provider"),
                             e);
                 }
             }
@@ -461,7 +462,8 @@ public class Pop3Listener extends TcpListener {
             } catch (Exception e) {
                 if (LOGGER.isLoggable(Level.WARNING)) {
                     LOGGER.log(Level.WARNING,
-                            "Failed to create POP3 handler from server", e);
+                            Pop3ProtocolHandler.L10N.getString("warn.failed_create_handler_from_server"),
+                            e);
                 }
             }
         }

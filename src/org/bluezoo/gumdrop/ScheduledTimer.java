@@ -31,7 +31,7 @@ import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.logging.Level;
 import java.util.logging.Logger;
-
+import java.util.ResourceBundle;
 /**
  * Timer service for scheduling callbacks on SelectorLoop threads.
  *
@@ -53,6 +53,9 @@ import java.util.logging.Logger;
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 public final class ScheduledTimer implements Runnable {
+
+    private static final ResourceBundle L10N =
+            ResourceBundle.getBundle("org.bluezoo.gumdrop.L10N");
 
     private static final Logger LOGGER = Logger.getLogger(ScheduledTimer.class.getName());
 
@@ -180,14 +183,14 @@ public final class ScheduledTimer implements Runnable {
                 try {
                     dispatchTimer(toDispatch);
                 } catch (RuntimeException e) {
-                    LOGGER.log(Level.WARNING, "Uncaught exception from timer callback", e);
+                    LOGGER.log(Level.WARNING, L10N.getString("log.uncaught_exception_from_timer_callback"), e);
                 }
                 toDispatch = null;
             }
         }
 
         if (LOGGER.isLoggable(Level.FINE)) {
-            LOGGER.fine("ScheduledTimer shutdown");
+            LOGGER.fine(L10N.getString("log.scheduledtimer_shutdown"));
         }
     }
 

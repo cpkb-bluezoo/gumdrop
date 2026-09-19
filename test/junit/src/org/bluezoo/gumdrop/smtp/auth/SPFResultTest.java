@@ -26,6 +26,7 @@ import static org.junit.Assert.*;
 
 /**
  * Unit tests for SpfResult, DkimResult, DmarcResult, and DmarcPolicy enums.
+ * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 public class SPFResultTest {
 

@@ -33,6 +33,7 @@ import static org.junit.Assert.*;
 
 /**
  * Unit tests for RESP3 type decoding in {@link RespDecoder}.
+ * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 public class RESP3DecoderTest {
 

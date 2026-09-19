@@ -78,6 +78,7 @@ import java.util.logging.Logger;
  * run on {@code gumdrop-storage-*} threads (observed via
  * {@link StorageExecutor#workThreadObserver}), and a saturated pool fails
  * without executing work on the caller.
+ * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 public class AsyncDiskOffloadBoundaryTest {
 

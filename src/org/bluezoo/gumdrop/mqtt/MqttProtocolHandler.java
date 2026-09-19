@@ -894,9 +894,8 @@ public final class MqttProtocolHandler implements ProtocolHandler, MqttEventHand
         if (qos != QoS.AT_MOST_ONCE) {
             packetId = targetSession.getQoSManager().nextPacketId();
             if (packetId == QoSManager.NO_PACKET_ID_AVAILABLE) {
-                LOGGER.log(Level.WARNING,
-                        "No free MQTT packet identifiers for session; dropping delivery of "
-                        + topic);
+                LOGGER.log(Level.WARNING, MessageFormat.format(
+                        L10N.getString("warn.mqtt_no_packet_id_drop"), topic));
                 return;
             }
             QoSManager.InFlightMessage inFlight = new QoSManager.InFlightMessage(
@@ -955,9 +954,8 @@ public final class MqttProtocolHandler implements ProtocolHandler, MqttEventHand
             if (effectiveQoS != QoS.AT_MOST_ONCE) {
                 packetId = targetSession.getQoSManager().nextPacketId();
                 if (packetId == QoSManager.NO_PACKET_ID_AVAILABLE) {
-                    LOGGER.log(Level.WARNING,
-                            "No free MQTT packet identifiers for session; skipping delivery of "
-                            + topic);
+                    LOGGER.log(Level.WARNING, MessageFormat.format(
+                            L10N.getString("warn.mqtt_no_packet_id_skip"), topic));
                     continue;
                 }
                 QoSManager.InFlightMessage inFlight =
@@ -1013,9 +1011,8 @@ public final class MqttProtocolHandler implements ProtocolHandler, MqttEventHand
         if (qos != QoS.AT_MOST_ONCE && session != null) {
             packetId = session.getQoSManager().nextPacketId();
             if (packetId == QoSManager.NO_PACKET_ID_AVAILABLE) {
-                LOGGER.log(Level.WARNING,
-                        "No free MQTT packet identifiers for session; dropping delivery of "
-                        + topic);
+                LOGGER.log(Level.WARNING, MessageFormat.format(
+                        L10N.getString("warn.mqtt_no_packet_id_drop"), topic));
                 return;
             }
             QoSManager.InFlightMessage inFlight = new QoSManager.InFlightMessage(

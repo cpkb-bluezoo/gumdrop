@@ -31,6 +31,7 @@ import static org.junit.Assert.*;
 
 /**
  * Unit tests for {@link ImapListener} capability and configuration.
+ * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 public class IMAPListenerTest {
 

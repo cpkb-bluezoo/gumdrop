@@ -857,8 +857,8 @@
         <pathelement location='${testdir}/junit/classes'/>
         <pathelement location='${testdir}/junit/lib/${junit.jar}'/>
         <pathelement location='${testdir}/junit/lib/${hamcrest.jar}'/>
-        <pathelement location='${lib}/${javamail.jar}'/>
-        <pathelement location='${lib}/${servlet.jar}'/>
+        <path refid='lib.compile.classpath'/>
+        <pathelement location='${lib}/${jsp.jar}'/>
       </classpath>
     </javac>
   </target>

@@ -30,6 +30,7 @@ import java.util.List;
 /**
  * Unit tests for DMARC record rua/ruf parsing (RFC 7489 §6.2)
  * and the Ed25519 key parsing in DkimValidator (RFC 8463 §4).
+ * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 public class DMARCRuaParsingTest {
 

@@ -255,7 +255,7 @@ public final class FtpProtocolHandler
                 reply(220, L10N.getString("ftp.welcome_banner").substring(4));
             }
         } catch (IOException e) {
-            LOGGER.log(Level.WARNING, "Failed to send welcome banner", e);
+            LOGGER.log(Level.WARNING, L10N.getString("warn.failed_send_welcome_banner"), e);
             endpoint.close();
         }
     }
@@ -314,7 +314,7 @@ public final class FtpProtocolHandler
                             L10N.getString("ftp.login_successful"));
                     } catch (IOException e) {
                         LOGGER.log(Level.WARNING,
-                                "Failed to send cert auto-login reply",
+                                L10N.getString("warn.failed_send_cert_auto_login_reply"),
                                 e);
                     }
                 }
@@ -324,7 +324,7 @@ public final class FtpProtocolHandler
 
     @Override
     public void error(Exception cause) {
-        LOGGER.log(Level.WARNING, "FTP transport error", cause);
+        LOGGER.log(Level.WARNING, L10N.getString("warn.ftp_transport_error"), cause);
         if (endpoint != null) {
             endpoint.close();
         }
@@ -590,11 +590,11 @@ public final class FtpProtocolHandler
             }
             dispatchCommand(command, unknownText, args);
         } catch (IOException e) {
-            LOGGER.log(Level.WARNING, "Error processing FTP command", e);
+            LOGGER.log(Level.WARNING, L10N.getString("warn.error_processing_ftp_command"), e);
             try {
                 reply(500, L10N.getString("ftp.err.illegal_characters"));
             } catch (IOException e2) {
-                LOGGER.log(Level.SEVERE, "Cannot write error reply", e2);
+                LOGGER.log(Level.SEVERE, L10N.getString("warn.cannot_write_error_reply"), e2);
             }
         }
     }
@@ -705,7 +705,7 @@ public final class FtpProtocolHandler
         try {
             reply(code, description);
         } catch (IOException e) {
-            LOGGER.log(Level.WARNING, "Failed to send FTP reply " + code, e);
+            LOGGER.log(Level.WARNING, MessageFormat.format(L10N.getString("warn.failed_send_ftp_reply"), code), e);
         }
     }
 
@@ -719,7 +719,7 @@ public final class FtpProtocolHandler
             handleFileOperationResult(result, path);
         } catch (IOException e) {
             LOGGER.log(Level.WARNING,
-                    "Failed to send file operation reply", e);
+                    L10N.getString("warn.failed_send_file_operation_reply"), e);
         }
     }
 
@@ -727,7 +727,7 @@ public final class FtpProtocolHandler
         try {
             sendLine(line);
         } catch (IOException e) {
-            LOGGER.log(Level.WARNING, "Failed to send FTP line", e);
+            LOGGER.log(Level.WARNING, L10N.getString("warn.failed_send_ftp_line"), e);
         }
     }
 
@@ -799,7 +799,7 @@ public final class FtpProtocolHandler
             handleAuthenticationResult(result);
         } catch (IOException e) {
             LOGGER.log(Level.WARNING,
-                    "Failed to send authentication reply", e);
+                    L10N.getString("warn.failed_send_authentication_reply"), e);
         }
     }
 
@@ -1130,7 +1130,7 @@ public final class FtpProtocolHandler
                 @Override
                 public void failed(Throwable error) {
                     LOGGER.log(Level.WARNING,
-                            "FTP PASS authentication check failed", error);
+                            L10N.getString("warn.ftp_pass_auth_check_failed"), error);
                     handleStagedPasswordResultQuietly(
                             FtpAuthenticationResult.INVALID_PASSWORD);
                 }
@@ -1148,7 +1148,7 @@ public final class FtpProtocolHandler
                 @Override
                 public void failed(Throwable error) {
                     LOGGER.log(Level.WARNING,
-                            "FTP PASS authentication check failed", error);
+                            L10N.getString("warn.ftp_pass_auth_check_failed"), error);
                     handleAuthenticationResultQuietly(
                             FtpAuthenticationResult.INVALID_PASSWORD);
                 }
@@ -1177,7 +1177,7 @@ public final class FtpProtocolHandler
                 @Override
                 public void failed(Throwable error) {
                     LOGGER.log(Level.WARNING,
-                            "FTP ACCT authentication check failed", error);
+                            L10N.getString("warn.ftp_acct_auth_check_failed"), error);
                     handleStagedAccountResultQuietly(
                             FtpAuthenticationResult.INVALID_PASSWORD);
                 }
@@ -1195,7 +1195,7 @@ public final class FtpProtocolHandler
                 @Override
                 public void failed(Throwable error) {
                     LOGGER.log(Level.WARNING,
-                            "FTP ACCT authentication check failed", error);
+                            L10N.getString("warn.ftp_acct_auth_check_failed"), error);
                     handleAuthenticationResultQuietly(
                             FtpAuthenticationResult.INVALID_PASSWORD);
                 }
@@ -1249,7 +1249,7 @@ public final class FtpProtocolHandler
 
             @Override
             public void failed(Throwable error) {
-                LOGGER.log(Level.WARNING, "CWD failed for " + targetPath, error);
+                LOGGER.log(Level.WARNING, MessageFormat.format(L10N.getString("warn.cwd_failed"), targetPath), error);
                 replyQuietly(550, L10N.getString("ftp.err.file_system_error"));
             }
         });
@@ -1292,7 +1292,7 @@ public final class FtpProtocolHandler
 
             @Override
             public void failed(Throwable error) {
-                LOGGER.log(Level.WARNING, "CDUP failed", error);
+                LOGGER.log(Level.WARNING, L10N.getString("warn.cdup_failed"), error);
                 replyQuietly(550, L10N.getString("ftp.err.file_system_error"));
             }
         });
@@ -1447,7 +1447,7 @@ public final class FtpProtocolHandler
             String message = L10N.getString("ftp.err.invalid_pasv_arguments");
             reply(501, MessageFormat.format(message, args != null ? args : ""));
         } catch (IOException e) {
-            LOGGER.log(Level.WARNING, "Failed to set up passive mode", e);
+            LOGGER.log(Level.WARNING, L10N.getString("warn.passive_mode_setup_failed"), e);
             reply(425, L10N.getString("ftp.err.local_error"));
         }
     }
@@ -1551,7 +1551,7 @@ public final class FtpProtocolHandler
         } catch (NumberFormatException e) {
             reply(501, L10N.getString("ftp.err.invalid_epsv_arguments"));
         } catch (IOException e) {
-            LOGGER.log(Level.WARNING, "Failed to set up extended passive mode", e);
+            LOGGER.log(Level.WARNING, L10N.getString("warn.epsv_setup_failed"), e);
             reply(425, L10N.getString("ftp.err.local_error"));
         }
     }
@@ -1708,7 +1708,7 @@ public final class FtpProtocolHandler
             restartOffset = 0;
 
         } catch (IOException e) {
-            LOGGER.log(Level.WARNING, "RETR failed for " + filePath, e);
+            LOGGER.log(Level.WARNING, MessageFormat.format(L10N.getString("warn.retr_failed"), filePath), e);
             recordSessionException(e);
             reply(550, MessageFormat.format(L10N.getString("ftp.err.file_not_found"), filePath));
         }
@@ -1732,7 +1732,7 @@ public final class FtpProtocolHandler
                 reply(226, L10N.getString("ftp.transfer_complete"));
             } catch (IOException e) {
                 LOGGER.log(Level.WARNING,
-                        "Failed to send RETR completion", e);
+                        L10N.getString("warn.failed_send_retr_completion"), e);
             }
         }
 
@@ -1743,7 +1743,7 @@ public final class FtpProtocolHandler
                 reply(450, L10N.getString("ftp.err.file_system_error"));
             } catch (IOException e) {
                 LOGGER.log(Level.WARNING,
-                        "Failed to send RETR error", e);
+                        L10N.getString("warn.failed_send_retr_error"), e);
             }
         }
     }
@@ -1765,7 +1765,7 @@ public final class FtpProtocolHandler
                 reply(226, L10N.getString("ftp.transfer_complete"));
             } catch (IOException e) {
                 LOGGER.log(Level.WARNING,
-                        "Failed to send LIST completion", e);
+                        L10N.getString("warn.failed_send_list_completion"), e);
             }
         }
 
@@ -1775,7 +1775,7 @@ public final class FtpProtocolHandler
                 reply(450, L10N.getString("ftp.err.file_system_error"));
             } catch (IOException e) {
                 LOGGER.log(Level.WARNING,
-                        "Failed to send LIST error", e);
+                        L10N.getString("warn.failed_send_list_error"), e);
             }
         }
     }
@@ -1821,7 +1821,7 @@ public final class FtpProtocolHandler
                     endpoint, transfer, storCallback);
 
         } catch (IOException e) {
-            LOGGER.log(Level.WARNING, "STOR failed for " + filePath, e);
+            LOGGER.log(Level.WARNING, MessageFormat.format(L10N.getString("warn.stor_failed"), filePath), e);
             recordSessionException(e);
             reply(550, L10N.getString("ftp.err.file_system_error"));
         }
@@ -1845,7 +1845,7 @@ public final class FtpProtocolHandler
                 reply(226, L10N.getString("ftp.transfer_complete"));
             } catch (IOException e) {
                 LOGGER.log(Level.WARNING,
-                        "Failed to send STOR completion", e);
+                        L10N.getString("warn.failed_send_stor_completion"), e);
             }
         }
 
@@ -1855,7 +1855,7 @@ public final class FtpProtocolHandler
                 reply(450, L10N.getString("ftp.err.file_system_error"));
             } catch (IOException e) {
                 LOGGER.log(Level.WARNING,
-                        "Failed to send STOR error", e);
+                        L10N.getString("warn.failed_send_stor_error"), e);
             }
         }
     }
@@ -1892,7 +1892,7 @@ public final class FtpProtocolHandler
                     endpoint, transfer, new StouTransferCallback());
 
         } catch (IOException e) {
-            LOGGER.log(Level.WARNING, "STOU failed", e);
+            LOGGER.log(Level.WARNING, L10N.getString("warn.stou_failed"), e);
             reply(550, L10N.getString("ftp.err.file_system_error"));
         }
     }
@@ -1909,7 +1909,7 @@ public final class FtpProtocolHandler
                 reply(226, L10N.getString("ftp.transfer_complete"));
             } catch (IOException e) {
                 LOGGER.log(Level.WARNING,
-                        "Failed to send STOU completion", e);
+                        L10N.getString("warn.failed_send_stou_completion"), e);
             }
         }
 
@@ -1918,7 +1918,7 @@ public final class FtpProtocolHandler
             try {
                 reply(450, L10N.getString("ftp.err.file_system_error"));
             } catch (IOException e) {
-                LOGGER.log(Level.WARNING, "Failed to send STOU error", e);
+                LOGGER.log(Level.WARNING, L10N.getString("warn.stou_error_reply_failed"), e);
             }
         }
     }
@@ -1962,7 +1962,7 @@ public final class FtpProtocolHandler
                     endpoint, transfer, new AppeTransferCallback(filePath));
 
         } catch (IOException e) {
-            LOGGER.log(Level.WARNING, "APPE failed for " + filePath, e);
+            LOGGER.log(Level.WARNING, MessageFormat.format(L10N.getString("warn.appe_failed"), filePath), e);
             recordSessionException(e);
             reply(550, L10N.getString("ftp.err.file_system_error"));
         }
@@ -1986,7 +1986,7 @@ public final class FtpProtocolHandler
                 reply(226, L10N.getString("ftp.transfer_complete"));
             } catch (IOException e) {
                 LOGGER.log(Level.WARNING,
-                        "Failed to send APPE completion", e);
+                        L10N.getString("warn.failed_send_appe_completion"), e);
             }
         }
 
@@ -1995,7 +1995,7 @@ public final class FtpProtocolHandler
             try {
                 reply(450, L10N.getString("ftp.err.file_system_error"));
             } catch (IOException e) {
-                LOGGER.log(Level.WARNING, "Failed to send APPE error", e);
+                LOGGER.log(Level.WARNING, L10N.getString("warn.appe_error_reply_failed"), e);
             }
         }
     }
@@ -2091,7 +2091,7 @@ public final class FtpProtocolHandler
 
             @Override
             public void failed(Throwable error) {
-                LOGGER.log(Level.WARNING, "RNFR failed for " + sourcePath, error);
+                LOGGER.log(Level.WARNING, MessageFormat.format(L10N.getString("warn.rnfr_failed"), sourcePath), error);
                 replyQuietly(550, L10N.getString("ftp.err.file_system_error"));
             }
         });
@@ -2139,7 +2139,8 @@ public final class FtpProtocolHandler
             @Override
             public void failed(Throwable error) {
                 LOGGER.log(Level.WARNING,
-                        "RNTO failed for " + fromPath + " -> " + targetPath,
+                        MessageFormat.format(L10N.getString("warn.rnto_failed"),
+                                fromPath, targetPath),
                         error);
                 replyQuietly(550, L10N.getString("ftp.err.file_system_error"));
             }
@@ -2197,7 +2198,7 @@ public final class FtpProtocolHandler
 
             @Override
             public void failed(Throwable error) {
-                LOGGER.log(Level.WARNING, "DELE failed for " + filePath, error);
+                LOGGER.log(Level.WARNING, MessageFormat.format(L10N.getString("warn.dele_failed"), filePath), error);
                 replyQuietly(550, L10N.getString("ftp.err.file_system_error"));
             }
         });
@@ -2240,7 +2241,7 @@ public final class FtpProtocolHandler
 
             @Override
             public void failed(Throwable error) {
-                LOGGER.log(Level.WARNING, "RMD failed for " + dirPath, error);
+                LOGGER.log(Level.WARNING, MessageFormat.format(L10N.getString("warn.rmd_failed"), dirPath), error);
                 replyQuietly(550, L10N.getString("ftp.err.file_system_error"));
             }
         });
@@ -2289,7 +2290,7 @@ public final class FtpProtocolHandler
 
             @Override
             public void failed(Throwable error) {
-                LOGGER.log(Level.WARNING, "MKD failed for " + dirPath, error);
+                LOGGER.log(Level.WARNING, MessageFormat.format(L10N.getString("warn.mkd_failed"), dirPath), error);
                 replyQuietly(550, L10N.getString("ftp.err.file_system_error"));
             }
         });
@@ -2335,7 +2336,7 @@ public final class FtpProtocolHandler
                     new ListTransferCallback(listPath));
 
         } catch (IOException e) {
-            LOGGER.log(Level.WARNING, "LIST failed for " + listPath, e);
+            LOGGER.log(Level.WARNING, MessageFormat.format(L10N.getString("warn.list_failed"), listPath), e);
             reply(550, MessageFormat.format(L10N.getString("ftp.err.file_not_found"), listPath));
         }
     }
@@ -2371,7 +2372,7 @@ public final class FtpProtocolHandler
                     new ListTransferCallback(listPath));
 
         } catch (IOException e) {
-            LOGGER.log(Level.WARNING, "NLST failed for " + listPath, e);
+            LOGGER.log(Level.WARNING, MessageFormat.format(L10N.getString("warn.nlst_failed"), listPath), e);
             reply(550, MessageFormat.format(L10N.getString("ftp.err.file_not_found"), listPath));
         }
     }
@@ -2695,7 +2696,7 @@ public final class FtpProtocolHandler
 
             @Override
             public void failed(Throwable error) {
-                LOGGER.log(Level.WARNING, "STAT failed for " + path, error);
+                LOGGER.log(Level.WARNING, MessageFormat.format(L10N.getString("warn.stat_failed"), path), error);
                 replyQuietly(550, L10N.getString("ftp.err.file_system_error"));
             }
         });
@@ -2787,7 +2788,7 @@ public final class FtpProtocolHandler
             recordStartTLSFailure(e);
             reply(431, L10N.getString("ftp.err.auth_tls_failed"));
             if (LOGGER.isLoggable(Level.WARNING)) {
-                LOGGER.log(Level.WARNING, "AUTH TLS failed", e);
+                LOGGER.log(Level.WARNING, L10N.getString("warn.auth_tls_failed"), e);
             }
         }
     }
@@ -2918,7 +2919,7 @@ public final class FtpProtocolHandler
 
             @Override
             public void failed(Throwable error) {
-                LOGGER.log(Level.WARNING, "SIZE failed for " + path, error);
+                LOGGER.log(Level.WARNING, MessageFormat.format(L10N.getString("warn.size_failed"), path), error);
                 replyQuietly(550, L10N.getString("ftp.err.file_system_error"));
             }
         });
@@ -2978,7 +2979,7 @@ public final class FtpProtocolHandler
 
             @Override
             public void failed(Throwable error) {
-                LOGGER.log(Level.WARNING, "MDTM failed for " + path, error);
+                LOGGER.log(Level.WARNING, MessageFormat.format(L10N.getString("warn.mdtm_failed"), path), error);
                 replyQuietly(550, L10N.getString("ftp.err.file_system_error"));
             }
         });
@@ -3022,7 +3023,7 @@ public final class FtpProtocolHandler
 
             @Override
             public void failed(Throwable error) {
-                LOGGER.log(Level.WARNING, "MLST failed for " + path, error);
+                LOGGER.log(Level.WARNING, MessageFormat.format(L10N.getString("warn.mlst_failed"), path), error);
                 replyQuietly(550, L10N.getString("ftp.err.file_system_error"));
             }
         });
@@ -3053,7 +3054,7 @@ public final class FtpProtocolHandler
             dataCoordinator.startAsyncListing(endpoint, transfer,
                     new ListTransferCallback(listPath));
         } catch (IOException e) {
-            LOGGER.log(Level.WARNING, "MLSD failed for " + listPath, e);
+            LOGGER.log(Level.WARNING, MessageFormat.format(L10N.getString("warn.mlsd_failed"), listPath), e);
             reply(550, MessageFormat.format(L10N.getString("ftp.err.file_not_found"), listPath));
         }
     }
@@ -3290,7 +3291,7 @@ public final class FtpProtocolHandler
                 reply(220, L10N.getString("ftp.welcome_banner").substring(4));
             }
         } catch (IOException e) {
-            LOGGER.log(Level.WARNING, "Failed to send welcome banner", e);
+            LOGGER.log(Level.WARNING, L10N.getString("warn.failed_send_welcome_banner"), e);
             if (endpoint != null) {
                 endpoint.close();
             }
@@ -3306,7 +3307,7 @@ public final class FtpProtocolHandler
                 reply(230, greeting);
             }
         } catch (IOException e) {
-            LOGGER.log(Level.WARNING, "Failed to send login response", e);
+            LOGGER.log(Level.WARNING, L10N.getString("warn.failed_send_login_response"), e);
         }
     }
 
@@ -3320,7 +3321,7 @@ public final class FtpProtocolHandler
         try {
             reply(421, message);
         } catch (IOException e) {
-            LOGGER.log(Level.WARNING, "Failed to send service unavailable", e);
+            LOGGER.log(Level.WARNING, L10N.getString("warn.failed_send_service_unavailable"), e);
         } finally {
             if (endpoint != null) {
                 endpoint.close();
@@ -3335,7 +3336,7 @@ public final class FtpProtocolHandler
         try {
             reply(331, L10N.getString("ftp.user_ok_need_password"));
         } catch (IOException e) {
-            LOGGER.log(Level.WARNING, "Failed to send need password reply", e);
+            LOGGER.log(Level.WARNING, L10N.getString("warn.failed_send_need_password"), e);
         }
     }
 
@@ -3346,7 +3347,7 @@ public final class FtpProtocolHandler
         try {
             reply(332, L10N.getString("ftp.user_ok_need_account"));
         } catch (IOException e) {
-            LOGGER.log(Level.WARNING, "Failed to send need account reply", e);
+            LOGGER.log(Level.WARNING, L10N.getString("warn.failed_send_need_account"), e);
         }
     }
 
@@ -3356,7 +3357,7 @@ public final class FtpProtocolHandler
             completeLogin(authHandler);
             reply(230, L10N.getString("ftp.login_successful"));
         } catch (IOException e) {
-            LOGGER.log(Level.WARNING, "Failed to send login successful", e);
+            LOGGER.log(Level.WARNING, L10N.getString("warn.failed_send_login_successful"), e);
         }
     }
 
@@ -3395,7 +3396,7 @@ public final class FtpProtocolHandler
         try {
             reply(202, L10N.getString("ftp.command_ok"));
         } catch (IOException e) {
-            LOGGER.log(Level.WARNING, "Failed to send command ok", e);
+            LOGGER.log(Level.WARNING, L10N.getString("warn.failed_send_command_ok"), e);
         }
     }
 
@@ -3414,7 +3415,7 @@ public final class FtpProtocolHandler
         try {
             reply(530, L10N.getString("ftp.err.invalid_password"));
         } catch (IOException e) {
-            LOGGER.log(Level.WARNING, "Failed to send certificate login failure", e);
+            LOGGER.log(Level.WARNING, L10N.getString("warn.failed_send_cert_login_failure"), e);
         }
     }
 
@@ -3432,7 +3433,7 @@ public final class FtpProtocolHandler
         try {
             handleAuthenticationResult(result);
         } catch (IOException e) {
-            LOGGER.log(Level.WARNING, "Failed to send login rejection", e);
+            LOGGER.log(Level.WARNING, L10N.getString("warn.failed_send_login_rejection"), e);
         }
     }
 
@@ -3442,7 +3443,7 @@ public final class FtpProtocolHandler
             dispatchStagedPasswordResult(result);
         } catch (IOException e) {
             LOGGER.log(Level.WARNING,
-                    "Failed to send authentication reply", e);
+                    L10N.getString("warn.failed_send_authentication_reply"), e);
         }
     }
 
@@ -3452,7 +3453,7 @@ public final class FtpProtocolHandler
             dispatchStagedAccountResult(result);
         } catch (IOException e) {
             LOGGER.log(Level.WARNING,
-                    "Failed to send authentication reply", e);
+                    L10N.getString("warn.failed_send_authentication_reply"), e);
         }
     }
 

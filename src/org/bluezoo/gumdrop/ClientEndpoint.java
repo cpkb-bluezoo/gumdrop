@@ -33,7 +33,7 @@ import java.util.logging.Logger;
 import org.bluezoo.gumdrop.client.ClientDefaults;
 import org.bluezoo.gumdrop.dns.client.DnsResolver;
 import org.bluezoo.gumdrop.dns.client.ResolveCallback;
-
+import java.util.ResourceBundle;
 /**
  * Transport-agnostic convenience class for creating client connections.
  *
@@ -74,6 +74,9 @@ import org.bluezoo.gumdrop.dns.client.ResolveCallback;
  * @see ProtocolHandler
  */
 public class ClientEndpoint {
+
+    private static final ResourceBundle L10N =
+            ResourceBundle.getBundle("org.bluezoo.gumdrop.L10N");
 
     private static final Logger LOGGER =
             Logger.getLogger(ClientEndpoint.class.getName());
@@ -470,7 +473,7 @@ public class ClientEndpoint {
 
         if (LOGGER.isLoggable(Level.FINE)) {
             String target = path != null ? path : host.getHostAddress() + ":" + port;
-            LOGGER.fine("Connecting to " + target + " via " + factory.getDescription());
+            LOGGER.fine(MessageFormat.format(L10N.getString("log.connecting_to_0_via_1"), target, factory.getDescription()));
         }
     }
 
