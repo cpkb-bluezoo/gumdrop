@@ -43,8 +43,8 @@ import org.bluezoo.gumdrop.dns.DnsQueryTransport;
  * SelectorLoop, DnsQueryCallback)}. Return {@code false} from the latter when
  * the handler does not support that opcode so the next chained handler, or the
  * server's default {@code NOTIMP}, can run. Stock implementations include
- * {@link EmptyDnsQueryHandler}, {@link UpstreamRelayHandler}, and
- * {@link AuthoritativeZoneHandler}.
+ * {@link EmptyDnsQueryHandler}, {@link SyncDnsQueryHandler},
+ * {@link UpstreamRelayHandler}, and {@link AuthoritativeZoneHandler}.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see DnsQueryHandlers

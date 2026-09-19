@@ -43,30 +43,6 @@ public final class DnsQueryHandlers {
     }
 
     /**
-     * Adapts a synchronous resolver function for composition and tests.
-     *
-     * <p>When the function returns {@code null}, an empty {@code NOERROR}
-     * response is sent (not upstream relay).
-     */
-    public static DnsQueryHandler fromFunction(final DnsResolveFunction function) {
-        if (function == null) {
-            throw new NullPointerException("function");
-        }
-        return new DnsQueryHandler() {
-            @Override
-            public void handleQuery(DnsMessage query, SelectorLoop loop,
-                                    DnsQueryCallback callback) {
-                DnsMessage response = function.resolve(query);
-                if (response != null) {
-                    callback.onResponse(response);
-                } else {
-                    EmptyDnsQueryHandler.INSTANCE.handleQuery(query, loop, callback);
-                }
-            }
-        };
-    }
-
-    /**
      * Chains handlers: tries each in order until one produces a non-empty
      * answer or a non-{@code NOERROR} rcode.
      */
@@ -76,13 +52,6 @@ public final class DnsQueryHandlers {
             throw new NullPointerException("handler");
         }
         return new ChainedDnsQueryHandler(first, second);
-    }
-
-    /**
-     * Synchronous resolver hook for {@link #fromFunction}.
-     */
-    public interface DnsResolveFunction {
-        DnsMessage resolve(DnsMessage query);
     }
 
     private static final class ChainedDnsQueryHandler implements DnsQueryHandler {

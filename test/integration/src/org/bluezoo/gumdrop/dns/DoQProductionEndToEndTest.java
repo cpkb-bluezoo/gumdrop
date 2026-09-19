@@ -50,7 +50,7 @@ import org.bluezoo.gumdrop.dns.client.DnsClientTransportHandler;
 import org.bluezoo.gumdrop.dns.client.DnsResolver;
 import org.bluezoo.gumdrop.dns.client.DoQClientTransport;
 import org.bluezoo.gumdrop.dns.server.DnsQueryHandlers;
-import org.bluezoo.gumdrop.dns.server.DnsQueryHandlers.DnsResolveFunction;
+import org.bluezoo.gumdrop.dns.server.SyncDnsQueryHandler;
 import org.bluezoo.gumdrop.dns.server.DnsServer;
 import org.bluezoo.gumdrop.quic.QuicConnection;
 import org.bluezoo.gumdrop.quic.QuicEngine;
@@ -181,9 +181,9 @@ public class DoQProductionEndToEndTest {
             serverFactory.start();
 
             final DnsServer dnsService = new DnsServer();
-            dnsService.setHandler(DnsQueryHandlers.fromFunction(new DnsResolveFunction() {
+            dnsService.setHandler(new SyncDnsQueryHandler() {
                 @Override
-                public DnsMessage resolve(DnsMessage query) {
+                protected DnsMessage resolveQuery(DnsMessage query) {
                     List<DnsResourceRecord> answers = new ArrayList<DnsResourceRecord>();
                     try {
                         answers.add(DnsResourceRecord.a(QUESTION_NAME, 60,
@@ -193,7 +193,7 @@ public class DoQProductionEndToEndTest {
                     }
                     return query.createResponse(answers);
                 }
-            }));
+            });
 
             serverEngine = serverFactory.createServerEngine(
                     InetAddress.getLoopbackAddress(), 0,
@@ -403,9 +403,9 @@ public class DoQProductionEndToEndTest {
             serverFactory.start();
 
             final DnsServer dnsService = new DnsServer();
-            dnsService.setHandler(DnsQueryHandlers.fromFunction(new DnsResolveFunction() {
+            dnsService.setHandler(new SyncDnsQueryHandler() {
                 @Override
-                public DnsMessage resolve(DnsMessage query) {
+                protected DnsMessage resolveQuery(DnsMessage query) {
                     DnsQuestion question = query.getQuestions().get(0);
                     String ip = nameA.equals(question.getName()) ? ipA : ipB;
                     List<DnsResourceRecord> answers = new ArrayList<DnsResourceRecord>();
@@ -417,7 +417,7 @@ public class DoQProductionEndToEndTest {
                     }
                     return query.createResponse(answers);
                 }
-            }));
+            });
 
             serverEngine = serverFactory.createServerEngine(
                     InetAddress.getLoopbackAddress(), 0,

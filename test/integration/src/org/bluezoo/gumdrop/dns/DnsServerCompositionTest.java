@@ -25,7 +25,7 @@ import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.GumdropConfig;
 import org.bluezoo.gumdrop.dns.server.AuthoritativeZoneHandler;
 import org.bluezoo.gumdrop.dns.server.DnsQueryHandlers;
-import org.bluezoo.gumdrop.dns.server.DnsQueryHandlers.DnsResolveFunction;
+import org.bluezoo.gumdrop.dns.server.SyncDnsQueryHandler;
 import org.bluezoo.gumdrop.dns.server.DnsServer;
 import org.bluezoo.gumdrop.dns.server.UpstreamRelayHandler;
 import org.bluezoo.gumdrop.dns.server.ZoneFile;
@@ -124,12 +124,12 @@ public class DnsServerCompositionTest {
     }
 
     @Test
-    public void testFromFunctionHandler() throws Exception {
+    public void testSyncDnsQueryHandler() throws Exception {
         DnsServer server = DnsServer.compose()
                 .listener(new DnsListener())
-                .handler(DnsQueryHandlers.fromFunction(new DnsResolveFunction() {
+                .handler(new SyncDnsQueryHandler() {
                     @Override
-                    public DnsMessage resolve(DnsMessage query) {
+                    protected DnsMessage resolveQuery(DnsMessage query) {
                         DnsQuestion q = query.getQuestions().get(0);
                         if ("local.test.".equals(q.getName())) {
                             return query.createResponse(Collections.singletonList(
@@ -138,7 +138,7 @@ public class DnsServerCompositionTest {
                         }
                         return null;
                     }
-                }))
+                })
                 .server();
 
         DnsMessage hit = DnsMessage.createQuery(6, "local.test.", DnsType.A);

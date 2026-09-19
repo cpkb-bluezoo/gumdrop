@@ -44,7 +44,7 @@ import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.GumdropConfig;
 import org.bluezoo.gumdrop.dns.server.DnsQueryHandler;
 import org.bluezoo.gumdrop.dns.server.DnsQueryHandlers;
-import org.bluezoo.gumdrop.dns.server.DnsQueryHandlers.DnsResolveFunction;
+import org.bluezoo.gumdrop.dns.server.SyncDnsQueryHandler;
 import org.bluezoo.gumdrop.dns.server.DnsServer;
 import org.bluezoo.gumdrop.dns.server.UpstreamRelayHandler;
 import org.bluezoo.gumdrop.SelectorLoop;
@@ -568,9 +568,9 @@ public class DNSServiceTest {
     @Test
     public void testMQTypeExcludesTypeWithMismatchedRcode() throws Exception {
         DnsServer service = new DnsServer();
-        service.setHandler(DnsQueryHandlers.fromFunction(new DnsResolveFunction() {
+        service.setHandler(new SyncDnsQueryHandler() {
             @Override
-            public DnsMessage resolve(DnsMessage query) {
+            protected DnsMessage resolveQuery(DnsMessage query) {
                 DnsQuestion q = query.getQuestions().get(0);
                 if (q.getType() == DnsType.A) {
                     return query.createResponse(Collections.singletonList(
@@ -582,7 +582,7 @@ public class DNSServiceTest {
                 // it be omitted from MQTYPE-Response.
                 return query.createErrorResponse(DnsMessage.RCODE_NXDOMAIN);
             }
-        }));
+        });
 
         DnsMessage query = buildMQTypeQuery(4, "mismatch.example.com", DnsType.A,
                 Collections.singletonList(DnsType.AAAA));
@@ -665,9 +665,9 @@ public class DNSServiceTest {
 
     private static DnsServer serviceAnsweringPerType(final Map<DnsType, InetAddress> perType) {
         DnsServer service = new DnsServer();
-        service.setHandler(DnsQueryHandlers.fromFunction(new DnsResolveFunction() {
+        service.setHandler(new SyncDnsQueryHandler() {
             @Override
-            public DnsMessage resolve(DnsMessage query) {
+            protected DnsMessage resolveQuery(DnsMessage query) {
                 DnsQuestion q = query.getQuestions().get(0);
                 InetAddress addr = perType.get(q.getType());
                 if (addr == null) {
@@ -678,7 +678,7 @@ public class DNSServiceTest {
                         : DnsResourceRecord.a(q.getName(), 60, addr);
                 return query.createResponse(Collections.singletonList(rr));
             }
-        }));
+        });
         return service;
     }
 

@@ -35,10 +35,14 @@
 
 <p>
 Gumdrop includes a DNS server that demonstrates the framework's UDP protocol
-support. <code>DnsServer</code> handles listeners and wire format; you attach a
-<code>DnsQueryHandler</code> for local authority, caching forwarder behaviour
-(<code>UpstreamRelayHandler</code>), or custom policy. It serves as a practical
-DNS service and as a reference for UDP-based protocols.
+support. <code>DnsServer</code> is the transport and protocol shell (listeners,
+validation, cookies, MQTYPE); it does <b>not</b> forward or serve zones by
+itself. You attach one composed <code>DnsQueryHandler</code> (or a chain) for
+application logic. Gumdrop includes two sibling built-in handlers for common
+cases — <code>AuthoritativeZoneHandler</code> and
+<code>UpstreamRelayHandler</code> — plus support for your own handlers. It
+serves as a practical DNS service and as a reference for
+UDP-based protocols.
 </p>
 
 <p>
@@ -56,11 +60,16 @@ DNS, etc.) so they're discoverable via Bonjour/Avahi/<code>dns-sd -B</code>.
 <li><a href="#features">Features</a></li>
 <li><a href="#dnssec">DNSSEC Validation</a></li>
 <li><a href="#protocol">Protocol Compliance</a></li>
-<li><a href="#custom">Custom Resolution</a></li>
 <li><a href="#records">Record Types</a></li>
-<li><a href="#configuration">Configuration</a></li>
-<li><a href="#authoritative">Authoritative zones</a></li>
+<li><a href="#metrics">Metrics</a></li>
+<li><a href="#query-handlers">Query handlers</a>
+<ul>
+<li><a href="#authoritative">AuthoritativeZoneHandler</a></li>
+<li><a href="#upstream-relay">UpstreamRelayHandler</a></li>
+<li><a href="#custom-handlers">Custom handlers</a></li>
 <li><a href="#authoritative-deployment">Authoritative deployment patterns</a></li>
+</ul></li>
+<li><a href="#configuration">Configuration</a></li>
 <li><a href="#listeners">Listeners</a></li>
 <li><a href="#resolver">DNS Resolver (Client)</a></li>
 <li><a href="#mdns">Multicast DNS &amp; DNS-SD</a></li>
@@ -87,7 +96,7 @@ the response is sent back—all within the event-driven framework.
 <ol>
 <li><b>Receive</b> - UDP datagram arrives, parsed into <code>DnsMessage</code></li>
 <li><b>Validate</b> - cookies, EDNS, opcode dispatch</li>
-<li><b>Handler</b> - <code>DnsQueryHandler</code> answers (sync or async upstream)</li>
+<li><b>Handler</b> - your <code>DnsQueryHandler</code> (authoritative, relay, or custom)</li>
 <li><b>MQTYPE merge</b> - optional RFC 10029 multi-type merge</li>
 <li><b>Send</b> - serialize response and send UDP datagram back to client</li>
 </ol>
@@ -95,48 +104,40 @@ the response is sent back—all within the event-driven framework.
 <h4>Core Components</h4>
 
 <ul>
-<li><code>DnsServer</code> - the application service; handles queries, caching, and proxying</li>
+<li><code>DnsServer</code> - protocol shell; delegates to your <code>DnsQueryHandler</code></li>
+<li><code>DnsQueryHandler</code> - pluggable logic; see <a href="#query-handlers">query handlers</a></li>
 <li><code>DnsListener</code>, <code>DoTListener</code>, <code>DoQListener</code> - transport listeners (see <a href="#listeners">Listeners</a>)</li>
 <li><code>DnsMessage</code> - parses and serializes DNS wire format</li>
 <li><code>DnsQuestion</code> - represents a query question</li>
 <li><code>DnsResourceRecord</code> - represents answer records</li>
-<li><code>DnsCache</code> - in-memory response cache with TTL support</li>
+<li><code>DnsCache</code> - TTL-aware cache used by <code>UpstreamRelayHandler</code> (not by the bare <code>DnsServer</code> shell)</li>
 </ul>
 
 <h3 id="features">Features</h3>
 
-<h4>Upstream Proxying</h4>
-
 <p>
-When the server cannot resolve a query locally, it forwards the request to
-configured upstream DNS servers. Multiple upstreams can be specified; they are
-tried in order until one responds.
+The <code>DnsServer</code> shell handles listeners, wire format, cookies, and
+metrics for every deployment. What happens inside a query — zones, forwarding,
+caching, or custom policy — is entirely your
+<a href="#query-handlers"><code>DnsQueryHandler</code></a>. Outbound lookups from
+SMTP, HTTP, and other services use <code>DnsResolver</code>
+(<a href="#resolver">client</a>), which is separate from <code>DnsServer</code>.
 </p>
 
-<ul>
-<li>Configurable upstream servers (Google, Cloudflare, local routers)</li>
-<li>Automatic fallback to system resolvers from <code>/etc/resolv.conf</code></li>
-<li>Per-query timeout handling</li>
-<li>Query ID remapping for upstream requests</li>
-</ul>
-
-<h4>Response Caching</h4>
-
-<p>
-The server maintains an in-memory cache to reduce upstream queries:
-</p>
+<h4>DnsServer shell</h4>
 
 <ul>
-<li>TTL-aware caching respects record time-to-live</li>
-<li>Negative caching for NXDOMAIN responses (configurable TTL)</li>
-<li>Automatic cache eviction when entries expire</li>
-<li>Configurable maximum cache size (default: 10,000 entries)</li>
+<li>UDP, DoT, and DoQ listeners sharing one <code>DnsQueryHandler</code></li>
+<li>Wire parse/serialize, opcode dispatch, optional RFC 10029 MQTYPE merge</li>
+<li>RFC 7873 DNS cookies at the protocol edge (see <a href="#protocol">Protocol compliance</a>)</li>
+<li><code>DnsServerMetrics</code> query/response counters for every deployment</li>
+<li>Default handler when none is set: empty <code>NOERROR</code> (no upstream, no zones)</li>
 </ul>
 
-<h4>DTLS Support</h4>
+<h4>DTLS on DnsListener</h4>
 
 <p>
-For secure DNS (DNS over DTLS, RFC 8094), the server can be configured with
+For secure DNS (DNS over DTLS, RFC 8094), <code>DnsServer</code> can be configured with
 TLS credentials via the same <code>secure</code>/<code>keystore-file</code>/
 <code>keystore-pass</code> properties used for DoT, and optional
 <code>dtls-version</code> / <code>cipher-suites</code> as documented in
@@ -150,24 +151,6 @@ handshake that never completes is dropped without affecting any other
 client's session.
 </p>
 
-<h4>Upstream TCP Fallback</h4>
-
-<p>
-When a UDP response from an upstream server has the TC (truncated) flag set,
-the server automatically retries the query over TCP using standard DNS-over-TCP
-framing (2-byte length prefix per RFC 1035 section 4.2.1). This is transparent
-to the client and ensures that large responses (such as DNSSEC-signed or
-multi-record answers) are delivered intact.
-</p>
-
-<h4>Response ID Validation</h4>
-
-<p>
-Upstream responses are validated to ensure the DNS message ID matches the
-query that was sent (RFC 5452). Mismatched IDs are logged and discarded,
-protecting against cache poisoning and spoofed responses.
-</p>
-
 <h3 id="protocol">Protocol Compliance</h3>
 
 <p>
@@ -178,20 +161,33 @@ comprehensive protocol compliance across multiple RFCs.
 <h4>EDNS0 (RFC 6891)</h4>
 
 <p>
-Both the server proxy and the client resolver advertise EDNS0 support by
-including an OPT pseudo-record in outgoing queries. This signals the maximum
-UDP payload size (4096 bytes by default), allowing larger responses without
-TCP fallback. EDNS0 options are also used as the transport for DNS cookies
-and padding.
+<code>UpstreamRelayHandler</code> and <code>DnsResolver</code> advertise EDNS0
+by including an OPT pseudo-record in outgoing upstream queries. This signals
+the maximum UDP payload size (4096 bytes by default), allowing larger responses
+without TCP fallback. EDNS0 options also carry DNS cookies and padding.
+<code>AuthoritativeZoneHandler</code> answers from zone data; EDNS0 on responses
+follows what the handler and wire code attach for each query.
 </p>
 
-<h4>DNSSEC Validation (RFC 4033–4035, RFC 5155)</h4>
+<h4 id="dnssec">DNSSEC Validation (RFC 4033–4035, RFC 5155)</h4>
 
 <p>
-Gumdrop supports DNSSEC validation for DNS responses. When enabled, the
-resolver sets the DO (DNSSEC OK) bit in EDNS0 queries to request DNSSEC
-records from upstream servers, then validates the chain of trust from
-the signer zone to a configured trust anchor.
+DNSSEC validation is optional and configured separately for the outbound
+client and for the upstream relay:
+</p>
+
+<ul>
+<li><code>DnsResolver</code> — <code>setDnssecEnabled(true)</code> validates
+answers from configured resolvers (see below).</li>
+<li><code>UpstreamRelayHandler</code> — <code>dnssecEnabled(true)</code> validates
+upstream answers before returning them to clients of your
+<code>DnsServer</code>.</li>
+</ul>
+
+<p>
+When validation is enabled, the component sets DO in EDNS0 queries, fetches
+DNSSEC records as needed, and checks the chain of trust to configured trust
+anchors. The bare <code>DnsServer</code> shell does not validate DNSSEC by itself.
 </p>
 
 <p>Supported algorithms (per RFC 8624):</p>
@@ -222,7 +218,7 @@ resolver.setDnssecEnabled(true);
 resolver.addServer("8.8.8.8");
 resolver.open();
 
-// Enable DNSSEC-aware proxying on the server (via UpstreamRelayHandler)
+// DNSSEC validation on upstream answers (UpstreamRelayHandler)
 DnsServer service = DnsServer.compose()
     .listener(new DnsListener())
     .handler(UpstreamRelayHandler.builder()
@@ -233,10 +229,10 @@ DnsServer service = DnsServer.compose()
 </pre>
 
 <p>
-When the server has DNSSEC enabled, it sets DO in upstream queries and
-strips DNSSEC records from responses to clients that did not request
-them (no DO bit). The AD (Authenticated Data) flag is preserved from
-upstream responses.
+When <code>UpstreamRelayHandler</code> has DNSSEC enabled, it sets DO on
+upstream queries and strips DNSSEC records from responses to clients that did
+not request them (no DO bit). The AD (Authenticated Data) flag is preserved from
+validated upstream responses.
 </p>
 
 <h4>DNS Message Compression (RFC 1035 section 4.1.4)</h4>
@@ -251,13 +247,12 @@ for responses containing multiple records with shared suffixes.
 <h4>DNS Cookies (RFC 7873)</h4>
 
 <p>
-The server and resolver support DNS cookies, a lightweight mechanism for
-source address verification carried as an EDNS0 option. The client generates
-a random cookie and includes it in queries; the server replies with a
-server cookie computed using HMAC-SHA256. On subsequent queries, the client
-presents the cached server cookie for validation. This provides protection
-against off-path spoofing without the overhead of DNSSEC or encrypted
-transports.
+<code>DnsServer</code> (all handlers) and <code>DnsResolver</code> support DNS
+cookies as an EDNS0 option for lightweight source verification.
+<code>DnsServer</code> validates or generates server cookies on ingress before
+calling your handler. <code>DnsResolver</code> stores server cookies per upstream
+for reuse on later queries. This is independent of upstream forwarding: an
+authoritative-only server still benefits from cookie handling at the shell.
 </p>
 
 <h4>DNS over TLS — DoT (RFC 7858)</h4>
@@ -289,7 +284,7 @@ DoQ support includes error handling, session resumption, and connection reuse:
 </p>
 
 <ul>
-<li><b>Error codes (RFC 9250 section 4.3)</b> — the server sends proper DoQ
+<li><b>Error codes (RFC 9250 section 4.3)</b> — the DoQ listener sends proper DoQ
 application error codes (<code>DOQ_NO_ERROR</code> through
 <code>DOQ_EXCESSIVE_LOAD</code>) via QUIC RESET_STREAM frames for malformed
 queries, oversized messages, and server errors</li>
@@ -326,98 +321,6 @@ with TLS)</li>
 <li>Works through HTTP proxies and CDNs — useful in environments where
 UDP and port 853 are blocked</li>
 </ul>
-
-<h3 id="custom">Custom Resolution</h3>
-
-<p>
-All query logic is implemented with a <code>DnsQueryHandler</code>. Use
-<code>DnsQueryHandlers.fromFunction</code> for synchronous rules, implement
-<code>DnsQueryHandler</code> directly for async work, or compose handlers with
-<code>DnsQueryHandlers.chain</code> (local policy first, then
-<code>UpstreamRelayHandler</code> when the first handler returns empty
-<code>NOERROR</code>).
-</p>
-
-<ul>
-<li>Implement internal DNS for private networks</li>
-<li>Create DNS-based service discovery</li>
-<li>Build split-horizon DNS (different answers for internal/external)</li>
-<li>Implement DNS filtering or blocking</li>
-<li>Add custom record types or dynamic responses</li>
-</ul>
-
-<h4>Example: Internal Domain Resolution</h4>
-
-<pre>
-UpstreamRelayHandler relay = UpstreamRelayHandler.builder()
-    .upstreamServers("8.8.8.8 1.1.1.1")
-    .build();
-
-DnsQueryHandler internal = DnsQueryHandlers.fromFunction(query -&gt; {
-    DnsQuestion question = query.getQuestions().get(0);
-    String name = question.getName();
-    if (!name.endsWith(".internal.")) {
-        return null; // chain to relay
-    }
-    InetAddress addr = internalHosts.get(name);
-    if (addr != null) {
-        return query.createResponse(Collections.singletonList(
-            DnsResourceRecord.a(name, 300, addr)));
-    }
-    return query.createErrorResponse(DnsMessage.RCODE_NXDOMAIN);
-});
-
-DnsServer dns = DnsServer.compose()
-    .listener(new DnsListener().port(5353))
-    .handler(DnsQueryHandlers.chain(internal, relay))
-    .server();
-</pre>
-
-<h4>Example: DNS-Based Ad Blocking</h4>
-
-<pre>
-DnsQueryHandler blocklist = DnsQueryHandlers.fromFunction(query -&gt; {
-    String name = query.getQuestions().get(0).getName().toLowerCase(Locale.ROOT);
-    if (blockedDomains.contains(name)) {
-        return query.createErrorResponse(DnsMessage.RCODE_NXDOMAIN);
-    }
-    return null; // chain to UpstreamRelayHandler
-});
-
-DnsServer dns = DnsServer.compose()
-    .listener(new DnsListener())
-    .handler(DnsQueryHandlers.chain(blocklist, relay))
-    .server();
-</pre>
-
-<h4>Example: Dynamic Service Discovery</h4>
-
-<pre>
-DnsQueryHandler srvDiscovery = new DnsQueryHandler() {
-    @Override
-    public void handleQuery(DnsMessage query, SelectorLoop loop,
-                            DnsQueryCallback callback) {
-        DnsQuestion question = query.getQuestions().get(0);
-        if (question.getType() != DnsType.SRV) {
-            EmptyDnsQueryHandler.INSTANCE.handleQuery(query, loop, callback);
-            return;
-        }
-        List&lt;ServiceInstance&gt; instances =
-            registry.lookup(question.getName());
-        if (instances.isEmpty()) {
-            EmptyDnsQueryHandler.INSTANCE.handleQuery(query, loop, callback);
-            return;
-        }
-        List&lt;DnsResourceRecord&gt; answers = new ArrayList&lt;&gt;();
-        for (ServiceInstance inst : instances) {
-            answers.add(DnsResourceRecord.srv(question.getName(), 300,
-                inst.getPriority(), inst.getWeight(),
-                inst.getPort(), inst.getHostname()));
-        }
-        callback.onResponse(query.createResponse(answers));
-    }
-};
-</pre>
 
 <h3 id="records">Record Types</h3>
 
@@ -489,52 +392,91 @@ provide RDATA accessor methods:
 
 <p>
 When a <code>TelemetryConfig</code> is set on the service, <code>DnsServerMetrics</code>
-records the following OpenTelemetry metrics. Each metric includes a
-<code>dns.transport</code> attribute (<code>udp</code>, <code>dot</code>, or
-<code>doq</code>) identifying the listener that handled the query.
+records OpenTelemetry metrics for the <code>DnsServer</code> listener pipeline.
+Each metric includes a <code>dns.transport</code> attribute (<code>udp</code>,
+<code>dot</code>, or <code>doq</code>). Query and response counters apply to any
+handler; cache and upstream counters are emitted when
+<code>UpstreamRelayHandler</code> is installed (they stay at zero for
+authoritative-only or empty handlers).
 </p>
 
 <table border="1" cellpadding="5">
 <tr><th>Metric</th><th>Type</th><th>Description</th></tr>
 <tr><td><code>dns.server.queries</code></td><td>Counter</td><td>Queries received (by <code>dns.question.type</code>, <code>dns.transport</code>)</td></tr>
 <tr><td><code>dns.server.responses</code></td><td>Counter</td><td>Responses sent (by <code>dns.response.code</code>, <code>dns.transport</code>)</td></tr>
-<tr><td><code>dns.server.query.duration</code></td><td>Histogram</td><td>Query processing time (ms)</td></tr>
-<tr><td><code>dns.server.cache.hits</code></td><td>Counter</td><td>Cache hits</td></tr>
-<tr><td><code>dns.server.cache.misses</code></td><td>Counter</td><td>Cache misses</td></tr>
-<tr><td><code>dns.server.cache.stale_served</code></td><td>Counter</td><td>RFC 8767 answers served from expired cache after upstream failure</td></tr>
-<tr><td><code>dns.server.cache.aggressive_nsec</code></td><td>Counter</td><td>RFC 8198 answers synthesized from validated NSEC/NSEC3 proof cache</td></tr>
-<tr><td><code>dns.server.upstream.queries</code></td><td>Counter</td><td>Queries forwarded upstream</td></tr>
-<tr><td><code>dns.server.upstream.duration</code></td><td>Histogram</td><td>Upstream query duration (ms)</td></tr>
-<tr><td><code>dns.server.upstream.failures</code></td><td>Counter</td><td>Upstream query failures</td></tr>
+<tr><td><code>dns.server.query.duration</code></td><td>Histogram</td><td>End-to-end query processing time (ms)</td></tr>
+<tr><td><code>dns.server.cache.hits</code></td><td>Counter</td><td><code>UpstreamRelayHandler</code> cache hits</td></tr>
+<tr><td><code>dns.server.cache.misses</code></td><td>Counter</td><td><code>UpstreamRelayHandler</code> cache misses</td></tr>
+<tr><td><code>dns.server.cache.stale_served</code></td><td>Counter</td><td>RFC 8767 stale answers (relay)</td></tr>
+<tr><td><code>dns.server.cache.aggressive_nsec</code></td><td>Counter</td><td>RFC 8198 synthesized answers (relay)</td></tr>
+<tr><td><code>dns.server.upstream.queries</code></td><td>Counter</td><td>Queries forwarded upstream (relay)</td></tr>
+<tr><td><code>dns.server.upstream.duration</code></td><td>Histogram</td><td>Upstream query duration (ms, relay)</td></tr>
+<tr><td><code>dns.server.upstream.failures</code></td><td>Counter</td><td>Upstream query failures (relay)</td></tr>
 </table>
 
-<h3 id="configuration">Configuration</h3>
-
-<h4 id="listeners">Listeners</h4>
+<h3 id="query-handlers">Query handlers</h3>
 
 <p>
-A DnsServer can have <b>multiple listeners</b>. Each listener exposes the same
-resolution logic over a different transport. You can combine any of the following:
+Every query reaches your logic through the <code>DnsQueryHandler</code>
+interface. Gumdrop provides two full built-in implementations as
+<b>sibling</b> classes — neither is part of <code>DnsServer</code>, and neither
+wraps or requires the other:
+</p>
+
+<ul>
+<li><a href="#authoritative"><code>AuthoritativeZoneHandler</code></a> — serve your
+own zones (primary/secondary, UPDATE, transfers).</li>
+<li><a href="#upstream-relay"><code>UpstreamRelayHandler</code></a> — forward to
+resolvers with caching and optional DNSSEC validation.</li>
+</ul>
+
+<p>
+For anything else — split horizon, blocklists, dynamic SRV, integration with
+your app — implement <code>DnsQueryHandler</code> yourself or subclass
+<code>SyncDnsQueryHandler</code>; see <a href="#custom-handlers">Custom
+handlers</a>. You can also compose handlers with
+<code>DnsQueryHandlers.chain(first, second)</code>: when the first handler returns
+empty <code>NOERROR</code> (defer), the second runs (typical for policy then
+relay).
+</p>
+
+<p>
+Without <code>.handler(...)</code>, <code>DnsServer.compose()</code> uses
+<code>EmptyDnsQueryHandler</code> (empty <code>NOERROR</code>). Attach exactly
+one handler instance (or a chain) with <code>.handler(...)</code>; all
+<a href="#listeners">listeners</a> on that server share it.
 </p>
 
 <table border="1" cellpadding="5">
-<tr><th>Listener</th><th>Class</th><th>Transport</th><th>Description</th></tr>
-<tr><td>DnsListener</td><td><code>org.bluezoo.gumdrop.dns.DnsListener</code></td><td>UDP</td><td>Standard DNS over UDP, default port 53</td></tr>
-<tr><td>DoTListener</td><td><code>org.bluezoo.gumdrop.dns.DoTListener</code></td><td>TCP + TLS</td><td>DNS over TLS (DoT), default port 853</td></tr>
-<tr><td>DoQListener</td><td><code>org.bluezoo.gumdrop.dns.DoQListener</code></td><td>QUIC</td><td>DNS over QUIC (DoQ), default port 853</td></tr>
+<tr><th>Implementation</th><th>Role</th></tr>
+<tr><td><code>AuthoritativeZoneHandler</code></td>
+<td>Built-in: zone files; RFC 2136 UPDATE, NOTIFY, AXFR/IXFR. Does
+<b>not</b> recurse or forward.</td></tr>
+<tr><td><code>UpstreamRelayHandler</code></td>
+<td>Built-in: resolver relay with <code>DnsCache</code>, serve-stale, optional
+DNSSEC. Does <b>not</b> load your zone files.</td></tr>
+<tr><td><code>SyncDnsQueryHandler</code></td>
+<td>Base class for your synchronous policy on the selector thread; return
+<code>null</code> from <code>resolveQuery</code> to defer in a chain.</td></tr>
+<tr><td><code>DnsQueryHandler</code></td>
+<td>Interface for full async control (I/O, discovery, custom synthesis).</td></tr>
 </table>
 
 <p>
-Attach one or more listeners per server with <code>.listener(...)</code>. For
-example, you can serve plain DNS on 5353 and DoT on 853 from the same server.
+Typical wiring: <code>.handler(auth)</code> for authoritative only;
+<code>.handler(relay)</code> for a caching forwarder;
+<code>.handler(DnsQueryHandlers.chain(policy, relay))</code> for custom rules
+then relay. Serving your zones and relaying everything else in one process
+usually means a custom chain or separate <code>DnsServer</code> instances, because
+each built-in handler implements one model.
 </p>
 
 <h4 id="authoritative">AuthoritativeZoneHandler</h4>
 
 <p>
-<code>AuthoritativeZoneHandler</code> answers from one or more BIND-style zone
-files (<code>ZoneFile</code>). Out-of-zone queries receive <code>REFUSED</code>.
-Configure with the builder:
+Built-in handler for authoritative serving from BIND-style zone files
+(<code>ZoneFile</code>). Out-of-zone queries receive <code>REFUSED</code>; misses
+are not forwarded to resolvers. Configure with the builder:
 </p>
 
 <ul>
@@ -604,14 +546,178 @@ The longest matching origin wins when a query name could belong to several
 zones. See also <code>examples/dns-authoritative/</code> in the source tree.
 </p>
 
-<h4 id="authoritative-deployment">Deployment patterns</h4>
+<h4 id="upstream-relay">UpstreamRelayHandler</h4>
 
 <p>
-<code>AuthoritativeZoneHandler</code> is a toolkit for serving and maintaining
-zones inside Gumdrop, not a drop-in replacement for BIND. How you wire listeners,
-persistence, NOTIFY, and transfers depends on the role you need. Use the four
-questions below to pick APIs and configuration; several patterns can coexist on
-one server (different zones, different settings).
+Built-in handler for a caching DNS forwarder / proxy. It uses
+<code>DnsCache</code> and outbound resolver I/O; the <code>DnsServer</code> shell
+never forwards by itself. Install with
+<code>.handler(UpstreamRelayHandler.builder()...)</code> or as the second link in
+<code>DnsQueryHandlers.chain(...)</code>. Builder options:
+</p>
+
+<ul>
+<li><code>upstreamServers(String)</code> - space-separated list of upstream DNS servers</li>
+<li><code>useSystemResolvers(boolean)</code> - use <code>/etc/resolv.conf</code> nameservers
+(default: true)</li>
+<li><code>cacheEnabled(boolean)</code> - enable response caching (default: true)</li>
+<li><code>serveStaleEnabled(boolean)</code> - RFC 8767: serve expired cache entries when upstream fails (default: true)</li>
+<li><code>staleRetentionSeconds(int)</code> - how long expired entries are kept for serve-stale (default: 86400; <code>0</code> evicts on expiry)</li>
+<li><code>staleAnswerTtl(int)</code> - TTL on stale answers (default: 30, per RFC 8767 section 4)</li>
+<li><code>serveStalePolicy(ServeStalePolicy)</code> - override or disable per-query stale policy (default: serve when stale data exists)</li>
+<li><code>nxDomainCutPolicy(NxDomainCutPolicy)</code> - RFC 8020: NXDOMAIN for subdomains of a proven-negative name (default: enabled)</li>
+<li><code>minimalAnyPolicy(MinimalAnyPolicy)</code> - RFC 8482: answer ANY with a minimal HINFO record (default: enabled)</li>
+<li><code>dnssecEnabled(boolean)</code> - validate upstream responses (sets DO on upstream queries; BOGUS answers → SERVFAIL; SECURE answers get AD)</li>
+<li><code>trustAnchor(DnssecTrustAnchor)</code> - trust anchor for validation; defaults to an empty store unless you add anchors</li>
+<li><code>aggressiveNsecEnabled(boolean)</code> - RFC 8198: synthesize NXDOMAIN/NODATA from validated NSEC/NSEC3 proofs before upstream (default: true when DNSSEC is on)</li>
+<li><code>aggressiveNsecPolicy(AggressiveNsecPolicy)</code> - override or disable per-query aggressive synthesis (default: synthesize when a proof covers the QNAME)</li>
+</ul>
+
+<p>
+When <code>dnssecEnabled</code> is true, the relay validates each upstream
+answer with <code>DnssecChainValidator</code>, retains SECURE denial proofs in
+<code>DnsNsecProofCache</code>, and on later cache misses may answer from those
+proofs without an upstream round trip (RFC 8198). Disable with
+<code>aggressiveNsecPolicy(AggressiveNsecPolicy.DISABLED)</code> if every query
+must reach upstream.
+</p>
+
+<p><b>Behaviour summary.</b> The relay forwards accepted queries to configured
+upstreams (tried in order; optional <code>/etc/resolv.conf</code> fallback),
+with query ID remapping and RFC 5452 response ID checks. It caches answers
+(TTL-aware, negative caching, configurable size), may serve stale on upstream
+failure (RFC 8767), and retries truncated UDP responses over TCP. Without this
+handler, <code>DnsServer</code> does not forward or cache answers.</p>
+
+<pre>
+// Caching forwarder on a non-privileged port
+DnsServer dns = DnsServer.compose()
+    .listener(new DnsListener().port(5353))
+    .handler(UpstreamRelayHandler.builder()
+        .upstreamServers("8.8.8.8 1.1.1.1")
+        .cacheEnabled(true)
+        .build())
+    .server();
+</pre>
+
+<h4>Upstream server format</h4>
+
+<p>
+Upstream servers can be specified with optional ports:
+</p>
+
+<ul>
+<li><code>8.8.8.8</code> - Google DNS (default port 53)</li>
+<li><code>1.1.1.1</code> - Cloudflare DNS</li>
+<li><code>192.168.1.1:53</code> - local router with explicit port</li>
+<li><code>[2001:4860:4860::8888]:53</code> - IPv6 with port</li>
+</ul>
+
+<h4 id="custom-handlers">Custom handlers</h4>
+
+<p>
+The built-in handlers cover two common deployments; most real setups also need
+policy you own. Subclass <code>SyncDnsQueryHandler</code> for quick synchronous
+rules on the selector thread, implement <code>DnsQueryHandler</code> for async
+work, or chain either in front of <code>UpstreamRelayHandler</code>.
+</p>
+
+<ul>
+<li>Internal DNS for private networks</li>
+<li>DNS-based service discovery</li>
+<li>Split-horizon DNS (different answers for internal/external)</li>
+<li>Filtering or blocking</li>
+<li>Custom record types or dynamic responses</li>
+</ul>
+
+<h4>Example: internal names then relay</h4>
+
+<pre>
+UpstreamRelayHandler relay = UpstreamRelayHandler.builder()
+    .upstreamServers("8.8.8.8 1.1.1.1")
+    .build();
+
+DnsQueryHandler internal = new SyncDnsQueryHandler() {
+    @Override
+    protected DnsMessage resolveQuery(DnsMessage query) {
+        DnsQuestion question = query.getQuestions().get(0);
+        String name = question.getName();
+        if (!name.endsWith(".internal.")) {
+            return null; // chain to relay
+        }
+        InetAddress addr = internalHosts.get(name);
+        if (addr != null) {
+            return query.createResponse(Collections.singletonList(
+                DnsResourceRecord.a(name, 300, addr)));
+        }
+        return query.createErrorResponse(DnsMessage.RCODE_NXDOMAIN);
+    }
+};
+
+DnsServer dns = DnsServer.compose()
+    .listener(new DnsListener().port(5353))
+    .handler(DnsQueryHandlers.chain(internal, relay))
+    .server();
+</pre>
+
+<h4>Example: DNS-based ad blocking</h4>
+
+<pre>
+DnsQueryHandler blocklist = new SyncDnsQueryHandler() {
+    @Override
+    protected DnsMessage resolveQuery(DnsMessage query) {
+        String name = query.getQuestions().get(0).getName().toLowerCase(Locale.ROOT);
+        if (blockedDomains.contains(name)) {
+            return query.createErrorResponse(DnsMessage.RCODE_NXDOMAIN);
+        }
+        return null; // chain to UpstreamRelayHandler
+    }
+};
+
+DnsServer dns = DnsServer.compose()
+    .listener(new DnsListener())
+    .handler(DnsQueryHandlers.chain(blocklist, relay))
+    .server();
+</pre>
+
+<h4>Example: dynamic service discovery</h4>
+
+<pre>
+DnsQueryHandler srvDiscovery = new DnsQueryHandler() {
+    @Override
+    public void handleQuery(DnsMessage query, SelectorLoop loop,
+                            DnsQueryCallback callback) {
+        DnsQuestion question = query.getQuestions().get(0);
+        if (question.getType() != DnsType.SRV) {
+            EmptyDnsQueryHandler.INSTANCE.handleQuery(query, loop, callback);
+            return;
+        }
+        List&lt;ServiceInstance&gt; instances =
+            registry.lookup(question.getName());
+        if (instances.isEmpty()) {
+            EmptyDnsQueryHandler.INSTANCE.handleQuery(query, loop, callback);
+            return;
+        }
+        List&lt;DnsResourceRecord&gt; answers = new ArrayList&lt;&gt;();
+        for (ServiceInstance inst : instances) {
+            answers.add(DnsResourceRecord.srv(question.getName(), 300,
+                inst.getPriority(), inst.getWeight(),
+                inst.getPort(), inst.getHostname()));
+        }
+        callback.onResponse(query.createResponse(answers));
+    }
+};
+</pre>
+
+<h4 id="authoritative-deployment">Authoritative deployment patterns</h4>
+
+<p>
+The following applies only to <code>AuthoritativeZoneHandler</code>. It is a
+toolkit for serving and maintaining zones inside Gumdrop, not a drop-in
+replacement for BIND. How you wire listeners, persistence, NOTIFY, and
+transfers depends on the role you need. Use the four questions below to pick
+APIs and configuration; several patterns can coexist on one server (different
+zones, different settings).
 </p>
 
 <ol>
@@ -702,41 +808,39 @@ own code. For resolver-only deployments, ignore this section and use
 <a href="#resolver">DNS Resolver (Client)</a>.
 </p>
 
-<h4>UpstreamRelayHandler</h4>
+<h3 id="configuration">Configuration</h3>
 
 <p>
-<code>DnsServer.compose()</code> with no handler answers empty (NOERROR, zero
-RRs) — no implicit upstream relay. Attach <code>UpstreamRelayHandler</code>
-explicitly for the forwarding/caching behaviour:
+<code>DnsServer.compose()</code> wires listeners, optional TLS, and your
+<a href="#query-handlers">query handler</a>. Handler choice is independent of
+transport: the same <code>AuthoritativeZoneHandler</code>,
+<code>UpstreamRelayHandler</code>, or custom handler can serve UDP, DoT, and DoQ
+together.
 </p>
 
-<ul>
-<li><code>upstreamServers(String)</code> - space-separated list of upstream DNS servers</li>
-<li><code>useSystemResolvers(boolean)</code> - use <code>/etc/resolv.conf</code> nameservers
-(default: true)</li>
-<li><code>cacheEnabled(boolean)</code> - enable response caching (default: true)</li>
-<li><code>serveStaleEnabled(boolean)</code> - RFC 8767: serve expired cache entries when upstream fails (default: true)</li>
-<li><code>staleRetentionSeconds(int)</code> - how long expired entries are kept for serve-stale (default: 86400; <code>0</code> evicts on expiry)</li>
-<li><code>staleAnswerTtl(int)</code> - TTL on stale answers (default: 30, per RFC 8767 section 4)</li>
-<li><code>serveStalePolicy(ServeStalePolicy)</code> - override or disable per-query stale policy (default: serve when stale data exists)</li>
-<li><code>nxDomainCutPolicy(NxDomainCutPolicy)</code> - RFC 8020: NXDOMAIN for subdomains of a proven-negative name (default: enabled)</li>
-<li><code>minimalAnyPolicy(MinimalAnyPolicy)</code> - RFC 8482: answer ANY with a minimal HINFO record (default: enabled)</li>
-<li><code>dnssecEnabled(boolean)</code> - validate upstream responses (sets DO on upstream queries; BOGUS answers → SERVFAIL; SECURE answers get AD)</li>
-<li><code>trustAnchor(DnssecTrustAnchor)</code> - trust anchor for validation; defaults to an empty store unless you add anchors</li>
-<li><code>aggressiveNsecEnabled(boolean)</code> - RFC 8198: synthesize NXDOMAIN/NODATA from validated NSEC/NSEC3 proofs before upstream (default: true when DNSSEC is on)</li>
-<li><code>aggressiveNsecPolicy(AggressiveNsecPolicy)</code> - override or disable per-query aggressive synthesis (default: synthesize when a proof covers the QNAME)</li>
-</ul>
+<h4 id="listeners">Listeners</h4>
 
 <p>
-When <code>dnssecEnabled</code> is true, the relay validates each upstream
-answer with <code>DnssecChainValidator</code>, retains SECURE denial proofs in
-<code>DnsNsecProofCache</code>, and on later cache misses may answer from those
-proofs without an upstream round trip (RFC 8198). Disable with
-<code>aggressiveNsecPolicy(AggressiveNsecPolicy.DISABLED)</code> if every query
-must reach upstream.
+A <code>DnsServer</code> can have <b>multiple listeners</b>. Each listener invokes
+the same <code>DnsQueryHandler</code> over a different transport. You can combine
+any of the following:
 </p>
 
-<h4>Listener Options</h4>
+<table border="1" cellpadding="5">
+<tr><th>Listener</th><th>Class</th><th>Transport</th><th>Description</th></tr>
+<tr><td>DnsListener</td><td><code>org.bluezoo.gumdrop.dns.DnsListener</code></td><td>UDP</td><td>Standard DNS over UDP, default port 53</td></tr>
+<tr><td>DoTListener</td><td><code>org.bluezoo.gumdrop.dns.DoTListener</code></td><td>TCP + TLS</td><td>DNS over TLS (DoT), default port 853</td></tr>
+<tr><td>DoQListener</td><td><code>org.bluezoo.gumdrop.dns.DoQListener</code></td><td>QUIC</td><td>DNS over QUIC (DoQ), default port 853</td></tr>
+</table>
+
+<p>
+Attach one or more listeners per server with <code>.listener(...)</code>. For
+example, you can serve plain DNS on 5353 and DoT on 853 from the same server.
+All listeners on one <code>DnsServer</code> share the same
+<code>DnsQueryHandler</code> instance you pass to <code>.handler(...)</code>.
+</p>
+
+<h4>Listener options</h4>
 
 <ul>
 <li><code>.port(int)</code> - listening port (optional). If omitted, defaults are:
@@ -792,19 +896,6 @@ DnsServer dnsFull = DnsServer.compose()
         .build())
     .server();
 </pre>
-
-<h4>Upstream Server Format</h4>
-
-<p>
-Upstream servers can be specified with optional ports:
-</p>
-
-<ul>
-<li><code>8.8.8.8</code> - Google DNS (default port 53)</li>
-<li><code>1.1.1.1</code> - Cloudflare DNS</li>
-<li><code>192.168.1.1:53</code> - local router with explicit port</li>
-<li><code>[2001:4860:4860::8888]:53</code> - IPv6 with port</li>
-</ul>
 
 <h3 id="resolver">DNS Resolver (Client)</h3>
 
