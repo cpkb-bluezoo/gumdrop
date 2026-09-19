@@ -31,6 +31,7 @@ import java.nio.channels.ReadableByteChannel;
 import java.nio.charset.CharacterCodingException;
 import java.nio.charset.Charset;
 import java.nio.charset.CharsetDecoder;
+import java.nio.charset.CodingErrorAction;
 import java.nio.charset.StandardCharsets;
 import java.security.Principal;
 import java.security.SecureRandom;
@@ -184,7 +185,12 @@ public final class ImapProtocolHandler
 
     static final Charset US_ASCII = StandardCharsets.US_ASCII;
     static final Charset UTF_8 = StandardCharsets.UTF_8;
-    static final CharsetDecoder US_ASCII_DECODER = US_ASCII.newDecoder();
+    static final CharsetDecoder US_ASCII_DECODER = US_ASCII.newDecoder()
+            .onMalformedInput(CodingErrorAction.REPORT)
+            .onUnmappableCharacter(CodingErrorAction.REPORT);
+    static final CharsetDecoder UTF_8_DECODER = UTF_8.newDecoder()
+            .onMalformedInput(CodingErrorAction.REPORT)
+            .onUnmappableCharacter(CodingErrorAction.REPORT);
 
     private static final String CRLF = "\r\n";
     private static final SecureRandom RANDOM = new SecureRandom();
@@ -297,6 +303,9 @@ public final class ImapProtocolHandler
 
     // RFC 4978 — COMPRESS=DEFLATE wire encoding (null until negotiated)
     private ImapDeflateLayer deflateLayer;
+
+    // RFC 6855 — UTF8=ACCEPT (UTF-8 on the wire after ENABLE)
+    private boolean utf8AcceptEnabled;
 
     // APPEND literal state
     private String appendTag = null;
@@ -505,7 +514,7 @@ public final class ImapProtocolHandler
                 segmentByteCount = window.remaining();
                 if (segmentError == null) {
                     try {
-                        String text = decodeAscii(window);
+                        String text = decodeCommandText(window);
                         if (freshCommand) {
                             pendingTagText = text;
                         } else {
@@ -535,7 +544,7 @@ public final class ImapProtocolHandler
                         segmentError = L10N.getString("imap.err.line_too_long");
                     } else {
                         try {
-                            argsBuilder.append(decodeAscii(window));
+                            argsBuilder.append(decodeCommandText(window));
                             segmentByteCount += len;
                         } catch (CharacterCodingException e) {
                             segmentError = L10N.getString(
@@ -585,6 +594,41 @@ public final class ImapProtocolHandler
 
     private static String decodeAscii(ByteBuffer window) throws CharacterCodingException {
         return US_ASCII_DECODER.decode(window).toString();
+    }
+
+    private static boolean containsNonAscii(String text) {
+        for (int i = 0; i < text.length(); i++) {
+            if (text.charAt(i) > 0x7f) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private String decodeCommandText(ByteBuffer window)
+            throws CharacterCodingException {
+        ByteBuffer dup = window.duplicate();
+        if (utf8AcceptEnabled) {
+            try {
+                return UTF_8_DECODER.decode(dup).toString();
+            } finally {
+                UTF_8_DECODER.reset();
+            }
+        }
+        try {
+            return US_ASCII_DECODER.decode(dup).toString();
+        } finally {
+            US_ASCII_DECODER.reset();
+        }
+    }
+
+    /**
+     * Returns whether RFC 6855 UTF8=ACCEPT is active on this connection.
+     *
+     * @return true after successful {@code ENABLE UTF8=ACCEPT}
+     */
+    public boolean isUtf8AcceptEnabled() {
+        return utf8AcceptEnabled;
     }
 
     private void resetSegmentState() {
@@ -748,7 +792,8 @@ public final class ImapProtocolHandler
         try {
             if (segmentError != null) {
                 String err = segmentError;
-                String tag = currentTag != null ? currentTag : "*";
+                String tag = currentTag != null ? currentTag
+                        : (!pendingTagText.isEmpty() ? pendingTagText : "*");
                 resetCommandState();
                 sendTaggedBad(tag, err);
                 return;
@@ -828,6 +873,13 @@ public final class ImapProtocolHandler
             return;
         }
         currentTag = tag;
+
+        if (!utf8AcceptEnabled && containsNonAscii(args)) {
+            sendTaggedBad(tag,
+                    L10N.getString("imap.err.invalid_command_encoding"));
+            resetCommandState();
+            return;
+        }
 
         int spaceIndex = args.indexOf(' ');
         String command;
@@ -3863,6 +3915,14 @@ public final class ImapProtocolHandler
                     enabled.append(' ');
                 }
                 enabled.append("QRESYNC");
+            } else if (ext.equals("UTF8=ACCEPT")
+                    && server.isEnableUTF8ACCEPT()
+                    && !utf8AcceptEnabled) {
+                utf8AcceptEnabled = true;
+                if (enabled.length() > 0) {
+                    enabled.append(' ');
+                }
+                enabled.append("UTF8=ACCEPT");
             }
         }
         if (enabled.length() > 0) {
@@ -6943,7 +7003,8 @@ public final class ImapProtocolHandler
     }
 
     private void sendLine(String line) throws IOException {
-        byte[] bytes = (line + CRLF).getBytes(US_ASCII);
+        Charset wireCs = utf8AcceptEnabled ? UTF_8 : US_ASCII;
+        byte[] bytes = (line + CRLF).getBytes(wireCs);
         if (deflateLayer != null) {
             bytes = deflateLayer.compressAndFlush(bytes);
         }

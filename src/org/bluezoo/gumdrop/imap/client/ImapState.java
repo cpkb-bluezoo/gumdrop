@@ -58,6 +58,7 @@ enum ImapState {
     IDLE_ACTIVE,
     NOOP_SENT,
     COMPRESS_SENT,
+    ENABLE_SENT,
 
     SELECTED,
     CLOSE_SENT,

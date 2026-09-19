@@ -65,6 +65,7 @@ import java.util.zip.DataFormatException;
  *   <li>MOVE — RFC 6851</li>
  *   <li>APPEND with literal streaming</li>
  *   <li>COMPRESS=DEFLATE — RFC 4978</li>
+ *   <li>UTF8=ACCEPT — RFC 6855</li>
  * </ul>
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
@@ -117,6 +118,10 @@ public final class ImapClientProtocolHandler
 
     // RFC 4978 — DEFLATE on the wire (null until COMPRESS DEFLATE succeeds)
     private ImapDeflateLayer deflateLayer;
+
+    // RFC 6855 — UTF8=ACCEPT
+    private boolean utf8AcceptEnabled;
+    private final List<String> pendingEnabled = new ArrayList<String>();
 
     // SELECT/EXAMINE accumulation
     private MailboxInfo pendingMailboxInfo;
@@ -656,6 +661,32 @@ public final class ImapClientProtocolHandler
         return currentTag;
     }
 
+    // RFC 5161 / RFC 6855 — ENABLE
+    @Override
+    public void enable(String[] extensions, EnableReplyHandler callback) {
+        if (extensions == null || extensions.length == 0) {
+            callback.handleError(this,
+                    L10N.getString("imap.err.invalid_arguments"));
+            return;
+        }
+        this.currentCallback = callback;
+        pendingEnabled.clear();
+        StringBuilder cmd = new StringBuilder("ENABLE");
+        for (String ext : extensions) {
+            cmd.append(' ').append(ext);
+        }
+        sendTaggedCommand(cmd.toString(), ImapState.ENABLE_SENT);
+    }
+
+    /**
+     * Returns whether RFC 6855 UTF8=ACCEPT is active on this connection.
+     *
+     * @return true after ENABLED UTF8=ACCEPT
+     */
+    public boolean isUtf8AcceptEnabled() {
+        return utf8AcceptEnabled;
+    }
+
     // ── ClientSelectedState (RFC 9051 section 6.4) ──
 
     // RFC 9051 section 6.4.1 — CLOSE command
@@ -837,7 +868,7 @@ public final class ImapClientProtocolHandler
         state = newState;
 
         String line = currentTag + " " + command + CRLF;
-        sendWireBytes(line.getBytes(StandardCharsets.US_ASCII));
+        sendWireBytes(line.getBytes(wireCharset()));
 
         if (LOGGER.isLoggable(Level.FINE)) {
             if (command.startsWith("LOGIN ")
@@ -858,7 +889,7 @@ public final class ImapClientProtocolHandler
 
         state = newState;
 
-        sendWireBytes((line + CRLF).getBytes(StandardCharsets.US_ASCII));
+        sendWireBytes((line + CRLF).getBytes(wireCharset()));
 
         if (LOGGER.isLoggable(Level.FINE)) {
             LOGGER.fine(L10N.getString("debug.sent_imap_raw_line_redacted"));
@@ -1012,6 +1043,18 @@ public final class ImapClientProtocolHandler
         }
         if (upper.startsWith("QUOTAROOT ")) {
             dispatchQuotaRootLine(msg.substring(10));
+            return;
+        }
+
+        if (upper.startsWith("ENABLED ")) {
+            if (state == ImapState.ENABLE_SENT) {
+                String[] tokens = msg.substring(8).trim().split("\\s+");
+                for (String token : tokens) {
+                    if (!token.isEmpty()) {
+                        pendingEnabled.add(token);
+                    }
+                }
+            }
             return;
         }
 
@@ -1622,6 +1665,9 @@ public final class ImapClientProtocolHandler
             case COMPRESS_SENT:
                 dispatchCompressComplete(response);
                 break;
+            case ENABLE_SENT:
+                dispatchEnableComplete(response);
+                break;
             case LOGOUT_SENT:
                 state = ImapState.CLOSED;
                 close();
@@ -1968,6 +2014,26 @@ public final class ImapClientProtocolHandler
         callback.handleOk(this);
     }
 
+    private void dispatchEnableComplete(ImapResponse response) {
+        EnableReplyHandler callback =
+                (EnableReplyHandler) currentCallback;
+        currentCallback = null;
+        ImapState base = restoreBaseState();
+        state = base;
+        if (response.isOk()) {
+            for (String ext : pendingEnabled) {
+                if ("UTF8=ACCEPT".equalsIgnoreCase(ext)) {
+                    utf8AcceptEnabled = true;
+                }
+            }
+            callback.handleEnabled(this,
+                    new ArrayList<String>(pendingEnabled));
+        } else {
+            callback.handleError(this, response.getMessage());
+        }
+        pendingEnabled.clear();
+    }
+
     private void dispatchCompressComplete(ImapResponse response) {
         CompressReplyHandler callback =
                 (CompressReplyHandler) currentCallback;
@@ -1991,6 +2057,12 @@ public final class ImapClientProtocolHandler
             plaintext = deflateLayer.compressAndFlush(plaintext);
         }
         endpoint.send(ByteBuffer.wrap(plaintext));
+    }
+
+    private java.nio.charset.Charset wireCharset() {
+        return utf8AcceptEnabled
+                ? StandardCharsets.UTF_8
+                : StandardCharsets.US_ASCII;
     }
 
     private void sendWireBuffer(ByteBuffer plaintext) {

@@ -156,4 +156,19 @@ public class IMAPListenerTest {
         assertFalse("COMPRESS=DEFLATE should not appear when disabled",
                 caps.contains("COMPRESS=DEFLATE"));
     }
+
+    @Test
+    public void testAuthenticatedCapabilitiesIncludeUtf8Accept() {
+        String caps = listener.getCapabilities(true, true);
+        assertTrue("UTF8=ACCEPT should appear when authenticated",
+                caps.contains("UTF8=ACCEPT"));
+    }
+
+    @Test
+    public void testCapabilitiesExcludeUtf8AcceptWhenDisabled() {
+        listener.setEnableUTF8ACCEPT(false);
+        String caps = listener.getCapabilities(true, true);
+        assertFalse("UTF8=ACCEPT should not appear when disabled",
+                caps.contains("UTF8=ACCEPT"));
+    }
 }

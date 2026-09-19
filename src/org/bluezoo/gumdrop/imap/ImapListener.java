@@ -51,6 +51,7 @@ import org.bluezoo.gumdrop.tls.TlsConfig;
  *   <li>RFC 6851 - MOVE</li>
  *   <li>RFC 9208 - QUOTA</li>
  *   <li>RFC 4978 - COMPRESS=DEFLATE</li>
+ *   <li>RFC 6855 - UTF8=ACCEPT</li>
  * </ul>
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
@@ -90,6 +91,7 @@ public class ImapListener extends TcpListener {
     protected boolean enableQUOTA = true;
     protected boolean enableMOVE = true;
     protected boolean enableCOMPRESS = true;
+    protected boolean enableUTF8ACCEPT = true;
     protected boolean enableCONDSTORE = true;
     protected boolean enableQRESYNC = true;
 
@@ -421,6 +423,24 @@ public class ImapListener extends TcpListener {
      */
     public void setEnableCOMPRESS(boolean enableCOMPRESS) {
         this.enableCOMPRESS = enableCOMPRESS;
+    }
+
+    /**
+     * Returns whether the UTF8=ACCEPT extension is enabled.
+     *
+     * @return true if UTF8=ACCEPT is enabled
+     */
+    public boolean isEnableUTF8ACCEPT() {
+        return enableUTF8ACCEPT;
+    }
+
+    /**
+     * Sets whether the UTF8=ACCEPT extension is enabled (RFC 6855).
+     *
+     * @param enableUTF8ACCEPT true to advertise and allow ENABLE UTF8=ACCEPT
+     */
+    public void setEnableUTF8ACCEPT(boolean enableUTF8ACCEPT) {
+        this.enableUTF8ACCEPT = enableUTF8ACCEPT;
     }
 
     /**
@@ -762,6 +782,9 @@ public class ImapListener extends TcpListener {
             }
             if (enableCOMPRESS && !compressionActive) {
                 caps.append(" COMPRESS=DEFLATE"); // RFC 4978
+            }
+            if (enableUTF8ACCEPT) {
+                caps.append(" UTF8=ACCEPT");   // RFC 6855
             }
         }
 

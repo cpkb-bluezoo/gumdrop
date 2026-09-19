@@ -63,6 +63,14 @@ public interface ClientAuthenticatedState {
      */
     void compress(CompressReplyHandler callback);
 
+    /**
+     * Enables IMAP extensions (for example {@code UTF8=ACCEPT}, CONDSTORE).
+     *
+     * @param extensions capability names to enable
+     * @param callback invoked when the server responds
+     */
+    void enable(String[] extensions, EnableReplyHandler callback);
+
     // RFC 9208 — QUOTA commands
     void getQuota(String quotaRoot, QuotaReplyHandler callback);
 

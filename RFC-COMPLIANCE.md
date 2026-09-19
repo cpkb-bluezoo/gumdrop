@@ -1207,6 +1207,7 @@ implemented in Java, with TLS 1.3 integrated via the in-tree engine
 | CONDSTORE/QRESYNC | RFC 7162 | Implemented | Per-message MODSEQ via `Mailbox`, ENABLE CONDSTORE/QRESYNC, HIGHESTMODSEQ in SELECT, MODSEQ in FETCH/SEARCH/STORE (UNCHANGEDSINCE), VANISHED (EARLIER) on QRESYNC SELECT, session-wide VANISHED instead of EXPUNGE |
 | STATUS=SIZE | RFC 8438 | Compliant | Advertised; STATUS returns SIZE from `Mailbox.getMailboxSize()` |
 | COMPRESS=DEFLATE | RFC 4978 | Compliant | Advertised when authenticated; `COMPRESS DEFLATE` enables `ImapDeflateLayer` on send/receive |
+| UTF8=ACCEPT | RFC 6855 | Compliant | Advertised when authenticated; `ENABLE UTF8=ACCEPT` switches command/response wire encoding to UTF-8 |
 
 ## IMAP Client — RFC 9051
 
@@ -1220,6 +1221,7 @@ implemented in Java, with TLS 1.3 integrated via the in-tree engine
 | Server greeting parsing (OK/PREAUTH/BYE) | RFC 9051 §7.1 | Compliant | `dispatchGreeting()` |
 | CAPABILITY from greeting | RFC 9051 §6.1.1 | Compliant | Parsed from OK [CAPABILITY ...] response code |
 | COMPRESS=DEFLATE | RFC 4978 | Compliant | `compress()` sends COMPRESS DEFLATE; `ImapDeflateLayer` on send/receive after OK |
+| UTF8=ACCEPT | RFC 6855 | Compliant | `enable(new String[]{"UTF8=ACCEPT"}, …)`; UTF-8 command encoding after ENABLED |
 
 ### Authentication
 

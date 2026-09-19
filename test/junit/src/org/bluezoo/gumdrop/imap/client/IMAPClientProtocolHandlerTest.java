@@ -54,6 +54,7 @@ import org.bluezoo.gumdrop.imap.client.AuthAbortHandler;
 import org.bluezoo.gumdrop.imap.client.AuthReplyHandler;
 import org.bluezoo.gumdrop.imap.client.CapabilityReplyHandler;
 import org.bluezoo.gumdrop.imap.client.CompressReplyHandler;
+import org.bluezoo.gumdrop.imap.client.EnableReplyHandler;
 import org.bluezoo.gumdrop.imap.client.CloseReplyHandler;
 import org.bluezoo.gumdrop.imap.client.CopyReplyHandler;
 import org.bluezoo.gumdrop.imap.client.ExpungeReplyHandler;
@@ -1226,6 +1227,32 @@ public class IMAPClientProtocolHandlerTest {
         assertEquals("Permission denied", quotaHandler.errorMessage);
     }
 
+    // ── UTF8=ACCEPT tests ──
+
+    @Test
+    public void testEnableUtf8AcceptThenUtf8OnWire() {
+        enterAuthenticatedState();
+
+        RecordingEnableHandler enableHandler =
+                new RecordingEnableHandler();
+        greetingHandler.session.enable(
+                new String[]{"UTF8=ACCEPT"}, enableHandler);
+        String enableTag = lastSentTag();
+
+        receiveMultipleLines(
+                "* ENABLED UTF8=ACCEPT",
+                enableTag + " OK Enable completed");
+
+        assertTrue(enableHandler.ok);
+        assertTrue(handler.isUtf8AcceptEnabled());
+
+        RecordingNoopHandler noopHandler = new RecordingNoopHandler();
+        enableHandler.session.noop(noopHandler);
+
+        byte[] wire = endpoint.getLastSentRaw();
+        assertTrue(new String(wire, StandardCharsets.UTF_8).contains(" NOOP"));
+    }
+
     // ── COMPRESS DEFLATE tests ──
 
     @Test
@@ -2221,6 +2248,28 @@ public class IMAPClientProtocolHandlerTest {
         public void handleIdleComplete(
                 ClientAuthenticatedState session) {
             idleComplete = true;
+        }
+
+        @Override
+        public void handleServiceClosing(String message) {}
+    }
+
+    static class RecordingEnableHandler implements EnableReplyHandler {
+        boolean ok;
+        ClientAuthenticatedState session;
+        boolean error;
+
+        @Override
+        public void handleEnabled(ClientAuthenticatedState session,
+                List<String> enabled) {
+            ok = true;
+            this.session = session;
+        }
+
+        @Override
+        public void handleError(ClientAuthenticatedState session,
+                String message) {
+            error = true;
         }
 
         @Override
