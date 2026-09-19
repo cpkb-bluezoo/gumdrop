@@ -720,7 +720,10 @@ public final class MaildirMailbox implements Mailbox {
         List<MaildirMessageDescriptor> toKeep = new ArrayList<>();
 
         for (MaildirMessageDescriptor msg : messages) {
-            if (deletedMessages.contains(msg.getUid())) {
+            // Removed either by an in-memory mark (POP3 DELE) or by the
+            // \Deleted flag persisted in the filename (IMAP STORE).
+            if (deletedMessages.contains(msg.getUid())
+                    || msg.getFlags().contains(Flag.DELETED)) {
                 Files.deleteIfExists(msg.getFilePath());
                 uidList.removeUid(msg.getBaseFilename());
                 expunged.add(msg.getMessageNumber());
