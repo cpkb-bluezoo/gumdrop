@@ -3414,7 +3414,9 @@ public final class QuicConnection implements QuicTlsEngineListener {
     }
 
     private void tearDownStreams(Exception streamError) {
-        for (QuicStreamEndpoint stream : streams.values()) {
+        // Iterate a snapshot: a handler notified here may close a sibling
+        // stream, which retires it from the live table mid-iteration.
+        for (QuicStreamEndpoint stream : new ArrayList<QuicStreamEndpoint>(streams.values())) {
             stream.markClosed();
             if (streamError != null) {
                 stream.getHandler().error(streamError);
