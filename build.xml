@@ -1157,9 +1157,72 @@
     </junit>
   </target>
 
+  <!-- Tests relocated from the unit tree because they use real disk I/O or
+       subprocesses (keytool/openssl). -->
+  <target name='integration-test-relocated' depends='integration-build'
+          description='Run relocated disk/subprocess integration tests'>
+    <mkdir dir='${testdir}/integration/results/xml'/>
+    <junit printsummary='yes' haltonfailure='yes' haltonerror='yes' fork='yes'
+           showoutput='true' logfailedtests='true'>
+      <classpath refid='integration.classpath'/>
+      <batchtest fork='yes' todir='${testdir}/integration/results/xml'>
+        <fileset dir='${testdir}/integration/src'>
+          <include name='org/bluezoo/gumdrop/AsyncDiskOffloadBoundaryTest.java'/>
+          <include name='org/bluezoo/gumdrop/crypto/CertificateVerifierTest.java'/>
+          <include name='org/bluezoo/gumdrop/dns/client/DANEVerifierTest.java'/>
+          <include name='org/bluezoo/gumdrop/dns/client/DNSSECTrustAnchorUpdaterTest.java'/>
+          <include name='org/bluezoo/gumdrop/dns/client/ResolvConfTest.java'/>
+          <include name='org/bluezoo/gumdrop/Dtls12SessionTest.java'/>
+          <include name='org/bluezoo/gumdrop/Dtls13SessionTest.java'/>
+          <include name='org/bluezoo/gumdrop/ftp/file/BasicFTPFileSystemTest.java'/>
+          <include name='org/bluezoo/gumdrop/ftp/FtpSessionProviderTest.java'/>
+          <include name='org/bluezoo/gumdrop/imap/IMAPMaildirAppendTest.java'/>
+          <include name='org/bluezoo/gumdrop/imap/IMAPScramCredentialsOffloadTest.java'/>
+          <include name='org/bluezoo/gumdrop/mailbox/index/MessageIndexTest.java'/>
+          <include name='org/bluezoo/gumdrop/mailbox/index/SearchIndexIntegrationTest.java'/>
+          <include name='org/bluezoo/gumdrop/mailbox/maildir/MaildirBodyOffsetTest.java'/>
+          <include name='org/bluezoo/gumdrop/mailbox/maildir/MaildirConcurrentSessionTest.java'/>
+          <include name='org/bluezoo/gumdrop/mailbox/maildir/MaildirIndexNewMessagesTest.java'/>
+          <include name='org/bluezoo/gumdrop/mailbox/maildir/MaildirNewToCurTest.java'/>
+          <include name='org/bluezoo/gumdrop/mailbox/mbox/MboxMailboxFactoryTest.java'/>
+          <include name='org/bluezoo/gumdrop/mailbox/mbox/MboxMailboxStoreTest.java'/>
+          <include name='org/bluezoo/gumdrop/mailbox/mbox/MboxMailboxTest.java'/>
+          <include name='org/bluezoo/gumdrop/pop3/POP3ScramCredentialsOffloadTest.java'/>
+          <include name='org/bluezoo/gumdrop/quic/tls/PemCredentialsTest.java'/>
+          <include name='org/bluezoo/gumdrop/quota/RoleBasedQuotaManagerAsyncSaveTest.java'/>
+          <include name='org/bluezoo/gumdrop/servlet/ContainerGetContextByPathTest.java'/>
+          <include name='org/bluezoo/gumdrop/servlet/ContainerStartWithComposedContextTest.java'/>
+          <include name='org/bluezoo/gumdrop/servlet/ContextMappingIndexTest.java'/>
+          <include name='org/bluezoo/gumdrop/servlet/ContextResourcePathSecurityTest.java'/>
+          <include name='org/bluezoo/gumdrop/servlet/ContextSecurityConstraintIndexTest.java'/>
+          <include name='org/bluezoo/gumdrop/servlet/ContextSessionExpiryTest.java'/>
+          <include name='org/bluezoo/gumdrop/servlet/ContextSessionSweepOffRequestPathTest.java'/>
+          <include name='org/bluezoo/gumdrop/servlet/ContextWarResourceTest.java'/>
+          <include name='org/bluezoo/gumdrop/servlet/jsp/JSPDependencyTrackerTest.java'/>
+          <include name='org/bluezoo/gumdrop/servlet/MultipartParserTest.java'/>
+          <include name='org/bluezoo/gumdrop/servlet/ServletContainerInitializerTest.java'/>
+          <include name='org/bluezoo/gumdrop/smtp/auth/DMARCAggregateReportTest.java'/>
+          <include name='org/bluezoo/gumdrop/smtp/auth/DMARCForensicReportTest.java'/>
+          <include name='org/bluezoo/gumdrop/tls/Dtls12CookieExchangeTest.java'/>
+          <include name='org/bluezoo/gumdrop/tls/Dtls12RecordEngineTest.java'/>
+          <include name='org/bluezoo/gumdrop/tls/Dtls13CookieTest.java'/>
+          <include name='org/bluezoo/gumdrop/tls/Dtls13RecordEngineTest.java'/>
+          <include name='org/bluezoo/gumdrop/tls/Tls12RecordEngineTest.java'/>
+          <include name='org/bluezoo/gumdrop/tls/TlsRecordEngineTest.java'/>
+          <include name='org/bluezoo/gumdrop/util/SPKIPinnedCertTrustManagerTest.java'/>
+          <include name='org/bluezoo/gumdrop/webdav/FileHandlerTest.java'/>
+          <include name='org/bluezoo/gumdrop/webdav/FileSecurityTest.java'/>
+        </fileset>
+      </batchtest>
+      <formatter type='plain' usefile='false'/>
+      <formatter type='xml'/>
+      <sysproperty key='test.results.dir' value='${testdir}/integration/results'/>
+    </junit>
+  </target>
+
   <!-- Run all integration tests -->
   <target name='integration-test'
-          depends='integration-test-loopback,integration-test-http,integration-test-http-client,integration-test-smtp,integration-test-pop3,integration-test-imap,integration-test-ftp,integration-test-servlet,integration-test-telemetry,integration-test-buffer,integration-test-tls,integration-test-websocket,integration-test-dtls,integration-test-performance'
+          depends='integration-test-loopback,integration-test-relocated,integration-test-http,integration-test-http-client,integration-test-smtp,integration-test-pop3,integration-test-imap,integration-test-ftp,integration-test-servlet,integration-test-telemetry,integration-test-buffer,integration-test-tls,integration-test-websocket,integration-test-dtls,integration-test-performance'
           description='Run all integration tests'>
   </target>
 
