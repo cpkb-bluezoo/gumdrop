@@ -65,6 +65,7 @@ enum ImapState {
     UNSELECT_SENT,
     EXPUNGE_SENT,
     SEARCH_SENT,
+    SORT_SENT,
     FETCH_SENT,
     FETCH_LITERAL,
     STORE_SENT,

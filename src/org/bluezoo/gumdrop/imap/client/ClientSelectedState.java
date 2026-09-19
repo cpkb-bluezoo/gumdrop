@@ -38,6 +38,10 @@ public interface ClientSelectedState extends ClientAuthenticatedState {
 
     void uidSearch(String criteria, SearchReplyHandler callback);
 
+    void sort(String arguments, SearchReplyHandler callback);
+
+    void uidSort(String arguments, SearchReplyHandler callback);
+
     void fetch(String sequenceSet, String dataItems, FetchReplyHandler callback);
 
     void uidFetch(String sequenceSet, String dataItems, FetchReplyHandler callback);

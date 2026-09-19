@@ -17,6 +17,9 @@ user-visible themes since 2.2.x.
   **`UTF8=ACCEPT` (RFC 6855)** on the IMAP server and client: capability
   advertisement, `COMPRESS DEFLATE`, `ENABLE UTF8=ACCEPT`, client `compress()`
   / `enable()` APIs, and matching wire encoding (Part of #431).
+- **IMAP `SORT` / `UID SORT` (RFC 5256)** with **`I18NLEVEL=1`** and
+  `i;unicode-casemap` collation: server handler, client `sort()` / `uidSort()`
+  (Part of #431). THREAD not yet implemented.
 - **RFC 8617 Authenticated Received Chain (ARC)** in `org.bluezoo.gumdrop.smtp.auth`:
   push-parser header grouping (`ArcHeaderParser`), asynchronous chain validation
   (`ArcValidator`), intermediary sealing (`ArcSealer`), and optional ARC-aware DMARC

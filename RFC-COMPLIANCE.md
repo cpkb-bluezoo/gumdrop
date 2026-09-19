@@ -1208,6 +1208,8 @@ implemented in Java, with TLS 1.3 integrated via the in-tree engine
 | STATUS=SIZE | RFC 8438 | Compliant | Advertised; STATUS returns SIZE from `Mailbox.getMailboxSize()` |
 | COMPRESS=DEFLATE | RFC 4978 | Compliant | Advertised when authenticated; `COMPRESS DEFLATE` enables `ImapDeflateLayer` on send/receive |
 | UTF8=ACCEPT | RFC 6855 | Compliant | Advertised when authenticated; `ENABLE UTF8=ACCEPT` switches command/response wire encoding to UTF-8 |
+| SORT | RFC 5256 | Compliant | Advertised when authenticated; `SORT` / `UID SORT` with mandatory charset (US-ASCII, UTF-8), untagged `SORT` |
+| I18NLEVEL=1 | RFC 5255 | Compliant | Advertised with SORT; string sort keys use `i;unicode-casemap` |
 
 ## IMAP Client — RFC 9051
 
@@ -1222,6 +1224,7 @@ implemented in Java, with TLS 1.3 integrated via the in-tree engine
 | CAPABILITY from greeting | RFC 9051 §6.1.1 | Compliant | Parsed from OK [CAPABILITY ...] response code |
 | COMPRESS=DEFLATE | RFC 4978 | Compliant | `compress()` sends COMPRESS DEFLATE; `ImapDeflateLayer` on send/receive after OK |
 | UTF8=ACCEPT | RFC 6855 | Compliant | `enable(new String[]{"UTF8=ACCEPT"}, …)`; UTF-8 command encoding after ENABLED |
+| SORT | RFC 5256 | Compliant | `sort()` / `uidSort()`; untagged `SORT` parsed like SEARCH |
 
 ### Authentication
 

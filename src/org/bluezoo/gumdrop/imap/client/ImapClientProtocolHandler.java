@@ -729,6 +729,21 @@ public final class ImapClientProtocolHandler
                 ImapState.SEARCH_SENT);
     }
 
+    // RFC 5256 — SORT and UID SORT
+    @Override
+    public void sort(String arguments, SearchReplyHandler callback) {
+        this.currentCallback = callback;
+        searchResults.clear();
+        sendTaggedCommand("SORT " + arguments, ImapState.SORT_SENT);
+    }
+
+    @Override
+    public void uidSort(String arguments, SearchReplyHandler callback) {
+        this.currentCallback = callback;
+        searchResults.clear();
+        sendTaggedCommand("UID SORT " + arguments, ImapState.SORT_SENT);
+    }
+
     // RFC 9051 section 6.4.5 — FETCH command
     @Override
     public void fetch(String sequenceSet, String dataItems,
@@ -1028,6 +1043,11 @@ public final class ImapClientProtocolHandler
 
         if (upper.startsWith("SEARCH")) {
             dispatchSearchLine(msg);
+            return;
+        }
+
+        if (upper.startsWith("SORT")) {
+            dispatchSortLine(msg);
             return;
         }
 
@@ -1465,9 +1485,18 @@ public final class ImapClientProtocolHandler
 
     // ── SEARCH parsing ──
 
+    private void dispatchSortLine(String msg) {
+        String data = msg.length() > 4 ? msg.substring(4).trim() : "";
+        accumulateSearchNumbers(data);
+    }
+
     private void dispatchSearchLine(String msg) {
         // Format: SEARCH 1 2 3 4 or just SEARCH (empty result)
         String data = msg.length() > 6 ? msg.substring(7).trim() : "";
+        accumulateSearchNumbers(data);
+    }
+
+    private void accumulateSearchNumbers(String data) {
         if (!data.isEmpty()) {
             String[] tokens = data.split("\\s+");
             for (String token : tokens) {
@@ -1647,6 +1676,7 @@ public final class ImapClientProtocolHandler
                 dispatchExpungeComplete(response);
                 break;
             case SEARCH_SENT:
+            case SORT_SENT:
                 dispatchSearchComplete(response);
                 break;
             case FETCH_SENT:

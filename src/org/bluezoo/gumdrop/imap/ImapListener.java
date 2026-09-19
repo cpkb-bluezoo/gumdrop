@@ -92,6 +92,7 @@ public class ImapListener extends TcpListener {
     protected boolean enableMOVE = true;
     protected boolean enableCOMPRESS = true;
     protected boolean enableUTF8ACCEPT = true;
+    protected boolean enableSORT = true;
     protected boolean enableCONDSTORE = true;
     protected boolean enableQRESYNC = true;
 
@@ -444,6 +445,24 @@ public class ImapListener extends TcpListener {
     }
 
     /**
+     * Returns whether the SORT extension (RFC 5256) is enabled.
+     *
+     * @return true if SORT is enabled
+     */
+    public boolean isEnableSORT() {
+        return enableSORT;
+    }
+
+    /**
+     * Sets whether the SORT extension (RFC 5256) is enabled.
+     *
+     * @param enableSORT true to advertise SORT and I18NLEVEL=1
+     */
+    public void setEnableSORT(boolean enableSORT) {
+        this.enableSORT = enableSORT;
+    }
+
+    /**
      * Returns whether CONDSTORE (RFC 7162) is enabled.
      *
      * @return true if CONDSTORE is enabled
@@ -785,6 +804,10 @@ public class ImapListener extends TcpListener {
             }
             if (enableUTF8ACCEPT) {
                 caps.append(" UTF8=ACCEPT");   // RFC 6855
+            }
+            if (enableSORT) {
+                caps.append(" SORT");          // RFC 5256
+                caps.append(" I18NLEVEL=1");   // RFC 5256 / RFC 5255
             }
         }
 

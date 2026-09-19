@@ -94,6 +94,7 @@ public class ImapServer implements Server, ImapServerSessionProvider {
     private boolean enableMOVE = true;
     private boolean enableCOMPRESS = true;
     private boolean enableUTF8ACCEPT = true;
+    private boolean enableSORT = true;
     private int maxLineLength = 8192;
     private int maxLiteralSize = 25 * 1024 * 1024;
     private boolean allowPlaintextLogin = false;
@@ -225,6 +226,14 @@ public class ImapServer implements Server, ImapServerSessionProvider {
 
     public void setEnableUTF8ACCEPT(boolean enableUTF8ACCEPT) {
         this.enableUTF8ACCEPT = enableUTF8ACCEPT;
+    }
+
+    public boolean isEnableSORT() {
+        return enableSORT;
+    }
+
+    public void setEnableSORT(boolean enableSORT) {
+        this.enableSORT = enableSORT;
     }
 
     public int getMaxLineLength() {
@@ -369,6 +378,7 @@ public class ImapServer implements Server, ImapServerSessionProvider {
         ep.setEnableMOVE(enableMOVE);
         ep.setEnableCOMPRESS(enableCOMPRESS);
         ep.setEnableUTF8ACCEPT(enableUTF8ACCEPT);
+        ep.setEnableSORT(enableSORT);
         ep.setMaxLineLength(maxLineLength);
         ep.setMaxLiteralSize(maxLiteralSize);
         ep.setAllowPlaintextLogin(allowPlaintextLogin);
@@ -428,6 +438,7 @@ public class ImapServer implements Server, ImapServerSessionProvider {
         private boolean enableMOVE = true;
         private boolean enableCOMPRESS = true;
         private boolean enableUTF8ACCEPT = true;
+        private boolean enableSORT = true;
         private int maxLineLength = 8192;
         private int maxLiteralSize = 25 * 1024 * 1024;
         private boolean allowPlaintextLogin = false;
@@ -530,6 +541,11 @@ public class ImapServer implements Server, ImapServerSessionProvider {
             return this;
         }
 
+        public Composer enableSORT(boolean enableSORT) {
+            this.enableSORT = enableSORT;
+            return this;
+        }
+
         public Composer maxLineLength(int maxLineLength) {
             this.maxLineLength = maxLineLength;
             return this;
@@ -570,6 +586,7 @@ public class ImapServer implements Server, ImapServerSessionProvider {
             server.setEnableMOVE(enableMOVE);
             server.setEnableCOMPRESS(enableCOMPRESS);
             server.setEnableUTF8ACCEPT(enableUTF8ACCEPT);
+            server.setEnableSORT(enableSORT);
             server.setMaxLineLength(maxLineLength);
             server.setMaxLiteralSize(maxLiteralSize);
             server.setAllowPlaintextLogin(allowPlaintextLogin);

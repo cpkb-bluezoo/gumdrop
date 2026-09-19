@@ -171,4 +171,23 @@ public class IMAPListenerTest {
         assertFalse("UTF8=ACCEPT should not appear when disabled",
                 caps.contains("UTF8=ACCEPT"));
     }
+
+    @Test
+    public void testAuthenticatedCapabilitiesIncludeSortAndI18n() {
+        String caps = listener.getCapabilities(true, true);
+        assertTrue("SORT should appear when authenticated",
+                caps.contains(" SORT"));
+        assertTrue("I18NLEVEL=1 should appear with SORT",
+                caps.contains("I18NLEVEL=1"));
+    }
+
+    @Test
+    public void testCapabilitiesExcludeSortWhenDisabled() {
+        listener.setEnableSORT(false);
+        String caps = listener.getCapabilities(true, true);
+        assertFalse("SORT should not appear when disabled",
+                caps.contains(" SORT"));
+        assertFalse("I18NLEVEL=1 should not appear when SORT disabled",
+                caps.contains("I18NLEVEL=1"));
+    }
 }

@@ -1337,6 +1337,9 @@ public final class ImapProtocolHandler
             case "SEARCH":
                 handleSearch(tag, args, false);
                 break;
+            case "SORT":
+                handleSort(tag, args, false);
+                break;
             case "UID":
                 handleUid(tag, args);
                 break;
@@ -4526,6 +4529,82 @@ public final class ImapProtocolHandler
         });
     }
 
+    // RFC 5256 — SORT and UID SORT
+    private void handleSort(String tag, String args, boolean uid)
+            throws IOException {
+        if (!server.isEnableSORT()) {
+            sendTaggedBad(tag, MessageFormat.format(
+                    L10N.getString("imap.err.unknown_command"), "SORT"));
+            return;
+        }
+        if (selectedMailbox == null) {
+            sendTaggedNo(tag, L10N.getString("imap.err.no_mailbox_selected"));
+            return;
+        }
+        try {
+            SortRequest request = new SortParser(args).parse();
+            if (!ImapCharset.isSortThreadSupported(request.getCharset())) {
+                sendTaggedNo(tag,
+                        L10N.getString("imap.err.sort_charset"));
+                return;
+            }
+            executeSort(tag, request, uid);
+        } catch (ParseException e) {
+            sendTaggedBad(tag, MessageFormat.format(
+                    L10N.getString("imap.err.sort_syntax"), e.getMessage()));
+        }
+    }
+
+    private void executeSort(String tag, SortRequest request, boolean uid)
+            throws IOException {
+        final Mailbox mbox = selectedMailbox;
+        final SearchCriteria crit = request.getSearchCriteria();
+        final List<SortCriterion> program = request.getSortProgram();
+        final boolean uidMode = uid;
+
+        submitStorage(new Callable<List<Integer>>() {
+            @Override
+            public List<Integer> call() throws IOException {
+                List<Integer> results = new ArrayList<>(mbox.search(crit));
+                MessageSorter.sort(mbox, results, program);
+                return results;
+            }
+        }, new StorageExecutor.Callback<List<Integer>>() {
+            @Override
+            public void completed(List<Integer> results) {
+                try {
+                    StringBuilder response = new StringBuilder("SORT");
+                    for (Integer msgNum : results) {
+                        response.append(' ');
+                        if (uidMode) {
+                            response.append(mbox.getUniqueId(msgNum));
+                        } else {
+                            response.append(msgNum);
+                        }
+                    }
+                    sendUntagged(response.toString());
+                    sendTaggedOk(tag,
+                            L10N.getString("imap.sort_complete"));
+                } catch (IOException e) {
+                    LOGGER.log(Level.WARNING,
+                            L10N.getString("warn.failed_send_sort_response"), e);
+                }
+            }
+
+            @Override
+            public void failed(Throwable error) {
+                if (error instanceof UnsupportedOperationException) {
+                    sendTaggedNoQuietly(tag, "imap.err.search_not_supported");
+                } else {
+                    LOGGER.log(Level.WARNING,
+                            L10N.getString("warn.sort_failed"), error);
+                    recordSessionException(error);
+                    sendTaggedNoQuietly(tag, "imap.err.internal_error");
+                }
+            }
+        });
+    }
+
     // RFC 9051 section 6.4.9 — UID command prefix
     private void handleUid(String tag, String args) throws IOException {
         int spaceIndex = args.indexOf(' ');
@@ -4543,6 +4622,9 @@ public final class ImapProtocolHandler
                 break;
             case "SEARCH":
                 handleSearch(tag, subArgs, true);
+                break;
+            case "SORT":
+                handleSort(tag, subArgs, true);
                 break;
             case "STORE":
                 handleStore(tag, subArgs, true);
