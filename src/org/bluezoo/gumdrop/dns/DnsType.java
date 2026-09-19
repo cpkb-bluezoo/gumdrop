@@ -128,6 +128,15 @@ public enum DnsType {
     /** HTTPS binding. RFC 9460 section 2.2. */
     HTTPS(65),
 
+    /** Transaction signature. RFC 2845. */
+    TSIG(250),
+
+    /** Incremental zone transfer (QTYPE). RFC 1995. */
+    IXFR(251),
+
+    /** Full zone transfer (QTYPE). RFC 5936. */
+    AXFR(252),
+
     /** All records (QTYPE only, not stored). RFC 1035 section 3.2.3. */
     ANY(255);
 

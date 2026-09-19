@@ -28,6 +28,7 @@ import java.io.IOException;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -73,6 +74,34 @@ public final class ZoneFile {
 
     public String getOrigin() {
         return origin;
+    }
+
+    public int getDefaultTtl() {
+        return defaultTtl;
+    }
+
+    /**
+     * Returns a mutable copy of this zone for dynamic updates and transfers.
+     */
+    public MutableZone asMutable() {
+        return MutableZone.from(this);
+    }
+
+    Map<String, List<DnsResourceRecord>> copyRecordsByName() {
+        Map<String, List<DnsResourceRecord>> copy =
+                new LinkedHashMap<String, List<DnsResourceRecord>>();
+        for (Map.Entry<String, List<DnsResourceRecord>> e : recordsByName.entrySet()) {
+            copy.put(e.getKey(), new ArrayList<DnsResourceRecord>(e.getValue()));
+        }
+        return copy;
+    }
+
+    ZoneFile.SoaData copySoaData() {
+        return soaData;
+    }
+
+    public DnsResourceRecord getSoaRecord() {
+        return soaRecord;
     }
 
     /**
@@ -142,10 +171,6 @@ public final class ZoneFile {
             }
         }
         return ns;
-    }
-
-    DnsResourceRecord getSoaRecord() {
-        return soaRecord;
     }
 
     int getMinimumTtl() {

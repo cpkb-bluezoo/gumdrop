@@ -94,6 +94,12 @@ public final class DnsMessage {
     /** Zone change notification. RFC 1996. */
     public static final int OPCODE_NOTIFY = 4;
 
+    /** Dynamic update. RFC 2136. */
+    public static final int OPCODE_UPDATE = 5;
+
+    /** Mask for OPCODE bits in the flags word (bits 14-11). */
+    public static final int FLAG_OPCODE_MASK = 0x7800;
+
     // RFC 1035 section 4.1.1 - RCODE (bits 3-0)
 
     /** No error. RFC 1035 section 4.1.1. */
@@ -113,6 +119,21 @@ public final class DnsMessage {
 
     /** Query refused. RFC 1035 section 4.1.1. */
     public static final int RCODE_REFUSED = 5;
+
+    /** Name exists (dynamic update). RFC 2136 section 2.4.1. */
+    public static final int RCODE_YXDOMAIN = 6;
+
+    /** RRset exists. RFC 2136 section 2.4.1. */
+    public static final int RCODE_YXRRSET = 7;
+
+    /** RRset does not exist. RFC 2136 section 2.4.1. */
+    public static final int RCODE_NXRRSET = 8;
+
+    /** Not authoritative for zone. RFC 2136 section 2.4.1. */
+    public static final int RCODE_NOTAUTH = 9;
+
+    /** Name not in zone. RFC 2136 section 2.4.1. */
+    public static final int RCODE_NOTZONE = 10;
 
     // RFC 1035 section 4.1.1: header is 12 octets (6 x 16-bit fields)
     private static final int HEADER_SIZE = 12;
@@ -893,9 +914,129 @@ public final class DnsMessage {
      * @return the error response message
      */
     public DnsMessage createErrorResponse(int rcode) {
-        int responseFlags = FLAG_QR | FLAG_RA | (flags & FLAG_RD) | (rcode & 0x0F);
+        int responseFlags = responseFlagsFromQuery(rcode, false);
         List<DnsResourceRecord> emptyList = Collections.emptyList();
         return new DnsMessage(id, responseFlags, questions, emptyList, emptyList, emptyList);
+    }
+
+    /**
+     * Creates an authoritative error response, preserving OPCODE from the query.
+     */
+    public DnsMessage createAuthoritativeErrorResponse(int rcode) {
+        int responseFlags = responseFlagsFromQuery(rcode, true);
+        List<DnsResourceRecord> emptyList = Collections.emptyList();
+        return new DnsMessage(id, responseFlags, questions, emptyList, emptyList, emptyList);
+    }
+
+    /**
+     * Creates an authoritative response with empty sections, preserving OPCODE.
+     */
+    public DnsMessage createAuthoritativeEmptyResponse(int rcode) {
+        return createAuthoritativeEmptyResponse(rcode, Collections.<DnsResourceRecord>emptyList());
+    }
+
+    /**
+     * Creates an authoritative response, preserving OPCODE (for NOTIFY/UPDATE).
+     */
+    public DnsMessage createAuthoritativeEmptyResponse(int rcode,
+            List<DnsResourceRecord> additionals) {
+        int responseFlags = responseFlagsFromQuery(rcode, true);
+        List<DnsResourceRecord> emptyList = Collections.emptyList();
+        return new DnsMessage(id, responseFlags, questions, emptyList, emptyList,
+                new ArrayList<DnsResourceRecord>(additionals));
+    }
+
+    private int responseFlagsFromQuery(int rcode, boolean authoritative) {
+        int responseFlags = FLAG_QR | (flags & FLAG_OPCODE_MASK) | (rcode & 0x0F);
+        if (authoritative) {
+            responseFlags |= FLAG_AA;
+        }
+        if ((flags & FLAG_RD) != 0) {
+            responseFlags |= FLAG_RA;
+        }
+        return responseFlags;
+    }
+
+    /**
+     * RFC 2136 dynamic update request.
+     *
+     * @param id message ID
+     * @param zoneSection zone to update (typically apex SOA)
+     * @param prerequisites prerequisite RRs (authority section)
+     * @param updates update RRs (additional section, before TSIG if any)
+     */
+    public static DnsMessage createDynamicUpdate(int id,
+            List<DnsResourceRecord> zoneSection,
+            List<DnsResourceRecord> prerequisites,
+            List<DnsResourceRecord> updates) {
+        int flags = OPCODE_UPDATE << 11;
+        return new DnsMessage(id, flags,
+                Collections.<DnsQuestion>emptyList(),
+                new ArrayList<DnsResourceRecord>(zoneSection),
+                new ArrayList<DnsResourceRecord>(prerequisites),
+                new ArrayList<DnsResourceRecord>(updates));
+    }
+
+    /**
+     * RFC 1996 NOTIFY request.
+     */
+    public static DnsMessage createNotify(int id, String zoneName) {
+        int flags = (OPCODE_NOTIFY << 11) | FLAG_AA;
+        DnsQuestion question = new DnsQuestion(zoneName, DnsType.SOA, DnsClass.IN);
+        return new DnsMessage(id, flags,
+                Collections.singletonList(question),
+                Collections.<DnsResourceRecord>emptyList(),
+                Collections.<DnsResourceRecord>emptyList(),
+                Collections.<DnsResourceRecord>emptyList());
+    }
+
+    /**
+     * Returns true if this message uses RFC 2136 section layout (UPDATE opcode).
+     */
+    public boolean isDynamicUpdate() {
+        return getOpcode() == OPCODE_UPDATE;
+    }
+
+    /**
+     * RFC 2136 zone section (stored in the answer section).
+     */
+    public List<DnsResourceRecord> getUpdateZoneSection() {
+        return answers;
+    }
+
+    /**
+     * RFC 2136 prerequisite section (stored in the authority section).
+     */
+    public List<DnsResourceRecord> getUpdatePrerequisites() {
+        return authorities;
+    }
+
+    /**
+     * RFC 2136 update section (non-TSIG records in the additional section).
+     */
+    public List<DnsResourceRecord> getUpdateChanges() {
+        List<DnsResourceRecord> changes = new ArrayList<DnsResourceRecord>();
+        for (int i = 0; i < additionals.size(); i++) {
+            DnsResourceRecord rr = additionals.get(i);
+            if (rr.getRawType() == DnsType.TSIG.getValue()) {
+                continue;
+            }
+            changes.add(rr);
+        }
+        return changes;
+    }
+
+    /**
+     * TSIG on this message, if present (last additional RR).
+     */
+    public DnsResourceRecord getTsigRecord() {
+        for (int i = additionals.size() - 1; i >= 0; i--) {
+            DnsResourceRecord rr = additionals.get(i);
+            if (rr.getRawType() == DnsType.TSIG.getValue()) {
+                return rr;
+            }
+        }
+        return null;
     }
 
     /**
