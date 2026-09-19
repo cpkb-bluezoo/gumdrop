@@ -89,9 +89,8 @@ public class Container implements ManagerContainerServer, ClusterContainer {
     private static final ThreadFactory WORKER_THREAD_FACTORY = new ThreadFactory() {
         @Override
         public Thread newThread(Runnable r) {
-            Thread t = Thread.ofVirtual()
-                    .name("servlet-worker-", WORKER_THREAD_NUM.incrementAndGet())
-                    .unstarted(r);
+            Thread t = new Thread(r,
+                    "servlet-worker-" + WORKER_THREAD_NUM.incrementAndGet());
             t.setDaemon(true);
             return t;
         }

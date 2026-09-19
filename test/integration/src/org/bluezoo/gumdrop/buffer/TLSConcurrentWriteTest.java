@@ -90,13 +90,16 @@ public class TLSConcurrentWriteTest extends AbstractServerIntegrationTest {
     private static byte[] echoExchange(String message) throws Exception {
         byte[] outbound = message.getBytes(StandardCharsets.UTF_8);
         return IntegrationTlsClient.exchangeWhenComplete("::1", TEST_PORT, outbound, TRUST_ALL, 10000,
-                inbound -> {
-                    for (int i = 0; i < inbound.length; i++) {
-                        if (inbound[i] == '\n') {
-                            return true;
+                new IntegrationTlsClient.ResponseComplete() {
+                    @Override
+                    public boolean isComplete(byte[] inbound) {
+                        for (int i = 0; i < inbound.length; i++) {
+                            if (inbound[i] == '\n') {
+                                return true;
+                            }
                         }
+                        return false;
                     }
-                    return false;
                 });
     }
 

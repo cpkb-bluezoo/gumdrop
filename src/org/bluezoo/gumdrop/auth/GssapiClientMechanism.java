@@ -94,18 +94,21 @@ public final class GssapiClientMechanism implements SaslClientMechanism {
         this.subject = subject;
         try {
             this.context = Subject.callAs(subject,
-                    (Callable<GSSContext>) () -> {
-                        GSSManager manager = GSSManager.getInstance();
-                        GSSName targetName = manager.createName(
-                                servicePrincipal,
-                                GSSName.NT_HOSTBASED_SERVICE);
-                        GSSContext ctx = manager.createContext(
-                                targetName, KRB5_OID,
-                                (GSSCredential) null,
-                                GSSContext.DEFAULT_LIFETIME);
-                        ctx.requestMutualAuth(true);
-                        ctx.requestInteg(true);
-                        return ctx;
+                    new Callable<GSSContext>() {
+                        @Override
+                        public GSSContext call() throws GSSException {
+                            GSSManager manager = GSSManager.getInstance();
+                            GSSName targetName = manager.createName(
+                                    servicePrincipal,
+                                    GSSName.NT_HOSTBASED_SERVICE);
+                            GSSContext ctx = manager.createContext(
+                                    targetName, KRB5_OID,
+                                    (GSSCredential) null,
+                                    GSSContext.DEFAULT_LIFETIME);
+                            ctx.requestMutualAuth(true);
+                            ctx.requestInteg(true);
+                            return ctx;
+                        }
                     });
         } catch (CompletionException e) {
             throw new IOException("GSSAPI context init failed",
@@ -161,8 +164,13 @@ public final class GssapiClientMechanism implements SaslClientMechanism {
     private byte[] processContextToken(byte[] challenge) throws IOException {
         try {
             byte[] token = Subject.callAs(subject,
-                    (Callable<byte[]>) () -> context.initSecContext(
-                            challenge, 0, challenge.length));
+                    new Callable<byte[]>() {
+                        @Override
+                        public byte[] call() throws GSSException {
+                            return context.initSecContext(
+                                    challenge, 0, challenge.length);
+                        }
+                    });
             if (context.isEstablished()) {
                 contextEstablished = true;
             }
@@ -188,8 +196,13 @@ public final class GssapiClientMechanism implements SaslClientMechanism {
         try {
             MessageProp prop = new MessageProp(0, false);
             byte[] serverOffer = Subject.callAs(subject,
-                    (Callable<byte[]>) () -> context.unwrap(challenge, 0,
-                            challenge.length, prop));
+                    new Callable<byte[]>() {
+                        @Override
+                        public byte[] call() throws GSSException {
+                            return context.unwrap(challenge, 0,
+                                    challenge.length, prop);
+                        }
+                    });
             if (serverOffer.length < 4) {
                 throw new IOException(
                         "GSSAPI: invalid security layer offer");
@@ -202,8 +215,13 @@ public final class GssapiClientMechanism implements SaslClientMechanism {
             response[3] = 0;
 
             byte[] wrapped = Subject.callAs(subject,
-                    (Callable<byte[]>) () -> context.wrap(response, 0,
-                            response.length, new MessageProp(0, false)));
+                    new Callable<byte[]>() {
+                        @Override
+                        public byte[] call() throws GSSException {
+                            return context.wrap(response, 0, response.length,
+                                    new MessageProp(0, false));
+                        }
+                    });
             complete = true;
             return wrapped;
         } catch (CompletionException e) {

@@ -107,7 +107,6 @@ public final class WebSocketRequestHandler implements HttpStreamHandler {
      * Creates a {@link WebSocketEventHandler} for an incoming WebSocket
      * connection.
      */
-    @FunctionalInterface
     public interface ConnectionHandlerFactory {
 
         /**
@@ -126,7 +125,6 @@ public final class WebSocketRequestHandler implements HttpStreamHandler {
      * RFC 6455 §4.2.2 — selects a WebSocket subprotocol from the client's
      * {@code Sec-WebSocket-Protocol} header.
      */
-    @FunctionalInterface
     public interface SubprotocolSelector {
 
         /**

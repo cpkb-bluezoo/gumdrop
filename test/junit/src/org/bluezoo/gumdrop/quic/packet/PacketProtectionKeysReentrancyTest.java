@@ -27,7 +27,7 @@ import java.util.ArrayList;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import java.util.concurrent.Future;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.atomic.AtomicLong;
 
 import org.junit.Test;
@@ -121,24 +121,26 @@ public class PacketProtectionKeysReentrancyTest {
         int perThreadIterations = 500;
         ExecutorService pool = Executors.newFixedThreadPool(threadCount);
         try {
-            List<Future<Void>> futures = new ArrayList<Future<Void>>();
+            final CountDownLatch done = new CountDownLatch(threadCount);
             for (int t = 0; t < threadCount; t++) {
-                futures.add(pool.submit(new Callable<Void>() {
+                pool.submit(new Callable<Void>() {
                     @Override
                     public Void call() throws Exception {
-                        for (int i = 0; i < perThreadIterations; i++) {
-                            long pn = nextPacketNumber.getAndIncrement();
-                            byte[] ciphertext = PacketProtection.seal(keys, pn, header, plaintext);
-                            byte[] recovered = PacketProtection.open(keys, pn, header, ciphertext);
-                            assertArrayEquals(plaintext, recovered);
+                        try {
+                            for (int i = 0; i < perThreadIterations; i++) {
+                                long pn = nextPacketNumber.getAndIncrement();
+                                byte[] ciphertext = PacketProtection.seal(keys, pn, header, plaintext);
+                                byte[] recovered = PacketProtection.open(keys, pn, header, ciphertext);
+                                assertArrayEquals(plaintext, recovered);
+                            }
+                            return null;
+                        } finally {
+                            done.countDown();
                         }
-                        return null;
                     }
-                }));
+                });
             }
-            for (Future<Void> f : futures) {
-                f.get();
-            }
+            done.await();
         } finally {
             pool.shutdown();
         }

@@ -29,6 +29,9 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.Consumer;
+
+import jakarta.servlet.http.HttpSession;
 
 import static org.junit.Assert.*;
 
@@ -158,9 +161,12 @@ public class SessionTest {
         Session session = new Session(context, TEST_SESSION_ID);
         session.setAttribute("key", "value");
 
-        session.getAccessor().access(s -> {
-            assertEquals("value", s.getAttribute("key"));
-            s.setAttribute("other", 1);
+        session.getAccessor().access(new Consumer<HttpSession>() {
+            @Override
+            public void accept(HttpSession s) {
+                assertEquals("value", s.getAttribute("key"));
+                s.setAttribute("other", 1);
+            }
         });
 
         assertEquals(Integer.valueOf(1), session.getAttribute("other"));

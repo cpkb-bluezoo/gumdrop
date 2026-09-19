@@ -101,7 +101,12 @@ public class HTTPClientHelper {
                 byte[] wire = IntegrationTlsClient.exchangeWhenComplete(host, port,
                         request.getBytes(StandardCharsets.UTF_8),
                         new EmptyX509TrustManager(), timeout,
-                        inbound -> isResponseComplete(inbound, hasConnectionClose));
+                        new IntegrationTlsClient.ResponseComplete() {
+                            @Override
+                            public boolean isComplete(byte[] inbound) {
+                                return isResponseComplete(inbound, hasConnectionClose);
+                            }
+                        });
                 return parseResponse(new String(wire, StandardCharsets.UTF_8));
             }
 

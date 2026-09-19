@@ -39,9 +39,14 @@ public class FtpSessionProviderTest {
     @Test
     public void testLegacyConnectionHandlerProvider() {
         ClientConnected session = FtpServerSessionProviders.connectionHandler(
-                () -> new org.bluezoo.gumdrop.ftp.file.SimpleFTPHandler(
-                        new BasicFTPFileSystem(
-                                java.nio.file.Path.of("/tmp"), false)))
+                new java.util.function.Supplier<org.bluezoo.gumdrop.ftp.FtpConnectionHandler>() {
+                    @Override
+                    public org.bluezoo.gumdrop.ftp.FtpConnectionHandler get() {
+                        return new org.bluezoo.gumdrop.ftp.file.SimpleFTPHandler(
+                                new BasicFTPFileSystem(
+                                        java.nio.file.Path.of("/tmp"), false));
+                    }
+                })
                 .openSession(new FtpListener());
         assertTrue(session instanceof LegacyConnectionHandlerAdapter);
         assertNotNull(LegacyConnectionHandlerAdapter.unwrap(session));

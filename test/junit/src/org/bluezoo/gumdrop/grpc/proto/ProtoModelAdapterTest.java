@@ -186,7 +186,6 @@ public class ProtoModelAdapterTest {
         return channel.toByteBuffer();
     }
 
-    @FunctionalInterface
     private interface SerializeCallback {
         void serialize(ProtoModelSerializer s, ProtobufWriter w) throws Exception;
     }

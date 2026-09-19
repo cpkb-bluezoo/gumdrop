@@ -28,9 +28,6 @@ import java.util.Map;
 import java.util.ResourceBundle;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.ScheduledFuture;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -106,15 +103,10 @@ public class AuthenticationRateLimiter {
     // State tracking
     private final ConcurrentMap<String, FailureTracker> trackers;
 
-    // Background cleanup
-    private ScheduledExecutorService scheduler;
-    private ScheduledFuture<?> cleanupTask;
-
     /**
      * Timestamp of the last opportunistic cleanup. Cleanup runs inline at most
      * once per {@link #CLEANUP_INTERVAL_MS} so expired trackers are reclaimed
-     * even when no external {@link #setScheduler scheduler} has been wired in,
-     * removing the unbounded-growth leak without a per-listener thread.
+     * without a dedicated background thread.
      */
     private final AtomicLong lastCleanup =
             new AtomicLong(System.currentTimeMillis());
@@ -458,20 +450,9 @@ public class AuthenticationRateLimiter {
     }
 
     /**
-     * Sets the scheduler for background cleanup tasks.
-     *
-     * @param scheduler the scheduler to use
-     */
-    public void setScheduler(ScheduledExecutorService scheduler) {
-        this.scheduler = scheduler;
-        scheduleCleanup();
-    }
-
-    /**
      * Runs {@link #cleanup()} inline at most once per
      * {@link #CLEANUP_INTERVAL_MS}. The CAS gate ensures the O(n) scan runs
-     * rarely and by only one caller at a time, keeping the tracker map bounded
-     * without relying on an external scheduler.
+     * rarely and by only one caller at a time, keeping the tracker map bounded.
      */
     private void maybeCleanup() {
         long now = System.currentTimeMillis();
@@ -483,34 +464,6 @@ public class AuthenticationRateLimiter {
             } catch (RuntimeException e) {
                 LOGGER.log(Level.WARNING,
                         L10N.getString("ratelimit.err.cleanup_failed"), e);
-            }
-        }
-    }
-
-    /**
-     * Schedules the cleanup task.
-     */
-    private void scheduleCleanup() {
-        if (scheduler != null && cleanupTask == null) {
-            cleanupTask = scheduler.scheduleAtFixedRate(
-                new CleanupTask(),
-                CLEANUP_INTERVAL_MS,
-                CLEANUP_INTERVAL_MS,
-                TimeUnit.MILLISECONDS
-            );
-        }
-    }
-
-    /**
-     * Cleans up expired entries.
-     */
-    private class CleanupTask implements Runnable {
-        @Override
-        public void run() {
-            try {
-                cleanup();
-            } catch (Exception e) {
-                LOGGER.log(Level.WARNING, L10N.getString("ratelimit.err.cleanup_failed"), e);
             }
         }
     }
@@ -541,13 +494,9 @@ public class AuthenticationRateLimiter {
     }
 
     /**
-     * Shuts down the rate limiter, cancelling any scheduled cleanup tasks.
+     * Shuts down the rate limiter. State maps may be cleared via {@link #reset}.
      */
     public void shutdown() {
-        if (cleanupTask != null) {
-            cleanupTask.cancel(false);
-            cleanupTask = null;
-        }
     }
 
     /**

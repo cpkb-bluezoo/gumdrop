@@ -237,7 +237,12 @@ class Session implements HttpSession {
 
     @Override
     public HttpSession.Accessor getAccessor() {
-        return callback -> callback.accept(this);
+        return new HttpSession.Accessor() {
+            @Override
+            public void access(java.util.function.Consumer<HttpSession> callback) {
+                callback.accept(Session.this);
+            }
+        };
     }
 
     // -- Cluster replication support --

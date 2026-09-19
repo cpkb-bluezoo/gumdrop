@@ -433,10 +433,10 @@ public class ContextMappingIndexTest {
         final CountDownLatch ready = new CountDownLatch(threadCount);
         final CountDownLatch go = new CountDownLatch(1);
         final AtomicBoolean sawWrongResult = new AtomicBoolean(false);
-        List<java.util.concurrent.Future<?>> futures = new ArrayList<>();
+        final CountDownLatch allDone = new CountDownLatch(threadCount);
         try {
             for (int t = 0; t < threadCount; t++) {
-                futures.add(pool.submit(new Runnable() {
+                pool.submit(new Runnable() {
                     @Override
                     public void run() {
                         ready.countDown();
@@ -446,21 +446,24 @@ public class ContextMappingIndexTest {
                             Thread.currentThread().interrupt();
                             return;
                         }
-                        for (int i = 0; i < iterationsPerThread; i++) {
-                            ServletMatch m = match("/target/leaf");
-                            if (m.servletDef != target) {
-                                sawWrongResult.set(true);
+                        try {
+                            for (int i = 0; i < iterationsPerThread; i++) {
+                                ServletMatch m = match("/target/leaf");
+                                if (m.servletDef != target) {
+                                    sawWrongResult.set(true);
+                                }
                             }
+                        } finally {
+                            allDone.countDown();
                         }
                     }
-                }));
+                });
             }
             ready.await();
             long start = System.nanoTime();
             go.countDown();
-            for (java.util.concurrent.Future<?> f : futures) {
-                f.get(15, TimeUnit.SECONDS);
-            }
+            assertTrue("worker threads did not finish",
+                    allDone.await(15, TimeUnit.SECONDS));
             long elapsedMs = (System.nanoTime() - start) / 1_000_000;
             assertFalse("concurrent lookups must all resolve the same, correct "
                     + "servlet -- a data race in the lazily-built index would "

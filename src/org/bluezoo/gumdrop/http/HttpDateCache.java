@@ -21,11 +21,9 @@
 
 package org.bluezoo.gumdrop.http;
 
+import org.bluezoo.gumdrop.ScheduledTimer;
+
 import java.nio.charset.StandardCharsets;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.ThreadFactory;
-import java.util.concurrent.TimeUnit;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -67,38 +65,36 @@ public final class HttpDateCache {
      */
     private static volatile byte[] cachedDateLineBytes;
 
-    /** Daemon scheduler refreshing the cached date. */
-    private static final ScheduledExecutorService REFRESHER =
-        Executors.newSingleThreadScheduledExecutor(new ThreadFactory() {
-            public Thread newThread(Runnable runnable) {
-                Thread thread = new Thread(runnable, "gumdrop-http-date-cache");
-                thread.setDaemon(true);
-                return thread;
-            }
-        });
+    private static final ScheduledTimer REFRESHER =
+            new ScheduledTimer("gumdrop-http-date-cache");
+
+    private static final long REFRESH_INTERVAL_MS = 1000L;
 
     static {
         refresh();
-        REFRESHER.scheduleAtFixedRate(new Runnable() {
+        REFRESHER.start();
+        scheduleNextRefresh();
+    }
+
+    private HttpDateCache() {
+    }
+
+    private static void scheduleNextRefresh() {
+        REFRESHER.schedule(null, REFRESH_INTERVAL_MS, new Runnable() {
+            @Override
             public void run() {
                 try {
                     refresh();
                 } catch (RuntimeException e) {
-                    // ScheduledExecutorService silently suppresses every
-                    // future execution of a periodic task once one
-                    // invocation throws - without this, a single bad tick
-                    // would freeze the cached Date header at a stale value
-                    // forever, with no visible symptom anywhere else.
                     LOGGER.log(Level.WARNING,
                             "Failed to refresh cached Date header value; "
                             + "keeping the previous value until the next tick",
                             e);
+                } finally {
+                    scheduleNextRefresh();
                 }
             }
-        }, 1, 1, TimeUnit.SECONDS);
-    }
-
-    private HttpDateCache() {
+        });
     }
 
     /**
@@ -120,9 +116,6 @@ public final class HttpDateCache {
     }
 
     private static void refresh() {
-        // System.currentTimeMillis() feeds HttpDateFormat.format(long)
-        // directly - no Date object is allocated just to carry this
-        // instant through to the formatter.
         String date = DATE_FORMAT.format(System.currentTimeMillis());
         byte[] dateBytes = date.getBytes(StandardCharsets.US_ASCII);
         byte[] line = new byte[DATE_HEADER_PREFIX.length + dateBytes.length + CRLF.length];

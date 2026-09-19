@@ -30,11 +30,6 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedDeque;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.ScheduledFuture;
-import java.util.concurrent.ThreadFactory;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -109,16 +104,16 @@ public class ClientEndpointPool {
     private int maxEndpointsPerTarget = DEFAULT_MAX_ENDPOINTS_PER_TARGET;
     private long idleTimeoutMs = DEFAULT_IDLE_TIMEOUT_MS;
 
-    private final ScheduledExecutorService cleanupExecutor;
-    private ScheduledFuture<?> cleanupFuture;
+    private final ScheduledTimer cleanupTimer;
+    private TimerHandle cleanupHandle;
 
     /**
      * Creates a new endpoint connection pool with default settings.
      */
     public ClientEndpointPool() {
         this.pool = new ConcurrentHashMap<PoolTarget, EndpointList>();
-        this.cleanupExecutor = Executors.newSingleThreadScheduledExecutor(
-                new DaemonThreadFactory("EndpointPool-Cleanup"));
+        this.cleanupTimer = new ScheduledTimer("EndpointPool-Cleanup");
+        this.cleanupTimer.start();
     }
 
     // ── Configuration ──
@@ -304,11 +299,11 @@ public class ClientEndpointPool {
      * Closes all endpoints and clears the pool.
      */
     public void shutdown() {
-        if (cleanupFuture != null) {
-            cleanupFuture.cancel(false);
-            cleanupFuture = null;
+        if (cleanupHandle != null) {
+            cleanupHandle.cancel();
+            cleanupHandle = null;
         }
-        cleanupExecutor.shutdown();
+        cleanupTimer.shutdown();
 
         for (EndpointList list : pool.values()) {
             for (PoolEntry entry : list.all()) {
@@ -355,11 +350,9 @@ public class ClientEndpointPool {
     // ── Cleanup ──
 
     private synchronized void scheduleCleanupIfNeeded() {
-        if (cleanupFuture == null || cleanupFuture.isDone()) {
-            cleanupFuture = cleanupExecutor.schedule(
-                    new CleanupTask(),
-                    idleTimeoutMs / 2,
-                    TimeUnit.MILLISECONDS);
+        if (cleanupHandle == null || cleanupHandle.isCancelled()) {
+            cleanupHandle = cleanupTimer.schedule(null, idleTimeoutMs / 2,
+                    new CleanupTask());
         }
     }
 
@@ -640,22 +633,4 @@ public class ClientEndpointPool {
         }
     }
 
-    /**
-     * Daemon thread factory for cleanup executor.
-     */
-    private static class DaemonThreadFactory implements ThreadFactory {
-
-        private final String name;
-
-        DaemonThreadFactory(String name) {
-            this.name = name;
-        }
-
-        @Override
-        public Thread newThread(Runnable r) {
-            Thread t = new Thread(r, name);
-            t.setDaemon(true);
-            return t;
-        }
-    }
 }

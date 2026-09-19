@@ -213,9 +213,39 @@ final class ContributingStyleGuardSupport {
         List<String> lines = new ArrayList<String>();
         String withoutBlocks = stripBlockComments(source);
         for (String line : withoutBlocks.split("\n", -1)) {
-            lines.add(line.split("//", 2)[0]);
+            lines.add(maskStringLiterals(line.split("//", 2)[0]));
         }
         return lines;
+    }
+
+    /** Masks double-quoted string contents so doc literals do not false-positive. */
+    private static String maskStringLiterals(String line) {
+        StringBuilder out = new StringBuilder(line.length());
+        boolean inString = false;
+        boolean escape = false;
+        for (int i = 0; i < line.length(); i++) {
+            char c = line.charAt(i);
+            if (inString) {
+                if (escape) {
+                    out.append(' ');
+                    escape = false;
+                } else if (c == '\\') {
+                    out.append(' ');
+                    escape = true;
+                } else if (c == '"') {
+                    out.append('"');
+                    inString = false;
+                } else {
+                    out.append(' ');
+                }
+            } else if (c == '"') {
+                inString = true;
+                out.append(c);
+            } else {
+                out.append(c);
+            }
+        }
+        return out.toString();
     }
 
     private static String stripBlockComments(String source) {

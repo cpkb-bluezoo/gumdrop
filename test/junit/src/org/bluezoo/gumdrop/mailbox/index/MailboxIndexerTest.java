@@ -494,8 +494,15 @@ public class MailboxIndexerTest {
                                 @Override
                                 public void run() throws InterruptedException {
                                     int now = inFlight.incrementAndGet();
-                                    maxInFlight.updateAndGet(
-                                            prev -> Math.max(prev, now));
+                                    while (true) {
+                                        int prev = maxInFlight.get();
+                                        if (now <= prev) {
+                                            break;
+                                        }
+                                        if (maxInFlight.compareAndSet(prev, now)) {
+                                            break;
+                                        }
+                                    }
                                     allRunning.countDown();
                                     Thread.sleep(workMs);
                                     inFlight.decrementAndGet();

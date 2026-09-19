@@ -2706,7 +2706,9 @@ public  class HttpProtocolHandler
         if (expectingInitialSettings()) {
             return;
         }
-        h2Dispatch(() -> {
+        h2Dispatch(new Runnable() {
+            @Override
+            public void run() {
             int dataLength = data.remaining();
             Stream stream = getStream(streamId);
             stream.appendRequestBody(data);
@@ -2736,6 +2738,7 @@ public  class HttpProtocolHandler
                     activeStreams.add(streamId);
                 }
             }
+            }
         });
     }
 
@@ -2747,7 +2750,9 @@ public  class HttpProtocolHandler
         if (expectingInitialSettings()) {
             return;
         }
-        h2Dispatch(() -> {
+        h2Dispatch(new Runnable() {
+            @Override
+            public void run() {
             // RFC 9113 section 5.1.1: client-initiated streams MUST use odd
             // stream IDs and MUST be monotonically increasing; violation is
             // a connection error of type PROTOCOL_ERROR
@@ -2780,6 +2785,7 @@ public  class HttpProtocolHandler
                 state = State.HTTP2_CONTINUATION;
                 continuationStream = streamId;
                 continuationEndStream = endStream;
+            }
             }
         });
     }
@@ -3019,7 +3025,9 @@ public  class HttpProtocolHandler
         if (h2FlowControl == null) {
             return;
         }
-        h2Dispatch(() -> {
+        h2Dispatch(new Runnable() {
+            @Override
+            public void run() {
             boolean overflow = h2FlowControl.onWindowUpdate(streamId, windowSizeIncrement);
             // RFC 9113 section 6.9.1: window exceeding 2^31-1 is a
             // connection error (stream 0) or stream error
@@ -3048,6 +3056,7 @@ public  class HttpProtocolHandler
                     drainPendingData(streamId);
                 }
             }
+            }
         });
     }
 
@@ -3058,7 +3067,9 @@ public  class HttpProtocolHandler
         if (expectingInitialSettings()) {
             return;
         }
-        h2Dispatch(() -> {
+        h2Dispatch(new Runnable() {
+            @Override
+            public void run() {
             checkContinuationLimit();
             Stream stream = getStream(streamId);
             stream.appendHeaderBlockFragment(headerBlockFragment);
@@ -3073,6 +3084,7 @@ public  class HttpProtocolHandler
                 if (stream.isActive()) {
                     activeStreams.add(streamId);
                 }
+            }
             }
         });
     }

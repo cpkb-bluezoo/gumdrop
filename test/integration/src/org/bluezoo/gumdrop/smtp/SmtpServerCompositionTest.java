@@ -32,6 +32,7 @@ import org.junit.Test;
 import java.net.InetAddress;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
+import java.util.function.Supplier;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
@@ -83,8 +84,12 @@ public class SmtpServerCompositionTest {
 
         server = SmtpServer.compose()
                 .listener(listener)
-                .sessionPerConnection(() ->
-                        new BannerServerHandler(serverSessionsOpened))
+                .sessionPerConnection(new Supplier<ClientConnected>() {
+                    @Override
+                    public ClientConnected get() {
+                        return new BannerServerHandler(serverSessionsOpened);
+                    }
+                })
                 .server();
 
         gumdrop.addServer(server);
@@ -178,8 +183,12 @@ public class SmtpServerCompositionTest {
 
         server = SmtpServer.compose()
                 .listener(listener)
-                .sessionPerConnection(() ->
-                        new BannerServerHandler(serverSessionsOpened))
+                .sessionPerConnection(new Supplier<ClientConnected>() {
+                    @Override
+                    public ClientConnected get() {
+                        return new BannerServerHandler(serverSessionsOpened);
+                    }
+                })
                 .server();
 
         gumdrop.addServer(server);

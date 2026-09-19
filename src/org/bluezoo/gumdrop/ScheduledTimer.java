@@ -52,7 +52,7 @@ import java.util.logging.Logger;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-final class ScheduledTimer implements Runnable {
+public final class ScheduledTimer implements Runnable {
 
     private static final Logger LOGGER = Logger.getLogger(ScheduledTimer.class.getName());
 
@@ -81,11 +81,11 @@ final class ScheduledTimer implements Runnable {
     private volatile boolean active;
     private final String name;
 
-    ScheduledTimer() {
+    public ScheduledTimer() {
         this("ScheduledTimer");
     }
 
-    ScheduledTimer(String name) {
+    public ScheduledTimer(String name) {
         this.name = name;
         this.queue = new PriorityQueue<TimerEntry>();
         this.lock = new ReentrantLock();
@@ -219,7 +219,7 @@ final class ScheduledTimer implements Runnable {
      * @param callback the callback to execute
      * @return a TimerHandle that can be used to cancel the timer
      */
-    TimerHandle schedule(ChannelHandler handler, long delayMs, Runnable callback) {
+    public TimerHandle schedule(ChannelHandler handler, long delayMs, Runnable callback) {
         long fireTime = System.currentTimeMillis() + delayMs;
         TimerEntry entry = new TimerEntry(
                 this,
@@ -310,7 +310,7 @@ final class ScheduledTimer implements Runnable {
     /**
      * Shuts down the timer thread.
      */
-    void shutdown() {
+    public void shutdown() {
         active = false;
         lock.lock();
         try {

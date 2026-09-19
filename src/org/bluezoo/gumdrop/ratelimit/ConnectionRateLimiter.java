@@ -28,9 +28,6 @@ import java.util.Map;
 import java.util.ResourceBundle;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.ScheduledFuture;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.logging.Level;
@@ -101,16 +98,10 @@ public class ConnectionRateLimiter {
     private final ConcurrentMap<InetAddress, AtomicInteger> activeConnections;
     private final ConcurrentMap<InetAddress, RateLimiter> connectionRates;
 
-    // Background cleanup
-    private ScheduledExecutorService scheduler;
-    private ScheduledFuture<?> cleanupTask;
-
     /**
      * Timestamp of the last opportunistic cleanup. Cleanup runs inline from
      * the accept path at most once per {@link #CLEANUP_INTERVAL_MS} so that
-     * per-source-IP entries are reclaimed even when no external
-     * {@link #setScheduler scheduler} has been wired in. This removes the
-     * unbounded-growth leak without spawning a thread per listener.
+     * per-source-IP entries are reclaimed without a dedicated background thread.
      */
     private final AtomicLong lastCleanup =
             new AtomicLong(System.currentTimeMillis());
@@ -387,25 +378,10 @@ public class ConnectionRateLimiter {
     }
 
     /**
-     * Sets the scheduler for background cleanup tasks.
-     *
-     * <p>When a scheduler is provided, expired rate limiter entries will be
-     * periodically cleaned up to prevent memory leaks from clients that
-     * connected once and never returned.
-     *
-     * @param scheduler the scheduler to use
-     */
-    public void setScheduler(ScheduledExecutorService scheduler) {
-        this.scheduler = scheduler;
-        scheduleCleanup();
-    }
-
-    /**
      * Runs {@link #cleanup()} inline at most once per
      * {@link #CLEANUP_INTERVAL_MS}. Safe to call on the hot accept path: the
      * CAS gate ensures the O(n) scan happens rarely and only one caller runs
-     * it at a time. This is the fallback that keeps the maps bounded when no
-     * external {@link #setScheduler scheduler} has been provided.
+     * it at a time.
      */
     private void maybeCleanup() {
         long now = System.currentTimeMillis();
@@ -417,34 +393,6 @@ public class ConnectionRateLimiter {
             } catch (RuntimeException e) {
                 LOGGER.log(Level.WARNING,
                         L10N.getString("ratelimit.err.cleanup_failed"), e);
-            }
-        }
-    }
-
-    /**
-     * Schedules the cleanup task.
-     */
-    private void scheduleCleanup() {
-        if (scheduler != null && cleanupTask == null) {
-            cleanupTask = scheduler.scheduleAtFixedRate(
-                new CleanupTask(),
-                CLEANUP_INTERVAL_MS,
-                CLEANUP_INTERVAL_MS,
-                TimeUnit.MILLISECONDS
-            );
-        }
-    }
-
-    /**
-     * Cleans up expired entries.
-     */
-    private class CleanupTask implements Runnable {
-        @Override
-        public void run() {
-            try {
-                cleanup();
-            } catch (Exception e) {
-                LOGGER.log(Level.WARNING, L10N.getString("ratelimit.err.cleanup_failed"), e);
             }
         }
     }
@@ -486,10 +434,6 @@ public class ConnectionRateLimiter {
      * Shuts down the rate limiter, cancelling any scheduled cleanup tasks.
      */
     public void shutdown() {
-        if (cleanupTask != null) {
-            cleanupTask.cancel(false);
-            cleanupTask = null;
-        }
     }
 
     /**

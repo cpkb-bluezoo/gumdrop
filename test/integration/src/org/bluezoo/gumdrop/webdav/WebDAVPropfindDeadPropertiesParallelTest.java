@@ -110,7 +110,15 @@ public class WebDAVPropfindDeadPropertiesParallelTest {
             public void observed(Thread worker) {
                 storageStartTimes.add(System.nanoTime());
                 int now = inFlight.incrementAndGet();
-                maxInFlight.updateAndGet(prev -> Math.max(prev, now));
+                while (true) {
+                    int prev = maxInFlight.get();
+                    if (now <= prev) {
+                        break;
+                    }
+                    if (maxInFlight.compareAndSet(prev, now)) {
+                        break;
+                    }
+                }
                 try {
                     Thread.sleep(STORAGE_DELAY_MS);
                 } catch (InterruptedException e) {

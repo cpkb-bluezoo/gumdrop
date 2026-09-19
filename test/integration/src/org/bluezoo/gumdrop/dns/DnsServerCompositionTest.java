@@ -9,6 +9,7 @@ import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.GumdropConfig;
 import org.bluezoo.gumdrop.dns.server.AuthoritativeZoneHandler;
 import org.bluezoo.gumdrop.dns.server.DnsQueryHandlers;
+import org.bluezoo.gumdrop.dns.server.DnsQueryHandlers.DnsResolveFunction;
 import org.bluezoo.gumdrop.dns.server.DnsServer;
 import org.bluezoo.gumdrop.dns.server.UpstreamRelayHandler;
 import org.bluezoo.gumdrop.dns.server.ZoneFile;
@@ -109,14 +110,17 @@ public class DnsServerCompositionTest {
     public void testFromFunctionHandler() throws Exception {
         DnsServer server = DnsServer.compose()
                 .listener(new DnsListener())
-                .handler(DnsQueryHandlers.fromFunction(query -> {
-                    DnsQuestion q = query.getQuestions().get(0);
-                    if ("local.test.".equals(q.getName())) {
-                        return query.createResponse(Collections.singletonList(
-                                DnsResourceRecord.a("local.test.", 60,
-                                        inetAddress("10.0.0.1"))));
+                .handler(DnsQueryHandlers.fromFunction(new DnsResolveFunction() {
+                    @Override
+                    public DnsMessage resolve(DnsMessage query) {
+                        DnsQuestion q = query.getQuestions().get(0);
+                        if ("local.test.".equals(q.getName())) {
+                            return query.createResponse(Collections.singletonList(
+                                    DnsResourceRecord.a("local.test.", 60,
+                                            inetAddress("10.0.0.1"))));
+                        }
+                        return null;
                     }
-                    return null;
                 }))
                 .server();
 
