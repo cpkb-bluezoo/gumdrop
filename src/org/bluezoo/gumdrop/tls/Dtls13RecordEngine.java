@@ -23,7 +23,9 @@ package org.bluezoo.gumdrop.tls;
 
 import java.io.ByteArrayOutputStream;
 import java.security.cert.X509Certificate;
+import java.util.ArrayDeque;
 import java.util.Arrays;
+import java.util.Deque;
 import java.util.List;
 
 import org.bluezoo.gumdrop.tls.HandshakeAsyncOffload;
@@ -72,6 +74,7 @@ public final class Dtls13RecordEngine {
     private final HandshakeFailureHandler handshakeFailure = new HandshakeFailureHandler();
     private final Tls13DeferredDispatch deferredDispatch;
     private final HandshakeAsyncScheduler handshakeAsync;
+    private final HandshakeAsyncOffload handshakeOffload;
 
     Dtls13DirectionalKeys write;
     Dtls13DirectionalKeys read;
@@ -89,6 +92,8 @@ public final class Dtls13RecordEngine {
     private boolean alertSent;
     private boolean failed;
 
+    private final Deque<byte[]> pendingInboundDatagrams = new ArrayDeque<byte[]>();
+
     public Dtls13RecordEngine(Dtls13HandshakeConfig config, int maxFragmentSize) {
         this(config, maxFragmentSize, null);
     }
@@ -99,8 +104,33 @@ public final class Dtls13RecordEngine {
         base.setMode(HandshakeMode.DTLS);
         this.engine = new HandshakeEngine(base);
         this.maxFragmentSize = Math.max(1, Math.min(maxFragmentSize, MAX_FRAGMENT));
+        this.handshakeOffload = offload;
         this.handshakeAsync = new HandshakeAsyncScheduler(offload, handshakeRunner, handshakeFailure);
         this.deferredDispatch = new Tls13DeferredDispatch(handshakeAsync, innerSink);
+    }
+
+    /**
+     * @see Dtls12RecordEngine#bindHandshakeAsyncIdleListener(Runnable)
+     */
+    public void bindHandshakeAsyncIdleListener(Runnable onIdle) {
+        if (handshakeOffload == null) {
+            return;
+        }
+        handshakeAsync.setOnIdle(new Runnable() {
+            @Override
+            public void run() {
+                if (onIdle != null) {
+                    onIdle.run();
+                }
+                resumePendingInboundDatagrams();
+            }
+        });
+        handshakeOffload.setIdleListener(new Runnable() {
+            @Override
+            public void run() {
+                handshakeAsync.notifyIdle();
+            }
+        });
     }
 
     public void start(TlsRecordSink sink) {
@@ -125,6 +155,14 @@ public final class Dtls13RecordEngine {
             return;
         }
         innerSink.outer = sink;
+        if (handshakeAsync.isEnabled() && handshakeAsync.isBusy()) {
+            pendingInboundDatagrams.addLast(Arrays.copyOfRange(datagram, baseOffset, baseOffset + length));
+            return;
+        }
+        feedDatagramImmediate(datagram, baseOffset, length, sink);
+    }
+
+    private void feedDatagramImmediate(byte[] datagram, int baseOffset, int length, TlsRecordSink sink) {
         int end = baseOffset + length;
         int offset = baseOffset;
         while (offset < end) {
@@ -171,6 +209,27 @@ public final class Dtls13RecordEngine {
                 if (!processCleartextRecord(contentType, epoch, seq, body, sink)) {
                     return;
                 }
+            }
+            if (handshakeAsync.isEnabled() && handshakeAsync.isBusy()) {
+                if (offset < end) {
+                    pendingInboundDatagrams.addFirst(Arrays.copyOfRange(datagram, offset, end));
+                }
+                return;
+            }
+        }
+    }
+
+    private void resumePendingInboundDatagrams() {
+        TlsRecordSink sink = innerSink.outer;
+        if (failed || sink == null) {
+            return;
+        }
+        while (!pendingInboundDatagrams.isEmpty() && !handshakeAsync.isBusy()) {
+            byte[] datagram = pendingInboundDatagrams.pollFirst();
+            feedDatagramImmediate(datagram, 0, datagram.length, sink);
+            if (failed) {
+                pendingInboundDatagrams.clear();
+                return;
             }
         }
     }

@@ -196,6 +196,12 @@ final class Dtls13Session implements TlsRecordSink {
         }
         Dtls13HandshakeConfig engineConfig = wrapConfig(base);
         engine = new Dtls13RecordEngine(engineConfig, config.getMaxFragmentSize(), handshakeOffload(endpoint));
+        engine.bindHandshakeAsyncIdleListener(new Runnable() {
+            @Override
+            public void run() {
+                commitFlightIfNeeded();
+            }
+        });
     }
 
     private Dtls13HandshakeConfig wrapConfig(HandshakeConfig base) {

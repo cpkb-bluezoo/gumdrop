@@ -1261,6 +1261,7 @@
           <include name='org/bluezoo/gumdrop/dns/client/DNSSECTrustAnchorUpdaterTest.java'/>
           <include name='org/bluezoo/gumdrop/dns/client/ResolvConfTest.java'/>
           <include name='org/bluezoo/gumdrop/Dtls12SessionTest.java'/>
+          <include name='org/bluezoo/gumdrop/Dtls12SessionAsyncOffloadTest.java'/>
           <include name='org/bluezoo/gumdrop/Dtls13SessionTest.java'/>
           <include name='org/bluezoo/gumdrop/ftp/file/BasicFTPFileSystemTest.java'/>
           <include name='org/bluezoo/gumdrop/ftp/FtpSessionProviderTest.java'/>

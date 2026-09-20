@@ -60,6 +60,7 @@ import static org.junit.Assert.*;
  */
 public class DTLSIntegrationTest {
 
+    private static final InetAddress LOOPBACK = InetAddress.getLoopbackAddress();
     private static final long TIMEOUT_SECONDS = 10;
 
     private Gumdrop gumdrop;
@@ -141,6 +142,7 @@ public class DTLSIntegrationTest {
 
         @Override
         public void error(Exception cause) {
+            // Server echo handler: failures are logged by the endpoint.
         }
     }
 
@@ -150,6 +152,7 @@ public class DTLSIntegrationTest {
         final CountDownLatch replyLatch = new CountDownLatch(1);
         final AtomicReference<SecurityInfo> securityInfo = new AtomicReference<SecurityInfo>();
         final AtomicReference<String> reply = new AtomicReference<String>();
+        final AtomicReference<Exception> error = new AtomicReference<Exception>();
         volatile Endpoint endpoint;
 
         @Override
@@ -177,6 +180,9 @@ public class DTLSIntegrationTest {
 
         @Override
         public void error(Exception cause) {
+            error.set(cause);
+            securityLatch.countDown();
+            replyLatch.countDown();
         }
     }
 
@@ -187,16 +193,16 @@ public class DTLSIntegrationTest {
         UdpTransportFactory serverFactory = newServerFactory();
 
         EchoHandler echoHandler = new EchoHandler();
-        serverEndpoint = serverFactory.createServerEndpoint(gumdrop, null, port, echoHandler);
+        serverEndpoint = serverFactory.createServerEndpoint(gumdrop, LOOPBACK, port, echoHandler);
 
         UdpTransportFactory clientFactory = newClientFactory();
 
         ClientHandler clientHandler = new ClientHandler();
-        clientEndpoint = clientFactory.connect(gumdrop,
-                InetAddress.getByName("::1"), port, clientHandler);
+        clientEndpoint = clientFactory.connect(gumdrop, LOOPBACK, port, clientHandler);
 
         assertTrue("DTLS handshake should complete and notify the client",
                 clientHandler.securityLatch.await(TIMEOUT_SECONDS, TimeUnit.SECONDS));
+        assertNull("DTLS client error: " + clientHandler.error.get(), clientHandler.error.get());
         assertEquals("DTLSv1.2", clientHandler.securityInfo.get().getProtocol());
 
         clientEndpoint.send(ByteBuffer.wrap("hello over DTLS".getBytes(StandardCharsets.UTF_8)));
@@ -216,19 +222,21 @@ public class DTLSIntegrationTest {
         UdpTransportFactory serverFactory = newServerFactory();
 
         EchoHandler echoHandler = new EchoHandler();
-        serverEndpoint = serverFactory.createServerEndpoint(gumdrop, null, port, echoHandler);
+        serverEndpoint = serverFactory.createServerEndpoint(gumdrop, LOOPBACK, port, echoHandler);
 
         UdpTransportFactory clientFactory1 = newClientFactory();
         UdpTransportFactory clientFactory2 = newClientFactory();
 
         ClientHandler client1Handler = new ClientHandler();
         ClientHandler client2Handler = new ClientHandler();
-        clientEndpoint = clientFactory1.connect(gumdrop, InetAddress.getByName("::1"), port, client1Handler);
+        clientEndpoint = clientFactory1.connect(gumdrop, LOOPBACK, port, client1Handler);
         UdpEndpoint clientEndpoint2 = clientFactory2.connect(
-                gumdrop, InetAddress.getByName("::1"), port, client2Handler);
+                gumdrop, LOOPBACK, port, client2Handler);
         try {
             assertTrue(client1Handler.securityLatch.await(TIMEOUT_SECONDS, TimeUnit.SECONDS));
+            assertNull(client1Handler.error.get());
             assertTrue(client2Handler.securityLatch.await(TIMEOUT_SECONDS, TimeUnit.SECONDS));
+            assertNull(client2Handler.error.get());
 
             clientEndpoint.send(ByteBuffer.wrap("from client one".getBytes(StandardCharsets.UTF_8)));
             clientEndpoint2.send(ByteBuffer.wrap("from client two".getBytes(StandardCharsets.UTF_8)));
