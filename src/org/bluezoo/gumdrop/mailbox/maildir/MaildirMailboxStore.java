@@ -79,7 +79,10 @@ import java.util.logging.Logger;
  * </pre>
  * 
  * <p>The hierarchy delimiter is "/" but folder directories use "." prefix
- * and "." as separator (Maildir++ convention).
+ * and "." as separator (Maildir++ convention). Because "." separates levels,
+ * a dot that is part of a mailbox name is encoded as {@code =2E}: the
+ * mailbox {@code a.b} is the directory {@code .a=2Eb}, and {@code a/b} is
+ * {@code .a.b}.
  * 
  * <p><b>Security:</b> All paths are sandboxed to prevent directory traversal
  * attacks. Paths containing ".." or absolute references are rejected.
@@ -259,6 +262,25 @@ public class MaildirMailboxStore implements MailboxStore {
     }
 
     /**
+     * Encodes one component of a mailbox name for use in a directory name.
+     *
+     * <p>{@link MailboxNameCodec} makes a name safe for a file system, but
+     * leaves dots alone, and Maildir++ uses a dot to separate the levels of
+     * the hierarchy. Left as they were, the mailboxes {@code a.b} and
+     * {@code a/b} would both be the directory {@code .a.b}, and listing it
+     * would report {@code a/b}. So a dot is encoded here in the same
+     * {@code =XX} form the codec uses for other characters, and
+     * {@link MailboxNameCodec#decode} reverses it. The mbox store, whose file
+     * names can safely hold dots, does not do this.
+     *
+     * <p>Directories made before dots were encoded keep the meaning they
+     * always had when listed: {@code .a.b} is {@code a/b}.
+     */
+    private static String encodeComponent(String component) {
+        return MailboxNameCodec.encode(component).replace(".", "=2E");
+    }
+
+    /**
      * Converts an IMAP mailbox name to a Maildir++ directory name.
      * INBOX -> (root)
      * Sent -> .Sent
@@ -266,6 +288,9 @@ public class MaildirMailboxStore implements MailboxStore {
      * 
      * <p>Mailbox name components are encoded for filesystem safety using
      * {@link MailboxNameCodec} before being combined into the directory name.
+     * A dot inside a component is encoded as well (see
+     * {@link #encodeComponent}), so that {@code a.b} and {@code a/b} are
+     * different mailboxes.
      */
     private String mailboxToDirectoryName(String mailboxName) {
         if (mailboxName.equalsIgnoreCase(INBOX)) {
@@ -290,7 +315,7 @@ public class MaildirMailboxStore implements MailboxStore {
             }
             first = false;
             // Encode each component for filesystem safety
-            result.append(MailboxNameCodec.encode(part));
+            result.append(encodeComponent(part));
             partStart = partEnd + 1;
         }
         

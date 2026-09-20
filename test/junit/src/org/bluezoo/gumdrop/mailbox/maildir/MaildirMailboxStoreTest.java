@@ -478,4 +478,82 @@ public class MaildirMailboxStoreTest {
         assertTrue(exists(".work.x/cur"));
         assertTrue("subscriptions are unchanged", store.listSubscribed("", "*").contains("work"));
     }
+
+    // Dots in mailbox names are not hierarchy (Maildir++ separates levels with dots)
+
+    @Test
+    public void testDotInANameIsEncodedNotTakenForHierarchy() throws IOException {
+        store.createMailbox("a.b");
+        assertTrue("stored under an encoded name", exists(".a=2Eb/cur"));
+        assertFalse("and not where a/b would live", exists(".a.b"));
+        assertEquals(Arrays.asList("a.b", "INBOX"), store.listMailboxes("", "*"));
+    }
+
+    @Test
+    public void testNameWithADotAndHierarchyAreDifferentMailboxes() throws IOException {
+        store.createMailbox("a.b");
+        store.createMailbox("a/b");
+        assertEquals(Arrays.asList("a.b", "a/b", "INBOX"), store.listMailboxes("", "*"));
+        writeText(userDir.resolve(".a=2Eb/cur/1.msg:2,S"), "dotted");
+        assertEquals(1, store.openMailbox("a.b", true).getMessageCount());
+        assertEquals(0, store.openMailbox("a/b", true).getMessageCount());
+    }
+
+    @Test
+    public void testDottedComponentInsideAHierarchy() throws IOException {
+        store.createMailbox("x.y/z");
+        assertTrue(exists(".x=2Ey.z/cur"));
+        assertEquals(Arrays.asList("INBOX", "x.y/z"), store.listMailboxes("", "*"));
+    }
+
+    @Test
+    public void testChildDetectionDoesNotConfuseADottedNameWithHierarchy() throws IOException {
+        store.createMailbox("x");
+        store.createMailbox("x.y");
+        assertTrue("x.y is a sibling of x, not its inferior",
+                store.getMailboxAttributes("x").contains(MailboxAttribute.HASNOCHILDREN));
+        store.createMailbox("x/z");
+        assertTrue(store.getMailboxAttributes("x").contains(MailboxAttribute.HASCHILDREN));
+    }
+
+    @Test
+    public void testNamesWithDotsAndOtherEncodedCharactersRoundTrip() throws IOException {
+        String[] names = { "a=b.c", ".hidden", "trailing.", "caf\u00e9.au.lait", "1.2.3" };
+        for (int i = 0; i < names.length; i++) {
+            store.createMailbox(names[i]);
+        }
+        List<String> listed = store.listMailboxes("", "*");
+        for (int i = 0; i < names.length; i++) {
+            assertTrue(names[i] + " in " + listed, listed.contains(names[i]));
+            store.openMailbox(names[i], true).close(false);
+        }
+        assertEquals(names.length + 1, listed.size());
+    }
+
+    @Test
+    public void testDotDotInANameCannotEscapeTheUserDirectory() throws IOException {
+        store.createMailbox("../evil");
+        assertTrue(store.listMailboxes("", "*").contains("../evil"));
+        assertFalse("nothing appears beside the user's directory",
+                Files.exists(root.resolve("evil")));
+        assertFalse(Files.exists(root.resolve("alice").resolve("..").resolve("evil")));
+    }
+
+    @Test
+    public void testRenameOfADottedNameMovesItsInferiors() throws IOException {
+        store.createMailbox("a.b");
+        store.createMailbox("a.b/c.d");
+        store.renameMailbox("a.b", "x.y");
+        assertEquals(Arrays.asList("INBOX", "x.y", "x.y/c.d"), store.listMailboxes("", "*"));
+        assertTrue(exists(".x=2Ey.c=2Ed/cur"));
+    }
+
+    @Test
+    public void testDirectoriesMadeBeforeDotsWereEncodedStillMeanHierarchy() throws IOException {
+        Files.createDirectories(userDir.resolve(".legacy.name/cur"));
+        Files.createDirectories(userDir.resolve(".legacy.name/new"));
+        Files.createDirectories(userDir.resolve(".legacy.name/tmp"));
+        assertTrue(store.listMailboxes("", "*").contains("legacy/name"));
+        store.openMailbox("legacy/name", true).close(false);
+    }
 }
