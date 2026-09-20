@@ -40,17 +40,15 @@ import org.junit.Assume;
 /**
  * Shared TLS fixtures under {@code etc/tls/} (see {@code ant tls-certs}).
  *
- * <p><strong>Roles on loopback tests.</strong> One-way TLS (typical HTTPS) uses
- * two different kinds of material, not two copies of the server certificate:
- * <ul>
- *   <li><strong>Server identity</strong> — {@code cert.pem} and {@code key.pem}
- *       (what the listener presents).</li>
- *   <li><strong>Client trust</strong> — {@code ca.pem} (what the client uses to
- *       validate the server). The client does not use {@code key.pem}.</li>
- * </ul>
- * Mutual TLS adds a separate <strong>client identity</strong> (its own cert and
- * key, issued by the same or another CA). Reusing the server's private key on
- * the client side is wrong even when verification is disabled.
+ * <p><strong>Loopback one-way TLS</strong> (typical HTTPS): the server uses
+ * {@code cert.pem} and {@code key.pem}; the client uses {@code ca.pem} to trust
+ * the server. A client certificate is not involved and client identity is
+ * irrelevant.
+ *
+ * <p><strong>Mutual TLS</strong> tests are different: the client must present
+ * its own certificate and key, distinct from the server's identity (see
+ * {@code TestCertificateManager} client fixtures under
+ * {@code test/integration/certs/}).
  *
  * <p>They are made by {@code ant tls-certs}, which the integration targets
  * run first (see {@code ant/tls.xml}), into {@code etc/tls/} by default
