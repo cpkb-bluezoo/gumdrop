@@ -179,12 +179,6 @@ public class IntegrationTestContext {
         String javaVersion = System.getProperty("java.version");
         logEvent("ENV_CHECK", "Java version: " + javaVersion);
 
-        // Check test directories
-        File configDir = new File("test/integration/config");
-        if (!configDir.exists() || !configDir.isDirectory()) {
-            environmentIssues.add("Integration test config directory not found: " + configDir);
-        }
-
         File certsDir = new File("test/integration/certs");
         if (!certsDir.exists()) {
             certsDir.mkdirs();

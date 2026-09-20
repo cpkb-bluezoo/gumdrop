@@ -134,6 +134,15 @@ class Stream implements HttpResponseState {
         this.streamId = streamId;
     }
 
+    /**
+     * Whether an error status line / HEADERS block may still be committed.
+     * Includes {@link State#IDLE} because {@link #sendError} promotes IDLE to
+     * OPEN before writing (HTTP/1 early parse failures, HTTP/2 before HEADERS).
+     */
+    boolean canCommitErrorResponse() {
+        return state == State.IDLE || state == State.OPEN || state == State.HALF_CLOSED_REMOTE;
+    }
+
     private State state = State.IDLE;
     private Headers headers; // NB these are the *request* headers
     private Headers trailerHeaders; // Trailer headers in chunked request

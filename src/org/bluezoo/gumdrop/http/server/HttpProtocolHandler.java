@@ -1815,9 +1815,22 @@ public  class HttpProtocolHandler
     }
 
     private void sendStreamError(Stream stream, int statusCode) {
+        if (stream == null || !stream.canCommitErrorResponse()) {
+            if (stream != null && LOGGER.isLoggable(Level.FINE)) {
+                LOGGER.fine("Skipping HTTP error " + statusCode
+                        + ": peer already closed the stream or response was sent");
+            }
+            return;
+        }
         try {
             stream.sendError(statusCode);
         } catch (ProtocolException e) {
+            if (!stream.canCommitErrorResponse()) {
+                if (LOGGER.isLoggable(Level.FINE)) {
+                    LOGGER.log(Level.FINE, L10N.getString("err.send_headers"), e);
+                }
+                return;
+            }
             String message = L10N.getString("err.send_headers");
             LOGGER.log(Level.SEVERE, message, e);
         }

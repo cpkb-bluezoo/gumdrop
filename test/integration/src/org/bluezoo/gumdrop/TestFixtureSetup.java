@@ -109,7 +109,9 @@ public class TestFixtureSetup {
             RESULTS_DIR,
             RESULTS_DIR + "/diagnostics",
             RESULTS_DIR + "/reports",
-            "test/integration/mailbox"
+            "test/integration/mailbox",
+            // Optional legacy XML configs (see test/integration/README.md); not required for tests.
+            "test/integration/config"
         };
         
         for (String dir : dirs) {
