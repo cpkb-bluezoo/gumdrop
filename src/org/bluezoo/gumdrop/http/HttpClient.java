@@ -153,9 +153,9 @@ public class HttpClient implements AltSvcListener {
     private boolean earlyDataEnabled;
     private boolean blockPrivateAddresses;
     private long idleTimeoutMs;
-    private boolean sendAcceptEncodingHeader = true;
-    private boolean decodeResponseContentCoding = true;
-    private boolean encodeRequestBodyContentCoding = true;
+    private boolean sendAcceptEncodingHeader = ContentEncoding.isContentCodingEnabled();
+    private boolean decodeResponseContentCoding = ContentEncoding.isContentCodingEnabled();
+    private boolean encodeRequestBodyContentCoding = ContentEncoding.isContentCodingEnabled();
     private ClientEndpointPool connectionPool;
 
     /** Trace context for automatic traceparent propagation on outbound requests. */

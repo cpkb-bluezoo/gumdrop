@@ -174,6 +174,9 @@ final class TlsRecordState implements TlsRecordSink {
      */
     void wrap(ByteBuffer data) {
         if (closed || outboundClosed) {
+            tcpEndpoint.logIntegrationClientTls(Level.INFO,
+                    "client TLS wrap dropped {0} plaintext bytes (closed={1} outboundClosed={2}) remote={3}",
+                    data.remaining(), closed, outboundClosed, callback.getRemoteAddress());
             return;
         }
         synchronized (tcpEndpoint.tlsEngineLock) {
@@ -237,9 +240,15 @@ final class TlsRecordState implements TlsRecordSink {
                     return;
                 }
             }
+            int pending = pendingAppData != null ? pendingAppData.position() : 0;
+            tcpEndpoint.logIntegrationClientTls(Level.INFO,
+                    "client TLS closeOutbound pendingAppData={0} handshakeComplete={1} remote={2}",
+                    pending, engine.isComplete(), callback.getRemoteAddress());
             flushPendingAppData();
             outboundClosed = true;
             engine.sendCloseNotify(this);
+            tcpEndpoint.logIntegrationClientTls(Level.INFO,
+                    "client TLS close_notify queued remote={0}", callback.getRemoteAddress());
         }
     }
 

@@ -34,6 +34,7 @@ import java.net.Socket;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
+import java.util.Locale;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -131,9 +132,18 @@ public abstract class AbstractServerIntegrationTest {
     /**
      * Returns the expected log level during tests.
      * Override to enable more verbose logging for debugging.
-     * Default is WARNING.
+     * Default is WARNING, or the level named by {@code gumdrop.integration.log.level}
+     * (for example {@code FINE} while investigating server-side TLS/HTTP traces).
      */
     protected Level getTestLogLevel() {
+        String prop = System.getProperty("gumdrop.integration.log.level");
+        if (prop != null && !prop.isEmpty()) {
+            try {
+                return Level.parse(prop.trim().toUpperCase(Locale.ROOT));
+            } catch (IllegalArgumentException ignored) {
+                // fall through
+            }
+        }
         return Level.WARNING;
     }
     
@@ -168,6 +178,11 @@ public abstract class AbstractServerIntegrationTest {
         // Also set handler levels to allow FINEST/FINER messages through
         for (java.util.logging.Handler handler : rootLogger.getHandlers()) {
             handler.setLevel(testLevel);
+        }
+        if (testLevel.intValue() <= Level.FINE.intValue()) {
+            Logger.getLogger("org.bluezoo.gumdrop").setLevel(testLevel);
+            Logger.getLogger("org.bluezoo.gumdrop.http.server").setLevel(testLevel);
+            Logger.getLogger("org.bluezoo.gumdrop.http.client").setLevel(testLevel);
         }
         
         Collection<? extends Server> composed = buildServers();

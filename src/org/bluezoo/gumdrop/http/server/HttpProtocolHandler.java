@@ -565,7 +565,10 @@ public  class HttpProtocolHandler
 
     @Override
     public void error(Exception cause) {
-        LOGGER.log(Level.WARNING, L10N.getString("warn.http_transport_error"), cause);
+        LOGGER.log(Level.WARNING, MessageFormat.format(
+                "{0} remote={1} version={2} state={3}",
+                L10N.getString("warn.http_transport_error"),
+                getRemoteSocketAddress(), version, state), cause);
         closeEndpoint();
     }
 

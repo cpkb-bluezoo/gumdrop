@@ -547,6 +547,9 @@ public final class HandshakeConfig {
      * @return true to advertise and use certificate compression when negotiated
      */
     public boolean isCertificateCompressionEnabled() {
+        if (Boolean.getBoolean("gumdrop.tls.disableCertificateCompression")) {
+            return false;
+        }
         return certificateCompressionEnabled;
     }
 

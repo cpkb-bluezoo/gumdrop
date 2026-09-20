@@ -352,7 +352,7 @@ public class HTTPClientVersionIntegrationTest extends AbstractServerIntegrationT
      * (and TLS handshake, if secure) is established.
      */
     private HttpClient connect(int port, boolean secure, boolean forceHttp11) throws Exception {
-        HttpClient client = new HttpClient(TEST_HOST, port);
+        HttpClient client = new HttpClient(gumdrop.nextWorkerLoop(), TEST_HOST, port);
         // Keep the negotiated version deterministic: never let Alt-Svc silently
         // migrate the connection to h3 mid-test.
         client.setAltSvcEnabled(false);

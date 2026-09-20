@@ -38,6 +38,7 @@ import org.bluezoo.gumdrop.ProtocolHandler;
 import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.TcpListener;
 import org.bluezoo.gumdrop.TransportFactory;
+import org.bluezoo.gumdrop.http.ContentEncoding;
 import org.bluezoo.gumdrop.http.server.Http2Listener;
 import org.bluezoo.gumdrop.http.server.HstsPolicy;
 import org.bluezoo.gumdrop.http.server.HttpAuthenticationProvider;
@@ -97,7 +98,7 @@ public class Http3Listener extends TcpListener
      * Whether to compress response bodies when the handler opts in and the
      * client sends {@code Accept-Encoding}. Default: true.
      */
-    private boolean compressResponses = true;
+    private boolean compressResponses = ContentEncoding.isContentCodingEnabled();
 
     private Path certFile;
     private Path keyFile;

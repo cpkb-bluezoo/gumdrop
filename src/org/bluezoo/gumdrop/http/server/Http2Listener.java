@@ -28,6 +28,7 @@ import org.bluezoo.gumdrop.TcpListener;
 import org.bluezoo.gumdrop.TcpTransportFactory;
 import org.bluezoo.gumdrop.TransportFactory;
 import org.bluezoo.gumdrop.TlsConfigSupport;
+import org.bluezoo.gumdrop.http.ContentEncoding;
 import org.bluezoo.gumdrop.tls.TlsConfig;
 
 import java.net.InetAddress;
@@ -156,7 +157,7 @@ public class Http2Listener extends TcpListener {
      * {@code Accept-Encoding} (Brotli preferred, then gzip, then deflate).
      * Uses {@code Content-Encoding} on the response. Default: true.
      */
-    private boolean compressResponses = true;
+    private boolean compressResponses = ContentEncoding.isContentCodingEnabled();
 
     public String getDescription() {
         return secure ? "https" : "http";

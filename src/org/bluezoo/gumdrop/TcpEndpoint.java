@@ -36,6 +36,7 @@ import java.nio.ByteBuffer;
 import java.nio.channels.SelectionKey;
 import java.nio.channels.SocketChannel;
 import java.text.MessageFormat;
+import java.util.Locale;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import java.util.ResourceBundle;
@@ -286,6 +287,42 @@ public class TcpEndpoint implements Endpoint, ChannelHandler, TlsRecordState.Cal
     }
 
     /**
+     * Returns whether this endpoint initiated the TCP connection (client).
+     */
+    public boolean isClientMode() {
+        return clientMode;
+    }
+
+    /**
+     * When {@code gumdrop.integration.log.level} is {@code FINE} or finer,
+     * client TLS close/send paths log extra detail for integration debugging.
+     */
+    public static boolean integrationTlsTraceEnabled() {
+        String prop = System.getProperty("gumdrop.integration.log.level");
+        if (prop == null || prop.isEmpty()) {
+            return false;
+        }
+        try {
+            return Level.parse(prop.trim().toUpperCase(Locale.ROOT)).intValue()
+                    <= Level.FINE.intValue();
+        } catch (IllegalArgumentException e) {
+            return false;
+        }
+    }
+
+    /**
+     * Logs a formatted TLS trace line for client connections during integration runs.
+     */
+    void logIntegrationClientTls(Level level, String pattern, Object... args) {
+        if (!clientMode || !integrationTlsTraceEnabled()) {
+            return;
+        }
+        if (LOGGER.isLoggable(level)) {
+            LOGGER.log(level, MessageFormat.format(pattern, args));
+        }
+    }
+
+    /**
      * Associates this server endpoint with the listener that accepted it, so
      * that {@link Listener#connectionClosed(SocketAddress)} is invoked exactly
      * once when the connection closes. The remote address is captured here
@@ -396,6 +433,9 @@ public class TcpEndpoint implements Endpoint, ChannelHandler, TlsRecordState.Cal
         if (closing) {
             return;
         }
+        logIntegrationClientTls(Level.INFO,
+                "client TcpEndpoint.close netOutPending={0} remote={1}",
+                pendingNetOutBytes(), getRemoteAddress());
         closing = true;
         closeRequested = true;
         if (tlsState != null) {
@@ -413,6 +453,9 @@ public class TcpEndpoint implements Endpoint, ChannelHandler, TlsRecordState.Cal
         if (closing) {
             return;
         }
+        logIntegrationClientTls(Level.INFO,
+                "client TcpEndpoint.closeWhenOutboundIdle netOutPending={0} remote={1}",
+                pendingNetOutBytes(), getRemoteAddress());
         onWriteReady(new Runnable() {
             @Override
             public void run() {
@@ -603,6 +646,12 @@ public class TcpEndpoint implements Endpoint, ChannelHandler, TlsRecordState.Cal
 
     boolean hasPendingWrite() {
         return (netOut != null && netOut.position() > 0) || closeRequested;
+    }
+
+    private int pendingNetOutBytes() {
+        synchronized (netOutLock) {
+            return netOut != null ? netOut.position() : 0;
+        }
     }
 
     /**
@@ -1107,6 +1156,11 @@ public class TcpEndpoint implements Endpoint, ChannelHandler, TlsRecordState.Cal
 
     @Override
     public final void onProtocolError(TlsProtocolError error) {
+        if (LOGGER.isLoggable(Level.WARNING)) {
+            LOGGER.log(Level.WARNING, MessageFormat.format(
+                    Gumdrop.L10N.getString("log.tls_protocol_error"),
+                    getRemoteAddress(), error));
+        }
         handler.error(new javax.net.ssl.SSLException(error.toString()));
     }
 

@@ -936,6 +936,9 @@
     </java>
   </target>
 
+  <!-- Optional: -Dgumdrop.integration.log.level=FINE for server-side JUL traces in integration tests -->
+  <property name='gumdrop.integration.log.level' value=''/>
+
   <!-- Common JUnit settings for integration tests with XML reporting -->
   <macrodef name='integration-junit'>
     <attribute name='includes'/>
@@ -958,6 +961,7 @@
         <!-- System properties for test configuration -->
         <sysproperty key='test.results.dir' value='${testdir}/integration/results'/>
         <sysproperty key='gumdrop.test.tls.dir' value='${integration.tls.dir}'/>
+        <sysproperty key='gumdrop.integration.log.level' value='${gumdrop.integration.log.level}'/>
       </junit>
     </sequential>
   </macrodef>
