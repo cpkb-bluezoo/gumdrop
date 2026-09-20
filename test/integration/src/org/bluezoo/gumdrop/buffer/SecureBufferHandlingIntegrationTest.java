@@ -30,7 +30,6 @@ import org.junit.Test;
 
 import javax.net.ssl.X509TrustManager;
 
-import java.io.File;
 import java.net.InetAddress;
 import java.nio.ByteBuffer;
 import java.util.Collection;
@@ -84,11 +83,6 @@ public class SecureBufferHandlingIntegrationTest extends AbstractServerIntegrati
         throw new IllegalStateException("BufferTestServer not found in server list");
     }
     
-    /**
-     * Creates an SSL socket factory that trusts all certificates.
-     * For testing only.
-     */
-
     @Test
     public void testSecureServerStartsAndAcceptsConnections() throws Exception {
         assertNotNull("Gumdrop should be running", gumdrop);
@@ -98,6 +92,14 @@ public class SecureBufferHandlingIntegrationTest extends AbstractServerIntegrati
         // Verify server is secure
         BufferTestServer server = getBufferTestServer();
         assertTrue("Server should be configured as secure", server.isSecure());
+
+        IntegrationTlsClient.withConnectedEndpoint("::1", TEST_PORT, clientTrust, 5000,
+                new IntegrationTlsClient.ConnectedSession() {
+                    @Override
+                    public void run(org.bluezoo.gumdrop.Endpoint endpoint) {
+                        endpoint.close();
+                    }
+                });
     }
     
     @Test

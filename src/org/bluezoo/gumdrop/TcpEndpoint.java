@@ -115,6 +115,8 @@ public class TcpEndpoint implements Endpoint, ChannelHandler, TlsRecordState.Cal
     final Object tlsEngineLock = new Object();
     boolean closeRequested;
 
+    private boolean disconnectDelivered;
+
     // Write-completion callback for backpressure support.
     // Invoked on the SelectorLoop thread after netOut has been fully drained.
     private Runnable writeCompleteCallback;
@@ -708,12 +710,7 @@ public class TcpEndpoint implements Endpoint, ChannelHandler, TlsRecordState.Cal
 
     void handleEOF() {
         try {
-            handler.disconnected();
-        } catch (Exception e) {
-            LOGGER.log(Level.WARNING, L10N.getString("log.error_in_disconnected_handler"), e);
-            if (trace != null && trace.getRootSpan() != null) {
-                trace.getRootSpan().recordException(e);
-            }
+            deliverDisconnected();
         } finally {
             try {
                 endTrace();
@@ -917,7 +914,23 @@ public class TcpEndpoint implements Endpoint, ChannelHandler, TlsRecordState.Cal
         }
     }
 
+    void deliverDisconnected() {
+        if (disconnectDelivered) {
+            return;
+        }
+        disconnectDelivered = true;
+        try {
+            handler.disconnected();
+        } catch (Exception e) {
+            LOGGER.log(Level.WARNING, L10N.getString("log.error_in_disconnected_handler"), e);
+            if (trace != null && trace.getRootSpan() != null) {
+                trace.getRootSpan().recordException(e);
+            }
+        }
+    }
+
     void doClose() {
+        deliverDisconnected();
         endTrace();
         try {
             if (channel != null) {
@@ -1041,7 +1054,6 @@ public class TcpEndpoint implements Endpoint, ChannelHandler, TlsRecordState.Cal
 
     @Override
     public final void onClosed() {
-        handler.disconnected();
         doClose();
     }
 

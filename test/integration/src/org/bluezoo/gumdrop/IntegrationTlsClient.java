@@ -96,7 +96,17 @@ public final class IntegrationTlsClient {
      */
     public static void sendAndClose(String host, int port, byte[] outbound, X509TrustManager trustManager,
             int timeoutMs) throws Exception {
-        run(host, port, trustManager, timeoutMs, new Session() {
+        sendAndClose(null, host, port, outbound, trustManager, timeoutMs);
+    }
+
+    /**
+     * Like {@link #sendAndClose(String, int, byte[], X509TrustManager, int)} but
+     * uses an existing {@link Gumdrop} runtime (e.g. the test server's instance)
+     * instead of booting a separate one.
+     */
+    public static void sendAndClose(Gumdrop runtime, String host, int port, byte[] outbound,
+            X509TrustManager trustManager, int timeoutMs) throws Exception {
+        run(runtime, host, port, trustManager, timeoutMs, new Session() {
             @Override
             public void onReady(Endpoint endpoint) throws Exception {
                 endpoint.send(ByteBuffer.wrap(outbound));
@@ -119,7 +129,16 @@ public final class IntegrationTlsClient {
      */
     public static void withConnectedEndpoint(String host, int port, X509TrustManager trustManager,
             int timeoutMs, ConnectedSession session) throws Exception {
-        run(host, port, trustManager, timeoutMs, new Session() {
+        withConnectedEndpoint(null, host, port, trustManager, timeoutMs, session);
+    }
+
+    /**
+     * Like {@link #withConnectedEndpoint(String, int, X509TrustManager, int, ConnectedSession)}
+     * but uses an existing {@link Gumdrop} runtime.
+     */
+    public static void withConnectedEndpoint(Gumdrop runtime, String host, int port,
+            X509TrustManager trustManager, int timeoutMs, ConnectedSession session) throws Exception {
+        run(runtime, host, port, trustManager, timeoutMs, new Session() {
             @Override
             public void onReady(Endpoint endpoint) throws Exception {
                 session.run(endpoint);
@@ -153,8 +172,8 @@ public final class IntegrationTlsClient {
         boolean isComplete(ByteArrayOutputStream inbound);
     }
 
-    private static byte[] run(String host, int port, X509TrustManager trustManager, int timeoutMs, Session session)
-            throws Exception {
+    private static byte[] run(Gumdrop runtime, String host, int port, X509TrustManager trustManager,
+            int timeoutMs, Session session) throws Exception {
         TcpTransportFactory factory = new TcpTransportFactory();
         factory.setSecure(true);
         factory.setApplicationProtocols("http/1.1");
@@ -164,17 +183,23 @@ public final class IntegrationTlsClient {
         CountDownLatch doneLatch = new CountDownLatch(1);
         AtomicReference<Exception> error = new AtomicReference<Exception>();
         java.util.concurrent.atomic.AtomicBoolean tlsEstablished = new java.util.concurrent.atomic.AtomicBoolean();
+        AtomicReference<Endpoint> activeEndpoint = new AtomicReference<Endpoint>();
         ByteArrayOutputStream inbound = new ByteArrayOutputStream();
 
-        Gumdrop gumdrop = Gumdrop.boot();
+        boolean ownsRuntime = (runtime == null);
+        Gumdrop gumdrop = ownsRuntime
+                ? Gumdrop.boot(GumdropConfig.create().drainTimeoutMs(0))
+                : runtime;
         ClientEndpoint client = new ClientEndpoint(factory, gumdrop.nextWorkerLoop(),
                 InetAddress.getByName(host), port);
+        try {
         client.connect(gumdrop, new ProtocolHandler() {
             private Endpoint endpoint;
 
             @Override
             public void connected(Endpoint endpoint) {
                 this.endpoint = endpoint;
+                activeEndpoint.set(endpoint);
             }
 
             @Override
@@ -218,6 +243,10 @@ public final class IntegrationTlsClient {
         });
 
         if (!doneLatch.await(timeoutMs, TimeUnit.MILLISECONDS)) {
+            Endpoint open = activeEndpoint.get();
+            if (open != null) {
+                open.close();
+            }
             client.close();
             throw new java.io.IOException("TLS session timed out after " + timeoutMs + "ms");
         }
@@ -225,6 +254,17 @@ public final class IntegrationTlsClient {
             throw error.get();
         }
         return inbound.toByteArray();
+        } finally {
+            client.close();
+            if (ownsRuntime) {
+                gumdrop.shutdown();
+            }
+        }
+    }
+
+    private static byte[] run(String host, int port, X509TrustManager trustManager, int timeoutMs,
+            Session session) throws Exception {
+        return run(null, host, port, trustManager, timeoutMs, session);
     }
 
 }

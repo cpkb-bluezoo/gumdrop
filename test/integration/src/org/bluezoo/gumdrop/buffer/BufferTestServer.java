@@ -25,6 +25,8 @@ import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.ProtocolHandler;
 import org.bluezoo.gumdrop.TcpListener;
 import org.bluezoo.gumdrop.SecurityInfo;
+import org.bluezoo.gumdrop.TcpTransportFactory;
+import org.bluezoo.gumdrop.TransportFactory;
 
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
@@ -99,6 +101,18 @@ public class BufferTestServer extends TcpListener {
     @Override
     protected ProtocolHandler createHandler() {
         return new BufferTestConnection(this);
+    }
+
+    /**
+     * Match {@link IntegrationTlsClient} / {@link org.bluezoo.gumdrop.http.server.Http2Listener}
+     * ALPN so TLS handshakes complete when the client offers {@code http/1.1}.
+     */
+    @Override
+    protected void configureTransportFactory(TransportFactory factory) {
+        super.configureTransportFactory(factory);
+        if (isSecure() && factory instanceof TcpTransportFactory) {
+            ((TcpTransportFactory) factory).setApplicationProtocols("http/1.1");
+        }
     }
 
     @Override

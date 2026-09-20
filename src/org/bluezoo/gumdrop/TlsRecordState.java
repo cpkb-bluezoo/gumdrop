@@ -90,7 +90,10 @@ final class TlsRecordState implements TlsRecordSink {
     private final Callback callback;
 
     private boolean handshakeStarted;
+    /** Application handler has been notified via {@link Callback#onClosed()}. */
     private boolean closed;
+    /** Local {@code close_notify} was queued; suppresses further {@link #wrap}. */
+    private boolean outboundClosed;
 
     // Mirrors SSLState's own pendingAppData field: an RFC 4217-style
     // "client speaks first" protocol can call wrap() with real
@@ -170,7 +173,7 @@ final class TlsRecordState implements TlsRecordSink {
      * directly to {@code tcpEndpoint.netOut}.
      */
     void wrap(ByteBuffer data) {
-        if (closed) {
+        if (closed || outboundClosed) {
             return;
         }
         synchronized (tcpEndpoint.tlsEngineLock) {
@@ -225,10 +228,10 @@ final class TlsRecordState implements TlsRecordSink {
      * {@code tcpEndpoint.netOut}.
      */
     void closeOutbound() {
-        if (closed) {
+        if (closed || outboundClosed) {
             return;
         }
-        closed = true;
+        outboundClosed = true;
         synchronized (tcpEndpoint.tlsEngineLock) {
             synchronized (tcpEndpoint.netOutLock) {
                 if (netOut() == null) {
@@ -391,7 +394,7 @@ final class TlsRecordState implements TlsRecordSink {
     private static HandshakeAsyncOffload handshakeOffload(final TcpEndpoint endpoint) {
         SelectorLoop loop = endpoint.getSelectorLoop();
         Gumdrop gumdrop = (loop != null) ? loop.getGumdrop() : null;
-        return new TlsHandshakeAsyncOffload(loopExecutor(endpoint), gumdrop);
+        return new TlsHandshakeAsyncOffload(loopExecutor(endpoint), gumdrop, endpoint);
     }
 
     private static Executor loopExecutor(final TcpEndpoint endpoint) {
