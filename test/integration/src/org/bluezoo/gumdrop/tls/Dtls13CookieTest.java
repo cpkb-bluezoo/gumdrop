@@ -32,6 +32,7 @@ import java.util.List;
 
 import javax.net.ssl.X509TrustManager;
 
+import org.bluezoo.gumdrop.IntegrationTestHosts;
 import org.bluezoo.gumdrop.TestTlsFiles;
 import org.bluezoo.gumdrop.crypto.KeyExchange;
 import org.bluezoo.gumdrop.crypto.NamedGroup;
@@ -52,7 +53,8 @@ import static org.junit.Assert.assertTrue;
  */
 public class Dtls13CookieTest {
 
-    private static final String SERVER_NAME = "test.gumdrop.local";
+    /** Must match a DNS SAN on {@code etc/tls/cert.pem} (see {@code integration.tls.names}). */
+    private static final String SERVER_NAME = IntegrationTestHosts.TLS_SERVER_NAME;
     private static final byte[] COOKIE_SECRET = "dtls13-cookie-test-secret".getBytes(java.nio.charset.StandardCharsets.US_ASCII);
 
     private static List<X509Certificate> ecChain;

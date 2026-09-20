@@ -42,6 +42,7 @@ import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
 import org.bluezoo.gumdrop.TlsHandshakeAsyncOffload;
+import org.bluezoo.gumdrop.IntegrationTestHosts;
 import org.bluezoo.gumdrop.TestTlsFiles;
 import org.bluezoo.gumdrop.crypto.NamedGroup;
 
@@ -56,7 +57,8 @@ import org.bluezoo.gumdrop.crypto.NamedGroup;
  */
 public class TlsRecordEngineTest {
 
-    private static final String SERVER_NAME = "test.gumdrop.local";
+    /** Must match a DNS SAN on {@code etc/tls/cert.pem} (see {@code integration.tls.names}). */
+    private static final String SERVER_NAME = IntegrationTestHosts.TLS_SERVER_NAME;
 
     private static List<X509Certificate> ecChain;
     private static PrivateKey ecKey;
