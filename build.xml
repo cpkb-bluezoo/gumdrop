@@ -1301,10 +1301,41 @@
     </junit>
   </target>
 
-  <!-- Run all integration tests -->
+  <!-- Run all integration tests (fast-fail: first failing test class or group
+       stops the rest; see integration.halt and integration-test-coverage-suite). -->
   <target name='integration-test'
           depends='integration-test-loopback,integration-test-relocated,integration-test-http,integration-test-http-client,integration-test-smtp,integration-test-pop3,integration-test-imap,integration-test-ftp,integration-test-webdav,integration-test-servlet,integration-test-telemetry,integration-test-buffer,integration-test-tls,integration-test-websocket,integration-test-dtls,integration-test-performance'
           description='Run all integration tests'>
+  </target>
+
+  <!-- Same groups as integration-test, but each runs in its own Ant invocation
+       with failonerror=false so one red group does not skip the remainder.
+       Used only from coverage-integration (integration.halt=no there). -->
+  <macrodef name='integration-coverage-run'>
+    <attribute name='target'/>
+    <sequential>
+      <ant antfile='${ant.file}' target='@{target}' inheritAll='true' failonerror='false'/>
+    </sequential>
+  </macrodef>
+
+  <target name='integration-test-coverage-suite'
+          description='Run all integration groups for JaCoCo (no fast-fail between groups)'>
+    <integration-coverage-run target='integration-test-loopback'/>
+    <integration-coverage-run target='integration-test-relocated'/>
+    <integration-coverage-run target='integration-test-http'/>
+    <integration-coverage-run target='integration-test-http-client'/>
+    <integration-coverage-run target='integration-test-smtp'/>
+    <integration-coverage-run target='integration-test-pop3'/>
+    <integration-coverage-run target='integration-test-imap'/>
+    <integration-coverage-run target='integration-test-ftp'/>
+    <integration-coverage-run target='integration-test-webdav'/>
+    <integration-coverage-run target='integration-test-servlet'/>
+    <integration-coverage-run target='integration-test-telemetry'/>
+    <integration-coverage-run target='integration-test-buffer'/>
+    <integration-coverage-run target='integration-test-tls'/>
+    <integration-coverage-run target='integration-test-websocket'/>
+    <integration-coverage-run target='integration-test-dtls'/>
+    <integration-coverage-run target='integration-test-performance'/>
   </target>
 
   <!-- Run all integration tests with reports -->
@@ -1318,15 +1349,17 @@
           description='Run all unit and integration tests'>
   </target>
 
-  <!-- Integration-test coverage. Re-runs integration-test in a child Ant so the
-       JaCoCo agent reaches every forked test JVM (all append to one exec file).
-       Failures do not stop the run: many integration tests depend on the local
-       environment, and partial coverage is still useful. -->
+  <!-- Integration-test coverage. Re-runs the integration suite in a child Ant so
+       the JaCoCo agent reaches every forked test JVM (all append to one exec
+       file). Unlike ant integration-test, this does not fast-fail: every group
+       runs and every test class in a group runs (integration.halt=no), so
+       partial coverage is still useful when something is red locally. -->
   <target name='coverage-integration' depends='integration-build,resolve-jacoco'
           description='Run integration tests under JaCoCo (exec file only)'>
     <mkdir dir='${integration.coverage.dir}'/>
     <delete file='${integration.coverage.exec}' quiet='true'/>
-    <ant antfile='${ant.file}' target='integration-test' inheritAll='false'>
+    <ant antfile='${ant.file}' target='integration-test-coverage-suite' inheritAll='false'
+         failonerror='false'>
       <property name='integration.halt' value='no'/>
       <property name='jacoco.jvmarg'
                 value='-javaagent:${testdir}/junit/lib/${jacoco.agent.runtime.jar}=destfile=${integration.coverage.exec},append=true,excludes=java/**:javax/**:sun/**:com/sun/**:jdk/**'/>
@@ -1334,8 +1367,13 @@
   </target>
 
   <!-- Combined unit + integration coverage report in test/coverage-report/. -->
-  <target name='coverage-all' depends='junit-coverage,coverage-integration'
+  <target name='coverage-all' depends='junit-coverage,coverage-integration,coverage-all-report'
           description='Merge unit and integration JaCoCo data into test/coverage-report/'>
+  </target>
+
+  <target name='coverage-all-report'
+          depends='resolve-jacoco'
+          description='Merge JaCoCo exec files into test/coverage-report/ (internal)'>
     <taskdef uri='antlib:org.jacoco.ant' resource='org/jacoco/ant/antlib.xml'>
       <classpath refid='jacoco.ant.classpath'/>
     </taskdef>
