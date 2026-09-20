@@ -36,6 +36,7 @@ import java.nio.file.FileSystem;
 import java.nio.file.FileSystemException;
 import java.nio.file.LinkOption;
 import java.nio.file.NoSuchFileException;
+import java.nio.file.NotLinkException;
 import java.nio.file.NotDirectoryException;
 import java.nio.file.OpenOption;
 import java.nio.file.Path;
@@ -50,8 +51,11 @@ import java.nio.file.attribute.FileTime;
 import java.nio.file.attribute.PosixFileAttributeView;
 import java.nio.file.attribute.PosixFileAttributes;
 import java.nio.file.attribute.PosixFilePermission;
+import java.nio.file.attribute.PosixFilePermissions;
 import java.nio.file.spi.FileSystemProvider;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
@@ -95,59 +99,199 @@ final class MemoryFileSystemProvider extends FileSystemProvider {
 
     // Node resolution. Callers must hold fs.lock.
 
-    private MemoryPath resolved(Path path) {
+    /** The most symbolic links followed while resolving one path. */
+    private static final int MAX_LINK_HOPS = 40;
+
+    /**
+     * Where a path leads: the directory that holds the final component, the
+     * component's name, the node it names (null if there is none), and the
+     * canonical names from the root to it.
+     */
+    private static final class Location {
+        final MemoryNode parent;
+        final String leaf;
+        final MemoryNode node;
+        final List<String> canonical;
+
+        Location(MemoryNode parent, String leaf, MemoryNode node, List<String> canonical) {
+            this.parent = parent;
+            this.leaf = leaf;
+            this.node = node;
+            this.canonical = canonical;
+        }
+    }
+
+    private MemoryPath absolute(Path path) {
         if (!(path instanceof MemoryPath) || path.getFileSystem() != fs) {
             throw new java.nio.file.ProviderMismatchException();
         }
-        return (MemoryPath) path.toAbsolutePath().normalize();
+        return (MemoryPath) path.toAbsolutePath();
     }
 
     /**
-     * Returns the node at {@code path}, or null if any component is missing.
+     * Walks {@code path} from the root, resolving {@code .}, {@code ..} and
+     * symbolic links as a real file system does: {@code ..} steps back out
+     * of the directory actually reached, which after a link is not the
+     * lexical parent. The last component is followed only if
+     * {@code followLast} is set.
+     *
+     * @throws NoSuchFileException if a directory on the way is missing
+     * @throws FileSystemException if a component on the way is not a
+     *         directory, or there are too many links
      */
-    MemoryNode lookup(MemoryPath path) {
-        MemoryPath abs = resolved(path);
-        MemoryNode node = fs.rootNode;
-        String[] names = abs.names();
-        for (int i = 0; i < names.length; i++) {
-            if (!node.directory) {
-                return null;
+    private Location locate(Path path, boolean followLast) throws IOException {
+        MemoryPath abs = absolute(path);
+        ArrayDeque<String> pending = new ArrayDeque<String>(Arrays.asList(abs.names()));
+        ArrayList<MemoryNode> dirs = new ArrayList<MemoryNode>();
+        ArrayList<String> names = new ArrayList<String>();
+        dirs.add(fs.rootNode);
+        int hops = 0;
+        MemoryNode last = fs.rootNode;
+        String lastLeaf = null;
+        MemoryNode lastParent = null;
+        while (!pending.isEmpty()) {
+            String name = pending.pollFirst();
+            boolean isLast = pending.isEmpty();
+            if (name.equals(".")) {
+                continue;
             }
-            node = node.children.get(names[i]);
-            if (node == null) {
-                return null;
+            if (name.equals("..")) {
+                if (dirs.size() > 1) {
+                    dirs.remove(dirs.size() - 1);
+                    names.remove(names.size() - 1);
+                }
+                continue;
             }
+            MemoryNode dir = dirs.get(dirs.size() - 1);
+            MemoryNode child = dir.children.get(name);
+            if (child == null) {
+                if (isLast) {
+                    List<String> canonical = new ArrayList<String>(names);
+                    canonical.add(name);
+                    return new Location(dir, name, null, canonical);
+                }
+                throw new NoSuchFileException(path.toString());
+            }
+            if (child.isSymbolicLink() && (!isLast || followLast)) {
+                hops++;
+                if (hops > MAX_LINK_HOPS) {
+                    throw new FileSystemException(path.toString(), null,
+                            "Too many levels of symbolic links");
+                }
+                MemoryPath target = MemoryPath.parse(fs, child.linkTarget);
+                if (target.isAbsolute()) {
+                    while (dirs.size() > 1) {
+                        dirs.remove(dirs.size() - 1);
+                    }
+                    names.clear();
+                }
+                String[] targetNames = target.names();
+                for (int k = targetNames.length - 1; k >= 0; k--) {
+                    pending.addFirst(targetNames[k]);
+                }
+                continue;
+            }
+            if (isLast) {
+                List<String> canonical = new ArrayList<String>(names);
+                canonical.add(name);
+                return new Location(dir, name, child, canonical);
+            }
+            if (!child.directory) {
+                throw new FileSystemException(path.toString(), null, "Not a directory");
+            }
+            dirs.add(child);
+            names.add(name);
         }
-        return node;
+        // The path ended on the root, ".", ".." or the target of a link
+        // that ended that way: it names the directory now on top.
+        last = dirs.get(dirs.size() - 1);
+        if (dirs.size() > 1) {
+            lastParent = dirs.get(dirs.size() - 2);
+            lastLeaf = names.get(names.size() - 1);
+        }
+        return new Location(lastParent, lastLeaf, last, new ArrayList<String>(names));
+    }
+
+    /**
+     * Returns the node at {@code path}, following links, or null if there is
+     * none.
+     */
+    MemoryNode lookup(Path path) throws IOException {
+        try {
+            return locate(path, true).node;
+        } catch (NoSuchFileException e) {
+            return null;
+        }
     }
 
     MemoryNode require(Path path) throws IOException {
-        MemoryNode node = lookup((MemoryPath) resolved(path));
+        return require(path, true);
+    }
+
+    /**
+     * Returns the node at {@code path}; the last link is followed only if
+     * {@code follow} is set.
+     */
+    MemoryNode require(Path path, boolean follow) throws IOException {
+        MemoryNode node;
+        try {
+            node = locate(path, follow).node;
+        } catch (NoSuchFileException e) {
+            throw new NoSuchFileException(path.toString());
+        }
         if (node == null) {
             throw new NoSuchFileException(path.toString());
         }
         return node;
     }
 
-    private MemoryNode requireParentDirectory(Path path) throws IOException {
-        MemoryPath abs = resolved(path);
-        Path parent = abs.getParent();
-        if (parent == null) {
+    /**
+     * Returns the canonical path of an existing file.
+     */
+    Path realPath(MemoryPath path, LinkOption... options) throws IOException {
+        boolean follow = follows(options);
+        synchronized (fs.lock) {
+            if (!follow) {
+                Path lexical = path.toAbsolutePath().normalize();
+                require(lexical, false);
+                return lexical;
+            }
+            Location loc = locate(path, true);
+            if (loc.node == null) {
+                throw new NoSuchFileException(path.toString());
+            }
+            return new MemoryPath(fs, true, loc.canonical.toArray(new String[0]));
+        }
+    }
+
+    private static boolean follows(LinkOption... options) {
+        for (int i = 0; i < options.length; i++) {
+            if (options[i] == LinkOption.NOFOLLOW_LINKS) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static boolean follows(CopyOption... options) {
+        for (int i = 0; i < options.length; i++) {
+            if (options[i] == LinkOption.NOFOLLOW_LINKS) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /**
+     * Locates where a new entry named by {@code path} would go. The parent
+     * must exist and be a directory, and the leaf must not be a special name.
+     */
+    private Location locateForCreate(Path path, boolean followLast) throws IOException {
+        Location loc = locate(path, followLast);
+        if (loc.parent == null || loc.leaf == null) {
             throw new FileAlreadyExistsException(path.toString());
         }
-        MemoryNode node = lookup((MemoryPath) parent);
-        if (node == null) {
-            throw new NoSuchFileException(path.toString());
-        }
-        if (!node.directory) {
-            throw new NotDirectoryException(parent.toString());
-        }
-        return node;
-    }
-
-    private static String leafName(MemoryPath abs) {
-        String[] names = abs.names();
-        return names[names.length - 1];
+        return loc;
     }
 
     // Channels
@@ -173,10 +317,20 @@ final class MemoryFileSystemProvider extends FileSystemProvider {
         if (options.contains(StandardOpenOption.DELETE_ON_CLOSE)) {
             throw new UnsupportedOperationException("DELETE_ON_CLOSE");
         }
+        boolean followLinks = !options.contains(LinkOption.NOFOLLOW_LINKS);
         synchronized (fs.lock) {
-            MemoryPath abs = resolved(path);
-            MemoryNode node = lookup(abs);
+            if (createNew && write && locate(path, false).node != null) {
+                // Exclusive creation does not follow a link: even a dangling
+                // one is "already there".
+                throw new FileAlreadyExistsException(path.toString());
+            }
+            Location loc = locate(path, followLinks);
+            MemoryNode node = loc.node;
             if (node != null) {
+                if (node.isSymbolicLink()) {
+                    throw new FileSystemException(path.toString(), null,
+                            "Too many levels of symbolic links");
+                }
                 if (createNew && write) {
                     throw new FileAlreadyExistsException(path.toString());
                 }
@@ -191,10 +345,12 @@ final class MemoryFileSystemProvider extends FileSystemProvider {
                 if (!write || !(create || createNew)) {
                     throw new NoSuchFileException(path.toString());
                 }
-                MemoryNode parent = requireParentDirectory(abs);
+                if (loc.parent == null) {
+                    throw new NoSuchFileException(path.toString());
+                }
                 node = new MemoryNode(fs.nextId(), false, fs.tick());
-                parent.children.put(leafName(abs), node);
-                parent.modified = fs.tick();
+                loc.parent.children.put(loc.leaf, node);
+                loc.parent.modified = fs.tick();
             }
             return new MemoryFileChannel(fs, node, read, write, append);
         }
@@ -240,95 +396,139 @@ final class MemoryFileSystemProvider extends FileSystemProvider {
     @Override
     public void createDirectory(Path dir, FileAttribute<?>... attrs) throws IOException {
         synchronized (fs.lock) {
-            MemoryPath abs = resolved(dir);
-            if (lookup(abs) != null) {
+            Location loc = locateForCreate(dir, false);
+            if (loc.node != null) {
                 throw new FileAlreadyExistsException(dir.toString());
             }
-            MemoryNode parent = requireParentDirectory(abs);
-            parent.children.put(leafName(abs), new MemoryNode(fs.nextId(), true, fs.tick()));
-            parent.modified = fs.tick();
+            loc.parent.children.put(loc.leaf, new MemoryNode(fs.nextId(), true, fs.tick()));
+            loc.parent.modified = fs.tick();
+        }
+    }
+
+    @Override
+    public void createSymbolicLink(Path link, Path target, FileAttribute<?>... attrs)
+            throws IOException {
+        if (!(target instanceof MemoryPath) || target.getFileSystem() != fs) {
+            throw new java.nio.file.ProviderMismatchException();
+        }
+        synchronized (fs.lock) {
+            Location loc = locateForCreate(link, false);
+            if (loc.node != null) {
+                throw new FileAlreadyExistsException(link.toString());
+            }
+            MemoryNode node = new MemoryNode(fs.nextId(), false, fs.tick());
+            node.linkTarget = target.toString();
+            node.permissions = PosixFilePermissions.fromString("rwxrwxrwx");
+            loc.parent.children.put(loc.leaf, node);
+            loc.parent.modified = fs.tick();
+        }
+    }
+
+    @Override
+    public Path readSymbolicLink(Path link) throws IOException {
+        synchronized (fs.lock) {
+            MemoryNode node = require(link, false);
+            if (!node.isSymbolicLink()) {
+                throw new NotLinkException(link.toString());
+            }
+            return MemoryPath.parse(fs, node.linkTarget);
         }
     }
 
     @Override
     public void delete(Path path) throws IOException {
         synchronized (fs.lock) {
-            MemoryPath abs = resolved(path);
-            MemoryNode node = require(abs);
-            if (node == fs.rootNode) {
+            Location loc = locate(path, false);
+            if (loc.node == null) {
+                throw new NoSuchFileException(path.toString());
+            }
+            if (loc.node == fs.rootNode || loc.parent == null) {
                 throw new FileSystemException(path.toString(), null, "Cannot delete root");
             }
-            if (node.directory && !node.children.isEmpty()) {
+            if (loc.node.directory && !loc.node.children.isEmpty()) {
                 throw new DirectoryNotEmptyException(path.toString());
             }
-            MemoryNode parent = requireParentDirectory(abs);
-            parent.children.remove(leafName(abs));
-            parent.modified = fs.tick();
+            loc.parent.children.remove(loc.leaf);
+            loc.parent.modified = fs.tick();
         }
     }
 
     @Override
     public void copy(Path source, Path target, CopyOption... options) throws IOException {
+        boolean followSource = follows(options);
         synchronized (fs.lock) {
-            MemoryNode src = require(source);
-            MemoryPath dst = resolved(target);
-            prepareTarget(dst, target, options);
-            MemoryNode copy = new MemoryNode(fs.nextId(), src.directory, fs.tick());
-            if (!src.directory) {
-                copy.ensureCapacity(src.size);
-                System.arraycopy(src.data, 0, copy.data, 0, src.size);
-                copy.size = src.size;
+            Location src = locate(source, followSource);
+            if (src.node == null) {
+                throw new NoSuchFileException(source.toString());
             }
-            copy.permissions = new HashSet<PosixFilePermission>(src.permissions);
-            requireParentDirectory(dst).children.put(leafName(dst), copy);
+            Location dst = prepareTarget(target, options);
+            MemoryNode copy = new MemoryNode(fs.nextId(), src.node.directory, fs.tick());
+            if (src.node.isSymbolicLink()) {
+                copy.linkTarget = src.node.linkTarget;
+            } else if (!src.node.directory) {
+                copy.ensureCapacity(src.node.size);
+                System.arraycopy(src.node.data, 0, copy.data, 0, src.node.size);
+                copy.size = src.node.size;
+            }
+            copy.permissions = new HashSet<PosixFilePermission>(src.node.permissions);
+            dst.parent.children.put(dst.leaf, copy);
+            dst.parent.modified = fs.tick();
         }
     }
 
     @Override
     public void move(Path source, Path target, CopyOption... options) throws IOException {
         synchronized (fs.lock) {
-            MemoryPath src = resolved(source);
-            MemoryNode node = require(src);
-            MemoryPath dst = resolved(target);
-            if (src.equals(dst)) {
+            Location src = locate(source, false);
+            if (src.node == null) {
+                throw new NoSuchFileException(source.toString());
+            }
+            if (src.parent == null) {
+                throw new FileSystemException(source.toString(), null, "Cannot move root");
+            }
+            Location existing = locate(target, false);
+            if (existing.node == src.node) {
                 return;
             }
-            if (dst.startsWith(src)) {
+            MemoryPath srcLexical = (MemoryPath) source.toAbsolutePath().normalize();
+            MemoryPath dstLexical = (MemoryPath) target.toAbsolutePath().normalize();
+            if (dstLexical.startsWith(srcLexical)) {
                 throw new FileSystemException(source.toString(), target.toString(),
                         "Cannot move a directory into itself");
             }
-            prepareTarget(dst, target, options);
-            MemoryNode dstParent = requireParentDirectory(dst);
-            requireParentDirectory(src).children.remove(leafName(src));
-            dstParent.children.put(leafName(dst), node);
-            node.modified = fs.tick();
+            Location dst = prepareTarget(target, options);
+            src.parent.children.remove(src.leaf);
+            dst.parent.children.put(dst.leaf, src.node);
+            src.parent.modified = fs.tick();
+            dst.parent.modified = fs.tick();
+            src.node.modified = fs.tick();
         }
     }
 
     /**
-     * Validates the target of a copy or move and removes an existing entry
-     * when REPLACE_EXISTING was requested.
+     * Validates the target of a copy or move, removes an existing entry when
+     * REPLACE_EXISTING was requested, and returns where the new entry goes.
+     * An existing link is itself the target; it is not followed.
      */
-    private void prepareTarget(MemoryPath dst, Path target, CopyOption[] options)
-            throws IOException {
+    private Location prepareTarget(Path target, CopyOption[] options) throws IOException {
         boolean replace = false;
         for (int i = 0; i < options.length; i++) {
             if (options[i] == StandardCopyOption.REPLACE_EXISTING) {
                 replace = true;
             }
         }
-        MemoryNode existing = lookup(dst);
-        if (existing == null) {
-            requireParentDirectory(dst);
-            return;
+        Location dst = locateForCreate(target, false);
+        if (dst.node == null) {
+            return dst;
         }
         if (!replace) {
             throw new FileAlreadyExistsException(target.toString());
         }
-        if (existing.directory && !existing.children.isEmpty()) {
+        if (dst.node.directory && !dst.node.children.isEmpty()) {
             throw new DirectoryNotEmptyException(target.toString());
         }
-        requireParentDirectory(dst).children.remove(leafName(dst));
+        dst.parent.children.remove(dst.leaf);
+        return dst;
     }
 
     @Override
@@ -354,7 +554,7 @@ final class MemoryFileSystemProvider extends FileSystemProvider {
     @Override
     public void checkAccess(Path path, AccessMode... modes) throws IOException {
         synchronized (fs.lock) {
-            MemoryNode node = require(path);
+            MemoryNode node = require(path, true);
             for (int i = 0; i < modes.length; i++) {
                 PosixFilePermission needed;
                 switch (modes[i]) {
@@ -381,7 +581,7 @@ final class MemoryFileSystemProvider extends FileSystemProvider {
             LinkOption... options) {
         if (type == BasicFileAttributeView.class || type == PosixFileAttributeView.class
                 || type == FileOwnerAttributeView.class) {
-            return (V) new MemoryFileAttributes.View(fs, resolved(path));
+            return (V) new MemoryFileAttributes.View(fs, absolute(path), follows(options));
         }
         return null;
     }
@@ -394,7 +594,7 @@ final class MemoryFileSystemProvider extends FileSystemProvider {
             throw new UnsupportedOperationException(type.getName());
         }
         synchronized (fs.lock) {
-            return (A) new MemoryFileAttributes(require(path));
+            return (A) new MemoryFileAttributes(require(path, follows(options)));
         }
     }
 
@@ -413,7 +613,7 @@ final class MemoryFileSystemProvider extends FileSystemProvider {
         }
         MemoryFileAttributes a;
         synchronized (fs.lock) {
-            a = new MemoryFileAttributes(require(path));
+            a = new MemoryFileAttributes(require(path, follows(options)));
         }
         Map<String, Object> all = new HashMap<String, Object>();
         all.put("size", Long.valueOf(a.size()));
@@ -422,7 +622,7 @@ final class MemoryFileSystemProvider extends FileSystemProvider {
         all.put("creationTime", a.creationTime());
         all.put("isDirectory", Boolean.valueOf(a.isDirectory()));
         all.put("isRegularFile", Boolean.valueOf(a.isRegularFile()));
-        all.put("isSymbolicLink", Boolean.FALSE);
+        all.put("isSymbolicLink", Boolean.valueOf(a.isSymbolicLink()));
         all.put("isOther", Boolean.FALSE);
         all.put("fileKey", a.fileKey());
         if (view.equals("posix")) {
@@ -449,7 +649,7 @@ final class MemoryFileSystemProvider extends FileSystemProvider {
             LinkOption... options) throws IOException {
         String name = attribute.substring(attribute.indexOf(':') + 1);
         PosixFileAttributeView view =
-                getFileAttributeView(path, PosixFileAttributeView.class);
+                getFileAttributeView(path, PosixFileAttributeView.class, options);
         if (name.equals("lastModifiedTime")) {
             view.setTimes((FileTime) value, null, null);
         } else if (name.equals("lastAccessTime")) {

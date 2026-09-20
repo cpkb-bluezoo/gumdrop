@@ -63,7 +63,9 @@ final class MemoryFileAttributes implements PosixFileAttributes {
 
     MemoryFileAttributes(MemoryNode node) {
         this.node = node;
-        this.size = node.directory ? 0 : node.size;
+        this.size = node.isSymbolicLink()
+                ? node.linkTarget.getBytes(java.nio.charset.StandardCharsets.UTF_8).length
+                : (node.directory ? 0 : node.size);
         this.modified = node.modified;
         this.accessed = node.accessed;
         this.created = node.created;
@@ -87,7 +89,7 @@ final class MemoryFileAttributes implements PosixFileAttributes {
 
     @Override
     public boolean isRegularFile() {
-        return !node.directory;
+        return !node.directory && !node.isSymbolicLink();
     }
 
     @Override
@@ -97,7 +99,7 @@ final class MemoryFileAttributes implements PosixFileAttributes {
 
     @Override
     public boolean isSymbolicLink() {
-        return false;
+        return node.isSymbolicLink();
     }
 
     @Override
@@ -137,10 +139,12 @@ final class MemoryFileAttributes implements PosixFileAttributes {
 
         private final MemoryFileSystem fs;
         private final MemoryPath path;
+        private final boolean follow;
 
-        View(MemoryFileSystem fs, MemoryPath path) {
+        View(MemoryFileSystem fs, MemoryPath path, boolean follow) {
             this.fs = fs;
             this.path = path;
+            this.follow = follow;
         }
 
         @Override
@@ -151,7 +155,7 @@ final class MemoryFileAttributes implements PosixFileAttributes {
         @Override
         public PosixFileAttributes readAttributes() throws IOException {
             synchronized (fs.lock) {
-                return new MemoryFileAttributes(fs.provider.require(path));
+                return new MemoryFileAttributes(fs.provider.require(path, follow));
             }
         }
 
@@ -159,7 +163,7 @@ final class MemoryFileAttributes implements PosixFileAttributes {
         public void setTimes(FileTime lastModifiedTime, FileTime lastAccessTime,
                 FileTime createTime) throws IOException {
             synchronized (fs.lock) {
-                MemoryNode node = fs.provider.require(path);
+                MemoryNode node = fs.provider.require(path, follow);
                 if (lastModifiedTime != null) {
                     node.modified = lastModifiedTime.toMillis();
                 }
@@ -175,7 +179,7 @@ final class MemoryFileAttributes implements PosixFileAttributes {
         @Override
         public void setPermissions(Set<PosixFilePermission> perms) throws IOException {
             synchronized (fs.lock) {
-                fs.provider.require(path).permissions =
+                fs.provider.require(path, follow).permissions =
                         new HashSet<PosixFilePermission>(perms);
             }
         }

@@ -413,4 +413,37 @@ public class MaildirMailboxStoreTest {
         assertEquals(0, quota.getMessageCount());
         assertEquals(0, quota.getStorageUsed());
     }
+
+    // Symbolic links planted in the user's directory
+
+    private Path outsideWithFile() throws IOException {
+        Path outside = mem.getPath("/outside");
+        Files.createDirectories(outside);
+        writeText(outside.resolve("precious.txt"), "not yours to delete");
+        return outside;
+    }
+
+    @Test
+    public void testDeleteMailboxRemovesLinksButNeverTheirTargets() throws IOException {
+        Path outside = outsideWithFile();
+        store.createMailbox("Sent");
+        Files.createSymbolicLink(userDir.resolve(".Sent/tmp/escape"), outside);
+        Files.createSymbolicLink(userDir.resolve(".Sent/link"), outside);
+        store.deleteMailbox("Sent");
+        assertFalse(Files.exists(userDir.resolve(".Sent"), java.nio.file.LinkOption.NOFOLLOW_LINKS));
+        assertEquals("not yours to delete", new String(
+                Files.readAllBytes(outside.resolve("precious.txt")), StandardCharsets.UTF_8));
+    }
+
+    @Test
+    public void testQuotaDoesNotCountThroughDirectoryLinks() throws IOException {
+        Path outside = outsideWithFile();
+        Files.createDirectories(outside.resolve("cur"));
+        writeBytes(outside.resolve("cur/big"), 4096);
+        Files.createSymbolicLink(userDir.resolve(".elsewhere"), outside);
+        writeBytes(userDir.resolve("cur/mine"), 1024);
+        MailboxStore.Quota quota = store.getQuota("alice");
+        assertEquals(1, quota.getMessageCount());
+        assertEquals(1, quota.getStorageUsed());
+    }
 }

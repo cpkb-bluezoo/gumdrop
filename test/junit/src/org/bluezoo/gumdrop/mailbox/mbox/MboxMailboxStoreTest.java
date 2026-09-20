@@ -320,4 +320,16 @@ public class MboxMailboxStoreTest {
         store.open("alice");
         assertNull(store.getQuota("bob"));
     }
+
+    @Test
+    public void testListingAndQuotaDoNotDescendThroughDirectoryLinks() throws IOException {
+        store.open("alice");
+        Path outside = tempDir.resolveSibling("outside");
+        Files.createDirectories(outside);
+        Files.write(outside.resolve("stolen.mbox"), new byte[4096]);
+        Files.createSymbolicLink(tempDir.resolve("alice/shared"), outside);
+        assertEquals(java.util.Arrays.asList("INBOX"), store.listMailboxes("", "*"));
+        assertEquals(0, store.getQuota("alice").getStorageUsed());
+        assertEquals(1, store.getQuota("alice").getMessageCount());
+    }
 }

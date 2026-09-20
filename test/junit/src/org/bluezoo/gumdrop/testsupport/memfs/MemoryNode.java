@@ -42,6 +42,8 @@ final class MemoryNode {
     long accessed;
     long created;
     Set<PosixFilePermission> permissions;
+    /** For a symbolic link, the target as written; null otherwise. */
+    String linkTarget;
 
     MemoryNode(long id, boolean directory, long now) {
         this.id = id;
@@ -53,6 +55,10 @@ final class MemoryNode {
         this.created = now;
         this.permissions = PosixFilePermissions.fromString(
                 directory ? "rwxr-xr-x" : "rw-r--r--");
+    }
+
+    boolean isSymbolicLink() {
+        return linkTarget != null;
     }
 
     void ensureCapacity(int needed) {

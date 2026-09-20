@@ -63,7 +63,9 @@ import java.util.logging.Logger;
  */
 public class FileHandlerTest {
 
+    private MemoryFileSystem mem;
     private Path root;
+    private Path outside;   // a directory beside, not inside, the web root
     private Path helloFile;   // /hello.txt
     private Path subDir;      // /sub
     private Path nestedFile;  // /sub/nested.txt
@@ -73,8 +75,12 @@ public class FileHandlerTest {
     @Before
     public void setUp() throws Exception {
         Logger.getLogger(FileHandler.class.getName()).setLevel(Level.SEVERE);
-        root = MemoryFileSystem.create().getPath("/webroot");
+        mem = MemoryFileSystem.create();
+        root = mem.getPath("/webroot");
         Files.createDirectories(root);
+        outside = mem.getPath("/outside");
+        Files.createDirectories(outside);
+        Files.write(outside.resolve("secret.txt"), "TOP SECRET".getBytes(StandardCharsets.UTF_8));
         helloFile = root.resolve("hello.txt");
         Files.write(helloFile, HELLO.getBytes(StandardCharsets.UTF_8));
         subDir = Files.createDirectory(root.resolve("sub"));
@@ -386,6 +392,63 @@ public class FileHandlerTest {
                 headers(DavConstants.HEADER_DEPTH, "1"));
         String xml = new String(st.body(), StandardCharsets.UTF_8);
         assertFalse("nested.txt is two levels down: " + xml, xml.contains("nested.txt"));
+    }
+
+    // ── COPY and symbolic links inside a collection ──
+
+    @Test
+    public void testCopyDoesNotCopyThroughFileLinkPointingOutsideTheRoot() throws Exception {
+        Files.createSymbolicLink(root.resolve("sub/leak"), outside.resolve("secret.txt"));
+        RecordingState st = dispatch(newHandler(true), "COPY", "/sub",
+                headers(DavConstants.HEADER_DESTINATION, "/copied"));
+        assertEquals(HttpStatus.CREATED.code, st.status());
+        assertFalse("outside content must not be copied into the web root",
+                Files.exists(root.resolve("copied/leak"),
+                        java.nio.file.LinkOption.NOFOLLOW_LINKS));
+        assertTrue("ordinary siblings are still copied",
+                Files.exists(root.resolve("copied/nested.txt")));
+    }
+
+    @Test
+    public void testCopyDoesNotDescendThroughDirectoryLinkPointingOutsideTheRoot()
+            throws Exception {
+        Files.createSymbolicLink(root.resolve("sub/outdir"), outside);
+        RecordingState st = dispatch(newHandler(true), "COPY", "/sub",
+                headers(DavConstants.HEADER_DESTINATION, "/copied"));
+        assertEquals(HttpStatus.CREATED.code, st.status());
+        assertFalse(Files.exists(root.resolve("copied/outdir/secret.txt")));
+        assertFalse(Files.exists(root.resolve("copied/outdir"),
+                java.nio.file.LinkOption.NOFOLLOW_LINKS));
+    }
+
+    @Test(timeout = 30000)
+    public void testCopyTerminatesOnLinkLoopBackToAnAncestor() throws Exception {
+        Files.createSymbolicLink(root.resolve("sub/loop"), root);
+        RecordingState st = dispatch(newHandler(true), "COPY", "/sub",
+                headers(DavConstants.HEADER_DESTINATION, "/copied"));
+        assertEquals(HttpStatus.CREATED.code, st.status());
+        assertTrue(Files.exists(root.resolve("copied/nested.txt")));
+        assertFalse("the loop must not be unrolled into the copy",
+                Files.exists(root.resolve("copied/loop/sub"),
+                        java.nio.file.LinkOption.NOFOLLOW_LINKS));
+    }
+
+    @Test
+    public void testCopyStillFollowsALinkThatStaysInsideTheRoot() throws Exception {
+        Files.createSymbolicLink(root.resolve("sub/alias"), helloFile);
+        RecordingState st = dispatch(newHandler(true), "COPY", "/sub",
+                headers(DavConstants.HEADER_DESTINATION, "/copied"));
+        assertEquals(HttpStatus.CREATED.code, st.status());
+        assertEquals(HELLO, new String(
+                Files.readAllBytes(root.resolve("copied/alias")), StandardCharsets.UTF_8));
+    }
+
+    @Test(timeout = 30000)
+    public void testCopyOfCollectionIntoItselfIsRefused() throws Exception {
+        RecordingState st = dispatch(newHandler(true), "COPY", "/sub",
+                headers(DavConstants.HEADER_DESTINATION, "/sub/inner"));
+        assertEquals(HttpStatus.FORBIDDEN.code, st.status());
+        assertFalse(Files.exists(root.resolve("sub/inner/nested.txt")));
     }
 
     // ── Recording HttpResponseState double ──

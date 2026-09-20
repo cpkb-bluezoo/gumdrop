@@ -26,7 +26,6 @@ import java.net.URI;
 import java.net.URISyntaxException;
 import java.nio.file.FileSystem;
 import java.nio.file.LinkOption;
-import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.nio.file.WatchEvent;
 import java.nio.file.WatchKey;
@@ -246,13 +245,7 @@ final class MemoryPath implements Path {
 
     @Override
     public Path toRealPath(LinkOption... options) throws IOException {
-        Path abs = toAbsolutePath().normalize();
-        synchronized (fs.lock) {
-            if (fs.provider.lookup((MemoryPath) abs) == null) {
-                throw new NoSuchFileException(toString());
-            }
-        }
-        return abs;
+        return fs.provider.realPath(this, options);
     }
 
     @Override

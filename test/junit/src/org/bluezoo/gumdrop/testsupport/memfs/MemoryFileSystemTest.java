@@ -621,4 +621,220 @@ public class MemoryFileSystemTest {
         ch.close();
         assertArrayEquals(bytes("ok"), Files.readAllBytes(f));
     }
+
+    // Symbolic links
+
+    private Path link(String link, String target) throws IOException {
+        return Files.createSymbolicLink(fs.getPath(link), fs.getPath(target));
+    }
+
+    @Test
+    public void testCreateAndReadSymbolicLink() throws IOException {
+        Files.write(fs.getPath("/target"), bytes("data"));
+        link("/l", "/target");
+        assertTrue(Files.isSymbolicLink(fs.getPath("/l")));
+        assertFalse(Files.isSymbolicLink(fs.getPath("/target")));
+        assertEquals(fs.getPath("/target"), Files.readSymbolicLink(fs.getPath("/l")));
+    }
+
+    @Test
+    public void testSymbolicLinkErrors() throws IOException {
+        Files.createFile(fs.getPath("/f"));
+        link("/l", "/f");
+        try {
+            link("/l", "/f");
+            fail("expected FileAlreadyExistsException");
+        } catch (FileAlreadyExistsException expected) {
+            // link name taken
+        }
+        try {
+            Files.readSymbolicLink(fs.getPath("/f"));
+            fail("expected NotLinkException");
+        } catch (java.nio.file.NotLinkException expected) {
+            // not a link
+        }
+        try {
+            link("/no/parent/l", "/f");
+            fail("expected NoSuchFileException");
+        } catch (NoSuchFileException expected) {
+            // parent missing
+        }
+    }
+
+    @Test
+    public void testReadAndWriteThroughFileLink() throws IOException {
+        Files.write(fs.getPath("/target"), bytes("data"));
+        link("/l", "/target");
+        assertArrayEquals(bytes("data"), Files.readAllBytes(fs.getPath("/l")));
+        Files.write(fs.getPath("/l"), bytes("changed"));
+        assertArrayEquals(bytes("changed"), Files.readAllBytes(fs.getPath("/target")));
+        assertTrue(Files.isSymbolicLink(fs.getPath("/l")));
+    }
+
+    @Test
+    public void testAttributesFollowLinksUnlessAskedNot() throws IOException {
+        Files.write(fs.getPath("/target"), bytes("abc"));
+        link("/l", "/target");
+        BasicFileAttributes followed = Files.readAttributes(fs.getPath("/l"),
+                BasicFileAttributes.class);
+        assertTrue(followed.isRegularFile());
+        assertFalse(followed.isSymbolicLink());
+        assertEquals(3, followed.size());
+        BasicFileAttributes own = Files.readAttributes(fs.getPath("/l"),
+                BasicFileAttributes.class, java.nio.file.LinkOption.NOFOLLOW_LINKS);
+        assertTrue(own.isSymbolicLink());
+        assertFalse(own.isRegularFile());
+        assertFalse(own.isDirectory());
+    }
+
+    @Test
+    public void testDirectoryLinkIsTraversedAndIsADirectory() throws IOException {
+        Files.createDirectories(fs.getPath("/real"));
+        Files.write(fs.getPath("/real/f"), bytes("x"));
+        link("/alias", "/real");
+        assertTrue(Files.isDirectory(fs.getPath("/alias")));
+        assertFalse(Files.isDirectory(fs.getPath("/alias"),
+                java.nio.file.LinkOption.NOFOLLOW_LINKS));
+        assertArrayEquals(bytes("x"), Files.readAllBytes(fs.getPath("/alias/f")));
+        Files.write(fs.getPath("/alias/g"), bytes("y"));
+        assertTrue(Files.exists(fs.getPath("/real/g")));
+    }
+
+    @Test
+    public void testRelativeLinkResolvesAgainstTheLinksDirectory() throws IOException {
+        Files.createDirectories(fs.getPath("/a"));
+        Files.createDirectories(fs.getPath("/b"));
+        Files.write(fs.getPath("/b/f"), bytes("rel"));
+        Files.createSymbolicLink(fs.getPath("/a/l"), fs.getPath("../b/f"));
+        assertArrayEquals(bytes("rel"), Files.readAllBytes(fs.getPath("/a/l")));
+    }
+
+    @Test
+    public void testDotDotAfterALinkGoesToTheRealParent() throws IOException {
+        Files.createDirectories(fs.getPath("/x"));
+        Files.createDirectories(fs.getPath("/y/z"));
+        Files.write(fs.getPath("/y/marker"), bytes("real parent"));
+        link("/x/l", "/y/z");
+        assertArrayEquals(bytes("real parent"),
+                Files.readAllBytes(fs.getPath("/x/l/../marker")));
+        assertFalse(Files.exists(fs.getPath("/x/marker")));
+    }
+
+    @Test
+    public void testDanglingLink() throws IOException {
+        link("/l", "/missing");
+        assertFalse(Files.exists(fs.getPath("/l")));
+        assertTrue(Files.exists(fs.getPath("/l"), java.nio.file.LinkOption.NOFOLLOW_LINKS));
+        try {
+            Files.readAllBytes(fs.getPath("/l"));
+            fail("expected NoSuchFileException");
+        } catch (NoSuchFileException expected) {
+            // target is missing
+        }
+    }
+
+    @Test
+    public void testCreateNewDoesNotFollowADanglingLinkButPlainCreateDoes() throws IOException {
+        link("/l", "/made");
+        try {
+            Files.createFile(fs.getPath("/l"));
+            fail("expected FileAlreadyExistsException");
+        } catch (FileAlreadyExistsException expected) {
+            // O_EXCL semantics
+        }
+        Files.write(fs.getPath("/l"), bytes("through"));
+        assertArrayEquals(bytes("through"), Files.readAllBytes(fs.getPath("/made")));
+    }
+
+    @Test
+    public void testLinkLoopIsAnErrorNotAHang() throws IOException {
+        link("/a", "/b");
+        link("/b", "/a");
+        assertFalse(Files.exists(fs.getPath("/a")));
+        try {
+            Files.readAllBytes(fs.getPath("/a"));
+            fail("expected an IOException");
+        } catch (java.nio.file.FileSystemException expected) {
+            assertTrue(expected.getReason(), expected.getReason().contains("symbolic links"));
+        }
+        try {
+            fs.getPath("/a").toRealPath();
+            fail("expected an IOException");
+        } catch (java.nio.file.FileSystemException expected) {
+            // too many links
+        }
+    }
+
+    @Test
+    public void testToRealPathResolvesLinks() throws IOException {
+        Files.createDirectories(fs.getPath("/real/sub"));
+        Files.write(fs.getPath("/real/sub/f"), bytes("x"));
+        link("/alias", "/real");
+        assertEquals("/real/sub/f", fs.getPath("/alias/sub/f").toRealPath().toString());
+        assertEquals("/alias/sub/f", fs.getPath("/alias/sub/f")
+                .toRealPath(java.nio.file.LinkOption.NOFOLLOW_LINKS).toString());
+        assertEquals("/real", fs.getPath("/alias/sub/..").toRealPath().toString());
+    }
+
+    @Test
+    public void testDeleteRemovesTheLinkNotTheTarget() throws IOException {
+        Files.createDirectories(fs.getPath("/real"));
+        Files.write(fs.getPath("/real/f"), bytes("keep"));
+        link("/alias", "/real");
+        Files.delete(fs.getPath("/alias"));
+        assertFalse(Files.exists(fs.getPath("/alias"), java.nio.file.LinkOption.NOFOLLOW_LINKS));
+        assertArrayEquals(bytes("keep"), Files.readAllBytes(fs.getPath("/real/f")));
+    }
+
+    @Test
+    public void testWalkFileTreeDoesNotFollowLinksByDefault() throws IOException {
+        Files.createDirectories(fs.getPath("/tree"));
+        Files.createDirectories(fs.getPath("/outside"));
+        Files.write(fs.getPath("/outside/secret"), bytes("s"));
+        link("/tree/l", "/outside");
+        final List<String> seen = new ArrayList<String>();
+        Files.walkFileTree(fs.getPath("/tree"), new java.nio.file.SimpleFileVisitor<Path>() {
+            @Override
+            public java.nio.file.FileVisitResult visitFile(Path file, BasicFileAttributes attrs) {
+                seen.add(file + (attrs.isSymbolicLink() ? " (link)" : ""));
+                return java.nio.file.FileVisitResult.CONTINUE;
+            }
+        });
+        assertEquals(java.util.Arrays.asList("/tree/l (link)"), seen);
+    }
+
+    @Test
+    public void testCopyFollowsLinksUnlessAskedNot() throws IOException {
+        Files.write(fs.getPath("/target"), bytes("content"));
+        link("/l", "/target");
+        Files.copy(fs.getPath("/l"), fs.getPath("/copy"));
+        assertFalse(Files.isSymbolicLink(fs.getPath("/copy")));
+        assertArrayEquals(bytes("content"), Files.readAllBytes(fs.getPath("/copy")));
+        Files.copy(fs.getPath("/l"), fs.getPath("/linkcopy"),
+                java.nio.file.LinkOption.NOFOLLOW_LINKS);
+        assertTrue(Files.isSymbolicLink(fs.getPath("/linkcopy")));
+        assertEquals(fs.getPath("/target"), Files.readSymbolicLink(fs.getPath("/linkcopy")));
+    }
+
+    @Test
+    public void testMoveMovesTheLinkItself() throws IOException {
+        Files.write(fs.getPath("/target"), bytes("t"));
+        link("/l", "/target");
+        Files.move(fs.getPath("/l"), fs.getPath("/moved"));
+        assertTrue(Files.isSymbolicLink(fs.getPath("/moved")));
+        assertFalse(Files.exists(fs.getPath("/l"), java.nio.file.LinkOption.NOFOLLOW_LINKS));
+        assertArrayEquals(bytes("t"), Files.readAllBytes(fs.getPath("/target")));
+    }
+
+    @Test
+    public void testLinkComponentThatIsAFileIsNotADirectory() throws IOException {
+        Files.createFile(fs.getPath("/f"));
+        link("/l", "/f");
+        try {
+            Files.createFile(fs.getPath("/l/child"));
+            fail("expected an IOException");
+        } catch (IOException expected) {
+            // a file cannot hold children, even through a link
+        }
+    }
 }

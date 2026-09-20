@@ -508,4 +508,45 @@ public class BasicFTPFileSystemInMemoryTest {
     public void testAllocateSpace() {
         assertEquals(FtpFileOperationResult.SUCCESS, fs.allocateSpace("/test", 1024, null));
     }
+
+    // Symbolic links
+
+    @Test
+    public void testLinkToADirectoryOutsideTheRootIsDenied() throws IOException {
+        Files.createDirectories(mem.getPath("/srv/secret"));
+        Files.write(mem.getPath("/srv/secret/passwd"), "x".getBytes(StandardCharsets.UTF_8));
+        Files.createSymbolicLink(root.resolve("escape"), mem.getPath("/srv/secret"));
+        assertEquals(FtpFileOperationResult.ACCESS_DENIED,
+                fs.changeDirectory("/escape", "/", null).getResult());
+        assertNull(fs.listDirectory("/escape", null));
+        assertNull(fs.openForReading("/escape/passwd", 0, null));
+        assertNull(fs.getFileInfo("/escape/passwd", null));
+    }
+
+    @Test
+    public void testLinkToAFileOutsideTheRootIsDenied() throws IOException {
+        Files.write(mem.getPath("/srv/outside.txt"), "x".getBytes(StandardCharsets.UTF_8));
+        Files.createSymbolicLink(root.resolve("leak.txt"), mem.getPath("/srv/outside.txt"));
+        assertNull(fs.openForReading("/leak.txt", 0, null));
+        assertEquals(FtpFileOperationResult.ACCESS_DENIED, fs.deleteFile("/leak.txt", null));
+        assertTrue(Files.exists(mem.getPath("/srv/outside.txt")));
+    }
+
+    @Test
+    public void testUploadThroughALinkOutsideTheRootIsDenied() throws IOException {
+        Files.createDirectories(mem.getPath("/srv/secret"));
+        Files.createSymbolicLink(root.resolve("escape"), mem.getPath("/srv/secret"));
+        assertNull(fs.openForWriting("/escape/planted.txt", false, null));
+        assertFalse(Files.exists(mem.getPath("/srv/secret/planted.txt")));
+    }
+
+    @Test
+    public void testLinkStayingInsideTheRootIsFollowed() throws IOException {
+        Files.createDirectories(root.resolve("real"));
+        Files.write(root.resolve("real/f.txt"), "in root".getBytes(StandardCharsets.UTF_8));
+        Files.createSymbolicLink(root.resolve("alias"), root.resolve("real"));
+        assertEquals("in root", read(fs.openForReading("/alias/f.txt", 0, null)));
+        assertEquals(FtpFileOperationResult.SUCCESS,
+                fs.changeDirectory("/alias", "/", null).getResult());
+    }
 }

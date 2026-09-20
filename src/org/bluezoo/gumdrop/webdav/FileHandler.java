@@ -1220,7 +1220,15 @@ class FileHandler extends DefaultHttpRequestHandler {
 
         try {
             if (Files.isDirectory(path)) {
-                copyDirectory(path, destPath, depth);
+                Path sourceReal = path.toRealPath();
+                Path destReal = realPathAllowingMissing(destPath);
+                if (depth != 0 && destReal.startsWith(sourceReal)) {
+                    // RFC 4918 section 9.8.5: a collection cannot be
+                    // copied into itself.
+                    return HttpStatus.FORBIDDEN;
+                }
+                copyDirectory(path, destPath, depth,
+                        new CopyGuard(sourceReal, destReal));
             } else {
                 if (overwrite) {
                     Files.copy(path, destPath,
@@ -2364,7 +2372,21 @@ class FileHandler extends DefaultHttpRequestHandler {
         }
     }
 
-    private void copyDirectory(Path source, Path target, int depth)
+    /**
+     * What a recursive COPY must not re-enter: the directories being copied
+     * and the destination they are copied to.
+     */
+    private static final class CopyGuard {
+        private final Path destination;
+        private final List<Path> sources = new ArrayList<Path>();
+
+        CopyGuard(Path sourceReal, Path destinationReal) {
+            this.destination = destinationReal;
+            this.sources.add(sourceReal);
+        }
+    }
+
+    private void copyDirectory(Path source, Path target, int depth, CopyGuard guard)
             throws IOException {
         if (!Files.exists(target)) {
             Files.createDirectory(target);
@@ -2381,10 +2403,18 @@ class FileHandler extends DefaultHttpRequestHandler {
             if (DeadPropertyStore.isSidecarName(childName)) {
                 continue;
             }
+            if (Files.isSymbolicLink(childSource) && !isSafeToCopyLink(childSource, guard)) {
+                continue;
+            }
             Path childTarget = target.resolve(childName);
 
             if (Files.isDirectory(childSource)) {
-                copyDirectory(childSource, childTarget, depth - 1);
+                guard.sources.add(childSource.toRealPath());
+                try {
+                    copyDirectory(childSource, childTarget, depth - 1, guard);
+                } finally {
+                    guard.sources.remove(guard.sources.size() - 1);
+                }
             } else {
                 Files.copy(childSource, childTarget,
                         StandardCopyOption.REPLACE_EXISTING);
@@ -2394,6 +2424,55 @@ class FileHandler extends DefaultHttpRequestHandler {
                 }
             }
         }
+    }
+
+    /**
+     * Decides whether a symbolic link met while copying a collection may be
+     * followed. Its target must be inside the web root, so that a link
+     * planted in a collection cannot pull outside files into it, and a
+     * directory target must not contain a directory being copied or the
+     * destination, since following it would copy the tree into itself
+     * without end. A link that fails these tests is skipped, and one whose
+     * target is missing has nothing to copy.
+     */
+    private boolean isSafeToCopyLink(Path link, CopyGuard guard) {
+        Path real;
+        try {
+            real = link.toRealPath();
+        } catch (IOException e) {
+            return false;
+        }
+        boolean safe = real.startsWith(canonicalRoot);
+        if (safe && Files.isDirectory(real)) {
+            safe = !guard.destination.startsWith(real);
+            for (int i = 0; safe && i < guard.sources.size(); i++) {
+                safe = !guard.sources.get(i).startsWith(real);
+            }
+        }
+        if (!safe) {
+            LOGGER.warning(MessageFormat.format(
+                    L10N.getString("warn.copy_skipped_link"), link, real));
+        }
+        return safe;
+    }
+
+    /**
+     * Returns the canonical path of {@code path}, or, if it does not exist
+     * yet, that of its nearest existing ancestor with the missing names
+     * appended.
+     */
+    private static Path realPathAllowingMissing(Path path) throws IOException {
+        Path existing = path;
+        List<Path> missing = new ArrayList<Path>();
+        while (existing != null && !Files.exists(existing)) {
+            missing.add(existing.getFileName());
+            existing = existing.getParent();
+        }
+        Path result = (existing != null) ? existing.toRealPath() : path;
+        for (int i = missing.size() - 1; i >= 0; i--) {
+            result = result.resolve(missing.get(i));
+        }
+        return result;
     }
 
     /**
