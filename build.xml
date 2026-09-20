@@ -86,7 +86,7 @@
   <!-- TLS files for integration tests: key.pem, cert.pem, ca.pem made by
        ant/tls.xml (needs mkcert or openssl; tests that use them are skipped
        when they cannot be made). The names are the ones the tests connect to. -->
-  <property name='integration.tls.dir' location='${testdir}/integration/certs/pem'/>
+  <property name='integration.tls.dir' location='${basedir}/etc/tls'/>
   <property name='integration.tls.names' value='localhost 127.0.0.1 ::1 test.gumdrop.local'/>
   <!-- Combined (unit + integration) coverage; see the coverage-all target. -->
   <property name='integration.coverage.dir' location='${testdir}/integration/coverage'/>
@@ -922,7 +922,7 @@
        run carries over, and never fails: without mkcert or openssl the tests
        that need the files skip themselves. -->
   <target name='integration-tls'
-          description='Create the PEM TLS files integration tests use (skipped with a warning if mkcert and openssl are missing)'>
+          description='Ensure etc/tls PEM files for integration tests (same as ant tls-certs)'>
     <antcall target='tls-certs' inheritAll='false'>
       <param name='tls.dir' location='${integration.tls.dir}'/>
       <param name='tls.names' value='${integration.tls.names}'/>

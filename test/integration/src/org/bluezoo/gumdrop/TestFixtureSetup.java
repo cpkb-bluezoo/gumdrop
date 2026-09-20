@@ -133,14 +133,29 @@ public class TestFixtureSetup {
     public void setupCertificates() throws Exception {
         log.println();
         log.println("=== Setting Up Certificates ===");
-        
+
+        if (TestTlsFiles.available()) {
+            log.println("Shared PEM fixtures (server + CA trust): " + TestTlsFiles.directory());
+            log.println("  cert.pem, key.pem, ca.pem");
+            if (TestTlsFiles.keystoreAvailable()) {
+                log.println("  keystore.p12 (optional PKCS#12 server identity)");
+            } else {
+                log.println("  (run \"ant tls-keystore\" for PKCS#12/JKS integration tests)");
+            }
+        } else {
+            log.println("WARNING: PEM fixtures missing in " + TestTlsFiles.directory()
+                    + " — run \"ant tls-certs\" (needs mkcert or openssl)");
+        }
+
         File certsDir = new File(CERTS_DIR);
         TestCertificateManager certMgr = new TestCertificateManager(certsDir);
-        
+
         File keystoreFile = new File(certsDir, "test-keystore.p12");
         File truststoreFile = new File(certsDir, "test-truststore.p12");
-        
-        // Check if certs already exist, are recent, and keystore/truststore match
+
+        // Legacy PKCS#12 under test/integration/certs/ is kept only for client-auth
+        // fixture generation and TestCertificateManager tests; loopback integration
+        // tests use etc/tls PEMs via TestTlsFiles.
         if (keystoreFile.exists() && truststoreFile.exists()) {
             long keystoreAge = System.currentTimeMillis() - keystoreFile.lastModified();
             long maxAge = 30L * 24 * 60 * 60 * 1000; // 30 days in ms

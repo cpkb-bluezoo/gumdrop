@@ -22,9 +22,11 @@
 package org.bluezoo.gumdrop;
 
 import java.io.IOException;
+import java.io.OutputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.GeneralSecurityException;
+import java.security.KeyStore;
 import java.security.PrivateKey;
 import java.security.cert.X509Certificate;
 import java.util.List;
@@ -32,15 +34,27 @@ import java.util.List;
 import javax.net.ssl.X509TrustManager;
 
 import org.bluezoo.gumdrop.quic.tls.PemCredentials;
+import org.bluezoo.gumdrop.tls.TlsConfig;
 import org.junit.Assume;
 
 /**
- * The PEM files that integration tests use as their TLS material:
- * {@code key.pem} and {@code cert.pem} (the server identity) and
- * {@code ca.pem} (the trust anchor for clients).
+ * Shared TLS fixtures under {@code etc/tls/} (see {@code ant tls-certs}).
+ *
+ * <p><strong>Roles on loopback tests.</strong> One-way TLS (typical HTTPS) uses
+ * two different kinds of material, not two copies of the server certificate:
+ * <ul>
+ *   <li><strong>Server identity</strong> — {@code cert.pem} and {@code key.pem}
+ *       (what the listener presents).</li>
+ *   <li><strong>Client trust</strong> — {@code ca.pem} (what the client uses to
+ *       validate the server). The client does not use {@code key.pem}.</li>
+ * </ul>
+ * Mutual TLS adds a separate <strong>client identity</strong> (its own cert and
+ * key, issued by the same or another CA). Reusing the server's private key on
+ * the client side is wrong even when verification is disabled.
  *
  * <p>They are made by {@code ant tls-certs}, which the integration targets
- * run first (see {@code ant/tls.xml}), into the directory named by the
+ * run first (see {@code ant/tls.xml}), into {@code etc/tls/} by default
+ * (the same files as {@code ant tls-certs}), or the directory named by the
  * {@code gumdrop.test.tls.dir} system property. They need mkcert or openssl,
  * so a machine that has neither does not have them; tests that use this class
  * call {@link #assumeAvailable()} and are skipped there instead of failing.
@@ -56,7 +70,10 @@ public final class TestTlsFiles {
     public static final String SERVER_NAME = "test.gumdrop.local";
 
     private static final String DIRECTORY_PROPERTY = "gumdrop.test.tls.dir";
-    private static final String DEFAULT_DIRECTORY = "test/integration/certs/pem";
+    /** Matches {@code tls.keystore.pass} in ant/tls.xml. */
+    public static final String KEYSTORE_PASSWORD = "changeit";
+
+    private static final String DEFAULT_DIRECTORY = "etc/tls";
 
     private TestTlsFiles() {
     }
@@ -76,6 +93,33 @@ public final class TestTlsFiles {
 
     public static Path caFile() {
         return directory().resolve("ca.pem");
+    }
+
+    public static Path keystoreFile() {
+        return directory().resolve("keystore.p12");
+    }
+
+    public static Path truststoreFile() {
+        return directory().resolve("truststore.p12");
+    }
+
+    public static boolean keystoreAvailable() {
+        return Files.isRegularFile(keystoreFile());
+    }
+
+    public static void assumeKeystoreAvailable() {
+        Assume.assumeTrue("PKCS#12 keystore not found at " + keystoreFile()
+                + " (run \"ant tls-keystore\" after tls-certs)", keystoreAvailable());
+    }
+
+    /** Server identity for listeners: PEM from {@code cert.pem} / {@code key.pem}. */
+    public static TlsConfig serverTlsConfig() {
+        return TlsConfig.pem(certFile(), keyFile());
+    }
+
+    /** PKCS#12 built from the same PEM material by {@code ant tls-keystore}. */
+    public static TlsConfig serverKeystoreTlsConfig() {
+        return TlsConfig.keystore(keystoreFile(), KEYSTORE_PASSWORD);
     }
 
     /** Returns true if all three files exist. */
@@ -109,5 +153,23 @@ public final class TestTlsFiles {
     public static X509TrustManager trustManager()
             throws IOException, GeneralSecurityException {
         return PemCredentials.loadTrustManager(caFile());
+    }
+
+    /**
+     * Builds a temporary JKS server keystore from the PEM identity (for tests
+     * that must exercise {@code keystore-format="JKS"} loading).
+     */
+    public static Path writeTemporaryJksServerKeystore() throws IOException, GeneralSecurityException {
+        PrivateKey key = privateKey();
+        List<X509Certificate> chain = certificateChain();
+        KeyStore ks = KeyStore.getInstance("JKS");
+        ks.load(null, null);
+        char[] pass = KEYSTORE_PASSWORD.toCharArray();
+        ks.setKeyEntry("server", key, pass, chain.toArray(new X509Certificate[0]));
+        Path tmp = Files.createTempFile("gumdrop-test-server-", ".jks");
+        try (OutputStream out = Files.newOutputStream(tmp)) {
+            ks.store(out, pass);
+        }
+        return tmp;
     }
 }

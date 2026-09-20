@@ -194,4 +194,4 @@ This adds `etc/tls/keystore.p12` (the server key and certificate) and `etc/tls/t
 
 ### Certificates for the integration tests
 
-The integration targets that need TLS files (`integration-setup` and the relocated tests, so `ant integration-test`) run `ant integration-tls` first, which makes the same three PEM files in `test/integration/certs/pem/` (with the extra name `test.gumdrop.local` that some tests connect to). It never fails the build: without mkcert or OpenSSL it prints a warning, and the tests that need the files are skipped.
+The integration targets that need TLS files (`integration-setup` and the relocated tests, so `ant integration-test`) run `ant integration-tls` first, which ensures the same three PEM files under `etc/tls/` (with the extra name `test.gumdrop.local` that some tests connect to). It never fails the build: without mkcert or OpenSSL it prints a warning, and the tests that need the files are skipped.

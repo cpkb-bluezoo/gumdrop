@@ -29,7 +29,7 @@ import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.Server;
 import org.bluezoo.gumdrop.TcpTransportFactory;
-import org.bluezoo.gumdrop.TestCertificateManager;
+import org.bluezoo.gumdrop.TestTlsFiles;
 import org.bluezoo.gumdrop.mime.rfc5322.EmailAddress;
 import org.bluezoo.gumdrop.smtp.SmtpListener;
 import org.bluezoo.gumdrop.smtp.client.*;
@@ -88,24 +88,20 @@ public class SMTPClientIntegrationTest extends AbstractServerIntegrationTest {
         .withLookingForStuckThread(true)
         .build();
 
-    private static TestCertificateManager certManager;
-
     private AcceptAllService acceptAllService;
 
     @Override
     protected Collection<? extends Server> buildServers() throws Exception {
-        TlsConfig tls = TlsConfig.keystore(
-                Path.of("test/integration/certs/test-keystore.p12"), "testpass");
         acceptAllService = new AcceptAllService();
         acceptAllService.addListener(new SmtpListener()
                 .port(SMTP_PORT)
                 .addresses(InetAddress.getByName(TEST_HOST))
-                .tls(tls));
+                .tls(TestTlsFiles.serverTlsConfig()));
         acceptAllService.addListener(new SmtpListener()
                 .port(SMTPS_PORT)
                 .addresses(InetAddress.getByName(TEST_HOST))
                 .secure(true)
-                .tls(tls));
+                .tls(TestTlsFiles.serverTlsConfig()));
         return Collections.singletonList(acceptAllService);
     }
 
@@ -115,13 +111,8 @@ public class SMTPClientIntegrationTest extends AbstractServerIntegrationTest {
     }
 
     @BeforeClass
-    public static void setupCertificates() throws Exception {
-        File certsDir = new File("test/integration/certs");
-        if (!certsDir.exists()) {
-            certsDir.mkdirs();
-        }
-        certManager = new TestCertificateManager(certsDir);
-        certManager.ensureSharedTestPki("testpass");
+    public static void requireTlsFixtures() {
+        TestTlsFiles.assumeAvailable();
     }
 
     private AcceptAllService getService() {
@@ -479,7 +470,7 @@ public class SMTPClientIntegrationTest extends AbstractServerIntegrationTest {
 
         SMTPClientHelper client = createClient(SMTPS_PORT);
         client.setSecure(true);
-        client.setTrustManager(certManager.createClientTrustManager());
+        client.setTrustManager(TestTlsFiles.trustManager());
 
         CountDownLatch completeLatch = new CountDownLatch(1);
         AtomicReference<Exception> error = new AtomicReference<>();
@@ -554,7 +545,7 @@ public class SMTPClientIntegrationTest extends AbstractServerIntegrationTest {
         service.clearMessages();
 
         SMTPClientHelper client = createClient(SMTP_PORT);
-        client.setTrustManager(certManager.createClientTrustManager());
+        client.setTrustManager(TestTlsFiles.trustManager());
 
         CountDownLatch completeLatch = new CountDownLatch(1);
         AtomicReference<Exception> error = new AtomicReference<>();

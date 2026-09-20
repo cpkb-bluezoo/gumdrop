@@ -192,10 +192,9 @@ public class IntegrationTestContext {
         }
 
         // Check test certificate availability
-        File keystore = new File("test/integration/certs/test-keystore.p12");
-        if (!keystore.exists()) {
-            environmentIssues.add("Test keystore not found: " + keystore + 
-                ". Run TestCertificateManager.generateTestPKI() first.");
+        if (!TestTlsFiles.available()) {
+            environmentIssues.add("TLS PEM fixtures not found in " + TestTlsFiles.directory()
+                    + ". Run \"ant tls-certs\" (needs mkcert or openssl).");
         }
 
         // Check if common test ports are available

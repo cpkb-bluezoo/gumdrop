@@ -755,16 +755,8 @@ public class TcpTransportFactory extends TransportFactory {
         HandshakeConfig config = new HandshakeConfig(HandshakeRole.CLIENT);
         config.setServerName(serverName);
         config.setTrustManager(effectiveTrustManager);
-        // A keystore/PEM identity configured via setKeystoreFile/setCertFile
-        // is loaded into serverCredentials regardless of which role this
-        // factory ends up used for (start() has no way to know in advance).
-        // When this factory is actually used as a client and no explicit
-        // clientCredentials was set, present that loaded identity as the
-        // client's own certificate when the same keystore was loaded for
-        // server credentials but no separate client identity was set.
-        ServerCredentials ownCredentials = (clientCredentials != null) ? clientCredentials : serverCredentials;
-        if (ownCredentials != null) {
-            config.setClientCredentials(ownCredentials);
+        if (clientCredentials != null) {
+            config.setClientCredentials(clientCredentials);
         }
         applyCommonConfig(config);
         EchClientBootstrap.applyToHandshakeConfig(config, clientEchConfig, clientEchGreaseEnabled);
@@ -801,11 +793,8 @@ public class TcpTransportFactory extends TransportFactory {
         Tls12HandshakeConfig config = new Tls12HandshakeConfig(HandshakeRole.CLIENT);
         config.setServerName(serverName);
         config.setTrustManager(effectiveTrustManager);
-        // See buildClientConfig's identical comment -- the same
-        // keystore/PEM-identity-serves-either-role fallback applies here.
-        ServerCredentials ownCredentials = (clientCredentials != null) ? clientCredentials : serverCredentials;
-        if (ownCredentials != null) {
-            config.setClientCredentials(ownCredentials);
+        if (clientCredentials != null) {
+            config.setClientCredentials(clientCredentials);
         }
         applyCommonConfig12(config);
         return config;

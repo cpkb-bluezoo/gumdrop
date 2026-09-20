@@ -24,14 +24,14 @@ package org.bluezoo.gumdrop.buffer;
 import org.bluezoo.gumdrop.AbstractServerIntegrationTest;
 import org.bluezoo.gumdrop.IntegrationTlsClient;
 import org.bluezoo.gumdrop.TcpListener;
-import org.bluezoo.gumdrop.tls.TlsConfig;
-import org.bluezoo.gumdrop.util.EmptyX509TrustManager;
+import org.bluezoo.gumdrop.TestTlsFiles;
+import org.junit.BeforeClass;
 import org.junit.Test;
 
-import java.io.File;
 import java.net.InetAddress;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Path;
+
+import javax.net.ssl.X509TrustManager;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
@@ -58,19 +58,25 @@ import static org.junit.Assert.*;
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 public class TLSConcurrentWriteTest extends AbstractServerIntegrationTest {
-    
+
+    private static X509TrustManager clientTrust;
+
+    @BeforeClass
+    public static void requireTlsFixtures() throws Exception {
+        TestTlsFiles.assumeAvailable();
+        clientTrust = TestTlsFiles.trustManager();
+    }
+
     private static final int TEST_PORT = 19445;
     // Use a simple tagged message format: "TAG:DATA\n"
     
     @Override
     protected Collection<? extends TcpListener> buildListeners() throws Exception {
-        TlsConfig tls = TlsConfig.keystore(
-                Path.of("test/integration/certs/test-keystore.p12"), "testpass");
         TLSEchoServer server = new TLSEchoServer();
         server.setPort(TEST_PORT);
         server.addresses(InetAddress.getByName("::1"));
         server.secure(true);
-        server.tls(tls);
+        server.tls(TestTlsFiles.serverTlsConfig());
         return Collections.singletonList(server);
     }
     
@@ -86,11 +92,9 @@ public class TLSConcurrentWriteTest extends AbstractServerIntegrationTest {
         throw new IllegalStateException("TLSEchoServer not found in server list");
     }
     
-    private static final EmptyX509TrustManager TRUST_ALL = new EmptyX509TrustManager();
-
     private static byte[] echoExchange(String message) throws Exception {
         byte[] outbound = message.getBytes(StandardCharsets.UTF_8);
-        return IntegrationTlsClient.exchangeWhenComplete("::1", TEST_PORT, outbound, TRUST_ALL, 10000,
+        return IntegrationTlsClient.exchangeWhenComplete("::1", TEST_PORT, outbound, clientTrust, 10000,
                 new IntegrationTlsClient.ResponseComplete() {
                     @Override
                     public boolean isComplete(byte[] inbound) {

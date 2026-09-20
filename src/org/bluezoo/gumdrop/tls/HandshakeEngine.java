@@ -863,9 +863,10 @@ public final class HandshakeEngine {
         earlyDataAccepted = tryAcceptEarlyData(ch, message, resumedPayload, sink);
 
         byte[] echRetryList = echRejectWithRetryConfigs ? resolveEchRetryConfigList() : null;
+        boolean advertiseRecordSizeLimit = ch.recordSizeLimitPresent && config.isRecordSizeLimitEnabled();
         byte[] encryptedExtensions = HandshakeMessages.buildEncryptedExtensions(
                 negotiatedAlpn, config.getLocalTransportParameters(), earlyDataAccepted,
-                config.isRecordSizeLimitEnabled(), localRecordSizeLimit, negotiatedCertCompression,
+                advertiseRecordSizeLimit, localRecordSizeLimit, negotiatedCertCompression,
                 echRetryList);
         transcript.update(encryptedExtensions);
         sink.handshakeDataReady(encryptedExtensions);
