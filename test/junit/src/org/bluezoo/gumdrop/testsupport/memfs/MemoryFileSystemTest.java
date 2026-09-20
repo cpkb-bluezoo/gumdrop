@@ -837,4 +837,123 @@ public class MemoryFileSystemTest {
             // a file cannot hold children, even through a link
         }
     }
+
+    // Extended attributes
+
+    private static java.nio.file.attribute.UserDefinedFileAttributeView user(Path p) {
+        return Files.getFileAttributeView(p, java.nio.file.attribute.UserDefinedFileAttributeView.class);
+    }
+
+    private static String xattr(Path p, String name) throws IOException {
+        java.nio.file.attribute.UserDefinedFileAttributeView v = user(p);
+        ByteBuffer buf = ByteBuffer.allocate(v.size(name));
+        v.read(name, buf);
+        return new String(buf.array(), StandardCharsets.UTF_8);
+    }
+
+    @Test
+    public void testFileStoreAdvertisesUserAttributes() throws IOException {
+        Files.createFile(fs.getPath("/f"));
+        java.nio.file.FileStore store = Files.getFileStore(fs.getPath("/f"));
+        assertTrue(store.supportsFileAttributeView("user"));
+        assertTrue(store.supportsFileAttributeView(
+                java.nio.file.attribute.UserDefinedFileAttributeView.class));
+    }
+
+    @Test
+    public void testExtendedAttributeRoundTrip() throws IOException {
+        Path f = fs.getPath("/f");
+        Files.createFile(f);
+        assertEquals(5, user(f).write("user.a", ByteBuffer.wrap(bytes("hello"))));
+        user(f).write("user.b", ByteBuffer.wrap(bytes("x")));
+        assertEquals("hello", xattr(f, "user.a"));
+        assertEquals(5, user(f).size("user.a"));
+        assertEquals(java.util.Arrays.asList("user.a", "user.b"), user(f).list());
+        user(f).write("user.a", ByteBuffer.wrap(bytes("changed")));
+        assertEquals("changed", xattr(f, "user.a"));
+        user(f).delete("user.a");
+        assertEquals(java.util.Arrays.asList("user.b"), user(f).list());
+    }
+
+    @Test
+    public void testExtendedAttributesOnDirectories() throws IOException {
+        Files.createDirectory(fs.getPath("/d"));
+        user(fs.getPath("/d")).write("user.k", ByteBuffer.wrap(bytes("v")));
+        assertEquals("v", xattr(fs.getPath("/d"), "user.k"));
+    }
+
+    @Test
+    public void testMissingExtendedAttributeIsAnIoError() throws IOException {
+        Files.createFile(fs.getPath("/f"));
+        try {
+            user(fs.getPath("/f")).size("user.nope");
+            fail("expected an IOException");
+        } catch (IOException expected) {
+            // no such attribute
+        }
+        try {
+            user(fs.getPath("/f")).delete("user.nope");
+            fail("expected an IOException");
+        } catch (IOException expected) {
+            // no such attribute
+        }
+    }
+
+    @Test
+    public void testExtendedAttributeTooLargeForTheDestinationBuffer() throws IOException {
+        Files.createFile(fs.getPath("/f"));
+        user(fs.getPath("/f")).write("user.a", ByteBuffer.wrap(bytes("hello")));
+        try {
+            user(fs.getPath("/f")).read("user.a", ByteBuffer.allocate(2));
+            fail("expected an IOException");
+        } catch (IOException expected) {
+            // buffer too small
+        }
+    }
+
+    @Test
+    public void testExtendedAttributeValueSizeLimit() throws IOException {
+        fs.setMaxXattrValueSize(4);
+        Files.createFile(fs.getPath("/f"));
+        user(fs.getPath("/f")).write("user.ok", ByteBuffer.wrap(bytes("four")));
+        try {
+            user(fs.getPath("/f")).write("user.big", ByteBuffer.wrap(bytes("fives")));
+            fail("expected an IOException");
+        } catch (IOException expected) {
+            // does not fit
+        }
+        assertEquals(java.util.Arrays.asList("user.ok"), user(fs.getPath("/f")).list());
+    }
+
+    @Test
+    public void testExtendedAttributesFollowMoveButNotPlainCopy() throws IOException {
+        Files.write(fs.getPath("/a"), bytes("data"));
+        user(fs.getPath("/a")).write("user.k", ByteBuffer.wrap(bytes("v")));
+        Files.copy(fs.getPath("/a"), fs.getPath("/plain"));
+        assertTrue(user(fs.getPath("/plain")).list().isEmpty());
+        Files.copy(fs.getPath("/a"), fs.getPath("/attrs"), StandardCopyOption.COPY_ATTRIBUTES);
+        assertEquals("v", xattr(fs.getPath("/attrs"), "user.k"));
+        Files.move(fs.getPath("/a"), fs.getPath("/moved"));
+        assertEquals("v", xattr(fs.getPath("/moved"), "user.k"));
+    }
+
+    // Transfer limits
+
+    @Test
+    public void testMaxTransferCapsEachReadAndWrite() throws IOException {
+        fs.setMaxTransfer(3);
+        Path f = fs.getPath("/f");
+        FileChannel ch = FileChannel.open(f, StandardOpenOption.CREATE,
+                StandardOpenOption.READ, StandardOpenOption.WRITE);
+        try {
+            ByteBuffer src = ByteBuffer.wrap(bytes("0123456789"));
+            assertEquals(3, ch.write(src));
+            assertEquals(3, ch.write(src, 3));
+            assertEquals("only 6 of 10 bytes were taken", 4, src.remaining());
+            ByteBuffer dst = ByteBuffer.allocate(10);
+            assertEquals(3, ch.read(dst, 0));
+        } finally {
+            ch.close();
+        }
+    }
 }

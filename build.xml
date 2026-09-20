@@ -941,6 +941,12 @@
     <integration-junit includes='**/smtp/**/*IntegrationTest.java'/>
   </target>
 
+  <!-- Run WebDAV integration tests (real file system: sidecar I/O, xattrs) -->
+  <target name='integration-test-webdav' depends='integration-build'
+          description='Run WebDAV integration tests'>
+    <integration-junit includes='**/webdav/*IntegrationTest.java'/>
+  </target>
+
   <!-- Run POP3 integration tests -->
   <target name='integration-test-pop3' depends='integration-build'
           description='Run POP3 server integration tests'>
@@ -1230,7 +1236,7 @@
 
   <!-- Run all integration tests -->
   <target name='integration-test'
-          depends='integration-test-loopback,integration-test-relocated,integration-test-http,integration-test-http-client,integration-test-smtp,integration-test-pop3,integration-test-imap,integration-test-ftp,integration-test-servlet,integration-test-telemetry,integration-test-buffer,integration-test-tls,integration-test-websocket,integration-test-dtls,integration-test-performance'
+          depends='integration-test-loopback,integration-test-relocated,integration-test-http,integration-test-http-client,integration-test-smtp,integration-test-pop3,integration-test-imap,integration-test-ftp,integration-test-webdav,integration-test-servlet,integration-test-telemetry,integration-test-buffer,integration-test-tls,integration-test-websocket,integration-test-dtls,integration-test-performance'
           description='Run all integration tests'>
   </target>
 

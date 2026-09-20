@@ -77,14 +77,14 @@ final class MemoryFileChannel extends FileChannel {
         if (pos >= node.size) {
             return -1;
         }
-        int n = (int) Math.min(dst.remaining(), node.size - pos);
+        int n = (int) Math.min(Math.min(dst.remaining(), fs.maxTransfer()), node.size - pos);
         dst.put(node.data, (int) pos, n);
         node.accessed = fs.tick();
         return n;
     }
 
     private int writeAt(ByteBuffer src, long pos) {
-        int n = src.remaining();
+        int n = Math.min(src.remaining(), fs.maxTransfer());
         int end = (int) (pos + n);
         node.ensureCapacity(end);
         if (pos > node.size) {

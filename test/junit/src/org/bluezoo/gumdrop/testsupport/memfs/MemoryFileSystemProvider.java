@@ -52,6 +52,7 @@ import java.nio.file.attribute.PosixFileAttributeView;
 import java.nio.file.attribute.PosixFileAttributes;
 import java.nio.file.attribute.PosixFilePermission;
 import java.nio.file.attribute.PosixFilePermissions;
+import java.nio.file.attribute.UserDefinedFileAttributeView;
 import java.nio.file.spi.FileSystemProvider;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
@@ -273,6 +274,15 @@ final class MemoryFileSystemProvider extends FileSystemProvider {
         return true;
     }
 
+    private static boolean copyAttributes(CopyOption... options) {
+        for (int i = 0; i < options.length; i++) {
+            if (options[i] == StandardCopyOption.COPY_ATTRIBUTES) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     private static boolean follows(CopyOption... options) {
         for (int i = 0; i < options.length; i++) {
             if (options[i] == LinkOption.NOFOLLOW_LINKS) {
@@ -471,6 +481,14 @@ final class MemoryFileSystemProvider extends FileSystemProvider {
                 copy.size = src.node.size;
             }
             copy.permissions = new HashSet<PosixFilePermission>(src.node.permissions);
+            if (copyAttributes(options)) {
+                // Timestamps and extended attributes travel only when asked
+                // for, as with a real file system.
+                copy.modified = src.node.modified;
+                copy.accessed = src.node.accessed;
+                copy.created = src.node.created;
+                copy.xattrs.putAll(src.node.xattrs);
+            }
             dst.parent.children.put(dst.leaf, copy);
             dst.parent.modified = fs.tick();
         }
@@ -546,7 +564,10 @@ final class MemoryFileSystemProvider extends FileSystemProvider {
 
     @Override
     public FileStore getFileStore(Path path) throws IOException {
-        throw new UnsupportedOperationException();
+        synchronized (fs.lock) {
+            require(path);
+        }
+        return fs.store;
     }
 
     // Attributes
@@ -582,6 +603,9 @@ final class MemoryFileSystemProvider extends FileSystemProvider {
         if (type == BasicFileAttributeView.class || type == PosixFileAttributeView.class
                 || type == FileOwnerAttributeView.class) {
             return (V) new MemoryFileAttributes.View(fs, absolute(path), follows(options));
+        }
+        if (type == UserDefinedFileAttributeView.class) {
+            return (V) new MemoryUserAttributeView(fs, absolute(path), follows(options));
         }
         return null;
     }

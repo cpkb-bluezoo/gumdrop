@@ -55,6 +55,9 @@ public final class MemoryFileSystem extends FileSystem {
 
     final MemoryFileSystemProvider provider;
     final Object lock = new Object();
+    final MemoryFileStore store = new MemoryFileStore();
+    private volatile int maxTransfer = Integer.MAX_VALUE;
+    private volatile int maxXattrValueSize = Integer.MAX_VALUE;
     final MemoryNode rootNode;
     final MemoryPath rootPath;
     private long clock = CLOCK_START;
@@ -72,6 +75,43 @@ public final class MemoryFileSystem extends FileSystem {
      */
     public static MemoryFileSystem create() {
         return new MemoryFileSystem();
+    }
+
+    /**
+     * Limits how many bytes a single read or write on a channel of this file
+     * system moves, so that code which wrongly assumes a transfer is complete
+     * can be tested deterministically. Real files may transfer fewer bytes
+     * than asked, though most tests never see it.
+     *
+     * @param bytes the most bytes one read or write moves; must be positive
+     */
+    public void setMaxTransfer(int bytes) {
+        if (bytes < 1) {
+            throw new IllegalArgumentException("bytes must be positive");
+        }
+        this.maxTransfer = bytes;
+    }
+
+    /**
+     * Limits the size of one extended attribute value, as file systems do
+     * (a few kilobytes on some), so that code with a fallback for values that
+     * do not fit can be tested.
+     *
+     * @param bytes the largest value accepted; must not be negative
+     */
+    public void setMaxXattrValueSize(int bytes) {
+        if (bytes < 0) {
+            throw new IllegalArgumentException("bytes must not be negative");
+        }
+        this.maxXattrValueSize = bytes;
+    }
+
+    int maxXattrValueSize() {
+        return maxXattrValueSize;
+    }
+
+    int maxTransfer() {
+        return maxTransfer;
     }
 
     /**
@@ -126,6 +166,7 @@ public final class MemoryFileSystem extends FileSystem {
         Set<String> views = new HashSet<String>();
         views.add("basic");
         views.add("posix");
+        views.add("user");
         return views;
     }
 

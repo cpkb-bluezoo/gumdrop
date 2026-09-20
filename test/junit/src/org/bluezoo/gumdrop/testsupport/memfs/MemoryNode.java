@@ -44,6 +44,8 @@ final class MemoryNode {
     Set<PosixFilePermission> permissions;
     /** For a symbolic link, the target as written; null otherwise. */
     String linkTarget;
+    /** User-defined (extended) attributes, by name. */
+    final TreeMap<String, byte[]> xattrs = new TreeMap<String, byte[]>();
 
     MemoryNode(long id, boolean directory, long now) {
         this.id = id;

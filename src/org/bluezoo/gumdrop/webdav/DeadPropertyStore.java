@@ -24,14 +24,15 @@ package org.bluezoo.gumdrop.webdav;
 import org.bluezoo.gonzalez.XMLWriter;
 import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.StorageExecutor;
+import org.bluezoo.gumdrop.util.AsyncFile;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.nio.ByteBuffer;
-import java.nio.channels.AsynchronousFileChannel;
 import java.nio.channels.CompletionHandler;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
@@ -55,7 +56,7 @@ import java.util.logging.Logger;
  * automatic fallback to XML sidecar files when xattrs are unavailable
  * or a value exceeds the xattr size limit.
  *
- * <p>Sidecar I/O is non-blocking via {@link AsynchronousFileChannel}
+ * <p>Sidecar I/O is non-blocking via {@link AsyncFile}
  * with {@link CompletionHandler}. Sidecar XML is parsed with the
  * Gonzalez push parser and serialized with {@link XMLWriter}.
  *
@@ -185,7 +186,7 @@ public final class DeadPropertyStore {
         if (useSidecar()) {
             final Map<String, DeadProperty> merged = xattrProps;
             Path sidecar = sidecarPath(resource, isDir);
-            if (Files.exists(sidecar)) {
+            if (sidecarExists(sidecar)) {
                 readSidecar(sidecar, new DeadPropertyCallback() {
                     @Override
                     public void onProperties(
@@ -275,7 +276,13 @@ public final class DeadPropertyStore {
                             + e.getMessage());
                     return;
                 }
-                // Fall through to sidecar
+                // The value does not fit an xattr and goes to the sidecar; an
+                // older xattr for this property would shadow it when read.
+                try {
+                    removeXattrProperty(resource, ns, name);
+                } catch (IOException ignored) {
+                    // none was stored
+                }
             }
         }
 
@@ -371,17 +378,34 @@ public final class DeadPropertyStore {
         if (mode == Mode.NONE) {
             return;
         }
-        boolean srcIsDir = Files.isDirectory(source);
-        Path srcSidecar = sidecarPath(source, srcIsDir);
-        if (Files.exists(srcSidecar)) {
-            Path dstSidecar = sidecarPath(target, Files.isDirectory(target));
+        if (useXattr(source)) {
+            // Files.copy without COPY_ATTRIBUTES leaves extended attributes
+            // behind, so carry the properties across explicitly.
             try {
-                Files.copy(srcSidecar, dstSidecar,
-                        StandardCopyOption.REPLACE_EXISTING);
+                for (DeadProperty prop : loadXattrProperties(source).values()) {
+                    writeXattrProperty(target, prop.getNamespaceURI(),
+                            prop.getLocalName(), prop.getValue(), prop.isXML());
+                }
             } catch (IOException e) {
                 LOGGER.log(Level.WARNING, MessageFormat.format(
-                        L10N.getString("warn.sidecar_copy_failed"), srcSidecar), e);
+                        L10N.getString("warn.xattr_copy_failed"), source), e);
             }
+        }
+        boolean srcIsDir = Files.isDirectory(source);
+        Path srcSidecar = sidecarPath(source, srcIsDir);
+        Path dstSidecar = sidecarPath(target, Files.isDirectory(target));
+        try {
+            if (sidecarExists(srcSidecar)) {
+                Files.copy(srcSidecar, dstSidecar,
+                        StandardCopyOption.REPLACE_EXISTING);
+            } else {
+                // A resource overwritten by COPY keeps none of the
+                // properties it had before.
+                Files.deleteIfExists(dstSidecar);
+            }
+        } catch (IOException e) {
+            LOGGER.log(Level.WARNING, MessageFormat.format(
+                    L10N.getString("warn.sidecar_copy_failed"), srcSidecar), e);
         }
     }
 
@@ -407,6 +431,15 @@ public final class DeadPropertyStore {
     }
 
     /**
+     * Returns the shared {@link StorageExecutor}, or null when no runtime is
+     * set (a unit-test harness, say).
+     */
+    private StorageExecutor storageExecutor() {
+        Gumdrop gumdrop = this.gumdrop;
+        return (gumdrop != null) ? gumdrop.getStorageExecutor() : null;
+    }
+
+    /**
      * Runs blocking dead-property setup on the shared {@link StorageExecutor}
      * when available. With no executor (unit-test harness), runs inline.
      * Callbacks from the work itself are invoked on the storage thread (or
@@ -414,9 +447,7 @@ public final class DeadPropertyStore {
      */
     private void runOnStorage(final DeadPropertyCallback callback,
                               final Runnable work) {
-        Gumdrop gumdrop = this.gumdrop;
-        StorageExecutor exec =
-                (gumdrop != null) ? gumdrop.getStorageExecutor() : null;
+        StorageExecutor exec = storageExecutor();
         if (exec == null) {
             try {
                 work.run();
@@ -623,6 +654,16 @@ public final class DeadPropertyStore {
     // -- Sidecar backend --
 
     /**
+     * Returns true if there is a sidecar file at {@code sidecar}. A symbolic
+     * link does not count: it is never read, copied or written through, so
+     * a link planted where a sidecar belongs cannot expose or overwrite the
+     * file it points to.
+     */
+    private static boolean sidecarExists(Path sidecar) {
+        return Files.isRegularFile(sidecar, LinkOption.NOFOLLOW_LINKS);
+    }
+
+    /**
      * Computes the sidecar path for a resource.
      * Files: {@code dir/.webdav_filename}.
      * Directories (own properties): {@code dir/.webdav_.} inside
@@ -668,15 +709,23 @@ public final class DeadPropertyStore {
                 callback.onError("Sidecar file exceeds maximum size");
                 return;
             }
-            final AsynchronousFileChannel channel =
-                    AsynchronousFileChannel.open(sidecar,
-                            StandardOpenOption.READ);
+            final AsyncFile channel = AsyncFile.open(storageExecutor(),
+                    sidecar, StandardOpenOption.READ, LinkOption.NOFOLLOW_LINKS);
             final ByteBuffer buf = ByteBuffer.allocate((int) size);
             channel.read(buf, 0, buf,
                     new CompletionHandler<Integer, ByteBuffer>() {
                         @Override
                         public void completed(Integer result,
                                               ByteBuffer attachment) {
+                            if (result.intValue() > 0
+                                    && attachment.hasRemaining()) {
+                                // A read may return fewer bytes than asked
+                                // for: carry on from where it stopped.
+                                channel.read(attachment,
+                                        attachment.position(), attachment,
+                                        this);
+                                return;
+                            }
                             closeChannel(channel);
                             attachment.flip();
                             parseSidecarBuffer(attachment, callback);
@@ -720,7 +769,7 @@ public final class DeadPropertyStore {
                                final boolean remove,
                                final DeadPropertyCallback callback) {
         Path sidecar = sidecarPath(resource, isDirectory);
-        if (Files.exists(sidecar)) {
+        if (sidecarExists(sidecar)) {
             readSidecar(sidecar, new DeadPropertyCallback() {
                 @Override
                 public void onProperties(
@@ -761,7 +810,7 @@ public final class DeadPropertyStore {
 
     /**
      * Serializes properties to XML using Gonzalez XMLWriter and
-     * writes asynchronously via AsynchronousFileChannel.
+     * writes asynchronously via {@link AsyncFile}.
      */
     private void writeSidecar(Path resource, boolean isDirectory,
                               Map<String, DeadProperty> props,
@@ -808,17 +857,34 @@ public final class DeadPropertyStore {
             byte[] data = baos.toByteArray();
             final ByteBuffer buf = ByteBuffer.wrap(data);
 
-            final AsynchronousFileChannel channel =
-                    AsynchronousFileChannel.open(sidecar,
-                            StandardOpenOption.WRITE,
-                            StandardOpenOption.CREATE,
-                            StandardOpenOption.TRUNCATE_EXISTING);
+            final AsyncFile channel = AsyncFile.open(storageExecutor(),
+                    sidecar,
+                    StandardOpenOption.WRITE,
+                    StandardOpenOption.CREATE,
+                    StandardOpenOption.TRUNCATE_EXISTING,
+                    LinkOption.NOFOLLOW_LINKS);
 
             channel.write(buf, 0, buf,
                     new CompletionHandler<Integer, ByteBuffer>() {
+                        private long written;
+
                         @Override
                         public void completed(Integer result,
                                               ByteBuffer attachment) {
+                            if (result.intValue() <= 0) {
+                                failed(new IOException(
+                                        "Sidecar write made no progress"),
+                                        attachment);
+                                return;
+                            }
+                            written += result.intValue();
+                            if (attachment.hasRemaining()) {
+                                // A write may take fewer bytes than offered:
+                                // carry on from where it stopped.
+                                channel.write(attachment, written, attachment,
+                                        this);
+                                return;
+                            }
                             closeChannel(channel);
                             callback.onProperties(null);
                         }
@@ -835,7 +901,7 @@ public final class DeadPropertyStore {
         }
     }
 
-    private static void closeChannel(AsynchronousFileChannel channel) {
+    private static void closeChannel(AsyncFile channel) {
         try {
             channel.close();
         } catch (IOException e) {
