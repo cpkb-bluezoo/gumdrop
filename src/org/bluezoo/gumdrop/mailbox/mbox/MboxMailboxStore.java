@@ -218,7 +218,7 @@ public class MboxMailboxStore implements MailboxStore {
         for (String mailboxName : names) {
             try {
                 final Path mboxFilePath = resolveMailboxPath(mailboxName);
-                final Path indexPath = mboxFilePath.resolveSibling(mboxFilePath.getFileName() + ".gidx");
+                final Path indexPath = searchIndexOf(mboxFilePath);
                 final boolean isInbox = INBOX.equalsIgnoreCase(mailboxName);
                 final String mbName = mailboxName;
                 final MailboxIndexer.IndexWork work = new MailboxIndexer.IndexWork() {
@@ -462,6 +462,21 @@ public class MboxMailboxStore implements MailboxStore {
         }
     }
 
+    /**
+     * Returns the directory that holds the inferiors of a mailbox: named
+     * like the mailbox file without its extension, beside it.
+     */
+    private Path hierarchyDirectory(Path mailboxFile) {
+        String fileName = mailboxFile.getFileName().toString();
+        return mailboxFile.resolveSibling(
+                fileName.substring(0, fileName.length() - extension.length()));
+    }
+
+    /** Returns the search index kept beside a mailbox file. */
+    private static Path searchIndexOf(Path mailboxFile) {
+        return mailboxFile.resolveSibling(mailboxFile.getFileName() + ".gidx");
+    }
+
     @Override
     public void renameMailbox(String oldName, String newName) throws IOException {
         ensureOpen();
@@ -482,29 +497,108 @@ public class MboxMailboxStore implements MailboxStore {
         if (Files.exists(newPath)) {
             throw new IOException("Destination mailbox already exists: " + newName);
         }
-        
+
+        // RFC 3501 section 6.3.5: the inferior names must be renamed too,
+        // and the exception is INBOX, whose inferiors stay where they are.
+        // They live in the directory beside the mailbox file, which moves as
+        // one.
+        Path oldDir = hierarchyDirectory(oldPath);
+        Path newDir = hierarchyDirectory(newPath);
+        boolean moveInferiors = !isInboxRename && Files.isDirectory(oldDir);
+        if (moveInferiors) {
+            if (Files.exists(newDir)) {
+                throw new IOException(
+                        "Destination hierarchy already exists: " + newName);
+            }
+            if (newDir.startsWith(oldDir)) {
+                throw new IOException("Cannot rename " + oldName
+                        + " to one of its own inferiors: " + newName);
+            }
+        }
+
         // Ensure parent directory exists
         Path newParent = newPath.getParent();
         if (newParent != null && !Files.exists(newParent)) {
             Files.createDirectories(newParent);
         }
-        
-        if (isInboxRename) {
-            // Move contents of INBOX to new location, then recreate empty INBOX
-            Files.move(oldPath, newPath);
-            Files.createFile(oldPath);
-        } else {
-            Files.move(oldPath, newPath);
+
+        // Every move made, so that a failure part way can undo them.
+        List<Path[]> moves = new ArrayList<Path[]>();
+        if (moveInferiors) {
+            moves.add(new Path[] { oldDir, newDir });
+        }
+        // The search index describes the messages, so it goes with them.
+        Path oldIndex = searchIndexOf(oldPath);
+        if (Files.exists(oldIndex)) {
+            moves.add(new Path[] { oldIndex, searchIndexOf(newPath) });
+        }
+        moves.add(new Path[] { oldPath, newPath });
+
+        List<Path[]> done = new ArrayList<Path[]>();
+        boolean complete = false;
+        try {
+            for (Path[] move : moves) {
+                Files.move(move[0], move[1]);
+                done.add(move);
+            }
+            if (isInboxRename) {
+                // INBOX always exists: recreate it empty
+                Files.createFile(oldPath);
+            }
+            complete = true;
+        } finally {
+            if (!complete) {
+                undoMoves(done);
+            }
         }
         
-        // Update subscriptions
-        if (subscriptions.remove(normalizedOld)) {
-            subscriptions.add(normalizedNew);
-        }
+        renameSubscriptions(normalizedOld, normalizedNew, isInboxRename);
         
         if (LOGGER.isLoggable(Level.FINE)) {
             LOGGER.fine(MessageFormat.format(
                     L10N.getString("info.mailbox_renamed"), normalizedOld, normalizedNew));
+        }
+    }
+
+    /**
+     * Moves back, most recent first, the moves of a rename that failed part
+     * way. A move that cannot be undone is logged and the rest carry on, so
+     * as much as possible is restored.
+     */
+    private void undoMoves(List<Path[]> done) {
+        for (int i = done.size() - 1; i >= 0; i--) {
+            Path[] move = done.get(i);
+            try {
+                Files.move(move[1], move[0]);
+            } catch (IOException e) {
+                LOGGER.log(Level.WARNING, MessageFormat.format(
+                        L10N.getString("warn.rename_rollback_failed"),
+                        move[1], move[0]), e);
+            }
+        }
+    }
+
+    /**
+     * Follows a rename in the subscription list: the mailbox and its
+     * inferiors take their new names. When INBOX is renamed the old name is
+     * kept, since INBOX still exists, and only inferiors are left alone.
+     */
+    private void renameSubscriptions(String oldName, String newName,
+            boolean keepOld) {
+        String inferiorPrefix = oldName + HIERARCHY_DELIMITER;
+        for (String subscribed : new ArrayList<String>(subscriptions)) {
+            String renamed = null;
+            if (subscribed.equals(oldName)) {
+                renamed = newName;
+            } else if (!keepOld && subscribed.startsWith(inferiorPrefix)) {
+                renamed = newName + subscribed.substring(oldName.length());
+            }
+            if (renamed != null) {
+                if (!keepOld) {
+                    subscriptions.remove(subscribed);
+                }
+                subscriptions.add(renamed);
+            }
         }
     }
 
@@ -530,9 +624,7 @@ public class MboxMailboxStore implements MailboxStore {
         // Child mailboxes live in a directory named like the mailbox file
         // without its extension. Derive that from the file itself so the
         // encoded name is used, exactly as resolveMailboxPath produced it.
-        String fileName = mailboxPath.getFileName().toString();
-        Path childDir = mailboxPath.resolveSibling(
-                fileName.substring(0, fileName.length() - extension.length()));
+        Path childDir = hierarchyDirectory(mailboxPath);
         
         if (Files.isDirectory(childDir)) {
             boolean hasChildren = MboxLayout.hasMailboxFiles(childDir, extension);

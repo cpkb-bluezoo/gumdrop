@@ -44,12 +44,14 @@ import static org.junit.Assert.*;
  */
 public class MboxMailboxStoreTest {
 
+    private MemoryFileSystem mem;
     private Path tempDir;
     private MboxMailboxStore store;
 
     @Before
     public void setUp() throws IOException {
-        tempDir = MemoryFileSystem.create().getPath("/mbox");
+        mem = MemoryFileSystem.create();
+        tempDir = mem.getPath("/mbox");
         Files.createDirectories(tempDir);
         store = new MboxMailboxStore(tempDir);
     }
@@ -331,5 +333,158 @@ public class MboxMailboxStoreTest {
         assertEquals(java.util.Arrays.asList("INBOX"), store.listMailboxes("", "*"));
         assertEquals(0, store.getQuota("alice").getStorageUsed());
         assertEquals(1, store.getQuota("alice").getMessageCount());
+    }
+
+    // Rename moves inferior mailboxes and companion files (RFC 3501 6.3.5)
+
+    private Path user(String relative) {
+        return tempDir.resolve("alice").resolve(relative);
+    }
+
+    private boolean present(String relative) {
+        return Files.exists(user(relative), java.nio.file.LinkOption.NOFOLLOW_LINKS);
+    }
+
+    @Test
+    public void testRenameMovesTheInferiorsDirectoryToo() throws IOException {
+        store.open("alice");
+        store.createMailbox("a");
+        store.createMailbox("a/b");
+        store.createMailbox("a/b/c");
+        Files.write(user("a/b.mbox"), "From x\n\nbody\n".getBytes(java.nio.charset.StandardCharsets.US_ASCII));
+        store.renameMailbox("a", "z");
+        assertEquals(java.util.Arrays.asList("INBOX", "z", "z/b", "z/b/c"),
+                store.listMailboxes("", "*"));
+        assertFalse(present("a.mbox"));
+        assertFalse(present("a"));
+        assertTrue(Files.size(user("z/b.mbox")) > 0);
+    }
+
+    @Test
+    public void testRenameMovesSearchIndexesWithTheirMailboxes() throws IOException {
+        store.open("alice");
+        store.createMailbox("a");
+        store.createMailbox("a/b");
+        Files.write(user("a.mbox.gidx"), new byte[] { 1 });
+        Files.write(user("a/b.mbox.gidx"), new byte[] { 2 });
+        store.renameMailbox("a", "z");
+        assertTrue(present("z.mbox.gidx"));
+        assertTrue(present("z/b.mbox.gidx"));
+        assertFalse("no orphaned index is left behind", present("a.mbox.gidx"));
+    }
+
+    @Test
+    public void testRenameLeavesMailboxesThatOnlyShareAPrefixAlone() throws IOException {
+        store.open("alice");
+        store.createMailbox("work");
+        store.createMailbox("workshop");
+        store.createMailbox("work/x");
+        store.renameMailbox("work", "job");
+        assertTrue(present("workshop.mbox"));
+        assertTrue(present("job/x.mbox"));
+        assertFalse(present("work/x.mbox"));
+    }
+
+    @Test
+    public void testRenameInboxKeepsInboxAndItsInferiors() throws IOException {
+        store.open("alice");
+        Files.write(user("INBOX.mbox"), "From x\n\nold mail\n".getBytes(java.nio.charset.StandardCharsets.US_ASCII));
+        Files.write(user("INBOX.mbox.gidx"), new byte[] { 9 });
+        store.createMailbox("INBOX/sub");
+        store.renameMailbox("INBOX", "archive");
+        assertTrue(Files.size(user("archive.mbox")) > 0);
+        assertEquals("INBOX is recreated empty", 0, Files.size(user("INBOX.mbox")));
+        assertTrue("the index goes with the messages", present("archive.mbox.gidx"));
+        assertFalse(present("INBOX.mbox.gidx"));
+        assertTrue("INBOX's own inferiors are not renamed (RFC 3501)", present("INBOX/sub.mbox"));
+        List<String> subs = store.listSubscribed("", "*");
+        assertTrue(subs.toString(), subs.contains("INBOX"));
+        assertTrue(subs.toString(), subs.contains("archive"));
+    }
+
+    @Test
+    public void testRenameToAnInferiorOfItselfWithoutInferiors() throws IOException {
+        store.open("alice");
+        store.createMailbox("a");
+        store.renameMailbox("a", "a/b");
+        assertTrue(present("a/b.mbox"));
+        assertFalse(present("a.mbox"));
+    }
+
+    @Test
+    public void testRenameToAnInferiorOfItselfWithInferiorsIsRefused() throws IOException {
+        store.open("alice");
+        store.createMailbox("a");
+        store.createMailbox("a/c");
+        try {
+            store.renameMailbox("a", "a/b");
+            fail("expected an IOException");
+        } catch (IOException expected) {
+            // the hierarchy cannot move into itself
+        }
+        assertTrue(present("a.mbox"));
+        assertTrue(present("a/c.mbox"));
+        assertFalse(present("a/b.mbox"));
+    }
+
+    @Test
+    public void testRenameRefusedWhenBothHierarchiesAlreadyExist() throws IOException {
+        store.open("alice");
+        store.createMailbox("a");
+        store.createMailbox("a/x");
+        store.createMailbox("z/y");
+        try {
+            store.renameMailbox("a", "z");
+            fail("expected an IOException");
+        } catch (IOException expected) {
+            // the two hierarchies would have to be merged
+        }
+        assertTrue(present("a.mbox"));
+        assertTrue(present("a/x.mbox"));
+        assertFalse(present("z.mbox"));
+        assertTrue(present("z/y.mbox"));
+    }
+
+    @Test
+    public void testRenameOntoAnExistingHierarchyPlaceholder() throws IOException {
+        store.open("alice");
+        store.createMailbox("a");
+        store.createMailbox("z/y");
+        store.renameMailbox("a", "z");
+        assertTrue(present("z.mbox"));
+        assertTrue("existing inferiors of z stay", present("z/y.mbox"));
+    }
+
+    @Test
+    public void testRenameMovesSubscriptionsOfInferiors() throws IOException {
+        store.open("alice");
+        store.createMailbox("a");
+        store.createMailbox("a/b");
+        store.subscribe("a");
+        store.subscribe("a/b");
+        store.renameMailbox("a", "z");
+        List<String> subs = store.listSubscribed("", "*");
+        assertTrue(subs.toString(), subs.contains("z"));
+        assertTrue(subs.toString(), subs.contains("z/b"));
+        assertFalse(subs.toString(), subs.contains("a"));
+        assertFalse(subs.toString(), subs.contains("a/b"));
+    }
+
+    @Test
+    public void testFailedRenameIsRolledBack() throws IOException {
+        store.open("alice");
+        store.createMailbox("a");
+        store.createMailbox("a/b");
+        mem.failMovesTo(user("z.mbox"));
+        try {
+            store.renameMailbox("a", "z");
+            fail("expected an IOException");
+        } catch (IOException expected) {
+            // the file move fails after the directory has moved
+        }
+        assertTrue(present("a.mbox"));
+        assertTrue("the inferiors directory was moved back", present("a/b.mbox"));
+        assertFalse(present("z"));
+        assertFalse(present("z.mbox"));
     }
 }

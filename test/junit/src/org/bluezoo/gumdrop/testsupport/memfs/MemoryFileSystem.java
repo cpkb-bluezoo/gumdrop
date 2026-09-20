@@ -59,6 +59,8 @@ public final class MemoryFileSystem extends FileSystem {
     final MemoryFileStore plainStore = new MemoryFileStore(false);
     private volatile int maxTransfer = Integer.MAX_VALUE;
     private volatile int maxXattrValueSize = Integer.MAX_VALUE;
+    private final java.util.List<Path> failingMoveTargets =
+            new java.util.concurrent.CopyOnWriteArrayList<Path>();
     private final java.util.List<Path> noUserAttributes =
             new java.util.concurrent.CopyOnWriteArrayList<Path>();
     final MemoryNode rootNode;
@@ -118,6 +120,20 @@ public final class MemoryFileSystem extends FileSystem {
      */
     public void disableUserAttributesUnder(Path directory) {
         noUserAttributes.add(directory.toAbsolutePath().normalize());
+    }
+
+    /**
+     * Makes any move whose target is {@code target} fail with an I/O error,
+     * to test code that must undo a partly completed series of moves.
+     *
+     * @param target the path a move must not be allowed to create
+     */
+    public void failMovesTo(Path target) {
+        failingMoveTargets.add(target.toAbsolutePath().normalize());
+    }
+
+    boolean movesTo(Path target) {
+        return failingMoveTargets.contains(target.toAbsolutePath().normalize());
     }
 
     boolean userAttributesDisabled(Path path) {

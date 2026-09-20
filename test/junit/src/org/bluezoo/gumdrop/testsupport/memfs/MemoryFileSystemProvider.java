@@ -501,6 +501,10 @@ final class MemoryFileSystemProvider extends FileSystemProvider {
     @Override
     public void move(Path source, Path target, CopyOption... options) throws IOException {
         synchronized (fs.lock) {
+            if (fs.movesTo(target)) {
+                throw new FileSystemException(source.toString(), target.toString(),
+                        "Injected failure");
+            }
             Location src = locate(source, false);
             if (src.node == null) {
                 throw new NoSuchFileException(source.toString());

@@ -446,4 +446,97 @@ public class MaildirMailboxStoreTest {
         assertEquals(1, quota.getMessageCount());
         assertEquals(1, quota.getStorageUsed());
     }
+
+    // Rename moves inferior mailboxes too (RFC 3501 6.3.5)
+
+    private boolean exists(String relative) {
+        return Files.exists(userDir.resolve(relative), java.nio.file.LinkOption.NOFOLLOW_LINKS);
+    }
+
+    @Test
+    public void testRenameMovesInferiorMailboxesToo() throws IOException {
+        store.createMailbox("work");
+        store.createMailbox("work/2024");
+        store.createMailbox("work/2024/q1");
+        store.createMailbox("play");
+        writeText(userDir.resolve(".work.2024/cur/1.msg:2,S"), "m");
+        store.subscribe("work");
+        store.subscribe("work/2024");
+        store.renameMailbox("work", "job");
+        assertEquals(Arrays.asList("INBOX", "job", "job/2024", "job/2024/q1", "play"),
+                store.listMailboxes("", "*"));
+        assertFalse(exists(".work"));
+        assertFalse(exists(".work.2024"));
+        assertFalse(exists(".work.2024.q1"));
+        assertTrue(exists(".job.2024.q1/cur"));
+        assertTrue("messages travel with their mailbox", exists(".job.2024/cur/1.msg:2,S"));
+        List<String> subs = store.listSubscribed("", "*");
+        assertTrue(subs.toString(), subs.contains("job"));
+        assertTrue(subs.toString(), subs.contains("job/2024"));
+        assertFalse(subs.toString(), subs.contains("work"));
+        assertFalse(subs.toString(), subs.contains("work/2024"));
+    }
+
+    @Test
+    public void testRenameLeavesMailboxesThatOnlyShareAPrefixAlone() throws IOException {
+        store.createMailbox("work");
+        store.createMailbox("workshop");
+        store.createMailbox("work/x");
+        store.renameMailbox("work", "job");
+        assertTrue("workshop is not an inferior of work", exists(".workshop/cur"));
+        assertTrue(exists(".job.x/cur"));
+        assertFalse(exists(".work.x"));
+    }
+
+    @Test
+    public void testRenameOfANameNeedingEncodingMovesItsInferiors() throws IOException {
+        store.createMailbox("a:b");
+        store.createMailbox("a:b/c");
+        store.renameMailbox("a:b", "z");
+        assertEquals(Arrays.asList("INBOX", "z", "z/c"), store.listMailboxes("", "*"));
+    }
+
+    @Test
+    public void testRenameToAnInferiorOfItself() throws IOException {
+        store.createMailbox("a");
+        store.createMailbox("a/c");
+        store.renameMailbox("a", "a/b");
+        assertEquals(Arrays.asList("a/b", "a/b/c", "INBOX"), store.listMailboxes("", "*"));
+    }
+
+    @Test
+    public void testRenameRefusedWhenAnInferiorsTargetExistsAndNothingMoves() throws IOException {
+        store.createMailbox("work");
+        store.createMailbox("work/x");
+        store.createMailbox("job/x");
+        expectIOException("inferior target exists", new IoAction() {
+            @Override
+            public void run() throws IOException {
+                store.renameMailbox("work", "job");
+            }
+        });
+        assertTrue(exists(".work/cur"));
+        assertTrue(exists(".work.x/cur"));
+        assertFalse(exists(".job"));
+        assertTrue(exists(".job.x/cur"));
+    }
+
+    @Test
+    public void testFailedRenameIsRolledBack() throws IOException {
+        store.createMailbox("work");
+        store.createMailbox("work/x");
+        writeText(userDir.resolve(".work/cur/1.msg:2,S"), "m");
+        store.subscribe("work");
+        mem.failMovesTo(userDir.resolve(".job.x"));
+        expectIOException("second move fails", new IoAction() {
+            @Override
+            public void run() throws IOException {
+                store.renameMailbox("work", "job");
+            }
+        });
+        assertTrue("the first move was undone", exists(".work/cur/1.msg:2,S"));
+        assertFalse(exists(".job"));
+        assertTrue(exists(".work.x/cur"));
+        assertTrue("subscriptions are unchanged", store.listSubscribed("", "*").contains("work"));
+    }
 }

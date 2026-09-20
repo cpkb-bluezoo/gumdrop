@@ -704,25 +704,77 @@ public class MaildirMailboxStore implements MailboxStore {
         }
         
         Path oldPath = resolveMailboxPath(normalizedOld);
-        Path newPath = resolveMailboxPath(normalizedNew);
+        resolveMailboxPath(normalizedNew);
         
         if (!Files.exists(oldPath)) {
             throw new IOException("Mailbox does not exist: " + oldName);
         }
-        if (Files.exists(newPath)) {
-            throw new IOException("Mailbox already exists: " + newName);
+
+        // RFC 3501 section 6.3.5: the inferior names must be renamed too
+        // (foo/bar becomes zap/bar when foo becomes zap). Work out every
+        // move, and check that none of the targets is taken, before
+        // touching anything.
+        List<String[]> renames = new ArrayList<String[]>();
+        renames.add(new String[] { normalizedOld, normalizedNew });
+        String inferiorPrefix = normalizedOld + HIERARCHY_DELIMITER;
+        for (String name : listMailboxes("", "*")) {
+            if (name.startsWith(inferiorPrefix)) {
+                renames.add(new String[] { name,
+                        normalizedNew + name.substring(normalizedOld.length()) });
+            }
         }
-        
-        Files.move(oldPath, newPath);
-        
+        List<Path[]> moves = new ArrayList<Path[]>();
+        for (String[] rename : renames) {
+            Path target = resolveMailboxPath(rename[1]);
+            if (Files.exists(target)) {
+                throw new IOException("Mailbox already exists: " + rename[1]);
+            }
+            moves.add(new Path[] { resolveMailboxPath(rename[0]), target });
+        }
+
+        // All or nothing: a move that fails undoes those already made.
+        List<Path[]> done = new ArrayList<Path[]>();
+        boolean complete = false;
+        try {
+            for (Path[] move : moves) {
+                Files.move(move[0], move[1]);
+                done.add(move);
+            }
+            complete = true;
+        } finally {
+            if (!complete) {
+                undoMoves(done);
+            }
+        }
+
         // Update subscriptions
-        if (subscriptions.remove(normalizedOld)) {
-            subscriptions.add(normalizedNew);
+        for (String[] rename : renames) {
+            if (subscriptions.remove(rename[0])) {
+                subscriptions.add(rename[1]);
+            }
         }
         
         if (LOGGER.isLoggable(Level.FINE)) {
             LOGGER.fine(MessageFormat.format(
                     L10N.getString("info.mailbox_renamed"), normalizedOld, normalizedNew));
+        }
+    }
+
+    /**
+     * Moves back, most recent first, the moves of a rename that failed part
+     * way. A move that cannot be undone is logged and the rest carry on, so
+     * as much as possible is restored.
+     */
+    private void undoMoves(List<Path[]> done) {
+        for (int i = done.size() - 1; i >= 0; i--) {
+            Path[] move = done.get(i);
+            try {
+                Files.move(move[1], move[0]);
+            } catch (IOException e) {
+                LOGGER.log(Level.WARNING, MessageFormat.format(
+                        L10N.getString("warn.rename_rollback_failed"),
+                        move[1], move[0]), e);
+            }
         }
     }
 

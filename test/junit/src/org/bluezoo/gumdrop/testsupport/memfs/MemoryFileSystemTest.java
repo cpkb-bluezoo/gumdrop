@@ -996,4 +996,19 @@ public class MemoryFileSystemTest {
         assertFalse(Files.getFileStore(fs.getPath("/mounted/f")).supportsFileAttributeView("user"));
         assertTrue(Files.getFileStore(fs.getPath("/g")).supportsFileAttributeView("user"));
     }
+
+    @Test
+    public void testInjectedMoveFailureLeavesEverythingInPlace() throws IOException {
+        Files.write(fs.getPath("/a"), bytes("x"));
+        fs.failMovesTo(fs.getPath("/b"));
+        try {
+            Files.move(fs.getPath("/a"), fs.getPath("/b"));
+            fail("expected an IOException");
+        } catch (IOException expected) {
+            // injected
+        }
+        assertTrue(Files.exists(fs.getPath("/a")));
+        assertFalse(Files.exists(fs.getPath("/b")));
+        Files.move(fs.getPath("/a"), fs.getPath("/c"));
+    }
 }
