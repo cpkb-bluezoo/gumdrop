@@ -571,7 +571,15 @@ public final class FtpClientProtocolHandler
     public void retr(String pathname, InetSocketAddress dataAddress,
             RetrReplyHandler callback) {
         beginDataTransfer(callback);
-        openDataConnection(dataAddress, new DownloadDataHandler(pathname, callback));
+        boolean activeMode = (dataAddress == null);
+        DownloadDataHandler handler =
+                new DownloadDataHandler(pathname, callback, activeMode);
+        if (activeMode) {
+            sendCommand("RETR " + pathname, FtpState.RETR_SENT);
+            dataCoordinator.acceptNext(handler);
+        } else {
+            dataCoordinator.connect(dataAddress, handler);
+        }
     }
 
     /** RFC 959 §4.1.3 — STOR command. See {@link #retr}. */
@@ -579,7 +587,15 @@ public final class FtpClientProtocolHandler
     public void stor(String pathname, InetSocketAddress dataAddress,
             StorReplyHandler callback) {
         beginDataTransfer(callback);
-        openDataConnection(dataAddress, new UploadDataHandler(pathname, false, callback));
+        boolean activeMode = (dataAddress == null);
+        UploadDataHandler handler =
+                new UploadDataHandler(pathname, false, callback, activeMode);
+        if (activeMode) {
+            sendCommand("STOR " + pathname, FtpState.STOR_SENT);
+            dataCoordinator.acceptNext(handler);
+        } else {
+            dataCoordinator.connect(dataAddress, handler);
+        }
     }
 
     /** RFC 959 §4.1.3 — APPE command. See {@link #retr}. */
@@ -587,7 +603,15 @@ public final class FtpClientProtocolHandler
     public void appe(String pathname, InetSocketAddress dataAddress,
             StorReplyHandler callback) {
         beginDataTransfer(callback);
-        openDataConnection(dataAddress, new UploadDataHandler(pathname, true, callback));
+        boolean activeMode = (dataAddress == null);
+        UploadDataHandler handler =
+                new UploadDataHandler(pathname, true, callback, activeMode);
+        if (activeMode) {
+            sendCommand("APPE " + pathname, FtpState.APPE_SENT);
+            dataCoordinator.acceptNext(handler);
+        } else {
+            dataCoordinator.connect(dataAddress, handler);
+        }
     }
 
     /** RFC 959 §4.1.3 — LIST command. See {@link #retr}. */
@@ -595,7 +619,15 @@ public final class FtpClientProtocolHandler
     public void list(String pathname, InetSocketAddress dataAddress,
             ListReplyHandler callback) {
         beginDataTransfer(callback);
-        openDataConnection(dataAddress, new ListingDataHandler("LIST", pathname, callback));
+        boolean activeMode = (dataAddress == null);
+        ListingDataHandler handler =
+                new ListingDataHandler("LIST", pathname, callback, activeMode);
+        if (activeMode) {
+            sendListingCommand(handler);
+            dataCoordinator.acceptNext(handler);
+        } else {
+            dataCoordinator.connect(dataAddress, handler);
+        }
     }
 
     /** RFC 959 §4.1.3 — NLST command. See {@link #retr}. */
@@ -603,7 +635,15 @@ public final class FtpClientProtocolHandler
     public void nlst(String pathname, InetSocketAddress dataAddress,
             ListReplyHandler callback) {
         beginDataTransfer(callback);
-        openDataConnection(dataAddress, new ListingDataHandler("NLST", pathname, callback));
+        boolean activeMode = (dataAddress == null);
+        ListingDataHandler handler =
+                new ListingDataHandler("NLST", pathname, callback, activeMode);
+        if (activeMode) {
+            sendListingCommand(handler);
+            dataCoordinator.acceptNext(handler);
+        } else {
+            dataCoordinator.connect(dataAddress, handler);
+        }
     }
 
     /** RFC 3659 §7 — MLSD command. See {@link #retr}. */
@@ -611,20 +651,23 @@ public final class FtpClientProtocolHandler
     public void mlsd(String pathname, InetSocketAddress dataAddress,
             ListReplyHandler callback) {
         beginDataTransfer(callback);
-        openDataConnection(dataAddress, new ListingDataHandler("MLSD", pathname, callback));
+        boolean activeMode = (dataAddress == null);
+        ListingDataHandler handler =
+                new ListingDataHandler("MLSD", pathname, callback, activeMode);
+        if (activeMode) {
+            sendListingCommand(handler);
+            dataCoordinator.acceptNext(handler);
+        } else {
+            dataCoordinator.connect(dataAddress, handler);
+        }
     }
 
-    /**
-     * Opens the data connection for a transfer: connects out to {@code
-     * dataAddress} (PASV/EPSV), or — if null — accepts the server's
-     * inbound connection on a previously-opened PORT/EPRT listener.
-     */
-    private void openDataConnection(InetSocketAddress dataAddress, ProtocolHandler dataHandler) {
-        if (dataAddress != null) {
-            dataCoordinator.connect(dataAddress, dataHandler);
-        } else {
-            dataCoordinator.acceptNext(dataHandler);
-        }
+    private void sendListingCommand(ListingDataHandler handler) {
+        String full = (handler.pathname == null || handler.pathname.isEmpty())
+                ? handler.command : handler.command + " " + handler.pathname;
+        FtpState newState = "NLST".equals(handler.command) ? FtpState.NLST_SENT
+                : "MLSD".equals(handler.command) ? FtpState.MLSD_SENT : FtpState.LIST_SENT;
+        sendCommand(full, newState);
     }
 
     private void beginDataTransfer(Object callback) {
@@ -1159,16 +1202,21 @@ public final class FtpClientProtocolHandler
     private class DownloadDataHandler implements ProtocolHandler {
         private final String pathname;
         private final RetrReplyHandler callback;
+        private final boolean activeMode;
 
-        DownloadDataHandler(String pathname, RetrReplyHandler callback) {
+        DownloadDataHandler(String pathname, RetrReplyHandler callback,
+                boolean activeMode) {
             this.pathname = pathname;
             this.callback = callback;
+            this.activeMode = activeMode;
         }
 
         @Override
         public void connected(Endpoint ep) {
             dataEndpoint = ep;
-            sendCommand("RETR " + pathname, FtpState.RETR_SENT);
+            if (!activeMode) {
+                sendCommand("RETR " + pathname, FtpState.RETR_SENT);
+            }
         }
 
         @Override
@@ -1197,21 +1245,27 @@ public final class FtpClientProtocolHandler
         private final String pathname;
         private final boolean append;
         private final StorReplyHandler callback;
+        private final boolean activeMode;
         private Endpoint ep;
+        private boolean uploadCloseScheduled;
 
-        UploadDataHandler(String pathname, boolean append, StorReplyHandler callback) {
+        UploadDataHandler(String pathname, boolean append, StorReplyHandler callback,
+                boolean activeMode) {
             this.pathname = pathname;
             this.append = append;
             this.callback = callback;
+            this.activeMode = activeMode;
         }
 
         @Override
         public void connected(Endpoint ep) {
             this.ep = ep;
             dataEndpoint = ep;
-            String command = (append ? "APPE " : "STOR ") + pathname;
-            FtpState newState = append ? FtpState.APPE_SENT : FtpState.STOR_SENT;
-            sendCommand(command, newState);
+            if (!activeMode) {
+                String command = (append ? "APPE " : "STOR ") + pathname;
+                FtpState newState = append ? FtpState.APPE_SENT : FtpState.STOR_SENT;
+                sendCommand(command, newState);
+            }
             if (!ep.isSecure()) {
                 callback.handleReadyToSend(this);
             }
@@ -1256,6 +1310,22 @@ public final class FtpClientProtocolHandler
 
         @Override
         public void finish() {
+            if (ep == null || dataConnClosed || uploadCloseScheduled) {
+                return;
+            }
+            if (ep.isSecure()) {
+                uploadCloseScheduled = true;
+                ep.closeWhenOutboundIdle();
+            } else {
+                completeUploadClose();
+            }
+        }
+
+        private void completeUploadClose() {
+            if (uploadCloseScheduled || ep == null || dataConnClosed) {
+                return;
+            }
+            uploadCloseScheduled = true;
             ep.close();
             dataConnClosed = true;
             maybeCompleteTransfer();
@@ -1267,21 +1337,22 @@ public final class FtpClientProtocolHandler
         private final String command;
         private final String pathname;
         private final ListReplyHandler callback;
+        private final boolean activeMode;
 
-        ListingDataHandler(String command, String pathname, ListReplyHandler callback) {
+        ListingDataHandler(String command, String pathname, ListReplyHandler callback,
+                boolean activeMode) {
             this.command = command;
             this.pathname = pathname;
             this.callback = callback;
+            this.activeMode = activeMode;
         }
 
         @Override
         public void connected(Endpoint ep) {
             dataEndpoint = ep;
-            String full = (pathname == null || pathname.isEmpty())
-                    ? command : command + " " + pathname;
-            FtpState newState = "NLST".equals(command) ? FtpState.NLST_SENT
-                    : "MLSD".equals(command) ? FtpState.MLSD_SENT : FtpState.LIST_SENT;
-            sendCommand(full, newState);
+            if (!activeMode) {
+                sendListingCommand(this);
+            }
         }
 
         @Override

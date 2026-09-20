@@ -409,6 +409,24 @@ public class TcpEndpoint implements Endpoint, ChannelHandler, TlsRecordState.Cal
     }
 
     @Override
+    public void closeWhenOutboundIdle() {
+        if (closing) {
+            return;
+        }
+        onWriteReady(new Runnable() {
+            @Override
+            public void run() {
+                if (!closing) {
+                    close();
+                }
+            }
+        });
+        if (selectorLoop != null) {
+            selectorLoop.requestWrite(this);
+        }
+    }
+
+    @Override
     public SocketAddress getLocalAddress() {
         if (channel == null) {
             return new java.net.InetSocketAddress("localhost", 0);

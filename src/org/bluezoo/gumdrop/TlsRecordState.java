@@ -238,6 +238,7 @@ final class TlsRecordState implements TlsRecordSink {
                     return;
                 }
             }
+            flushPendingAppData();
             engine.sendCloseNotify(this);
         }
     }
