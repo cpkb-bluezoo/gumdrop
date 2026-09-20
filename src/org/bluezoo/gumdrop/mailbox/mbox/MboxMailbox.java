@@ -41,7 +41,6 @@ import org.bluezoo.util.ByteArrays;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
-import java.io.RandomAccessFile;
 import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
 import java.nio.channels.FileLock;
@@ -129,7 +128,6 @@ public final class MboxMailbox implements Mailbox {
     private final String name;
     private final boolean readOnly;
     
-    private RandomAccessFile raf;
     private FileChannel channel;
     private FileLock lock;
     
@@ -260,14 +258,15 @@ public final class MboxMailbox implements Mailbox {
         boolean initialized = false;
         try {
             // Open the file
-            String mode = readOnly ? "r" : "rw";
-            raf = new RandomAccessFile(mboxFile.toFile(), mode);
-            channel = raf.getChannel();
+            channel = readOnly
+                    ? FileChannel.open(mboxFile, StandardOpenOption.READ)
+                    : FileChannel.open(mboxFile, StandardOpenOption.READ,
+                            StandardOpenOption.WRITE);
 
             // Acquire lock
             lock = readOnly ? channel.lock(0, Long.MAX_VALUE, true) : channel.lock();
             if (lock == null) {
-                raf.close();
+                channel.close();
                 throw new IOException("Could not acquire lock on mailbox: " + mboxFile);
             }
 
@@ -323,10 +322,6 @@ public final class MboxMailbox implements Mailbox {
             if (channel != null) {
                 channel.close();
                 channel = null;
-            }
-            if (raf != null) {
-                raf.close();
-                raf = null;
             }
             if (gate != null) {
                 gate.permit.release();

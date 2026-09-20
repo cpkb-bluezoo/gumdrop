@@ -1198,8 +1198,6 @@
           <include name='org/bluezoo/gumdrop/mailbox/maildir/MaildirBodyOffsetTest.java'/>
           <include name='org/bluezoo/gumdrop/mailbox/maildir/MaildirConcurrentSessionTest.java'/>
           <include name='org/bluezoo/gumdrop/mailbox/mbox/MboxMailboxFactoryTest.java'/>
-          <include name='org/bluezoo/gumdrop/mailbox/mbox/MboxMailboxStoreTest.java'/>
-          <include name='org/bluezoo/gumdrop/mailbox/mbox/MboxMailboxTest.java'/>
           <include name='org/bluezoo/gumdrop/pop3/POP3ScramCredentialsOffloadTest.java'/>
           <include name='org/bluezoo/gumdrop/quic/tls/PemCredentialsTest.java'/>
           <include name='org/bluezoo/gumdrop/quota/RoleBasedQuotaManagerAsyncSaveTest.java'/>

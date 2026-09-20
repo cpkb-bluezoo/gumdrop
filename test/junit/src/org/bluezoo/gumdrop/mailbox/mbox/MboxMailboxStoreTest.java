@@ -23,7 +23,10 @@ package org.bluezoo.gumdrop.mailbox.mbox;
 
 import org.bluezoo.gumdrop.mailbox.Mailbox;
 import org.bluezoo.gumdrop.mailbox.MailboxAttribute;
+import org.bluezoo.gumdrop.mailbox.MailboxNameCodec;
+import org.bluezoo.gumdrop.mailbox.MailboxStore;
 import org.junit.After;
+import org.bluezoo.gumdrop.testsupport.memfs.MemoryFileSystem;
 import org.junit.Before;
 import org.junit.Test;
 
@@ -46,7 +49,8 @@ public class MboxMailboxStoreTest {
 
     @Before
     public void setUp() throws IOException {
-        tempDir = Files.createTempDirectory("mboxstore");
+        tempDir = MemoryFileSystem.create().getPath("/mbox");
+        Files.createDirectories(tempDir);
         store = new MboxMailboxStore(tempDir);
     }
 
@@ -55,19 +59,6 @@ public class MboxMailboxStoreTest {
         try {
             store.close();
         } catch (IOException e) { /* ignore */ }
-        Files.walkFileTree(tempDir, new java.nio.file.SimpleFileVisitor<Path>() {
-            @Override
-            public java.nio.file.FileVisitResult visitFile(Path file, java.nio.file.attribute.BasicFileAttributes attrs) {
-                try { Files.delete(file); } catch (IOException e) { /* ignore */ }
-                return java.nio.file.FileVisitResult.CONTINUE;
-            }
-
-            @Override
-            public java.nio.file.FileVisitResult postVisitDirectory(Path dir, IOException exc) {
-                try { Files.delete(dir); } catch (IOException e) { /* ignore */ }
-                return java.nio.file.FileVisitResult.CONTINUE;
-            }
-        });
     }
 
     @Test
@@ -267,5 +258,66 @@ public class MboxMailboxStoreTest {
         assertNotNull(m1);
         assertEquals("INBOX", m1.getName());
         m1.close(false);
+    }
+
+    @Test
+    public void testNestedAndEncodedMailboxNamesAreListedDecoded() throws IOException {
+        store.open("alice");
+        store.createMailbox("work/2024");
+        store.createMailbox("a:b");
+        store.createMailbox("x:y/z");
+        List<String> names = store.listMailboxes("", "*");
+        assertTrue(names.toString(), names.contains("work/2024"));
+        assertTrue(names.toString(), names.contains("a:b"));
+        assertTrue(names.toString(), names.contains("x:y/z"));
+        assertTrue(Files.isRegularFile(tempDir.resolve("alice/work/2024.mbox")));
+        assertEquals("a=3Ab", MailboxNameCodec.encode("a:b"));
+        assertTrue(Files.isRegularFile(tempDir.resolve("alice/a=3Ab.mbox")));
+    }
+
+    @Test
+    public void testHiddenDirectoriesAndForeignFilesAreNotListed() throws IOException {
+        store.open("alice");
+        Files.createDirectories(tempDir.resolve("alice/.trash"));
+        Files.createFile(tempDir.resolve("alice/.trash/junk.mbox"));
+        Files.createFile(tempDir.resolve("alice/notes.txt"));
+        List<String> names = store.listMailboxes("", "*");
+        assertEquals(java.util.Arrays.asList("INBOX"), names);
+    }
+
+    @Test
+    public void testChildDetectionUsesEncodedDirectoryName() throws IOException {
+        store.open("alice");
+        store.createMailbox("a:b");
+        store.createMailbox("a:b/c");
+        assertTrue(store.getMailboxAttributes("a:b").contains(MailboxAttribute.HASCHILDREN));
+    }
+
+    @Test
+    public void testChildDetectionWithPlainName() throws IOException {
+        store.open("alice");
+        store.createMailbox("work");
+        assertTrue(store.getMailboxAttributes("work").contains(MailboxAttribute.HASNOCHILDREN));
+        store.createMailbox("work/2024");
+        assertTrue(store.getMailboxAttributes("work").contains(MailboxAttribute.HASCHILDREN));
+    }
+
+    @Test
+    public void testQuotaCountsEveryMailboxFileIncludingHiddenDirectories() throws IOException {
+        store.open("alice");
+        Files.write(tempDir.resolve("alice/INBOX.mbox"), new byte[2048]);
+        Files.createDirectories(tempDir.resolve("alice/.hidden"));
+        Files.write(tempDir.resolve("alice/.hidden/x.mbox"), new byte[1024]);
+        Files.write(tempDir.resolve("alice/.subscriptions"), new byte[9999]);
+        Files.write(tempDir.resolve("alice/notes.txt"), new byte[9999]);
+        MailboxStore.Quota quota = store.getQuota("alice");
+        assertEquals(3, quota.getStorageUsed());
+        assertEquals(2, quota.getMessageCount());
+    }
+
+    @Test
+    public void testQuotaForOtherRootIsNull() throws IOException {
+        store.open("alice");
+        assertNull(store.getQuota("bob"));
     }
 }
