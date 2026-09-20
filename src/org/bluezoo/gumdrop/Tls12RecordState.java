@@ -195,7 +195,6 @@ final class Tls12RecordState implements TlsRecordSink {
         if (closed || outboundClosed) {
             return;
         }
-        outboundClosed = true;
         synchronized (tcpEndpoint.tlsEngineLock) {
             synchronized (tcpEndpoint.netOutLock) {
                 if (netOut() == null) {
@@ -203,6 +202,7 @@ final class Tls12RecordState implements TlsRecordSink {
                 }
             }
             flushPendingAppData();
+            outboundClosed = true;
             engine.sendCloseNotify(this);
         }
     }
