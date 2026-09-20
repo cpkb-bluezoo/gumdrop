@@ -2065,6 +2065,9 @@ public final class QuicConnection implements QuicTlsEngineListener {
      * levels aren't already contributing.
      */
     void flush() {
+        if (closed) {
+            return;
+        }
         byte[] zeroRttBytes = buildZeroRttPacketOrNull();
         byte[] handshakeBytes = buildLevelPacketOrNull(EncryptionLevel.HANDSHAKE, 0);
         if (handshakeBytes != null) {
@@ -3479,6 +3482,9 @@ public final class QuicConnection implements QuicTlsEngineListener {
 
     @Override
     public void cryptoDataReady(EncryptionLevel level, long offset, byte[] data) {
+        if (closed) {
+            return;
+        }
         pendingCrypto.get(level).add(new PendingChunk(offset, data));
         requestFlush();
     }

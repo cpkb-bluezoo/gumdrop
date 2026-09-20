@@ -22,6 +22,7 @@
 package org.bluezoo.gumdrop.http;
 
 import org.bluezoo.gumdrop.Gumdrop;
+import org.bluezoo.gumdrop.IntegrationTestHosts;
 import org.bluezoo.gumdrop.TestTlsFiles;
 import org.bluezoo.gumdrop.http.server.Http2Listener;
 import org.bluezoo.gumdrop.tls.TlsConfig;
@@ -29,11 +30,14 @@ import org.junit.After;
 import org.junit.BeforeClass;
 import org.junit.Test;
 
-import java.net.InetAddress;
+import java.net.InetSocketAddress;
+import java.net.Socket;
 import java.nio.file.Files;
 import java.nio.file.Path;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
 
 /**
  * Loopback HTTPS using Java keystores (PKCS#12 and JKS), not PEM paths on the
@@ -44,9 +48,6 @@ import static org.junit.Assert.assertEquals;
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 public class KeystoreTlsIntegrationTest {
-
-    private static final int PORT_PKCS12 = 18447;
-    private static final int PORT_JKS = 18448;
 
     private Gumdrop gumdrop;
 
@@ -67,38 +68,61 @@ public class KeystoreTlsIntegrationTest {
     @Test
     public void testHttpsWithPkcs12Keystore() throws Exception {
         TestTlsFiles.assumeKeystoreAvailable();
-        runOneGet(TlsConfig.keystore(TestTlsFiles.keystoreFile(), TestTlsFiles.KEYSTORE_PASSWORD),
-                PORT_PKCS12);
+        runOneGet(TlsConfig.keystore(TestTlsFiles.keystoreFile(), TestTlsFiles.KEYSTORE_PASSWORD));
     }
 
     @Test
     public void testHttpsWithJksKeystore() throws Exception {
         Path jks = TestTlsFiles.writeTemporaryJksServerKeystore();
         try {
-            runOneGet(TlsConfig.keystore(jks, TestTlsFiles.KEYSTORE_PASSWORD, "JKS"), PORT_JKS);
+            runOneGet(TlsConfig.keystore(jks, TestTlsFiles.KEYSTORE_PASSWORD, "JKS"));
         } finally {
             Files.deleteIfExists(jks);
         }
     }
 
-    private void runOneGet(TlsConfig serverTls, int port) throws Exception {
+    private void runOneGet(TlsConfig serverTls) throws Exception {
+        Http2Listener listener = new Http2Listener()
+                .port(0)
+                .addresses(IntegrationTestHosts.loopbackAddress())
+                .secure(true)
+                .tls(serverTls);
         HttpServer server = HttpServer.compose()
-                .listener(new Http2Listener()
-                        .port(port)
-                        .addresses(InetAddress.getByName("::1"))
-                        .secure(true)
-                        .tls(serverTls))
+                .listener(listener)
                 .server();
 
         gumdrop = Gumdrop.boot();
         gumdrop.addServer(server);
 
+        int port = awaitBoundPort(listener);
         String request = "GET / HTTP/1.1\r\n"
                 + "Host: localhost\r\n"
                 + "Connection: close\r\n"
                 + "\r\n";
         HTTPClientHelper.HttpResponse response =
-                HTTPClientHelper.sendRequest("::1", port, request, true, 10000);
+                HTTPClientHelper.sendRequest(IntegrationTestHosts.LOOPBACK, port, request, true, 10000);
         assertEquals(404, response.statusCode);
+    }
+
+    private static int awaitBoundPort(Http2Listener listener) throws InterruptedException {
+        long deadline = System.currentTimeMillis() + 5000;
+        while (System.currentTimeMillis() < deadline) {
+            int port = listener.getPort();
+            if (port > 0 && isPortListening(IntegrationTestHosts.LOOPBACK, port)) {
+                return port;
+            }
+            Thread.sleep(50);
+        }
+        fail("HTTPS listener did not bind within 5s (last port=" + listener.getPort() + ")");
+        return -1;
+    }
+
+    private static boolean isPortListening(String host, int port) {
+        try (Socket socket = new Socket()) {
+            socket.connect(new InetSocketAddress(host, port), 200);
+            return true;
+        } catch (Exception e) {
+            return false;
+        }
     }
 }

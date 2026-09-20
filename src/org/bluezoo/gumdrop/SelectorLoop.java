@@ -23,6 +23,7 @@ package org.bluezoo.gumdrop;
 
 import java.io.IOException;
 import java.net.InetSocketAddress;
+import java.net.PortUnreachableException;
 import java.nio.ByteBuffer;
 import java.nio.channels.CancelledKeyException;
 import java.nio.channels.ClosedChannelException;
@@ -548,10 +549,31 @@ public class SelectorLoop implements Runnable {
             endpoint.netReceive(endpoint.netIn, source);
 
         } catch (IOException e) {
-            LOGGER.log(Level.WARNING,
-                    L10N.getString("log.error_reading_datagram_endpoint"), e);
+            logDatagramEndpointReadFailure(e);
             endpoint.close();
         }
+    }
+
+    private void logDatagramEndpointReadFailure(IOException e) {
+        Level level = datagramReadFailureLogLevel(e);
+        if (!LOGGER.isLoggable(level)) {
+            return;
+        }
+        LOGGER.log(level, L10N.getString("log.error_reading_datagram_endpoint"), e);
+    }
+
+    /**
+     * ICMP port unreachable on a connected UDP socket is normal when the peer
+     * is down; the endpoint is still closed so handlers can fail fast.
+     */
+    private static Level datagramReadFailureLogLevel(IOException e) {
+        if (e instanceof PortUnreachableException) {
+            return Level.FINE;
+        }
+        if (e instanceof ClosedChannelException) {
+            return Level.FINE;
+        }
+        return Level.WARNING;
     }
 
     private void doUDPEndpointWrite(SelectionKey key,

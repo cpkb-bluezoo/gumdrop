@@ -357,10 +357,14 @@ public class AcceptSelectorLoop implements Runnable {
             ss.bind(socketAddress);
             long t2 = System.currentTimeMillis();
 
+            if (ss.getLocalPort() > 0) {
+                server.applyBoundTcpPort(ss.getLocalPort());
+            }
+
             if (LOGGER.isLoggable(Level.FINE)) {
                 String message = Gumdrop.L10N.getString("info.bound_server");
                 message = MessageFormat.format(message,
-                        server.getDescription(), port, address, (t2 - t1));
+                        server.getDescription(), ss.getLocalPort(), address, (t2 - t1));
                 LOGGER.fine(message);
             }
 

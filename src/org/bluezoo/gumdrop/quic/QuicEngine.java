@@ -25,6 +25,7 @@ import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.net.SocketAddress;
 import java.nio.ByteBuffer;
+import java.nio.channels.ClosedChannelException;
 import java.nio.channels.DatagramChannel;
 import java.nio.channels.SelectionKey;
 import java.security.SecureRandom;
@@ -586,10 +587,13 @@ public final class QuicEngine implements ChannelHandler, MultiplexedEndpoint {
      * @param packet the raw packet bytes
      */
     void sendTo(SocketAddress address, byte[] packet) {
+        if (!datagramPathOpen()) {
+            return;
+        }
         try {
             path.send(address, ByteBuffer.wrap(packet));
         } catch (IOException e) {
-            LOGGER.log(Level.WARNING, L10N.getString("warn.send_retry_failed"), e);
+            logDatagramSendFailure(L10N.getString("warn.send_retry_failed"), e);
         }
     }
 
@@ -693,14 +697,31 @@ public final class QuicEngine implements ChannelHandler, MultiplexedEndpoint {
     }
 
     void sendPacket(QuicConnection connection, byte[] packet) {
+        if (!datagramPathOpen()) {
+            return;
+        }
         try {
             int sent = path.send(connection.getRemoteAddress(), ByteBuffer.wrap(packet));
             if (sent == 0) {
                 LOGGER.fine(L10N.getString("fine.datagram_send_would_block"));
             }
         } catch (IOException e) {
-            LOGGER.log(Level.WARNING, L10N.getString("warn.send_packet_failed"), e);
+            logDatagramSendFailure(L10N.getString("warn.send_packet_failed"), e);
         }
+    }
+
+    private boolean datagramPathOpen() {
+        return path != null && path.isOpen();
+    }
+
+    private void logDatagramSendFailure(String message, IOException e) {
+        if (e instanceof ClosedChannelException || closing || !datagramPathOpen()) {
+            if (LOGGER.isLoggable(Level.FINE)) {
+                LOGGER.log(Level.FINE, message, e);
+            }
+            return;
+        }
+        LOGGER.log(Level.WARNING, message, e);
     }
 
     private InetSocketAddress getLocalSocketAddress() {

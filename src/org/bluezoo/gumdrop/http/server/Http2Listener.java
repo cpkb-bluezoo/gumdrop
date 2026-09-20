@@ -170,6 +170,13 @@ public class Http2Listener extends TcpListener {
         this.port = port;
     }
 
+    @Override
+    protected void applyBoundTcpPort(int boundPort) {
+        if (port == 0) {
+            port = boundPort;
+        }
+    }
+
     /**
      * Sets the TCP port. Returns {@code this} for fluent configuration.
      *
@@ -207,7 +214,7 @@ public class Http2Listener extends TcpListener {
 
     public void start() {
         super.start();
-        if (port <= 0) {
+        if (port < 0) {
             port = secure ? HTTPS_DEFAULT_PORT : HTTP_DEFAULT_PORT;
         }
         if (isMetricsEnabled()) {
