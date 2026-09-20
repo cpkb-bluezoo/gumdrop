@@ -30,6 +30,7 @@ import java.util.List;
 import javax.net.ssl.X509TrustManager;
 import java.util.concurrent.atomic.AtomicReference;
 
+import org.bluezoo.gumdrop.IntegrationTestHosts;
 import org.bluezoo.gumdrop.TestTlsFiles;
 
 import org.junit.BeforeClass;
@@ -49,7 +50,8 @@ import static org.junit.Assert.assertTrue;
 public class Dtls12CookieExchangeTest {
 
     private static final byte[] COOKIE_SECRET = "dtls12-cookie-test-secret".getBytes(java.nio.charset.StandardCharsets.US_ASCII);
-    private static final String SERVER_NAME = "test.gumdrop.local";
+    /** Must match a DNS SAN on {@code etc/tls/cert.pem} (see {@code integration.tls.names}). */
+    private static final String SERVER_NAME = IntegrationTestHosts.TLS_SERVER_NAME;
     private static final InetSocketAddress CLIENT_ADDR = new InetSocketAddress("127.0.0.1", 4242);
     private static final InetSocketAddress SERVER_ADDR = new InetSocketAddress("127.0.0.1", 4343);
     private static final InetSocketAddress WRONG_ADDR = new InetSocketAddress("127.0.0.1", 9999);
