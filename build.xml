@@ -83,6 +83,16 @@
   <property name='junit.coverage.dir' location='${testdir}/junit/coverage'/>
   <property name='junit.coverage.exec' location='${junit.coverage.dir}/jacoco.exec'/>
   <property name='junit.report.dir' location='${testdir}/junit/report'/>
+  <!-- Combined (unit + integration) coverage; see the coverage-all target. -->
+  <property name='integration.coverage.dir' location='${testdir}/integration/coverage'/>
+  <property name='integration.coverage.exec' location='${integration.coverage.dir}/jacoco.exec'/>
+  <property name='coverage.report.dir' location='${testdir}/coverage-report'/>
+  <!-- JVM argument for forked integration test JVMs. Empty normally;
+       coverage-integration passes a -javaagent option here. -->
+  <property name='jacoco.jvmarg' value=''/>
+  <!-- Set to 'no' by coverage-integration so one environment-dependent
+       failure does not discard coverage from the remaining tests. -->
+  <property name='integration.halt' value='yes'/>
   <property name='gumdrop.jar' location='${dist}/gumdrop.jar'/>
   <property name='gumdrop.core.jar' location='${dist}/gumdrop-core.jar'/>
   <property name='gumdrop.mime.jar' location='${dist}/gumdrop-mime.jar'/>
@@ -894,8 +904,9 @@
     <sequential>
       <mkdir dir='${testdir}/integration/results/xml'/>
       <mkdir dir='${testdir}/integration/results/reports'/>
-      <junit printsummary='yes' haltonfailure='yes' haltonerror='yes' fork='yes'
+      <junit printsummary='yes' haltonfailure='${integration.halt}' haltonerror='${integration.halt}' fork='yes'
              showoutput='true' logfailedtests='true'>
+        <jvmarg line='${jacoco.jvmarg}'/>
         <classpath refid='integration.classpath'/>
         <batchtest fork='yes' todir='${testdir}/integration/results/xml'>
           <fileset dir='${testdir}/integration/src'>
@@ -1124,8 +1135,9 @@
   <target name='integration-test-loopback' depends='integration-build'
           description='Run loopback transport/protocol integration tests'>
     <mkdir dir='${testdir}/integration/results/xml'/>
-    <junit printsummary='yes' haltonfailure='yes' haltonerror='yes' fork='yes'
+    <junit printsummary='yes' haltonfailure='${integration.halt}' haltonerror='${integration.halt}' fork='yes'
            showoutput='true' logfailedtests='true'>
+      <jvmarg line='${jacoco.jvmarg}'/>
       <classpath refid='integration.classpath'/>
       <batchtest fork='yes' todir='${testdir}/integration/results/xml'>
         <fileset dir='${testdir}/integration/src'>
@@ -1162,8 +1174,9 @@
   <target name='integration-test-relocated' depends='integration-build'
           description='Run relocated disk/subprocess integration tests'>
     <mkdir dir='${testdir}/integration/results/xml'/>
-    <junit printsummary='yes' haltonfailure='yes' haltonerror='yes' fork='yes'
+    <junit printsummary='yes' haltonfailure='${integration.halt}' haltonerror='${integration.halt}' fork='yes'
            showoutput='true' logfailedtests='true'>
+      <jvmarg line='${jacoco.jvmarg}'/>
       <classpath refid='integration.classpath'/>
       <batchtest fork='yes' todir='${testdir}/integration/results/xml'>
         <fileset dir='${testdir}/integration/src'>
@@ -1239,9 +1252,55 @@
           description='Run all unit and integration tests'>
   </target>
 
+  <!-- Integration-test coverage. Re-runs integration-test in a child Ant so the
+       JaCoCo agent reaches every forked test JVM (all append to one exec file).
+       Failures do not stop the run: many integration tests depend on the local
+       environment, and partial coverage is still useful. -->
+  <target name='coverage-integration' depends='integration-build,resolve-jacoco'
+          description='Run integration tests under JaCoCo (exec file only)'>
+    <mkdir dir='${integration.coverage.dir}'/>
+    <delete file='${integration.coverage.exec}' quiet='true'/>
+    <ant antfile='${ant.file}' target='integration-test' inheritAll='false'>
+      <property name='integration.halt' value='no'/>
+      <property name='jacoco.jvmarg'
+                value='-javaagent:${testdir}/junit/lib/${jacoco.agent.runtime.jar}=destfile=${integration.coverage.exec},append=true,excludes=java/**:javax/**:sun/**:com/sun/**:jdk/**'/>
+    </ant>
+  </target>
+
+  <!-- Combined unit + integration coverage report in test/coverage-report/. -->
+  <target name='coverage-all' depends='junit-coverage,coverage-integration'
+          description='Merge unit and integration JaCoCo data into test/coverage-report/'>
+    <taskdef uri='antlib:org.jacoco.ant' resource='org/jacoco/ant/antlib.xml'>
+      <classpath refid='jacoco.ant.classpath'/>
+    </taskdef>
+    <delete dir='${coverage.report.dir}' quiet='true'/>
+    <mkdir dir='${coverage.report.dir}'/>
+    <jacoco:report>
+      <executiondata>
+        <file file='${junit.coverage.exec}'/>
+        <file file='${integration.coverage.exec}'/>
+      </executiondata>
+      <structure name='gumdrop (unit + integration)'>
+        <classfiles>
+          <fileset dir='${build.dir}'>
+            <include name='**/*.class'/>
+            <exclude name='**/module-info.class'/>
+          </fileset>
+        </classfiles>
+        <sourcefiles encoding='utf-8'>
+          <fileset dir='${src}'/>
+        </sourcefiles>
+      </structure>
+      <html destdir='${coverage.report.dir}'/>
+    </jacoco:report>
+    <echo message='Combined JaCoCo HTML report: ${coverage.report.dir}/index.html'/>
+  </target>
+
   <!-- Clean integration test results -->
   <target name='integration-clean'
           description='Clean integration test results'>
+    <delete dir='${integration.coverage.dir}'/>
+    <delete dir='${coverage.report.dir}'/>
     <delete dir='${testdir}/integration/classes'/>
     <delete dir='${testdir}/integration/results'/>
     <delete dir='${testdir}/integration/webapp/WEB-INF/classes'/>

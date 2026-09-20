@@ -102,7 +102,7 @@ public class DnsServerCompositionTest {
             ZoneFile loaded = ZoneFile.load(zone);
             DnsServer server = DnsServer.compose()
                     .listener(new DnsListener())
-                    .handler(new AuthoritativeZoneHandler(loaded))
+                    .handler(AuthoritativeZoneHandler.builder().zone(loaded).build())
                     .server();
 
             DnsMessage query = DnsMessage.createQuery(4, "www.example.com.",
