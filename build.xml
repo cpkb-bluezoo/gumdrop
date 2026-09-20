@@ -909,12 +909,8 @@
     <pathelement location='${testdir}/junit/lib/${junit.jar}'/>
     <pathelement location='${testdir}/junit/lib/${hamcrest.jar}'/>
     <path refid='server.classes'/>
-    <pathelement location='${lib}/${gonzalez.jar}'/>
-    <pathelement location='${lib}/${jsonparser.jar}'/>
-    <pathelement location='${lib}/${jprotobuf.jar}'/>
-    <pathelement location='${lib}/${micula.jar}'/>
-    <pathelement location='${lib}/${javamail.jar}'/>
-    <pathelement location='${lib}/${servlet.jar}'/>
+    <!-- Same J2EE/API deps as compile and container ContainerClassLoader -->
+    <path refid='lib.compile.classpath'/>
   </path>
 
   <!-- PEM TLS files for the tests that use them (see ant/tls.xml). Run in a
