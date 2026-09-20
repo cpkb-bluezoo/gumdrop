@@ -30,7 +30,6 @@ import java.util.List;
 import java.util.Set;
 
 import org.bluezoo.gumdrop.mailbox.MailboxAttribute;
-import org.bluezoo.gumdrop.mailbox.MailboxStore;
 import org.bluezoo.gumdrop.testsupport.memfs.MemoryFileSystem;
 import org.junit.After;
 import org.junit.Before;
@@ -38,14 +37,12 @@ import org.junit.Test;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
 /**
  * Unit tests for the mailbox-management side of {@link MaildirMailboxStore}
- * (listing, deletion, attributes, quota) on an in-memory file system.
+ * (listing, deletion, rename, attributes) on an in-memory file system.
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 public class MaildirMailboxStoreTest {
@@ -68,10 +65,6 @@ public class MaildirMailboxStoreTest {
     @After
     public void tearDown() throws IOException {
         store.close();
-    }
-
-    private static void writeBytes(Path file, int length) throws IOException {
-        Files.write(file, new byte[length]);
     }
 
     private static void writeText(Path file, String text) throws IOException {
@@ -372,48 +365,6 @@ public class MaildirMailboxStoreTest {
                 .contains(MailboxAttribute.HASNOCHILDREN));
     }
 
-    // Quota
-
-    @Test
-    public void testQuotaRoot() throws IOException {
-        assertEquals("alice", store.getQuotaRoot("INBOX"));
-        assertNull(store.getQuota("bob"));
-    }
-
-    @Test
-    public void testQuotaCountsCurAndNewAcrossAllMailboxes() throws IOException {
-        store.createMailbox("Sent");
-        writeBytes(userDir.resolve("cur/a"), 2048);
-        writeBytes(userDir.resolve("new/b"), 1024);
-        writeBytes(userDir.resolve(".Sent/cur/c"), 1024);
-        MailboxStore.Quota quota = store.getQuota("alice");
-        assertNotNull(quota);
-        assertEquals("alice", quota.getRoot());
-        assertEquals(3, quota.getMessageCount());
-        assertEquals(4, quota.getStorageUsed());
-        assertEquals(-1, quota.getStorageLimit());
-        assertEquals(-1, quota.getMessageLimit());
-    }
-
-    @Test
-    public void testQuotaIgnoresTmpHiddenFilesAndStrayDirectories() throws IOException {
-        writeBytes(userDir.resolve("cur/a"), 1024);
-        writeBytes(userDir.resolve("cur/.hidden"), 5000);
-        writeBytes(userDir.resolve("tmp/in-flight"), 5000);
-        writeBytes(userDir.resolve(".subscriptions"), 5000);
-        Files.createDirectories(userDir.resolve("cur/subdir"));
-        MailboxStore.Quota quota = store.getQuota("alice");
-        assertEquals(1, quota.getMessageCount());
-        assertEquals(1, quota.getStorageUsed());
-    }
-
-    @Test
-    public void testQuotaOfEmptyStore() throws IOException {
-        MailboxStore.Quota quota = store.getQuota("alice");
-        assertEquals(0, quota.getMessageCount());
-        assertEquals(0, quota.getStorageUsed());
-    }
-
     // Symbolic links planted in the user's directory
 
     private Path outsideWithFile() throws IOException {
@@ -433,18 +384,6 @@ public class MaildirMailboxStoreTest {
         assertFalse(Files.exists(userDir.resolve(".Sent"), java.nio.file.LinkOption.NOFOLLOW_LINKS));
         assertEquals("not yours to delete", new String(
                 Files.readAllBytes(outside.resolve("precious.txt")), StandardCharsets.UTF_8));
-    }
-
-    @Test
-    public void testQuotaDoesNotCountThroughDirectoryLinks() throws IOException {
-        Path outside = outsideWithFile();
-        Files.createDirectories(outside.resolve("cur"));
-        writeBytes(outside.resolve("cur/big"), 4096);
-        Files.createSymbolicLink(userDir.resolve(".elsewhere"), outside);
-        writeBytes(userDir.resolve("cur/mine"), 1024);
-        MailboxStore.Quota quota = store.getQuota("alice");
-        assertEquals(1, quota.getMessageCount());
-        assertEquals(1, quota.getStorageUsed());
     }
 
     // Rename moves inferior mailboxes too (RFC 3501 6.3.5)

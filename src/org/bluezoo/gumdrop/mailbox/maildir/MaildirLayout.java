@@ -25,7 +25,6 @@ import java.io.IOException;
 import java.nio.file.DirectoryStream;
 import java.nio.file.FileVisitResult;
 import java.nio.file.Files;
-import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.nio.file.SimpleFileVisitor;
 import java.nio.file.attribute.BasicFileAttributes;
@@ -112,53 +111,6 @@ final class MaildirLayout {
         } finally {
             entries.close();
         }
-    }
-
-    /**
-     * Totals the message files under a user directory: regular, non-hidden
-     * files in the {@code cur} and {@code new} directories of the INBOX and
-     * of every subfolder. Other directories are searched, {@code tmp} is not.
-     *
-     * @param userDirectory the user's Maildir (the INBOX)
-     * @return {total bytes, message count}
-     * @throws IOException if a directory cannot be read
-     */
-    static long[] measure(Path userDirectory) throws IOException {
-        long totalSize = 0;
-        long messageCount = 0;
-        List<Path> pending = new ArrayList<Path>();
-        pending.add(userDirectory);
-        while (!pending.isEmpty()) {
-            Path current = pending.remove(pending.size() - 1);
-            DirectoryStream<Path> children = Files.newDirectoryStream(current);
-            try {
-                for (Path child : children) {
-                    if (!Files.isDirectory(child, LinkOption.NOFOLLOW_LINKS)) {
-                        continue;
-                    }
-                    String name = child.getFileName().toString();
-                    if (name.equals(CUR) || name.equals(NEW)) {
-                        DirectoryStream<Path> messages = Files.newDirectoryStream(child);
-                        try {
-                            for (Path msg : messages) {
-                                if (Files.isRegularFile(msg)
-                                        && !msg.getFileName().toString().startsWith(".")) {
-                                    totalSize += Files.size(msg);
-                                    messageCount++;
-                                }
-                            }
-                        } finally {
-                            messages.close();
-                        }
-                    } else if (!name.equals(TMP)) {
-                        pending.add(child);
-                    }
-                }
-            } finally {
-                children.close();
-            }
-        }
-        return new long[] { totalSize, messageCount };
     }
 
     /**

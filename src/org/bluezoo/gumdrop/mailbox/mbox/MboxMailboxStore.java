@@ -640,55 +640,6 @@ public class MboxMailboxStore implements MailboxStore {
         return attributes;
     }
 
-    @Override
-    public String getQuotaRoot(String mailboxName) throws IOException {
-        ensureOpen();
-        // All mailboxes share the user's quota root
-        return username;
-    }
-
-    @Override
-    public Quota getQuota(String quotaRoot) throws IOException {
-        ensureOpen();
-        
-        if (!username.equals(quotaRoot)) {
-            return null;
-        }
-        
-        // Calculate storage used
-        long[] stats = MboxLayout.measure(userDirectory, extension);
-        
-        final long storageUsed = stats[0] / 1024; // Convert to KB
-        final long messageCount = stats[1];
-        
-        return new Quota() {
-            @Override
-            public String getRoot() {
-                return username;
-            }
-            
-            @Override
-            public long getStorageUsed() {
-                return storageUsed;
-            }
-            
-            @Override
-            public long getStorageLimit() {
-                return -1; // Unlimited
-            }
-            
-            @Override
-            public long getMessageCount() {
-                return messageCount;
-            }
-            
-            @Override
-            public long getMessageLimit() {
-                return -1; // Unlimited
-            }
-        };
-    }
-
     // ========================================================================
     // Private Helper Methods
     // ========================================================================

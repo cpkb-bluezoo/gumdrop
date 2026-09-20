@@ -24,7 +24,6 @@ package org.bluezoo.gumdrop.mailbox.mbox;
 import org.bluezoo.gumdrop.mailbox.Mailbox;
 import org.bluezoo.gumdrop.mailbox.MailboxAttribute;
 import org.bluezoo.gumdrop.mailbox.MailboxNameCodec;
-import org.bluezoo.gumdrop.mailbox.MailboxStore;
 import org.junit.After;
 import org.bluezoo.gumdrop.testsupport.memfs.MemoryFileSystem;
 import org.junit.Before;
@@ -228,12 +227,6 @@ public class MboxMailboxStoreTest {
     }
 
     @Test
-    public void testGetQuotaRoot() throws IOException {
-        store.open("testuser");
-        assertEquals("testuser", store.getQuotaRoot("INBOX"));
-    }
-
-    @Test
     public void testCloseAndReopen() throws IOException {
         store.open("testuser");
         store.createMailbox("Drafts");
@@ -305,34 +298,13 @@ public class MboxMailboxStoreTest {
     }
 
     @Test
-    public void testQuotaCountsEveryMailboxFileIncludingHiddenDirectories() throws IOException {
-        store.open("alice");
-        Files.write(tempDir.resolve("alice/INBOX.mbox"), new byte[2048]);
-        Files.createDirectories(tempDir.resolve("alice/.hidden"));
-        Files.write(tempDir.resolve("alice/.hidden/x.mbox"), new byte[1024]);
-        Files.write(tempDir.resolve("alice/.subscriptions"), new byte[9999]);
-        Files.write(tempDir.resolve("alice/notes.txt"), new byte[9999]);
-        MailboxStore.Quota quota = store.getQuota("alice");
-        assertEquals(3, quota.getStorageUsed());
-        assertEquals(2, quota.getMessageCount());
-    }
-
-    @Test
-    public void testQuotaForOtherRootIsNull() throws IOException {
-        store.open("alice");
-        assertNull(store.getQuota("bob"));
-    }
-
-    @Test
-    public void testListingAndQuotaDoNotDescendThroughDirectoryLinks() throws IOException {
+    public void testListingDoesNotDescendThroughDirectoryLinks() throws IOException {
         store.open("alice");
         Path outside = tempDir.resolveSibling("outside");
         Files.createDirectories(outside);
         Files.write(outside.resolve("stolen.mbox"), new byte[4096]);
         Files.createSymbolicLink(tempDir.resolve("alice/shared"), outside);
         assertEquals(java.util.Arrays.asList("INBOX"), store.listMailboxes("", "*"));
-        assertEquals(0, store.getQuota("alice").getStorageUsed());
-        assertEquals(1, store.getQuota("alice").getMessageCount());
     }
 
     // Rename moves inferior mailboxes and companion files (RFC 3501 6.3.5)

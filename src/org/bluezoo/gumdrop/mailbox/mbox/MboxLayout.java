@@ -116,38 +116,4 @@ final class MboxLayout {
         }
         return false;
     }
-
-    /**
-     * Totals the mailbox files anywhere beneath a directory, including
-     * under hidden directories, so that storage cannot be hidden from a
-     * quota by placing it in one.
-     *
-     * @param directory the directory to measure
-     * @param extension the mailbox file extension, including the dot
-     * @return {total bytes, file count}
-     * @throws IOException if a directory cannot be read
-     */
-    static long[] measure(Path directory, String extension) throws IOException {
-        long totalSize = 0;
-        long fileCount = 0;
-        List<Path> pending = new ArrayList<Path>();
-        pending.add(directory);
-        while (!pending.isEmpty()) {
-            Path current = pending.remove(pending.size() - 1);
-            DirectoryStream<Path> children = Files.newDirectoryStream(current);
-            try {
-                for (Path child : children) {
-                    if (isRealDirectory(child)) {
-                        pending.add(child);
-                    } else if (isMailboxFile(child, extension)) {
-                        totalSize += Files.size(child);
-                        fileCount++;
-                    }
-                }
-            } finally {
-                children.close();
-            }
-        }
-        return new long[] { totalSize, fileCount };
-    }
 }
