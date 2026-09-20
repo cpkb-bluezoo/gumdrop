@@ -95,34 +95,44 @@ Optional: `GUMDROP_DRAIN_TIMEOUT_MS=0` for fast Ctrl+C shutdown during developme
 
 After the plain HTTP smoke test, you can run **TLS on 8443** with **HTTP/2 and HTTP/3 (QUIC)** on the same port. Gumdrop adds HTTP/3 automatically for each `secure="true"` listener in `server.xml` (pure Java; no native QUIC library).
 
-### 1. Create a locally trusted certificate
-
-Install [mkcert](https://github.com/FiloSottile/mkcert) and OpenSSL, then from the repo root:
+### 1. Create the TLS files
 
 ```bash
-chmod +x scripts/dev-tls-setup.sh   # once
-./scripts/dev-tls-setup.sh
+ant tls-certs
 ```
 
-On Windows:
+This writes three [PEM](https://en.wikipedia.org/wiki/Privacy-Enhanced_Mail) files to `etc/tls/` (gitignored), valid for `localhost`, `127.0.0.1` and `::1`:
 
-```bat
-scripts\dev-tls-setup.bat
+| File | Holds |
+|------|-------|
+| `key.pem` | the server's private key |
+| `cert.pem` | the server's certificate |
+| `ca.pem` | the CA that signed it: the trust anchor for clients |
+
+Plain PEM is the simplest way to configure a listener: no keystore and no password. If you would rather use Java keystores, see [Java keystores](#java-keystores-instead-of-pem) below.
+
+The target needs [mkcert](https://github.com/FiloSottile/mkcert) or OpenSSL. It uses mkcert if it finds it, and falls back to OpenSSL (creating a private CA) if not. If neither is installed the build stops and prints the install command for your system:
+
+| | mkcert (recommended) | OpenSSL |
+|---|---|---|
+| macOS | `brew install mkcert` | `brew install openssl` |
+| Debian / Ubuntu | `sudo apt install mkcert` | `sudo apt install openssl` |
+| Fedora | `sudo dnf install mkcert` | `sudo dnf install openssl` |
+| Windows | `winget install FiloSottile.mkcert` | `winget install ShiningLight.OpenSSL.Light` (Git for Windows' copy is found automatically) |
+
+Nothing outside the checkout changes: the CA lives in `etc/tls/ca/`, and the target does not touch your operating system's trust store. Running it again does nothing if the files exist; `-Dtls.force=true` makes a new certificate under the same CA. Other properties (`-Dtls.names="localhost example.test"`, `-Dtls.keytype=rsa`, `-Dtls.dir=...`) are listed at the top of [ant/tls.xml](ant/tls.xml).
+
+Then assemble the container, which copies the PEM files into `dist/container-home/conf/tls/`:
+
+```bash
+ant assemble-container
 ```
 
-The script:
-
-- Runs `mkcert -install` (adds mkcert’s CA to the **OS trust store**; may prompt for elevation)
-- Writes **gitignored** files under `etc/`: `localhost.pem`, `localhost-key.pem`, `keystore.p12`
-- Copies `keystore.p12` into `dist/container-home/conf/` when that directory exists
-
-Default PKCS#12 password is `changeit` (override with `GUMDROP_DEV_TLS_STORE_PASS`).
-
-Re-run `ant assemble-container` if you rebuilt the tree after generating the keystore; then run `dev-tls-setup` again to copy the keystore into `conf/`, or copy `etc/keystore.p12` to `dist/container-home/conf/` yourself.
+(If you run `ant tls-certs` after assembling, run `ant assemble-container` again, or copy `etc/tls/*.pem` to `dist/container-home/conf/tls/`.) Both can be given in one command: `ant tls-certs assemble-container`.
 
 ### 2. TLS server configuration
 
-**[etc/server-tls.xml](etc/server-tls.xml)** is the example: cleartext `8080` plus secure `8443` with `keystore-file="keystore.p12"`. It is copied to `conf/server-tls.xml` by `assemble-container`. Adjust listeners or password there if you change the keystore.
+**[etc/server-tls.xml](etc/server-tls.xml)** is the example: cleartext `8080` plus secure `8443` with `cert-file="tls/cert.pem"` and `key-file="tls/key.pem"`. It is copied to `conf/server-tls.xml` by `assemble-container`.
 
 ### 3. Start with TLS config
 
@@ -135,16 +145,53 @@ This starts the container with `conf/server-tls.xml` as the config file.
 
 ### 4. Verify
 
-With mkcert’s CA installed, browsers and `curl` should trust the site:
+`curl` can be given the CA directly, so no trust store needs to change:
 
 ```bash
-curl -sS https://localhost:8443/
+curl --cacert etc/tls/ca.pem https://localhost:8443/
 ```
 
 Same over the IPv6 loopback literal (brackets required in URLs):
 
 ```bash
-curl -sS 'https://[::1]:8443/'
+curl --cacert etc/tls/ca.pem 'https://[::1]:8443/'
 ```
 
+### 5. Browsers and other tools that use the system trust store
+
+Browsers do not read `ca.pem`; they use the operating system's trust store. With mkcert installed you can add the CA to it:
+
+```bash
+ant tls-trust-install      # may ask for your password
+```
+
+after which browsers and plain `curl https://localhost:8443/` trust the site. Take it out again when you are done:
+
+```bash
+ant tls-trust-uninstall tls-clean
+```
+
+Anyone who can read `etc/tls/ca/rootCA-key.pem` can create certificates that your browser trusts once the CA is installed, so keep it private and remove it when finished. Without mkcert, `tls-trust-install` prints how to add `ca.pem` to your system's trust store by hand.
+
 HTTP/3 uses the same port via QUIC; browsers negotiate Alt-Svc after the first HTTPS response. In production you can publish HTTPS/DNS records so clients skip that discovery hop. To deploy this servlet stack (or your own Gumdrop `main`) in Docker/Podman/Kubernetes, see [docs/CONTAINER-DEPLOYMENT.md](docs/CONTAINER-DEPLOYMENT.md).
+
+### Java keystores instead of PEM
+
+If you prefer Java keystores (PKCS#12, or JKS), build them from the same files:
+
+```bash
+ant tls-keystore
+```
+
+This adds `etc/tls/keystore.p12` (the server key and certificate) and `etc/tls/truststore.p12` (the CA as a trust anchor), both with the password `changeit` (`-Dtls.keystore.pass=...` to change it). Building the keystore needs OpenSSL; the truststore needs only the JDK. Point a listener at the keystore instead of the PEM files:
+
+```xml
+<listener port="8443" secure="true" keystore-file="tls/keystore.p12"
+          keystore-pass="changeit" bind-wildcard="true"/>
+```
+
+(`keystore-format="JKS"` for a JKS store.) A listener takes either the PEM attributes or the keystore attributes, not both. See [web/security.html](web/security.html#tls-certificates) for the equivalent Java API and for converting between the formats.
+
+### Certificates for the integration tests
+
+The integration targets that need TLS files (`integration-setup` and the relocated tests, so `ant integration-test`) run `ant integration-tls` first, which makes the same three PEM files in `test/integration/certs/pem/` (with the extra name `test.gumdrop.local` that some tests connect to). It never fails the build: without mkcert or OpenSSL it prints a warning, and the tests that need the files are skipped.

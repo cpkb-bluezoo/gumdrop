@@ -7,7 +7,7 @@ Minimal Gumdrop 3 HTTP server using `HttpServer.compose()` — no XML or
 
 ```java
 HttpServer server = HttpServer.compose()
-        .secureEndpoint(443, TlsConfig.pem("cert.pem", "key.pem"))
+        .secureEndpoint(443, TlsConfig.pem("etc/tls/cert.pem", "etc/tls/key.pem"))
         .handler(new EchoHandler())
         .server();
 ```
@@ -21,12 +21,22 @@ HttpServer server = HttpServer.compose()
         .server();
 ```
 
+The TLS identity is two PEM files, the simplest form. `ant tls-certs` creates
+them (with a `ca.pem` for clients) in `etc/tls/`; see
+[BUILDING.md](../../BUILDING.md). To use a Java keystore instead, replace
+`TlsConfig.pem(cert, key)` with `TlsConfig.keystore(Path.of("keystore.p12"), "changeit")`
+(`ant tls-keystore` builds one), as described in
+[web/security.html](../../web/security.html#tls-certificates).
+
 Run:
 
 ```bash
-ant build
-java -cp build/core:build/lib/* examples.http-echo-server.EchoServer cert.pem key.pem
+ant build tls-certs
+java -cp build/core:build/lib/* examples.http-echo-server.EchoServer etc/tls/cert.pem etc/tls/key.pem 8443
+curl --cacert etc/tls/ca.pem https://localhost:8443/
 java -cp build/core:build/lib/* examples.http-echo-server.EchoServer --plaintext 8080
 ```
+
+(Port 443 is the default but needs elevated privileges on most systems.)
 
 See [web/configuration.html](../../web/configuration.html).

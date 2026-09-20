@@ -2,11 +2,15 @@
 <!--
   Local HTTPS + HTTP/3 (QUIC) smoke configuration for the stock servlet container.
 
-  Requires a PKCS#12 keystore beside this file (conf/keystore.p12 after
-  assemble-container). Generate it with scripts/dev-tls-setup.sh (or .bat)
-  and run via ./start-tls (or start-tls.bat).
+  Needs key.pem and cert.pem in conf/tls/. Make them with "ant tls-certs"
+  (mkcert or openssl; see BUILDING.md), then "ant assemble-container" copies
+  them into place, and run with ./start-tls (or start-tls.bat).
 
-  Password below must match the dev-tls-setup script (default changeit).
+  PEM files are the simplest identity: no keystore, no password. To use a
+  Java keystore instead, replace cert-file and key-file with
+  keystore-file="tls/keystore.p12" keystore-pass="changeit" ("ant tls-keystore"
+  builds that file from the same PEM files; add keystore-format="JKS" for a
+  JKS store). A listener takes one form or the other, not both.
 -->
 <server>
   <realm name="myRealm,Gumdrop Manager" class="org.bluezoo.gumdrop.auth.BasicRealm"
@@ -16,11 +20,11 @@
   <context path="/manager" root="../webapps/manager.war"/>
 
   <listener port="8080"/>
-  <listener port="8443" secure="true" keystore-file="keystore.p12"
-            keystore-pass="changeit" bind-wildcard="true"/>
+  <listener port="8443" secure="true" cert-file="tls/cert.pem" key-file="tls/key.pem"
+            bind-wildcard="true"/>
   <!-- Optional RFC 9849 ECH (generate ECHConfigList + X25519 key separately):
-  <listener port="8443" secure="true" keystore-file="keystore.p12"
-            keystore-pass="changeit" bind-wildcard="true"
+  <listener port="8443" secure="true" cert-file="tls/cert.pem" key-file="tls/key.pem"
+            bind-wildcard="true"
             ech-config-list-file="ech-config-list.bin"
             ech-private-key-file="ech-private.key"
             ech-required="false"/>

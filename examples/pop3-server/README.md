@@ -27,7 +27,10 @@ javac -cp build examples/pop3-server/POP3Example.java
 java -cp build:examples/pop3-server POP3Example
 ```
 
-Note: For POP3S (port 995), you'll need to configure a keystore with a valid certificate.
+Note: For POP3S (port 995) you need a TLS identity. The simplest is a pair of PEM
+files (`setCertFile` and `setKeyFile`); `ant tls-certs` makes some for local use in
+`etc/tls/` (see [BUILDING.md](../../BUILDING.md)). A Java keystore
+(`setKeystoreFile`, `setKeystorePass`) works too.
 
 ## Testing with Telnet
 
@@ -120,8 +123,11 @@ server.setPort(995);
 server.setSecure(true);
 server.setRealm(ldapRealm);
 server.setMailboxFactory(databaseMailboxFactory);
-server.setKeystoreFile("/etc/ssl/certs/mailserver.p12");
-server.setKeystorePass(System.getenv("KEYSTORE_PASSWORD"));
+server.setCertFile("/etc/ssl/mailserver/cert.pem");   // certificate and intermediates
+server.setKeyFile("/etc/ssl/mailserver/key.pem");     // unencrypted PKCS#8 private key
+// or, from a Java keystore:
+// server.setKeystoreFile("/etc/ssl/certs/mailserver.p12");
+// server.setKeystorePass(System.getenv("KEYSTORE_PASSWORD"));
 server.setLoginDelay(5000); // 5 seconds after failed auth
 server.setTransactionTimeout(600000); // 10 minutes
 server.setEnableAPOP(true);
@@ -154,8 +160,8 @@ This server works with standard POP3 clients:
 
 ### TLS Errors
 
-- Ensure keystore file exists and is readable
-- Verify keystore password is correct
+- Ensure the certificate and key files (or the keystore) exist and are readable
+- The private key must be unencrypted PKCS#8 PEM (`BEGIN PRIVATE KEY`); with a keystore, verify the password
 - Check certificate validity
 
 ### Mailbox Locked

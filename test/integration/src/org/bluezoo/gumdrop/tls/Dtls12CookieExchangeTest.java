@@ -21,21 +21,17 @@
 
 package org.bluezoo.gumdrop.tls;
 
-import java.io.InputStream;
 import java.net.InetSocketAddress;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.security.KeyStore;
 import java.security.PrivateKey;
 import java.security.cert.X509Certificate;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
+
+import javax.net.ssl.X509TrustManager;
 import java.util.concurrent.atomic.AtomicReference;
 
-import org.bluezoo.gumdrop.crypto.CertificateVerifier;
+import org.bluezoo.gumdrop.TestTlsFiles;
 
-import org.junit.AfterClass;
 import org.junit.BeforeClass;
 import org.junit.Test;
 
@@ -43,9 +39,7 @@ import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
-import static org.junit.Assert.fail;
 
 /**
  * RFC 6347 HelloVerifyRequest cookie exchange: HMAC binding, parsing,
@@ -60,55 +54,17 @@ public class Dtls12CookieExchangeTest {
     private static final InetSocketAddress SERVER_ADDR = new InetSocketAddress("127.0.0.1", 4343);
     private static final InetSocketAddress WRONG_ADDR = new InetSocketAddress("127.0.0.1", 9999);
 
-    private static Path certsDirectory;
     private static List<X509Certificate> ecChain;
     private static PrivateKey ecKey;
 
+    private static X509TrustManager trustManager;
+
     @BeforeClass
-    public static void generateCertificates() throws Exception {
-        certsDirectory = Files.createTempDirectory("dtls12-cookie-exchange-test");
-        Path keystorePath = certsDirectory.resolve("ec.p12");
-        ProcessBuilder pb = new ProcessBuilder(
-                "keytool", "-genkeypair", "-alias", "ec", "-keyalg", "EC", "-groupname", "secp256r1",
-                "-sigalg", "SHA256withECDSA", "-validity", "1", "-dname", "CN=" + SERVER_NAME,
-                "-ext", "san=dns:" + SERVER_NAME, "-keystore", keystorePath.toString(),
-                "-storetype", "PKCS12", "-storepass", "changeit", "-keypass", "changeit");
-        pb.redirectErrorStream(true);
-        Process process = pb.start();
-        if (!process.waitFor(30, java.util.concurrent.TimeUnit.SECONDS) || process.exitValue() != 0) {
-            fail("keytool failed to generate a test certificate");
-        }
-        KeyStore keyStore = KeyStore.getInstance("PKCS12");
-        try (InputStream in = Files.newInputStream(keystorePath)) {
-            keyStore.load(in, "changeit".toCharArray());
-        }
-        ecChain = Collections.singletonList((X509Certificate) keyStore.getCertificate("ec"));
-        ecKey = (PrivateKey) keyStore.getKey("ec", "changeit".toCharArray());
-    }
-
-    @AfterClass
-    public static void deleteCertificates() throws Exception {
-        if (certsDirectory != null) {
-            Files.walkFileTree(certsDirectory, new java.nio.file.SimpleFileVisitor<Path>() {
-                @Override
-                public java.nio.file.FileVisitResult visitFile(Path file, java.nio.file.attribute.BasicFileAttributes attrs) {
-                    try {
-                        Files.delete(file);
-                    } catch (Exception ignored) {
-                    }
-                    return java.nio.file.FileVisitResult.CONTINUE;
-                }
-
-                @Override
-                public java.nio.file.FileVisitResult postVisitDirectory(Path dir, java.io.IOException exc) {
-                    try {
-                        Files.delete(dir);
-                    } catch (Exception ignored) {
-                    }
-                    return java.nio.file.FileVisitResult.CONTINUE;
-                }
-            });
-        }
+    public static void loadCertificates() throws Exception {
+        TestTlsFiles.assumeAvailable();
+        ecChain = TestTlsFiles.certificateChain();
+        ecKey = TestTlsFiles.privateKey();
+        trustManager = TestTlsFiles.trustManager();
     }
 
     @Test
@@ -138,7 +94,7 @@ public class Dtls12CookieExchangeTest {
         Tls12HandshakeConfig clientCfg = new Tls12HandshakeConfig(HandshakeRole.CLIENT);
         clientCfg.setDtlsTransport(true);
         clientCfg.setServerName(SERVER_NAME);
-        clientCfg.setTrustManager(CertificateVerifier.trustManagerFromCertificates(ecChain));
+        clientCfg.setTrustManager(trustManager);
         clientCfg.setDtlsCookie(new byte[] { 1, 2, 3 });
 
         Dtls12RecordEngine client = new Dtls12RecordEngine(clientCfg, 1024);
@@ -157,7 +113,7 @@ public class Dtls12CookieExchangeTest {
         Tls12HandshakeConfig clientTemplate = new Tls12HandshakeConfig(HandshakeRole.CLIENT);
         clientTemplate.setDtlsTransport(true);
         clientTemplate.setServerName(SERVER_NAME);
-        clientTemplate.setTrustManager(CertificateVerifier.trustManagerFromCertificates(ecChain));
+        clientTemplate.setTrustManager(trustManager);
 
         Tls12HandshakeConfig serverCfg = new Tls12HandshakeConfig(HandshakeRole.SERVER);
         serverCfg.setDtlsTransport(true);

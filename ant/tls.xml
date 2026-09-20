@@ -1,0 +1,510 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<!--
+  Local development TLS material as plain PEM files. Imported from build.xml.
+
+  Standard layout (default directory etc/tls/, gitignored):
+
+    key.pem     server private key (PKCS#8)
+    cert.pem    server certificate
+    ca.pem      certificate of the CA that signed cert.pem: the trust anchor
+                a client needs in order to trust the server
+
+  This is the simplest way to give a Gumdrop listener an identity: point
+  cert-file / key-file (or TlsConfig.pem) at key.pem and cert.pem, and give
+  clients ca.pem. tls-keystore converts the same material to PKCS#12 for
+  anything that wants Java keystores.
+
+  Targets
+    tls-certs            create the PEM files (skips if they already exist)
+    tls-keystore         also build keystore.p12 and truststore.p12
+    tls-trust-install    add the CA to the operating system trust store
+                         (browsers, curl); needs mkcert, asks for elevation
+    tls-trust-uninstall  undo tls-trust-install
+    tls-clean            delete everything generated, CA private key included
+
+  Tools. mkcert is preferred: its CA can be installed so browsers trust the
+  certificate. Without mkcert, openssl generates a private CA instead. With
+  neither, the build stops and says how to install them. Both are found on
+  PATH (mkcert.exe / openssl.exe on Windows; openssl from Git for Windows is
+  also found), or named explicitly with -Dmkcert.executable /
+  -Dopenssl.executable.
+
+  Properties (override with -Dname=value)
+    tls.dir         output directory                  etc/tls
+    tls.names       host names and IP addresses       localhost 127.0.0.1 ::1
+    tls.keytype     ec (P-256) or rsa (2048)          ec
+    tls.generator   auto, mkcert or openssl           auto
+    tls.force       true: regenerate what exists      (unset)
+    tls.required    false: warn and carry on if there  true
+                    are no tools, instead of failing
+    tls.caroot      where the CA and its key live     ${tls.dir}/ca
+    tls.days        openssl certificate lifetime      825
+    tls.keystore.pass   password of the .p12 files    changeit
+
+  The CA lives inside the checkout (tls.caroot), not in mkcert's per-user
+  location, so nothing outside the checkout changes until tls-trust-install.
+  After that, anyone who can read tls.caroot/rootCA-key.pem can create
+  certificates your browser trusts: keep it private, and run
+  tls-trust-uninstall and tls-clean when you are done.
+-->
+<project name='gumdrop-tls'>
+
+  <property environment='env'/>
+
+  <property name='tls.dir' location='${basedir}/etc/tls'/>
+  <property name='tls.names' value='localhost 127.0.0.1 ::1'/>
+  <property name='tls.keytype' value='ec'/>
+  <property name='tls.generator' value='auto'/>
+  <property name='tls.required' value='true'/>
+  <property name='tls.caroot' location='${tls.dir}/ca'/>
+  <property name='tls.days' value='825'/>
+  <property name='tls.keystore.pass' value='changeit'/>
+  <property name='mkcert.executable' value='mkcert'/>
+  <property name='openssl.executable' value='openssl'/>
+
+  <!-- Install hints, worded for the operating system this build runs on -->
+  <condition property='tls.hint.mkcert'
+             value='macOS:    brew install mkcert   (and: brew install nss, for Firefox)'>
+    <os family='mac'/>
+  </condition>
+  <condition property='tls.hint.mkcert'
+             value='Windows:  winget install FiloSottile.mkcert   (or: choco install mkcert, scoop install mkcert)'>
+    <os family='windows'/>
+  </condition>
+  <property name='tls.hint.mkcert'
+            value='Linux:    sudo apt install mkcert   (Debian/Ubuntu; Fedora: sudo dnf install mkcert; Arch: sudo pacman -S mkcert)&#10;           otherwise download a release from https://github.com/FiloSottile/mkcert/releases'/>
+
+  <condition property='tls.hint.openssl'
+             value='macOS:    brew install openssl'>
+    <os family='mac'/>
+  </condition>
+  <condition property='tls.hint.openssl'
+             value='Windows:  winget install ShiningLight.OpenSSL.Light   (or: choco install openssl; it also comes with Git for Windows)'>
+    <os family='windows'/>
+  </condition>
+  <property name='tls.hint.openssl'
+            value='Linux:    sudo apt install openssl   (Debian/Ubuntu; Fedora: sudo dnf install openssl; Arch: sudo pacman -S openssl)'/>
+
+  <!-- How to trust the CA by hand, for when mkcert is not the generator -->
+  <condition property='tls.hint.trust'
+             value='sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain ${tls.dir}/ca.pem'>
+    <os family='mac'/>
+  </condition>
+  <condition property='tls.hint.trust'
+             value='certutil -addstore -f ROOT ${tls.dir}\ca.pem   (in an administrator prompt)'>
+    <os family='windows'/>
+  </condition>
+  <property name='tls.hint.trust'
+            value='Debian/Ubuntu: sudo cp ${tls.dir}/ca.pem /usr/local/share/ca-certificates/gumdrop-dev-ca.crt &amp;&amp; sudo update-ca-certificates&#10;           Fedora/RHEL:   sudo cp ${tls.dir}/ca.pem /etc/pki/ca-trust/source/anchors/gumdrop-dev-ca.pem &amp;&amp; sudo update-ca-trust'/>
+
+  <!-- ================================================================ -->
+  <!-- Finding the tools                                                 -->
+  <!-- ================================================================ -->
+
+  <target name='tls-probe' unless='tls.probed'>
+    <condition property='tls.mkcert.exe' value='${mkcert.executable}'>
+      <or>
+        <available file='${mkcert.executable}'/>
+        <available file='${mkcert.executable}' filepath='${env.PATH}'/>
+        <available file='${mkcert.executable}.exe' filepath='${env.PATH}'/>
+      </or>
+    </condition>
+    <condition property='tls.openssl.exe' value='${openssl.executable}'>
+      <or>
+        <available file='${openssl.executable}'/>
+        <available file='${openssl.executable}' filepath='${env.PATH}'/>
+        <available file='${openssl.executable}.exe' filepath='${env.PATH}'/>
+      </or>
+    </condition>
+    <!-- Git for Windows ships openssl but does not put it on PATH -->
+    <condition property='tls.openssl.exe'
+               value='${env.PROGRAMFILES}\Git\usr\bin\openssl.exe'>
+      <and>
+        <os family='windows'/>
+        <available file='${env.PROGRAMFILES}\Git\usr\bin\openssl.exe'/>
+      </and>
+    </condition>
+    <condition property='tls.mkcert.available'>
+      <isset property='tls.mkcert.exe'/>
+    </condition>
+    <condition property='tls.openssl.available'>
+      <isset property='tls.openssl.exe'/>
+    </condition>
+
+    <!-- Which generator: mkcert if allowed and present, else openssl -->
+    <condition property='tls.use.mkcert'>
+      <and>
+        <isset property='tls.mkcert.available'/>
+        <or>
+          <equals arg1='${tls.generator}' arg2='auto'/>
+          <equals arg1='${tls.generator}' arg2='mkcert'/>
+        </or>
+      </and>
+    </condition>
+    <condition property='tls.use.openssl'>
+      <and>
+        <not><isset property='tls.use.mkcert'/></not>
+        <isset property='tls.openssl.available'/>
+        <or>
+          <equals arg1='${tls.generator}' arg2='auto'/>
+          <equals arg1='${tls.generator}' arg2='openssl'/>
+        </or>
+      </and>
+    </condition>
+    <condition property='tls.have.generator'>
+      <or>
+        <isset property='tls.use.mkcert'/>
+        <isset property='tls.use.openssl'/>
+      </or>
+    </condition>
+    <condition property='tls.keytype.rsa'>
+      <equals arg1='${tls.keytype}' arg2='rsa'/>
+    </condition>
+    <property name='tls.probed' value='true'/>
+  </target>
+
+  <!-- What is there, and whether anything must be made. Decided once, here,
+       because the dependencies of a target run even when its own if/unless
+       skips it: tools only matter when there is something to generate. -->
+  <target name='tls-status' depends='tls-probe'>
+    <condition property='tls.exists'>
+      <and>
+        <available file='${tls.dir}/key.pem'/>
+        <available file='${tls.dir}/cert.pem'/>
+        <available file='${tls.dir}/ca.pem'/>
+        <not><istrue value='${tls.force}'/></not>
+      </and>
+    </condition>
+    <condition property='tls.tools.missing'>
+      <and>
+        <not><isset property='tls.exists'/></not>
+        <not><isset property='tls.have.generator'/></not>
+      </and>
+    </condition>
+    <condition property='tls.need.generation'>
+      <and>
+        <not><isset property='tls.exists'/></not>
+        <isset property='tls.have.generator'/>
+      </and>
+    </condition>
+  </target>
+
+  <!-- The message for a machine with neither tool, or without the one asked for -->
+  <target name='tls-no-tools' depends='tls-status' if='tls.tools.missing'>
+    <condition property='tls.wanted' value='mkcert'>
+      <equals arg1='${tls.generator}' arg2='mkcert'/>
+    </condition>
+    <condition property='tls.wanted' value='openssl'>
+      <equals arg1='${tls.generator}' arg2='openssl'/>
+    </condition>
+    <property name='tls.wanted' value='mkcert or openssl'/>
+    <property name='tls.missing.message'>
+Cannot create TLS certificates: ${tls.wanted} was not found.
+
+Install mkcert (recommended: its CA can be trusted by your browser):
+  ${tls.hint.mkcert}
+
+or install openssl (a private CA is created; add it to your trust store by hand):
+  ${tls.hint.openssl}
+
+then run this again. To use programs that are installed somewhere else, set
+-Dmkcert.executable=/path/to/mkcert and/or -Dopenssl.executable=/path/to/openssl.</property>
+    <condition property='tls.skip'>
+      <isfalse value='${tls.required}'/>
+    </condition>
+    <fail unless='tls.skip' message='${tls.missing.message}'/>
+    <echo level='warning'>TLS certificates were not created: ${tls.wanted} was not found. Tests that need them will be skipped. Install a tool and run "ant tls-certs" to create them.</echo>
+  </target>
+
+  <!-- ================================================================ -->
+  <!-- Generating the PEM files                                          -->
+  <!-- ================================================================ -->
+
+  <target name='tls-mkcert' if='tls.use.mkcert'>
+    <condition property='tls.mkcert.keyflags' value='-ecdsa' else=''>
+      <not><isset property='tls.keytype.rsa'/></not>
+    </condition>
+    <mkdir dir='${tls.caroot}'/>
+    <echo>Creating ${tls.dir}/{key,cert,ca}.pem with mkcert (CA in ${tls.caroot})</echo>
+    <exec executable='${tls.mkcert.exe}' failonerror='true'>
+      <env key='CAROOT' value='${tls.caroot}'/>
+      <arg value='-cert-file'/>
+      <arg file='${tls.dir}/cert.pem'/>
+      <arg value='-key-file'/>
+      <arg file='${tls.dir}/key.pem'/>
+      <arg line='${tls.mkcert.keyflags} ${tls.names}'/>
+    </exec>
+    <copy file='${tls.caroot}/rootCA.pem' tofile='${tls.dir}/ca.pem' overwrite='true'/>
+  </target>
+
+  <target name='tls-openssl-params' if='tls.use.openssl'>
+    <!-- Key generation arguments -->
+    <condition property='tls.openssl.keyargs'
+               value='-algorithm RSA -pkeyopt rsa_keygen_bits:2048'
+               else='-algorithm EC -pkeyopt ec_paramgen_curve:P-256'>
+      <isset property='tls.keytype.rsa'/>
+    </condition>
+    <!-- subjectAltName from tls.names: addresses become IP:, the rest DNS: -->
+    <loadresource property='tls.san'>
+      <string value='${tls.names}'/>
+      <filterchain>
+        <tokenfilter>
+          <stringtokenizer delims=' ' suppressdelims='true'/>
+          <replaceregex pattern='^((\d{1,3}\.){3}\d{1,3}|[0-9A-Fa-f:]*:[0-9A-Fa-f:]*)$'
+                        replace='IP:\1'/>
+          <replaceregex pattern='^(?!IP:)(.+)$' replace='DNS:\1'/>
+          <replaceregex pattern='$' replace=','/>
+        </tokenfilter>
+        <tokenfilter>
+          <replaceregex pattern=',$' replace=''/>
+        </tokenfilter>
+      </filterchain>
+    </loadresource>
+    <!-- Common name: the first name -->
+    <loadresource property='tls.cn'>
+      <string value='${tls.names}'/>
+      <filterchain>
+        <tokenfilter>
+          <replaceregex pattern='^\s*(\S+).*$' replace='\1'/>
+        </tokenfilter>
+      </filterchain>
+    </loadresource>
+  </target>
+
+  <!-- openssl configuration files, written rather than passed as -subj so
+       that no path-like argument can be rewritten by a Windows shell -->
+  <target name='tls-openssl-config' depends='tls-openssl-params' if='tls.use.openssl'>
+    <mkdir dir='${tls.caroot}'/>
+    <echo file='${tls.caroot}/ca.cnf'>[req]
+distinguished_name = dn
+prompt = no
+x509_extensions = v3_ca
+[dn]
+O = Gumdrop development CA
+CN = Gumdrop development CA
+[v3_ca]
+basicConstraints = critical,CA:true,pathlen:0
+keyUsage = critical,keyCertSign,cRLSign
+subjectKeyIdentifier = hash
+</echo>
+    <echo file='${tls.caroot}/server.cnf'>[req]
+distinguished_name = dn
+prompt = no
+[dn]
+O = Gumdrop development certificate
+CN = ${tls.cn}
+[v3_server]
+basicConstraints = critical,CA:false
+keyUsage = critical,digitalSignature
+extendedKeyUsage = serverAuth,clientAuth
+subjectAltName = ${tls.san}
+subjectKeyIdentifier = hash
+authorityKeyIdentifier = keyid
+</echo>
+  </target>
+
+  <target name='tls-openssl-ca' depends='tls-openssl-config'>
+    <available file='${tls.caroot}/rootCA.pem' property='tls.ca.exists'/>
+    <antcall target='tls-openssl-new-ca'/>
+  </target>
+
+  <target name='tls-openssl-new-ca' unless='tls.ca.exists'>
+    <exec executable='${tls.openssl.exe}' failonerror='true'>
+      <arg value='genpkey'/>
+      <arg line='${tls.openssl.keyargs}'/>
+      <arg value='-out'/>
+      <arg file='${tls.caroot}/rootCA-key.pem'/>
+    </exec>
+    <exec executable='${tls.openssl.exe}' failonerror='true'>
+      <arg value='req'/>
+      <arg value='-x509'/>
+      <arg value='-new'/>
+      <arg value='-key'/>
+      <arg file='${tls.caroot}/rootCA-key.pem'/>
+      <arg value='-sha256'/>
+      <arg value='-days'/>
+      <arg value='3650'/>
+      <arg value='-config'/>
+      <arg file='${tls.caroot}/ca.cnf'/>
+      <arg value='-out'/>
+      <arg file='${tls.caroot}/rootCA.pem'/>
+    </exec>
+  </target>
+
+  <target name='tls-openssl' depends='tls-openssl-config' if='tls.use.openssl'>
+    <echo>Creating ${tls.dir}/{key,cert,ca}.pem with openssl (CA in ${tls.caroot})</echo>
+    <echo>mkcert was not used, so no browser will trust this CA until you add it to your trust store:</echo>
+    <echo>  ${tls.hint.trust}</echo>
+    <!-- The CA is made once and reused, in the same file names mkcert uses,
+         so mkcert can take over the same CA later -->
+    <antcall target='tls-openssl-ca'/>
+    <!-- The server key, its request, and the CA's signature -->
+    <exec executable='${tls.openssl.exe}' failonerror='true'>
+      <arg value='genpkey'/>
+      <arg line='${tls.openssl.keyargs}'/>
+      <arg value='-out'/>
+      <arg file='${tls.dir}/key.pem'/>
+    </exec>
+    <exec executable='${tls.openssl.exe}' failonerror='true'>
+      <arg value='req'/>
+      <arg value='-new'/>
+      <arg value='-key'/>
+      <arg file='${tls.dir}/key.pem'/>
+      <arg value='-config'/>
+      <arg file='${tls.caroot}/server.cnf'/>
+      <arg value='-out'/>
+      <arg file='${tls.caroot}/server.csr'/>
+    </exec>
+    <exec executable='${tls.openssl.exe}' failonerror='true'>
+      <arg value='x509'/>
+      <arg value='-req'/>
+      <arg value='-in'/>
+      <arg file='${tls.caroot}/server.csr'/>
+      <arg value='-CA'/>
+      <arg file='${tls.caroot}/rootCA.pem'/>
+      <arg value='-CAkey'/>
+      <arg file='${tls.caroot}/rootCA-key.pem'/>
+      <arg value='-CAcreateserial'/>
+      <arg value='-days'/>
+      <arg value='${tls.days}'/>
+      <arg value='-sha256'/>
+      <arg value='-extfile'/>
+      <arg file='${tls.caroot}/server.cnf'/>
+      <arg value='-extensions'/>
+      <arg value='v3_server'/>
+      <arg value='-out'/>
+      <arg file='${tls.dir}/cert.pem'/>
+    </exec>
+    <delete file='${tls.caroot}/server.csr'/>
+    <delete file='${tls.caroot}/ca.cnf'/>
+    <delete file='${tls.caroot}/server.cnf'/>
+    <copy file='${tls.caroot}/rootCA.pem' tofile='${tls.dir}/ca.pem' overwrite='true'/>
+  </target>
+
+  <target name='tls-generate-files' depends='tls-no-tools' if='tls.need.generation'>
+    <!-- Only the server files are replaced: the CA is kept, so a certificate
+         can be renewed without invalidating a CA already trusted. ca.pem is
+         copied last, and is what tls-status looks for, so an interrupted
+         run is never mistaken for a complete set. -->
+    <delete>
+      <fileset dir='${tls.dir}' includes='key.pem,cert.pem,ca.pem,keystore.p12,truststore.p12'
+               erroronmissingdir='false'/>
+    </delete>
+    <mkdir dir='${tls.dir}'/>
+    <antcall target='tls-mkcert'/>
+    <antcall target='tls-openssl'/>
+  </target>
+
+  <target name='tls-show' depends='tls-generate-files' if='tls.need.generation'>
+    <exec executable='${java.home}/bin/keytool' failonerror='false'>
+      <arg value='-printcert'/>
+      <arg value='-file'/>
+      <arg file='${tls.dir}/cert.pem'/>
+    </exec>
+    <echo>
+TLS files are in ${tls.dir}:
+  key.pem   server private key
+  cert.pem  server certificate
+  ca.pem    CA certificate: the trust anchor for clients
+Run "ant tls-keystore" to make PKCS#12 keystore and truststore files from them.</echo>
+  </target>
+
+  <target name='tls-certs' depends='tls-show'
+          description='Create key.pem, cert.pem and ca.pem for local development (etc/tls by default)'>
+    <echo if:set='tls.exists' xmlns:if='ant:if'>TLS files already exist in ${tls.dir} (use -Dtls.force=true to make new ones).</echo>
+  </target>
+
+  <!-- ================================================================ -->
+  <!-- PKCS#12 keystore and truststore                                   -->
+  <!-- ================================================================ -->
+
+  <target name='tls-keystore' depends='tls-certs'
+          description='Build keystore.p12 and truststore.p12 from the PEM files'>
+    <fail unless='tls.openssl.available'>Cannot build keystore.p12: openssl was not found on PATH.
+Install it:
+  ${tls.hint.openssl}
+(truststore.p12 needs only the JDK: "keytool -importcert -alias ca -file ${tls.dir}/ca.pem -keystore ${tls.dir}/truststore.p12 -storetype PKCS12")</fail>
+    <delete file='${tls.dir}/keystore.p12'/>
+    <delete file='${tls.dir}/truststore.p12'/>
+    <exec executable='${tls.openssl.exe}' failonerror='true'>
+      <arg value='pkcs12'/>
+      <arg value='-export'/>
+      <arg value='-in'/>
+      <arg file='${tls.dir}/cert.pem'/>
+      <arg value='-inkey'/>
+      <arg file='${tls.dir}/key.pem'/>
+      <arg value='-certfile'/>
+      <arg file='${tls.dir}/ca.pem'/>
+      <arg value='-name'/>
+      <arg value='gumdrop'/>
+      <arg value='-out'/>
+      <arg file='${tls.dir}/keystore.p12'/>
+      <arg value='-passout'/>
+      <arg value='pass:${tls.keystore.pass}'/>
+    </exec>
+    <exec executable='${java.home}/bin/keytool' failonerror='true'>
+      <arg value='-importcert'/>
+      <arg value='-noprompt'/>
+      <arg value='-alias'/>
+      <arg value='gumdrop-ca'/>
+      <arg value='-file'/>
+      <arg file='${tls.dir}/ca.pem'/>
+      <arg value='-keystore'/>
+      <arg file='${tls.dir}/truststore.p12'/>
+      <arg value='-storetype'/>
+      <arg value='PKCS12'/>
+      <arg value='-storepass'/>
+      <arg value='${tls.keystore.pass}'/>
+    </exec>
+    <echo>
+Created in ${tls.dir} (password: ${tls.keystore.pass}):
+  keystore.p12    server key and certificate, with the CA in the chain
+  truststore.p12  the CA as a trust anchor</echo>
+  </target>
+
+  <!-- ================================================================ -->
+  <!-- Operating system trust store                                      -->
+  <!-- ================================================================ -->
+
+  <target name='tls-trust-install' depends='tls-certs'
+          description='Add the development CA to the operating system trust store (needs mkcert)'>
+    <fail unless='tls.mkcert.available'>Adding the CA to the operating system trust store is done by mkcert, which was not found.
+Install it:
+  ${tls.hint.mkcert}
+or add ${tls.dir}/ca.pem to your trust store yourself:
+  ${tls.hint.trust}</fail>
+    <echo>Installing the development CA in the system trust store (you may be asked for your password).</echo>
+    <echo>The CA private key is ${tls.caroot}/rootCA-key.pem. Anyone who can read it can create certificates your browser trusts: keep it private, and run "ant tls-trust-uninstall tls-clean" when you are done.</echo>
+    <exec executable='${tls.mkcert.exe}' failonerror='true'>
+      <env key='CAROOT' value='${tls.caroot}'/>
+      <arg value='-install'/>
+    </exec>
+  </target>
+
+  <target name='tls-trust-uninstall' depends='tls-probe'
+          description='Remove the development CA from the operating system trust store (needs mkcert)'>
+    <fail unless='tls.mkcert.available'>Removing the CA from the operating system trust store is done by mkcert, which was not found.
+Install it:
+  ${tls.hint.mkcert}</fail>
+    <available file='${tls.caroot}/rootCA.pem' property='tls.ca.present'/>
+    <fail unless='tls.ca.present'>There is no development CA in ${tls.caroot}; nothing to uninstall.</fail>
+    <exec executable='${tls.mkcert.exe}' failonerror='true'>
+      <env key='CAROOT' value='${tls.caroot}'/>
+      <arg value='-uninstall'/>
+    </exec>
+  </target>
+
+  <!-- mkcert makes the CA key read-only, which on Windows also stops delete -->
+  <target name='tls-remove'>
+    <attrib readonly='false'>
+      <fileset dir='${tls.dir}' erroronmissingdir='false'/>
+    </attrib>
+    <delete dir='${tls.dir}' quiet='true'/>
+  </target>
+
+  <target name='tls-clean' depends='tls-remove'
+          description='Delete the generated TLS files, the CA and its private key'>
+    <echo>Deleted ${tls.dir}. If you ran tls-trust-install, run tls-trust-uninstall first next time: the CA is now gone from disk but may still be trusted.</echo>
+  </target>
+
+</project>

@@ -22,21 +22,16 @@
 package org.bluezoo.gumdrop.tls;
 
 import java.io.ByteArrayOutputStream;
-import java.io.IOException;
-import java.io.InputStream;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.security.KeyStore;
 import java.security.PrivateKey;
 import java.security.cert.X509Certificate;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
-import java.util.concurrent.Executor;
-import java.util.concurrent.TimeUnit;
 
-import org.junit.AfterClass;
+import javax.net.ssl.X509TrustManager;
+import java.util.concurrent.Executor;
+
 import org.junit.BeforeClass;
 import org.junit.Test;
 import static org.junit.Assert.assertArrayEquals;
@@ -45,10 +40,9 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
-import static org.junit.Assert.fail;
 
 import org.bluezoo.gumdrop.TlsHandshakeAsyncOffload;
-import org.bluezoo.gumdrop.crypto.CertificateVerifier;
+import org.bluezoo.gumdrop.TestTlsFiles;
 import org.bluezoo.gumdrop.crypto.NamedGroup;
 
 /**
@@ -64,58 +58,17 @@ public class TlsRecordEngineTest {
 
     private static final String SERVER_NAME = "test.gumdrop.local";
 
-    private static Path certsDirectory;
     private static List<X509Certificate> ecChain;
     private static PrivateKey ecKey;
 
+    private static X509TrustManager trustManager;
+
     @BeforeClass
-    public static void generateCertificates() throws Exception {
-        certsDirectory = Files.createTempDirectory("tls-record-engine-test");
-        Path keystorePath = certsDirectory.resolve("ec.p12");
-        ProcessBuilder pb = new ProcessBuilder(
-                "keytool", "-genkeypair", "-alias", "ec", "-keyalg", "EC", "-groupname", "secp256r1",
-                "-sigalg", "SHA256withECDSA", "-validity", "1", "-dname", "CN=" + SERVER_NAME,
-                "-ext", "san=dns:" + SERVER_NAME, "-keystore", keystorePath.toString(),
-                "-storetype", "PKCS12", "-storepass", "changeit", "-keypass", "changeit");
-        pb.redirectErrorStream(true);
-        Process process = pb.start();
-        boolean finished = process.waitFor(30, TimeUnit.SECONDS);
-        if (!finished || process.exitValue() != 0) {
-            fail("keytool failed to generate a test certificate");
-        }
-        KeyStore keyStore = KeyStore.getInstance("PKCS12");
-        try (InputStream in = Files.newInputStream(keystorePath)) {
-            keyStore.load(in, "changeit".toCharArray());
-        }
-        ecChain = Collections.singletonList((X509Certificate) keyStore.getCertificate("ec"));
-        ecKey = (PrivateKey) keyStore.getKey("ec", "changeit".toCharArray());
-    }
-
-    @AfterClass
-    public static void deleteCertificates() throws IOException {
-        if (certsDirectory != null) {
-            Files.walkFileTree(certsDirectory, new java.nio.file.SimpleFileVisitor<Path>() {
-                @Override
-                public java.nio.file.FileVisitResult visitFile(Path file, java.nio.file.attribute.BasicFileAttributes attrs) {
-                    deleteQuietly(file);
-                    return java.nio.file.FileVisitResult.CONTINUE;
-                }
-
-                @Override
-                public java.nio.file.FileVisitResult postVisitDirectory(Path dir, IOException exc) {
-                    deleteQuietly(dir);
-                    return java.nio.file.FileVisitResult.CONTINUE;
-                }
-            });
-        }
-    }
-
-    private static void deleteQuietly(Path path) {
-        try {
-            Files.delete(path);
-        } catch (IOException ignored) {
-            // best effort cleanup
-        }
+    public static void loadCertificates() throws Exception {
+        TestTlsFiles.assumeAvailable();
+        ecChain = TestTlsFiles.certificateChain();
+        ecKey = TestTlsFiles.privateKey();
+        trustManager = TestTlsFiles.trustManager();
     }
 
     /** Records every event a {@link TlsRecordEngine} pushes, for assertions. */
@@ -178,7 +131,7 @@ public class TlsRecordEngineTest {
     private HandshakeConfig clientConfig() throws Exception {
         HandshakeConfig config = new HandshakeConfig(HandshakeRole.CLIENT);
         config.setServerName(SERVER_NAME);
-        config.setTrustManager(CertificateVerifier.trustManagerFromCertificates(ecChain));
+        config.setTrustManager(trustManager);
         config.setApplicationProtocols(Collections.singletonList("test"));
         return config;
     }

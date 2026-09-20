@@ -86,7 +86,11 @@ public class POP3Example {
         pop3Server.setEnableAPOP(true);
         pop3Server.setEnableUTF8(true);
         
-        // Optional: Configure TLS for STARTTLS support
+        // Optional: Configure TLS for STARTTLS support. PEM files are the
+        // simplest form ("ant tls-certs" makes them in etc/tls/):
+        // pop3Server.setCertFile("etc/tls/cert.pem");
+        // pop3Server.setKeyFile("etc/tls/key.pem");
+        // or a Java keystore:
         // pop3Server.setKeystoreFile("/path/to/keystore.p12");
         // pop3Server.setKeystorePass("keystorePassword");
 
@@ -97,7 +101,9 @@ public class POP3Example {
         pop3sServer.setRealm(realm);
         pop3sServer.setMailboxFactory(mailboxFactory);
         
-        // Required for POP3S
+        // Required for POP3S: PEM files, or a Java keystore
+        // pop3sServer.setCertFile("etc/tls/cert.pem");
+        // pop3sServer.setKeyFile("etc/tls/key.pem");
         // pop3sServer.setKeystoreFile("/path/to/keystore.p12");
         // pop3sServer.setKeystorePass("keystorePassword");
 

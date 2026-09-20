@@ -60,7 +60,7 @@ Unit plus integration tests (HTTP, SMTP, IMAP, POP3, FTP, servlet, etc.):
 ant test-all
 ```
 
-Integration tests require TLS certificates. See the [Security documentation](https://cpkb-bluezoo.github.io/gumdrop/web/security.html#tls-certificates) for generating local development certificates with `mkcert`.
+Integration tests use TLS certificates. Those that read them from PEM files (`key.pem`, `cert.pem`, `ca.pem`, through `TestTlsFiles`) get them from `ant integration-tls`, which the integration targets run first and which needs [mkcert](https://github.com/FiloSottile/mkcert) or OpenSSL; without either it warns and those tests are skipped. Run `ant tls-certs` to make the same files for local use. See the [Security documentation](https://cpkb-bluezoo.github.io/gumdrop/web/security.html#tls-certificates) for the file layout and for using Java keystores instead. The older tests that build their own keystores with `keytool` need only the JDK.
 
 Loopback-only integration coverage (no wide-area network) can be run with:
 

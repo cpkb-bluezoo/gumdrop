@@ -29,7 +29,7 @@
   the extracted root webapp, webapps/manager.war is deployed straight from
   the war with no extraction needed.
 
-  For local HTTPS + HTTP/3 smoke tests see etc/server-tls.xml, scripts/dev-tls-setup.*,
+  For local HTTPS + HTTP/3 smoke tests see etc/server-tls.xml, "ant tls-certs",
   and BUILDING.md. Production/container notes: docs/CONTAINER-DEPLOYMENT.md.
 -->
 <server>

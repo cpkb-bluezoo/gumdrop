@@ -83,6 +83,11 @@
   <property name='junit.coverage.dir' location='${testdir}/junit/coverage'/>
   <property name='junit.coverage.exec' location='${junit.coverage.dir}/jacoco.exec'/>
   <property name='junit.report.dir' location='${testdir}/junit/report'/>
+  <!-- TLS files for integration tests: key.pem, cert.pem, ca.pem made by
+       ant/tls.xml (needs mkcert or openssl; tests that use them are skipped
+       when they cannot be made). The names are the ones the tests connect to. -->
+  <property name='integration.tls.dir' location='${testdir}/integration/certs/pem'/>
+  <property name='integration.tls.names' value='localhost 127.0.0.1 ::1 test.gumdrop.local'/>
   <!-- Combined (unit + integration) coverage; see the coverage-all target. -->
   <property name='integration.coverage.dir' location='${testdir}/integration/coverage'/>
   <property name='integration.coverage.exec' location='${integration.coverage.dir}/jacoco.exec'/>
@@ -131,6 +136,7 @@
   <property name='java.release.version' value='25'/>
   
   <import file='ant/compile-modules.xml'/>
+  <import file='ant/tls.xml'/>
 
   <!-- Remove compiled classes and build directories -->
   <!-- Note: does NOT delete doc/ directory to avoid constant javadoc churn in git -->
@@ -552,6 +558,11 @@
     <copy file='etc/realm-servlet.xml' tofile='${container.home}/conf/realm-servlet.xml'/>
     <copy file='etc/server.xml' tofile='${container.home}/conf/server.xml'/>
     <copy file='etc/server-tls.xml' tofile='${container.home}/conf/server-tls.xml'/>
+    <!-- TLS files for server-tls.xml, if "ant tls-certs" has been run -->
+    <copy todir='${container.home}/conf/tls'>
+      <fileset dir='${tls.dir}' includes='key.pem,cert.pem,ca.pem,keystore.p12,truststore.p12'
+               erroronmissingdir='false'/>
+    </copy>
     <copy file='logging.properties' todir='${container.home}'/>
     <copy todir='${container.home}/webapps/ROOT'>
       <fileset dir='web'/>
@@ -888,8 +899,21 @@
     <pathelement location='${lib}/${servlet.jar}'/>
   </path>
 
+  <!-- PEM TLS files for the tests that use them (see ant/tls.xml). Run in a
+       fresh sub-build so nothing decided by an earlier tls-certs in the same
+       run carries over, and never fails: without mkcert or openssl the tests
+       that need the files skip themselves. -->
+  <target name='integration-tls'
+          description='Create the PEM TLS files integration tests use (skipped with a warning if mkcert and openssl are missing)'>
+    <antcall target='tls-certs' inheritAll='false'>
+      <param name='tls.dir' location='${integration.tls.dir}'/>
+      <param name='tls.names' value='${integration.tls.names}'/>
+      <param name='tls.required' value='false'/>
+    </antcall>
+  </target>
+
   <!-- Set up test fixtures (certificates, directories, etc.) -->
-  <target name='integration-setup' depends='integration-build'
+  <target name='integration-setup' depends='integration-build,integration-tls'
           description='Set up integration test fixtures'>
     <java classname='org.bluezoo.gumdrop.TestFixtureSetup'
           classpathref='integration.classpath'
@@ -919,6 +943,7 @@
         <formatter type='xml'/>
         <!-- System properties for test configuration -->
         <sysproperty key='test.results.dir' value='${testdir}/integration/results'/>
+        <sysproperty key='gumdrop.test.tls.dir' value='${integration.tls.dir}'/>
       </junit>
     </sequential>
   </macrodef>
@@ -1144,6 +1169,7 @@
     <junit printsummary='yes' haltonfailure='${integration.halt}' haltonerror='${integration.halt}' fork='yes'
            showoutput='true' logfailedtests='true'>
       <jvmarg line='${jacoco.jvmarg}'/>
+      <sysproperty key='gumdrop.test.tls.dir' value='${integration.tls.dir}'/>
       <classpath refid='integration.classpath'/>
       <batchtest fork='yes' todir='${testdir}/integration/results/xml'>
         <fileset dir='${testdir}/integration/src'>
@@ -1177,12 +1203,13 @@
 
   <!-- Tests relocated from the unit tree because they use real disk I/O or
        subprocesses (keytool/openssl). -->
-  <target name='integration-test-relocated' depends='integration-build'
+  <target name='integration-test-relocated' depends='integration-build,integration-tls'
           description='Run relocated disk/subprocess integration tests'>
     <mkdir dir='${testdir}/integration/results/xml'/>
     <junit printsummary='yes' haltonfailure='${integration.halt}' haltonerror='${integration.halt}' fork='yes'
            showoutput='true' logfailedtests='true'>
       <jvmarg line='${jacoco.jvmarg}'/>
+      <sysproperty key='gumdrop.test.tls.dir' value='${integration.tls.dir}'/>
       <classpath refid='integration.classpath'/>
       <batchtest fork='yes' todir='${testdir}/integration/results/xml'>
         <fileset dir='${testdir}/integration/src'>

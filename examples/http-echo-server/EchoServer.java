@@ -20,10 +20,13 @@ import java.nio.charset.StandardCharsets;
  * <p>Default: HTTPS + HTTP/3 on port 443 with PEM certificate files.
  * Pass {@code --plaintext PORT} for legacy cleartext HTTP/1.1 only.
  *
- * <p>Run from the gumdrop tree after {@code ant build}:
+ * <p>Run from the gumdrop tree after {@code ant build}. {@code ant tls-certs}
+ * makes the PEM files this expects in {@code etc/tls/} (see BUILDING.md); the
+ * certificate file, key file and port are optional arguments, in that order:
  * <pre>{@code
+ * ant tls-certs
  * java -cp build/core:build/lib/* examples.http-echo-server.EchoServer \
- *     cert.pem key.pem
+ *     etc/tls/cert.pem etc/tls/key.pem 8443
  * java -cp build/core:build/lib/* examples.http-echo-server.EchoServer \
  *     --plaintext 8080
  * }</pre>
@@ -42,8 +45,8 @@ public final class EchoServer {
             gumdrop.start();
             System.out.println("Echo server (legacy plaintext) on port " + port);
         } else {
-            String cert = args.length > 0 ? args[0] : "cert.pem";
-            String key = args.length > 1 ? args[1] : "key.pem";
+            String cert = args.length > 0 ? args[0] : "etc/tls/cert.pem";
+            String key = args.length > 1 ? args[1] : "etc/tls/key.pem";
             int port = args.length > 2 ? Integer.parseInt(args[2]) : 443;
             composer.secureEndpoint(port, TlsConfig.pem(cert, key));
             gumdrop.addServer(composer.server());

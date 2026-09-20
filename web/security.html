@@ -53,7 +53,14 @@ Configuration</a> for <code>add-security-headers</code> and HSTS properties.
 <ul>
 <li><a href="tls.html">Transport Layer Security</a>
   <ul>
-  <li><a href="#tls-certificates">TLS Certificates for Local Development</a></li>
+  <li><a href="#tls-certificates">TLS Certificates for Local Development</a>
+    <ul>
+    <li><a href="#pem-layout">The simplest form: three PEM files</a></li>
+    <li><a href="#generate-certificates">Generating them: ant tls-certs</a></li>
+    <li><a href="#without-ant">Without Ant</a></li>
+    <li><a href="#keystores">Using Java keystores and truststores instead</a></li>
+    </ul>
+  </li>
   <li><a href="#server-identity">Server identity across transports</a></li>
   <li><a href="#sni">SNI (Server Name Indication)</a></li>
   </ul>
@@ -89,45 +96,235 @@ cover certificate setup and cross-transport comparisons.
 
 <p>
 All secure listeners (TCP/TLS, DTLS, and QUIC) use the same in-tree TLS
-stack and accept the same server-identity configuration: a Java keystore
-(PKCS#12 or JKS) via <code>keystore-file</code> / <code>keystore-pass</code>,
-or PEM files via <code>cert-file</code> / <code>key-file</code>. See
+stack and accept the same server-identity configuration. See
 <a href="#server-identity">Server identity across transports</a>. Certificate
-material is not checked in to the repository; you must generate it before
-running the server.
+material is not checked in to the repository; you generate it once, locally.
 </p>
 
+<h4 id="pem-layout">The simplest form: three PEM files</h4>
+
 <p>
-The easiest way for local development is
-<a href="https://github.com/FiloSottile/mkcert">mkcert</a>, which creates
-certificates trusted by your browser:
+The lowest-overhead way to give a listener an identity is plain PEM files. No
+keystore, no password, no format conversion, and the files are readable by
+<code>curl</code>, <code>openssl</code>, browsers and most other tools as they
+stand. Gumdrop&rsquo;s build, tests and documentation use one layout:
+</p>
+
+<table border="1" cellpadding="5">
+<tr><th>File</th><th>Holds</th><th>Used by</th></tr>
+<tr>
+  <td><code>key.pem</code></td>
+  <td>The server&rsquo;s private key (unencrypted PKCS#8)</td>
+  <td>The server: <code>key-file</code> / <code>TlsConfig.pem</code></td>
+</tr>
+<tr>
+  <td><code>cert.pem</code></td>
+  <td>The server&rsquo;s certificate (and any intermediates)</td>
+  <td>The server: <code>cert-file</code> / <code>TlsConfig.pem</code></td>
+</tr>
+<tr>
+  <td><code>ca.pem</code></td>
+  <td>The certificate of the CA that signed <code>cert.pem</code></td>
+  <td>Clients, as their trust anchor (<code>curl --cacert</code>,
+      <code>PemCredentials.loadTrustManager</code>)</td>
+</tr>
+</table>
+
+<p>
+Only <code>ca.pem</code> is ever given to clients. <code>key.pem</code> stays on
+the server.
 </p>
 
 <pre>
-# One-time: install the local CA into your system trust store
-mkcert -install
+// Server: the identity from two PEM files
+TlsConfig tls = TlsConfig.pem(Path.of("etc/tls/cert.pem"), Path.of("etc/tls/key.pem"));
+HttpServer http = HttpServer.compose()
+    .secureEndpoint(8443, tls)
+    .streamHandler(new MyStreamHandler())
+    .server();
 
-# Generate certificate and key for localhost into etc/
-mkcert -cert-file etc/localhost+2.pem -key-file etc/localhost+2-key.pem \
-    localhost 127.0.0.1 ::1
+// Client: trust the CA in ca.pem, and nothing else
+X509TrustManager trust = PemCredentials.loadTrustManager(Path.of("etc/tls/ca.pem"));
 </pre>
 
 <p>
-This produces <code>etc/localhost+2.pem</code> and
-<code>etc/localhost+2-key.pem</code>. For examples below that use a
-keystore, export the same identity to PKCS#12 (one file can serve HTTPS,
-HTTP/3, DoQ, and other listeners):
+In <code>server.xml</code> for the servlet container, the same identity is:
 </p>
 
 <pre>
-openssl pkcs12 -export -in etc/localhost+2.pem -inkey etc/localhost+2-key.pem \
-    -out etc/localhost+2.p12 -name localhost -passout pass:changeit
+&lt;listener port="8443" secure="true" cert-file="tls/cert.pem" key-file="tls/key.pem"/&gt;
+</pre>
+
+<h4 id="generate-certificates">Generating them: <code>ant tls-certs</code></h4>
+
+<p>
+From a checkout, one command creates the three files in <code>etc/tls/</code>
+(gitignored), valid for <code>localhost</code>, <code>127.0.0.1</code> and
+<code>::1</code>:
+</p>
+
+<pre>
+ant tls-certs
 </pre>
 
 <p>
-Alternatively, use <code>TlsConfig.pem(...)</code> to point every listener
-at the PEM files directly, without exporting a keystore at all.
+It uses <a href="https://github.com/FiloSottile/mkcert">mkcert</a> when it is
+installed, and <code>openssl</code> with a private CA otherwise. If neither is
+found the build stops and tells you how to install them for your system:
 </p>
+
+<table border="1" cellpadding="5">
+<tr><th></th><th>mkcert (recommended)</th><th>openssl (fallback)</th></tr>
+<tr><td>macOS</td><td><code>brew install mkcert</code></td><td><code>brew install openssl</code></td></tr>
+<tr><td>Debian / Ubuntu</td><td><code>sudo apt install mkcert</code></td><td><code>sudo apt install openssl</code></td></tr>
+<tr><td>Fedora</td><td><code>sudo dnf install mkcert</code></td><td><code>sudo dnf install openssl</code></td></tr>
+<tr><td>Windows</td><td><code>winget install FiloSottile.mkcert</code></td>
+    <td><code>winget install ShiningLight.OpenSSL.Light</code>, or the copy that
+        comes with Git for Windows (found automatically)</td></tr>
+</table>
+
+<p>
+mkcert is preferred because its CA can be added to your operating system&rsquo;s
+trust store, which makes browsers and other tools trust the certificate with no
+further steps. With <code>openssl</code> you add <code>ca.pem</code> to the
+trust store yourself, or point a client at it directly. Programs installed
+somewhere unusual can be named with <code>-Dmkcert.executable=...</code> and
+<code>-Dopenssl.executable=...</code>.
+</p>
+
+<table border="1" cellpadding="5">
+<tr><th>Ant target</th><th>What it does</th></tr>
+<tr><td><code>tls-certs</code></td>
+    <td>Creates <code>key.pem</code>, <code>cert.pem</code> and <code>ca.pem</code>;
+        does nothing if they exist (<code>-Dtls.force=true</code> renews the
+        certificate, keeping the CA)</td></tr>
+<tr><td><code>tls-keystore</code></td>
+    <td>Also builds <code>keystore.p12</code> and <code>truststore.p12</code>
+        (see <a href="#keystores">below</a>)</td></tr>
+<tr><td><code>tls-trust-install</code></td>
+    <td>Adds the CA to the operating system trust store (mkcert only; may ask
+        for your password)</td></tr>
+<tr><td><code>tls-trust-uninstall</code></td>
+    <td>Removes it again</td></tr>
+<tr><td><code>tls-clean</code></td>
+    <td>Deletes everything generated, including the CA and its key</td></tr>
+</table>
+
+<p>
+Useful properties: <code>-Dtls.dir=</code> (output directory),
+<code>-Dtls.names="localhost example.test 10.0.0.5"</code> (host names and
+addresses), <code>-Dtls.keytype=rsa</code> (default is EC P-256) and
+<code>-Dtls.generator=openssl</code>. The header of
+<code>ant/tls.xml</code> lists them all.
+</p>
+
+<p>
+The CA is created inside the checkout (<code>etc/tls/ca/</code>), not in
+mkcert&rsquo;s per-user location, so nothing outside the checkout changes until
+you run <code>tls-trust-install</code>. After that, anyone who can read
+<code>etc/tls/ca/rootCA-key.pem</code> can create certificates your browser
+trusts: keep it private, and run <code>ant tls-trust-uninstall tls-clean</code>
+when you are finished with it.
+</p>
+
+<p>
+To check a running server without touching the trust store, give
+<code>curl</code> the CA:
+</p>
+
+<pre>
+curl --cacert etc/tls/ca.pem https://localhost:8443/
+</pre>
+
+<h4 id="without-ant">Without Ant</h4>
+
+<p>
+The files are ordinary PEM, so any tool can make them. With mkcert:
+</p>
+
+<pre>
+mkcert -ecdsa -cert-file cert.pem -key-file key.pem localhost 127.0.0.1 ::1
+cp "$(mkcert -CAROOT)/rootCA.pem" ca.pem
+</pre>
+
+<p>
+With only OpenSSL 1.1.1 or later, a self-signed certificate is a single command
+(it signs itself, so it is also its own trust anchor):
+</p>
+
+<pre>
+openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes -days 365 \
+    -keyout key.pem -out cert.pem -subj "/CN=localhost" \
+    -addext "subjectAltName=DNS:localhost,IP:127.0.0.1,IP:::1"
+cp cert.pem ca.pem
+</pre>
+
+<h4 id="keystores">Using Java keystores and truststores instead</h4>
+
+<p>
+Everything above also works with Java keystores, which suit deployments that
+already manage certificates that way. A keystore (PKCS#12, or JKS) holds the
+identity, and a truststore holds the trust anchors, in place of
+<code>key.pem</code> + <code>cert.pem</code> and <code>ca.pem</code>:
+</p>
+
+<table border="1" cellpadding="5">
+<tr><th></th><th>PEM</th><th>Java keystore</th></tr>
+<tr><td>Server identity</td>
+    <td><code>cert-file</code>, <code>key-file</code>;
+        <code>TlsConfig.pem(cert, key)</code></td>
+    <td><code>keystore-file</code>, <code>keystore-pass</code>,
+        optional <code>keystore-format</code> (<code>PKCS12</code> by default,
+        or <code>JKS</code>); <code>TlsConfig.keystore(path, pass)</code></td></tr>
+<tr><td>Trust anchors</td>
+    <td><code>PemCredentials.loadTrustManager(Path)</code></td>
+    <td><code>TlsUtils.loadTrustManagers(path, pass, format)</code></td></tr>
+<tr><td>Password</td><td>none</td><td>required</td></tr>
+<tr><td>Several identities in one file (SNI)</td><td>no, one pair per listener</td>
+    <td>yes, selected by alias</td></tr>
+</table>
+
+<p>
+A listener takes one form or the other, not both. To build the keystore and
+truststore from the PEM files:
+</p>
+
+<pre>
+ant tls-keystore          # etc/tls/keystore.p12 and etc/tls/truststore.p12, password "changeit"
+</pre>
+
+<p>
+or by hand:
+</p>
+
+<pre>
+# PKCS#12 keystore: the server key and certificate, with the CA in the chain
+openssl pkcs12 -export -in cert.pem -inkey key.pem -certfile ca.pem \
+    -name server -out keystore.p12 -passout pass:changeit
+
+# PKCS#12 truststore: the CA as a trust anchor (needs only the JDK)
+keytool -importcert -noprompt -alias ca -file ca.pem \
+    -keystore truststore.p12 -storetype PKCS12 -storepass changeit
+
+# JKS, if something still wants it
+keytool -importkeystore -srckeystore keystore.p12 -srcstoretype PKCS12 \
+    -destkeystore keystore.jks -deststoretype JKS
+</pre>
+
+<pre>
+TlsConfig tls = TlsConfig.keystore(Path.of("keystore.p12"), "changeit");
+X509TrustManager trust = (X509TrustManager)
+        TlsUtils.loadTrustManagers(Path.of("truststore.p12"), "changeit", "PKCS12")[0];
+</pre>
+
+<p>
+Going the other way, from an existing keystore back to PEM:
+</p>
+
+<pre>
+openssl pkcs12 -in keystore.p12 -nokeys -out cert.pem                 # certificate(s)
+openssl pkcs12 -in keystore.p12 -nocerts -nodes -out key.pem          # private key (PKCS#8)
+</pre>
 
 <h3>TCP/TLS Configuration</h3>
 
@@ -168,11 +365,19 @@ SmtpServer smtp = SmtpServer.compose()
 Servers can require or request client certificates for mutual TLS (mTLS):
 </p>
 
+<p>
+The trust anchors are the CA that signed the clients&rsquo; certificates, as a
+PEM file or a truststore (see <a href="#keystores">above</a>):
+</p>
+
 <pre>
 SmtpListener listener = new SmtpListener();
 listener.setNeedClientAuth(true);
-listener.setTrustManager((X509TrustManager)
-        TlsUtils.loadTrustManagers(Path.of("truststore.p12"), "secret", "PKCS12")[0]);
+// From a PEM file (simplest):
+listener.setTrustManager(PemCredentials.loadTrustManager(Path.of("client-ca.pem")));
+// or from a Java truststore:
+// listener.setTrustManager((X509TrustManager)
+//         TlsUtils.loadTrustManagers(Path.of("truststore.p12"), "secret", "PKCS12")[0]);
 SmtpServer smtp = SmtpServer.compose()
     .listener(listener)
     .sessionProvider(SmtpServerSessionProviders.relay()
@@ -270,23 +475,14 @@ require matching certificate identity when upgrading via <code>Alt-Svc</code>.
 <p>
 When using <code>cert-file</code> and <code>key-file</code>, the certificate
 file must contain the full chain (leaf followed by intermediates). The private
-key file must be unencrypted PEM (PKCS#8 or traditional format). This applies
-on every transport, not only QUIC.
+key file must be unencrypted PEM in PKCS#8 form (a
+<code>-----BEGIN PRIVATE KEY-----</code> block, RSA or EC). The older
+traditional format (<code>-----BEGIN RSA PRIVATE KEY-----</code>) is not
+supported; convert it with <code>openssl pkcs8 -topk8 -nocrypt -in old.pem -out key.pem</code>.
+This applies on every transport, not only QUIC. See
+<a href="#pem-layout">the standard three-file layout</a>, and
+<a href="#keystores">converting to and from keystores</a>.
 </p>
-
-<p>
-Most CAs (including Let&rsquo;s Encrypt) issue PEM directly. To extract PEM from
-an existing keystore:
-</p>
-
-<pre>
-# Certificate chain
-keytool -exportcert -alias myalias -keystore keystore.p12 \
-    -storepass secret -rfc -file cert.pem
-
-# Private key (via PKCS#12 + OpenSSL)
-openssl pkcs12 -in keystore.p12 -nocerts -nodes -out key.pem
-</pre>
 
 <h4>Example: Co-located HTTPS and HTTP/3 Listeners</h4>
 

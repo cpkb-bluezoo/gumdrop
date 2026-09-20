@@ -1,6 +1,6 @@
 @echo off
 rem Start the container with conf/server-tls.xml (HTTPS + HTTP/3 on 8443).
-rem Run scripts\dev-tls-setup.bat first.
+rem Run "ant tls-certs assemble-container" first to create conf\tls\cert.pem and key.pem.
 
 setlocal
 
@@ -27,8 +27,12 @@ if not exist "%GUMDROP_HOME%\conf\server-tls.xml" (
 	echo start-tls: missing conf\server-tls.xml — re-run ant assemble-container.
 	exit /b 1
 )
-if not exist "%GUMDROP_HOME%\conf\keystore.p12" (
-	echo start-tls: missing keystore — run scripts\dev-tls-setup.bat first.
+if not exist "%GUMDROP_HOME%\conf\tls\cert.pem" (
+	echo start-tls: missing conf\tls\cert.pem - run: ant tls-certs assemble-container
+	exit /b 1
+)
+if not exist "%GUMDROP_HOME%\conf\tls\key.pem" (
+	echo start-tls: missing conf\tls\key.pem - run: ant tls-certs assemble-container
 	exit /b 1
 )
 
