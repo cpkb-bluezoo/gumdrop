@@ -4,6 +4,7 @@
  */
 
 import org.bluezoo.gumdrop.Endpoint;
+import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.redis.client.IntegerResultHandler;
 import org.bluezoo.gumdrop.redis.client.MessageHandler;
@@ -34,6 +35,7 @@ public class RedisPubSubExample {
     private static final int MESSAGES_TO_SEND = 5;
     private static String redisHost;
     private static int redisPort;
+    private static Gumdrop gumdrop;
 
     public static void main(String[] args) throws Exception {
         System.out.println("Gumdrop Redis Pub/Sub Example");
@@ -54,9 +56,9 @@ public class RedisPubSubExample {
         System.out.println("Connecting to Redis at " + redisHost + ":" + redisPort);
         System.out.println();
 
-        // Create subscriber connection first - no Gumdrop setup needed!
+        gumdrop = Gumdrop.boot();
         RedisClient subscriberClient = new RedisClient(redisHost, redisPort);
-        subscriberClient.connect(new SubscriberHandler());
+        subscriberClient.connect(gumdrop, new SubscriberHandler());
     }
 
     /**
@@ -137,7 +139,7 @@ public class RedisPubSubExample {
             
             try {
                 RedisClient publisherClient = new RedisClient(redisHost, redisPort);
-                publisherClient.connect(new PublisherHandler());
+                publisherClient.connect(gumdrop, new PublisherHandler());
             } catch (Exception e) {
                 System.err.println("Failed to create publisher: " + e.getMessage());
             }

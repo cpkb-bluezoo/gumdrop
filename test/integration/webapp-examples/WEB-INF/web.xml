@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<web-app xmlns="http://xmlns.jcp.org/xml/ns/javaee"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://xmlns.jcp.org/xml/ns/javaee
+                             http://xmlns.jcp.org/xml/ns/javaee/web-app_4_0.xsd"
+         version="4.0">
+
+    <display-name>Gumdrop Examples Web Application</display-name>
+    <description>
+        Packaged copies of servlet examples from the examples/ tree, exercised
+        by ExamplesWebappIntegrationTest with container classloader separation.
+    </description>
+
+    <servlet>
+        <servlet-name>TrailerFields</servlet-name>
+        <servlet-class>examples.trailerfields.TrailerFieldsExampleServlet</servlet-class>
+    </servlet>
+    <servlet-mapping>
+        <servlet-name>TrailerFields</servlet-name>
+        <url-pattern>/trailer-fields</url-pattern>
+    </servlet-mapping>
+
+    <servlet>
+        <servlet-name>Http2Priority</servlet-name>
+        <servlet-class>examples.http2priority.PriorityDemoServlet</servlet-class>
+    </servlet>
+    <servlet-mapping>
+        <servlet-name>Http2Priority</servlet-name>
+        <url-pattern>/http2-priority</url-pattern>
+    </servlet-mapping>
+
+    <servlet>
+        <servlet-name>ServerPush</servlet-name>
+        <servlet-class>examples.serverpush.ServerPushExampleServlet</servlet-class>
+    </servlet>
+    <servlet-mapping>
+        <servlet-name>ServerPush</servlet-name>
+        <url-pattern>/server-push</url-pattern>
+    </servlet-mapping>
+
+    <servlet>
+        <servlet-name>AsyncTimeout</servlet-name>
+        <servlet-class>examples.asynctimeout.AsyncTimeoutExample</servlet-class>
+        <async-supported>true</async-supported>
+    </servlet>
+    <servlet-mapping>
+        <servlet-name>AsyncTimeout</servlet-name>
+        <url-pattern>/async-timeout</url-pattern>
+    </servlet-mapping>
+
+    <welcome-file-list>
+        <welcome-file>index.html</welcome-file>
+    </welcome-file-list>
+
+</web-app>

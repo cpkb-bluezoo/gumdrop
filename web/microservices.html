@@ -272,9 +272,8 @@ HttpServer server = HttpServer.compose()
         .streamHandler(new XmlEchoStreamHandler())
         .server();
 
-Gumdrop gumdrop = Gumdrop.getInstance();
+Gumdrop gumdrop = Gumdrop.boot();
 gumdrop.addServer(server);
-gumdrop.start();
 
 // Block until shutdown (Ctrl+C); JVM shutdown hook calls gumdrop.shutdown()
 try {

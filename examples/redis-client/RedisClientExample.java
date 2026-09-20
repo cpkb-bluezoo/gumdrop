@@ -4,6 +4,7 @@
  */
 
 import org.bluezoo.gumdrop.Endpoint;
+import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.redis.client.ArrayResultHandler;
 import org.bluezoo.gumdrop.redis.client.BulkResultHandler;
@@ -20,8 +21,8 @@ import java.util.List;
 /**
  * Example demonstrating basic Redis client usage with Gumdrop.
  *
- * <p>This example shows the simplified standalone API where no Gumdrop
- * setup is needed - infrastructure is managed automatically.
+ * <p>Uses {@link Gumdrop#boot()} for the event loop, then
+ * {@link RedisClient#connect(Gumdrop, RedisConnectionReady)}.
  *
  * <p>Features demonstrated:
  * <ul>
@@ -62,11 +63,9 @@ public class RedisClientExample {
         System.out.println("Connecting to Redis at " + host + ":" + port);
         System.out.println();
 
-        // Simple! No Gumdrop setup needed - just create client and connect
+        Gumdrop gumdrop = Gumdrop.boot();
         RedisClient client = new RedisClient(host, port);
-        client.connect(new ExampleHandler());
-
-        // Infrastructure starts automatically on connect and stops when done
+        client.connect(gumdrop, new ExampleHandler());
     }
 
     /**

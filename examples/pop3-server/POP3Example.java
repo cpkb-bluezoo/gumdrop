@@ -3,199 +3,239 @@
  * Example demonstrating how to configure and run a POP3 server.
  */
 
-import org.bluezoo.gumdrop.Realm;
+import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.SelectorLoop;
-import org.bluezoo.gumdrop.pop3.FilesystemMailboxFactory;
+import org.bluezoo.gumdrop.auth.Realm;
+import org.bluezoo.gumdrop.auth.SaslMechanism;
+import org.bluezoo.gumdrop.mailbox.mbox.MboxMailboxFactory;
 import org.bluezoo.gumdrop.pop3.Pop3Listener;
+import org.bluezoo.gumdrop.pop3.server.Pop3Server;
+import org.bluezoo.gumdrop.pop3.server.Pop3ServerSessionProviders;
+import org.bluezoo.gumdrop.tls.TlsConfig;
 
-import java.io.File;
-import java.io.FileWriter;
 import java.io.IOException;
-import java.security.Principal;
-import java.util.Arrays;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.nio.file.FileVisitResult;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.nio.file.SimpleFileVisitor;
+import java.nio.file.StandardCopyOption;
+import java.nio.file.attribute.BasicFileAttributes;
+import java.util.EnumSet;
+import java.util.Set;
 
 /**
  * Example demonstrating how to configure and run a POP3 server.
- * 
- * This example shows:
- * - Setting up a simple in-memory realm for authentication
- * - Configuring a filesystem-based mailbox
- * - Starting both POP3 (port 110) and POP3S (port 995) servers
- * - Creating sample messages for testing
+ *
+ * <p>Uses {@link Gumdrop#boot()}, {@link Pop3Server#compose()}, and the
+ * checked-in mbox fixture under {@code test/integration/mailbox/mbox}. The
+ * fixture is copied to a temporary directory so opening mailboxes does not
+ * mutate the source tree (same idea as {@code MailboxFixtures} in integration
+ * tests).
+ *
+ * <p>Default: cleartext POP3 on port 1110 (no root privileges). Pass
+ * {@code etc/tls/cert.pem etc/tls/key.pem} after {@code ant tls-certs} to
+ * also listen for POP3S on port 1995.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 public class POP3Example {
 
-    /**
-     * Simple in-memory realm for testing.
-     */
-    static class SimpleRealm implements Realm {
-        private final Map<String, String> users = new HashMap<>();
+    private static final Path MBOX_FIXTURE =
+            Paths.get("test/integration/mailbox/mbox");
 
-        public void addUser(String username, String password) {
-            users.put(username, password);
-        }
+    private static final String DEMO_USER = "editor";
+    private static final String DEMO_PASS = "editor";
 
-        @Override
-        public boolean authenticate(String username, String password) {
-            String storedPassword = users.get(username);
-            return storedPassword != null && storedPassword.equals(password);
-        }
-
-        @Override
-        public String getPassword(String username) {
-            return users.get(username);
-        }
-
-        @Override
-        public List<Principal> getRoles(String username) {
-            return Arrays.asList(new Principal() {
-                public String getName() { return "user"; }
-            });
-        }
-    }
+    private static final int POP3_PORT = 1110;
+    private static final int POP3S_PORT = 1995;
 
     public static void main(String[] args) throws Exception {
-        // Create mailbox directory
-        File mailboxBase = new File("mailboxes");
-        if (!mailboxBase.exists()) {
-            mailboxBase.mkdirs();
+        Path fixtureSource = MBOX_FIXTURE;
+        if (args.length >= 1 && !args[0].endsWith(".pem")) {
+            fixtureSource = Paths.get(args[0]);
         }
 
-        // Create sample messages for testing
-        createSampleMessages(mailboxBase);
+        final Path mailboxBase = copyFixtureTree(fixtureSource);
+        Runtime.getRuntime().addShutdownHook(new Thread(new Runnable() {
+            @Override
+            public void run() {
+                deleteRecursively(mailboxBase);
+            }
+        }));
 
-        // Create realm with test users
-        SimpleRealm realm = new SimpleRealm();
-        realm.addUser("alice", "password123");
-        realm.addUser("bob", "secret456");
+        DemoRealm realm = new DemoRealm(DEMO_USER, DEMO_PASS);
+        MboxMailboxFactory mailboxFactory = new MboxMailboxFactory(mailboxBase);
 
-        // Create mailbox factory
-        FilesystemMailboxFactory mailboxFactory = new FilesystemMailboxFactory(mailboxBase);
+        Pop3Server.Composer composer = Pop3Server.compose()
+                .listener(new Pop3Listener().port(POP3_PORT))
+                .sessionProvider(Pop3ServerSessionProviders.mailbox(mailboxFactory))
+                .realm(realm)
+                .loginDelayMs(2000)
+                .enableAPOP(true)
+                .enableUTF8(true);
 
-        // Configure POP3 server (port 110, plaintext with STARTTLS)
-        Pop3Listener pop3Server = new Pop3Listener();
-        pop3Server.setPort(110);
-        pop3Server.setRealm(realm);
-        pop3Server.setMailboxFactory(mailboxFactory);
-        pop3Server.setLoginDelay(2000); // 2 second delay after failed auth
-        pop3Server.setEnableAPOP(true);
-        pop3Server.setEnableUTF8(true);
-        
-        // Optional: Configure TLS for STARTTLS support. PEM files are the
-        // simplest form ("ant tls-certs" makes them in etc/tls/):
-        // pop3Server.setCertFile("etc/tls/cert.pem");
-        // pop3Server.setKeyFile("etc/tls/key.pem");
-        // or a Java keystore:
-        // pop3Server.setKeystoreFile("/path/to/keystore.p12");
-        // pop3Server.setKeystorePass("keystorePassword");
+        String cert = null;
+        String key = null;
+        int tlsIndex = 0;
+        if (args.length >= 1 && !args[0].endsWith(".pem")) {
+            tlsIndex = 1;
+        }
+        if (args.length >= tlsIndex + 2
+                && args[tlsIndex].endsWith(".pem")
+                && args[tlsIndex + 1].endsWith(".pem")) {
+            cert = args[tlsIndex];
+            key = args[tlsIndex + 1];
+        }
+        if (cert != null && key != null) {
+            TlsConfig tls = TlsConfig.pem(cert, key);
+            composer.listener(new Pop3Listener()
+                    .port(POP3S_PORT)
+                    .secure(true)
+                    .tls(tls));
+        }
 
-        // Configure POP3S server (port 995, implicit TLS)
-        Pop3Listener pop3sServer = new Pop3Listener();
-        pop3sServer.setPort(995);
-        pop3sServer.setSecure(true); // Implicit TLS
-        pop3sServer.setRealm(realm);
-        pop3sServer.setMailboxFactory(mailboxFactory);
-        
-        // Required for POP3S: PEM files, or a Java keystore
-        // pop3sServer.setCertFile("etc/tls/cert.pem");
-        // pop3sServer.setKeyFile("etc/tls/key.pem");
-        // pop3sServer.setKeystoreFile("/path/to/keystore.p12");
-        // pop3sServer.setKeystorePass("keystorePassword");
+        Pop3Server server = composer.server();
 
-        // Create and start selector loop
-        SelectorLoop loop = new SelectorLoop(Arrays.asList(pop3Server, pop3sServer));
-        
-        System.out.println("POP3 Example Server Started");
-        System.out.println("============================");
-        System.out.println("POP3  server on port 110 (cleartext/STARTTLS)");
-        System.out.println("POP3S server on port 995 (implicit TLS)");
+        Gumdrop gumdrop = Gumdrop.boot();
+        gumdrop.addServer(server);
+
+        System.out.println("POP3 Example Server");
+        System.out.println("===================");
+        System.out.println("POP3  on port " + POP3_PORT + " (cleartext / STARTTLS when TLS is configured)");
+        if (cert != null) {
+            System.out.println("POP3S on port " + POP3S_PORT + " (implicit TLS)");
+        } else {
+            System.out.println("POP3S not started (pass cert.pem key.pem to enable)");
+        }
         System.out.println();
-        System.out.println("Test users:");
-        System.out.println("  alice / password123");
-        System.out.println("  bob   / secret456");
+        System.out.println("Fixture source: " + fixtureSource.toAbsolutePath());
+        System.out.println("Mailbox copy:   " + mailboxBase.toAbsolutePath());
         System.out.println();
-        System.out.println("Mailbox directory: " + mailboxBase.getAbsolutePath());
+        System.out.println("Test user (matches integration mbox fixture):");
+        System.out.println("  " + DEMO_USER + " / " + DEMO_PASS);
         System.out.println();
-        System.out.println("Test with telnet:");
-        System.out.println("  telnet localhost 110");
-        System.out.println("  USER alice");
-        System.out.println("  PASS password123");
+        System.out.println("  telnet localhost " + POP3_PORT);
+        System.out.println("  USER " + DEMO_USER);
+        System.out.println("  PASS " + DEMO_PASS);
         System.out.println("  STAT");
         System.out.println("  LIST");
         System.out.println("  RETR 1");
         System.out.println("  QUIT");
         System.out.println();
-        
-        loop.run();
+
+        gumdrop.join();
     }
 
     /**
-     * Creates sample email messages for testing.
+     * Copies a fixture directory into a fresh temp directory.
      */
-    private static void createSampleMessages(File mailboxBase) throws IOException {
-        // Create sample messages for alice
-        File aliceDir = new File(mailboxBase, "alice");
-        aliceDir.mkdirs();
-        
-        createMessage(new File(aliceDir, "1.eml"),
-            "From: bob@example.com\r\n" +
-            "To: alice@example.com\r\n" +
-            "Subject: Test Message 1\r\n" +
-            "Date: Mon, 1 Jan 2024 12:00:00 +0000\r\n" +
-            "Message-ID: <msg1@example.com>\r\n" +
-            "\r\n" +
-            "This is the first test message.\r\n" +
-            "It has multiple lines.\r\n" +
-            "..and some lines start with dots.\r\n"
-        );
-        
-        createMessage(new File(aliceDir, "2.eml"),
-            "From: system@example.com\r\n" +
-            "To: alice@example.com\r\n" +
-            "Subject: Welcome to POP3!\r\n" +
-            "Date: Tue, 2 Jan 2024 14:30:00 +0000\r\n" +
-            "Message-ID: <msg2@example.com>\r\n" +
-            "\r\n" +
-            "Welcome to the gumdrop POP3 server!\r\n" +
-            "\r\n" +
-            "This is a test message to demonstrate the POP3 implementation.\r\n"
-        );
-
-        // Create sample messages for bob
-        File bobDir = new File(mailboxBase, "bob");
-        bobDir.mkdirs();
-        
-        createMessage(new File(bobDir, "1.eml"),
-            "From: alice@example.com\r\n" +
-            "To: bob@example.com\r\n" +
-            "Subject: Hello Bob\r\n" +
-            "Date: Wed, 3 Jan 2024 09:15:00 +0000\r\n" +
-            "Message-ID: <msg3@example.com>\r\n" +
-            "\r\n" +
-            "Hi Bob,\r\n" +
-            "\r\n" +
-            "This is a message for you.\r\n" +
-            "\r\n" +
-            "Best regards,\r\n" +
-            "Alice\r\n"
-        );
-    }
-
-    /**
-     * Creates a message file with the given content.
-     */
-    private static void createMessage(File file, String content) throws IOException {
-        if (!file.exists()) {
-            try (FileWriter writer = new FileWriter(file)) {
-                writer.write(content);
+    private static Path copyFixtureTree(Path source) throws IOException {
+        if (!Files.isDirectory(source)) {
+            throw new IOException("Mailbox fixture not found: " + source.toAbsolutePath());
+        }
+        final Path dest = Files.createTempDirectory("gumdrop-pop3-example-");
+        Files.walkFileTree(source, new SimpleFileVisitor<Path>() {
+            @Override
+            public FileVisitResult preVisitDirectory(Path dir, BasicFileAttributes attrs)
+                    throws IOException {
+                Files.createDirectories(dest.resolve(source.relativize(dir)));
+                return FileVisitResult.CONTINUE;
             }
+
+            @Override
+            public FileVisitResult visitFile(Path file, BasicFileAttributes attrs)
+                    throws IOException {
+                Files.copy(file, dest.resolve(source.relativize(file)),
+                        StandardCopyOption.COPY_ATTRIBUTES);
+                return FileVisitResult.CONTINUE;
+            }
+        });
+        return dest;
+    }
+
+    private static void deleteRecursively(Path root) {
+        if (root == null || !Files.exists(root)) {
+            return;
+        }
+        try {
+            Files.walkFileTree(root, new SimpleFileVisitor<Path>() {
+                @Override
+                public FileVisitResult visitFile(Path file, BasicFileAttributes attrs)
+                        throws IOException {
+                    Files.delete(file);
+                    return FileVisitResult.CONTINUE;
+                }
+
+                @Override
+                public FileVisitResult postVisitDirectory(Path dir, IOException exc)
+                        throws IOException {
+                    Files.delete(dir);
+                    return FileVisitResult.CONTINUE;
+                }
+            });
+        } catch (IOException ignored) {
+            // Best-effort cleanup on shutdown
         }
     }
 
-}
+    /**
+     * Minimal realm for the fixture user.
+     */
+    static final class DemoRealm implements Realm {
 
+        private static final Set<SaslMechanism> MECHANISMS =
+                EnumSet.of(SaslMechanism.PLAIN, SaslMechanism.LOGIN);
+
+        private final String username;
+        private final String password;
+
+        DemoRealm(String username, String password) {
+            this.username = username;
+            this.password = password;
+        }
+
+        @Override
+        public boolean passwordMatch(String user, String pass) {
+            return username.equals(user) && password.equals(pass);
+        }
+
+        @Override
+        public boolean userExists(String user) {
+            return username.equals(user);
+        }
+
+        @Override
+        public Set<SaslMechanism> getSupportedSASLMechanisms() {
+            return MECHANISMS;
+        }
+
+        @Override
+        public String getDigestHA1(String user, String realmName) {
+            return null;
+        }
+
+        @Override
+        public Realm forSelectorLoop(SelectorLoop loop) {
+            return this;
+        }
+
+        @Override
+        @SuppressWarnings("deprecation")
+        public String getPassword(String user) {
+            if (username.equals(user)) {
+                return password;
+            }
+            return null;
+        }
+
+        @Override
+        public boolean isUserInRole(String user, String role) {
+            return false;
+        }
+    }
+
+    private POP3Example() {
+    }
+
+}

@@ -49,6 +49,7 @@ test/integration/
 │   ├── https-server-test.xml
 │   ├── smtp-server-test.xml
 │   └── ...
+├── webapp-examples/            # Packaged servlet examples (see README there)
 ├── mailbox/                    # Test mailbox data
 ├── results/                    # Test output (generated)
 │   ├── xml/                    # JUnit XML reports (CI/CD)

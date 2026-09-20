@@ -78,8 +78,9 @@ HttpServer server = HttpServer.compose()
         .streamHandler(new ServletRequestHandler(container))
         .server();
 
-Gumdrop.getInstance().addServer(server);
-Gumdrop.getInstance().start();
+Gumdrop gumdrop = Gumdrop.boot();
+gumdrop.addServer(server);
+gumdrop.join();
 ```
 
 ### 3. Web Application Security (`web.xml`)

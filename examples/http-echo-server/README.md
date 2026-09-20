@@ -8,7 +8,7 @@ Minimal Gumdrop 3 HTTP server using `HttpServer.compose()` — no XML or
 ```java
 HttpServer server = HttpServer.compose()
         .secureEndpoint(443, TlsConfig.pem("etc/tls/cert.pem", "etc/tls/key.pem"))
-        .handler(new EchoHandler())
+        .streamHandler(new EchoStreamHandler())
         .server();
 ```
 
@@ -17,7 +17,7 @@ HttpServer server = HttpServer.compose()
 ```java
 HttpServer server = HttpServer.compose()
         .plaintextListener(8080)
-        .handler(new EchoHandler())
+        .streamHandler(new EchoStreamHandler())
         .server();
 ```
 
@@ -31,11 +31,14 @@ them (with a `ca.pem` for clients) in `etc/tls/`; see
 Run:
 
 ```bash
-ant build tls-certs
-java -cp build/core:build/lib/* examples.http-echo-server.EchoServer etc/tls/cert.pem etc/tls/key.pem 8443
+ant examples-compile tls-certs
+# Classpath: build/examples plus module dirs under build/ and lib/* (see ant examples-compile)
+java -cp 'build/examples:build/*:lib/*' EchoServer etc/tls/cert.pem etc/tls/key.pem 8443
 curl --cacert etc/tls/ca.pem https://localhost:8443/
-java -cp build/core:build/lib/* examples.http-echo-server.EchoServer --plaintext 8080
+java -cp 'build/examples:build/*:lib/*' EchoServer --plaintext 8080
 ```
+
+Composition uses `Gumdrop.boot()` and `HttpServer.compose().streamHandler(...)`.
 
 (Port 443 is the default but needs elevated privileges on most systems.)
 

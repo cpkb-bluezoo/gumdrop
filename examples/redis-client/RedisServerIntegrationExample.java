@@ -79,14 +79,8 @@ public class RedisServerIntegrationExample {
         System.out.println("Rate limit: " + MAX_REQUESTS_PER_MINUTE + " requests/minute per IP");
         System.out.println();
 
-        // Get Gumdrop instance (singleton)
-        Gumdrop gumdrop = Gumdrop.getInstance();
-
-        // Add our example server
-        gumdrop.addListener(new ExampleServer(serverPort));
-
-        // Start Gumdrop
-        gumdrop.start();
+        final Gumdrop gumdrop = Gumdrop.boot();
+        gumdrop.addListener(new ExampleServer(serverPort, gumdrop));
 
         // Wait for shutdown (Ctrl+C)
         gumdrop.join();
@@ -97,24 +91,26 @@ public class RedisServerIntegrationExample {
      */
     static class ExampleServer extends TcpListener {
         private final int port;
+        private final Gumdrop gumdrop;
 
-        ExampleServer(int port) {
+        ExampleServer(int port, Gumdrop gumdrop) {
             this.port = port;
+            this.gumdrop = gumdrop;
         }
 
         @Override
-        protected int getPort() {
+        public int getPort() {
             return port;
         }
 
         @Override
-        protected String getDescription() {
+        public String getDescription() {
             return "RedisExample-" + port;
         }
 
         @Override
         protected ProtocolHandler createHandler() {
-            return new ExampleHandler();
+            return new ExampleHandler(gumdrop);
         }
     }
 
@@ -122,10 +118,15 @@ public class RedisServerIntegrationExample {
      * Endpoint handler that uses Redis for rate limiting and sessions.
      */
     static class ExampleHandler implements ProtocolHandler {
+        private final Gumdrop gumdrop;
         private Endpoint endpoint;
         private RedisSession redis;
         private String clientIP;
         private int requestCount = 0;
+
+        ExampleHandler(Gumdrop gumdrop) {
+            this.gumdrop = gumdrop;
+        }
 
         @Override
         public void connected(Endpoint ep) {
@@ -411,7 +412,7 @@ public class RedisServerIntegrationExample {
             try {
                 RedisClient client = new RedisClient(loop, redisHost, redisPort);
                 
-                client.connect(new RedisConnectionReady() {
+                client.connect(gumdrop, new RedisConnectionReady() {
                     @Override
                     public void handleReady(RedisSession session) {
                         redisPool.put(endpoint.getSelectorLoop(), session);

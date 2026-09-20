@@ -181,6 +181,7 @@
     <delete dir='${testdir}/integration/classes'/>
     <delete dir='${testdir}/integration/results'/>
     <delete dir='${testdir}/integration/webapp/WEB-INF/classes'/>
+    <delete dir='${testdir}/integration/webapp-examples/WEB-INF/classes'/>
   </target>
 
   <!-- Download compile/runtime dependencies (versions from boms/versions.properties).
@@ -737,6 +738,23 @@
     </javac>
   </target>
 
+  <!-- Standalone examples (default package) and small demos; not the oauth WAR tree. -->
+  <target name='examples-compile' depends='build'
+          description='Compile migrated Gumdrop 3 composition examples'>
+    <mkdir dir='${build.dir}/examples'/>
+    <javac destdir='${build.dir}/examples' debug='true'
+           release='${java.release.version}'
+           includeantruntime='false'
+           createMissingPackageInfoClass='false'>
+      <classpath refid='module.compile.classpath'/>
+      <src path='examples/http-echo-server'/>
+      <src path='examples/redis-client'/>
+      <src path='examples/dns-authoritative'/>
+      <src path='examples/http-client-test'/>
+      <src path='examples/pop3-server'/>
+    </javac>
+  </target>
+
   <target name='junit-build' depends='resolve-test-deps,build-modules'>
     <mkdir dir='${testdir}/junit/classes'/>
     <javac srcdir='${testdir}/junit/src' destdir='${testdir}/junit/classes' debug='true'
@@ -990,8 +1008,30 @@
     <integration-junit includes='**/ftp/**/*IntegrationTest.java'/>
   </target>
 
+  <!-- Compile examples/ servlet sources into the examples integration webapp. -->
+  <target name='integration-webapp-examples-build' depends='build-modules'
+          description='Compile servlet examples into test/integration/webapp-examples'>
+    <mkdir dir='${testdir}/integration/webapp-examples/WEB-INF/classes'/>
+    <javac destdir='${testdir}/integration/webapp-examples/WEB-INF/classes'
+           debug='true'
+           release='${java.release.version}'
+           includeantruntime='false'
+           createMissingPackageInfoClass='false'>
+      <classpath>
+        <path refid='server.classes'/>
+        <path refid='lib.compile.classpath'/>
+        <pathelement location='${lib}/${jsp.jar}'/>
+      </classpath>
+      <src path='examples/servlet-trailer-fields'/>
+      <src path='examples/http2-priority'/>
+      <src path='examples/servlet-server-push'/>
+      <src path='examples/async-timeout'/>
+    </javac>
+  </target>
+
   <!-- Run servlet container integration tests -->
-  <target name='integration-test-servlet' depends='integration-build'
+  <target name='integration-test-servlet'
+          depends='integration-build,integration-webapp-examples-build'
           description='Run servlet container integration tests'>
     <!-- Copy test servlet and filter classes to webapp WEB-INF/classes -->
     <mkdir dir='${testdir}/integration/webapp/WEB-INF/classes'/>
