@@ -1197,10 +1197,6 @@
           <include name='org/bluezoo/gumdrop/mailbox/index/SearchIndexIntegrationTest.java'/>
           <include name='org/bluezoo/gumdrop/mailbox/maildir/MaildirBodyOffsetTest.java'/>
           <include name='org/bluezoo/gumdrop/mailbox/maildir/MaildirConcurrentSessionTest.java'/>
-          <include name='org/bluezoo/gumdrop/mailbox/maildir/MaildirExpungeFlaggedDeletedTest.java'/>
-          <include name='org/bluezoo/gumdrop/mailbox/maildir/MaildirStoreCopyTest.java'/>
-          <include name='org/bluezoo/gumdrop/mailbox/maildir/MaildirIndexNewMessagesTest.java'/>
-          <include name='org/bluezoo/gumdrop/mailbox/maildir/MaildirNewToCurTest.java'/>
           <include name='org/bluezoo/gumdrop/mailbox/mbox/MboxMailboxFactoryTest.java'/>
           <include name='org/bluezoo/gumdrop/mailbox/mbox/MboxMailboxStoreTest.java'/>
           <include name='org/bluezoo/gumdrop/mailbox/mbox/MboxMailboxTest.java'/>

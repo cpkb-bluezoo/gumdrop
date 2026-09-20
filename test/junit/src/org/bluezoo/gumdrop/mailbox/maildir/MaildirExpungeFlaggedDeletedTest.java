@@ -23,17 +23,14 @@ package org.bluezoo.gumdrop.mailbox.maildir;
 
 import org.bluezoo.gumdrop.mailbox.Flag;
 
-import org.junit.After;
+import org.bluezoo.gumdrop.testsupport.memfs.MemoryFileSystem;
 import org.junit.Before;
 import org.junit.Test;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.FileVisitResult;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.SimpleFileVisitor;
-import java.nio.file.attribute.BasicFileAttributes;
 import java.util.EnumSet;
 import java.util.List;
 import java.util.Set;
@@ -56,32 +53,14 @@ public class MaildirExpungeFlaggedDeletedTest {
 
     @Before
     public void setUp() throws Exception {
-        tempDir = Files.createTempDirectory("maildir-expunge-flagged");
+        tempDir = MemoryFileSystem.create().getPath("/maildir");
+        Files.createDirectories(tempDir);
         maildir = tempDir.resolve("box");
         Files.createDirectories(maildir.resolve("cur"));
         Files.createDirectories(maildir.resolve("new"));
         Files.createDirectories(maildir.resolve("tmp"));
         addMessage("1733356800000.a.host", "one");
         addMessage("1733356800001.b.host", "two");
-    }
-
-    @After
-    public void tearDown() throws Exception {
-        Files.walkFileTree(tempDir, new SimpleFileVisitor<Path>() {
-            @Override
-            public FileVisitResult visitFile(Path file,
-                    BasicFileAttributes attrs) throws IOException {
-                Files.deleteIfExists(file);
-                return FileVisitResult.CONTINUE;
-            }
-
-            @Override
-            public FileVisitResult postVisitDirectory(Path dir,
-                    IOException exc) throws IOException {
-                Files.deleteIfExists(dir);
-                return FileVisitResult.CONTINUE;
-            }
-        });
     }
 
     private void addMessage(String name, String subject) throws IOException {
