@@ -491,12 +491,12 @@ reading the zone file is deferred to <code>start(Gumdrop)</code> instead of
 <li><code>minimalAnyPolicy(MinimalAnyPolicy)</code> - RFC 8482 minimal ANY
 (default: enabled)</li>
 <li><code>notifyPeer(InetSocketAddress)</code> - RFC 1996 NOTIFY after successful
-RFC 2136 updates (sent asynchronously on the storage pool)</li>
+RFC 2136 updates (NOTIFY sent asynchronously on the selector loop)</li>
 <li><code>notifyFromNsRecords(boolean)</code> - also NOTIFY in-zone NS names
 with glue A/AAAA on port 53 (default: <code>true</code>)</li>
 <li><code>slaveOf(origin, master)</code> - secondary: AXFR refresh from
-<code>master</code> over TCP on inbound NOTIFY (also off the selector thread;
-uses <code>DnsZoneOperations.axfrOverTcp</code>)</li>
+<code>master</code> over TCP on inbound NOTIFY (async on the selector loop via
+<code>DnsZoneClient.axfrOverTcp</code>)</li>
 <li><code>tsigKey</code> / <code>requireTsig</code> - RFC 2845 / RFC 8945 TSIG for
 dynamic update (HMAC-MD5 and HMAC-SHA256 wire names match BIND:
 <code>hmac-md5.sig-alg.reg.int.</code>, <code>hmac-sha256.</code>); use
@@ -738,7 +738,7 @@ some zones primary, some <code>slaveOf</code> for different origins.</li>
 <code>READ_ONLY</code>; redeploy or reload the file when records change.</li>
 <li><b>Dynamic</b> - <code>zoneFile(path, READ_WRITE)</code>,
 <code>tsigKey</code>, and usually <code>requireTsig(true)</code>; clients use
-<code>nsupdate</code> or <code>DnsZoneOperations.sendUpdate</code>. Successful
+<code>nsupdate</code> or <code>DnsZoneClient.sendUpdate</code>. Successful
 updates persist asynchronously on the storage pool.</li>
 </ul></li>
 <li><b>Zone transfers: never, backup only, or ongoing secondaries?</b>
@@ -746,7 +746,7 @@ updates persist asynchronously on the storage pool.</li>
 <li><b>Never</b> - do not expose AXFR to untrusted networks; many embedded
 deployments only need Q&amp;A plus UPDATE.</li>
 <li><b>Backup / tooling</b> - operators pull zones with
-<code>DnsZoneOperations.axfr</code> / <code>ixfr</code> (TCP, optional DoT via
+<code>DnsZoneClient.axfr</code> / <code>ixfr</code> (TCP, optional DoT via
 <code>TcpDnsClientTransport</code>, optional <code>TsigKey</code>). No
 <code>slaveOf</code> required.</li>
 <li><b>Secondaries</b> - master: NOTIFY after updates; secondary:
@@ -760,10 +760,10 @@ streams (UDP answers set TC when the zone does not fit in 512 octets).</li>
 optional.</li>
 <li><b>TSIG</b> - same <code>tsigKey</code> on the handler for UPDATE and
 (incoming) AXFR/IXFR verification; sign outbound updates and transfer pulls with
-<code>DnsZoneOperations</code>. Built-in <code>slaveOf</code> refresh does
+<code>DnsZoneClient</code>. Built-in <code>slaveOf</code> refresh does
 <b>not</b> send TSIG today: use a custom job calling
 <code>axfrOverTcp(..., tsigKey, transport)</code> if the master requires it.</li>
-<li><b>TLS</b> - DoT/DoQ listeners on the server; for blocking client pulls use
+<li><b>TLS</b> - DoT/DoQ listeners on the server; for async client pulls use
 <code>axfrOverTls</code> or <code>axfrOverTcp</code> with
 <code>TcpDnsClientTransport.createDoT()</code>.</li>
 </ul></li>
@@ -780,7 +780,7 @@ Quick map from pattern to main APIs:
 <td><code>DnsResolver</code> (stub clients), or any DNS client</td></tr>
 <tr><td>Automate record changes</td>
 <td><code>READ_WRITE</code>, <code>tsigKey</code>, <code>requireTsig</code></td>
-<td><code>DnsZoneOperations.sendUpdate</code>, <code>nsupdate</code></td></tr>
+<td><code>DnsZoneClient.sendUpdate</code>, <code>nsupdate</code></td></tr>
 <tr><td>Notify downstream servers</td>
 <td><code>notifyPeer</code>, <code>notifyFromNsRecords</code></td>
 <td>Secondaries run Gumdrop (or BIND) with transfer allowed to them</td></tr>
@@ -1014,23 +1014,22 @@ automatically retries over TCP using standard DNS-over-TCP framing (2-byte
 length prefix, RFC 1035 section 4.2.2). The retry is transparent to the caller.
 </p>
 
-<h4>Blocking zone operations (<code>DnsZoneOperations</code>)</h4>
+<h4>Async zone operations (<code>DnsZoneClient</code>)</h4>
 
 <p>
-For synchronous RFC 2136 updates and RFC 5936 zone transfers (e.g. tooling or
-secondary refresh), use <code>DnsZoneOperations</code>. <code>axfr(server,
-zone)</code> tries UDP first and retries with <code>axfrOverTcp</code> when the
-response is truncated. <code>ixfr(server, zone, clientSoa)</code> sends the
-slave SOA in the authority section (RFC 1995) and retries over TCP when truncated.
-<code>axfrOverTcp</code> and <code>ixfrOverTcp</code> use RFC 1035 TCP framing
-and read length-prefixed messages until the server closes the connection
-(multi-message AXFR/IXFR). Pass an optional <code>TsigKey</code> to sign requests
-and verify responses (including chained TSIG on multi-message TCP transfers).
-For DNS-over-TLS, pass a configured <code>TcpDnsClientTransport</code> (e.g.
-<code>TcpDnsClientTransport.createDoT()</code>) to <code>axfrOverTcp</code> /
-<code>ixfrOverTcp</code>, or use <code>axfrOverTls</code>. These calls block the
-calling thread; they are not tied to <code>DnsResolver</code> or Gumdrop selector
-loops.
+For RFC 2136 updates, RFC 1996 NOTIFY, and RFC 5936 zone transfers (e.g.
+secondary refresh), use <code>DnsZoneClient</code> on a Gumdrop
+<code>SelectorLoop</code>. <code>axfr</code> tries UDP first and retries with
+<code>axfrOverTcp</code> when the response is truncated. <code>ixfr</code> sends
+the slave SOA in the authority section (RFC 1995) and retries over TCP when
+truncated. TCP transfers use RFC 1035 framing and complete when the server
+closes the connection (multi-message AXFR/IXFR). Pass an optional
+<code>TsigKey</code> to sign requests and verify responses (including chained TSIG
+on multi-message TCP transfers). For DNS-over-TLS, pass a configured
+<code>TcpDnsClientTransport</code> (e.g. <code>TcpDnsClientTransport.createDoT()</code>)
+to <code>axfrOverTcp</code> / <code>ixfrOverTcp</code>, or use
+<code>axfrOverTls</code>. Message construction helpers live on
+<code>DnsZoneOperations</code>.
 </p>
 
 <h4>SRV Record Queries</h4>

@@ -585,9 +585,9 @@ public class FtpDataConnectionCoordinator {
      *     {@link #acceptDataConnection} resumes the continuation on the loop.
      *     Previously this blocked the loop thread for up to 30s in a
      *     {@code poll()} — a trivial denial of service.</li>
-     * <li>Active mode: the outbound connect (which blocks) is offloaded to the
-     *     shared {@link StorageExecutor} rather than run on the loop, and the
-     *     continuation resumes on the loop when the connect completes.</li>
+     * <li>Active mode: the outbound connect uses {@link TcpTransportFactory}
+     *     on the control connection's {@link SelectorLoop}; the continuation
+     *     resumes on the loop when TCP is established.</li>
      * </ul>
      *
      * @param controlEndpoint the control connection endpoint (for its loop and
@@ -651,16 +651,17 @@ public class FtpDataConnectionCoordinator {
     }
 
     /**
-     * Opens the active-mode data connection on the shared storage pool (a
-     * blocking connect must never run on the loop), then resumes on the loop.
+     * Opens the active-mode data connection asynchronously on the control
+     * connection's selector loop, then resumes the transfer on that loop.
      */
     private void connectActiveModeAsync(final Endpoint controlEndpoint,
             final TransferCallback callback,
             final DataConnectionReady continuation) {
         final String host = activeHost;
         final int port = activePort;
+        final InetAddress dataAddress;
         try {
-            InetAddress dataAddress = InetAddress.getByName(host);
+            dataAddress = InetAddress.getByName(host);
             if (!isActiveDataAddressAllowed(dataAddress)) {
                 failTransfer(controlEndpoint, callback, new IOException(
                         "Active mode data address does not match control client"));
@@ -672,39 +673,100 @@ public class FtpDataConnectionCoordinator {
             return;
         }
         FtpListener server = controlConnection.getServer();
-        Gumdrop gumdrop = (server != null) ? server.getGumdrop() : null;
-        StorageExecutor exec =
-                (gumdrop != null) ? gumdrop.getStorageExecutor() : null;
-        if (exec == null) {
+        final Gumdrop gumdrop = (server != null) ? server.getGumdrop() : null;
+        if (gumdrop == null) {
             failTransfer(controlEndpoint, callback, new IOException(
                     "Server not started; cannot open active data connection"));
             return;
         }
-        exec.submit(controlEndpoint, new Callable<FtpDataConnection>() {
+        final SelectorLoop loop = controlEndpoint.getSelectorLoop();
+        if (loop == null) {
+            failTransfer(controlEndpoint, callback, new IOException(
+                    "No selector loop for active data connection"));
+            return;
+        }
+        final TcpTransportFactory factory = new TcpTransportFactory();
+        factory.start();
+        final TcpEndpoint[] outbound = new TcpEndpoint[1];
+        final TimerHandle[] timeout = new TimerHandle[1];
+        final boolean[] finished = new boolean[1];
+        ProtocolHandler connectHandler = new ProtocolHandler() {
             @Override
-            public FtpDataConnection call() throws IOException {
-                SocketChannel channel = SocketChannel.open();
-                channel.socket().connect(new InetSocketAddress(host, port),
-                        (int) DATA_CONNECTION_TIMEOUT_MS);
-                return new FtpDataConnection(channel,
-                        FtpDataConnectionCoordinator.this);
+            public void connected(Endpoint ep) {
+                if (finished[0]) {
+                    return;
+                }
+                finished[0] = true;
+                if (timeout[0] != null) {
+                    timeout[0].cancel();
+                    timeout[0] = null;
+                }
+                try {
+                    SocketChannel sc = ((TcpEndpoint) ep).takeSocketChannelForHandoff();
+                    if (sc == null || !sc.isOpen()) {
+                        throw new IOException("Active data connection channel lost");
+                    }
+                    FtpDataConnection connection = new FtpDataConnection(sc,
+                            FtpDataConnectionCoordinator.this);
+                    deliverDataConnection(controlEndpoint, callback,
+                            continuation, connection);
+                } catch (IOException e) {
+                    cleanup();
+                    callback.transferFailed(e);
+                }
             }
-        }, new StorageExecutor.Callback<FtpDataConnection>() {
+
             @Override
-            public void completed(FtpDataConnection connection) {
-                deliverDataConnection(controlEndpoint, callback,
-                        continuation, connection);
+            public void receive(ByteBuffer data) {
             }
+
             @Override
-            public void failed(Throwable error) {
-                IOException e = (error instanceof IOException)
-                        ? (IOException) error
-                        : new IOException("Active data connection failed",
-                                error);
+            public void disconnected() {
+            }
+
+            @Override
+            public void securityEstablished(SecurityInfo info) {
+            }
+
+            @Override
+            public void error(Exception cause) {
+                if (finished[0]) {
+                    return;
+                }
+                finished[0] = true;
+                if (timeout[0] != null) {
+                    timeout[0].cancel();
+                    timeout[0] = null;
+                }
                 cleanup();
-                callback.transferFailed(e);
+                callback.transferFailed(cause instanceof IOException
+                        ? (IOException) cause
+                        : new IOException("Active data connection failed", cause));
             }
-        });
+        };
+        try {
+            outbound[0] = factory.connect(gumdrop, dataAddress, port,
+                    connectHandler, loop);
+            timeout[0] = controlEndpoint.scheduleTimer(
+                    DATA_CONNECTION_TIMEOUT_MS, new Runnable() {
+                        @Override
+                        public void run() {
+                            if (finished[0]) {
+                                return;
+                            }
+                            finished[0] = true;
+                            if (outbound[0] != null) {
+                                outbound[0].close();
+                                outbound[0] = null;
+                            }
+                            cleanup();
+                            callback.transferFailed(new IOException(
+                                    "Active data connection timeout"));
+                        }
+                    });
+        } catch (IOException e) {
+            failTransfer(controlEndpoint, callback, e);
+        }
     }
 
     /**

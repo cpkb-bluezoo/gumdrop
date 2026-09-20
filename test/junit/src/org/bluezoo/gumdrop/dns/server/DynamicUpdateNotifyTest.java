@@ -25,7 +25,6 @@ import org.bluezoo.gumdrop.dns.DnsClass;
 import org.bluezoo.gumdrop.dns.DnsMessage;
 import org.bluezoo.gumdrop.dns.DnsResourceRecord;
 import org.bluezoo.gumdrop.dns.DnsType;
-import org.bluezoo.gumdrop.dns.client.DnsZoneOperations;
 import org.junit.Test;
 
 import java.net.InetSocketAddress;

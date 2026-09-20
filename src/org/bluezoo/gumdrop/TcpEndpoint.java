@@ -249,6 +249,36 @@ public class TcpEndpoint implements Endpoint, ChannelHandler, TlsRecordState.Cal
     }
 
     /**
+     * Transfers the open socket channel to another {@link SelectorLoop}
+     * registration without closing it. Used when a short-lived outbound
+     * connect endpoint only establishes TCP (e.g. FTP active-mode data).
+     *
+     * @return the channel, or null if none was attached
+     */
+    public SocketChannel takeSocketChannelForHandoff() {
+        SocketChannel ch = channel;
+        if (ch == null) {
+            return null;
+        }
+        channel = null;
+        closing = true;
+        if (key != null) {
+            key.cancel();
+            key = null;
+        }
+        cancelHandshakeTimeout();
+        cancelFirstByteTimeout();
+        releaseBuffers();
+        if (clientMode && selectorLoop != null) {
+            Gumdrop gumdrop = selectorLoop.getGumdrop();
+            if (gumdrop != null) {
+                gumdrop.removeChannelHandler(this);
+            }
+        }
+        return ch;
+    }
+
+    /**
      * Sets whether this is a client-initiated endpoint.
      */
     void setClientMode(boolean clientMode) {
