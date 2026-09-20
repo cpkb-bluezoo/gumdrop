@@ -24,7 +24,8 @@ package org.bluezoo.gumdrop.mailbox.maildir;
 import org.bluezoo.gumdrop.mailbox.Flag;
 import org.bluezoo.gumdrop.mailbox.MessageDescriptor;
 
-import java.io.File;
+import java.io.IOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.time.OffsetDateTime;
@@ -102,8 +103,13 @@ public class MaildirMessageDescriptor implements MessageDescriptor {
         if (filenameSize >= 0) {
             this.actualSize = filenameSize;
         } else {
-            File file = filePath.toFile();
-            this.actualSize = file.exists() ? file.length() : 0;
+            long size;
+            try {
+                size = Files.size(filePath);
+            } catch (IOException e) {
+                size = 0;
+            }
+            this.actualSize = size;
         }
     }
 

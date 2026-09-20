@@ -34,7 +34,6 @@ import org.bluezoo.gumdrop.mailbox.index.MailboxWatcher;
 
 import java.io.BufferedReader;
 import java.io.BufferedWriter;
-import java.io.File;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.channels.ReadableByteChannel;
@@ -44,10 +43,8 @@ import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.text.MessageFormat;
 import java.time.OffsetDateTime;
-import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.Deque;
 import java.util.EnumSet;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -377,71 +374,25 @@ public class MaildirMailboxStore implements MailboxStore {
         return normalized;
     }
 
-    /**
-     * Checks if a directory is a valid Maildir (has cur, new, tmp).
-     */
-    private boolean isValidMaildir(Path path) {
-        if (!Files.isDirectory(path)) {
-            return false;
-        }
-        return Files.isDirectory(path.resolve("cur")) &&
-               Files.isDirectory(path.resolve("new")) &&
-               Files.isDirectory(path.resolve("tmp"));
-    }
-
     @Override
     public List<String> listMailboxes(String reference, String pattern) throws IOException {
         ensureOpen();
-        
+
         String fullPattern = reference + pattern;
         List<String> result = new ArrayList<>();
 
-        // Use stack-based iteration to find mailboxes
-        Deque<ScanState> stack = new ArrayDeque<>();
-        stack.push(new ScanState(userDirectory.toFile(), ""));
-
-        while (!stack.isEmpty()) {
-            ScanState state = stack.pop();
-            File[] children = state.directory.listFiles();
-            if (children == null) {
-                continue;
-            }
-
-            for (File child : children) {
-                String fileName = child.getName();
-                
-                if (child.isDirectory()) {
-                    // Check if this is a Maildir++ subfolder (starts with .)
-                    if (fileName.startsWith(".") && !fileName.equals(".") && !fileName.equals("..")) {
-                        // Skip special files
-                        if (fileName.equals(".subscriptions") || fileName.equals(".uidlist") || 
-                            fileName.equals(".keywords")) {
-                            continue;
-                        }
-                        
-                        Path maildirPath = child.toPath();
-                        if (isValidMaildir(maildirPath)) {
-                            String mailboxName = directoryToMailboxName(fileName);
-                            if (matchesPattern(mailboxName, fullPattern)) {
-                                result.add(mailboxName);
-                            }
-                        }
-                    } else if (state.prefix.isEmpty() && 
-                               (fileName.equals("cur") || fileName.equals("new") || fileName.equals("tmp"))) {
-                        // This is INBOX
-                        if (matchesPattern(INBOX, fullPattern)) {
-                            if (!result.contains(INBOX)) {
-                                result.add(INBOX);
-                            }
-                        }
-                    }
-                }
+        if (MaildirLayout.isMaildir(userDirectory) && matchesPattern(INBOX, fullPattern)) {
+            result.add(INBOX);
+        }
+        List<Path> subfolders = MaildirLayout.listSubfolders(userDirectory);
+        for (Path folder : subfolders) {
+            String mailboxName = directoryToMailboxName(folder.getFileName().toString());
+            if (matchesPattern(mailboxName, fullPattern)) {
+                result.add(mailboxName);
             }
         }
 
-        // Sort results
         Collections.sort(result, String.CASE_INSENSITIVE_ORDER);
-        
         return result;
     }
 
@@ -602,7 +553,7 @@ public class MaildirMailboxStore implements MailboxStore {
         String normalized = normalizeMailboxName(mailboxName);
         Path mailboxPath = resolveMailboxPath(normalized);
         
-        if (!isValidMaildir(mailboxPath)) {
+        if (!MaildirLayout.isMaildir(mailboxPath)) {
             throw new IOException("Mailbox does not exist: " + mailboxName);
         }
         
@@ -715,48 +666,26 @@ public class MaildirMailboxStore implements MailboxStore {
         
         Path mailboxPath = resolveMailboxPath(normalized);
         
-        if (!Files.exists(mailboxPath)) {
+        // Only a real Maildir may be deleted: anything else under the user
+        // directory is not ours to remove.
+        if (!MaildirLayout.isMaildir(mailboxPath)) {
             throw new IOException("Mailbox does not exist: " + mailboxName);
         }
         
         // Check if mailbox is empty
-        Path curPath = mailboxPath.resolve("cur");
-        File curDir = curPath.toFile();
-        File[] messages = curDir.listFiles();
-        if (messages != null && messages.length > 0) {
+        if (MaildirLayout.hasMessages(mailboxPath)) {
             throw new IOException("Mailbox is not empty: " + mailboxName);
         }
-        
+
         // Delete Maildir structure
-        deleteDirectory(mailboxPath.toFile());
-        
+        MaildirLayout.deleteTree(mailboxPath);
+
         // Remove from subscriptions
         subscriptions.remove(normalized);
         
         if (LOGGER.isLoggable(Level.FINE)) {
             LOGGER.fine(MessageFormat.format(
                     L10N.getString("info.mailbox_deleted"), mailboxName));
-        }
-    }
-
-    /**
-     * Recursively deletes a directory.
-     */
-    private void deleteDirectory(File dir) throws IOException {
-        File[] children = dir.listFiles();
-        if (children != null) {
-            for (File child : children) {
-                if (child.isDirectory()) {
-                    deleteDirectory(child);
-                } else {
-                    if (!child.delete()) {
-                        throw new IOException("Failed to delete file: " + child);
-                    }
-                }
-            }
-        }
-        if (!dir.delete()) {
-            throw new IOException("Failed to delete directory: " + dir);
         }
     }
 
@@ -805,7 +734,7 @@ public class MaildirMailboxStore implements MailboxStore {
         String normalized = normalizeMailboxName(mailboxName);
         Path mailboxPath = resolveMailboxPath(normalized);
         
-        if (!isValidMaildir(mailboxPath)) {
+        if (!MaildirLayout.isMaildir(mailboxPath)) {
             attributes.add(MailboxAttribute.NOSELECT);
             return attributes;
         }
@@ -815,19 +744,13 @@ public class MaildirMailboxStore implements MailboxStore {
         String dirName = mailboxToDirectoryName(normalized);
         String prefix = dirName.isEmpty() ? "." : dirName + ".";
         
-        File userDir = userDirectory.toFile();
-        File[] children = userDir.listFiles();
-        if (children != null) {
-            for (File child : children) {
-                if (child.isDirectory() && child.getName().startsWith(prefix)) {
-                    if (isValidMaildir(child.toPath())) {
-                        hasChildren = true;
-                        break;
-                    }
-                }
+        for (Path folder : MaildirLayout.listSubfolders(userDirectory)) {
+            if (folder.getFileName().toString().startsWith(prefix)) {
+                hasChildren = true;
+                break;
             }
         }
-        
+
         if (hasChildren) {
             attributes.add(MailboxAttribute.HASCHILDREN);
         } else {
@@ -852,7 +775,7 @@ public class MaildirMailboxStore implements MailboxStore {
         }
         
         // Calculate storage usage
-        long[] stats = calculateStorageUsage();
+        long[] stats = MaildirLayout.measure(userDirectory);
         final long totalSize = stats[0];
         final long messageCount = stats[1];
         
@@ -884,60 +807,4 @@ public class MaildirMailboxStore implements MailboxStore {
         };
     }
 
-    /**
-     * Calculates total storage usage for the user.
-     * Returns [total_bytes, message_count].
-     */
-    private long[] calculateStorageUsage() {
-        long totalSize = 0;
-        long messageCount = 0;
-        
-        Deque<File> stack = new ArrayDeque<>();
-        stack.push(userDirectory.toFile());
-        
-        while (!stack.isEmpty()) {
-            File current = stack.pop();
-            File[] children = current.listFiles();
-            if (children == null) {
-                continue;
-            }
-            
-            for (File child : children) {
-                if (child.isDirectory()) {
-                    String name = child.getName();
-                    if (name.equals("cur") || name.equals("new")) {
-                        // Count messages in cur and new directories
-                        File[] messages = child.listFiles();
-                        if (messages != null) {
-                            for (File msg : messages) {
-                                if (msg.isFile() && !msg.getName().startsWith(".")) {
-                                    totalSize += msg.length();
-                                    messageCount++;
-                                }
-                            }
-                        }
-                    } else if (!name.equals("tmp")) {
-                        stack.push(child);
-                    }
-                }
-            }
-        }
-        
-        return new long[]{totalSize, messageCount};
-    }
-
-    /**
-     * State holder for directory scanning.
-     */
-    private static class ScanState {
-        final File directory;
-        final String prefix;
-
-        ScanState(File directory, String prefix) {
-            this.directory = directory;
-            this.prefix = prefix;
-        }
-    }
-
 }
-
