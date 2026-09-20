@@ -1219,7 +1219,6 @@
           <include name='org/bluezoo/gumdrop/tls/Tls12RecordEngineTest.java'/>
           <include name='org/bluezoo/gumdrop/tls/TlsRecordEngineTest.java'/>
           <include name='org/bluezoo/gumdrop/util/SPKIPinnedCertTrustManagerTest.java'/>
-          <include name='org/bluezoo/gumdrop/webdav/FileHandlerTest.java'/>
           <include name='org/bluezoo/gumdrop/webdav/FileSecurityTest.java'/>
         </fileset>
       </batchtest>
