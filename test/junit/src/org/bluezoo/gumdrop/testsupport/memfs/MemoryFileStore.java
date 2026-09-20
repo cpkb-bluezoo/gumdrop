@@ -37,9 +37,18 @@ import java.nio.file.attribute.UserDefinedFileAttributeView;
  */
 final class MemoryFileStore extends FileStore {
 
+    private final boolean userAttributes;
+
+    /**
+     * @param userAttributes whether this store supports extended attributes
+     */
+    MemoryFileStore(boolean userAttributes) {
+        this.userAttributes = userAttributes;
+    }
+
     @Override
     public String name() {
-        return "memfs";
+        return userAttributes ? "memfs" : "memfs-plain";
     }
 
     @Override
@@ -72,12 +81,12 @@ final class MemoryFileStore extends FileStore {
         return type == BasicFileAttributeView.class
                 || type == PosixFileAttributeView.class
                 || type == FileOwnerAttributeView.class
-                || type == UserDefinedFileAttributeView.class;
+                || (userAttributes && type == UserDefinedFileAttributeView.class);
     }
 
     @Override
     public boolean supportsFileAttributeView(String name) {
-        return name.equals("basic") || name.equals("posix") || name.equals("owner") || name.equals("user");
+        return name.equals("basic") || name.equals("posix") || name.equals("owner") || (userAttributes && name.equals("user"));
     }
 
     @Override

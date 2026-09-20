@@ -55,9 +55,12 @@ public final class MemoryFileSystem extends FileSystem {
 
     final MemoryFileSystemProvider provider;
     final Object lock = new Object();
-    final MemoryFileStore store = new MemoryFileStore();
+    final MemoryFileStore store = new MemoryFileStore(true);
+    final MemoryFileStore plainStore = new MemoryFileStore(false);
     private volatile int maxTransfer = Integer.MAX_VALUE;
     private volatile int maxXattrValueSize = Integer.MAX_VALUE;
+    private final java.util.List<Path> noUserAttributes =
+            new java.util.concurrent.CopyOnWriteArrayList<Path>();
     final MemoryNode rootNode;
     final MemoryPath rootPath;
     private long clock = CLOCK_START;
@@ -104,6 +107,27 @@ public final class MemoryFileSystem extends FileSystem {
             throw new IllegalArgumentException("bytes must not be negative");
         }
         this.maxXattrValueSize = bytes;
+    }
+
+    /**
+     * Makes everything under {@code directory} refuse extended attributes,
+     * as a mount whose file system has none does, while the rest of this file
+     * system keeps them.
+     *
+     * @param directory the top of the tree without extended attributes
+     */
+    public void disableUserAttributesUnder(Path directory) {
+        noUserAttributes.add(directory.toAbsolutePath().normalize());
+    }
+
+    boolean userAttributesDisabled(Path path) {
+        Path normalized = path.toAbsolutePath().normalize();
+        for (Path zone : noUserAttributes) {
+            if (normalized.startsWith(zone)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     int maxXattrValueSize() {

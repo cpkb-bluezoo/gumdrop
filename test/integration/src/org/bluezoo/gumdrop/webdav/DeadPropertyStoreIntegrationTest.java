@@ -159,4 +159,46 @@ public class DeadPropertyStoreIntegrationTest {
         store.copyProperties(file, copy);
         assertEquals("1", get(copy).get(DeadProperty.makeKey(NS, "a")).getValue());
     }
+
+    /**
+     * Many requests updating one resource at once, each through a real
+     * asynchronous channel, must all take effect.
+     */
+    @Test
+    public void testSimultaneousUpdatesOfOneResourceAreAllKept() throws Exception {
+        store.setMode(DeadPropertyStore.Mode.SIDECAR);
+        final int updaters = 12;
+        final java.util.concurrent.CountDownLatch go = new java.util.concurrent.CountDownLatch(1);
+        final java.util.concurrent.CountDownLatch finished =
+                new java.util.concurrent.CountDownLatch(updaters);
+        final java.util.concurrent.atomic.AtomicInteger failures =
+                new java.util.concurrent.atomic.AtomicInteger();
+        for (int i = 0; i < updaters; i++) {
+            final String name = "p" + i;
+            new Thread(new Runnable() {
+                @Override
+                public void run() {
+                    try {
+                        go.await();
+                        if (set(file, name, "value of " + name).error != null) {
+                            failures.incrementAndGet();
+                        }
+                    } catch (Exception e) {
+                        failures.incrementAndGet();
+                    } finally {
+                        finished.countDown();
+                    }
+                }
+            }).start();
+        }
+        go.countDown();
+        assertTrue(finished.await(30, java.util.concurrent.TimeUnit.SECONDS));
+        assertEquals(0, failures.get());
+        Map<String, DeadProperty> props = get(file);
+        assertEquals("no update was lost", updaters, props.size());
+        for (int i = 0; i < updaters; i++) {
+            assertEquals("value of p" + i,
+                    props.get(DeadProperty.makeKey(NS, "p" + i)).getValue());
+        }
+    }
 }

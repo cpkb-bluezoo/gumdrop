@@ -53,8 +53,15 @@ final class MemoryUserAttributeView implements UserDefinedFileAttributeView {
 
     @Override
     public List<String> list() throws IOException {
+        checkSupported();
         synchronized (fs.lock) {
             return new ArrayList<String>(fs.provider.require(path, follow).xattrs.keySet());
+        }
+    }
+
+    private void checkSupported() throws IOException {
+        if (fs.userAttributesDisabled(path)) {
+            throw new FileSystemException(path.toString(), null, "Operation not supported");
         }
     }
 
@@ -68,6 +75,7 @@ final class MemoryUserAttributeView implements UserDefinedFileAttributeView {
 
     @Override
     public int size(String name) throws IOException {
+        checkSupported();
         synchronized (fs.lock) {
             return value(fs.provider.require(path, follow), name).length;
         }
@@ -75,6 +83,7 @@ final class MemoryUserAttributeView implements UserDefinedFileAttributeView {
 
     @Override
     public int read(String name, ByteBuffer dst) throws IOException {
+        checkSupported();
         synchronized (fs.lock) {
             byte[] value = value(fs.provider.require(path, follow), name);
             if (dst.remaining() < value.length) {
@@ -88,6 +97,7 @@ final class MemoryUserAttributeView implements UserDefinedFileAttributeView {
 
     @Override
     public int write(String name, ByteBuffer src) throws IOException {
+        checkSupported();
         synchronized (fs.lock) {
             MemoryNode node = fs.provider.require(path, follow);
             byte[] value = new byte[src.remaining()];
@@ -103,6 +113,7 @@ final class MemoryUserAttributeView implements UserDefinedFileAttributeView {
 
     @Override
     public void delete(String name) throws IOException {
+        checkSupported();
         synchronized (fs.lock) {
             MemoryNode node = fs.provider.require(path, follow);
             value(node, name);

@@ -40,12 +40,14 @@ import java.nio.file.attribute.UserDefinedFileAttributeView;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.text.MessageFormat;
+import java.util.ArrayDeque;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.ResourceBundle;
 import java.util.concurrent.Callable;
 import java.util.concurrent.Executor;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -100,8 +102,6 @@ public final class DeadPropertyStore {
     }
 
     private Mode mode = Mode.AUTO;
-    private boolean xattrSupported;
-    private boolean xattrChecked;
     private volatile Gumdrop gumdrop;
 
     public DeadPropertyStore() {
@@ -513,20 +513,15 @@ public final class DeadPropertyStore {
 
     // -- xattr backend --
 
+    /**
+     * Returns true if extended attributes are to be tried for a resource.
+     * Whether they work is a property of where the resource lives, and a
+     * tree can span file systems, so this is not decided once for the store:
+     * the attempt itself fails on a file system without them, and callers
+     * fall back to a sidecar (or report the failure in {@link Mode#XATTR}).
+     */
     private boolean useXattr(Path resource) {
-        if (mode == Mode.SIDECAR || mode == Mode.NONE) {
-            return false;
-        }
-        if (!xattrChecked) {
-            xattrChecked = true;
-            try {
-                xattrSupported = Files.getFileStore(resource)
-                        .supportsFileAttributeView("user");
-            } catch (IOException e) {
-                xattrSupported = false;
-            }
-        }
-        return xattrSupported;
+        return mode == Mode.AUTO || mode == Mode.XATTR;
     }
 
     private boolean useSidecar() {
@@ -761,6 +756,12 @@ public final class DeadPropertyStore {
     /**
      * Updates a sidecar file: loads existing properties, applies the
      * change, then writes the full sidecar back asynchronously.
+     *
+     * <p>This is a read-modify-write, so updates of one sidecar are run one
+     * at a time, in the order they arrive; otherwise two requests could read
+     * the same properties and the second write would discard the first
+     * request's change. Updates of different resources do not wait for each
+     * other.
      */
     private void updateSidecar(final Path resource, final boolean isDirectory,
                                final String ns,
@@ -768,37 +769,120 @@ public final class DeadPropertyStore {
                                final boolean isXML,
                                final boolean remove,
                                final DeadPropertyCallback callback) {
-        Path sidecar = sidecarPath(resource, isDirectory);
-        if (sidecarExists(sidecar)) {
-            readSidecar(sidecar, new DeadPropertyCallback() {
-                @Override
-                public void onProperties(
-                        Map<String, DeadProperty> existing) {
-                    applyAndWrite(resource, isDirectory, existing, ns, name,
-                            value, isXML, remove, callback);
+        final Path sidecar = sidecarPath(resource, isDirectory);
+        final AtomicBoolean finished = new AtomicBoolean();
+        // The next queued update starts once this one has reported, and does
+        // so even if the caller's callback throws.
+        final DeadPropertyCallback done = new DeadPropertyCallback() {
+            @Override
+            public void onProperties(Map<String, DeadProperty> properties) {
+                try {
+                    callback.onProperties(properties);
+                } finally {
+                    finishUpdate(sidecar, finished);
                 }
+            }
 
-                @Override
-                public void onError(String error) {
-                    Map<String, DeadProperty> empty =
-                            new HashMap<String, DeadProperty>();
-                    applyAndWrite(resource, isDirectory, empty, ns, name,
-                            value, isXML, remove, callback);
+            @Override
+            public void onError(String error) {
+                try {
+                    callback.onError(error);
+                } finally {
+                    finishUpdate(sidecar, finished);
                 }
-            });
-        } else {
-            Map<String, DeadProperty> empty =
-                    new HashMap<String, DeadProperty>();
-            applyAndWrite(resource, isDirectory, empty, ns, name, value,
-                    isXML, remove, callback);
+            }
+        };
+        queueUpdate(sidecar, new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    readModifyWrite(resource, isDirectory, sidecar, ns, name,
+                            value, isXML, remove, done);
+                } catch (RuntimeException e) {
+                    finishUpdate(sidecar, finished);
+                    throw e;
+                }
+            }
+        });
+    }
+
+    /** Sidecars being updated, each with the updates waiting behind it. */
+    private final Map<Path, ArrayDeque<Runnable>> sidecarUpdates =
+            new HashMap<Path, ArrayDeque<Runnable>>();
+
+    private void queueUpdate(Path sidecar, Runnable update) {
+        synchronized (sidecarUpdates) {
+            ArrayDeque<Runnable> waiting = sidecarUpdates.get(sidecar);
+            if (waiting != null) {
+                waiting.add(update);
+                return;
+            }
+            sidecarUpdates.put(sidecar, new ArrayDeque<Runnable>());
+        }
+        update.run();
+    }
+
+    private void finishUpdate(Path sidecar, AtomicBoolean finished) {
+        if (!finished.compareAndSet(false, true)) {
+            return;
+        }
+        Runnable next;
+        synchronized (sidecarUpdates) {
+            next = sidecarUpdates.get(sidecar).poll();
+            if (next == null) {
+                sidecarUpdates.remove(sidecar);
+            }
+        }
+        if (next != null) {
+            next.run();
         }
     }
+
+    private void readModifyWrite(final Path resource, final boolean isDirectory,
+                                 Path sidecar, final String ns,
+                                 final String name, final String value,
+                                 final boolean isXML, final boolean remove,
+                                 final DeadPropertyCallback callback) {
+        if (!sidecarExists(sidecar)) {
+            applyAndWrite(resource, isDirectory,
+                    new HashMap<String, DeadProperty>(), ns, name, value,
+                    isXML, remove, callback);
+            return;
+        }
+        readSidecar(sidecar, new DeadPropertyCallback() {
+            @Override
+            public void onProperties(Map<String, DeadProperty> existing) {
+                applyAndWrite(resource, isDirectory, existing, ns, name,
+                        value, isXML, remove, callback);
+            }
+
+            @Override
+            public void onError(String error) {
+                // Never write over properties that could not be read: that
+                // would silently destroy them. The sidecar is left as it is.
+                callback.onError("Existing properties could not be read: "
+                        + error);
+            }
+        });
+    }
+
+    /**
+     * Test-only hook run after a sidecar has been read and before the
+     * change is applied and written back, so a test can start a second
+     * update at exactly the point where a race would lose one. Production
+     * code leaves this {@code null}.
+     */
+    static volatile Runnable afterSidecarRead;
 
     private void applyAndWrite(Path resource, boolean isDirectory,
                                Map<String, DeadProperty> props,
                                String ns, String name, String value,
                                boolean isXML, boolean remove,
                                DeadPropertyCallback callback) {
+        Runnable hook = afterSidecarRead;
+        if (hook != null) {
+            hook.run();
+        }
         String key = DeadProperty.makeKey(ns, name);
         if (remove) {
             props.remove(key);
@@ -855,6 +939,11 @@ public final class DeadPropertyStore {
             xml.close();
 
             byte[] data = baos.toByteArray();
+            if (data.length > MAX_SIDECAR_SIZE) {
+                // The reader refuses anything larger, so never create it.
+                callback.onError("Sidecar file would exceed maximum size");
+                return;
+            }
             final ByteBuffer buf = ByteBuffer.wrap(data);
 
             final AsyncFile channel = AsyncFile.open(storageExecutor(),

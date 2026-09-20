@@ -406,4 +406,148 @@ public class DeadPropertyStoreTest {
         store.copyProperties(file, copy);
         assertFalse("nothing was copied through the link", Files.exists(sidecarOf(copy)));
     }
+
+    // -- Read errors must not destroy existing properties --
+
+    private byte[] sidecarBytes(Path resource) throws IOException {
+        return Files.readAllBytes(sidecarOf(resource));
+    }
+
+    @Test
+    public void testUnreadableSidecarIsNotOverwrittenBySettingAProperty() throws IOException {
+        store.setMode(DeadPropertyStore.Mode.SIDECAR);
+        set(file, "a", "1");
+        byte[] before = sidecarBytes(file);
+        Files.setPosixFilePermissions(sidecarOf(file),
+                java.nio.file.attribute.PosixFilePermissions.fromString("-w-------"));
+        assertNotNull("existing properties could not be read, so nothing is written",
+                trySet(file, "b", "2", false));
+        Files.setPosixFilePermissions(sidecarOf(file),
+                java.nio.file.attribute.PosixFilePermissions.fromString("rw-------"));
+        assertTrue(java.util.Arrays.equals(before, sidecarBytes(file)));
+        assertEquals("1", valueOf(get(file), "a"));
+    }
+
+    @Test
+    public void testUnreadableSidecarIsNotOverwrittenByRemovingAProperty() throws IOException {
+        store.setMode(DeadPropertyStore.Mode.SIDECAR);
+        set(file, "a", "1");
+        set(file, "b", "2");
+        Files.setPosixFilePermissions(sidecarOf(file),
+                java.nio.file.attribute.PosixFilePermissions.fromString("-w-------"));
+        Outcome o = new Outcome();
+        store.removeProperty(file, NS, "a", o);
+        assertNotNull(o.error);
+        Files.setPosixFilePermissions(sidecarOf(file),
+                java.nio.file.attribute.PosixFilePermissions.fromString("rw-------"));
+        assertEquals(2, get(file).size());
+    }
+
+    @Test
+    public void testCorruptSidecarIsNotOverwrittenBySettingAProperty() throws IOException {
+        store.setMode(DeadPropertyStore.Mode.SIDECAR);
+        byte[] corrupt = "<properties xmlns='urn:gumdrop:webdav-props'><property".getBytes(
+                StandardCharsets.UTF_8);
+        Files.write(sidecarOf(file), corrupt);
+        assertNotNull(trySet(file, "a", "1", false));
+        assertTrue("the damaged sidecar is left for an administrator",
+                java.util.Arrays.equals(corrupt, sidecarBytes(file)));
+    }
+
+    @Test
+    public void testPropertiesTooLargeToReadBackAreNotWritten() throws IOException {
+        store.setMode(DeadPropertyStore.Mode.SIDECAR);
+        set(file, "a", "1");
+        byte[] before = sidecarBytes(file);
+        char[] chars = new char[1024 * 1024 + 1];
+        java.util.Arrays.fill(chars, 'x');
+        assertNotNull("a sidecar bigger than the reader accepts must not be created",
+                trySet(file, "huge", new String(chars), false));
+        assertTrue(java.util.Arrays.equals(before, sidecarBytes(file)));
+        assertEquals("1", valueOf(get(file), "a"));
+    }
+
+    // -- Concurrent updates of one resource --
+
+    @Test
+    public void testConcurrentUpdatesOfOneResourceAreNotLost() {
+        store.setMode(DeadPropertyStore.Mode.SIDECAR);
+        final Outcome second = new Outcome();
+        final boolean[] started = { false };
+        DeadPropertyStore.afterSidecarRead = new Runnable() {
+            @Override
+            public void run() {
+                if (!started[0]) {
+                    started[0] = true;
+                    // Another request updates the same resource right after
+                    // the first has read the sidecar.
+                    store.setProperty(file, NS, "b", "2", false, second);
+                }
+            }
+        };
+        try {
+            assertNull(trySet(file, "a", "1", false));
+        } finally {
+            DeadPropertyStore.afterSidecarRead = null;
+        }
+        assertTrue("the second update completed", second.done);
+        assertNull(second.error);
+        Map<String, DeadProperty> props = get(file);
+        assertEquals("1", valueOf(props, "a"));
+        assertEquals("2", valueOf(props, "b"));
+    }
+
+    @Test
+    public void testUpdatesOfDifferentResourcesDoNotWaitForEachOther() throws IOException {
+        store.setMode(DeadPropertyStore.Mode.SIDECAR);
+        final Path other = root.resolve("other.txt");
+        Files.write(other, "x".getBytes(StandardCharsets.UTF_8));
+        final Outcome second = new Outcome();
+        final boolean[] started = { false };
+        DeadPropertyStore.afterSidecarRead = new Runnable() {
+            @Override
+            public void run() {
+                if (!started[0]) {
+                    started[0] = true;
+                    store.setProperty(other, NS, "b", "2", false, second);
+                    assertTrue("a different resource is not held up", second.done);
+                }
+            }
+        };
+        try {
+            assertNull(trySet(file, "a", "1", false));
+        } finally {
+            DeadPropertyStore.afterSidecarRead = null;
+        }
+        assertEquals("2", valueOf(get(other), "b"));
+        assertEquals("1", valueOf(get(file), "a"));
+    }
+
+    // -- Extended attribute support is a property of where a file is --
+
+    @Test
+    public void testExtendedAttributeSupportIsJudgedPerResourceNotOncePerStore()
+            throws IOException {
+        Path plain = Files.createDirectories(root.resolve("plain"));
+        Path plainFile = Files.write(plain.resolve("f"), "x".getBytes(StandardCharsets.UTF_8));
+        Path capable = Files.createDirectories(root.resolve("capable"));
+        Path capableFile = Files.write(capable.resolve("g"), "x".getBytes(StandardCharsets.UTF_8));
+        mem.disableUserAttributesUnder(plain);
+        // A property stored earlier on the resource that has xattrs.
+        DeadPropertyStore earlier = new DeadPropertyStore();
+        earlier.setProperty(capableFile, NS, "kept", "v", false, new Outcome());
+        // The first resource this store meets is on the mount without them.
+        assertTrue(get(plainFile).isEmpty());
+        assertEquals("v", valueOf(get(capableFile), "kept"));
+    }
+
+    @Test
+    public void testResourceWithoutExtendedAttributesFallsBackToASidecar() throws IOException {
+        Path plain = Files.createDirectories(root.resolve("plain"));
+        Path plainFile = Files.write(plain.resolve("f"), "x".getBytes(StandardCharsets.UTF_8));
+        mem.disableUserAttributesUnder(plain);
+        set(plainFile, "a", "1");
+        assertEquals("1", valueOf(get(plainFile), "a"));
+        assertTrue(Files.isRegularFile(sidecarOf(plainFile)));
+    }
 }

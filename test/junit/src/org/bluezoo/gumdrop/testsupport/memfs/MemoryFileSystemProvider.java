@@ -347,6 +347,10 @@ final class MemoryFileSystemProvider extends FileSystemProvider {
                 if (node.directory) {
                     throw new FileSystemException(path.toString(), null, "Is a directory");
                 }
+                if ((read && !node.permissions.contains(PosixFilePermission.OWNER_READ))
+                        || (write && !node.permissions.contains(PosixFilePermission.OWNER_WRITE))) {
+                    throw new AccessDeniedException(path.toString());
+                }
                 if (truncate && write) {
                     node.truncate(0);
                     node.modified = fs.tick();
@@ -567,7 +571,7 @@ final class MemoryFileSystemProvider extends FileSystemProvider {
         synchronized (fs.lock) {
             require(path);
         }
-        return fs.store;
+        return fs.userAttributesDisabled(path) ? fs.plainStore : fs.store;
     }
 
     // Attributes

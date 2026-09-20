@@ -956,4 +956,44 @@ public class MemoryFileSystemTest {
             ch.close();
         }
     }
+
+    @Test
+    public void testOpeningRequiresTheMatchingPermissionBit() throws IOException {
+        Path f = fs.getPath("/f");
+        Files.write(f, bytes("x"));
+        Files.setPosixFilePermissions(f, PosixFilePermissions.fromString("-w-------"));
+        try {
+            Files.readAllBytes(f);
+            fail("expected AccessDeniedException");
+        } catch (AccessDeniedException expected) {
+            // no owner read bit
+        }
+        Files.write(f, bytes("y"));
+        Files.setPosixFilePermissions(f, PosixFilePermissions.fromString("r--------"));
+        try {
+            Files.write(f, bytes("z"));
+            fail("expected AccessDeniedException");
+        } catch (AccessDeniedException expected) {
+            // no owner write bit
+        }
+        assertArrayEquals(bytes("y"), Files.readAllBytes(f));
+    }
+
+    @Test
+    public void testUserAttributesCanBeDisabledUnderADirectory() throws IOException {
+        Files.createDirectories(fs.getPath("/mounted"));
+        Files.createFile(fs.getPath("/mounted/f"));
+        Files.createFile(fs.getPath("/g"));
+        fs.disableUserAttributesUnder(fs.getPath("/mounted"));
+        try {
+            user(fs.getPath("/mounted/f")).list();
+            fail("expected an IOException");
+        } catch (IOException expected) {
+            // this mount has no extended attributes
+        }
+        user(fs.getPath("/g")).write("user.k", ByteBuffer.wrap(bytes("v")));
+        assertEquals("v", xattr(fs.getPath("/g"), "user.k"));
+        assertFalse(Files.getFileStore(fs.getPath("/mounted/f")).supportsFileAttributeView("user"));
+        assertTrue(Files.getFileStore(fs.getPath("/g")).supportsFileAttributeView("user"));
+    }
 }
