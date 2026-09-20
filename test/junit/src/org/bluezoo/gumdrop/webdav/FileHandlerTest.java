@@ -451,6 +451,89 @@ public class FileHandlerTest {
         assertFalse(Files.exists(root.resolve("sub/inner/nested.txt")));
     }
 
+    // ── Symbolic links in listings, PROPFIND and welcome files ──
+
+    @Test
+    public void testWelcomeFileLinkedOutsideTheRootIsNotServed() throws Exception {
+        Files.createSymbolicLink(root.resolve("sub/index.html"), outside.resolve("secret.txt"));
+        RecordingState st = dispatch(newHandler(true), "GET", "/sub/", null);
+        assertFalse("outside file must not be served as the index",
+                new String(st.body(), StandardCharsets.UTF_8).contains("TOP SECRET"));
+    }
+
+    @Test
+    public void testWelcomeFileLinkedInsideTheRootIsStillServed() throws Exception {
+        Files.write(root.resolve("real-index.html"),
+                "<p>welcome</p>".getBytes(StandardCharsets.UTF_8));
+        Files.createSymbolicLink(root.resolve("sub/index.html"), root.resolve("real-index.html"));
+        RecordingState st = dispatch(newHandler(true), "GET", "/sub/", null);
+        assertEquals("<p>welcome</p>", new String(st.body(), StandardCharsets.UTF_8));
+    }
+
+    @Test
+    public void testDirectoryListingOmitsLinksLeadingOutsideTheRoot() throws Exception {
+        Files.createSymbolicLink(root.resolve("sub/leak"), outside.resolve("secret.txt"));
+        Files.createSymbolicLink(root.resolve("sub/outdir"), outside);
+        RecordingState st = dispatch(newHandler(true), "GET", "/sub/", null);
+        String html = new String(st.body(), StandardCharsets.UTF_8);
+        assertFalse(html, html.contains("leak"));
+        assertFalse(html, html.contains("outdir"));
+        assertTrue(html, html.contains("nested.txt"));
+    }
+
+    @Test
+    public void testDirectoryListingKeepsLinksInsideTheRoot() throws Exception {
+        Files.createSymbolicLink(root.resolve("sub/alias"), helloFile);
+        RecordingState st = dispatch(newHandler(true), "GET", "/sub/", null);
+        assertTrue(new String(st.body(), StandardCharsets.UTF_8).contains("alias"));
+    }
+
+    @Test
+    public void testPropfindDepth1DoesNotReportLinksLeadingOutsideTheRoot() throws Exception {
+        Files.createSymbolicLink(root.resolve("sub/leak"), outside.resolve("secret.txt"));
+        RecordingState st = dispatch(newHandler(true), "PROPFIND", "/sub",
+                headers(DavConstants.HEADER_DEPTH, "1"));
+        assertEquals(HttpStatus.MULTI_STATUS.code, st.status());
+        String xml = new String(st.body(), StandardCharsets.UTF_8);
+        assertFalse("size or name of an outside file must not appear: " + xml,
+                xml.contains("leak"));
+        assertTrue(xml.contains("nested.txt"));
+    }
+
+    @Test
+    public void testPropfindDoesNotEnumerateADirectoryLinkedFromOutsideTheRoot()
+            throws Exception {
+        Files.createSymbolicLink(root.resolve("sub/outdir"), outside);
+        RecordingState st = dispatch(newHandler(true), "PROPFIND", "/",
+                headers(DavConstants.HEADER_DEPTH, "infinity"));
+        String xml = new String(st.body(), StandardCharsets.UTF_8);
+        assertFalse(xml, xml.contains("secret.txt"));
+        assertFalse(xml, xml.contains("outdir"));
+        assertTrue("the rest of the tree is still reported: " + xml, xml.contains("nested.txt"));
+    }
+
+    @Test(timeout = 30000)
+    public void testPropfindInfinityTerminatesOnLinkLoopToAnAncestor() throws Exception {
+        Files.createSymbolicLink(root.resolve("sub/loop"), root);
+        RecordingState st = dispatch(newHandler(true), "PROPFIND", "/",
+                headers(DavConstants.HEADER_DEPTH, "infinity"));
+        assertEquals(HttpStatus.MULTI_STATUS.code, st.status());
+        String xml = new String(st.body(), StandardCharsets.UTF_8);
+        assertTrue(xml, xml.contains("nested.txt"));
+        assertFalse("the loop is not unrolled: " + xml, xml.contains("loop"));
+    }
+
+    @Test
+    public void testPropfindStillReportsLinksInsideTheRoot() throws Exception {
+        Files.createSymbolicLink(root.resolve("sub/alias"), helloFile);
+        RecordingState st = dispatch(newHandler(true), "PROPFIND", "/sub",
+                headers(DavConstants.HEADER_DEPTH, "1"));
+        String xml = new String(st.body(), StandardCharsets.UTF_8);
+        assertTrue(xml, xml.contains("alias"));
+        assertTrue("reports the size of the target: " + xml,
+                xml.contains(String.valueOf(HELLO.length())));
+    }
+
     // ── Recording HttpResponseState double ──
 
     /**

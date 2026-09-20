@@ -2299,6 +2299,18 @@ class FileHandler extends DefaultHttpRequestHandler {
     }
 
     private List<Path> collectResources(Path root, int depth) throws IOException {
+        List<Path> ancestors = new ArrayList<Path>();
+        ancestors.add(root.toRealPath());
+        return collectResources(root, depth, ancestors);
+    }
+
+    /**
+     * Enumerates a collection to the given depth. {@code ancestors} holds
+     * the canonical paths of the directories being walked, so that a
+     * symbolic link back over the walk is not followed.
+     */
+    private List<Path> collectResources(Path root, int depth, List<Path> ancestors)
+            throws IOException {
         List<Path> result = new ArrayList<Path>();
         result.add(root);
         
@@ -2307,14 +2319,31 @@ class FileHandler extends DefaultHttpRequestHandler {
                 if (child.getFileName().toString().startsWith(".")) {
                     continue; // Skip hidden files
                 }
+                if (Files.isSymbolicLink(child)
+                        && !isSafeToFollowLink(child, ancestors, null)) {
+                    logLinkLeftOut(child);
+                    continue;
+                }
                 result.add(child);
                 if (depth > 1 && Files.isDirectory(child)) {
-                    result.addAll(collectResources(child, depth - 1));
+                    ancestors.add(child.toRealPath());
+                    try {
+                        result.addAll(collectResources(child, depth - 1, ancestors));
+                    } finally {
+                        ancestors.remove(ancestors.size() - 1);
+                    }
                 }
             }
         }
         
         return result;
+    }
+
+    private void logLinkLeftOut(Path link) {
+        if (LOGGER.isLoggable(Level.FINE)) {
+            LOGGER.fine(MessageFormat.format(
+                    L10N.getString("fine.symlink_left_out"), link));
+        }
     }
 
     /**
@@ -2403,7 +2432,10 @@ class FileHandler extends DefaultHttpRequestHandler {
             if (DeadPropertyStore.isSidecarName(childName)) {
                 continue;
             }
-            if (Files.isSymbolicLink(childSource) && !isSafeToCopyLink(childSource, guard)) {
+            if (Files.isSymbolicLink(childSource)
+                    && !isSafeToFollowLink(childSource, guard.sources, guard.destination)) {
+                LOGGER.warning(MessageFormat.format(
+                        L10N.getString("warn.copy_skipped_link"), childSource));
                 continue;
             }
             Path childTarget = target.resolve(childName);
@@ -2427,33 +2459,44 @@ class FileHandler extends DefaultHttpRequestHandler {
     }
 
     /**
-     * Decides whether a symbolic link met while copying a collection may be
-     * followed. Its target must be inside the web root, so that a link
-     * planted in a collection cannot pull outside files into it, and a
-     * directory target must not contain a directory being copied or the
-     * destination, since following it would copy the tree into itself
-     * without end. A link that fails these tests is skipped, and one whose
-     * target is missing has nothing to copy.
+     * Decides whether a symbolic link met while walking a collection may be
+     * followed. Its target must exist and be inside the web root, so that a
+     * link planted in a collection cannot expose outside files, and a
+     * directory target must not contain any of {@code ancestors} (the
+     * directories being walked) or {@code destination} (where a copy is
+     * going), since following it would walk the tree into itself without
+     * end.
+     *
+     * <p>A link that fails these tests is treated as absent: not listed,
+     * not reported, not copied. That is what GET already does for a
+     * request for such a link.
+     *
+     * @param link the symbolic link
+     * @param ancestors canonical paths of the directories being walked
+     * @param destination canonical destination of a copy, or null
      */
-    private boolean isSafeToCopyLink(Path link, CopyGuard guard) {
+    private boolean isSafeToFollowLink(Path link, List<Path> ancestors,
+            Path destination) {
         Path real;
         try {
             real = link.toRealPath();
         } catch (IOException e) {
             return false;
         }
-        boolean safe = real.startsWith(canonicalRoot);
-        if (safe && Files.isDirectory(real)) {
-            safe = !guard.destination.startsWith(real);
-            for (int i = 0; safe && i < guard.sources.size(); i++) {
-                safe = !guard.sources.get(i).startsWith(real);
+        if (!real.startsWith(canonicalRoot)) {
+            return false;
+        }
+        if (Files.isDirectory(real)) {
+            if (destination != null && destination.startsWith(real)) {
+                return false;
+            }
+            for (int i = 0; i < ancestors.size(); i++) {
+                if (ancestors.get(i).startsWith(real)) {
+                    return false;
+                }
             }
         }
-        if (!safe) {
-            LOGGER.warning(MessageFormat.format(
-                    L10N.getString("warn.copy_skipped_link"), link, real));
-        }
-        return safe;
+        return true;
     }
 
     /**
@@ -2864,7 +2907,8 @@ class FileHandler extends DefaultHttpRequestHandler {
             if (welcomeFileName != null && !welcomeFileName.isEmpty()) {
                 Path welcomeFilePath = directory.resolve(welcomeFileName);
                 if (Files.exists(welcomeFilePath) && Files.isReadable(welcomeFilePath) 
-                        && !Files.isDirectory(welcomeFilePath)) {
+                        && !Files.isDirectory(welcomeFilePath)
+                        && isWithinRoot(welcomeFilePath)) {
                     return welcomeFilePath;
                 }
             }
@@ -2923,10 +2967,16 @@ class FileHandler extends DefaultHttpRequestHandler {
             List<Path> entries = listChildren(directory);
             Collections.sort(entries, new DirectoryListingComparator());
 
+            List<Path> none = new ArrayList<Path>();
             for (Path file : entries) {
                 try {
                     String filename = file.getFileName().toString();
                     if (DeadPropertyStore.isSidecarName(filename)) {
+                        continue;
+                    }
+                    if (Files.isSymbolicLink(file)
+                            && !isSafeToFollowLink(file, none, null)) {
+                        logLinkLeftOut(file);
                         continue;
                     }
                     boolean isDirectory = Files.isDirectory(file);
