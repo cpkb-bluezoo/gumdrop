@@ -229,6 +229,15 @@ public class TcpEndpoint implements Endpoint, ChannelHandler, TlsRecordState.Cal
     }
 
     /**
+     * Returns the transport factory that created this endpoint, if any.
+     *
+     * @return the factory, or null
+     */
+    public TransportFactory getTransportFactory() {
+        return factory;
+    }
+
+    /**
      * Sets the underlying socket channel.
      *
      * @param channel the socket channel

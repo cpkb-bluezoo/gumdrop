@@ -88,7 +88,7 @@ public class FTPServerIntegrationTest extends AbstractServerIntegrationTest {
 
     @Rule
     public Timeout globalTimeout = Timeout.builder()
-        .withTimeout(ASYNC_TIMEOUT_SECONDS * 2, TimeUnit.SECONDS)
+        .withTimeout(30, TimeUnit.SECONDS)
         .withLookingForStuckThread(true)
         .build();
 
@@ -157,11 +157,15 @@ public class FTPServerIntegrationTest extends AbstractServerIntegrationTest {
 
         void setTrustManager(javax.net.ssl.X509TrustManager trustManager) {
             factory.setTrustManager(trustManager);
-            factory.setSecure(true);
+            // AUTH TLS / PROT P: control connection starts plaintext; TLS
+            // uses the trust manager after 234 + startTLS(), not implicit FTPS.
+            factory.start();
         }
 
         void connect(RemoteGreeting handler) throws Exception {
-            client.connect(gumdrop, new FtpClientProtocolHandler(handler));
+            FtpClientProtocolHandler protocol = new FtpClientProtocolHandler(handler);
+            protocol.setGumdrop(gumdrop);
+            client.connect(gumdrop, protocol);
         }
     }
 

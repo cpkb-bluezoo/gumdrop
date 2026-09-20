@@ -84,7 +84,7 @@ public class SMTPClientIntegrationTest extends AbstractServerIntegrationTest {
 
     @Rule
     public Timeout globalTimeout = Timeout.builder()
-        .withTimeout(ASYNC_TIMEOUT_SECONDS * 2, TimeUnit.SECONDS)
+        .withTimeout(30, TimeUnit.SECONDS)
         .withLookingForStuckThread(true)
         .build();
 
@@ -548,10 +548,16 @@ public class SMTPClientIntegrationTest extends AbstractServerIntegrationTest {
         client.setTrustManager(TestTlsFiles.trustManager());
 
         CountDownLatch completeLatch = new CountDownLatch(1);
+        CountDownLatch sessionClosed = new CountDownLatch(1);
         AtomicReference<Exception> error = new AtomicReference<>();
         AtomicBoolean starttlsSucceeded = new AtomicBoolean(false);
 
         client.connect(new TestHandler(completeLatch, error) {
+            @Override
+            public void onDisconnected() {
+                sessionClosed.countDown();
+            }
+
             @Override
             public void handleGreeting(ClientHelloState hello, String message, boolean esmtp) {
                 hello.ehlo("test.client.com", new TestEhloHandler(completeLatch, error) {
@@ -632,7 +638,9 @@ public class SMTPClientIntegrationTest extends AbstractServerIntegrationTest {
 
         assertTrue("STARTTLS should succeed", starttlsSucceeded.get());
 
-        pause(200);
+        assertTrue("Client should close after QUIT",
+                sessionClosed.await(ASYNC_TIMEOUT_SECONDS, TimeUnit.SECONDS));
+
         List<AcceptAllService.ReceivedMessage> messages = service.getReceivedMessages();
         assertEquals("Should have 1 message", 1, messages.size());
         assertTrue("Server should see TLS active after STARTTLS",

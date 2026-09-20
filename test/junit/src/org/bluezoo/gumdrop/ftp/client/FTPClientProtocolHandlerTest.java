@@ -502,6 +502,21 @@ public class FTPClientProtocolHandlerTest {
     }
 
     @Test
+    public void testPasvMapsZeroAddressToLoopback() {
+        login();
+        AtomicReference<InetSocketAddress> addr = new AtomicReference<>();
+        handler.pasv(new PasvReplyHandler() {
+            @Override public void handleServiceClosing(String message) { }
+            @Override public void handlePassive(InetSocketAddress a, ClientAuthenticatedState s) {
+                addr.set(a);
+            }
+            @Override public void handleError(ClientAuthenticatedState s, int code, String message) { }
+        });
+        simulateResponse("227 Entering Passive Mode (0,0,0,0,200,50)\r\n");
+        assertEquals("/127.0.0.1", addr.get().getAddress().toString());
+    }
+
+    @Test
     public void testPasvError() {
         login();
         AtomicReference<Integer> errCode = new AtomicReference<>();

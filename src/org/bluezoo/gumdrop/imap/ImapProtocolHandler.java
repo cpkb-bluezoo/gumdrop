@@ -78,6 +78,7 @@ import org.bluezoo.gumdrop.TokenErrorRecovery;
 import org.bluezoo.util.ByteArrays;
 import org.bluezoo.gumdrop.auth.GssapiServer;
 import org.bluezoo.gumdrop.auth.Realm;
+import org.bluezoo.gumdrop.util.JulWarnings;
 import org.bluezoo.gumdrop.auth.SaslMechanism;
 import org.bluezoo.gumdrop.auth.SaslUtils;
 import org.bluezoo.gumdrop.mime.HeaderLineTooLongException;
@@ -480,7 +481,7 @@ public final class ImapProtocolHandler
 
     @Override
     public void error(Exception cause) {
-        LOGGER.log(Level.WARNING, L10N.getString("warn.imap_transport_error"), cause);
+        JulWarnings.transportError(LOGGER, L10N.getString("warn.imap_transport_error"), cause);
         closeEndpoint();
     }
 
@@ -2708,11 +2709,31 @@ public final class ImapProtocolHandler
 
             @Override
             public void failed(Throwable error) {
-                LOGGER.log(Level.WARNING, MessageFormat.format(L10N.getString("warn.failed_open_mailbox"), mailboxName), error);
+                if (isExpectedMissingMailbox(error)) {
+                    if (LOGGER.isLoggable(Level.FINE)) {
+                        LOGGER.log(Level.FINE, MessageFormat.format(
+                                L10N.getString("warn.failed_open_mailbox"), mailboxName), error);
+                    }
+                } else {
+                    JulWarnings.warn(LOGGER, MessageFormat.format(
+                            L10N.getString("warn.failed_open_mailbox"), mailboxName), error);
+                }
                 recordSessionException(error);
                 sendTaggedNoQuietly(tag, "imap.err.mailbox_not_found");
             }
         });
+    }
+
+    private static boolean isExpectedMissingMailbox(Throwable error) {
+        for (Throwable t = error; t != null; t = t.getCause()) {
+            if (t instanceof IOException) {
+                String msg = t.getMessage();
+                if (msg != null && msg.startsWith("Mailbox does not exist:")) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     /**

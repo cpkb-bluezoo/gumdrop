@@ -85,7 +85,7 @@ public class ImapClientEndToEndTest {
         server.setRealm(new TestRealm());
         server.setMailboxFactory(new MaildirMailboxFactory(maildirRoot));
         server.setAllowPlaintextLogin(true);
-        gumdrop = Gumdrop.boot(GumdropConfig.create().workerThreads(1));
+        gumdrop = Gumdrop.boot(GumdropConfig.create().workerThreads(1).drainTimeoutMs(0));
         gumdrop.addListener(server);
         waitForPort();
     }

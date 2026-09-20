@@ -38,6 +38,7 @@ import org.bluezoo.gumdrop.mailbox.index.MessageIndex;
 import org.bluezoo.gumdrop.mailbox.index.MessageIndexBuilder;
 import org.bluezoo.gumdrop.mailbox.index.MessageIndexEntry;
 import org.bluezoo.util.ByteArrays;
+import org.bluezoo.gumdrop.util.JulWarnings;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -1169,8 +1170,7 @@ public final class MboxMailbox implements Mailbox {
             try {
                 addMessageToSearchIndex(msg, uid, EnumSet.noneOf(Flag.class), null);
             } catch (IOException e) {
-                LOGGER.log(Level.WARNING, MessageFormat.format(
-                        L10N.getString("warn.index_message_failed"), i + 1), e);
+                logIndexMessageFailure(i + 1, e);
             }
         }
     }
@@ -1195,13 +1195,24 @@ public final class MboxMailbox implements Mailbox {
             try {
                 addMessageToSearchIndex(msg, uid, EnumSet.noneOf(Flag.class), null);
             } catch (IOException e) {
-                LOGGER.log(Level.WARNING, MessageFormat.format(
-                        L10N.getString("warn.index_message_failed"), i + 1), e);
+                logIndexMessageFailure(i + 1, e);
             }
         }
 
         LOGGER.info(MessageFormat.format(
                 L10N.getString("info.search_index_built"), searchIndex.getEntryCount(), name));
+    }
+
+    private void logIndexMessageFailure(int messageNumber, IOException e) {
+        String msg = MessageFormat.format(
+                L10N.getString("warn.index_message_failed"), messageNumber);
+        if (JulWarnings.isBenignTransportFailure(e)) {
+            if (LOGGER.isLoggable(Level.FINE)) {
+                LOGGER.log(Level.FINE, msg, e);
+            }
+        } else {
+            LOGGER.log(Level.WARNING, msg, e);
+        }
     }
 
     /**

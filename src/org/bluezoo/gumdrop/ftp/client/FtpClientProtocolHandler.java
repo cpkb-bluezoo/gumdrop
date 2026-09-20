@@ -25,6 +25,7 @@ import java.io.IOException;
 import java.net.Inet6Address;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
+import java.net.SocketAddress;
 import java.net.UnknownHostException;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
@@ -150,7 +151,7 @@ public final class FtpClientProtocolHandler
      *
      * @param gumdrop the runtime this client connection is made under
      */
-    void setGumdrop(Gumdrop gumdrop) {
+    public void setGumdrop(Gumdrop gumdrop) {
         this.gumdrop = gumdrop;
     }
 
@@ -895,7 +896,7 @@ public final class FtpClientProtocolHandler
 
         if (code == 227) {
             try {
-                callback.handlePassive(parsePasvAddress(message), this);
+                callback.handlePassive(resolvePasvDataAddress(parsePasvAddress(message)), this);
             } catch (RuntimeException e) {
                 callback.handleError(this, code, "Malformed PASV reply: " + message);
             }
@@ -1041,6 +1042,26 @@ public final class FtpClientProtocolHandler
      * in the reply text (RFC 959 §4.1.2 does not fix the surrounding
      * wording, only the parenthesised tuple).
      */
+    /**
+     * RFC 959 PASV returns an IPv4 tuple even when the control connection
+     * is IPv6. For same-host loopback, prefer the control channel's remote
+     * address so the data connect hits the same stack path as EPSV.
+     */
+    private InetSocketAddress resolvePasvDataAddress(InetSocketAddress pasv) {
+        if (endpoint == null) {
+            return pasv;
+        }
+        SocketAddress remote = endpoint.getRemoteAddress();
+        if (!(remote instanceof InetSocketAddress)) {
+            return pasv;
+        }
+        InetAddress controlHost = ((InetSocketAddress) remote).getAddress();
+        if (controlHost instanceof Inet6Address && pasv.getAddress().isLoopbackAddress()) {
+            return new InetSocketAddress(controlHost, pasv.getPort());
+        }
+        return pasv;
+    }
+
     private static InetSocketAddress parsePasvAddress(String message) {
         int start = message.indexOf('(');
         int end = message.indexOf(')', start + 1);
@@ -1053,7 +1074,16 @@ public final class FtpClientProtocolHandler
         }
         byte[] addr = new byte[4];
         for (int i = 0; i < 4; i++) {
-            addr[i] = (byte) Integer.parseInt(parts[i].trim());
+            int octet = Integer.parseInt(parts[i].trim());
+            if (octet < 0 || octet > 255) {
+                throw new IllegalArgumentException("invalid PASV octet: " + octet);
+            }
+            addr[i] = (byte) octet;
+        }
+        if (addr[0] == 0 && addr[1] == 0 && addr[2] == 0 && addr[3] == 0) {
+            // Some servers truncate IPv6 loopback into 0.0.0.0; same-host clients
+            // should use IPv4 loopback for the data connection.
+            addr = new byte[] {127, 0, 0, 1};
         }
         int p1 = Integer.parseInt(parts[4].trim());
         int p2 = Integer.parseInt(parts[5].trim());

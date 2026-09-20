@@ -429,10 +429,44 @@ public class FtpDataConnectionCoordinator {
     }
     
     /**
+     * Maps the control connection's local address to an IPv4 host suitable
+     * for RFC 959 PASV (h1,h2,h3,h4,p1,p2). IPv6 locals such as {@code ::1}
+     * must not be truncated to {@code 0.0.0.0}; loopback controls
+     * advertise {@code 127.0.0.1} so same-host clients can connect.
+     *
+     * @param localAddress control socket local address
+     * @param remoteAddress control socket remote address (may be null)
+     * @return four-byte IPv4 address for the PASV tuple
+     * @throws UnknownHostException if no IPv4 address can be derived
+     */
+    public static InetAddress ipv4AddressForPasv(InetAddress localAddress,
+            InetAddress remoteAddress) throws UnknownHostException {
+        if (localAddress == null) {
+            throw new UnknownHostException("no local address");
+        }
+        byte[] raw = localAddress.getAddress();
+        if (raw.length == 4) {
+            if (localAddress.isAnyLocalAddress() || localAddress.isLoopbackAddress()) {
+                return InetAddress.getByAddress(new byte[] {127, 0, 0, 1});
+            }
+            return localAddress;
+        }
+        if (localAddress.isLoopbackAddress()) {
+            return InetAddress.getByAddress(new byte[] {127, 0, 0, 1});
+        }
+        if (remoteAddress != null && remoteAddress.getAddress().length == 4
+                && !remoteAddress.isAnyLocalAddress()) {
+            return remoteAddress;
+        }
+        throw new UnknownHostException(
+                "PASV requires an IPv4 address; use EPSV on IPv6 control connections");
+    }
+
+    /**
      * Generates PASV response string per RFC 959 section 4.1.2:
      * "227 Entering Passive Mode (h1,h2,h3,h4,p1,p2)".
      *
-     * @param serverAddress the server's IP address
+     * @param serverAddress the server's IP address (must be IPv4)
      * @return formatted PASV response
      */
     public String generatePassiveResponse(InetAddress serverAddress) {
@@ -441,6 +475,9 @@ public class FtpDataConnectionCoordinator {
         }
         
         byte[] addressBytes = serverAddress.getAddress();
+        if (addressBytes.length != 4) {
+            throw new IllegalArgumentException("PASV host must be IPv4");
+        }
         int p1 = (passivePort >> 8) & 0xFF;
         int p2 = passivePort & 0xFF;
         

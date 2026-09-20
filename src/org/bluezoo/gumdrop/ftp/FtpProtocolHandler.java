@@ -1439,7 +1439,13 @@ public final class FtpProtocolHandler
                 reply(425, L10N.getString("ftp.err.local_error"));
                 return;
             }
-            String pasvResponse = dataCoordinator.generatePassiveResponse(localAddr.getAddress());
+            InetAddress remote = null;
+            if (endpoint.getRemoteAddress() instanceof InetSocketAddress) {
+                remote = ((InetSocketAddress) endpoint.getRemoteAddress()).getAddress();
+            }
+            InetAddress pasvHost = FtpDataConnectionCoordinator.ipv4AddressForPasv(
+                    localAddr.getAddress(), remote);
+            String pasvResponse = dataCoordinator.generatePassiveResponse(pasvHost);
 
             reply(227, pasvResponse.substring(4));
 

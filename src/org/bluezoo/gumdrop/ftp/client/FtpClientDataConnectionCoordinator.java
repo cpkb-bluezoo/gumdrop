@@ -29,6 +29,8 @@ import java.nio.channels.SocketChannel;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
 
+import javax.net.ssl.X509TrustManager;
+
 import org.bluezoo.gumdrop.AcceptSelectorLoop;
 import org.bluezoo.gumdrop.ClientEndpoint;
 import org.bluezoo.gumdrop.Endpoint;
@@ -36,6 +38,7 @@ import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.ProtocolHandler;
 import org.bluezoo.gumdrop.TcpEndpoint;
 import org.bluezoo.gumdrop.TcpTransportFactory;
+import org.bluezoo.gumdrop.TransportFactory;
 import org.bluezoo.gumdrop.tls.ServerCredentials;
 
 /**
@@ -141,6 +144,17 @@ final class FtpClientDataConnectionCoordinator {
             secureTransportFactory.setSecure(true);
             if (dataClientCredentials != null) {
                 secureTransportFactory.setClientCredentials(dataClientCredentials);
+            }
+            if (controlEndpoint instanceof TcpEndpoint) {
+                TransportFactory controlFactory =
+                        ((TcpEndpoint) controlEndpoint).getTransportFactory();
+                if (controlFactory instanceof TcpTransportFactory) {
+                    X509TrustManager trust =
+                            ((TcpTransportFactory) controlFactory).getTrustManager();
+                    if (trust != null) {
+                        secureTransportFactory.setTrustManager(trust);
+                    }
+                }
             }
             secureTransportFactory.start();
         }

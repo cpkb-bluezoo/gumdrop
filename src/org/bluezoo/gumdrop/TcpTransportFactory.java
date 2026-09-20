@@ -616,11 +616,16 @@ public class TcpTransportFactory extends TransportFactory {
 
         TcpEndpoint endpoint;
         String tlsServerName = tlsServerNameFor(host, tlsServerNameHint);
+        // Plaintext clients still need HandshakeConfig ready for in-band
+        // upgrades (SMTP/IMAP/POP3/FTP STARTTLS) once start() resolved trust.
+        boolean clientTlsConfig = secure || effectiveTrustManager != null;
         if (tlsVersion == TlsVersion.TLS_1_2) {
-            Tls12HandshakeConfig config12 = secure ? buildClientConfig12(tlsServerName) : null;
+            Tls12HandshakeConfig config12 =
+                    clientTlsConfig ? buildClientConfig12(tlsServerName) : null;
             endpoint = new TcpEndpoint(handler, config12, secure);
         } else {
-            HandshakeConfig config = secure ? buildClientConfig(tlsServerName) : null;
+            HandshakeConfig config =
+                    clientTlsConfig ? buildClientConfig(tlsServerName) : null;
             endpoint = new TcpEndpoint(handler, config, secure);
         }
         endpoint.setFactory(this);
@@ -695,11 +700,14 @@ public class TcpTransportFactory extends TransportFactory {
         channel.configureBlocking(false);
 
         TcpEndpoint endpoint;
+        boolean clientTlsConfig = secure || effectiveTrustManager != null;
         if (tlsVersion == TlsVersion.TLS_1_2) {
-            Tls12HandshakeConfig config12 = secure ? buildClientConfig12(null) : null;
+            Tls12HandshakeConfig config12 =
+                    clientTlsConfig ? buildClientConfig12(null) : null;
             endpoint = new TcpEndpoint(handler, config12, secure);
         } else {
-            HandshakeConfig config = secure ? buildClientConfig(null) : null;
+            HandshakeConfig config =
+                    clientTlsConfig ? buildClientConfig(null) : null;
             endpoint = new TcpEndpoint(handler, config, secure);
         }
         endpoint.setFactory(this);

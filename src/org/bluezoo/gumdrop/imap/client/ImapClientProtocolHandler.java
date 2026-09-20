@@ -37,6 +37,7 @@ import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.ProtocolHandler;
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.imap.ImapDeflateLayer;
+import org.bluezoo.gumdrop.util.JulWarnings;
 
 import java.util.zip.DataFormatException;
 
@@ -263,9 +264,7 @@ public final class ImapClientProtocolHandler
 
     @Override
     public void error(Exception cause) {
-        if (LOGGER.isLoggable(Level.WARNING)) {
-            LOGGER.log(Level.WARNING, L10N.getString("warn.imap_transport_error"), cause);
-        }
+        JulWarnings.transportError(LOGGER, L10N.getString("warn.imap_transport_error"), cause);
         state = ImapState.ERROR;
         handler.onError(cause);
     }

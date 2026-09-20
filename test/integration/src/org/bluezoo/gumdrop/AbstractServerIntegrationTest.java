@@ -196,7 +196,10 @@ public abstract class AbstractServerIntegrationTest {
         // risks a listener re-registering on a port the previous test's
         // shutdown hadn't fully released yet (BindException) or the loop
         // wedging on the next test's registration.
-        gumdrop = Gumdrop.boot(GumdropConfig.create());
+        // Skip the production drain window: each test owns a fresh Gumdrop and
+        // @After shutdown must finish within JUnit timeouts; phase 3 still
+        // force-closes any lingering accepts.
+        gumdrop = Gumdrop.boot(GumdropConfig.create().drainTimeoutMs(0));
         for (TcpListener server : standaloneListeners) {
             gumdrop.addListener(server);
         }
