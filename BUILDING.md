@@ -202,4 +202,4 @@ To exercise a locally built micula (for example certificate compression or Brotl
 ant -Dmicula.version=20260919 integration-test
 ```
 
-CI and default local builds keep `micula.version=1.0.0` from `boms/versions.properties`.
+CI and default local builds keep `micula.version=1.0.1` from `boms/versions.properties`.
