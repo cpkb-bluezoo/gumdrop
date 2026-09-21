@@ -1093,6 +1093,14 @@ public class HttpClientProtocolHandler
 
     @Override
     public void endRequestBody(HttpStream request) {
+        if (runOnSelectorLoop(new Runnable() {
+            @Override
+            public void run() {
+                endRequestBody(request);
+            }
+        })) {
+            return;
+        }
         if (request.getRequestContentCoding() != null) {
             sendRequestBodyEncoded(request, ByteBuffer.allocate(0), true);
             if (negotiatedVersion == HttpVersion.HTTP_2_0) {
