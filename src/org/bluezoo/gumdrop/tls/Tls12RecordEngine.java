@@ -215,9 +215,11 @@ public final class Tls12RecordEngine {
         innerSink.outer = sink;
         inbound.write(input, offset, length);
         while (true) {
-            synchronized (handshakeAsync.lock()) {
-                if (handshakeAsync.isBusy()) {
-                    return;
+            if (handshakeAsync.isEnabled()) {
+                synchronized (handshakeAsync.lock()) {
+                    if (handshakeAsync.isBusy()) {
+                        return;
+                    }
                 }
             }
             Record record;
@@ -244,12 +246,14 @@ public final class Tls12RecordEngine {
             if (!dispatchRecord(record.contentType, record.payload, sink)) {
                 return;
             }
-            synchronized (handshakeAsync.lock()) {
-                if (handshakeAsync.isBusy()) {
-                    return;
-                }
-                if (!engine.isComplete() && inbound.length() > 0) {
-                    return;
+            if (handshakeAsync.isEnabled()) {
+                synchronized (handshakeAsync.lock()) {
+                    if (handshakeAsync.isBusy()) {
+                        return;
+                    }
+                    if (!engine.isComplete() && inbound.length() > 0) {
+                        return;
+                    }
                 }
             }
         }

@@ -240,9 +240,11 @@ public final class TlsRecordEngine {
         innerSink.outer = sink;
         inbound.write(input, offset, length);
         while (true) {
-            synchronized (handshakeAsync.lock()) {
-                if (handshakeAsync.isBusy()) {
-                    return;
+            if (handshakeAsync.isEnabled()) {
+                synchronized (handshakeAsync.lock()) {
+                    if (handshakeAsync.isBusy()) {
+                        return;
+                    }
                 }
             }
             Record record;
@@ -275,12 +277,14 @@ public final class TlsRecordEngine {
             // mistaken for real application data while still in the
             // plaintext epoch (RFC 8446 section 5.2), or application
             // records are AEAD-decrypted before application read keys exist.
-            synchronized (handshakeAsync.lock()) {
-                if (handshakeAsync.isBusy()) {
-                    return;
-                }
-                if (!engine.isComplete() && inbound.length() > 0) {
-                    return;
+            if (handshakeAsync.isEnabled()) {
+                synchronized (handshakeAsync.lock()) {
+                    if (handshakeAsync.isBusy()) {
+                        return;
+                    }
+                    if (!engine.isComplete() && inbound.length() > 0) {
+                        return;
+                    }
                 }
             }
         }
