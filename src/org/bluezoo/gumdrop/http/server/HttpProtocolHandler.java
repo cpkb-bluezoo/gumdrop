@@ -1812,7 +1812,8 @@ public  class HttpProtocolHandler
             }
         }
         if (removedCount > 0 && LOGGER.isLoggable(Level.FINE)) {
-            LOGGER.fine(String.format("Cleaned up %d closed streams (total remaining: %d)",
+            LOGGER.fine(MessageFormat.format(
+                    L10N.getString("debug.cleaned_up_closed_streams"),
                     removedCount, streams.size()));
         }
     }
@@ -1820,8 +1821,9 @@ public  class HttpProtocolHandler
     private void sendStreamError(Stream stream, int statusCode) {
         if (stream == null || !stream.canCommitErrorResponse()) {
             if (stream != null && LOGGER.isLoggable(Level.FINE)) {
-                LOGGER.fine("Skipping HTTP error " + statusCode
-                        + ": peer already closed the stream or response was sent");
+                LOGGER.fine(MessageFormat.format(
+                        L10N.getString("debug.skipping_stream_error_response"),
+                        statusCode));
             }
             return;
         }
