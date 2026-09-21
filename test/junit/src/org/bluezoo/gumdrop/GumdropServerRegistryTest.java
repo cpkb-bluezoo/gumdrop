@@ -87,18 +87,7 @@ public class GumdropServerRegistryTest {
         assertTrue(gumdrop.getServers().isEmpty());
     }
 
-    @Test
-    @SuppressWarnings("deprecation")
-    public void testDeprecatedServiceApiDelegatesToServerRegistry() {
-        RecordingServer server = new RecordingServer();
-        gumdrop.addService(server);
-        assertSame(server, gumdrop.getServers().get(0));
-        assertEquals(1, gumdrop.getServices().size());
-        gumdrop.removeService(server);
-        assertTrue(gumdrop.getServers().isEmpty());
-    }
-
-    private static final class RecordingServer implements Service {
+    private static final class RecordingServer implements Server {
         int startCount;
         int stopCount;
 

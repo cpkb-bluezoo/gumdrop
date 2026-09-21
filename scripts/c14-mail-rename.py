@@ -89,7 +89,6 @@ MAIL_HANDLER_RENAMES = [
 SKIP_DIRS = {".git", "build", "dist", ".cursor"}
 SKIP_FILES = {
     "scripts/c14-mail-rename.py",
-    "test/junit/resources/gumdrop3-legacy-type-renames.properties",
     "src/org/bluezoo/gumdrop/smtp/SMTPService.java",
     "src/org/bluezoo/gumdrop/imap/IMAPService.java",
     "src/org/bluezoo/gumdrop/pop3/POP3Service.java",

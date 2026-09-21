@@ -50,7 +50,6 @@ RENAMES = [
 SKIP_DIRS = {".git", "build", "build-core", "build-http", "dist", ".cursor"}
 SKIP_FILES = {
     "scripts/c12-http-rename.py",
-    "test/junit/resources/gumdrop3-legacy-type-renames.properties",
 }
 
 TEXT_SUFFIXES = {

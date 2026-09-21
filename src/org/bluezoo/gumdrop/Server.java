@@ -53,7 +53,6 @@ import java.util.List;
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see ServerSessionProvider
  * @see web/configuration.html
- * @see Service
  */
 public interface Server {
 

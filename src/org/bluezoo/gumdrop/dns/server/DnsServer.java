@@ -93,7 +93,6 @@ import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
  * default when no handler claims the message is {@code NOTIMP}.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see Service
  * @see DnsListener
  */
 public class DnsServer implements Server {

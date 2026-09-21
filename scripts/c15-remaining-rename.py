@@ -8,7 +8,6 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-INVENTORY = ROOT / "test/junit/resources/gumdrop3-legacy-type-renames.properties"
 
 # Legacy names kept as @Deprecated shims (prior slices + this slice).
 SHIM_LEGACY_NAMES = set()  # shims are skipped via SHIM_FILES only
@@ -45,7 +44,6 @@ SHIM_FILES = {f"src/org/bluezoo/gumdrop/{p}" for p in [
 SKIP_DIRS = {".git", "build", "dist", ".cursor"}
 SKIP_FILES = {
     "scripts/c15-remaining-rename.py",
-    "test/junit/resources/gumdrop3-legacy-type-renames.properties",
     "test/junit/src/org/bluezoo/gumdrop/testsupport/Gumdrop3NamingConventionTest.java",
 }
 
@@ -97,17 +95,7 @@ HANDLER_RENAMES = [
 
 
 def load_global_renames() -> list[tuple[str, str]]:
-    renames: list[tuple[str, str]] = []
-    for line in INVENTORY.read_text(encoding="utf-8").splitlines():
-        line = line.strip()
-        if not line or line.startswith("#"):
-            continue
-        legacy, modern = line.split("=", 1)
-        if legacy in SHIM_LEGACY_NAMES or legacy == "Service":
-            continue
-        renames.append((legacy, modern))
-    renames.sort(key=lambda item: len(item[0]), reverse=True)
-    return renames
+    return []
 
 
 def should_process(path: Path) -> bool:

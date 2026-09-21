@@ -307,37 +307,6 @@ public class Gumdrop {
     }
 
     /**
-     * @deprecated use {@link #addServer(Server)}
-     */
-    @Deprecated
-    public void addService(Service service) {
-        addServer(service);
-    }
-
-    /**
-     * @deprecated use {@link #removeServer(Server)}
-     */
-    @Deprecated
-    public void removeService(Service service) {
-        removeServer(service);
-    }
-
-    /**
-     * @deprecated use {@link #getServers()}
-     */
-    @Deprecated
-    public List<Service> getServices() {
-        List<Service> legacy = new ArrayList<Service>(servers.size());
-        for (int i = 0; i < servers.size(); i++) {
-            Server server = servers.get(i);
-            if (server instanceof Service) {
-                legacy.add((Service) server);
-            }
-        }
-        return Collections.unmodifiableList(legacy);
-    }
-
-    /**
      * Registers a server's TCP listeners with the accept loop.
      * Listeners that manage their own I/O (e.g. QUIC) are tracked
      * but not registered for TCP accept.

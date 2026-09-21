@@ -645,8 +645,8 @@ any error conditions ensure that they are logged into the trace.
 ## Gumdrop 3 naming conventions
 
 Gumdrop 3 renames public types for **role clarity** and **consistent camelCase
-acronyms** (hopf precedent). Remaining legacy public types and their targets
-are listed in `test/junit/resources/gumdrop3-legacy-type-renames.properties`.
+acronyms** (hopf precedent). `Gumdrop3NamingConventionTest` fails if any public
+type under `src/org/bluezoo/gumdrop` still uses a legacy name pattern.
 
 **New public types** in `src/org/bluezoo/gumdrop` must follow these rules:
 
@@ -660,11 +660,6 @@ are listed in `test/junit/resources/gumdrop3-legacy-type-renames.properties`.
    `ServerEhloReplyHandler`).
 4. **Handlers and facades** — server SPIs use `*RequestHandler` / staged server
    handlers; dial facades use `*Client`.
-
-During migration, legacy names remain in the tree. Any **new** public type that
-still uses a legacy pattern must be listed in
-`test/junit/resources/gumdrop3-legacy-type-renames.properties` with its target
-name; `Gumdrop3NamingConventionTest` enforces this inventory.
 
 ## Summary
 

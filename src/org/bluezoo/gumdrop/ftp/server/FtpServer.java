@@ -66,7 +66,6 @@ import org.bluezoo.gumdrop.auth.Realm;
  * }</pre>
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see Service
  * @see FtpListener
  * @see FtpConnectionHandler
  */

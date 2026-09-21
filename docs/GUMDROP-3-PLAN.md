@@ -527,8 +527,7 @@ consistent” public API:
 
 ### Testing during migration
 
-- [x] Rename **allowlists** / package scans when enforcing style tests
-  (`Gumdrop3NamingConventionTest`, `gumdrop3-legacy-type-renames.properties`).
+- [x] Rename guard via package scan (`Gumdrop3NamingConventionTest`).
 - [ ] Integration tests: wire servers via Java composition builders (proves API
   before further doc churn).
 - [ ] Keep **NoThreadSleepGuard** and async test rules (CONTRIBUTING) during

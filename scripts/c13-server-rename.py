@@ -17,7 +17,6 @@ RENAMES = [
 SKIP_DIRS = {".git", "build", "build-core", "build-http", "dist", ".cursor"}
 SKIP_FILES = {
     "scripts/c13-server-rename.py",
-    "test/junit/resources/gumdrop3-legacy-type-renames.properties",
     "src/org/bluezoo/gumdrop/servlet/ServletService.java",
     "src/org/bluezoo/gumdrop/webdav/WebDAVService.java",
     "src/org/bluezoo/gumdrop/websocket/WebSocketService.java",
