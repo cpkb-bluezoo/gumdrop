@@ -31,6 +31,9 @@ jobs:
       - name: Generate Javadoc
         run: ant javadoc-force
 
+      - name: Verify Javadoc output
+        run: test -f doc/index.html
+
       - name: Stage site
         run: |
           mkdir -p _site/doc _site/web

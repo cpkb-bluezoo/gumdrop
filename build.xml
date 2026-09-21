@@ -700,7 +700,7 @@
              header='&lt;b&gt;Gumdrop&lt;/b&gt;'
              bottom='&lt;small&gt;Gumdrop is free software distributed under the GNU Lesser General Public License. Copyright &amp;copy; 2005, 2025 Chris Burdess.&lt;/small&gt;'
              source='${java.release.version}'
-             failonerror='false'
+             failonerror='true'
              additionalparam='-Xdoclint:none'>
       <fileset dir='${src}' includes='**/*.java' excludes='module-info.java'/>
       <classpath>
@@ -709,6 +709,8 @@
         <pathelement location='${lib}/${jprotobuf.jar}'/>
         <pathelement location='${lib}/${micula.jar}'/>
         <pathelement location='${lib}/${servlet.jar}'/>
+        <pathelement location='${lib}/${jakarta.annotation.jar}'/>
+        <pathelement location='${lib}/${jakarta.persistence.jar}'/>
         <pathelement location='${lib}/${javamail.jar}'/>
         <pathelement location='${lib}/${annotation.jar}'/>
         <pathelement location='${lib}/${ejb.jar}'/>
