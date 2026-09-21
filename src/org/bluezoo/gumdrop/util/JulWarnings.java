@@ -21,6 +21,9 @@
 
 package org.bluezoo.gumdrop.util;
 
+import java.nio.channels.ClosedByInterruptException;
+import java.nio.channels.ClosedChannelException;
+import java.util.Locale;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -41,6 +44,47 @@ public final class JulWarnings {
 
     public static void severe(Logger logger, String message, Throwable cause) {
         log(logger, Level.SEVERE, message, cause);
+    }
+
+    /**
+     * Logs a transport-layer failure at FINE when the peer dropped or the
+     * connection was torn down during shutdown; otherwise {@link #warn}.
+     */
+    public static void transportError(Logger logger, String message,
+            Throwable cause) {
+        if (isBenignTransportFailure(cause)) {
+            if (logger.isLoggable(Level.FINE)) {
+                logger.log(Level.FINE, message, cause);
+            }
+        } else {
+            warn(logger, message, cause);
+        }
+    }
+
+    /**
+     * Returns true for connection loss that is normal when clients close or
+     * Gumdrop shuts down while I/O is in flight.
+     */
+    public static boolean isBenignTransportFailure(Throwable cause) {
+        for (Throwable t = cause; t != null; t = t.getCause()) {
+            if (t instanceof ClosedByInterruptException
+                    || t instanceof ClosedChannelException
+                    || t instanceof InterruptedException) {
+                return true;
+            }
+            String msg = t.getMessage();
+            if (msg != null) {
+                String lower = msg.toLowerCase(Locale.ROOT);
+                if (lower.contains("connection reset")
+                        || lower.contains("broken pipe")
+                        || lower.contains("connection refused")
+                        || lower.contains("socket closed")
+                        || lower.contains("stream closed")) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     private static void log(Logger logger, Level level, String message,

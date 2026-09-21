@@ -241,6 +241,7 @@ final class Dtls12Session implements TlsRecordSink {
             base.setDtlsCookie(cookie);
         }
         engine = new Dtls12RecordEngine(base, config.getMaxFragmentSize(), handshakeOffload(endpoint));
+        bindEngineHandshakeIdleListener(engine);
         if (config.getRole() == HandshakeRole.CLIENT) {
             engine.setHelloVerifyCallback(new Dtls12RecordEngine.HelloVerifyCallback() {
                 @Override
@@ -251,6 +252,15 @@ final class Dtls12Session implements TlsRecordSink {
         }
     }
 
+    private void bindEngineHandshakeIdleListener(Dtls12RecordEngine eng) {
+        eng.bindHandshakeAsyncIdleListener(new Runnable() {
+            @Override
+            public void run() {
+                commitFlightIfNeeded();
+            }
+        });
+    }
+
     private void restartClientWithCookie(byte[] cookieFromServer) {
         byte[] preservedRandom = engine.getClientRandom();
         engine = null;
@@ -258,6 +268,7 @@ final class Dtls12Session implements TlsRecordSink {
         base.setDtlsClientRandom(preservedRandom);
         base.setDtlsCookie(cookieFromServer);
         engine = new Dtls12RecordEngine(base, config.getMaxFragmentSize(), handshakeOffload(endpoint));
+        bindEngineHandshakeIdleListener(engine);
         engine.setHelloVerifyCallback(new Dtls12RecordEngine.HelloVerifyCallback() {
             @Override
             public void onHelloVerifyRequest(byte[] ignored) {

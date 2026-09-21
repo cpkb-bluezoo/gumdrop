@@ -48,6 +48,8 @@ import java.util.logging.Logger;
 
 import org.bluezoo.gumdrop.ByteStreamLexer;
 import org.bluezoo.gumdrop.Endpoint;
+import org.bluezoo.gumdrop.SelectorLoop;
+import org.bluezoo.gumdrop.TcpEndpoint;
 import org.bluezoo.gumdrop.ProtocolHandler;
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.TimerHandle;
@@ -120,6 +122,8 @@ public class HttpClientProtocolHandler
     // real completion, not the auth-retry path's own remove-then-
     // immediately-resend-on-this-same-connection sequence.
     private boolean closePending;
+    private boolean goawaySent;
+    private boolean transportCloseScheduled;
 
     // h2c upgrade state
     private boolean h2Enabled = true;
@@ -130,13 +134,13 @@ public class HttpClientProtocolHandler
     private boolean h2WithPriorKnowledge = false;
 
     /** When true, add {@code Accept-Encoding: br, gzip, deflate} if absent. */
-    private boolean sendAcceptEncodingHeader = true;
+    private boolean sendAcceptEncodingHeader = ContentEncoding.isContentCodingEnabled();
 
     /** When true, decode {@code Content-Encoding} on response bodies. */
-    private boolean decodeResponseContentCoding = true;
+    private boolean decodeResponseContentCoding = ContentEncoding.isContentCodingEnabled();
 
     /** When true, compress request bodies per {@code Content-Encoding}. */
-    private boolean encodeRequestBodyContentCoding = true;
+    private boolean encodeRequestBodyContentCoding = ContentEncoding.isContentCodingEnabled();
 
     // Active streams
     protected final Map<Integer, HttpStream> activeStreams = new ConcurrentHashMap<Integer, HttpStream>();
@@ -201,8 +205,8 @@ public class HttpClientProtocolHandler
     // setMaxResponseHeaderSize() is called after this handler is
     // constructed but before the connection starts. Every line-based
     // state (STATUS_LINE, HEADERS, CHUNK_SIZE, CHUNK_TRAILER) and every
-    // raw-body state (BODY, CHUNK_DATA) is driven through it; H2C_UPGRADE_
-    // PENDING, HTTP2, and the (defensively-preserved, confirmed-
+    // raw-body state (BODY, CHUNK_DATA) is driven through it; HTTP2_AWAITING_
+    // SETTINGS, HTTP2, and the (defensively-preserved, confirmed-
     // unreachable-in-practice) read-until-close body are handled entirely
     // outside it — see stopForHandoff() call sites.
     private HttpClientLineLexer lexer;
@@ -236,7 +240,9 @@ public class HttpClientProtocolHandler
 
     protected enum ParseState {
         IDLE, STATUS_LINE, HEADERS, BODY, CHUNK_SIZE, CHUNK_DATA, CHUNK_TRAILER,
-        H2C_UPGRADE_PENDING, HTTP2
+        /** HTTP/2 connection preface sent; awaiting the peer's first SETTINGS (ALPN h2, prior knowledge, or post-h2c-101). Not cleartext h2c upgrade in flight. */
+        HTTP2_AWAITING_SETTINGS,
+        HTTP2
     }
 
     // Authentication
@@ -311,7 +317,7 @@ public class HttpClientProtocolHandler
                 negotiatedVersion = HttpVersion.HTTP_2_0;
                 initializeHTTP2();
                 sendConnectionPreface();
-                parseState = ParseState.H2C_UPGRADE_PENDING;
+                parseState = ParseState.HTTP2_AWAITING_SETTINGS;
                 LOGGER.fine(MessageFormat.format(L10N.getString("debug.h2_prior_knowledge_connected"), host, port));
             } else {
                 negotiatedVersion = HttpVersion.HTTP_1_1;
@@ -353,9 +359,27 @@ public class HttpClientProtocolHandler
             }
             negotiatedVersion = HttpVersion.HTTP_2_0;
             initializeHTTP2();
-            sendConnectionPreface();
-            parseState = ParseState.H2C_UPGRADE_PENDING;
+            parseState = ParseState.HTTP2_AWAITING_SETTINGS;
             LOGGER.fine(MessageFormat.format(L10N.getString("debug.h2_alpn_connected"), host, port));
+            // Defer the connection preface and application callbacks to the
+            // next loop tick so any handshake ciphertext still being wrapped
+            // to netOut completes before the first application-data records.
+            final SecurityInfo establishedInfo = info;
+            endpoint.getSelectorLoop().invokeLater(new Runnable() {
+                @Override
+                public void run() {
+                    if (!open) {
+                        return;
+                    }
+                    sendConnectionPreface();
+                    resetIdleTimeout();
+                    if (handler != null) {
+                        handler.onConnected(endpoint);
+                        handler.onSecurityEstablished(establishedInfo);
+                    }
+                }
+            });
+            return;
         } else {
             negotiatedVersion = HttpVersion.HTTP_1_1;
             LOGGER.fine(MessageFormat.format(L10N.getString("debug.http11_connected"), host, port));
@@ -446,7 +470,7 @@ public class HttpClientProtocolHandler
 
     private boolean isHttp2State() {
         return negotiatedVersion == HttpVersion.HTTP_2_0
-                || parseState == ParseState.H2C_UPGRADE_PENDING
+                || parseState == ParseState.HTTP2_AWAITING_SETTINGS
                 || parseState == ParseState.HTTP2;
     }
 
@@ -466,6 +490,7 @@ public class HttpClientProtocolHandler
     @Override
     public void disconnected() {
         open = false;
+        logIntegrationClientState(Level.WARNING, "disconnected", null);
 
         Exception disconnectException = new IOException(L10N.getString("err.connection_disconnected"));
         failAllStreams(disconnectException);
@@ -478,6 +503,7 @@ public class HttpClientProtocolHandler
     @Override
     public void error(Exception cause) {
         open = false;
+        logIntegrationClientState(Level.WARNING, "error", cause);
 
         failAllStreams(cause);
 
@@ -731,20 +757,123 @@ public class HttpClientProtocolHandler
     }
 
     /**
+     * Requests shutdown on the selector loop so an in-flight response
+     * completion on this thread can finish before {@link #close()} runs.
+     */
+    public void requestShutdown() {
+        if (endpoint != null && endpoint.getSelectorLoop() != null) {
+            endpoint.getSelectorLoop().invokeLater(new Runnable() {
+                @Override
+                public void run() {
+                    closeWhenIdle();
+                }
+            });
+        } else {
+            closeWhenIdle();
+        }
+    }
+
+    /**
      * Closes the connection gracefully.
      */
     public void close() {
+        shutdown(true);
+    }
+
+    private void shutdown(boolean abortStreams) {
         open = false;
         cancelIdleTimeout();
+        if (abortStreams) {
+            failAllStreams(new IOException(L10N.getString("err.connection_closed")));
+        }
+        scheduleTransportClose();
+    }
 
-        failAllStreams(new IOException(L10N.getString("err.connection_closed")));
+    /**
+     * Closes the transport on the selector loop so any response still
+     * being decrypted or framed can be delivered before GOAWAY /
+     * {@code close_notify} is sent.
+     */
+    private void scheduleTransportClose() {
+        if (transportCloseScheduled) {
+            return;
+        }
+        logIntegrationClientState(Level.INFO, "scheduleTransportClose", null);
+        transportCloseScheduled = true;
+        Runnable task = new Runnable() {
+            @Override
+            public void run() {
+                closeTransport();
+            }
+        };
+        if (endpoint != null && endpoint.getSelectorLoop() != null) {
+            endpoint.getSelectorLoop().invokeLater(task);
+        } else {
+            task.run();
+        }
+    }
 
+    private void closeTransport() {
+        if (negotiatedVersion == HttpVersion.HTTP_2_0 && h2Writer != null && !goawaySent) {
+            goawaySent = true;
+            logIntegrationClientState(Level.INFO, "sending GOAWAY before transport close", null);
+            try {
+                h2Writer.writeGoaway(highestServerStreamId,
+                        H2FrameHandler.ERROR_NO_ERROR,
+                        ByteBuffer.allocate(0));
+                h2Writer.flush();
+            } catch (IOException e) {
+                LOGGER.log(Level.WARNING, L10N.getString("warn.error_sending_goaway"), e);
+            }
+        }
+        closeEndpointTransport();
+    }
+
+    private void closeEndpointTransport() {
+        logIntegrationClientState(Level.INFO, "closeEndpointTransport", null);
         try {
             if (endpoint != null) {
                 endpoint.close();
             }
         } catch (Exception e) {
             LOGGER.log(Level.FINE, L10N.getString("debug.error_closing_connection"), e);
+        }
+    }
+
+    /**
+     * Runs {@code task} on this connection's {@link SelectorLoop} when the
+     * caller is on another thread (e.g. JUnit or an application thread).
+     *
+     * @return true if the task was queued and the caller should return
+     */
+    private boolean runOnSelectorLoop(Runnable task) {
+        if (endpoint == null || endpoint.getSelectorLoop() == null) {
+            return false;
+        }
+        SelectorLoop loop = endpoint.getSelectorLoop();
+        if (Thread.currentThread() == loop.getThread()) {
+            return false;
+        }
+        loop.invokeLater(task);
+        return true;
+    }
+
+    private void logIntegrationClientState(Level level, String event, Exception cause) {
+        if (!TcpEndpoint.integrationTlsTraceEnabled()) {
+            return;
+        }
+        if (!LOGGER.isLoggable(level)) {
+            return;
+        }
+        String remote = endpoint != null ? String.valueOf(endpoint.getRemoteAddress()) : "null";
+        String msg = MessageFormat.format(
+                "HTTP client {0}: remote={1} version={2} parseState={3} activeStreams={4} pendingRequests={5}",
+                event, remote, negotiatedVersion, parseState,
+                activeStreams.size(), pendingRequests.size());
+        if (cause != null) {
+            LOGGER.log(level, msg, cause);
+        } else {
+            LOGGER.log(level, msg);
         }
     }
 
@@ -762,7 +891,7 @@ public class HttpClientProtocolHandler
      */
     public void closeWhenIdle() {
         if (activeStreams.isEmpty() && pendingRequests.isEmpty()) {
-            close();
+            shutdown(false);
         } else {
             closePending = true;
         }
@@ -778,7 +907,7 @@ public class HttpClientProtocolHandler
     private void maybeCloseWhenIdle() {
         if (closePending && activeStreams.isEmpty() && pendingRequests.isEmpty()) {
             closePending = false;
-            close();
+            shutdown(false);
         }
     }
 
@@ -884,6 +1013,15 @@ public class HttpClientProtocolHandler
     }
 
     private void dispatchRequest(HttpStream request, boolean hasBody) {
+        if (negotiatedVersion != HttpVersion.HTTP_2_0
+                && runOnSelectorLoop(new Runnable() {
+                    @Override
+                    public void run() {
+                        dispatchRequest(request, hasBody);
+                    }
+                })) {
+            return;
+        }
         int streamId = nextStreamId;
         nextStreamId += 2;
 
@@ -905,9 +1043,17 @@ public class HttpClientProtocolHandler
     public int sendRequestBody(HttpStream request, ByteBuffer data) {
         if (negotiatedVersion == HttpVersion.HTTP_2_0) {
             return sendHTTP2Data(request, data);
-        } else {
-            return sendHTTP11Data(request, data);
         }
+        final int remaining = data != null ? data.remaining() : 0;
+        if (runOnSelectorLoop(new Runnable() {
+            @Override
+            public void run() {
+                sendRequestBody(request, data);
+            }
+        })) {
+            return remaining;
+        }
+        return sendHTTP11Data(request, data);
     }
 
     @Override
@@ -947,6 +1093,14 @@ public class HttpClientProtocolHandler
 
     @Override
     public void endRequestBody(HttpStream request) {
+        if (runOnSelectorLoop(new Runnable() {
+            @Override
+            public void run() {
+                endRequestBody(request);
+            }
+        })) {
+            return;
+        }
         if (request.getRequestContentCoding() != null) {
             sendRequestBodyEncoded(request, ByteBuffer.allocate(0), true);
             if (negotiatedVersion == HttpVersion.HTTP_2_0) {
@@ -1280,7 +1434,7 @@ public class HttpClientProtocolHandler
         }
         h2cUpgradeRequest = null;
 
-        parseState = ParseState.H2C_UPGRADE_PENDING;
+        parseState = ParseState.HTTP2_AWAITING_SETTINGS;
 
         LOGGER.fine(MessageFormat.format(L10N.getString("debug.h2_preface_h2c_complete"), host, port));
     }
@@ -1385,7 +1539,7 @@ public class HttpClientProtocolHandler
             case CHUNK_TRAILER:
                 break; // still lexer-driven; nothing to do
             default:
-                // IDLE, H2C_UPGRADE_PENDING, HTTP2, and (defensively) BODY
+                // IDLE, HTTP2_AWAITING_SETTINGS, HTTP2, and (defensively) BODY
                 // with contentLength < 0: none of these are read through
                 // the lexer — hand control back to receive()'s own
                 // dispatch for the rest of the current buffer.
@@ -1827,6 +1981,13 @@ public class HttpClientProtocolHandler
         boolean serverClose = responseHeaders != null
                 && "close".equalsIgnoreCase(responseHeaders.getValue("connection"));
 
+        Integer streamId = currentStream != null ? streamIdByRequest.remove(currentStream) : null;
+        if (streamId != null) {
+            activeStreams.remove(streamId);
+        }
+        currentStream = null;
+        parseState = ParseState.IDLE;
+
         if (responseHandler != null) {
             if (Boolean.getBoolean("gumdrop.http.debug")) {
                 LOGGER.info(L10N.getString("info.debug_calling_handler_close"));
@@ -1836,14 +1997,6 @@ public class HttpClientProtocolHandler
                 LOGGER.info(L10N.getString("info.debug_handler_close_returned"));
             }
         }
-
-        Integer streamId = currentStream != null ? streamIdByRequest.remove(currentStream) : null;
-        if (streamId != null) {
-            activeStreams.remove(streamId);
-        }
-
-        currentStream = null;
-        parseState = ParseState.IDLE;
 
         if (serverClose) {
             LOGGER.fine(L10N.getString("debug.connection_close_closing"));
@@ -2276,7 +2429,7 @@ public class HttpClientProtocolHandler
     // RFC 9113 section 6.5: SETTINGS frame reception
     @Override
     public void settingsFrameReceived(boolean ack, Map<Integer, Integer> settings) {
-        if (parseState == ParseState.H2C_UPGRADE_PENDING) {
+        if (parseState == ParseState.HTTP2_AWAITING_SETTINGS) {
             parseState = ParseState.HTTP2;
             LOGGER.fine(L10N.getString("debug.h2_handshake_complete"));
         }
@@ -3143,7 +3296,8 @@ public class HttpClientProtocolHandler
             } catch (IOException e) {
                 LOGGER.log(Level.WARNING, L10N.getString("warn.error_sending_goaway"), e);
             } finally {
-                close();
+                goawaySent = true;
+                closeEndpointTransport();
             }
         }
     }

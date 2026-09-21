@@ -63,7 +63,10 @@ final class Tls12RecordState implements TlsRecordSink {
     private final TlsRecordState.Callback callback;
 
     private boolean handshakeStarted;
+    /** Application handler has been notified via {@link Callback#onClosed()}. */
     private boolean closed;
+    /** Local {@code close_notify} was queued; suppresses further {@link #wrap}. */
+    private boolean outboundClosed;
 
     // See TlsRecordState.pendingAppData's doc comment -- identical reasoning.
     private ByteBuffer pendingAppData;
@@ -137,7 +140,10 @@ final class Tls12RecordState implements TlsRecordSink {
      * directly to {@code tcpEndpoint.netOut}.
      */
     void wrap(ByteBuffer data) {
-        if (closed) {
+        if (closed || outboundClosed) {
+            tcpEndpoint.logIntegrationClientTls(Level.INFO,
+                    "client TLS wrap dropped {0} plaintext bytes (closed={1} outboundClosed={2}) remote={3}",
+                    data.remaining(), closed, outboundClosed, callback.getRemoteAddress());
             return;
         }
         synchronized (tcpEndpoint.tlsEngineLock) {
@@ -189,17 +195,24 @@ final class Tls12RecordState implements TlsRecordSink {
      * {@code tcpEndpoint.netOut}.
      */
     void closeOutbound() {
-        if (closed) {
+        if (closed || outboundClosed) {
             return;
         }
-        closed = true;
         synchronized (tcpEndpoint.tlsEngineLock) {
             synchronized (tcpEndpoint.netOutLock) {
                 if (netOut() == null) {
                     return;
                 }
             }
+            int pending = pendingAppData != null ? pendingAppData.position() : 0;
+            tcpEndpoint.logIntegrationClientTls(Level.INFO,
+                    "client TLS closeOutbound pendingAppData={0} handshakeComplete={1} remote={2}",
+                    pending, engine.isComplete(), callback.getRemoteAddress());
+            flushPendingAppData();
+            outboundClosed = true;
             engine.sendCloseNotify(this);
+            tcpEndpoint.logIntegrationClientTls(Level.INFO,
+                    "client TLS close_notify queued remote={0}", callback.getRemoteAddress());
         }
     }
 
@@ -349,7 +362,7 @@ final class Tls12RecordState implements TlsRecordSink {
     private static HandshakeAsyncOffload handshakeOffload(final TcpEndpoint endpoint) {
         SelectorLoop loop = endpoint.getSelectorLoop();
         Gumdrop gumdrop = (loop != null) ? loop.getGumdrop() : null;
-        return new TlsHandshakeAsyncOffload(loopExecutor(endpoint), gumdrop);
+        return new TlsHandshakeAsyncOffload(loopExecutor(endpoint), gumdrop, endpoint);
     }
 
     private static Executor loopExecutor(final TcpEndpoint endpoint) {

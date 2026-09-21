@@ -31,6 +31,8 @@ import java.io.IOException;
 import java.nio.channels.FileChannel;
 import java.nio.channels.ReadableByteChannel;
 import java.nio.channels.WritableByteChannel;
+import java.nio.file.DirectoryIteratorException;
+import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
 import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
@@ -227,11 +229,10 @@ public class BasicFTPFileSystem implements FtpFileSystem {
             
             List<FtpFileInfo> files = new ArrayList<>();
             
-            File[] children = dirPath.toFile().listFiles();
-            if (children != null) {
-                for (File child : children) {
+            try (DirectoryStream<Path> children = Files.newDirectoryStream(dirPath)) {
+                for (Path child : children) {
                     try {
-                        FtpFileInfo fileInfo = createFileInfo(child.toPath());
+                        FtpFileInfo fileInfo = createFileInfo(child);
                         if (fileInfo != null) {
                             files.add(fileInfo);
                         }
@@ -242,6 +243,10 @@ public class BasicFTPFileSystem implements FtpFileSystem {
                         }
                     }
                 }
+            } catch (IOException | DirectoryIteratorException e) {
+                // A directory that cannot be read yields an empty listing, as
+                // File.listFiles() returning null did before this used NIO.
+                files.clear();
             }
             
             if (LOGGER.isLoggable(Level.FINE)) {

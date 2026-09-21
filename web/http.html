@@ -163,7 +163,8 @@ of the TCP-based <code>HttpListener</code> and can coexist with it:
 </p>
 
 <pre>
-TlsConfig tls = TlsConfig.keystore(Path.of("keystore.p12"), "changeit");
+TlsConfig tls = TlsConfig.pem(Path.of("etc/tls/cert.pem"), Path.of("etc/tls/key.pem"));
+// PKCS#12 / JKS: see security.html#keystores
 
 HttpServer server = HttpServer.compose()
     // Wires both HTTP/1.1 + HTTP/2 over TCP and HTTP/3 over QUIC on

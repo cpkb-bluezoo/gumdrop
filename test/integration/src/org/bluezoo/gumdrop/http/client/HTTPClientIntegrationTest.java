@@ -29,7 +29,7 @@ import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.Server;
 import org.bluezoo.gumdrop.TcpTransportFactory;
-import org.bluezoo.gumdrop.TestCertificateManager;
+import org.bluezoo.gumdrop.TestTlsFiles;
 import org.bluezoo.gumdrop.http.Header;
 import org.bluezoo.gumdrop.http.Headers;
 import org.bluezoo.gumdrop.http.HttpServer;
@@ -37,7 +37,6 @@ import org.bluezoo.gumdrop.http.HttpStatus;
 import org.bluezoo.gumdrop.http.HttpClient;
 import org.bluezoo.gumdrop.http.HttpVersion;
 import org.bluezoo.gumdrop.http.server.Http2Listener;
-import org.bluezoo.gumdrop.tls.TlsConfig;
 import org.junit.BeforeClass;
 import org.junit.Rule;
 import org.junit.Test;
@@ -96,8 +95,6 @@ public class HTTPClientIntegrationTest extends AbstractServerIntegrationTest {
 
     @Override
     protected Collection<? extends Server> buildServers() throws Exception {
-        TlsConfig tls = TlsConfig.keystore(
-                Path.of("test/integration/certs/test-keystore.p12"), "testpass");
         HttpServer plaintext = HttpServer.compose()
                 .listener(new Http2Listener()
                         .port(HTTP_PORT)
@@ -109,7 +106,7 @@ public class HTTPClientIntegrationTest extends AbstractServerIntegrationTest {
                         .port(HTTPS_PORT)
                         .addresses(InetAddress.getByName(TEST_HOST))
                         .secure(true)
-                        .tls(tls))
+                        .tls(TestTlsFiles.serverTlsConfig()))
                 .streamHandler(new EchoHandlerFactory())
                 .server();
         return Arrays.asList(plaintext, secure);
@@ -120,20 +117,9 @@ public class HTTPClientIntegrationTest extends AbstractServerIntegrationTest {
         return Level.WARNING;
     }
 
-    /** Certificate manager for generating and using test certificates. */
-    private static TestCertificateManager certManager;
-
-    /**
-     * Set up certificates for HTTPS testing.
-     */
     @BeforeClass
-    public static void setupCertificates() throws Exception {
-        File certsDir = new File("test/integration/certs");
-        if (!certsDir.exists()) {
-            certsDir.mkdirs();
-        }
-        certManager = new TestCertificateManager(certsDir);
-        certManager.ensureSharedTestPki("testpass");
+    public static void requireTlsFixtures() {
+        TestTlsFiles.assumeAvailable();
     }
 
     // Handler factory is configured in XML - no programmatic setup needed
@@ -233,7 +219,7 @@ public class HTTPClientIntegrationTest extends AbstractServerIntegrationTest {
         TcpTransportFactory factory = new TcpTransportFactory();
         factory.setSecure(true);
         factory.setApplicationProtocols("h2", "http/1.1");
-        factory.setTrustManager(certManager.createClientTrustManager());
+        factory.setTrustManager(TestTlsFiles.trustManager());
         factory.start();
 
         HttpClientProtocolHandler endpointHandler = new HttpClientProtocolHandler(

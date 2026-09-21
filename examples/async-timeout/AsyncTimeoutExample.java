@@ -151,23 +151,25 @@ public class AsyncTimeoutExample extends HttpServlet {
         } catch (NumberFormatException e) {
             // Use default
         }
-        
-        LOGGER.info("Starting async operation with custom timeout: " + timeout + "ms");
-        
+
+        final long timeoutMs = timeout;
+
+        LOGGER.info("Starting async operation with custom timeout: " + timeoutMs + "ms");
+
         AsyncContext asyncContext = request.startAsync();
-        asyncContext.setTimeout(timeout);
-        
+        asyncContext.setTimeout(timeoutMs);
+
         // Add listener for custom timeout handling
         asyncContext.addListener(new AsyncListener() {
             @Override
             public void onTimeout(AsyncEvent event) throws IOException {
                 HttpServletResponse resp = (HttpServletResponse) event.getAsyncContext().getResponse();
                 resp.setContentType("text/html");
-                
+
                 try (PrintWriter out = resp.getWriter()) {
                     out.println("<html><body>");
-                    out.println("<h2>🕐 Custom Timeout: " + timeout + "ms</h2>");
-                    out.println("<p>Your custom timeout of " + timeout + "ms has been reached.</p>");
+                    out.println("<h2>Custom Timeout: " + timeoutMs + "ms</h2>");
+                    out.println("<p>Your custom timeout of " + timeoutMs + "ms has been reached.</p>");
                     out.println("<p><a href='?'>Back to Demo</a></p>");
                     out.println("</body></html>");
                 }

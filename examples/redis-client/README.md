@@ -16,21 +16,22 @@ From the Gumdrop root directory:
 
 ```bash
 ant build
-javac -cp build -d build examples/redis-client/*.java
+# Classpath: all module output dirs under build/, plus lib/
+javac -cp 'build/*:build/core:build/lib/*' -d build/examples examples/redis-client/*.java
 ```
 
 ## Running the Examples
 
 ### RedisClientExample
 
-Demonstrates basic Redis operations with the **simplified standalone API**:
+Demonstrates basic Redis operations with **`Gumdrop.boot()`** and an async handler:
 
 ```bash
 java -cp build RedisClientExample [host] [port]
 ```
 
 This example shows:
-- **No Gumdrop setup needed** - infrastructure is managed automatically
+- **`Gumdrop.boot()`** for selector loops and client I/O
 - String commands (SET, GET, INCR, INCRBY)
 - Key expiration (SETEX, TTL)
 - Hash operations (HSET, HGET, HGETALL)
@@ -38,12 +39,10 @@ This example shows:
 - Key pattern matching (KEYS)
 - Automatic cleanup and shutdown
 
-The simplified API:
 ```java
-// Just create and connect - that's it!
+Gumdrop gumdrop = Gumdrop.boot();
 RedisClient client = new RedisClient("localhost", 6379);
-client.connect(handler);
-// Infrastructure auto-starts on connect, auto-stops when done
+client.connect(gumdrop, handler);
 ```
 
 ### RedisPubSubExample

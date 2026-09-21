@@ -70,6 +70,7 @@ public final class TlsHandshakeAsyncOffload implements HandshakeAsyncOffload {
 
     private final Executor loopExecutor;
     private final Gumdrop gumdrop;
+    private final TcpEndpoint endpoint;
 
     private boolean taskInFlight;
     private boolean deferring;
@@ -88,11 +89,24 @@ public final class TlsHandshakeAsyncOffload implements HandshakeAsyncOffload {
      *                runs inline on the calling thread instead
      */
     public TlsHandshakeAsyncOffload(Executor loopExecutor, Gumdrop gumdrop) {
+        this(loopExecutor, gumdrop, null);
+    }
+
+    /**
+     * Like {@link #TlsHandshakeAsyncOffload(Executor, Gumdrop)} but resolves
+     * {@link CryptoExecutor} from {@code endpoint}'s {@link SelectorLoop} at
+     * submit time. Client {@link TcpEndpoint}s are constructed before their
+     * loop is assigned, so capturing {@code Gumdrop} only at construction
+     * would permanently miss the runtime crypto pool.
+     */
+    public TlsHandshakeAsyncOffload(Executor loopExecutor, Gumdrop gumdrop,
+            TcpEndpoint endpoint) {
         if (loopExecutor == null) {
             throw new NullPointerException();
         }
         this.loopExecutor = loopExecutor;
         this.gumdrop = gumdrop;
+        this.endpoint = endpoint;
     }
 
     @Override
@@ -213,7 +227,15 @@ public final class TlsHandshakeAsyncOffload implements HandshakeAsyncOffload {
                 }
             }
         };
-        CryptoExecutor exec = (gumdrop != null && gumdrop.isStarted()) ? gumdrop.getCryptoExecutor() : null;
+        Gumdrop runtime = gumdrop;
+        if (runtime == null && endpoint != null) {
+            SelectorLoop loop = endpoint.getSelectorLoop();
+            if (loop != null) {
+                runtime = loop.getGumdrop();
+            }
+        }
+        CryptoExecutor exec = (runtime != null && runtime.isStarted())
+                ? runtime.getCryptoExecutor() : null;
         if (exec == null) {
             List<Runnable> callbacks;
             try {

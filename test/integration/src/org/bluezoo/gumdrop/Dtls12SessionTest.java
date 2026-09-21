@@ -50,7 +50,6 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Deque;
 import java.util.List;
-
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
@@ -165,28 +164,36 @@ public class Dtls12SessionTest {
     private static void pump(RecordingEndpoint clientEp, Dtls12Session client,
             RecordingEndpoint serverEp, Dtls12Session server) {
         for (int round = 0; round < 48; round++) {
-            boolean moved = false;
-            while (!clientEp.sent.isEmpty()) {
-                ByteBuffer buf = clientEp.sent.poll();
-                byte[] data = new byte[buf.remaining()];
-                buf.get(data);
-                server.receive(data);
-                moved = true;
-            }
-            while (!serverEp.sent.isEmpty()) {
-                ByteBuffer buf = serverEp.sent.poll();
-                byte[] data = new byte[buf.remaining()];
-                buf.get(data);
-                client.receive(data);
-                moved = true;
+            if (relayQueuedDatagrams(clientEp, server, serverEp, client)) {
+                if (client.isHandshakeComplete() && server.isHandshakeComplete()) {
+                    return;
+                }
+                continue;
             }
             if (client.isHandshakeComplete() && server.isHandshakeComplete()) {
                 return;
             }
-            if (!moved) {
-                return;
-            }
+            return;
         }
+    }
+
+    private static boolean relayQueuedDatagrams(RecordingEndpoint clientEp, Dtls12Session server,
+            RecordingEndpoint serverEp, Dtls12Session client) {
+        boolean moved = false;
+        ByteBuffer buf;
+        while ((buf = clientEp.sent.poll()) != null) {
+            byte[] data = new byte[buf.remaining()];
+            buf.get(data);
+            server.receive(data);
+            moved = true;
+        }
+        while ((buf = serverEp.sent.poll()) != null) {
+            byte[] data = new byte[buf.remaining()];
+            buf.get(data);
+            client.receive(data);
+            moved = true;
+        }
+        return moved;
     }
 
     @Test

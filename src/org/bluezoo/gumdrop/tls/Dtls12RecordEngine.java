@@ -24,7 +24,9 @@ package org.bluezoo.gumdrop.tls;
 import java.io.ByteArrayOutputStream;
 import java.security.GeneralSecurityException;
 import java.security.cert.X509Certificate;
+import java.util.ArrayDeque;
 import java.util.Arrays;
+import java.util.Deque;
 import java.util.List;
 
 import org.bluezoo.gumdrop.tls.HandshakeAsyncOffload;
@@ -66,6 +68,7 @@ public final class Dtls12RecordEngine {
     private final HandshakeFailureHandler handshakeFailure = new HandshakeFailureHandler();
     private final Tls12DeferredDispatch deferredDispatch;
     private final HandshakeAsyncScheduler handshakeAsync;
+    private final HandshakeAsyncOffload handshakeOffload;
 
     Dtls12DirectionalKeys write;
     Dtls12DirectionalKeys read;
@@ -84,6 +87,9 @@ public final class Dtls12RecordEngine {
     private HelloVerifyCallback helloVerifyCallback;
     private boolean alertSent;
     private boolean failed;
+
+    /** Datagrams received while a handshake batch was in flight on CryptoExecutor. */
+    private final Deque<byte[]> pendingInboundDatagrams = new ArrayDeque<byte[]>();
 
     /**
      * Optional callback for RFC 6347 HelloVerifyRequest (message type 3).
@@ -110,8 +116,36 @@ public final class Dtls12RecordEngine {
         this.role = config.getRole();
         this.engine = new Tls12HandshakeEngine(config);
         this.maxFragmentSize = Math.max(1, Math.min(maxFragmentSize, MAX_FRAGMENT));
+        this.handshakeOffload = offload;
         this.handshakeAsync = new HandshakeAsyncScheduler(offload, handshakeRunner, handshakeFailure);
         this.deferredDispatch = new Tls12DeferredDispatch(handshakeAsync, innerSink);
+    }
+
+    /**
+     * Invoked on the owning loop thread once an async handshake batch finishes
+     * and deferred record-layer callbacks have been replayed. {@link Dtls12Session}
+     * uses this to flush queued handshake flights that were built after the
+     * synchronous {@code commitFlightIfNeeded()} call returned.
+     */
+    public void bindHandshakeAsyncIdleListener(Runnable onIdle) {
+        if (handshakeOffload == null) {
+            return;
+        }
+        handshakeAsync.setOnIdle(new Runnable() {
+            @Override
+            public void run() {
+                if (onIdle != null) {
+                    onIdle.run();
+                }
+                resumePendingInboundDatagrams();
+            }
+        });
+        handshakeOffload.setIdleListener(new Runnable() {
+            @Override
+            public void run() {
+                handshakeAsync.notifyIdle();
+            }
+        });
     }
 
     /**
@@ -157,6 +191,14 @@ public final class Dtls12RecordEngine {
             return;
         }
         innerSink.outer = sink;
+        if (handshakeAsync.isEnabled() && handshakeAsync.isBusy()) {
+            pendingInboundDatagrams.addLast(Arrays.copyOfRange(datagram, offset, offset + length));
+            return;
+        }
+        feedDatagramImmediate(datagram, offset, length, sink);
+    }
+
+    private void feedDatagramImmediate(byte[] datagram, int offset, int length, TlsRecordSink sink) {
         int end = offset + length;
         int pos = offset;
         while (pos < end) {
@@ -186,6 +228,27 @@ public final class Dtls12RecordEngine {
             pos += RECORD_HEADER_LEN + recordLength;
 
             if (!processRecord(contentType, epoch, seq, body, sink)) {
+                return;
+            }
+            if (handshakeAsync.isEnabled() && handshakeAsync.isBusy()) {
+                if (pos < end) {
+                    pendingInboundDatagrams.addFirst(Arrays.copyOfRange(datagram, pos, end));
+                }
+                return;
+            }
+        }
+    }
+
+    private void resumePendingInboundDatagrams() {
+        TlsRecordSink sink = innerSink.outer;
+        if (failed || sink == null) {
+            return;
+        }
+        while (!pendingInboundDatagrams.isEmpty() && !handshakeAsync.isBusy()) {
+            byte[] datagram = pendingInboundDatagrams.pollFirst();
+            feedDatagramImmediate(datagram, 0, datagram.length, sink);
+            if (failed) {
+                pendingInboundDatagrams.clear();
                 return;
             }
         }
@@ -307,15 +370,18 @@ public final class Dtls12RecordEngine {
         try {
             plaintext = decryptRecord(contentType, epoch, seq, body);
         } catch (HandshakeFormatException e) {
-            fail(sink, AlertDescription.BAD_RECORD_MAC, "malformed or unauthenticated DTLS record");
+            fail(sink, AlertDescription.BAD_RECORD_MAC,
+                    "malformed or unauthenticated DTLS record: " + e.getMessage());
             return false;
         } catch (GeneralSecurityException e) {
-            fail(sink, AlertDescription.BAD_RECORD_MAC, "malformed or unauthenticated DTLS record");
+            fail(sink, AlertDescription.BAD_RECORD_MAC,
+                    "malformed or unauthenticated DTLS record: " + e.getMessage());
             return false;
         }
         if (plaintext == null) {
             if (contentType == CONTENT_HANDSHAKE) {
-                fail(sink, AlertDescription.UNEXPECTED_MESSAGE, "discarded handshake record");
+                fail(sink, AlertDescription.UNEXPECTED_MESSAGE,
+                        "discarded handshake record (epoch=" + epoch + ", seq=" + seq + ")");
                 return false;
             }
             return true;

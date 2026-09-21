@@ -633,9 +633,9 @@ public static void main(String[] args) throws Exception {
             .streamHandler(new NostrRelayService().toHandler())
             .server();
 
-    Gumdrop gumdrop = Gumdrop.getInstance();
+    Gumdrop gumdrop = Gumdrop.boot();
     gumdrop.addServer(server);
-    gumdrop.start();
+    gumdrop.join();
 }
 </pre>
 

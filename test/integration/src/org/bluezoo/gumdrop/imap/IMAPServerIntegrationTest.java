@@ -104,7 +104,7 @@ public class IMAPServerIntegrationTest {
         imapServer.setAllowPlaintextLogin(true); // Allow plaintext login for testing
         
         // Start server using its own dedicated runtime
-        gumdrop = Gumdrop.boot(GumdropConfig.create().workerThreads(1));
+        gumdrop = Gumdrop.boot(GumdropConfig.create().workerThreads(1).drainTimeoutMs(0));
         gumdrop.addListener(imapServer);
         
         // Wait for server to be ready

@@ -107,10 +107,19 @@ custom `main`:
   <context path="" root="../webapps/ROOT" distributable="true"/>
   <context path="/manager" root="../webapps/manager.war"/>
   <listener port="8080"/>
-  <listener port="8443" secure="true" keystore-file="keystore.p12"
-            keystore-pass="changeit" bind-wildcard="true"/>
+  <listener port="8443" secure="true" cert-file="tls/cert.pem" key-file="tls/key.pem"
+            bind-wildcard="true"/>
 </server>
 ```
+
+The TLS identity is two PEM files, the simplest form (`cert-file` is the
+certificate and any intermediates, `key-file` an unencrypted PKCS#8 private
+key). A Java keystore works too: `keystore-file`, `keystore-pass` and
+optionally `keystore-format` (`PKCS12` by default, or `JKS`) in place of the
+PEM attributes, not alongside them. Relative paths resolve against the
+directory containing `server.xml`. In a cloud image, mount the files as
+secrets (for example a Kubernetes `kubernetes.io/tls` secret provides
+`tls.crt` and `tls.key`; point `cert-file` and `key-file` at them).
 
 A `secure="true"` listener gets HTTP/2+TLS and **HTTP/3 (QUIC) on the same
 port** automatically (pure Java; no native QUIC library). Optional RFC 9849 ECH
@@ -120,8 +129,8 @@ listener (see [web/tls.html](../web/tls.html)).
 Servlet-only options: `GUMDROP_HOT_DEPLOY`, session clustering, webapp paths —
 see [Hot deploy](#hot-deploy) and [Horizontal-scale constraints](#horizontal-scale-constraints).
 
-Local TLS smoke (mkcert, `./start-tls`) stays in [BUILDING.md](../BUILDING.md);
-production TLS in cloud images is your keystore/secret wiring into `server.xml`.
+Local TLS smoke (`ant tls-certs`, `./start-tls`) stays in [BUILDING.md](../BUILDING.md);
+production TLS in cloud images is your certificate secret wiring into `server.xml`.
 
 ---
 

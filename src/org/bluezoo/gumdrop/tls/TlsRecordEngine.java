@@ -240,6 +240,13 @@ public final class TlsRecordEngine {
         innerSink.outer = sink;
         inbound.write(input, offset, length);
         while (true) {
+            if (handshakeAsync.isEnabled()) {
+                synchronized (handshakeAsync.lock()) {
+                    if (handshakeAsync.isBusy()) {
+                        return;
+                    }
+                }
+            }
             Record record;
             try {
                 record = takeOneRecord();
@@ -268,9 +275,17 @@ public final class TlsRecordEngine {
             // further records from this read until keys/state catch up.
             // Otherwise TLS 1.3's opaque application_data outer type is
             // mistaken for real application data while still in the
-            // plaintext epoch (RFC 8446 section 5.2).
-            if (handshakeAsync.isBusy()) {
-                return;
+            // plaintext epoch (RFC 8446 section 5.2), or application
+            // records are AEAD-decrypted before application read keys exist.
+            if (handshakeAsync.isEnabled()) {
+                synchronized (handshakeAsync.lock()) {
+                    if (handshakeAsync.isBusy()) {
+                        return;
+                    }
+                    if (!engine.isComplete() && inbound.length() > 0) {
+                        return;
+                    }
+                }
             }
         }
     }

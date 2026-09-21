@@ -29,10 +29,17 @@ import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
 import java.nio.channels.DatagramChannel;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.CountDownLatch;
+import java.util.logging.Handler;
+import java.util.logging.Level;
+import java.util.logging.LogRecord;
+import java.util.logging.Logger;
 
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
 
 /**
  * Regression tests for issue #366: an uncaught {@code RuntimeException}
@@ -65,6 +72,28 @@ public class SelectorLoopCrashIsolationTest {
     @Test(timeout = 10000)
     public void runtimeExceptionOnOneDatagramHandlerDoesNotKillSelectorLoop()
             throws Exception {
+        Logger selectorLoopLog = Logger.getLogger(SelectorLoop.class.getName());
+        Level savedLevel = selectorLoopLog.getLevel();
+        boolean savedUseParentHandlers = selectorLoopLog.getUseParentHandlers();
+        final List<LogRecord> dispatchErrorLogs = new ArrayList<>();
+        Handler logCapture = new Handler() {
+            @Override
+            public void publish(LogRecord record) {
+                dispatchErrorLogs.add(record);
+            }
+
+            @Override
+            public void flush() {
+            }
+
+            @Override
+            public void close() {
+            }
+        };
+        selectorLoopLog.setUseParentHandlers(false);
+        selectorLoopLog.addHandler(logCapture);
+        selectorLoopLog.setLevel(Level.ALL);
+
         SelectorLoop loop = new SelectorLoop(99);
         loop.start();
 
@@ -147,6 +176,8 @@ public class SelectorLoopCrashIsolationTest {
                 assertFalse("the faulty endpoint must be closed after the "
                         + "dispatch failure",
                         faultyEndpoint.isOpen());
+
+                assertDispatchFailureWasLogged(dispatchErrorLogs);
             } finally {
                 client.close();
             }
@@ -155,6 +186,25 @@ public class SelectorLoopCrashIsolationTest {
             loop.awaitQuiesce(2000);
             healthyEndpoint.close();
             faultyEndpoint.close();
+            selectorLoopLog.removeHandler(logCapture);
+            logCapture.close();
+            selectorLoopLog.setUseParentHandlers(savedUseParentHandlers);
+            selectorLoopLog.setLevel(savedLevel);
         }
+    }
+
+    private static void assertDispatchFailureWasLogged(List<LogRecord> records) {
+        for (LogRecord record : records) {
+            if (!Level.WARNING.equals(record.getLevel())) {
+                continue;
+            }
+            Throwable thrown = record.getThrown();
+            if (thrown instanceof RuntimeException
+                    && "deliberate dispatch failure".equals(thrown.getMessage())) {
+                return;
+            }
+        }
+        fail("SelectorLoop must log the deliberate dispatch failure at WARNING "
+                + "without leaking it to the test harness");
     }
 }

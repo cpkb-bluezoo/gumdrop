@@ -77,10 +77,16 @@ import java.nio.file.StandardOpenOption;
  *   <context path="/manager" root="../webapps/manager.war"/>
  *
  *   <listener port="8080"/>
- *   <listener port="8443" secure="true" keystore-file="keystore.p12"
- *             keystore-pass="changeit" bind-wildcard="true"/>
+ *   <listener port="8443" secure="true" cert-file="tls/cert.pem"
+ *             key-file="tls/key.pem" bind-wildcard="true"/>
  * </server>
  * }</pre>
+ *
+ * <p>A secure listener takes its TLS identity either from PEM files
+ * ({@code cert-file} and {@code key-file}, the simplest form) or from a Java
+ * keystore ({@code keystore-file} and {@code keystore-pass}, PKCS#12 unless
+ * {@code keystore-format} says otherwise, for example {@code JKS}), but not
+ * both.
  *
  * <p>{@code realm}'s {@code name} may be a comma-separated list of aliases
  * for the same realm instance, since a webapp's {@code web.xml
@@ -88,7 +94,8 @@ import java.nio.file.StandardOpenOption;
  * -- the stock manager webapp expects to authenticate against a realm named
  * {@code "Gumdrop Manager"}.
  *
- * <p>Relative {@code href}, {@code root}, and {@code keystore-file} paths
+ * <p>Relative {@code href}, {@code root}, {@code cert-file}, {@code key-file},
+ * and {@code keystore-file} paths
  * resolve against the directory containing {@code server.xml} (typically
  * {@code conf/}), not the process's working directory.
  *
@@ -370,9 +377,7 @@ public final class ServerXmlLoader {
                 http2.bindWildcard();
             }
             if (secure) {
-                String keystoreFile = require(attrs, "keystore-file", "secure listener");
-                String keystorePass = require(attrs, "keystore-pass", "secure listener");
-                TlsConfig tls = TlsConfig.keystore(resolve(keystoreFile).toPath(), keystorePass);
+                TlsConfig tls = identity(attrs);
                 String echConfigList = attrs.getValue("ech-config-list-file");
                 String echPrivateKey = attrs.getValue("ech-private-key-file");
                 if (echConfigList != null) {
@@ -396,6 +401,40 @@ public final class ServerXmlLoader {
                 composer.listener(http2);
             }
             haveListener = true;
+        }
+
+        /**
+         * The TLS identity of a secure listener: PEM files
+         * ({@code cert-file} and {@code key-file}), or a Java keystore
+         * ({@code keystore-file} and {@code keystore-pass}).
+         */
+        private TlsConfig identity(Attributes attrs) throws SAXException {
+            boolean pem = attrs.getValue("cert-file") != null
+                    || attrs.getValue("key-file") != null;
+            boolean keystore = attrs.getValue("keystore-file") != null
+                    || attrs.getValue("keystore-pass") != null
+                    || attrs.getValue("keystore-format") != null;
+            if (pem && keystore) {
+                throw new SAXException("secure listener takes keystore-file, "
+                        + "keystore-pass and keystore-format, or cert-file and "
+                        + "key-file, not both");
+            }
+            if (pem) {
+                String certFile = require(attrs, "cert-file", "secure listener");
+                String keyFile = require(attrs, "key-file", "secure listener");
+                return TlsConfig.pem(resolve(certFile).toPath(), resolve(keyFile).toPath());
+            }
+            if (!keystore) {
+                throw new SAXException("secure listener requires keystore-file and "
+                        + "keystore-pass, or cert-file and key-file");
+            }
+            String keystoreFile = require(attrs, "keystore-file", "secure listener");
+            String keystorePass = require(attrs, "keystore-pass", "secure listener");
+            String format = attrs.getValue("keystore-format");
+            if (format == null) {
+                return TlsConfig.keystore(resolve(keystoreFile).toPath(), keystorePass);
+            }
+            return TlsConfig.keystore(resolve(keystoreFile).toPath(), keystorePass, format);
         }
 
         private static int parsePort(String value, String what) throws SAXException {

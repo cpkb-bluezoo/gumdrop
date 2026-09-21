@@ -60,7 +60,7 @@ Unit plus integration tests (HTTP, SMTP, IMAP, POP3, FTP, servlet, etc.):
 ant test-all
 ```
 
-Integration tests require TLS certificates. See the [Security documentation](https://cpkb-bluezoo.github.io/gumdrop/web/security.html#tls-certificates) for generating local development certificates with `mkcert`.
+Integration tests use TLS certificates. Loopback tests standardise on PEM files in `etc/tls/` (`key.pem`, `cert.pem`, `ca.pem` via `TestTlsFiles`): the server uses the cert and key, the client trusts the CA only; a client identity matters only for mutual-TLS tests. `ant integration-tls` (run before integration targets) ensures those files exist and needs [mkcert](https://github.com/FiloSottile/mkcert) or OpenSSL; without either it warns and PEM-dependent tests are skipped. Run `ant tls-certs` for local development. PKCS#12 and JKS server identity is covered by `KeystoreTlsIntegrationTest` after `ant tls-keystore`; see [Security documentation](https://cpkb-bluezoo.github.io/gumdrop/web/security.html#keystores). Tests that exercise mutual TLS or `TestCertificateManager` itself may still use fixtures under `test/integration/certs/`.
 
 Loopback-only integration coverage (no wide-area network) can be run with:
 

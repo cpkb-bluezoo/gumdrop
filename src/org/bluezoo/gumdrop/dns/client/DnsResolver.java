@@ -1407,6 +1407,14 @@ public class DnsResolver {
             transport.close();
         }
 
+        @Override
+        public void onClosed() {
+            if (completed) {
+                return;
+            }
+            onError(new IOException("Connection closed before TCP retry response"));
+        }
+
         void onTimeout() {
             if (completed) {
                 return;

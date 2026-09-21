@@ -60,4 +60,14 @@ public interface DnsClientTransportHandler {
      */
     void onError(Exception cause);
 
+    /**
+     * Called when the TCP (or TLS) connection has closed normally. Zone
+     * transfers (RFC 5936 AXFR/IXFR) treat this as end-of-stream after
+     * length-prefixed messages; single-query clients usually override
+     * with {@link #onError(Exception)} semantics via the default below.
+     */
+    default void onClosed() {
+        onError(new java.io.IOException("Connection closed by server"));
+    }
+
 }

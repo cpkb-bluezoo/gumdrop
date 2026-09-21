@@ -669,9 +669,10 @@ final class Tls12HandshakeEngine {
 
             // No new ticket is minted on a resumption (see this class's
             // doc comment), so no SessionTicket echo here.
+            boolean advertiseRecordSizeLimit = ch.recordSizeLimitPresent && config.isRecordSizeLimitEnabled();
             byte[] sh = Tls12HandshakeMessages.buildServerHello(
                     serverRandom, ch.sessionId, negotiatedSuite, false, true, null,
-                    config.isRecordSizeLimitEnabled(), localRecordSizeLimit);
+                    advertiseRecordSizeLimit, localRecordSizeLimit);
             emit(sh, sink);
 
             DirectionalKeyMaterial[] km = computeKeyMaterial();
@@ -710,9 +711,10 @@ final class Tls12HandshakeEngine {
         byte[] random = new byte[32];
         secureRandom.nextBytes(random);
         serverRandom = random;
+        boolean advertiseRecordSizeLimit = ch.recordSizeLimitPresent && config.isRecordSizeLimitEnabled();
         byte[] sh = Tls12HandshakeMessages.buildServerHello(
                 serverRandom, new byte[0], suite, shouldIssueTicket, true, negotiatedAlpn,
-                config.isRecordSizeLimitEnabled(), localRecordSizeLimit);
+                advertiseRecordSizeLimit, localRecordSizeLimit);
         emit(sh, sink);
 
         List<byte[]> der = certificateDer(resolvedCredentials, sink);

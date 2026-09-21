@@ -27,6 +27,7 @@ import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.StorageExecutor;
 import org.bluezoo.gumdrop.http.server.DefaultHttpRequestHandler;
+import org.bluezoo.gumdrop.util.AsyncFile;
 import org.bluezoo.gumdrop.util.ByteBufferPool;
 import org.bluezoo.gumdrop.http.HttpConditionalRequests;
 import org.bluezoo.gumdrop.http.HttpDateFormat;
@@ -36,16 +37,16 @@ import org.bluezoo.gumdrop.http.Headers;
 import org.bluezoo.gumdrop.quota.QuotaPolicy;
 
 import java.io.ByteArrayOutputStream;
-import java.io.File;
 import java.io.IOException;
 import java.io.UnsupportedEncodingException;
 import java.net.URI;
 import java.net.URLDecoder;
 import java.nio.ByteBuffer;
-import java.nio.channels.AsynchronousFileChannel;
 import java.nio.channels.CompletionHandler;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.FileVisitResult;
+import java.nio.file.DirectoryIteratorException;
+import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.SimpleFileVisitor;
@@ -131,7 +132,7 @@ class FileHandler extends DefaultHttpRequestHandler {
     private String ifHeader;
     
     // PUT/WebDAV request body state
-    private AsynchronousFileChannel asyncWriteChannel;
+    private AsyncFile asyncWriteChannel;
     private long writePosition = 0;
     private long bytesReceived = 0;
     private boolean fileExistedBeforePut = false;
@@ -140,7 +141,7 @@ class FileHandler extends DefaultHttpRequestHandler {
     private boolean allRequestBodyReceived = false;
     
     // GET response body state
-    private AsynchronousFileChannel asyncReadChannel;
+    private AsyncFile asyncReadChannel;
     private long readPosition = 0;
     
     // WebDAV request body accumulation
@@ -380,6 +381,16 @@ class FileHandler extends DefaultHttpRequestHandler {
     }
 
     /**
+     * Returns the shared {@link StorageExecutor}, or null when no server is
+     * running (a unit-test harness, say).
+     */
+    private static StorageExecutor storageExecutor(HttpResponseState state) {
+        SelectorLoop loop = state.getSelectorLoop();
+        Gumdrop gumdrop = (loop != null) ? loop.getGumdrop() : null;
+        return (gumdrop != null) ? gumdrop.getStorageExecutor() : null;
+    }
+
+    /**
      * Runs a blocking filesystem operation on the shared {@link StorageExecutor}
      * and delivers the outcome back on this request's SelectorLoop thread (via
      * {@link HttpResponseState#execute}), so the callback continuation may
@@ -400,10 +411,7 @@ class FileHandler extends DefaultHttpRequestHandler {
      */
     private <T> void offload(final HttpResponseState state,
             final Callable<T> op, final StorageExecutor.Callback<T> callback) {
-        SelectorLoop loop = state.getSelectorLoop();
-        Gumdrop gumdrop = (loop != null) ? loop.getGumdrop() : null;
-        StorageExecutor exec =
-                (gumdrop != null) ? gumdrop.getStorageExecutor() : null;
+        StorageExecutor exec = storageExecutor(state);
         if (exec == null) {
             T result;
             try {
@@ -436,15 +444,16 @@ class FileHandler extends DefaultHttpRequestHandler {
         Path file;              // file to serve (200 with body)
         long size;              // file size
         String contentType;     // file content type
-        AsynchronousFileChannel channel; // opened off-loop for GET body
+        AsyncFile channel; // opened off-loop for GET body
     }
 
     /** RFC 9110 section 13 (conditional GET/HEAD), RFC 9111 validators. */
     private void handleGetOrHead(HttpResponseState state) {
+        final StorageExecutor storage = storageExecutor(state);
         offload(state, new Callable<GetPlan>() {
             @Override
             public GetPlan call() throws IOException {
-                return computeGetPlan();
+                return computeGetPlan(storage);
             }
         }, new StorageExecutor.Callback<GetPlan>() {
             @Override
@@ -461,7 +470,7 @@ class FileHandler extends DefaultHttpRequestHandler {
     }
 
     /** Gathers all metadata for a GET/HEAD off the loop (blocking). */
-    private GetPlan computeGetPlan() throws IOException {
+    private GetPlan computeGetPlan(StorageExecutor storage) throws IOException {
         GetPlan plan = new GetPlan();
         if (path == null || !bindCanonicalPath() || !Files.exists(path)
                 || DeadPropertyStore.isSidecarFile(path)) {
@@ -503,9 +512,9 @@ class FileHandler extends DefaultHttpRequestHandler {
             plan.notModified = true;
             return plan;
         }
-        // AFC.open is blocking — must stay inside this offloaded plan.
+        // Opening is blocking — must stay inside this offloaded plan.
         if ("GET".equals(method) && plan.size > 0) {
-            plan.channel = AsynchronousFileChannel.open(target,
+            plan.channel = AsyncFile.open(storage, target,
                     StandardOpenOption.READ);
         }
         return plan;
@@ -865,7 +874,7 @@ class FileHandler extends DefaultHttpRequestHandler {
     private static final class PutPlan {
         HttpStatus error;
         boolean existed;
-        AsynchronousFileChannel channel;
+        AsyncFile channel;
     }
 
     /** RFC 9110 §9.3.4 (PUT) — 201 Created / 204 No Content. */
@@ -882,10 +891,11 @@ class FileHandler extends DefaultHttpRequestHandler {
 
         // Pause body until the write channel is open (AFC.open is offloaded).
         state.pauseRequestBody();
+        final StorageExecutor storage = storageExecutor(state);
         offload(state, new Callable<PutPlan>() {
             @Override
             public PutPlan call() throws IOException {
-                return computePutPlan();
+                return computePutPlan(storage);
             }
         }, new StorageExecutor.Callback<PutPlan>() {
             @Override
@@ -903,7 +913,7 @@ class FileHandler extends DefaultHttpRequestHandler {
     }
 
     /** Performs exists / createDirectories / AFC.open off the loop. */
-    private PutPlan computePutPlan() throws IOException {
+    private PutPlan computePutPlan(StorageExecutor storage) throws IOException {
         PutPlan plan = new PutPlan();
         if (path == null || !bindCanonicalPath()) {
             plan.error = HttpStatus.BAD_REQUEST;
@@ -928,7 +938,7 @@ class FileHandler extends DefaultHttpRequestHandler {
         }
 
         try {
-            plan.channel = AsynchronousFileChannel.open(path,
+            plan.channel = AsyncFile.open(storage, path,
                     StandardOpenOption.WRITE,
                     StandardOpenOption.CREATE,
                     StandardOpenOption.TRUNCATE_EXISTING);
@@ -1210,7 +1220,15 @@ class FileHandler extends DefaultHttpRequestHandler {
 
         try {
             if (Files.isDirectory(path)) {
-                copyDirectory(path, destPath, depth);
+                Path sourceReal = path.toRealPath();
+                Path destReal = realPathAllowingMissing(destPath);
+                if (depth != 0 && destReal.startsWith(sourceReal)) {
+                    // RFC 4918 section 9.8.5: a collection cannot be
+                    // copied into itself.
+                    return HttpStatus.FORBIDDEN;
+                }
+                copyDirectory(path, destPath, depth,
+                        new CopyGuard(sourceReal, destReal));
             } else {
                 if (overwrite) {
                     Files.copy(path, destPath,
@@ -2281,26 +2299,51 @@ class FileHandler extends DefaultHttpRequestHandler {
     }
 
     private List<Path> collectResources(Path root, int depth) throws IOException {
+        List<Path> ancestors = new ArrayList<Path>();
+        ancestors.add(root.toRealPath());
+        return collectResources(root, depth, ancestors);
+    }
+
+    /**
+     * Enumerates a collection to the given depth. {@code ancestors} holds
+     * the canonical paths of the directories being walked, so that a
+     * symbolic link back over the walk is not followed.
+     */
+    private List<Path> collectResources(Path root, int depth, List<Path> ancestors)
+            throws IOException {
         List<Path> result = new ArrayList<Path>();
         result.add(root);
         
         if (depth > 0 && Files.isDirectory(root)) {
-            File[] children = root.toFile().listFiles();
-            if (children != null) {
-                for (File child : children) {
-                    if (child.getName().startsWith(".")) {
-                        continue; // Skip hidden files
-                    }
-                    Path childPath = child.toPath();
-                    result.add(childPath);
-                    if (depth > 1 && child.isDirectory()) {
-                        result.addAll(collectResources(childPath, depth - 1));
+            for (Path child : listChildren(root)) {
+                if (child.getFileName().toString().startsWith(".")) {
+                    continue; // Skip hidden files
+                }
+                if (Files.isSymbolicLink(child)
+                        && !isSafeToFollowLink(child, ancestors, null)) {
+                    logLinkLeftOut(child);
+                    continue;
+                }
+                result.add(child);
+                if (depth > 1 && Files.isDirectory(child)) {
+                    ancestors.add(child.toRealPath());
+                    try {
+                        result.addAll(collectResources(child, depth - 1, ancestors));
+                    } finally {
+                        ancestors.remove(ancestors.size() - 1);
                     }
                 }
             }
         }
         
         return result;
+    }
+
+    private void logLinkLeftOut(Path link) {
+        if (LOGGER.isLoggable(Level.FINE)) {
+            LOGGER.fine(MessageFormat.format(
+                    L10N.getString("fine.symlink_left_out"), link));
+        }
     }
 
     /**
@@ -2358,7 +2401,21 @@ class FileHandler extends DefaultHttpRequestHandler {
         }
     }
 
-    private void copyDirectory(Path source, Path target, int depth)
+    /**
+     * What a recursive COPY must not re-enter: the directories being copied
+     * and the destination they are copied to.
+     */
+    private static final class CopyGuard {
+        private final Path destination;
+        private final List<Path> sources = new ArrayList<Path>();
+
+        CopyGuard(Path sourceReal, Path destinationReal) {
+            this.destination = destinationReal;
+            this.sources.add(sourceReal);
+        }
+    }
+
+    private void copyDirectory(Path source, Path target, int depth, CopyGuard guard)
             throws IOException {
         if (!Files.exists(target)) {
             Files.createDirectory(target);
@@ -2368,30 +2425,116 @@ class FileHandler extends DefaultHttpRequestHandler {
             return;
         }
 
-        File[] children = source.toFile().listFiles();
-        if (children != null) {
-            for (int i = 0; i < children.length; i++) {
-                File child = children[i];
-                if (DeadPropertyStore.isSidecarName(
-                        child.getName())) {
-                    continue;
-                }
-                Path childSource = child.toPath();
-                Path childTarget = target.resolve(child.getName());
+        // An unreadable source directory fails the copy rather than
+        // leaving a silently incomplete result.
+        for (Path childSource : listChildren(source)) {
+            String childName = childSource.getFileName().toString();
+            if (DeadPropertyStore.isSidecarName(childName)) {
+                continue;
+            }
+            if (Files.isSymbolicLink(childSource)
+                    && !isSafeToFollowLink(childSource, guard.sources, guard.destination)) {
+                LOGGER.warning(MessageFormat.format(
+                        L10N.getString("warn.copy_skipped_link"), childSource));
+                continue;
+            }
+            Path childTarget = target.resolve(childName);
 
-                if (child.isDirectory()) {
-                    copyDirectory(childSource, childTarget,
-                            depth - 1);
-                } else {
-                    Files.copy(childSource, childTarget,
-                            StandardCopyOption.REPLACE_EXISTING);
-                    if (deadPropertyStore != null) {
-                        deadPropertyStore.copyProperties(
-                                childSource, childTarget);
-                    }
+            if (Files.isDirectory(childSource)) {
+                guard.sources.add(childSource.toRealPath());
+                try {
+                    copyDirectory(childSource, childTarget, depth - 1, guard);
+                } finally {
+                    guard.sources.remove(guard.sources.size() - 1);
+                }
+            } else {
+                Files.copy(childSource, childTarget,
+                        StandardCopyOption.REPLACE_EXISTING);
+                if (deadPropertyStore != null) {
+                    deadPropertyStore.copyProperties(
+                            childSource, childTarget);
                 }
             }
         }
+    }
+
+    /**
+     * Decides whether a symbolic link met while walking a collection may be
+     * followed. Its target must exist and be inside the web root, so that a
+     * link planted in a collection cannot expose outside files, and a
+     * directory target must not contain any of {@code ancestors} (the
+     * directories being walked) or {@code destination} (where a copy is
+     * going), since following it would walk the tree into itself without
+     * end.
+     *
+     * <p>A link that fails these tests is treated as absent: not listed,
+     * not reported, not copied. That is what GET already does for a
+     * request for such a link.
+     *
+     * @param link the symbolic link
+     * @param ancestors canonical paths of the directories being walked
+     * @param destination canonical destination of a copy, or null
+     */
+    private boolean isSafeToFollowLink(Path link, List<Path> ancestors,
+            Path destination) {
+        Path real;
+        try {
+            real = link.toRealPath();
+        } catch (IOException e) {
+            return false;
+        }
+        if (!real.startsWith(canonicalRoot)) {
+            return false;
+        }
+        if (Files.isDirectory(real)) {
+            if (destination != null && destination.startsWith(real)) {
+                return false;
+            }
+            for (int i = 0; i < ancestors.size(); i++) {
+                if (ancestors.get(i).startsWith(real)) {
+                    return false;
+                }
+            }
+        }
+        return true;
+    }
+
+    /**
+     * Returns the canonical path of {@code path}, or, if it does not exist
+     * yet, that of its nearest existing ancestor with the missing names
+     * appended.
+     */
+    private static Path realPathAllowingMissing(Path path) throws IOException {
+        Path existing = path;
+        List<Path> missing = new ArrayList<Path>();
+        while (existing != null && !Files.exists(existing)) {
+            missing.add(existing.getFileName());
+            existing = existing.getParent();
+        }
+        Path result = (existing != null) ? existing.toRealPath() : path;
+        for (int i = missing.size() - 1; i >= 0; i--) {
+            result = result.resolve(missing.get(i));
+        }
+        return result;
+    }
+
+    /**
+     * Lists the entries of a directory. Unlike {@code File.listFiles}, which
+     * answers null for any failure, an unreadable directory is reported.
+     */
+    private static List<Path> listChildren(Path dir) throws IOException {
+        List<Path> children = new ArrayList<Path>();
+        DirectoryStream<Path> stream = Files.newDirectoryStream(dir);
+        try {
+            for (Path child : stream) {
+                children.add(child);
+            }
+        } catch (DirectoryIteratorException e) {
+            throw e.getCause();
+        } finally {
+            stream.close();
+        }
+        return children;
     }
 
     private void deleteDirectory(Path dir) throws IOException {
@@ -2764,7 +2907,8 @@ class FileHandler extends DefaultHttpRequestHandler {
             if (welcomeFileName != null && !welcomeFileName.isEmpty()) {
                 Path welcomeFilePath = directory.resolve(welcomeFileName);
                 if (Files.exists(welcomeFilePath) && Files.isReadable(welcomeFilePath) 
-                        && !Files.isDirectory(welcomeFilePath)) {
+                        && !Files.isDirectory(welcomeFilePath)
+                        && isWithinRoot(welcomeFilePath)) {
                     return welcomeFilePath;
                 }
             }
@@ -2820,42 +2964,40 @@ class FileHandler extends DefaultHttpRequestHandler {
         }
         
         try {
-            File dir = directory.toFile();
-            File[] children = dir.listFiles();
-            if (children != null) {
-                List<File> entries = new ArrayList<File>();
-                for (File child : children) {
-                    entries.add(child);
-                }
-                Collections.sort(entries, new DirectoryListingComparator());
-                
-                for (File file : entries) {
-                    try {
-                        String filename = file.getName();
-                        if (DeadPropertyStore.isSidecarName(
-                                filename)) {
-                            continue;
-                        }
-                        boolean isDirectory = file.isDirectory();
-                        String displayName = isDirectory
-                                ? filename + "/" : filename;
-                        
-                        html.append("<li><a href=\"");
-                        html.append(escapeHtml(relativePath));
-                        html.append(escapeHtml(filename));
-                        html.append(isDirectory ? "/" : "");
-                        html.append("\">");
-                        html.append(escapeHtml(displayName));
-                        html.append("</a>");
-                        
-                        if (!isDirectory) {
-                            html.append(" (").append(formatFileSize(file.length())).append(")");
-                        }
-                        
-                        html.append("</li>\n");
-                    } catch (Exception e) {
-                        // Skip
+            List<Path> entries = listChildren(directory);
+            Collections.sort(entries, new DirectoryListingComparator());
+
+            List<Path> none = new ArrayList<Path>();
+            for (Path file : entries) {
+                try {
+                    String filename = file.getFileName().toString();
+                    if (DeadPropertyStore.isSidecarName(filename)) {
+                        continue;
                     }
+                    if (Files.isSymbolicLink(file)
+                            && !isSafeToFollowLink(file, none, null)) {
+                        logLinkLeftOut(file);
+                        continue;
+                    }
+                    boolean isDirectory = Files.isDirectory(file);
+                    String displayName = isDirectory
+                            ? filename + "/" : filename;
+
+                    html.append("<li><a href=\"");
+                    html.append(escapeHtml(relativePath));
+                    html.append(escapeHtml(filename));
+                    html.append(isDirectory ? "/" : "");
+                    html.append("\">");
+                    html.append(escapeHtml(displayName));
+                    html.append("</a>");
+
+                    if (!isDirectory) {
+                        html.append(" (").append(formatFileSize(Files.size(file))).append(")");
+                    }
+
+                    html.append("</li>\n");
+                } catch (Exception e) {
+                    // Skip
                 }
             }
         } catch (Exception e) {
@@ -2881,15 +3023,16 @@ class FileHandler extends DefaultHttpRequestHandler {
         return QuotaPolicy.formatSize(bytes);
     }
 
-    private static class DirectoryListingComparator implements Comparator<File> {
+    private static class DirectoryListingComparator implements Comparator<Path> {
         @Override
-        public int compare(File f1, File f2) {
-            boolean f1IsDir = f1.isDirectory();
-            boolean f2IsDir = f2.isDirectory();
+        public int compare(Path f1, Path f2) {
+            boolean f1IsDir = Files.isDirectory(f1);
+            boolean f2IsDir = Files.isDirectory(f2);
             if (f1IsDir != f2IsDir) {
                 return f1IsDir ? -1 : 1;
             }
-            return f1.getName().compareToIgnoreCase(f2.getName());
+            return f1.getFileName().toString().compareToIgnoreCase(
+                    f2.getFileName().toString());
         }
     }
 }

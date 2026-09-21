@@ -21,16 +21,13 @@
 
 package org.bluezoo.gumdrop.mailbox.maildir;
 
-import org.junit.After;
+import org.bluezoo.gumdrop.testsupport.memfs.MemoryFileSystem;
 import org.junit.Before;
 import org.junit.Test;
 
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.SimpleFileVisitor;
-import java.nio.file.FileVisitResult;
-import java.nio.file.attribute.BasicFileAttributes;
 import java.io.IOException;
 
 import static org.junit.Assert.*;
@@ -52,36 +49,8 @@ public class MaildirNewToCurTest {
 
     @Before
     public void setUp() throws Exception {
-        tempDir = Files.createTempDirectory("maildir-new-to-cur");
-    }
-
-    @After
-    public void tearDown() {
-        if (tempDir == null) {
-            return;
-        }
-        try {
-            Files.walkFileTree(tempDir, new SimpleFileVisitor<Path>() {
-                @Override
-                public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) {
-                    try {
-                        Files.deleteIfExists(file);
-                    } catch (IOException ignored) {
-                    }
-                    return FileVisitResult.CONTINUE;
-                }
-
-                @Override
-                public FileVisitResult postVisitDirectory(Path dir, IOException exc) {
-                    try {
-                        Files.deleteIfExists(dir);
-                    } catch (IOException ignored) {
-                    }
-                    return FileVisitResult.CONTINUE;
-                }
-            });
-        } catch (IOException ignored) {
-        }
+        tempDir = MemoryFileSystem.create().getPath("/maildir");
+        Files.createDirectories(tempDir);
     }
 
     @Test

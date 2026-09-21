@@ -181,13 +181,6 @@ public class UdpTransportFactory extends TransportFactory {
     public void start() {
         super.start();
 
-        if (secure && serverCredentials == null && serverCredentialsResolver == null
-                && (keystoreFile == null || keystorePass == null)) {
-            String message = Gumdrop.L10N.getString("err.no_keystore");
-            throw new RuntimeException(
-                    "Secure UDP factory requires keystore: " + message);
-        }
-
         try {
             if (serverCredentials == null && serverCredentialsResolver == null) {
                 if (certFile != null && keyFile != null) {
@@ -211,10 +204,12 @@ public class UdpTransportFactory extends TransportFactory {
                 LOGGER.warning(MessageFormat.format(
                         Gumdrop.L10N.getString("warn.dtls12_named_groups_ignored"), namedGroups));
             }
-            if (secure && dtlsVersion == DtlsVersion.DTLS_1_2) {
-                sharedServerConfig = buildServerConfig12();
-            } else if (secure && dtlsVersion == DtlsVersion.DTLS_1_3) {
-                sharedServerConfig13 = buildServerConfig13();
+            if (secure && (serverCredentials != null || serverCredentialsResolver != null)) {
+                if (dtlsVersion == DtlsVersion.DTLS_1_2) {
+                    sharedServerConfig = buildServerConfig12();
+                } else if (dtlsVersion == DtlsVersion.DTLS_1_3) {
+                    sharedServerConfig13 = buildServerConfig13();
+                }
             }
         } catch (Exception e) {
             RuntimeException e2 = new RuntimeException("Failed to initialise DTLS configuration");
@@ -235,9 +230,8 @@ public class UdpTransportFactory extends TransportFactory {
         Tls12HandshakeConfig base = new Tls12HandshakeConfig(HandshakeRole.CLIENT);
         base.setServerName(serverName);
         base.setTrustManager(effectiveTrustManager);
-        ServerCredentials ownCredentials = (clientCredentials != null) ? clientCredentials : serverCredentials;
-        if (ownCredentials != null) {
-            base.setClientCredentials(ownCredentials);
+        if (clientCredentials != null) {
+            base.setClientCredentials(clientCredentials);
         }
         applyCommonConfig12(base);
         Dtls12HandshakeConfig config = new Dtls12HandshakeConfig(base);
@@ -249,9 +243,8 @@ public class UdpTransportFactory extends TransportFactory {
         HandshakeConfig base = new HandshakeConfig(HandshakeRole.CLIENT);
         base.setServerName(serverName);
         base.setTrustManager(effectiveTrustManager);
-        ServerCredentials ownCredentials = (clientCredentials != null) ? clientCredentials : serverCredentials;
-        if (ownCredentials != null) {
-            base.setClientCredentials(ownCredentials);
+        if (clientCredentials != null) {
+            base.setClientCredentials(clientCredentials);
         }
         applyCommonConfig13(base);
         Dtls13HandshakeConfig config = new Dtls13HandshakeConfig(base);
@@ -427,6 +420,10 @@ public class UdpTransportFactory extends TransportFactory {
                                                   ProtocolHandler handler,
                                                   SelectorLoop loop)
             throws IOException {
+        if (secure && serverCredentials == null && serverCredentialsResolver == null) {
+            String message = Gumdrop.L10N.getString("err.no_keystore");
+            throw new IOException("Secure UDP server requires TLS identity: " + message);
+        }
         UdpEndpoint endpoint = new UdpEndpoint(handler);
         endpoint.setFactory(this);
         endpoint.setSecure(secure);

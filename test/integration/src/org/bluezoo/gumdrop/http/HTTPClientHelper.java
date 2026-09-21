@@ -22,7 +22,10 @@
 package org.bluezoo.gumdrop.http;
 
 import org.bluezoo.gumdrop.IntegrationTlsClient;
+import org.bluezoo.gumdrop.TestTlsFiles;
 import org.bluezoo.gumdrop.util.EmptyX509TrustManager;
+
+import javax.net.ssl.X509TrustManager;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -100,7 +103,7 @@ public class HTTPClientHelper {
                 final boolean hasConnectionClose = request.toLowerCase().contains("connection: close");
                 byte[] wire = IntegrationTlsClient.exchangeWhenComplete(host, port,
                         request.getBytes(StandardCharsets.UTF_8),
-                        new EmptyX509TrustManager(), timeout,
+                        integrationTrustManager(), timeout,
                         new IntegrationTlsClient.ResponseComplete() {
                             @Override
                             public boolean isComplete(byte[] inbound) {
@@ -161,6 +164,18 @@ public class HTTPClientHelper {
         }
     }
     
+    private static X509TrustManager integrationTrustManager() {
+        if (TestTlsFiles.available()) {
+            try {
+                return TestTlsFiles.trustManager();
+            } catch (Exception e) {
+                throw new IllegalStateException(
+                        "Could not load TLS trust material from " + TestTlsFiles.directory(), e);
+            }
+        }
+        return new EmptyX509TrustManager();
+    }
+
     private static boolean isResponseComplete(byte[] responseBytes, boolean hasConnectionClose) {
         if (responseBytes.length < 4) {
             return false;

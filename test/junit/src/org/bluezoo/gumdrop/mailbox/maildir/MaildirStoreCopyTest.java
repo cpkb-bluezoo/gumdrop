@@ -24,7 +24,7 @@ package org.bluezoo.gumdrop.mailbox.maildir;
 import org.bluezoo.gumdrop.mailbox.Flag;
 import org.bluezoo.gumdrop.mailbox.Mailbox;
 
-import org.junit.After;
+import org.bluezoo.gumdrop.testsupport.memfs.MemoryFileSystem;
 import org.junit.Before;
 import org.junit.Test;
 
@@ -33,11 +33,8 @@ import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.channels.ReadableByteChannel;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.FileVisitResult;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.SimpleFileVisitor;
-import java.nio.file.attribute.BasicFileAttributes;
 import java.util.ArrayList;
 import java.util.EnumSet;
 import java.util.List;
@@ -65,7 +62,8 @@ public class MaildirStoreCopyTest {
 
     @Before
     public void setUp() throws Exception {
-        root = Files.createTempDirectory("maildir-store-copy");
+        root = MemoryFileSystem.create().getPath("/maildir");
+        Files.createDirectories(root);
         Path inbox = root.resolve("editor");
         makeMaildir(inbox);
         writeNew(inbox, "1733356800000.a.host", BODY_ONE);
@@ -73,29 +71,6 @@ public class MaildirStoreCopyTest {
         store = new MaildirMailboxStore(root);
         store.open("editor");
         store.createMailbox("Dest");
-    }
-
-    @After
-    public void tearDown() throws Exception {
-        try {
-            store.close();
-        } finally {
-            Files.walkFileTree(root, new SimpleFileVisitor<Path>() {
-                @Override
-                public FileVisitResult visitFile(Path file,
-                        BasicFileAttributes attrs) throws IOException {
-                    Files.deleteIfExists(file);
-                    return FileVisitResult.CONTINUE;
-                }
-
-                @Override
-                public FileVisitResult postVisitDirectory(Path dir,
-                        IOException exc) throws IOException {
-                    Files.deleteIfExists(dir);
-                    return FileVisitResult.CONTINUE;
-                }
-            });
-        }
     }
 
     private static void makeMaildir(Path dir) throws IOException {

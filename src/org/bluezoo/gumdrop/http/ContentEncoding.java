@@ -51,6 +51,15 @@ public final class ContentEncoding {
     /** Default maximum decompressed body size (64 MiB). */
     public static final int DEFAULT_MAX_DECOMPRESSED_SIZE = 64 * 1024 * 1024;
 
+    /**
+     * Whether HTTP {@code Content-Encoding} / {@code Accept-Encoding} may be
+     * used on the wire. Returns false when {@code gumdrop.http.disableContentCoding}
+     * is set (integration tests use this to reduce variables while debugging).
+     */
+    public static boolean isContentCodingEnabled() {
+        return !Boolean.getBoolean("gumdrop.http.disableContentCoding");
+    }
+
     private static final byte[] GZIP_HEADER = {
             (byte) 0x1f, (byte) 0x8b, Deflater.DEFLATED, 0,
             0, 0, 0, 0, // mtime

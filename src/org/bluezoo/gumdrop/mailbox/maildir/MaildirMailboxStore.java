@@ -34,7 +34,6 @@ import org.bluezoo.gumdrop.mailbox.index.MailboxWatcher;
 
 import java.io.BufferedReader;
 import java.io.BufferedWriter;
-import java.io.File;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.channels.ReadableByteChannel;
@@ -44,10 +43,8 @@ import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.text.MessageFormat;
 import java.time.OffsetDateTime;
-import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.Deque;
 import java.util.EnumSet;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -82,7 +79,10 @@ import java.util.logging.Logger;
  * </pre>
  * 
  * <p>The hierarchy delimiter is "/" but folder directories use "." prefix
- * and "." as separator (Maildir++ convention).
+ * and "." as separator (Maildir++ convention). Because "." separates levels,
+ * a dot that is part of a mailbox name is encoded as {@code =2E}: the
+ * mailbox {@code a.b} is the directory {@code .a=2Eb}, and {@code a/b} is
+ * {@code .a.b}.
  * 
  * <p><b>Security:</b> All paths are sandboxed to prevent directory traversal
  * attacks. Paths containing ".." or absolute references are rejected.
@@ -262,6 +262,25 @@ public class MaildirMailboxStore implements MailboxStore {
     }
 
     /**
+     * Encodes one component of a mailbox name for use in a directory name.
+     *
+     * <p>{@link MailboxNameCodec} makes a name safe for a file system, but
+     * leaves dots alone, and Maildir++ uses a dot to separate the levels of
+     * the hierarchy. Left as they were, the mailboxes {@code a.b} and
+     * {@code a/b} would both be the directory {@code .a.b}, and listing it
+     * would report {@code a/b}. So a dot is encoded here in the same
+     * {@code =XX} form the codec uses for other characters, and
+     * {@link MailboxNameCodec#decode} reverses it. The mbox store, whose file
+     * names can safely hold dots, does not do this.
+     *
+     * <p>Directories made before dots were encoded keep the meaning they
+     * always had when listed: {@code .a.b} is {@code a/b}.
+     */
+    private static String encodeComponent(String component) {
+        return MailboxNameCodec.encode(component).replace(".", "=2E");
+    }
+
+    /**
      * Converts an IMAP mailbox name to a Maildir++ directory name.
      * INBOX -> (root)
      * Sent -> .Sent
@@ -269,6 +288,9 @@ public class MaildirMailboxStore implements MailboxStore {
      * 
      * <p>Mailbox name components are encoded for filesystem safety using
      * {@link MailboxNameCodec} before being combined into the directory name.
+     * A dot inside a component is encoded as well (see
+     * {@link #encodeComponent}), so that {@code a.b} and {@code a/b} are
+     * different mailboxes.
      */
     private String mailboxToDirectoryName(String mailboxName) {
         if (mailboxName.equalsIgnoreCase(INBOX)) {
@@ -293,7 +315,7 @@ public class MaildirMailboxStore implements MailboxStore {
             }
             first = false;
             // Encode each component for filesystem safety
-            result.append(MailboxNameCodec.encode(part));
+            result.append(encodeComponent(part));
             partStart = partEnd + 1;
         }
         
@@ -377,71 +399,25 @@ public class MaildirMailboxStore implements MailboxStore {
         return normalized;
     }
 
-    /**
-     * Checks if a directory is a valid Maildir (has cur, new, tmp).
-     */
-    private boolean isValidMaildir(Path path) {
-        if (!Files.isDirectory(path)) {
-            return false;
-        }
-        return Files.isDirectory(path.resolve("cur")) &&
-               Files.isDirectory(path.resolve("new")) &&
-               Files.isDirectory(path.resolve("tmp"));
-    }
-
     @Override
     public List<String> listMailboxes(String reference, String pattern) throws IOException {
         ensureOpen();
-        
+
         String fullPattern = reference + pattern;
         List<String> result = new ArrayList<>();
 
-        // Use stack-based iteration to find mailboxes
-        Deque<ScanState> stack = new ArrayDeque<>();
-        stack.push(new ScanState(userDirectory.toFile(), ""));
-
-        while (!stack.isEmpty()) {
-            ScanState state = stack.pop();
-            File[] children = state.directory.listFiles();
-            if (children == null) {
-                continue;
-            }
-
-            for (File child : children) {
-                String fileName = child.getName();
-                
-                if (child.isDirectory()) {
-                    // Check if this is a Maildir++ subfolder (starts with .)
-                    if (fileName.startsWith(".") && !fileName.equals(".") && !fileName.equals("..")) {
-                        // Skip special files
-                        if (fileName.equals(".subscriptions") || fileName.equals(".uidlist") || 
-                            fileName.equals(".keywords")) {
-                            continue;
-                        }
-                        
-                        Path maildirPath = child.toPath();
-                        if (isValidMaildir(maildirPath)) {
-                            String mailboxName = directoryToMailboxName(fileName);
-                            if (matchesPattern(mailboxName, fullPattern)) {
-                                result.add(mailboxName);
-                            }
-                        }
-                    } else if (state.prefix.isEmpty() && 
-                               (fileName.equals("cur") || fileName.equals("new") || fileName.equals("tmp"))) {
-                        // This is INBOX
-                        if (matchesPattern(INBOX, fullPattern)) {
-                            if (!result.contains(INBOX)) {
-                                result.add(INBOX);
-                            }
-                        }
-                    }
-                }
+        if (MaildirLayout.isMaildir(userDirectory) && matchesPattern(INBOX, fullPattern)) {
+            result.add(INBOX);
+        }
+        List<Path> subfolders = MaildirLayout.listSubfolders(userDirectory);
+        for (Path folder : subfolders) {
+            String mailboxName = directoryToMailboxName(folder.getFileName().toString());
+            if (matchesPattern(mailboxName, fullPattern)) {
+                result.add(mailboxName);
             }
         }
 
-        // Sort results
         Collections.sort(result, String.CASE_INSENSITIVE_ORDER);
-        
         return result;
     }
 
@@ -602,7 +578,7 @@ public class MaildirMailboxStore implements MailboxStore {
         String normalized = normalizeMailboxName(mailboxName);
         Path mailboxPath = resolveMailboxPath(normalized);
         
-        if (!isValidMaildir(mailboxPath)) {
+        if (!MaildirLayout.isMaildir(mailboxPath)) {
             throw new IOException("Mailbox does not exist: " + mailboxName);
         }
         
@@ -715,48 +691,26 @@ public class MaildirMailboxStore implements MailboxStore {
         
         Path mailboxPath = resolveMailboxPath(normalized);
         
-        if (!Files.exists(mailboxPath)) {
+        // Only a real Maildir may be deleted: anything else under the user
+        // directory is not ours to remove.
+        if (!MaildirLayout.isMaildir(mailboxPath)) {
             throw new IOException("Mailbox does not exist: " + mailboxName);
         }
         
         // Check if mailbox is empty
-        Path curPath = mailboxPath.resolve("cur");
-        File curDir = curPath.toFile();
-        File[] messages = curDir.listFiles();
-        if (messages != null && messages.length > 0) {
+        if (MaildirLayout.hasMessages(mailboxPath)) {
             throw new IOException("Mailbox is not empty: " + mailboxName);
         }
-        
+
         // Delete Maildir structure
-        deleteDirectory(mailboxPath.toFile());
-        
+        MaildirLayout.deleteTree(mailboxPath);
+
         // Remove from subscriptions
         subscriptions.remove(normalized);
         
         if (LOGGER.isLoggable(Level.FINE)) {
             LOGGER.fine(MessageFormat.format(
                     L10N.getString("info.mailbox_deleted"), mailboxName));
-        }
-    }
-
-    /**
-     * Recursively deletes a directory.
-     */
-    private void deleteDirectory(File dir) throws IOException {
-        File[] children = dir.listFiles();
-        if (children != null) {
-            for (File child : children) {
-                if (child.isDirectory()) {
-                    deleteDirectory(child);
-                } else {
-                    if (!child.delete()) {
-                        throw new IOException("Failed to delete file: " + child);
-                    }
-                }
-            }
-        }
-        if (!dir.delete()) {
-            throw new IOException("Failed to delete directory: " + dir);
         }
     }
 
@@ -775,25 +729,77 @@ public class MaildirMailboxStore implements MailboxStore {
         }
         
         Path oldPath = resolveMailboxPath(normalizedOld);
-        Path newPath = resolveMailboxPath(normalizedNew);
+        resolveMailboxPath(normalizedNew);
         
         if (!Files.exists(oldPath)) {
             throw new IOException("Mailbox does not exist: " + oldName);
         }
-        if (Files.exists(newPath)) {
-            throw new IOException("Mailbox already exists: " + newName);
+
+        // RFC 3501 section 6.3.5: the inferior names must be renamed too
+        // (foo/bar becomes zap/bar when foo becomes zap). Work out every
+        // move, and check that none of the targets is taken, before
+        // touching anything.
+        List<String[]> renames = new ArrayList<String[]>();
+        renames.add(new String[] { normalizedOld, normalizedNew });
+        String inferiorPrefix = normalizedOld + HIERARCHY_DELIMITER;
+        for (String name : listMailboxes("", "*")) {
+            if (name.startsWith(inferiorPrefix)) {
+                renames.add(new String[] { name,
+                        normalizedNew + name.substring(normalizedOld.length()) });
+            }
         }
-        
-        Files.move(oldPath, newPath);
-        
+        List<Path[]> moves = new ArrayList<Path[]>();
+        for (String[] rename : renames) {
+            Path target = resolveMailboxPath(rename[1]);
+            if (Files.exists(target)) {
+                throw new IOException("Mailbox already exists: " + rename[1]);
+            }
+            moves.add(new Path[] { resolveMailboxPath(rename[0]), target });
+        }
+
+        // All or nothing: a move that fails undoes those already made.
+        List<Path[]> done = new ArrayList<Path[]>();
+        boolean complete = false;
+        try {
+            for (Path[] move : moves) {
+                Files.move(move[0], move[1]);
+                done.add(move);
+            }
+            complete = true;
+        } finally {
+            if (!complete) {
+                undoMoves(done);
+            }
+        }
+
         // Update subscriptions
-        if (subscriptions.remove(normalizedOld)) {
-            subscriptions.add(normalizedNew);
+        for (String[] rename : renames) {
+            if (subscriptions.remove(rename[0])) {
+                subscriptions.add(rename[1]);
+            }
         }
         
         if (LOGGER.isLoggable(Level.FINE)) {
             LOGGER.fine(MessageFormat.format(
                     L10N.getString("info.mailbox_renamed"), normalizedOld, normalizedNew));
+        }
+    }
+
+    /**
+     * Moves back, most recent first, the moves of a rename that failed part
+     * way. A move that cannot be undone is logged and the rest carry on, so
+     * as much as possible is restored.
+     */
+    private void undoMoves(List<Path[]> done) {
+        for (int i = done.size() - 1; i >= 0; i--) {
+            Path[] move = done.get(i);
+            try {
+                Files.move(move[1], move[0]);
+            } catch (IOException e) {
+                LOGGER.log(Level.WARNING, MessageFormat.format(
+                        L10N.getString("warn.rename_rollback_failed"),
+                        move[1], move[0]), e);
+            }
         }
     }
 
@@ -805,7 +811,7 @@ public class MaildirMailboxStore implements MailboxStore {
         String normalized = normalizeMailboxName(mailboxName);
         Path mailboxPath = resolveMailboxPath(normalized);
         
-        if (!isValidMaildir(mailboxPath)) {
+        if (!MaildirLayout.isMaildir(mailboxPath)) {
             attributes.add(MailboxAttribute.NOSELECT);
             return attributes;
         }
@@ -815,19 +821,13 @@ public class MaildirMailboxStore implements MailboxStore {
         String dirName = mailboxToDirectoryName(normalized);
         String prefix = dirName.isEmpty() ? "." : dirName + ".";
         
-        File userDir = userDirectory.toFile();
-        File[] children = userDir.listFiles();
-        if (children != null) {
-            for (File child : children) {
-                if (child.isDirectory() && child.getName().startsWith(prefix)) {
-                    if (isValidMaildir(child.toPath())) {
-                        hasChildren = true;
-                        break;
-                    }
-                }
+        for (Path folder : MaildirLayout.listSubfolders(userDirectory)) {
+            if (folder.getFileName().toString().startsWith(prefix)) {
+                hasChildren = true;
+                break;
             }
         }
-        
+
         if (hasChildren) {
             attributes.add(MailboxAttribute.HASCHILDREN);
         } else {
@@ -837,107 +837,4 @@ public class MaildirMailboxStore implements MailboxStore {
         return attributes;
     }
 
-    @Override
-    public String getQuotaRoot(String mailboxName) throws IOException {
-        ensureOpen();
-        return username; // User-level quota
-    }
-
-    @Override
-    public Quota getQuota(String quotaRoot) throws IOException {
-        ensureOpen();
-        
-        if (!quotaRoot.equals(username)) {
-            return null;
-        }
-        
-        // Calculate storage usage
-        long[] stats = calculateStorageUsage();
-        final long totalSize = stats[0];
-        final long messageCount = stats[1];
-        
-        return new Quota() {
-            @Override
-            public String getRoot() {
-                return username;
-            }
-            
-            @Override
-            public long getStorageUsed() {
-                return totalSize / 1024; // Convert to KB
-            }
-            
-            @Override
-            public long getStorageLimit() {
-                return -1; // No limit
-            }
-            
-            @Override
-            public long getMessageCount() {
-                return messageCount;
-            }
-            
-            @Override
-            public long getMessageLimit() {
-                return -1; // No limit
-            }
-        };
-    }
-
-    /**
-     * Calculates total storage usage for the user.
-     * Returns [total_bytes, message_count].
-     */
-    private long[] calculateStorageUsage() {
-        long totalSize = 0;
-        long messageCount = 0;
-        
-        Deque<File> stack = new ArrayDeque<>();
-        stack.push(userDirectory.toFile());
-        
-        while (!stack.isEmpty()) {
-            File current = stack.pop();
-            File[] children = current.listFiles();
-            if (children == null) {
-                continue;
-            }
-            
-            for (File child : children) {
-                if (child.isDirectory()) {
-                    String name = child.getName();
-                    if (name.equals("cur") || name.equals("new")) {
-                        // Count messages in cur and new directories
-                        File[] messages = child.listFiles();
-                        if (messages != null) {
-                            for (File msg : messages) {
-                                if (msg.isFile() && !msg.getName().startsWith(".")) {
-                                    totalSize += msg.length();
-                                    messageCount++;
-                                }
-                            }
-                        }
-                    } else if (!name.equals("tmp")) {
-                        stack.push(child);
-                    }
-                }
-            }
-        }
-        
-        return new long[]{totalSize, messageCount};
-    }
-
-    /**
-     * State holder for directory scanning.
-     */
-    private static class ScanState {
-        final File directory;
-        final String prefix;
-
-        ScanState(File directory, String prefix) {
-            this.directory = directory;
-            this.prefix = prefix;
-        }
-    }
-
 }
-

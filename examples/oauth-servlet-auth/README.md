@@ -71,12 +71,16 @@ HttpServer server = HttpServer.compose()
         .listener(new Http2Listener()
                 .port(8443)
                 .secure(true)
-                .tls(TlsConfig.keystore(Path.of("config/keystore.p12"), "changeit")))
+                // PEM files are the simplest identity (ant tls-certs makes some)
+                .tls(TlsConfig.pem(Path.of("config/tls/cert.pem"), Path.of("config/tls/key.pem"))))
+                // or a Java keystore:
+                // .tls(TlsConfig.keystore(Path.of("config/keystore.p12"), "changeit")))
         .streamHandler(new ServletRequestHandler(container))
         .server();
 
-Gumdrop.getInstance().addServer(server);
-Gumdrop.getInstance().start();
+Gumdrop gumdrop = Gumdrop.boot();
+gumdrop.addServer(server);
+gumdrop.join();
 ```
 
 ### 3. Web Application Security (`web.xml`)

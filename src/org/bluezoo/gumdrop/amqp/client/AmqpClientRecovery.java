@@ -344,7 +344,7 @@ public class AmqpClientRecovery {
     }
 
     private void doConnect(final boolean first) {
-        if (closed) {
+        if (shouldStopRecovery()) {
             return;
         }
         TcpTransportFactory transportFactory = new TcpTransportFactory();
@@ -392,24 +392,23 @@ public class AmqpClientRecovery {
     }
 
     private void scheduleReconnect(Exception cause) {
-        if (closed) {
+        if (shouldStopRecovery()) {
             return;
         }
         recoverableConnection.markDisconnected();
-        LOGGER.log(Level.WARNING, L10N.getString("warn.connection_lost"), cause);
         if (listener != null) {
             listener.onConnectionLost(cause);
         }
         attempt++;
         int maxAttempts = policy.getMaxAttempts();
         if (maxAttempts > 0 && attempt > maxAttempts) {
-            LOGGER.log(Level.SEVERE,
-                    MessageFormat.format(L10N.getString("err.recovery_failed"), attempt), cause);
+            logRecoveryAbandoned(cause);
             if (listener != null) {
                 listener.onRecoveryFailed(cause);
             }
             return;
         }
+        logRetryableConnectionLoss(cause);
         long delay = policy.delayFor(attempt);
         LOGGER.log(Level.INFO, L10N.getString("info.reconnecting"),
                 new Object[] { delay, attempt });
@@ -423,6 +422,61 @@ public class AmqpClientRecovery {
                 doConnect(false);
             }
         });
+    }
+
+    private boolean shouldStopRecovery() {
+        return closed || (gumdrop != null && gumdrop.isDraining());
+    }
+
+    private void logRetryableConnectionLoss(Exception cause) {
+        if (isCleanLocalClose(cause)) {
+            if (LOGGER.isLoggable(Level.FINE)) {
+                LOGGER.log(Level.FINE, L10N.getString("warn.connection_lost"), cause);
+            }
+            return;
+        }
+        if (LOGGER.isLoggable(Level.FINE)) {
+            LOGGER.log(Level.FINE, L10N.getString("warn.connection_lost"), cause);
+            return;
+        }
+        if (LOGGER.isLoggable(Level.INFO)) {
+            String detail = cause != null ? cause.getMessage() : null;
+            if (detail != null && !detail.isEmpty()) {
+                LOGGER.log(Level.INFO, L10N.getString("warn.connection_lost") + ": " + detail);
+            } else {
+                LOGGER.log(Level.INFO, L10N.getString("warn.connection_lost"));
+            }
+        }
+    }
+
+    private void logRecoveryAbandoned(Exception cause) {
+        String summary = MessageFormat.format(L10N.getString("err.recovery_failed"), attempt);
+        if (isPermanentConfigurationFailure(cause)) {
+            String detail = cause != null ? cause.getMessage() : null;
+            if (detail != null && !detail.isEmpty()) {
+                LOGGER.log(Level.WARNING, summary + ": " + detail);
+            } else {
+                LOGGER.log(Level.WARNING, summary);
+            }
+            if (LOGGER.isLoggable(Level.FINE) && cause != null) {
+                LOGGER.log(Level.FINE, summary, cause);
+            }
+            return;
+        }
+        LOGGER.log(Level.SEVERE, summary, cause);
+    }
+
+    private static boolean isPermanentConfigurationFailure(Exception cause) {
+        String msg = cause != null ? cause.getMessage() : null;
+        return msg != null && msg.startsWith("Broker does not offer the requested SASL mechanism");
+    }
+
+    /** TCP EOF from {@code onDisconnected} during an expected close or drop. */
+    private static boolean isCleanLocalClose(Exception cause) {
+        if (!(cause instanceof IOException)) {
+            return false;
+        }
+        return "Connection closed".equals(cause.getMessage());
     }
 
     /** Closes the connection and stops reconnecting. */
@@ -484,7 +538,7 @@ public class AmqpClientRecovery {
         public void handleStart(FieldTable serverProperties, String mechanisms, String locales,
                 ClientHandshake handshake) {
             if (!"PLAIN".equalsIgnoreCase(mechanism) && !isMechanismOffered(mechanisms, mechanism)) {
-                scheduleReconnect(new IOException(MessageFormat.format(
+                scheduleReconnectOnce(new IOException(MessageFormat.format(
                         L10N.getString("err.sasl_mechanism_not_offered"), mechanism, mechanisms)));
                 return;
             }
@@ -524,7 +578,7 @@ public class AmqpClientRecovery {
                 SaslClientMechanism client = SaslUtils.createClient(
                         "GSSAPI", username, password, principal, gssapiSubject);
                 if (client == null) {
-                    scheduleReconnect(new IOException(
+                    scheduleReconnectOnce(new IOException(
                             "GSSAPI mechanism requires gssapiCredentials(subject, servicePrincipal, executor)"));
                     return;
                 }

@@ -1,7 +1,8 @@
 #!/bin/sh
 #
 # Start the assembled servlet container with etc/server-tls.xml (HTTPS + HTTP/3
-# on 8443). Run scripts/dev-tls-setup.sh first to create conf/keystore.p12.
+# on 8443). Run "ant tls-certs assemble-container" first to create the PEM files
+# in conf/tls/.
 
 set -e
 
@@ -26,8 +27,9 @@ if [ ! -f "$tls_config" ]; then
 	echo "start-tls: missing $tls_config (re-run ant assemble-container)." >&2
 	exit 1
 fi
-if [ ! -f "$GUMDROP_HOME/conf/keystore.p12" ]; then
-	echo "start-tls: missing keystore — run scripts/dev-tls-setup.sh first." >&2
+if [ ! -f "$GUMDROP_HOME/conf/tls/cert.pem" ] || [ ! -f "$GUMDROP_HOME/conf/tls/key.pem" ]; then
+	echo "start-tls: missing conf/tls/cert.pem or key.pem." >&2
+	echo "  Run: ant tls-certs assemble-container" >&2
 	exit 1
 fi
 

@@ -197,7 +197,7 @@ public final class AuthoritativeZoneHandler implements DnsQueryHandler {
         if (master != null) {
             final MutableZone refreshZone = zone;
             final SelectorLoop dispatchLoop = loop != null ? loop : defaultLoop;
-            ZoneNetworkTasks.refreshFromMasterAsync(storageExecutor, dispatchLoop,
+            ZoneNetworkTasks.refreshFromMasterAsync(dispatchLoop,
                     refreshZone, master, new Runnable() {
                         @Override
                         public void run() {
@@ -258,7 +258,7 @@ public final class AuthoritativeZoneHandler implements DnsQueryHandler {
             return;
         }
         SelectorLoop dispatchLoop = loop != null ? loop : defaultLoop;
-        ZoneNetworkTasks.notifyPeersAsync(storageExecutor, dispatchLoop,
+        ZoneNetworkTasks.notifyPeersAsync(dispatchLoop,
                 zone.getOrigin(), peers);
     }
 

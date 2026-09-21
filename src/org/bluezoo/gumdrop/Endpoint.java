@@ -105,6 +105,20 @@ public interface Endpoint {
      */
     void close();
 
+    /**
+     * Closes this endpoint once all outbound data already queued for
+     * sending (including TLS-protected application data) has been written
+     * to the transport, then sends {@code close_notify} for TLS.
+     *
+     * <p>Plaintext endpoints behave like {@link #close()}. Use this for
+     * short TLS uploads where {@link #close()} immediately after
+     * {@link #send(ByteBuffer)} could emit {@code close_notify} before
+     * the final application-data records are framed.
+     */
+    default void closeWhenOutboundIdle() {
+        close();
+    }
+
     // -- Identity --
 
     /**

@@ -46,6 +46,7 @@ import java.util.logging.Logger;
 
 import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.Gumdrop;
+import org.bluezoo.gumdrop.NullSecurityInfo;
 import org.bluezoo.gumdrop.ProtocolHandler;
 import org.bluezoo.gumdrop.StorageExecutor;
 import org.bluezoo.gumdrop.util.ByteBufferPool;
@@ -178,6 +179,10 @@ public class FtpDataConnectionCoordinator {
 
     // RFC 4217 section 10: control connection client address for verification
     private InetAddress controlClientAddress;
+
+    // Upload-only: data endpoint registered while the async file open runs.
+    private UploadStagingHandler uploadStagingHandler;
+    private Endpoint pendingUploadDataEndpoint;
     
     public FtpDataConnectionCoordinator(FtpControlConnection controlConnection) {
         this.controlConnection = controlConnection;
@@ -429,10 +434,44 @@ public class FtpDataConnectionCoordinator {
     }
     
     /**
+     * Maps the control connection's local address to an IPv4 host suitable
+     * for RFC 959 PASV (h1,h2,h3,h4,p1,p2). IPv6 locals such as {@code ::1}
+     * must not be truncated to {@code 0.0.0.0}; loopback controls
+     * advertise {@code 127.0.0.1} so same-host clients can connect.
+     *
+     * @param localAddress control socket local address
+     * @param remoteAddress control socket remote address (may be null)
+     * @return four-byte IPv4 address for the PASV tuple
+     * @throws UnknownHostException if no IPv4 address can be derived
+     */
+    public static InetAddress ipv4AddressForPasv(InetAddress localAddress,
+            InetAddress remoteAddress) throws UnknownHostException {
+        if (localAddress == null) {
+            throw new UnknownHostException("no local address");
+        }
+        byte[] raw = localAddress.getAddress();
+        if (raw.length == 4) {
+            if (localAddress.isAnyLocalAddress() || localAddress.isLoopbackAddress()) {
+                return InetAddress.getByAddress(new byte[] {127, 0, 0, 1});
+            }
+            return localAddress;
+        }
+        if (localAddress.isLoopbackAddress()) {
+            return InetAddress.getByAddress(new byte[] {127, 0, 0, 1});
+        }
+        if (remoteAddress != null && remoteAddress.getAddress().length == 4
+                && !remoteAddress.isAnyLocalAddress()) {
+            return remoteAddress;
+        }
+        throw new UnknownHostException(
+                "PASV requires an IPv4 address; use EPSV on IPv6 control connections");
+    }
+
+    /**
      * Generates PASV response string per RFC 959 section 4.1.2:
      * "227 Entering Passive Mode (h1,h2,h3,h4,p1,p2)".
      *
-     * @param serverAddress the server's IP address
+     * @param serverAddress the server's IP address (must be IPv4)
      * @return formatted PASV response
      */
     public String generatePassiveResponse(InetAddress serverAddress) {
@@ -441,6 +480,9 @@ public class FtpDataConnectionCoordinator {
         }
         
         byte[] addressBytes = serverAddress.getAddress();
+        if (addressBytes.length != 4) {
+            throw new IllegalArgumentException("PASV host must be IPv4");
+        }
         int p1 = (passivePort >> 8) & 0xFF;
         int p2 = passivePort & 0xFF;
         
@@ -493,6 +535,8 @@ public class FtpDataConnectionCoordinator {
         activePort = -1;
         pendingTransfer = null;
         totalBytesTransferred = 0;
+        uploadStagingHandler = null;
+        pendingUploadDataEndpoint = null;
     }
     
     /**
@@ -548,9 +592,9 @@ public class FtpDataConnectionCoordinator {
      *     {@link #acceptDataConnection} resumes the continuation on the loop.
      *     Previously this blocked the loop thread for up to 30s in a
      *     {@code poll()} — a trivial denial of service.</li>
-     * <li>Active mode: the outbound connect (which blocks) is offloaded to the
-     *     shared {@link StorageExecutor} rather than run on the loop, and the
-     *     continuation resumes on the loop when the connect completes.</li>
+     * <li>Active mode: the outbound connect uses {@link TcpTransportFactory}
+     *     on the control connection's {@link SelectorLoop}; the continuation
+     *     resumes on the loop when TCP is established.</li>
      * </ul>
      *
      * @param controlEndpoint the control connection endpoint (for its loop and
@@ -614,16 +658,17 @@ public class FtpDataConnectionCoordinator {
     }
 
     /**
-     * Opens the active-mode data connection on the shared storage pool (a
-     * blocking connect must never run on the loop), then resumes on the loop.
+     * Opens the active-mode data connection asynchronously on the control
+     * connection's selector loop, then resumes the transfer on that loop.
      */
     private void connectActiveModeAsync(final Endpoint controlEndpoint,
             final TransferCallback callback,
             final DataConnectionReady continuation) {
         final String host = activeHost;
         final int port = activePort;
+        final InetAddress dataAddress;
         try {
-            InetAddress dataAddress = InetAddress.getByName(host);
+            dataAddress = InetAddress.getByName(host);
             if (!isActiveDataAddressAllowed(dataAddress)) {
                 failTransfer(controlEndpoint, callback, new IOException(
                         "Active mode data address does not match control client"));
@@ -635,39 +680,100 @@ public class FtpDataConnectionCoordinator {
             return;
         }
         FtpListener server = controlConnection.getServer();
-        Gumdrop gumdrop = (server != null) ? server.getGumdrop() : null;
-        StorageExecutor exec =
-                (gumdrop != null) ? gumdrop.getStorageExecutor() : null;
-        if (exec == null) {
+        final Gumdrop gumdrop = (server != null) ? server.getGumdrop() : null;
+        if (gumdrop == null) {
             failTransfer(controlEndpoint, callback, new IOException(
                     "Server not started; cannot open active data connection"));
             return;
         }
-        exec.submit(controlEndpoint, new Callable<FtpDataConnection>() {
+        final SelectorLoop loop = controlEndpoint.getSelectorLoop();
+        if (loop == null) {
+            failTransfer(controlEndpoint, callback, new IOException(
+                    "No selector loop for active data connection"));
+            return;
+        }
+        final TcpTransportFactory factory = new TcpTransportFactory();
+        factory.start();
+        final TcpEndpoint[] outbound = new TcpEndpoint[1];
+        final TimerHandle[] timeout = new TimerHandle[1];
+        final boolean[] finished = new boolean[1];
+        ProtocolHandler connectHandler = new ProtocolHandler() {
             @Override
-            public FtpDataConnection call() throws IOException {
-                SocketChannel channel = SocketChannel.open();
-                channel.socket().connect(new InetSocketAddress(host, port),
-                        (int) DATA_CONNECTION_TIMEOUT_MS);
-                return new FtpDataConnection(channel,
-                        FtpDataConnectionCoordinator.this);
+            public void connected(Endpoint ep) {
+                if (finished[0]) {
+                    return;
+                }
+                finished[0] = true;
+                if (timeout[0] != null) {
+                    timeout[0].cancel();
+                    timeout[0] = null;
+                }
+                try {
+                    SocketChannel sc = ((TcpEndpoint) ep).takeSocketChannelForHandoff();
+                    if (sc == null || !sc.isOpen()) {
+                        throw new IOException("Active data connection channel lost");
+                    }
+                    FtpDataConnection connection = new FtpDataConnection(sc,
+                            FtpDataConnectionCoordinator.this);
+                    deliverDataConnection(controlEndpoint, callback,
+                            continuation, connection);
+                } catch (IOException e) {
+                    cleanup();
+                    callback.transferFailed(e);
+                }
             }
-        }, new StorageExecutor.Callback<FtpDataConnection>() {
+
             @Override
-            public void completed(FtpDataConnection connection) {
-                deliverDataConnection(controlEndpoint, callback,
-                        continuation, connection);
+            public void receive(ByteBuffer data) {
             }
+
             @Override
-            public void failed(Throwable error) {
-                IOException e = (error instanceof IOException)
-                        ? (IOException) error
-                        : new IOException("Active data connection failed",
-                                error);
+            public void disconnected() {
+            }
+
+            @Override
+            public void securityEstablished(SecurityInfo info) {
+            }
+
+            @Override
+            public void error(Exception cause) {
+                if (finished[0]) {
+                    return;
+                }
+                finished[0] = true;
+                if (timeout[0] != null) {
+                    timeout[0].cancel();
+                    timeout[0] = null;
+                }
                 cleanup();
-                callback.transferFailed(e);
+                callback.transferFailed(cause instanceof IOException
+                        ? (IOException) cause
+                        : new IOException("Active data connection failed", cause));
             }
-        });
+        };
+        try {
+            outbound[0] = factory.connect(gumdrop, dataAddress, port,
+                    connectHandler, loop);
+            timeout[0] = controlEndpoint.scheduleTimer(
+                    DATA_CONNECTION_TIMEOUT_MS, new Runnable() {
+                        @Override
+                        public void run() {
+                            if (finished[0]) {
+                                return;
+                            }
+                            finished[0] = true;
+                            if (outbound[0] != null) {
+                                outbound[0].close();
+                                outbound[0] = null;
+                            }
+                            cleanup();
+                            callback.transferFailed(new IOException(
+                                    "Active data connection timeout"));
+                        }
+                    });
+        } catch (IOException e) {
+            failTransfer(controlEndpoint, callback, e);
+        }
     }
 
     /**
@@ -864,6 +970,10 @@ public class FtpDataConnectionCoordinator {
             dataEndpoint.init();
         }
 
+        if (dataHandler instanceof UploadTransferHandler) {
+            ((UploadTransferHandler) dataHandler).setEndpoint(dataEndpoint);
+        }
+
         loop.registerTCP(dataSc, dataEndpoint);
         return dataEndpoint;
     }
@@ -1054,6 +1164,14 @@ public class FtpDataConnectionCoordinator {
             return;
         }
 
+        try {
+            ensureUploadDataEndpointRegistered(controlEndpoint, callback);
+        } catch (IOException e) {
+            cleanup();
+            callback.transferFailed(e);
+            return;
+        }
+
         FtpListener uploadServer = controlConnection.getServer();
         Gumdrop gumdrop = (uploadServer != null) ? uploadServer.getGumdrop() : null;
         StorageExecutor exec =
@@ -1146,15 +1264,148 @@ public class FtpDataConnectionCoordinator {
     private void registerUploadHandler(Endpoint controlEndpoint,
             UploadOpenResult openResult, PendingTransfer transfer,
             TransferCallback callback) throws IOException {
-        SelectorLoop loop = controlEndpoint.getSelectorLoop();
-        SocketChannel dataSc = activeDataConnection.getChannel();
-
+        if (uploadStagingHandler == null || pendingUploadDataEndpoint == null) {
+            throw new IOException("Upload data endpoint not registered");
+        }
         UploadTransferHandler uploadHandler =
                 new UploadTransferHandler(
                         openResult.channel, transfer, callback,
                         openResult.initialPosition);
-        TcpEndpoint dataEndpoint = registerDataEndpoint(dataSc, uploadHandler, loop);
-        uploadHandler.setEndpoint(dataEndpoint);
+        uploadHandler.setEndpoint(pendingUploadDataEndpoint);
+        uploadStagingHandler.handOff(uploadHandler);
+    }
+
+    /**
+     * Registers the upload data {@link TcpEndpoint} immediately so PROT P
+     * handshakes and early application data are not dropped while the target
+     * file is opened asynchronously on a storage thread.
+     */
+    private void ensureUploadDataEndpointRegistered(Endpoint controlEndpoint,
+            TransferCallback callback) throws IOException {
+        if (uploadStagingHandler != null) {
+            return;
+        }
+        if (activeDataConnection == null) {
+            throw new IOException("No data connection for upload");
+        }
+        SocketChannel dataSc = activeDataConnection.getChannel();
+        SelectorLoop loop = controlEndpoint.getSelectorLoop();
+        uploadStagingHandler = new UploadStagingHandler(callback);
+        pendingUploadDataEndpoint = registerDataEndpoint(
+                dataSc, uploadStagingHandler, loop);
+        uploadStagingHandler.setEndpoint(pendingUploadDataEndpoint);
+    }
+
+    /**
+     * Buffers inbound data (and TLS readiness) until the upload file channel
+     * has been opened and an {@link UploadTransferHandler} is attached.
+     */
+    private class UploadStagingHandler implements ProtocolHandler {
+
+        private final TransferCallback callback;
+        private Endpoint endpoint;
+        private UploadTransferHandler delegate;
+        private SecurityInfo pendingSecurity;
+        private boolean disconnectPending;
+        private final Queue<ByteBuffer> pendingData = new ArrayDeque<>();
+
+        UploadStagingHandler(TransferCallback callback) {
+            this.callback = callback;
+        }
+
+        void setEndpoint(Endpoint endpoint) {
+            this.endpoint = endpoint;
+        }
+
+        synchronized void handOff(UploadTransferHandler uploadHandler) {
+            delegate = uploadHandler;
+            SecurityInfo established = pendingSecurity;
+            if (established == null && endpoint != null && endpoint.isSecure()) {
+                established = endpoint.getSecurityInfo();
+            }
+            if (established != null && established != NullSecurityInfo.INSTANCE) {
+                uploadHandler.securityEstablished(established);
+                pendingSecurity = null;
+            }
+            while (!pendingData.isEmpty()) {
+                ByteBuffer queued = pendingData.poll();
+                if (queued != null) {
+                    uploadHandler.receive(queued);
+                    ByteBufferPool.release(queued);
+                }
+            }
+            if (disconnectPending) {
+                uploadHandler.disconnected();
+            }
+        }
+
+        @Override
+        public void connected(Endpoint ep) {
+        }
+
+        @Override
+        public synchronized void receive(ByteBuffer data) {
+            if (delegate != null) {
+                delegate.receive(data);
+                return;
+            }
+            if (data.remaining() == 0) {
+                return;
+            }
+            ByteBuffer copy = ByteBufferPool.acquire(data.remaining());
+            copy.put(data);
+            copy.flip();
+            pendingData.add(copy);
+        }
+
+        @Override
+        public synchronized void securityEstablished(SecurityInfo info) {
+            if (delegate != null) {
+                delegate.securityEstablished(info);
+            } else {
+                pendingSecurity = info;
+            }
+        }
+
+        @Override
+        public void disconnected() {
+            final Endpoint loopEp = endpoint;
+            if (loopEp == null) {
+                synchronized (this) {
+                    disconnectPending = true;
+                }
+                return;
+            }
+            // Defer so any application data in the same TLS read batch is
+            // delivered via receive() before we mark the upload disconnected.
+            loopEp.execute(new Runnable() {
+                @Override
+                public void run() {
+                    synchronized (UploadStagingHandler.this) {
+                        if (delegate != null) {
+                            delegate.disconnected();
+                        } else {
+                            disconnectPending = true;
+                        }
+                    }
+                }
+            });
+        }
+
+        @Override
+        public void error(Exception e) {
+            UploadTransferHandler target;
+            synchronized (this) {
+                target = delegate;
+            }
+            if (target != null) {
+                target.error(e);
+            } else {
+                callback.transferFailed(e instanceof IOException
+                        ? (IOException) e
+                        : new IOException("Upload data connection error", e));
+            }
+        }
     }
 
     /**
@@ -1476,6 +1727,7 @@ public class FtpDataConnectionCoordinator {
         private long filePosition;
         private boolean writeInFlight;
         private boolean finished;
+        private boolean disconnectPending;
         private final boolean asciiMode;
         private final Queue<ByteBuffer> pendingWrites = new ArrayDeque<>();
         private Endpoint dataEndpoint;
@@ -1502,11 +1754,19 @@ public class FtpDataConnectionCoordinator {
 
         @Override
         public void receive(ByteBuffer data) {
-            receiveAsync(data);
+            synchronized (this) {
+                receiveAsyncLocked(data);
+            }
         }
 
         private void receiveAsync(ByteBuffer data) {
-            if (data.remaining() == 0) {
+            synchronized (this) {
+                receiveAsyncLocked(data);
+            }
+        }
+
+        private void receiveAsyncLocked(ByteBuffer data) {
+            if (finished || data.remaining() == 0) {
                 return;
             }
             ByteBuffer buf;
@@ -1523,10 +1783,16 @@ public class FtpDataConnectionCoordinator {
                 buf.flip();
             }
             pendingWrites.add(buf);
-            drainPendingWrites();
+            drainPendingWritesLocked();
         }
 
         private void drainPendingWrites() {
+            synchronized (this) {
+                drainPendingWritesLocked();
+            }
+        }
+
+        private void drainPendingWritesLocked() {
             if (writeInFlight || pendingWrites.isEmpty()) {
                 return;
             }
@@ -1553,6 +1819,8 @@ public class FtpDataConnectionCoordinator {
                                     dataEndpoint.resumeRead();
                                     if (!pendingWrites.isEmpty()) {
                                         drainPendingWrites();
+                                    } else if (disconnectPending) {
+                                        tryCompleteAfterDisconnect();
                                     }
                                 }
                             });
@@ -1587,22 +1855,55 @@ public class FtpDataConnectionCoordinator {
 
         @Override
         public void securityEstablished(SecurityInfo info) {
-            // Not used for data connections
+            // TLS application data is delivered only after the handshake;
+            // no separate gating is required here.
         }
 
         @Override
         public void disconnected() {
-            if (finished) {
+            synchronized (this) {
+                if (finished) {
+                    return;
+                }
+                disconnectPending = true;
+            }
+            // Defer completion to the control loop so any TLS application
+            // data already decrypted but not yet delivered is processed
+            // before we close the async file channel (PROT P uploads).
+            if (dataEndpoint != null) {
+                dataEndpoint.execute(new Runnable() {
+                    @Override
+                    public void run() {
+                        synchronized (UploadTransferHandler.this) {
+                            if (finished) {
+                                return;
+                            }
+                            drainPendingWritesLocked();
+                            if (!writeInFlight && pendingWrites.isEmpty()) {
+                                tryCompleteAfterDisconnectLocked();
+                            }
+                        }
+                    }
+                });
+            }
+        }
+
+        private void tryCompleteAfterDisconnect() {
+            synchronized (this) {
+                tryCompleteAfterDisconnectLocked();
+            }
+        }
+
+        private void tryCompleteAfterDisconnectLocked() {
+            if (finished || !disconnectPending) {
+                return;
+            }
+            if (writeInFlight || !pendingWrites.isEmpty()) {
                 return;
             }
             finished = true;
-            while (!pendingWrites.isEmpty()) {
-                ByteBuffer b = pendingWrites.poll();
-                if (b != null) {
-                    ByteBufferPool.release(b);
-                }
-            }
-            closeChannels();
+            disconnectPending = false;
+            closeChannelsLocked();
             notifyTransferHandler(true);
             callback.transferComplete(totalBytesTransferred);
         }
@@ -1620,6 +1921,15 @@ public class FtpDataConnectionCoordinator {
         }
 
         private void closeChannels() {
+            synchronized (this) {
+                closeChannelsLocked();
+            }
+        }
+
+        private void closeChannelsLocked() {
+            if (writeInFlight) {
+                return;
+            }
             if (asyncChannel != null) {
                 try {
                     asyncChannel.close();

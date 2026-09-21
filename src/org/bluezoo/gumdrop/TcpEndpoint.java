@@ -36,6 +36,7 @@ import java.nio.ByteBuffer;
 import java.nio.channels.SelectionKey;
 import java.nio.channels.SocketChannel;
 import java.text.MessageFormat;
+import java.util.Locale;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import java.util.ResourceBundle;
@@ -114,6 +115,8 @@ public class TcpEndpoint implements Endpoint, ChannelHandler, TlsRecordState.Cal
      */
     final Object tlsEngineLock = new Object();
     boolean closeRequested;
+
+    private boolean disconnectDelivered;
 
     // Write-completion callback for backpressure support.
     // Invoked on the SelectorLoop thread after netOut has been fully drained.
@@ -229,6 +232,15 @@ public class TcpEndpoint implements Endpoint, ChannelHandler, TlsRecordState.Cal
     }
 
     /**
+     * Returns the transport factory that created this endpoint, if any.
+     *
+     * @return the factory, or null
+     */
+    public TransportFactory getTransportFactory() {
+        return factory;
+    }
+
+    /**
      * Sets the underlying socket channel.
      *
      * @param channel the socket channel
@@ -238,10 +250,76 @@ public class TcpEndpoint implements Endpoint, ChannelHandler, TlsRecordState.Cal
     }
 
     /**
+     * Transfers the open socket channel to another {@link SelectorLoop}
+     * registration without closing it. Used when a short-lived outbound
+     * connect endpoint only establishes TCP (e.g. FTP active-mode data).
+     *
+     * @return the channel, or null if none was attached
+     */
+    public SocketChannel takeSocketChannelForHandoff() {
+        SocketChannel ch = channel;
+        if (ch == null) {
+            return null;
+        }
+        channel = null;
+        closing = true;
+        if (key != null) {
+            key.cancel();
+            key = null;
+        }
+        cancelHandshakeTimeout();
+        cancelFirstByteTimeout();
+        releaseBuffers();
+        if (clientMode && selectorLoop != null) {
+            Gumdrop gumdrop = selectorLoop.getGumdrop();
+            if (gumdrop != null) {
+                gumdrop.removeChannelHandler(this);
+            }
+        }
+        return ch;
+    }
+
+    /**
      * Sets whether this is a client-initiated endpoint.
      */
     void setClientMode(boolean clientMode) {
         this.clientMode = clientMode;
+    }
+
+    /**
+     * Returns whether this endpoint initiated the TCP connection (client).
+     */
+    public boolean isClientMode() {
+        return clientMode;
+    }
+
+    /**
+     * When {@code gumdrop.integration.log.level} is {@code FINE} or finer,
+     * client TLS close/send paths log extra detail for integration debugging.
+     */
+    public static boolean integrationTlsTraceEnabled() {
+        String prop = System.getProperty("gumdrop.integration.log.level");
+        if (prop == null || prop.isEmpty()) {
+            return false;
+        }
+        try {
+            return Level.parse(prop.trim().toUpperCase(Locale.ROOT)).intValue()
+                    <= Level.FINE.intValue();
+        } catch (IllegalArgumentException e) {
+            return false;
+        }
+    }
+
+    /**
+     * Logs a formatted TLS trace line for client connections during integration runs.
+     */
+    void logIntegrationClientTls(Level level, String pattern, Object... args) {
+        if (!clientMode || !integrationTlsTraceEnabled()) {
+            return;
+        }
+        if (LOGGER.isLoggable(level)) {
+            LOGGER.log(level, MessageFormat.format(pattern, args));
+        }
     }
 
     /**
@@ -355,6 +433,9 @@ public class TcpEndpoint implements Endpoint, ChannelHandler, TlsRecordState.Cal
         if (closing) {
             return;
         }
+        logIntegrationClientTls(Level.INFO,
+                "client TcpEndpoint.close netOutPending={0} remote={1}",
+                pendingNetOutBytes(), getRemoteAddress());
         closing = true;
         closeRequested = true;
         if (tlsState != null) {
@@ -362,6 +443,27 @@ public class TcpEndpoint implements Endpoint, ChannelHandler, TlsRecordState.Cal
         } else if (tls12State != null) {
             tls12State.closeOutbound();
         }
+        if (selectorLoop != null) {
+            selectorLoop.requestWrite(this);
+        }
+    }
+
+    @Override
+    public void closeWhenOutboundIdle() {
+        if (closing) {
+            return;
+        }
+        logIntegrationClientTls(Level.INFO,
+                "client TcpEndpoint.closeWhenOutboundIdle netOutPending={0} remote={1}",
+                pendingNetOutBytes(), getRemoteAddress());
+        onWriteReady(new Runnable() {
+            @Override
+            public void run() {
+                if (!closing) {
+                    close();
+                }
+            }
+        });
         if (selectorLoop != null) {
             selectorLoop.requestWrite(this);
         }
@@ -546,6 +648,12 @@ public class TcpEndpoint implements Endpoint, ChannelHandler, TlsRecordState.Cal
         return (netOut != null && netOut.position() > 0) || closeRequested;
     }
 
+    private int pendingNetOutBytes() {
+        synchronized (netOutLock) {
+            return netOut != null ? netOut.position() : 0;
+        }
+    }
+
     /**
      * Sets the callback to be invoked when the write buffer has been
      * fully drained by the SelectorLoop.
@@ -699,12 +807,7 @@ public class TcpEndpoint implements Endpoint, ChannelHandler, TlsRecordState.Cal
 
     void handleEOF() {
         try {
-            handler.disconnected();
-        } catch (Exception e) {
-            LOGGER.log(Level.WARNING, L10N.getString("log.error_in_disconnected_handler"), e);
-            if (trace != null && trace.getRootSpan() != null) {
-                trace.getRootSpan().recordException(e);
-            }
+            deliverDisconnected();
         } finally {
             try {
                 endTrace();
@@ -908,7 +1011,23 @@ public class TcpEndpoint implements Endpoint, ChannelHandler, TlsRecordState.Cal
         }
     }
 
+    void deliverDisconnected() {
+        if (disconnectDelivered) {
+            return;
+        }
+        disconnectDelivered = true;
+        try {
+            handler.disconnected();
+        } catch (Exception e) {
+            LOGGER.log(Level.WARNING, L10N.getString("log.error_in_disconnected_handler"), e);
+            if (trace != null && trace.getRootSpan() != null) {
+                trace.getRootSpan().recordException(e);
+            }
+        }
+    }
+
     void doClose() {
+        deliverDisconnected();
         endTrace();
         try {
             if (channel != null) {
@@ -1032,12 +1151,16 @@ public class TcpEndpoint implements Endpoint, ChannelHandler, TlsRecordState.Cal
 
     @Override
     public final void onClosed() {
-        handler.disconnected();
         doClose();
     }
 
     @Override
     public final void onProtocolError(TlsProtocolError error) {
+        if (LOGGER.isLoggable(Level.WARNING)) {
+            LOGGER.log(Level.WARNING, MessageFormat.format(
+                    Gumdrop.L10N.getString("log.tls_protocol_error"),
+                    getRemoteAddress(), error));
+        }
         handler.error(new javax.net.ssl.SSLException(error.toString()));
     }
 

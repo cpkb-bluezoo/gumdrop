@@ -179,12 +179,6 @@ public class IntegrationTestContext {
         String javaVersion = System.getProperty("java.version");
         logEvent("ENV_CHECK", "Java version: " + javaVersion);
 
-        // Check test directories
-        File configDir = new File("test/integration/config");
-        if (!configDir.exists() || !configDir.isDirectory()) {
-            environmentIssues.add("Integration test config directory not found: " + configDir);
-        }
-
         File certsDir = new File("test/integration/certs");
         if (!certsDir.exists()) {
             certsDir.mkdirs();
@@ -192,10 +186,9 @@ public class IntegrationTestContext {
         }
 
         // Check test certificate availability
-        File keystore = new File("test/integration/certs/test-keystore.p12");
-        if (!keystore.exists()) {
-            environmentIssues.add("Test keystore not found: " + keystore + 
-                ". Run TestCertificateManager.generateTestPKI() first.");
+        if (!TestTlsFiles.available()) {
+            environmentIssues.add("TLS PEM fixtures not found in " + TestTlsFiles.directory()
+                    + ". Run \"ant tls-certs\" (needs mkcert or openssl).");
         }
 
         // Check if common test ports are available

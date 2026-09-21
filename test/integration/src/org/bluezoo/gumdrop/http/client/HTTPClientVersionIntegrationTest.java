@@ -25,13 +25,12 @@ import org.bluezoo.gumdrop.AbstractServerIntegrationTest;
 import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.Server;
-import org.bluezoo.gumdrop.TestCertificateManager;
+import org.bluezoo.gumdrop.TestTlsFiles;
 import org.bluezoo.gumdrop.http.HttpServer;
 import org.bluezoo.gumdrop.http.HttpStatus;
 import org.bluezoo.gumdrop.http.HttpClient;
 import org.bluezoo.gumdrop.http.HttpVersion;
 import org.bluezoo.gumdrop.http.server.Http2Listener;
-import org.bluezoo.gumdrop.tls.TlsConfig;
 import org.junit.BeforeClass;
 import org.junit.Rule;
 import org.junit.Test;
@@ -102,12 +101,8 @@ public class HTTPClientVersionIntegrationTest extends AbstractServerIntegrationT
             .withLookingForStuckThread(true)
             .build();
 
-    private static TestCertificateManager certManager;
-
     @Override
     protected Collection<? extends Server> buildServers() throws Exception {
-        TlsConfig tls = TlsConfig.keystore(
-                Path.of("test/integration/certs/test-keystore.p12"), "testpass");
         HttpServer plaintext = HttpServer.compose()
                 .listener(new Http2Listener()
                         .port(HTTP_PORT)
@@ -119,7 +114,7 @@ public class HTTPClientVersionIntegrationTest extends AbstractServerIntegrationT
                         .port(HTTPS_PORT)
                         .addresses(InetAddress.getByName(TEST_HOST))
                         .secure(true)
-                        .tls(tls))
+                        .tls(TestTlsFiles.serverTlsConfig()))
                 .streamHandler(new EchoHandlerFactory())
                 .server();
         return Arrays.asList(plaintext, secure);
@@ -130,19 +125,9 @@ public class HTTPClientVersionIntegrationTest extends AbstractServerIntegrationT
         return Level.WARNING;
     }
 
-    /**
-     * Generates the TLS material used by both the server (keystore referenced
-     * from the XML config) and the client (CA trust). Runs before the base
-     * class starts the server in {@code @Before}.
-     */
     @BeforeClass
-    public static void setupCertificates() throws Exception {
-        File certsDir = new File("test/integration/certs");
-        if (!certsDir.exists()) {
-            certsDir.mkdirs();
-        }
-        certManager = new TestCertificateManager(certsDir);
-        certManager.ensureSharedTestPki("testpass");
+    public static void requireTlsFixtures() {
+        TestTlsFiles.assumeAvailable();
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -367,13 +352,13 @@ public class HTTPClientVersionIntegrationTest extends AbstractServerIntegrationT
      * (and TLS handshake, if secure) is established.
      */
     private HttpClient connect(int port, boolean secure, boolean forceHttp11) throws Exception {
-        HttpClient client = new HttpClient(TEST_HOST, port);
+        HttpClient client = new HttpClient(gumdrop.nextWorkerLoop(), TEST_HOST, port);
         // Keep the negotiated version deterministic: never let Alt-Svc silently
         // migrate the connection to h3 mid-test.
         client.setAltSvcEnabled(false);
         if (secure) {
             client.setSecure(true);
-            client.setTrustManager(certManager.createClientTrustManager());
+            client.setTrustManager(TestTlsFiles.trustManager());
         }
         if (forceHttp11) {
             client.setH2Enabled(false);

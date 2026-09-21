@@ -1136,8 +1136,15 @@ public final class MaildirMailbox implements Mailbox {
         // Resolve body offset on this StorageExecutor/open path if an
         // older descriptor never had it scanned — never by waiting on async-file I/O.
         msg = ensureBodyOffset(msg);
-        AsynchronousFileChannel channel = AsynchronousFileChannel.open(
-                msg.getFilePath(), StandardOpenOption.READ);
+        AsynchronousFileChannel channel;
+        try {
+            channel = AsynchronousFileChannel.open(
+                    msg.getFilePath(), StandardOpenOption.READ);
+        } catch (UnsupportedOperationException e) {
+            // The file system provider has no asynchronous channels (a zip
+            // or in-memory file system, say): callers use getMessageContent.
+            return null;
+        }
         return new MaildirAsyncMessageContent(channel, msg.getSize(),
                 msg.getBodyOffset());
     }
@@ -1215,10 +1222,18 @@ public final class MaildirMailbox implements Mailbox {
             throw new IOException("Mailbox is read-only");
         }
         Path tempFile = Files.createTempFile(tmpPath, "mail", ".tmp");
-        AsynchronousFileChannel channel = AsynchronousFileChannel.open(
-                tempFile,
-                StandardOpenOption.WRITE,
-                StandardOpenOption.CREATE);
+        AsynchronousFileChannel channel;
+        try {
+            channel = AsynchronousFileChannel.open(
+                    tempFile,
+                    StandardOpenOption.WRITE,
+                    StandardOpenOption.CREATE);
+        } catch (UnsupportedOperationException e) {
+            // No asynchronous channels on this file system: callers use
+            // startAppendMessage and its blocking companions instead.
+            Files.deleteIfExists(tempFile);
+            return null;
+        }
         Set<Flag> flagsCopy = flags != null
                 ? EnumSet.copyOf(flags)
                 : EnumSet.noneOf(Flag.class);

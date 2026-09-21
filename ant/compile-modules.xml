@@ -87,6 +87,9 @@
            includeantruntime='false' createMissingPackageInfoClass='false'>
       <classpath refid='lib.compile.classpath'/>
       <include name='org/bluezoo/gumdrop/util/**'/>
+      <exclude name='org/bluezoo/gumdrop/util/AsyncFile.java'/>
+      <exclude name='org/bluezoo/gumdrop/util/BlockingAsyncFile.java'/>
+      <exclude name='org/bluezoo/gumdrop/util/NativeAsyncFile.java'/>
       <include name='org/bluezoo/gumdrop/crypto/**'/>
       <include name='org/bluezoo/gumdrop/tls/**'/>
       <!-- DTLS 1.3 record protection reuses QUIC packet crypto (RFC 9147). -->
@@ -165,6 +168,14 @@
       <exclude name='org/bluezoo/gumdrop/telemetry/export/**'/>
       <exclude name='org/bluezoo/gumdrop/telemetry/otlp/**'/>
       <exclude name='module-info.java'/>
+    </javac>
+    <javac srcdir='${src}' destdir='${build.core}' debug='true'
+           release='${java.release.version}' sourcepath=''
+           includeantruntime='false' createMissingPackageInfoClass='false'>
+      <classpath refid='core.only.classpath'/>
+      <include name='org/bluezoo/gumdrop/util/AsyncFile.java'/>
+      <include name='org/bluezoo/gumdrop/util/BlockingAsyncFile.java'/>
+      <include name='org/bluezoo/gumdrop/util/NativeAsyncFile.java'/>
     </javac>
     <copy todir='${build.core}'>
       <fileset dir='${src}'>

@@ -335,7 +335,7 @@ public final class MailboxIndexer implements Runnable {
                     // open; the warm would be redundant (issue #163).
                 } catch (Throwable t) {
                     job.error = t;
-                    JulWarnings.warn(LOGGER,
+                    JulWarnings.transportError(LOGGER,
                             "Mailbox indexing job failed for " + job.key, t);
                 } finally {
                     job.done.countDown();

@@ -109,6 +109,61 @@ public class ServerXmlLoaderTest {
     }
 
     @Test
+    public void secureListenerAcceptsPemFiles() {
+        load("<server><listener port='8443' secure='true' "
+                + "cert-file='tls/cert.pem' key-file='tls/key.pem' "
+                + "bind-wildcard='true'/></server>");
+        assertNull(error, error);
+        assertNotNull(server);
+    }
+
+    @Test
+    public void secureListenerAcceptsKeystoreFormat() {
+        load("<server><listener port='8443' secure='true' "
+                + "keystore-file='ks.jks' keystore-pass='pw' "
+                + "keystore-format='JKS'/></server>");
+        assertNull(error, error);
+        assertNotNull(server);
+    }
+
+    @Test
+    public void keystoreFormatIsNotForPemFiles() {
+        load("<server><listener port='8443' secure='true' "
+                + "cert-file='cert.pem' key-file='key.pem' "
+                + "keystore-format='JKS'/></server>");
+        assertError("keystore-format");
+    }
+
+    @Test
+    public void pemListenerRequiresKeyFile() {
+        load("<server><listener port='8443' secure='true' "
+                + "cert-file='cert.pem'/></server>");
+        assertError("key-file");
+    }
+
+    @Test
+    public void pemListenerRequiresCertFile() {
+        load("<server><listener port='8443' secure='true' "
+                + "key-file='key.pem'/></server>");
+        assertError("cert-file");
+    }
+
+    @Test
+    public void secureListenerRejectsKeystoreAndPemTogether() {
+        load("<server><listener port='8443' secure='true' "
+                + "keystore-file='ks.p12' keystore-pass='pw' "
+                + "cert-file='cert.pem' key-file='key.pem'/></server>");
+        assertError("not both");
+    }
+
+    @Test
+    public void secureListenerErrorMentionsBothWaysToGiveAnIdentity() {
+        load("<server><listener port='8443' secure='true'/></server>");
+        assertError("keystore-file");
+        assertTrue(error, error.contains("cert-file"));
+    }
+
+    @Test
     public void listenerRequiresPort() {
         load("<server><listener/></server>");
         assertError("port");

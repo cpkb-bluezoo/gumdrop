@@ -25,6 +25,8 @@ import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.ProtocolHandler;
 import org.bluezoo.gumdrop.TcpListener;
 import org.bluezoo.gumdrop.SecurityInfo;
+import org.bluezoo.gumdrop.TcpTransportFactory;
+import org.bluezoo.gumdrop.TransportFactory;
 
 import java.nio.ByteBuffer;
 
@@ -49,6 +51,14 @@ public class TLSEchoServer extends TcpListener {
     @Override
     protected ProtocolHandler createHandler() {
         return new TLSEchoConnection();
+    }
+
+    @Override
+    protected void configureTransportFactory(TransportFactory factory) {
+        super.configureTransportFactory(factory);
+        if (isSecure() && factory instanceof TcpTransportFactory) {
+            ((TcpTransportFactory) factory).setApplicationProtocols("http/1.1");
+        }
     }
 
     @Override

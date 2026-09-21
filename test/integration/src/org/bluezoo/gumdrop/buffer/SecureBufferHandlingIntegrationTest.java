@@ -24,14 +24,14 @@ package org.bluezoo.gumdrop.buffer;
 import org.bluezoo.gumdrop.AbstractServerIntegrationTest;
 import org.bluezoo.gumdrop.IntegrationTlsClient;
 import org.bluezoo.gumdrop.TcpListener;
-import org.bluezoo.gumdrop.tls.TlsConfig;
-import org.bluezoo.gumdrop.util.EmptyX509TrustManager;
+import org.bluezoo.gumdrop.TestTlsFiles;
+import org.junit.BeforeClass;
 import org.junit.Test;
 
-import java.io.File;
+import javax.net.ssl.X509TrustManager;
+
 import java.net.InetAddress;
 import java.nio.ByteBuffer;
-import java.nio.file.Path;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
@@ -49,19 +49,25 @@ import static org.junit.Assert.*;
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 public class SecureBufferHandlingIntegrationTest extends AbstractServerIntegrationTest {
-    
+
+    private static X509TrustManager clientTrust;
+
+    @BeforeClass
+    public static void requireTlsFixtures() throws Exception {
+        TestTlsFiles.assumeAvailable();
+        clientTrust = TestTlsFiles.trustManager();
+    }
+
     private static final int TEST_PORT = 19443;
     private static final String MESSAGE_PATTERN = "0123456789";
     
     @Override
     protected Collection<? extends TcpListener> buildListeners() throws Exception {
-        TlsConfig tls = TlsConfig.keystore(
-                Path.of("test/integration/certs/test-keystore.p12"), "testpass");
         BufferTestServer server = new BufferTestServer();
         server.setPort(TEST_PORT);
         server.addresses(InetAddress.getByName("::1"));
         server.secure(true);
-        server.tls(tls);
+        server.tls(TestTlsFiles.serverTlsConfig());
         return Collections.singletonList(server);
     }
     
@@ -77,12 +83,6 @@ public class SecureBufferHandlingIntegrationTest extends AbstractServerIntegrati
         throw new IllegalStateException("BufferTestServer not found in server list");
     }
     
-    /**
-     * Creates an SSL socket factory that trusts all certificates.
-     * For testing only.
-     */
-    private static final EmptyX509TrustManager TRUST_ALL = new EmptyX509TrustManager();
-
     @Test
     public void testSecureServerStartsAndAcceptsConnections() throws Exception {
         assertNotNull("Gumdrop should be running", gumdrop);
@@ -92,6 +92,14 @@ public class SecureBufferHandlingIntegrationTest extends AbstractServerIntegrati
         // Verify server is secure
         BufferTestServer server = getBufferTestServer();
         assertTrue("Server should be configured as secure", server.isSecure());
+
+        IntegrationTlsClient.withConnectedEndpoint("::1", TEST_PORT, clientTrust, 5000,
+                new IntegrationTlsClient.ConnectedSession() {
+                    @Override
+                    public void run(org.bluezoo.gumdrop.Endpoint endpoint) {
+                        endpoint.close();
+                    }
+                });
     }
     
     @Test
@@ -141,7 +149,7 @@ public class SecureBufferHandlingIntegrationTest extends AbstractServerIntegrati
         server.setMessagePattern(MESSAGE_PATTERN);
         server.clearConnections();
         
-        IntegrationTlsClient.withConnectedEndpoint("::1", TEST_PORT, TRUST_ALL, 10000,
+        IntegrationTlsClient.withConnectedEndpoint("::1", TEST_PORT, clientTrust, 10000,
                 new IntegrationTlsClient.ConnectedSession() {
                     @Override
                     public void run(org.bluezoo.gumdrop.Endpoint endpoint) throws Exception {
@@ -213,7 +221,7 @@ public class SecureBufferHandlingIntegrationTest extends AbstractServerIntegrati
      * Sends data to the test server over TLS and closes the connection.
      */
     private void sendSecureDataAndClose(byte[] data) throws Exception {
-        IntegrationTlsClient.sendAndClose("::1", TEST_PORT, data, TRUST_ALL, 5000);
+        IntegrationTlsClient.sendAndClose("::1", TEST_PORT, data, clientTrust, 5000);
         pause(100);
     }
 }

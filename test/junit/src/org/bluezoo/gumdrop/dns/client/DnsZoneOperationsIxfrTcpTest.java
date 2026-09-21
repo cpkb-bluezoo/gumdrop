@@ -21,12 +21,17 @@
 
 package org.bluezoo.gumdrop.dns.client;
 
+import org.bluezoo.gumdrop.Gumdrop;
+import org.bluezoo.gumdrop.GumdropConfig;
+import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.dns.DnsClass;
 import org.bluezoo.gumdrop.dns.DnsFormatException;
 import org.bluezoo.gumdrop.dns.DnsMessage;
 import org.bluezoo.gumdrop.dns.DnsQuestion;
 import org.bluezoo.gumdrop.dns.DnsResourceRecord;
 import org.bluezoo.gumdrop.dns.DnsType;
+import org.junit.After;
+import org.junit.Before;
 import org.junit.Test;
 
 import java.io.IOException;
@@ -49,6 +54,22 @@ import static org.junit.Assert.*;
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 public class DnsZoneOperationsIxfrTcpTest {
+
+    private Gumdrop gumdrop;
+
+    @Before
+    public void bootGumdrop() {
+        gumdrop = Gumdrop.boot(GumdropConfig.create()
+                .workerThreads(1)
+                .drainTimeoutMs(0));
+    }
+
+    @After
+    public void shutdownGumdrop() {
+        if (gumdrop != null) {
+            gumdrop.shutdown();
+        }
+    }
 
     @Test
     public void testIxfrOverTcpMultiMessage() throws Exception {
@@ -76,20 +97,44 @@ public class DnsZoneOperationsIxfrTcpTest {
                     1209600, 300);
             InetSocketAddress addr = new InetSocketAddress("127.0.0.1",
                     serverSocket.getLocalPort());
-            List<DnsResourceRecord> records = DnsZoneOperations.ixfrOverTcp(addr,
-                    "example.com.", clientSoa, 5000);
+            SelectorLoop loop = gumdrop.nextWorkerLoop();
+            final CountDownLatch done = new CountDownLatch(1);
+            final AtomicReference<List<DnsResourceRecord>> records =
+                    new AtomicReference<List<DnsResourceRecord>>();
+            final AtomicReference<Exception> clientError =
+                    new AtomicReference<Exception>();
+            DnsZoneClient.ixfrOverTcp(loop, addr, "example.com.", clientSoa, 5000,
+                    null, null, new DnsZoneClient.TransferCallback() {
+                        @Override
+                        public void onSuccess(List<DnsResourceRecord> result) {
+                            records.set(result);
+                            done.countDown();
+                        }
+
+                        @Override
+                        public void onFailure(Exception error) {
+                            clientError.set(error);
+                            done.countDown();
+                        }
+                    });
+            assertTrue(done.await(10, TimeUnit.SECONDS));
             serverThread.join(5000);
             if (error.get() != null) {
                 throw new Exception(error.get());
             }
+            if (clientError.get() != null) {
+                throw clientError.get();
+            }
 
-            assertTrue(records.size() >= 2);
-            assertEquals(DnsType.SOA, records.get(0).getType());
-            assertEquals(DnsType.SOA, records.get(records.size() - 1).getType());
+            List<DnsResourceRecord> got = records.get();
+            assertNotNull(got);
+            assertTrue(got.size() >= 2);
+            assertEquals(DnsType.SOA, got.get(0).getType());
+            assertEquals(DnsType.SOA, got.get(got.size() - 1).getType());
             boolean sawDelta = false;
-            for (int i = 0; i < records.size(); i++) {
-                if ("www.example.com".equals(records.get(i).getName())
-                        && records.get(i).getType() == DnsType.A) {
+            for (int i = 0; i < got.size(); i++) {
+                if ("www.example.com".equals(got.get(i).getName())
+                        && got.get(i).getType() == DnsType.A) {
                     sawDelta = true;
                 }
             }

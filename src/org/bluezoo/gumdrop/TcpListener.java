@@ -181,6 +181,15 @@ public abstract class TcpListener extends Listener {
     }
 
     /**
+     * Called by {@link AcceptSelectorLoop} after a {@code ServerSocket}
+     * bind when the listener was configured with port {@code 0}.
+     *
+     * @param boundPort the port the kernel assigned
+     */
+    protected void applyBoundTcpPort(int boundPort) {
+    }
+
+    /**
      * Closes all server channels. For UNIX domain socket channels,
      * also deletes the socket file.
      */

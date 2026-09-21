@@ -552,7 +552,9 @@ public class QuicTransportFactory extends TransportFactory {
         } catch (Exception e) {
             throw new IllegalStateException("Failed to load QUIC TLS configuration", e);
         }
-        LOGGER.info(getDescription());
+        if (LOGGER.isLoggable(Level.FINE)) {
+            LOGGER.fine(getDescription());
+        }
     }
 
     /**

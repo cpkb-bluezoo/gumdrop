@@ -21,11 +21,6 @@
 
 package org.bluezoo.gumdrop.tls;
 
-import java.io.IOException;
-import java.io.InputStream;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.security.KeyStore;
 import java.security.PrivateKey;
 import java.security.SecureRandom;
 import java.security.cert.X509Certificate;
@@ -35,12 +30,14 @@ import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 
-import org.bluezoo.gumdrop.crypto.CertificateVerifier;
+import javax.net.ssl.X509TrustManager;
+
+import org.bluezoo.gumdrop.IntegrationTestHosts;
+import org.bluezoo.gumdrop.TestTlsFiles;
 import org.bluezoo.gumdrop.crypto.KeyExchange;
 import org.bluezoo.gumdrop.crypto.NamedGroup;
 import org.bluezoo.gumdrop.crypto.SignatureScheme;
 
-import org.junit.AfterClass;
 import org.junit.BeforeClass;
 import org.junit.Test;
 
@@ -49,7 +46,6 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
-import static org.junit.Assert.fail;
 
 /**
  * RFC 9147 HelloRetryRequest cookie exchange via {@link CookieValidator}.
@@ -57,58 +53,21 @@ import static org.junit.Assert.fail;
  */
 public class Dtls13CookieTest {
 
-    private static final String SERVER_NAME = "test.gumdrop.local";
+    /** Must match a DNS SAN on {@code etc/tls/cert.pem} (see {@code integration.tls.names}). */
+    private static final String SERVER_NAME = IntegrationTestHosts.TLS_SERVER_NAME;
     private static final byte[] COOKIE_SECRET = "dtls13-cookie-test-secret".getBytes(java.nio.charset.StandardCharsets.US_ASCII);
 
-    private static Path certsDirectory;
     private static List<X509Certificate> ecChain;
     private static PrivateKey ecKey;
 
+    private static X509TrustManager trustManager;
+
     @BeforeClass
-    public static void generateCertificates() throws Exception {
-        certsDirectory = Files.createTempDirectory("dtls13-cookie-test");
-        Path keystorePath = certsDirectory.resolve("ec.p12");
-        ProcessBuilder pb = new ProcessBuilder(
-                "keytool", "-genkeypair", "-alias", "ec", "-keyalg", "EC", "-groupname", "secp256r1",
-                "-sigalg", "SHA256withECDSA", "-validity", "1", "-dname", "CN=" + SERVER_NAME,
-                "-ext", "san=dns:" + SERVER_NAME, "-keystore", keystorePath.toString(),
-                "-storetype", "PKCS12", "-storepass", "changeit", "-keypass", "changeit");
-        pb.redirectErrorStream(true);
-        Process process = pb.start();
-        if (!process.waitFor(30, java.util.concurrent.TimeUnit.SECONDS) || process.exitValue() != 0) {
-            fail("keytool failed to generate a test certificate");
-        }
-        KeyStore keyStore = KeyStore.getInstance("PKCS12");
-        try (InputStream in = Files.newInputStream(keystorePath)) {
-            keyStore.load(in, "changeit".toCharArray());
-        }
-        ecChain = Collections.singletonList((X509Certificate) keyStore.getCertificate("ec"));
-        ecKey = (PrivateKey) keyStore.getKey("ec", "changeit".toCharArray());
-    }
-
-    @AfterClass
-    public static void deleteCertificates() throws IOException {
-        if (certsDirectory != null) {
-            Files.walkFileTree(certsDirectory, new java.nio.file.SimpleFileVisitor<Path>() {
-                @Override
-                public java.nio.file.FileVisitResult visitFile(Path file, java.nio.file.attribute.BasicFileAttributes attrs) {
-                    try {
-                        Files.delete(file);
-                    } catch (IOException ignored) {
-                    }
-                    return java.nio.file.FileVisitResult.CONTINUE;
-                }
-
-                @Override
-                public java.nio.file.FileVisitResult postVisitDirectory(Path dir, IOException exc) {
-                    try {
-                        Files.delete(dir);
-                    } catch (IOException ignored) {
-                    }
-                    return java.nio.file.FileVisitResult.CONTINUE;
-                }
-            });
-        }
+    public static void loadCertificates() throws Exception {
+        TestTlsFiles.assumeAvailable();
+        ecChain = TestTlsFiles.certificateChain();
+        ecKey = TestTlsFiles.privateKey();
+        trustManager = TestTlsFiles.trustManager();
     }
 
     private static final class RecordingSink implements TlsEventSink {
@@ -182,7 +141,7 @@ public class Dtls13CookieTest {
         HandshakeConfig config = new HandshakeConfig(HandshakeRole.CLIENT);
         config.setMode(HandshakeMode.DTLS);
         config.setServerName(SERVER_NAME);
-        config.setTrustManager(CertificateVerifier.trustManagerFromCertificates(ecChain));
+        config.setTrustManager(trustManager);
         config.setNamedGroups(Arrays.asList(NamedGroup.X25519, NamedGroup.SECP256R1));
         config.setCipherSuites(Collections.singletonList(CipherSuite.TLS_AES_128_GCM_SHA256));
         return config;

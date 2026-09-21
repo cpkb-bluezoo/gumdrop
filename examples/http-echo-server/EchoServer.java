@@ -9,6 +9,7 @@ import org.bluezoo.gumdrop.http.HttpServer;
 import org.bluezoo.gumdrop.http.server.DefaultHttpRequestHandler;
 import org.bluezoo.gumdrop.http.server.HttpRequestHandler;
 import org.bluezoo.gumdrop.http.server.HttpResponseState;
+import org.bluezoo.gumdrop.http.server.HttpStreamHandler;
 import org.bluezoo.gumdrop.tls.TlsConfig;
 
 import java.nio.ByteBuffer;
@@ -20,10 +21,13 @@ import java.nio.charset.StandardCharsets;
  * <p>Default: HTTPS + HTTP/3 on port 443 with PEM certificate files.
  * Pass {@code --plaintext PORT} for legacy cleartext HTTP/1.1 only.
  *
- * <p>Run from the gumdrop tree after {@code ant build}:
+ * <p>Run from the gumdrop tree after {@code ant build}. {@code ant tls-certs}
+ * makes the PEM files this expects in {@code etc/tls/} (see BUILDING.md); the
+ * certificate file, key file and port are optional arguments, in that order:
  * <pre>{@code
+ * ant tls-certs
  * java -cp build/core:build/lib/* examples.http-echo-server.EchoServer \
- *     cert.pem key.pem
+ *     etc/tls/cert.pem etc/tls/key.pem 8443
  * java -cp build/core:build/lib/* examples.http-echo-server.EchoServer \
  *     --plaintext 8080
  * }</pre>
@@ -31,23 +35,22 @@ import java.nio.charset.StandardCharsets;
 public final class EchoServer {
 
     public static void main(String[] args) throws Exception {
-        Gumdrop gumdrop = Gumdrop.getInstance();
+        Gumdrop gumdrop = Gumdrop.boot();
 
-        HttpServer.Composer composer = HttpServer.compose().handler(new EchoHandler());
+        HttpServer.Composer composer =
+                HttpServer.compose().streamHandler(new EchoStreamHandler());
 
         if (args.length >= 1 && "--plaintext".equals(args[0])) {
             int port = args.length > 1 ? Integer.parseInt(args[1]) : 8080;
             composer.plaintextListener(port);
             gumdrop.addServer(composer.server());
-            gumdrop.start();
             System.out.println("Echo server (legacy plaintext) on port " + port);
         } else {
-            String cert = args.length > 0 ? args[0] : "cert.pem";
-            String key = args.length > 1 ? args[1] : "key.pem";
+            String cert = args.length > 0 ? args[0] : "etc/tls/cert.pem";
+            String key = args.length > 1 ? args[1] : "etc/tls/key.pem";
             int port = args.length > 2 ? Integer.parseInt(args[2]) : 443;
             composer.secureEndpoint(port, TlsConfig.pem(cert, key));
             gumdrop.addServer(composer.server());
-            gumdrop.start();
             System.out.println("Echo server (HTTPS + HTTP/3) on port " + port);
         }
 
@@ -55,8 +58,15 @@ public final class EchoServer {
     }
 
     /**
-     * Stateless handler — safe to share via {@link HttpServer.Composer#handler}.
+     * Binds a fresh {@link EchoHandler} per stream.
      */
+    private static final class EchoStreamHandler implements HttpStreamHandler {
+        @Override
+        public HttpRequestHandler openStream(HttpResponseState stream) {
+            return new EchoHandler();
+        }
+    }
+
     private static final class EchoHandler extends DefaultHttpRequestHandler {
         @Override
         public void headers(HttpResponseState state, Headers headers) {

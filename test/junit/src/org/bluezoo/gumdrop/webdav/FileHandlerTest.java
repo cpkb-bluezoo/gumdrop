@@ -29,7 +29,7 @@ import org.bluezoo.gumdrop.http.HttpVersion;
 import org.bluezoo.gumdrop.http.Headers;
 import org.bluezoo.gumdrop.websocket.WebSocketEventHandler;
 
-import org.junit.After;
+import org.bluezoo.gumdrop.testsupport.memfs.MemoryFileSystem;
 import org.junit.Before;
 import org.junit.Test;
 import static org.junit.Assert.*;
@@ -63,7 +63,9 @@ import java.util.logging.Logger;
  */
 public class FileHandlerTest {
 
+    private MemoryFileSystem mem;
     private Path root;
+    private Path outside;   // a directory beside, not inside, the web root
     private Path helloFile;   // /hello.txt
     private Path subDir;      // /sub
     private Path nestedFile;  // /sub/nested.txt
@@ -73,31 +75,17 @@ public class FileHandlerTest {
     @Before
     public void setUp() throws Exception {
         Logger.getLogger(FileHandler.class.getName()).setLevel(Level.SEVERE);
-        root = Files.createTempDirectory("gumdrop-filehandler-test");
+        mem = MemoryFileSystem.create();
+        root = mem.getPath("/webroot");
+        Files.createDirectories(root);
+        outside = mem.getPath("/outside");
+        Files.createDirectories(outside);
+        Files.write(outside.resolve("secret.txt"), "TOP SECRET".getBytes(StandardCharsets.UTF_8));
         helloFile = root.resolve("hello.txt");
         Files.write(helloFile, HELLO.getBytes(StandardCharsets.UTF_8));
         subDir = Files.createDirectory(root.resolve("sub"));
         nestedFile = subDir.resolve("nested.txt");
         Files.write(nestedFile, "nested".getBytes(StandardCharsets.UTF_8));
-    }
-
-    @After
-    public void tearDown() throws Exception {
-        deleteRecursively(root);
-    }
-
-    private void deleteRecursively(Path p) throws Exception {
-        if (p == null || !Files.exists(p)) {
-            return;
-        }
-        if (Files.isDirectory(p)) {
-            try (java.nio.file.DirectoryStream<Path> children = Files.newDirectoryStream(p)) {
-                for (Path child : children) {
-                    deleteRecursively(child);
-                }
-            }
-        }
-        Files.deleteIfExists(p);
     }
 
     // ── Handler + dispatch helpers ──
@@ -311,6 +299,239 @@ public class FileHandlerTest {
         RecordingState st = dispatch(newHandler(true), "PROPFIND", "/nope",
                 headers(DavConstants.HEADER_DEPTH, "0"));
         assertEquals(HttpStatus.NOT_FOUND.code, st.status());
+    }
+
+    @Test
+    public void testGetLargeFileStreamsAllChunks() throws Exception {
+        byte[] data = new byte[100000];
+        for (int i = 0; i < data.length; i++) {
+            data[i] = (byte) ('a' + (i % 26));
+        }
+        Files.write(root.resolve("big.bin"), data);
+        RecordingState st = dispatch(newHandler(true), "GET", "/big.bin", null);
+        assertEquals(HttpStatus.OK.code, st.status());
+        assertEquals("100000", st.header("Content-Length"));
+        org.junit.Assert.assertArrayEquals(data, st.body());
+    }
+
+    @Test
+    public void testGetEmptyFileHasEmptyBody() throws Exception {
+        Files.createFile(root.resolve("empty.txt"));
+        RecordingState st = dispatch(newHandler(true), "GET", "/empty.txt", null);
+        assertEquals(HttpStatus.OK.code, st.status());
+        assertEquals("0", st.header("Content-Length"));
+        assertEquals(0, st.body().length);
+    }
+
+    @Test
+    public void testDirectoryListingOrdersDirectoriesFirstThenByNameIgnoringCase()
+            throws Exception {
+        Files.write(root.resolve("b.txt"), new byte[2048]);
+        Files.write(root.resolve("A.txt"), new byte[1]);
+        Files.createDirectory(root.resolve("zdir"));
+        RecordingState st = dispatch(newHandler(true), "GET", "/", null);
+        String html = new String(st.body(), StandardCharsets.UTF_8);
+        int sub = html.indexOf("sub/");
+        int zdir = html.indexOf("zdir/");
+        int a = html.indexOf(">A.txt<");
+        int b = html.indexOf(">b.txt<");
+        int hello = html.indexOf(">hello.txt<");
+        assertTrue(html, sub >= 0 && zdir > sub);
+        assertTrue("directories come before files", zdir < a);
+        assertTrue("files sort ignoring case", a < b && b < hello);
+    }
+
+    @Test
+    public void testDirectoryListingOfSubdirectoryLinksBackToParent() throws Exception {
+        RecordingState st = dispatch(newHandler(true), "GET", "/sub/", null);
+        String html = new String(st.body(), StandardCharsets.UTF_8);
+        assertTrue(html, html.contains("nested.txt"));
+        assertTrue(html, html.contains("href=\"/\">../</a>"));
+    }
+
+    @Test
+    public void testCopyDirectoryRecursively() throws Exception {
+        Files.createDirectories(root.resolve("sub/deeper"));
+        Files.write(root.resolve("sub/deeper/leaf.txt"),
+                "leaf".getBytes(StandardCharsets.UTF_8));
+        RecordingState st = dispatch(newHandler(true), "COPY", "/sub",
+                headers(DavConstants.HEADER_DESTINATION, "/sub2"));
+        assertEquals(HttpStatus.CREATED.code, st.status());
+        assertEquals("nested", new String(
+                Files.readAllBytes(root.resolve("sub2/nested.txt")), StandardCharsets.UTF_8));
+        assertEquals("leaf", new String(
+                Files.readAllBytes(root.resolve("sub2/deeper/leaf.txt")),
+                StandardCharsets.UTF_8));
+        assertTrue("source is untouched", Files.exists(root.resolve("sub/deeper/leaf.txt")));
+    }
+
+    @Test
+    public void testCopyDirectoryDepthZeroCopiesOnlyTheCollection() throws Exception {
+        RecordingState st = dispatch(newHandler(true), "COPY", "/sub",
+                headers(DavConstants.HEADER_DESTINATION, "/shell",
+                        DavConstants.HEADER_DEPTH, "0"));
+        assertEquals(HttpStatus.CREATED.code, st.status());
+        assertTrue(Files.isDirectory(root.resolve("shell")));
+        assertFalse(Files.exists(root.resolve("shell/nested.txt")));
+    }
+
+    @Test
+    public void testPropfindDepth1SkipsHiddenFiles() throws Exception {
+        Files.write(root.resolve(".secret"), "x".getBytes(StandardCharsets.UTF_8));
+        RecordingState st = dispatch(newHandler(true), "PROPFIND", "/",
+                headers(DavConstants.HEADER_DEPTH, "1"));
+        assertEquals(HttpStatus.MULTI_STATUS.code, st.status());
+        String xml = new String(st.body(), StandardCharsets.UTF_8);
+        assertFalse(xml, xml.contains(".secret"));
+        assertTrue(xml.contains("hello.txt"));
+    }
+
+    @Test
+    public void testPropfindDepth1DoesNotDescendIntoChildren() throws Exception {
+        RecordingState st = dispatch(newHandler(true), "PROPFIND", "/",
+                headers(DavConstants.HEADER_DEPTH, "1"));
+        String xml = new String(st.body(), StandardCharsets.UTF_8);
+        assertFalse("nested.txt is two levels down: " + xml, xml.contains("nested.txt"));
+    }
+
+    // ── COPY and symbolic links inside a collection ──
+
+    @Test
+    public void testCopyDoesNotCopyThroughFileLinkPointingOutsideTheRoot() throws Exception {
+        Files.createSymbolicLink(root.resolve("sub/leak"), outside.resolve("secret.txt"));
+        RecordingState st = dispatch(newHandler(true), "COPY", "/sub",
+                headers(DavConstants.HEADER_DESTINATION, "/copied"));
+        assertEquals(HttpStatus.CREATED.code, st.status());
+        assertFalse("outside content must not be copied into the web root",
+                Files.exists(root.resolve("copied/leak"),
+                        java.nio.file.LinkOption.NOFOLLOW_LINKS));
+        assertTrue("ordinary siblings are still copied",
+                Files.exists(root.resolve("copied/nested.txt")));
+    }
+
+    @Test
+    public void testCopyDoesNotDescendThroughDirectoryLinkPointingOutsideTheRoot()
+            throws Exception {
+        Files.createSymbolicLink(root.resolve("sub/outdir"), outside);
+        RecordingState st = dispatch(newHandler(true), "COPY", "/sub",
+                headers(DavConstants.HEADER_DESTINATION, "/copied"));
+        assertEquals(HttpStatus.CREATED.code, st.status());
+        assertFalse(Files.exists(root.resolve("copied/outdir/secret.txt")));
+        assertFalse(Files.exists(root.resolve("copied/outdir"),
+                java.nio.file.LinkOption.NOFOLLOW_LINKS));
+    }
+
+    @Test(timeout = 30000)
+    public void testCopyTerminatesOnLinkLoopBackToAnAncestor() throws Exception {
+        Files.createSymbolicLink(root.resolve("sub/loop"), root);
+        RecordingState st = dispatch(newHandler(true), "COPY", "/sub",
+                headers(DavConstants.HEADER_DESTINATION, "/copied"));
+        assertEquals(HttpStatus.CREATED.code, st.status());
+        assertTrue(Files.exists(root.resolve("copied/nested.txt")));
+        assertFalse("the loop must not be unrolled into the copy",
+                Files.exists(root.resolve("copied/loop/sub"),
+                        java.nio.file.LinkOption.NOFOLLOW_LINKS));
+    }
+
+    @Test
+    public void testCopyStillFollowsALinkThatStaysInsideTheRoot() throws Exception {
+        Files.createSymbolicLink(root.resolve("sub/alias"), helloFile);
+        RecordingState st = dispatch(newHandler(true), "COPY", "/sub",
+                headers(DavConstants.HEADER_DESTINATION, "/copied"));
+        assertEquals(HttpStatus.CREATED.code, st.status());
+        assertEquals(HELLO, new String(
+                Files.readAllBytes(root.resolve("copied/alias")), StandardCharsets.UTF_8));
+    }
+
+    @Test(timeout = 30000)
+    public void testCopyOfCollectionIntoItselfIsRefused() throws Exception {
+        RecordingState st = dispatch(newHandler(true), "COPY", "/sub",
+                headers(DavConstants.HEADER_DESTINATION, "/sub/inner"));
+        assertEquals(HttpStatus.FORBIDDEN.code, st.status());
+        assertFalse(Files.exists(root.resolve("sub/inner/nested.txt")));
+    }
+
+    // ── Symbolic links in listings, PROPFIND and welcome files ──
+
+    @Test
+    public void testWelcomeFileLinkedOutsideTheRootIsNotServed() throws Exception {
+        Files.createSymbolicLink(root.resolve("sub/index.html"), outside.resolve("secret.txt"));
+        RecordingState st = dispatch(newHandler(true), "GET", "/sub/", null);
+        assertFalse("outside file must not be served as the index",
+                new String(st.body(), StandardCharsets.UTF_8).contains("TOP SECRET"));
+    }
+
+    @Test
+    public void testWelcomeFileLinkedInsideTheRootIsStillServed() throws Exception {
+        Files.write(root.resolve("real-index.html"),
+                "<p>welcome</p>".getBytes(StandardCharsets.UTF_8));
+        Files.createSymbolicLink(root.resolve("sub/index.html"), root.resolve("real-index.html"));
+        RecordingState st = dispatch(newHandler(true), "GET", "/sub/", null);
+        assertEquals("<p>welcome</p>", new String(st.body(), StandardCharsets.UTF_8));
+    }
+
+    @Test
+    public void testDirectoryListingOmitsLinksLeadingOutsideTheRoot() throws Exception {
+        Files.createSymbolicLink(root.resolve("sub/leak"), outside.resolve("secret.txt"));
+        Files.createSymbolicLink(root.resolve("sub/outdir"), outside);
+        RecordingState st = dispatch(newHandler(true), "GET", "/sub/", null);
+        String html = new String(st.body(), StandardCharsets.UTF_8);
+        assertFalse(html, html.contains("leak"));
+        assertFalse(html, html.contains("outdir"));
+        assertTrue(html, html.contains("nested.txt"));
+    }
+
+    @Test
+    public void testDirectoryListingKeepsLinksInsideTheRoot() throws Exception {
+        Files.createSymbolicLink(root.resolve("sub/alias"), helloFile);
+        RecordingState st = dispatch(newHandler(true), "GET", "/sub/", null);
+        assertTrue(new String(st.body(), StandardCharsets.UTF_8).contains("alias"));
+    }
+
+    @Test
+    public void testPropfindDepth1DoesNotReportLinksLeadingOutsideTheRoot() throws Exception {
+        Files.createSymbolicLink(root.resolve("sub/leak"), outside.resolve("secret.txt"));
+        RecordingState st = dispatch(newHandler(true), "PROPFIND", "/sub",
+                headers(DavConstants.HEADER_DEPTH, "1"));
+        assertEquals(HttpStatus.MULTI_STATUS.code, st.status());
+        String xml = new String(st.body(), StandardCharsets.UTF_8);
+        assertFalse("size or name of an outside file must not appear: " + xml,
+                xml.contains("leak"));
+        assertTrue(xml.contains("nested.txt"));
+    }
+
+    @Test
+    public void testPropfindDoesNotEnumerateADirectoryLinkedFromOutsideTheRoot()
+            throws Exception {
+        Files.createSymbolicLink(root.resolve("sub/outdir"), outside);
+        RecordingState st = dispatch(newHandler(true), "PROPFIND", "/",
+                headers(DavConstants.HEADER_DEPTH, "infinity"));
+        String xml = new String(st.body(), StandardCharsets.UTF_8);
+        assertFalse(xml, xml.contains("secret.txt"));
+        assertFalse(xml, xml.contains("outdir"));
+        assertTrue("the rest of the tree is still reported: " + xml, xml.contains("nested.txt"));
+    }
+
+    @Test(timeout = 30000)
+    public void testPropfindInfinityTerminatesOnLinkLoopToAnAncestor() throws Exception {
+        Files.createSymbolicLink(root.resolve("sub/loop"), root);
+        RecordingState st = dispatch(newHandler(true), "PROPFIND", "/",
+                headers(DavConstants.HEADER_DEPTH, "infinity"));
+        assertEquals(HttpStatus.MULTI_STATUS.code, st.status());
+        String xml = new String(st.body(), StandardCharsets.UTF_8);
+        assertTrue(xml, xml.contains("nested.txt"));
+        assertFalse("the loop is not unrolled: " + xml, xml.contains("loop"));
+    }
+
+    @Test
+    public void testPropfindStillReportsLinksInsideTheRoot() throws Exception {
+        Files.createSymbolicLink(root.resolve("sub/alias"), helloFile);
+        RecordingState st = dispatch(newHandler(true), "PROPFIND", "/sub",
+                headers(DavConstants.HEADER_DEPTH, "1"));
+        String xml = new String(st.body(), StandardCharsets.UTF_8);
+        assertTrue(xml, xml.contains("alias"));
+        assertTrue("reports the size of the target: " + xml,
+                xml.contains(String.valueOf(HELLO.length())));
     }
 
     // ── Recording HttpResponseState double ──

@@ -126,7 +126,9 @@ public class FTPClientIntegrationTest extends AbstractServerIntegrationTest {
         }
 
         void connect(RemoteGreeting handler) throws Exception {
-            client.connect(gumdrop, new FtpClientProtocolHandler(handler));
+            FtpClientProtocolHandler protocol = new FtpClientProtocolHandler(handler);
+            protocol.setGumdrop(gumdrop);
+            client.connect(gumdrop, protocol);
         }
     }
 

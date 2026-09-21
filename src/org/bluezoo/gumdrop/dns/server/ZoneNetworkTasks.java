@@ -22,21 +22,21 @@
 package org.bluezoo.gumdrop.dns.server;
 
 import org.bluezoo.gumdrop.SelectorLoop;
-import org.bluezoo.gumdrop.StorageExecutor;
-import org.bluezoo.gumdrop.dns.client.DnsZoneOperations;
+import org.bluezoo.gumdrop.dns.DnsMessage;
+import org.bluezoo.gumdrop.dns.DnsResourceRecord;
+import org.bluezoo.gumdrop.dns.client.DnsZoneClient;
 
-import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.text.MessageFormat;
 import java.util.List;
-import java.util.concurrent.Callable;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
 /**
- * Blocking zone maintenance over the network (AXFR refresh, NOTIFY), offloaded
- * from {@link org.bluezoo.gumdrop.SelectorLoop} threads.
-  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
+ * Non-blocking zone maintenance over the network (AXFR refresh, NOTIFY) on
+ * the {@link SelectorLoop} reactor.
+ *
+ * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 final class ZoneNetworkTasks {
 
@@ -45,70 +45,55 @@ final class ZoneNetworkTasks {
     private ZoneNetworkTasks() {
     }
 
-    static void refreshFromMasterAsync(StorageExecutor executor, SelectorLoop loop,
-                                       final MutableZone zone,
-                                       final InetSocketAddress master,
-                                       final Runnable onSuccess) {
-        if (executor == null || master == null || zone == null) {
+    static void refreshFromMasterAsync(SelectorLoop loop, final MutableZone zone,
+            final InetSocketAddress master, final Runnable onSuccess) {
+        if (loop == null || master == null || zone == null) {
             return;
         }
-        executor.submit(ZoneStorage.loopDispatcher(loop), new Callable<Void>() {
-            @Override
-            public Void call() throws IOException {
-                List<org.bluezoo.gumdrop.dns.DnsResourceRecord> records =
-                        DnsZoneOperations.axfrOverTcp(master, zone.getOrigin());
-                zone.replaceFromAxfr(records);
-                return null;
-            }
-        }, new StorageExecutor.Callback<Void>() {
-            @Override
-            public void completed(Void result) {
-                if (onSuccess != null) {
-                    onSuccess.run();
-                }
-            }
+        DnsZoneClient.axfrOverTcp(loop, master, zone.getOrigin(),
+                DnsZoneClient.DEFAULT_TIMEOUT_MS, null, null,
+                new DnsZoneClient.TransferCallback() {
+                    @Override
+                    public void onSuccess(List<DnsResourceRecord> records) {
+                        zone.replaceFromAxfr(records);
+                        if (onSuccess != null) {
+                            onSuccess.run();
+                        }
+                    }
 
-            @Override
-            public void failed(Throwable error) {
-                LOGGER.log(Level.FINE, MessageFormat.format(
-                        DnsServer.L10N.getString("fine.zone_axfr_refresh_failed"),
-                        master), error);
-            }
-        });
+                    @Override
+                    public void onFailure(Exception error) {
+                        LOGGER.log(Level.FINE, MessageFormat.format(
+                                DnsServer.L10N.getString("fine.zone_axfr_refresh_failed"),
+                                master), error);
+                    }
+                });
     }
 
-    static void notifyPeersAsync(StorageExecutor executor, SelectorLoop loop,
-                                 final String origin,
-                                 final List<InetSocketAddress> peers) {
-        if (executor == null || peers == null || peers.isEmpty()) {
+    static void notifyPeersAsync(SelectorLoop loop, final String origin,
+            final List<InetSocketAddress> peers) {
+        if (loop == null || peers == null || peers.isEmpty()) {
             return;
         }
-        executor.submit(ZoneStorage.loopDispatcher(loop), new Callable<Void>() {
-            @Override
-            public Void call() {
-                for (int i = 0; i < peers.size(); i++) {
-                    InetSocketAddress peer = peers.get(i);
-                    try {
-                        DnsZoneOperations.sendNotify(peer, origin);
-                    } catch (IOException e) {
-                        LOGGER.log(Level.FINE, MessageFormat.format(
-                                DnsServer.L10N.getString("fine.zone_notify_peer_failed"),
-                                peer), e);
-                    }
-                }
-                return null;
+        for (int i = 0; i < peers.size(); i++) {
+            final InetSocketAddress peer = peers.get(i);
+            if (peer == null) {
+                continue;
             }
-        }, new StorageExecutor.Callback<Void>() {
-            @Override
-            public void completed(Void result) {
-            }
+            DnsZoneClient.sendNotify(loop, peer, origin,
+                    new DnsZoneClient.MessageCallback() {
+                        @Override
+                        public void onSuccess(DnsMessage ignored) {
+                        }
 
-            @Override
-            public void failed(Throwable error) {
-                LOGGER.log(Level.FINE,
-                        DnsServer.L10N.getString("fine.zone_notify_batch_failed"),
-                        error);
-            }
-        });
+                        @Override
+                        public void onFailure(Exception error) {
+                            LOGGER.log(Level.FINE, MessageFormat.format(
+                                    DnsServer.L10N.getString(
+                                            "fine.zone_notify_peer_failed"),
+                                    peer), error);
+                        }
+                    });
+        }
     }
 }

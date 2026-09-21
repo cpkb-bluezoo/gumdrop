@@ -22,7 +22,7 @@
 package org.bluezoo.gumdrop.mailbox.maildir;
 
 import org.bluezoo.gumdrop.mailbox.SearchCriteria;
-import org.junit.After;
+import org.bluezoo.gumdrop.testsupport.memfs.MemoryFileSystem;
 import org.junit.Before;
 import org.junit.Test;
 
@@ -53,14 +53,8 @@ public class MaildirIndexNewMessagesTest {
 
     @Before
     public void setUp() throws Exception {
-        tempDir = Files.createTempDirectory("maildir-index-new-msgs");
-    }
-
-    @After
-    public void tearDown() throws Exception {
-        if (tempDir != null) {
-            deleteRecursively(tempDir);
-        }
+        tempDir = MemoryFileSystem.create().getPath("/maildir");
+        Files.createDirectories(tempDir);
     }
 
     @Test

@@ -25,7 +25,7 @@ import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.GumdropConfig;
 import org.bluezoo.gumdrop.SecurityInfo;
-import org.bluezoo.gumdrop.TestCertificateManager;
+import org.bluezoo.gumdrop.TestTlsFiles;
 import org.bluezoo.gumdrop.http.HttpStatus;
 import org.bluezoo.gumdrop.http.HttpClient;
 import org.bluezoo.gumdrop.http.HttpVersion;
@@ -84,30 +84,15 @@ public class HTTP3ClientIntegrationTest {
 
     @BeforeClass
     public static void startServer() throws Exception {
-        File certsDir = new File("test/integration/certs");
-        if (!certsDir.exists()) {
-            certsDir.mkdirs();
-        }
-        // Export PEM cert+key for this test's HTTP/3 listener (keystore would
-        // work too; PEM keeps the fixture self-contained and easy to inspect).
-        File caKeystore = new File(certsDir, "ca-keystore.p12");
-        if (caKeystore.exists()) {
-            caKeystore.delete();
-        }
-        TestCertificateManager certManager = new TestCertificateManager(certsDir);
-        certManager.generateCA("Test CA", 365);
-        certManager.generateServerCertificate("localhost", 365);
-        File pemCert = new File(certsDir, "h3-server-chain.pem");
-        File pemKey = new File(certsDir, "h3-server-key.pem");
-        certManager.saveServerPem(pemCert, pemKey);
+        TestTlsFiles.assumeAvailable();
 
         System.setProperty("gumdrop.workers", "2");
 
         listener = new Http3Listener();
         listener.setPort(H3_PORT);
         listener.setAddresses(TEST_HOST);
-        listener.setCertFile(pemCert.getAbsolutePath());
-        listener.setKeyFile(pemKey.getAbsolutePath());
+        listener.setCertFile(TestTlsFiles.certFile().toString());
+        listener.setKeyFile(TestTlsFiles.keyFile().toString());
         listener.setStreamHandler(new EchoHandlerFactory());
 
         gumdrop = Gumdrop.boot(GumdropConfig.create().workerThreads(2));
@@ -291,9 +276,8 @@ public class HTTP3ClientIntegrationTest {
     private HttpClient connect() throws Exception {
         HttpClient client = new HttpClient(TEST_HOST, H3_PORT);
         client.setH3Enabled(true);
-        // The test server presents a certificate signed by our throwaway test
-        // CA; the client is not configured to trust it, so disable verification.
-        client.setVerifyPeer(false);
+        client.setTrustManager(TestTlsFiles.trustManager());
+        client.setVerifyPeer(true);
         client.setAltSvcEnabled(false);
 
         final CountDownLatch connected = new CountDownLatch(1);

@@ -22,7 +22,7 @@
 package org.bluezoo.gumdrop.mailbox.mbox;
 
 import org.bluezoo.gumdrop.mailbox.MessageDescriptor;
-import org.junit.After;
+import org.bluezoo.gumdrop.testsupport.memfs.MemoryFileSystem;
 import org.junit.Before;
 import org.junit.Test;
 
@@ -63,25 +63,9 @@ public class MboxMailboxTest {
 
     @Before
     public void setUp() throws IOException {
-        tempDir = Files.createTempDirectory("mboxtest");
+        tempDir = MemoryFileSystem.create().getPath("/mbox");
+        Files.createDirectories(tempDir);
         mboxFile = tempDir.resolve("test.mbox");
-    }
-
-    @After
-    public void tearDown() throws IOException {
-        Files.walkFileTree(tempDir, new java.nio.file.SimpleFileVisitor<Path>() {
-            @Override
-            public java.nio.file.FileVisitResult visitFile(Path file, java.nio.file.attribute.BasicFileAttributes attrs) {
-                try { Files.delete(file); } catch (IOException e) { /* ignore */ }
-                return java.nio.file.FileVisitResult.CONTINUE;
-            }
-
-            @Override
-            public java.nio.file.FileVisitResult postVisitDirectory(Path dir, IOException exc) {
-                try { Files.delete(dir); } catch (IOException e) { /* ignore */ }
-                return java.nio.file.FileVisitResult.CONTINUE;
-            }
-        });
     }
 
     private MboxMailbox openSampleMailbox(boolean readOnly) throws IOException {

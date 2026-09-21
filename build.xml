@@ -83,6 +83,11 @@
   <property name='junit.coverage.dir' location='${testdir}/junit/coverage'/>
   <property name='junit.coverage.exec' location='${junit.coverage.dir}/jacoco.exec'/>
   <property name='junit.report.dir' location='${testdir}/junit/report'/>
+  <!-- TLS files for integration tests: key.pem, cert.pem, ca.pem made by
+       ant/tls.xml (needs mkcert or openssl; tests that use them are skipped
+       when they cannot be made). The names are the ones the tests connect to. -->
+  <property name='integration.tls.dir' location='${basedir}/etc/tls'/>
+  <property name='integration.tls.names' value='localhost 127.0.0.1 ::1 test.gumdrop.local'/>
   <!-- Combined (unit + integration) coverage; see the coverage-all target. -->
   <property name='integration.coverage.dir' location='${testdir}/integration/coverage'/>
   <property name='integration.coverage.exec' location='${integration.coverage.dir}/jacoco.exec'/>
@@ -131,6 +136,7 @@
   <property name='java.release.version' value='25'/>
   
   <import file='ant/compile-modules.xml'/>
+  <import file='ant/tls.xml'/>
 
   <!-- Remove compiled classes and build directories -->
   <!-- Note: does NOT delete doc/ directory to avoid constant javadoc churn in git -->
@@ -175,6 +181,7 @@
     <delete dir='${testdir}/integration/classes'/>
     <delete dir='${testdir}/integration/results'/>
     <delete dir='${testdir}/integration/webapp/WEB-INF/classes'/>
+    <delete dir='${testdir}/integration/webapp-examples/WEB-INF/classes'/>
   </target>
 
   <!-- Download compile/runtime dependencies (versions from boms/versions.properties).
@@ -552,6 +559,11 @@
     <copy file='etc/realm-servlet.xml' tofile='${container.home}/conf/realm-servlet.xml'/>
     <copy file='etc/server.xml' tofile='${container.home}/conf/server.xml'/>
     <copy file='etc/server-tls.xml' tofile='${container.home}/conf/server-tls.xml'/>
+    <!-- TLS files for server-tls.xml, if "ant tls-certs" has been run -->
+    <copy todir='${container.home}/conf/tls'>
+      <fileset dir='${tls.dir}' includes='key.pem,cert.pem,ca.pem,keystore.p12,truststore.p12'
+               erroronmissingdir='false'/>
+    </copy>
     <copy file='logging.properties' todir='${container.home}'/>
     <copy todir='${container.home}/webapps/ROOT'>
       <fileset dir='web'/>
@@ -726,6 +738,23 @@
     </javac>
   </target>
 
+  <!-- Standalone examples (default package) and small demos; not the oauth WAR tree. -->
+  <target name='examples-compile' depends='build'
+          description='Compile migrated Gumdrop 3 composition examples'>
+    <mkdir dir='${build.dir}/examples'/>
+    <javac destdir='${build.dir}/examples' debug='true'
+           release='${java.release.version}'
+           includeantruntime='false'
+           createMissingPackageInfoClass='false'>
+      <classpath refid='module.compile.classpath'/>
+      <src path='examples/http-echo-server'/>
+      <src path='examples/redis-client'/>
+      <src path='examples/dns-authoritative'/>
+      <src path='examples/http-client-test'/>
+      <src path='examples/pop3-server'/>
+    </javac>
+  </target>
+
   <target name='junit-build' depends='resolve-test-deps,build-modules'>
     <mkdir dir='${testdir}/junit/classes'/>
     <javac srcdir='${testdir}/junit/src' destdir='${testdir}/junit/classes' debug='true'
@@ -880,16 +909,25 @@
     <pathelement location='${testdir}/junit/lib/${junit.jar}'/>
     <pathelement location='${testdir}/junit/lib/${hamcrest.jar}'/>
     <path refid='server.classes'/>
-    <pathelement location='${lib}/${gonzalez.jar}'/>
-    <pathelement location='${lib}/${jsonparser.jar}'/>
-    <pathelement location='${lib}/${jprotobuf.jar}'/>
-    <pathelement location='${lib}/${micula.jar}'/>
-    <pathelement location='${lib}/${javamail.jar}'/>
-    <pathelement location='${lib}/${servlet.jar}'/>
+    <!-- Same J2EE/API deps as compile and container ContainerClassLoader -->
+    <path refid='lib.compile.classpath'/>
   </path>
 
+  <!-- PEM TLS files for the tests that use them (see ant/tls.xml). Run in a
+       fresh sub-build so nothing decided by an earlier tls-certs in the same
+       run carries over, and never fails: without mkcert or openssl the tests
+       that need the files skip themselves. -->
+  <target name='integration-tls'
+          description='Ensure etc/tls PEM files for integration tests (same as ant tls-certs)'>
+    <antcall target='tls-certs' inheritAll='false'>
+      <param name='tls.dir' location='${integration.tls.dir}'/>
+      <param name='tls.names' value='${integration.tls.names}'/>
+      <param name='tls.required' value='false'/>
+    </antcall>
+  </target>
+
   <!-- Set up test fixtures (certificates, directories, etc.) -->
-  <target name='integration-setup' depends='integration-build'
+  <target name='integration-setup' depends='integration-build,integration-tls'
           description='Set up integration test fixtures'>
     <java classname='org.bluezoo.gumdrop.TestFixtureSetup'
           classpathref='integration.classpath'
@@ -897,6 +935,9 @@
           fork='true'>
     </java>
   </target>
+
+  <!-- Optional: -Dgumdrop.integration.log.level=FINE for server-side JUL traces in integration tests -->
+  <property name='gumdrop.integration.log.level' value=''/>
 
   <!-- Common JUnit settings for integration tests with XML reporting -->
   <macrodef name='integration-junit'>
@@ -919,6 +960,8 @@
         <formatter type='xml'/>
         <!-- System properties for test configuration -->
         <sysproperty key='test.results.dir' value='${testdir}/integration/results'/>
+        <sysproperty key='gumdrop.test.tls.dir' value='${integration.tls.dir}'/>
+        <sysproperty key='gumdrop.integration.log.level' value='${gumdrop.integration.log.level}'/>
       </junit>
     </sequential>
   </macrodef>
@@ -941,6 +984,12 @@
     <integration-junit includes='**/smtp/**/*IntegrationTest.java'/>
   </target>
 
+  <!-- Run WebDAV integration tests (real file system: sidecar I/O, xattrs) -->
+  <target name='integration-test-webdav' depends='integration-build'
+          description='Run WebDAV integration tests'>
+    <integration-junit includes='**/webdav/*IntegrationTest.java'/>
+  </target>
+
   <!-- Run POP3 integration tests -->
   <target name='integration-test-pop3' depends='integration-build'
           description='Run POP3 server integration tests'>
@@ -959,8 +1008,30 @@
     <integration-junit includes='**/ftp/**/*IntegrationTest.java'/>
   </target>
 
+  <!-- Compile examples/ servlet sources into the examples integration webapp. -->
+  <target name='integration-webapp-examples-build' depends='build-modules'
+          description='Compile servlet examples into test/integration/webapp-examples'>
+    <mkdir dir='${testdir}/integration/webapp-examples/WEB-INF/classes'/>
+    <javac destdir='${testdir}/integration/webapp-examples/WEB-INF/classes'
+           debug='true'
+           release='${java.release.version}'
+           includeantruntime='false'
+           createMissingPackageInfoClass='false'>
+      <classpath>
+        <path refid='server.classes'/>
+        <path refid='lib.compile.classpath'/>
+        <pathelement location='${lib}/${jsp.jar}'/>
+      </classpath>
+      <src path='examples/servlet-trailer-fields'/>
+      <src path='examples/http2-priority'/>
+      <src path='examples/servlet-server-push'/>
+      <src path='examples/async-timeout'/>
+    </javac>
+  </target>
+
   <!-- Run servlet container integration tests -->
-  <target name='integration-test-servlet' depends='integration-build'
+  <target name='integration-test-servlet'
+          depends='integration-build,integration-webapp-examples-build'
           description='Run servlet container integration tests'>
     <!-- Copy test servlet and filter classes to webapp WEB-INF/classes -->
     <mkdir dir='${testdir}/integration/webapp/WEB-INF/classes'/>
@@ -1138,6 +1209,7 @@
     <junit printsummary='yes' haltonfailure='${integration.halt}' haltonerror='${integration.halt}' fork='yes'
            showoutput='true' logfailedtests='true'>
       <jvmarg line='${jacoco.jvmarg}'/>
+      <sysproperty key='gumdrop.test.tls.dir' value='${integration.tls.dir}'/>
       <classpath refid='integration.classpath'/>
       <batchtest fork='yes' todir='${testdir}/integration/results/xml'>
         <fileset dir='${testdir}/integration/src'>
@@ -1171,12 +1243,13 @@
 
   <!-- Tests relocated from the unit tree because they use real disk I/O or
        subprocesses (keytool/openssl). -->
-  <target name='integration-test-relocated' depends='integration-build'
+  <target name='integration-test-relocated' depends='integration-build,integration-tls'
           description='Run relocated disk/subprocess integration tests'>
     <mkdir dir='${testdir}/integration/results/xml'/>
     <junit printsummary='yes' haltonfailure='${integration.halt}' haltonerror='${integration.halt}' fork='yes'
            showoutput='true' logfailedtests='true'>
       <jvmarg line='${jacoco.jvmarg}'/>
+      <sysproperty key='gumdrop.test.tls.dir' value='${integration.tls.dir}'/>
       <classpath refid='integration.classpath'/>
       <batchtest fork='yes' todir='${testdir}/integration/results/xml'>
         <fileset dir='${testdir}/integration/src'>
@@ -1188,6 +1261,7 @@
           <include name='org/bluezoo/gumdrop/dns/client/DNSSECTrustAnchorUpdaterTest.java'/>
           <include name='org/bluezoo/gumdrop/dns/client/ResolvConfTest.java'/>
           <include name='org/bluezoo/gumdrop/Dtls12SessionTest.java'/>
+          <include name='org/bluezoo/gumdrop/Dtls12SessionAsyncOffloadTest.java'/>
           <include name='org/bluezoo/gumdrop/Dtls13SessionTest.java'/>
           <include name='org/bluezoo/gumdrop/ftp/file/BasicFTPFileSystemTest.java'/>
           <include name='org/bluezoo/gumdrop/ftp/FtpSessionProviderTest.java'/>
@@ -1197,13 +1271,7 @@
           <include name='org/bluezoo/gumdrop/mailbox/index/SearchIndexIntegrationTest.java'/>
           <include name='org/bluezoo/gumdrop/mailbox/maildir/MaildirBodyOffsetTest.java'/>
           <include name='org/bluezoo/gumdrop/mailbox/maildir/MaildirConcurrentSessionTest.java'/>
-          <include name='org/bluezoo/gumdrop/mailbox/maildir/MaildirExpungeFlaggedDeletedTest.java'/>
-          <include name='org/bluezoo/gumdrop/mailbox/maildir/MaildirStoreCopyTest.java'/>
-          <include name='org/bluezoo/gumdrop/mailbox/maildir/MaildirIndexNewMessagesTest.java'/>
-          <include name='org/bluezoo/gumdrop/mailbox/maildir/MaildirNewToCurTest.java'/>
           <include name='org/bluezoo/gumdrop/mailbox/mbox/MboxMailboxFactoryTest.java'/>
-          <include name='org/bluezoo/gumdrop/mailbox/mbox/MboxMailboxStoreTest.java'/>
-          <include name='org/bluezoo/gumdrop/mailbox/mbox/MboxMailboxTest.java'/>
           <include name='org/bluezoo/gumdrop/pop3/POP3ScramCredentialsOffloadTest.java'/>
           <include name='org/bluezoo/gumdrop/quic/tls/PemCredentialsTest.java'/>
           <include name='org/bluezoo/gumdrop/quota/RoleBasedQuotaManagerAsyncSaveTest.java'/>
@@ -1225,7 +1293,6 @@
           <include name='org/bluezoo/gumdrop/tls/Tls12RecordEngineTest.java'/>
           <include name='org/bluezoo/gumdrop/tls/TlsRecordEngineTest.java'/>
           <include name='org/bluezoo/gumdrop/util/SPKIPinnedCertTrustManagerTest.java'/>
-          <include name='org/bluezoo/gumdrop/webdav/FileHandlerTest.java'/>
           <include name='org/bluezoo/gumdrop/webdav/FileSecurityTest.java'/>
         </fileset>
       </batchtest>
@@ -1235,10 +1302,41 @@
     </junit>
   </target>
 
-  <!-- Run all integration tests -->
+  <!-- Run all integration tests (fast-fail: first failing test class or group
+       stops the rest; see integration.halt and integration-test-coverage-suite). -->
   <target name='integration-test'
-          depends='integration-test-loopback,integration-test-relocated,integration-test-http,integration-test-http-client,integration-test-smtp,integration-test-pop3,integration-test-imap,integration-test-ftp,integration-test-servlet,integration-test-telemetry,integration-test-buffer,integration-test-tls,integration-test-websocket,integration-test-dtls,integration-test-performance'
+          depends='integration-test-loopback,integration-test-relocated,integration-test-http,integration-test-http-client,integration-test-smtp,integration-test-pop3,integration-test-imap,integration-test-ftp,integration-test-webdav,integration-test-servlet,integration-test-telemetry,integration-test-buffer,integration-test-tls,integration-test-websocket,integration-test-dtls,integration-test-performance'
           description='Run all integration tests'>
+  </target>
+
+  <!-- Same groups as integration-test, but each runs in its own Ant invocation
+       with failonerror=false so one red group does not skip the remainder.
+       Used only from coverage-integration (integration.halt=no there). -->
+  <macrodef name='integration-coverage-run'>
+    <attribute name='target'/>
+    <sequential>
+      <ant antfile='${ant.file}' target='@{target}' inheritAll='true' failonerror='false'/>
+    </sequential>
+  </macrodef>
+
+  <target name='integration-test-coverage-suite'
+          description='Run all integration groups for JaCoCo (no fast-fail between groups)'>
+    <integration-coverage-run target='integration-test-loopback'/>
+    <integration-coverage-run target='integration-test-relocated'/>
+    <integration-coverage-run target='integration-test-http'/>
+    <integration-coverage-run target='integration-test-http-client'/>
+    <integration-coverage-run target='integration-test-smtp'/>
+    <integration-coverage-run target='integration-test-pop3'/>
+    <integration-coverage-run target='integration-test-imap'/>
+    <integration-coverage-run target='integration-test-ftp'/>
+    <integration-coverage-run target='integration-test-webdav'/>
+    <integration-coverage-run target='integration-test-servlet'/>
+    <integration-coverage-run target='integration-test-telemetry'/>
+    <integration-coverage-run target='integration-test-buffer'/>
+    <integration-coverage-run target='integration-test-tls'/>
+    <integration-coverage-run target='integration-test-websocket'/>
+    <integration-coverage-run target='integration-test-dtls'/>
+    <integration-coverage-run target='integration-test-performance'/>
   </target>
 
   <!-- Run all integration tests with reports -->
@@ -1252,15 +1350,17 @@
           description='Run all unit and integration tests'>
   </target>
 
-  <!-- Integration-test coverage. Re-runs integration-test in a child Ant so the
-       JaCoCo agent reaches every forked test JVM (all append to one exec file).
-       Failures do not stop the run: many integration tests depend on the local
-       environment, and partial coverage is still useful. -->
+  <!-- Integration-test coverage. Re-runs the integration suite in a child Ant so
+       the JaCoCo agent reaches every forked test JVM (all append to one exec
+       file). Unlike ant integration-test, this does not fast-fail: every group
+       runs and every test class in a group runs (integration.halt=no), so
+       partial coverage is still useful when something is red locally. -->
   <target name='coverage-integration' depends='integration-build,resolve-jacoco'
           description='Run integration tests under JaCoCo (exec file only)'>
     <mkdir dir='${integration.coverage.dir}'/>
     <delete file='${integration.coverage.exec}' quiet='true'/>
-    <ant antfile='${ant.file}' target='integration-test' inheritAll='false'>
+    <ant antfile='${ant.file}' target='integration-test-coverage-suite' inheritAll='false'
+         failonerror='false'>
       <property name='integration.halt' value='no'/>
       <property name='jacoco.jvmarg'
                 value='-javaagent:${testdir}/junit/lib/${jacoco.agent.runtime.jar}=destfile=${integration.coverage.exec},append=true,excludes=java/**:javax/**:sun/**:com/sun/**:jdk/**'/>
@@ -1268,8 +1368,13 @@
   </target>
 
   <!-- Combined unit + integration coverage report in test/coverage-report/. -->
-  <target name='coverage-all' depends='junit-coverage,coverage-integration'
+  <target name='coverage-all' depends='junit-coverage,coverage-integration,coverage-all-report'
           description='Merge unit and integration JaCoCo data into test/coverage-report/'>
+  </target>
+
+  <target name='coverage-all-report'
+          depends='resolve-jacoco'
+          description='Merge JaCoCo exec files into test/coverage-report/ (internal)'>
     <taskdef uri='antlib:org.jacoco.ant' resource='org/jacoco/ant/antlib.xml'>
       <classpath refid='jacoco.ant.classpath'/>
     </taskdef>

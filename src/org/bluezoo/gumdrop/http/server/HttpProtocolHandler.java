@@ -565,7 +565,10 @@ public  class HttpProtocolHandler
 
     @Override
     public void error(Exception cause) {
-        LOGGER.log(Level.WARNING, L10N.getString("warn.http_transport_error"), cause);
+        LOGGER.log(Level.WARNING, MessageFormat.format(
+                "{0} remote={1} version={2} state={3}",
+                L10N.getString("warn.http_transport_error"),
+                getRemoteSocketAddress(), version, state), cause);
         closeEndpoint();
     }
 
@@ -1809,15 +1812,30 @@ public  class HttpProtocolHandler
             }
         }
         if (removedCount > 0 && LOGGER.isLoggable(Level.FINE)) {
-            LOGGER.fine(String.format("Cleaned up %d closed streams (total remaining: %d)",
+            LOGGER.fine(MessageFormat.format(
+                    L10N.getString("debug.cleaned_up_closed_streams"),
                     removedCount, streams.size()));
         }
     }
 
     private void sendStreamError(Stream stream, int statusCode) {
+        if (stream == null || !stream.canCommitErrorResponse()) {
+            if (stream != null && LOGGER.isLoggable(Level.FINE)) {
+                LOGGER.fine(MessageFormat.format(
+                        L10N.getString("debug.skipping_stream_error_response"),
+                        statusCode));
+            }
+            return;
+        }
         try {
             stream.sendError(statusCode);
         } catch (ProtocolException e) {
+            if (!stream.canCommitErrorResponse()) {
+                if (LOGGER.isLoggable(Level.FINE)) {
+                    LOGGER.log(Level.FINE, L10N.getString("err.send_headers"), e);
+                }
+                return;
+            }
             String message = L10N.getString("err.send_headers");
             LOGGER.log(Level.SEVERE, message, e);
         }

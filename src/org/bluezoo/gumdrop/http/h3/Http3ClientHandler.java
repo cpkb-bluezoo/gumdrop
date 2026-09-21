@@ -137,13 +137,13 @@ public final class Http3ClientHandler implements H3ControlStream.Listener {
     // RFC 9297 section 2.1.1: peer advertised SETTINGS_H3_DATAGRAM=1.
     private boolean peerH3Datagram;
 
-    private boolean sendAcceptEncodingHeader = true;
+    private boolean sendAcceptEncodingHeader = ContentEncoding.isContentCodingEnabled();
 
     /** When true, decode {@code Content-Encoding} on response bodies. */
-    private boolean decodeResponseContentCoding = true;
+    private boolean decodeResponseContentCoding = ContentEncoding.isContentCodingEnabled();
 
     /** When true, compress request bodies per {@code Content-Encoding}. */
-    private boolean encodeRequestBodyContentCoding = true;
+    private boolean encodeRequestBodyContentCoding = ContentEncoding.isContentCodingEnabled();
 
     /**
      * Creates a new HTTP/3 client handler on top of an existing
