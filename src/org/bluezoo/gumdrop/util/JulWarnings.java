@@ -76,6 +76,7 @@ public final class JulWarnings {
             if (msg != null) {
                 String lower = msg.toLowerCase(Locale.ROOT);
                 if (lower.contains("connection reset")
+                        || lower.contains("connection closed")
                         || lower.contains("broken pipe")
                         || lower.contains("connection refused")
                         || lower.contains("socket closed")

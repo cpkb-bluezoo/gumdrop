@@ -97,12 +97,16 @@ import org.bluezoo.gumdrop.smtp.client.*;
 public class SimpleRelayHandler implements ClientConnected, HelloHandler,
         MailFromHandler, RecipientHandler, MessageDataHandler {
 
+    /** Default SMTP port for outbound relay delivery (RFC 5321). */
+    public static final int DEFAULT_DELIVERY_PORT = 25;
+
     private static final Logger LOGGER = Logger.getLogger(SimpleRelayHandler.class.getName());
     private static final ResourceBundle L10N =
             ResourceBundle.getBundle("org.bluezoo.gumdrop.smtp.L10N");
 
     private final DnsResolver dnsResolver;
     private final String localHostname;
+    private final int deliveryPort;
 
     // Transaction state
     private EmailAddress sender;
@@ -117,8 +121,24 @@ public class SimpleRelayHandler implements ClientConnected, HelloHandler,
      * @param localHostname the local hostname for EHLO
      */
     public SimpleRelayHandler(DnsResolver dnsResolver, String localHostname) {
+        this(dnsResolver, localHostname, DEFAULT_DELIVERY_PORT);
+    }
+
+    /**
+     * Creates a new relay handler with a non-default outbound SMTP port.
+     *
+     * @param dnsResolver the DNS resolver for MX lookups
+     * @param localHostname the local hostname for EHLO
+     * @param deliveryPort the TCP port for outbound SMTP delivery to MX hosts
+     */
+    public SimpleRelayHandler(DnsResolver dnsResolver, String localHostname,
+                              int deliveryPort) {
+        if (deliveryPort <= 0 || deliveryPort > 65535) {
+            throw new IllegalArgumentException("deliveryPort: " + deliveryPort);
+        }
         this.dnsResolver = dnsResolver;
         this.localHostname = localHostname;
+        this.deliveryPort = deliveryPort;
         this.recipients = new ArrayList<EmailAddress>();
     }
 
@@ -564,7 +584,8 @@ public class SimpleRelayHandler implements ClientConnected, HelloHandler,
                 SmtpClientProtocolHandler endpointHandler =
                         new SmtpClientProtocolHandler(handler);
                 ClientEndpoint endpoint = new ClientEndpoint(
-                        factory, host, 25);
+                        factory, host, deliveryPort);
+                endpoint.setDnsResolver(dnsResolver);
                 endpoint.connect(dnsResolver.getSelectorLoop().getGumdrop(), endpointHandler);
             } catch (IOException e) {
                 LOGGER.warning(MessageFormat.format(

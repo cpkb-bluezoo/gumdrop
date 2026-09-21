@@ -56,6 +56,7 @@ import org.bluezoo.gumdrop.dns.DnsQuestion;
 import org.bluezoo.gumdrop.dns.DnsResourceRecord;
 import org.bluezoo.gumdrop.dns.DnssecStatus;
 import org.bluezoo.gumdrop.dns.DnsType;
+import org.bluezoo.gumdrop.dns.server.DnsQueryHandler;
 import org.bluezoo.gumdrop.util.JulWarnings;
 
 /**
@@ -240,6 +241,12 @@ public class DnsResolver {
     private boolean ddrEnabled;
 
     /**
+     * When set, queries are answered by this handler instead of the network.
+     * Useful for tests and closed environments with no upstream resolver.
+     */
+    private DnsQueryHandler localQueryHandler;
+
+    /**
      * Creates a new DNS resolver with no servers configured.
      * Call {@link #addServer(String)} or {@link #addServer(InetAddress, int)}
      * to add DNS servers before opening.
@@ -267,6 +274,20 @@ public class DnsResolver {
      */
     public void setTransport(DnsClientTransport transport) {
         this.transportPrototype = transport;
+    }
+
+    /**
+     * Installs a local query handler that answers lookups without network I/O.
+     * When set, {@link #open()} succeeds with no configured servers.
+     * {@link org.bluezoo.gumdrop.dns.server.SyncDnsQueryHandler} and other
+     * {@link DnsQueryHandler} implementations can be reused.
+     *
+     * @param handler the handler, or {@code null} to clear
+     * @return this resolver
+     */
+    public DnsResolver handler(DnsQueryHandler handler) {
+        this.localQueryHandler = handler;
+        return this;
     }
 
     /**
@@ -541,6 +562,10 @@ public class DnsResolver {
             return;
         }
         if (servers.isEmpty()) {
+            if (localQueryHandler != null) {
+                opened = true;
+                return;
+            }
             throw new IOException(L10N.getString("err.no_dns_servers"));
         }
         if (dnssecEnabled) {
@@ -857,7 +882,7 @@ public class DnsResolver {
             callback.onError(L10N.getString("err.resolver_not_opened"));
             return;
         }
-        if (transports.isEmpty()) {
+        if (transports.isEmpty() && localQueryHandler == null) {
             callback.onError(L10N.getString("err.no_dns_servers"));
             return;
         }
@@ -873,6 +898,12 @@ public class DnsResolver {
                 deliverCachedResponse(name, type, cached, callback);
                 return;
             }
+        }
+        if (localQueryHandler != null) {
+            int localId = DnsQueryIdGenerator.allocate(pendingQueries.keySet());
+            DnsMessage localQuery = DnsMessage.createQuery(localId, name, type);
+            localQueryHandler.handleQuery(localQuery, selectorLoop, callback);
+            return;
         }
         int queryId = DnsQueryIdGenerator.allocate(pendingQueries.keySet());
         List<DnsQuestion> questions = new ArrayList<>();

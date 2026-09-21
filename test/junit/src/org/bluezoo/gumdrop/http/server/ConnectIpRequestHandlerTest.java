@@ -175,7 +175,7 @@ public class ConnectIpRequestHandlerTest {
     }
 
     @Test
-    public void testRequestCompleteNotifiesPacketHandlerClosed() throws Exception {
+    public void testRequestCompleteLeavesTunnelOpen() throws Exception {
         CapturingResponseState state = new CapturingResponseState();
         LoopbackPacketHandler packetHandler = new LoopbackPacketHandler();
         ConnectIpPolicy permissive = new ConnectIpPolicy() {
@@ -189,7 +189,14 @@ public class ConnectIpRequestHandlerTest {
 
         handler.requestComplete(state);
 
-        assertTrue("closed() should have been called", packetHandler.closedCalled);
+        assertFalse("requestComplete must not tear down the CONNECT-IP session", packetHandler.closedCalled);
+        assertNotNull(packetHandler.session);
+
+        byte[] packet = "after-complete".getBytes(StandardCharsets.US_ASCII);
+        ByteBuffer encoded = HttpDatagramContext.encode(HttpDatagramContext.REGISTERED_CONTEXT_ID,
+                ByteBuffer.wrap(packet));
+        handler.datagramReceived(state, encoded);
+        assertEquals(1, state.sentDatagrams.size());
     }
 
     @Test

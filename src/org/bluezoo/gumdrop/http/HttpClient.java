@@ -1533,6 +1533,14 @@ public class HttpClient implements AltSvcListener {
         // of whether this instance itself upgrades below.
         AltSvcCache.put(host, port, altHost, altPort, parsed.maxAgeSeconds);
 
+        // Reactive same-instance upgrade only applies once an h1/h2
+        // connection is already established (endpointHandler set by
+        // connectTcp/connect path). A standalone altSvcReceived() call
+        // with no live connection should populate the cache only.
+        if (endpointHandler == null) {
+            return;
+        }
+
         if (h3Handler != null || h3UpgradeInProgress) {
             return;
         }

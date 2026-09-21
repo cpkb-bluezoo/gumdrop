@@ -23,6 +23,7 @@ package org.bluezoo.gumdrop.smtp.server;
 
 import java.io.IOException;
 import java.net.InetAddress;
+import java.net.InetSocketAddress;
 import java.net.UnknownHostException;
 import java.text.MessageFormat;
 import java.util.ArrayList;
@@ -62,8 +63,10 @@ public final class SimpleRelaySessionProvider implements SmtpServerSessionProvid
 
     private String hostname;
     private String legacyDnsServer;
-    private final List<InetAddress> servers = new ArrayList<InetAddress>();
+    private final List<InetSocketAddress> dnsServers = new ArrayList<InetSocketAddress>();
     private long timeoutMs = 5000;
+    private int deliveryPort = SimpleRelayHandler.DEFAULT_DELIVERY_PORT;
+    private DnsResolver configuredResolver;
     private DnsResolver dnsResolver;
     private org.bluezoo.gumdrop.Gumdrop gumdrop;
 
@@ -85,10 +88,21 @@ public final class SimpleRelaySessionProvider implements SmtpServerSessionProvid
      * @return this provider
      */
     public SimpleRelaySessionProvider server(InetAddress address) {
+        return server(address, 53);
+    }
+
+    /**
+     * Adds a DNS server for MX lookups at a specific port.
+     *
+     * @param address the resolver address
+     * @param port the resolver UDP/TCP port
+     * @return this provider
+     */
+    public SimpleRelaySessionProvider server(InetAddress address, int port) {
         if (address == null) {
             throw new NullPointerException("address");
         }
-        servers.add(address);
+        dnsServers.add(new InetSocketAddress(address, port));
         return this;
     }
 
@@ -99,12 +113,38 @@ public final class SimpleRelaySessionProvider implements SmtpServerSessionProvid
      * @return this provider
      */
     public SimpleRelaySessionProvider servers(InetAddress... addresses) {
-        servers.clear();
+        dnsServers.clear();
         if (addresses != null) {
             for (int i = 0; i < addresses.length; i++) {
                 server(addresses[i]);
             }
         }
+        return this;
+    }
+
+    /**
+     * Sets the TCP port used for outbound SMTP delivery to MX hosts.
+     * Defaults to {@link SimpleRelayHandler#DEFAULT_DELIVERY_PORT} (25).
+     *
+     * @param deliveryPort the delivery port
+     * @return this provider
+     */
+    public SimpleRelaySessionProvider deliveryPort(int deliveryPort) {
+        this.deliveryPort = deliveryPort;
+        return this;
+    }
+
+    /**
+     * Uses a pre-configured resolver (for example one with {@link
+     * DnsResolver#handler(org.bluezoo.gumdrop.dns.server.DnsQueryHandler)}).
+     * When set, {@link #server(InetAddress)} / {@link #servers(InetAddress...)}
+     * are not applied.
+     *
+     * @param resolver the resolver to use
+     * @return this provider
+     */
+    public SimpleRelaySessionProvider dnsResolver(DnsResolver resolver) {
+        this.configuredResolver = resolver;
         return this;
     }
 
@@ -178,19 +218,25 @@ public final class SimpleRelaySessionProvider implements SmtpServerSessionProvid
             }
         }
 
-        dnsResolver = new DnsResolver().timeoutMs(timeoutMs);
-        if (!servers.isEmpty()) {
-            for (int i = 0; i < servers.size(); i++) {
-                dnsResolver.server(servers.get(i));
-            }
-        } else if (legacyDnsServer != null) {
-            try {
-                dnsResolver.addServer(legacyDnsServer);
-            } catch (UnknownHostException e) {
-                LOGGER.log(Level.WARNING, MessageFormat.format(L10N.getString("warn.invalid_dns_server"), legacyDnsServer), e);
-            }
+        if (configuredResolver != null) {
+            dnsResolver = configuredResolver;
         } else {
-            dnsResolver.useSystemResolvers();
+            dnsResolver = new DnsResolver().timeoutMs(timeoutMs);
+            if (!dnsServers.isEmpty()) {
+                for (int i = 0; i < dnsServers.size(); i++) {
+                    InetSocketAddress target = dnsServers.get(i);
+                    dnsResolver.addServer(target.getAddress(), target.getPort());
+                }
+            } else if (legacyDnsServer != null) {
+                try {
+                    dnsResolver.addServer(legacyDnsServer);
+                } catch (UnknownHostException e) {
+                    LOGGER.log(Level.WARNING, MessageFormat.format(
+                            L10N.getString("warn.invalid_dns_server"), legacyDnsServer), e);
+                }
+            } else {
+                dnsResolver.useSystemResolvers();
+            }
         }
 
         // No live Gumdrop (e.g. a unit test exercising this provider's
@@ -234,7 +280,7 @@ public final class SimpleRelaySessionProvider implements SmtpServerSessionProvid
                     "SimpleRelaySessionProvider not started; add to SmtpServer.compose()"
                             + " or call start()");
         }
-        return new SimpleRelayHandler(dnsResolver, hostname);
+        return new SimpleRelayHandler(dnsResolver, hostname, deliveryPort);
     }
 
 }

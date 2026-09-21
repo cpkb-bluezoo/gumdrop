@@ -92,6 +92,7 @@ import org.bluezoo.gumdrop.telemetry.SpanKind;
 import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
 import org.bluezoo.gumdrop.telemetry.Trace;
 import org.bluezoo.gumdrop.util.ByteBufferPool;
+import org.bluezoo.gumdrop.util.JulWarnings;
 import org.bluezoo.util.ByteArrays;
 
 /**
@@ -363,7 +364,7 @@ public final class Pop3ProtocolHandler
 
     @Override
     public void error(Exception cause) {
-        LOGGER.log(Level.WARNING, L10N.getString("warn.pop3_transport_error"), cause);
+        JulWarnings.transportError(LOGGER, L10N.getString("warn.pop3_transport_error"), cause);
         closeEndpoint();
     }
 

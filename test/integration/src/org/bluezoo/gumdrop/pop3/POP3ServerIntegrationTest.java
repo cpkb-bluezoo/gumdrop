@@ -282,6 +282,27 @@ public class POP3ServerIntegrationTest {
             assertTrue("RSET should succeed", rset.ok);
         }
     }
+
+    @Test
+    public void testMboxListOmitsDeletedMessage() throws Exception {
+        try (POP3ClientHelper.POP3Session session = POP3ClientHelper.connect("::1", MBOX_PORT)) {
+            POP3ClientHelper.authenticate(session, TEST_USER, TEST_PASS);
+
+            POP3ClientHelper.Pop3Response before = session.sendMultiLineCommand("LIST");
+            assertTrue("LIST should succeed", before.ok);
+            int linesBefore = countListEntries(before);
+
+            POP3ClientHelper.Pop3Response dele = session.sendCommand("DELE 1");
+            assertTrue("DELE should succeed", dele.ok);
+
+            POP3ClientHelper.Pop3Response after = session.sendMultiLineCommand("LIST");
+            assertTrue("LIST after DELE should succeed", after.ok);
+            assertEquals("deleted message should not appear in LIST",
+                    linesBefore - 1, countListEntries(after));
+
+            session.sendCommand("RSET");
+        }
+    }
     
     @Test
     public void testMboxNOOP() throws Exception {
@@ -461,6 +482,20 @@ public class POP3ServerIntegrationTest {
         }
     }
     
+    private static int countListEntries(POP3ClientHelper.Pop3Response list) {
+        int entries = 0;
+        for (String line : list.lines) {
+            if (line.startsWith("+OK") || line.equals(".")) {
+                continue;
+            }
+            if (line.trim().isEmpty()) {
+                continue;
+            }
+            entries++;
+        }
+        return entries;
+    }
+
     /**
      * Test realm that accepts editor/editor credentials.
      */

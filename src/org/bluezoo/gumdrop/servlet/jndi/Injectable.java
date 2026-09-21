@@ -22,6 +22,7 @@
 package org.bluezoo.gumdrop.servlet.jndi;
 
 import javax.naming.Context;
+import javax.naming.NameNotFoundException;
 import javax.naming.NamingException;
 
 /**
@@ -60,20 +61,33 @@ public interface Injectable {
      * Resolve a reference to the source object.
      */
     default Object resolve(Context ctx) throws NamingException {
-        Object resolved = null;
         String lookupName = getLookupName();
-        resolved = ctx.lookup(lookupName);
-        if (resolved != null) {
-            return resolved;
+        if (lookupName != null && !lookupName.isEmpty()) {
+            try {
+                Object resolved = ctx.lookup(lookupName);
+                if (resolved != null) {
+                    return resolved;
+                }
+            } catch (NameNotFoundException ignored) {
+            }
         }
         String mappedName = getMappedName();
-        resolved = ctx.lookup("java:comp/env/" + mappedName);
-        if (resolved != null) {
-            return resolved;
+        if (mappedName != null && !mappedName.isEmpty()) {
+            try {
+                Object resolved = ctx.lookup("java:comp/env/" + mappedName);
+                if (resolved != null) {
+                    return resolved;
+                }
+            } catch (NameNotFoundException ignored) {
+            }
         }
-        String defaultName = getDefaultName();
-        resolved = ctx.lookup(defaultName);
-        return resolved;
+        if (getInjectionTarget() != null) {
+            try {
+                return ctx.lookup(getDefaultName());
+            } catch (NameNotFoundException ignored) {
+            }
+        }
+        return null;
     }
 
 }

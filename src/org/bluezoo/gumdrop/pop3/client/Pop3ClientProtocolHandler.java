@@ -208,7 +208,7 @@ public final class Pop3ClientProtocolHandler
 
     @Override
     public void error(Exception cause) {
-        JulWarnings.warn(LOGGER, "POP3 transport error", cause);
+        JulWarnings.transportError(LOGGER, L10N.getString("warn.pop3_transport_error"), cause);
         state = Pop3State.ERROR;
         handler.onError(cause);
     }

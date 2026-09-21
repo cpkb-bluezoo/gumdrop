@@ -700,6 +700,14 @@ class Stream implements HttpResponseState {
         }
         // Initialize telemetry span if enabled
         initTelemetrySpan();
+
+        // RFC 9297 / RFC 9484 / RFC 9298: Capsule-Protocol on the request
+        // must enable capsuleMode even when the handler was bound up front
+        // via HttpStreamHandler.openStream() (the late-bind branch below
+        // already did this; pre-bound handlers did not).
+        if (!requestHeadersDispatched && headers != null) {
+            capsuleMode = Capsule.capsuleProtocolEnabled(headers);
+        }
         
         // Dispatch to handler if present
         requestHeadersDispatched = true;
@@ -1763,6 +1771,11 @@ class Stream implements HttpResponseState {
                 // the connection is unaffected either way (see that
                 // method's own HTTP/2 branch).
                 connection.switchToStreamTunnelMode(streamId);
+                // 101 is handled as an informational response (no
+                // responseState transition in sendResponseHeaders), but
+                // RFC 9484/9298 capsule egress on this connection still
+                // uses sendCapsule/sendDatagram, which require IN_BODY.
+                responseState = ResponseState.IN_BODY;
             }
             return true;
         } catch (ProtocolException e) {

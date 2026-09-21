@@ -72,10 +72,16 @@ public final class BinaryRecordingEndpoint implements Endpoint {
 
     private final List<byte[]> writes = new ArrayList<byte[]>();
     private final List<StubTimer> timers = new ArrayList<StubTimer>();
+    private SelectorLoop selectorLoop;
     private boolean open = true;
     private boolean secure;
     private int closeCount;
     private boolean startTlsCalled;
+
+    /** When set, returned from {@link #getSelectorLoop()} (e.g. {@link InlineSelectorLoop}). */
+    public void setSelectorLoop(SelectorLoop selectorLoop) {
+        this.selectorLoop = selectorLoop;
+    }
 
     public void setSecure(boolean secure) {
         this.secure = secure;
@@ -146,7 +152,7 @@ public final class BinaryRecordingEndpoint implements Endpoint {
     @Override public boolean isSecure() { return secure; }
     @Override public SecurityInfo getSecurityInfo() { return null; }
     @Override public void startTLS() { startTlsCalled = true; }
-    @Override public SelectorLoop getSelectorLoop() { return null; }
+    @Override public SelectorLoop getSelectorLoop() { return selectorLoop; }
     @Override public void execute(Runnable task) { task.run(); }
     @Override public TimerHandle scheduleTimer(long delayMs, Runnable cb) {
         StubTimer t = new StubTimer(delayMs, cb);
