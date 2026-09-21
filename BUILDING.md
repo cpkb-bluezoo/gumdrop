@@ -195,3 +195,11 @@ This adds `etc/tls/keystore.p12` (the server key and certificate) and `etc/tls/t
 ### Certificates for the integration tests
 
 The integration targets that need TLS files (`integration-setup` and the relocated tests, so `ant integration-test`) run `ant integration-tls` first, which ensures the same three PEM files under `etc/tls/` (with the extra name `test.gumdrop.local` that some tests connect to). It never fails the build: without mkcert or OpenSSL it prints a warning, and the tests that need the files are skipped.
+
+To exercise a locally built micula (for example certificate compression or Brotli fixes not yet on Maven Central), put `micula-<version>.jar` under `lib/` and pass the version on the Ant command line only — do not change `boms/versions.properties`:
+
+```bash
+ant -Dmicula.version=20260919 integration-test
+```
+
+CI and default local builds keep `micula.version=1.0.0` from `boms/versions.properties`.
