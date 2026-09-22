@@ -39,6 +39,7 @@ public class SearchResultEntry {
 
     private final String dn;
     private final Map<String, List<byte[]>> attributes;
+    private List<Control> controls;
 
     /**
      * Creates a new search result entry.
@@ -132,6 +133,36 @@ public class SearchResultEntry {
     public String getAttributeStringValue(String name) {
         byte[] value = getAttributeValue(name);
         return value != null ? new String(value, java.nio.charset.StandardCharsets.UTF_8) : null;
+    }
+
+    /**
+     * Returns the controls attached to this entry (RFC 4511 section
+     * 4.1.11) — e.g. the Sync State control (RFC 4533 §2.3) on a
+     * SearchResultEntry received during a content synchronization search.
+     *
+     * @return unmodifiable list of controls, empty if none
+     */
+    public List<Control> getControls() {
+        return controls != null ? controls : Collections.<Control>emptyList();
+    }
+
+    /**
+     * Returns whether controls are present on this entry.
+     *
+     * @return true if at least one control is present
+     */
+    public boolean hasControls() {
+        return controls != null && !controls.isEmpty();
+    }
+
+    /**
+     * Sets the controls parsed from this entry's message envelope.
+     *
+     * @param controls the controls parsed from the response message
+     */
+    void setControls(List<Control> controls) {
+        this.controls = controls != null ?
+                Collections.unmodifiableList(controls) : null;
     }
 
     @Override

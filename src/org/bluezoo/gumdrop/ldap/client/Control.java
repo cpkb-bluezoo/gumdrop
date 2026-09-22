@@ -57,6 +57,15 @@ public class Control {
     /** Managed DSA IT control OID — RFC 3296. */
     public static final String OID_MANAGED_DSA_IT = "2.16.840.1.113730.3.4.2";
 
+    /** LDAP Content Synchronization Sync Request control OID — RFC 4533 §2.2. */
+    public static final String OID_SYNC_REQUEST = "1.3.6.1.4.1.4203.1.9.1.1";
+
+    /** LDAP Content Synchronization Sync State control OID — RFC 4533 §2.3. */
+    public static final String OID_SYNC_STATE = "1.3.6.1.4.1.4203.1.9.1.2";
+
+    /** LDAP Content Synchronization Sync Done control OID — RFC 4533 §2.4. */
+    public static final String OID_SYNC_DONE = "1.3.6.1.4.1.4203.1.9.1.3";
+
     private final String oid;
     private final boolean critical;
     private final byte[] value;
