@@ -136,6 +136,11 @@ public class WebDAVPropfindDeadPropertiesParallelTest {
         req.add(DavConstants.HEADER_DEPTH, "infinity");
 
         handler.headers(state, req);
+        // No body sent -- matching the real HttpRequestHandler contract
+        // (no startRequestBody/endRequestBody at all for a genuinely
+        // bodyless request), requestComplete is what the allprop
+        // fallback fires from (see FileHandler#pendingNoBodyAction).
+        handler.requestComplete(state);
         assertTrue("PROPFIND did not complete: " + state.status(),
                 state.await(20, TimeUnit.SECONDS));
 
@@ -177,7 +182,7 @@ public class WebDAVPropfindDeadPropertiesParallelTest {
         return new FileHandler(root, true, true,
                 "GET, HEAD, PUT, DELETE, OPTIONS, PROPFIND, MKCOL, COPY, MOVE",
                 new String[]{"index.html"}, types,
-                new WebDAVLockManager(), store);
+                new WebDAVLockManager(), store, null);
     }
 
     private static void writeSidecar(Path resource, String value)

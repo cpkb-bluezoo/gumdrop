@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.webdav;
 
+import org.bluezoo.gumdrop.auth.Realm;
 import org.bluezoo.gumdrop.http.server.HttpRequestHandler;
 import org.bluezoo.gumdrop.http.server.HttpResponseState;
 import org.bluezoo.gumdrop.http.server.HttpStreamHandler;
@@ -46,6 +47,7 @@ public final class FileRequestRouter implements HttpStreamHandler {
 
     private final WebDAVLockManager lockManager;
     private final DeadPropertyStore deadPropertyStore;
+    private final Realm realm;
 
     public FileRequestRouter(Path rootPath, boolean allowWrite,
                       String welcomeFile) {
@@ -60,14 +62,30 @@ public final class FileRequestRouter implements HttpStreamHandler {
     public FileRequestRouter(Path rootPath, boolean allowWrite,
                       String welcomeFile, boolean webdavEnabled,
                       DeadPropertyStore deadPropertyStore) {
+        this(rootPath, allowWrite, welcomeFile, webdavEnabled, deadPropertyStore, null);
+    }
+
+    /**
+     * @param realm optional {@link Realm} to check RFC 3744 privileges
+     *              against (via {@code isUserInRole}, using role names
+     *              prefixed {@link DavConstants#ROLE_PREFIX}); when null,
+     *              RFC 3744 ACL support is not advertised or handled,
+     *              regardless of {@code webdavEnabled}
+     */
+    public FileRequestRouter(Path rootPath, boolean allowWrite,
+                      String welcomeFile, boolean webdavEnabled,
+                      DeadPropertyStore deadPropertyStore, Realm realm) {
         this.rootPath = rootPath;
         this.allowWrite = allowWrite;
         this.webdavEnabled = webdavEnabled;
+        this.realm = realm;
+        boolean aclEnabled = webdavEnabled && realm != null;
 
         if (webdavEnabled && allowWrite) {
-            this.allowedOptions = "OPTIONS, GET, HEAD, PUT, DELETE, PROPFIND, PROPPATCH, MKCOL, COPY, MOVE, LOCK, UNLOCK";
+            this.allowedOptions = "OPTIONS, GET, HEAD, PUT, DELETE, PROPFIND, PROPPATCH, MKCOL, COPY, MOVE, LOCK, UNLOCK"
+                    + (aclEnabled ? ", ACL" : "");
         } else if (webdavEnabled) {
-            this.allowedOptions = "OPTIONS, GET, HEAD, PROPFIND";
+            this.allowedOptions = "OPTIONS, GET, HEAD, PROPFIND" + (aclEnabled ? ", ACL" : "");
         } else if (allowWrite) {
             this.allowedOptions = "OPTIONS, GET, HEAD, PUT, DELETE";
         } else {
@@ -127,7 +145,7 @@ public final class FileRequestRouter implements HttpStreamHandler {
     public HttpRequestHandler openStream(HttpResponseState stream) {
         return new FileHandler(rootPath, allowWrite, webdavEnabled,
                 allowedOptions, welcomeFiles, contentTypes,
-                lockManager, deadPropertyStore);
+                lockManager, deadPropertyStore, realm);
     }
 
 }

@@ -226,7 +226,14 @@ class WebDAVRequestParser extends DefaultHandler {
             if (lockRequest != null) {
                 lockRequest.type = WebDAVLock.Type.WRITE;
             }
-        } else if (DavConstants.ELEM_OWNER.equals(local)) {
+        } else if (DavConstants.ELEM_OWNER.equals(local) && lockRequest != null) {
+            // DAV:owner is overloaded: RFC 4918's lock owner (§14.17,
+            // inside LOCK's <D:lockinfo>) and RFC 3744's DAV:owner live
+            // property (§5.1, requestable by name in a PROPFIND <D:prop>)
+            // share this local name. Only treat it as the lock-owner
+            // text container when actually parsing a LOCK request body;
+            // otherwise fall through so a PROPFIND request for it is
+            // recorded as a requested property like any other.
             inOwner = true;
         } else if (inProp || inInclude) {
             handlePropertyElement(DavConstants.NAMESPACE, local);
