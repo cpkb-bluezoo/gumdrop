@@ -1133,6 +1133,15 @@ public class LdapClientProtocolHandler
         }
 
         SearchResultEntry entry = new SearchResultEntry(dn, attributes);
+        // RFC 4511 section 4.1.11 — attach this entry's own response
+        // controls (e.g. the Sync State control, RFC 4533 §2.3) while
+        // lastResponseControls is still fresh from this exact message;
+        // parseResult() does the equivalent for Bind/Modify/.../
+        // SearchResultDone, but a SearchResultEntry never goes through
+        // parseResult.
+        if (lastResponseControls != null) {
+            entry.setControls(lastResponseControls);
+        }
         Object callback = pendingCallbacks.get(messageId);
 
         if (callback instanceof SearchResultHandler) {

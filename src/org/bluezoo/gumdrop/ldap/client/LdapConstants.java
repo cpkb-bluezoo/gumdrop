@@ -109,6 +109,8 @@ public final class LdapConstants {
     public static final String OID_PASSWORD_MODIFY = "1.3.6.1.4.1.4203.1.11.1";
     /** Who Am I? extended operation OID. */
     public static final String OID_WHO_AM_I = "1.3.6.1.4.1.4203.1.11.3";
+    /** LDAP Content Synchronization Sync Info intermediate response OID — RFC 4533 §2.5. */
+    public static final String OID_SYNC_INFO = "1.3.6.1.4.1.4203.1.9.1.4";
 
     // Search filter tags — RFC 4511 section 4.5.1.7
     /** AND filter tag — RFC 4511 section 4.5.1. */
