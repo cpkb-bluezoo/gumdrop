@@ -629,23 +629,54 @@ public class RespDecoder {
     private String readLine() throws RespException {
         int start = buffer.position();
         int limit = buffer.limit();
+        int crIndex = findCrLf(start, limit);
+        if (crIndex < 0) {
+            // Incomplete line
+            return null;
+        }
+        int length = crIndex - start;
+        if (length > MAX_INLINE_LENGTH) {
+            String msg = MessageFormat.format(L10N.getString("err.line_too_long"), length);
+            throw new RespException(msg);
+        }
+        byte[] lineBytes = new byte[length];
+        buffer.get(lineBytes);
+        buffer.get(); // Skip CR
+        buffer.get(); // Skip LF
+        return new String(lineBytes, UTF_8);
+    }
+
+    /**
+     * Returns the index within {@code [start, limit)} of a {@code '\r'}
+     * immediately followed by {@code '\n'}, or -1 if none is buffered
+     * yet. Every RESP line -- every simple string, error, integer, and
+     * every bulk/array/map/set/push length prefix -- goes through this
+     * under command pipelining, so it scans the buffer's backing array
+     * directly when one is available (true for every buffer this class
+     * uses -- {@link org.bluezoo.gumdrop.util.ByteBufferPool#acquire}
+     * only ever hands out heap buffers) instead of two bounds-checked
+     * {@link ByteBuffer#get(int)} calls per byte scanned.
+     */
+    private int findCrLf(int start, int limit) {
+        if (buffer.hasArray()) {
+            byte[] array = buffer.array();
+            int arrayOffset = buffer.arrayOffset();
+            int pos = arrayOffset + start;
+            int end = arrayOffset + limit - 1;
+            while (pos < end) {
+                if (array[pos] == '\r' && array[pos + 1] == '\n') {
+                    return pos - arrayOffset;
+                }
+                pos++;
+            }
+            return -1;
+        }
         for (int i = start; i < limit - 1; i++) {
             if (buffer.get(i) == '\r' && buffer.get(i + 1) == '\n') {
-                // Found CRLF
-                int length = i - start;
-                if (length > MAX_INLINE_LENGTH) {
-                    String msg = MessageFormat.format(L10N.getString("err.line_too_long"), length);
-                    throw new RespException(msg);
-                }
-                byte[] lineBytes = new byte[length];
-                buffer.get(lineBytes);
-                buffer.get(); // Skip CR
-                buffer.get(); // Skip LF
-                return new String(lineBytes, UTF_8);
+                return i;
             }
         }
-        // Incomplete line
-        return null;
+        return -1;
     }
 
     /**
