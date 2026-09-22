@@ -6534,32 +6534,56 @@ public final class ImapProtocolHandler
         }
     }
 
-    private byte[] extractHeaders(byte[] message) {
+    // Single-slot memoization for findHeaderBodySplit: a combined FETCH
+    // (e.g. "BODY[HEADER] BODY[TEXT] BODY[HEADER.FIELDS (...)]", a
+    // common client summary-fetch pattern) calls extractHeaders/
+    // extractBody/extractHeaderFields(Not) several times in a row for
+    // the very same message -- appendFetchResponse's fetchItems loop
+    // passes the same contentBytes array reference to every item in
+    // that loop. Caching by reference identity (safe: this handler
+    // processes one connection's requests sequentially, and a genuinely
+    // different message is always a different array) turns what used
+    // to be an O(message length) re-scan per FETCH item into one scan
+    // per message.
+    private byte[] headerBodySplitCacheMessage;
+    private int headerBodySplitCacheIndex = -1;
+
+    private int findHeaderBodySplit(byte[] message) {
+        if (message == headerBodySplitCacheMessage) {
+            return headerBodySplitCacheIndex;
+        }
+        int split = -1;
         for (int i = 0; i < message.length - 3; i++) {
             if (message[i] == '\r' && message[i + 1] == '\n'
                     && message[i + 2] == '\r'
                     && message[i + 3] == '\n') {
-                byte[] headers = new byte[i + 4];
-                System.arraycopy(message, 0, headers, 0, i + 4);
-                return headers;
+                split = i + 4;
+                break;
             }
         }
-        return message;
+        headerBodySplitCacheMessage = message;
+        headerBodySplitCacheIndex = split;
+        return split;
+    }
+
+    private byte[] extractHeaders(byte[] message) {
+        int split = findHeaderBodySplit(message);
+        if (split < 0) {
+            return message;
+        }
+        byte[] headers = new byte[split];
+        System.arraycopy(message, 0, headers, 0, split);
+        return headers;
     }
 
     private byte[] extractBody(byte[] message) {
-        for (int i = 0; i < message.length - 3; i++) {
-            if (message[i] == '\r' && message[i + 1] == '\n'
-                    && message[i + 2] == '\r'
-                    && message[i + 3] == '\n') {
-                int bodyStart = i + 4;
-                byte[] body = new byte[message.length - bodyStart];
-                System.arraycopy(message, bodyStart, body, 0,
-                        body.length);
-                return body;
-            }
+        int split = findHeaderBodySplit(message);
+        if (split < 0) {
+            return new byte[0];
         }
-        return new byte[0];
+        byte[] body = new byte[message.length - split];
+        System.arraycopy(message, split, body, 0, body.length);
+        return body;
     }
 
     private byte[] extractHeaderFields(byte[] message,
