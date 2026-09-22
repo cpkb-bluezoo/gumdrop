@@ -107,11 +107,20 @@ public class MessageIndex {
     /** Magic bytes identifying the index file format. */
     private static final byte[] MAGIC = {'G', 'I', 'D', 'X'};
 
-    /** Current on-disk format version. */
-    public static final short VERSION = 2;
+    /**
+     * Current on-disk format version. Bumped to 3 to add the EMAILID
+     * property descriptor ({@link MessageIndexEntry#DESC_EMAILID}, RFC
+     * 8474) to each entry.
+     */
+    public static final short VERSION = 3;
 
-    /** Minimum version this reader accepts without rebuild. */
-    public static final short MIN_VERSION = 2;
+    /**
+     * Minimum version this reader accepts without rebuild. Equal to
+     * {@link #VERSION}: an older-version index is missing EMAILID for
+     * every entry, so it is treated as stale and rebuilt rather than
+     * loaded with that field silently blank.
+     */
+    public static final short MIN_VERSION = 3;
 
     /** Header size in bytes (excluding checksum). */
     private static final int HEADER_SIZE = 28;

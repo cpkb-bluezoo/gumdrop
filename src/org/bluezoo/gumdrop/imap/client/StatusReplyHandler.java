@@ -28,6 +28,11 @@ import java.util.Map;
  */
 public interface StatusReplyHandler extends ReplyHandler {
 
-    void handleStatus(ClientAuthenticatedState session, String mailbox, int messages, int recent, long uidNext, long uidValidity, int unseen);
+    /**
+     * @param mailboxId the RFC 8474 MAILBOXID, if the server included one
+     *                   in the response (requires {@code STATUS ... (...
+     *                   MAILBOXID)} and OBJECTID support); null otherwise
+     */
+    void handleStatus(ClientAuthenticatedState session, String mailbox, int messages, int recent, long uidNext, long uidValidity, int unseen, String mailboxId);
     void handleError(ClientAuthenticatedState session, String message);
 }

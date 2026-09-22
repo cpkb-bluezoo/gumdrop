@@ -77,6 +77,12 @@ public class IndexedMessageContext implements MessageContext {
     }
 
     @Override
+    public String getEmailId() {
+        String emailId = entry.getEmailId();
+        return emailId.isEmpty() ? null : emailId;
+    }
+
+    @Override
     public long getSize() {
         return entry.getSize();
     }

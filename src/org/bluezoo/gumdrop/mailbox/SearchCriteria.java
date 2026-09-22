@@ -468,6 +468,28 @@ public interface SearchCriteria {
     }
 
     // ========================================================================
+    // RFC 8474 OBJECTID Criteria
+    // ========================================================================
+
+    /**
+     * Matches the message with the specified RFC 8474 EMAILID (exact
+     * match, unlike the substring matches used by {@link #header}/
+     * {@link #subject}/etc. -- an EMAILID identifies exactly one message).
+     *
+     * @param emailId the EMAILID to match
+     * @return criteria for the EMAILID
+     */
+    static SearchCriteria emailId(final String emailId) {
+        return new SearchCriteria() {
+            @Override
+            public boolean matches(MessageContext context) throws IOException {
+                String contextEmailId = context.getEmailId();
+                return contextEmailId != null && contextEmailId.equals(emailId);
+            }
+        };
+    }
+
+    // ========================================================================
     // Sequence/UID Criteria
     // ========================================================================
 

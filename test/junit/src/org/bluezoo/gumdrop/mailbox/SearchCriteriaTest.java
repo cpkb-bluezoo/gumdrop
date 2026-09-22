@@ -241,6 +241,52 @@ public class SearchCriteriaTest {
         assertFalse(SearchCriteria.uid(200).matches(seenMessage()));
     }
 
+    private static MessageContext contextWithEmailId(final String emailId) {
+        return new MessageContext() {
+            @Override
+            public int getMessageNumber() { return 1; }
+            @Override
+            public long getUID() { return 1; }
+            @Override
+            public long getSize() { return 0; }
+            @Override
+            public Set<Flag> getFlags() { return EnumSet.noneOf(Flag.class); }
+            @Override
+            public OffsetDateTime getInternalDate() { return null; }
+            @Override
+            public String getHeader(String name) { return null; }
+            @Override
+            public List<String> getHeaders(String name) { return Collections.emptyList(); }
+            @Override
+            public OffsetDateTime getSentDate() { return null; }
+            @Override
+            public CharSequence getHeadersText() { return ""; }
+            @Override
+            public CharSequence getBodyText() { return ""; }
+            @Override
+            public String getEmailId() { return emailId; }
+        };
+    }
+
+    @Test
+    public void testEmailIdMatches() throws IOException {
+        // RFC 8474
+        assertTrue(SearchCriteria.emailId("abc-123")
+                .matches(contextWithEmailId("abc-123")));
+    }
+
+    @Test
+    public void testEmailIdDoesNotMatchDifferentId() throws IOException {
+        assertFalse(SearchCriteria.emailId("abc-123")
+                .matches(contextWithEmailId("xyz-789")));
+    }
+
+    @Test
+    public void testEmailIdDoesNotMatchWhenAbsent() throws IOException {
+        assertFalse(SearchCriteria.emailId("abc-123")
+                .matches(contextWithEmailId(null)));
+    }
+
     @Test
     public void testUidSet() throws IOException {
         assertTrue(SearchCriteria.uidSet(100, 200).matches(seenMessage()));

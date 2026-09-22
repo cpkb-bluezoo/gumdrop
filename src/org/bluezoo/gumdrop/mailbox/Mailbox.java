@@ -349,6 +349,19 @@ public interface Mailbox {
     // ========================================================================
 
     /**
+     * Returns the RFC 8474 MAILBOXID: a stable identifier for this
+     * mailbox that, unlike UIDVALIDITY, does not change across a
+     * search-index rebuild or (backend permitting) most other mailbox
+     * maintenance.
+     *
+     * @return the MAILBOXID, or null if this backend does not support one
+     * @throws IOException if the value cannot be determined
+     */
+    default String getMailboxId() throws IOException {
+        return null;
+    }
+
+    /**
      * Returns the unique identifier for a message.
      * This must be unique and persistent across sessions.
      * Typically derived from Message-ID or a content hash.
@@ -358,6 +371,24 @@ public interface Mailbox {
      * @throws IOException if the UID cannot be retrieved
      */
     String getUniqueId(int messageNumber) throws IOException;
+
+    /**
+     * Returns the RFC 8474 EMAILID for a message: a content-hash-derived
+     * identifier that stays the same for this message across UID/
+     * UIDVALIDITY changes and across an in-store COPY, unlike {@link
+     * #getUniqueId} (the IMAP UID, which is mailbox-scoped and reassigned
+     * on UIDVALIDITY changes).
+     *
+     * @param messageNumber the message sequence number (1-based)
+     * @return the EMAILID, or null if this backend does not support one
+     *         or it has not yet been computed for this message (e.g. an
+     *         index entry from before this field existed, not yet
+     *         reindexed)
+     * @throws IOException if the value cannot be determined
+     */
+    default String getEmailId(int messageNumber) throws IOException {
+        return null;
+    }
 
     /**
      * Returns the UIDVALIDITY value for this mailbox.

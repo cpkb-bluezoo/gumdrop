@@ -26,6 +26,7 @@ import org.bluezoo.gumdrop.mailbox.AsyncMessageContent;
 import org.bluezoo.gumdrop.mailbox.AsyncMessageWriter;
 import org.bluezoo.gumdrop.mailbox.Flag;
 import org.bluezoo.gumdrop.mailbox.Mailbox;
+import org.bluezoo.gumdrop.mailbox.MailboxIdFile;
 import org.bluezoo.gumdrop.mailbox.MailboxRuntime;
 import org.bluezoo.gumdrop.mailbox.MessageContext;
 import org.bluezoo.gumdrop.mailbox.index.MailboxIndexKey;
@@ -116,6 +117,9 @@ public final class MaildirMailbox implements Mailbox {
     private MaildirUidList uidList;
     private MaildirKeywords keywords;
 
+    /** RFC 8474 MAILBOXID for this mailbox; see {@link #getMailboxId()}. */
+    private String mailboxId;
+
     /** Indexed messages, sorted by UID */
     private List<MaildirMessageDescriptor> messages;
 
@@ -180,6 +184,8 @@ public final class MaildirMailbox implements Mailbox {
         boolean loaded;
         MaildirUidList sharedUidList;
         MaildirKeywords sharedKeywords;
+        /** RFC 8474 MAILBOXID, loaded/generated once alongside the UID list. */
+        String sharedMailboxId;
     }
 
     private Path gatePath;
@@ -256,11 +262,13 @@ public final class MaildirMailbox implements Mailbox {
                 if (!gate.loaded) {
                     gate.sharedUidList.load();
                     gate.sharedKeywords.load();
+                    gate.sharedMailboxId = loadOrCreateMailboxId();
                     gate.loaded = true;
                 }
             }
             uidList = gate.sharedUidList;
             keywords = gate.sharedKeywords;
+            mailboxId = gate.sharedMailboxId;
 
             // Scan and index messages
             scanMessages();
@@ -833,6 +841,19 @@ public final class MaildirMailbox implements Mailbox {
             throw new IOException("Message not found: " + messageNumber);
         }
         return String.valueOf(msg.getUid());
+    }
+
+    @Override
+    public String getEmailId(int messageNumber) throws IOException {
+        if (searchIndex == null) {
+            return null;
+        }
+        MessageIndexEntry entry = searchIndex.getEntryByMessageNumber(messageNumber);
+        if (entry == null) {
+            return null;
+        }
+        String emailId = entry.getEmailId();
+        return emailId.isEmpty() ? null : emailId;
     }
 
     @Override
@@ -1532,6 +1553,35 @@ public final class MaildirMailbox implements Mailbox {
         return results;
     }
 
+    @Override
+    public String getMailboxId() {
+        return mailboxId;
+    }
+
+    /**
+     * Gets the path to this maildir's MAILBOXID sidecar file.
+     */
+    private Path getMailboxIdPath() {
+        return maildirPath.resolve(".mailboxid");
+    }
+
+    /**
+     * Loads this maildir's MAILBOXID, generating and persisting a new one
+     * if none exists yet. Called once per maildir path (from within the
+     * {@code JvmMailboxGate}'s load-once block), not once per session.
+     */
+    private String loadOrCreateMailboxId() throws IOException {
+        Path idPath = getMailboxIdPath();
+        String id = MailboxIdFile.load(idPath);
+        if (id == null) {
+            id = MailboxIdFile.generate();
+            if (!readOnly) {
+                MailboxIdFile.save(idPath, id);
+            }
+        }
+        return id;
+    }
+
     /**
      * Gets the path to the search index file.
      */
@@ -1731,7 +1781,8 @@ public final class MaildirMailbox implements Mailbox {
             internalDateMillis = msg.getParsedFilename().getTimestamp() * 1000;
         }
         
-        // Build index entry by parsing message headers
+        // Build index entry by parsing message headers, computing the
+        // RFC 8474 EMAILID (content hash) in the same pass.
         try (ReadableByteChannel channel = getMessageContent(msg.getMessageNumber())) {
             MessageIndexEntry entry = indexBuilder.buildEntry(
                 msg.getUid(),
@@ -1740,9 +1791,27 @@ public final class MaildirMailbox implements Mailbox {
                 internalDateMillis,
                 flags != null ? flags : EnumSet.noneOf(Flag.class),
                 location,
-                channel
+                channel,
+                newEmailIdDigest()
             );
             searchIndex.addEntry(entry);
+        }
+    }
+
+    /**
+     * Returns a fresh digest instance for computing RFC 8474 EMAILID, or
+     * null if the algorithm is somehow unavailable (in which case entries
+     * are indexed with an empty EMAILID rather than failing indexing
+     * entirely -- SHA-256 is a JDK-mandatory algorithm so this is not
+     * expected to happen in practice).
+     */
+    private static java.security.MessageDigest newEmailIdDigest() {
+        try {
+            return java.security.MessageDigest.getInstance("SHA-256");
+        } catch (java.security.NoSuchAlgorithmException e) {
+            LOGGER.log(Level.WARNING,
+                    L10N.getString("warn.emailid_digest_unavailable"), e);
+            return null;
         }
     }
 

@@ -27,6 +27,8 @@ package org.bluezoo.gumdrop.imap.client;
  *
  * <p>Data items correspond to RFC 9051 section 6.4.5 fetch attributes:
  * FLAGS, UID, RFC822.SIZE, INTERNALDATE, ENVELOPE, BODY[section].
+ * Also includes EMAILID (RFC 8474), when the server advertises
+ * {@code OBJECTID}.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
@@ -38,6 +40,7 @@ public class FetchData {
     private String internalDate;
     private Envelope envelope;
     private String bodySection;
+    private String emailId;
 
     public String[] getFlags() {
         return flags;
@@ -85,6 +88,18 @@ public class FetchData {
 
     public void setBodySection(String bodySection) {
         this.bodySection = bodySection;
+    }
+
+    /**
+     * Returns the RFC 8474 EMAILID from an {@code EMAILID (...)} FETCH
+     * data item, or null if the FETCH did not request/return one.
+     */
+    public String getEmailId() {
+        return emailId;
+    }
+
+    public void setEmailId(String emailId) {
+        this.emailId = emailId;
     }
 
     /**

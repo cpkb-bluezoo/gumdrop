@@ -53,8 +53,27 @@ public class MessageIndexVersionTest {
     }
 
     @Test
-    public void testSaveAndLoadVersion2() throws Exception {
-        Path path = Files.createTempFile("v2", ".gidx");
+    public void testLoadRejectsVersion2Index() throws Exception {
+        // Version 2 predates the EMAILID descriptor (issue #465): every
+        // entry in it is silently missing EMAILID, so it must be treated
+        // as stale like version 1, not loaded as-is.
+        Path path = Files.createTempFile("stale-v2", ".gidx");
+        try {
+            writeMinimalIndex(path, (short) 2, 0);
+            try {
+                MessageIndex.load(path);
+                fail("Expected CorruptIndexException for stale version");
+            } catch (MessageIndex.CorruptIndexException e) {
+                assertTrue(e.getMessage().contains("stale"));
+            }
+        } finally {
+            Files.deleteIfExists(path);
+        }
+    }
+
+    @Test
+    public void testSaveAndLoadVersion3() throws Exception {
+        Path path = Files.createTempFile("v3", ".gidx");
         try {
             MessageIndex index = new MessageIndex(path, 42L, 100L);
             index.addEntry(new MessageIndexEntry(
@@ -62,7 +81,7 @@ public class MessageIndexVersionTest {
                     "loc", "from@test.com", "to@test.com", "", "",
                     "subject", "<Msg@Test.COM>",
                     "<parent@test.com> <other@test.com>",
-                    "<parent@test.com>", "kw"));
+                    "<parent@test.com>", "kw", "sha256-emailid-value"));
             index.save();
             MessageIndex loaded = MessageIndex.load(path);
             MessageIndexEntry entry = loaded.getEntryByUid(1L);
@@ -70,6 +89,7 @@ public class MessageIndexVersionTest {
             assertEquals("<parent@test.com> <other@test.com>",
                     entry.getReferences());
             assertEquals("<parent@test.com>", entry.getInReplyTo());
+            assertEquals("sha256-emailid-value", entry.getEmailId());
         } finally {
             Files.deleteIfExists(path);
         }

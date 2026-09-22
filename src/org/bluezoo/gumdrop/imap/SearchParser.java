@@ -47,6 +47,7 @@ import java.util.Locale;
  *   <li>LARGER, SMALLER (number arguments)</li>
  *   <li>KEYWORD, UNKEYWORD (flag arguments)</li>
  *   <li>UID (sequence set)</li>
+ *   <li>EMAILID (RFC 8474)</li>
  *   <li>OR, NOT (boolean operators)</li>
  *   <li>Sequence sets (e.g., 1:100, 1,2,3)</li>
  *   <li>Parenthesized groups</li>
@@ -253,6 +254,10 @@ public class SearchParser {
             case "UNKEYWORD":
                 return SearchCriteria.unkeyword(parseAtom());
             
+            // RFC 8474
+            case "EMAILID":
+                return SearchCriteria.emailId(parseString());
+
             // UID
             case "UID":
                 return parseUidSet();

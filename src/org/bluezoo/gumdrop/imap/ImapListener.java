@@ -95,6 +95,7 @@ public class ImapListener extends TcpListener {
     protected boolean enableSORT = true;
     protected boolean enableCONDSTORE = true;
     protected boolean enableQRESYNC = true;
+    protected boolean enableOBJECTID = true;
 
     // RFC 2971 — ID command server fields
     protected Map<String, String> serverIdFields;
@@ -499,6 +500,24 @@ public class ImapListener extends TcpListener {
     }
 
     /**
+     * Returns whether OBJECTID (RFC 8474) is enabled.
+     *
+     * @return true if OBJECTID is enabled
+     */
+    public boolean isEnableOBJECTID() {
+        return enableOBJECTID;
+    }
+
+    /**
+     * Sets whether OBJECTID (RFC 8474) is enabled.
+     *
+     * @param enableOBJECTID true to enable OBJECTID
+     */
+    public void setEnableOBJECTID(boolean enableOBJECTID) {
+        this.enableOBJECTID = enableOBJECTID;
+    }
+
+    /**
      * Returns the server identification fields sent in response to the
      * ID command (RFC 2971). When {@code null}, a default set containing
      * "name" and "version" is used.
@@ -729,6 +748,10 @@ public class ImapListener extends TcpListener {
      *   <li>{@code STATUS=SIZE} — RFC 8438 (SIZE status data item)</li>
      *   <li>{@code COMPRESS=DEFLATE} — RFC 4978 (when authenticated and
      *       compression is not yet active)</li>
+     *   <li>{@code OBJECTID} — RFC 8474 (MAILBOXID/EMAILID); unlike
+     *       CONDSTORE/QRESYNC/UTF8=ACCEPT this needs no {@code ENABLE} --
+     *       once advertised, the FETCH items and SEARCH criterion it adds
+     *       are simply usable</li>
      * </ul>
      *
      * @param authenticated true if the user is authenticated
@@ -810,6 +833,9 @@ public class ImapListener extends TcpListener {
                 caps.append(" THREAD=ORDEREDSUBJECT");
                 caps.append(" THREAD=REFERENCES");
                 caps.append(" I18NLEVEL=1");   // RFC 5256 / RFC 5255
+            }
+            if (enableOBJECTID) {
+                caps.append(" OBJECTID");      // RFC 8474
             }
         }
 

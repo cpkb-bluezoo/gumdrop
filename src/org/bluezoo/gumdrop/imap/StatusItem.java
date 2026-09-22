@@ -82,10 +82,17 @@ public enum StatusItem {
 
     /**
      * The mailbox append limit in octets.
-     * 
+     *
      * <p>Requires APPENDLIMIT extension (RFC 7889).
      */
-    APPENDLIMIT("APPENDLIMIT");
+    APPENDLIMIT("APPENDLIMIT"),
+
+    /**
+     * The mailbox's stable RFC 8474 MAILBOXID.
+     *
+     * <p>Requires OBJECTID extension (RFC 8474).
+     */
+    MAILBOXID("MAILBOXID");
 
     private final String imapName;
 

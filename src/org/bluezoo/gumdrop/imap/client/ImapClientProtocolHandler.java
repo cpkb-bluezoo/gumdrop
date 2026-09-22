@@ -163,6 +163,7 @@ public final class ImapClientProtocolHandler
     private long statusUidNext;
     private long statusUidValidity;
     private int statusUnseen;
+    private String statusMailboxId;
 
     private long copyUidValidity;
     private String copySourceUids;
@@ -1176,6 +1177,13 @@ public final class ImapClientProtocolHandler
                 } catch (NumberFormatException e) {
                     // ignore
                 }
+            } else if (upperCode.startsWith("MAILBOXID ")) {
+                // RFC 8474: "MAILBOXID (<objectid>)"
+                String rest = code.substring(10).trim();
+                if (rest.startsWith("(") && rest.endsWith(")")) {
+                    pendingMailboxInfo.setMailboxId(
+                            rest.substring(1, rest.length() - 1));
+                }
             }
         }
 
@@ -1355,6 +1363,16 @@ public final class ImapClientProtocolHandler
         if (envIdx >= 0) {
             fd.setEnvelope(parseEnvelope(data, envIdx + 9));
         }
+
+        // RFC 8474: "EMAILID (<objectid>)"
+        int emailIdIdx = upper.indexOf("EMAILID ");
+        if (emailIdIdx >= 0) {
+            int open = data.indexOf('(', emailIdIdx + 8);
+            int close = open >= 0 ? data.indexOf(')', open + 1) : -1;
+            if (open >= 0 && close > open) {
+                fd.setEmailId(data.substring(open + 1, close));
+            }
+        }
     }
 
     private String parseFetchBodySection(String data) {
@@ -1486,6 +1504,12 @@ public final class ImapClientProtocolHandler
                     case "UNSEEN":
                         statusUnseen = Integer.parseInt(val);
                         break;
+                    case "MAILBOXID":
+                        // RFC 8474: value is "(<objectid>)"
+                        if (val.startsWith("(") && val.endsWith(")")) {
+                            statusMailboxId = val.substring(1, val.length() - 1);
+                        }
+                        break;
                     default:
                         break;
                 }
@@ -1502,6 +1526,7 @@ public final class ImapClientProtocolHandler
         statusUidNext = 0;
         statusUidValidity = 0;
         statusUnseen = 0;
+        statusMailboxId = null;
     }
 
     // ── SEARCH parsing ──
@@ -1895,7 +1920,7 @@ public final class ImapClientProtocolHandler
         if (response.isOk()) {
             callback.handleStatus(this, statusMailbox,
                     statusMessages, statusRecent, statusUidNext,
-                    statusUidValidity, statusUnseen);
+                    statusUidValidity, statusUnseen, statusMailboxId);
         } else {
             callback.handleError(this, response.getMessage());
         }

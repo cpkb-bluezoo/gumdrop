@@ -504,6 +504,88 @@ public class MessageIndexBuilderTest {
     }
 
     // ========================================================================
+    // EMAILID (RFC 8474) Tests
+    // ========================================================================
+
+    @Test
+    public void testBuildEntryWithoutDigestLeavesEmailIdEmpty() throws IOException {
+        String message =
+            "From: Alice <alice@example.com>\r\n" +
+            "Subject: Hi\r\n" +
+            "\r\n" +
+            "Body.\r\n";
+
+        MessageIndexEntry entry = builder.buildEntry(
+            1L, 1, message.length(), 0L, EnumSet.noneOf(Flag.class),
+            "location", createChannel(message));
+
+        assertEquals("", entry.getEmailId());
+    }
+
+    @Test
+    public void testBuildEntryWithDigestComputesEmailId() throws Exception {
+        String message =
+            "From: Alice <alice@example.com>\r\n" +
+            "Subject: Hi\r\n" +
+            "\r\n" +
+            "Body.\r\n";
+        byte[] bytes = message.getBytes(StandardCharsets.UTF_8);
+
+        java.security.MessageDigest expectedDigest =
+                java.security.MessageDigest.getInstance("SHA-256");
+        String expectedEmailId = java.util.Base64.getUrlEncoder().withoutPadding()
+                .encodeToString(expectedDigest.digest(bytes));
+
+        MessageIndexEntry entry = builder.buildEntry(
+            1L, 1, bytes.length, 0L, EnumSet.noneOf(Flag.class), "location",
+            createChannel(message), java.security.MessageDigest.getInstance("SHA-256"));
+
+        assertEquals(expectedEmailId, entry.getEmailId());
+        assertFalse(entry.getEmailId().isEmpty());
+    }
+
+    @Test
+    public void testBuildEntryWithDigestHashesWholeMessageNotJustHeaders() throws Exception {
+        // Two messages with identical headers but different bodies must
+        // get different EMAILIDs -- proves the digest covers the body,
+        // not just the header-parsing prefix buildEntry normally stops at.
+        String headers =
+            "From: Alice <alice@example.com>\r\n" +
+            "Subject: Hi\r\n" +
+            "\r\n";
+        String messageA = headers + "Body A.\r\n";
+        String messageB = headers + "Body B, which is a different and longer body.\r\n";
+
+        MessageIndexEntry entryA = builder.buildEntry(
+            1L, 1, messageA.length(), 0L, EnumSet.noneOf(Flag.class), "location",
+            createChannel(messageA), java.security.MessageDigest.getInstance("SHA-256"));
+        MessageIndexEntry entryB = builder.buildEntry(
+            2L, 2, messageB.length(), 0L, EnumSet.noneOf(Flag.class), "location",
+            createChannel(messageB), java.security.MessageDigest.getInstance("SHA-256"));
+
+        assertNotEquals(entryA.getEmailId(), entryB.getEmailId());
+    }
+
+    @Test
+    public void testBuildEntryWithDigestStillParsesHeaders() throws Exception {
+        // The digest path must not short-circuit ordinary header indexing.
+        String message =
+            "From: Alice <alice@example.com>\r\n" +
+            "Subject: Hi\r\n" +
+            "Message-ID: <abc@example.com>\r\n" +
+            "\r\n" +
+            "Body.\r\n";
+
+        MessageIndexEntry entry = builder.buildEntry(
+            1L, 1, message.length(), 0L, EnumSet.noneOf(Flag.class), "location",
+            createChannel(message), java.security.MessageDigest.getInstance("SHA-256"));
+
+        assertTrue(entry.getFrom().contains("alice@example.com"));
+        assertEquals("hi", entry.getSubject());
+        assertEquals("<abc@example.com>", entry.getMessageId());
+    }
+
+    // ========================================================================
     // Helper Methods
     // ========================================================================
 

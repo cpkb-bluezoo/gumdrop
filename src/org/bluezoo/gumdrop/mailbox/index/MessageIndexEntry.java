@@ -57,7 +57,7 @@ import java.util.Set;
  * PROPERTY DESCRIPTORS (N x 8 bytes):
  *   Each: offset(4) + length(4) relative to variable data start
  *   Order: location, from, to, cc, bcc, subject, messageId, references,
- *           inReplyTo, keywords
+ *           inReplyTo, keywords, emailId
  * 
  * VARIABLE DATA:
  *   String data in order matching descriptors
@@ -70,8 +70,11 @@ public class MessageIndexEntry {
     /** Descriptor count in index file format version 1. */
     public static final int DESCRIPTOR_COUNT_V1 = 8;
 
-    /** Number of property descriptors in each entry (format version 2+). */
-    public static final int DESCRIPTOR_COUNT = 10;
+    /** Descriptor count in index file format version 2. */
+    public static final int DESCRIPTOR_COUNT_V2 = 10;
+
+    /** Number of property descriptors in each entry (format version 3+). */
+    public static final int DESCRIPTOR_COUNT = 11;
 
     /** Size of the fixed header in bytes. */
     public static final int FIXED_HEADER_SIZE = 48;
@@ -90,6 +93,14 @@ public class MessageIndexEntry {
     public static final int DESC_REFERENCES = 7;
     public static final int DESC_IN_REPLY_TO = 8;
     public static final int DESC_KEYWORDS = 9;
+
+    /**
+     * RFC 8474 EMAILID: base64url (no padding) SHA-256 digest of the
+     * whole canonical (unescaped/unstuffed) message, computed once when
+     * the message is first indexed (at APPEND, or during a search-index
+     * rebuild) so it stays stable for the life of the message.
+     */
+    public static final int DESC_EMAILID = 10;
 
     // Flag bit positions
     private static final int FLAG_BIT_SEEN = 0;
@@ -145,7 +156,7 @@ public class MessageIndexEntry {
             String subject, String messageId, String keywords) {
         this(uid, messageNumber, size, internalDate, sentDate, flags,
                 location, from, to, cc, bcc, subject, messageId,
-                "", "", keywords);
+                "", "", keywords, "");
     }
 
     /**
@@ -159,6 +170,22 @@ public class MessageIndexEntry {
             String location, String from, String to, String cc, String bcc,
             String subject, String messageId, String references,
             String inReplyTo, String keywords) {
+        this(uid, messageNumber, size, internalDate, sentDate, flags,
+                location, from, to, cc, bcc, subject, messageId,
+                references, inReplyTo, keywords, "");
+    }
+
+    /**
+     * Creates a new index entry with the specified values.
+     *
+     * @param emailId RFC 8474 EMAILID: base64url (no padding) SHA-256 of
+     *                the whole canonical message content
+     */
+    public MessageIndexEntry(long uid, int messageNumber, long size,
+            long internalDate, long sentDate, Set<Flag> flags,
+            String location, String from, String to, String cc, String bcc,
+            String subject, String messageId, String references,
+            String inReplyTo, String keywords, String emailId) {
         this.uid = uid;
         this.messageNumber = messageNumber;
         this.size = size;
@@ -168,7 +195,7 @@ public class MessageIndexEntry {
         this.descriptors = new int[DESCRIPTOR_COUNT * 2];
 
         buildVariableData(location, from, to, cc, bcc, subject, messageId,
-                references, inReplyTo, keywords);
+                references, inReplyTo, keywords, emailId);
     }
 
     /**
@@ -176,7 +203,7 @@ public class MessageIndexEntry {
      */
     private void buildVariableData(String location, String from, String to,
             String cc, String bcc, String subject, String messageId,
-            String references, String inReplyTo, String keywords) {
+            String references, String inReplyTo, String keywords, String emailId) {
         byte[][] values = new byte[DESCRIPTOR_COUNT][];
         values[DESC_LOCATION] = toBytes(location);
         values[DESC_FROM] = toBytes(from);
@@ -188,6 +215,7 @@ public class MessageIndexEntry {
         values[DESC_REFERENCES] = toBytes(references);
         values[DESC_IN_REPLY_TO] = toBytes(inReplyTo);
         values[DESC_KEYWORDS] = toBytes(keywords);
+        values[DESC_EMAILID] = toBytes(emailId);
 
         // Calculate total size
         int totalSize = 0;
@@ -385,6 +413,15 @@ public class MessageIndexEntry {
 
     public String getKeywords() {
         return getProperty(DESC_KEYWORDS);
+    }
+
+    /**
+     * Returns the RFC 8474 EMAILID: base64url (no padding) SHA-256 digest
+     * of the whole canonical message, or {@code ""} if not yet computed
+     * (an index entry from before this field existed, not yet reindexed).
+     */
+    public String getEmailId() {
+        return getProperty(DESC_EMAILID);
     }
 
     // ========================================================================
