@@ -22,11 +22,10 @@
 package org.bluezoo.gumdrop.util;
 
 import org.bluezoo.gonzalez.Parser;
-import org.xml.sax.ContentHandler;
 import org.xml.sax.EntityResolver;
-import org.xml.sax.ErrorHandler;
 import org.xml.sax.InputSource;
 import org.xml.sax.SAXException;
+import org.xml.sax.SAXNotSupportedException;
 
 import java.io.File;
 import java.io.IOException;
@@ -42,30 +41,39 @@ import java.security.DigestInputStream;
 import java.security.MessageDigest;
 
 /**
- * Utility methods for parsing XML using the Gonzalez streaming parser.
- * 
+ * Utility methods for parsing XML using the Gonzalez streaming parser,
+ * via its native {@code XMLHandler} vocabulary ({@link AbstractXMLHandler})
+ * rather than the heavier SAX {@code ContentHandler} adaptation.
+ *
  * <p>These methods provide non-blocking, NIO-based XML parsing using the
  * Gonzalez push-model parser. For file-based parsing, NIO FileChannel is
  * used. For InputStream-based parsing (e.g., resources from JAR files),
  * the stream is wrapped in a ReadableByteChannel.
- * 
+ *
  * <p>Parser instances are reused via a thread-local cache to avoid the
  * overhead of creating new parsers for each document. The parser's
  * {@code reset()} method is called between documents to clear internal state.
- * 
+ *
  * <h3>Entity Resolution</h3>
- * 
+ *
  * <p>When using the non-blocking {@code receive()} interface, the systemId
  * and publicId must be set <em>before</em> the first {@code receive()} call.
  * This is necessary for documents that are not standalone and need to resolve
  * external entities (e.g., DTD references). The systemId provides the base URI
  * for relative entity resolution, while the publicId can be used for catalog-
  * based resolution.
- * 
+ *
+ * <h3>Error reporting</h3>
+ *
+ * <p>There is no separate {@code ErrorHandler} parameter: a handler
+ * reports its own errors by overriding {@link AbstractXMLHandler#error}/
+ * {@link AbstractXMLHandler#fatalError} directly, the same object that
+ * receives the structural events.
+ *
  * <p>Example usage:
  * <pre>
- * XMLParseUtils.parseFile(configFile, myHandler, null, null, null);
- * XMLParseUtils.parseStream(inputStream, myHandler, null, "config.xml", null);
+ * XMLParseUtils.parseFile(configFile, myHandler, null, null);
+ * XMLParseUtils.parseStream(inputStream, myHandler, "config.xml", null);
  * </pre>
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
@@ -123,12 +131,40 @@ public final class XMLParseUtils {
     }
 
     /**
-     * Clears handlers from the parser after use to avoid holding references.
-     * This helps prevent memory leaks when handlers reference large objects.
+     * Clears the handler from the parser after use to avoid holding
+     * references. This helps prevent memory leaks when handlers
+     * reference large objects.
+     *
+     * <p>Unlike {@code setContentHandler}, {@link Parser#setXMLHandler}
+     * refuses to change the handler at all -- even to null -- once a
+     * scanner has been built for the document just parsed (it throws
+     * {@link SAXNotSupportedException}), and {@link Parser#close} does
+     * not itself tear the scanner back down. {@link Parser#reset()}
+     * does (that's what makes it safe for {@link #getParser()} to reuse
+     * a pooled instance for the next document), so it must run first --
+     * a second, harmless {@code reset()} then happens at the start of
+     * the parser's next use.
      */
-    private static void clearParser(Parser parser) {
-        parser.setContentHandler(null);
-        parser.setErrorHandler(null);
+    private static void clearParser(Parser parser) throws SAXException {
+        parser.reset();
+        parser.setXMLHandler(null);
+    }
+
+    /**
+     * Wires {@code handler} onto {@code parser} as its native {@code
+     * XMLHandler}. {@link Parser#setXMLHandler} only declares {@link
+     * SAXNotSupportedException} for the case where a document is
+     * already being parsed with a different handler -- a thread-local,
+     * freshly-{@link Parser#reset() reset} parser never is, so this
+     * turns that impossible case into an {@link IllegalStateException}
+     * rather than pushing a checked exception onto every caller here.
+     */
+    private static void setHandler(Parser parser, AbstractXMLHandler handler) {
+        try {
+            parser.setXMLHandler(handler);
+        } catch (SAXNotSupportedException e) {
+            throw new IllegalStateException(e);
+        }
     }
 
     /**
@@ -136,27 +172,23 @@ public final class XMLParseUtils {
      * This is the most efficient method for parsing local files.
      *
      * @param file the XML file to parse
-     * @param contentHandler the SAX content handler to receive events
-     * @param errorHandler optional SAX error handler (may be null)
+     * @param handler the handler to receive events (and, via {@link
+     *                AbstractXMLHandler#error}/{@link
+     *                AbstractXMLHandler#fatalError}, report errors)
      * @param systemId optional system ID for error reporting and entity resolution
      *                 (uses file URI if null)
      * @param publicId optional public ID for catalog-based entity resolution (may be null)
      * @throws IOException if an I/O error occurs
      * @throws SAXException if a parsing error occurs
      */
-    public static void parseFile(File file, ContentHandler contentHandler, 
-                                  ErrorHandler errorHandler, String systemId,
-                                  String publicId) 
+    public static void parseFile(File file, AbstractXMLHandler handler,
+                                  String systemId, String publicId)
             throws IOException, SAXException {
         Parser parser = getParser();
         boolean success = false;
         try {
-            // Set handlers
-            parser.setContentHandler(contentHandler);
-            if (errorHandler != null) {
-                parser.setErrorHandler(errorHandler);
-            }
-            
+            setHandler(parser, handler);
+
             // Set identifiers BEFORE first receive() for entity resolution
             parser.setSystemId(systemId != null ? systemId : file.toURI().toString());
             if (publicId != null) {
@@ -182,16 +214,14 @@ public final class XMLParseUtils {
      * The URL string is used as the systemId for entity resolution.
      *
      * @param url the URL to parse
-     * @param contentHandler the SAX content handler to receive events
-     * @param errorHandler optional SAX error handler (may be null)
+     * @param handler the handler to receive events (and report errors)
      * @throws IOException if an I/O error occurs
      * @throws SAXException if a parsing error occurs
      */
-    public static void parseURL(URL url, ContentHandler contentHandler,
-                                 ErrorHandler errorHandler)
+    public static void parseURL(URL url, AbstractXMLHandler handler)
             throws IOException, SAXException {
         try (InputStream in = url.openStream()) {
-            parseStream(in, contentHandler, errorHandler, url.toString(), null);
+            parseStream(in, handler, url.toString(), null);
         }
     }
 
@@ -200,26 +230,20 @@ public final class XMLParseUtils {
      * The stream is wrapped in a ReadableByteChannel for efficient reading.
      *
      * @param in the InputStream to parse (will NOT be closed by this method)
-     * @param contentHandler the SAX content handler to receive events
-     * @param errorHandler optional SAX error handler (may be null)
+     * @param handler the handler to receive events (and report errors)
      * @param systemId optional system ID for error reporting and entity resolution
      * @param publicId optional public ID for catalog-based entity resolution (may be null)
      * @throws IOException if an I/O error occurs
      * @throws SAXException if a parsing error occurs
      */
-    public static void parseStream(InputStream in, ContentHandler contentHandler,
-                                    ErrorHandler errorHandler, String systemId,
-                                    String publicId)
+    public static void parseStream(InputStream in, AbstractXMLHandler handler,
+                                    String systemId, String publicId)
             throws IOException, SAXException {
         Parser parser = getParser();
         boolean success = false;
         try {
-            // Set handlers
-            parser.setContentHandler(contentHandler);
-            if (errorHandler != null) {
-                parser.setErrorHandler(errorHandler);
-            }
-            
+            setHandler(parser, handler);
+
             // Set identifiers BEFORE first receive() for entity resolution
             if (systemId != null) {
                 parser.setSystemId(systemId);
@@ -245,20 +269,18 @@ public final class XMLParseUtils {
      * Useful for deployment descriptor parsing where digest is needed.
      *
      * @param in the InputStream to parse (will NOT be closed by this method)
-     * @param contentHandler the SAX content handler to receive events
-     * @param errorHandler optional SAX error handler (may be null)
+     * @param handler the handler to receive events (and report errors)
      * @param systemId optional system ID for error reporting and entity resolution
      * @param digest the MessageDigest to update with read data
      * @throws IOException if an I/O error occurs
      * @throws SAXException if a parsing error occurs
      */
-    public static void parseStreamWithDigest(InputStream in, ContentHandler contentHandler,
-                                              ErrorHandler errorHandler, String systemId,
-                                              MessageDigest digest)
+    public static void parseStreamWithDigest(InputStream in, AbstractXMLHandler handler,
+                                              String systemId, MessageDigest digest)
             throws IOException, SAXException {
         // Wrap in DigestInputStream to compute hash while reading
         DigestInputStream digestIn = new DigestInputStream(in, digest);
-        parseStream(digestIn, contentHandler, errorHandler, systemId, null);
+        parseStream(digestIn, handler, systemId, null);
     }
 
     /**

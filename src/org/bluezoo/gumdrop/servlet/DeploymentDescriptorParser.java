@@ -22,12 +22,11 @@
 package org.bluezoo.gumdrop.servlet;
 
 import org.bluezoo.gumdrop.util.XMLParseUtils;
+import org.bluezoo.gumdrop.util.AbstractXMLHandler;
 import org.xml.sax.Attributes;
-import org.xml.sax.ErrorHandler;
 import org.xml.sax.Locator;
 import org.xml.sax.SAXException;
 import org.xml.sax.SAXParseException;
-import org.xml.sax.helpers.DefaultHandler;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -73,7 +72,7 @@ import org.bluezoo.gumdrop.servlet.jndi.ServiceRef;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-class DeploymentDescriptorParser extends DefaultHandler implements ErrorHandler {
+class DeploymentDescriptorParser extends AbstractXMLHandler {
 
     static final Logger LOGGER = Logger.getLogger(DeploymentDescriptorParser.class.getName());
     static final ResourceBundle L10N = ResourceBundle.getBundle("org.bluezoo.gumdrop.servlet.L10N");
@@ -434,7 +433,7 @@ class DeploymentDescriptorParser extends DefaultHandler implements ErrorHandler 
      */
     public void parse(DeploymentDescriptor descriptor, InputStream in) throws IOException, SAXException {
         this.descriptor = descriptor;
-        XMLParseUtils.parseStreamWithDigest(in, this, this, null, digest);
+        XMLParseUtils.parseStreamWithDigest(in, this, null, digest);
     }
 
     /**

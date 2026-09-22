@@ -22,10 +22,10 @@
 package org.bluezoo.gumdrop.servlet.jsp;
 
 import org.bluezoo.gumdrop.util.XMLParseUtils;
+import org.bluezoo.gumdrop.util.AbstractXMLHandler;
 import org.xml.sax.Attributes;
 import org.xml.sax.Locator;
 import org.xml.sax.SAXException;
-import org.xml.sax.helpers.DefaultHandler;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -87,7 +87,7 @@ public class XMLJSPParser implements JspParser {
             JspContentHandler handler = new JspContentHandler(jspUri, encoding, jspProperties);
             
             // Use Gonzalez streaming parser
-            XMLParseUtils.parseStream(input, handler, handler, jspUri, null);
+            XMLParseUtils.parseStream(input, handler, jspUri, null);
 
             return handler.getJSPPage();
 
@@ -191,7 +191,7 @@ public class XMLJSPParser implements JspParser {
     /**
      * SAX content handler for parsing XML JSP content.
      */
-    private static class JspContentHandler extends DefaultHandler {
+    private static class JspContentHandler extends AbstractXMLHandler {
 
         private final JspPage jspPage;
         private final Stack<String> elementStack = new Stack<String>();
@@ -213,7 +213,8 @@ public class XMLJSPParser implements JspParser {
         }
 
         @Override
-        public void setDocumentLocator(Locator locator) {
+        public void setLocator(Locator locator) {
+            super.setLocator(locator);
             this.locator = locator;
         }
 
@@ -307,11 +308,6 @@ public class XMLJSPParser implements JspParser {
 
         @Override
         public void characters(char[] ch, int start, int length) throws SAXException {
-            textBuffer.append(ch, start, length);
-        }
-
-        @Override
-        public void ignorableWhitespace(char[] ch, int start, int length) throws SAXException {
             textBuffer.append(ch, start, length);
         }
 

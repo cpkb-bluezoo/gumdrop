@@ -24,7 +24,7 @@ package org.bluezoo.gumdrop.servlet.container;
 import org.bluezoo.gonzalez.Parser;
 import org.xml.sax.Attributes;
 import org.xml.sax.SAXException;
-import org.xml.sax.helpers.DefaultHandler;
+import org.xml.sax.SAXNotSupportedException;
 
 import org.bluezoo.gumdrop.auth.BasicRealm;
 import org.bluezoo.gumdrop.auth.Realm;
@@ -35,6 +35,7 @@ import org.bluezoo.gumdrop.servlet.Container;
 import org.bluezoo.gumdrop.servlet.Context;
 import org.bluezoo.gumdrop.servlet.server.ServletRequestHandler;
 import org.bluezoo.gumdrop.tls.TlsConfig;
+import org.bluezoo.gumdrop.util.AbstractXMLHandler;
 import org.bluezoo.gumdrop.util.XMLParseUtils;
 
 import java.io.File;
@@ -148,7 +149,7 @@ public final class ServerXmlLoader {
         }
         Handler handler = new Handler(baseDir);
         Parser parser = new Parser();
-        parser.setContentHandler(handler);
+        setHandler(parser, handler);
         parser.setEntityResolver(XMLParseUtils.DENY_EXTERNAL_ENTITIES);
         parser.setSystemId(configFile.toURI().toString());
         new AsyncReader(channel, parser, handler, callback).start();
@@ -233,7 +234,7 @@ public final class ServerXmlLoader {
             Callback callback) {
         Handler handler = new Handler(baseDir);
         Parser parser = new Parser();
-        parser.setContentHandler(handler);
+        setHandler(parser, handler);
         parser.setEntityResolver(XMLParseUtils.DENY_EXTERNAL_ENTITIES);
         try {
             parser.receive(xml);
@@ -258,6 +259,23 @@ public final class ServerXmlLoader {
         }
     }
 
+    /**
+     * Wires {@code handler} onto a freshly-constructed {@code parser} as
+     * its native {@code XMLHandler}. {@link Parser#setXMLHandler} only
+     * declares {@link SAXNotSupportedException} for the case where a
+     * document is already being parsed with a different handler -- never
+     * true immediately after {@code new Parser()} -- so this turns that
+     * impossible case into an {@link IllegalStateException} rather than
+     * pushing a checked exception onto both call sites above.
+     */
+    private static void setHandler(Parser parser, Handler handler) {
+        try {
+            parser.setXMLHandler(handler);
+        } catch (SAXNotSupportedException e) {
+            throw new IllegalStateException(e);
+        }
+    }
+
     private static void closeQuietly(AsynchronousFileChannel channel) {
         try {
             channel.close();
@@ -266,7 +284,7 @@ public final class ServerXmlLoader {
         }
     }
 
-    private static final class Handler extends DefaultHandler {
+    private static final class Handler extends AbstractXMLHandler {
 
         private final File baseDir;
         private final Container container = new Container();

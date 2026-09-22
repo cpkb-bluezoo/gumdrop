@@ -23,14 +23,13 @@ package org.bluezoo.gumdrop.servlet.jsp;
 
 import org.bluezoo.gumdrop.util.JulWarnings;
 import org.bluezoo.gumdrop.util.XMLParseUtils;
+import org.bluezoo.gumdrop.util.AbstractXMLHandler;
 import org.xml.sax.Attributes;
 import org.xml.sax.SAXException;
-import org.xml.sax.helpers.DefaultHandler;
 
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.Stack;
-import java.util.logging.Level;
 import java.util.logging.Logger;
 import java.text.MessageFormat;
 import java.util.ResourceBundle;
@@ -84,7 +83,7 @@ private static final Logger LOGGER = Logger.getLogger(TldParser.class.getName())
     public static TagLibraryDescriptor parseTld(InputStream input, String sourceLocation) throws IOException {
         try {
             TldHandler handler = new TldHandler(sourceLocation);
-            XMLParseUtils.parseStream(input, handler, handler, sourceLocation, null);
+            XMLParseUtils.parseStream(input, handler, sourceLocation, null);
 
             TagLibraryDescriptor tld = handler.getTagLibraryDescriptor();
             if (tld != null) {
@@ -103,7 +102,7 @@ private static final Logger LOGGER = Logger.getLogger(TldParser.class.getName())
     /**
      * SAX content handler for parsing TLD XML files.
      */
-    private static class TldHandler extends DefaultHandler {
+    private static class TldHandler extends AbstractXMLHandler {
 
         private final String sourceLocation;
         private final TagLibraryDescriptor tld = new TagLibraryDescriptor();
@@ -332,11 +331,6 @@ private static final Logger LOGGER = Logger.getLogger(TldParser.class.getName())
             textBuffer.append(ch, start, length);
         }
 
-        @Override
-        public void ignorableWhitespace(char[] ch, int start, int length) throws SAXException {
-            // Ignore whitespace
-        }
-
         /**
          * Checks if we're currently in the context of a specific element.
          */
@@ -344,18 +338,19 @@ private static final Logger LOGGER = Logger.getLogger(TldParser.class.getName())
             return elementStack.contains(elementName);
         }
 
-        @Override
-        public void warning(org.xml.sax.SAXParseException e) throws SAXException {
-            LOGGER.log(Level.WARNING, MessageFormat.format(L10N.getString("warn.tld_parse_warning"), sourceLocation, e.getLineNumber()), e);
-        }
+        // No warning() equivalent: XMLHandler's error()/fatalError() are
+        // the only two severities (see AbstractXMLHandler's error/
+        // fatalError Javadoc) -- moot here regardless, since this parser
+        // never enables DTD validation, so neither SAX's warning() nor
+        // XMLHandler's error() was ever actually reachable for a TLD file.
 
         @Override
-        public void error(org.xml.sax.SAXParseException e) throws SAXException {
+        protected void error(org.xml.sax.SAXParseException e) throws SAXException {
             throw e;
         }
 
         @Override
-        public void fatalError(org.xml.sax.SAXParseException e) throws SAXException {
+        protected void fatalError(org.xml.sax.SAXParseException e) throws SAXException {
             throw e;
         }
     }

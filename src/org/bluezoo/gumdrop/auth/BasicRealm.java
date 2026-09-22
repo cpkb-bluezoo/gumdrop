@@ -47,11 +47,11 @@ import javax.crypto.SecretKeyFactory;
 import javax.crypto.spec.PBEKeySpec;
 
 import org.bluezoo.gumdrop.SelectorLoop;
+import org.bluezoo.gumdrop.util.AbstractXMLHandler;
 import org.bluezoo.gumdrop.util.XMLParseUtils;
 import org.bluezoo.util.ByteArrays;
 import org.xml.sax.Attributes;
 import org.xml.sax.SAXException;
-import org.xml.sax.helpers.DefaultHandler;
 
 /**
  * Simple realm composed of static principals declared in an XML
@@ -116,7 +116,7 @@ import org.xml.sax.helpers.DefaultHandler;
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see <a href="https://www.rfc-editor.org/rfc/rfc4422">RFC 4422: SASL Framework</a>
  */
-public class BasicRealm extends DefaultHandler implements Realm {
+public class BasicRealm extends AbstractXMLHandler implements Realm {
 
     static final ResourceBundle L10N = ResourceBundle.getBundle("org.bluezoo.gumdrop.auth.L10N");
     static final Logger LOGGER = Logger.getLogger(BasicRealm.class.getName());
@@ -470,7 +470,7 @@ public class BasicRealm extends DefaultHandler implements Realm {
         try {
             URL cwd = new File(".").toURI().toURL();
             URL url = new URL(cwd, href);
-            XMLParseUtils.parseURL(url, this, null);
+            XMLParseUtils.parseURL(url, this);
             
             // Resolve pending group references after parsing
             resolvePendingGroupReferences();
@@ -490,7 +490,7 @@ public class BasicRealm extends DefaultHandler implements Realm {
         pendingGroupRefs = new LinkedHashMap<String, String>();
         try {
             URL url = path.toUri().toURL();
-            XMLParseUtils.parseURL(url, this, null);
+            XMLParseUtils.parseURL(url, this);
             resolvePendingGroupReferences();
             logPlaintextPasswordWarning();
         } catch (IOException | SAXException e) {

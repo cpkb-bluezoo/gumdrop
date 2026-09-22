@@ -22,11 +22,12 @@
 package org.bluezoo.gumdrop.webdav;
 
 import org.bluezoo.gonzalez.Parser;
+import org.bluezoo.gumdrop.util.AbstractXMLHandler;
 import org.bluezoo.gumdrop.util.XMLParseUtils;
 import org.xml.sax.Attributes;
 import org.xml.sax.SAXException;
+import org.xml.sax.SAXNotSupportedException;
 import org.xml.sax.SAXParseException;
-import org.xml.sax.helpers.DefaultHandler;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
@@ -34,14 +35,18 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Parses WebDAV request XML bodies using the Gonzalez streaming parser.
+ * Parses WebDAV request XML bodies using the Gonzalez streaming parser,
+ * via its native {@link org.bluezoo.gonzalez.XMLHandler} vocabulary
+ * ({@link AbstractXMLHandler}) rather than the heavier SAX {@code
+ * ContentHandler} adaptation -- every PROPFIND/PROPPATCH/LOCK request
+ * body goes through this, so the per-request parsing overhead matters.
  *
  * <p>Implements RFC 4918 §14 (XML element definitions).
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see <a href="https://www.rfc-editor.org/rfc/rfc4918">RFC 4918</a>
  */
-class WebDAVRequestParser extends DefaultHandler {
+class WebDAVRequestParser extends AbstractXMLHandler {
 
     enum PropfindType { ALLPROP, PROPNAME, PROP }
     enum PropPatchOp { SET, REMOVE }
@@ -104,7 +109,12 @@ class WebDAVRequestParser extends DefaultHandler {
 
     WebDAVRequestParser() {
         this.parser = new Parser();
-        this.parser.setContentHandler(this);
+        try {
+            this.parser.setXMLHandler(this);
+        } catch (SAXNotSupportedException e) {
+            // Cannot happen: the scanner hasn't started yet at construction time.
+            throw new IllegalStateException(e);
+        }
         // Block external entity resolution (XXE) for untrusted request bodies.
         this.parser.setEntityResolver(XMLParseUtils.DENY_EXTERNAL_ENTITIES);
         try {

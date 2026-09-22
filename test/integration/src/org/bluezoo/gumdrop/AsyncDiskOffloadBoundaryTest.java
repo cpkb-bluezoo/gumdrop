@@ -468,9 +468,10 @@ public class AsyncDiskOffloadBoundaryTest {
                 Class.forName("org.bluezoo.gumdrop.webdav.WebDAVLockManager");
         Class<?> deadClass =
                 Class.forName("org.bluezoo.gumdrop.webdav.DeadPropertyStore");
+        Class<?> realmClass = Class.forName("org.bluezoo.gumdrop.auth.Realm");
         Constructor<?> ctor = handlerClass.getDeclaredConstructor(
                 Path.class, boolean.class, boolean.class, String.class,
-                String[].class, Map.class, lockClass, deadClass);
+                String[].class, Map.class, lockClass, deadClass, realmClass);
         ctor.setAccessible(true);
         Constructor<?> lockCtor = lockClass.getDeclaredConstructor();
         lockCtor.setAccessible(true);
@@ -479,7 +480,7 @@ public class AsyncDiskOffloadBoundaryTest {
         types.put("txt", "text/plain");
         return (HttpRequestHandler) ctor.newInstance(root, allowWrite, true,
                 "GET, HEAD, PUT, DELETE, OPTIONS, PROPFIND, MKCOL, COPY, MOVE",
-                new String[]{"index.html"}, types, lockManager, null);
+                new String[]{"index.html"}, types, lockManager, null, null);
     }
 
     private void replaceStorageExecutor(StorageExecutor replacement)

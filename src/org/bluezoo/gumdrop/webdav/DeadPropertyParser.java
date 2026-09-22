@@ -22,11 +22,11 @@
 package org.bluezoo.gumdrop.webdav;
 
 import org.bluezoo.gonzalez.Parser;
+import org.bluezoo.gumdrop.util.AbstractXMLHandler;
 import org.bluezoo.gumdrop.util.XMLParseUtils;
 import org.xml.sax.Attributes;
 import org.xml.sax.SAXException;
-import org.xml.sax.ext.LexicalHandler;
-import org.xml.sax.helpers.DefaultHandler;
+import org.xml.sax.SAXNotSupportedException;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
@@ -34,11 +34,11 @@ import java.util.HashMap;
 import java.util.Map;
 
 /**
- * SAX handler for parsing dead property sidecar XML files.
- *
- * <p>Uses the Gonzalez streaming push parser
- * ({@link org.bluezoo.gonzalez.Parser}) with
- * {@code receive(ByteBuffer)} for non-blocking parsing.
+ * Parses dead property sidecar XML files, via the Gonzalez streaming
+ * push parser's native {@link org.bluezoo.gonzalez.XMLHandler}
+ * vocabulary ({@link AbstractXMLHandler}) rather than the heavier SAX
+ * {@code ContentHandler}/{@code LexicalHandler} adaptation -- this runs
+ * once per dead-property load.
  *
  * <p>Sidecar format:
  * <pre>{@code
@@ -52,7 +52,7 @@ import java.util.Map;
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see DeadPropertyStore
  */
-final class DeadPropertyParser extends DefaultHandler implements LexicalHandler {
+final class DeadPropertyParser extends AbstractXMLHandler {
 
     private final Parser parser;
     private final Map<String, DeadProperty> properties;
@@ -65,7 +65,12 @@ final class DeadPropertyParser extends DefaultHandler implements LexicalHandler 
 
     DeadPropertyParser() {
         this.parser = new Parser();
-        this.parser.setContentHandler(this);
+        try {
+            this.parser.setXMLHandler(this);
+        } catch (SAXNotSupportedException e) {
+            // Cannot happen: the scanner hasn't started yet at construction time.
+            throw new IllegalStateException(e);
+        }
         // Block external entity resolution (XXE) for untrusted property XML.
         this.parser.setEntityResolver(XMLParseUtils.DENY_EXTERNAL_ENTITIES);
         try {
@@ -73,12 +78,6 @@ final class DeadPropertyParser extends DefaultHandler implements LexicalHandler 
                     "http://xml.org/sax/features/namespaces", true);
         } catch (Exception e) {
             // Namespaces enabled by default
-        }
-        try {
-            this.parser.setProperty(
-                    "http://xml.org/sax/properties/lexical-handler", this);
-        } catch (Exception e) {
-            // Gonzalez supports LexicalHandler; if unavailable, log and continue
         }
         this.properties = new HashMap<String, DeadProperty>();
         this.textContent = new StringBuilder();
@@ -120,34 +119,12 @@ final class DeadPropertyParser extends DefaultHandler implements LexicalHandler 
         return properties;
     }
 
-    // -- SAX LexicalHandler --
-
     @Override
     public void startDTD(String name, String publicId, String systemId)
             throws SAXException {
         throw new SAXException(
                 "DOCTYPE declarations are not permitted in property sidecars");
     }
-
-    @Override
-    public void endDTD() throws SAXException {}
-
-    @Override
-    public void startEntity(String name) throws SAXException {}
-
-    @Override
-    public void endEntity(String name) throws SAXException {}
-
-    @Override
-    public void startCDATA() throws SAXException {}
-
-    @Override
-    public void endCDATA() throws SAXException {}
-
-    @Override
-    public void comment(char[] ch, int start, int length) throws SAXException {}
-
-    // -- SAX ContentHandler --
 
     @Override
     public void startElement(String uri, String localName,
