@@ -147,7 +147,29 @@ public final class LongHeaderCodec {
      *         documents for the same kind of malformed input
      */
     public static LongHeaderPrefix parsePrefix(byte[] packet) {
-        ByteBuffer buf = ByteBuffer.wrap(packet);
+        return parsePrefix(packet, 0);
+    }
+
+    /**
+     * Reads the unprotected prefix of a long-header packet starting at
+     * {@code offset} within {@code packet}, rather than requiring the
+     * packet to begin at index 0 -- lets the caller parse a packet
+     * coalesced after others in the same datagram (RFC 9000 section
+     * 12.2) directly out of the full datagram buffer, without first
+     * slicing a offset-0 copy of the remaining bytes just to satisfy
+     * this method. The returned {@link LongHeaderPrefix#getPacketNumberOffset()}
+     * is an absolute index into {@code packet} (i.e. already includes
+     * {@code offset}), not relative to the packet's own start.
+     *
+     * @param packet the received datagram bytes
+     * @param offset the start of this packet within {@code packet}
+     * @return the parsed prefix
+     * @throws IllegalArgumentException if the packet is truncated, or
+     *         declares a Destination/Source Connection ID or Token
+     *         length that doesn't fit within the remaining bytes
+     */
+    public static LongHeaderPrefix parsePrefix(byte[] packet, int offset) {
+        ByteBuffer buf = ByteBuffer.wrap(packet, offset, packet.length - offset);
 
         if (buf.remaining() < 5) {
             throw new IllegalArgumentException("Packet too short for long header prefix");

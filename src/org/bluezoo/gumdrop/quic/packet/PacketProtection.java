@@ -129,6 +129,31 @@ public final class PacketProtection {
     }
 
     /**
+     * Opens (decrypts and verifies) a QUIC packet payload (RFC 9001
+     * section 5.3), reading the AAD and ciphertext directly out of
+     * caller-owned arrays -- see {@link PacketProtectionKeys#open(long,
+     * byte[], int, int, byte[], int, int)}.
+     *
+     * @param keys the receiver's packet-protection keys for this level
+     * @param packetNumber the full (reconstructed) packet number, used
+     *                     to construct the nonce
+     * @param aad the array holding the packet header, unprotected, as sent by the peer
+     * @param aadOffset the start of the header within {@code aad}
+     * @param aadLength the header's length
+     * @param ciphertext the array holding the received ciphertext, tag included
+     * @param ciphertextOffset the start of the ciphertext within {@code ciphertext}
+     * @param ciphertextLength the ciphertext's length, tag included
+     * @return the recovered plaintext frame bytes
+     * @throws PacketProtectionException if authentication fails or the
+     *         ciphertext is otherwise malformed
+     */
+    public static byte[] open(PacketProtectionKeys keys, long packetNumber,
+            byte[] aad, int aadOffset, int aadLength,
+            byte[] ciphertext, int ciphertextOffset, int ciphertextLength) throws PacketProtectionException {
+        return keys.open(packetNumber, aad, aadOffset, aadLength, ciphertext, ciphertextOffset, ciphertextLength);
+    }
+
+    /**
      * Computes the 5-byte header-protection mask from a ciphertext
      * sample (RFC 9001 section 5.4.3 for AES, section 5.4.4 for ChaCha20).
      *
@@ -150,6 +175,22 @@ public final class PacketProtection {
     public static byte[] headerProtectionMask(PacketProtectionKeys keys, byte[] sample)
             throws PacketProtectionException {
         return keys.headerProtectionMask(sample);
+    }
+
+    /**
+     * Computes the 5-byte header-protection mask from a ciphertext
+     * sample read directly out of a caller-owned array -- see
+     * {@link PacketProtectionKeys#headerProtectionMask(byte[], int)}.
+     *
+     * @param keys the packet-protection keys holding the header-protection key
+     * @param sample the array holding the 16-byte ciphertext sample (RFC 9001 section 5.4.2)
+     * @param sampleOffset the sample's start offset within {@code sample}
+     * @return the 5-byte mask
+     * @throws PacketProtectionException if the mask computation fails
+     */
+    public static byte[] headerProtectionMask(PacketProtectionKeys keys, byte[] sample, int sampleOffset)
+            throws PacketProtectionException {
+        return keys.headerProtectionMask(sample, sampleOffset);
     }
 
     /**

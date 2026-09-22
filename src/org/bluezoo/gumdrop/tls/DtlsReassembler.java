@@ -52,11 +52,35 @@ public final class DtlsReassembler {
             this.receivedCount = 0;
         }
 
-        void markReceived(int index, byte value) {
-            if (!received.get(index)) {
-                received.set(index);
-                receivedCount++;
-                buffer[index] = value;
+        /**
+         * Copies in the not-yet-received bytes of
+         * {@code src[srcOffset, srcOffset + length)} at {@code [offset,
+         * offset + length)} in {@link #buffer}. Already-received bytes
+         * (a duplicate/overlapping retransmit) are left untouched rather
+         * than being copied over redundantly. Walks {@link #received}'s
+         * unset runs with {@link BitSet#nextClearBit}/{@link
+         * BitSet#nextSetBit} and bulk-copies each run, instead of
+         * testing and copying byte by byte -- for the common cases (a
+         * wholly new fragment, or a wholly duplicate retransmit) this is
+         * one or two arraycopies total rather than one per byte.
+         */
+        void markRange(int offset, byte[] src, int srcOffset, int length) {
+            int end = offset + length;
+            int i = offset;
+            while (i < end) {
+                int runStart = received.nextClearBit(i);
+                if (runStart >= end) {
+                    break;
+                }
+                int runEnd = received.nextSetBit(runStart);
+                if (runEnd < 0 || runEnd > end) {
+                    runEnd = end;
+                }
+                int runLen = runEnd - runStart;
+                System.arraycopy(src, srcOffset + (runStart - offset), buffer, runStart, runLen);
+                received.set(runStart, runEnd);
+                receivedCount += runLen;
+                i = runEnd;
             }
         }
 
@@ -123,10 +147,7 @@ public final class DtlsReassembler {
             throw new HandshakeFormatException("conflicting DTLS fragment metadata");
         }
 
-        int bodyOffset = FRAGMENT_HEADER_LEN;
-        for (int i = 0; i < fragmentLength; i++) {
-            partial.markReceived(fragmentOffset + i, recordPayload[bodyOffset + i]);
-        }
+        partial.markRange(fragmentOffset, recordPayload, FRAGMENT_HEADER_LEN, fragmentLength);
 
         List<byte[]> ready = new ArrayList<byte[]>();
         while (true) {

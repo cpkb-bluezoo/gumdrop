@@ -191,12 +191,36 @@ public final class PacketProtectionKeys {
      */
     public byte[] open(long packetNumber, byte[] associatedData, byte[] ciphertext)
             throws PacketProtectionException {
+        return open(packetNumber, associatedData, 0, associatedData.length, ciphertext, 0, ciphertext.length);
+    }
+
+    /**
+     * Opens (decrypts and verifies) a packet payload (RFC 9001 section
+     * 5.3), reading the AAD and ciphertext directly out of caller-owned
+     * arrays instead of requiring pre-sliced copies -- the receive path
+     * already holds both regions contiguously in the same {@code
+     * byte[]} (the header, then the ciphertext, immediately after), so
+     * this avoids two {@code Arrays.copyOfRange} calls per received
+     * packet.
+     *
+     * @param packetNumber the full (reconstructed) packet number
+     * @param aad the array holding the packet header, unprotected, as sent by the peer
+     * @param aadOffset the start of the header within {@code aad}
+     * @param aadLength the header's length
+     * @param ciphertext the array holding the received ciphertext, tag included
+     * @param ciphertextOffset the start of the ciphertext within {@code ciphertext}
+     * @param ciphertextLength the ciphertext's length, tag included
+     * @return the recovered plaintext frame bytes
+     * @throws PacketProtectionException if authentication fails
+     */
+    public byte[] open(long packetNumber, byte[] aad, int aadOffset, int aadLength,
+            byte[] ciphertext, int ciphertextOffset, int ciphertextLength) throws PacketProtectionException {
         byte[] nonce = PacketProtection.computeNonce(iv, packetNumber);
         try {
             Cipher cipher = Cipher.getInstance(algorithm.getAeadTransformation());
             cipher.init(Cipher.DECRYPT_MODE, aeadKey, aeadParameterSpec(algorithm, nonce));
-            cipher.updateAAD(associatedData);
-            return cipher.doFinal(ciphertext);
+            cipher.updateAAD(aad, aadOffset, aadLength);
+            return cipher.doFinal(ciphertext, ciphertextOffset, ciphertextLength);
         } catch (GeneralSecurityException e) {
             throw new PacketProtectionException("AEAD open failed", e);
         }
@@ -215,26 +239,46 @@ public final class PacketProtectionKeys {
                     "Header protection sample must be " + QuicAeadAlgorithm.SAMPLE_LENGTH
                     + " bytes, got " + sample.length);
         }
+        return headerProtectionMask(sample, 0);
+    }
+
+    /**
+     * Computes the 5-byte header-protection mask from a ciphertext
+     * sample read directly out of a caller-owned array at {@code
+     * sampleOffset} -- the receive path already holds the sample as a
+     * 16-byte window into the full packet array, so this avoids a
+     * dedicated copy of just that window per received packet.
+     *
+     * @param sample the array holding the 16-byte ciphertext sample (RFC 9001 section 5.4.2)
+     * @param sampleOffset the sample's start offset within {@code sample};
+     *                     {@code sample.length - sampleOffset} must be at
+     *                     least {@link QuicAeadAlgorithm#SAMPLE_LENGTH}
+     * @return the 5-byte mask scratch buffer (reused across calls on this instance)
+     * @throws PacketProtectionException if the mask computation fails
+     */
+    public byte[] headerProtectionMask(byte[] sample, int sampleOffset) throws PacketProtectionException {
         try {
             if (algorithm == QuicAeadAlgorithm.CHACHA20_POLY1305) {
-                if (chachaHpMaskCached && Arrays.equals(sample, lastChachaHpSample)) {
+                if (chachaHpMaskCached && Arrays.equals(sample, sampleOffset,
+                        sampleOffset + QuicAeadAlgorithm.SAMPLE_LENGTH, lastChachaHpSample, 0,
+                        QuicAeadAlgorithm.SAMPLE_LENGTH)) {
                     return headerMaskScratch;
                 }
-                int counter = (sample[0] & 0xff) | ((sample[1] & 0xff) << 8)
-                        | ((sample[2] & 0xff) << 16) | ((sample[3] & 0xff) << 24);
-                byte[] hpNonce = Arrays.copyOfRange(sample, 4, 16);
+                int counter = (sample[sampleOffset] & 0xff) | ((sample[sampleOffset + 1] & 0xff) << 8)
+                        | ((sample[sampleOffset + 2] & 0xff) << 16) | ((sample[sampleOffset + 3] & 0xff) << 24);
+                byte[] hpNonce = Arrays.copyOfRange(sample, sampleOffset + 4, sampleOffset + 16);
                 Cipher cipher = Cipher.getInstance(algorithm.getHeaderProtectionTransformation());
                 cipher.init(Cipher.ENCRYPT_MODE, headerProtectionKey,
                         new ChaCha20ParameterSpec(hpNonce, counter));
                 byte[] mask = cipher.doFinal(HEADER_MASK_ZEROS);
                 System.arraycopy(mask, 0, headerMaskScratch, 0, mask.length);
-                System.arraycopy(sample, 0, lastChachaHpSample, 0, sample.length);
+                System.arraycopy(sample, sampleOffset, lastChachaHpSample, 0, QuicAeadAlgorithm.SAMPLE_LENGTH);
                 chachaHpMaskCached = true;
                 return headerMaskScratch;
             }
             Cipher cipher = Cipher.getInstance(algorithm.getHeaderProtectionTransformation());
             cipher.init(Cipher.ENCRYPT_MODE, headerProtectionKey);
-            byte[] block = cipher.doFinal(sample);
+            byte[] block = cipher.doFinal(sample, sampleOffset, QuicAeadAlgorithm.SAMPLE_LENGTH);
             System.arraycopy(block, 0, headerMaskScratch, 0, headerMaskScratch.length);
             return headerMaskScratch;
         } catch (GeneralSecurityException e) {

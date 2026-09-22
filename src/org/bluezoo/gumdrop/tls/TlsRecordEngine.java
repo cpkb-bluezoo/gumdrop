@@ -87,6 +87,14 @@ public final class TlsRecordEngine {
      * doesn't apply here: TCP bytes already arrive in order.
      */
     private static final class GrowableBuffer extends ByteArrayOutputStream {
+        // Bytes at [0, readPos) are already-consumed records; only
+        // [readPos, count) is unread. Consuming a record just advances
+        // readPos -- no shifting -- so parsing several pipelined records
+        // out of one TCP read costs one array shift total (in #compact,
+        // called from #write when the next chunk arrives), not one shift
+        // per record.
+        private int readPos;
+
         byte[] array() {
             return buf;
         }
@@ -95,16 +103,44 @@ public final class TlsRecordEngine {
             return count;
         }
 
-        void discard(int n) {
+        int readPos() {
+            return readPos;
+        }
+
+        int available() {
+            return count - readPos;
+        }
+
+        /** Marks {@code n} bytes at the front of the unread region as consumed. */
+        void advance(int n) {
             if (n <= 0) {
                 return;
             }
-            System.arraycopy(buf, n, buf, 0, count - n);
-            count -= n;
+            readPos += n;
+        }
+
+        /** Shifts any unread tail down to offset 0, folding in past #advance calls. */
+        private void compact() {
+            if (readPos == 0) {
+                return;
+            }
+            int remaining = count - readPos;
+            if (remaining > 0) {
+                System.arraycopy(buf, readPos, buf, 0, remaining);
+            }
+            count = remaining;
+            readPos = 0;
+        }
+
+        @Override
+        public synchronized void write(byte[] b, int off, int len) {
+            compact();
+            super.write(b, off, len);
         }
 
         public void reset() {
             count = 0;
+            readPos = 0;
         }
     }
 
@@ -282,7 +318,7 @@ public final class TlsRecordEngine {
                     if (handshakeAsync.isBusy()) {
                         return;
                     }
-                    if (!engine.isComplete() && inbound.length() > 0) {
+                    if (!engine.isComplete() && inbound.available() > 0) {
                         return;
                     }
                 }
@@ -295,7 +331,7 @@ public final class TlsRecordEngine {
      * an async handshake batch finishes on the loop thread.
      */
     private void resumeInboundProcessing() {
-        if (failed || inbound.length() == 0 || innerSink.outer == null) {
+        if (failed || inbound.available() == 0 || innerSink.outer == null) {
             return;
         }
         feedCiphertext(new byte[0], 0, 0, innerSink.outer);
@@ -520,13 +556,14 @@ public final class TlsRecordEngine {
      *         wrong shape for the current epoch, or its AEAD tag does not verify
      */
     private Record takeOneRecord() throws HandshakeFormatException, GeneralSecurityException {
-        int available = inbound.length();
+        int available = inbound.available();
         if (available < 5) {
             return null;
         }
         byte[] buffered = inbound.array();
-        int hdrType = buffered[0] & 0xff;
-        int len = ((buffered[3] & 0xff) << 8) | (buffered[4] & 0xff);
+        int pos = inbound.readPos();
+        int hdrType = buffered[pos] & 0xff;
+        int len = ((buffered[pos + 3] & 0xff) << 8) | (buffered[pos + 4] & 0xff);
         if (len > MAX_CIPHERTEXT_RECORD) {
             throw new HandshakeFormatException("record length exceeds maximum");
         }
@@ -535,7 +572,7 @@ public final class TlsRecordEngine {
         }
 
         if (hdrType == CONTENT_CHANGE_CIPHER_SPEC) {
-            inbound.discard(5 + len);
+            inbound.advance(5 + len);
             return new Record(CONTENT_CHANGE_CIPHER_SPEC, new byte[0]);
         }
 
@@ -543,15 +580,15 @@ public final class TlsRecordEngine {
             if (len > engine.getInboundPlaintextLimit()) {
                 throw new HandshakeFormatException("plaintext exceeds negotiated record_size_limit");
             }
-            byte[] body = Arrays.copyOfRange(buffered, 5, 5 + len);
-            inbound.discard(5 + len);
+            byte[] body = Arrays.copyOfRange(buffered, pos + 5, pos + 5 + len);
+            inbound.advance(5 + len);
             return new Record(hdrType, body);
         }
         if (hdrType != CONTENT_APPLICATION_DATA || read == null) {
             throw new HandshakeFormatException("unexpected outer record type for this epoch");
         }
-        byte[] plain = read.openInPlace(read.nonce(), buffered, 0, 5, buffered, 5, len);
-        inbound.discard(5 + len);
+        byte[] plain = read.openInPlace(read.nonce(), buffered, pos, 5, buffered, pos + 5, len);
+        inbound.advance(5 + len);
         read.advance();
         if (plain == null) {
             throw new HandshakeFormatException("AEAD tag verification failed");

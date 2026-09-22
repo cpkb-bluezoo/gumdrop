@@ -95,17 +95,46 @@ public class QuicFrameParser {
      *         the buffer, false if {@link #receive} should stop (an
      *         error was already reported to the handler)
      */
+    /**
+     * Consumes a run of PADDING bytes (RFC 9000 section 19.1: value 0,
+     * possibly many in a row -- a client Initial packet alone pads to
+     * at least 1200 bytes, so a padded packet's plaintext is often
+     * mostly zeros) starting at the type byte already read by the
+     * caller, and returns the run's total length including that byte.
+     *
+     * <p>Scans the buffer's backing array directly when one is
+     * available (true for every packet this parser actually sees --
+     * {@code QuicConnection.processPacket} always wraps a heap array),
+     * rather than one bounds-checked relative {@link ByteBuffer#get(int)}
+     * peek plus one bounds-checked {@link ByteBuffer#get()} advance per
+     * padding byte.
+     */
+    private static int consumePaddingRun(ByteBuffer buf) {
+        int count = 1;
+        if (buf.hasArray()) {
+            byte[] array = buf.array();
+            int pos = buf.arrayOffset() + buf.position();
+            int limit = buf.arrayOffset() + buf.limit();
+            while (pos < limit && array[pos] == 0) {
+                pos++;
+                count++;
+            }
+            buf.position(pos - buf.arrayOffset());
+            return count;
+        }
+        while (buf.hasRemaining() && (buf.get(buf.position()) & 0xff) == 0) {
+            buf.get();
+            count++;
+        }
+        return count;
+    }
+
     private boolean receiveOneFrame(ByteBuffer buf) {
         int startPosition = buf.position();
         long type = VarInt.decode(buf);
 
         if (type == QuicFrameHandler.TYPE_PADDING) {
-            int count = 1;
-            while (buf.hasRemaining() && (buf.get(buf.position()) & 0xff) == 0) {
-                buf.get();
-                count++;
-            }
-            handler.paddingFrameReceived(count);
+            handler.paddingFrameReceived(consumePaddingRun(buf));
         } else if (type == QuicFrameHandler.TYPE_PING) {
             handler.pingFrameReceived();
         } else if (type == QuicFrameHandler.TYPE_ACK || type == QuicFrameHandler.TYPE_ACK_ECN) {

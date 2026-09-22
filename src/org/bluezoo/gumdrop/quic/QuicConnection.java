@@ -1393,19 +1393,30 @@ public final class QuicConnection implements QuicTlsEngineListener {
         // address validation (see there).
         boolean isZeroRtt = false;
         if (longHeader) {
-            byte[] fromOffset = offset == 0 ? bytes : Arrays.copyOfRange(bytes, offset, bytes.length);
             // A Retry packet has no Length field (RFC 9000 section
             // 17.2.5) -- a genuinely different shape from
             // Initial/Handshake/0-RTT -- so its type must be checked
             // before calling parsePrefix, which assumes that field exists.
-            int packetType = (fromOffset[0] >>> 4) & 0x03;
+            // Read directly off bytes[offset]: unlike parsePrefix, this
+            // doesn't need an offset-0 view.
+            int packetType = (bytes[offset] >>> 4) & 0x03;
             if (packetType == LongHeaderCodec.TYPE_RETRY) {
+                // Rare (at most once per connection) and, per RFC 9000
+                // section 12.2, a Retry is never coalesced with anything
+                // else -- offset is always 0 here in practice, but the
+                // slice stays for the theoretical case it isn't.
+                byte[] fromOffset = offset == 0 ? bytes : Arrays.copyOfRange(bytes, offset, bytes.length);
                 handleRetryPacket(fromOffset);
                 return bytes.length - offset; // a Retry packet always spans the rest of its datagram
             }
             LongHeaderPrefix prefix;
             try {
-                prefix = LongHeaderCodec.parsePrefix(fromOffset);
+                // Parses directly out of bytes at offset -- every packet
+                // after the first in a coalesced datagram (routine
+                // during the handshake, RFC 9000 section 12.2) used to
+                // pay for a full Arrays.copyOfRange just to get an
+                // offset-0 view here.
+                prefix = LongHeaderCodec.parsePrefix(bytes, offset);
             } catch (IllegalArgumentException e) {
                 decryptFailedOrUnparseableThisDatagram = true;
                 return -1;
@@ -1414,7 +1425,11 @@ public final class QuicConnection implements QuicTlsEngineListener {
             level = isZeroRtt ? EncryptionLevel.ONE_RTT
                     : prefix.getPacketType() == LongHeaderCodec.TYPE_INITIAL ? EncryptionLevel.INITIAL
                     : EncryptionLevel.HANDSHAKE;
-            pnOffset = prefix.getPacketNumberOffset();
+            // parsePrefix(bytes, offset) returns an absolute packet-number
+            // offset into bytes; pnOffset/packetLength below are relative
+            // to this packet's own start (offset), matching packet's own
+            // indexing once it's sliced out below.
+            pnOffset = prefix.getPacketNumberOffset() - offset;
             packetLength = pnOffset + (int) prefix.getRemainingLength();
             if (!peerConnectionIdLearned) {
                 learnPeerConnectionId(prefix.getSourceConnectionId());
@@ -1549,9 +1564,16 @@ public final class QuicConnection implements QuicTlsEngineListener {
         // number/loss-detection space (see receiveOnePacket).
         boolean longHeader = level != EncryptionLevel.ONE_RTT || isZeroRtt;
         try {
-            byte[] sample = new byte[QuicAeadAlgorithm.SAMPLE_LENGTH];
-            System.arraycopy(packet, pnOffset + 4, sample, 0, QuicAeadAlgorithm.SAMPLE_LENGTH);
-            byte[] mask = PacketProtection.headerProtectionMask(keys, sample);
+            // pnOffset + 4 is the header-protection sample's fixed offset
+            // relative to the (not-yet-known-length) packet-number field
+            // (RFC 9001 section 5.4.2) -- reading it straight out of
+            // packet, and likewise passing packet+offsets straight into
+            // PacketProtection.open below, avoids copying the sample,
+            // the AAD (the header, already sitting at packet[0..
+            // headerLength)), and the ciphertext (already sitting at
+            // packet[headerLength..]) into three dedicated arrays per
+            // received packet.
+            byte[] mask = PacketProtection.headerProtectionMask(keys, packet, pnOffset + 4);
             PacketProtection.xorFirstByte(packet, mask, longHeader);
             int pnLength = (packet[0] & 0x03) + 1;
             PacketProtection.xorPacketNumberBytes(packet, pnOffset, pnLength, mask);
@@ -1563,9 +1585,8 @@ public final class QuicConnection implements QuicTlsEngineListener {
             long fullPacketNumber = PacketNumberCodec.decode(largestReceived[level.ordinal()], truncatedPn, pnLength);
 
             int headerLength = pnOffset + pnLength;
-            byte[] aad = Arrays.copyOfRange(packet, 0, headerLength);
-            byte[] ciphertext = Arrays.copyOfRange(packet, headerLength, packet.length);
-            byte[] plaintext = PacketProtection.open(keys, fullPacketNumber, aad, ciphertext);
+            byte[] plaintext = PacketProtection.open(keys, fullPacketNumber,
+                    packet, 0, headerLength, packet, headerLength, packet.length - headerLength);
 
             if (fullPacketNumber > largestReceived[level.ordinal()]) {
                 largestReceived[level.ordinal()] = fullPacketNumber;
@@ -1752,7 +1773,15 @@ public final class QuicConnection implements QuicTlsEngineListener {
         @Override
         public void streamFrameReceived(long streamId, long offset, boolean fin, ByteBuffer data) {
             ackEliciting = true;
-            QuicStreamEndpoint stream = streams.get(Long.valueOf(streamId));
+            // Boxed once and threaded through every per-stream map touched
+            // below (streams, checkAndRecordFlowControl's own chain,
+            // streamReassemblers, pendingFinOffset) instead of each
+            // re-deriving its own Long.valueOf(streamId) -- a stream ID
+            // is almost always outside the JVM's cached Long range, so
+            // this is the difference between one boxing allocation per
+            // received STREAM frame and half a dozen.
+            Long key = Long.valueOf(streamId);
+            QuicStreamEndpoint stream = streams.get(key);
             if (stream == null) {
                 stream = acceptStream(streamId);
                 if (stream == null) {
@@ -1760,10 +1789,9 @@ public final class QuicConnection implements QuicTlsEngineListener {
                 }
             }
             int length = data.remaining();
-            if (!checkAndRecordFlowControl(streamId, offset, length)) {
+            if (!checkAndRecordFlowControl(streamId, key, offset, length)) {
                 return;
             }
-            Long key = Long.valueOf(streamId);
             byte[] chunk = new byte[length];
             data.get(chunk);
             StreamReassembler reassembler = streamReassemblers.get(key);
@@ -2534,8 +2562,12 @@ public final class QuicConnection implements QuicTlsEngineListener {
                 : localTransportParameters.getInitialMaxStreamDataBidiRemote();
     }
 
-    private long currentLocalStreamLimit(long streamId) {
-        Long limit = localMaxStreamData.get(Long.valueOf(streamId));
+    // See streamFrameReceived's field comment on key -- this whole
+    // cluster of methods (down through checkAndRecordFlowControl) shares
+    // one boxed streamId across every per-stream map it touches, rather
+    // than each re-deriving its own.
+    private long currentLocalStreamLimit(long streamId, Long key) {
+        Long limit = localMaxStreamData.get(key);
         return limit != null ? limit.longValue() : initialLocalStreamLimit(streamId);
     }
 
@@ -2544,9 +2576,8 @@ public final class QuicConnection implements QuicTlsEngineListener {
      * no-op if it is not actually higher than the current one) and
      * queues a MAX_STREAM_DATA update.
      */
-    private void growStreamLimit(long streamId, long newLimit) {
-        Long key = Long.valueOf(streamId);
-        if (newLimit > currentLocalStreamLimit(streamId)) {
+    private void growStreamLimit(long streamId, Long key, long newLimit) {
+        if (newLimit > currentLocalStreamLimit(streamId, key)) {
             localMaxStreamData.put(key, Long.valueOf(newLimit));
             maxStreamDataOwed.put(key, Long.valueOf(newLimit));
         }
@@ -2563,14 +2594,14 @@ public final class QuicConnection implements QuicTlsEngineListener {
      * @param streamId the stream
      * @param highestOffset the highest offset+length seen on this stream so far
      */
-    private void maybeGrowStreamLimit(long streamId, long highestOffset) {
+    private void maybeGrowStreamLimit(long streamId, Long key, long highestOffset) {
         long windowSize = initialLocalStreamLimit(streamId);
         if (windowSize <= 0) {
             return;
         }
-        long currentLimit = currentLocalStreamLimit(streamId);
+        long currentLimit = currentLocalStreamLimit(streamId, key);
         if (highestOffset > currentLimit - windowSize / 2) {
-            growStreamLimit(streamId, highestOffset + windowSize / 2);
+            growStreamLimit(streamId, key, highestOffset + windowSize / 2);
         }
     }
 
@@ -2591,7 +2622,8 @@ public final class QuicConnection implements QuicTlsEngineListener {
         if (windowSize <= 0) {
             return;
         }
-        growStreamLimit(streamId, currentLocalStreamLimit(streamId) + windowSize);
+        Long key = Long.valueOf(streamId);
+        growStreamLimit(streamId, key, currentLocalStreamLimit(streamId, key) + windowSize);
     }
 
     /**
@@ -2636,9 +2668,8 @@ public final class QuicConnection implements QuicTlsEngineListener {
      *         has already been closed with FLOW_CONTROL_ERROR and the
      *         caller must not deliver the data
      */
-    private boolean checkAndRecordFlowControl(long streamId, long offset, int length) {
+    private boolean checkAndRecordFlowControl(long streamId, Long key, long offset, int length) {
         long highestOffset = offset + length;
-        Long key = Long.valueOf(streamId);
         Long previous = streamBytesReceived.get(key);
         long previousHighest = previous != null ? previous.longValue() : 0;
         if (highestOffset <= previousHighest) {
@@ -2646,7 +2677,7 @@ public final class QuicConnection implements QuicTlsEngineListener {
             // of already-accounted-for data) -- nothing to check or record.
             return true;
         }
-        long streamLimit = currentLocalStreamLimit(streamId);
+        long streamLimit = currentLocalStreamLimit(streamId, key);
         if (highestOffset > streamLimit) {
             closeWithError(TRANSPORT_ERROR_FLOW_CONTROL_ERROR,
                     "Stream " + streamId + " exceeded advertised MAX_STREAM_DATA " + streamLimit);
@@ -2660,7 +2691,7 @@ public final class QuicConnection implements QuicTlsEngineListener {
         }
         streamBytesReceived.put(key, Long.valueOf(highestOffset));
         connectionBytesReceived += delta;
-        maybeGrowStreamLimit(streamId, highestOffset);
+        maybeGrowStreamLimit(streamId, key, highestOffset);
         maybeGrowConnectionLimit();
         return true;
     }
@@ -2960,7 +2991,13 @@ public final class QuicConnection implements QuicTlsEngineListener {
                 QuicFrameWriter.writeStream(payload, streamId, chunk.offset, chunk.data, chunk.fin);
             }
             List<PendingChunk> queued = pendingStream.get(entry.getKey());
-            queued.removeAll(entry.getValue());
+            // entry.getValue() (drainEligibleStreamChunks' toSend) is
+            // always a strict prefix of queued, in order -- the drain
+            // loop breaks at the first blocked chunk rather than
+            // skipping ahead. removeAll(Collection) would do an O(n)
+            // contains() scan per element of queued (O(n*m) total);
+            // truncating the known prefix is a single O(m) shift.
+            queued.subList(0, entry.getValue().size()).clear();
             if (queued.isEmpty()) {
                 removePendingStream(entry.getKey());
                 QuicStreamEndpoint stream = streams.get(entry.getKey());
@@ -3179,7 +3216,9 @@ public final class QuicConnection implements QuicTlsEngineListener {
                 QuicFrameWriter.writeStream(payload, streamId, chunk.offset, chunk.data, chunk.fin);
             }
             List<PendingChunk> queued = pendingStream.get(entry.getKey());
-            queued.removeAll(entry.getValue());
+            // See buildProtectedPacket's identical drain-truncation site
+            // for why this is a subList clear rather than removeAll.
+            queued.subList(0, entry.getValue().size()).clear();
             if (queued.isEmpty()) {
                 removePendingStream(entry.getKey());
                 QuicStreamEndpoint stream = streams.get(entry.getKey());
