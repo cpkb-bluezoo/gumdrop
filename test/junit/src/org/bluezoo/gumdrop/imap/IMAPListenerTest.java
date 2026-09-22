@@ -194,4 +194,32 @@ public class IMAPListenerTest {
         assertFalse("I18NLEVEL=1 should not appear when SORT disabled",
                 caps.contains("I18NLEVEL=1"));
     }
+
+    @Test
+    public void testAuthenticatedCapabilitiesIncludeObjectId() {
+        // RFC 8474
+        String caps = listener.getCapabilities(true, true);
+        assertTrue("OBJECTID should appear when authenticated",
+                caps.contains(" OBJECTID"));
+    }
+
+    @Test
+    public void testUnauthenticatedCapabilitiesExcludeObjectId() {
+        String caps = listener.getCapabilities(false, true);
+        assertFalse("OBJECTID should not appear pre-authentication",
+                caps.contains(" OBJECTID"));
+    }
+
+    @Test
+    public void testCapabilitiesExcludeObjectIdWhenDisabled() {
+        listener.setEnableOBJECTID(false);
+        String caps = listener.getCapabilities(true, true);
+        assertFalse("OBJECTID should not appear when disabled",
+                caps.contains(" OBJECTID"));
+    }
+
+    @Test
+    public void testEnableOBJECTIDDefaultsTrue() {
+        assertTrue(listener.isEnableOBJECTID());
+    }
 }

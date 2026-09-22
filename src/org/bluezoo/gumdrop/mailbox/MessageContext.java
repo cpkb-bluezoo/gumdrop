@@ -147,8 +147,19 @@ public interface MessageContext {
     }
 
     /**
+     * Returns the RFC 8474 EMAILID for this message, or null if not
+     * computed/supported. See {@link Mailbox#getEmailId(int)}.
+     *
+     * @return the EMAILID, or null
+     * @throws IOException if the value cannot be determined
+     */
+    default String getEmailId() throws IOException {
+        return null;
+    }
+
+    /**
      * Returns the message headers as text for TEXT search.
-     * 
+     *
      * @return the headers as a character sequence
      * @throws IOException if headers cannot be read
      */

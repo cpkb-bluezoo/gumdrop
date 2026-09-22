@@ -611,6 +611,78 @@ public class IMAPServerIntegrationTest {
     }
 
     @Test
+    public void testObjectIdMailboxIdAndEmailId() throws Exception {
+        // RFC 8474
+        String mailboxName = "ObjectIdBox";
+        try (IMAPClientHelper.IMAPSession session = IMAPClientHelper.connect("::1", IMAP_PORT)) {
+            assertTrue("LOGIN should succeed",
+                    IMAPClientHelper.login(session, TEST_USER, TEST_PASS));
+
+            IMAPClientHelper.ImapResponse caps = session.sendCommand("CAPABILITY");
+            boolean hasObjectId = false;
+            for (String line : caps.untaggedResponses) {
+                if (line.contains("OBJECTID")) {
+                    hasObjectId = true;
+                }
+            }
+            assertTrue("CAPABILITY should advertise OBJECTID", hasObjectId);
+
+            assertTrue("CREATE mailbox",
+                    session.sendCommand("CREATE " + mailboxName).ok);
+
+            appendMessage(session, mailboxName,
+                    "Subject: Object ID Test\r\nFrom: a@example.com\r\n\r\nBody.\r\n");
+
+            IMAPClientHelper.ImapResponse select =
+                    session.sendCommand("SELECT " + mailboxName);
+            assertTrue("SELECT should succeed", select.ok);
+
+            String mailboxId = null;
+            for (String line : select.untaggedResponses) {
+                int idx = line.indexOf("MAILBOXID (");
+                if (idx >= 0) {
+                    int start = idx + "MAILBOXID (".length();
+                    int end = line.indexOf(')', start);
+                    mailboxId = line.substring(start, end);
+                }
+            }
+            assertNotNull("SELECT should report MAILBOXID", mailboxId);
+            assertFalse("MAILBOXID should not be empty", mailboxId.isEmpty());
+
+            IMAPClientHelper.ImapResponse fetch =
+                    session.sendCommand("FETCH 1 EMAILID");
+            assertTrue("FETCH EMAILID should succeed: " + fetch, fetch.ok);
+
+            String emailId = null;
+            for (String line : fetch.untaggedResponses) {
+                int idx = line.indexOf("EMAILID (");
+                if (idx >= 0) {
+                    int start = idx + "EMAILID (".length();
+                    int end = line.indexOf(')', start);
+                    emailId = line.substring(start, end);
+                }
+            }
+            assertNotNull("FETCH should report EMAILID", emailId);
+            assertFalse("EMAILID should not be empty", emailId.isEmpty());
+
+            IMAPClientHelper.ImapResponse search =
+                    session.sendCommand("SEARCH EMAILID " + emailId);
+            assertTrue("SEARCH EMAILID should succeed: " + search, search.ok);
+
+            boolean foundMatch = false;
+            for (String line : search.untaggedResponses) {
+                if (line.startsWith("SEARCH") && line.contains("1")) {
+                    foundMatch = true;
+                }
+            }
+            assertTrue("SEARCH EMAILID should find the appended message",
+                    foundMatch);
+        } finally {
+            deleteMbox(mailboxName);
+        }
+    }
+
+    @Test
     public void testMoveUnsupportedReportsNo() throws Exception {
         String source = "MoveSource";
         String target = "MoveTarget";

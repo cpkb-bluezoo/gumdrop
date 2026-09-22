@@ -773,6 +773,54 @@ public class MessageIndexTest {
     }
 
     @Test
+    public void testSearchEmailIdUsesSubIndex() {
+        // RFC 8474
+        index.addEntry(new MessageIndexEntry(1L, 1, 100, 1704067200000L, 1704067100000L,
+                EnumSet.noneOf(Flag.class),
+                "loc", "from@test.com", "to@test.com", "", "", "Subject", "<a@test.com>",
+                "", "", "", "email-id-one"));
+        index.addEntry(new MessageIndexEntry(2L, 2, 100, 1704067200000L, 1704067100000L,
+                EnumSet.noneOf(Flag.class),
+                "loc", "from@test.com", "to@test.com", "", "", "Subject", "<b@test.com>",
+                "", "", "", "email-id-two"));
+
+        SearchCriteria criteria = SearchCriteria.emailId("email-id-two");
+        BitSet candidates = index.computeCandidateIndices(criteria);
+        assertNotNull("EMAILID must be answerable from the sub-index", candidates);
+        assertEquals(1, candidates.cardinality());
+
+        assertEquals(Collections.singletonList(2), index.search(criteria));
+    }
+
+    @Test
+    public void testSearchEmailIdNoMatchReturnsEmptyCandidates() {
+        index.addEntry(new MessageIndexEntry(1L, 1, 100, 1704067200000L, 1704067100000L,
+                EnumSet.noneOf(Flag.class),
+                "loc", "from@test.com", "to@test.com", "", "", "Subject", "<a@test.com>",
+                "", "", "", "email-id-one"));
+
+        SearchCriteria criteria = SearchCriteria.emailId("no-such-id");
+        BitSet candidates = index.computeCandidateIndices(criteria);
+        assertNotNull(candidates);
+        assertEquals(0, candidates.cardinality());
+        assertTrue(index.search(criteria).isEmpty());
+    }
+
+    @Test
+    public void testSearchEmailIdIgnoresEntriesWithoutOne() {
+        // An entry from before the EMAILID field existed / not yet
+        // reindexed has an empty EMAILID and must never spuriously match.
+        index.addEntry(new MessageIndexEntry(1L, 1, 100, 1704067200000L, 1704067100000L,
+                EnumSet.noneOf(Flag.class),
+                "loc", "from@test.com", "to@test.com", "", "", "Subject", "<a@test.com>", ""));
+
+        SearchCriteria criteria = SearchCriteria.emailId("");
+        BitSet candidates = index.computeCandidateIndices(criteria);
+        assertNotNull(candidates);
+        assertEquals(0, candidates.cardinality());
+    }
+
+    @Test
     public void testSearchOrIsNotNarrowed() {
         // OR would need a union across sub-indexes covering every
         // disjunct, including ones that may not be indexable at all --

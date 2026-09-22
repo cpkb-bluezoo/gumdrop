@@ -26,6 +26,7 @@ import org.bluezoo.gumdrop.mailbox.AsyncMessageContent;
 import org.bluezoo.gumdrop.mailbox.BufferedAsyncMessageContent;
 import org.bluezoo.gumdrop.mailbox.Flag;
 import org.bluezoo.gumdrop.mailbox.Mailbox;
+import org.bluezoo.gumdrop.mailbox.MailboxIdFile;
 import org.bluezoo.gumdrop.mailbox.MailboxRuntime;
 import org.bluezoo.gumdrop.mailbox.MessageContext;
 import org.bluezoo.gumdrop.mailbox.index.MailboxIndexKey;
@@ -126,6 +127,9 @@ public final class MboxMailbox implements Mailbox {
         DateTimeFormatter.ofPattern("EEE MMM ppd HH:mm:ss yyyy", Locale.US);
 
     private final Path mboxFile;
+
+    /** RFC 8474 MAILBOXID for this mailbox; see {@link #getMailboxId()}. */
+    private String mailboxId;
     private final String name;
     private final boolean readOnly;
     
@@ -276,6 +280,9 @@ public final class MboxMailbox implements Mailbox {
 
             // Load or build search index
             loadOrBuildSearchIndex();
+
+            // Load or create RFC 8474 MAILBOXID
+            mailboxId = loadOrCreateMailboxId();
             initialized = true;
         } finally {
             if (!initialized) {
@@ -513,6 +520,19 @@ public final class MboxMailbox implements Mailbox {
 
         // UID is computed once at index time — never re-hash on the loop.
         return messages.get(messageNumber - 1).getUniqueId();
+    }
+
+    @Override
+    public String getEmailId(int messageNumber) throws IOException {
+        if (searchIndex == null) {
+            return null;
+        }
+        MessageIndexEntry entry = searchIndex.getEntryByMessageNumber(messageNumber);
+        if (entry == null) {
+            return null;
+        }
+        String emailId = entry.getEmailId();
+        return emailId.isEmpty() ? null : emailId;
     }
 
     @Override
@@ -1050,6 +1070,38 @@ public final class MboxMailbox implements Mailbox {
         return mboxFile.resolveSibling(indexName);
     }
 
+    @Override
+    public String getMailboxId() {
+        return mailboxId;
+    }
+
+    /**
+     * Gets the path to this mailbox's MAILBOXID sidecar file. Mirrors
+     * {@link #getSearchIndexPath()}'s {@code <mboxfile>.gidx} naming,
+     * since mbox mailboxes are single files that may share a directory
+     * with sibling mailboxes rather than each having their own.
+     */
+    private Path getMailboxIdPath() {
+        String idFileName = mboxFile.getFileName().toString() + ".mailboxid";
+        return mboxFile.resolveSibling(idFileName);
+    }
+
+    /**
+     * Loads this mailbox's MAILBOXID, generating and persisting a new one
+     * if none exists yet.
+     */
+    private String loadOrCreateMailboxId() throws IOException {
+        Path idPath = getMailboxIdPath();
+        String id = MailboxIdFile.load(idPath);
+        if (id == null) {
+            id = MailboxIdFile.generate();
+            if (!readOnly) {
+                MailboxIdFile.save(idPath, id);
+            }
+        }
+        return id;
+    }
+
     /**
      * Loads the search index from disk, or builds it if not present/corrupt.
      *
@@ -1233,7 +1285,10 @@ public final class MboxMailbox implements Mailbox {
             internalDateMillis = internalDate.toInstant().toEpochMilli();
         }
         
-        // Build index entry by parsing message headers
+        // Build index entry by parsing message headers, computing the
+        // RFC 8474 EMAILID (content hash) in the same pass. getMessageContent
+        // already returns From_-unescaped canonical bytes, so this hashes
+        // the same content an APPEND-time hash would have seen.
         try (ReadableByteChannel channel = getMessageContent(msg.getMessageNumber())) {
             MessageIndexEntry entry = indexBuilder.buildEntry(
                 uid,
@@ -1242,9 +1297,27 @@ public final class MboxMailbox implements Mailbox {
                 internalDateMillis,
                 flags != null ? flags : EnumSet.noneOf(Flag.class),
                 location,
-                channel
+                channel,
+                newEmailIdDigest()
             );
             searchIndex.addEntry(entry);
+        }
+    }
+
+    /**
+     * Returns a fresh digest instance for computing RFC 8474 EMAILID, or
+     * null if the algorithm is somehow unavailable (in which case entries
+     * are indexed with an empty EMAILID rather than failing indexing
+     * entirely -- SHA-256 is a JDK-mandatory algorithm so this is not
+     * expected to happen in practice).
+     */
+    private static MessageDigest newEmailIdDigest() {
+        try {
+            return MessageDigest.getInstance("SHA-256");
+        } catch (NoSuchAlgorithmException e) {
+            LOGGER.log(Level.WARNING,
+                    L10N.getString("warn.emailid_digest_unavailable"), e);
+            return null;
         }
     }
 

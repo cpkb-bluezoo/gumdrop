@@ -420,6 +420,7 @@ public class IMAPClientProtocolHandlerTest {
                 "* OK [UIDVALIDITY 3857529045] UIDs valid",
                 "* OK [UIDNEXT 4392] Predicted next UID",
                 "* OK [UNSEEN 12] Message 12 is first unseen",
+                "* OK [MAILBOXID (M123abc-DEF_456)] Ok",
                 tag + " OK [READ-WRITE] SELECT completed");
 
         assertTrue(selectHandler.selected);
@@ -435,6 +436,27 @@ public class IMAPClientProtocolHandlerTest {
         assertNotNull(info.getFlags());
         assertTrue(info.getFlags().length > 0);
         assertNotNull(info.getPermanentFlags());
+        // RFC 8474
+        assertEquals("M123abc-DEF_456", info.getMailboxId());
+    }
+
+    @Test
+    public void testSelectWithoutMailboxIdLeavesItNull() {
+        enterAuthenticatedState();
+
+        RecordingSelectHandler selectHandler =
+                new RecordingSelectHandler();
+        greetingHandler.session.select("INBOX", selectHandler);
+        String tag = lastSentTag();
+
+        receiveMultipleLines(
+                "* 5 EXISTS",
+                "* 0 RECENT",
+                "* OK [UIDVALIDITY 1] UIDs valid",
+                "* OK [UIDNEXT 6] Predicted next UID",
+                tag + " OK [READ-WRITE] SELECT completed");
+
+        assertNull(selectHandler.mailboxInfo.getMailboxId());
     }
 
     @Test
@@ -532,6 +554,44 @@ public class IMAPClientProtocolHandlerTest {
         assertEquals(17, statusHandler.messages);
         assertEquals(2, statusHandler.recent);
         assertEquals(5, statusHandler.unseen);
+    }
+
+    @Test
+    public void testStatusIncludesMailboxId() {
+        // RFC 8474
+        enterAuthenticatedState();
+
+        RecordingStatusHandler statusHandler =
+                new RecordingStatusHandler();
+        greetingHandler.session.status("INBOX",
+                new String[]{"MESSAGES", "MAILBOXID"},
+                statusHandler);
+        String tag = lastSentTag();
+
+        receiveMultipleLines(
+                "* STATUS \"INBOX\" (MESSAGES 17 MAILBOXID (M123abc))",
+                tag + " OK STATUS completed");
+
+        assertTrue(statusHandler.received);
+        assertEquals(17, statusHandler.messages);
+        assertEquals("M123abc", statusHandler.mailboxId);
+    }
+
+    @Test
+    public void testStatusWithoutMailboxIdLeavesItNull() {
+        enterAuthenticatedState();
+
+        RecordingStatusHandler statusHandler =
+                new RecordingStatusHandler();
+        greetingHandler.session.status("INBOX",
+                new String[]{"MESSAGES"}, statusHandler);
+        String tag = lastSentTag();
+
+        receiveMultipleLines(
+                "* STATUS \"INBOX\" (MESSAGES 17)",
+                tag + " OK STATUS completed");
+
+        assertNull(statusHandler.mailboxId);
     }
 
     @Test
@@ -719,6 +779,44 @@ public class IMAPClientProtocolHandlerTest {
         FetchData fd = fetchHandler.fetchResponses.get(0).data;
         assertEquals(42, fd.getUid());
         assertEquals(1234, fd.getSize());
+    }
+
+    @Test
+    public void testFetchEmailId() {
+        // RFC 8474
+        enterSelectedState();
+
+        RecordingFetchHandler fetchHandler =
+                new RecordingFetchHandler();
+        greetingHandler.selectedState.fetch("1", "(EMAILID)",
+                fetchHandler);
+        String tag = lastSentTag();
+
+        receiveMultipleLines(
+                "* 1 FETCH (EMAILID (Abc123-XYZ_9))",
+                tag + " OK FETCH completed");
+
+        assertTrue(fetchHandler.fetchComplete);
+        FetchData fd = fetchHandler.fetchResponses.get(0).data;
+        assertEquals("Abc123-XYZ_9", fd.getEmailId());
+    }
+
+    @Test
+    public void testFetchWithoutEmailIdLeavesItNull() {
+        enterSelectedState();
+
+        RecordingFetchHandler fetchHandler =
+                new RecordingFetchHandler();
+        greetingHandler.selectedState.fetch("1", "(FLAGS)",
+                fetchHandler);
+        String tag = lastSentTag();
+
+        receiveMultipleLines(
+                "* 1 FETCH (FLAGS (\\Seen))",
+                tag + " OK FETCH completed");
+
+        FetchData fd = fetchHandler.fetchResponses.get(0).data;
+        assertNull(fd.getEmailId());
     }
 
     @Test
@@ -1826,13 +1924,15 @@ public class IMAPClientProtocolHandlerTest {
         long uidNext;
         long uidValidity;
         int unseen;
+        String mailboxId;
         boolean errorReceived;
 
         @Override
         public void handleStatus(
                 ClientAuthenticatedState session,
                 String mailbox, int messages, int recent,
-                long uidNext, long uidValidity, int unseen) {
+                long uidNext, long uidValidity, int unseen,
+                String mailboxId) {
             received = true;
             this.mailbox = mailbox;
             this.messages = messages;
@@ -1840,6 +1940,7 @@ public class IMAPClientProtocolHandlerTest {
             this.uidNext = uidNext;
             this.uidValidity = uidValidity;
             this.unseen = unseen;
+            this.mailboxId = mailboxId;
         }
 
         @Override

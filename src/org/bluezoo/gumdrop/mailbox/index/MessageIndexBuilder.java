@@ -36,8 +36,10 @@ import org.bluezoo.gumdrop.mime.rfc5322.ObsoleteStructureType;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.channels.ReadableByteChannel;
+import java.security.MessageDigest;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
@@ -67,7 +69,7 @@ public class MessageIndexBuilder {
     private static final String KEYWORD_SEPARATOR = ",";
 
     /**
-     * Builds an index entry for a message.
+     * Builds an index entry for a message, without computing an EMAILID.
      *
      * @param uid the message UID
      * @param messageNumber the message sequence number
@@ -82,6 +84,44 @@ public class MessageIndexBuilder {
     public MessageIndexEntry buildEntry(long uid, int messageNumber, long size,
             long internalDate, Set<Flag> flags, String location,
             ReadableByteChannel channel) throws IOException {
+        return buildEntry(uid, messageNumber, size, internalDate, flags,
+                location, channel, null);
+    }
+
+    /**
+     * Builds an index entry for a message, computing its RFC 8474 EMAILID
+     * along the way if {@code digest} is given.
+     *
+     * <p>Normally this method stops reading {@code channel} as soon as the
+     * message headers are parsed -- the body is not needed for any other
+     * indexed field. When {@code digest} is non-null, the channel is
+     * instead drained to EOF so every byte of the message (headers and
+     * body) is fed into the digest exactly once, in the same pass that
+     * parses the headers, rather than re-reading the message a second
+     * time. Bytes are hashed as they arrive from {@code channel} -- before
+     * (and independently of) whatever the header parser goes on to do
+     * with them -- so the resulting EMAILID always covers the raw,
+     * canonical message content, never just the headers.
+     *
+     * @param uid the message UID
+     * @param messageNumber the message sequence number
+     * @param size the message size in bytes
+     * @param internalDate the internal date (when received), or 0 if unknown
+     * @param flags the message flags
+     * @param location the message location (filename for Maildir, offset for mbox)
+     * @param channel readable channel for message content; the caller is
+     *                responsible for ensuring this yields the canonical
+     *                message bytes (e.g. mbox {@code From_}-unescaped),
+     *                so the same message always hashes to the same EMAILID
+     *                regardless of backend or on-disk framing
+     * @param digest a fresh {@link MessageDigest} to compute the EMAILID
+     *               with (e.g. SHA-256), or null to skip EMAILID computation
+     * @return the built index entry
+     * @throws IOException if reading or parsing fails
+     */
+    public MessageIndexEntry buildEntry(long uid, int messageNumber, long size,
+            long internalDate, Set<Flag> flags, String location,
+            ReadableByteChannel channel, MessageDigest digest) throws IOException {
 
         // Create handler to collect header data
         IndexingHandler handler = new IndexingHandler();
@@ -92,19 +132,32 @@ public class MessageIndexBuilder {
 
         ByteBuffer buffer = ByteBuffer.allocate(8192);
         try {
-            while (channel.read(buffer) > 0) {
+            int n;
+            while ((n = channel.read(buffer)) > 0) {
+                if (digest != null) {
+                    digest.update(buffer.array(), buffer.position() - n, n);
+                }
+
+                if (handler.isHeadersComplete()) {
+                    // Headers already parsed; only still reading to finish
+                    // the digest, so just discard this chunk and keep going.
+                    buffer.clear();
+                    continue;
+                }
+
                 buffer.flip();
                 parser.receive(buffer);
-                
+
                 // Preserve unconsumed data (partial lines)
                 if (parser.isUnderflow()) {
                     buffer.compact();
                 } else {
                     buffer.clear();
                 }
-                
-                // Stop after headers are parsed - we don't need body for indexing
-                if (handler.isHeadersComplete()) {
+
+                // Stop after headers are parsed, unless we still need the
+                // body bytes for the digest.
+                if (handler.isHeadersComplete() && digest == null) {
                     break;
                 }
             }
@@ -132,6 +185,10 @@ public class MessageIndexBuilder {
             sentDate = handler.getSentDate().toInstant().toEpochMilli();
         }
 
+        String emailId = digest != null
+                ? Base64.getUrlEncoder().withoutPadding().encodeToString(digest.digest())
+                : "";
+
         // Build the entry with lowercase values
         return new MessageIndexEntry(
             uid,
@@ -149,7 +206,8 @@ public class MessageIndexBuilder {
             handler.getMessageId(),
             handler.getReferences(),
             handler.getInReplyTo(),
-            toLowerCase(handler.getKeywords())
+            toLowerCase(handler.getKeywords()),
+            emailId
         );
     }
 

@@ -522,7 +522,7 @@ public class ImapClientEndToEndTest {
         @Override
         public void handleStatus(ClientAuthenticatedState session,
                 String mailbox, int messages, int recent, long uidNext,
-                long uidValidity, int unseen) {
+                long uidValidity, int unseen, String mailboxId) {
             log.add("status:" + mailbox + ":" + messages);
             ev("status", session, null);
         }

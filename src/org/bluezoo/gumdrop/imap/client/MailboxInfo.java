@@ -28,6 +28,8 @@ package org.bluezoo.gumdrop.imap.client;
  * <p>Fields map to the untagged responses defined by RFC 9051:
  * EXISTS (message count), RECENT, FLAGS, PERMANENTFLAGS,
  * UIDVALIDITY, UIDNEXT, UNSEEN, READ-WRITE/READ-ONLY access mode.
+ * Also includes MAILBOXID (RFC 8474), when the server advertises
+ * {@code OBJECTID}.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
@@ -41,6 +43,7 @@ public class MailboxInfo {
     private long uidNext;
     private int unseen;
     private boolean readWrite;
+    private String mailboxId;
 
     public int getExists() {
         return exists;
@@ -104,5 +107,18 @@ public class MailboxInfo {
 
     public void setReadWrite(boolean readWrite) {
         this.readWrite = readWrite;
+    }
+
+    /**
+     * Returns the mailbox's RFC 8474 MAILBOXID, or null if the server
+     * did not report one (no OBJECTID support, or a backend that has
+     * none).
+     */
+    public String getMailboxId() {
+        return mailboxId;
+    }
+
+    public void setMailboxId(String mailboxId) {
+        this.mailboxId = mailboxId;
     }
 }

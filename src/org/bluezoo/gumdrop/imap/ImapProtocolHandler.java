@@ -2679,6 +2679,14 @@ public final class ImapProtocolHandler
                     sendUntagged("OK [UIDNEXT "
                             + selectedMailbox.getUidNext() + "]");
 
+                    // RFC 8474: MAILBOXID response code
+                    if (server.isEnableOBJECTID()) {
+                        String mailboxId = selectedMailbox.getMailboxId();
+                        if (mailboxId != null) {
+                            sendUntagged("OK [MAILBOXID (" + mailboxId + ")]");
+                        }
+                    }
+
                     if (condstoreEnabled) {
                         long highestModSeq =
                                 selectedMailbox.getHighestModSeq();
@@ -3290,6 +3298,15 @@ public final class ImapProtocolHandler
                                 long hms = mailbox.getHighestModSeq();
                                 response.append("HIGHESTMODSEQ ");
                                 response.append(hms);
+                                break;
+                            case "MAILBOXID":
+                                // RFC 8474
+                                String mailboxId = mailbox.getMailboxId();
+                                if (mailboxId != null) {
+                                    response.append("MAILBOXID (");
+                                    response.append(mailboxId);
+                                    response.append(')');
+                                }
                                 break;
                             default:
                                 break;
@@ -5534,6 +5551,8 @@ public final class ImapProtocolHandler
                 writeFetchSize(out, mailbox, msgNum);
             } else if (upper.equals("INTERNALDATE")) {
                 writeFetchInternalDate(out, mailbox, msgNum);
+            } else if (upper.equals("EMAILID")) {
+                writeFetchEmailId(out, mailbox, msgNum);
             } else if (upper.equals("ENVELOPE")) {
                 writeFetchEnvelope(out, mailbox, msgNum, contentBytes);
             } else if (upper.equals("BODYSTRUCTURE")) {
@@ -5761,6 +5780,8 @@ public final class ImapProtocolHandler
                 writeFetchSize(target, mailbox, msgNum);
             } else if (upper.equals("INTERNALDATE")) {
                 writeFetchInternalDate(target, mailbox, msgNum);
+            } else if (upper.equals("EMAILID")) {
+                writeFetchEmailId(target, mailbox, msgNum);
             } else if (upper.equals("ENVELOPE")) {
                 writeFetchEnvelope(target, mailbox, msgNum, contentBytes);
             } else if (upper.equals("BODYSTRUCTURE")) {
@@ -5855,6 +5876,23 @@ public final class ImapProtocolHandler
         OffsetDateTime date = resolveInternalDate(mailbox, msgNum);
         out.write(("INTERNALDATE \"" + formatInternalDate(date)
                 + "\"").getBytes(US_ASCII));
+    }
+
+    /**
+     * Writes the RFC 8474 {@code EMAILID (<objectid>)} FETCH data item.
+     * When the backend has no EMAILID for this message (not computed
+     * yet, or unsupported), writes an empty parenthesised list rather
+     * than omitting the item entirely, since the client explicitly
+     * requested it.
+     */
+    private void writeFetchEmailId(ByteArrayOutputStream out,
+            Mailbox mailbox, int msgNum) throws IOException {
+        String emailId = mailbox.getEmailId(msgNum);
+        out.write("EMAILID (".getBytes(US_ASCII));
+        if (emailId != null) {
+            out.write(emailId.getBytes(US_ASCII));
+        }
+        out.write(')');
     }
 
     private void writeFetchEnvelope(ByteArrayOutputStream out,

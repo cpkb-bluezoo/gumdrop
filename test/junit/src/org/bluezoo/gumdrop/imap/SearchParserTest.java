@@ -171,6 +171,19 @@ public class SearchParserTest {
         SearchCriteria criteria = new SearchParser("HEADER X-Priority high").parse();
         assertNotNull(criteria);
     }
+
+    @Test
+    public void testEmailId() throws ParseException {
+        // RFC 8474
+        SearchCriteria criteria = new SearchParser("EMAILID abc-123_XYZ").parse();
+        assertNotNull(criteria);
+    }
+
+    @Test
+    public void testEmailIdQuoted() throws ParseException {
+        SearchCriteria criteria = new SearchParser("EMAILID \"abc-123\"").parse();
+        assertNotNull(criteria);
+    }
     
     // Text searches
     

@@ -42,6 +42,7 @@ public class StatusItemTest {
         assertEquals(StatusItem.SIZE, StatusItem.fromImapName("SIZE"));
         assertEquals(StatusItem.HIGHESTMODSEQ, StatusItem.fromImapName("HIGHESTMODSEQ"));
         assertEquals(StatusItem.APPENDLIMIT, StatusItem.fromImapName("APPENDLIMIT"));
+        assertEquals(StatusItem.MAILBOXID, StatusItem.fromImapName("MAILBOXID"));
     }
 
     @Test
@@ -75,6 +76,7 @@ public class StatusItemTest {
         assertEquals("SIZE", StatusItem.SIZE.getImapName());
         assertEquals("HIGHESTMODSEQ", StatusItem.HIGHESTMODSEQ.getImapName());
         assertEquals("APPENDLIMIT", StatusItem.APPENDLIMIT.getImapName());
+        assertEquals("MAILBOXID", StatusItem.MAILBOXID.getImapName());
     }
 
     @Test
@@ -92,6 +94,6 @@ public class StatusItemTest {
 
     @Test
     public void testValueCount() {
-        assertEquals(9, StatusItem.values().length);
+        assertEquals(10, StatusItem.values().length);
     }
 }
