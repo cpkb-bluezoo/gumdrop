@@ -65,7 +65,7 @@ public class FileSecurityTest {
         
         public TestFileHandler(Path rootPath) {
             super(rootPath, true, false, "GET, HEAD, PUT, DELETE, OPTIONS", new String[]{"index.html"},
-                    Collections.emptyMap(), null, null);
+                    Collections.emptyMap(), null, null, null);
         }
         
         public Path testValidateAndResolvePath(String requestPath) throws Exception {

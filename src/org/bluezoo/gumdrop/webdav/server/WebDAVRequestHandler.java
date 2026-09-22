@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.webdav.server;
 
+import org.bluezoo.gumdrop.auth.Realm;
 import org.bluezoo.gumdrop.http.Headers;
 import org.bluezoo.gumdrop.http.server.HttpRequestHandler;
 import org.bluezoo.gumdrop.http.server.HttpResponseState;
@@ -147,6 +148,7 @@ public final class WebDAVRequestHandler implements HttpStreamHandler {
         private boolean webdavEnabled = false;
         private String welcomeFile = "index.html";
         private String deadPropertyStorage = "auto";
+        private Realm realm;
 
         private Builder() {
         }
@@ -190,6 +192,30 @@ public final class WebDAVRequestHandler implements HttpStreamHandler {
             return this;
         }
 
+        /**
+         * Configures a {@link Realm} to check RFC 3744 privileges
+         * against, enabling ACL support (the {@code acl-*}/{@code
+         * *-privilege-set} DAV: properties and the {@code ACL} method).
+         * Privileges are checked as roles prefixed {@code "webdav:"}
+         * (e.g. {@code webdav:read}, {@code webdav:write}) via
+         * {@link Realm#isUserInRole}; the
+         * authenticated username itself comes from
+         * {@link org.bluezoo.gumdrop.http.server.HttpResponseState#getPrincipal()},
+         * which is populated by whatever HTTP authentication (Basic,
+         * Digest, Bearer, mTLS) is configured on the listener this
+         * handler is deployed behind -- WebDAV ACL support does not
+         * configure or perform authentication itself.
+         *
+         * <p>Not called (or called with null): ACL support is disabled
+         * entirely, regardless of {@link #webdavEnabled}.
+         *
+         * @param realm the realm to check privileges against
+         */
+        public Builder realm(Realm realm) {
+            this.realm = realm;
+            return this;
+        }
+
         public WebDAVRequestHandler build() {
             validateRootPath(rootPath, allowWrite);
             DeadPropertyStore store = null;
@@ -197,7 +223,7 @@ public final class WebDAVRequestHandler implements HttpStreamHandler {
                 store = createDeadPropertyStore(deadPropertyStorage);
             }
             FileRequestRouter fileRouter = new FileRequestRouter(
-                    rootPath, allowWrite, welcomeFile, webdavEnabled, store);
+                    rootPath, allowWrite, welcomeFile, webdavEnabled, store, realm);
             return new WebDAVRequestHandler(fileRouter);
         }
     }

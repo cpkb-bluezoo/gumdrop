@@ -22,10 +22,12 @@
 package org.bluezoo.gumdrop.webdav;
 
 /**
- * WebDAV (RFC 4918) constants.
+ * WebDAV (RFC 4918) constants, plus RFC 3744 (WebDAV ACL) constants
+ * used when a {@link org.bluezoo.gumdrop.auth.Realm} is configured.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see <a href="https://www.rfc-editor.org/rfc/rfc4918">RFC 4918</a>
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc3744">RFC 3744</a>
  */
 final class DavConstants {
 
@@ -129,6 +131,57 @@ final class DavConstants {
     static final String PROP_RESOURCETYPE = "resourcetype";
     static final String PROP_SOURCE = "source";
     static final String PROP_SUPPORTEDLOCK = "supportedlock";
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // RFC 3744 (WebDAV ACL) -- element names
+    // ─────────────────────────────────────────────────────────────────────────
+
+    // Structural elements (§5.5, §5.3)
+    static final String ELEM_ACL = "acl";
+    static final String ELEM_ACE = "ace";
+    static final String ELEM_PRINCIPAL = "principal";
+    static final String ELEM_GRANT = "grant";
+    static final String ELEM_DENY = "deny";
+    static final String ELEM_PRIVILEGE = "privilege";
+    static final String ELEM_SUPPORTED_PRIVILEGE = "supported-privilege";
+    static final String ELEM_ABSTRACT = "abstract";
+    static final String ELEM_DESCRIPTION = "description";
+    // <principal> alternatives (§5.5.1) not already covered by ELEM_HREF
+    static final String ELEM_AUTHENTICATED = "authenticated";
+    static final String ELEM_UNAUTHENTICATED = "unauthenticated";
+    /** Both the {@code <principal><all/></principal>} alternative (§5.5.1) and the {@code DAV:all} privilege (§9.1) share this local name. */
+    static final String ELEM_ALL = "all";
+
+    // Privilege names (§9). DAV:write (ELEM_WRITE) and DAV:all
+    // (ELEM_ALL, same local name "all" as the <principal> alternative
+    // above -- XML disambiguates by parent element, not name) are
+    // already covered.
+    static final String PRIV_READ = "read";
+    static final String PRIV_WRITE_PROPERTIES = "write-properties";
+    static final String PRIV_WRITE_CONTENT = "write-content";
+    static final String PRIV_UNLOCK = "unlock";
+    static final String PRIV_READ_ACL = "read-acl";
+    static final String PRIV_READ_CURRENT_USER_PRIVILEGE_SET = "read-current-user-privilege-set";
+    static final String PRIV_WRITE_ACL = "write-acl";
+    static final String PRIV_BIND = "bind";
+    static final String PRIV_UNBIND = "unbind";
+
+    // Live properties (§5)
+    static final String PROP_OWNER = "owner"; // same local name as ELEM_OWNER (lock owner, §14.17) -- reused
+    static final String PROP_GROUP = "group";
+    static final String PROP_SUPPORTED_PRIVILEGE_SET = "supported-privilege-set";
+    static final String PROP_CURRENT_USER_PRIVILEGE_SET = "current-user-privilege-set";
+    static final String PROP_ACL = "acl";
+    static final String PROP_PRINCIPAL_COLLECTION_SET = "principal-collection-set";
+
+    /**
+     * Prefix a WebDAV privilege's local name is turned into a
+     * {@link org.bluezoo.gumdrop.auth.Realm} role name with -- e.g. the
+     * {@code DAV:read} privilege is checked as the role
+     * {@code "webdav:read"}. Keeps WebDAV's own role names out of the
+     * way of an application's own role names in a shared Realm.
+     */
+    static final String ROLE_PREFIX = "webdav:";
 
     // ─────────────────────────────────────────────────────────────────────────
     // Timeout (RFC 4918 §10.7)

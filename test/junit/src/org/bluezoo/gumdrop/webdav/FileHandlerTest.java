@@ -97,7 +97,7 @@ public class FileHandlerTest {
         return new FileHandler(root, allowWrite, true,
                 "GET, HEAD, PUT, DELETE, OPTIONS, PROPFIND, MKCOL, COPY, MOVE",
                 new String[]{"index.html"}, types,
-                new WebDAVLockManager(), null);
+                new WebDAVLockManager(), null, null);
     }
 
     private RecordingState dispatch(FileHandler h, String method, String path,
@@ -112,6 +112,12 @@ public class FileHandlerTest {
         }
         RecordingState st = new RecordingState();
         h.headers(st, req);
+        // This helper never sends a body -- matching the real
+        // HttpRequestHandler contract (no startRequestBody/
+        // endRequestBody at all for a genuinely bodyless request),
+        // requestComplete is what a bodyless PROPFIND's allprop
+        // fallback fires from (see FileHandler#pendingNoBodyAction).
+        h.requestComplete(st);
         assertTrue("Response did not complete within timeout for "
                 + method + " " + path, st.await(5, TimeUnit.SECONDS));
         return st;
@@ -299,6 +305,81 @@ public class FileHandlerTest {
         RecordingState st = dispatch(newHandler(true), "PROPFIND", "/nope",
                 headers(DavConstants.HEADER_DEPTH, "0"));
         assertEquals(HttpStatus.NOT_FOUND.code, st.status());
+    }
+
+    // ── Request bodies without a Content-Length header (chunked
+    //    HTTP/1.1, or HTTP/2 and HTTP/3, none of which require or
+    //    necessarily send one) -- FileHandler must recognise these
+    //    bodies from requestBodyContent itself, not from Content-Length. ──
+
+    /** Sends headers + a real body via startRequestBody/requestBodyContent/endRequestBody, deliberately setting no Content-Length. */
+    private RecordingState dispatchWithChunkedBody(FileHandler h, String method, String path,
+            Map<String, String> extraHeaders, String body) throws Exception {
+        Headers req = new Headers();
+        req.add(":method", method);
+        req.add(":path", path);
+        if (extraHeaders != null) {
+            for (Map.Entry<String, String> e : extraHeaders.entrySet()) {
+                req.add(e.getKey(), e.getValue());
+            }
+        }
+        RecordingState st = new RecordingState();
+        h.headers(st, req);
+        h.startRequestBody(st);
+        h.requestBodyContent(st, ByteBuffer.wrap(body.getBytes(StandardCharsets.UTF_8)));
+        h.endRequestBody(st);
+        assertTrue("Response did not complete within timeout for " + method + " " + path,
+                st.await(5, TimeUnit.SECONDS));
+        return st;
+    }
+
+    @Test
+    public void testPropfindNamedPropertyWithoutContentLengthHeader() throws Exception {
+        String body = "<?xml version=\"1.0\"?><D:propfind xmlns:D=\"DAV:\"><D:prop>"
+                + "<D:getcontentlength/></D:prop></D:propfind>";
+        RecordingState st = dispatchWithChunkedBody(newHandler(true), "PROPFIND", "/hello.txt",
+                headers(DavConstants.HEADER_DEPTH, "0"), body);
+        assertEquals(HttpStatus.MULTI_STATUS.code, st.status());
+        String xml = new String(st.body(), StandardCharsets.UTF_8);
+        assertTrue("requested getcontentlength should be present: " + xml,
+                xml.contains("getcontentlength"));
+        // The absence of a Content-Length header must not make this
+        // silently fall back to allprop -- displayname wasn't asked for.
+        assertFalse("should not have fallen back to allprop: " + xml,
+                xml.contains("displayname"));
+    }
+
+    @Test
+    public void testProppatchBodyIsReceivedWithoutContentLengthHeader() throws Exception {
+        String body = "<?xml version=\"1.0\"?><D:propertyupdate xmlns:D=\"DAV:\">"
+                + "<D:set><D:prop><D:foo>bar</D:foo></D:prop></D:set></D:propertyupdate>";
+        RecordingState st = dispatchWithChunkedBody(newHandler(true), "PROPPATCH", "/hello.txt",
+                null, body);
+        // No DeadPropertyStore is configured on this test's handler, so
+        // the update itself is refused -- but as a real 207 Multi-Status
+        // reporting *why*, not the 400 Bad Request handleProppatch used
+        // to send for any body it hadn't yet decided was coming (i.e.
+        // the body was genuinely received and parsed here, not silently
+        // treated as absent).
+        assertEquals(HttpStatus.MULTI_STATUS.code, st.status());
+    }
+
+    @Test
+    public void testLockRequestedScopeHonouredWithoutContentLengthHeader() throws Exception {
+        String body = "<?xml version=\"1.0\"?><D:lockinfo xmlns:D=\"DAV:\">"
+                + "<D:lockscope><D:shared/></D:lockscope>"
+                + "<D:locktype><D:write/></D:locktype>"
+                + "<D:owner>test-owner</D:owner></D:lockinfo>";
+        RecordingState st = dispatchWithChunkedBody(newHandler(true), "LOCK", "/hello.txt", null, body);
+        assertEquals(HttpStatus.OK.code, st.status());
+        String xml = new String(st.body(), StandardCharsets.UTF_8);
+        // Without a Content-Length header, handleLock used to never see
+        // this body arrive and fall back to its exclusive-lock default,
+        // silently discarding the client's actual shared-lock request.
+        assertTrue("lock should be shared, as requested: " + xml,
+                xml.contains(DavConstants.ELEM_SHARED));
+        assertFalse("lock should not have fallen back to the exclusive default: " + xml,
+                xml.contains(DavConstants.ELEM_EXCLUSIVE));
     }
 
     @Test

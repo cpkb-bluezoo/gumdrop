@@ -25,6 +25,7 @@ import org.bluezoo.gonzalez.XMLWriter;
 import org.bluezoo.util.ByteArrays;
 import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.SelectorLoop;
+import org.bluezoo.gumdrop.auth.Realm;
 import org.bluezoo.gumdrop.StorageExecutor;
 import org.bluezoo.gumdrop.http.server.DefaultHttpRequestHandler;
 import org.bluezoo.gumdrop.util.AsyncFile;
@@ -55,6 +56,7 @@ import java.nio.file.StandardOpenOption;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.security.Principal;
 import java.text.MessageFormat;
 import java.text.ParseException;
 import java.util.ArrayList;
@@ -118,6 +120,26 @@ class FileHandler extends DefaultHttpRequestHandler {
     private final WebDAVLockManager lockManager;
     private final DeadPropertyStore deadPropertyStore;
 
+    /**
+     * The unbound {@link Realm} RFC 3744 privileges are checked
+     * against, or null if ACL support isn't configured.
+     * See {@link #aclEnabled}.
+     */
+    private final Realm serverRealm;
+    /** True when both WebDAV and RFC 3744 ACL support are active for this handler. */
+    private final boolean aclEnabled;
+    /** {@link #serverRealm} bound to this stream's {@link SelectorLoop} (see {@code Realm#forSelectorLoop}), lazily set in {@link #headers}. */
+    private Realm realm;
+    /**
+     * The authenticated principal for this request, or null if
+     * unauthenticated -- read once in {@link #headers} from
+     * {@link HttpResponseState#getPrincipal()}, which is populated by
+     * whatever HTTP authentication (Basic, Digest, Bearer, mTLS) is
+     * configured on the listener this handler is deployed behind, not
+     * by this class.
+     */
+    private Principal principal;
+
     // Request state
     private String method;
     private String requestPath;
@@ -159,10 +181,31 @@ class FileHandler extends DefaultHttpRequestHandler {
     private long webdavBytesReceived = 0;
     private boolean webdavBodyTooLarge = false;
 
+    /**
+     * What to do if this request turns out to have no body at all --
+     * e.g. RFC 4918 §9.1's "empty PROPFIND body means allprop", or
+     * §9.10's "LOCK with no body means a default exclusive write lock".
+     * Set by a handler method that has eagerly started expecting a body
+     * (see the {@link #webdavParser} field), so it doesn't have to
+     * decide up front whether one is actually coming -- it can't: the
+     * request-handler event sequence only calls
+     * {@link #startRequestBody}/{@link #endRequestBody} at all if the
+     * request has a body, and {@link #headers} (where these methods
+     * run) fires before that's known. In particular, {@code
+     * Content-Length} is not a reliable signal here -- it's absent for
+     * chunked transfer-coding (RFC 9112 §7.1) and never sent at all
+     * under HTTP/2/3 unless the client chooses to (RFC 9113/9114 place
+     * no such requirement on it). Cleared by {@link #startRequestBody}
+     * as soon as a real body is confirmed to be arriving; run from
+     * {@link #requestComplete} if still set once the stream closes --
+     * the only point "no body ever arrived" can be known for certain.
+     */
+    private Runnable pendingNoBodyAction;
+
     FileHandler(Path rootPath, boolean allowWrite, boolean webdavEnabled,
                 String allowedOptions, String[] welcomeFiles,
                 Map<String, String> contentTypes, WebDAVLockManager lockManager,
-                DeadPropertyStore deadPropertyStore) {
+                DeadPropertyStore deadPropertyStore, Realm realm) {
         this.rootPath = rootPath;
         Path canonical;
         try {
@@ -178,13 +221,25 @@ class FileHandler extends DefaultHttpRequestHandler {
         this.contentTypes = contentTypes;
         this.lockManager = lockManager;
         this.deadPropertyStore = deadPropertyStore;
+        this.serverRealm = realm;
+        this.aclEnabled = webdavEnabled && realm != null;
     }
 
     @Override
     public void headers(HttpResponseState state, Headers headers) {
+        SelectorLoop loop = state.getSelectorLoop();
         if (deadPropertyStore != null) {
-            SelectorLoop loop = state.getSelectorLoop();
             deadPropertyStore.setGumdrop((loop != null) ? loop.getGumdrop() : null);
+        }
+        if (aclEnabled) {
+            // RFC 3744: privileges are checked against whoever the
+            // listener's own HTTP authentication (Basic/Digest/Bearer/
+            // mTLS -- configured independently of WebDAV, see
+            // WebDAVRequestHandler.Builder#realm) already authenticated
+            // this request as; this class performs no authentication of
+            // its own.
+            principal = state.getPrincipal();
+            realm = (loop != null) ? serverRealm.forSelectorLoop(loop) : serverRealm;
         }
         // Extract request info from headers
         this.requestHeaders = headers;
@@ -345,7 +400,22 @@ class FileHandler extends DefaultHttpRequestHandler {
     }
 
     @Override
+    public void startRequestBody(HttpResponseState state) {
+        // A real body is confirmed to be arriving -- see the
+        // pendingNoBodyAction field comment.
+        pendingNoBodyAction = null;
+    }
+
+    @Override
     public void requestComplete(HttpResponseState state) {
+        // No startRequestBody ever fired for this request -- it
+        // genuinely has no body (see the pendingNoBodyAction field
+        // comment for why this, not Content-Length, is what's checked).
+        if (pendingNoBodyAction != null) {
+            Runnable action = pendingNoBodyAction;
+            pendingNoBodyAction = null;
+            action.run();
+        }
         // Clean up resources
         closeWriteChannel();
         closeReadChannel();
@@ -375,6 +445,8 @@ class FileHandler extends DefaultHttpRequestHandler {
             handleLock(state);
         } else if (webdavEnabled && "UNLOCK".equals(method)) {
             handleUnlock(state);
+        } else if (aclEnabled && "ACL".equals(method)) {
+            handleAcl(state);
         } else {
             sendError(state, HttpStatus.METHOD_NOT_ALLOWED);
         }
@@ -663,10 +735,27 @@ class FileHandler extends DefaultHttpRequestHandler {
         response.status(HttpStatus.OK);
         response.add("Allow", allowedOptions);
         if (webdavEnabled) {
-            response.add(DavConstants.HEADER_DAV, "1,2");
+            // RFC 3744 §2: servers supporting the ACL extension MUST
+            // include "access-control" as a field in this header.
+            response.add(DavConstants.HEADER_DAV, aclEnabled ? "1,2,access-control" : "1,2");
         }
         state.headers(response);
         state.complete();
+    }
+
+    /**
+     * RFC 3744 §8.1 (ACL method). This server derives RFC 3744
+     * privileges from {@link Realm#isUserInRole} rather than storing a
+     * separate, independently-modifiable ACL for each resource, so an
+     * actual ACE grant/deny mutation has nowhere meaningful to be
+     * written to. RFC 3744 explicitly anticipates this: a server MAY
+     * refuse any ACL modification it can't support (§8.1, "a server
+     * MAY reject the ACL request"), so this always responds 403
+     * Forbidden. {@code DAV:acl}/{@code DAV:current-user-privilege-set}
+     * remain fully readable via PROPFIND.
+     */
+    private void handleAcl(HttpResponseState state) {
+        sendError(state, HttpStatus.FORBIDDEN);
     }
 
     /**
@@ -1007,7 +1096,7 @@ class FileHandler extends DefaultHttpRequestHandler {
     // ─────────────────────────────────────────────────────────────────────────
 
     /** RFC 4918 §9.1 — PROPFIND (allprop, propname, or named properties). */
-    private void handlePropfind(HttpResponseState state) {
+    private void handlePropfind(final HttpResponseState state) {
         if (path == null) {
             sendError(state, HttpStatus.BAD_REQUEST);
             return;
@@ -1015,21 +1104,28 @@ class FileHandler extends DefaultHttpRequestHandler {
 
         // Existence is checked inside the offloaded PropfindData gather;
         // do not Files.exists on the loop here.
-        if (requestContentLength > 0) {
-            webdavParser = new WebDAVRequestParser();
-            requestBodyExpected = true;
-            // Response will be sent in finalizeWebDAVRequest
-        } else {
-            // No body = allprop request
-            sendPropfindResponse(state, WebDAVRequestParser.PropfindType.ALLPROP, null, null);
-        }
+        //
+        // Always set up to consume a body -- whether one is actually
+        // coming can't be decided here (see the pendingNoBodyAction
+        // field comment). If none ever arrives, RFC 4918 §9.1 says an
+        // empty body means allprop.
+        webdavParser = new WebDAVRequestParser();
+        requestBodyExpected = true;
+        pendingNoBodyAction = new Runnable() {
+            @Override
+            public void run() {
+                webdavParser = null;
+                sendPropfindResponse(state, WebDAVRequestParser.PropfindType.ALLPROP, null, null);
+            }
+        };
+        // If a body does arrive, the response is sent from finalizeWebDAVRequest.
     }
 
     /**
      * RFC 4918 section 9.2 -- PROPPATCH (set/remove properties).
      * Dead properties are persisted via {@link DeadPropertyStore}.
      */
-    private void handleProppatch(HttpResponseState state) {
+    private void handleProppatch(final HttpResponseState state) {
         if (!allowWrite) {
             sendError(state, HttpStatus.FORBIDDEN);
             return;
@@ -1040,10 +1136,16 @@ class FileHandler extends DefaultHttpRequestHandler {
             return;
         }
 
-        if (requestContentLength <= 0) {
-            sendError(state, HttpStatus.BAD_REQUEST);
-            return;
-        }
+        // RFC 4918 §9.2 requires a body; if none ever arrives that's
+        // genuinely a bad request -- but (see the pendingNoBodyAction
+        // field comment) that can only be known once the stream closes
+        // with no body ever having started, not from Content-Length.
+        pendingNoBodyAction = new Runnable() {
+            @Override
+            public void run() {
+                sendError(state, HttpStatus.BAD_REQUEST);
+            }
+        };
 
         // Exists + lock ETag checks run off the loop before accepting the body.
         state.pauseRequestBody();
@@ -1341,41 +1443,55 @@ class FileHandler extends DefaultHttpRequestHandler {
     }
 
     /** RFC 4918 §9.10 — LOCK (new lock or refresh). */
-    private void handleLock(HttpResponseState state) throws IOException {
+    private void handleLock(final HttpResponseState state) throws IOException {
         if (!allowWrite) {
             sendError(state, HttpStatus.FORBIDDEN);
             return;
         }
-        
+
         if (path == null) {
             sendError(state, HttpStatus.BAD_REQUEST);
             return;
         }
-        
-        // Lock refresh if we have a lock token
-        if (lockToken != null && requestContentLength == 0) {
-            String token = extractLockToken(lockToken);
-            if (token != null) {
-                long timeout = parseTimeout(requestHeaders.getValue(DavConstants.HEADER_TIMEOUT));
-                WebDAVLock refreshed = lockManager.refresh(token, timeout);
-                if (refreshed != null) {
-                    boolean isDir = requestPath != null && requestPath.endsWith("/");
-                    sendLockResponse(state, refreshed, false, isDir);
-                    return;
-                }
-            }
-            sendError(state, HttpStatus.PRECONDITION_FAILED);
+
+        if (lockToken != null) {
+            // RFC 4918 §9.10.2 -- refresh: doesn't need a body, and
+            // works the same whether or not the client happens to send
+            // one, so (unlike the new-lock case below) there's no need
+            // to wait and see whether one arrives.
+            refreshLock(state);
             return;
         }
-        
-        // New lock request
-        if (requestContentLength > 0) {
-            webdavParser = new WebDAVRequestParser();
-            requestBodyExpected = true;
-        } else {
-            // Default to exclusive write lock
-            createLock(state, WebDAVLock.Scope.EXCLUSIVE, WebDAVLock.Type.WRITE, null);
+
+        // New lock request. RFC 4918 §9.10: an empty body means a
+        // default exclusive write lock -- but whether a body is
+        // actually coming can only be known once the stream closes
+        // with none having arrived (see the pendingNoBodyAction field
+        // comment for why Content-Length can't be trusted here).
+        webdavParser = new WebDAVRequestParser();
+        requestBodyExpected = true;
+        pendingNoBodyAction = new Runnable() {
+            @Override
+            public void run() {
+                webdavParser = null;
+                createLock(state, WebDAVLock.Scope.EXCLUSIVE, WebDAVLock.Type.WRITE, null);
+            }
+        };
+    }
+
+    /** RFC 4918 §9.10.2 -- refreshes an existing lock named by the Lock-Token header. */
+    private void refreshLock(HttpResponseState state) throws IOException {
+        String token = extractLockToken(lockToken);
+        if (token != null) {
+            long timeout = parseTimeout(requestHeaders.getValue(DavConstants.HEADER_TIMEOUT));
+            WebDAVLock refreshed = lockManager.refresh(token, timeout);
+            if (refreshed != null) {
+                boolean isDir = requestPath != null && requestPath.endsWith("/");
+                sendLockResponse(state, refreshed, false, isDir);
+                return;
+            }
         }
+        sendError(state, HttpStatus.PRECONDITION_FAILED);
     }
 
     /** RFC 4918 §9.11 — UNLOCK by Lock-Token header. */
@@ -1713,6 +1829,10 @@ class FileHandler extends DefaultHttpRequestHandler {
         writeSupportedLock(xml);
         davEnd(xml, DavConstants.PROP_SUPPORTEDLOCK);
 
+        if (aclEnabled) {
+            writeAclProperties(xml);
+        }
+
         if (deadProps != null) {
             for (Map.Entry<String, DeadProperty> entry
                     : deadProps.entrySet()) {
@@ -1784,6 +1904,24 @@ class FileHandler extends DefaultHttpRequestHandler {
                     davStart(xml, name);
                     writeSupportedLock(xml);
                     davEnd(xml, name);
+                } else if (aclEnabled && DavConstants.PROP_OWNER.equals(name)) {
+                    davEmpty(xml, name);
+                } else if (aclEnabled && DavConstants.PROP_GROUP.equals(name)) {
+                    davEmpty(xml, name);
+                } else if (aclEnabled && DavConstants.PROP_SUPPORTED_PRIVILEGE_SET.equals(name)) {
+                    davStart(xml, name);
+                    writeSupportedPrivilegeSet(xml);
+                    davEnd(xml, name);
+                } else if (aclEnabled && DavConstants.PROP_CURRENT_USER_PRIVILEGE_SET.equals(name)) {
+                    davStart(xml, name);
+                    writeCurrentUserPrivilegeSet(xml);
+                    davEnd(xml, name);
+                } else if (aclEnabled && DavConstants.PROP_ACL.equals(name)) {
+                    davStart(xml, name);
+                    writeAcl(xml);
+                    davEnd(xml, name);
+                } else if (aclEnabled && DavConstants.PROP_PRINCIPAL_COLLECTION_SET.equals(name)) {
+                    davEmpty(xml, name);
                 }
             } else {
                 String key = DeadProperty.makeKey(
@@ -2295,7 +2433,215 @@ class FileHandler extends DefaultHttpRequestHandler {
         names.add(DavConstants.PROP_LOCKDISCOVERY);
         names.add(DavConstants.PROP_RESOURCETYPE);
         names.add(DavConstants.PROP_SUPPORTEDLOCK);
+        if (aclEnabled) {
+            names.add(DavConstants.PROP_OWNER);
+            names.add(DavConstants.PROP_GROUP);
+            names.add(DavConstants.PROP_SUPPORTED_PRIVILEGE_SET);
+            names.add(DavConstants.PROP_CURRENT_USER_PRIVILEGE_SET);
+            names.add(DavConstants.PROP_ACL);
+            names.add(DavConstants.PROP_PRINCIPAL_COLLECTION_SET);
+        }
         return names;
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // RFC 3744 (WebDAV ACL)
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /** Every RFC 3744 §9 privilege this server evaluates (DAV:all and DAV:write are aggregates, handled separately by {@link #hasPrivilege}). */
+    private static final String[] LEAF_PRIVILEGES = {
+        DavConstants.PRIV_READ,
+        DavConstants.PRIV_WRITE_PROPERTIES,
+        DavConstants.PRIV_WRITE_CONTENT,
+        DavConstants.PRIV_UNLOCK,
+        DavConstants.PRIV_READ_ACL,
+        DavConstants.PRIV_READ_CURRENT_USER_PRIVILEGE_SET,
+        DavConstants.PRIV_WRITE_ACL,
+        DavConstants.PRIV_BIND,
+        DavConstants.PRIV_UNBIND,
+    };
+
+    /**
+     * Checks a single (non-aggregate) privilege against {@link #realm},
+     * as the role {@code "webdav:" + privilegeLocalName}
+     * ({@link DavConstants#ROLE_PREFIX}) -- or, as a shortcut for an
+     * administrator role, whether the principal holds {@code
+     * DAV:all}'s own role ({@code "webdav:all"}) regardless of which
+     * specific privilege was asked about.
+     */
+    private boolean hasPrivilege(String username, String privilegeLocalName) {
+        if (username == null || realm == null) {
+            return false;
+        }
+        if (realm.isUserInRole(username, DavConstants.ROLE_PREFIX + DavConstants.ELEM_ALL)) {
+            return true;
+        }
+        return realm.isUserInRole(username, DavConstants.ROLE_PREFIX + privilegeLocalName);
+    }
+
+    /**
+     * DAV:write (§9.2) aggregates write-properties/write-content/bind/
+     * unbind -- granted either directly (the {@code webdav:write} role,
+     * a shortcut so a deployer doesn't have to assign all four
+     * sub-privilege roles individually) or by holding every one of the
+     * four sub-privileges.
+     */
+    private boolean hasWritePrivilege(String username) {
+        if (hasPrivilege(username, DavConstants.ELEM_WRITE)) {
+            return true;
+        }
+        return hasPrivilege(username, DavConstants.PRIV_WRITE_PROPERTIES)
+                && hasPrivilege(username, DavConstants.PRIV_WRITE_CONTENT)
+                && hasPrivilege(username, DavConstants.PRIV_BIND)
+                && hasPrivilege(username, DavConstants.PRIV_UNBIND);
+    }
+
+    /** Writes {@code <D:privilege><D:localName/></D:privilege>}. */
+    private void writePrivilege(XMLWriter xml, String localName) throws IOException {
+        davStart(xml, DavConstants.ELEM_PRIVILEGE);
+        davEmpty(xml, localName);
+        davEnd(xml, DavConstants.ELEM_PRIVILEGE);
+    }
+
+    /** RFC 3744 §5.4 -- the privileges {@link #principal} actually holds on this resource. */
+    private void writeCurrentUserPrivilegeSet(XMLWriter xml) throws IOException {
+        String username = (principal != null) ? principal.getName() : null;
+        if (hasPrivilege(username, DavConstants.ELEM_ALL)) {
+            writePrivilege(xml, DavConstants.ELEM_ALL);
+            return;
+        }
+        if (hasWritePrivilege(username)) {
+            writePrivilege(xml, DavConstants.ELEM_WRITE);
+        }
+        for (int i = 0; i < LEAF_PRIVILEGES.length; i++) {
+            String privilege = LEAF_PRIVILEGES[i];
+            if (hasPrivilege(username, privilege)) {
+                writePrivilege(xml, privilege);
+            }
+        }
+    }
+
+    /**
+     * RFC 3744 §5.5 -- this server can only meaningfully describe the
+     * requesting principal's own access (it has no way to enumerate
+     * every principal a {@link Realm} knows about to build a complete
+     * ACL), so the response contains at most a single ACE for {@code
+     * DAV:authenticated}, granting exactly the privileges
+     * {@link #writeCurrentUserPrivilegeSet} reports for the current
+     * request. An unauthenticated request gets an empty {@code
+     * DAV:acl} -- RFC 3744 doesn't require every resource to have a
+     * non-empty ACL.
+     */
+    private void writeAcl(XMLWriter xml) throws IOException {
+        if (principal == null) {
+            return;
+        }
+        String username = principal.getName();
+        List<String> granted = new ArrayList<String>();
+        if (hasPrivilege(username, DavConstants.ELEM_ALL)) {
+            granted.add(DavConstants.ELEM_ALL);
+        } else {
+            if (hasWritePrivilege(username)) {
+                granted.add(DavConstants.ELEM_WRITE);
+            }
+            for (int i = 0; i < LEAF_PRIVILEGES.length; i++) {
+                String privilege = LEAF_PRIVILEGES[i];
+                if (hasPrivilege(username, privilege)) {
+                    granted.add(privilege);
+                }
+            }
+        }
+        if (granted.isEmpty()) {
+            return;
+        }
+        davStart(xml, DavConstants.ELEM_ACE);
+        davStart(xml, DavConstants.ELEM_PRINCIPAL);
+        davEmpty(xml, DavConstants.ELEM_AUTHENTICATED);
+        davEnd(xml, DavConstants.ELEM_PRINCIPAL);
+        davStart(xml, DavConstants.ELEM_GRANT);
+        for (int i = 0; i < granted.size(); i++) {
+            writePrivilege(xml, granted.get(i));
+        }
+        davEnd(xml, DavConstants.ELEM_GRANT);
+        davEnd(xml, DavConstants.ELEM_ACE);
+    }
+
+    /**
+     * RFC 3744 §5.3 -- the static tree of privileges this server
+     * evaluates at all, independent of any one principal's actual
+     * grants (see {@link #writeCurrentUserPrivilegeSet}/{@link #writeAcl}
+     * for those).
+     */
+    private void writeSupportedPrivilegeSet(XMLWriter xml) throws IOException {
+        davStart(xml, DavConstants.ELEM_SUPPORTED_PRIVILEGE);
+        writePrivilege(xml, DavConstants.ELEM_ALL);
+        davEmpty(xml, DavConstants.ELEM_ABSTRACT);
+        davStartText(xml, DavConstants.ELEM_DESCRIPTION, "All privileges");
+
+        davStart(xml, DavConstants.ELEM_SUPPORTED_PRIVILEGE);
+        writePrivilege(xml, DavConstants.PRIV_READ);
+        davStartText(xml, DavConstants.ELEM_DESCRIPTION, "Read");
+        writeAbstractSupportedPrivilege(xml, DavConstants.PRIV_READ_ACL, "Read ACL");
+        writeAbstractSupportedPrivilege(xml, DavConstants.PRIV_READ_CURRENT_USER_PRIVILEGE_SET,
+                "Read current user privilege set");
+        davEnd(xml, DavConstants.ELEM_SUPPORTED_PRIVILEGE);
+
+        davStart(xml, DavConstants.ELEM_SUPPORTED_PRIVILEGE);
+        writePrivilege(xml, DavConstants.ELEM_WRITE);
+        davStartText(xml, DavConstants.ELEM_DESCRIPTION, "Write");
+        writeSupportedPrivilege(xml, DavConstants.PRIV_WRITE_PROPERTIES, "Write properties");
+        writeSupportedPrivilege(xml, DavConstants.PRIV_WRITE_CONTENT, "Write content");
+        writeSupportedPrivilege(xml, DavConstants.PRIV_BIND, "Add member (bind)");
+        writeSupportedPrivilege(xml, DavConstants.PRIV_UNBIND, "Remove member (unbind)");
+        writeAbstractSupportedPrivilege(xml, DavConstants.PRIV_WRITE_ACL, "Write ACL");
+        writeSupportedPrivilege(xml, DavConstants.PRIV_UNLOCK, "Unlock");
+        davEnd(xml, DavConstants.ELEM_SUPPORTED_PRIVILEGE);
+
+        davEnd(xml, DavConstants.ELEM_SUPPORTED_PRIVILEGE);
+    }
+
+    private void writeSupportedPrivilege(XMLWriter xml, String localName, String description) throws IOException {
+        davStart(xml, DavConstants.ELEM_SUPPORTED_PRIVILEGE);
+        writePrivilege(xml, localName);
+        davStartText(xml, DavConstants.ELEM_DESCRIPTION, description);
+        davEnd(xml, DavConstants.ELEM_SUPPORTED_PRIVILEGE);
+    }
+
+    /** RFC 3744 §9: an "abstract" privilege can't be directly ACE-granted/denied -- only via one of its aggregates. */
+    private void writeAbstractSupportedPrivilege(XMLWriter xml, String localName, String description)
+            throws IOException {
+        davStart(xml, DavConstants.ELEM_SUPPORTED_PRIVILEGE);
+        writePrivilege(xml, localName);
+        davEmpty(xml, DavConstants.ELEM_ABSTRACT);
+        davStartText(xml, DavConstants.ELEM_DESCRIPTION, description);
+        davEnd(xml, DavConstants.ELEM_SUPPORTED_PRIVILEGE);
+    }
+
+    /** RFC 3744 §5: writes the six ACL live properties into an already-open {@code <D:prop>}. */
+    private void writeAclProperties(XMLWriter xml) throws IOException {
+        // §5.1/§5.2: no per-resource ownership/group model exists in
+        // this server distinct from filesystem permissions, which
+        // aren't principal-addressable via a Realm -- empty is a
+        // defined, valid value for "no owner/group known".
+        davEmpty(xml, DavConstants.PROP_OWNER);
+        davEmpty(xml, DavConstants.PROP_GROUP);
+
+        davStart(xml, DavConstants.PROP_SUPPORTED_PRIVILEGE_SET);
+        writeSupportedPrivilegeSet(xml);
+        davEnd(xml, DavConstants.PROP_SUPPORTED_PRIVILEGE_SET);
+
+        davStart(xml, DavConstants.PROP_CURRENT_USER_PRIVILEGE_SET);
+        writeCurrentUserPrivilegeSet(xml);
+        davEnd(xml, DavConstants.PROP_CURRENT_USER_PRIVILEGE_SET);
+
+        davStart(xml, DavConstants.PROP_ACL);
+        writeAcl(xml);
+        davEnd(xml, DavConstants.PROP_ACL);
+
+        // §5.8: empty is valid -- this server exposes no principal
+        // collection (there's no way to address a Realm's users as
+        // WebDAV resources).
+        davEmpty(xml, DavConstants.PROP_PRINCIPAL_COLLECTION_SET);
     }
 
     private List<Path> collectResources(Path root, int depth) throws IOException {
