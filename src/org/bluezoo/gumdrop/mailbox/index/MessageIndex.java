@@ -23,6 +23,7 @@ package org.bluezoo.gumdrop.mailbox.index;
 
 import org.bluezoo.gumdrop.mailbox.AndCriteria;
 import org.bluezoo.gumdrop.mailbox.DateCriteria;
+import org.bluezoo.gumdrop.mailbox.EmailIdCriteria;
 import org.bluezoo.gumdrop.mailbox.Flag;
 import org.bluezoo.gumdrop.mailbox.FlagCriteria;
 import org.bluezoo.gumdrop.mailbox.NotCriteria;
@@ -174,6 +175,14 @@ public class MessageIndex {
     /** Keyword sub-index: keyword -> entry indices. */
     private final Map<String, Set<Integer>> keywordIndex;
 
+    /**
+     * RFC 8474 EMAILID sub-index: EMAILID -> entry index. A plain
+     * one-to-one map, not a {@code Set<Integer>} like the other reverse
+     * indexes above -- an EMAILID identifies exactly one message, so
+     * there is never more than one entry index per key.
+     */
+    private final Map<String, Integer> emailIdIndex;
+
     /** Whether the index has unsaved changes. */
     private boolean dirty;
 
@@ -199,6 +208,7 @@ public class MessageIndex {
         this.toAddressIndex = new HashMap<>();
         this.ccAddressIndex = new HashMap<>();
         this.keywordIndex = new HashMap<>();
+        this.emailIdIndex = new HashMap<>();
         this.dirty = false;
 
         // Initialize flag BitSets
@@ -352,6 +362,20 @@ public class MessageIndex {
 
         // Keyword index
         updateKeywordIndex(entry.getKeywords(), index, add);
+
+        // RFC 8474 EMAILID index
+        updateEmailIdIndex(entry.getEmailId(), index, add);
+    }
+
+    private void updateEmailIdIndex(String emailId, int index, boolean add) {
+        if (emailId == null || emailId.isEmpty()) {
+            return;
+        }
+        if (add) {
+            emailIdIndex.put(emailId, index);
+        } else {
+            emailIdIndex.remove(emailId);
+        }
     }
 
     private void updateDateIndex(NavigableMap<Long, List<Integer>> dateIndex, 
@@ -452,6 +476,7 @@ public class MessageIndex {
         toAddressIndex.clear();
         ccAddressIndex.clear();
         keywordIndex.clear();
+        emailIdIndex.clear();
     }
 
     // ========================================================================
@@ -569,6 +594,15 @@ public class MessageIndex {
                 default:
                     return null;
             }
+        }
+        if (criteria instanceof EmailIdCriteria) {
+            String emailId = ((EmailIdCriteria) criteria).getEmailId();
+            BitSet result = new BitSet();
+            Integer index = emailIdIndex.get(emailId);
+            if (index != null) {
+                result.set(index);
+            }
+            return result;
         }
         if (criteria instanceof NotCriteria) {
             SearchCriteria inner = ((NotCriteria) criteria).getCriteria();

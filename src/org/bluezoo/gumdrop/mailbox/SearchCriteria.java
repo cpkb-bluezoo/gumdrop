@@ -480,13 +480,7 @@ public interface SearchCriteria {
      * @return criteria for the EMAILID
      */
     static SearchCriteria emailId(final String emailId) {
-        return new SearchCriteria() {
-            @Override
-            public boolean matches(MessageContext context) throws IOException {
-                String contextEmailId = context.getEmailId();
-                return contextEmailId != null && contextEmailId.equals(emailId);
-            }
-        };
+        return new EmailIdCriteria(emailId);
     }
 
     // ========================================================================
