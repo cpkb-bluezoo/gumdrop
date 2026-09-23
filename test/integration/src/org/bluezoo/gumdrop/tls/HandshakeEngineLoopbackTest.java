@@ -52,6 +52,7 @@ import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
 import org.bluezoo.gumdrop.crypto.CertificateVerifier;
+import org.bluezoo.gumdrop.crypto.Hpke;
 import org.bluezoo.gumdrop.crypto.KeyExchange;
 import org.bluezoo.gumdrop.crypto.NamedGroup;
 import org.bluezoo.gumdrop.crypto.SignatureScheme;
@@ -894,6 +895,39 @@ public class HandshakeEngineLoopbackTest {
         assertTrue("client complete", client.isComplete());
         assertTrue("server complete", server.isComplete());
         assertArrayEquals(client.getClientApplicationTrafficSecret(), server.getClientApplicationTrafficSecret());
+    }
+
+    @Test
+    public void echHandshakeNegotiatesEachSupportedAeadFromAMultiSuiteConfig() throws Exception {
+        byte[] pkRm = hex("3948cfe0ad1ddb695d780e59077195da6c56506b027329794ab02bca80815c4d");
+        byte[] skRm = hex("4612c550263fc8ad58375df3f557aac531d26850903e55a9f23f21d8534e8ac8");
+        int[] aeads = { Hpke.AEAD_AES_128_GCM, Hpke.AEAD_AES_256_GCM, Hpke.AEAD_CHACHA20_POLY1305 };
+        for (int aead : aeads) {
+            // An unsupported KDF is listed first, then every supported AEAD:
+            // the client must skip the former and take the first usable pair.
+            EchConfig ech = EchConfig.createV13(1, pkRm, "public." + SERVER_NAME, 64, new int[][] {
+                    { 0x0002, Hpke.AEAD_AES_128_GCM },
+                    { Hpke.KDF_HKDF_SHA256, aead },
+                    { Hpke.KDF_HKDF_SHA256, Hpke.AEAD_AES_128_GCM } });
+            HandshakeConfig cc = clientConfig(ecChain, SERVER_NAME);
+            cc.setEchEnabled(true);
+            cc.setEchConfig(ech);
+            HandshakeConfig sc = serverConfig(ecChain, ecKey);
+            sc.setEchServerKeys(ech, skRm);
+            HandshakeEngine client = new HandshakeEngine(cc);
+            HandshakeEngine server = new HandshakeEngine(sc);
+            RecordingSink clientSink = new RecordingSink();
+            RecordingSink serverSink = new RecordingSink();
+
+            runHandshake(client, clientSink, server, serverSink);
+
+            assertNull("aead " + aead + " client error", clientSink.error);
+            assertNull("aead " + aead + " server error", serverSink.error);
+            assertTrue("client complete", client.isComplete());
+            assertTrue("server complete", server.isComplete());
+            assertArrayEquals(client.getClientApplicationTrafficSecret(),
+                    server.getClientApplicationTrafficSecret());
+        }
     }
 
     @Test

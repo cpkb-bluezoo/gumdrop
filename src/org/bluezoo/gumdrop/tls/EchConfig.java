@@ -202,16 +202,33 @@ public final class EchConfig {
     }
 
     /**
-     * Returns whether this config advertises the gumdrop HPKE profile
-     * ({@link Hpke#KEM_X25519_HKDF_SHA256} with HKDF-SHA256 + AES-128-GCM).
+     * Selects the HPKE suite to use with this config: the first entry, in
+     * the config's own order, whose KEM, KDF and AEAD gumdrop implements
+     * (see {@link Hpke#isSupported}). This always includes the suite RFC 9849
+     * section 9 makes mandatory, and additionally AES-256-GCM and
+     * ChaCha20Poly1305 with the same X25519 KEM and HKDF-SHA256 KDF.
+     *
+     * @return {@code {kdfId, aeadId}}, or null if the config offers nothing usable
      */
-    public boolean supportsGumdropHpkeProfile() {
-        if (kemId != Hpke.KEM_X25519_HKDF_SHA256) {
-            return false;
-        }
+    public int[] selectHpkeCipherSuite() {
         for (int i = 0; i < cipherSuites.length; i++) {
-            if (cipherSuites[i][0] == Hpke.KDF_HKDF_SHA256
-                    && cipherSuites[i][1] == Hpke.AEAD_AES_128_GCM) {
+            if (Hpke.isSupported(kemId, cipherSuites[i][0], cipherSuites[i][1])) {
+                return new int[] { cipherSuites[i][0], cipherSuites[i][1] };
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Returns whether the config lists exactly this KDF and AEAD pair.
+     *
+     * @param kdfId the HPKE KDF identifier
+     * @param aeadId the HPKE AEAD identifier
+     * @return true if advertised
+     */
+    public boolean advertisesCipherSuite(int kdfId, int aeadId) {
+        for (int i = 0; i < cipherSuites.length; i++) {
+            if (cipherSuites[i][0] == kdfId && cipherSuites[i][1] == aeadId) {
                 return true;
             }
         }
@@ -247,14 +264,22 @@ public final class EchConfig {
     }
 
     /**
-     * Builds a v13 {@code ECHConfig} for tests and static deployment.
+     * Builds a v13 {@code ECHConfig} for tests and static deployment,
+     * advertising only the suite RFC 9849 section 9 requires.
      */
     public static EchConfig createV13(int configId, byte[] x25519PublicKey, String publicName,
             int maximumNameLength) {
-        int[][] suites = new int[][] {
-                { Hpke.KDF_HKDF_SHA256, Hpke.AEAD_AES_128_GCM }
-        };
-        return new EchConfig(configId, Hpke.KEM_X25519_HKDF_SHA256, x25519PublicKey, suites,
+        return createV13(configId, x25519PublicKey, publicName, maximumNameLength,
+                new int[][] { { Hpke.KDF_HKDF_SHA256, Hpke.AEAD_AES_128_GCM } });
+    }
+
+    /**
+     * Builds a v13 {@code ECHConfig} advertising the given HPKE
+     * {@code {kdfId, aeadId}} pairs, in order of preference.
+     */
+    public static EchConfig createV13(int configId, byte[] x25519PublicKey, String publicName,
+            int maximumNameLength, int[][] cipherSuites) {
+        return new EchConfig(configId, Hpke.KEM_X25519_HKDF_SHA256, x25519PublicKey, cipherSuites,
                 maximumNameLength, publicName, new EchConfigExtension[0]);
     }
 

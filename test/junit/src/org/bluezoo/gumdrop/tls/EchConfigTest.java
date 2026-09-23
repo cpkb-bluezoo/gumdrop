@@ -29,6 +29,7 @@ import org.bluezoo.gumdrop.crypto.Hpke;
 import org.junit.Test;
 import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
 /**
@@ -50,7 +51,8 @@ public class EchConfigTest {
         assertArrayEquals(original.getPublicKey(), parsed.getPublicKey());
         assertEquals(original.getMaximumNameLength(), parsed.getMaximumNameLength());
         assertEquals(original.getPublicName(), parsed.getPublicName());
-        assertTrue(parsed.supportsGumdropHpkeProfile());
+        assertArrayEquals(new int[] { Hpke.KDF_HKDF_SHA256, Hpke.AEAD_AES_128_GCM },
+                parsed.selectHpkeCipherSuite());
     }
 
     @Test
@@ -67,7 +69,7 @@ public class EchConfigTest {
     @Test
     public void hpkeSetupInfoSealsClientHelloInnerPlaceholder() throws Exception {
         EchConfig config = EchConfig.createV13(7, RFC9180_PK_RM, "ech.example", 32);
-        Hpke hpke = Hpke.x25519Aes128Gcm();
+        Hpke hpke = Hpke.x25519HkdfSha256(Hpke.AEAD_AES_128_GCM);
         byte[] skRm = hex("4612c550263fc8ad58375df3f557aac531d26850903e55a9f23f21d8534e8ac8");
         SecureRandom random = new SecureRandom();
         Hpke.SenderContext sender = hpke.setupBaseS(RFC9180_PK_RM, config.hpkeSetupInfo(), random);
@@ -85,4 +87,67 @@ public class EchConfigTest {
         }
         return out;
     }
+
+    private static EchConfig configWith(int kemId, int[][] suites) throws HandshakeFormatException {
+        WireWriter contents = new WireWriter();
+        contents.u8(5);
+        contents.u16(kemId);
+        contents.opaque16(RFC9180_PK_RM);
+        WireWriter suiteBytes = new WireWriter();
+        for (int i = 0; i < suites.length; i++) {
+            suiteBytes.u16(suites[i][0]);
+            suiteBytes.u16(suites[i][1]);
+        }
+        contents.opaque16(suiteBytes.toByteArray());
+        contents.u8(32);
+        contents.opaque8Ascii("public.example");
+        contents.opaque16(new byte[0]);
+        byte[] body = contents.toByteArray();
+        WireWriter out = new WireWriter();
+        out.u16(EchConfig.VERSION_ECH13);
+        out.u16(body.length);
+        out.bytes(body);
+        return EchConfig.parse(out.toByteArray());
+    }
+
+    @Test
+    public void selectionFollowsConfigOrderAmongSupportedSuites() throws HandshakeFormatException {
+        EchConfig config = configWith(Hpke.KEM_X25519_HKDF_SHA256, new int[][] {
+                { 0x0002, Hpke.AEAD_AES_128_GCM },
+                { Hpke.KDF_HKDF_SHA256, Hpke.AEAD_CHACHA20_POLY1305 },
+                { Hpke.KDF_HKDF_SHA256, Hpke.AEAD_AES_128_GCM } });
+        assertArrayEquals(new int[] { Hpke.KDF_HKDF_SHA256, Hpke.AEAD_CHACHA20_POLY1305 },
+                config.selectHpkeCipherSuite());
+    }
+
+    @Test
+    public void selectionAcceptsAes256Gcm() throws HandshakeFormatException {
+        EchConfig config = configWith(Hpke.KEM_X25519_HKDF_SHA256, new int[][] {
+                { Hpke.KDF_HKDF_SHA256, Hpke.AEAD_AES_256_GCM } });
+        assertArrayEquals(new int[] { Hpke.KDF_HKDF_SHA256, Hpke.AEAD_AES_256_GCM },
+                config.selectHpkeCipherSuite());
+    }
+
+    @Test
+    public void selectionRejectsUnsupportedKem() throws HandshakeFormatException {
+        EchConfig config = configWith(0x0010, new int[][] {
+                { Hpke.KDF_HKDF_SHA256, Hpke.AEAD_AES_128_GCM } });
+        assertNull(config.selectHpkeCipherSuite());
+    }
+
+    @Test
+    public void selectionRejectsConfigWithOnlyUnsupportedSuites() throws HandshakeFormatException {
+        EchConfig config = configWith(Hpke.KEM_X25519_HKDF_SHA256, new int[][] {
+                { 0x0002, Hpke.AEAD_AES_128_GCM }, { Hpke.KDF_HKDF_SHA256, 0x0009 } });
+        assertNull(config.selectHpkeCipherSuite());
+    }
+
+    @Test
+    public void advertisesReportsExactConfigEntries() throws HandshakeFormatException {
+        EchConfig config = configWith(Hpke.KEM_X25519_HKDF_SHA256, new int[][] {
+                { Hpke.KDF_HKDF_SHA256, Hpke.AEAD_CHACHA20_POLY1305 } });
+        assertTrue(config.advertisesCipherSuite(Hpke.KDF_HKDF_SHA256, Hpke.AEAD_CHACHA20_POLY1305));
+        assertTrue(!config.advertisesCipherSuite(Hpke.KDF_HKDF_SHA256, Hpke.AEAD_AES_128_GCM));
+    }
+
 }
