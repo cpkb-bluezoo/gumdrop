@@ -113,7 +113,7 @@ public final class CertificateCompressor {
      * buffer is only valid for the duration of the call.
      */
     public interface Sink {
-        void decoded(ByteBuffer data);
+        void decoded(ByteBuffer data) throws HandshakeFormatException;
     }
 
     /**
@@ -284,21 +284,6 @@ public final class CertificateCompressor {
      */
     public static byte[] decompress(CertificateCompressionAlgorithm algorithm, byte[] compressed,
             int maxDecompressedSize) throws HandshakeFormatException {
-        return decompress(algorithm, ByteBuffer.wrap(compressed), maxDecompressedSize);
-    }
-
-    /**
-     * Decompresses the remaining bytes of {@code compressed} in bounded
-     * chunks, without first copying them.
-     *
-     * @param algorithm negotiated algorithm
-     * @param compressed the compressed bytes
-     * @param maxDecompressedSize output size limit
-     * @return the framed Certificate message
-     * @throws HandshakeFormatException if decompression fails or exceeds the limit
-     */
-    public static byte[] decompress(CertificateCompressionAlgorithm algorithm, ByteBuffer compressed,
-            int maxDecompressedSize) throws HandshakeFormatException {
         final ByteArrayOutputStream out = new ByteArrayOutputStream();
         Decompressor d = newDecompressor(algorithm, maxDecompressedSize, new Sink() {
             @Override
@@ -308,7 +293,7 @@ public final class CertificateCompressor {
                 out.write(chunk, 0, chunk.length);
             }
         });
-        d.write(compressed, true);
+        d.write(ByteBuffer.wrap(compressed), true);
         return out.toByteArray();
     }
 

@@ -38,7 +38,7 @@ import org.bluezoo.gumdrop.crypto.SignatureScheme;
  * post-handshake NewSessionTicket (RFC 8446 section 4), each message
  * built or parsed as a complete, framed unit (one-octet type, three-octet
  * length, then content -- exactly what
- * {@code CryptoStreamBuffer.receiveAndExtractMessages} already hands the
+ * {@code CryptoStreamBuffer.receive} already hands the
  * engine, and what the engine hands to {@code Transcript.update}
  * unchanged).
  *
@@ -805,28 +805,6 @@ final class HandshakeMessages {
         body.u8(algorithm.getId());
         body.opaque24(compressed);
         return WireWriter.frameHandshakeMessage(HANDSHAKE_TYPE_COMPRESSED_CERTIFICATE, body.toByteArray());
-    }
-
-    static final class CompressedCertificate {
-        CertificateCompressionAlgorithm algorithm;
-        java.nio.ByteBuffer compressed;
-    }
-
-    static CompressedCertificate parseCompressedCertificate(byte[] fullMessage) throws HandshakeFormatException {
-        WireReader r = new WireReader(fullMessage);
-        requireType(r, HANDSHAKE_TYPE_COMPRESSED_CERTIFICATE);
-        WireReader body = r.slice(r.u24());
-        CompressedCertificate cc = new CompressedCertificate();
-        cc.algorithm = CertificateCompressionAlgorithm.fromId(body.u8());
-        if (cc.algorithm == null) {
-            throw new HandshakeFormatException("unknown certificate compression algorithm");
-        }
-        int length = body.u24();
-        if (length > body.remaining()) {
-            throw new HandshakeFormatException("truncated compressed certificate");
-        }
-        cc.compressed = java.nio.ByteBuffer.wrap(fullMessage, 8, length);
-        return cc;
     }
 
     // ---- NewSessionTicket (RFC 8446 section 4.6.1) ----

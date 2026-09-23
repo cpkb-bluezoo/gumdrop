@@ -66,6 +66,20 @@ public class CryptoStreamBufferTest {
         return out;
     }
 
+    /** Complete ordinary messages now extractable from {@code buf}. */
+    private static List<ByteBuffer> extract(CryptoStreamBuffer buf, long offset, ByteBuffer data)
+            throws StreamReassembler.BufferLimitExceededException {
+        List<ByteBuffer> messages = new ArrayList<ByteBuffer>();
+        List<CryptoStreamBuffer.Event> events = buf.receive(offset, data);
+        for (int i = 0; i < events.size(); i++) {
+            byte[] m = events.get(i).message();
+            if (m != null) {
+                messages.add(ByteBuffer.wrap(m));
+            }
+        }
+        return messages;
+    }
+
     private static byte[] bytes(ByteBuffer buffer) {
         byte[] copy = new byte[buffer.remaining()];
         buffer.get(copy);
@@ -76,7 +90,7 @@ public class CryptoStreamBufferTest {
     public void testSingleInOrderMessage() throws Exception {
         CryptoStreamBuffer buf = new CryptoStreamBuffer();
         byte[] msg = message(1, new byte[] { 1, 2, 3, 4 });
-        List<ByteBuffer> messages = buf.receiveAndExtractMessages(0, ByteBuffer.wrap(msg));
+        List<ByteBuffer> messages = extract(buf, 0, ByteBuffer.wrap(msg));
         assertEquals(1, messages.size());
         assertArrayEquals(msg, bytes(messages.get(0)));
     }
@@ -87,9 +101,9 @@ public class CryptoStreamBufferTest {
         byte[] msg = message(1, new byte[] { 1, 2, 3, 4, 5, 6, 7, 8 });
         byte[] first = java.util.Arrays.copyOfRange(msg, 0, 6);
         byte[] second = java.util.Arrays.copyOfRange(msg, 6, msg.length);
-        List<ByteBuffer> messages = buf.receiveAndExtractMessages(0, ByteBuffer.wrap(first));
+        List<ByteBuffer> messages = extract(buf, 0, ByteBuffer.wrap(first));
         assertEquals("partial message must not be extracted yet", 0, messages.size());
-        messages = buf.receiveAndExtractMessages(6, ByteBuffer.wrap(second));
+        messages = extract(buf, 6, ByteBuffer.wrap(second));
         assertEquals(1, messages.size());
         assertArrayEquals(msg, bytes(messages.get(0)));
     }
@@ -101,11 +115,11 @@ public class CryptoStreamBufferTest {
         byte[] first = java.util.Arrays.copyOfRange(msg, 0, 6);
         byte[] second = java.util.Arrays.copyOfRange(msg, 6, msg.length);
         // Second half arrives first -- must be buffered, not extracted.
-        List<ByteBuffer> messages = buf.receiveAndExtractMessages(6, ByteBuffer.wrap(second));
+        List<ByteBuffer> messages = extract(buf, 6, ByteBuffer.wrap(second));
         assertEquals(0, messages.size());
         // First half closes the gap -- the complete, correctly-ordered
         // message is extracted exactly once.
-        messages = buf.receiveAndExtractMessages(0, ByteBuffer.wrap(first));
+        messages = extract(buf, 0, ByteBuffer.wrap(first));
         assertEquals(1, messages.size());
         assertArrayEquals(msg, bytes(messages.get(0)));
     }
@@ -118,9 +132,9 @@ public class CryptoStreamBufferTest {
         // Frame carrying msgB arrives before the frame carrying msgA --
         // both messages must still end up extracted exactly once each,
         // in the correct stream order.
-        List<ByteBuffer> messages = buf.receiveAndExtractMessages(msgA.length, ByteBuffer.wrap(msgB));
+        List<ByteBuffer> messages = extract(buf, msgA.length, ByteBuffer.wrap(msgB));
         assertEquals(0, messages.size());
-        messages = buf.receiveAndExtractMessages(0, ByteBuffer.wrap(msgA));
+        messages = extract(buf, 0, ByteBuffer.wrap(msgA));
         assertEquals(2, messages.size());
         assertArrayEquals(msgA, bytes(messages.get(0)));
         assertArrayEquals(msgB, bytes(messages.get(1)));
@@ -130,12 +144,12 @@ public class CryptoStreamBufferTest {
     public void testOverlappingRetransmissionIgnored() throws Exception {
         CryptoStreamBuffer buf = new CryptoStreamBuffer();
         byte[] msg = message(1, new byte[] { 1, 2, 3, 4 });
-        List<ByteBuffer> messages = buf.receiveAndExtractMessages(0, ByteBuffer.wrap(msg));
+        List<ByteBuffer> messages = extract(buf, 0, ByteBuffer.wrap(msg));
         assertEquals(1, messages.size());
         // Full retransmission of the same bytes (e.g. peer's PTO
         // retransmit racing with the original arriving) must not
         // re-extract the message.
-        messages = buf.receiveAndExtractMessages(0, ByteBuffer.wrap(msg));
+        messages = extract(buf, 0, ByteBuffer.wrap(msg));
         assertEquals(0, messages.size());
     }
 
@@ -146,10 +160,10 @@ public class CryptoStreamBufferTest {
         // after a later call mutates the underlying accumulator.
         CryptoStreamBuffer buf = new CryptoStreamBuffer();
         byte[] msgA = message(1, new byte[] { 0xA, 0xA, 0xA });
-        List<ByteBuffer> firstBatch = buf.receiveAndExtractMessages(0, ByteBuffer.wrap(msgA));
+        List<ByteBuffer> firstBatch = extract(buf, 0, ByteBuffer.wrap(msgA));
         assertEquals(1, firstBatch.size());
         byte[] msgB = message(2, new byte[] { 0xB, 0xB, 0xB, 0xB });
-        buf.receiveAndExtractMessages(msgA.length, ByteBuffer.wrap(msgB));
+        extract(buf, msgA.length, ByteBuffer.wrap(msgB));
         assertArrayEquals("message extracted earlier must be unaffected by later reassembly",
                 msgA, bytes(firstBatch.get(0)));
     }
@@ -160,9 +174,34 @@ public class CryptoStreamBufferTest {
         // Out-of-order data far beyond the 64 KiB cap, at a huge offset,
         // must be rejected rather than buffered unboundedly.
         byte[] huge = new byte[70000];
-        buf.receiveAndExtractMessages(1_000_000L, ByteBuffer.wrap(huge));
+        extract(buf, 1_000_000L, ByteBuffer.wrap(huge));
     }
 
 
 
+
+    @Test
+    public void testCompressedCertificateIsStreamedNotBuffered() throws Exception {
+        CryptoStreamBuffer buf = new CryptoStreamBuffer();
+        byte[] streamed = message(25, new byte[3000]);
+        byte[] ordinary = message(20, new byte[] { 7, 7 });
+        byte[] wire = concat(streamed, ordinary);
+        List<CryptoStreamBuffer.Event> all = new ArrayList<CryptoStreamBuffer.Event>();
+        for (int offset = 0; offset < wire.length; offset += 500) {
+            int len = Math.min(500, wire.length - offset);
+            all.addAll(buf.receive(offset,
+                    ByteBuffer.wrap(java.util.Arrays.copyOfRange(wire, offset, offset + len))));
+        }
+        int whole = 0;
+        for (int i = 0; i < all.size(); i++) {
+            if (all.get(i).message() != null) {
+                whole++;
+                assertEquals("only the ordinary message is delivered whole", 20,
+                        all.get(i).message()[0] & 0xff);
+            }
+        }
+        assertEquals(1, whole);
+        assertTrue("streamed message split into begin, chunks and end: " + all.size(), all.size() >= 8);
+        assertNull("first event is the stream begin, not a message", all.get(0).message());
+    }
 }

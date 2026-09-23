@@ -38,15 +38,14 @@ public final class HandshakeAsyncScheduler {
     public interface Runner {
         void runStart();
 
-        void runMessages(List<byte[]> messages);
+        void runInputs(List<HandshakeInput> inputs);
     }
 
     private final HandshakeAsyncOffload offload;
     private final Runner runner;
     private final HandshakeAsyncOffload.FailureHandler onFailure;
-    private final ArrayDeque<byte[]> pendingMessages = new ArrayDeque<byte[]>();
-    private final ArrayList<byte[]> singleMessageBatch = new ArrayList<byte[]>(1);
-    private final ArrayList<byte[]> drainBatch = new ArrayList<byte[]>();
+    private final ArrayDeque<HandshakeInput> pendingMessages = new ArrayDeque<HandshakeInput>();
+    private final ArrayList<HandshakeInput> drainBatch = new ArrayList<HandshakeInput>();
     private final HandshakeAsyncOffload.BatchProcessor startBatch =
             new HandshakeAsyncOffload.BatchProcessor() {
                 @Override
@@ -58,7 +57,7 @@ public final class HandshakeAsyncScheduler {
             new HandshakeAsyncOffload.BatchProcessor() {
                 @Override
                 public void process() {
-                    runner.runMessages(activeBatch);
+                    runner.runInputs(activeBatch);
                 }
             };
     private final HandshakeAsyncOffload.CompletionHandler drainHandler =
@@ -72,7 +71,7 @@ public final class HandshakeAsyncScheduler {
                     }
                     if (!pendingMessages.isEmpty()) {
                         drainBatch.clear();
-                        byte[] next;
+                        HandshakeInput next;
                         while ((next = pendingMessages.poll()) != null) {
                             drainBatch.add(next);
                         }
@@ -84,7 +83,7 @@ public final class HandshakeAsyncScheduler {
             };
 
     private boolean pendingStart;
-    private List<byte[]> activeBatch;
+    private List<HandshakeInput> activeBatch;
     private Runnable onIdle;
 
     public HandshakeAsyncScheduler(HandshakeAsyncOffload offload, Runner runner,
@@ -148,24 +147,37 @@ public final class HandshakeAsyncScheduler {
     }
 
     public void scheduleMessage(byte[] message) {
-        singleMessageBatch.clear();
-        singleMessageBatch.add(message);
-        scheduleMessages(singleMessageBatch);
+        List<HandshakeInput> batch = new ArrayList<HandshakeInput>(1);
+        batch.add(HandshakeInput.message(message));
+        scheduleInputs(batch);
     }
 
     public void scheduleMessages(List<byte[]> messages) {
+        List<HandshakeInput> inputs = new ArrayList<HandshakeInput>(messages.size());
+        for (int i = 0; i < messages.size(); i++) {
+            inputs.add(HandshakeInput.message(messages.get(i)));
+        }
+        scheduleInputs(inputs);
+    }
+
+    /**
+     * Schedules all inputs derived from one record together, so that an
+     * idle notification after an earlier input cannot resume inbound
+     * parsing ahead of the later ones.
+     */
+    void scheduleInputs(List<HandshakeInput> inputs) {
         if (offload == null) {
-            runner.runMessages(messages);
+            runner.runInputs(inputs);
             return;
         }
         synchronized (offload.lock()) {
             if (offload.isBusy()) {
-                for (int i = 0; i < messages.size(); i++) {
-                    pendingMessages.addLast(messages.get(i));
+                for (int i = 0; i < inputs.size(); i++) {
+                    pendingMessages.addLast(inputs.get(i));
                 }
                 return;
             }
-            submitMessages(messages);
+            submitMessages(inputs);
         }
     }
 
@@ -173,7 +185,7 @@ public final class HandshakeAsyncScheduler {
         offload.submit(startBatch, drainHandler, onFailure);
     }
 
-    private void submitMessages(List<byte[]> messages) {
+    private void submitMessages(List<HandshakeInput> messages) {
         activeBatch = messages;
         offload.submit(messageBatch, drainHandler, onFailure);
     }
