@@ -25,6 +25,9 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.io.OutputStreamWriter;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.SecureRandom;
 import java.text.MessageFormat;
 import java.util.Collection;
 import java.util.Enumeration;
@@ -41,6 +44,7 @@ import jakarta.servlet.ServletRegistration;
 import jakarta.servlet.http.HttpServlet;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import jakarta.servlet.http.HttpSession;
 
 /**
  * Gumdrop servlet context manager servlet.
@@ -56,11 +60,23 @@ public class ManagerServlet extends HttpServlet {
     static final String L10N_NAME = "org.bluezoo.gumdrop.servlet.manager.L10N";
     static final Logger LOGGER = Logger.getLogger(ManagerServlet.class.getName());
 
+    static final String CSRF_ATTRIBUTE = "org.bluezoo.gumdrop.servlet.manager.csrf";
+    static final String CSRF_PARAMETER = "csrf";
+    static final String MANAGER_ROLE = "manager";
+
+    private static final SecureRandom RANDOM = new SecureRandom();
+
     protected void doGet(HttpServletRequest request, HttpServletResponse response) throws ServletException, IOException {
         Locale locale = request.getLocale();
         ResourceBundle resources = (locale == null)
                         ? ResourceBundle.getBundle(L10N_NAME)
                         : ResourceBundle.getBundle(L10N_NAME, locale);
+
+        if (!request.isUserInRole(MANAGER_ROLE)) {
+            response.sendError(403);
+            return;
+        }
+        String csrfToken = csrfToken(request);
 
         ManagerContextServer ctx = (ManagerContextServer) getServletContext();
         ManagerContainerServer container = ctx.getContainer();
@@ -71,8 +87,8 @@ public class ManagerServlet extends HttpServlet {
         
         appendHtmlHead(buf, resources, contextPath);
         appendHeader(buf, resources, contextPath);
-        appendThreadPoolSection(buf, resources, ctx, threadPool);
-        appendContextsSection(buf, resources, container, contextPath);
+        appendThreadPoolSection(buf, resources, ctx, threadPool, csrfToken);
+        appendContextsSection(buf, resources, container, contextPath, csrfToken);
         appendHtmlFooter(buf);
 
         writeResponse(response, buf.toString());
@@ -116,7 +132,8 @@ public class ManagerServlet extends HttpServlet {
     }
     
     private void appendThreadPoolSection(StringBuilder buf, ResourceBundle resources, 
-                                         ManagerContextServer ctx, ThreadPoolExecutor threadPool) {
+                                         ManagerContextServer ctx, ThreadPoolExecutor threadPool,
+                                         String csrfToken) {
         buf.append("  <section class='card thread-pool'>\n");
         buf.append("    <h2>").append(resources.getString("threads")).append("</h2>\n");
         
@@ -132,17 +149,22 @@ public class ManagerServlet extends HttpServlet {
         buf.append("    <div class='pool-config'>\n");
         appendConfigForm(buf, resources, "core-pool-size", 
                         resources.getString("corePoolSize"), threadPool.getCorePoolSize(),
-                        resources.getString("corePoolSize.caption"));
+                        resources.getString("corePoolSize.caption"), csrfToken);
         appendConfigForm(buf, resources, "maximum-pool-size", 
                         resources.getString("maximumPoolSize"), threadPool.getMaximumPoolSize(),
-                        resources.getString("maximumPoolSize.caption"));
+                        resources.getString("maximumPoolSize.caption"), csrfToken);
         appendConfigForm(buf, resources, "keep-alive-time", 
                         resources.getString("keepAliveTime"), ctx.getWorkerKeepAlive(),
-                        resources.getString("keepAliveTime.caption"));
+                        resources.getString("keepAliveTime.caption"), csrfToken);
         buf.append("    </div>\n");
         buf.append("  </section>\n");
     }
     
+    private void appendCsrfField(StringBuilder buf, String csrfToken) {
+        buf.append("        <input type='hidden' name='").append(CSRF_PARAMETER).append("' value='");
+        buf.append(escapeHtml(csrfToken)).append("'/>\n");
+    }
+
     private void appendStatBox(StringBuilder buf, String label, long value) {
         buf.append("      <div class='stat-box'>\n");
         buf.append("        <div class='stat-value'>").append(value).append("</div>\n");
@@ -151,8 +173,10 @@ public class ManagerServlet extends HttpServlet {
     }
     
     private void appendConfigForm(StringBuilder buf, ResourceBundle resources, 
-                                  String name, String label, Object value, String caption) {
+                                  String name, String label, Object value, String caption,
+                                  String csrfToken) {
         buf.append("      <form method='post' class='config-form'>\n");
+        appendCsrfField(buf, csrfToken);
         buf.append("        <div class='form-row'>\n");
         buf.append("          <label for='").append(name).append("'>");
         buf.append(escapeHtml(label)).append("</label>\n");
@@ -166,13 +190,14 @@ public class ManagerServlet extends HttpServlet {
     }
     
     private void appendContextsSection(StringBuilder buf, ResourceBundle resources, 
-                                       ManagerContainerServer container, String managerContextPath) {
+                                       ManagerContainerServer container, String managerContextPath,
+                                       String csrfToken) {
         buf.append("  <section class='card contexts'>\n");
         buf.append("    <h2>").append(resources.getString("contexts")).append("</h2>\n");
         buf.append("    <div class='context-list'>\n");
         
         for (ManagerContextServer context : container.getContexts()) {
-            appendContextCard(buf, resources, context, managerContextPath);
+            appendContextCard(buf, resources, context, managerContextPath, csrfToken);
         }
         
         buf.append("    </div>\n");
@@ -180,7 +205,8 @@ public class ManagerServlet extends HttpServlet {
     }
     
     private void appendContextCard(StringBuilder buf, ResourceBundle resources, 
-                                   ManagerContextServer context, String managerContextPath) {
+                                   ManagerContextServer context, String managerContextPath,
+                                   String csrfToken) {
         HitStatistics stats = context.getHitStatistics();
         String icon = sameOriginIcon(context.getSmallIcon(), managerContextPath + "/gumdrop_green_16x16.png");
         
@@ -198,6 +224,7 @@ public class ManagerServlet extends HttpServlet {
         buf.append("            </div>\n");
         buf.append("          </div>\n");
         buf.append("          <form method='post' style='margin:0'>\n");
+        appendCsrfField(buf, csrfToken);
         buf.append("            <input type='hidden' name='reload' value='");
         buf.append(escapeHtml(context.getContextPath())).append("'/>\n");
         buf.append("            <button type='submit' class='btn btn-secondary'>");
@@ -377,11 +404,73 @@ public class ManagerServlet extends HttpServlet {
                    .replace("'", "&#39;");
     }
 
+    /** Returns the session's anti-forgery token, creating it on first use. */
+    private static String csrfToken(HttpServletRequest request) {
+        HttpSession session = request.getSession(true);
+        Object existing = session.getAttribute(CSRF_ATTRIBUTE);
+        if (existing instanceof String) {
+            return (String) existing;
+        }
+        byte[] raw = new byte[32];
+        RANDOM.nextBytes(raw);
+        StringBuilder hex = new StringBuilder(64);
+        for (int i = 0; i < raw.length; i++) {
+            hex.append(Character.forDigit((raw[i] >> 4) & 0xf, 16));
+            hex.append(Character.forDigit(raw[i] & 0xf, 16));
+        }
+        String token = hex.toString();
+        session.setAttribute(CSRF_ATTRIBUTE, token);
+        return token;
+    }
+
+    private static boolean validCsrfToken(HttpServletRequest request) {
+        HttpSession session = request.getSession(false);
+        if (session == null) {
+            return false;
+        }
+        Object expected = session.getAttribute(CSRF_ATTRIBUTE);
+        String presented = request.getParameter(CSRF_PARAMETER);
+        if (!(expected instanceof String) || presented == null) {
+            return false;
+        }
+        return MessageDigest.isEqual(((String) expected).getBytes(StandardCharsets.UTF_8),
+                presented.getBytes(StandardCharsets.UTF_8));
+    }
+
+    /**
+     * Whether the request's {@code Origin} (or, failing that, {@code Referer})
+     * header, when present, names this manager's own origin.
+     */
+    private static boolean fromManagerOrigin(HttpServletRequest request) {
+        String own = request.getScheme() + "://" + request.getServerName();
+        int port = request.getServerPort();
+        boolean defaultPort = ("http".equals(request.getScheme()) && port == 80)
+                || ("https".equals(request.getScheme()) && port == 443);
+        if (!defaultPort) {
+            own = own + ":" + port;
+        }
+        String origin = request.getHeader("Origin");
+        if (origin != null) {
+            return origin.equals(own);
+        }
+        String referer = request.getHeader("Referer");
+        if (referer != null) {
+            return referer.equals(own) || referer.startsWith(own + "/");
+        }
+        return true;
+    }
+
     protected void doPost(HttpServletRequest request, HttpServletResponse response) throws ServletException, IOException {
         Locale locale = request.getLocale();
         ResourceBundle resources = (locale == null)
                         ? ResourceBundle.getBundle(L10N_NAME)
                         : ResourceBundle.getBundle(L10N_NAME, locale);
+
+        if (!request.isUserInRole(MANAGER_ROLE) || !fromManagerOrigin(request)
+                || !validCsrfToken(request)) {
+            response.sendError(403);
+            return;
+        }
 
         String contextPath = request.getContextPath();
         ManagerContextServer ctx = (ManagerContextServer) getServletContext();
