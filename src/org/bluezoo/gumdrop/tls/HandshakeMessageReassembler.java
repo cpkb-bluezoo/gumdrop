@@ -31,10 +31,16 @@ import java.util.Arrays;
  */
 final class HandshakeMessageReassembler {
 
+    private static final int TYPE_COMPRESSED_CERTIFICATE = HandshakeMessages.HANDSHAKE_TYPE_COMPRESSED_CERTIFICATE;
+
     private byte[] pending;
+    private int streamRemaining;
+    private boolean streaming;
 
     void reset() {
         pending = null;
+        streaming = false;
+        streamRemaining = 0;
     }
 
     /**
@@ -46,39 +52,86 @@ final class HandshakeMessageReassembler {
      * @throws HandshakeFormatException if length prefix is malformed
      */
     void feed(byte[] payload, MessageConsumer completeMessage) throws HandshakeFormatException {
-        byte[] combined;
-        if (pending != null) {
-            combined = new byte[pending.length + payload.length];
-            System.arraycopy(pending, 0, combined, 0, pending.length);
-            System.arraycopy(payload, 0, combined, pending.length, payload.length);
-            pending = null;
-        } else {
-            combined = payload;
-        }
-        while (combined.length >= 4) {
-            int msgLen = ((combined[1] & 0xff) << 16)
-                    | ((combined[2] & 0xff) << 8)
-                    | (combined[3] & 0xff);
-            if (msgLen < 0) {
-                throw new HandshakeFormatException("invalid handshake message length");
+        feed(payload, completeMessage, null);
+    }
+
+    /**
+     * As {@link #feed(byte[], MessageConsumer)}, but a
+     * {@code CompressedCertificate} message is not buffered: its 4-byte
+     * header and then its body are handed to {@code consumer} as they
+     * arrive, so its size never accumulates here.
+     *
+     * @param payload handshake bytes from one record
+     * @param consumer callback for complete messages and streamed events
+     * @throws HandshakeFormatException if length prefix is malformed
+     */
+    void feed(byte[] payload, StreamingMessageConsumer consumer) throws HandshakeFormatException {
+        feed(payload, consumer, consumer);
+    }
+
+    private void feed(byte[] payload, MessageConsumer completeMessage, StreamingMessageConsumer stream)
+            throws HandshakeFormatException {
+        byte[] data = payload;
+        int pos = 0;
+        while (true) {
+            if (streaming) {
+                int n = Math.min(streamRemaining, data.length - pos);
+                if (n > 0) {
+                    stream.streamData(Arrays.copyOfRange(data, pos, pos + n));
+                    pos += n;
+                    streamRemaining -= n;
+                }
+                if (streamRemaining > 0) {
+                    return;
+                }
+                streaming = false;
+                stream.streamEnd();
+            }
+            if (pending != null) {
+                byte[] combined = new byte[pending.length + data.length - pos];
+                System.arraycopy(pending, 0, combined, 0, pending.length);
+                System.arraycopy(data, pos, combined, pending.length, data.length - pos);
+                pending = null;
+                data = combined;
+                pos = 0;
+            }
+            int available = data.length - pos;
+            if (available == 0) {
+                return;
+            }
+            if (available < 4) {
+                pending = Arrays.copyOfRange(data, pos, data.length);
+                return;
+            }
+            int msgLen = ((data[pos + 1] & 0xff) << 16)
+                    | ((data[pos + 2] & 0xff) << 8)
+                    | (data[pos + 3] & 0xff);
+            if (stream != null && (data[pos] & 0xff) == TYPE_COMPRESSED_CERTIFICATE) {
+                stream.streamStart(Arrays.copyOfRange(data, pos, pos + 4));
+                pos += 4;
+                streaming = true;
+                streamRemaining = msgLen;
+                continue;
             }
             int frameLen = 4 + msgLen;
-            if (combined.length < frameLen) {
-                pending = combined;
+            if (available < frameLen) {
+                pending = Arrays.copyOfRange(data, pos, data.length);
                 return;
             }
-            completeMessage.accept(Arrays.copyOfRange(combined, 0, frameLen));
-            if (combined.length == frameLen) {
-                return;
-            }
-            combined = Arrays.copyOfRange(combined, frameLen, combined.length);
-        }
-        if (combined.length > 0) {
-            pending = combined;
+            completeMessage.accept(Arrays.copyOfRange(data, pos, pos + frameLen));
+            pos += frameLen;
         }
     }
 
     interface MessageConsumer {
         void accept(byte[] completeMessage);
+    }
+
+    interface StreamingMessageConsumer extends MessageConsumer {
+        void streamStart(byte[] messageHeader);
+
+        void streamData(byte[] chunk);
+
+        void streamEnd();
     }
 }

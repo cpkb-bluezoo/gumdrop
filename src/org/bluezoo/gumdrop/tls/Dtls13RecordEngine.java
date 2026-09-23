@@ -302,10 +302,10 @@ public final class Dtls13RecordEngine {
         }
 
         @Override
-        public void runMessages(List<byte[]> messages) {
-            for (int i = 0; i < messages.size(); i++) {
+        public void runInputs(List<HandshakeInput> inputs) {
+            for (int i = 0; i < inputs.size(); i++) {
                 deferredDispatch.resetSlots();
-                engine.processMessage(messages.get(i), innerSink);
+                inputs.get(i).dispatch(engine, innerSink);
                 if (failed || engine.isFailed()) {
                     break;
                 }

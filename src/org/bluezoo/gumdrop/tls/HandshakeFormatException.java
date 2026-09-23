@@ -35,8 +35,24 @@ final class HandshakeFormatException extends Exception {
 
     private static final long serialVersionUID = 1L;
 
+    private final boolean badCertificate;
+
     HandshakeFormatException(String message) {
+        this(message, false);
+    }
+
+    /**
+     * @param badCertificate true if the fault lies in a certificate's own
+     *        encoding, reported to the peer as {@code bad_certificate}
+     *        rather than {@code decode_error}
+     */
+    HandshakeFormatException(String message, boolean badCertificate) {
         super(message);
+        this.badCertificate = badCertificate;
+    }
+
+    boolean isBadCertificate() {
+        return badCertificate;
     }
 
 }

@@ -196,6 +196,40 @@ public class TlsRecordEngineTest {
     }
 
     @Test
+    public void compressedCertificateHandshakeCompletesOverRecordLayer() throws Exception {
+        HandshakeConfig cc = clientConfig();
+        cc.setCertificateCompressionEnabled(true);
+        HandshakeConfig sc = serverConfig();
+        sc.setCertificateCompressionEnabled(true);
+        Loopback lb = runLoopback(cc, sc);
+        assertTrue(lb.clientSink.handshakeComplete);
+        assertTrue(lb.serverSink.handshakeComplete);
+    }
+
+    @Test
+    public void compressedCertificateSurvivesOneByteRecordDelivery() throws Exception {
+        HandshakeConfig cc = clientConfig();
+        cc.setCertificateCompressionEnabled(true);
+        HandshakeConfig sc = serverConfig();
+        sc.setCertificateCompressionEnabled(true);
+        TlsRecordEngine client = new TlsRecordEngine(cc);
+        TlsRecordEngine server = new TlsRecordEngine(sc);
+        RecordingSink clientSink = new RecordingSink();
+        RecordingSink serverSink = new RecordingSink();
+
+        client.start(clientSink);
+        relay(clientSink, server, serverSink);
+        byte[] flight = serverSink.drainOutbound();
+        for (int i = 0; i < flight.length; i++) {
+            client.feedCiphertext(flight, i, 1, clientSink);
+        }
+        relay(clientSink, server, serverSink);
+
+        assertTrue("client: " + clientSink.events, client.isComplete());
+        assertTrue("server: " + serverSink.events, server.isComplete());
+    }
+
+    @Test
     public void recordSizeLimitNegotiationFragmentsLargeApplicationData() throws Exception {
         HandshakeConfig clientCfg = clientConfig();
         clientCfg.setRecordSizeLimit(512);

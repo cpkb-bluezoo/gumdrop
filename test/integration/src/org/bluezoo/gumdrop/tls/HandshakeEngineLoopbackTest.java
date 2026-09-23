@@ -1043,6 +1043,88 @@ public class HandshakeEngineLoopbackTest {
                 containsHandshakeType(serverSink.allOutbound, 25));
     }
 
+    private static void deliverStreamed(HandshakeEngine engine, byte[] message, int step,
+            RecordingSink sink) {
+        engine.beginStreamedMessage(java.util.Arrays.copyOfRange(message, 0, 4), sink);
+        int pos = 4;
+        while (pos < message.length && sink.error == null) {
+            int n = Math.min(step, message.length - pos);
+            engine.streamedMessageData(java.util.Arrays.copyOfRange(message, pos, pos + n), sink);
+            pos += n;
+        }
+        if (sink.error == null) {
+            engine.endStreamedMessage(sink);
+        }
+    }
+
+    private static void runHandshakeStreamingCompressed(HandshakeEngine client, RecordingSink clientSink,
+            HandshakeEngine server, RecordingSink serverSink, int step) {
+        client.start(clientSink);
+        List<byte[]> toServer = clientSink.drain();
+        int rounds = 0;
+        while (!(client.isComplete() && server.isComplete()) && !client.isFailed()
+                && !server.isFailed() && rounds < 20) {
+            rounds++;
+            for (byte[] message : toServer) {
+                server.processMessage(message, serverSink);
+                if (serverSink.error != null) {
+                    return;
+                }
+            }
+            List<byte[]> toClient = serverSink.drain();
+            toServer.clear();
+            for (byte[] message : toClient) {
+                if ((message[0] & 0xff) == 25) {
+                    deliverStreamed(client, message, step, clientSink);
+                } else {
+                    client.processMessage(message, clientSink);
+                }
+                if (clientSink.error != null) {
+                    return;
+                }
+            }
+            toServer.addAll(clientSink.drain());
+        }
+    }
+
+    @Test
+    public void streamedCompressedCertificateOneByteAtATime() throws Exception {
+        HandshakeConfig sc = serverConfig(ecChain, ecKey);
+        sc.setCertificateCompressionEnabled(true);
+        HandshakeConfig cc = clientConfig(ecChain, SERVER_NAME);
+        cc.setCertificateCompressionEnabled(true);
+        HandshakeEngine client = new HandshakeEngine(cc);
+        HandshakeEngine server = new HandshakeEngine(sc);
+        RecordingSink clientSink = new RecordingSink();
+        RecordingSink serverSink = new RecordingSink();
+
+        runHandshakeStreamingCompressed(client, clientSink, server, serverSink, 1);
+
+        assertNull("client error", clientSink.error);
+        assertNull("server error", serverSink.error);
+        assertTrue("client complete", client.isComplete());
+        assertTrue("server complete", server.isComplete());
+    }
+
+    @Test
+    public void streamedCompressedCertificateOversizeRejectedDuringDecode() throws Exception {
+        HandshakeConfig sc = serverConfig(ecChain, ecKey);
+        sc.setCertificateCompressionEnabled(true);
+        HandshakeConfig cc = clientConfig(ecChain, SERVER_NAME);
+        cc.setCertificateCompressionEnabled(true);
+        cc.setMaxDecompressedCertificateSize(64);
+        HandshakeEngine client = new HandshakeEngine(cc);
+        HandshakeEngine server = new HandshakeEngine(sc);
+        RecordingSink clientSink = new RecordingSink();
+        RecordingSink serverSink = new RecordingSink();
+
+        runHandshakeStreamingCompressed(client, clientSink, server, serverSink, 7);
+
+        assertTrue("client should fail", client.isFailed());
+        assertTrue("client error mentions limit: " + clientSink.error,
+                String.valueOf(clientSink.error).contains("limit"));
+    }
+
     private static boolean containsHandshakeType(List<byte[]> messages, int type) {
         for (int i = 0; i < messages.size(); i++) {
             byte[] msg = messages.get(i);

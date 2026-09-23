@@ -76,7 +76,7 @@ public final class QuicTlsClientEngine implements QuicTlsEngine {
     private final Sink sink = new Sink();
     private final QuicTlsDeferredDispatch deferredDispatch;
 
-    private List<ByteBuffer> activeMessages;
+    private List<CryptoStreamBuffer.Event> activeMessages;
 
     private final QuicHandshakeAsyncOffload.BatchProcessor startBatchProcessor =
             new QuicHandshakeAsyncOffload.BatchProcessor() {
@@ -91,11 +91,8 @@ public final class QuicTlsClientEngine implements QuicTlsEngine {
                 @Override
                 public void process() {
                     for (int i = 0; i < activeMessages.size(); i++) {
-                        ByteBuffer msg = activeMessages.get(i);
-                        byte[] message = new byte[msg.remaining()];
-                        msg.get(message);
                         deferredDispatch.resetSlots();
-                        engine.processMessage(message, sink);
+                        activeMessages.get(i).dispatch(engine, sink);
                     }
                 }
             };
@@ -363,7 +360,7 @@ public final class QuicTlsClientEngine implements QuicTlsEngine {
 
     private boolean dispatchFrame(final EncryptionLevel level, long offset, ByteBuffer data)
             throws StreamReassembler.BufferLimitExceededException {
-        final List<ByteBuffer> messages = bufferFor(level).receiveAndExtractMessages(offset, data);
+        final List<CryptoStreamBuffer.Event> messages = bufferFor(level).receive(offset, data);
         if (messages.isEmpty()) {
             return false;
         }

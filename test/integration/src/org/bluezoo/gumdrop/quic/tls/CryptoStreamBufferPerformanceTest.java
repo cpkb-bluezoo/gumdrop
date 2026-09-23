@@ -112,7 +112,10 @@ public class CryptoStreamBufferPerformanceTest {
         for (int offset = 0; offset < msg.length; offset += frameSize) {
             int len = Math.min(frameSize, msg.length - offset);
             byte[] chunk = java.util.Arrays.copyOfRange(msg, offset, offset + len);
-            allMessages.addAll(buf.receiveAndExtractMessages(offset, ByteBuffer.wrap(chunk)));
+            List<CryptoStreamBuffer.Event> events = buf.receive(offset, ByteBuffer.wrap(chunk));
+            for (int i = 0; i < events.size(); i++) {
+                allMessages.add(ByteBuffer.wrap(events.get(i).message()));
+            }
         }
         long elapsedMs = (System.nanoTime() - start) / 1000000;
 

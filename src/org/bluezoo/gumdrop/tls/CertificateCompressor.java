@@ -109,7 +109,172 @@ public final class CertificateCompressor {
     }
 
     /**
-     * Decompresses a {@code CompressedCertificate} payload.
+     * Receives decompressed certificate bytes as they are produced. The
+     * buffer is only valid for the duration of the call.
+     */
+    public interface Sink {
+        void decoded(ByteBuffer data) throws HandshakeFormatException;
+    }
+
+    /**
+     * Creates a push-style streaming decompressor. Memory use is a fixed
+     * scratch buffer plus codec state, independent of message size.
+     *
+     * @param algorithm negotiated algorithm
+     * @param maxDecompressedSize output limit, enforced as output is produced
+     * @param sink receives decompressed chunks
+     * @return the decompressor
+     * @throws HandshakeFormatException if the algorithm is unsupported
+     */
+    public static Decompressor newDecompressor(CertificateCompressionAlgorithm algorithm,
+            int maxDecompressedSize, Sink sink) throws HandshakeFormatException {
+        if (algorithm == CertificateCompressionAlgorithm.BROTLI) {
+            return new BrotliStream(maxDecompressedSize, sink);
+        }
+        if (algorithm == CertificateCompressionAlgorithm.ZLIB) {
+            return new ZlibStream(maxDecompressedSize, sink);
+        }
+        throw new HandshakeFormatException("unsupported certificate compression algorithm");
+    }
+
+    /** Streaming decompressor; feed compressed bytes in arbitrary chunks. */
+    public abstract static class Decompressor {
+
+        static final int SCRATCH_SIZE = 8192;
+
+        final int max;
+        final Sink sink;
+        int total;
+
+        Decompressor(int max, Sink sink) {
+            this.max = max;
+            this.sink = sink;
+        }
+
+        /**
+         * Consumes all remaining bytes of {@code compressed}.
+         *
+         * @param compressed next chunk of compressed data
+         * @param end true if this is the final chunk
+         * @throws HandshakeFormatException on corrupt, truncated or oversize input
+         */
+        public abstract void write(ByteBuffer compressed, boolean end) throws HandshakeFormatException;
+
+        void emit(ByteBuffer data) throws HandshakeFormatException {
+            int n = data.remaining();
+            if (n > max - total) {
+                throw new HandshakeFormatException("decompressed certificate exceeds limit");
+            }
+            total += n;
+            sink.decoded(data);
+        }
+    }
+
+    private static final class ZlibStream extends Decompressor {
+
+        private final Inflater inflater = new Inflater(false);
+        private final byte[] out = new byte[SCRATCH_SIZE];
+        private byte[] in = new byte[SCRATCH_SIZE];
+        private boolean done;
+
+        ZlibStream(int max, Sink sink) {
+            super(max, sink);
+        }
+
+        @Override
+        public void write(ByteBuffer compressed, boolean end) throws HandshakeFormatException {
+            try {
+                while (compressed.hasRemaining()) {
+                    if (done) {
+                        throw new HandshakeFormatException("trailing data after zlib certificate compression");
+                    }
+                    int n = Math.min(compressed.remaining(), in.length);
+                    compressed.get(in, 0, n);
+                    inflater.setInput(in, 0, n);
+                    drain();
+                }
+                if (end) {
+                    if (!done) {
+                        throw new HandshakeFormatException("truncated zlib certificate compression");
+                    }
+                }
+            } catch (HandshakeFormatException e) {
+                inflater.end();
+                throw e;
+            }
+            if (end) {
+                inflater.end();
+            }
+        }
+
+        private void drain() throws HandshakeFormatException {
+            while (!inflater.finished()) {
+                int n;
+                try {
+                    n = inflater.inflate(out);
+                } catch (DataFormatException e) {
+                    throw new HandshakeFormatException("zlib decompression failed");
+                }
+                if (n > 0) {
+                    emit(ByteBuffer.wrap(out, 0, n));
+                } else if (inflater.finished()) {
+                    break;
+                } else if (inflater.needsInput()) {
+                    return;
+                } else if (inflater.needsDictionary()) {
+                    throw new HandshakeFormatException("zlib decompression failed");
+                }
+            }
+            if (inflater.getRemaining() > 0) {
+                throw new HandshakeFormatException("trailing data after zlib certificate compression");
+            }
+            done = true;
+        }
+    }
+
+    private static final class BrotliStream extends Decompressor {
+
+        private final BrotliDecoder decoder = new BrotliDecoder();
+        private HandshakeFormatException failure;
+
+        BrotliStream(int max, Sink sink) {
+            super(max, sink);
+            decoder.setHandler(new BrotliDefaultHandler() {
+                @Override
+                public void content(ByteBuffer data, boolean end) throws BrotliException {
+                    if (data != null && data.hasRemaining()) {
+                        try {
+                            emit(data);
+                        } catch (HandshakeFormatException e) {
+                            failure = e;
+                            throw new BrotliException(e.getMessage());
+                        }
+                    }
+                }
+            });
+        }
+
+        @Override
+        public void write(ByteBuffer compressed, boolean end) throws HandshakeFormatException {
+            try {
+                if (compressed.hasRemaining()) {
+                    decoder.receive(compressed);
+                }
+                if (end) {
+                    decoder.close();
+                }
+            } catch (BrotliException e) {
+                if (failure != null) {
+                    throw failure;
+                }
+                throw new HandshakeFormatException("brotli decompression failed");
+            }
+        }
+    }
+
+    /**
+     * Decompresses a complete {@code CompressedCertificate} payload held in
+     * memory, using the streaming decompressor.
      *
      * @param algorithm negotiated algorithm
      * @param compressed compressed certificate message bytes
@@ -119,13 +284,17 @@ public final class CertificateCompressor {
      */
     public static byte[] decompress(CertificateCompressionAlgorithm algorithm, byte[] compressed,
             int maxDecompressedSize) throws HandshakeFormatException {
-        if (algorithm == CertificateCompressionAlgorithm.BROTLI) {
-            return decompressBrotli(compressed, maxDecompressedSize);
-        }
-        if (algorithm == CertificateCompressionAlgorithm.ZLIB) {
-            return decompressZlib(compressed, maxDecompressedSize);
-        }
-        throw new HandshakeFormatException("unsupported certificate compression algorithm");
+        final ByteArrayOutputStream out = new ByteArrayOutputStream();
+        Decompressor d = newDecompressor(algorithm, maxDecompressedSize, new Sink() {
+            @Override
+            public void decoded(ByteBuffer data) {
+                byte[] chunk = new byte[data.remaining()];
+                data.get(chunk);
+                out.write(chunk, 0, chunk.length);
+            }
+        });
+        d.write(ByteBuffer.wrap(compressed), true);
+        return out.toByteArray();
     }
 
     private static byte[] compressZlib(byte[] input) throws HandshakeFormatException {
@@ -147,33 +316,6 @@ public final class CertificateCompressor {
         }
     }
 
-    private static byte[] decompressZlib(byte[] compressed, int maxSize) throws HandshakeFormatException {
-        Inflater inflater = new Inflater(false);
-        try {
-            inflater.setInput(compressed);
-            ByteArrayOutputStream out = new ByteArrayOutputStream(compressed.length * 2);
-            byte[] buf = new byte[4096];
-            while (!inflater.finished()) {
-                int n;
-                try {
-                    n = inflater.inflate(buf);
-                } catch (DataFormatException e) {
-                    throw new HandshakeFormatException("zlib decompression failed");
-                }
-                if (n == 0 && inflater.needsInput()) {
-                    throw new HandshakeFormatException("truncated zlib certificate compression");
-                }
-                out.write(buf, 0, n);
-                if (out.size() > maxSize) {
-                    throw new HandshakeFormatException("decompressed certificate exceeds limit");
-                }
-            }
-            return out.toByteArray();
-        } finally {
-            inflater.end();
-        }
-    }
-
     private static byte[] compressBrotli(byte[] input) throws HandshakeFormatException {
         final ByteArrayOutputStream out = new ByteArrayOutputStream(input.length / 2 + 64);
         BrotliSink sink = new BrotliSink() {
@@ -190,31 +332,6 @@ public final class CertificateCompressor {
             BrotliWriter.write(ByteBuffer.wrap(input), sink, 2, 22);
         } catch (BrotliException e) {
             throw new HandshakeFormatException("brotli compression failed");
-        }
-        return out.toByteArray();
-    }
-
-    private static byte[] decompressBrotli(byte[] compressed, int maxSize) throws HandshakeFormatException {
-        final ByteArrayOutputStream out = new ByteArrayOutputStream(compressed.length * 2);
-        BrotliDecoder decoder = new BrotliDecoder();
-        decoder.setHandler(new BrotliDefaultHandler() {
-            @Override
-            public void content(ByteBuffer data, boolean end) throws BrotliException {
-                if (data != null && data.hasRemaining()) {
-                    byte[] chunk = new byte[data.remaining()];
-                    data.get(chunk);
-                    out.write(chunk, 0, chunk.length);
-                    if (out.size() > maxSize) {
-                        throw new BrotliException("decompressed certificate exceeds limit");
-                    }
-                }
-            }
-        });
-        try {
-            decoder.receive(ByteBuffer.wrap(compressed));
-            decoder.close();
-        } catch (BrotliException e) {
-            throw new HandshakeFormatException("brotli decompression failed");
         }
         return out.toByteArray();
     }

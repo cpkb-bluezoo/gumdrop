@@ -112,6 +112,7 @@ public final class HandshakeEngine {
 
     // Client-only state.
     private byte[] savedClientHelloBytes;
+    private CompressedCertificateReceiver compressedCertificateReceiver;
     private Map<NamedGroup, KeyExchange> clientKeyExchanges;
     private byte[] clientHelloRandom;
     private boolean clientRetried;
@@ -326,7 +327,7 @@ public final class HandshakeEngine {
      *
      * @param message the complete framed message (RFC 8446 section 4
      *                header included), as produced by e.g.
-     *                {@code CryptoStreamBuffer.receiveAndExtractMessages}
+     *                {@code CryptoStreamBuffer.receive}
      * @param sink where to push resulting events
      */
     public void processMessage(byte[] message, TlsEventSink sink) {
@@ -546,26 +547,113 @@ public final class HandshakeEngine {
         verifyServerCertificate(message, sink);
     }
 
-    private void onCompressedCertificate(byte[] message, TlsEventSink sink) throws HandshakeFormatException {
-        transcript.update(message);
-        HandshakeMessages.CompressedCertificate cc = HandshakeMessages.parseCompressedCertificate(message);
-        CertificateCompressionAlgorithm alg = cc.algorithm;
-        if (negotiatedCertCompression != null && alg != negotiatedCertCompression) {
+    private void onCompressedCertificate(byte[] message, TlsEventSink sink) {
+        processWholeCompressedCertificate(message, sink);
+    }
+
+    private void processWholeCompressedCertificate(byte[] message, TlsEventSink sink) {
+        beginStreamedMessage(Arrays.copyOfRange(message, 0, 4), sink);
+        if (compressedCertificateReceiver == null) {
+            return;
+        }
+        streamedMessageData(Arrays.copyOfRange(message, 4, message.length), sink);
+        endStreamedMessage(sink);
+    }
+
+    /**
+     * Whether a handshake message of this type is fed incrementally through
+     * {@link #beginStreamedMessage}, {@link #streamedMessageData} and
+     * {@link #endStreamedMessage} rather than {@link #processMessage}.
+     *
+     * @param type the handshake message type
+     * @return true for {@code CompressedCertificate}
+     */
+    public static boolean isStreamedMessageType(int type) {
+        return type == HandshakeMessages.HANDSHAKE_TYPE_COMPRESSED_CERTIFICATE;
+    }
+
+    /**
+     * Starts an incrementally delivered {@code CompressedCertificate}
+     * (RFC 8879): the message is decompressed and its certificates parsed
+     * as the body arrives, so neither the compressed nor the decompressed
+     * message is ever held whole.
+     *
+     * @param header the 4-byte handshake header (type and body length)
+     * @param sink where to push resulting events
+     */
+    public void beginStreamedMessage(byte[] header, TlsEventSink sink) {
+        compressedCertificateReceiver = null;
+        if (state == State.FAILED) {
+            fail(sink, AlertDescription.UNEXPECTED_MESSAGE, "Handshake message received after failure");
+            return;
+        }
+        boolean client = config.getRole() == HandshakeRole.CLIENT;
+        State expected = client ? State.WAIT_CERTIFICATE : State.WAIT_CLIENT_CERTIFICATE;
+        if (header.length != 4 || !isStreamedMessageType(header[0] & 0xff) || state != expected) {
+            fail(sink, AlertDescription.UNEXPECTED_MESSAGE, "Unexpected CompressedCertificate");
+            return;
+        }
+        transcript.update(header);
+        int bodyLength = ((header[1] & 0xff) << 16) | ((header[2] & 0xff) << 8) | (header[3] & 0xff);
+        compressedCertificateReceiver = new CompressedCertificateReceiver(negotiatedCertCompression,
+                config.getMaxDecompressedCertificateSize(), bodyLength);
+    }
+
+    /**
+     * Feeds the next chunk of the message begun by {@link #beginStreamedMessage}.
+     *
+     * @param chunk the next body bytes
+     * @param sink where to push resulting events
+     */
+    public void streamedMessageData(byte[] chunk, TlsEventSink sink) {
+        CompressedCertificateReceiver receiver = compressedCertificateReceiver;
+        if (receiver == null || state == State.FAILED) {
+            return;
+        }
+        transcript.update(chunk);
+        try {
+            receiver.write(chunk);
+        } catch (HandshakeFormatException e) {
+            failStreamed(receiver, e, sink);
+        }
+    }
+
+    /**
+     * Completes the message begun by {@link #beginStreamedMessage}, then
+     * verifies the certificate chain it carried.
+     *
+     * @param sink where to push resulting events
+     */
+    public void endStreamedMessage(TlsEventSink sink) {
+        CompressedCertificateReceiver receiver = compressedCertificateReceiver;
+        if (receiver == null || state == State.FAILED) {
+            return;
+        }
+        try {
+            receiver.finish();
+        } catch (HandshakeFormatException e) {
+            failStreamed(receiver, e, sink);
+            return;
+        }
+        compressedCertificateReceiver = null;
+        if (config.getRole() == HandshakeRole.CLIENT) {
+            verifyServerChain(receiver.getChain(), sink);
+        } else {
+            processClientChain(receiver.getContext(), receiver.getChain(), sink);
+        }
+    }
+
+    private void failStreamed(CompressedCertificateReceiver receiver, HandshakeFormatException e,
+            TlsEventSink sink) {
+        compressedCertificateReceiver = null;
+        if (receiver.isAlgorithmMismatch()) {
             fail(sink, AlertDescription.ILLEGAL_PARAMETER, "certificate compression algorithm mismatch");
-            return;
+        } else if (e.isBadCertificate()) {
+            String who = config.getRole() == HandshakeRole.CLIENT ? "server" : "client";
+            fail(sink, AlertDescription.BAD_CERTIFICATE, "Malformed " + who + " certificate: " + e.getMessage());
+        } else {
+            fail(sink, AlertDescription.DECODE_ERROR, "Malformed handshake message: " + e.getMessage());
         }
-        if (alg == null) {
-            fail(sink, AlertDescription.DECODE_ERROR, "CompressedCertificate without a known algorithm");
-            return;
-        }
-        byte[] certificate = CertificateCompressor.decompress(alg, cc.compressed,
-                config.getMaxDecompressedCertificateSize());
-        if (certificate.length < 1
-                || (certificate[0] & 0xff) != HandshakeMessages.HANDSHAKE_TYPE_CERTIFICATE) {
-            fail(sink, AlertDescription.BAD_CERTIFICATE, "decompressed certificate message is invalid");
-            return;
-        }
-        verifyServerCertificate(certificate, sink);
     }
 
     private void verifyServerCertificate(byte[] message, TlsEventSink sink) throws HandshakeFormatException {
@@ -574,12 +662,22 @@ public final class HandshakeEngine {
             fail(sink, AlertDescription.BAD_CERTIFICATE, "Server presented an empty certificate chain");
             return;
         }
+        List<X509Certificate> chain;
         try {
-            peerCertificateChain = CertificateVerifier.parseChain(der);
+            chain = CertificateVerifier.parseChain(der);
         } catch (CertificateException e) {
             fail(sink, AlertDescription.BAD_CERTIFICATE, "Malformed server certificate: " + e.getMessage());
             return;
         }
+        verifyServerChain(chain, sink);
+    }
+
+    private void verifyServerChain(List<X509Certificate> chain, TlsEventSink sink) {
+        if (chain.isEmpty()) {
+            fail(sink, AlertDescription.BAD_CERTIFICATE, "Server presented an empty certificate chain");
+            return;
+        }
+        peerCertificateChain = chain;
         String expectedHostname = null;
         if (config.isVerifyHostname()) {
             if (echRejected && config.getEchConfig() != null) {
@@ -1074,38 +1172,30 @@ public final class HandshakeEngine {
         processClientCertificateMessage(message, sink);
     }
 
-    private void onCompressedClientCertificate(byte[] message, TlsEventSink sink) throws HandshakeFormatException {
-        transcript.update(message);
-        HandshakeMessages.CompressedCertificate cc = HandshakeMessages.parseCompressedCertificate(message);
-        CertificateCompressionAlgorithm alg = cc.algorithm;
-        if (negotiatedCertCompression != null && alg != negotiatedCertCompression) {
-            fail(sink, AlertDescription.ILLEGAL_PARAMETER, "certificate compression algorithm mismatch");
-            return;
-        }
-        if (alg == null) {
-            fail(sink, AlertDescription.DECODE_ERROR, "CompressedCertificate without a known algorithm");
-            return;
-        }
-        byte[] certificate = CertificateCompressor.decompress(alg, cc.compressed,
-                config.getMaxDecompressedCertificateSize());
-        if (certificate.length < 1
-                || (certificate[0] & 0xff) != HandshakeMessages.HANDSHAKE_TYPE_CERTIFICATE) {
-            fail(sink, AlertDescription.BAD_CERTIFICATE, "decompressed client certificate message is invalid");
-            return;
-        }
-        processClientCertificateMessage(certificate, sink);
+    private void onCompressedClientCertificate(byte[] message, TlsEventSink sink) {
+        processWholeCompressedCertificate(message, sink);
     }
 
     private void processClientCertificateMessage(byte[] message, TlsEventSink sink)
             throws HandshakeFormatException {
         byte[] context = HandshakeMessages.parseCertificateContext(message);
+        List<byte[]> der = HandshakeMessages.parseCertificate(message);
+        List<X509Certificate> chain;
+        try {
+            chain = CertificateVerifier.parseChain(der);
+        } catch (CertificateException e) {
+            fail(sink, AlertDescription.BAD_CERTIFICATE, "Malformed client certificate: " + e.getMessage());
+            return;
+        }
+        processClientChain(context, chain, sink);
+    }
+
+    private void processClientChain(byte[] context, List<X509Certificate> chain, TlsEventSink sink) {
         if (context.length != 0) {
             fail(sink, AlertDescription.ILLEGAL_PARAMETER, "Client Certificate context does not match CertificateRequest");
             return;
         }
-        List<byte[]> der = HandshakeMessages.parseCertificate(message);
-
-        if (der.isEmpty()) {
+        if (chain.isEmpty()) {
             if (config.getClientAuthPolicy() == ClientAuthPolicy.REQUIRE) {
                 fail(sink, AlertDescription.CERTIFICATE_REQUIRED, "Client did not present a certificate");
                 return;
@@ -1115,13 +1205,6 @@ public final class HandshakeEngine {
             return;
         }
 
-        List<X509Certificate> chain;
-        try {
-            chain = CertificateVerifier.parseChain(der);
-        } catch (CertificateException e) {
-            fail(sink, AlertDescription.BAD_CERTIFICATE, "Malformed client certificate: " + e.getMessage());
-            return;
-        }
         CertificateVerifier.Result result = CertificateVerifier.verifyChain(chain, config.getClientTrustManager(), null);
         if (!result.isOk() && config.getClientAuthPolicy() == ClientAuthPolicy.REQUIRE) {
             fail(sink, AlertDescription.BAD_CERTIFICATE, result.getError());

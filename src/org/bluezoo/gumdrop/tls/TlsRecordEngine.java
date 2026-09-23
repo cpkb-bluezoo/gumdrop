@@ -24,6 +24,7 @@ package org.bluezoo.gumdrop.tls;
 import java.io.ByteArrayOutputStream;
 import java.security.GeneralSecurityException;
 import java.security.cert.X509Certificate;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 
@@ -461,10 +462,10 @@ public final class TlsRecordEngine {
         }
 
         @Override
-        public void runMessages(List<byte[]> messages) {
-            for (int i = 0; i < messages.size(); i++) {
+        public void runInputs(List<HandshakeInput> inputs) {
+            for (int i = 0; i < inputs.size(); i++) {
                 deferredDispatch.resetSlots();
-                engine.processMessage(messages.get(i), innerSink);
+                inputs.get(i).dispatch(engine, innerSink);
                 if (failed || engine.isFailed()) {
                     break;
                 }
@@ -520,12 +521,31 @@ public final class TlsRecordEngine {
             }
             case CONTENT_HANDSHAKE:
                 try {
-                    handshakeReassembler.feed(payload, new HandshakeMessageReassembler.MessageConsumer() {
+                    final List<HandshakeInput> inputs = new ArrayList<HandshakeInput>();
+                    handshakeReassembler.feed(payload, new HandshakeMessageReassembler.StreamingMessageConsumer() {
                         @Override
                         public void accept(byte[] completeMessage) {
-                            handshakeAsync.scheduleMessage(completeMessage);
+                            inputs.add(HandshakeInput.message(completeMessage));
+                        }
+
+                        @Override
+                        public void streamStart(byte[] messageHeader) {
+                            inputs.add(HandshakeInput.streamBegin(messageHeader));
+                        }
+
+                        @Override
+                        public void streamData(byte[] chunk) {
+                            inputs.add(HandshakeInput.streamData(chunk));
+                        }
+
+                        @Override
+                        public void streamEnd() {
+                            inputs.add(HandshakeInput.streamEnd());
                         }
                     });
+                    if (!inputs.isEmpty()) {
+                        handshakeAsync.scheduleInputs(inputs);
+                    }
                 } catch (HandshakeFormatException e) {
                     fail(sink, AlertDescription.DECODE_ERROR, "malformed handshake record");
                     return false;
