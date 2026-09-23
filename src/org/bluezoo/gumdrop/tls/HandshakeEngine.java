@@ -124,6 +124,7 @@ public final class HandshakeEngine {
     private boolean echOffered;
     private boolean echAccepted;
     private boolean echRejected;
+    private EchConfig[] echRetryConfigs;
     /** GREASE ECH only (RFC 9849 section 6.2); not a real ECH offer. */
     private boolean echGreaseOffered;
     private byte[] echGreaseFirstClientHelloFramed;
@@ -426,10 +427,6 @@ public final class HandshakeEngine {
                 echRejected = true;
             }
         }
-        if (echOffered && echRejected && config.isEchRequired()) {
-            fail(sink, AlertDescription.ECH_REQUIRED, "Server rejected Encrypted Client Hello");
-            return;
-        }
         if (!sh.selectedTls13 || sh.cipherSuite == null || !config.getCipherSuites().contains(sh.cipherSuite)) {
             fail(sink, AlertDescription.HANDSHAKE_FAILURE, "Server selected an unacceptable protocol version or cipher suite");
             return;
@@ -524,8 +521,15 @@ public final class HandshakeEngine {
             sink.peerTransportParameters(ee.quicTransportParameters);
         }
         sink.earlyDataAccepted(ee.earlyDataAccepted);
-        if (echOffered && echRejected && ee.echRetryConfigs != null && ee.echRetryConfigs.length > 0) {
-            config.setEchConfig(ee.echRetryConfigs[0]);
+        if (echOffered && echRejected) {
+            // RFC 9849 section 6.1.6: nothing the server says can be trusted
+            // until it has authenticated for the offered config's public_name,
+            // and a resumed handshake has no certificate to authenticate with.
+            if (resumed && config.isEchRequired()) {
+                fail(sink, AlertDescription.ECH_REQUIRED, "Server rejected Encrypted Client Hello");
+                return;
+            }
+            echRetryConfigs = ee.echRetryConfigs;
         }
         state = resumed ? State.WAIT_SERVER_FINISHED : State.WAIT_CERTIFICATE;
     }
@@ -706,6 +710,9 @@ public final class HandshakeEngine {
             fail(sink, AlertDescription.DECRYPT_ERROR, "Server Finished verify-data mismatch");
             return;
         }
+        if (echOffered && echRejected && !reportRejectedEch(sink)) {
+            return;
+        }
         transcript.update(message);
         hashThroughServerFinished = transcript.hash();
         keySchedule.deriveMasterSecret();
@@ -728,6 +735,28 @@ public final class HandshakeEngine {
         state = State.COMPLETE;
         sink.handshakeDataReady(clientFinished);
         sink.applicationSecretsReady();
+    }
+
+    /**
+     * Client role, ECH offered but rejected: the server has now proved it
+     * holds the key for the offered config's {@code public_name} (its
+     * certificate was verified against that name and its Finished checks
+     * out), so its {@code retry_configs} may be trusted and are handed to
+     * the configured listener. If ECH was required the handshake then aborts
+     * with {@code ech_required} before anything is sent to that server.
+     *
+     * @return false if the handshake was aborted
+     */
+    private boolean reportRejectedEch(TlsEventSink sink) {
+        EchRetryConfigsListener listener = config.getEchRetryConfigsListener();
+        if (listener != null && echRetryConfigs != null && echRetryConfigs.length > 0) {
+            listener.retryConfigsReceived(echRetryConfigs);
+        }
+        if (config.isEchRequired()) {
+            fail(sink, AlertDescription.ECH_REQUIRED, "Server rejected Encrypted Client Hello");
+            return false;
+        }
+        return true;
     }
 
     /**

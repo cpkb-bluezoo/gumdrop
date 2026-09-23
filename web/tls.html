@@ -217,7 +217,18 @@ driven by <code>TlsEventSink</code> callbacks &mdash; no blocking
     <code>TlsConfig.clientEchConfigListFile()</code> and
     <code>clientEchGreaseEnabled()</code>. Precedence: a list found in DNS is used
     first; the file is the fallback when DNS supplies none; GREASE applies only when
-    no real config is used.</li>
+    no real config is used and is never required.
+    <code>TlsConfig.clientEchRequired(true)</code> refuses servers that reject ECH: the
+    client completes the exchange on the outer hello only far enough to verify the
+    server against the offered config&rsquo;s <code>public_name</code> (certificate and
+    Finished), then aborts with <code>ech_required</code> before sending anything
+    else, and never retries on its own. Only once the server has authenticated are its
+    <code>retry_configs</code> trusted; the first usable config is then kept for later
+    connections through the same transport factory. Without
+    <code>clientEchRequired</code> a rejected offer is not fatal and the connection
+    continues on the outer hello with the same <code>public_name</code>
+    verification. If a HelloRetryRequest already shows the server rejecting ECH, a
+    client that requires ECH aborts immediately.</li>
 </ul>
 
 <p>

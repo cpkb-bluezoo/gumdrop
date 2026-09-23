@@ -26,6 +26,8 @@ import org.bluezoo.gumdrop.quic.tls.PemCredentials;
 import org.bluezoo.gumdrop.tls.CipherSuite;
 import org.bluezoo.gumdrop.tls.ClientAuthPolicy;
 import org.bluezoo.gumdrop.tls.EchClientBootstrap;
+import org.bluezoo.gumdrop.tls.EchHttpsDiscovery;
+import org.bluezoo.gumdrop.tls.EchRetryConfigsListener;
 import org.bluezoo.gumdrop.tls.EchConfig;
 import org.bluezoo.gumdrop.tls.EchDeployment;
 import org.bluezoo.gumdrop.tls.HandshakeConfig;
@@ -125,6 +127,7 @@ public class TcpTransportFactory extends TransportFactory {
 
     private EchConfig clientEchConfig;
     private boolean clientEchGreaseEnabled;
+    private boolean clientEchRequired;
 
     public TcpTransportFactory() {
     }
@@ -150,6 +153,14 @@ public class TcpTransportFactory extends TransportFactory {
      */
     public void setClientEchGreaseEnabled(boolean clientEchGreaseEnabled) {
         this.clientEchGreaseEnabled = clientEchGreaseEnabled;
+    }
+
+    /**
+     * Requires ECH on outbound TLS client connections: a server that rejects
+     * it ends the handshake with {@code ech_required}.
+     */
+    public void setClientEchRequired(boolean clientEchRequired) {
+        this.clientEchRequired = clientEchRequired;
     }
 
     /**
@@ -768,7 +779,7 @@ public class TcpTransportFactory extends TransportFactory {
         return config;
     }
 
-    private HandshakeConfig buildClientConfig(String serverName) {
+    HandshakeConfig buildClientConfig(String serverName) {
         HandshakeConfig config = new HandshakeConfig(HandshakeRole.CLIENT);
         config.setServerName(serverName);
         config.setTrustManager(effectiveTrustManager);
@@ -776,7 +787,17 @@ public class TcpTransportFactory extends TransportFactory {
             config.setClientCredentials(clientCredentials);
         }
         applyCommonConfig(config);
-        EchClientBootstrap.applyToHandshakeConfig(config, clientEchConfig, clientEchGreaseEnabled);
+        EchClientBootstrap.applyToHandshakeConfig(config, clientEchConfig, clientEchGreaseEnabled,
+                clientEchRequired);
+        config.setEchRetryConfigsListener(new EchRetryConfigsListener() {
+            @Override
+            public void retryConfigsReceived(EchConfig[] authenticatedConfigs) {
+                EchConfig usable = EchHttpsDiscovery.selectClientConfig(authenticatedConfigs);
+                if (usable != null) {
+                    clientEchConfig = usable;
+                }
+            }
+        });
         return config;
     }
 

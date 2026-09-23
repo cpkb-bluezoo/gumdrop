@@ -109,4 +109,15 @@ public class TlsConfigTest {
         assertFalse(copy.isVerifyPeer());
     }
 
+
+    @Test
+    public void clientEchRequiredIsOffByDefaultAndSurvivesMergeAndCopy() {
+        assertFalse(new TlsConfig().isClientEchRequired());
+        TlsConfig required = new TlsConfig().clientEchRequired(true);
+        assertTrue(required.isClientEchRequired());
+        assertTrue(TlsConfig.effective(required, null).isClientEchRequired());
+        assertTrue(TlsConfig.effective(new TlsConfig(), required).isClientEchRequired());
+        assertTrue(new TlsConfig().copyFrom(required).isClientEchRequired());
+    }
 }
+

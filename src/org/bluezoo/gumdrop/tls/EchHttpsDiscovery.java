@@ -45,14 +45,24 @@ public final class EchHttpsDiscovery {
             return null;
         }
         try {
-            EchConfig[] configs = EchConfig.parseList(echConfigListBytes);
-            for (int i = 0; i < configs.length; i++) {
-                if (isClientSelectable(configs[i])) {
-                    return configs[i];
-                }
-            }
+            return selectClientConfig(EchConfig.parseList(echConfigListBytes));
         } catch (HandshakeFormatException e) {
             return null;
+        }
+    }
+
+    /**
+     * Returns the first config in {@code configs} that offers an HPKE suite
+     * gumdrop implements and is not a GREASE placeholder, or null if none.
+     *
+     * @param configs parsed configs, in the publisher's order
+     * @return a usable config, or null
+     */
+    public static EchConfig selectClientConfig(EchConfig[] configs) {
+        for (int i = 0; i < configs.length; i++) {
+            if (isClientSelectable(configs[i])) {
+                return configs[i];
+            }
         }
         return null;
     }

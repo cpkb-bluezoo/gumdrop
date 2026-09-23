@@ -137,6 +137,7 @@ public class QuicTransportFactory extends TransportFactory {
 
     private EchConfig clientEchConfig;
     private boolean clientEchGreaseEnabled;
+    private boolean clientEchRequired;
 
     public QuicTransportFactory() {
         this.secure = true;
@@ -628,6 +629,23 @@ public class QuicTransportFactory extends TransportFactory {
     }
 
     /**
+     * Requires ECH on outbound QUIC client connections: a server that rejects
+     * it ends the handshake with {@code ech_required}.
+     */
+    public void setClientEchRequired(boolean clientEchRequired) {
+        this.clientEchRequired = clientEchRequired;
+    }
+
+    /**
+     * Returns the ECH configuration set for outbound QUIC client connections.
+     *
+     * @return the config, or null if none
+     */
+    public EchConfig getClientEchConfig() {
+        return clientEchConfig;
+    }
+
+    /**
      * Applies configured ECH server keys to a {@link QuicTlsServerEngine}.
      */
     public void applyEchServerSettings(org.bluezoo.gumdrop.quic.tls.QuicTlsServerEngine tlsEngine) {
@@ -646,6 +664,19 @@ public class QuicTransportFactory extends TransportFactory {
         if (clientEchGreaseEnabled) {
             tlsEngine.setEchGreaseEnabled(true);
         }
+        if (clientEchRequired) {
+            tlsEngine.setEchRequired(true);
+        }
+        tlsEngine.setEchRetryConfigsListener(new org.bluezoo.gumdrop.tls.EchRetryConfigsListener() {
+            @Override
+            public void retryConfigsReceived(EchConfig[] authenticatedConfigs) {
+                EchConfig usable = org.bluezoo.gumdrop.tls.EchHttpsDiscovery.selectClientConfig(
+                        authenticatedConfigs);
+                if (usable != null) {
+                    clientEchConfig = usable;
+                }
+            }
+        });
     }
 
     // ── Server engine creation ──

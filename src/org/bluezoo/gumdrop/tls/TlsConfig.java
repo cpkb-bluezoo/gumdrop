@@ -72,6 +72,7 @@ public final class TlsConfig {
     private Path clientEchConfigListFile;
     private boolean clientEchGreaseEnabled;
     private boolean clientEchDnsDiscovery;
+    private boolean clientEchRequired;
 
     /**
      * Creates an empty config for fluent configuration.
@@ -254,6 +255,23 @@ public final class TlsConfig {
         return this;
     }
 
+    /**
+     * Client-only: refuse to talk to a server that rejects Encrypted Client
+     * Hello (RFC 9849 section 6.1.7). When the server rejects the offer the
+     * handshake is not used: the client checks the server against the offered
+     * config's {@code public_name} (which also authenticates any
+     * {@code retry_configs}), then aborts with {@code ech_required} before
+     * sending anything further, and never retries on its own. The
+     * {@code retry_configs} are kept for later connections made through the
+     * same transport factory. Has no effect unless a real ECH config is in
+     * use, from DNS or {@link #clientEchConfigListFile(Path)}; GREASE
+     * ({@link #clientEchGreaseEnabled(boolean)}) is never required.
+     */
+    public TlsConfig clientEchRequired(boolean clientEchRequired) {
+        this.clientEchRequired = clientEchRequired;
+        return this;
+    }
+
     public Path getEchConfigListFile() {
         return echConfigListFile;
     }
@@ -272,6 +290,10 @@ public final class TlsConfig {
 
     public boolean isClientEchGreaseEnabled() {
         return clientEchGreaseEnabled;
+    }
+
+    public boolean isClientEchRequired() {
+        return clientEchRequired;
     }
 
     public boolean isClientEchDnsDiscoveryEnabled() {
@@ -354,6 +376,7 @@ public final class TlsConfig {
                 ? local.clientEchGreaseEnabled
                 : fallback.clientEchGreaseEnabled;
         out.clientEchDnsDiscovery = local.clientEchDnsDiscovery || fallback.clientEchDnsDiscovery;
+        out.clientEchRequired = local.clientEchRequired || fallback.clientEchRequired;
         return out;
     }
 
@@ -388,6 +411,7 @@ public final class TlsConfig {
         this.clientEchConfigListFile = source.clientEchConfigListFile;
         this.clientEchGreaseEnabled = source.clientEchGreaseEnabled;
         this.clientEchDnsDiscovery = source.clientEchDnsDiscovery;
+        this.clientEchRequired = source.clientEchRequired;
         return this;
     }
 
