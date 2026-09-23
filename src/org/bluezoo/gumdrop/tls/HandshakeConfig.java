@@ -80,6 +80,8 @@ public final class HandshakeConfig {
     private boolean echRequired;
     /** When true and no real ECH config is offered, send GREASE ECH (RFC 9849 section 6.2). */
     private boolean echGreaseEnabled;
+    /** Client role: told the authenticated {@code retry_configs} of a rejected ECH offer. */
+    private EchRetryConfigsListener echRetryConfigsListener;
     /** Server role: ECH configs and private keys for decrypting ClientHelloOuter. */
     private final List<EchServerKey> echServerKeys = new ArrayList<EchServerKey>();
     /** Server role: require clients to offer ECH (RFC 9849 section 7.3). */
@@ -662,6 +664,26 @@ public final class HandshakeConfig {
      */
     public void setEchGreaseEnabled(boolean echGreaseEnabled) {
         this.echGreaseEnabled = echGreaseEnabled;
+    }
+
+    /**
+     * Returns the listener told about authenticated {@code retry_configs}.
+     *
+     * @return the listener, or null
+     */
+    public EchRetryConfigsListener getEchRetryConfigsListener() {
+        return echRetryConfigsListener;
+    }
+
+    /**
+     * Sets a listener for the {@code retry_configs} a server sends when it
+     * rejects an ECH offer, reported once the server has authenticated for
+     * the offered config's {@code public_name}.
+     *
+     * @param echRetryConfigsListener the listener, or null
+     */
+    public void setEchRetryConfigsListener(EchRetryConfigsListener echRetryConfigsListener) {
+        this.echRetryConfigsListener = echRetryConfigsListener;
     }
 
     /**

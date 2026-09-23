@@ -975,10 +975,10 @@ public class HandshakeEngineLoopbackTest {
 
     @Test
     public void echUnknownConfigIdIsRejectedWithRetryConfigsListingEveryPublishedConfig() throws Exception {
-        EchConfig first = EchConfig.createV13(1, hex(ECH_PK1), "public." + SERVER_NAME, 64);
-        EchConfig second = EchConfig.createV13(2, hex(ECH_PK2), "public." + SERVER_NAME, 64);
+        EchConfig first = EchConfig.createV13(1, hex(ECH_PK1), SERVER_NAME, 64);
+        EchConfig second = EchConfig.createV13(2, hex(ECH_PK2), SERVER_NAME, 64);
         // a stale config the server no longer holds a key for
-        EchConfig stale = EchConfig.createV13(9, hex(ECH_PK1), "public." + SERVER_NAME, 64);
+        EchConfig stale = EchConfig.createV13(9, hex(ECH_PK1), SERVER_NAME, 64);
         RecordingSink clientSink = new RecordingSink();
         RecordingSink serverSink = new RecordingSink();
         HandshakeConfig cc = clientConfig(ecChain, SERVER_NAME);
@@ -1040,7 +1040,7 @@ public class HandshakeEngineLoopbackTest {
     @Test
     public void echRequiredOnClientAbortsWhenServerRejectsEch() throws Exception {
         byte[] pkRm = hex("3948cfe0ad1ddb695d780e59077195da6c56506b027329794ab02bca80815c4d");
-        EchConfig ech = EchConfig.createV13(1, pkRm, "public." + SERVER_NAME, 64);
+        EchConfig ech = EchConfig.createV13(1, pkRm, SERVER_NAME, 64);
 
         HandshakeConfig cc = clientConfig(ecChain, SERVER_NAME);
         cc.setEchEnabled(true);
@@ -1058,6 +1058,112 @@ public class HandshakeEngineLoopbackTest {
 
         assertNotNull(clientSink.error);
         assertEquals(AlertDescription.ECH_REQUIRED, clientSink.error.getAlert());
+    }
+
+    private static final class RetryRecorder implements EchRetryConfigsListener {
+        EchConfig[] received;
+        int calls;
+
+        @Override
+        public void retryConfigsReceived(EchConfig[] authenticatedConfigs) {
+            calls++;
+            received = authenticatedConfigs;
+        }
+    }
+
+    private HandshakeEngine[] runRejectedEch(EchConfig offered, boolean required, RetryRecorder recorder,
+            RecordingSink clientSink, RecordingSink serverSink) throws Exception {
+        EchConfig current = EchConfig.createV13(1, hex(ECH_PK1), SERVER_NAME, 64);
+        HandshakeConfig cc = clientConfig(ecChain, SERVER_NAME);
+        cc.setEchEnabled(true);
+        cc.setEchConfig(offered);
+        cc.setEchRequired(required);
+        cc.setEchRetryConfigsListener(recorder);
+        HandshakeConfig sc = serverConfig(ecChain, ecKey);
+        sc.addEchServerKey(current, hex(ECH_SK1));
+        HandshakeEngine client = new HandshakeEngine(cc);
+        HandshakeEngine server = new HandshakeEngine(sc);
+        runHandshake(client, clientSink, server, serverSink);
+        return new HandshakeEngine[] { client, server };
+    }
+
+    @Test
+    public void echRequiredRejectionAbortsAfterAuthenticatingPublicNameAndReportsRetryConfigs() throws Exception {
+        EchConfig stale = EchConfig.createV13(9, hex(ECH_PK1), SERVER_NAME, 64);
+        RetryRecorder recorder = new RetryRecorder();
+        RecordingSink clientSink = new RecordingSink();
+        RecordingSink serverSink = new RecordingSink();
+
+        runRejectedEch(stale, true, recorder, clientSink, serverSink);
+
+        assertNotNull(clientSink.error);
+        assertEquals(AlertDescription.ECH_REQUIRED, clientSink.error.getAlert());
+        assertEquals("retry_configs reported once, after authentication", 1, recorder.calls);
+        boolean listsCurrentConfig = false;
+        for (int i = 0; i < recorder.received.length; i++) {
+            listsCurrentConfig |= recorder.received[i].getConfigId() == 1;
+        }
+        assertTrue("the server's current config is among them", listsCurrentConfig);
+    }
+
+    @Test
+    public void retryConfigsAreNotTrustedWhenThePublicNameDoesNotAuthenticate() throws Exception {
+        // The offered config names a public_name the server's certificate is not valid for.
+        EchConfig stale = EchConfig.createV13(9, hex(ECH_PK1), "wrong.example", 64);
+        RetryRecorder recorder = new RetryRecorder();
+        RecordingSink clientSink = new RecordingSink();
+        RecordingSink serverSink = new RecordingSink();
+
+        runRejectedEch(stale, true, recorder, clientSink, serverSink);
+
+        assertNotNull(clientSink.error);
+        assertEquals(AlertDescription.BAD_CERTIFICATE, clientSink.error.getAlert());
+        assertEquals("unauthenticated retry_configs must never be reported", 0, recorder.calls);
+    }
+
+    @Test
+    public void publicNameIsTakenFromTheOfferedConfigNotFromServerSuppliedRetryConfigs() throws Exception {
+        // The offered config's public_name is one the server's certificate is
+        // not valid for. A hostile server rewrites its EncryptedExtensions so
+        // retry_configs begin with a config naming SERVER_NAME, which the
+        // certificate does satisfy: it must not get to choose the name it is
+        // verified against.
+        EchConfig stale = EchConfig.createV13(9, hex(ECH_PK1), "wrong.example", 64);
+        EchConfig hostile = EchConfig.createV13(1, hex(ECH_PK1), SERVER_NAME, 64);
+        HandshakeConfig cc = clientConfig(ecChain, SERVER_NAME);
+        cc.setEchEnabled(true);
+        cc.setEchConfig(stale);
+        cc.setEchRequired(true);
+        RetryRecorder recorder = new RetryRecorder();
+        cc.setEchRetryConfigsListener(recorder);
+        HandshakeConfig sc = serverConfig(ecChain, ecKey);
+        sc.addEchServerKey(EchConfig.createV13(1, hex(ECH_PK1), SERVER_NAME, 64), hex(ECH_SK1));
+        HandshakeEngine client = new HandshakeEngine(cc);
+        HandshakeEngine server = new HandshakeEngine(sc);
+        RecordingSink clientSink = new RecordingSink();
+        RecordingSink serverSink = new RecordingSink();
+
+        client.start(clientSink);
+        for (byte[] message : clientSink.drain()) {
+            server.processMessage(message, serverSink);
+        }
+        for (byte[] message : serverSink.drain()) {
+            byte[] delivered = message;
+            if ((message[0] & 0xff) == HandshakeMessages.HANDSHAKE_TYPE_ENCRYPTED_EXTENSIONS) {
+                HandshakeMessages.EncryptedExtensions original = HandshakeMessages.parseEncryptedExtensions(message);
+                delivered = HandshakeMessages.buildEncryptedExtensions(original.selectedAlpn,
+                        original.quicTransportParameters, false, false, 0, null,
+                        EchConfig.encodeList(new EchConfig[] { hostile }));
+            }
+            client.processMessage(delivered, clientSink);
+            if (clientSink.error != null) {
+                break;
+            }
+        }
+
+        assertNotNull("verification against the offered public_name must fail", clientSink.error);
+        assertEquals(AlertDescription.BAD_CERTIFICATE, clientSink.error.getAlert());
+        assertEquals(0, recorder.calls);
     }
 
     @Test

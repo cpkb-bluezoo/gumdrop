@@ -208,6 +208,9 @@ public final class ClientConnect {
         if (tls.isClientEchGreaseEnabled()) {
             factory.setClientEchGreaseEnabled(true);
         }
+        if (tls.isClientEchRequired()) {
+            factory.setClientEchRequired(true);
+        }
     }
 
     public static void applyQuicClientEch(QuicTransportFactory factory, byte[] dnsDiscoveredEchConfigList,
@@ -221,6 +224,9 @@ public final class ClientConnect {
         }
         if (tls.isClientEchGreaseEnabled()) {
             factory.setClientEchGreaseEnabled(true);
+        }
+        if (tls.isClientEchRequired()) {
+            factory.setClientEchRequired(true);
         }
     }
 

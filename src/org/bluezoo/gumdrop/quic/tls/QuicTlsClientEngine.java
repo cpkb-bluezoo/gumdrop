@@ -302,6 +302,14 @@ public final class QuicTlsClientEngine implements QuicTlsEngine {
     }
 
     /**
+     * Sets a listener for the authenticated {@code retry_configs} of a
+     * rejected ECH offer (RFC 9849 section 6.1.6).
+     */
+    public void setEchRetryConfigsListener(org.bluezoo.gumdrop.tls.EchRetryConfigsListener listener) {
+        config.setEchRetryConfigsListener(listener);
+    }
+
+    /**
      * Sends GREASE ECH when not offering real ECH (RFC 9849 section 6.2).
      */
     public void setEchGreaseEnabled(boolean echGreaseEnabled) {

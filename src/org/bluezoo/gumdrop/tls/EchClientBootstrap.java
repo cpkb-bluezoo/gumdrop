@@ -66,9 +66,14 @@ public final class EchClientBootstrap {
     }
 
     /**
-     * Enables client ECH and optional GREASE on a {@link HandshakeConfig}.
+     * Enables client ECH, optional GREASE and the requirement to use ECH on a
+     * {@link HandshakeConfig}.
      */
-    public static void applyToHandshakeConfig(HandshakeConfig config, EchConfig echConfig, boolean echGreaseEnabled) {
+    public static void applyToHandshakeConfig(HandshakeConfig config, EchConfig echConfig,
+            boolean echGreaseEnabled, boolean echRequired) {
+        if (echRequired) {
+            config.setEchRequired(true);
+        }
         if (echConfig != null) {
             config.setEchEnabled(true);
             config.setEchConfig(echConfig);
