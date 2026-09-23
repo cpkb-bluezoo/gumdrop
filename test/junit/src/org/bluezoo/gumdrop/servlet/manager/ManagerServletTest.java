@@ -104,6 +104,25 @@ public class ManagerServletTest {
         }
     }
 
+    /** Map-backed HttpSession answering attribute calls for real. */
+    private static final class SessionAnswers implements InvocationHandler {
+        final Map<String, Object> attributes = new HashMap<String, Object>();
+
+        @Override
+        public Object invoke(Object proxy, Method method, Object[] args) {
+            String name = method.getName();
+            if ("getAttribute".equals(name)) {
+                return attributes.get(args[0]);
+            }
+            if ("setAttribute".equals(name)) {
+                attributes.put((String) args[0], args[1]);
+            }
+            return null;
+        }
+    }
+
+    private static final String TOKEN = "known-session-token";
+
     private static <T> T proxy(Class<T> type, Answers answers) {
         return type.cast(Proxy.newProxyInstance(
                 ManagerServletTest.class.getClassLoader(),
@@ -153,6 +172,7 @@ public class ManagerServletTest {
     private final List<String> keepAliveSet = new ArrayList<String>();
     private Map<String, String> params;
     private Answers filterAnswers;
+    private SessionAnswers sessionAnswers;
     private Answers servletAnswers;
 
     @Before
@@ -161,6 +181,7 @@ public class ManagerServletTest {
                 new LinkedBlockingQueue<Runnable>());
         body = new CapturingStream();
         params = new LinkedHashMap<String, String>();
+        params.put(ManagerServlet.CSRF_PARAMETER, TOKEN);
 
         filterAnswers = new Answers()
                 .with("getName", "audit")
@@ -212,7 +233,16 @@ public class ManagerServletTest {
         Answers config = new Answers().with("getServletContext", ctx);
         servlet.init(proxy(ServletConfig.class, config));
 
+        sessionAnswers = new SessionAnswers();
+        sessionAnswers.attributes.put(ManagerServlet.CSRF_ATTRIBUTE, TOKEN);
         requestAnswers = new Answers()
+                .with("getSession", Proxy.newProxyInstance(
+                        ManagerServletTest.class.getClassLoader(),
+                        new Class<?>[] {jakarta.servlet.http.HttpSession.class}, sessionAnswers))
+                .with("isUserInRole", Boolean.TRUE)
+                .with("getScheme", "http")
+                .with("getServerName", "manager.example")
+                .with("getServerPort", Integer.valueOf(8080))
                 .with("getMethod", "GET")
                 .with("getLocale", Locale.ENGLISH)
                 .with("getContextPath", "/manager");
@@ -346,6 +376,98 @@ public class ManagerServletTest {
 
     private void asPost() {
         requestAnswers.with("getMethod", "POST");
+    }
+
+    private void assertForbiddenAndUnchanged() {
+        assertTrue(responseAnswers.calls.contains("sendError:403"));
+        assertEquals(2, pool.getCorePoolSize());
+        assertFalse(contextAnswers.calls.contains("reload"));
+    }
+
+    @Test
+    public void getEmbedsSessionTokenInEveryForm() throws Exception {
+        sessionAnswers.attributes.clear();
+        servlet.service(request, response);
+        Object token = sessionAnswers.attributes.get(ManagerServlet.CSRF_ATTRIBUTE);
+        assertTrue("token created and stored in session", token instanceof String
+                && ((String) token).length() >= 32);
+        String out = html();
+        String field = "name='csrf' value='" + token + "'";
+        int forms = out.split("<form", -1).length - 1;
+        int fields = out.split(java.util.regex.Pattern.quote(field), -1).length - 1;
+        assertTrue("forms rendered: " + forms, forms >= 4);
+        assertEquals("every form carries the token", forms, fields);
+    }
+
+    @Test
+    public void postWithoutTokenIsForbidden() throws Exception {
+        asPost();
+        params.remove(ManagerServlet.CSRF_PARAMETER);
+        withParams("core-pool-size", "7", "reload", "/app");
+        post();
+        assertForbiddenAndUnchanged();
+    }
+
+    @Test
+    public void postWithWrongTokenIsForbidden() throws Exception {
+        asPost();
+        withParams(ManagerServlet.CSRF_PARAMETER, "guess", "core-pool-size", "7", "reload", "/app");
+        post();
+        assertForbiddenAndUnchanged();
+    }
+
+    @Test
+    public void postWithoutSessionIsForbidden() throws Exception {
+        asPost();
+        requestAnswers.with("getSession", null);
+        withParams("core-pool-size", "7", "reload", "/app");
+        post();
+        assertForbiddenAndUnchanged();
+    }
+
+    @Test
+    public void postFromOtherOriginIsForbiddenEvenWithToken() throws Exception {
+        asPost();
+        requestAnswers.with("getHeader", "http://evil.example");
+        withParams("core-pool-size", "7", "reload", "/app");
+        post();
+        assertForbiddenAndUnchanged();
+    }
+
+    @Test
+    public void postFromOtherRefererIsForbiddenEvenWithToken() throws Exception {
+        asPost();
+        requestAnswers.with("getHeader", "http://manager.example.evil.example/x");
+        withParams("core-pool-size", "7", "reload", "/app");
+        post();
+        assertForbiddenAndUnchanged();
+    }
+
+    @Test
+    public void postFromManagerOriginWithTokenSucceeds() throws Exception {
+        asPost();
+        requestAnswers.with("getHeader", "http://manager.example:8080");
+        withParams("core-pool-size", "3");
+        post();
+        assertEquals(3, pool.getCorePoolSize());
+        assertTrue(responseAnswers.calls.contains("sendRedirect:/manager/"));
+    }
+
+    @Test
+    public void postWithoutManagerRoleIsForbidden() throws Exception {
+        asPost();
+        requestAnswers.with("isUserInRole", Boolean.FALSE);
+        withParams("core-pool-size", "7", "reload", "/app");
+        post();
+        assertForbiddenAndUnchanged();
+    }
+
+    @Test
+    public void getWithoutManagerRoleIsForbidden() throws Exception {
+        requestAnswers.with("isUserInRole", Boolean.FALSE);
+        servlet.service(request, response);
+        assertTrue(responseAnswers.calls.contains("sendError:403"));
+        assertFalse(html().contains("context-card"));
     }
 
     @Test
