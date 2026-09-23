@@ -55,11 +55,13 @@ import org.bluezoo.gumdrop.ratelimit.RateLimiter;
 import org.bluezoo.gumdrop.quic.cid.ConnectionIdKey;
 import org.bluezoo.gumdrop.quic.cid.StatelessResetToken;
 import org.bluezoo.gumdrop.quic.packet.LongHeaderCodec;
+import org.bluezoo.gumdrop.quic.packet.LongHeaderInvariants;
 import org.bluezoo.gumdrop.quic.packet.LongHeaderPrefix;
 import org.bluezoo.gumdrop.quic.packet.RetryIntegrityTag;
 import org.bluezoo.gumdrop.quic.packet.RetryToken;
 import org.bluezoo.gumdrop.quic.packet.StatelessResetPacket;
 import org.bluezoo.gumdrop.quic.packet.TransportParameters;
+import org.bluezoo.gumdrop.quic.packet.VersionNegotiationPacket;
 import org.bluezoo.gumdrop.quic.tls.QuicTlsClientEngine;
 import org.bluezoo.gumdrop.quic.tls.QuicTlsServerEngine;
 import org.bluezoo.gumdrop.tls.ServerCredentials;
@@ -84,9 +86,15 @@ import org.bluezoo.gumdrop.tls.ServerCredentialsResolver;
  * engine does not retry it, relying on {@link org.bluezoo.gumdrop.quic.recovery.LossDetector}'s
  * retransmission to recover it, the same as any other dropped packet.
  *
- * <p>Only QUIC version 1 is supported -- an unrecognised version is
- * silently dropped rather than answered with a Version Negotiation
- * packet (RFC 9000 section 6).
+ * <p>Only QUIC version 1 is supported. A server answers a datagram of
+ * any other version with a Version Negotiation packet advertising
+ * version 1 (RFC 9000 section 6.1), provided the datagram is at least
+ * {@link #MIN_INITIAL_DATAGRAM_SIZE} bytes -- smaller ones are dropped
+ * silently (section 5.2) -- and never answers a Version Negotiation
+ * packet itself. At most {@link #VERSION_NEGOTIATION_MAX_PER_SECOND}
+ * are sent per second; further triggers within that second are dropped.
+ * The reply is always smaller than the datagram that triggers it, so it
+ * cannot amplify.
  *
      * <p>When {@link QuicTransportFactory#isRequireRetry} is set (the
      * default on {@code Http3Listener} and {@code DoQListener}), a new
@@ -105,6 +113,18 @@ public final class QuicEngine implements ChannelHandler, MultiplexedEndpoint {
 
     /** RFC 9000 section 5.1: the fixed length this implementation uses for every connection ID it generates. */
     static final int CONNECTION_ID_LENGTH = 20;
+
+    /** RFC 9000 section 14.1: the minimum size of a datagram that can initiate a connection. */
+    static final int MIN_INITIAL_DATAGRAM_SIZE = 1200;
+
+    /** The only QUIC version this implementation speaks. */
+    private static final int SUPPORTED_VERSION = 1;
+
+    /** Cap on Version Negotiation responses per second (RFC 9000 section 6.1 permits rate limiting). */
+    static final int VERSION_NEGOTIATION_MAX_PER_SECOND = 100;
+
+    private long versionNegotiationWindowStartNanos;
+    private int versionNegotiationSentInWindow;
 
     /** How long a Retry Token remains valid, bounding replay of a captured token. */
     private static final long RETRY_TOKEN_MAX_AGE_MILLIS = 30_000;
@@ -319,13 +339,35 @@ public final class QuicEngine implements ChannelHandler, MultiplexedEndpoint {
         byte[] dcid;
         LongHeaderPrefix prefix = null;
         if (longHeader) {
+            LongHeaderInvariants invariants;
+            try {
+                invariants = LongHeaderCodec.parseInvariants(bytes);
+            } catch (IllegalArgumentException e) {
+                return;
+            }
+            if (invariants.getVersion() == 0) {
+                // A Version Negotiation packet is only meaningful to the
+                // client connection attempt it answers; a server must
+                // never respond to one (RFC 9000 section 6.1).
+                if (!serverMode) {
+                    QuicConnection attempt = connections.get(
+                            new ConnectionIdKey(invariants.getDestinationConnectionId()));
+                    if (attempt != null) {
+                        attempt.receive(ByteBuffer.wrap(bytes), source);
+                    }
+                }
+                return;
+            }
+            if (invariants.getVersion() != SUPPORTED_VERSION) {
+                if (serverMode && bytes.length >= MIN_INITIAL_DATAGRAM_SIZE) {
+                    sendVersionNegotiation(invariants, source);
+                }
+                return;
+            }
             try {
                 prefix = LongHeaderCodec.parsePrefix(bytes);
             } catch (IllegalArgumentException e) {
                 return;
-            }
-            if (prefix.getVersion() != 1) {
-                return; // only QUIC v1 is supported; see the class documentation
             }
             dcid = prefix.getDestinationConnectionId();
         } else {
@@ -576,6 +618,26 @@ public final class QuicEngine implements ChannelHandler, MultiplexedEndpoint {
         System.arraycopy(withoutTag, 0, packet, 0, withoutTag.length);
         System.arraycopy(tag, 0, packet, withoutTag.length, tag.length);
         sendTo(source, packet);
+    }
+
+    /**
+     * Answers a datagram of an unsupported version with a stateless
+     * Version Negotiation packet advertising version 1 (RFC 9000 section
+     * 6.1), subject to {@link #VERSION_NEGOTIATION_MAX_PER_SECOND}.
+     */
+    private void sendVersionNegotiation(LongHeaderInvariants invariants, InetSocketAddress source) {
+        long now = System.nanoTime();
+        if (now - versionNegotiationWindowStartNanos >= 1_000_000_000L) {
+            versionNegotiationWindowStartNanos = now;
+            versionNegotiationSentInWindow = 0;
+        }
+        if (versionNegotiationSentInWindow >= VERSION_NEGOTIATION_MAX_PER_SECOND) {
+            return;
+        }
+        versionNegotiationSentInWindow++;
+        sendTo(source, VersionNegotiationPacket.build(invariants.getSourceConnectionId(),
+                invariants.getDestinationConnectionId(), new int[] { SUPPORTED_VERSION },
+                RANDOM.nextInt()));
     }
 
     /**

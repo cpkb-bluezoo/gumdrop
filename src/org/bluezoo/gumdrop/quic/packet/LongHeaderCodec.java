@@ -131,6 +131,39 @@ public final class LongHeaderCodec {
     }
 
     /**
+     * Reads only the fields every QUIC version places identically in a
+     * long header (RFC 8999 section 5.1): the version and both connection
+     * IDs, each of which may be up to 255 bytes. Unlike
+     * {@link #parsePrefix}, this is meaningful for a packet of a version
+     * this implementation does not understand.
+     *
+     * @param packet the received datagram bytes
+     * @return the invariant fields
+     * @throws IllegalArgumentException if the packet is not a long-header
+     *         packet or is truncated within these fields
+     */
+    public static LongHeaderInvariants parseInvariants(byte[] packet) {
+        if (packet.length < 7 || (packet[0] & HEADER_FORM_LONG) == 0) {
+            throw new IllegalArgumentException("Not a long header packet");
+        }
+        ByteBuffer buf = ByteBuffer.wrap(packet, 1, packet.length - 1);
+        int version = buf.getInt();
+        int dcidLength = buf.get() & 0xff;
+        if (buf.remaining() < dcidLength + 1) {
+            throw new IllegalArgumentException("Packet too short for Destination Connection ID");
+        }
+        byte[] dcid = new byte[dcidLength];
+        buf.get(dcid);
+        int scidLength = buf.get() & 0xff;
+        if (buf.remaining() < scidLength) {
+            throw new IllegalArgumentException("Packet too short for Source Connection ID");
+        }
+        byte[] scid = new byte[scidLength];
+        buf.get(scid);
+        return new LongHeaderInvariants(version, dcid, scid);
+    }
+
+    /**
      * Reads the unprotected prefix of a long-header packet: everything
      * through the Length field. The packet number field itself is left
      * unread (and, at this point, is still header-protected); use

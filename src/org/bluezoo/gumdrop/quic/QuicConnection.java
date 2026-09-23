@@ -68,6 +68,7 @@ import org.bluezoo.gumdrop.quic.packet.RetryPacket;
 import org.bluezoo.gumdrop.quic.packet.ShortHeaderCodec;
 import org.bluezoo.gumdrop.quic.packet.StatelessResetPacket;
 import org.bluezoo.gumdrop.quic.packet.TransportParameters;
+import org.bluezoo.gumdrop.quic.packet.VersionNegotiationPacket;
 import org.bluezoo.gumdrop.quic.recovery.LossDetector;
 import org.bluezoo.gumdrop.quic.recovery.RttEstimator;
 import org.bluezoo.gumdrop.quic.recovery.SentPacket;
@@ -1393,6 +1394,14 @@ public final class QuicConnection implements QuicTlsEngineListener {
         // address validation (see there).
         boolean isZeroRtt = false;
         if (longHeader) {
+            // A Version Negotiation packet (version field zero, RFC 9000
+            // section 17.2.1) has none of the Initial/Handshake/0-RTT
+            // fields and always spans its whole datagram.
+            if (bytes.length - offset >= 5 && (bytes[offset + 1] | bytes[offset + 2]
+                    | bytes[offset + 3] | bytes[offset + 4]) == 0) {
+                handleVersionNegotiation(offset == 0 ? bytes : Arrays.copyOfRange(bytes, offset, bytes.length));
+                return bytes.length - offset;
+            }
             // A Retry packet has no Length field (RFC 9000 section
             // 17.2.5) -- a genuinely different shape from
             // Initial/Handshake/0-RTT -- so its type must be checked
@@ -1455,6 +1464,54 @@ public final class QuicConnection implements QuicTlsEngineListener {
     private void learnPeerConnectionId(byte[] scid) {
         peerConnectionId = scid;
         peerConnectionIdLearned = true;
+    }
+
+    // Client-only: handles a received Version Negotiation packet (RFC 9000
+    // section 6.2). This endpoint speaks only version 1, so a valid
+    // packet that does not list it ends the attempt. Discarded outright
+    // on a server, once any other packet from the server has been
+    // processed (including a Retry) or the handshake has completed, if
+    // it does not echo both connection IDs of this attempt, or if it
+    // lists the version already in use (a server never negotiates
+    // towards a version the client is using).
+    private void handleVersionNegotiation(byte[] packet) {
+        if (isServer || closed || established || retryProcessed
+                || largestReceived[0] >= 0 || largestReceived[1] >= 0 || largestReceived[2] >= 0) {
+            return;
+        }
+        VersionNegotiationPacket vn;
+        try {
+            vn = VersionNegotiationPacket.parse(packet);
+        } catch (IllegalArgumentException e) {
+            return;
+        }
+        if (!Arrays.equals(vn.getDestinationConnectionId(), ourConnectionId)
+                || !Arrays.equals(vn.getSourceConnectionId(), originalDcid)) {
+            return;
+        }
+        int[] offered = vn.getSupportedVersions();
+        for (int i = 0; i < offered.length; i++) {
+            if (offered[i] == 1) {
+                return;
+            }
+        }
+        closed = true;
+        if (timerHandle != null) {
+            timerHandle.cancel();
+            timerHandle = null;
+        }
+        cancelAllPathValidationAttempts();
+        deferredCloseIsError = true;
+        QuicVersionNegotiationException failure = new QuicVersionNegotiationException();
+        tearDownStreams(failure);
+        // The handler for the not-yet-opened first stream would otherwise
+        // never hear that its connection attempt failed.
+        ProtocolHandler waiting = clientHandler;
+        clientHandler = null;
+        if (waiting != null) {
+            waiting.error(failure);
+        }
+        engine.onConnectionClosed(this);
     }
 
     // Client-only: handles a received Retry packet (RFC 9000 section
