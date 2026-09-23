@@ -263,9 +263,32 @@ public class MqttClient {
 
         transportFactory = new TcpTransportFactory();
         dial.requireTarget();
-        ClientConnect.prepareTls(secure, tls, transportFactory);
-        clientEndpoint = ClientConnect.openAndConnect(
-                gumdrop, dial, transportFactory, protocolHandler);
+        // With discovery off (the default) the callback runs before
+        // discoverEch returns, so a failure is thrown to the caller as
+        // before; after a DNS lookup it can only be reported to the callback.
+        final IOException[] immediateFailure = new IOException[1];
+        final boolean[] returned = new boolean[1];
+        final MqttClientCallback lifecycle = callback;
+        ClientConnect.discoverEch(gumdrop, secure, dial, tls, new ClientConnect.EchDiscoveryCallback() {
+            @Override
+            public void discovered(byte[] echConfigList) {
+                try {
+                    ClientConnect.prepareTls(secure, tls, transportFactory, echConfigList);
+                    clientEndpoint = ClientConnect.openAndConnect(
+                            gumdrop, dial, transportFactory, protocolHandler);
+                } catch (IOException e) {
+                    if (returned[0]) {
+                        lifecycle.connectionLost(e);
+                    } else {
+                        immediateFailure[0] = e;
+                    }
+                }
+            }
+        });
+        returned[0] = true;
+        if (immediateFailure[0] != null) {
+            throw immediateFailure[0];
+        }
     }
 
     // ── Operations ──

@@ -361,14 +361,19 @@ public class ImapClient {
         if (mailboxEventListener != null) {
             endpointHandler.setMailboxEventListener(mailboxEventListener);
         }
-        try {
-            ClientConnect.prepareTls(secure, tls, transportFactory);
-            endpointHandler.setSecure(secure);
-            clientEndpoint = ClientConnect.openAndConnect(
-                    gumdrop, dial, transportFactory, endpointHandler);
-        } catch (IOException e) {
-            handler.onError(e);
-        }
+        ClientConnect.discoverEch(gumdrop, secure, dial, tls, new ClientConnect.EchDiscoveryCallback() {
+            @Override
+            public void discovered(byte[] echConfigList) {
+                try {
+                    ClientConnect.prepareTls(secure, tls, transportFactory, echConfigList);
+                    endpointHandler.setSecure(secure);
+                    clientEndpoint = ClientConnect.openAndConnect(
+                            gumdrop, dial, transportFactory, endpointHandler);
+                } catch (IOException e) {
+                    handler.onError(e);
+                }
+            }
+        });
     }
 
     /**

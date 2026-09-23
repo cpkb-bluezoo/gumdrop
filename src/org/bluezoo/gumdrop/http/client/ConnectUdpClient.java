@@ -40,7 +40,6 @@ import org.bluezoo.gumdrop.dns.DnsQueryCallback;
 import org.bluezoo.gumdrop.dns.DnsResourceRecord;
 import org.bluezoo.gumdrop.dns.DnsType;
 import org.bluezoo.gumdrop.dns.client.DnsResolver;
-import org.bluezoo.gumdrop.dns.client.HostsFile;
 import org.bluezoo.gumdrop.http.Capsule;
 import org.bluezoo.gumdrop.http.ConnectUdpTarget;
 import org.bluezoo.gumdrop.http.HttpClient;
@@ -433,7 +432,7 @@ public class ConnectUdpClient implements AltSvcListener {
             connectTcp(targetHost, targetPort, handler);
             return;
         }
-        if (!dnsHttpsRecordEnabled || isUndiscoverableHost(host)) {
+        if (!dnsHttpsRecordEnabled || ClientConnect.isUndiscoverableHost(host)) {
             connectViaAltSvcCacheOrTcp(targetHost, targetPort, handler);
             return;
         }
@@ -482,18 +481,6 @@ public class ConnectUdpClient implements AltSvcListener {
         connectTcp(targetHost, targetPort, handler);
     }
 
-    /**
-     * Returns true if {@code hostname} isn't worth issuing a DNS
-     * HTTPS-record query for: a literal IPv4/IPv6 address, or loopback.
-     */
-    private static boolean isUndiscoverableHost(String hostname) {
-        if ("localhost".equalsIgnoreCase(hostname)
-                || "localhost.".equalsIgnoreCase(hostname)) {
-            return true;
-        }
-        return HostsFile.parseLiteralIPv4(hostname) != null
-                || HostsFile.parseLiteralIPv6(hostname) != null;
-    }
 
     /**
      * The TCP+TLS path. Negotiates HTTP/2 via ALPN when {@link
