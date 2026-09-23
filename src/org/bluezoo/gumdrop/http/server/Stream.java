@@ -538,8 +538,8 @@ class Stream implements HttpResponseState {
                         }
                     } else if ("Content-Length".equalsIgnoreCase(name)) {
                         if (chunked) {
-                            LOGGER.fine(L10N.getString("debug.ignore_content_length_chunked_set"));
-                            i.remove();
+                            rejectContentLengthWithTransferEncoding();
+                            return;
                         } else {
                         // RFC 9112 section 6.2 / RFC 9110 section 8.6: a
                         // malformed Content-Length, or a second one that
@@ -584,7 +584,14 @@ class Stream implements HttpResponseState {
                         }
                     } else if ("Transfer-Encoding".equalsIgnoreCase(name)) {
                         if (HttpUtils.isChunkedTransferEncoding(value)) {
-                        // RFC 9112 section 6.3: Transfer-Encoding overrides Content-Length
+                        // RFC 9112 section 6.3: a server MAY reject a request
+                        // carrying both fields; preferring chunked framing
+                        // can disagree with a proxy that framed the same
+                        // bytes by Content-Length, so reject it.
+                        if (hasExplicitContentLength) {
+                            rejectContentLengthWithTransferEncoding();
+                            return;
+                        }
                         contentLength = Integer.MAX_VALUE;
                         chunked = true;
                         i.remove(); // do not pass this on to stream implementation
@@ -634,12 +641,6 @@ class Stream implements HttpResponseState {
                 this.upgrade = upgradeProtocols;
                 this.h2cSettings = http2Settings;
             }
-        }
-        // RFC 9112 section 6.3: chunked Transfer-Encoding overrides Content-Length
-        if (chunked && hasExplicitContentLength && headers != null) {
-            LOGGER.fine(L10N.getString("debug.ignore_content_length_chunked_precedence"));
-            hasExplicitContentLength = false;
-            headers.removeAll("Content-Length");
         }
         long maxBody = connection.getMaxRequestBodySize();
         if (maxBody > 0 && connection.getVersion() == HttpVersion.HTTP_2_0 && headers != null) {
@@ -991,6 +992,15 @@ class Stream implements HttpResponseState {
                 handler.capsuleReceived(this, capsule.getType(),
                         ByteBuffer.wrap(capsule.getValue()));
             }
+        }
+    }
+
+    private void rejectContentLengthWithTransferEncoding() {
+        LOGGER.warning(L10N.getString("warn.reject_content_length_and_transfer_encoding"));
+        try {
+            sendError(400);
+        } catch (ProtocolException e) {
+            LOGGER.warning(L10N.getString("warn.reject_content_length_and_transfer_encoding"));
         }
     }
 

@@ -194,4 +194,42 @@ public class StreamContentLengthValidationTest {
         stream.streamEndHeaders();
         assertNotEquals(400, conn.lastStatusCode);
     }
+
+    private void assertRejected(String method, String... nameValuePairs) throws Exception {
+        StubConnection conn = new StubConnection();
+        Stream stream = new Stream(conn, 1);
+        stream.addHeader(new Header(":method", method));
+        for (int i = 0; i < nameValuePairs.length; i += 2) {
+            stream.addHeader(new Header(nameValuePairs[i], nameValuePairs[i + 1]));
+        }
+        stream.streamEndHeaders();
+        assertEquals(400, conn.lastStatusCode);
+        assertTrue("connection must be closed after ambiguous framing",
+                stream.isCloseConnection());
+    }
+
+    @Test
+    public void testContentLengthThenChunkedRejected() throws Exception {
+        assertRejected("POST", "Content-Length", "5", "Transfer-Encoding", "chunked");
+    }
+
+    @Test
+    public void testChunkedThenContentLengthRejected() throws Exception {
+        assertRejected("POST", "Transfer-Encoding", "chunked", "Content-Length", "5");
+    }
+
+    @Test
+    public void testContentLengthAndChunkedRejectedOnNoBodyMethod() throws Exception {
+        assertRejected("GET", "Content-Length", "5", "Transfer-Encoding", "chunked");
+    }
+
+    @Test
+    public void testChunkedAloneStillAllowed() throws Exception {
+        StubConnection conn = new StubConnection();
+        Stream stream = new Stream(conn, 1);
+        stream.addHeader(new Header(":method", "POST"));
+        stream.addHeader(new Header("Transfer-Encoding", "chunked"));
+        stream.streamEndHeaders();
+        assertNotEquals(400, conn.lastStatusCode);
+    }
 }
