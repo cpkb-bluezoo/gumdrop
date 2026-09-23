@@ -1062,7 +1062,7 @@ implemented in Java, with TLS 1.3 integrated via the in-tree engine
 | Requirement | Section | Status | Notes |
 |-------------|---------|--------|-------|
 | Connection ID generation (up to 20 bytes) | 5.1 | Compliant | `QuicEngine.generateConnectionId()` with SecureRandom |
-| Version negotiation | 6.1 | Not implemented | Unrecognised versions are silently dropped (`QuicEngine`) |
+| Version negotiation | 6.1, 6.2, 17.2.1 | Compliant | Server answers an unsupported-version datagram of at least 1200 bytes with a Version Negotiation packet advertising version 1 (`QuicEngine.sendVersionNegotiation`, `VersionNegotiationPacket`); smaller datagrams and Version Negotiation packets are dropped without reply; responses are capped at 100 per second. Client ignores a Version Negotiation packet that does not echo both connection IDs, lists version 1, or arrives after any other server packet; otherwise it abandons the attempt with `QuicVersionNegotiationException` (`QuicConnection.handleVersionNegotiation`) |
 | QUIC v1 support | 15 | Compliant | QUIC version 1 (RFC 9000) |
 | QUIC v2 support | RFC 9369 | Not implemented | Only QUIC version 1 is supported |
 | Handshake (server accepts) | 7 | Compliant | `QuicEngine` constructs `QuicTlsServerEngine` + `QuicConnection` per Initial |
