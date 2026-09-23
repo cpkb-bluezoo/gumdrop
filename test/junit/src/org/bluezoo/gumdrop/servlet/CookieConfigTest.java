@@ -73,12 +73,44 @@ public class CookieConfigTest {
 
     @Test
     public void testDefaultHttpOnly() {
-        assertFalse(config.isHttpOnly());
+        assertTrue(config.isHttpOnly());
     }
 
     @Test
     public void testDefaultSecure() {
         assertFalse(config.isSecure());
+    }
+
+    @Test
+    public void testDefaultCookieIsHttpOnlyAndNotSecureOverPlainHttp() {
+        Cookie cookie = config.createSessionCookie("s", "/ctx", false);
+        assertTrue(cookie.isHttpOnly());
+        assertFalse(cookie.getSecure());
+    }
+
+    @Test
+    public void testDefaultCookieIsSecureOverTls() {
+        Cookie cookie = config.createSessionCookie("s", "/ctx", true);
+        assertTrue(cookie.isHttpOnly());
+        assertTrue(cookie.getSecure());
+    }
+
+    @Test
+    public void testExplicitSecureFalseOverridesTls() {
+        config.setSecure(false);
+        assertFalse(config.createSessionCookie("s", "/ctx", true).getSecure());
+    }
+
+    @Test
+    public void testExplicitSecureTrueAppliesOverPlainHttp() {
+        config.setSecure(true);
+        assertTrue(config.createSessionCookie("s", "/ctx", false).getSecure());
+    }
+
+    @Test
+    public void testExplicitHttpOnlyFalseIsHonoured() {
+        config.setHttpOnly(false);
+        assertFalse(config.createSessionCookie("s", "/ctx", true).isHttpOnly());
     }
 
     @Test
@@ -106,7 +138,7 @@ public class CookieConfigTest {
         config.partitioned = true;
         config.setAttribute("Custom", "value");
 
-        Cookie cookie = config.createSessionCookie("sess-1", "/ctx");
+        Cookie cookie = config.createSessionCookie("sess-1", "/ctx", false);
         assertEquals("APPSESSION", cookie.getName());
         assertEquals("sess-1", cookie.getValue());
         assertEquals("/app", cookie.getPath());

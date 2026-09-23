@@ -387,7 +387,7 @@ private static final Logger LOGGER = Logger.getLogger(Response.class.getName());
             if (session != null) {
                 CookieConfig cookieConfig = (CookieConfig) context.getSessionCookieConfig();
                 Cookie cookie = cookieConfig.createSessionCookie(
-                        request.sessionId, request.getContextPath());
+                        request.sessionId, request.getContextPath(), request.isSecure());
                 if (cookieConfig.getMaxAge() == -1) {
                     cookie.setMaxAge(session.getMaxInactiveInterval());
                 }

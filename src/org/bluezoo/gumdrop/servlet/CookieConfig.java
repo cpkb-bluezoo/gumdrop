@@ -45,8 +45,9 @@ final class CookieConfig implements SessionCookieConfig {
     String domain;
     String path;
     String comment;
-    boolean httpOnly = false;
-    boolean secure = false;
+    boolean httpOnly = true;
+    /** Explicit setting, or null to follow whether the request arrived over TLS. */
+    Boolean secure;
     int maxAge = -1;
     SameSite sameSite = SameSite.Lax;
     boolean partitioned;
@@ -60,9 +61,11 @@ final class CookieConfig implements SessionCookieConfig {
 
     /**
      * Builds a session {@code Set-Cookie} from this descriptor and a session id.
+     * The {@code Secure} flag follows the descriptor when it sets one, and
+     * otherwise whether the request arrived over TLS.
      */
     @SuppressWarnings("removal") // Cookie.setComment until Jakarta 6.x removes it
-    Cookie createSessionCookie(String sessionId, String contextPath) {
+    Cookie createSessionCookie(String sessionId, String contextPath, boolean requestSecure) {
         Cookie cookie = new Cookie(name, sessionId);
         if (domain != null) {
             cookie.setDomain(domain);
@@ -78,7 +81,7 @@ final class CookieConfig implements SessionCookieConfig {
             cookie.setMaxAge(maxAge);
         }
         cookie.setHttpOnly(httpOnly);
-        cookie.setSecure(secure);
+        cookie.setSecure(secure != null ? secure.booleanValue() : requestSecure);
         if (comment != null) {
             cookie.setComment(comment);
         }
@@ -145,7 +148,7 @@ final class CookieConfig implements SessionCookieConfig {
     }
 
     @Override public boolean isSecure() {
-        return secure;
+        return secure != null && secure.booleanValue();
     }
 
     @Override public void setMaxAge(int maxAge) {
