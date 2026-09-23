@@ -45,7 +45,7 @@ public final class EchHttpsDiscovery {
             return null;
         }
         try {
-            return selectClientConfig(EchConfig.parseList(echConfigListBytes));
+            return firstSelectable(EchConfig.parseList(echConfigListBytes));
         } catch (HandshakeFormatException e) {
             return null;
         }
@@ -58,7 +58,7 @@ public final class EchHttpsDiscovery {
      * @param configs parsed configs, in the publisher's order
      * @return a usable config, or null
      */
-    public static EchConfig selectClientConfig(EchConfig[] configs) {
+    public static EchConfig firstSelectable(EchConfig[] configs) {
         for (int i = 0; i < configs.length; i++) {
             if (isClientSelectable(configs[i])) {
                 return configs[i];

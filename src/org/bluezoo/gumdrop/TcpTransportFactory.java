@@ -792,7 +792,7 @@ public class TcpTransportFactory extends TransportFactory {
         config.setEchRetryConfigsListener(new EchRetryConfigsListener() {
             @Override
             public void retryConfigsReceived(EchConfig[] authenticatedConfigs) {
-                EchConfig usable = EchHttpsDiscovery.selectClientConfig(authenticatedConfigs);
+                EchConfig usable = EchHttpsDiscovery.firstSelectable(authenticatedConfigs);
                 if (usable != null) {
                     clientEchConfig = usable;
                 }

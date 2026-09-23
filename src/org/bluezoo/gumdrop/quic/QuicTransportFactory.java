@@ -670,7 +670,7 @@ public class QuicTransportFactory extends TransportFactory {
         tlsEngine.setEchRetryConfigsListener(new org.bluezoo.gumdrop.tls.EchRetryConfigsListener() {
             @Override
             public void retryConfigsReceived(EchConfig[] authenticatedConfigs) {
-                EchConfig usable = org.bluezoo.gumdrop.tls.EchHttpsDiscovery.selectClientConfig(
+                EchConfig usable = org.bluezoo.gumdrop.tls.EchHttpsDiscovery.firstSelectable(
                         authenticatedConfigs);
                 if (usable != null) {
                     clientEchConfig = usable;
