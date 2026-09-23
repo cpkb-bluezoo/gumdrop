@@ -46,6 +46,18 @@ public class EchHttpsDiscoveryTest {
     }
 
     @Test
+    public void skipsConfigsWithNoUsableSuiteAndSelectsALaterOne() throws Exception {
+        EchConfig unusable = EchConfig.createV13(1, PK_RM, "a.example", 32,
+                new int[][] { { 0x0002, 0x0001 } });
+        EchConfig usable = EchConfig.createV13(2, PK_RM, "b.example", 32,
+                new int[][] { { 0x0001, 0x0003 }, { 0x0001, 0x0001 } });
+        byte[] list = EchConfig.encodeList(new EchConfig[] { unusable, usable });
+        EchConfig selected = EchHttpsDiscovery.selectClientConfig(list);
+        assertNotNull(selected);
+        assertEquals(2, selected.getConfigId());
+    }
+
+    @Test
     public void nullListReturnsNull() {
         assertNull(EchHttpsDiscovery.selectClientConfig(null));
     }

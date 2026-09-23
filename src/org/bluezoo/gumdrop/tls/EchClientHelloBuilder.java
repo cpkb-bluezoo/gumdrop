@@ -94,8 +94,9 @@ public final class EchClientHelloBuilder {
      */
     public static Offer build(HandshakeMessages.ClientHelloParams template, EchConfig echConfig,
             byte[] realPskBinder, SecureRandom random) throws GeneralSecurityException, HandshakeFormatException {
-        if (!echConfig.supportsGumdropHpkeProfile()) {
-            throw new HandshakeFormatException("ECHConfig is not compatible with gumdrop HPKE profile");
+        int[] suite = echConfig.selectHpkeCipherSuite();
+        if (suite == null) {
+            throw new HandshakeFormatException("ECHConfig offers no supported HPKE cipher suite");
         }
 
         byte[] innerRandom = new byte[32];
@@ -127,15 +128,15 @@ public final class EchClientHelloBuilder {
         byte[] encodedInner = encodeClientHelloInner(innerContent, echConfig, template.serverName);
         byte[] hpkeInfo = echConfig.hpkeSetupInfo();
 
-        Hpke hpke = Hpke.x25519Aes128Gcm();
+        Hpke hpke = Hpke.x25519HkdfSha256(suite[1]);
         Hpke.SenderContext sender = hpke.setupBaseS(echConfig.getPublicKey(), hpkeInfo, random);
         byte[] enc = sender.getEnc();
 
         int payloadLength = encodedInner.length + HPKE_AEAD_TAG_LENGTH;
         byte[] zeroPayload = new byte[payloadLength];
         EncryptedClientHello.Outer placeholder = new EncryptedClientHello.Outer(
-                Hpke.KDF_HKDF_SHA256,
-                Hpke.AEAD_AES_128_GCM,
+                sender.getKdfId(),
+                sender.getAeadId(),
                 echConfig.getConfigId(),
                 enc,
                 zeroPayload);
@@ -145,8 +146,8 @@ public final class EchClientHelloBuilder {
         byte[] ciphertext = sender.seal(outerAad, encodedInner);
 
         EncryptedClientHello.Outer finalOuter = new EncryptedClientHello.Outer(
-                Hpke.KDF_HKDF_SHA256,
-                Hpke.AEAD_AES_128_GCM,
+                sender.getKdfId(),
+                sender.getAeadId(),
                 echConfig.getConfigId(),
                 enc,
                 ciphertext);
@@ -163,7 +164,7 @@ public final class EchClientHelloBuilder {
      */
     public static EncryptedClientHello.Outer buildGreaseOuter(HandshakeMessages.ClientHelloParams template,
             SecureRandom random) throws GeneralSecurityException, HandshakeFormatException {
-        Hpke hpke = Hpke.x25519Aes128Gcm();
+        Hpke hpke = Hpke.x25519HkdfSha256(Hpke.AEAD_AES_128_GCM);
         Hpke.RawKeyPair recipient = Hpke.generateX25519KeyPair(random);
         byte[] greaseInfo = new byte[] { 't', 'l', 's', ' ', 'e', 'c', 'h', 0 };
         Hpke.SenderContext sender = hpke.setupBaseS(recipient.getPublicKey(), greaseInfo, random);
@@ -216,8 +217,8 @@ public final class EchClientHelloBuilder {
         int payloadLength = encodedInner.length + HPKE_AEAD_TAG_LENGTH;
         byte[] zeroPayload = new byte[payloadLength];
         EncryptedClientHello.Outer placeholder = new EncryptedClientHello.Outer(
-                Hpke.KDF_HKDF_SHA256,
-                Hpke.AEAD_AES_128_GCM,
+                hpkeSender.getKdfId(),
+                hpkeSender.getAeadId(),
                 echConfig.getConfigId(),
                 new byte[0],
                 zeroPayload);
@@ -227,8 +228,8 @@ public final class EchClientHelloBuilder {
         byte[] ciphertext = hpkeSender.seal(outerAad, encodedInner);
 
         EncryptedClientHello.Outer finalOuter = new EncryptedClientHello.Outer(
-                Hpke.KDF_HKDF_SHA256,
-                Hpke.AEAD_AES_128_GCM,
+                hpkeSender.getKdfId(),
+                hpkeSender.getAeadId(),
                 echConfig.getConfigId(),
                 new byte[0],
                 ciphertext);

@@ -186,7 +186,12 @@ driven by <code>TlsEventSink</code> callbacks &mdash; no blocking
     and zlib; enabled by default via
     <code>HandshakeConfig.setCertificateCompressionEnabled()</code></li>
 <li>Encrypted Client Hello (RFC&nbsp;9849) &mdash; HPKE (RFC&nbsp;9180) with
-    X25519 and AES-128-GCM; client GREASE, server <code>retry_configs</code>,
+    DHKEM(X25519, HKDF-SHA256) and HKDF-SHA256, using AES-128-GCM (the suite
+    RFC&nbsp;9849 section&nbsp;9 requires), AES-256-GCM or ChaCha20-Poly1305.
+    A client takes the first supported suite in an <code>ECHConfig</code>&rsquo;s
+    own order and skips configs offering none; a server only opens a suite its
+    config advertises, and keeps the first flight&rsquo;s suite across a
+    HelloRetryRequest. Other KEMs and KDFs are ignored. Client GREASE, server <code>retry_configs</code>,
     and HelloRetryRequest inner transcript handling. Server keys on secure
     listeners: <code>ech-config-list-file</code>, <code>ech-private-key-file</code>,
     optional <code>ech-required</code> in <code>server.xml</code>. Clients:

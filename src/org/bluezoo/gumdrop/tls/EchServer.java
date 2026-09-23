@@ -86,10 +86,22 @@ public final class EchServer {
             if (retryRecipient == null) {
                 throw new HandshakeFormatException("Missing HPKE context for ECH HelloRetryRequest follow-up");
             }
+            // RFC 9849 section 6.1.5: the second flight repeats the first
+            // flight's HPKE ciphersuite.
+            if (ech.kdfId != retryRecipient.getKdfId() || ech.aeadId != retryRecipient.getAeadId()) {
+                throw new HandshakeFormatException("ECH HPKE ciphersuite changed across HelloRetryRequest");
+            }
             encodedInner = retryRecipient.open(aad, ech.payload);
             recipient = retryRecipient;
         } else {
-            Hpke hpke = Hpke.x25519Aes128Gcm();
+            // RFC 9849 section 7: a ciphersuite the config did not advertise
+            // cannot be decrypted, which the caller handles as any other
+            // decryption failure.
+            if (!Hpke.isSupported(config.getKemId(), ech.kdfId, ech.aeadId)
+                    || !config.advertisesCipherSuite(ech.kdfId, ech.aeadId)) {
+                throw new GeneralSecurityException("Client HPKE ciphersuite not advertised by ECHConfig");
+            }
+            Hpke hpke = Hpke.x25519HkdfSha256(ech.aeadId);
             recipient = hpke.setupBaseR(ech.enc, recipientPrivateKey, config.getPublicKey(), config.hpkeSetupInfo());
             encodedInner = recipient.open(aad, ech.payload);
         }

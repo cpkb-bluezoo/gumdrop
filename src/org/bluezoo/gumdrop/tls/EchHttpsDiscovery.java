@@ -34,7 +34,8 @@ public final class EchHttpsDiscovery {
 
     /**
      * Returns the first {@link EchConfig} in {@code echConfigListBytes} that
-     * matches gumdrop's HPKE profile, or null if none apply.
+     * offers an HPKE suite gumdrop implements ({@link EchConfig#selectHpkeCipherSuite}),
+     * or null if none apply.
      *
      * @param echConfigListBytes wire {@code ECHConfigList}, or null
      * @return a usable config, or null
@@ -57,7 +58,7 @@ public final class EchHttpsDiscovery {
     }
 
     private static boolean isClientSelectable(EchConfig config) {
-        if (!config.supportsGumdropHpkeProfile()) {
+        if (config.selectHpkeCipherSuite() == null) {
             return false;
         }
         return !"grease.invalid".equals(config.getPublicName());

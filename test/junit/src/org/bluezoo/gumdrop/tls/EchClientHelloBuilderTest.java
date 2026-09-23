@@ -35,6 +35,7 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
 
 /**
  * Unit tests for {@link EchClientHelloBuilder}.
@@ -74,7 +75,7 @@ public class EchClientHelloBuilderTest {
         EncryptedClientHello.Outer wire = outer.encryptedClientHelloOuter;
         byte[] aad = EncryptedClientHello.clientHelloOuterAadWithZeroEchPayload(
                 outerContent, wire.payload.length);
-        Hpke hpke = Hpke.x25519Aes128Gcm();
+        Hpke hpke = Hpke.x25519HkdfSha256(Hpke.AEAD_AES_128_GCM);
         Hpke.RecipientContext recipient = hpke.setupBaseR(
                 wire.enc, SK_RM, PK_RM, ech.hpkeSetupInfo());
         assertArrayEquals(encodedInner, recipient.open(aad, wire.payload));
@@ -115,6 +116,81 @@ public class EchClientHelloBuilderTest {
         assertEquals(32, grease.enc.length);
         assertTrue(grease.payload.length > 16);
         assertTrue(grease.configId >= 0 && grease.configId <= 255);
+    }
+
+    private static final int[] AEADS = {
+        Hpke.AEAD_AES_128_GCM, Hpke.AEAD_AES_256_GCM, Hpke.AEAD_CHACHA20_POLY1305
+    };
+
+    @Test
+    public void offerUsesTheSelectedAeadOnTheWireAndServerOpensIt() throws Exception {
+        for (int aead : AEADS) {
+            EchConfig ech = EchConfig.createV13(9, PK_RM, "public.example", 32,
+                    new int[][] { { Hpke.KDF_HKDF_SHA256, aead } });
+            EchClientHelloBuilder.Offer offer = EchClientHelloBuilder.build(
+                    sampleParams("backend.example"), ech, null, new SecureRandom());
+            HandshakeMessages.ClientHello outer = HandshakeMessages.parseClientHello(
+                    offer.getClientHelloOuterFramed());
+            assertEquals(Hpke.KDF_HKDF_SHA256, outer.encryptedClientHelloOuter.kdfId);
+            assertEquals("aead id on the wire", aead, outer.encryptedClientHelloOuter.aeadId);
+
+            EchServer.OpenResult opened = EchServer.openInnerClientHello(
+                    offer.getClientHelloOuterFramed(), ech, SK_RM, null);
+            HandshakeMessages.ClientHello inner = HandshakeMessages.parseClientHello(
+                    opened.getInnerClientHelloFramed());
+            assertEquals("backend.example", inner.serverName);
+        }
+    }
+
+    @Test
+    public void helloRetryRequestKeepsTheOriginalAead() throws Exception {
+        EchConfig ech = EchConfig.createV13(10, PK_RM, "public.example", 32,
+                new int[][] { { Hpke.KDF_HKDF_SHA256, Hpke.AEAD_CHACHA20_POLY1305 } });
+        HandshakeMessages.ClientHelloParams params = sampleParams("backend.example");
+        EchClientHelloBuilder.Offer first = EchClientHelloBuilder.build(params, ech, null, new SecureRandom());
+        EchServer.OpenResult openedFirst = EchServer.openInnerClientHello(
+                first.getClientHelloOuterFramed(), ech, SK_RM, null);
+        HandshakeMessages.ClientHelloParams retryParams = sampleParams("backend.example");
+        retryParams.random = first.getClientHelloOuterRandom();
+        retryParams.keyShares = params.keyShares;
+        EchClientHelloBuilder.Offer second = EchClientHelloBuilder.buildHelloRetryRequest(
+                first.getHpkeSender(), ech, retryParams, first.getClientHelloInnerFramed(), null);
+        HandshakeMessages.ClientHello outer2 = HandshakeMessages.parseClientHello(
+                second.getClientHelloOuterFramed());
+        assertEquals(Hpke.AEAD_CHACHA20_POLY1305, outer2.encryptedClientHelloOuter.aeadId);
+        EchServer.OpenResult openedSecond = EchServer.openInnerClientHello(
+                second.getClientHelloOuterFramed(), ech, SK_RM, openedFirst.getHpkeRecipient());
+        assertTrue(HandshakeMessages.parseClientHello(
+                openedSecond.getInnerClientHelloFramed()).encryptedClientHelloInner);
+    }
+
+    @Test
+    public void serverRejectsSuiteNotAdvertisedByItsConfig() throws Exception {
+        EchConfig clientView = EchConfig.createV13(9, PK_RM, "public.example", 32,
+                new int[][] { { Hpke.KDF_HKDF_SHA256, Hpke.AEAD_CHACHA20_POLY1305 } });
+        EchClientHelloBuilder.Offer offer = EchClientHelloBuilder.build(
+                sampleParams("backend.example"), clientView, null, new SecureRandom());
+        // Same key and id, but the server config lists only the section 9 suite:
+        // the client's suite is not one it advertised.
+        EchConfig serverView = EchConfig.createV13(9, PK_RM, "public.example", 32);
+        try {
+            EchServer.openInnerClientHello(offer.getClientHelloOuterFramed(), serverView, SK_RM, null);
+            fail("suite outside the advertised list must not be opened");
+        } catch (GeneralSecurityException expected) {
+            // treated as an ECH decryption failure by the handshake engine
+        }
+    }
+
+    @Test
+    public void builderRejectsConfigWithNoSupportedSuite() throws Exception {
+        EchConfig ech = EchConfig.createV13(9, PK_RM, "public.example", 32,
+                new int[][] { { 0x0002, Hpke.AEAD_AES_128_GCM } });
+        try {
+            EchClientHelloBuilder.build(sampleParams("backend.example"), ech, null, new SecureRandom());
+            fail("expected HandshakeFormatException");
+        } catch (HandshakeFormatException expected) {
+            // nothing usable in the config
+        }
     }
 
     private static HandshakeMessages.ClientHelloParams sampleParams(String serverName) {
