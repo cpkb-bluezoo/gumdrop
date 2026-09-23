@@ -27,6 +27,7 @@ import org.bluezoo.gumdrop.tls.CipherSuite;
 import org.bluezoo.gumdrop.tls.ClientAuthPolicy;
 import org.bluezoo.gumdrop.tls.Dtls12HandshakeConfig;
 import org.bluezoo.gumdrop.tls.Dtls13HandshakeConfig;
+import org.bluezoo.gumdrop.tls.EchDeployment;
 import org.bluezoo.gumdrop.tls.DtlsVersion;
 import org.bluezoo.gumdrop.tls.HandshakeConfig;
 import org.bluezoo.gumdrop.tls.HandshakeRole;
@@ -261,6 +262,7 @@ public class UdpTransportFactory extends TransportFactory {
             base.setClientTrustManager(effectiveTrustManager);
         }
         applyCommonConfig13(base);
+        EchDeployment.applyServer(base, echConfigListFile, echPrivateKeyFile, echServerRequired);
         Dtls13HandshakeConfig config = new Dtls13HandshakeConfig(base);
         applyDtlsSettings13(config);
         return config;

@@ -23,6 +23,7 @@ package org.bluezoo.gumdrop;
 
 import org.bluezoo.gumdrop.crypto.CertificateVerifier;
 import org.bluezoo.gumdrop.tls.Dtls13HandshakeConfig;
+import org.bluezoo.gumdrop.tls.EchConfig;
 import org.bluezoo.gumdrop.tls.DtlsVersion;
 import org.bluezoo.gumdrop.tls.HandshakeConfig;
 import org.bluezoo.gumdrop.tls.HandshakeRole;
@@ -262,4 +263,115 @@ public class Dtls13SessionTest {
         assertEquals(HandshakeRole.CLIENT, factory.buildClientConfig13(SERVER_NAME).getRole());
         assertEquals(HandshakeRole.SERVER, factory.getSharedServerConfig13().getRole());
     }
+
+    private static final String ECH_PK = "3948cfe0ad1ddb695d780e59077195da6c56506b027329794ab02bca80815c4d";
+    private static final String ECH_SK = "4612c550263fc8ad58375df3f557aac531d26850903e55a9f23f21d8534e8ac8";
+
+    private static byte[] hex(String s) {
+        byte[] out = new byte[s.length() / 2];
+        for (int i = 0; i < out.length; i++) {
+            out[i] = (byte) Integer.parseInt(s.substring(i * 2, i * 2 + 2), 16);
+        }
+        return out;
+    }
+
+    private static UdpTransportFactory echFactory(EchConfig ech, boolean echRequired) throws Exception {
+        Path list = Files.createTempFile("dtls13-ech-list", ".bin");
+        Files.write(list, EchConfig.encodeList(new EchConfig[] { ech }));
+        Path key = Files.createTempFile("dtls13-ech-key", ".hex");
+        Files.write(key, (ECH_SK + "\n").getBytes(StandardCharsets.US_ASCII));
+        list.toFile().deleteOnExit();
+        key.toFile().deleteOnExit();
+        UdpTransportFactory factory = new UdpTransportFactory();
+        factory.setDtlsVersion(DtlsVersion.DTLS_1_3);
+        factory.setServerCredentials(new ServerCredentials(chain, privateKey));
+        factory.setTrustManager(CertificateVerifier.trustManagerFromCertificates(chain));
+        factory.setSecure(true);
+        factory.setEchConfigListFile(list);
+        factory.setEchPrivateKeyFile(key);
+        factory.setEchServerRequired(echRequired);
+        factory.start();
+        return factory;
+    }
+
+    private static Dtls13HandshakeConfig echClientConfig(EchConfig ech, boolean offerEch) throws Exception {
+        Dtls13HandshakeConfig config = clientConfig();
+        if (offerEch) {
+            config.getBase().setEchEnabled(true);
+            config.getBase().setEchConfig(ech);
+            config.getBase().setEchRequired(true);
+        }
+        return config;
+    }
+
+    private static boolean[] runEchHandshake(Dtls13HandshakeConfig serverCfg, Dtls13HandshakeConfig clientCfg)
+            throws Exception {
+        RecordingEndpoint clientEp = new RecordingEndpoint(true);
+        clientEp.initDtls13();
+        RecordingEndpoint serverEp = new RecordingEndpoint(true);
+        serverEp.initDtls13();
+        Dtls13Session client = new Dtls13Session(clientCfg, clientEp, SERVER_ADDR);
+        Dtls13Session server = new Dtls13Session(serverCfg, serverEp, CLIENT_ADDR);
+        client.beginHandshake();
+        pump(clientEp, client, serverEp, server);
+        return new boolean[] { client.isHandshakeComplete(), server.isHandshakeComplete() };
+    }
+
+    @Test
+    public void udpTransportFactoryLoadsEchServerKeysIntoDtls13Config() throws Exception {
+        EchConfig ech = EchConfig.createV13(7, hex(ECH_PK), "public.example", 64);
+        UdpTransportFactory factory = echFactory(ech, true);
+        HandshakeConfig base = factory.getSharedServerConfig13().getBase();
+        assertEquals(1, base.getEchServerKeys().size());
+        assertEquals(7, base.getEchServerKeys().get(0).getConfig().getConfigId());
+        assertTrue(base.isEchServerRequired());
+        assertNotNull(base.getEchRetryConfigList());
+        HandshakeConfig engineConfig = factory.getSharedServerConfig13().copyBaseForEngine();
+        assertEquals("per-connection copy keeps the keys", 1, engineConfig.getEchServerKeys().size());
+        assertTrue(engineConfig.isEchServerRequired());
+    }
+
+    @Test
+    public void udpListenerWithoutEchFilesIsUnchanged() throws Exception {
+        UdpTransportFactory factory = new UdpTransportFactory();
+        factory.setDtlsVersion(DtlsVersion.DTLS_1_3);
+        factory.setServerCredentials(new ServerCredentials(chain, privateKey));
+        factory.setTrustManager(CertificateVerifier.trustManagerFromCertificates(chain));
+        factory.setSecure(true);
+        factory.start();
+        HandshakeConfig base = factory.getSharedServerConfig13().getBase();
+        assertTrue(base.getEchServerKeys().isEmpty());
+        assertFalse(base.isEchServerRequired());
+        assertEquals(null, base.getEchRetryConfigList());
+    }
+
+    @Test
+    public void echHandshakeCompletesOverDtls13WithFactoryConfiguredKeys() throws Exception {
+        EchConfig ech = EchConfig.createV13(7, hex(ECH_PK), "public.example", 64);
+        UdpTransportFactory factory = echFactory(ech, false);
+        // The client insists on ECH (ech_required), so completing proves the
+        // server decrypted the inner ClientHello with its configured key.
+        boolean[] done = runEchHandshake(factory.getSharedServerConfig13(), echClientConfig(ech, true));
+        assertTrue("client complete", done[0]);
+        assertTrue("server complete", done[1]);
+    }
+
+    @Test
+    public void echRequiredListenerRejectsClientHelloWithoutEch() throws Exception {
+        EchConfig ech = EchConfig.createV13(7, hex(ECH_PK), "public.example", 64);
+        UdpTransportFactory factory = echFactory(ech, true);
+        boolean[] done = runEchHandshake(factory.getSharedServerConfig13(), echClientConfig(ech, false));
+        assertFalse("client must not complete", done[0]);
+        assertFalse("server must not complete", done[1]);
+    }
+
+    @Test
+    public void listenerWithEchFilesButNotRequiredStillServesClientsWithoutEch() throws Exception {
+        EchConfig ech = EchConfig.createV13(7, hex(ECH_PK), "public.example", 64);
+        UdpTransportFactory factory = echFactory(ech, false);
+        boolean[] done = runEchHandshake(factory.getSharedServerConfig13(), echClientConfig(ech, false));
+        assertTrue(done[0]);
+        assertTrue(done[1]);
+    }
+
 }

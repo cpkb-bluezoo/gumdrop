@@ -126,7 +126,8 @@ port** automatically (pure Java; no native QUIC library). Optional RFC 9849 ECH
 uses `ech-config-list-file`, `ech-private-key-file`, and `ech-required` on that
 listener (see [web/tls.html](../web/tls.html)). The private key file may hold
 several keys (one 64-digit hex line each) so old and new `ECHConfig`s can be
-served together while a rotation propagates.
+served together while a rotation propagates. DTLS 1.3 UDP listeners take the same three
+settings.
 
 Servlet-only options: `GUMDROP_HOT_DEPLOY`, session clustering, webapp paths —
 see [Hot deploy](#hot-deploy) and [Horizontal-scale constraints](#horizontal-scale-constraints).
