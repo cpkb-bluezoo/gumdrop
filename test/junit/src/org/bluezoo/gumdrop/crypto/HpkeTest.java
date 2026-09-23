@@ -209,4 +209,17 @@ public class HpkeTest {
         }
     }
 
+
+    @Test
+    public void derivesTheX25519PublicKeyFromThePrivateKey() throws GeneralSecurityException {
+        // RFC 9180 appendix A.1 recipient key pair
+        assertArrayEquals(hex("3948cfe0ad1ddb695d780e59077195da6c56506b027329794ab02bca80815c4d"),
+                Hpke.deriveX25519PublicKey(
+                        hex("4612c550263fc8ad58375df3f557aac531d26850903e55a9f23f21d8534e8ac8")));
+        // RFC 7748 section 6.1, Alice
+        assertArrayEquals(hex("8520f0098930a754748b7ddcb43ef75a0dbf3a0d26381af4eba4a98eaa9b4e6a"),
+                Hpke.deriveX25519PublicKey(
+                        hex("77076d0a7318a57d3c16c17251b26645df4c2f87ebc0992ab177fba51db92c2a")));
+    }
 }
+

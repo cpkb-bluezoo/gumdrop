@@ -135,6 +135,20 @@ public final class Hpke {
         return new RawKeyPair(pub, priv);
     }
 
+    /** The X25519 base point u = 9 (RFC 7748 section 4.1), little-endian. */
+    private static final byte[] X25519_BASE_POINT = hex(
+            "0900000000000000000000000000000000000000000000000000000000000000");
+
+    /**
+     * Derives the X25519 public key belonging to a raw private key.
+     *
+     * @param privateKey the 32-byte private key
+     * @return the 32-byte public key
+     */
+    public static byte[] deriveX25519PublicKey(byte[] privateKey) throws GeneralSecurityException {
+        return dh(rawX25519Private(privateKey), rawX25519Public(X25519_BASE_POINT));
+    }
+
     /**
      * Sender side of HPKE base setup.
      *

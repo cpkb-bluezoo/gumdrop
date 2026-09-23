@@ -80,14 +80,13 @@ public final class HandshakeConfig {
     private boolean echRequired;
     /** When true and no real ECH config is offered, send GREASE ECH (RFC 9849 section 6.2). */
     private boolean echGreaseEnabled;
-    /** Server role: ECH config and private key for decrypting ClientHelloOuter. */
-    private EchConfig echServerConfig;
-    private byte[] echServerPrivateKey;
+    /** Server role: ECH configs and private keys for decrypting ClientHelloOuter. */
+    private final List<EchServerKey> echServerKeys = new ArrayList<EchServerKey>();
     /** Server role: require clients to offer ECH (RFC 9849 section 7.3). */
     private boolean echServerRequired;
     /**
      * Server role: {@code ECHConfigList} bytes for {@code retry_configs} on
-     * rejection; when null, {@link #echServerConfig} is encoded if present.
+     * rejection; when null, the configs of {@link #echServerKeys} are encoded.
      */
     private byte[] echRetryConfigList;
 
@@ -666,33 +665,36 @@ public final class HandshakeConfig {
     }
 
     /**
-     * Returns the server ECH configuration for decrypting client offers.
+     * Returns the server's ECH decryption keys, one per config it can open.
      *
-     * @return the server ECH config, or null
+     * @return an unmodifiable view, empty if ECH decryption is not configured
      */
-    public EchConfig getEchServerConfig() {
-        return echServerConfig;
-    }
-
-    /**
-     * Returns the X25519 private key (32 bytes) for {@link #getEchServerConfig()}.
-     *
-     * @return raw private key, or null
-     */
-    public byte[] getEchServerPrivateKey() {
-        return echServerPrivateKey;
+    public List<EchServerKey> getEchServerKeys() {
+        return Collections.unmodifiableList(echServerKeys);
     }
 
     /**
      * Configures server-side ECH decryption for incoming ClientHelloOuter
-     * messages.
+     * messages with exactly one config, replacing any already set.
      *
      * @param echServerConfig published config (includes {@code config_id})
      * @param echServerPrivateKey 32-byte X25519 private key matching the config
      */
     public void setEchServerKeys(EchConfig echServerConfig, byte[] echServerPrivateKey) {
-        this.echServerConfig = echServerConfig;
-        this.echServerPrivateKey = echServerPrivateKey;
+        echServerKeys.clear();
+        addEchServerKey(echServerConfig, echServerPrivateKey);
+    }
+
+    /**
+     * Adds a config the server can decrypt for, alongside any already set.
+     * A ClientHelloOuter is opened with the key of the config whose
+     * {@code config_id} it names.
+     *
+     * @param echServerConfig published config (includes {@code config_id})
+     * @param echServerPrivateKey 32-byte X25519 private key matching the config
+     */
+    public void addEchServerKey(EchConfig echServerConfig, byte[] echServerPrivateKey) {
+        echServerKeys.add(new EchServerKey(echServerConfig, echServerPrivateKey));
     }
 
     /**
@@ -716,7 +718,7 @@ public final class HandshakeConfig {
 
     /**
      * Returns the {@code ECHConfigList} sent in {@code retry_configs} when
-     * the server rejects ECH, or null to derive from {@link #getEchServerConfig()}.
+     * the server rejects ECH, or null to derive from {@link #getEchServerKeys()}.
      *
      * @return encoded list bytes, or null
      */

@@ -23,9 +23,14 @@ package org.bluezoo.gumdrop.tls;
 
 import java.io.IOException;
 import java.nio.file.Path;
+import java.security.GeneralSecurityException;
+import java.util.Arrays;
+import java.util.List;
 import java.util.ResourceBundle;
 import java.util.logging.Level;
 import java.util.logging.Logger;
+
+import org.bluezoo.gumdrop.crypto.Hpke;
 
 /**
  * Loads ECH key material onto a {@link HandshakeConfig} for server listeners.
@@ -44,9 +49,16 @@ public final class EchDeployment {
     /**
      * Applies server ECH settings from optional deployment files.
      *
+     * <p>The config list file is the full published {@code ECHConfigList},
+     * sent as {@code retry_configs} on rejection. Each private key in the
+     * key file (see {@link EchKeyMaterial#readPrivateKeys}) is paired with the
+     * config whose public key it matches, so a rotation lists the old and new
+     * configs together with both keys. A key matching no config is logged and
+     * ignored; a config without a key is published but cannot be decrypted.
+     *
      * @param config target handshake configuration
      * @param echConfigListFile {@code ECHConfigList} file, or null
-     * @param echPrivateKeyFile X25519 private key file, or null
+     * @param echPrivateKeyFile file holding one or more X25519 private keys, or null
      * @param echServerRequired whether to require client ECH offers
      */
     public static void applyServer(HandshakeConfig config, Path echConfigListFile, Path echPrivateKeyFile,
@@ -57,11 +69,29 @@ public final class EchDeployment {
         }
         try {
             byte[] listBytes = EchKeyMaterial.readConfigListFile(echConfigListFile);
-            byte[] privateKey = EchKeyMaterial.readPrivateKeyFile(echPrivateKeyFile);
-            EchConfig ech = EchKeyMaterial.parseFirstConfig(echConfigListFile);
-            config.setEchServerKeys(ech, privateKey);
-            config.setEchRetryConfigList(listBytes);
-        } catch (IOException e) {
+            EchConfig[] published = EchConfig.parseList(listBytes);
+            List<byte[]> privateKeys = EchKeyMaterial.readPrivateKeys(echPrivateKeyFile);
+            int paired = 0;
+            for (int i = 0; i < privateKeys.size(); i++) {
+                byte[] privateKey = privateKeys.get(i);
+                byte[] publicKey = Hpke.deriveX25519PublicKey(privateKey);
+                boolean matched = false;
+                for (int j = 0; j < published.length; j++) {
+                    if (Arrays.equals(published[j].getPublicKey(), publicKey)) {
+                        config.addEchServerKey(published[j], privateKey);
+                        matched = true;
+                        paired++;
+                    }
+                }
+                if (!matched) {
+                    LOGGER.log(Level.WARNING, L10N.getString("warn.ech_private_key_without_config"),
+                            echPrivateKeyFile);
+                }
+            }
+            if (paired > 0) {
+                config.setEchRetryConfigList(listBytes);
+            }
+        } catch (IOException | HandshakeFormatException | GeneralSecurityException e) {
             LOGGER.log(Level.WARNING,
                     L10N.getString("warn.ech_server_material_load_failed"), e);
         }

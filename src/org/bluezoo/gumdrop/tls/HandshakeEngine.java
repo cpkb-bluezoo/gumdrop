@@ -130,6 +130,7 @@ public final class HandshakeEngine {
 
     // Server-only state.
     private Hpke.RecipientContext echHpkeRecipient;
+    private EchServerKey echServerKeyInUse;
     private NamedGroup serverRetryRequestedGroup;
     private boolean earlyDataAccepted;
 
@@ -845,15 +846,17 @@ public final class HandshakeEngine {
         }
         boolean echInnerAccepted = false;
         boolean echRejectWithRetryConfigs = false;
-        if (echOuterOffered && config.getEchServerConfig() != null
-                && config.getEchServerPrivateKey() != null) {
+        if (echOuterOffered && !config.getEchServerKeys().isEmpty()) {
             try {
-                EchServer.OpenResult opened = EchServer.openInnerClientHello(message, config.getEchServerConfig(),
-                        config.getEchServerPrivateKey(), echHpkeRecipient);
-                clientHelloForTranscript = opened.getInnerClientHelloFramed();
-                echHpkeRecipient = opened.getHpkeRecipient();
-                ch = HandshakeMessages.parseClientHello(clientHelloForTranscript);
-                echInnerAccepted = true;
+                EchServer.OpenResult opened = openEchOuter(message, ch.encryptedClientHelloOuter.configId);
+                if (opened != null) {
+                    clientHelloForTranscript = opened.getInnerClientHelloFramed();
+                    echHpkeRecipient = opened.getHpkeRecipient();
+                    ch = HandshakeMessages.parseClientHello(clientHelloForTranscript);
+                    echInnerAccepted = true;
+                } else {
+                    echRejectWithRetryConfigs = true;
+                }
             } catch (GeneralSecurityException e) {
                 echRejectWithRetryConfigs = true;
             }
@@ -1032,10 +1035,50 @@ public final class HandshakeEngine {
         if (config.getEchRetryConfigList() != null) {
             return EchConfigListGrease.withServerGrease(config.getEchRetryConfigList());
         }
-        EchConfig published = config.getEchServerConfig();
-        if (published != null) {
-            return EchConfigListGrease.withServerGrease(
-                    EchConfig.encodeList(new EchConfig[] { published }));
+        List<EchServerKey> keys = config.getEchServerKeys();
+        if (!keys.isEmpty()) {
+            EchConfig[] published = new EchConfig[keys.size()];
+            for (int i = 0; i < published.length; i++) {
+                published[i] = keys.get(i).getConfig();
+            }
+            return EchConfigListGrease.withServerGrease(EchConfig.encodeList(published));
+        }
+        return null;
+    }
+
+    /**
+     * Opens a ClientHelloOuter with the key of the configured config whose
+     * {@code config_id} the client named (RFC 9849 section 7). A HelloRetryRequest
+     * follow-up reuses the config that opened the first flight. Several configs
+     * may share an id, so each is tried in turn.
+     *
+     * @return the opened hello, or null if no configured config carries the id
+     * @throws GeneralSecurityException if every config with the id fails to decrypt
+     */
+    private EchServer.OpenResult openEchOuter(byte[] message, int configId)
+            throws HandshakeFormatException, GeneralSecurityException {
+        if (echServerKeyInUse != null) {
+            return EchServer.openInnerClientHello(message, echServerKeyInUse.getConfig(),
+                    echServerKeyInUse.getPrivateKey(), echHpkeRecipient);
+        }
+        GeneralSecurityException failure = null;
+        List<EchServerKey> keys = config.getEchServerKeys();
+        for (int i = 0; i < keys.size(); i++) {
+            EchServerKey key = keys.get(i);
+            if (key.getConfig().getConfigId() != configId) {
+                continue;
+            }
+            try {
+                EchServer.OpenResult opened = EchServer.openInnerClientHello(message, key.getConfig(),
+                        key.getPrivateKey(), null);
+                echServerKeyInUse = key;
+                return opened;
+            } catch (GeneralSecurityException e) {
+                failure = e;
+            }
+        }
+        if (failure != null) {
+            throw failure;
         }
         return null;
     }

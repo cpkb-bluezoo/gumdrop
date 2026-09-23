@@ -22,7 +22,8 @@
   <listener port="8080"/>
   <listener port="8443" secure="true" cert-file="tls/cert.pem" key-file="tls/key.pem"
             bind-wildcard="true"/>
-  <!-- Optional RFC 9849 ECH (generate ECHConfigList + X25519 key separately):
+  <!-- Optional RFC 9849 ECH (generate ECHConfigList + X25519 key separately; the key
+       file may list several keys, one 64-digit hex line each, for rotation):
   <listener port="8443" secure="true" cert-file="tls/cert.pem" key-file="tls/key.pem"
             bind-wildcard="true"
             ech-config-list-file="ech-config-list.bin"
