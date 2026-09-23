@@ -182,17 +182,14 @@ public class ManagerServlet extends HttpServlet {
     private void appendContextCard(StringBuilder buf, ResourceBundle resources, 
                                    ManagerContextServer context, String managerContextPath) {
         HitStatistics stats = context.getHitStatistics();
-        String icon = context.getSmallIcon();
-        if (icon == null) {
-            icon = managerContextPath + "/gumdrop_green_16x16.png";
-        }
+        String icon = sameOriginIcon(context.getSmallIcon(), managerContextPath + "/gumdrop_green_16x16.png");
         
         buf.append("      <div class='context-card'>\n");
         
         // Header with name and reload button
         buf.append("        <div class='context-header'>\n");
         buf.append("          <div class='context-info'>\n");
-        buf.append("            <img src='").append(icon).append("' alt='' class='context-icon'/>\n");
+        buf.append("            <img src='").append(escapeHtml(icon)).append("' alt='' class='context-icon'/>\n");
         buf.append("            <div>\n");
         buf.append("              <div class='context-name'>");
         buf.append(escapeHtml(context.getDisplayName() != null ? context.getDisplayName() : context.getContextPath()));
@@ -263,10 +260,7 @@ public class ManagerServlet extends HttpServlet {
         
         for (FilterRegistration fr : filters.values()) {
             FilterReg fd = (FilterReg) fr;
-            String icon = fd.getSmallIcon();
-            if (icon == null) {
-                icon = managerContextPath + "/gumdrop_yellow_16x16.png";
-            }
+            String icon = sameOriginIcon(fd.getSmallIcon(), managerContextPath + "/gumdrop_yellow_16x16.png");
             appendComponentItem(buf, icon, 
                                fd.getDisplayName() != null ? fd.getDisplayName() : fd.getName(),
                                buildFilterMappings(fd), fd.getDescription());
@@ -309,10 +303,7 @@ public class ManagerServlet extends HttpServlet {
         
         for (ServletRegistration sr : servlets.values()) {
             ServletReg sd = (ServletReg) sr;
-            String icon = sd.getSmallIcon();
-            if (icon == null) {
-                icon = managerContextPath + "/gumdrop_purple_16x16.png";
-            }
+            String icon = sameOriginIcon(sd.getSmallIcon(), managerContextPath + "/gumdrop_purple_16x16.png");
             String name = sd.getDisplayName() != null ? sd.getDisplayName() : sd.getName();
             String mappings = String.join(" ", sd.getMappings());
             appendComponentItem(buf, icon, name, mappings, sd.getDescription());
@@ -326,7 +317,7 @@ public class ManagerServlet extends HttpServlet {
     private void appendComponentItem(StringBuilder buf, String icon, String name, 
                                      String mappings, String description) {
         buf.append("                <div class='component-item'>\n");
-        buf.append("                  <img src='").append(icon).append("' alt='' class='component-icon'/>\n");
+        buf.append("                  <img src='").append(escapeHtml(icon)).append("' alt='' class='component-icon'/>\n");
         buf.append("                  <div class='component-details'>\n");
         buf.append("                    <div class='component-name'>").append(escapeHtml(name)).append("</div>\n");
         if (mappings != null && !mappings.isEmpty()) {
@@ -356,6 +347,25 @@ public class ManagerServlet extends HttpServlet {
         out.flush();
     }
     
+    /**
+     * Returns {@code icon} if it is a same-origin absolute path (leading
+     * single slash, no backslash, whitespace or control characters), else
+     * {@code fallback}. The value comes from a deployed web application's
+     * descriptor and must not be able to name another origin or scheme.
+     */
+    private static String sameOriginIcon(String icon, String fallback) {
+        if (icon == null || icon.length() < 2 || icon.charAt(0) != '/' || icon.charAt(1) == '/') {
+            return fallback;
+        }
+        for (int i = 0; i < icon.length(); i++) {
+            char c = icon.charAt(i);
+            if (c <= ' ' || c == 0x7f || c == '\\') {
+                return fallback;
+            }
+        }
+        return icon;
+    }
+
     private static String escapeHtml(String text) {
         if (text == null) {
             return "";
@@ -363,7 +373,8 @@ public class ManagerServlet extends HttpServlet {
         return text.replace("&", "&amp;")
                    .replace("<", "&lt;")
                    .replace(">", "&gt;")
-                   .replace("\"", "&quot;");
+                   .replace("\"", "&quot;")
+                   .replace("'", "&#39;");
     }
 
     protected void doPost(HttpServletRequest request, HttpServletResponse response) throws ServletException, IOException {
