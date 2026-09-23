@@ -809,7 +809,7 @@ final class HandshakeMessages {
 
     static final class CompressedCertificate {
         CertificateCompressionAlgorithm algorithm;
-        byte[] compressed;
+        java.nio.ByteBuffer compressed;
     }
 
     static CompressedCertificate parseCompressedCertificate(byte[] fullMessage) throws HandshakeFormatException {
@@ -821,7 +821,11 @@ final class HandshakeMessages {
         if (cc.algorithm == null) {
             throw new HandshakeFormatException("unknown certificate compression algorithm");
         }
-        cc.compressed = body.opaque24();
+        int length = body.u24();
+        if (length > body.remaining()) {
+            throw new HandshakeFormatException("truncated compressed certificate");
+        }
+        cc.compressed = java.nio.ByteBuffer.wrap(fullMessage, 8, length);
         return cc;
     }
 

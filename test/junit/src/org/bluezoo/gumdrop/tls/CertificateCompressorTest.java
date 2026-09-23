@@ -104,4 +104,100 @@ public class CertificateCompressorTest {
             assertTrue(expected.getMessage().contains("limit"));
         }
     }
+
+    private static byte[] largeMessage() {
+        byte[] msg = new byte[100000];
+        java.util.Random rnd = new java.util.Random(42);
+        for (int i = 0; i < msg.length; i++) {
+            msg[i] = (byte) (i % 7 == 0 ? rnd.nextInt(256) : 'a' + (i % 13));
+        }
+        return msg;
+    }
+
+    private static byte[] streamDecode(CertificateCompressionAlgorithm alg, byte[] compressed,
+            int step, int max, final int[] maxChunk) throws Exception {
+        final java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+        CertificateCompressor.Decompressor d = CertificateCompressor.newDecompressor(alg, max,
+                new CertificateCompressor.Sink() {
+                    @Override
+                    public void decoded(java.nio.ByteBuffer data) {
+                        maxChunk[0] = Math.max(maxChunk[0], data.remaining());
+                        byte[] b = new byte[data.remaining()];
+                        data.get(b);
+                        out.write(b, 0, b.length);
+                    }
+                });
+        int pos = 0;
+        while (pos < compressed.length) {
+            int n = Math.min(step, compressed.length - pos);
+            pos += n;
+            d.write(java.nio.ByteBuffer.wrap(compressed, pos - n, n), pos == compressed.length);
+        }
+        return out.toByteArray();
+    }
+
+    private void chunked(CertificateCompressionAlgorithm alg) throws Exception {
+        byte[] msg = largeMessage();
+        byte[] compressed = CertificateCompressor.compress(alg, msg);
+        int[] steps = { 1, 3, 100, 4096 };
+        for (int step : steps) {
+            int[] maxChunk = new int[1];
+            byte[] restored = streamDecode(alg, compressed, step, 1 << 20, maxChunk);
+            assertArrayEquals("step " + step, msg, restored);
+            assertTrue("bounded output chunks: " + maxChunk[0], maxChunk[0] <= 65536);
+        }
+    }
+
+    @Test
+    public void brotliStreamsInSmallChunks() throws Exception {
+        chunked(CertificateCompressionAlgorithm.BROTLI);
+    }
+
+    @Test
+    public void zlibStreamsInSmallChunks() throws Exception {
+        chunked(CertificateCompressionAlgorithm.ZLIB);
+    }
+
+    private void limitDuringDecode(CertificateCompressionAlgorithm alg) throws Exception {
+        byte[] compressed = CertificateCompressor.compress(alg, largeMessage());
+        final int[] delivered = new int[1];
+        CertificateCompressor.Decompressor d = CertificateCompressor.newDecompressor(alg, 5000,
+                new CertificateCompressor.Sink() {
+                    @Override
+                    public void decoded(java.nio.ByteBuffer data) {
+                        delivered[0] += data.remaining();
+                        data.position(data.limit());
+                    }
+                });
+        try {
+            d.write(java.nio.ByteBuffer.wrap(compressed), true);
+            org.junit.Assert.fail("expected HandshakeFormatException");
+        } catch (HandshakeFormatException expected) {
+            assertTrue(expected.getMessage().contains("limit"));
+        }
+        assertTrue("never delivers past limit: " + delivered[0], delivered[0] <= 5000);
+    }
+
+    @Test
+    public void brotliLimitEnforcedDuringDecode() throws Exception {
+        limitDuringDecode(CertificateCompressionAlgorithm.BROTLI);
+    }
+
+    @Test
+    public void zlibLimitEnforcedDuringDecode() throws Exception {
+        limitDuringDecode(CertificateCompressionAlgorithm.ZLIB);
+    }
+
+    @Test
+    public void truncatedInputRejectedAtEnd() throws Exception {
+        byte[] compressed = CertificateCompressor.compress(
+                CertificateCompressionAlgorithm.ZLIB, largeMessage());
+        byte[] cut = java.util.Arrays.copyOf(compressed, compressed.length / 2);
+        try {
+            streamDecode(CertificateCompressionAlgorithm.ZLIB, cut, 100, 1 << 20, new int[1]);
+            org.junit.Assert.fail("expected HandshakeFormatException");
+        } catch (HandshakeFormatException expected) {
+            assertTrue(expected.getMessage().contains("truncated"));
+        }
+    }
 }
