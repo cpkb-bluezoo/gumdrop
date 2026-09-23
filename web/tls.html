@@ -318,6 +318,10 @@ Each remote address gets its own session object on the shared datagram socket.
     ACK (content type 26), and HelloRetryRequest cookie hook</li>
 <li>Uses TLS&nbsp;1.3 cipher suites and configurable named groups</li>
 <li>Continuous transcript across cookie retry (no engine rebuild)</li>
+<li>Server-side Encrypted Client Hello (RFC&nbsp;9849) with the same
+    <code>ech-config-list-file</code>, <code>ech-private-key-file</code> and
+    <code>ech-required</code> settings as TCP and QUIC listeners (see
+    <a href="#tls13">above</a>); they are ignored for DTLS&nbsp;1.2</li>
 </ul>
 
 <h2 id="quic">QUIC integration</h2>
