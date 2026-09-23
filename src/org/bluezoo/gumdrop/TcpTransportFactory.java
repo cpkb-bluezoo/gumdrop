@@ -137,6 +137,15 @@ public class TcpTransportFactory extends TransportFactory {
     }
 
     /**
+     * Returns the ECH configuration set for outbound TLS client connections.
+     *
+     * @return the config, or null if none
+     */
+    public EchConfig getClientEchConfig() {
+        return clientEchConfig;
+    }
+
+    /**
      * Enables GREASE ECH on outbound TLS client connections.
      */
     public void setClientEchGreaseEnabled(boolean clientEchGreaseEnabled) {

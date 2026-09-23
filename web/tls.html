@@ -204,10 +204,20 @@ driven by <code>TlsEventSink</code> callbacks &mdash; no blocking
     is rejected with <code>retry_configs</code>. To rotate keys, publish the old
     and new configs together and list both keys, update the DNS HTTPS
     <code>ech</code> record (RFC&nbsp;9848), and drop the old config and key once
-    cached records have expired. Clients:
-    DNS HTTPS <code>ech</code> SvcParam (including TCP fallback) and
-    <code>TlsConfig.clientEchConfigListFile()</code> /
-    <code>clientEchGreaseEnabled()</code>.</li>
+    cached records have expired. Gumdrop only reads
+    these records; publishing them (RFC&nbsp;9848) is up to the operator.
+    Clients: the HTTP-family clients (<code>HttpClient</code>,
+    <code>WebSocketClient</code>, <code>ConnectUdpClient</code>) look up the DNS
+    HTTPS <code>ech</code> SvcParam themselves before connecting. The SMTP,
+    IMAP, POP3, FTP, Redis, LDAP and MQTT clients do so only when
+    <code>TlsConfig.clientEchDnsDiscovery(true)</code> is set (default off); the
+    lookup is skipped for cleartext dials, socket paths, addresses,
+    literal IPs and <code>localhost</code>, and a failed lookup never stops the
+    connection. Every client can also use
+    <code>TlsConfig.clientEchConfigListFile()</code> and
+    <code>clientEchGreaseEnabled()</code>. Precedence: a list found in DNS is used
+    first; the file is the fallback when DNS supplies none; GREASE applies only when
+    no real config is used.</li>
 </ul>
 
 <p>

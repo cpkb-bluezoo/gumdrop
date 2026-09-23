@@ -176,17 +176,22 @@ public class FtpClient {
         transportFactory = new TcpTransportFactory();
         endpointHandler = new FtpClientProtocolHandler(handler);
         endpointHandler.setGumdrop(gumdrop);
-        try {
-            TlsConfig effective = ClientConnect.prepareTls(secure, tls, transportFactory);
-            endpointHandler.setSecure(secure);
-            if (effective.getServerCredentials() != null) {
-                endpointHandler.setClientCredentials(effective.getServerCredentials());
+        ClientConnect.discoverEch(gumdrop, secure, dial, tls, new ClientConnect.EchDiscoveryCallback() {
+            @Override
+            public void discovered(byte[] echConfigList) {
+                try {
+                    TlsConfig effective = ClientConnect.prepareTls(secure, tls, transportFactory, echConfigList);
+                    endpointHandler.setSecure(secure);
+                    if (effective.getServerCredentials() != null) {
+                        endpointHandler.setClientCredentials(effective.getServerCredentials());
+                    }
+                    clientEndpoint = ClientConnect.openAndConnect(
+                            gumdrop, dial, transportFactory, endpointHandler);
+                } catch (IOException e) {
+                    handler.onError(e);
+                }
             }
-            clientEndpoint = ClientConnect.openAndConnect(
-                    gumdrop, dial, transportFactory, endpointHandler);
-        } catch (IOException e) {
-            handler.onError(e);
-        }
+        });
     }
 
     public boolean isOpen() {

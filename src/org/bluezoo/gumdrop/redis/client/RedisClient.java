@@ -208,14 +208,19 @@ public class RedisClient {
         transportFactory = new TcpTransportFactory();
         endpointHandler = new RedisClientProtocolHandler(handler);
 
-        try {
-            ClientConnect.prepareTls(secure, tls, transportFactory);
-            clientEndpoint = ClientConnect.openAndConnect(
-                    gumdrop, dial, transportFactory, endpointHandler);
-            connected = true;
-        } catch (IOException e) {
-            handler.onError(e);
-        }
+        ClientConnect.discoverEch(gumdrop, secure, dial, tls, new ClientConnect.EchDiscoveryCallback() {
+            @Override
+            public void discovered(byte[] echConfigList) {
+                try {
+                    ClientConnect.prepareTls(secure, tls, transportFactory, echConfigList);
+                    clientEndpoint = ClientConnect.openAndConnect(
+                            gumdrop, dial, transportFactory, endpointHandler);
+                    connected = true;
+                } catch (IOException e) {
+                    handler.onError(e);
+                }
+            }
+        });
     }
 
     public boolean isOpen() {

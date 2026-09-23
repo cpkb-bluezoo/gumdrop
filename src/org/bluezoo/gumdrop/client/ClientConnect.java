@@ -28,7 +28,13 @@ import java.util.logging.Logger;
 import org.bluezoo.gumdrop.ClientEndpoint;
 import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.ProtocolHandler;
+import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.TcpTransportFactory;
+import org.bluezoo.gumdrop.dns.DnsMessage;
+import org.bluezoo.gumdrop.dns.DnsQueryCallback;
+import org.bluezoo.gumdrop.dns.HttpsRecordEch;
+import org.bluezoo.gumdrop.dns.client.DnsResolver;
+import org.bluezoo.gumdrop.dns.client.HostsFile;
 import org.bluezoo.gumdrop.quic.QuicTransportFactory;
 import org.bluezoo.gumdrop.tls.EchClientBootstrap;
 import org.bluezoo.gumdrop.tls.EchConfig;
@@ -59,11 +65,97 @@ public final class ClientConnect {
      */
     public static TlsConfig prepareTls(boolean secure, TlsConfig tls,
                                            TcpTransportFactory factory) {
+        return prepareTls(secure, tls, factory, null);
+    }
+
+    /**
+     * As {@link #prepareTls(boolean, TlsConfig, TcpTransportFactory)}, also
+     * applying an {@code ECHConfigList} found in DNS (see {@link #discoverEch}).
+     * A DNS list takes precedence over {@link TlsConfig#getClientEchConfigListFile()}.
+     *
+     * @param dnsDiscoveredEchConfigList the list from DNS, or null
+     */
+    public static TlsConfig prepareTls(boolean secure, TlsConfig tls,
+                                           TcpTransportFactory factory,
+                                           byte[] dnsDiscoveredEchConfigList) {
         TlsConfig effective = ClientDefaults.effectiveTls(tls);
         factory.setSecure(secure);
         applyToTcpFactory(effective, factory);
+        applyTcpClientEch(factory, dnsDiscoveredEchConfigList, effective);
         factory.start();
         return effective;
+    }
+
+    /** Receives the outcome of {@link #discoverEch}. */
+    public interface EchDiscoveryCallback {
+        /**
+         * Called exactly once, when it is time to dial.
+         *
+         * @param echConfigList the {@code ECHConfigList} published in DNS, or
+         *        null if discovery is off, does not apply, or found nothing
+         */
+        void discovered(byte[] echConfigList);
+    }
+
+    /**
+     * Looks up the DNS HTTPS record of the dial target for an {@code ech}
+     * SvcParam (RFC 9848) before a TCP TLS connection, when
+     * {@link TlsConfig#clientEchDnsDiscovery} is enabled. The callback runs
+     * at once, on the calling thread, when nothing needs looking up: the
+     * dial is not secure, discovery is off, or the target is not a hostname
+     * (a socket path, an address, a literal IP or {@code localhost}). A
+     * failed lookup is not an error; the callback simply gets null.
+     *
+     * @param gumdrop supplies a selector loop when neither {@code dial} nor a
+     *        resolver names one
+     * @param secure whether the connection starts TLS immediately
+     * @param dial the target
+     * @param tls the client's TLS settings (merged with the process default)
+     * @param callback told what was found, exactly once
+     */
+    public static void discoverEch(Gumdrop gumdrop, boolean secure, ClientDial dial, TlsConfig tls,
+                                   final EchDiscoveryCallback callback) {
+        String host = dial.getHost();
+        if (!secure || host == null || isUndiscoverableHost(host)
+                || !ClientDefaults.effectiveTls(tls).isClientEchDnsDiscoveryEnabled()) {
+            callback.discovered(null);
+            return;
+        }
+        DnsResolver resolver = dial.getDnsResolver();
+        if (resolver == null) {
+            SelectorLoop loop = dial.getSelectorLoop();
+            if (loop == null && gumdrop != null) {
+                loop = gumdrop.nextWorkerLoop();
+            }
+            if (loop == null) {
+                callback.discovered(null);
+                return;
+            }
+            resolver = ClientDefaults.dnsResolver(loop, null);
+        }
+        resolver.queryHTTPS(host, new DnsQueryCallback() {
+            @Override
+            public void onResponse(DnsMessage response) {
+                callback.discovered(HttpsRecordEch.firstEchConfigListFromAnswers(response.getAnswers()));
+            }
+
+            @Override
+            public void onError(String error) {
+                callback.discovered(null);
+            }
+        });
+    }
+
+    /**
+     * Whether a target name needs no DNS lookup because it is {@code localhost}
+     * or a literal IP address.
+     */
+    public static boolean isUndiscoverableHost(String hostname) {
+        if ("localhost".equalsIgnoreCase(hostname) || "localhost.".equalsIgnoreCase(hostname)) {
+            return true;
+        }
+        return HostsFile.parseLiteralIPv4(hostname) != null
+                || HostsFile.parseLiteralIPv6(hostname) != null;
     }
 
     public static void applyToTcpFactory(TlsConfig tls,

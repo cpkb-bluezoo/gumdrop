@@ -58,7 +58,6 @@ import org.bluezoo.gumdrop.dns.DnsQueryCallback;
 import org.bluezoo.gumdrop.dns.DnsResourceRecord;
 import org.bluezoo.gumdrop.dns.DnsType;
 import org.bluezoo.gumdrop.dns.client.DnsResolver;
-import org.bluezoo.gumdrop.dns.client.HostsFile;
 import org.bluezoo.gumdrop.dns.client.ResolveCallback;
 import org.bluezoo.gumdrop.http.client.AltSvcCache;
 import org.bluezoo.gumdrop.http.client.AltSvcListener;
@@ -927,7 +926,7 @@ public class HttpClient implements AltSvcListener {
             connectTcp(handler);
             return;
         }
-        if (!dnsHttpsRecordEnabled || isUndiscoverableHost(host)) {
+        if (!dnsHttpsRecordEnabled || ClientConnect.isUndiscoverableHost(host)) {
             // Skip only the DNS round trip -- the AltSvcCache tier is a
             // fast, in-memory lookup, worth checking even for localhost/
             // literal-IP targets.
@@ -1009,18 +1008,6 @@ public class HttpClient implements AltSvcListener {
         this.dnsDiscoveredEchConfigList = dnsDiscoveredEchConfigList;
     }
 
-    /**
-     * Returns true if {@code hostname} isn't worth issuing a DNS HTTPS-record
-     * query for: a literal IPv4/IPv6 address, or loopback.
-     */
-    private static boolean isUndiscoverableHost(String hostname) {
-        if ("localhost".equalsIgnoreCase(hostname)
-                || "localhost.".equalsIgnoreCase(hostname)) {
-            return true;
-        }
-        return HostsFile.parseLiteralIPv4(hostname) != null
-                || HostsFile.parseLiteralIPv6(hostname) != null;
-    }
 
     /**
      * Today's TCP-first behaviour: HTTP/2 via ALPN (secure) or h2c upgrade

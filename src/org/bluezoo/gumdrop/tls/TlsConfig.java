@@ -71,6 +71,7 @@ public final class TlsConfig {
     private boolean echServerRequired;
     private Path clientEchConfigListFile;
     private boolean clientEchGreaseEnabled;
+    private boolean clientEchDnsDiscovery;
 
     /**
      * Creates an empty config for fluent configuration.
@@ -240,6 +241,19 @@ public final class TlsConfig {
         return this;
     }
 
+    /**
+     * Client-only: look up the target host's DNS HTTPS record for an
+     * {@code ech} SvcParam before dialling (RFC 9848, RFC 9460). Off by
+     * default for the protocol clients that use {@code ClientConnect}
+     * (SMTP, IMAP, POP3, FTP, Redis, LDAP, MQTT); the HTTP-family clients
+     * do this on their own. A list found in DNS takes precedence over
+     * {@link #clientEchConfigListFile(Path)}, which is then only the fallback.
+     */
+    public TlsConfig clientEchDnsDiscovery(boolean clientEchDnsDiscovery) {
+        this.clientEchDnsDiscovery = clientEchDnsDiscovery;
+        return this;
+    }
+
     public Path getEchConfigListFile() {
         return echConfigListFile;
     }
@@ -258,6 +272,10 @@ public final class TlsConfig {
 
     public boolean isClientEchGreaseEnabled() {
         return clientEchGreaseEnabled;
+    }
+
+    public boolean isClientEchDnsDiscoveryEnabled() {
+        return clientEchDnsDiscovery;
     }
 
     public boolean isVerifyPeer() {
@@ -335,6 +353,7 @@ public final class TlsConfig {
         out.clientEchGreaseEnabled = local.hasClientEchSettings()
                 ? local.clientEchGreaseEnabled
                 : fallback.clientEchGreaseEnabled;
+        out.clientEchDnsDiscovery = local.clientEchDnsDiscovery || fallback.clientEchDnsDiscovery;
         return out;
     }
 
@@ -368,6 +387,7 @@ public final class TlsConfig {
         this.echServerRequired = source.echServerRequired;
         this.clientEchConfigListFile = source.clientEchConfigListFile;
         this.clientEchGreaseEnabled = source.clientEchGreaseEnabled;
+        this.clientEchDnsDiscovery = source.clientEchDnsDiscovery;
         return this;
     }
 
