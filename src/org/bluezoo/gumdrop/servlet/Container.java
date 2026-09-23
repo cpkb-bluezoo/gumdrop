@@ -221,12 +221,24 @@ public class Container implements ManagerContainerServer, ClusterContainer {
         clusterGroupAddress = address;
     }
 
+    /**
+     * Sets the AES-256 session replication key.
+     *
+     * @param key exactly 64 hexadecimal characters, decoded as 32 raw bytes
+     * @throws IllegalArgumentException if it is not exactly 64 hexadecimal characters
+     */
     public void setClusterKey(String key) {
-        byte[] bytes = new java.math.BigInteger(key, 16).toByteArray();
-        if (bytes.length < 32) {
-            byte[] tmp = new byte[32];
-            System.arraycopy(bytes, 0, tmp, tmp.length - bytes.length, bytes.length);
-            bytes = tmp; 
+        if (key == null || key.length() != 64) {
+            throw new IllegalArgumentException("cluster key must be exactly 64 hexadecimal characters");
+        }
+        byte[] bytes = new byte[32];
+        for (int i = 0; i < bytes.length; i++) {
+            int high = Character.digit(key.charAt(i * 2), 16);
+            int low = Character.digit(key.charAt(i * 2 + 1), 16);
+            if (high < 0 || low < 0 || key.charAt(i * 2) > 'f' || key.charAt(i * 2 + 1) > 'f') {
+                throw new IllegalArgumentException("cluster key must be exactly 64 hexadecimal characters");
+            }
+            bytes[i] = (byte) ((high << 4) | low);
         }
         clusterKey = bytes;
     }

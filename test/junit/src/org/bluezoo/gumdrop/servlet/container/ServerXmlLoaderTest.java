@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.servlet.container;
 
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
@@ -64,6 +65,8 @@ public class ServerXmlLoaderTest {
                     }
                 });
     }
+
+    private static final String HEX_63 = "123456789012345678901234567890123456789012345678901234567890123";
 
     private void assertError(String fragment) {
         assertNull("unexpected server", server);
@@ -205,7 +208,7 @@ public class ServerXmlLoaderTest {
     @Test
     public void clusterAccepted() {
         load("<server><cluster port='4000' "
-                + "key='00112233445566778899aabbccddeeff' "
+                + "key='00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff' "
                 + "group-address='230.0.0.1'/><listener port='1'/></server>");
         assertNull(error, error);
         assertNotNull(server);
@@ -269,5 +272,51 @@ public class ServerXmlLoaderTest {
         load("<server><cluster port='4000' key='not-hex'/>"
                 + "<listener port='1'/></server>");
         assertError("cluster key");
+    }
+
+    @Test
+    public void shortClusterKeyIsRejected() {
+        load("<server><cluster port='4000' key='00112233445566778899aabbccddeeff'/>"
+                + "<listener port='1'/></server>");
+        assertError("cluster key");
+        assertTrue(error, error.contains("64"));
+    }
+
+    @Test
+    public void clusterKeyOneCharacterShortIsRejected() {
+        load("<server><cluster port='4000' key='" + HEX_63 + "'/><listener port='1'/></server>");
+        assertError("cluster key");
+    }
+
+    @Test
+    public void clusterKeyOneCharacterLongIsRejected() {
+        load("<server><cluster port='4000' key='" + HEX_63 + "00'/><listener port='1'/></server>");
+        assertError("cluster key");
+    }
+
+    @Test
+    public void clusterKeyOfExactlySixtyFourCharactersIsAccepted() {
+        load("<server><cluster port='4000' key='" + HEX_63 + "0'/><listener port='1'/></server>");
+        assertNull(error, error);
+    }
+
+    @Test
+    public void clusterKeyWithHighBitSetIsAcceptedAsThirtyTwoRawBytes() throws Exception {
+        org.bluezoo.gumdrop.servlet.Container container = new org.bluezoo.gumdrop.servlet.Container();
+        String hex = "ff00112233445566778899aabbccddeeff00112233445566778899aabbccddee";
+        container.setClusterKey(hex);
+        byte[] key = container.getClusterKey();
+        assertEquals(32, key.length);
+        assertEquals((byte) 0xff, key[0]);
+        assertEquals((byte) 0xee, key[31]);
+    }
+
+    @Test
+    public void leadingZeroClusterKeyKeepsAllThirtyTwoBytes() throws Exception {
+        org.bluezoo.gumdrop.servlet.Container container = new org.bluezoo.gumdrop.servlet.Container();
+        container.setClusterKey("0000000000000000000000000000000000000000000000000000000000000001");
+        byte[] key = container.getClusterKey();
+        assertEquals(32, key.length);
+        assertEquals(1, key[31]);
     }
 }
