@@ -205,7 +205,9 @@ public final class Dtls13HandshakeConfig {
         copy.setEchConfig(base.getEchConfig());
         copy.setEchRequired(base.isEchRequired());
         copy.setEchGreaseEnabled(base.isEchGreaseEnabled());
-        copy.setEchServerKeys(base.getEchServerConfig(), base.getEchServerPrivateKey());
+        for (EchServerKey key : base.getEchServerKeys()) {
+            copy.addEchServerKey(key.getConfig(), key.getPrivateKey());
+        }
         copy.setEchServerRequired(base.isEchServerRequired());
         copy.setEchRetryConfigList(base.getEchRetryConfigList());
         copy.setAntiReplay(base.getAntiReplay());

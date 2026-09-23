@@ -930,6 +930,87 @@ public class HandshakeEngineLoopbackTest {
         }
     }
 
+    private static final String ECH_PK1 = "3948cfe0ad1ddb695d780e59077195da6c56506b027329794ab02bca80815c4d";
+    private static final String ECH_SK1 = "4612c550263fc8ad58375df3f557aac531d26850903e55a9f23f21d8534e8ac8";
+    private static final String ECH_PK2 = "8520f0098930a754748b7ddcb43ef75a0dbf3a0d26381af4eba4a98eaa9b4e6a";
+    private static final String ECH_SK2 = "77076d0a7318a57d3c16c17251b26645df4c2f87ebc0992ab177fba51db92c2a";
+
+    private HandshakeEngine[] runEchAgainstServerHolding(EchConfig clientConfigView, EchConfig[] serverConfigs,
+            byte[][] serverKeys, RecordingSink clientSink, RecordingSink serverSink) throws Exception {
+        HandshakeConfig cc = clientConfig(ecChain, SERVER_NAME);
+        cc.setEchEnabled(true);
+        cc.setEchConfig(clientConfigView);
+        cc.setVerifyHostname(false);
+        HandshakeConfig sc = serverConfig(ecChain, ecKey);
+        for (int i = 0; i < serverConfigs.length; i++) {
+            sc.addEchServerKey(serverConfigs[i], serverKeys[i]);
+        }
+        HandshakeEngine client = new HandshakeEngine(cc);
+        HandshakeEngine server = new HandshakeEngine(sc);
+        runHandshake(client, clientSink, server, serverSink);
+        return new HandshakeEngine[] { client, server };
+    }
+
+    @Test
+    public void echServerDecryptsWithTheKeyOfTheConfigIdTheClientOffered() throws Exception {
+        EchConfig first = EchConfig.createV13(1, hex(ECH_PK1), "public." + SERVER_NAME, 64);
+        EchConfig second = EchConfig.createV13(2, hex(ECH_PK2), "public." + SERVER_NAME, 64);
+        EchConfig[] published = { first, second };
+        byte[][] keys = { hex(ECH_SK1), hex(ECH_SK2) };
+        // rotation: clients holding either the old or the new config must both succeed
+        EchConfig[] clientViews = { first, second };
+        for (int i = 0; i < clientViews.length; i++) {
+            RecordingSink clientSink = new RecordingSink();
+            RecordingSink serverSink = new RecordingSink();
+            HandshakeEngine[] engines = runEchAgainstServerHolding(clientViews[i], published, keys,
+                    clientSink, serverSink);
+            assertNull("client error (config " + (i + 1) + ")", clientSink.error);
+            assertNull("server error (config " + (i + 1) + ")", serverSink.error);
+            assertTrue("client complete", engines[0].isComplete());
+            assertTrue("server complete", engines[1].isComplete());
+            assertArrayEquals(engines[0].getClientApplicationTrafficSecret(),
+                    engines[1].getClientApplicationTrafficSecret());
+        }
+    }
+
+    @Test
+    public void echUnknownConfigIdIsRejectedWithRetryConfigsListingEveryPublishedConfig() throws Exception {
+        EchConfig first = EchConfig.createV13(1, hex(ECH_PK1), "public." + SERVER_NAME, 64);
+        EchConfig second = EchConfig.createV13(2, hex(ECH_PK2), "public." + SERVER_NAME, 64);
+        // a stale config the server no longer holds a key for
+        EchConfig stale = EchConfig.createV13(9, hex(ECH_PK1), "public." + SERVER_NAME, 64);
+        RecordingSink clientSink = new RecordingSink();
+        RecordingSink serverSink = new RecordingSink();
+        HandshakeConfig cc = clientConfig(ecChain, SERVER_NAME);
+        cc.setEchEnabled(true);
+        cc.setEchConfig(stale);
+        cc.setEchRequired(true);
+        HandshakeConfig sc = serverConfig(ecChain, ecKey);
+        sc.addEchServerKey(first, hex(ECH_SK1));
+        sc.addEchServerKey(second, hex(ECH_SK2));
+        HandshakeEngine client = new HandshakeEngine(cc);
+        HandshakeEngine server = new HandshakeEngine(sc);
+
+        runHandshake(client, clientSink, server, serverSink);
+
+        assertNotNull("ech_required expected", clientSink.error);
+        assertEquals(AlertDescription.ECH_REQUIRED, clientSink.error.getAlert());
+        EchConfig[] listed = null;
+        for (int i = 0; i < serverSink.allOutbound.size(); i++) {
+            byte[] message = serverSink.allOutbound.get(i);
+            if ((message[0] & 0xff) == HandshakeMessages.HANDSHAKE_TYPE_ENCRYPTED_EXTENSIONS) {
+                listed = HandshakeMessages.parseEncryptedExtensions(message).echRetryConfigs;
+            }
+        }
+        assertNotNull("server must send retry_configs", listed);
+        List<Integer> ids = new ArrayList<Integer>();
+        for (int i = 0; i < listed.length; i++) {
+            ids.add(listed[i].getConfigId());
+        }
+        assertTrue("retry_configs lists config 1: " + ids, ids.contains(1));
+        assertTrue("retry_configs lists config 2: " + ids, ids.contains(2));
+    }
+
     @Test
     public void echRejectionWithoutServerKeysCompletesOnOuterHello() throws Exception {
         byte[] pkRm = hex("3948cfe0ad1ddb695d780e59077195da6c56506b027329794ab02bca80815c4d");

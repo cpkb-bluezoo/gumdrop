@@ -194,7 +194,17 @@ driven by <code>TlsEventSink</code> callbacks &mdash; no blocking
     HelloRetryRequest. Other KEMs and KDFs are ignored. Client GREASE, server <code>retry_configs</code>,
     and HelloRetryRequest inner transcript handling. Server keys on secure
     listeners: <code>ech-config-list-file</code>, <code>ech-private-key-file</code>,
-    optional <code>ech-required</code> in <code>server.xml</code>. Clients:
+    optional <code>ech-required</code> in <code>server.xml</code>. The config
+    list file is the whole published <code>ECHConfigList</code> and is sent as
+    <code>retry_configs</code> on rejection. The private key file holds one raw
+    32-byte key or any number of keys, one per line as 64 hex digits (blank
+    lines and <code>#</code> comments ignored); each key is paired with the
+    config whose public key it matches, and a ClientHello is opened with the
+    key of the <code>config_id</code> it names, so a client with an unknown id
+    is rejected with <code>retry_configs</code>. To rotate keys, publish the old
+    and new configs together and list both keys, update the DNS HTTPS
+    <code>ech</code> record (RFC&nbsp;9848), and drop the old config and key once
+    cached records have expired. Clients:
     DNS HTTPS <code>ech</code> SvcParam (including TCP fallback) and
     <code>TlsConfig.clientEchConfigListFile()</code> /
     <code>clientEchGreaseEnabled()</code>.</li>

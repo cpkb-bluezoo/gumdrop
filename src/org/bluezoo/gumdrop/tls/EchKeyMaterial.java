@@ -25,9 +25,11 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
- * Loads ECH deployment material from files (ECHConfigList, X25519 private key).
+ * Loads ECH deployment material from files (ECHConfigList, X25519 private keys).
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
@@ -49,30 +51,39 @@ public final class EchKeyMaterial {
     }
 
     /**
-     * Parses the first {@link EchConfig} from a list file.
+     * Reads one or more X25519 private keys from a file. A file of exactly
+     * 32 bytes is one raw binary key; otherwise the file is text with one
+     * key per line as 64 hex digits, where blank lines and lines starting
+     * with {@code #} are ignored. Listing an old and a new key allows both
+     * an outgoing and an incoming {@code ECHConfig} to be decrypted during
+     * a rotation.
+     *
+     * @param path the key file
+     * @return the keys, in file order, at least one
+     * @throws IOException if the file cannot be read or holds no valid key
      */
-    public static EchConfig parseFirstConfig(Path configListFile) throws IOException {
-        try {
-            EchConfig[] configs = EchConfig.parseList(readConfigListFile(configListFile));
-            return configs[0];
-        } catch (HandshakeFormatException e) {
-            throw new IOException("Invalid ECHConfigList: " + e.getMessage(), e);
-        }
-    }
-
-    /**
-     * Reads a 32-byte X25519 private key from a file (raw binary or ASCII hex).
-     */
-    public static byte[] readPrivateKeyFile(Path path) throws IOException {
+    public static List<byte[]> readPrivateKeys(Path path) throws IOException {
         byte[] raw = Files.readAllBytes(path);
+        List<byte[]> keys = new ArrayList<byte[]>();
         if (raw.length == X25519_PRIVATE_KEY_LENGTH) {
-            return raw;
+            keys.add(raw);
+            return keys;
         }
-        String text = new String(raw, StandardCharsets.US_ASCII).trim();
-        if (text.length() == X25519_PRIVATE_KEY_LENGTH * 2 && isHex(text)) {
-            return decodeHex(text);
+        String[] lines = new String(raw, StandardCharsets.US_ASCII).split("\\r?\\n");
+        for (int i = 0; i < lines.length; i++) {
+            String line = lines[i].trim();
+            if (line.isEmpty() || line.startsWith("#")) {
+                continue;
+            }
+            if (line.length() != X25519_PRIVATE_KEY_LENGTH * 2 || !isHex(line)) {
+                throw new IOException("ECH private key file must hold 32 raw bytes or lines of 64 hex digits: " + path);
+            }
+            keys.add(decodeHex(line));
         }
-        throw new IOException("ECH private key file must be 32 bytes or 64 hex digits: " + path);
+        if (keys.isEmpty()) {
+            throw new IOException("ECH private key file holds no key: " + path);
+        }
+        return keys;
     }
 
     private static boolean isHex(String s) {
