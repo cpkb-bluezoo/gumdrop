@@ -72,7 +72,7 @@ import java.nio.file.StandardOpenOption;
  *   <realm name="myRealm,Gumdrop Manager" class="org.bluezoo.gumdrop.auth.BasicRealm"
  *          href="realm-servlet.xml"/>
  *
- *   <cluster port="4001" group-address="228.0.0.4" key="a1b2c3d4..."/>
+ *   <cluster port="4001" group-address="228.0.0.4" key="64-hex-characters"/>
  *
  *   <context path="" root="../webapps/ROOT" distributable="true"/>
  *   <context path="/manager" root="../webapps/manager.war"/>
@@ -365,8 +365,8 @@ public final class ServerXmlLoader {
             String key = require(attrs, "key", "cluster");
             try {
                 container.setClusterKey(key);
-            } catch (NumberFormatException e) {
-                throw new SAXException("cluster key must be a hexadecimal string", e);
+            } catch (IllegalArgumentException e) {
+                throw new SAXException("cluster key must be exactly 64 hexadecimal characters", e);
             }
         }
 
