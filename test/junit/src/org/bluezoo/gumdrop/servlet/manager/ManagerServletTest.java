@@ -22,6 +22,7 @@
 package org.bluezoo.gumdrop.servlet.manager;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
@@ -151,6 +152,8 @@ public class ManagerServletTest {
     private HttpServletResponse response;
     private final List<String> keepAliveSet = new ArrayList<String>();
     private Map<String, String> params;
+    private Answers filterAnswers;
+    private Answers servletAnswers;
 
     @Before
     public void setUp() throws Exception {
@@ -159,19 +162,19 @@ public class ManagerServletTest {
         body = new CapturingStream();
         params = new LinkedHashMap<String, String>();
 
-        Answers filter = new Answers()
+        filterAnswers = new Answers()
                 .with("getName", "audit")
                 .with("getServletNameMappings", Arrays.asList("main"))
                 .with("getUrlPatternMappings", Arrays.asList("/a/*", "/b"));
-        Answers servletReg = new Answers()
+        servletAnswers = new Answers()
                 .with("getName", "main")
                 .with("getDisplayName", "Main <Servlet>")
                 .with("getDescription", "the \"main\" one")
                 .with("getMappings", Arrays.asList("/x", "/y"));
         Map<String, Object> filters = new LinkedHashMap<String, Object>();
-        filters.put("audit", proxy(FilterReg.class, filter));
+        filters.put("audit", proxy(FilterReg.class, filterAnswers));
         Map<String, Object> servlets = new LinkedHashMap<String, Object>();
-        servlets.put("main", proxy(ServletReg.class, servletReg));
+        servlets.put("main", proxy(ServletReg.class, servletAnswers));
 
         containerAnswers = new Answers();
         contextAnswers = new Answers()
@@ -280,6 +283,44 @@ public class ManagerServletTest {
         assertTrue(out.contains("/x /y"));
         assertTrue(out.contains("gumdrop_yellow_16x16.png"));
         assertTrue(out.contains("gumdrop_purple_16x16.png"));
+    }
+
+    private static final String ATTRIBUTE_BREAKOUT = "/app/i.png' onerror='alert(1)";
+
+    @Test
+    public void getEscapesQuoteInContextIcon() throws Exception {
+        contextAnswers.with("getSmallIcon", ATTRIBUTE_BREAKOUT);
+        servlet.service(request, response);
+        String out = html();
+        assertFalse(out, out.contains("onerror='"));
+    }
+
+    @Test
+    public void getEscapesQuoteInFilterAndServletIcons() throws Exception {
+        filterAnswers.with("getSmallIcon", ATTRIBUTE_BREAKOUT);
+        servletAnswers.with("getSmallIcon", ATTRIBUTE_BREAKOUT);
+        servlet.service(request, response);
+        String out = html();
+        assertFalse(out, out.contains("onerror='"));
+    }
+
+    @Test
+    public void getRejectsIconsThatAreNotSameOriginPaths() throws Exception {
+        String[] bad = { "http://evil.example/x.png", "//evil.example/x.png",
+                "javascript:alert(1)", "data:image/png;base64,AAAA", "x.png", "/a\\b.png" };
+        for (int i = 0; i < bad.length; i++) {
+            contextAnswers.with("getSmallIcon", bad[i]);
+            filterAnswers.with("getSmallIcon", bad[i]);
+            servletAnswers.with("getSmallIcon", bad[i]);
+            body.sink.reset();
+            servlet.service(request, response);
+            String out = html();
+            assertFalse(bad[i] + " must not be rendered", out.contains("src='" + bad[i]));
+            assertFalse(bad[i] + " must not be rendered", out.contains("evil.example"));
+            assertTrue(out.contains("/manager/gumdrop_green_16x16.png"));
+            assertTrue(out.contains("gumdrop_yellow_16x16.png"));
+            assertTrue(out.contains("gumdrop_purple_16x16.png"));
+        }
     }
 
     @Test
