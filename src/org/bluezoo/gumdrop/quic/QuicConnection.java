@@ -163,6 +163,10 @@ public final class QuicConnection implements QuicTlsEngineListener {
 
     /** RFC 9000 section 14.1: every implementation must support at least this size. */
     static final int MIN_DATAGRAM_SIZE = 1200;
+    // RFC 9000 section 14: no datagram larger than the path supports. There
+    // is no path MTU discovery, so this is the minimum every path must carry.
+    static final int MAX_DATAGRAM_SIZE = MIN_DATAGRAM_SIZE;
+    private static final int MAX_DATAGRAMS_PER_FLUSH = 256;
 
     // RFC 9000 section 9.3: bounds how much amplification an attacker
     // spoofing many distinct source addresses can extract (each
@@ -2315,15 +2319,33 @@ public final class QuicConnection implements QuicTlsEngineListener {
      * levels aren't already contributing.
      */
     void flush() {
+        // Issue #505: a datagram carries at most MAX_DATAGRAM_SIZE bytes,
+        // so queued stream data can need many of them. Keep going while
+        // one more may be eligible; the congestion window and the peer's
+        // flow control stop it, and each acknowledgement received flushes
+        // again. The cap bounds how long one call can hold the loop.
+        for (int datagrams = 0; datagrams < MAX_DATAGRAMS_PER_FLUSH; datagrams++) {
+            if (!flushOneDatagram()) {
+                return;
+            }
+        }
+    }
+
+    // Builds and sends one datagram. Returns true if it carried 1-RTT
+    // data and more stream data is still queued.
+    private boolean flushOneDatagram() {
         if (closed) {
-            return;
+            return false;
         }
         byte[] zeroRttBytes = buildZeroRttPacketOrNull();
         byte[] handshakeBytes = buildLevelPacketOrNull(EncryptionLevel.HANDSHAKE, 0);
         if (handshakeBytes != null) {
             sentHandshakePacket = true;
         }
+        coalescedBytes = (zeroRttBytes != null ? zeroRttBytes.length : 0)
+                + (handshakeBytes != null ? handshakeBytes.length : 0);
         byte[] oneRttBytes = buildLevelPacketOrNull(EncryptionLevel.ONE_RTT, 0);
+        coalescedBytes = 0;
 
         int zeroRttHandshakeAndOneRttBytes = (zeroRttBytes != null ? zeroRttBytes.length : 0)
                 + (handshakeBytes != null ? handshakeBytes.length : 0)
@@ -2364,7 +2386,7 @@ public final class QuicConnection implements QuicTlsEngineListener {
             // flight" as a Probe Timeout, sending a spurious anti-
             // deadlock PING that nothing actually required.
             scheduleLossDetectionTimer();
-            return;
+            return false;
         }
 
         int totalLength = (initialBytes != null ? initialBytes.length : 0) + zeroRttHandshakeAndOneRttBytes;
@@ -2398,8 +2420,10 @@ public final class QuicConnection implements QuicTlsEngineListener {
         // existing "a blocked send is treated like ordinary packet loss"
         // handling (see QuicEngine.sendPacket) recovers it once more
         // receive-side credit arrives.
+        boolean sent = false;
         if (!isServer || addressValidated || amplificationBytesSent + datagram.length <= 3 * amplificationBytesReceived) {
             engine.sendPacket(this, datagram);
+            sent = true;
             if (isServer && !addressValidated) {
                 amplificationBytesSent += datagram.length;
             }
@@ -2412,6 +2436,7 @@ public final class QuicConnection implements QuicTlsEngineListener {
         }
 
         scheduleLossDetectionTimer();
+        return sent && !closed && oneRttBytes != null && !pendingStream.isEmpty();
     }
 
     private byte[] buildLevelPacketOrNull(EncryptionLevel level, int minDatagramSize) {
@@ -2953,36 +2978,55 @@ public final class QuicConnection implements QuicTlsEngineListener {
     // pendingStreamOrder (the actual send-side removal happens later, in
     // buildProtectedPacket/buildZeroRttPacketOrNull once this has
     // returned), so iterating the live TreeSet directly is safe.
-    private Map<Long, List<PendingChunk>> drainEligibleStreamChunks() {
+    //
+    // Issue #505: `budget` is how many bytes of STREAM frames the packet
+    // being built can still carry (RFC 9000 section 14). A chunk that does
+    // not fit is split: the part that fits is sent and the rest stays
+    // queued, at its own offset, for the next packet. Flow control is
+    // charged only for the bytes actually taken.
+    private Map<Long, List<PendingChunk>> drainEligibleStreamChunks(int budget) {
         Map<Long, List<PendingChunk>> streamChunksToSend = new HashMap<Long, List<PendingChunk>>();
         for (Long streamKey : pendingStreamOrder) {
+            if (budget <= 0) {
+                break;
+            }
             long streamId = streamKey.longValue();
             List<PendingChunk> queued = pendingStream.get(streamKey);
             List<PendingChunk> toSend = new ArrayList<PendingChunk>();
-            for (PendingChunk chunk : queued) {
-                int blocked = checkSendBlocked(streamId, chunk.data.length);
+            for (int index = 0; index < queued.size(); index++) {
+                PendingChunk chunk = queued.get(index);
+                boolean split = false;
+                int frameLength = QuicFrameWriter.streamLength(streamId, chunk.offset, chunk.data.length);
+                if (frameLength > budget) {
+                    int fit = streamDataThatFits(streamId, chunk.offset, chunk.data.length, budget);
+                    if (fit <= 0) {
+                        budget = 0;
+                        break;
+                    }
+                    PendingChunk head = new PendingChunk(chunk.offset, Arrays.copyOfRange(chunk.data, 0, fit), false);
+                    PendingChunk tail = new PendingChunk(chunk.offset + fit,
+                            Arrays.copyOfRange(chunk.data, fit, chunk.data.length), chunk.fin);
+                    int blockedHead = checkSendBlocked(streamId, head.data.length);
+                    if (blockedHead != SEND_NOT_BLOCKED) {
+                        signalSendBlocked(streamId, blockedHead);
+                        break;
+                    }
+                    queued.set(index, head);
+                    queued.add(index + 1, tail);
+                    chunk = head;
+                    split = true;
+                }
+                int blocked = split ? SEND_NOT_BLOCKED : checkSendBlocked(streamId, chunk.data.length);
                 if (blocked == SEND_NOT_BLOCKED) {
                     toSend.add(chunk);
                     recordBytesSent(streamId, chunk.data.length);
-                } else {
-                    // RFC 9000 section 4.1: tell the peer we're blocked
-                    // so it has a reason to grow its advertised limit
-                    // even though (being blocked) we can't send it any
-                    // more data to trigger that growth passively --
-                    // without this, once a chunk doesn't fit in the
-                    // remaining window, nothing would ever unblock it.
-                    // Only signalled once per limit value (RFC 9000
-                    // section 4.1's "SHOULD NOT send more than once for
-                    // a given limit"); cleared when that limit grows.
-                    if (blocked == SEND_BLOCKED_BY_STREAM_LIMIT) {
-                        Long key = Long.valueOf(streamId);
-                        if (streamDataBlockedSignalled.add(key)) {
-                            streamDataBlockedOwed.put(key, Long.valueOf(currentPeerStreamLimit(streamId)));
-                        }
-                    } else if (!dataBlockedSignalled) {
-                        dataBlockedSignalled = true;
-                        dataBlockedOwed = true;
+                    budget -= QuicFrameWriter.streamLength(streamId, chunk.offset, chunk.data.length);
+                    if (split) {
+                        budget = 0;
+                        break;
                     }
+                } else {
+                    signalSendBlocked(streamId, blocked);
                     break; // preserve order: don't skip ahead of a blocked chunk
                 }
             }
@@ -2991,6 +3035,54 @@ public final class QuicConnection implements QuicTlsEngineListener {
             }
         }
         return streamChunksToSend;
+    }
+
+    // RFC 9000 section 4.1: tell the peer we're blocked so it has a
+    // reason to grow its advertised limit even though (being blocked) we
+    // can't send it any more data to trigger that growth passively --
+    // without this, once a chunk doesn't fit in the remaining window,
+    // nothing would ever unblock it. Only signalled once per limit value
+    // (RFC 9000 section 4.1's "SHOULD NOT send more than once for a
+    // given limit"); cleared when that limit grows.
+    private void signalSendBlocked(long streamId, int blocked) {
+        if (blocked == SEND_BLOCKED_BY_STREAM_LIMIT) {
+            Long key = Long.valueOf(streamId);
+            if (streamDataBlockedSignalled.add(key)) {
+                streamDataBlockedOwed.put(key, Long.valueOf(currentPeerStreamLimit(streamId)));
+            }
+        } else if (!dataBlockedSignalled) {
+            dataBlockedSignalled = true;
+            dataBlockedOwed = true;
+        }
+    }
+
+    // The most of `available` data bytes of a chunk starting at `offset`
+    // whose STREAM frame fits in `budget` bytes, or 0 if not even one does.
+    private static int streamDataThatFits(long streamId, long offset, int available, int budget) {
+        int n = Math.min(available, budget);
+        while (n > 0) {
+            int over = QuicFrameWriter.streamLength(streamId, offset, n) - budget;
+            if (over <= 0) {
+                return n;
+            }
+            n -= over;
+        }
+        return 0;
+    }
+
+    // Bytes of earlier packets already in the datagram the 1-RTT packet
+    // being built will share (RFC 9000 section 12.2); see flushOneDatagram.
+    private int coalescedBytes;
+
+    // The bytes of STREAM frames the next packet may carry: what is left
+    // of one datagram after the packets coalesced before it, its own
+    // header and the other frames it holds, and none at all while the congestion window has no
+    // room for a full datagram (RFC 9002 section 7).
+    private int streamBudget(int headerBytes, int otherFrameBytes) {
+        if (!lossDetector.getCongestionController().canSend(MAX_DATAGRAM_SIZE)) {
+            return 0;
+        }
+        return MAX_DATAGRAM_SIZE - coalescedBytes - headerBytes - QuicAeadAlgorithm.TAG_LENGTH - otherFrameBytes;
     }
 
     // RFC 9221: DATAGRAM frames that currently fit the peer's advertised
@@ -3067,9 +3159,6 @@ public final class QuicConnection implements QuicTlsEngineListener {
         boolean oneRtt = level == EncryptionLevel.ONE_RTT;
         List<PendingChunk> cryptoChunks = pendingCrypto.get(level);
 
-        Map<Long, List<PendingChunk>> streamChunksToSend = oneRtt
-                ? drainEligibleStreamChunks() : new HashMap<Long, List<PendingChunk>>();
-
         long[][] ackRangesForLevel = ackOwed[level.ordinal()] ? computeAckRanges(level) : null;
         boolean includeAck = ackRangesForLevel != null;
         long ackDelay = includeAck ? computeAckDelay(level) : 0;
@@ -3095,25 +3184,9 @@ public final class QuicConnection implements QuicTlsEngineListener {
         List<byte[]> datagramsToSend = oneRtt
                 ? eligibleDatagrams() : Collections.<byte[]>emptyList();
 
-        boolean nothingToSend = cryptoChunks.isEmpty() && streamChunksToSend.isEmpty() && !includeAck
-                && !includeHandshakeDone && !includePing && resetsToSend.isEmpty() && newCidsToSend.isEmpty()
-                && retiresToSend.length == 0 && !includeMaxData && maxStreamDataToSend.isEmpty()
-                && !includeDataBlocked && streamDataBlockedToSend.isEmpty()
-                && !includeMaxStreamsBidi && !includeMaxStreamsUni
-                && !includeStreamsBlockedBidi && !includeStreamsBlockedUni
-                && datagramsToSend.isEmpty();
-        if (nothingToSend) {
-            return null;
-        }
-
         int frameBytes = 0;
         for (PendingChunk chunk : cryptoChunks) {
             frameBytes += QuicFrameWriter.cryptoLength(chunk.offset, chunk.data.length);
-        }
-        for (Map.Entry<Long, List<PendingChunk>> entry : streamChunksToSend.entrySet()) {
-            for (PendingChunk chunk : entry.getValue()) {
-                frameBytes += QuicFrameWriter.streamLength(entry.getKey().longValue(), chunk.offset, chunk.data.length);
-            }
         }
         long[][] ackRanges = ackRangesForLevel;
         if (includeAck) {
@@ -3161,6 +3234,30 @@ public final class QuicConnection implements QuicTlsEngineListener {
         }
         for (byte[] datagram : datagramsToSend) {
             frameBytes += QuicFrameWriter.datagramLength(datagram.length);
+        }
+
+        // RFC 9000 section 14: whatever the other frames leave of one
+        // datagram is all the stream data this packet may carry; the rest
+        // stays queued for the next packet. Nothing is sent beyond the
+        // congestion window either (RFC 9002 section 7).
+        Map<Long, List<PendingChunk>> streamChunksToSend = oneRtt
+                ? drainEligibleStreamChunks(streamBudget(1 + peerConnectionId.length + 4, frameBytes))
+                : new HashMap<Long, List<PendingChunk>>();
+        for (Map.Entry<Long, List<PendingChunk>> entry : streamChunksToSend.entrySet()) {
+            for (PendingChunk chunk : entry.getValue()) {
+                frameBytes += QuicFrameWriter.streamLength(entry.getKey().longValue(), chunk.offset, chunk.data.length);
+            }
+        }
+
+        boolean nothingToSend = cryptoChunks.isEmpty() && streamChunksToSend.isEmpty() && !includeAck
+                && !includeHandshakeDone && !includePing && resetsToSend.isEmpty() && newCidsToSend.isEmpty()
+                && retiresToSend.length == 0 && !includeMaxData && maxStreamDataToSend.isEmpty()
+                && !includeDataBlocked && streamDataBlockedToSend.isEmpty()
+                && !includeMaxStreamsBidi && !includeMaxStreamsUni
+                && !includeStreamsBlockedBidi && !includeStreamsBlockedUni
+                && datagramsToSend.isEmpty();
+        if (nothingToSend) {
+            return null;
         }
 
         boolean longHeader = !oneRtt;
@@ -3401,7 +3498,10 @@ public final class QuicConnection implements QuicTlsEngineListener {
     }
 
     private byte[] buildZeroRttProtectedPacket() throws PacketProtectionException {
-        Map<Long, List<PendingChunk>> streamChunksToSend = drainEligibleStreamChunks();
+        // 1 flags byte, version, both connection IDs with their lengths, a
+        // 2-byte Length field and a 4-byte packet number.
+        Map<Long, List<PendingChunk>> streamChunksToSend = drainEligibleStreamChunks(streamBudget(
+                1 + 4 + 1 + peerConnectionId.length + 1 + ourConnectionId.length + 2 + 4, 0));
         if (streamChunksToSend.isEmpty()) {
             return null;
         }

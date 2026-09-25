@@ -53,7 +53,7 @@ import static org.junit.Assert.assertTrue;
 
 /**
  * HTTP/3 (RFC 9114) over QUIC version 2 (RFC 9369): a GET with a body
- * of tens of kilobytes, with both endpoints on version 2, with the server
+ * of hundreds of kilobytes, with both endpoints on version 2, with the server
  * switching a version 1 first flight to version 2 (RFC 9368 section 2.3),
  * and with the client following a Version Negotiation packet to version 2
  * (RFC 9368 section 2.1). ALPN {@code h3} is unchanged on version 2 (RFC
@@ -63,10 +63,8 @@ import static org.junit.Assert.assertTrue;
  */
 public class Http3QuicV2EndToEndTest {
 
-    // Larger than one QUIC packet's worth, but small enough that everything
-    // queued fits one loopback UDP datagram: the send path does not yet
-    // split queued stream data to the datagram size.
-    private static final int BODY_LENGTH = 40000;
+    // Far more than one QUIC packet, and more than fits one UDP datagram.
+    private static final int BODY_LENGTH = 200000;
     private static final int CHUNK = 8192;
 
     @BeforeClass
