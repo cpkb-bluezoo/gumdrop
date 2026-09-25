@@ -108,6 +108,10 @@ public final class HandshakeEngine {
     private byte[] hashThroughServerFinished;
     private List<X509Certificate> peerCertificateChain;
     private boolean resumed;
+    // Server role: this connection's QUIC transport parameters as sent, after
+    // TransportParameterConsistencyChecker.localParametersFor has seen the
+    // client's.
+    private byte[] serverLocalTransportParameters;
     private byte[] resumptionMasterSecret;
 
     // Client-only state.
@@ -957,6 +961,8 @@ public final class HandshakeEngine {
         }
         serverRetryRequestedGroup = null;
 
+        serverLocalTransportParameters = config.getTransportParameterConsistencyChecker()
+                .localParametersFor(config.getLocalTransportParameters(), ch.quicTransportParameters);
         TicketPayload resumedPayload = tryResumePsk(ch, message);
         resumed = (resumedPayload != null);
         byte[] presentedPsk = resumed ? resumedPayload.psk : null;
@@ -977,6 +983,13 @@ public final class HandshakeEngine {
                     negotiatedSuite, clientHelloForTranscript, serverHello);
         }
         transcript.update(serverHello);
+        // Delivered before any server flight so that a QUIC caller can
+        // act on the peer's parameters (RFC 9368 compatible version
+        // negotiation changes the version in use) before it derives the
+        // handshake keys or sends the ServerHello.
+        if (ch.quicTransportParameters != null) {
+            sink.peerTransportParameters(ch.quicTransportParameters);
+        }
         sink.handshakeDataReady(serverHello);
 
         keySchedule = new KeySchedule(negotiatedSuite);
@@ -995,14 +1008,11 @@ public final class HandshakeEngine {
         byte[] echRetryList = echRejectWithRetryConfigs ? resolveEchRetryConfigList() : null;
         boolean advertiseRecordSizeLimit = ch.recordSizeLimitPresent && config.isRecordSizeLimitEnabled();
         byte[] encryptedExtensions = HandshakeMessages.buildEncryptedExtensions(
-                negotiatedAlpn, config.getLocalTransportParameters(), earlyDataAccepted,
+                negotiatedAlpn, serverLocalTransportParameters, earlyDataAccepted,
                 advertiseRecordSizeLimit, localRecordSizeLimit, negotiatedCertCompression,
                 echRetryList);
         transcript.update(encryptedExtensions);
         sink.handshakeDataReady(encryptedExtensions);
-        if (ch.quicTransportParameters != null) {
-            sink.peerTransportParameters(ch.quicTransportParameters);
-        }
 
         boolean requestClientCert = !resumed && config.getClientAuthPolicy() != ClientAuthPolicy.NONE;
 
@@ -1162,6 +1172,10 @@ public final class HandshakeEngine {
         if (payload == null || message.length <= 33) {
             return null;
         }
+        if (!config.getTransportParameterConsistencyChecker().acceptsTicketFrom(
+                payload.rememberedTransportParameters, serverLocalTransportParameters)) {
+            return null;
+        }
         // RFC 8446 section 4.2.11: the PSK's associated hash algorithm
         // (fixed at issuance) must match the negotiated cipher suite's.
         if (!payload.cipherSuite.getHashAlgorithm().equals(negotiatedSuite.getHashAlgorithm())) {
@@ -1209,7 +1223,7 @@ public final class HandshakeEngine {
             return false;
         }
         if (!config.getTransportParameterConsistencyChecker().isConsistent(
-                payload.rememberedTransportParameters, config.getLocalTransportParameters())) {
+                payload.rememberedTransportParameters, serverLocalTransportParameters)) {
             return false;
         }
         if (config.getAntiReplay() != null && !config.getAntiReplay().checkAndRecord(ch.pskIdentity)) {
@@ -1331,7 +1345,7 @@ public final class HandshakeEngine {
         int maxEarlyDataSize = config.isEnableEarlyData() ? config.getMaxEarlyDataSize() : 0;
 
         TicketPayload payload = new TicketPayload(System.currentTimeMillis(), lifetimeSeconds, ageAdd, psk,
-                maxEarlyDataSize, negotiatedSuite, config.getLocalTransportParameters());
+                maxEarlyDataSize, negotiatedSuite, serverLocalTransportParameters);
         byte[] identity = payload.seal(ticketKeys.getCurrentKey());
 
         byte[] ticketMessage = HandshakeMessages.buildNewSessionTicket(lifetimeSeconds, ageAdd, nonce, identity,

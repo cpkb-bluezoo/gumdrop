@@ -24,6 +24,7 @@ package org.bluezoo.gumdrop.quic;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 
+import org.bluezoo.gumdrop.quic.packet.QuicVersion;
 import org.bluezoo.gumdrop.quic.packet.TransportParameters;
 import org.bluezoo.gumdrop.tls.SessionTicket;
 
@@ -72,13 +73,15 @@ public final class SessionTicketCache {
      * @param host the server host (SNI name, or the peer address for a
      *             connection with no SNI, e.g. DoQ)
      * @param port the server port
+     * @param version the QUIC version in use when the ticket was issued
      * @param ticket the received session ticket
      * @param transportParameters the peer's transport parameters on the
      *                            connection that issued this ticket
      */
-    public static void put(String host, int port, SessionTicket ticket, TransportParameters transportParameters) {
+    public static void put(String host, int port, QuicVersion version, SessionTicket ticket,
+            TransportParameters transportParameters) {
         long expiryTime = System.currentTimeMillis() + ticket.getLifetimeSeconds() * 1000L;
-        cache.put(key(host, port), new Entry(ticket, transportParameters, expiryTime));
+        cache.put(key(host, port), new Entry(version, ticket, transportParameters, expiryTime));
         Runnable observer = putObserver;
         if (observer != null) {
             observer.run();
@@ -122,14 +125,26 @@ public final class SessionTicketCache {
      * alongside it.
      */
     public static final class Entry {
+        private final QuicVersion version;
         private final SessionTicket ticket;
         private final TransportParameters transportParameters;
         private final long expiryTime;
 
-        Entry(SessionTicket ticket, TransportParameters transportParameters, long expiryTime) {
+        Entry(QuicVersion version, SessionTicket ticket, TransportParameters transportParameters, long expiryTime) {
+            this.version = version;
             this.ticket = ticket;
             this.transportParameters = transportParameters;
             this.expiryTime = expiryTime;
+        }
+
+        /**
+         * Returns the QUIC version of the connection that issued the
+         * ticket, the only version it may be used with (RFC 9369 section 5).
+         *
+         * @return the version
+         */
+        public QuicVersion getVersion() {
+            return version;
         }
 
         /**

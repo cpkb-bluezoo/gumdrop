@@ -72,6 +72,8 @@ public final class TransportParameters {
     public static final long RETRY_SOURCE_CONNECTION_ID = 0x10;
     /** RFC 9221 section 3: maximum DATAGRAM frame size this endpoint will receive. Absent or 0 means DATAGRAM is not supported. */
     public static final long MAX_DATAGRAM_FRAME_SIZE = 0x20;
+    /** RFC 9368 section 3: the Chosen Version and Available Versions used to prevent version downgrade. */
+    public static final long VERSION_INFORMATION = 0x11;
 
     /** RFC 9000 section 18.2: default when max_udp_payload_size is absent. */
     public static final long DEFAULT_MAX_UDP_PAYLOAD_SIZE = 65527;
@@ -92,6 +94,9 @@ public final class TransportParameters {
     private byte[] retrySourceConnectionId;
     private byte[] statelessResetToken;
     private long maxDatagramFrameSize;
+    private int versionInformationChosen;
+    private int[] versionInformationAvailable;
+    private boolean versionInformationMalformed;
 
     public byte[] getOriginalDestinationConnectionId() {
         return originalDestinationConnectionId;
@@ -243,6 +248,59 @@ public final class TransportParameters {
     }
 
     /**
+     * Sets {@code version_information} (RFC 9368 section 3).
+     *
+     * @param chosen the Chosen Version
+     * @param available the Available Versions: for a client, the versions
+     *        its first flight is compatible with in descending preference;
+     *        for a server, its fully deployed versions
+     */
+    public void setVersionInformation(int chosen, int[] available) {
+        this.versionInformationChosen = chosen;
+        this.versionInformationAvailable = available.clone();
+    }
+
+    /**
+     * Returns whether a well-formed {@code version_information} parameter
+     * is present.
+     *
+     * @return true if present
+     */
+    public boolean hasVersionInformation() {
+        return versionInformationAvailable != null;
+    }
+
+    /**
+     * Returns the Chosen Version of {@code version_information}.
+     *
+     * @return the version, meaningful only if {@link #hasVersionInformation}
+     */
+    public int getVersionInformationChosen() {
+        return versionInformationChosen;
+    }
+
+    /**
+     * Returns the Available Versions of {@code version_information}.
+     *
+     * @return a copy of the list, or {@code null} if absent
+     */
+    public int[] getVersionInformationAvailable() {
+        return versionInformationAvailable == null ? null : versionInformationAvailable.clone();
+    }
+
+    /**
+     * Returns whether a received {@code version_information} parameter
+     * failed to parse (RFC 9368 section 4): shorter than four bytes,
+     * length not divisible by four, or a zero version. The connection
+     * must then be closed with TRANSPORT_PARAMETER_ERROR.
+     *
+     * @return true if malformed
+     */
+    public boolean isVersionInformationMalformed() {
+        return versionInformationMalformed;
+    }
+
+    /**
      * Encodes these parameters as the transport-parameters TLV list
      * (RFC 9000 section 18.1) -- the extension_data of the
      * quic_transport_parameters TLS extension (RFC 9001 section 8.2),
@@ -276,6 +334,9 @@ public final class TransportParameters {
         if (maxDatagramFrameSize > 0) {
             size += entryLength(MAX_DATAGRAM_FRAME_SIZE, varIntValueLength(maxDatagramFrameSize));
         }
+        if (versionInformationAvailable != null) {
+            size += entryLength(VERSION_INFORMATION, 4 + 4 * versionInformationAvailable.length);
+        }
 
         ByteBuffer buf = ByteBuffer.allocate(size);
         writeVarIntParam(buf, MAX_IDLE_TIMEOUT, maxIdleTimeout);
@@ -302,7 +363,37 @@ public final class TransportParameters {
         if (maxDatagramFrameSize > 0) {
             writeVarIntParam(buf, MAX_DATAGRAM_FRAME_SIZE, maxDatagramFrameSize);
         }
+        if (versionInformationAvailable != null) {
+            VarInt.encode(VERSION_INFORMATION, buf);
+            VarInt.encode(4 + 4 * versionInformationAvailable.length, buf);
+            buf.putInt(versionInformationChosen);
+            for (int i = 0; i < versionInformationAvailable.length; i++) {
+                buf.putInt(versionInformationAvailable[i]);
+            }
+        }
         return buf.array();
+    }
+
+    // RFC 9368 section 4: a malformed value is recorded, not thrown, so the
+    // connection can close with the transport error the RFC prescribes.
+    private void decodeVersionInformation(ByteBuffer buf, int length) {
+        if (length < 4 || length % 4 != 0) {
+            versionInformationMalformed = true;
+            return;
+        }
+        int chosen = buf.getInt();
+        int[] available = new int[(length - 4) / 4];
+        boolean valid = chosen != 0;
+        for (int i = 0; i < available.length; i++) {
+            available[i] = buf.getInt();
+            valid &= available[i] != 0;
+        }
+        if (!valid) {
+            versionInformationMalformed = true;
+            return;
+        }
+        versionInformationChosen = chosen;
+        versionInformationAvailable = available;
     }
 
     private static int varIntValueLength(long value) {
@@ -372,6 +463,8 @@ public final class TransportParameters {
                 buf.get(params.statelessResetToken);
             } else if (id == MAX_DATAGRAM_FRAME_SIZE) {
                 params.maxDatagramFrameSize = VarInt.decode(buf);
+            } else if (id == VERSION_INFORMATION) {
+                params.decodeVersionInformation(buf, length);
             }
             // RFC 9000 section 18.1: ignore parameters we don't understand.
 

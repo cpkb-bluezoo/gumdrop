@@ -57,6 +57,7 @@ import org.bluezoo.gumdrop.quic.cid.StatelessResetToken;
 import org.bluezoo.gumdrop.quic.packet.LongHeaderCodec;
 import org.bluezoo.gumdrop.quic.packet.LongHeaderInvariants;
 import org.bluezoo.gumdrop.quic.packet.LongHeaderPrefix;
+import org.bluezoo.gumdrop.quic.packet.QuicVersion;
 import org.bluezoo.gumdrop.quic.packet.RetryIntegrityTag;
 import org.bluezoo.gumdrop.quic.packet.RetryToken;
 import org.bluezoo.gumdrop.quic.packet.StatelessResetPacket;
@@ -86,9 +87,10 @@ import org.bluezoo.gumdrop.tls.ServerCredentialsResolver;
  * engine does not retry it, relying on {@link org.bluezoo.gumdrop.quic.recovery.LossDetector}'s
  * retransmission to recover it, the same as any other dropped packet.
  *
- * <p>Only QUIC version 1 is supported. A server answers a datagram of
- * any other version with a Version Negotiation packet advertising
- * version 1 (RFC 9000 section 6.1), provided the datagram is at least
+ * <p>QUIC versions 1 and 2 (RFC 9369) are supported, subject to
+ * {@link QuicTransportFactory#setVersions}. A server answers a datagram
+ * of any other version with a Version Negotiation packet advertising
+ * the configured versions (RFC 9000 section 6.1), provided the datagram is at least
  * {@link #MIN_INITIAL_DATAGRAM_SIZE} bytes -- smaller ones are dropped
  * silently (section 5.2) -- and never answers a Version Negotiation
  * packet itself. At most {@link #VERSION_NEGOTIATION_MAX_PER_SECOND}
@@ -116,9 +118,6 @@ public final class QuicEngine implements ChannelHandler, MultiplexedEndpoint {
 
     /** RFC 9000 section 14.1: the minimum size of a datagram that can initiate a connection. */
     static final int MIN_INITIAL_DATAGRAM_SIZE = 1200;
-
-    /** The only QUIC version this implementation speaks. */
-    private static final int SUPPORTED_VERSION = 1;
 
     /** Cap on Version Negotiation responses per second (RFC 9000 section 6.1 permits rate limiting). */
     static final int VERSION_NEGOTIATION_MAX_PER_SECOND = 100;
@@ -338,6 +337,7 @@ public final class QuicEngine implements ChannelHandler, MultiplexedEndpoint {
         boolean longHeader = (bytes[0] & 0x80) != 0;
         byte[] dcid;
         LongHeaderPrefix prefix = null;
+        QuicVersion version = null;
         if (longHeader) {
             LongHeaderInvariants invariants;
             try {
@@ -358,7 +358,8 @@ public final class QuicEngine implements ChannelHandler, MultiplexedEndpoint {
                 }
                 return;
             }
-            if (invariants.getVersion() != SUPPORTED_VERSION) {
+            version = supportedVersion(invariants.getVersion());
+            if (version == null) {
                 if (serverMode && bytes.length >= MIN_INITIAL_DATAGRAM_SIZE) {
                     sendVersionNegotiation(invariants, source);
                 }
@@ -389,12 +390,13 @@ public final class QuicEngine implements ChannelHandler, MultiplexedEndpoint {
                                 RETRY_TOKEN_MAX_AGE_MILLIS);
                     }
                     if (originalDcid == null) {
-                        sendRetry(prefix.getSourceConnectionId(), dcid, source);
+                        sendRetry(version, prefix.getSourceConnectionId(), dcid, source);
                         return;
                     }
-                    conn = acceptConnection(dcid, prefix.getSourceConnectionId(), source, originalDcid, dcid, true);
+                    conn = acceptConnection(dcid, prefix.getSourceConnectionId(), source, originalDcid, dcid, true,
+                            version);
                 } else {
-                    conn = acceptConnection(dcid, prefix.getSourceConnectionId(), source, dcid, null, false);
+                    conn = acceptConnection(dcid, prefix.getSourceConnectionId(), source, dcid, null, false, version);
                 }
                 if (conn == null) {
                     return;
@@ -442,11 +444,13 @@ public final class QuicEngine implements ChannelHandler, MultiplexedEndpoint {
      * @param addressValidated whether the peer's address is already
      *        considered validated (a validated Retry token proves it
      *        without a Handshake round trip)
+     * @param version the QUIC version of the client's Initial packet
      * @return the new connection, or {@code null} if no server
      *         certificate is configured
      */
     private QuicConnection acceptConnection(byte[] clientDcid, byte[] clientScid, InetSocketAddress source,
-            byte[] originalDcidForParams, byte[] retrySourceConnectionId, boolean addressValidated) {
+            byte[] originalDcidForParams, byte[] retrySourceConnectionId, boolean addressValidated,
+            QuicVersion version) {
         // Following a Retry, this connection's own connection ID must be
         // the one already committed to in the Retry packet's Source
         // Connection ID field (== clientDcid, since the client echoes it
@@ -465,7 +469,7 @@ public final class QuicEngine implements ChannelHandler, MultiplexedEndpoint {
         }
 
         QuicConnection conn = new QuicConnection(this, true, local, source, serverScid, clientScid, clientDcid,
-                localParams, connectionIdStaticKey);
+                localParams, connectionIdStaticKey, version, false);
         if (addressValidated) {
             conn.markAddressValidated();
         }
@@ -481,6 +485,7 @@ public final class QuicEngine implements ChannelHandler, MultiplexedEndpoint {
                 factory.isEarlyDataEnabled(), factory.getApplicationProtocols(),
                 factory.getCipherSuites(), factory.isNeedClientAuth(),
                 factory.getTrustManager());
+        tlsEngine.setVersionPolicy(version, factory.getVersions());
         factory.applyEchServerSettings(tlsEngine);
         conn.setTlsEngine(tlsEngine);
 
@@ -601,6 +606,8 @@ public final class QuicEngine implements ChannelHandler, MultiplexedEndpoint {
      * @param clientScid the Source Connection ID of the client's Initial
      *        packet -- becomes this Retry packet's own Destination
      *        Connection ID (RFC 9000 section 17.2.5.1)
+     * @param version the QUIC version of the Initial packet being
+     *        answered; a Retry is sent in the same version (RFC 9369 section 4)
      * @param originalClientDcid the Destination Connection ID of the
      *        client's Initial packet (its own chosen, pre-Retry DCID) --
      *        sealed into the token and used as the integrity tag's
@@ -608,12 +615,12 @@ public final class QuicEngine implements ChannelHandler, MultiplexedEndpoint {
      *        field of the Retry packet
      * @param source the client's address
      */
-    private void sendRetry(byte[] clientScid, byte[] originalClientDcid, InetSocketAddress source) {
+    private void sendRetry(QuicVersion version, byte[] clientScid, byte[] originalClientDcid, InetSocketAddress source) {
         byte[] retryScid = generateConnectionId();
         byte[] token = RetryToken.seal(factory.getRetryTokenKey(), originalClientDcid, source.getAddress(),
                 System.currentTimeMillis());
-        byte[] withoutTag = LongHeaderCodec.buildRetryWithoutTag(clientScid, retryScid, token);
-        byte[] tag = RetryIntegrityTag.compute(originalClientDcid, withoutTag);
+        byte[] withoutTag = LongHeaderCodec.buildRetryWithoutTag(version, clientScid, retryScid, token);
+        byte[] tag = RetryIntegrityTag.compute(version, originalClientDcid, withoutTag);
         byte[] packet = new byte[withoutTag.length + tag.length];
         System.arraycopy(withoutTag, 0, packet, 0, withoutTag.length);
         System.arraycopy(tag, 0, packet, withoutTag.length, tag.length);
@@ -621,9 +628,35 @@ public final class QuicEngine implements ChannelHandler, MultiplexedEndpoint {
     }
 
     /**
+     * Returns the versions this engine speaks, most preferred first.
+     */
+    QuicVersion[] getSupportedVersions() {
+        return factory.getVersions();
+    }
+
+    private QuicVersion supportedVersion(int wireValue) {
+        QuicVersion[] versions = factory.getVersions();
+        for (int i = 0; i < versions.length; i++) {
+            if (versions[i].getWireValue() == wireValue) {
+                return versions[i];
+            }
+        }
+        return null;
+    }
+
+    private int[] supportedWireValues() {
+        QuicVersion[] versions = factory.getVersions();
+        int[] values = new int[versions.length];
+        for (int i = 0; i < values.length; i++) {
+            values[i] = versions[i].getWireValue();
+        }
+        return values;
+    }
+
+    /**
      * Answers a datagram of an unsupported version with a stateless
-     * Version Negotiation packet advertising version 1 (RFC 9000 section
-     * 6.1), subject to {@link #VERSION_NEGOTIATION_MAX_PER_SECOND}.
+     * Version Negotiation packet advertising every configured version
+     * (RFC 9000 section 6.1), subject to {@link #VERSION_NEGOTIATION_MAX_PER_SECOND}.
      */
     private void sendVersionNegotiation(LongHeaderInvariants invariants, InetSocketAddress source) {
         long now = System.nanoTime();
@@ -636,7 +669,7 @@ public final class QuicEngine implements ChannelHandler, MultiplexedEndpoint {
         }
         versionNegotiationSentInWindow++;
         sendTo(source, VersionNegotiationPacket.build(invariants.getSourceConnectionId(),
-                invariants.getDestinationConnectionId(), new int[] { SUPPORTED_VERSION },
+                invariants.getDestinationConnectionId(), supportedWireValues(),
                 RANDOM.nextInt()));
     }
 
@@ -707,13 +740,60 @@ public final class QuicEngine implements ChannelHandler, MultiplexedEndpoint {
      */
     void connectTo(InetSocketAddress remote, ProtocolHandler handler, ConnectionAcceptedHandler connHandler,
             EarlyDataHandler earlyDataHandler, String serverName) {
+        QuicVersion[] configured = factory.getVersions();
+        QuicVersion start = QuicVersion.originalVersion(configured);
+        SessionTicketCache.Entry cached = null;
+        if (factory.isEarlyDataEnabled()) {
+            String host = (serverName != null) ? serverName : remote.getAddress().getHostAddress();
+            cached = SessionTicketCache.get(host, remote.getPort());
+            // RFC 9369 section 5: a ticket is only good for the QUIC version
+            // of the connection that issued it, so that is the version to
+            // start in.
+            if (cached != null && !isConfigured(cached.getVersion())) {
+                cached = null;
+            }
+            if (cached != null) {
+                start = cached.getVersion();
+            }
+        }
+        startClientAttempt(remote, handler, connHandler, earlyDataHandler, serverName, start, false, cached);
+    }
+
+    private boolean isConfigured(QuicVersion version) {
+        QuicVersion[] configured = factory.getVersions();
+        for (int i = 0; i < configured.length; i++) {
+            if (configured[i] == version) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Starts a new attempt after a Version Negotiation packet made
+     * {@code previous} give up (RFC 9368 section 2.1): a fresh connection,
+     * with a fresh ClientHello, in {@code version}. The application's
+     * handlers move over to it.
+     */
+    void restartClientAttempt(QuicConnection previous, QuicVersion version) {
+        startClientAttempt(previous.getRemoteSocketAddress(), previous.getClientHandler(),
+                previous.getClientConnectionAcceptedHandler(), previous.getEarlyDataHandler(),
+                previous.getServerName(), version, true, null);
+    }
+
+    private void startClientAttempt(InetSocketAddress remote, ProtocolHandler handler,
+            ConnectionAcceptedHandler connHandler, EarlyDataHandler earlyDataHandler, String serverName,
+            QuicVersion startVersion, boolean afterVersionNegotiation, SessionTicketCache.Entry cached) {
         byte[] clientScid = generateConnectionId();
         byte[] clientInitialDcid = generateConnectionId();
         InetSocketAddress local = getLocalSocketAddress();
         TransportParameters localParams = factory.buildTransportParameters(clientScid);
+        // RFC 9368 section 3: the versions this first flight is compatible with.
+        localParams.setVersionInformation(startVersion.getWireValue(),
+                QuicVersion.availableVersions(startVersion, factory.getVersions()));
 
         QuicConnection conn = new QuicConnection(this, false, local, remote, clientScid, clientInitialDcid,
-                clientInitialDcid, localParams, connectionIdStaticKey);
+                clientInitialDcid, localParams, connectionIdStaticKey, startVersion, afterVersionNegotiation);
         QuicTlsClientEngine tlsEngine = new QuicTlsClientEngine(localParams, conn,
                 factory.getApplicationProtocols(), factory.getNamedGroups(), factory.getCipherSuites());
         factory.applyEchClientSettings(tlsEngine);
@@ -732,13 +812,9 @@ public final class QuicEngine implements ChannelHandler, MultiplexedEndpoint {
         if (earlyDataHandler != null) {
             conn.setEarlyDataHandler(earlyDataHandler);
         }
-        if (factory.isEarlyDataEnabled()) {
-            String host = (serverName != null) ? serverName : remote.getAddress().getHostAddress();
-            SessionTicketCache.Entry cached = SessionTicketCache.get(host, remote.getPort());
-            if (cached != null) {
-                tlsEngine.presentSessionTicket(cached.toTicket());
-                conn.seedRememberedTransportParameters(cached.toTransportParameters());
-            }
+        if (cached != null) {
+            tlsEngine.presentSessionTicket(cached.toTicket());
+            conn.seedRememberedTransportParameters(cached.toTransportParameters());
         }
         clientConnection = conn;
         registerConnectionId(clientScid, conn);

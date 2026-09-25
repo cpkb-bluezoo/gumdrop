@@ -33,6 +33,7 @@ import java.util.Map;
 
 import javax.net.ssl.X509TrustManager;
 
+import org.bluezoo.gumdrop.quic.packet.QuicVersion;
 import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.quic.frame.QuicFrameHandler;
 import org.bluezoo.gumdrop.quic.frame.QuicFrameParser;
@@ -204,13 +205,13 @@ public class QuicTestPeer implements QuicTlsEngineListener {
             pendingCrypto.put(level, new ArrayList<PendingChunk>());
         }
 
-        byte[] clientInitialSecret = InitialSecrets.clientSecretV1(clientInitialDcid);
-        byte[] serverInitialSecret = InitialSecrets.serverSecretV1(clientInitialDcid);
+        byte[] clientInitialSecret = InitialSecrets.clientSecret(QuicVersion.V1, clientInitialDcid);
+        byte[] serverInitialSecret = InitialSecrets.serverSecret(QuicVersion.V1, clientInitialDcid);
         Hkdf sha256 = Hkdf.sha256();
         PacketProtectionKeys clientInitialKeys =
-                PacketProtectionKeys.derive(sha256, clientInitialSecret, QuicAeadAlgorithm.AES_128_GCM);
+                PacketProtectionKeys.derive(sha256, clientInitialSecret, QuicAeadAlgorithm.AES_128_GCM, QuicVersion.V1);
         PacketProtectionKeys serverInitialKeys =
-                PacketProtectionKeys.derive(sha256, serverInitialSecret, QuicAeadAlgorithm.AES_128_GCM);
+                PacketProtectionKeys.derive(sha256, serverInitialSecret, QuicAeadAlgorithm.AES_128_GCM, QuicVersion.V1);
 
         if (isClient) {
             sendKeys.put(EncryptionLevel.INITIAL, clientInitialKeys);
@@ -330,7 +331,7 @@ public class QuicTestPeer implements QuicTlsEngineListener {
         }
         Hkdf hkdf = hkdfFor(cipher);
         QuicAeadAlgorithm aead = aeadFor(cipher);
-        PacketProtectionKeys keys = PacketProtectionKeys.derive(hkdf, tlsEngine.getClientEarlyTrafficSecret(), aead);
+        PacketProtectionKeys keys = PacketProtectionKeys.derive(hkdf, tlsEngine.getClientEarlyTrafficSecret(), aead, QuicVersion.V1);
         if (isClient) {
             zeroRttSendKeys = keys;
         } else {
@@ -371,8 +372,8 @@ public class QuicTestPeer implements QuicTlsEngineListener {
 
     private void deriveDirectionalKeys(EncryptionLevel level, Hkdf hkdf, QuicAeadAlgorithm aead,
             byte[] clientSecret, byte[] serverSecret) {
-        PacketProtectionKeys clientDirectionKeys = PacketProtectionKeys.derive(hkdf, clientSecret, aead);
-        PacketProtectionKeys serverDirectionKeys = PacketProtectionKeys.derive(hkdf, serverSecret, aead);
+        PacketProtectionKeys clientDirectionKeys = PacketProtectionKeys.derive(hkdf, clientSecret, aead, QuicVersion.V1);
+        PacketProtectionKeys serverDirectionKeys = PacketProtectionKeys.derive(hkdf, serverSecret, aead, QuicVersion.V1);
         if (isClient) {
             sendKeys.put(level, clientDirectionKeys);
             recvKeys.put(level, serverDirectionKeys);

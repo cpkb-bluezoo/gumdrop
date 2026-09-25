@@ -97,6 +97,7 @@
       <include name='org/bluezoo/gumdrop/quic/packet/PacketProtectionException.java'/>
       <include name='org/bluezoo/gumdrop/quic/packet/PacketProtectionKeys.java'/>
       <include name='org/bluezoo/gumdrop/quic/packet/QuicAeadAlgorithm.java'/>
+      <include name='org/bluezoo/gumdrop/quic/packet/QuicVersion.java'/>
       <include name='org/bluezoo/gumdrop/quic/packet/package-info.java'/>
       <include name='org/bluezoo/util/**'/>
       <include name='jakarta/**'/>
@@ -144,6 +145,7 @@
       <exclude name='org/bluezoo/gumdrop/quic/packet/PacketProtectionException.java'/>
       <exclude name='org/bluezoo/gumdrop/quic/packet/PacketProtectionKeys.java'/>
       <exclude name='org/bluezoo/gumdrop/quic/packet/QuicAeadAlgorithm.java'/>
+      <exclude name='org/bluezoo/gumdrop/quic/packet/QuicVersion.java'/>
       <exclude name='org/bluezoo/gumdrop/quic/packet/package-info.java'/>
       <exclude name='org/bluezoo/gumdrop/http/**'/>
       <exclude name='org/bluezoo/gumdrop/websocket/**'/>
