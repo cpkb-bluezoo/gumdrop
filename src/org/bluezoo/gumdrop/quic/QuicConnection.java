@@ -1400,9 +1400,13 @@ public final class QuicConnection implements QuicTlsEngineListener {
     }
 
     /**
-     * Returns the QUIC version this connection is currently using.
+     * Returns the QUIC version this connection is using. On a client this
+     * can still change while the handshake is in progress, when the server
+     * selects another version (RFC 9368 section 2.3).
+     *
+     * @return the version
      */
-    QuicVersion getVersion() {
+    public QuicVersion getVersion() {
         return version;
     }
 
