@@ -65,6 +65,7 @@
   <property name='build.pop3' location='${build.dir}/pop3'/>
   <property name='build.ftp' location='${build.dir}/ftp'/>
   <property name='build.amqp' location='${build.dir}/amqp'/>
+  <property name='build.amqp1' location='${build.dir}/amqp1'/>
   <property name='build.mqtt' location='${build.dir}/mqtt'/>
   <property name='build.redis' location='${build.dir}/redis'/>
   <property name='build.grpc' location='${build.dir}/grpc'/>
@@ -108,6 +109,7 @@
   <property name='gumdrop.pop3.jar' location='${dist}/gumdrop-pop3.jar'/>
   <property name='gumdrop.ftp.jar' location='${dist}/gumdrop-ftp.jar'/>
   <property name='gumdrop.amqp.jar' location='${dist}/gumdrop-amqp.jar'/>
+  <property name='gumdrop.amqp1.jar' location='${dist}/gumdrop-amqp1.jar'/>
   <property name='gumdrop.mqtt.jar' location='${dist}/gumdrop-mqtt.jar'/>
   <property name='gumdrop.redis.jar' location='${dist}/gumdrop-redis.jar'/>
   <property name='gumdrop.grpc.jar' location='${dist}/gumdrop-grpc.jar'/>
@@ -155,6 +157,7 @@
     <delete dir='build-pop3' quiet='true'/>
     <delete dir='build-ftp' quiet='true'/>
     <delete dir='build-amqp' quiet='true'/>
+    <delete dir='build-amqp1' quiet='true'/>
     <delete dir='build-mqtt' quiet='true'/>
     <delete dir='build-redis' quiet='true'/>
     <delete dir='build-grpc' quiet='true'/>
@@ -364,6 +367,7 @@
     <jar destfile='${gumdrop.pop3.jar}' basedir='${build.pop3}'/>
     <jar destfile='${gumdrop.ftp.jar}' basedir='${build.ftp}'/>
     <jar destfile='${gumdrop.amqp.jar}' basedir='${build.amqp}'/>
+    <jar destfile='${gumdrop.amqp1.jar}' basedir='${build.amqp1}'/>
     <jar destfile='${gumdrop.mqtt.jar}' basedir='${build.mqtt}'/>
     <jar destfile='${gumdrop.redis.jar}' basedir='${build.redis}'/>
     <jar destfile='${gumdrop.grpc.jar}' basedir='${build.grpc}'/>
@@ -410,6 +414,7 @@
       <fileset dir='${build.pop3}' excludes='module-info.class'/>
       <fileset dir='${build.ftp}' excludes='module-info.class'/>
       <fileset dir='${build.amqp}' excludes='module-info.class'/>
+      <fileset dir='${build.amqp1}' excludes='module-info.class'/>
       <fileset dir='${build.mqtt}' excludes='module-info.class'/>
       <fileset dir='${build.redis}' excludes='module-info.class'/>
       <fileset dir='${build.grpc}' excludes='module-info.class'/>
@@ -602,6 +607,7 @@
     <copy file='${gumdrop.pop3.jar}' tofile='${dist}/gumdrop-pop3-${version}.jar'/>
     <copy file='${gumdrop.ftp.jar}' tofile='${dist}/gumdrop-ftp-${version}.jar'/>
     <copy file='${gumdrop.amqp.jar}' tofile='${dist}/gumdrop-amqp-${version}.jar'/>
+    <copy file='${gumdrop.amqp1.jar}' tofile='${dist}/gumdrop-amqp1-${version}.jar'/>
     <copy file='${gumdrop.mqtt.jar}' tofile='${dist}/gumdrop-mqtt-${version}.jar'/>
     <copy file='${gumdrop.redis.jar}' tofile='${dist}/gumdrop-redis-${version}.jar'/>
     <copy file='${gumdrop.grpc.jar}' tofile='${dist}/gumdrop-grpc-${version}.jar'/>
@@ -1122,6 +1128,13 @@
     <integration-junit includes='**/dtls/*IntegrationTest.java'/>
   </target>
 
+  <!-- Run the AMQP 1.0 client tests against the in-process fake broker
+       (real loopback sockets, no external service) -->
+  <target name='integration-test-amqp1' depends='integration-build'
+          description='Run AMQP 1.0 client tests against the in-process fake broker'>
+    <integration-junit includes='**/amqp1/client/Amqp1ClientIntegrationTest.java'/>
+  </target>
+
   <!-- Run AMQP client tests against a real, locally-running RabbitMQ
        broker (plaintext + TLS + management API on their usual ports).
        Deliberately NOT a dependency of 'integration-test' below: unlike
@@ -1136,6 +1149,19 @@
   <target name='integration-test-amqp-rabbitmq' depends='integration-build'
           description='Run AMQP client tests against a local real RabbitMQ broker (not part of integration-test)'>
     <integration-junit includes='**/amqp/rabbitmq/*IntegrationTest.java'/>
+  </target>
+
+  <!-- Run the AMQP 1.0 client tests against a real, locally-running
+       RabbitMQ 4 broker (native AMQP 1.0 on the usual ports, plaintext and
+       TLS, plus the management API). Kept out of 'integration-test' for the
+       same reason as integration-test-amqp-rabbitmq above: it needs an
+       external service that will never exist in CI. Each class skips itself
+       (via Assume) if the broker is not reachable. See
+       RabbitMQ4TestSupport's class Javadoc for how to start a matching
+       broker. -->
+  <target name='integration-test-amqp1-rabbitmq' depends='integration-build'
+          description='Run AMQP 1.0 client tests against a local real RabbitMQ 4 broker (not part of integration-test)'>
+    <integration-junit includes='**/amqp1/rabbitmq/*IntegrationTest.java'/>
   </target>
 
   <!-- Run SMTP client tests against a real, locally-running Postfix
@@ -1260,6 +1286,7 @@
           <include name='**/AcceptSelectorLoopRawAcceptorTest.java'/>
           <include name='**/Connect*WireTest.java'/>
           <include name='**/amqp/client/AMQPClientIntegrationTest.java'/>
+          <include name='**/amqp1/client/Amqp1ClientIntegrationTest.java'/>
           <include name='**/QuicPluggableDatagramPathTest.java'/>
           <include name='**/MailboxWatcherIntegrationTest.java'/>
           <include name='**/QuicHandshakeAsyncOffloadTest.java'/>

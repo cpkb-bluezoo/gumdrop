@@ -31,6 +31,7 @@
     <pathelement location='${build.pop3}'/>
     <pathelement location='${build.ftp}'/>
     <pathelement location='${build.amqp}'/>
+    <pathelement location='${build.amqp1}'/>
     <pathelement location='${build.mqtt}'/>
     <pathelement location='${build.redis}'/>
     <pathelement location='${build.grpc}'/>
@@ -154,6 +155,7 @@
       <exclude name='org/bluezoo/gumdrop/mime/**'/>
       <exclude name='org/bluezoo/gumdrop/mailbox/**'/>
       <exclude name='org/bluezoo/gumdrop/amqp/**'/>
+      <exclude name='org/bluezoo/gumdrop/amqp1/**'/>
       <exclude name='org/bluezoo/gumdrop/ftp/**'/>
       <exclude name='org/bluezoo/gumdrop/grpc/**'/>
       <exclude name='org/bluezoo/gumdrop/imap/**'/>
@@ -190,6 +192,7 @@
         <exclude name='org/bluezoo/gumdrop/mime/**'/>
         <exclude name='org/bluezoo/gumdrop/mailbox/**'/>
         <exclude name='org/bluezoo/gumdrop/amqp/**'/>
+        <exclude name='org/bluezoo/gumdrop/amqp1/**'/>
         <exclude name='org/bluezoo/gumdrop/ftp/**'/>
         <exclude name='org/bluezoo/gumdrop/grpc/**'/>
         <exclude name='org/bluezoo/gumdrop/imap/**'/>

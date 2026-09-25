@@ -157,6 +157,58 @@ ClientCertificate client = mgr.generateClientCertificate(
 X509TrustManager tm = client.createTrustManager("password");
 ```
 
+## AMQP 1.0 Client Tests
+
+The AMQP 1.0 client (`org.bluezoo.gumdrop.amqp1`) is tested at three levels:
+
+| Level | What | How to run |
+|-------|------|------------|
+| Unit | codec, parsers, and the client state machine against an in-process fake peer (no sockets) | `ant test` |
+| Fake broker | the real client over real loopback sockets against `FakeAmqp1Broker`, a small AMQP 1.0 server built on the same codec: SASL, publish and consume, a 3 MB message streamed both ways, reconnect with links re-attached | `ant integration-test-amqp1` (also part of `ant integration-test`) |
+| Real broker | the same behaviour against **RabbitMQ 4**, plaintext and TLS | `ant integration-test-amqp1-rabbitmq` |
+
+The fake broker is built from the codec the client uses, so the two can share a
+misreading of the specification. The real-broker tests exist to catch that: they
+have found nothing the fake missed so far, but they are the only check against
+an independent implementation.
+
+### Running against RabbitMQ 4
+
+The RabbitMQ tests need a broker you start yourself. They are **not** part of
+`ant integration-test` (there is no broker in CI), and each test class skips
+itself, rather than failing, if it cannot reach one. RabbitMQ 4 speaks AMQP 1.0
+natively on its usual ports, so the same broker serves the AMQP 0-9-1 tests in
+`amqp/rabbitmq`:
+
+```bash
+podman run -d --name rabbitmq \
+    -p 5672:5672 -p 5671:5671 -p 15672:15672 \
+    -v ~/.hopf-rabbitmq-tls:/etc/rabbitmq/tls:ro \
+    -v ~/.hopf-rabbitmq-tls/rabbitmq.conf:/etc/rabbitmq/rabbitmq.conf:ro \
+    rabbitmq:4-management
+```
+
+`rabbitmq.conf` enables TLS on 5671 with `ssl_options.verify = verify_none`
+(server-side TLS only, no client certificate needed). The CA certificate
+(`ca-cert.pem`) is used to build a real trust manager for the TLS test, not an
+accept-all one.
+
+Settings are overridable with system properties: `rabbitmq.test.host`,
+`rabbitmq.test.port`, `rabbitmq.test.tls.port`, `rabbitmq.test.management.port`,
+`rabbitmq.test.vhost`, `rabbitmq.test.user`, `rabbitmq.test.password`, and
+`rabbitmq.test.tls.cafile`.
+
+Node addresses are broker-specific. RabbitMQ 4 uses "v2" addresses, where a
+queue is `/queues/<name>` (percent-encoded), and a queue must exist before a link
+can attach to it. The tests therefore declare a durable queue through the
+management HTTP API (`15672`) before each test and delete it afterwards. The
+management API is also used to force-close the client's connection, to test
+recovery against a real broker; the connection is found by the client's unique
+container id, because the management plugin's connection list is a periodically
+refreshed snapshot that can lag behind, or still show, connections.
+
+Verified against RabbitMQ 4.3.4.
+
 ## Test Output
 
 ### XML Reports (CI/CD)

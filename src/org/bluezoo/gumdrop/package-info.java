@@ -25,7 +25,7 @@
  * <p>Gumdrop is an event-driven, non-blocking server and client framework
  * implementing HTTP/1.1, HTTP/2, and HTTP/3 (with WebSocket over all
  * three), SMTP, POP3, IMAP, FTP, LDAP, DNS (including DNS-over-TLS,
- * DNS-over-QUIC, and multicast DNS/DNS-SD), MQTT, AMQP 0-9-1, Redis,
+ * DNS-over-QUIC, and multicast DNS/DNS-SD), MQTT, AMQP 0-9-1 and 1.0, Redis,
  * gRPC, SOCKS, and WebDAV, plus a Jakarta Servlet 6.1 container. Most protocols
  * are implemented on both the server and client side.
  *
@@ -66,6 +66,8 @@
  *   <li>{@link org.bluezoo.gumdrop.mdns} - multicast DNS and DNS-SD</li>
  *   <li>{@link org.bluezoo.gumdrop.mqtt} - MQTT broker and client</li>
  *   <li>{@link org.bluezoo.gumdrop.amqp.client} - AMQP 0-9-1 client</li>
+ *   <li>{@link org.bluezoo.gumdrop.amqp1.client} - AMQP 1.0 client, with its
+ *       wire codec in {@link org.bluezoo.gumdrop.amqp1.codec}</li>
  *   <li>{@link org.bluezoo.gumdrop.redis.client} - Redis client</li>
  *   <li>{@link org.bluezoo.gumdrop.grpc} - gRPC</li>
  *   <li>{@link org.bluezoo.gumdrop.socks} - SOCKS proxy</li>
