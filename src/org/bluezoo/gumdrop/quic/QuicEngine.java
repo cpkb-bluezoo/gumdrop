@@ -469,7 +469,7 @@ public final class QuicEngine implements ChannelHandler, MultiplexedEndpoint {
         }
 
         QuicConnection conn = new QuicConnection(this, true, local, source, serverScid, clientScid, clientDcid,
-                localParams, connectionIdStaticKey, version);
+                localParams, connectionIdStaticKey, version, false);
         if (addressValidated) {
             conn.markAddressValidated();
         }
@@ -485,6 +485,7 @@ public final class QuicEngine implements ChannelHandler, MultiplexedEndpoint {
                 factory.isEarlyDataEnabled(), factory.getApplicationProtocols(),
                 factory.getCipherSuites(), factory.isNeedClientAuth(),
                 factory.getTrustManager());
+        tlsEngine.setVersionPolicy(version, factory.getVersions());
         factory.applyEchServerSettings(tlsEngine);
         conn.setTlsEngine(tlsEngine);
 
@@ -739,13 +740,60 @@ public final class QuicEngine implements ChannelHandler, MultiplexedEndpoint {
      */
     void connectTo(InetSocketAddress remote, ProtocolHandler handler, ConnectionAcceptedHandler connHandler,
             EarlyDataHandler earlyDataHandler, String serverName) {
+        QuicVersion[] configured = factory.getVersions();
+        QuicVersion start = QuicVersion.originalVersion(configured);
+        SessionTicketCache.Entry cached = null;
+        if (factory.isEarlyDataEnabled()) {
+            String host = (serverName != null) ? serverName : remote.getAddress().getHostAddress();
+            cached = SessionTicketCache.get(host, remote.getPort());
+            // RFC 9369 section 5: a ticket is only good for the QUIC version
+            // of the connection that issued it, so that is the version to
+            // start in.
+            if (cached != null && !isConfigured(cached.getVersion())) {
+                cached = null;
+            }
+            if (cached != null) {
+                start = cached.getVersion();
+            }
+        }
+        startClientAttempt(remote, handler, connHandler, earlyDataHandler, serverName, start, false, cached);
+    }
+
+    private boolean isConfigured(QuicVersion version) {
+        QuicVersion[] configured = factory.getVersions();
+        for (int i = 0; i < configured.length; i++) {
+            if (configured[i] == version) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Starts a new attempt after a Version Negotiation packet made
+     * {@code previous} give up (RFC 9368 section 2.1): a fresh connection,
+     * with a fresh ClientHello, in {@code version}. The application's
+     * handlers move over to it.
+     */
+    void restartClientAttempt(QuicConnection previous, QuicVersion version) {
+        startClientAttempt(previous.getRemoteSocketAddress(), previous.getClientHandler(),
+                previous.getClientConnectionAcceptedHandler(), previous.getEarlyDataHandler(),
+                previous.getServerName(), version, true, null);
+    }
+
+    private void startClientAttempt(InetSocketAddress remote, ProtocolHandler handler,
+            ConnectionAcceptedHandler connHandler, EarlyDataHandler earlyDataHandler, String serverName,
+            QuicVersion startVersion, boolean afterVersionNegotiation, SessionTicketCache.Entry cached) {
         byte[] clientScid = generateConnectionId();
         byte[] clientInitialDcid = generateConnectionId();
         InetSocketAddress local = getLocalSocketAddress();
         TransportParameters localParams = factory.buildTransportParameters(clientScid);
+        // RFC 9368 section 3: the versions this first flight is compatible with.
+        localParams.setVersionInformation(startVersion.getWireValue(),
+                QuicVersion.availableVersions(startVersion, factory.getVersions()));
 
         QuicConnection conn = new QuicConnection(this, false, local, remote, clientScid, clientInitialDcid,
-                clientInitialDcid, localParams, connectionIdStaticKey, factory.getVersions()[0]);
+                clientInitialDcid, localParams, connectionIdStaticKey, startVersion, afterVersionNegotiation);
         QuicTlsClientEngine tlsEngine = new QuicTlsClientEngine(localParams, conn,
                 factory.getApplicationProtocols(), factory.getNamedGroups(), factory.getCipherSuites());
         factory.applyEchClientSettings(tlsEngine);
@@ -764,13 +812,9 @@ public final class QuicEngine implements ChannelHandler, MultiplexedEndpoint {
         if (earlyDataHandler != null) {
             conn.setEarlyDataHandler(earlyDataHandler);
         }
-        if (factory.isEarlyDataEnabled()) {
-            String host = (serverName != null) ? serverName : remote.getAddress().getHostAddress();
-            SessionTicketCache.Entry cached = SessionTicketCache.get(host, remote.getPort());
-            if (cached != null) {
-                tlsEngine.presentSessionTicket(cached.toTicket());
-                conn.seedRememberedTransportParameters(cached.toTransportParameters());
-            }
+        if (cached != null) {
+            tlsEngine.presentSessionTicket(cached.toTicket());
+            conn.seedRememberedTransportParameters(cached.toTransportParameters());
         }
         clientConnection = conn;
         registerConnectionId(clientScid, conn);

@@ -91,7 +91,7 @@ public class QuicConnectionTeardownTest {
         InetSocketAddress addr = new InetSocketAddress("127.0.0.1", 4433);
         QuicConnection conn = new QuicConnection(engine, false, addr, addr, cid, cid, cid,
                 new TransportParameters(), new byte[32],
-                org.bluezoo.gumdrop.quic.packet.QuicVersion.V1);
+                org.bluezoo.gumdrop.quic.packet.QuicVersion.V1, false);
         conn.seedRememberedTransportParameters(peer);
 
         int streamCount = 6;

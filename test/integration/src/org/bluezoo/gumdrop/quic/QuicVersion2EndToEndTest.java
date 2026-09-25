@@ -191,23 +191,41 @@ public class QuicVersion2EndToEndTest {
     }
 
     @Test
-    public void testV2HandshakeWithRetry() throws Exception {
+    public void testV2OnlyHandshakeWithRetry() throws Exception {
         assertEquals(QuicVersion.V2, roundTrip("2", "2", true));
     }
 
+    /** RFC 9368 section 2.3: the client starts in v1 and the server switches it to v2. */
     @Test
-    public void testDualStackPrefersClientVersion() throws Exception {
+    public void testCompatibleNegotiationSwitchesToClientsPreferredVersion() throws Exception {
         assertEquals(QuicVersion.V2, roundTrip("1,2", "2,1", false));
-        assertEquals(QuicVersion.V1, roundTrip("1,2", "1,2", false));
     }
 
     @Test
-    public void testV2ProbeFallsBackToV1ViaVersionNegotiation() throws Exception {
+    public void testCompatibleNegotiationAfterRetry() throws Exception {
+        assertEquals(QuicVersion.V2, roundTrip("1,2", "2,1", true));
+    }
+
+    @Test
+    public void testClientPreferringV1StaysOnV1() throws Exception {
+        assertEquals(QuicVersion.V1, roundTrip("1,2", "1,2", false));
+        assertEquals(QuicVersion.V1, roundTrip("1,2", "1", false));
+    }
+
+    /** The server does not offer v2, so compatible negotiation keeps v1. */
+    @Test
+    public void testV1OnlyServerKeepsV1ForV2PreferringClient() throws Exception {
         assertEquals(QuicVersion.V1, roundTrip("1", "2,1", false));
     }
 
+    /** RFC 9368 section 2.1: the server cannot parse v1, so Version Negotiation moves the client to v2. */
     @Test
-    public void testV1ProbeFallsBackToV2ViaVersionNegotiation() throws Exception {
+    public void testIncompatibleNegotiationViaVersionNegotiation() throws Exception {
         assertEquals(QuicVersion.V2, roundTrip("2", "1,2", false));
+    }
+
+    @Test
+    public void testIncompatibleNegotiationWithRetry() throws Exception {
+        assertEquals(QuicVersion.V2, roundTrip("2", "1,2", true));
     }
 }

@@ -29,7 +29,9 @@ import org.bluezoo.util.ByteArrays;
 
 import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertTrue;
 
 /**
  * Round-trips {@link TransportParameters} through {@link #encode} and
@@ -161,5 +163,48 @@ public class TransportParametersTest {
         TransportParameters decoded = TransportParameters.decode(ByteBuffer.wrap(encoded));
 
         assertEquals(0, decoded.getMaxDatagramFrameSize());
+    }
+
+    @Test
+    public void testVersionInformationRoundTrip() {
+        TransportParameters params = new TransportParameters();
+        params.setVersionInformation(0x6b3343cf, new int[] { 0x6b3343cf, 1 });
+        TransportParameters decoded = TransportParameters.decode(ByteBuffer.wrap(params.encode()));
+        assertTrue(decoded.hasVersionInformation());
+        assertFalse(decoded.isVersionInformationMalformed());
+        assertEquals(0x6b3343cf, decoded.getVersionInformationChosen());
+        assertArrayEquals(new int[] { 0x6b3343cf, 1 }, decoded.getVersionInformationAvailable());
+    }
+
+    @Test
+    public void testVersionInformationAbsentByDefault() {
+        TransportParameters decoded = TransportParameters.decode(ByteBuffer.wrap(new TransportParameters().encode()));
+        assertFalse(decoded.hasVersionInformation());
+        assertFalse(decoded.isVersionInformationMalformed());
+    }
+
+    @Test
+    public void testVersionInformationMayHaveEmptyAvailableVersions() {
+        TransportParameters params = new TransportParameters();
+        params.setVersionInformation(1, new int[0]);
+        TransportParameters decoded = TransportParameters.decode(ByteBuffer.wrap(params.encode()));
+        assertTrue(decoded.hasVersionInformation());
+        assertEquals(0, decoded.getVersionInformationAvailable().length);
+    }
+
+    @Test
+    public void testMalformedVersionInformationIsFlagged() {
+        // RFC 9368 section 4: too short, length not divisible by four,
+        // zero Chosen Version or zero Available Version.
+        byte[][] bad = {
+            ByteArrays.toByteArray("11020000"),
+            ByteArrays.toByteArray("110500000001ff"),
+            ByteArrays.toByteArray("110400000000"),
+            ByteArrays.toByteArray("11080000000100000000"),
+        };
+        for (int i = 0; i < bad.length; i++) {
+            TransportParameters decoded = TransportParameters.decode(ByteBuffer.wrap(bad[i]));
+            assertTrue("case " + i, decoded.isVersionInformationMalformed());
+        }
     }
 }

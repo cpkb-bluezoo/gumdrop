@@ -56,4 +56,32 @@ public interface TransportParameterConsistencyChecker {
      */
     boolean isConsistent(byte[] remembered, byte[] current);
 
+    /**
+     * Returns the transport parameters the server sends, given the
+     * client's. Lets a QUIC server tailor a parameter to the connection --
+     * the {@code version_information} of RFC 9368 depends on the client's
+     * own. Called once per ClientHello, before any server flight.
+     *
+     * @param local the server's configured transport parameters bytes
+     * @param peer the client's transport parameters bytes, or null if it sent none
+     * @return the bytes to send and to seal into any ticket
+     */
+    default byte[] localParametersFor(byte[] local, byte[] peer) {
+        return local;
+    }
+
+    /**
+     * Checks whether a resumption ticket may be honoured for this
+     * connection at all. A QUIC server refuses a ticket issued for a
+     * different QUIC version (RFC 9369 section 5), which costs the client
+     * a full handshake but no more.
+     *
+     * @param remembered the transport parameters bytes sealed into the ticket
+     * @param current the server's transport parameters bytes for this connection
+     * @return true if the ticket may be used
+     */
+    default boolean acceptsTicketFrom(byte[] remembered, byte[] current) {
+        return true;
+    }
+
 }

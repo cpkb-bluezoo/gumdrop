@@ -484,9 +484,24 @@ public final class QuicConnection implements QuicTlsEngineListener {
     // against the peer's eventual retry_source_connection_id transport
     // parameter (RFC 9000 section 17.2.5.2's anti-tampering check).
     private final byte[] originalDcid;
-    // The QUIC version in use; a client may change it once, on Version
-    // Negotiation (RFC 9000 section 6.2).
+    // The QUIC version in use. It starts as initialVersion, the version of
+    // this attempt's first flight, and changes at most once, when
+    // compatible version negotiation (RFC 9368 section 2.3) selects
+    // another: the server on reading the client's version_information,
+    // the client on seeing a long header of that version.
     private QuicVersion version;
+    private final QuicVersion initialVersion;
+    // The Destination Connection ID Initial keys are derived from (RFC
+    // 9001 section 5.2): the client's first Destination Connection ID, or
+    // after a Retry the Retry's Source Connection ID.
+    private byte[] initialKeyDcid;
+    // After a version switch, Initial packets of initialVersion are still
+    // accepted (RFC 9369 section 4.1) until a Handshake packet of the new
+    // version is processed.
+    private PacketProtectionKeys initialVersionRecvKeys;
+    // Client: this attempt was started in response to a Version
+    // Negotiation packet (RFC 9368 section 4).
+    private final boolean afterVersionNegotiation;
     private boolean retryProcessed;
     private byte[] retryToken = EMPTY_TOKEN;
     private byte[] expectedRetrySourceConnectionId;
@@ -614,9 +629,13 @@ public final class QuicConnection implements QuicTlsEngineListener {
      */
     QuicConnection(QuicEngine engine, boolean isServer, InetSocketAddress localAddress, InetSocketAddress remoteAddress,
             byte[] ourConnectionId, byte[] peerConnectionId, byte[] initialSecretDcid,
-            TransportParameters localTransportParameters, byte[] connectionIdStaticKey, QuicVersion version) {
+            TransportParameters localTransportParameters, byte[] connectionIdStaticKey, QuicVersion version,
+            boolean afterVersionNegotiation) {
         this.engine = engine;
         this.version = version;
+        this.initialVersion = version;
+        this.initialKeyDcid = initialSecretDcid;
+        this.afterVersionNegotiation = afterVersionNegotiation;
         this.isServer = isServer;
         this.localAddress = localAddress;
         this.remoteAddress = remoteAddress;
@@ -1387,6 +1406,34 @@ public final class QuicConnection implements QuicTlsEngineListener {
         return version;
     }
 
+    // Client: whether a server packet of `candidate` may be taken as the
+    // result of compatible version negotiation (RFC 9368 section 2.3).
+    private boolean canAdoptVersion(QuicVersion candidate) {
+        if (candidate == null || version != initialVersion || !initialVersion.isCompatibleWith(candidate)) {
+            return false;
+        }
+        QuicVersion[] configured = engine.getSupportedVersions();
+        for (int i = 0; i < configured.length; i++) {
+            if (configured[i] == candidate) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    // Switches the connection to another version: the Initial keys are
+    // re-derived from the same connection ID with the new version's salt
+    // and labels (Handshake and 1-RTT keys are derived later, under the
+    // new version), and the initial version's receive keys are kept until
+    // a Handshake packet arrives (RFC 9369 section 4.1). `initialKeys`
+    // are the {client, server} Initial keys of the new version.
+    private void adoptVersion(QuicVersion newVersion, PacketProtectionKeys[] initialKeys) {
+        initialVersionRecvKeys = recvKeys.get(EncryptionLevel.INITIAL);
+        version = newVersion;
+        sendKeys.put(EncryptionLevel.INITIAL, isServer ? initialKeys[1] : initialKeys[0]);
+        recvKeys.put(EncryptionLevel.INITIAL, isServer ? initialKeys[0] : initialKeys[1]);
+    }
+
     // Derives the Initial protection keys (RFC 9001 section 5.2, RFC 9369
     // section 3.3.1) for both directions: {client, server}.
     private static PacketProtectionKeys[] deriveInitialKeys(QuicVersion version, byte[] dcid) {
@@ -1415,6 +1462,7 @@ public final class QuicConnection implements QuicTlsEngineListener {
         // right key material and to keep a 0-RTT packet from counting as
         // address validation (see there).
         boolean isZeroRtt = false;
+        QuicVersion packetQuicVersion = null;
         if (longHeader) {
             // A Version Negotiation packet (version field zero, RFC 9000
             // section 17.2.1) has none of the Initial/Handshake/0-RTT
@@ -1436,14 +1484,18 @@ public final class QuicConnection implements QuicTlsEngineListener {
             }
             int packetVersion = ((bytes[offset + 1] & 0xff) << 24) | ((bytes[offset + 2] & 0xff) << 16)
                     | ((bytes[offset + 3] & 0xff) << 8) | (bytes[offset + 4] & 0xff);
-            if (packetVersion != version.getWireValue()) {
-                // Only the version this connection uses is processed
-                // (RFC 9369 section 4: a Retry of another version is ignored).
+            packetQuicVersion = QuicVersion.fromWireValue(packetVersion);
+            if (packetQuicVersion == null) {
                 decryptFailedOrUnparseableThisDatagram = true;
                 return -1;
             }
             int packetType = LongHeaderCodec.packetType(packetVersion, bytes[offset]);
             if (packetType == LongHeaderCodec.TYPE_RETRY) {
+                // RFC 9369 section 4.1: a Retry is always in the original
+                // version; the client ignores one of any other.
+                if (packetQuicVersion != initialVersion) {
+                    return bytes.length - offset;
+                }
                 // Rare (at most once per connection) and, per RFC 9000
                 // section 12.2, a Retry is never coalesced with anything
                 // else -- offset is always 0 here in practice, but the
@@ -1488,7 +1540,7 @@ public final class QuicConnection implements QuicTlsEngineListener {
         }
         byte[] packet = new byte[packetLength];
         System.arraycopy(bytes, offset, packet, 0, packetLength);
-        processPacket(level, packet, pnOffset, isZeroRtt);
+        processPacket(level, packet, pnOffset, isZeroRtt, packetQuicVersion);
         return packetLength;
     }
 
@@ -1510,7 +1562,7 @@ public final class QuicConnection implements QuicTlsEngineListener {
     // or if it lists the version already in use (a server never
     // negotiates towards a version the client is using).
     private void handleVersionNegotiation(byte[] packet) {
-        if (isServer || closed || established || retryProcessed
+        if (isServer || closed || established || retryProcessed || afterVersionNegotiation
                 || largestReceived[0] >= 0 || largestReceived[1] >= 0 || largestReceived[2] >= 0) {
             return;
         }
@@ -1526,18 +1578,18 @@ public final class QuicConnection implements QuicTlsEngineListener {
         }
         int[] offered = vn.getSupportedVersions();
         for (int i = 0; i < offered.length; i++) {
-            if (offered[i] == version.getWireValue()) {
+            if (offered[i] == initialVersion.getWireValue()) {
                 return;
             }
         }
-        QuicVersion[] preferred = engine.getSupportedVersions();
-        for (int i = 0; i < preferred.length; i++) {
-            for (int j = 0; j < offered.length; j++) {
-                if (offered[j] == preferred[i].getWireValue()) {
-                    restartWithVersion(preferred[i]);
-                    return;
-                }
-            }
+        // RFC 9368 section 2.1: retry in the most preferred mutually
+        // supported version. 0-RTT data already handed to this connection
+        // could not move to the new attempt, so that case fails instead.
+        QuicVersion next = QuicVersion.selectFromOffer(engine.getSupportedVersions(), offered);
+        if (next != null && zeroRttState == ZeroRttState.NONE) {
+            abandonForRestart();
+            engine.restartClientAttempt(this, next);
+            return;
         }
         closed = true;
         if (timerHandle != null) {
@@ -1558,17 +1610,38 @@ public final class QuicConnection implements QuicTlsEngineListener {
         engine.onConnectionClosed(this);
     }
 
-    // Client-only: restarts the attempt in another version after Version
-    // Negotiation. The TLS transcript is untouched; only the Initial
-    // packets carrying it are resent, under keys derived with the new
-    // version's salt and labels.
-    private void restartWithVersion(QuicVersion newVersion) {
-        version = newVersion;
-        PacketProtectionKeys[] initialKeys = deriveInitialKeys(version, originalDcid);
-        sendKeys.put(EncryptionLevel.INITIAL, initialKeys[0]);
-        recvKeys.put(EncryptionLevel.INITIAL, initialKeys[1]);
-        requeueAllSentCrypto(EncryptionLevel.INITIAL);
-        requestFlush();
+    // Client-only: gives up this attempt without telling its handlers, whose
+    // ownership passes to the new attempt the engine starts after Version
+    // Negotiation (RFC 9368 section 2.4: a new connection, which needs a
+    // fresh ClientHello carrying the new Chosen Version).
+    private void abandonForRestart() {
+        closed = true;
+        if (timerHandle != null) {
+            timerHandle.cancel();
+            timerHandle = null;
+        }
+        cancelAllPathValidationAttempts();
+        engine.onConnectionClosed(this);
+    }
+
+    InetSocketAddress getRemoteSocketAddress() {
+        return remoteAddress;
+    }
+
+    String getServerName() {
+        return serverName;
+    }
+
+    ProtocolHandler getClientHandler() {
+        return clientHandler;
+    }
+
+    QuicEngine.ConnectionAcceptedHandler getClientConnectionAcceptedHandler() {
+        return clientConnectionAcceptedHandler;
+    }
+
+    QuicEngine.EarlyDataHandler getEarlyDataHandler() {
+        return earlyDataHandler;
     }
 
     // Client-only: handles a received Retry packet (RFC 9000 section
@@ -1606,7 +1679,8 @@ public final class QuicConnection implements QuicTlsEngineListener {
         // Destination Connection ID the client addresses the server with.
         // After a Retry, that DCID changes to the Retry packet's own
         // Source Connection ID, so Initial keys must be re-derived to match.
-        PacketProtectionKeys[] initialKeys = deriveInitialKeys(version, peerConnectionId);
+        initialKeyDcid = peerConnectionId;
+        PacketProtectionKeys[] initialKeys = deriveInitialKeys(version, initialKeyDcid);
         sendKeys.put(EncryptionLevel.INITIAL, initialKeys[0]);
         recvKeys.put(EncryptionLevel.INITIAL, initialKeys[1]);
 
@@ -1665,8 +1739,38 @@ public final class QuicConnection implements QuicTlsEngineListener {
         lossDetector.discardPacketNumberSpace(level);
     }
 
-    private void processPacket(EncryptionLevel level, byte[] packet, int pnOffset, boolean isZeroRtt) {
-        PacketProtectionKeys keys = isZeroRtt ? zeroRttRecvKeys : recvKeys.get(level);
+    // packetVersion is the Version field of a long-header packet, null for
+    // a short-header packet.
+    private void processPacket(EncryptionLevel level, byte[] packet, int pnOffset, boolean isZeroRtt,
+            QuicVersion packetVersion) {
+        PacketProtectionKeys keys;
+        QuicVersion switchTo = null;
+        PacketProtectionKeys[] switchKeys = null;
+        if (isZeroRtt) {
+            // RFC 9369 section 4.1: 0-RTT is always in the original version.
+            keys = packetVersion == initialVersion ? zeroRttRecvKeys : null;
+        } else if (level == EncryptionLevel.INITIAL) {
+            if (packetVersion == version) {
+                keys = recvKeys.get(level);
+            } else if (packetVersion == initialVersion) {
+                keys = initialVersionRecvKeys;
+            } else if (!isServer && canAdoptVersion(packetVersion)) {
+                // The client learns the negotiated version from the first
+                // long header of another version (RFC 9369 section 4.1);
+                // adopted below only if the packet then authenticates.
+                switchTo = packetVersion;
+                switchKeys = deriveInitialKeys(switchTo, initialKeyDcid);
+                keys = switchKeys[1];
+            } else {
+                keys = null;
+            }
+        } else if (level == EncryptionLevel.HANDSHAKE) {
+            // RFC 9369 section 4.1: Handshake and 1-RTT packets use the
+            // negotiated version; any other is dropped.
+            keys = packetVersion == version ? recvKeys.get(level) : null;
+        } else {
+            keys = packetVersion == null || packetVersion == version ? recvKeys.get(level) : null;
+        }
         if (keys == null) {
             return; // keys not derived yet (or not accepted) at this level; drop
         }
@@ -1698,11 +1802,15 @@ public final class QuicConnection implements QuicTlsEngineListener {
             byte[] plaintext = PacketProtection.open(keys, fullPacketNumber,
                     packet, 0, headerLength, packet, headerLength, packet.length - headerLength);
 
+            if (switchTo != null) {
+                adoptVersion(switchTo, switchKeys);
+            }
             if (fullPacketNumber > largestReceived[level.ordinal()]) {
                 largestReceived[level.ordinal()] = fullPacketNumber;
                 largestReceivedTime[level.ordinal()] = System.currentTimeMillis();
             }
             if (level == EncryptionLevel.HANDSHAKE) {
+                initialVersionRecvKeys = null;
                 // RFC 9000 section 8.1: a successfully decrypted Handshake
                 // packet proves the peer holds the Handshake keys, which
                 // requires it to have actually received and processed our
@@ -3313,7 +3421,7 @@ public final class QuicConnection implements QuicTlsEngineListener {
         // minimum (RFC 9000 section 14.1) in flush().
         int paddingBytes = Math.max(0,
                 4 + QuicAeadAlgorithm.SAMPLE_LENGTH - pnLength - QuicAeadAlgorithm.TAG_LENGTH - frameBytes);
-        byte[] header = LongHeaderCodec.build(LongHeaderCodec.TYPE_0RTT, version.getWireValue(), peerConnectionId, ourConnectionId,
+        byte[] header = LongHeaderCodec.build(LongHeaderCodec.TYPE_0RTT, initialVersion.getWireValue(), peerConnectionId, ourConnectionId,
                 EMPTY_TOKEN, packetNumber, pnLength, frameBytes + paddingBytes + QuicAeadAlgorithm.TAG_LENGTH);
         int totalFrameBytes = frameBytes + paddingBytes;
 
@@ -3448,6 +3556,8 @@ public final class QuicConnection implements QuicTlsEngineListener {
     private static final long TRANSPORT_ERROR_PROTOCOL_VIOLATION = 0xa;
     /** RFC 9000 section 20.1: the amount of buffered reordered CRYPTO data exceeds this endpoint's ability to buffer it. */
     private static final long TRANSPORT_ERROR_CRYPTO_BUFFER_EXCEEDED = 0xd;
+    /** RFC 9368 section 4: a version negotiation error. */
+    private static final long TRANSPORT_ERROR_VERSION_NEGOTIATION_ERROR = 0x11;
     /** RFC 9000 section 19.11: MAX_STREAMS (and initial_max_streams_*) must not exceed 2^60. */
     private static final long MAX_STREAMS_COUNT = 1L << 60;
 
@@ -3711,6 +3821,13 @@ public final class QuicConnection implements QuicTlsEngineListener {
 
     @Override
     public void transportParametersReceived(TransportParameters transportParameters) {
+        if (transportParameters.isVersionInformationMalformed()) {
+            closeWithError(TRANSPORT_ERROR_TRANSPORT_PARAMETER_ERROR, "malformed version_information");
+            return;
+        }
+        if (!processPeerVersionInformation(transportParameters)) {
+            return;
+        }
         if (!isServer) {
             // RFC 9000 section 17.2.5.2: an off-path attacker that
             // spoofed an earlier Retry can be detected because it can't
@@ -3803,6 +3920,69 @@ public final class QuicConnection implements QuicTlsEngineListener {
         }
     }
 
+    // RFC 9368 section 4 (with RFC 9369 section 4): validates the peer's
+    // version_information, and on a server performs compatible version
+    // negotiation. Returns false if the connection was closed.
+    private boolean processPeerVersionInformation(TransportParameters peer) {
+        if (isServer) {
+            if (!peer.hasVersionInformation()) {
+                return true; // a server MAY complete the handshake without it
+            }
+            int chosen = peer.getVersionInformationChosen();
+            int[] available = peer.getVersionInformationAvailable();
+            if (!containsVersion(available, chosen)) {
+                closeWithError(TRANSPORT_ERROR_TRANSPORT_PARAMETER_ERROR,
+                        "Chosen Version not among Available Versions");
+                return false;
+            }
+            if (chosen != initialVersion.getWireValue()) {
+                closeWithError(TRANSPORT_ERROR_VERSION_NEGOTIATION_ERROR,
+                        "Chosen Version differs from the version in use");
+                return false;
+            }
+            QuicVersion negotiated = QuicVersion.selectCompatible(initialVersion, available,
+                    engine.getSupportedVersions());
+            if (negotiated != version) {
+                adoptVersion(negotiated, deriveInitialKeys(negotiated, initialKeyDcid));
+            }
+            return true;
+        }
+        if (!peer.hasVersionInformation()) {
+            if (afterVersionNegotiation) {
+                closeWithError(TRANSPORT_ERROR_VERSION_NEGOTIATION_ERROR,
+                        "server version_information missing after Version Negotiation");
+                return false;
+            }
+            return true;
+        }
+        int chosen = peer.getVersionInformationChosen();
+        int[] offered = localTransportParameters.getVersionInformationAvailable();
+        // The negotiated version, learnt from long headers, must be what
+        // the server says it chose, or the header was forged.
+        if (chosen != version.getWireValue()
+                || (offered != null && !containsVersion(offered, chosen))) {
+            closeWithError(TRANSPORT_ERROR_VERSION_NEGOTIATION_ERROR,
+                    "server Chosen Version does not match the negotiated version");
+            return false;
+        }
+        if (afterVersionNegotiation && !QuicVersion.validatesNegotiation(engine.getSupportedVersions(),
+                peer.getVersionInformationAvailable(), version)) {
+            closeWithError(TRANSPORT_ERROR_VERSION_NEGOTIATION_ERROR,
+                    "server Available Versions contradict Version Negotiation");
+            return false;
+        }
+        return true;
+    }
+
+    private static boolean containsVersion(int[] versions, int wireValue) {
+        for (int i = 0; i < versions.length; i++) {
+            if (versions[i] == wireValue) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     @Override
     public void earlySecretsAvailable() {
         // RFC 9001 section 4.6.1: fires before either side has decided
@@ -3825,7 +4005,7 @@ public final class QuicConnection implements QuicTlsEngineListener {
         }
         selectHkdfAead(cipher);
         byte[] clientEarlyTrafficSecret = tlsEngine.getClientEarlyTrafficSecret();
-        PacketProtectionKeys keys = PacketProtectionKeys.derive(hkdf, clientEarlyTrafficSecret, aead, version);
+        PacketProtectionKeys keys = PacketProtectionKeys.derive(hkdf, clientEarlyTrafficSecret, aead, initialVersion);
         if (isServer) {
             zeroRttRecvKeys = keys;
         } else {
@@ -3842,7 +4022,7 @@ public final class QuicConnection implements QuicTlsEngineListener {
     @Override
     public void newSessionTicketReceived(SessionTicket ticket) {
         String host = (serverName != null) ? serverName : remoteAddress.getAddress().getHostAddress();
-        SessionTicketCache.put(host, remoteAddress.getPort(), ticket, peerTransportParameters);
+        SessionTicketCache.put(host, remoteAddress.getPort(), version, ticket, peerTransportParameters);
     }
 
     @Override

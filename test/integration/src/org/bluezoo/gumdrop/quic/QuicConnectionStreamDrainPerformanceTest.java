@@ -132,7 +132,7 @@ public class QuicConnectionStreamDrainPerformanceTest {
         InetSocketAddress addr = new InetSocketAddress("127.0.0.1", 4433);
         QuicConnection conn = new QuicConnection(engine, false, addr, addr, cid, cid, cid,
                 new TransportParameters(), new byte[32],
-                org.bluezoo.gumdrop.quic.packet.QuicVersion.V1);
+                org.bluezoo.gumdrop.quic.packet.QuicVersion.V1, false);
 
         TransportParameters peer = new TransportParameters();
         peer.setInitialMaxData(Long.MAX_VALUE / 2);

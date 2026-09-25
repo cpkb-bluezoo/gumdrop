@@ -30,6 +30,7 @@ import java.util.List;
 
 import javax.net.ssl.X509TrustManager;
 
+import org.bluezoo.gumdrop.quic.packet.QuicVersion;
 import org.bluezoo.gumdrop.quic.packet.TransportParameters;
 import org.bluezoo.gumdrop.tls.AntiReplay;
 import org.bluezoo.gumdrop.tls.CipherSuite;
@@ -61,6 +62,9 @@ public final class QuicTlsServerEngine implements QuicTlsEngine {
     private final HandshakeEngine engine;
     private final HandshakeConfig config;
     private final QuicTlsEngineListener listener;
+    private TransportParameters localParameters;
+    private QuicVersion versionInUse;
+    private QuicVersion[] acceptableVersions;
     private final QuicHandshakeAsyncOffload asyncOffload;
     private final Sink sink = new Sink();
     private final QuicTlsDeferredDispatch deferredDispatch;
@@ -216,7 +220,27 @@ public final class QuicTlsServerEngine implements QuicTlsEngine {
                 ? Arrays.asList(applicationProtocols.split(","))
                 : Collections.<String>emptyList());
         config.setEnableEarlyData(earlyDataEnabled);
+        this.localParameters = transportParameters;
         config.setTransportParameterConsistencyChecker(new TransportParameterConsistencyChecker() {
+            @Override
+            public byte[] localParametersFor(byte[] local, byte[] peer) {
+                return QuicTlsServerEngine.this.localParametersFor(local, peer);
+            }
+
+            @Override
+            public boolean acceptsTicketFrom(byte[] remembered, byte[] current) {
+                if (remembered == null || current == null) {
+                    return false;
+                }
+                TransportParameters rememberedParams = TransportParameters.decode(ByteBuffer.wrap(remembered));
+                TransportParameters currentParams = TransportParameters.decode(ByteBuffer.wrap(current));
+                // RFC 9369 section 5: a ticket is bound to the QUIC version
+                // of the connection that issued it.
+                return rememberedParams.hasVersionInformation() && currentParams.hasVersionInformation()
+                        && rememberedParams.getVersionInformationChosen()
+                                == currentParams.getVersionInformationChosen();
+            }
+
             @Override
             public boolean isConsistent(byte[] remembered, byte[] current) {
                 if (remembered == null || current == null) {
@@ -234,6 +258,41 @@ public final class QuicTlsServerEngine implements QuicTlsEngine {
             }
         });
         this.engine = new HandshakeEngine(config);
+    }
+
+    /**
+     * Sets the versions this connection works with, so the server can send
+     * the {@code version_information} transport parameter of RFC 9368
+     * section 3: the version negotiated from the client's own (RFC 9368
+     * section 2.3) and the versions the server accepts.
+     *
+     * @param versionInUse the version of the client's first flight
+     * @param acceptable the versions the server accepts
+     */
+    public void setVersionPolicy(QuicVersion versionInUse, QuicVersion[] acceptable) {
+        this.versionInUse = versionInUse;
+        this.acceptableVersions = acceptable.clone();
+    }
+
+    private byte[] localParametersFor(byte[] local, byte[] peer) {
+        if (versionInUse == null) {
+            return local;
+        }
+        QuicVersion negotiated = versionInUse;
+        if (peer != null) {
+            TransportParameters peerParams = TransportParameters.decode(ByteBuffer.wrap(peer));
+            if (peerParams.hasVersionInformation()
+                    && peerParams.getVersionInformationChosen() == versionInUse.getWireValue()) {
+                negotiated = QuicVersion.selectCompatible(versionInUse, peerParams.getVersionInformationAvailable(),
+                        acceptableVersions);
+            }
+        }
+        int[] available = new int[acceptableVersions.length];
+        for (int i = 0; i < available.length; i++) {
+            available[i] = acceptableVersions[i].getWireValue();
+        }
+        localParameters.setVersionInformation(negotiated.getWireValue(), available);
+        return localParameters.encode();
     }
 
     /**

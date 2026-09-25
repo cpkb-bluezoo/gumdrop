@@ -178,4 +178,128 @@ public enum QuicVersion {
         }
         throw new IllegalArgumentException("Bad long header type " + wireType);
     }
+
+    /**
+     * Returns whether a first flight of this version can be converted to
+     * {@code other}, so that a server may switch a connection between
+     * them (RFC 9368 section 2.2). Versions 1 and 2 are compatible in
+     * both directions (RFC 9369 section 4).
+     *
+     * @param other the version to convert to
+     * @return true if compatible
+     */
+    public boolean isCompatibleWith(QuicVersion other) {
+        return true;
+    }
+
+    /**
+     * Chooses the Original Version for a client's first flight: the
+     * oldest configured version, the one a server is most likely to be
+     * able to parse, while newer compatible versions are advertised in
+     * the first flight (RFC 9368 section 2.5).
+     *
+     * @param configured the configured versions, most preferred first
+     * @return the original version
+     */
+    public static QuicVersion originalVersion(QuicVersion[] configured) {
+        QuicVersion oldest = configured[0];
+        for (int i = 1; i < configured.length; i++) {
+            if (configured[i].ordinal() < oldest.ordinal()) {
+                oldest = configured[i];
+            }
+        }
+        return oldest;
+    }
+
+    /**
+     * Builds the Available Versions of a client's {@code version_information}:
+     * every configured version compatible with {@code chosen}, in
+     * preference order, always including {@code chosen} (RFC 9368 section 3).
+     *
+     * @param chosen the version of the first flight
+     * @param configured the configured versions, most preferred first
+     * @return the wire values
+     */
+    public static int[] availableVersions(QuicVersion chosen, QuicVersion[] configured) {
+        int[] result = new int[configured.length + 1];
+        int n = 0;
+        boolean sawChosen = false;
+        for (int i = 0; i < configured.length; i++) {
+            if (configured[i] == chosen || chosen.isCompatibleWith(configured[i])) {
+                result[n++] = configured[i].wireValue;
+                sawChosen |= configured[i] == chosen;
+            }
+        }
+        if (!sawChosen) {
+            result[n++] = chosen.wireValue;
+        }
+        return java.util.Arrays.copyOf(result, n);
+    }
+
+    /**
+     * Server side of compatible version negotiation (RFC 9368 section
+     * 2.3): the client's most preferred available version that this
+     * server accepts and that the version in use is compatible with,
+     * or the version in use itself if there is none.
+     *
+     * @param inUse the version of the client's first flight
+     * @param clientAvailable the client's Available Versions, in its order
+     * @param acceptable the versions this server accepts
+     * @return the negotiated version
+     */
+    public static QuicVersion selectCompatible(QuicVersion inUse, int[] clientAvailable, QuicVersion[] acceptable) {
+        for (int i = 0; i < clientAvailable.length; i++) {
+            QuicVersion candidate = fromWireValue(clientAvailable[i]);
+            if (candidate == null || !inUse.isCompatibleWith(candidate)) {
+                continue;
+            }
+            for (int j = 0; j < acceptable.length; j++) {
+                if (acceptable[j] == candidate) {
+                    return candidate;
+                }
+            }
+        }
+        return inUse;
+    }
+
+    /**
+     * Client reaction to a Version Negotiation packet (RFC 9368 section
+     * 2.1): the client's most preferred version the server offers.
+     *
+     * @param preference the client's versions, most preferred first
+     * @param offered the Supported Version fields of the packet
+     * @return the version to retry with, or {@code null} if none is offered
+     */
+    public static QuicVersion selectFromOffer(QuicVersion[] preference, int[] offered) {
+        for (int i = 0; i < preference.length; i++) {
+            for (int j = 0; j < offered.length; j++) {
+                if (offered[j] == preference[i].wireValue) {
+                    return preference[i];
+                }
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Client validation of a server's Available Versions after the client
+     * acted on a Version Negotiation packet (RFC 9368 section 4): the
+     * client must find that it would have selected {@code negotiated}
+     * even had the packet listed the server's Available Versions plus
+     * {@code negotiated}. An empty list always fails.
+     *
+     * @param preference the client's versions, most preferred first
+     * @param serverAvailable the server's Available Versions
+     * @param negotiated the version now in use
+     * @return true if the negotiation was genuine
+     */
+    public static boolean validatesNegotiation(QuicVersion[] preference, int[] serverAvailable,
+            QuicVersion negotiated) {
+        if (serverAvailable.length == 0) {
+            return false;
+        }
+        int[] offer = java.util.Arrays.copyOf(serverAvailable, serverAvailable.length + 1);
+        offer[serverAvailable.length] = negotiated.wireValue;
+        return selectFromOffer(preference, offer) == negotiated;
+    }
 }
