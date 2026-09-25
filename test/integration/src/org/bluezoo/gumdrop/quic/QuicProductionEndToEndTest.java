@@ -5366,13 +5366,13 @@ public class QuicProductionEndToEndTest {
                         setPrivateField(clientConnection, "suppressFlush", Boolean.FALSE);
 
                         Method drainEligibleStreamChunks =
-                                QuicConnection.class.getDeclaredMethod("drainEligibleStreamChunks");
+                                QuicConnection.class.getDeclaredMethod("drainEligibleStreamChunks", int.class);
                         drainEligibleStreamChunks.setAccessible(true);
 
                         long start = System.nanoTime();
                         int iterations = 200;
                         for (int i = 0; i < iterations; i++) {
-                            drainEligibleStreamChunks.invoke(clientConnection);
+                            drainEligibleStreamChunks.invoke(clientConnection, Integer.MAX_VALUE);
                         }
                         elapsedMsRef.set((System.nanoTime() - start) / 1000000);
                     } catch (Throwable t) {
