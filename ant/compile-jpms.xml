@@ -107,6 +107,8 @@
                                modulepath-ref='jpms.protocol.modulepath'/>
     <compile-module-descriptor destdir='${build.amqp}' descriptor='amqp'
                                modulepath-ref='jpms.protocol.modulepath'/>
+    <compile-module-descriptor destdir='${build.amqp1}' descriptor='amqp1'
+                               modulepath-ref='jpms.protocol.modulepath'/>
     <compile-module-descriptor destdir='${build.mqtt}' descriptor='mqtt'
                                modulepath-ref='jpms.protocol.modulepath'/>
     <compile-module-descriptor destdir='${build.redis}' descriptor='redis'
@@ -120,7 +122,7 @@
     <mkdir dir='${build.aggregator}'/>
     <delete file='${build.aggregator}/module-info.class' quiet='true'/>
     <property name='jpms.patch.path'
-              value='${build.core}${path.separator}${build.mime.module}${path.separator}${build.mailbox}${path.separator}${build.http}${path.separator}${build.servlet.module}${path.separator}${build.imap}${path.separator}${build.smtp}${path.separator}${build.pop3}${path.separator}${build.ftp}${path.separator}${build.amqp}${path.separator}${build.mqtt}${path.separator}${build.redis}${path.separator}${build.grpc}${path.separator}${build.socks}${path.separator}${build.webdav}${path.separator}${build.mdns}${path.separator}${build.telemetry}${path.separator}${build.ldap}'/>
+              value='${build.core}${path.separator}${build.mime.module}${path.separator}${build.mailbox}${path.separator}${build.http}${path.separator}${build.servlet.module}${path.separator}${build.imap}${path.separator}${build.smtp}${path.separator}${build.pop3}${path.separator}${build.ftp}${path.separator}${build.amqp}${path.separator}${build.amqp1}${path.separator}${build.mqtt}${path.separator}${build.redis}${path.separator}${build.grpc}${path.separator}${build.socks}${path.separator}${build.webdav}${path.separator}${build.mdns}${path.separator}${build.telemetry}${path.separator}${build.ldap}'/>
     <javac srcdir='${ant.modules}/gumdrop' destdir='${build.aggregator}' debug='true'
            release='${java.release.version}' includeantruntime='false'>
       <include name='module-info.java'/>

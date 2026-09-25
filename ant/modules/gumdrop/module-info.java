@@ -95,6 +95,8 @@ module org.bluezoo.gumdrop {
     exports org.bluezoo.gumdrop.grpc.proto;
     exports org.bluezoo.gumdrop.amqp;
     exports org.bluezoo.gumdrop.amqp.client;
+    exports org.bluezoo.gumdrop.amqp1.codec;
+    exports org.bluezoo.gumdrop.amqp1.client;
     exports org.bluezoo.gumdrop.mdns;
     exports jakarta.servlet.jsp;
 

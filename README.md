@@ -485,6 +485,24 @@ Gumdrop is essentially at parity with Netty on plaintext HTTP/1.1 and JSON, ahea
     - implicit TLS (AMQPS) and SASL PLAIN, AMQPLAIN, EXTERNAL, and GSSAPI
       (Kerberos) authentication mechanisms
     - SelectorLoop affinity for server integration
+- AMQP 1.0 client
+    - separate from the AMQP 0-9-1 client above: AMQP 1.0 is a different
+      protocol, spoken natively by RabbitMQ 4 and by brokers such as ActiveMQ
+      Artemis that do not speak 0-9-1
+    - `org.bluezoo.gumdrop.amqp1.codec` (wire layer with no client coupling,
+      reusable by a future server) and `org.bluezoo.gumdrop.amqp1.client`
+    - SASL security layer (PLAIN, ANONYMOUS, EXTERNAL, or any
+      `SaslClientMechanism`) and implicit TLS (AMQPS)
+    - connections, sessions, and sender and receiver links, exposed through
+      typed state interfaces so out-of-order calls fail to compile
+    - streaming, incremental message transfer in both directions: a large
+      message is framed and sent as it is produced, and delivered to the
+      application as it arrives, never assembled in memory
+    - link credit, session windows, and explicit dispositions (accepted,
+      rejected, released, modified) with unsettled and pre-settled deliveries
+    - idle-timeout keepalives in both directions
+    - automatic reconnection with exponential backoff that re-attaches the
+      application's links (`Amqp1ClientRecovery`)
 - Redis client
     - RESP2 and RESP3 protocol support (HELLO for protocol negotiation)
     - Redis 6+ ACL auth, CLIENT SETNAME/GETNAME/ID, RESET

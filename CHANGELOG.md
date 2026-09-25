@@ -13,6 +13,20 @@ user-visible themes since 2.2.x.
 
 ### Added
 
+- **AMQP 1.0 client** (`org.bluezoo.gumdrop.amqp1.client` and
+  `org.bluezoo.gumdrop.amqp1.codec`, new `gumdrop-amqp1` module, issue #501):
+  a non-blocking client for brokers that speak AMQP 1.0 natively, such as
+  RabbitMQ 4 and ActiveMQ Artemis, separate from the AMQP 0-9-1 client. The
+  wire codec (type system, frames, performatives, message sections) has no
+  client coupling so a server can reuse it. The client provides the SASL
+  security layer and implicit TLS, sessions, and sender and receiver links
+  with link credit and session windows, streaming a message in both
+  directions without buffering it whole, explicit dispositions with
+  unsettled and pre-settled deliveries, and idle-timeout keepalives. Typed
+  state interfaces make out-of-order calls fail to compile.
+  `Amqp1ClientRecovery` reconnects with exponential backoff and re-attaches
+  the application's links. Verified against RabbitMQ 4.3 (plaintext and TLS);
+  see the integration test README.
 - **IMAP `STATUS=SIZE` (RFC 8438)**, **`COMPRESS=DEFLATE` (RFC 4978)**, and
   **`UTF8=ACCEPT` (RFC 6855)** on the IMAP server and client: capability
   advertisement, `COMPRESS DEFLATE`, `ENABLE UTF8=ACCEPT`, client `compress()`

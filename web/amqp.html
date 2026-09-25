@@ -34,6 +34,15 @@
 <p class="back-link"><a href="index.html">&larr; Back to Main Page</a></p>
 
 <p>
+<strong>This page describes the AMQP 0-9-1 client.</strong> AMQP 1.0 is a
+different protocol, and Gumdrop has a separate client for it
+(<code>org.bluezoo.gumdrop.amqp1.client</code>); the two share only the
+four-octet <code>AMQP</code> protocol header prefix. Use the 1.0 client for
+brokers that speak only AMQP 1.0, such as ActiveMQ Artemis's
+<code>amqp://</code> acceptor, or RabbitMQ 4's native AMQP 1.0 listener.
+</p>
+
+<p>
 Gumdrop provides a fully asynchronous AMQP 0-9-1 client for publishing and
 consuming messages against a broker such as RabbitMQ. Like all Gumdrop
 clients, the AMQP client uses non-blocking I/O and callbacks, and integrates
