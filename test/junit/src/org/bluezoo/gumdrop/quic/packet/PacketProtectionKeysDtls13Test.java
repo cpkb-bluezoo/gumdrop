@@ -51,7 +51,7 @@ public class PacketProtectionKeysDtls13Test {
         byte[] secret = new byte[32];
         Arrays.fill(secret, (byte) 0x42);
 
-        PacketProtectionKeys quicKeys = PacketProtectionKeys.derive(hkdf, secret, QuicAeadAlgorithm.AES_128_GCM);
+        PacketProtectionKeys quicKeys = PacketProtectionKeys.derive(hkdf, secret, QuicAeadAlgorithm.AES_128_GCM, QuicVersion.V1);
         PacketProtectionKeys dtlsKeys = PacketProtectionKeys.deriveForDtls(hkdf, secret, QuicAeadAlgorithm.AES_128_GCM);
 
         assertFalse(Arrays.equals(quicKeys.getAeadKey().getEncoded(), dtlsKeys.getAeadKey().getEncoded()));

@@ -40,23 +40,6 @@ import javax.crypto.spec.SecretKeySpec;
  */
 public final class RetryIntegrityTag {
 
-    /** RFC 9001 section 5.8: the fixed 128-bit AEAD_AES_128_GCM key. */
-    private static final byte[] KEY = {
-        (byte) 0xbe, (byte) 0x0c, (byte) 0x69, (byte) 0x0b,
-        (byte) 0x9f, (byte) 0x66, (byte) 0x57, (byte) 0x5a,
-        (byte) 0x1d, (byte) 0x76, (byte) 0x6b, (byte) 0x54,
-        (byte) 0xe3, (byte) 0x68, (byte) 0xc8, (byte) 0x4e
-    };
-
-    /** RFC 9001 section 5.8: the fixed 96-bit nonce. */
-    private static final byte[] NONCE = {
-        (byte) 0x46, (byte) 0x15, (byte) 0x99, (byte) 0xd3,
-        (byte) 0x5d, (byte) 0x63, (byte) 0x2b, (byte) 0xf2,
-        (byte) 0x23, (byte) 0x98, (byte) 0x25, (byte) 0xbb
-    };
-
-    private static final SecretKeySpec SECRET_KEY = new SecretKeySpec(KEY, "AES");
-
     /** The tag length in bytes (RFC 9000 section 17.2.5.1). */
     public static final int LENGTH = 16;
 
@@ -66,6 +49,8 @@ public final class RetryIntegrityTag {
     /**
      * Computes the Retry Integrity Tag for a Retry packet.
      *
+     * @param version the QUIC version of the Retry packet, which selects
+     *        the fixed key and nonce (RFC 9369 section 3.3.3)
      * @param originalDestinationConnectionId the Destination Connection
      *        ID from the client's Initial packet the Retry is responding to
      * @param retryPacketWithoutTag the Retry packet as it will be sent,
@@ -73,7 +58,7 @@ public final class RetryIntegrityTag {
      *        the end of the Retry Token field)
      * @return the 16-byte tag
      */
-    public static byte[] compute(byte[] originalDestinationConnectionId, byte[] retryPacketWithoutTag) {
+    public static byte[] compute(QuicVersion version, byte[] originalDestinationConnectionId, byte[] retryPacketWithoutTag) {
         // RFC 9001 section 5.8: the AEAD's associated data is a
         // pseudo-packet that is never itself transmitted -- the actual
         // Retry packet (minus the tag), with the Original Destination
@@ -86,7 +71,7 @@ public final class RetryIntegrityTag {
 
         try {
             Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
-            GCMParameterSpec spec = new GCMParameterSpec(LENGTH * 8, NONCE);
+            GCMParameterSpec spec = new GCMParameterSpec(LENGTH * 8, version.getRetryNonce());
             // RFC 9001 section 5.8 mandates this exact fixed key and nonce
             // -- both are published in the RFC itself and known to every
             // QUIC implementation. This is not a secrecy mechanism (the
@@ -95,7 +80,7 @@ public final class RetryIntegrityTag {
             // same constant everywhere. A random nonce here would
             // silently break interop with every RFC-compliant peer.
             // codeql[java/static-initialization-vector]
-            cipher.init(Cipher.ENCRYPT_MODE, SECRET_KEY, spec);
+            cipher.init(Cipher.ENCRYPT_MODE, new SecretKeySpec(version.getRetryKey(), "AES"), spec);
             cipher.updateAAD(pseudoPacket);
             // RFC 9001 section 5.8: "The plaintext, P, is empty" -- with
             // an empty plaintext, AEAD_AES_128_GCM's output is exactly
@@ -111,6 +96,7 @@ public final class RetryIntegrityTag {
     /**
      * Verifies a received Retry packet's integrity tag.
      *
+     * @param version the QUIC version of the received Retry packet
      * @param originalDestinationConnectionId the Destination Connection
      *        ID this endpoint used in the Initial packet the Retry is a
      *        response to
@@ -119,12 +105,12 @@ public final class RetryIntegrityTag {
      * @param receivedTag the received 16-byte tag
      * @return true if the tag is valid
      */
-    public static boolean verify(byte[] originalDestinationConnectionId, byte[] retryPacketWithoutTag,
+    public static boolean verify(QuicVersion version, byte[] originalDestinationConnectionId, byte[] retryPacketWithoutTag,
             byte[] receivedTag) {
         if (receivedTag.length != LENGTH) {
             return false;
         }
-        byte[] expected = compute(originalDestinationConnectionId, retryPacketWithoutTag);
+        byte[] expected = compute(version, originalDestinationConnectionId, retryPacketWithoutTag);
         // Constant-time comparison: this tag is attacker-observable data
         // (arrives on the wire), so timing differences in a naive
         // byte-by-byte compare-and-return-early could leak which prefix

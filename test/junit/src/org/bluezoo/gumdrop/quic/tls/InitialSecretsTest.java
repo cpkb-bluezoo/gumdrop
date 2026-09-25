@@ -23,6 +23,7 @@ package org.bluezoo.gumdrop.quic.tls;
 
 import org.junit.Test;
 
+import org.bluezoo.gumdrop.quic.packet.QuicVersion;
 import org.bluezoo.util.ByteArrays;
 
 import static org.junit.Assert.assertEquals;
@@ -48,13 +49,13 @@ public class InitialSecretsTest {
 
     @Test
     public void testClientInitialSecretV1() {
-        byte[] secret = InitialSecrets.clientSecretV1(DCID);
+        byte[] secret = InitialSecrets.clientSecret(QuicVersion.V1, DCID);
         assertEquals(CLIENT_INITIAL_SECRET, ByteArrays.toHexString(secret));
     }
 
     @Test
     public void testServerInitialSecretV1() {
-        byte[] secret = InitialSecrets.serverSecretV1(DCID);
+        byte[] secret = InitialSecrets.serverSecret(QuicVersion.V1, DCID);
         assertEquals(SERVER_INITIAL_SECRET, ByteArrays.toHexString(secret));
     }
 }

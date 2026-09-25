@@ -48,6 +48,7 @@ import org.junit.BeforeClass;
 import org.junit.Ignore;
 import org.junit.Test;
 
+import org.bluezoo.gumdrop.quic.packet.QuicVersion;
 import org.bluezoo.gumdrop.tls.CipherSuite;
 import org.bluezoo.gumdrop.tls.SessionTicket;
 
@@ -4282,7 +4283,7 @@ public class QuicProductionEndToEndTest {
             // not the (unrelated) DCID the client's Initial used.
             assertArrayEquals(clientScid, retry.getDestinationConnectionId());
             assertTrue("The server's Retry must carry a genuine RFC 9001 section 5.8 integrity tag",
-                    org.bluezoo.gumdrop.quic.packet.RetryIntegrityTag.verify(
+                    org.bluezoo.gumdrop.quic.packet.RetryIntegrityTag.verify(QuicVersion.V1, 
                             clientInitialDcid, retry.getPacketWithoutTag(), retry.getTag()));
 
             @SuppressWarnings("unchecked")

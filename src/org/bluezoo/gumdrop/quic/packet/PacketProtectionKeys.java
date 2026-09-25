@@ -89,13 +89,17 @@ public final class PacketProtectionKeys {
      *             suites; SHA-384 for {@code TLS_AES_256_GCM_SHA384})
      * @param secret the traffic secret for this direction and level
      * @param algorithm the negotiated (or, for Initial, fixed) AEAD algorithm
+     * @param version the QUIC version, which selects the HKDF label prefix
+     *                (RFC 9369 section 3.3.2)
      * @return the derived keys
      */
-    public static PacketProtectionKeys derive(Hkdf hkdf, byte[] secret, QuicAeadAlgorithm algorithm) {
+    public static PacketProtectionKeys derive(Hkdf hkdf, byte[] secret, QuicAeadAlgorithm algorithm,
+            QuicVersion version) {
         int keyLength = algorithm.getKeyLength();
-        byte[] keyBytes = hkdf.expandLabel(secret, "quic key", EMPTY_CONTEXT, keyLength);
-        byte[] ivBytes = hkdf.expandLabel(secret, "quic iv", EMPTY_CONTEXT, QuicAeadAlgorithm.IV_LENGTH);
-        byte[] hpBytes = hkdf.expandLabel(secret, "quic hp", EMPTY_CONTEXT, keyLength);
+        String prefix = version.getLabelPrefix();
+        byte[] keyBytes = hkdf.expandLabel(secret, prefix + " key", EMPTY_CONTEXT, keyLength);
+        byte[] ivBytes = hkdf.expandLabel(secret, prefix + " iv", EMPTY_CONTEXT, QuicAeadAlgorithm.IV_LENGTH);
+        byte[] hpBytes = hkdf.expandLabel(secret, prefix + " hp", EMPTY_CONTEXT, keyLength);
 
         SecretKeySpec aeadKey = new SecretKeySpec(keyBytes, algorithm.getKeyAlgorithm());
         SecretKeySpec headerProtectionKey = new SecretKeySpec(hpBytes, algorithm.getKeyAlgorithm());

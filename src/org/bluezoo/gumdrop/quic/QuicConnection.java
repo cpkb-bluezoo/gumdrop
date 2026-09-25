@@ -68,6 +68,7 @@ import org.bluezoo.gumdrop.quic.packet.RetryPacket;
 import org.bluezoo.gumdrop.quic.packet.ShortHeaderCodec;
 import org.bluezoo.gumdrop.quic.packet.StatelessResetPacket;
 import org.bluezoo.gumdrop.quic.packet.TransportParameters;
+import org.bluezoo.gumdrop.quic.packet.QuicVersion;
 import org.bluezoo.gumdrop.quic.packet.VersionNegotiationPacket;
 import org.bluezoo.gumdrop.quic.recovery.LossDetector;
 import org.bluezoo.gumdrop.quic.recovery.RttEstimator;
@@ -483,6 +484,9 @@ public final class QuicConnection implements QuicTlsEngineListener {
     // against the peer's eventual retry_source_connection_id transport
     // parameter (RFC 9000 section 17.2.5.2's anti-tampering check).
     private final byte[] originalDcid;
+    // The QUIC version in use; a client may change it once, on Version
+    // Negotiation (RFC 9000 section 6.2).
+    private QuicVersion version;
     private boolean retryProcessed;
     private byte[] retryToken = EMPTY_TOKEN;
     private byte[] expectedRetrySourceConnectionId;
@@ -610,8 +614,9 @@ public final class QuicConnection implements QuicTlsEngineListener {
      */
     QuicConnection(QuicEngine engine, boolean isServer, InetSocketAddress localAddress, InetSocketAddress remoteAddress,
             byte[] ourConnectionId, byte[] peerConnectionId, byte[] initialSecretDcid,
-            TransportParameters localTransportParameters, byte[] connectionIdStaticKey) {
+            TransportParameters localTransportParameters, byte[] connectionIdStaticKey, QuicVersion version) {
         this.engine = engine;
+        this.version = version;
         this.isServer = isServer;
         this.localAddress = localAddress;
         this.remoteAddress = remoteAddress;
@@ -626,11 +631,9 @@ public final class QuicConnection implements QuicTlsEngineListener {
             sentCrypto.put(level, new HashMap<Long, List<PendingChunk>>());
         }
 
-        byte[] clientSecret = InitialSecrets.clientSecretV1(initialSecretDcid);
-        byte[] serverSecret = InitialSecrets.serverSecretV1(initialSecretDcid);
-        Hkdf initialHkdf = Hkdf.sha256();
-        PacketProtectionKeys clientKeys = PacketProtectionKeys.derive(initialHkdf, clientSecret, QuicAeadAlgorithm.AES_128_GCM);
-        PacketProtectionKeys serverKeys = PacketProtectionKeys.derive(initialHkdf, serverSecret, QuicAeadAlgorithm.AES_128_GCM);
+        PacketProtectionKeys[] initialKeys = deriveInitialKeys(version, initialSecretDcid);
+        PacketProtectionKeys clientKeys = initialKeys[0];
+        PacketProtectionKeys serverKeys = initialKeys[1];
         if (isServer) {
             sendKeys.put(EncryptionLevel.INITIAL, serverKeys);
             recvKeys.put(EncryptionLevel.INITIAL, clientKeys);
@@ -1377,6 +1380,25 @@ public final class QuicConnection implements QuicTlsEngineListener {
         requestFlush();
     }
 
+    /**
+     * Returns the QUIC version this connection is currently using.
+     */
+    QuicVersion getVersion() {
+        return version;
+    }
+
+    // Derives the Initial protection keys (RFC 9001 section 5.2, RFC 9369
+    // section 3.3.1) for both directions: {client, server}.
+    private static PacketProtectionKeys[] deriveInitialKeys(QuicVersion version, byte[] dcid) {
+        Hkdf hkdf = Hkdf.sha256();
+        return new PacketProtectionKeys[] {
+            PacketProtectionKeys.derive(hkdf, InitialSecrets.clientSecret(version, dcid),
+                    QuicAeadAlgorithm.AES_128_GCM, version),
+            PacketProtectionKeys.derive(hkdf, InitialSecrets.serverSecret(version, dcid),
+                    QuicAeadAlgorithm.AES_128_GCM, version)
+        };
+    }
+
     // Returns the number of bytes this one packet occupied within
     // `bytes`, or -1 if it could not be parsed (the rest of the datagram
     // is then abandoned, matching RFC 9000 section 12.2's allowance to
@@ -1408,7 +1430,19 @@ public final class QuicConnection implements QuicTlsEngineListener {
             // before calling parsePrefix, which assumes that field exists.
             // Read directly off bytes[offset]: unlike parsePrefix, this
             // doesn't need an offset-0 view.
-            int packetType = (bytes[offset] >>> 4) & 0x03;
+            if (bytes.length - offset < 5) {
+                decryptFailedOrUnparseableThisDatagram = true;
+                return -1;
+            }
+            int packetVersion = ((bytes[offset + 1] & 0xff) << 24) | ((bytes[offset + 2] & 0xff) << 16)
+                    | ((bytes[offset + 3] & 0xff) << 8) | (bytes[offset + 4] & 0xff);
+            if (packetVersion != version.getWireValue()) {
+                // Only the version this connection uses is processed
+                // (RFC 9369 section 4: a Retry of another version is ignored).
+                decryptFailedOrUnparseableThisDatagram = true;
+                return -1;
+            }
+            int packetType = LongHeaderCodec.packetType(packetVersion, bytes[offset]);
             if (packetType == LongHeaderCodec.TYPE_RETRY) {
                 // Rare (at most once per connection) and, per RFC 9000
                 // section 12.2, a Retry is never coalesced with anything
@@ -1467,13 +1501,14 @@ public final class QuicConnection implements QuicTlsEngineListener {
     }
 
     // Client-only: handles a received Version Negotiation packet (RFC 9000
-    // section 6.2). This endpoint speaks only version 1, so a valid
-    // packet that does not list it ends the attempt. Discarded outright
-    // on a server, once any other packet from the server has been
-    // processed (including a Retry) or the handshake has completed, if
-    // it does not echo both connection IDs of this attempt, or if it
-    // lists the version already in use (a server never negotiates
-    // towards a version the client is using).
+    // section 6.2). If it lists a version this endpoint also supports
+    // (other than the one in use), the attempt restarts in that version,
+    // taking the engine's preference order; otherwise the attempt ends.
+    // Discarded outright on a server, once any other packet from the
+    // server has been processed (including a Retry) or the handshake has
+    // completed, if it does not echo both connection IDs of this attempt,
+    // or if it lists the version already in use (a server never
+    // negotiates towards a version the client is using).
     private void handleVersionNegotiation(byte[] packet) {
         if (isServer || closed || established || retryProcessed
                 || largestReceived[0] >= 0 || largestReceived[1] >= 0 || largestReceived[2] >= 0) {
@@ -1491,8 +1526,17 @@ public final class QuicConnection implements QuicTlsEngineListener {
         }
         int[] offered = vn.getSupportedVersions();
         for (int i = 0; i < offered.length; i++) {
-            if (offered[i] == 1) {
+            if (offered[i] == version.getWireValue()) {
                 return;
+            }
+        }
+        QuicVersion[] preferred = engine.getSupportedVersions();
+        for (int i = 0; i < preferred.length; i++) {
+            for (int j = 0; j < offered.length; j++) {
+                if (offered[j] == preferred[i].getWireValue()) {
+                    restartWithVersion(preferred[i]);
+                    return;
+                }
             }
         }
         closed = true;
@@ -1512,6 +1556,19 @@ public final class QuicConnection implements QuicTlsEngineListener {
             waiting.error(failure);
         }
         engine.onConnectionClosed(this);
+    }
+
+    // Client-only: restarts the attempt in another version after Version
+    // Negotiation. The TLS transcript is untouched; only the Initial
+    // packets carrying it are resent, under keys derived with the new
+    // version's salt and labels.
+    private void restartWithVersion(QuicVersion newVersion) {
+        version = newVersion;
+        PacketProtectionKeys[] initialKeys = deriveInitialKeys(version, originalDcid);
+        sendKeys.put(EncryptionLevel.INITIAL, initialKeys[0]);
+        recvKeys.put(EncryptionLevel.INITIAL, initialKeys[1]);
+        requeueAllSentCrypto(EncryptionLevel.INITIAL);
+        requestFlush();
     }
 
     // Client-only: handles a received Retry packet (RFC 9000 section
@@ -1535,7 +1592,7 @@ public final class QuicConnection implements QuicTlsEngineListener {
         if (!Arrays.equals(retry.getDestinationConnectionId(), ourConnectionId)) {
             return;
         }
-        if (!RetryIntegrityTag.verify(originalDcid, retry.getPacketWithoutTag(), retry.getTag())) {
+        if (!RetryIntegrityTag.verify(version, originalDcid, retry.getPacketWithoutTag(), retry.getTag())) {
             return; // corrupted, or forged by an off-path attacker without the fixed key
         }
 
@@ -1549,13 +1606,9 @@ public final class QuicConnection implements QuicTlsEngineListener {
         // Destination Connection ID the client addresses the server with.
         // After a Retry, that DCID changes to the Retry packet's own
         // Source Connection ID, so Initial keys must be re-derived to match.
-        byte[] clientSecret = InitialSecrets.clientSecretV1(peerConnectionId);
-        byte[] serverSecret = InitialSecrets.serverSecretV1(peerConnectionId);
-        Hkdf initialHkdf = Hkdf.sha256();
-        sendKeys.put(EncryptionLevel.INITIAL,
-                PacketProtectionKeys.derive(initialHkdf, clientSecret, QuicAeadAlgorithm.AES_128_GCM));
-        recvKeys.put(EncryptionLevel.INITIAL,
-                PacketProtectionKeys.derive(initialHkdf, serverSecret, QuicAeadAlgorithm.AES_128_GCM));
+        PacketProtectionKeys[] initialKeys = deriveInitialKeys(version, peerConnectionId);
+        sendKeys.put(EncryptionLevel.INITIAL, initialKeys[0]);
+        recvKeys.put(EncryptionLevel.INITIAL, initialKeys[1]);
 
         // The TLS transcript itself is untouched (RFC 9000 section
         // 17.2.5.2) -- only the QUIC-level Initial packet(s) carrying it
@@ -3016,7 +3069,7 @@ public final class QuicConnection implements QuicTlsEngineListener {
         byte[] header;
         while (true) {
             header = longHeader
-                    ? LongHeaderCodec.build(packetType, 1, peerConnectionId, ourConnectionId,
+                    ? LongHeaderCodec.build(packetType, version.getWireValue(), peerConnectionId, ourConnectionId,
                             packetType == LongHeaderCodec.TYPE_INITIAL ? retryToken : EMPTY_TOKEN,
                             packetNumber, pnLength, frameBytes + paddingBytes + QuicAeadAlgorithm.TAG_LENGTH)
                     : ShortHeaderCodec.build(peerConnectionId, false, packetNumber, pnLength);
@@ -3260,7 +3313,7 @@ public final class QuicConnection implements QuicTlsEngineListener {
         // minimum (RFC 9000 section 14.1) in flush().
         int paddingBytes = Math.max(0,
                 4 + QuicAeadAlgorithm.SAMPLE_LENGTH - pnLength - QuicAeadAlgorithm.TAG_LENGTH - frameBytes);
-        byte[] header = LongHeaderCodec.build(LongHeaderCodec.TYPE_0RTT, 1, peerConnectionId, ourConnectionId,
+        byte[] header = LongHeaderCodec.build(LongHeaderCodec.TYPE_0RTT, version.getWireValue(), peerConnectionId, ourConnectionId,
                 EMPTY_TOKEN, packetNumber, pnLength, frameBytes + paddingBytes + QuicAeadAlgorithm.TAG_LENGTH);
         int totalFrameBytes = frameBytes + paddingBytes;
 
@@ -3548,7 +3601,7 @@ public final class QuicConnection implements QuicTlsEngineListener {
         int pnLength = PacketNumberCodec.encodedLength(packetNumber, -1);
         int packetType = level == EncryptionLevel.INITIAL ? LongHeaderCodec.TYPE_INITIAL : LongHeaderCodec.TYPE_HANDSHAKE;
         byte[] header = longHeader
-                ? LongHeaderCodec.build(packetType, 1, peerConnectionId, ourConnectionId,
+                ? LongHeaderCodec.build(packetType, version.getWireValue(), peerConnectionId, ourConnectionId,
                         packetType == LongHeaderCodec.TYPE_INITIAL ? retryToken : EMPTY_TOKEN,
                         packetNumber, pnLength, frameBytes + QuicAeadAlgorithm.TAG_LENGTH)
                 : ShortHeaderCodec.build(peerConnectionId, false, packetNumber, pnLength);
@@ -3772,7 +3825,7 @@ public final class QuicConnection implements QuicTlsEngineListener {
         }
         selectHkdfAead(cipher);
         byte[] clientEarlyTrafficSecret = tlsEngine.getClientEarlyTrafficSecret();
-        PacketProtectionKeys keys = PacketProtectionKeys.derive(hkdf, clientEarlyTrafficSecret, aead);
+        PacketProtectionKeys keys = PacketProtectionKeys.derive(hkdf, clientEarlyTrafficSecret, aead, version);
         if (isServer) {
             zeroRttRecvKeys = keys;
         } else {
@@ -3865,8 +3918,8 @@ public final class QuicConnection implements QuicTlsEngineListener {
     }
 
     private void deriveDirectionalKeys(EncryptionLevel level, byte[] clientSecret, byte[] serverSecret) {
-        PacketProtectionKeys clientKeys = PacketProtectionKeys.derive(hkdf, clientSecret, aead);
-        PacketProtectionKeys serverKeys = PacketProtectionKeys.derive(hkdf, serverSecret, aead);
+        PacketProtectionKeys clientKeys = PacketProtectionKeys.derive(hkdf, clientSecret, aead, version);
+        PacketProtectionKeys serverKeys = PacketProtectionKeys.derive(hkdf, serverSecret, aead, version);
         if (isServer) {
             sendKeys.put(level, serverKeys);
             recvKeys.put(level, clientKeys);

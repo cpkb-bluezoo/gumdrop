@@ -71,6 +71,27 @@ public final class LongHeaderCodec {
     }
 
     /**
+     * Returns the version-independent packet type ({@code TYPE_*}) of a
+     * long-header packet, given its first byte. The two type bits of the
+     * first byte are numbered differently by each QUIC version (RFC 9369
+     * section 3.2); every other class uses the {@code TYPE_*} constants,
+     * which follow the version 1 numbering.
+     *
+     * @param version the Version field of the packet, which must be a
+     *                supported version
+     * @param firstByte the first byte of the packet
+     * @return a {@code TYPE_*} constant
+     * @throws IllegalArgumentException if the version is not supported
+     */
+    public static int packetType(int version, int firstByte) {
+        QuicVersion v = QuicVersion.fromWireValue(version);
+        if (v == null) {
+            throw new IllegalArgumentException("Unsupported QUIC version");
+        }
+        return v.fromWireType((firstByte >>> 4) & 0x03);
+    }
+
+    /**
      * Builds the unprotected header of a long-header packet, from the
      * first byte through the end of the packet number field.
      *
@@ -106,7 +127,7 @@ public final class LongHeaderCodec {
         ByteBuffer buf = ByteBuffer.allocate(size);
 
         int firstByte = HEADER_FORM_LONG | FIXED_BIT
-                | ((packetType & 0x03) << 4)
+                | (QuicVersion.fromWireValue(version).toWireType(packetType) << 4)
                 | (packetNumberLength - 1);
         buf.put((byte) firstByte);
         buf.putInt(version);
@@ -208,8 +229,8 @@ public final class LongHeaderCodec {
             throw new IllegalArgumentException("Packet too short for long header prefix");
         }
         int firstByte = buf.get() & 0xff;
-        int packetType = (firstByte >>> 4) & 0x03;
         int version = buf.getInt();
+        int packetType = packetType(version, firstByte);
 
         if (!buf.hasRemaining()) {
             throw new IllegalArgumentException("Packet too short for Destination Connection ID length");
@@ -273,6 +294,8 @@ public final class LongHeaderCodec {
      * packet's own Destination Connection ID, which is not itself a field
      * of the Retry packet) and appends it to get the bytes actually sent.
      *
+     * @param version the QUIC version of the connection, which is also the
+     *                version of the Retry packet (RFC 9369 section 4)
      * @param destinationConnectionId the client's Source Connection ID
      *                                from the Initial packet being responded to
      * @param sourceConnectionId this (server) endpoint's newly chosen
@@ -280,7 +303,7 @@ public final class LongHeaderCodec {
      * @param retryToken the opaque token the client must echo back
      * @return the unprotected Retry packet bytes, without its integrity tag
      */
-    public static byte[] buildRetryWithoutTag(byte[] destinationConnectionId, byte[] sourceConnectionId,
+    public static byte[] buildRetryWithoutTag(QuicVersion version, byte[] destinationConnectionId, byte[] sourceConnectionId,
             byte[] retryToken) {
         int size = 1 + 4
                 + 1 + destinationConnectionId.length
@@ -288,9 +311,9 @@ public final class LongHeaderCodec {
                 + retryToken.length;
         ByteBuffer buf = ByteBuffer.allocate(size);
 
-        int firstByte = HEADER_FORM_LONG | FIXED_BIT | ((TYPE_RETRY & 0x03) << 4);
+        int firstByte = HEADER_FORM_LONG | FIXED_BIT | (version.toWireType(TYPE_RETRY) << 4);
         buf.put((byte) firstByte);
-        buf.putInt(1);
+        buf.putInt(version.getWireValue());
 
         buf.put((byte) destinationConnectionId.length);
         buf.put(destinationConnectionId);

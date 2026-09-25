@@ -48,6 +48,7 @@ import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.StreamAcceptHandler;
 import org.bluezoo.gumdrop.TransportFactory;
 import org.bluezoo.gumdrop.quic.cid.StatelessResetToken;
+import org.bluezoo.gumdrop.quic.packet.QuicVersion;
 import org.bluezoo.gumdrop.quic.packet.TransportParameters;
 import org.bluezoo.gumdrop.quic.tls.PemCredentials;
 import org.bluezoo.gumdrop.tls.ClientAuthPolicy;
@@ -138,6 +139,7 @@ public class QuicTransportFactory extends TransportFactory {
     private EchConfig clientEchConfig;
     private boolean clientEchGreaseEnabled;
     private boolean clientEchRequired;
+    private QuicVersion[] versions = { QuicVersion.V1, QuicVersion.V2 };
 
     public QuicTransportFactory() {
         this.secure = true;
@@ -162,6 +164,44 @@ public class QuicTransportFactory extends TransportFactory {
      */
     String getApplicationProtocols() {
         return applicationProtocols;
+    }
+
+    /**
+     * Sets the QUIC versions to speak, as a comma- or space-separated list
+     * of {@code 1} (RFC 9000) and {@code 2} (RFC 9369), in order of
+     * preference. A server accepts every listed version and advertises
+     * them in Version Negotiation packets; a client opens its connection
+     * in the first and, on Version Negotiation, falls back to the first
+     * listed version the server also offers. The default is {@code "1,2"}.
+     *
+     * @param list the versions, e.g. {@code "2,1"}
+     * @throws IllegalArgumentException if the list is empty or names an
+     *         unknown version
+     */
+    public void setVersions(String list) {
+        String[] tokens = list.trim().split("[,\\s]+");
+        java.util.List<QuicVersion> parsed = new java.util.ArrayList<QuicVersion>();
+        for (int i = 0; i < tokens.length; i++) {
+            QuicVersion v;
+            if (tokens[i].equals("1")) {
+                v = QuicVersion.V1;
+            } else if (tokens[i].equals("2")) {
+                v = QuicVersion.V2;
+            } else {
+                throw new IllegalArgumentException("Unknown QUIC version: " + tokens[i]);
+            }
+            if (!parsed.contains(v)) {
+                parsed.add(v);
+            }
+        }
+        this.versions = parsed.toArray(new QuicVersion[parsed.size()]);
+    }
+
+    /**
+     * Returns the QUIC versions to speak, most preferred first.
+     */
+    QuicVersion[] getVersions() {
+        return versions.clone();
     }
 
     /**

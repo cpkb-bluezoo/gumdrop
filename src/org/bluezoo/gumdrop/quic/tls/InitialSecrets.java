@@ -22,6 +22,7 @@
 package org.bluezoo.gumdrop.quic.tls;
 
 import org.bluezoo.gumdrop.crypto.Hkdf;
+import org.bluezoo.gumdrop.quic.packet.QuicVersion;
 
 /**
  * Derivation of QUIC Initial packet protection secrets (RFC 9001
@@ -29,7 +30,7 @@ import org.bluezoo.gumdrop.crypto.Hkdf;
  *
  * <p>Initial packets are protected with a secret derived directly from the
  * Destination Connection ID of the client's first Initial packet, salted
- * with a fixed, version-specific, publicly known value -- Initial
+ * with a fixed, version-specific (see {@link QuicVersion}), publicly known value -- Initial
  * protection provides only a modest obstacle to on-path observers, not
  * confidentiality; its purpose is to require that a peer have seen the
  * connection's Initial packet, and to be replaced by real, TLS-negotiated
@@ -42,28 +43,6 @@ import org.bluezoo.gumdrop.crypto.Hkdf;
  */
 public final class InitialSecrets {
 
-    /**
-     * The QUIC version 1 Initial salt (RFC 9001 section 5.2). Future QUIC
-     * versions define their own salt so that a middlebox that recognises
-     * only one version cannot inspect or modify Initial packets of another.
-     */
-    private static final byte[] SALT_V1 = {
-        (byte) 0x38, (byte) 0x76, (byte) 0x2c, (byte) 0xf7,
-        (byte) 0xf5, (byte) 0x59, (byte) 0x34, (byte) 0xb3,
-        (byte) 0x4d, (byte) 0x17, (byte) 0x9a, (byte) 0xe6,
-        (byte) 0xa4, (byte) 0xc8, (byte) 0x0c, (byte) 0xad,
-        (byte) 0xcc, (byte) 0xbb, (byte) 0x7f, (byte) 0x0a
-    };
-
-    /** RFC 9369 section 3.3.1: QUIC version 2 uses a distinct Initial salt. */
-    private static final byte[] SALT_V2 = {
-        (byte) 0x0d, (byte) 0xed, (byte) 0xe3, (byte) 0xde,
-        (byte) 0xf7, (byte) 0x00, (byte) 0xa6, (byte) 0xdb,
-        (byte) 0x81, (byte) 0x93, (byte) 0x81, (byte) 0xbe,
-        (byte) 0x6e, (byte) 0x26, (byte) 0x9d, (byte) 0xcb,
-        (byte) 0xf9, (byte) 0xbd, (byte) 0x2e, (byte) 0xd9
-    };
-
     private static final byte[] EMPTY_CONTEXT = new byte[0];
 
     private static final Hkdf HKDF = Hkdf.sha256();
@@ -72,60 +51,31 @@ public final class InitialSecrets {
     }
 
     /**
-     * Derives the secret used to protect Initial packets sent by the
-     * client, for QUIC version 1.
+     * Derives the secret used to protect Initial packets sent by the client.
      *
+     * @param version the QUIC version, which selects the salt
      * @param clientDestinationConnectionId the Destination Connection ID
      *        of the client's first Initial packet
      * @return the 32-byte client Initial secret
      */
-    public static byte[] clientSecretV1(byte[] clientDestinationConnectionId) {
-        return clientSecret(clientDestinationConnectionId, SALT_V1);
+    public static byte[] clientSecret(QuicVersion version, byte[] clientDestinationConnectionId) {
+        return derive(version, clientDestinationConnectionId, "client in");
     }
 
     /**
-     * Derives the secret used to protect Initial packets sent by the
-     * server, for QUIC version 1.
+     * Derives the secret used to protect Initial packets sent by the server.
      *
+     * @param version the QUIC version, which selects the salt
      * @param clientDestinationConnectionId the Destination Connection ID
      *        of the client's first Initial packet
      * @return the 32-byte server Initial secret
      */
-    public static byte[] serverSecretV1(byte[] clientDestinationConnectionId) {
-        return serverSecret(clientDestinationConnectionId, SALT_V1);
+    public static byte[] serverSecret(QuicVersion version, byte[] clientDestinationConnectionId) {
+        return derive(version, clientDestinationConnectionId, "server in");
     }
 
-    /**
-     * Derives the secret used to protect Initial packets sent by the
-     * client, for QUIC version 2 (RFC 9369).
-     *
-     * @param clientDestinationConnectionId the Destination Connection ID
-     *        of the client's first Initial packet
-     * @return the 32-byte client Initial secret
-     */
-    public static byte[] clientSecretV2(byte[] clientDestinationConnectionId) {
-        return clientSecret(clientDestinationConnectionId, SALT_V2);
-    }
-
-    /**
-     * Derives the secret used to protect Initial packets sent by the
-     * server, for QUIC version 2 (RFC 9369).
-     *
-     * @param clientDestinationConnectionId the Destination Connection ID
-     *        of the client's first Initial packet
-     * @return the 32-byte server Initial secret
-     */
-    public static byte[] serverSecretV2(byte[] clientDestinationConnectionId) {
-        return serverSecret(clientDestinationConnectionId, SALT_V2);
-    }
-
-    private static byte[] clientSecret(byte[] connectionId, byte[] salt) {
-        byte[] initialSecret = HKDF.extract(salt, connectionId);
-        return HKDF.expandLabel(initialSecret, "client in", EMPTY_CONTEXT, HKDF.getHashLength());
-    }
-
-    private static byte[] serverSecret(byte[] connectionId, byte[] salt) {
-        byte[] initialSecret = HKDF.extract(salt, connectionId);
-        return HKDF.expandLabel(initialSecret, "server in", EMPTY_CONTEXT, HKDF.getHashLength());
+    private static byte[] derive(QuicVersion version, byte[] connectionId, String label) {
+        byte[] initialSecret = HKDF.extract(version.getInitialSalt(), connectionId);
+        return HKDF.expandLabel(initialSecret, label, EMPTY_CONTEXT, HKDF.getHashLength());
     }
 }

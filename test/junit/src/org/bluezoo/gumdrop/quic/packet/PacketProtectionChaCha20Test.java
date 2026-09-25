@@ -59,7 +59,7 @@ public class PacketProtectionChaCha20Test {
     @Test
     public void testDerivedKeySizes() {
         PacketProtectionKeys keys = PacketProtectionKeys.derive(
-                Hkdf.sha256(), randomBytes(32), QuicAeadAlgorithm.CHACHA20_POLY1305);
+                Hkdf.sha256(), randomBytes(32), QuicAeadAlgorithm.CHACHA20_POLY1305, QuicVersion.V1);
         assertEquals(32, keys.getAeadKey().getEncoded().length);
         assertEquals("ChaCha20", keys.getAeadKey().getAlgorithm());
         assertEquals(QuicAeadAlgorithm.IV_LENGTH, keys.getIv().length);
@@ -69,7 +69,7 @@ public class PacketProtectionChaCha20Test {
     @Test
     public void testSealOpenRoundTrip() throws PacketProtectionException {
         PacketProtectionKeys keys = PacketProtectionKeys.derive(
-                Hkdf.sha256(), randomBytes(32), QuicAeadAlgorithm.CHACHA20_POLY1305);
+                Hkdf.sha256(), randomBytes(32), QuicAeadAlgorithm.CHACHA20_POLY1305, QuicVersion.V1);
 
         byte[] header = randomBytes(20);
         byte[] plaintext = "a QUIC frame payload, protected with ChaCha20-Poly1305"
@@ -86,7 +86,7 @@ public class PacketProtectionChaCha20Test {
     @Test
     public void testOpenRejectsTamperedCiphertext() throws PacketProtectionException {
         PacketProtectionKeys keys = PacketProtectionKeys.derive(
-                Hkdf.sha256(), randomBytes(32), QuicAeadAlgorithm.CHACHA20_POLY1305);
+                Hkdf.sha256(), randomBytes(32), QuicAeadAlgorithm.CHACHA20_POLY1305, QuicVersion.V1);
 
         byte[] header = randomBytes(20);
         byte[] plaintext = "authenticated data must not be tamperable".getBytes(StandardCharsets.US_ASCII);
@@ -104,7 +104,7 @@ public class PacketProtectionChaCha20Test {
     @Test
     public void testHeaderProtectionMaskRoundTrip() throws PacketProtectionException {
         PacketProtectionKeys keys = PacketProtectionKeys.derive(
-                Hkdf.sha256(), randomBytes(32), QuicAeadAlgorithm.CHACHA20_POLY1305);
+                Hkdf.sha256(), randomBytes(32), QuicAeadAlgorithm.CHACHA20_POLY1305, QuicVersion.V1);
 
         int pnOffset = 18;
         int pnLength = 4;
@@ -139,7 +139,7 @@ public class PacketProtectionChaCha20Test {
     @Test
     public void testHeaderProtectionMaskIsDeterministic() throws PacketProtectionException {
         PacketProtectionKeys keys = PacketProtectionKeys.derive(
-                Hkdf.sha256(), randomBytes(32), QuicAeadAlgorithm.CHACHA20_POLY1305);
+                Hkdf.sha256(), randomBytes(32), QuicAeadAlgorithm.CHACHA20_POLY1305, QuicVersion.V1);
         byte[] sample = randomBytes(QuicAeadAlgorithm.SAMPLE_LENGTH);
 
         byte[] mask1 = PacketProtection.headerProtectionMask(keys, sample);

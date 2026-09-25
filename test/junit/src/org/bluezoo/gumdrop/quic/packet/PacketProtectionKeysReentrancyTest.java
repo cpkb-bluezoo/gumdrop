@@ -85,7 +85,7 @@ public class PacketProtectionKeysReentrancyTest {
     @Test
     public void testSealOpenAndHeaderProtectionMaskRoundTrip() throws Exception {
         PacketProtectionKeys keys = PacketProtectionKeys.derive(
-                Hkdf.sha256(), randomBytes(32), QuicAeadAlgorithm.AES_128_GCM);
+                Hkdf.sha256(), randomBytes(32), QuicAeadAlgorithm.AES_128_GCM, QuicVersion.V1);
         byte[] header = randomBytes(20);
         byte[] plaintext = randomBytes(100);
         byte[] sample = randomBytes(QuicAeadAlgorithm.SAMPLE_LENGTH);
@@ -112,7 +112,7 @@ public class PacketProtectionKeysReentrancyTest {
     @Test(timeout = 30000)
     public void testConcurrentSealAndOpenOnSameKeysDoNotCorruptEachOther() throws Exception {
         final PacketProtectionKeys keys = PacketProtectionKeys.derive(
-                Hkdf.sha256(), randomBytes(32), QuicAeadAlgorithm.AES_128_GCM);
+                Hkdf.sha256(), randomBytes(32), QuicAeadAlgorithm.AES_128_GCM, QuicVersion.V1);
         final byte[] header = randomBytes(20);
         final byte[] plaintext = randomBytes(100);
         final AtomicLong nextPacketNumber = new AtomicLong();
@@ -154,9 +154,9 @@ public class PacketProtectionKeysReentrancyTest {
     @Test
     public void testIndependentKeysAreNotInterchangeable() throws Exception {
         PacketProtectionKeys keysA = PacketProtectionKeys.derive(
-                Hkdf.sha256(), randomBytes(32), QuicAeadAlgorithm.AES_128_GCM);
+                Hkdf.sha256(), randomBytes(32), QuicAeadAlgorithm.AES_128_GCM, QuicVersion.V1);
         PacketProtectionKeys keysB = PacketProtectionKeys.derive(
-                Hkdf.sha256(), randomBytes(32), QuicAeadAlgorithm.AES_128_GCM);
+                Hkdf.sha256(), randomBytes(32), QuicAeadAlgorithm.AES_128_GCM, QuicVersion.V1);
         byte[] header = randomBytes(20);
         byte[] plaintext = randomBytes(100);
 

@@ -57,8 +57,8 @@ public class RetryPacketTest {
         byte[] scid = randomConnectionId();
         byte[] token = "opaque-retry-token".getBytes(java.nio.charset.StandardCharsets.US_ASCII);
 
-        byte[] withoutTag = LongHeaderCodec.buildRetryWithoutTag(dcid, scid, token);
-        byte[] tag = RetryIntegrityTag.compute(dcid, withoutTag);
+        byte[] withoutTag = LongHeaderCodec.buildRetryWithoutTag(QuicVersion.V1, dcid, scid, token);
+        byte[] tag = RetryIntegrityTag.compute(QuicVersion.V1, dcid, withoutTag);
         byte[] packet = new byte[withoutTag.length + tag.length];
         System.arraycopy(withoutTag, 0, packet, 0, withoutTag.length);
         System.arraycopy(tag, 0, packet, withoutTag.length, tag.length);
@@ -79,31 +79,31 @@ public class RetryPacketTest {
     @Test
     public void testRetryIntegrityTagVerifiesCorrectPacket() {
         byte[] originalDcid = randomConnectionId();
-        byte[] withoutTag = LongHeaderCodec.buildRetryWithoutTag(randomConnectionId(), randomConnectionId(),
+        byte[] withoutTag = LongHeaderCodec.buildRetryWithoutTag(QuicVersion.V1, randomConnectionId(), randomConnectionId(),
                 "token".getBytes(java.nio.charset.StandardCharsets.US_ASCII));
-        byte[] tag = RetryIntegrityTag.compute(originalDcid, withoutTag);
+        byte[] tag = RetryIntegrityTag.compute(QuicVersion.V1, originalDcid, withoutTag);
 
-        assertTrue(RetryIntegrityTag.verify(originalDcid, withoutTag, tag));
+        assertTrue(RetryIntegrityTag.verify(QuicVersion.V1, originalDcid, withoutTag, tag));
     }
 
     @Test
     public void testRetryIntegrityTagRejectsWrongOriginalDcid() {
-        byte[] withoutTag = LongHeaderCodec.buildRetryWithoutTag(randomConnectionId(), randomConnectionId(),
+        byte[] withoutTag = LongHeaderCodec.buildRetryWithoutTag(QuicVersion.V1, randomConnectionId(), randomConnectionId(),
                 "token".getBytes(java.nio.charset.StandardCharsets.US_ASCII));
-        byte[] tag = RetryIntegrityTag.compute(randomConnectionId(), withoutTag);
+        byte[] tag = RetryIntegrityTag.compute(QuicVersion.V1, randomConnectionId(), withoutTag);
 
-        assertFalse(RetryIntegrityTag.verify(randomConnectionId(), withoutTag, tag));
+        assertFalse(RetryIntegrityTag.verify(QuicVersion.V1, randomConnectionId(), withoutTag, tag));
     }
 
     @Test
     public void testRetryIntegrityTagRejectsTamperedPacket() {
         byte[] originalDcid = randomConnectionId();
-        byte[] withoutTag = LongHeaderCodec.buildRetryWithoutTag(randomConnectionId(), randomConnectionId(),
+        byte[] withoutTag = LongHeaderCodec.buildRetryWithoutTag(QuicVersion.V1, randomConnectionId(), randomConnectionId(),
                 "token".getBytes(java.nio.charset.StandardCharsets.US_ASCII));
-        byte[] tag = RetryIntegrityTag.compute(originalDcid, withoutTag);
+        byte[] tag = RetryIntegrityTag.compute(QuicVersion.V1, originalDcid, withoutTag);
         withoutTag[withoutTag.length - 1] ^= 0x01;
 
-        assertFalse(RetryIntegrityTag.verify(originalDcid, withoutTag, tag));
+        assertFalse(RetryIntegrityTag.verify(QuicVersion.V1, originalDcid, withoutTag, tag));
     }
 
     @Test
