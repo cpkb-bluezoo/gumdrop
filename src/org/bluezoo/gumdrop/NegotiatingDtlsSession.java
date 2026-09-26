@@ -34,6 +34,8 @@ import org.bluezoo.gumdrop.tls.TlsVersionPick;
 /**
  * One UDP peer: pick DTLS 1.2 or 1.3 from the first handshake flight, then
  * run exactly one {@link Dtls12Session} or {@link Dtls13Session}.
+ *
+ * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 final class NegotiatingDtlsSession {
 

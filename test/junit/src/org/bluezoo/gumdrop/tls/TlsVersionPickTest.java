@@ -21,11 +21,19 @@
 
 package org.bluezoo.gumdrop.tls;
 
+import java.util.Collections;
+import java.util.LinkedHashMap;
+
+import org.bluezoo.gumdrop.crypto.KeyExchange;
+import org.bluezoo.gumdrop.crypto.NamedGroup;
+import org.bluezoo.gumdrop.crypto.SignatureScheme;
 import org.junit.Test;
 import static org.junit.Assert.assertEquals;
 
 /**
  * Unit tests for {@link TlsVersionPick}.
+ *
+ * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 public class TlsVersionPickTest {
 
@@ -36,7 +44,12 @@ public class TlsVersionPickTest {
         params.random = new byte[32];
         params.cipherSuites = defaults.getCipherSuites();
         params.groups = defaults.getNamedGroups();
-        params.keyShares = new java.util.LinkedHashMap<org.bluezoo.gumdrop.crypto.NamedGroup, byte[]>();
+        params.keyShares = new LinkedHashMap<NamedGroup, byte[]>();
+        NamedGroup shareGroup = params.groups.get(0);
+        params.keyShares.put(shareGroup, KeyExchange.generate(shareGroup).getShareBytes());
+        params.signatureAlgorithms = Collections.singletonList(
+                SignatureScheme.ECDSA_SECP256R1_SHA256);
+        params.applicationProtocols = Collections.emptyList();
         params.offerTls12Fallback = true;
         byte[] ch = HandshakeMessages.buildClientHelloWithBinder(params, null);
         byte[] body = HandshakeMessages.extractClientHelloContent(ch);

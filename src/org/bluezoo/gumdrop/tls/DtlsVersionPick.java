@@ -25,6 +25,8 @@ import java.util.Arrays;
 
 /**
  * Pick DTLS 1.2 vs 1.3 from epoch-0 handshake traffic (RFC 6347 / RFC 9147).
+ *
+ * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 public final class DtlsVersionPick {
 

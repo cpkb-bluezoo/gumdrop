@@ -37,6 +37,8 @@ import org.bluezoo.gumdrop.tls.TlsVersionPick;
  * One TCP TLS connection: pick TLS 1.2 or 1.3 from the first handshake
  * flight (prefer 1.3), then delegate to {@link TlsRecordState} or
  * {@link Tls12RecordState} for the rest of the connection.
+ *
+ * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 final class NegotiatingTlsRecordState {
 
