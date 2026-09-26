@@ -49,7 +49,7 @@ public class DefaultTelemetryExporterFactoryTest {
     @Test
     public void fileTypeSelectsFileExporter() {
         TelemetryConfig config = new TelemetryConfig();
-        config.setExporterType("FILE");
+        config.setExporterType(TelemetryConfig.ExporterType.FILE);
         TelemetryExporter e =
                 new DefaultTelemetryExporterFactory().createExporter(config);
         assertTrue(e instanceof OtlpFileExporter);

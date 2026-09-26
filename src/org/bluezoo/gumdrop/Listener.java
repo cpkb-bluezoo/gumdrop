@@ -21,14 +21,15 @@
 
 package org.bluezoo.gumdrop;
 
+import org.bluezoo.gumdrop.tls.KeystoreFormat;
 import java.io.IOException;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.NetworkInterface;
 import java.net.SocketAddress;
-import java.net.UnknownHostException;
 import java.text.MessageFormat;
 import java.util.Enumeration;
 import java.util.Iterator;
@@ -37,7 +38,6 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.StringTokenizer;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -104,7 +104,7 @@ public abstract class Listener {
     protected DtlsVersion dtlsVersion = DtlsVersion.DTLS_1_2;
     protected Path keystoreFile;
     protected String keystorePass;
-    protected String keystoreFormat = "PKCS12";
+    protected KeystoreFormat keystoreFormat = KeystoreFormat.PKCS12;
     protected Path certFile;
     protected Path keyFile;
     protected Path echConfigListFile;
@@ -243,15 +243,11 @@ public abstract class Listener {
         keystoreFile = file;
     }
 
-    public void setKeystoreFile(String file) {
-        keystoreFile = Path.of(file);
-    }
-
     public void setKeystorePass(String pass) {
         keystorePass = pass;
     }
 
-    public void setKeystoreFormat(String format) {
+    public void setKeystoreFormat(KeystoreFormat format) {
         keystoreFormat = format;
     }
 
@@ -285,10 +281,6 @@ public abstract class Listener {
         certFile = file;
     }
 
-    public void setCertFile(String file) {
-        certFile = Path.of(file);
-    }
-
     /**
      * Sets the PEM private key file for TLS server identity.
      *
@@ -296,10 +288,6 @@ public abstract class Listener {
      */
     public void setKeyFile(Path file) {
         keyFile = file;
-    }
-
-    public void setKeyFile(String file) {
-        keyFile = Path.of(file);
     }
 
     /**
@@ -425,42 +413,6 @@ public abstract class Listener {
     // Server-level setters
     // ═══════════════════════════════════════════════════════════════════
 
-    public void setAddresses(String value) {
-        if (value != null && !value.isEmpty()) {
-            addresses = new LinkedHashSet<InetAddress>();
-            StringTokenizer st = new StringTokenizer(value, ", ");
-            while (st.hasMoreTokens()) {
-                String token = st.nextToken().trim();
-                if (token.isEmpty()) {
-                    continue;
-                }
-                if (isWildcardToken(token)) {
-                    // Bind a single wildcard socket rather than enumerating
-                    // individual NIC addresses (container-friendly).
-                    wildcard = true;
-                    continue;
-                }
-                try {
-                    addresses.add(InetAddress.getByName(token));
-                } catch (UnknownHostException e) {
-                    LOGGER.warning(MessageFormat.format(
-                            Gumdrop.L10N.getString("err.unknown_host"),
-                            token));
-                }
-            }
-            if (addresses.isEmpty()) {
-                addresses = null;
-            }
-        }
-    }
-
-    private static boolean isWildcardToken(String token) {
-        return "*".equals(token)
-                || "0.0.0.0".equals(token)
-                || "::".equals(token)
-                || "[::]".equals(token);
-    }
-
     /**
      * Enables or disables binding to a single wildcard socket
      * ({@code 0.0.0.0} / {@code ::}) instead of enumerating every local
@@ -557,10 +509,6 @@ public abstract class Listener {
         this.idleTimeoutMs = idleTimeoutMs;
     }
 
-    public void setIdleTimeout(String timeout) {
-        this.idleTimeoutMs = parseDuration(timeout);
-    }
-
     public long getReadTimeoutMs() {
         return readTimeoutMs;
     }
@@ -569,20 +517,12 @@ public abstract class Listener {
         this.readTimeoutMs = readTimeoutMs;
     }
 
-    public void setReadTimeout(String timeout) {
-        this.readTimeoutMs = parseDuration(timeout);
-    }
-
     public long getConnectionTimeoutMs() {
         return connectionTimeoutMs;
     }
 
     public void setConnectionTimeoutMs(long connectionTimeoutMs) {
         this.connectionTimeoutMs = connectionTimeoutMs;
-    }
-
-    public void setConnectionTimeout(String timeout) {
-        this.connectionTimeoutMs = parseDuration(timeout);
     }
 
     public void setMaxConnectionsPerIP(int max) {
@@ -699,21 +639,31 @@ public abstract class Listener {
         authRateLimiter.setMaxFailures(max);
     }
 
-    public void setAuthLockoutTime(String duration) {
+    public void setAuthLockoutTimeMs(long lockoutMs) {
         ensureAuthRateLimiter();
-        authRateLimiter.setLockoutTime(duration);
+        authRateLimiter.setLockoutDuration(lockoutMs);
     }
 
-    public void setAllowedNetworks(String allowedNetworks) {
-        if (allowedNetworks != null && !allowedNetworks.isEmpty()) {
-            this.allowedNetworks = CidrNetwork.parseList(allowedNetworks);
-        }
+    /**
+     * Restricts connections to clients in these networks. An empty list or
+     * {@code null} allows every client that is not blocked.
+     *
+     * @param allowedNetworks the networks clients must be in, or null
+     */
+    public void setAllowedNetworks(List<CidrNetwork> allowedNetworks) {
+        this.allowedNetworks = allowedNetworks == null || allowedNetworks.isEmpty()
+                ? null : new ArrayList<CidrNetwork>(allowedNetworks);
     }
 
-    public void setBlockedNetworks(String blockedNetworks) {
-        if (blockedNetworks != null && !blockedNetworks.isEmpty()) {
-            this.blockedNetworks = CidrNetwork.parseList(blockedNetworks);
-        }
+    /**
+     * Refuses connections from clients in these networks, before the allowed
+     * networks are consulted.
+     *
+     * @param blockedNetworks the networks to refuse, or null
+     */
+    public void setBlockedNetworks(List<CidrNetwork> blockedNetworks) {
+        this.blockedNetworks = blockedNetworks == null || blockedNetworks.isEmpty()
+                ? null : new ArrayList<CidrNetwork>(blockedNetworks);
     }
 
     // ═══════════════════════════════════════════════════════════════════
@@ -739,7 +689,7 @@ public abstract class Listener {
      *
      * @return the socket path, or null
      */
-    public String getPath() {
+    public Path getPath() {
         return null;
     }
 
@@ -1033,45 +983,6 @@ public abstract class Listener {
     // ═══════════════════════════════════════════════════════════════════
     // Internal helpers
     // ═══════════════════════════════════════════════════════════════════
-
-    /**
-     * Parses a duration string with optional time unit suffix.
-     *
-     * @param duration the duration string (e.g., "30s", "5m", "1h",
-     *                 "5000ms")
-     * @return the duration in milliseconds
-     */
-    protected static long parseDuration(String duration) {
-        if (duration == null || duration.isEmpty()) {
-            return 0;
-        }
-        duration = duration.trim().toLowerCase();
-
-        long multiplier = 1;
-        String numPart = duration;
-
-        if (duration.endsWith("ms")) {
-            numPart = duration.substring(0, duration.length() - 2);
-            multiplier = 1;
-        } else if (duration.endsWith("s")) {
-            numPart = duration.substring(0, duration.length() - 1);
-            multiplier = 1000;
-        } else if (duration.endsWith("m")) {
-            numPart = duration.substring(0, duration.length() - 1);
-            multiplier = 60 * 1000;
-        } else if (duration.endsWith("h")) {
-            numPart = duration.substring(0, duration.length() - 1);
-            multiplier = 60 * 60 * 1000;
-        }
-
-        try {
-            return Long.parseLong(numPart.trim()) * multiplier;
-        } catch (NumberFormatException e) {
-            LOGGER.warning(MessageFormat.format(
-                    Gumdrop.L10N.getString("warn.invalid_duration_format"), duration));
-            return 0;
-        }
-    }
 
     private void ensureConnectionRateLimiter() {
         if (connectionRateLimiter == null) {

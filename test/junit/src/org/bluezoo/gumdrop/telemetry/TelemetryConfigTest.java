@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.telemetry;
 
+import org.bluezoo.gumdrop.tls.KeystoreFormat;
 import org.bluezoo.gumdrop.telemetry.metrics.AggregationTemporality;
 import org.bluezoo.gumdrop.telemetry.metrics.Meter;
 import org.junit.Test;
@@ -49,12 +50,12 @@ public class TelemetryConfigTest {
         assertTrue(c.isLogsEnabled());
         assertTrue(c.isMetricsEnabled());
         assertEquals("gumdrop", c.getServiceName());
-        assertEquals("otlp", c.getExporterType());
-        assertEquals("http/protobuf", c.getProtocol());
+        assertEquals(TelemetryConfig.ExporterType.OTLP, c.getExporterType());
+        assertEquals(TelemetryConfig.Protocol.HTTP_PROTOBUF, c.getProtocol());
         assertEquals(AggregationTemporality.CUMULATIVE, c.getMetricsTemporality());
         assertEquals(60000L, c.getMetricsIntervalMs());
         assertEquals(10000, c.getTimeoutMs());
-        assertEquals("PKCS12", c.getTruststoreFormat());
+        assertEquals(KeystoreFormat.PKCS12, c.getTruststoreFormat());
         assertEquals(8192, c.getFileBufferSize());
         assertEquals(512, c.getBatchSize());
         assertEquals(5000L, c.getFlushIntervalMs());
@@ -78,11 +79,11 @@ public class TelemetryConfigTest {
         c.setServiceNamespace("ns");
         c.setServiceInstanceId("i-1");
         c.setDeploymentEnvironment("prod");
-        c.setExporterType("file");
-        c.setProtocol("grpc");
+        c.setExporterType(TelemetryConfig.ExporterType.FILE);
+        c.setProtocol(TelemetryConfig.Protocol.GRPC);
         c.setTimeoutMs(5);
         c.setTruststorePass("secret");
-        c.setTruststoreFormat("JKS");
+        c.setTruststoreFormat(KeystoreFormat.JKS);
         c.setMetricsIntervalMs(1000L);
         c.setBatchSize(10);
         c.setFlushIntervalMs(20L);
@@ -98,11 +99,11 @@ public class TelemetryConfigTest {
         assertEquals("ns", c.getServiceNamespace());
         assertEquals("i-1", c.getServiceInstanceId());
         assertEquals("prod", c.getDeploymentEnvironment());
-        assertEquals("file", c.getExporterType());
-        assertEquals("grpc", c.getProtocol());
+        assertEquals(TelemetryConfig.ExporterType.FILE, c.getExporterType());
+        assertEquals(TelemetryConfig.Protocol.GRPC, c.getProtocol());
         assertEquals(5, c.getTimeoutMs());
         assertEquals("secret", c.getTruststorePass());
-        assertEquals("JKS", c.getTruststoreFormat());
+        assertEquals(KeystoreFormat.JKS, c.getTruststoreFormat());
         assertEquals(1000L, c.getMetricsIntervalMs());
         assertEquals(10, c.getBatchSize());
         assertEquals(20L, c.getFlushIntervalMs());
@@ -146,16 +147,12 @@ public class TelemetryConfigTest {
     }
 
     @Test
-    public void temporalityByName() {
+    public void temporalityIsSetByEnum() {
         TelemetryConfig c = new TelemetryConfig();
-        c.setMetricsTemporalityName("DELTA");
-        assertEquals(AggregationTemporality.DELTA, c.getMetricsTemporality());
-        c.setMetricsTemporalityName("bogus");
-        assertEquals(AggregationTemporality.DELTA, c.getMetricsTemporality());
-        c.setMetricsTemporalityName("cumulative");
-        assertEquals(AggregationTemporality.CUMULATIVE, c.getMetricsTemporality());
         c.setMetricsTemporality(AggregationTemporality.DELTA);
         assertEquals(AggregationTemporality.DELTA, c.getMetricsTemporality());
+        c.setMetricsTemporality(AggregationTemporality.CUMULATIVE);
+        assertEquals(AggregationTemporality.CUMULATIVE, c.getMetricsTemporality());
     }
 
     @Test
@@ -183,12 +180,12 @@ public class TelemetryConfigTest {
     }
 
     @Test
-    public void pathSettersAcceptStringsWithoutTouchingDisk() {
+    public void pathSettersDoNotTouchDisk() {
         TelemetryConfig c = new TelemetryConfig();
-        c.setTruststoreFile("/nonexistent/ts.p12");
-        c.setFileTracesPath("/nonexistent/traces");
-        c.setFileLogsPath("/nonexistent/logs");
-        c.setFileMetricsPath("/nonexistent/metrics");
+        c.setTruststoreFile(Path.of("/nonexistent/ts.p12"));
+        c.setFileTracesPath(Path.of("/nonexistent/traces"));
+        c.setFileLogsPath(Path.of("/nonexistent/logs"));
+        c.setFileMetricsPath(Path.of("/nonexistent/metrics"));
         assertEquals(Path.of("/nonexistent/ts.p12"), c.getTruststoreFile());
         assertEquals(Path.of("/nonexistent/traces"), c.getFileTracesPath());
         assertEquals(Path.of("/nonexistent/logs"), c.getFileLogsPath());

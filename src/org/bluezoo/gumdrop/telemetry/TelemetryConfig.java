@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.telemetry;
 
+import org.bluezoo.gumdrop.tls.KeystoreFormat;
 import org.bluezoo.gumdrop.telemetry.metrics.AggregationTemporality;
 import org.bluezoo.gumdrop.telemetry.metrics.Meter;
 
@@ -73,15 +74,14 @@ public class TelemetryConfig {
     private String serviceInstanceId;
     private String deploymentEnvironment;
 
-    // Exporter type: "otlp" (default) or "file"
-    private String exporterType = "otlp";
+    private ExporterType exporterType = ExporterType.OTLP;
 
     // OTLP exporter settings
     private String endpoint;
     private String tracesEndpoint;
     private String logsEndpoint;
     private String metricsEndpoint;
-    private String protocol = "http/protobuf";
+    private Protocol protocol = Protocol.HTTP_PROTOBUF;
     private String headers;
     private volatile Map<String, String> parsedHeadersCache;
     private int timeoutMs = 10000;
@@ -89,7 +89,7 @@ public class TelemetryConfig {
     // TLS configuration for HTTPS endpoints
     private Path truststoreFile;
     private String truststorePass;
-    private String truststoreFormat = "PKCS12";
+    private KeystoreFormat truststoreFormat = KeystoreFormat.PKCS12;
 
     // File exporter settings
     private Path fileTracesPath;
@@ -283,21 +283,41 @@ public class TelemetryConfig {
 
     // -- Exporter type --
 
+    /** Where telemetry is exported to. */
+    public enum ExporterType {
+        /** OTLP export to a collector. */
+        OTLP,
+        /** JSONL export to files. */
+        FILE
+    }
+
+    /** The OTLP transport used when exporting to a collector. */
+    public enum Protocol {
+        /** OTLP over HTTP with protobuf bodies. */
+        HTTP_PROTOBUF,
+        /** OTLP over gRPC. */
+        GRPC
+    }
+
     /**
      * Returns the exporter type.
      *
-     * @return "otlp" or "file"
+     * @return the exporter type
      */
-    public String getExporterType() {
+    public ExporterType getExporterType() {
         return exporterType;
     }
 
     /**
      * Sets the exporter type.
      *
-     * @param exporterType "otlp" for OTLP/HTTP export, "file" for JSONL file export
+     * @param exporterType {@link ExporterType#OTLP} for OTLP export,
+     *        {@link ExporterType#FILE} for JSONL file export
      */
-    public void setExporterType(String exporterType) {
+    public void setExporterType(ExporterType exporterType) {
+        if (exporterType == null) {
+            throw new NullPointerException("exporterType");
+        }
         this.exporterType = exporterType;
     }
 
@@ -403,19 +423,6 @@ public class TelemetryConfig {
     }
 
     /**
-     * Sets the aggregation temporality by name.
-     *
-     * @param temporality "delta" or "cumulative"
-     */
-    public void setMetricsTemporalityName(String temporality) {
-        if ("delta".equalsIgnoreCase(temporality)) {
-            this.metricsTemporality = AggregationTemporality.DELTA;
-        } else if ("cumulative".equalsIgnoreCase(temporality)) {
-            this.metricsTemporality = AggregationTemporality.CUMULATIVE;
-        }
-    }
-
-    /**
      * Returns the metrics collection interval in milliseconds.
      */
     public long getMetricsIntervalMs() {
@@ -434,16 +441,19 @@ public class TelemetryConfig {
     /**
      * Returns the export protocol.
      */
-    public String getProtocol() {
+    public Protocol getProtocol() {
         return protocol;
     }
 
     /**
      * Sets the export protocol.
      *
-     * @param protocol the protocol ("http/protobuf" or "grpc")
+     * @param protocol the OTLP transport
      */
-    public void setProtocol(String protocol) {
+    public void setProtocol(Protocol protocol) {
+        if (protocol == null) {
+            throw new NullPointerException("protocol");
+        }
         this.protocol = protocol;
     }
 
@@ -537,10 +547,6 @@ public class TelemetryConfig {
         this.truststoreFile = truststoreFile;
     }
 
-    public void setTruststoreFile(String truststoreFile) {
-        this.truststoreFile = Path.of(truststoreFile);
-    }
-
     /**
      * Returns the truststore password.
      */
@@ -560,7 +566,7 @@ public class TelemetryConfig {
     /**
      * Returns the truststore format.
      */
-    public String getTruststoreFormat() {
+    public KeystoreFormat getTruststoreFormat() {
         return truststoreFormat;
     }
 
@@ -569,7 +575,7 @@ public class TelemetryConfig {
      *
      * @param truststoreFormat the format (default: PKCS12)
      */
-    public void setTruststoreFormat(String truststoreFormat) {
+    public void setTruststoreFormat(KeystoreFormat truststoreFormat) {
         this.truststoreFormat = truststoreFormat;
     }
 
@@ -592,10 +598,6 @@ public class TelemetryConfig {
         this.fileTracesPath = path;
     }
 
-    public void setFileTracesPath(String path) {
-        this.fileTracesPath = path != null ? Path.of(path) : null;
-    }
-
     /**
      * Returns the file path for log JSONL output.
      * When null, logs are written to stdout.
@@ -613,10 +615,6 @@ public class TelemetryConfig {
         this.fileLogsPath = path;
     }
 
-    public void setFileLogsPath(String path) {
-        this.fileLogsPath = path != null ? Path.of(path) : null;
-    }
-
     /**
      * Returns the file path for metrics JSONL output.
      * When null, metrics are written to stdout.
@@ -632,10 +630,6 @@ public class TelemetryConfig {
      */
     public void setFileMetricsPath(Path path) {
         this.fileMetricsPath = path;
-    }
-
-    public void setFileMetricsPath(String path) {
-        this.fileMetricsPath = path != null ? Path.of(path) : null;
     }
 
     /**
@@ -790,7 +784,7 @@ public class TelemetryConfig {
      * Returns true when OTLP or JSONL file export has been configured.
      */
     public boolean isExportConfigured() {
-        return "file".equalsIgnoreCase(exporterType) || hasAnyEndpoint();
+        return exporterType == ExporterType.FILE || hasAnyEndpoint();
     }
 
     private TelemetryExporter loadExporter() {

@@ -299,16 +299,6 @@ public class ImapListener extends TcpListener {
     }
 
     /**
-     * Sets the login timeout using a string with optional time unit suffix.
-     * Supported suffixes: ms, s, m, h (milliseconds, seconds, minutes, hours).
-     *
-     * @param timeout the timeout string (e.g., "60s", "1m")
-     */
-    public void setLoginTimeout(String timeout) {
-        this.loginTimeoutMs = parseDuration(timeout);
-    }
-
-    /**
      * Returns the command timeout in milliseconds.
      *
      * @return the command timeout in milliseconds
@@ -325,15 +315,6 @@ public class ImapListener extends TcpListener {
      */
     public void setCommandTimeoutMs(long commandTimeoutMs) {
         this.commandTimeoutMs = commandTimeoutMs;
-    }
-
-    /**
-     * Sets the command timeout using a string with optional time unit suffix.
-     *
-     * @param timeout the timeout string (e.g., "5m", "300s")
-     */
-    public void setCommandTimeout(String timeout) {
-        this.commandTimeoutMs = parseDuration(timeout);
     }
 
     /**

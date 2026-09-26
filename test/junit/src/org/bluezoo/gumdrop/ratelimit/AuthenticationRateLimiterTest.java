@@ -197,17 +197,11 @@ public class AuthenticationRateLimiterTest {
     }
     
     @Test
-    public void testParseLockoutDuration() {
-        limiter.setLockoutTime("5m");
+    public void testSetLockoutDuration() {
+        limiter.setLockoutDuration(300000);
         assertEquals(300000, limiter.getLockoutDuration());
-        
-        limiter.setLockoutTime("30s");
-        assertEquals(30000, limiter.getLockoutDuration());
-        
-        limiter.setLockoutTime("1h");
-        assertEquals(3600000, limiter.getLockoutDuration());
-        
-        limiter.setLockoutTime("500ms");
+
+        limiter.setLockoutDuration(500);
         assertEquals(500, limiter.getLockoutDuration());
     }
     

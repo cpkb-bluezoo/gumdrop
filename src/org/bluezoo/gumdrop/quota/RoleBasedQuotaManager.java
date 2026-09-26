@@ -28,6 +28,7 @@ import org.bluezoo.gumdrop.auth.Realm;
 import java.io.BufferedReader;
 import java.io.BufferedWriter;
 import java.io.File;
+import java.nio.file.Path;
 import java.io.FileReader;
 import java.io.FileWriter;
 import java.io.IOException;
@@ -151,8 +152,8 @@ public class RoleBasedQuotaManager implements QuotaManager {
      * 
      * @param storageDir the storage directory path
      */
-    public void setStorageDir(String storageDir) {
-        this.storageDir = new File(storageDir);
+    public void setStorageDir(Path storageDir) {
+        this.storageDir = storageDir.toFile();
         if (!this.storageDir.exists()) {
             this.storageDir.mkdirs();
         }

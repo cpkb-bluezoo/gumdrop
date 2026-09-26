@@ -324,9 +324,9 @@ The client supports implicit TLS (AMQPS, typically port 5671), configured on
 AmqpClientRecovery client = new AmqpClientRecovery("broker.example.com", 5671)
         .credentials("guest", "guest")
         .setSecure(true)
-        .setKeystoreFile("/path/to/keystore.p12")
+        .setKeystoreFile(Path.of("/path/to/keystore.p12"))
         .setKeystorePass("changeit")
-        .setKeystoreFormat("PKCS12");
+        .setKeystoreFormat(KeystoreFormat.PKCS12);
 </pre>
 
 <p>

@@ -247,15 +247,6 @@ public class QuicTransportFactory extends TransportFactory {
     }
 
     /**
-     * Sets the PEM CA certificate file from a string path.
-     *
-     * @param path the PEM CA certificate file
-     */
-    public void setCaFile(String path) {
-        this.caFile = Path.of(path);
-    }
-
-    /**
      * Sets a custom trust manager for peer certificate verification.
      *
      * <p>When set, this trust manager is used in preference to a

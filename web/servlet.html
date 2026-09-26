@@ -506,7 +506,7 @@ container.addContext(new Context(container, "", new File("web")));
 HttpServer server = HttpServer.compose()
         .listener(new Http2Listener().port(8080))
         .listener(new Http3Listener().port(8443)
-                .tls(TlsConfig.pem("cert.pem", "key.pem")))
+                .tls(TlsConfig.pem(Path.of("cert.pem"), Path.of("key.pem"))))
         .streamHandler(new ServletRequestHandler(container))
         .server();
 server.start();
@@ -541,20 +541,23 @@ clustering, and operational settings:
 <li><code>setHotDeploy(boolean)</code> - enable automatic redeployment when files
 change (default: <code>true</code>)</li>
 <li><code>setClusterPort(int)</code> - UDP port for session replication multicast</li>
-<li><code>setClusterGroupAddress(String)</code> - multicast group address for clustering</li>
-<li><code>setClusterKey(String)</code> - shared secret key for cluster encryption
-(hex-encoded, 256 bits)</li>
-<li><code>setReplicationAllowedClasses(String)</code> - comma-separated fully qualified
+<li><code>setClusterGroupAddress(InetAddress)</code> - multicast group for clustering, as an
+address literal. When it is not set the cluster joins <code>224.0.80.80</code> and, where an
+interface has an IPv6 address, <code>ff12::8080</code>, and sends every message to each group
+it joined. An explicit group replaces both</li>
+<li><code>setClusterKey(byte[])</code> - shared secret key for cluster encryption
+(32 bytes, 256 bits; <code>server.xml</code> takes it as 64 hexadecimal characters)</li>
+<li><code>setReplicationAllowedClasses(Set&lt;String&gt;)</code> - fully qualified
 class names permitted in Java-serialized replicated session attributes, in
 addition to the built-in JDK allowlist (webapp class loaders are never
 blanket-allowed)</li>
 <li><code>addRealm(String, Realm)</code> / <code>setRealms(Map)</code> - named realms available to contexts</li>
-<li><code>setAccessLog(String)</code> - path to access log file (W3C Extended Log Format)</li>
+<li><code>setAccessLog(Path)</code> - path to access log file (W3C Extended Log Format)</li>
 <li><code>setBufferSize(int)</code> - I/O buffer size for request/response streams in bytes
 (default: 8192, minimum: 1024)</li>
 <li><code>setWorkerCorePoolSize(int)</code> - minimum servlet worker pool size (virtual threads)</li>
 <li><code>setWorkerMaximumPoolSize(int)</code> - maximum servlet worker pool size (virtual threads)</li>
-<li><code>setWorkerKeepAlive(String)</code> - idle timeout for excess pool workers</li>
+<li><code>setWorkerKeepAlive(Duration)</code> - idle timeout for excess pool workers</li>
 </ul>
 
 <p>

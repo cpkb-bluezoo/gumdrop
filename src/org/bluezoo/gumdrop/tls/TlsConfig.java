@@ -62,7 +62,7 @@ public final class TlsConfig {
     private Path keyFile;
     private Path keystoreFile;
     private String keystorePass;
-    private String keystoreFormat;
+    private KeystoreFormat keystoreFormat;
     private ServerCredentials serverCredentials;
     private boolean verifyPeer = true;
     private X509TrustManager trustManager;
@@ -94,24 +94,17 @@ public final class TlsConfig {
     }
 
     /**
-     * TLS identity from PEM certificate chain and private key paths.
-     */
-    public static TlsConfig pem(String certFile, String keyFile) {
-        return pem(Path.of(certFile), Path.of(keyFile));
-    }
-
-    /**
      * TLS identity from a PKCS#12 or JKS keystore (default format PKCS12).
      */
     public static TlsConfig keystore(Path keystoreFile, String keystorePass) {
-        return keystore(keystoreFile, keystorePass, "PKCS12");
+        return keystore(keystoreFile, keystorePass, KeystoreFormat.PKCS12);
     }
 
     /**
      * TLS identity from a keystore with an explicit format.
      */
     public static TlsConfig keystore(Path keystoreFile, String keystorePass,
-                                     String keystoreFormat) {
+                                     KeystoreFormat keystoreFormat) {
         if (keystoreFile == null || keystorePass == null) {
             throw new NullPointerException("keystoreFile and keystorePass are required");
         }
@@ -185,7 +178,7 @@ public final class TlsConfig {
         return this;
     }
 
-    public TlsConfig keystoreFormat(String keystoreFormat) {
+    public TlsConfig keystoreFormat(KeystoreFormat keystoreFormat) {
         this.keystoreFormat = keystoreFormat;
         return this;
     }
@@ -320,7 +313,7 @@ public final class TlsConfig {
         return keystorePass;
     }
 
-    public String getKeystoreFormat() {
+    public KeystoreFormat getKeystoreFormat() {
         return keystoreFormat;
     }
 

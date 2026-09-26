@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.pop3.client;
 
+import org.bluezoo.gumdrop.tls.KeystoreFormat;
 import java.io.IOException;
 import java.net.InetAddress;
 import java.nio.file.Path;
@@ -240,10 +241,6 @@ public class Pop3Client {
         tls.keystoreFile(path);
     }
 
-    public void setKeystoreFile(String path) {
-        tls.keystoreFile(Path.of(path));
-    }
-
     /**
      * Sets the keystore password.
      *
@@ -258,7 +255,7 @@ public class Pop3Client {
      *
      * @param format the keystore format
      */
-    public void setKeystoreFormat(String format) {
+    public void setKeystoreFormat(KeystoreFormat format) {
         tls.keystoreFormat(format);
     }
 
@@ -299,7 +296,7 @@ public class Pop3Client {
     }
 
     /** @return this client */
-    public Pop3Client keystoreFormat(String format) {
+    public Pop3Client keystoreFormat(KeystoreFormat format) {
         tls.keystoreFormat(format);
         return this;
     }

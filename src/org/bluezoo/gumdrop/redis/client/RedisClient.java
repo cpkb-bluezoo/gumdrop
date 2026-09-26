@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.redis.client;
 
+import org.bluezoo.gumdrop.tls.KeystoreFormat;
 import java.io.IOException;
 import java.net.InetAddress;
 import java.nio.file.Path;
@@ -121,15 +122,11 @@ public class RedisClient {
         tls.keystoreFile(path);
     }
 
-    public void setKeystoreFile(String path) {
-        tls.keystoreFile(Path.of(path));
-    }
-
     public void setKeystorePass(String password) {
         tls.keystorePass(password);
     }
 
-    public void setKeystoreFormat(String format) {
+    public void setKeystoreFormat(KeystoreFormat format) {
         tls.keystoreFormat(format);
     }
 
@@ -188,7 +185,7 @@ public class RedisClient {
         return this;
     }
 
-    public RedisClient keystoreFormat(String format) {
+    public RedisClient keystoreFormat(KeystoreFormat format) {
         tls.keystoreFormat(format);
         return this;
     }

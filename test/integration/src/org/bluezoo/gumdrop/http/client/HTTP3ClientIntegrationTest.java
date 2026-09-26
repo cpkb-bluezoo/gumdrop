@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.http.client;
 
+import java.nio.file.Path;
 import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.GumdropConfig;
@@ -90,9 +91,9 @@ public class HTTP3ClientIntegrationTest {
 
         listener = new Http3Listener();
         listener.setPort(H3_PORT);
-        listener.setAddresses(TEST_HOST);
-        listener.setCertFile(TestTlsFiles.certFile().toString());
-        listener.setKeyFile(TestTlsFiles.keyFile().toString());
+        listener.addresses(java.net.InetAddress.getByName(TEST_HOST));
+        listener.setCertFile(Path.of(TestTlsFiles.certFile().toString()));
+        listener.setKeyFile(Path.of(TestTlsFiles.keyFile().toString()));
         listener.setStreamHandler(new EchoHandlerFactory());
 
         gumdrop = Gumdrop.boot(GumdropConfig.create().workerThreads(2));

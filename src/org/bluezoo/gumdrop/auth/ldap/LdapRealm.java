@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.auth.ldap;
 
+import org.bluezoo.gumdrop.tls.KeystoreFormat;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -122,7 +123,7 @@ public class LdapRealm implements Realm {
     private boolean startTLS = false;
     private Path keystoreFile;
     private String keystorePass;
-    private String keystoreFormat = "PKCS12";
+    private KeystoreFormat keystoreFormat = KeystoreFormat.PKCS12;
     private String baseDN = "";
     private String bindDN;
     private String bindPassword;
@@ -132,7 +133,7 @@ public class LdapRealm implements Realm {
     private int timeout = DEFAULT_TIMEOUT;
     private String saslMechanism;
 
-    private String certLookupMode;
+    private CertLookupMode certLookupMode;
     private String certUsernameAttribute = "uid";
     private String certSubjectFilter;
 
@@ -204,15 +205,11 @@ public class LdapRealm implements Realm {
         this.keystoreFile = keystoreFile;
     }
 
-    public void setKeystoreFile(String keystoreFile) {
-        this.keystoreFile = Path.of(keystoreFile);
-    }
-
     public void setKeystorePass(String keystorePass) {
         this.keystorePass = keystorePass;
     }
 
-    public void setKeystoreFormat(String keystoreFormat) {
+    public void setKeystoreFormat(KeystoreFormat keystoreFormat) {
         this.keystoreFormat = keystoreFormat;
     }
 
@@ -264,14 +261,23 @@ public class LdapRealm implements Realm {
         this.selectorLoop = selectorLoop;
     }
 
+    /** How a client certificate is matched to a directory entry. */
+    public enum CertLookupMode {
+        /** Match the DER-encoded certificate against a binary attribute. */
+        BINARY,
+        /** Extract the CN from the certificate's Subject DN and search on it. */
+        SUBJECT
+    }
+
     /**
      * Sets the certificate lookup mode.
      *
-     * @param mode "binary" to match by DER-encoded certificate,
-     *             or "subject" to extract CN from the certificate's
+     * @param mode {@link CertLookupMode#BINARY} to match by DER-encoded
+     *             certificate, or {@link CertLookupMode#SUBJECT} to extract
+     *             CN from the certificate's
      *             Subject DN
      */
-    public void setCertLookupMode(String mode) {
+    public void setCertLookupMode(CertLookupMode mode) {
         this.certLookupMode = mode;
     }
 
@@ -385,14 +391,10 @@ public class LdapRealm implements Realm {
 
         try {
             String username;
-            if ("binary".equals(certLookupMode)) {
+            if (certLookupMode == CertLookupMode.BINARY) {
                 username = findUserByBinaryCert(certificate);
-            } else if ("subject".equals(certLookupMode)) {
-                username = findUserBySubjectDN(certificate);
             } else {
-                LOGGER.warning(MessageFormat.format(
-                        L10N.getString("warn.unknown_cert_lookup_mode"), certLookupMode));
-                return null;
+                username = findUserBySubjectDN(certificate);
             }
 
             if (username != null) {

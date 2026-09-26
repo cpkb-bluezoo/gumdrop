@@ -98,7 +98,7 @@ public class IMAPServerIntegrationTest {
         // Create IMAP server
         imapServer = new ImapListener();
         imapServer.setPort(IMAP_PORT);
-        imapServer.setAddresses("::1");
+        imapServer.addresses(java.net.InetAddress.getByName("::1"));
         imapServer.setRealm(realm);
         imapServer.setMailboxFactory(new MboxMailboxFactory(mboxRoot));
         imapServer.setAllowPlaintextLogin(true); // Allow plaintext login for testing

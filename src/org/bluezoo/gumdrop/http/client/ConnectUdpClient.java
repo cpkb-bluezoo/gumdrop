@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.http.client;
 
+import org.bluezoo.gumdrop.tls.KeystoreFormat;
 import java.io.IOException;
 import java.net.InetAddress;
 import java.nio.ByteBuffer;
@@ -107,7 +108,7 @@ public class ConnectUdpClient implements AltSvcListener {
     private X509TrustManager trustManager;
     private Path keystoreFile;
     private String keystorePass;
-    private String keystoreFormat;
+    private KeystoreFormat keystoreFormat;
     private boolean h3Enabled;
     private boolean h2Enabled = true;
     private boolean h2WithPriorKnowledge;
@@ -278,10 +279,6 @@ public class ConnectUdpClient implements AltSvcListener {
         this.keystoreFile = path;
     }
 
-    public void setKeystoreFile(String path) {
-        this.keystoreFile = Path.of(path);
-    }
-
     /**
      * Sets the keystore password.
      *
@@ -296,7 +293,7 @@ public class ConnectUdpClient implements AltSvcListener {
      *
      * @param format the keystore format
      */
-    public void setKeystoreFormat(String format) {
+    public void setKeystoreFormat(KeystoreFormat format) {
         this.keystoreFormat = format;
     }
 

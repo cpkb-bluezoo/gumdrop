@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.http;
 
+import java.nio.file.Path;
 import org.bluezoo.gumdrop.http.server.Http2Listener;
 import org.bluezoo.gumdrop.http.server.DefaultHttpRequestHandler;
 import org.bluezoo.gumdrop.http.server.HttpRequestHandler;
@@ -51,7 +52,7 @@ public class HttpServerBuilderValidationTest {
 
     @Test
     public void testSecureEndpointWiresTcpAndQuicListeners() {
-        TlsConfig tls = TlsConfig.pem("cert.pem", "key.pem");
+        TlsConfig tls = TlsConfig.pem(Path.of("cert.pem"), Path.of("key.pem"));
         HttpServer server = HttpServer.compose()
                 .secureEndpoint(8443, tls)
                 .server();
@@ -69,7 +70,7 @@ public class HttpServerBuilderValidationTest {
         // secure(true) called (HTTP/3 is TLS-only at the transport level
         // regardless of the flag) -- this is exactly why TlsConfig cannot
         // carry a "secure" property of its own.
-        TlsConfig tls = TlsConfig.pem("cert.pem", "key.pem");
+        TlsConfig tls = TlsConfig.pem(Path.of("cert.pem"), Path.of("key.pem"));
         HttpServer server = HttpServer.compose()
                 .secureEndpoint(8443, tls)
                 .server();

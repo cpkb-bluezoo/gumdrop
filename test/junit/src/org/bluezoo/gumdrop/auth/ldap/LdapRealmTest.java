@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.auth.ldap;
 
+import org.bluezoo.gumdrop.tls.KeystoreFormat;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
@@ -463,15 +464,14 @@ public class LdapRealmTest {
     }
 
     @Test
-    public void unknownCertificateModeYieldsNull() {
-        realm.setCertLookupMode("magic");
+    public void noCertificateModeYieldsNull() {
         assertNull(realm.authenticateCertificate(new FakeCert(
                 new byte[] {1}, "CN=alice")));
     }
 
     @Test
     public void binaryModeSearchesEscapedDerAndReturnsUsername() {
-        realm.setCertLookupMode("binary");
+        realm.setCertLookupMode(LdapRealm.CertLookupMode.BINARY);
         script.results.add(entry("uid=alice,dc=example,dc=com", "uid",
                 "alice"));
         Realm.CertificateAuthenticationResult r =
@@ -488,14 +488,14 @@ public class LdapRealmTest {
 
     @Test
     public void binaryModeNoMatchFails() {
-        realm.setCertLookupMode("binary");
+        realm.setCertLookupMode(LdapRealm.CertLookupMode.BINARY);
         assertFalse(realm.authenticateCertificate(new FakeCert(
                 new byte[] {1}, "CN=alice")).valid);
     }
 
     @Test
     public void subjectModeSubstitutesRdnPlaceholders() {
-        realm.setCertLookupMode("subject");
+        realm.setCertLookupMode(LdapRealm.CertLookupMode.SUBJECT);
         realm.setCertSubjectFilter("(&(cn={CN})(o={O}))");
         realm.setCertUsernameAttribute("mail");
         script.results.add(entry("uid=alice,dc=example,dc=com", "mail",
@@ -513,7 +513,7 @@ public class LdapRealmTest {
 
     @Test
     public void subjectModeUnescapesSpecialCharactersInRdnValues() {
-        realm.setCertLookupMode("subject");
+        realm.setCertLookupMode(LdapRealm.CertLookupMode.SUBJECT);
         realm.setCertSubjectFilter("(cn={CN})");
         script.results.add(entry("uid=x,dc=example,dc=com", "uid", "x"));
         realm.authenticateCertificate(new FakeCert(new byte[] {1},
@@ -523,7 +523,7 @@ public class LdapRealmTest {
 
     @Test
     public void subjectModeWithoutFilterFails() {
-        realm.setCertLookupMode("subject");
+        realm.setCertLookupMode(LdapRealm.CertLookupMode.SUBJECT);
         assertFalse(realm.authenticateCertificate(new FakeCert(
                 new byte[] {1}, "CN=alice")).valid);
         assertEquals(0, script.connects);
@@ -531,7 +531,7 @@ public class LdapRealmTest {
 
     @Test
     public void certificateLookupErrorFails() {
-        realm.setCertLookupMode("binary");
+        realm.setCertLookupMode(LdapRealm.CertLookupMode.BINARY);
         script.connectError = true;
         assertFalse(realm.authenticateCertificate(new FakeCert(
                 new byte[] {1}, "CN=alice")).valid);
@@ -576,10 +576,10 @@ public class LdapRealmTest {
         r.setPort(1389);
         r.setSecure(true);
         r.setStartTLS(true);
-        r.setKeystoreFile("/tmp/none.p12");
+        r.setKeystoreFile(Path.of("/tmp/none.p12"));
         r.setKeystoreFile(Path.of("/tmp/none.p12"));
         r.setKeystorePass("pw");
-        r.setKeystoreFormat("JKS");
+        r.setKeystoreFormat(KeystoreFormat.JKS);
         r.setBindDN("cn=x");
         r.setBindPassword("p");
         r.setSelectorLoop(null);

@@ -43,9 +43,11 @@ public interface ClusterContainer {
     /**
      * Returns the multicast group address for cluster discovery.
      *
-     * @return the multicast group address (e.g., "224.0.80.80")
+     * @return the multicast group address, or {@code null} to use the
+     *         defaults ({@link Cluster#DEFAULT_GROUP_IPV4} and, where
+     *         available, {@link Cluster#DEFAULT_GROUP_IPV6})
      */
-    String getClusterGroupAddress();
+    java.net.InetAddress getClusterGroupAddress();
 
     /**
      * Returns the shared secret key for cluster encryption.

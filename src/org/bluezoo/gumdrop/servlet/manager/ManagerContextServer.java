@@ -47,12 +47,12 @@ public interface ManagerContextServer extends ServletContext, Description {
     /**
      * Returns the keep-alive time for the worker thread pool.
      */
-    String getWorkerKeepAlive();
+    java.time.Duration getWorkerKeepAlive();
 
     /**
      * Sets the keep-alive time for the worker thread pool.
      */
-    void setWorkerKeepAlive(String val);
+    void setWorkerKeepAlive(java.time.Duration val);
 
     /**
      * Returns the hit statistics for this context.

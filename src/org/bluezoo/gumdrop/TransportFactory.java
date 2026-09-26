@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop;
 
+import org.bluezoo.gumdrop.tls.KeystoreFormat;
 import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
 
 import java.nio.file.Path;
@@ -69,7 +70,7 @@ public abstract class TransportFactory {
     protected boolean secure;
     protected Path keystoreFile;
     protected String keystorePass;
-    protected String keystoreFormat = "PKCS12";
+    protected KeystoreFormat keystoreFormat = KeystoreFormat.PKCS12;
 
     /**
      * PEM certificate chain file path (used by QUIC; also accepted for TCP
@@ -97,7 +98,7 @@ public abstract class TransportFactory {
     /**
      * Truststore format (default PKCS12).
      */
-    protected String truststoreFormat = "PKCS12";
+    protected KeystoreFormat truststoreFormat = KeystoreFormat.PKCS12;
 
     /**
      * TLS 1.3 cipher suites (colon-separated IANA names).
@@ -183,15 +184,6 @@ public abstract class TransportFactory {
     }
 
     /**
-     * Sets the Java keystore file path from a string.
-     *
-     * @param file the keystore file path
-     */
-    public void setKeystoreFile(String file) {
-        this.keystoreFile = Path.of(file);
-    }
-
-    /**
      * Sets the Java keystore password.
      *
      * @param pass the keystore password
@@ -206,7 +198,7 @@ public abstract class TransportFactory {
      *
      * @param format the keystore format (e.g., "PKCS12", "JKS")
      */
-    public void setKeystoreFormat(String format) {
+    public void setKeystoreFormat(KeystoreFormat format) {
         this.keystoreFormat = format;
     }
 
@@ -224,15 +216,6 @@ public abstract class TransportFactory {
     }
 
     /**
-     * Sets the truststore file path from a string.
-     *
-     * @param file the truststore file path
-     */
-    public void setTruststoreFile(String file) {
-        this.truststoreFile = Path.of(file);
-    }
-
-    /**
      * Sets the truststore password.
      *
      * @param pass the truststore password
@@ -247,7 +230,7 @@ public abstract class TransportFactory {
      *
      * @param format the truststore format (e.g., "PKCS12", "JKS")
      */
-    public void setTruststoreFormat(String format) {
+    public void setTruststoreFormat(KeystoreFormat format) {
         this.truststoreFormat = format;
     }
 
@@ -265,15 +248,6 @@ public abstract class TransportFactory {
     }
 
     /**
-     * Sets the PEM certificate chain file path from a string.
-     *
-     * @param path the certificate chain PEM file path
-     */
-    public void setCertFile(String path) {
-        this.certFile = Path.of(path);
-    }
-
-    /**
      * Sets the PEM private key file path.
      *
      * <p>Alternative to {@link #setKeystoreFile} on any transport. Must be
@@ -283,15 +257,6 @@ public abstract class TransportFactory {
      */
     public void setKeyFile(Path path) {
         this.keyFile = path;
-    }
-
-    /**
-     * Sets the PEM private key file path from a string.
-     *
-     * @param path the private key PEM file path
-     */
-    public void setKeyFile(String path) {
-        this.keyFile = Path.of(path);
     }
 
     /**

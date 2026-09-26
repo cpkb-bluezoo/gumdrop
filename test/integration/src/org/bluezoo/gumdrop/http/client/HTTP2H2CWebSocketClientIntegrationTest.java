@@ -87,7 +87,7 @@ public class HTTP2H2CWebSocketClientIntegrationTest {
 
         listener = new Http2Listener();
         listener.setPort(PORT);
-        listener.setAddresses(TEST_HOST);
+        listener.addresses(java.net.InetAddress.getByName(TEST_HOST));
         // No setSecure/keystore at all -- plain cleartext TCP.
         listener.setStreamHandler(new H2cEchoWebSocketHandlerFactory());
 

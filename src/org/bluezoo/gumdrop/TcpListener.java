@@ -67,7 +67,7 @@ public abstract class TcpListener extends Listener {
 
     // ── UNIX domain socket path ──
 
-    private String path;
+    private Path path;
 
     // ── TCP server channel management ──
 
@@ -87,7 +87,7 @@ public abstract class TcpListener extends Listener {
      * @return the socket path, or null
      */
     @Override
-    public String getPath() {
+    public Path getPath() {
         return path;
     }
 
@@ -98,7 +98,7 @@ public abstract class TcpListener extends Listener {
      *
      * @param path the socket path
      */
-    public void setPath(String path) {
+    public void setPath(Path path) {
         this.path = path;
     }
 

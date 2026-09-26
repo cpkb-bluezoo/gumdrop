@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.socks;
 
+import org.bluezoo.gumdrop.util.CidrNetwork;
 import java.net.InetAddress;
 import java.net.UnknownHostException;
 
@@ -54,7 +55,7 @@ public class SOCKSServiceTest {
     @Test
     public void testBlockedDestination() throws UnknownHostException {
         SocksServer service = createService();
-        service.setBlockedDestinations("10.0.0.0/8");
+        service.setBlockedDestinations(CidrNetwork.parseList("10.0.0.0/8"));
 
         assertFalse(service.isDestinationAllowed(
                 InetAddress.getByName("10.1.2.3")));
@@ -65,7 +66,7 @@ public class SOCKSServiceTest {
     @Test
     public void testAllowedDestination() throws UnknownHostException {
         SocksServer service = createService();
-        service.setAllowedDestinations("192.168.0.0/16");
+        service.setAllowedDestinations(CidrNetwork.parseList("192.168.0.0/16"));
 
         assertTrue(service.isDestinationAllowed(
                 InetAddress.getByName("192.168.1.1")));
@@ -76,8 +77,8 @@ public class SOCKSServiceTest {
     @Test
     public void testBlockedTakesPrecedence() throws UnknownHostException {
         SocksServer service = createService();
-        service.setBlockedDestinations("192.168.1.0/24");
-        service.setAllowedDestinations("192.168.0.0/16");
+        service.setBlockedDestinations(CidrNetwork.parseList("192.168.1.0/24"));
+        service.setAllowedDestinations(CidrNetwork.parseList("192.168.0.0/16"));
 
         assertFalse(service.isDestinationAllowed(
                 InetAddress.getByName("192.168.1.5")));
@@ -88,7 +89,7 @@ public class SOCKSServiceTest {
     @Test
     public void testMultipleBlockedRanges() throws UnknownHostException {
         SocksServer service = createService();
-        service.setBlockedDestinations("10.0.0.0/8,172.16.0.0/12");
+        service.setBlockedDestinations(CidrNetwork.parseList("10.0.0.0/8,172.16.0.0/12"));
 
         assertFalse(service.isDestinationAllowed(
                 InetAddress.getByName("10.255.0.1")));
@@ -101,7 +102,7 @@ public class SOCKSServiceTest {
     @Test
     public void testEmptyBlockedString() throws UnknownHostException {
         SocksServer service = createService();
-        service.setBlockedDestinations("");
+        service.setBlockedDestinations(CidrNetwork.parseList(""));
         assertTrue(service.isDestinationAllowed(
                 InetAddress.getByName("10.0.0.1")));
     }
@@ -159,63 +160,7 @@ public class SOCKSServiceTest {
         assertEquals(0, service.getActiveRelayCount());
     }
 
-    // ── Duration parsing (via setRelayIdleTimeout) ──
-
-    @Test
-    public void testParseDurationSeconds() {
-        SocksServer service = createService();
-        service.setRelayIdleTimeout("300s");
-        assertEquals(300_000, service.getRelayIdleTimeoutMs());
-    }
-
-    @Test
-    public void testParseDurationMinutes() {
-        SocksServer service = createService();
-        service.setRelayIdleTimeout("5m");
-        assertEquals(300_000, service.getRelayIdleTimeoutMs());
-    }
-
-    @Test
-    public void testParseDurationHours() {
-        SocksServer service = createService();
-        service.setRelayIdleTimeout("1h");
-        assertEquals(3_600_000, service.getRelayIdleTimeoutMs());
-    }
-
-    @Test
-    public void testParseDurationMilliseconds() {
-        SocksServer service = createService();
-        service.setRelayIdleTimeout("5000ms");
-        assertEquals(5000, service.getRelayIdleTimeoutMs());
-    }
-
-    @Test
-    public void testParseDurationNoUnit() {
-        SocksServer service = createService();
-        service.setRelayIdleTimeout("1000");
-        assertEquals(1000, service.getRelayIdleTimeoutMs());
-    }
-
-    @Test
-    public void testParseDurationEmpty() {
-        SocksServer service = createService();
-        service.setRelayIdleTimeout("");
-        assertEquals(0, service.getRelayIdleTimeoutMs());
-    }
-
-    @Test
-    public void testParseDurationNull() {
-        SocksServer service = createService();
-        service.setRelayIdleTimeout(null);
-        assertEquals(0, service.getRelayIdleTimeoutMs());
-    }
-
-    @Test
-    public void testParseDurationInvalid() {
-        SocksServer service = createService();
-        service.setRelayIdleTimeout("abc");
-        assertEquals(0, service.getRelayIdleTimeoutMs());
-    }
+    // ── Relay idle timeout ──
 
     @Test
     public void testDefaultIdleTimeout() {

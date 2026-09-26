@@ -29,6 +29,7 @@ import org.xml.sax.SAXNotSupportedException;
 import org.bluezoo.gumdrop.auth.BasicRealm;
 import org.bluezoo.gumdrop.auth.Realm;
 import org.bluezoo.gumdrop.http.HttpServer;
+import org.bluezoo.gumdrop.tls.KeystoreFormat;
 import org.bluezoo.gumdrop.http.h3.Http3Listener;
 import org.bluezoo.gumdrop.http.server.Http2Listener;
 import org.bluezoo.gumdrop.servlet.Container;
@@ -38,6 +39,7 @@ import org.bluezoo.gumdrop.tls.TlsConfig;
 import org.bluezoo.gumdrop.util.AbstractXMLHandler;
 import org.bluezoo.gumdrop.util.XMLParseUtils;
 
+import java.net.InetAddress;
 import java.io.File;
 import java.io.IOException;
 import java.nio.ByteBuffer;
@@ -360,14 +362,32 @@ public final class ServerXmlLoader {
             container.setClusterPort(parsePort(port, "cluster port"));
             String groupAddress = attrs.getValue("group-address");
             if (groupAddress != null) {
-                container.setClusterGroupAddress(groupAddress);
+                try {
+                    // a literal only: never a name lookup
+                    container.setClusterGroupAddress(InetAddress.ofLiteral(groupAddress.trim()));
+                } catch (IllegalArgumentException e) {
+                    throw new SAXException("cluster group-address must be a multicast IP address literal: "
+                            + groupAddress, e);
+                }
             }
             String key = require(attrs, "key", "cluster");
-            try {
-                container.setClusterKey(key);
-            } catch (IllegalArgumentException e) {
-                throw new SAXException("cluster key must be exactly 64 hexadecimal characters", e);
+            container.setClusterKey(decodeClusterKey(key));
+        }
+
+        private byte[] decodeClusterKey(String key) throws SAXException {
+            if (key.length() != 64) {
+                throw new SAXException("cluster key must be exactly 64 hexadecimal characters");
             }
+            byte[] bytes = new byte[32];
+            for (int i = 0; i < bytes.length; i++) {
+                int high = Character.digit(key.charAt(i * 2), 16);
+                int low = Character.digit(key.charAt(i * 2 + 1), 16);
+                if (high < 0 || low < 0 || key.charAt(i * 2) > 'f' || key.charAt(i * 2 + 1) > 'f') {
+                    throw new SAXException("cluster key must be exactly 64 hexadecimal characters");
+                }
+                bytes[i] = (byte) ((high << 4) | low);
+            }
+            return bytes;
         }
 
         private void startContext(Attributes attrs) throws SAXException {
@@ -452,7 +472,13 @@ public final class ServerXmlLoader {
             if (format == null) {
                 return TlsConfig.keystore(resolve(keystoreFile).toPath(), keystorePass);
             }
-            return TlsConfig.keystore(resolve(keystoreFile).toPath(), keystorePass, format);
+            KeystoreFormat keystoreFormat;
+            try {
+                keystoreFormat = KeystoreFormat.parse(format);
+            } catch (IllegalArgumentException e) {
+                throw new SAXException("keystore-format must be PKCS12, JKS or JCEKS: " + format, e);
+            }
+            return TlsConfig.keystore(resolve(keystoreFile).toPath(), keystorePass, keystoreFormat);
         }
 
         private static int parsePort(String value, String what) throws SAXException {

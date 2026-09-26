@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.amqp.client;
 
+import org.bluezoo.gumdrop.tls.KeystoreFormat;
 import org.bluezoo.gumdrop.amqp.FieldTable;
 
 import java.io.IOException;
@@ -162,7 +163,7 @@ public class AmqpClientRecovery {
     private X509TrustManager trustManager;
     private Path keystoreFile;
     private String keystorePass;
-    private String keystoreFormat;
+    private KeystoreFormat keystoreFormat;
 
     /** SASL mechanism to authenticate with; defaults to PLAIN (issue #188). */
     private String mechanism = "PLAIN";
@@ -320,7 +321,7 @@ public class AmqpClientRecovery {
         return this;
     }
 
-    public AmqpClientRecovery setKeystoreFormat(String format) {
+    public AmqpClientRecovery setKeystoreFormat(KeystoreFormat format) {
         this.keystoreFormat = format;
         return this;
     }

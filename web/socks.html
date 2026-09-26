@@ -148,9 +148,10 @@ SocksServer server = SocksServer.compose()
 Blocked destinations are evaluated first; then, if allowed destinations are
 set, the destination must match an allow rule. <code>maxRelays</code> caps
 concurrent relay sessions (<code>0</code> = unlimited).
-<code>setRelayIdleTimeout(String)</code> on the composed server also accepts
-a duration string with suffixes <code>ms</code>, <code>s</code>,
-<code>m</code>, <code>h</code>.
+<code>setRelayIdleTimeoutMs(long)</code> sets the idle timeout of a relay in
+milliseconds; the allowed and blocked destinations are lists of
+<code>CidrNetwork</code> (<code>CidrNetwork.parseList("10.0.0.0/8,192.168.0.0/16")</code>
+reads a comma-separated list).
 </p>
 
 <h3 id="service-properties"><code>SocksServer.Composer</code> Methods</h3>

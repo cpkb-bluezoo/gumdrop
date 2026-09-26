@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.ftp.client;
 
+import org.bluezoo.gumdrop.tls.KeystoreFormat;
 import java.io.IOException;
 import java.net.InetAddress;
 import java.nio.file.Path;
@@ -94,15 +95,11 @@ public class FtpClient {
         tls.keystoreFile(path);
     }
 
-    public void setKeystoreFile(String path) {
-        tls.keystoreFile(Path.of(path));
-    }
-
     public void setKeystorePass(String password) {
         tls.keystorePass(password);
     }
 
-    public void setKeystoreFormat(String format) {
+    public void setKeystoreFormat(KeystoreFormat format) {
         tls.keystoreFormat(format);
     }
 
@@ -136,7 +133,7 @@ public class FtpClient {
         return this;
     }
 
-    public FtpClient keystoreFormat(String format) {
+    public FtpClient keystoreFormat(KeystoreFormat format) {
         tls.keystoreFormat(format);
         return this;
     }

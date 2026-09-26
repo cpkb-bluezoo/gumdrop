@@ -209,7 +209,7 @@ public class ManagerServletTest {
                 .with("getServletRegistrations", servlets)
                 .with("getServerInfo", "gumdrop/test")
                 .with("getWorkerThreadPool", pool)
-                .with("getWorkerKeepAlive", "60s")
+                .with("getWorkerKeepAlive", java.time.Duration.ofSeconds(90))
                 .with("getContainer",
                         proxy(ManagerContainerServer.class, containerAnswers));
         // Registrations are typed maps of registration objects.
@@ -290,7 +290,7 @@ public class ManagerServletTest {
         assertTrue(out.contains("gumdrop/test on "));
         assertTrue(out.contains("value='2'"));
         assertTrue(out.contains("value='8'"));
-        assertTrue(out.contains("value='60s'"));
+        assertTrue(out.contains("value='90s'"));
         assertTrue(out.contains("My App"));
         assertTrue(out.contains("/srv/app"));
         assertTrue(out.contains("An app &amp; more"));
@@ -486,7 +486,7 @@ public class ManagerServletTest {
         contextAnswers.with("setWorkerKeepAlive", null);
         withParams("keep-alive-time", "90s");
         post();
-        assertTrue(contextAnswers.calls.contains("setWorkerKeepAlive:90s"));
+        assertTrue(contextAnswers.calls.contains("setWorkerKeepAlive:" + java.time.Duration.ofSeconds(90)));
         assertTrue(responseAnswers.calls.contains("sendRedirect:/manager/"));
     }
 

@@ -67,6 +67,7 @@ import java.security.DigestInputStream;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.text.MessageFormat;
+import java.time.Duration;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedDeque;
@@ -571,11 +572,11 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
         return container.getWorkerThreadPool();
     }
 
-    @Override public String getWorkerKeepAlive() {
+    @Override public Duration getWorkerKeepAlive() {
         return container.getWorkerKeepAlive();
     }
 
-    @Override public void setWorkerKeepAlive(String val) {
+    @Override public void setWorkerKeepAlive(Duration val) {
         container.setWorkerKeepAlive(val);
     }
 
