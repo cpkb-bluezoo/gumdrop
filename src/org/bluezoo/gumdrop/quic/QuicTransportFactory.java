@@ -34,7 +34,9 @@ import java.security.SecureRandom;
 import java.security.cert.X509Certificate;
 import java.text.MessageFormat;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.ResourceBundle;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -47,6 +49,7 @@ import org.bluezoo.gumdrop.ProtocolHandler;
 import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.StreamAcceptHandler;
 import org.bluezoo.gumdrop.TransportFactory;
+import org.bluezoo.gumdrop.quic.cid.QuicLbConfig;
 import org.bluezoo.gumdrop.quic.cid.StatelessResetToken;
 import org.bluezoo.gumdrop.quic.packet.QuicVersion;
 import org.bluezoo.gumdrop.quic.packet.TransportParameters;
@@ -135,6 +138,8 @@ public class QuicTransportFactory extends TransportFactory {
     private final byte[] connectionIdStaticKey = new byte[32];
     private final byte[] retryTokenKey = new byte[32];
     private boolean requireRetry;
+    private volatile QuicLbConfig quicLbConfig;
+    private final List<QuicLbConfig> retiredQuicLbConfigs = new CopyOnWriteArrayList<QuicLbConfig>();
 
     private EchConfig clientEchConfig;
     private boolean clientEchGreaseEnabled;
@@ -475,6 +480,64 @@ public class QuicTransportFactory extends TransportFactory {
      */
     public boolean isRequireRetry() {
         return requireRetry;
+    }
+
+    /**
+     * Sets the QUIC-LB configuration (draft-ietf-quic-load-balancers-21)
+     * used to encode a routable server ID into every connection ID a
+     * server engine issues. {@code null} keeps opaque random IDs. When
+     * this replaces an earlier configuration with a different config id,
+     * connections replace the retired configuration's IDs with
+     * {@code NEW_CONNECTION_ID} frames, and IDs of the retired
+     * configuration keep decoding as this server's own until it is
+     * discarded. Requires {@link #setRequireRetry Retry} for the first
+     * flight to be routable; see {@link #getQuicLbConfig}.
+     *
+     * @param config the configuration, or {@code null}
+     */
+    public void setQuicLbConfig(QuicLbConfig config) {
+        QuicLbConfig previous = this.quicLbConfig;
+        if (previous != null && (config == null || previous.getConfigId() != config.getConfigId())) {
+            retiredQuicLbConfigs.add(previous);
+        }
+        if (config != null) {
+            for (QuicLbConfig retired : retiredQuicLbConfigs) {
+                if (retired.getConfigId() == config.getConfigId()) {
+                    retiredQuicLbConfigs.remove(retired);
+                }
+            }
+        }
+        this.quicLbConfig = config;
+    }
+
+    /**
+     * Returns the active QUIC-LB configuration.
+     *
+     * @return the configuration, or {@code null} if IDs are opaque random
+     */
+    public QuicLbConfig getQuicLbConfig() {
+        return quicLbConfig;
+    }
+
+    /**
+     * Returns the configuration whose config id a connection ID carries,
+     * among the active and retired configurations.
+     */
+    QuicLbConfig quicLbConfigFor(byte firstOctet) {
+        QuicLbConfig active = quicLbConfig;
+        if (active == null) {
+            return null;
+        }
+        int id = QuicLbConfig.configIdOf(firstOctet);
+        if (active.getConfigId() == id) {
+            return active;
+        }
+        for (QuicLbConfig retired : retiredQuicLbConfigs) {
+            if (retired.getConfigId() == id) {
+                return retired;
+            }
+        }
+        return null;
     }
 
     // ── Package-private accessors used by QuicEngine/QuicConnection ──

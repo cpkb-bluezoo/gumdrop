@@ -242,4 +242,64 @@ public class ConnectionIdManagerTest {
         ConnectionIdEntry active = manager.getActivePeerConnectionId();
         assertEquals(1, active.getSequenceNumber());
     }
+
+    private static final byte[] LB_KEY = ByteArrays.toByteArray("8f95f09245765f80256934e50c66207f");
+
+    private static QuicLbConfig lb(int configId, byte[] key) {
+        return new QuicLbConfig(configId, ByteArrays.toByteArray("0a0b"), 6, key, true);
+    }
+
+    @Test
+    public void testIssueNextEncodesServerIdWhenKeyed() {
+        QuicLbConfig config = lb(1, LB_KEY);
+        ConnectionIdManager manager = new ConnectionIdManager(OUR_HANDSHAKE_CID, PEER_HANDSHAKE_CID, STATIC_KEY, config);
+        manager.setPeerAdvertisedLimit(4);
+        ConnectionIdEntry entry = manager.issueNext();
+        assertNotNull(entry);
+        assertTrue(config.isOwn(entry.getConnectionId()));
+        assertEquals(0, manager.getRetirePriorTo());
+    }
+
+    @Test
+    public void testIssueNextSkippedWhenUnkeyed() {
+        ConnectionIdManager manager = new ConnectionIdManager(OUR_HANDSHAKE_CID, PEER_HANDSHAKE_CID, STATIC_KEY,
+                lb(0, null));
+        manager.setPeerAdvertisedLimit(4);
+        assertNull(manager.issueNext());
+    }
+
+    @Test
+    public void testRotationReplacesRetiredConfigIds() {
+        ConnectionIdManager manager = new ConnectionIdManager(OUR_HANDSHAKE_CID, PEER_HANDSHAKE_CID, STATIC_KEY,
+                lb(0, LB_KEY));
+        manager.setPeerAdvertisedLimit(2);
+        manager.issueNext();
+        manager.drainPendingIssuance();
+        QuicLbConfig rotated = lb(2, LB_KEY);
+        manager.rotateTo(rotated);
+        java.util.List<ConnectionIdEntry> pending = manager.drainPendingIssuance();
+        assertEquals(2, pending.size());
+        for (ConnectionIdEntry entry : pending) {
+            assertEquals(2, QuicLbConfig.configIdOf(entry.getConnectionId()[0]));
+            assertTrue(rotated.isOwn(entry.getConnectionId()));
+        }
+        assertEquals(pending.get(0).getSequenceNumber(), manager.getRetirePriorTo());
+        // later issuance uses the new config only
+        manager.retireOurs(0);
+        manager.retireOurs(1);
+        manager.setPeerAdvertisedLimit(3);
+        ConnectionIdEntry next = manager.issueNext();
+        assertNotNull(next);
+        assertEquals(2, QuicLbConfig.configIdOf(next.getConnectionId()[0]));
+    }
+
+    @Test
+    public void testUnkeyedRotationIssuesOneReplacement() {
+        ConnectionIdManager manager = new ConnectionIdManager(OUR_HANDSHAKE_CID, PEER_HANDSHAKE_CID, STATIC_KEY,
+                lb(0, null));
+        manager.setPeerAdvertisedLimit(4);
+        manager.rotateTo(lb(1, null));
+        assertEquals(1, manager.drainPendingIssuance().size());
+        assertEquals(1, manager.getRetirePriorTo());
+    }
 }

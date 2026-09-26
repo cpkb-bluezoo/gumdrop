@@ -53,6 +53,7 @@ import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
 import org.bluezoo.gumdrop.telemetry.Trace;
 import org.bluezoo.gumdrop.ratelimit.RateLimiter;
 import org.bluezoo.gumdrop.quic.cid.ConnectionIdKey;
+import org.bluezoo.gumdrop.quic.cid.QuicLbConfig;
 import org.bluezoo.gumdrop.quic.cid.StatelessResetToken;
 import org.bluezoo.gumdrop.quic.packet.LongHeaderCodec;
 import org.bluezoo.gumdrop.quic.packet.LongHeaderInvariants;
@@ -372,10 +373,11 @@ public final class QuicEngine implements ChannelHandler, MultiplexedEndpoint {
             }
             dcid = prefix.getDestinationConnectionId();
         } else {
-            if (bytes.length < 1 + CONNECTION_ID_LENGTH) {
+            int dcidLength = shortHeaderDcidLength(bytes);
+            if (bytes.length < 1 + dcidLength) {
                 return;
             }
-            dcid = java.util.Arrays.copyOfRange(bytes, 1, 1 + CONNECTION_ID_LENGTH);
+            dcid = java.util.Arrays.copyOfRange(bytes, 1, 1 + dcidLength);
         }
 
         ConnectionIdKey key = new ConnectionIdKey(dcid);
@@ -402,6 +404,12 @@ public final class QuicEngine implements ChannelHandler, MultiplexedEndpoint {
                     return;
                 }
             } else {
+                if (isMisrouted(dcid)) {
+                    // QUIC-LB: the ID decodes to another server, so a
+                    // balancer misrouted it. A reset would kill a
+                    // connection that is alive elsewhere.
+                    return;
+                }
                 if (tryHandleStatelessResetForPeer(bytes, source)) {
                     return;
                 }
@@ -460,7 +468,7 @@ public final class QuicEngine implements ChannelHandler, MultiplexedEndpoint {
         // now, so minting a fresh random ID here would leave the client
         // addressing every future packet to an ID this connection was
         // never actually registered under.
-        byte[] serverScid = retrySourceConnectionId != null ? retrySourceConnectionId : generateConnectionId();
+        byte[] serverScid = retrySourceConnectionId != null ? retrySourceConnectionId : generateServerConnectionId();
         InetSocketAddress local = getLocalSocketAddress();
         TransportParameters localParams = factory.buildTransportParameters(serverScid, true);
         localParams.setOriginalDestinationConnectionId(originalDcidForParams);
@@ -573,7 +581,8 @@ public final class QuicEngine implements ChannelHandler, MultiplexedEndpoint {
     }
 
     private void trySendStatelessReset(byte[] dcid, byte[] received, InetSocketAddress source) {
-        if (received.length < StatelessResetPacket.MIN_DATAGRAM_LENGTH || !isResetEligible(dcid)) {
+        if (received.length < StatelessResetPacket.MIN_DATAGRAM_LENGTH || !isResetEligible(dcid)
+                || (factory.getQuicLbConfig() != null && !isOwnLbConnectionId(dcid))) {
             return;
         }
         String sourceKey = source.getAddress().getHostAddress();
@@ -616,7 +625,7 @@ public final class QuicEngine implements ChannelHandler, MultiplexedEndpoint {
      * @param source the client's address
      */
     private void sendRetry(QuicVersion version, byte[] clientScid, byte[] originalClientDcid, InetSocketAddress source) {
-        byte[] retryScid = generateConnectionId();
+        byte[] retryScid = generateServerConnectionId();
         byte[] token = RetryToken.seal(factory.getRetryTokenKey(), originalClientDcid, source.getAddress(),
                 System.currentTimeMillis());
         byte[] withoutTag = LongHeaderCodec.buildRetryWithoutTag(version, clientScid, retryScid, token);
@@ -864,6 +873,62 @@ public final class QuicEngine implements ChannelHandler, MultiplexedEndpoint {
 
     private InetSocketAddress getLocalSocketAddress() {
         return (InetSocketAddress) path.getLocalAddress();
+    }
+
+    /**
+     * Mints a connection ID this process issues as a server: routable
+     * under the QUIC-LB configuration when there is one, otherwise
+     * opaque random. Client-role IDs use {@link #generateConnectionId}.
+     */
+    private byte[] generateServerConnectionId() {
+        QuicLbConfig lb = factory.getQuicLbConfig();
+        if (lb != null) {
+            return lb.generate(RANDOM);
+        }
+        return generateConnectionId();
+    }
+
+    /** Returns the active QUIC-LB configuration, or {@code null}. */
+    QuicLbConfig getQuicLbConfig() {
+        return factory.getQuicLbConfig();
+    }
+
+    /**
+     * Returns the destination connection ID length of a short header
+     * packet: the QUIC-LB configured length when this server has a
+     * configuration, otherwise {@link #CONNECTION_ID_LENGTH}.
+     */
+    private int shortHeaderDcidLength(byte[] datagram) {
+        if (!serverMode || datagram.length < 2) {
+            return CONNECTION_ID_LENGTH;
+        }
+        QuicLbConfig lb = factory.quicLbConfigFor(datagram[1]);
+        if (lb == null) {
+            lb = factory.getQuicLbConfig();
+            if (lb == null) {
+                return CONNECTION_ID_LENGTH;
+            }
+        }
+        return lb.getConnectionIdLength();
+    }
+
+    /**
+     * Whether a destination connection ID that is not registered decodes
+     * to a different QUIC-LB server (or to no known configuration).
+     */
+    private boolean isMisrouted(byte[] dcid) {
+        if (!serverMode || factory.getQuicLbConfig() == null) {
+            return false;
+        }
+        return !isOwnLbConnectionId(dcid);
+    }
+
+    private boolean isOwnLbConnectionId(byte[] dcid) {
+        if (dcid.length == 0) {
+            return false;
+        }
+        QuicLbConfig lb = factory.quicLbConfigFor(dcid[0]);
+        return lb != null && lb.isOwn(dcid);
     }
 
     private static byte[] generateConnectionId() {

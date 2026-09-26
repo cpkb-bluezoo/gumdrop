@@ -81,6 +81,8 @@ public final class ConnectionIdManager {
     private final byte[] staticKey;
     private final SecureRandom random = new SecureRandom();
 
+    private QuicLbConfig lbConfig;
+    private long retirePriorTo;
     private long nextSequenceNumber = 1;
     private long highestIssuedSequenceNumber;
 
@@ -116,6 +118,64 @@ public final class ConnectionIdManager {
         ours.add(new ConnectionIdEntry(0, ourHandshakeConnectionId, null));
         peers.add(new ConnectionIdEntry(0, peerHandshakeConnectionId, null));
         this.staticKey = staticKey;
+    }
+
+    /**
+     * Creates a manager for a server whose connection IDs encode a
+     * QUIC-LB server ID (draft-ietf-quic-load-balancers-21). The
+     * handshake connection ID is expected to have been minted from the
+     * same configuration.
+     *
+     * @param ourHandshakeConnectionId the connection ID this endpoint used during the handshake
+     * @param peerHandshakeConnectionId the connection ID the peer used during the handshake
+     * @param staticKey this endpoint's static key for {@link StatelessResetToken} derivation
+     * @param lbConfig the active QUIC-LB configuration, or {@code null} for opaque random IDs
+     */
+    public ConnectionIdManager(byte[] ourHandshakeConnectionId, byte[] peerHandshakeConnectionId, byte[] staticKey,
+            QuicLbConfig lbConfig) {
+        this(ourHandshakeConnectionId, peerHandshakeConnectionId, staticKey);
+        this.lbConfig = lbConfig;
+    }
+
+    /**
+     * Returns the {@code retire_prior_to} value to send in every
+     * {@code NEW_CONNECTION_ID} frame: zero until a configuration
+     * rotation retires older connection IDs.
+     *
+     * @return the sequence number below which connection IDs are retired
+     */
+    public long getRetirePriorTo() {
+        return retirePriorTo;
+    }
+
+    /**
+     * Adopts a changed QUIC-LB configuration. A different config id stops
+     * minting IDs with the retired one and queues replacements, sent with
+     * a {@code retire_prior_to} that retires every earlier ID (section
+     * 3.1 of the draft). A keyed configuration replaces as many IDs as
+     * are active, up to the peer's limit; an unkeyed one issues a single
+     * replacement, since plaintext IDs are linkable and are not rotated
+     * for unlinkability (section 9).
+     *
+     * @param config the factory's current configuration
+     */
+    public void rotateTo(QuicLbConfig config) {
+        QuicLbConfig previous = lbConfig;
+        if (previous == config) {
+            return;
+        }
+        lbConfig = config;
+        if (previous == null || config == null || previous.getConfigId() == config.getConfigId()) {
+            return;
+        }
+        int replacements = 1;
+        if (config.hasKey()) {
+            replacements = Math.max(1, Math.min(ours.size(), peerAdvertisedLimit));
+        }
+        for (int i = 0; i < replacements; i++) {
+            mint();
+        }
+        retirePriorTo = highestIssuedSequenceNumber - replacements + 1;
     }
 
     /**
@@ -232,8 +292,20 @@ public final class ConnectionIdManager {
         if (ours.size() >= peerAdvertisedLimit) {
             return null;
         }
-        byte[] connectionId = new byte[MAX_CONNECTION_ID_LENGTH];
-        random.nextBytes(connectionId);
+        if (lbConfig != null && !lbConfig.hasKey()) {
+            return null;
+        }
+        return mint();
+    }
+
+    private ConnectionIdEntry mint() {
+        byte[] connectionId;
+        if (lbConfig != null) {
+            connectionId = lbConfig.generate(random);
+        } else {
+            connectionId = new byte[MAX_CONNECTION_ID_LENGTH];
+            random.nextBytes(connectionId);
+        }
         long sequenceNumber = nextSequenceNumber++;
         byte[] token = StatelessResetToken.generate(staticKey, connectionId);
         ConnectionIdEntry entry = new ConnectionIdEntry(sequenceNumber, connectionId, token);
