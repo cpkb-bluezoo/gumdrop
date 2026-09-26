@@ -49,6 +49,7 @@ import org.bluezoo.gumdrop.http.server.HttpTlsConfig;
 import org.bluezoo.gumdrop.quic.QuicConnection;
 import org.bluezoo.gumdrop.quic.QuicEngine;
 import org.bluezoo.gumdrop.quic.QuicTransportFactory;
+import org.bluezoo.gumdrop.quic.cid.QuicLbConfig;
 import org.bluezoo.gumdrop.tls.TlsConfig;
 
 /**
@@ -108,6 +109,15 @@ public class Http3Listener extends TcpListener
     // that already anti-spoofs (the factory itself still defaults off
     // so programmatic/test engines are unchanged).
     private boolean requireRetry = true;
+
+    // draft-ietf-quic-load-balancers-21: routable connection IDs. Active
+    // when a server ID is configured (here or via QUIC_LB_SERVER_ID).
+    private int quicLbConfigId = 0;
+    private String quicLbServerId;
+    private int quicLbServerIdLength = -1;
+    private int quicLbNonceLength = 8;
+    private Path quicLbCidKeyFile;
+    private boolean quicLbFirstOctetEncodesCidLength;
 
     // RFC 9000 section 18: configurable QUIC transport parameters
     private long quicMaxIdleTimeout = -1;
@@ -372,6 +382,101 @@ public class Http3Listener extends TcpListener
         return requireRetry;
     }
 
+    // ── QUIC-LB (draft-ietf-quic-load-balancers-21) ──
+
+    /**
+     * Sets the QUIC-LB config id, 0 to 6. Default 0.
+     * XML: {@code quic-lb-config-id}
+     */
+    public void setQuicLbConfigId(int configId) { this.quicLbConfigId = configId; }
+
+    /**
+     * Sets this replica's QUIC-LB server ID as hexadecimal. It differs on
+     * every replica, so it is normally injected from outside; when unset,
+     * the {@code QUIC_LB_SERVER_ID} environment variable is used. Setting
+     * either turns QUIC-LB connection ID encoding on.
+     * XML: {@code quic-lb-server-id}
+     */
+    public void setQuicLbServerId(String hex) { this.quicLbServerId = hex; }
+
+    /**
+     * Sets the QUIC-LB server ID length in octets. Optional; when set it
+     * must equal the length of the server ID.
+     * XML: {@code quic-lb-server-id-length}
+     */
+    public void setQuicLbServerIdLength(int length) { this.quicLbServerIdLength = length; }
+
+    /**
+     * Sets the QUIC-LB nonce length in octets, at least 4. Default 8.
+     * XML: {@code quic-lb-nonce-length}
+     */
+    public void setQuicLbNonceLength(int length) { this.quicLbNonceLength = length; }
+
+    /**
+     * Sets the file holding the 16-octet QUIC-LB key (raw or 32 hex
+     * digits). Without a key the server ID is sent in plaintext.
+     * XML: {@code quic-lb-cid-key-file}
+     */
+    public void setQuicLbCidKeyFile(Path path) { this.quicLbCidKeyFile = path; }
+
+    /**
+     * Sets whether the first octet of each connection ID self-describes
+     * its length. Default false.
+     * XML: {@code quic-lb-first-octet-encodes-cid-length}
+     */
+    public void setQuicLbFirstOctetEncodesCidLength(boolean encodes) {
+        this.quicLbFirstOctetEncodesCidLength = encodes;
+    }
+
+    /**
+     * Fluent form of the QUIC-LB settings.
+     *
+     * @param configId the config id, 0 to 6
+     * @param serverId this replica's server ID
+     * @param nonceLength the nonce length, at least 4
+     * @param key the 16-octet key, or {@code null} for plaintext IDs
+     * @param encodesLength whether the first octet encodes the ID length
+     */
+    public Http3Listener quicLb(int configId, byte[] serverId, int nonceLength, byte[] key, boolean encodesLength) {
+        this.quicLbConfigId = configId;
+        this.quicLbServerId = org.bluezoo.util.ByteArrays.toHexString(serverId);
+        this.quicLbNonceLength = nonceLength;
+        this.quicLbKey = key == null ? null : key.clone();
+        this.quicLbFirstOctetEncodesCidLength = encodesLength;
+        return this;
+    }
+
+    private byte[] quicLbKey;
+
+    private QuicLbConfig buildQuicLbConfig() throws IOException {
+        String serverId = quicLbServerId;
+        if (serverId == null || serverId.isEmpty()) {
+            serverId = System.getenv("QUIC_LB_SERVER_ID");
+        }
+        if (serverId == null || serverId.isEmpty()) {
+            return null;
+        }
+        byte[] id = org.bluezoo.util.ByteArrays.toByteArray(serverId);
+        if (quicLbServerIdLength >= 0 && quicLbServerIdLength != id.length) {
+            throw new IllegalArgumentException("quic-lb-server-id-length " + quicLbServerIdLength
+                    + " does not match the server ID length " + id.length);
+        }
+        byte[] key = quicLbKey;
+        if (quicLbCidKeyFile != null) {
+            byte[] raw = java.nio.file.Files.readAllBytes(quicLbCidKeyFile);
+            if (raw.length == QuicLbConfig.KEY_LENGTH) {
+                key = raw;
+            } else {
+                key = org.bluezoo.util.ByteArrays.toByteArray(new String(raw, java.nio.charset.StandardCharsets.US_ASCII).trim());
+            }
+        }
+        if (!requireRetry) {
+            throw new IllegalStateException("QUIC-LB requires require-retry, so that the first Initial, "
+                    + "whose connection ID the client chose, creates no connection state");
+        }
+        return new QuicLbConfig(quicLbConfigId, id, quicLbNonceLength, key, quicLbFirstOctetEncodesCidLength);
+    }
+
     // ── RFC 9000 section 18: QUIC transport parameter setters ──
 
     /** XML: {@code quic-max-idle-timeout} (milliseconds) */
@@ -408,6 +513,11 @@ public class Http3Listener extends TcpListener
             factory.setKeyFile(keyFile);
         }
         factory.setRequireRetry(requireRetry);
+        try {
+            factory.setQuicLbConfig(buildQuicLbConfig());
+        } catch (IOException e) {
+            throw new IllegalStateException("Cannot read quic-lb-cid-key-file", e);
+        }
         // RFC 9000 section 18: apply configured transport parameters
         if (quicMaxIdleTimeout >= 0) { factory.setMaxIdleTimeout(quicMaxIdleTimeout); }
         if (quicMaxData >= 0) { factory.setMaxData(quicMaxData); }

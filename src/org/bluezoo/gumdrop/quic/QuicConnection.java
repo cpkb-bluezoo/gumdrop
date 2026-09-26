@@ -674,7 +674,8 @@ public final class QuicConnection implements QuicTlsEngineListener {
         }
 
         this.lossDetector = new LossDetector(MIN_DATAGRAM_SIZE);
-        this.connectionIdManager = new ConnectionIdManager(ourConnectionId, peerConnectionId, connectionIdStaticKey);
+        this.connectionIdManager = new ConnectionIdManager(ourConnectionId, peerConnectionId, connectionIdStaticKey,
+                isServer ? engine.getQuicLbConfig() : null);
         this.localMaxData = localTransportParameters.getInitialMaxData();
         this.localMaxStreamsBidi = localTransportParameters.getInitialMaxStreamsBidi();
         this.localMaxStreamsUni = localTransportParameters.getInitialMaxStreamsUni();
@@ -3165,6 +3166,9 @@ public final class QuicConnection implements QuicTlsEngineListener {
         boolean includeHandshakeDone = oneRtt && handshakeDoneOwed;
         boolean includePing = pendingPing[level.ordinal()];
         List<long[]> resetsToSend = oneRtt ? new ArrayList<long[]>(pendingResetStreams) : Collections.<long[]>emptyList();
+        if (oneRtt && isServer) {
+            connectionIdManager.rotateTo(engine.getQuicLbConfig());
+        }
         List<ConnectionIdEntry> newCidsToSend = oneRtt
                 ? connectionIdManager.drainPendingIssuance() : Collections.<ConnectionIdEntry>emptyList();
         for (ConnectionIdEntry issued : newCidsToSend) {
@@ -3202,7 +3206,7 @@ public final class QuicConnection implements QuicTlsEngineListener {
             frameBytes += QuicFrameWriter.resetStreamLength(reset[0], reset[1], reset[2]);
         }
         for (ConnectionIdEntry entry : newCidsToSend) {
-            frameBytes += QuicFrameWriter.newConnectionIdLength(entry.getSequenceNumber(), 0,
+            frameBytes += QuicFrameWriter.newConnectionIdLength(entry.getSequenceNumber(), connectionIdManager.getRetirePriorTo(),
                     entry.getConnectionId(), entry.getStatelessResetToken());
         }
         for (long sequenceNumber : retiresToSend) {
@@ -3372,7 +3376,7 @@ public final class QuicConnection implements QuicTlsEngineListener {
             pendingResetStreams.removeAll(resetsToSend);
         }
         for (ConnectionIdEntry entry : newCidsToSend) {
-            QuicFrameWriter.writeNewConnectionId(payload, entry.getSequenceNumber(), 0,
+            QuicFrameWriter.writeNewConnectionId(payload, entry.getSequenceNumber(), connectionIdManager.getRetirePriorTo(),
                     entry.getConnectionId(), entry.getStatelessResetToken());
         }
         for (long sequenceNumber : retiresToSend) {
