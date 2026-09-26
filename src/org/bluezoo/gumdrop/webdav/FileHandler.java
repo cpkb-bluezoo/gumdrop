@@ -118,6 +118,9 @@ class FileHandler extends DefaultHttpRequestHandler {
     private final String[] welcomeFiles;
     private final Map<String, String> contentTypes;
     private final WebDAVLockManager lockManager;
+
+    /** The locks covering each PROPFIND resource, read off the loop by {@link #gatherPropfindData}. */
+    private Map<Path, List<WebDAVLock>> propfindLocks;
     private final DeadPropertyStore deadPropertyStore;
 
     /**
@@ -541,11 +544,25 @@ class FileHandler extends DefaultHttpRequestHandler {
         });
     }
 
+    /** Whether {@code candidate} is a dead property sidecar, and so is not a resource. */
+    private boolean isSidecarPath(Path candidate) {
+        return deadPropertyStore != null
+                ? deadPropertyStore.isSidecar(candidate)
+                : DeadPropertyStore.isSidecarFile(candidate);
+    }
+
+    /** As {@link #isSidecarPath} for a file name. */
+    private boolean isSidecarName(String name) {
+        return deadPropertyStore != null
+                ? deadPropertyStore.isSidecarEntry(name)
+                : DeadPropertyStore.isSidecarName(name);
+    }
+
     /** Gathers all metadata for a GET/HEAD off the loop (blocking). */
     private GetPlan computeGetPlan(StorageExecutor storage) throws IOException {
         GetPlan plan = new GetPlan();
         if (path == null || !bindCanonicalPath() || !Files.exists(path)
-                || DeadPropertyStore.isSidecarFile(path)) {
+                || isSidecarPath(path)) {
             plan.error = HttpStatus.NOT_FOUND;
             return plan;
         }
@@ -819,6 +836,9 @@ class FileHandler extends DefaultHttpRequestHandler {
         if (Files.isDirectory(path)) {
             List<String[]> errors = collectionDelete();
             if (errors.isEmpty()) {
+                if (deadPropertyStore != null) {
+                    deadPropertyStore.deleteTree(path);
+                }
                 plan.status = HttpStatus.NO_CONTENT;
                 LOGGER.info(MessageFormat.format(L10N.getString("info.deleted_collection"), path));
             } else {
@@ -1411,26 +1431,12 @@ class FileHandler extends DefaultHttpRequestHandler {
                 }
             }
 
-            Path srcSidecar = null;
             boolean srcIsDir = Files.isDirectory(path);
-            if (deadPropertyStore != null && !srcIsDir) {
-                srcSidecar = DeadPropertyStore.sidecarPath(path, false);
-                if (!Files.exists(srcSidecar)) {
-                    srcSidecar = null;
-                }
-            }
 
             Files.move(path, destPath);
 
-            if (srcSidecar != null) {
-                Path dstSidecar =
-                        DeadPropertyStore.sidecarPath(destPath, false);
-                try {
-                    Files.move(srcSidecar, dstSidecar,
-                            StandardCopyOption.REPLACE_EXISTING);
-                } catch (IOException e) {
-                    LOGGER.log(Level.FINE, L10N.getString("fine.sidecar_move_failed"), e);
-                }
+            if (deadPropertyStore != null) {
+                deadPropertyStore.moveProperties(path, destPath, srcIsDir);
             }
 
             LOGGER.info(MessageFormat.format(L10N.getString("info.moved"), path, destPath));
@@ -1480,18 +1486,41 @@ class FileHandler extends DefaultHttpRequestHandler {
     }
 
     /** RFC 4918 §9.10.2 -- refreshes an existing lock named by the Lock-Token header. */
-    private void refreshLock(HttpResponseState state) throws IOException {
-        String token = extractLockToken(lockToken);
-        if (token != null) {
-            long timeout = parseTimeout(requestHeaders.getValue(DavConstants.HEADER_TIMEOUT));
-            WebDAVLock refreshed = lockManager.refresh(token, timeout);
-            if (refreshed != null) {
-                boolean isDir = requestPath != null && requestPath.endsWith("/");
-                sendLockResponse(state, refreshed, false, isDir);
-                return;
-            }
+    private void refreshLock(final HttpResponseState state) throws IOException {
+        final String token = extractLockToken(lockToken);
+        if (token == null) {
+            sendError(state, HttpStatus.PRECONDITION_FAILED);
+            return;
         }
-        sendError(state, HttpStatus.PRECONDITION_FAILED);
+        final long timeout = parseTimeout(requestHeaders.getValue(DavConstants.HEADER_TIMEOUT));
+        // With a shared lock root this reads and rewrites the lock's record
+        offload(state, new Callable<WebDAVLock>() {
+            @Override
+            public WebDAVLock call() {
+                return lockManager.refresh(path, token, timeout);
+            }
+        }, new StorageExecutor.Callback<WebDAVLock>() {
+            @Override
+            public void completed(WebDAVLock refreshed) {
+                if (refreshed == null) {
+                    sendError(state, HttpStatus.PRECONDITION_FAILED);
+                    return;
+                }
+                try {
+                    boolean isDir = requestPath != null && requestPath.endsWith("/");
+                    sendLockResponse(state, refreshed, false, isDir);
+                } catch (IOException e) {
+                    LOGGER.log(Level.SEVERE, L10N.getString("severe.lock_response_error"), e);
+                    sendError(state, HttpStatus.INTERNAL_SERVER_ERROR);
+                }
+            }
+
+            @Override
+            public void failed(Throwable error) {
+                LOGGER.log(Level.SEVERE, L10N.getString("severe.error_processing_lock"), error);
+                sendError(state, HttpStatus.INTERNAL_SERVER_ERROR);
+            }
+        });
     }
 
     /** RFC 4918 §9.11 — UNLOCK by Lock-Token header. */
@@ -1506,21 +1535,38 @@ class FileHandler extends DefaultHttpRequestHandler {
             return;
         }
         
-        String token = extractLockToken(lockToken);
+        final String token = extractLockToken(lockToken);
         if (token == null) {
             sendError(state, HttpStatus.BAD_REQUEST);
             return;
         }
-        
-        if (lockManager.unlock(token)) {
-            Headers response = new Headers();
-            response.status(HttpStatus.NO_CONTENT);
-            state.headers(response);
-            state.complete();
-            LOGGER.info(MessageFormat.format(L10N.getString("info.unlocked"), path));
-        } else {
-            sendError(state, HttpStatus.CONFLICT);
-        }
+
+        // With a shared lock root this deletes the lock's record
+        offload(state, new Callable<Boolean>() {
+            @Override
+            public Boolean call() {
+                return Boolean.valueOf(lockManager.unlock(path, token));
+            }
+        }, new StorageExecutor.Callback<Boolean>() {
+            @Override
+            public void completed(Boolean unlocked) {
+                if (unlocked.booleanValue()) {
+                    Headers response = new Headers();
+                    response.status(HttpStatus.NO_CONTENT);
+                    state.headers(response);
+                    state.complete();
+                    LOGGER.info(MessageFormat.format(L10N.getString("info.unlocked"), path));
+                } else {
+                    sendError(state, HttpStatus.CONFLICT);
+                }
+            }
+
+            @Override
+            public void failed(Throwable error) {
+                LOGGER.log(Level.SEVERE, L10N.getString("severe.error_processing_lock"), error);
+                sendError(state, HttpStatus.INTERNAL_SERVER_ERROR);
+            }
+        });
     }
 
     private void finalizeWebDAVRequest(HttpResponseState state) throws IOException {
@@ -1632,6 +1678,15 @@ class FileHandler extends DefaultHttpRequestHandler {
         }
         data.resources = usable;
         data.attrs = attrs;
+        // Read the locks here: with a shared lock root each lookup is file
+        // I/O, and the response is built on the loop.
+        Map<Path, List<WebDAVLock>> locks = new HashMap<Path, List<WebDAVLock>>();
+        if (lockManager != null) {
+            for (int i = 0; i < usable.size(); i++) {
+                locks.put(usable.get(i), lockManager.getCoveringLocks(usable.get(i)));
+            }
+        }
+        propfindLocks = locks;
         return data;
     }
 
@@ -1968,7 +2023,10 @@ class FileHandler extends DefaultHttpRequestHandler {
     /** RFC 4918 section 15.8 -- lockdiscovery property (active locks). */
     private void writeLockDiscovery(XMLWriter xml, Path resource,
             boolean isDir) throws IOException {
-        List<WebDAVLock> locks = lockManager.getCoveringLocks(resource);
+        List<WebDAVLock> locks = propfindLocks != null ? propfindLocks.get(resource) : null;
+        if (locks == null) {
+            locks = lockManager.getCoveringLocks(resource);
+        }
         for (WebDAVLock lock : locks) {
             davStart(xml, DavConstants.ELEM_ACTIVELOCK);
             
@@ -2775,7 +2833,7 @@ class FileHandler extends DefaultHttpRequestHandler {
         // leaving a silently incomplete result.
         for (Path childSource : listChildren(source)) {
             String childName = childSource.getFileName().toString();
-            if (DeadPropertyStore.isSidecarName(childName)) {
+            if (isSidecarName(childName)) {
                 continue;
             }
             if (Files.isSymbolicLink(childSource)
@@ -3317,7 +3375,7 @@ class FileHandler extends DefaultHttpRequestHandler {
             for (Path file : entries) {
                 try {
                     String filename = file.getFileName().toString();
-                    if (DeadPropertyStore.isSidecarName(filename)) {
+                    if (isSidecarName(filename)) {
                         continue;
                     }
                     if (Files.isSymbolicLink(file)

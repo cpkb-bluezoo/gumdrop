@@ -104,6 +104,11 @@ public final class DeadPropertyStore {
     private Mode mode = Mode.AUTO;
     private volatile Gumdrop gumdrop;
 
+    /** Where sidecars go instead of next to their resources, or null for siblings. */
+    private Path sidecarRoot;
+    private Path contentRoot;
+    private Path configuredRoot;
+
     public DeadPropertyStore() {
     }
 
@@ -114,6 +119,38 @@ public final class DeadPropertyStore {
      */
     public void setMode(Mode mode) {
         this.mode = mode;
+    }
+
+    /**
+     * Keeps sidecars in their own directory tree instead of next to their
+     * resources. A resource's sidecar is the file at its path relative to
+     * {@code contentRoot} under {@code sidecarRoot}, so servers that mount
+     * the same tree at different absolute paths read the same properties. A
+     * collection's own properties are the {@code .webdav_.} file in its
+     * directory there, as they are inside the collection itself in the
+     * sibling layout.
+     *
+     * <p>Nothing is written into the content tree, and nothing in it is a
+     * sidecar: a content file named {@code .webdav_report.pdf} is an
+     * ordinary file. Extended attributes ({@link Mode#XATTR}, or the first
+     * choice of {@link Mode#AUTO}) are unaffected.
+     *
+     * @param contentRoot the content tree the resources are in
+     * @param sidecarRoot the directory for sidecars, or {@code null} for
+     *        the sibling layout
+     */
+    public void setSidecarRoot(Path contentRoot, Path sidecarRoot) {
+        this.sidecarRoot = sidecarRoot;
+        this.configuredRoot = contentRoot;
+        this.contentRoot = contentRoot == null ? null : canonicalRoot(contentRoot);
+    }
+
+    private static Path canonicalRoot(Path root) {
+        try {
+            return root.toRealPath();
+        } catch (IOException e) {
+            return root.toAbsolutePath().normalize();
+        }
     }
 
     /**
@@ -185,7 +222,7 @@ public final class DeadPropertyStore {
 
         if (useSidecar()) {
             final Map<String, DeadProperty> merged = xattrProps;
-            Path sidecar = sidecarPath(resource, isDir);
+            Path sidecar = sidecarFor(resource, isDir);
             if (sidecarExists(sidecar)) {
                 readSidecar(sidecar, new DeadPropertyCallback() {
                     @Override
@@ -392,10 +429,11 @@ public final class DeadPropertyStore {
             }
         }
         boolean srcIsDir = Files.isDirectory(source);
-        Path srcSidecar = sidecarPath(source, srcIsDir);
-        Path dstSidecar = sidecarPath(target, Files.isDirectory(target));
+        Path srcSidecar = sidecarFor(source, srcIsDir);
+        Path dstSidecar = sidecarFor(target, Files.isDirectory(target));
         try {
             if (sidecarExists(srcSidecar)) {
+                Files.createDirectories(dstSidecar.getParent());
                 Files.copy(srcSidecar, dstSidecar,
                         StandardCopyOption.REPLACE_EXISTING);
             } else {
@@ -421,7 +459,7 @@ public final class DeadPropertyStore {
         if (mode == Mode.NONE) {
             return;
         }
-        Path sidecar = sidecarPath(resource, Files.isDirectory(resource));
+        Path sidecar = sidecarFor(resource, Files.isDirectory(resource));
         try {
             Files.deleteIfExists(sidecar);
         } catch (IOException e) {
@@ -492,6 +530,18 @@ public final class DeadPropertyStore {
      * @param path the path to check
      * @return true if this is a sidecar file
      */
+    boolean isSidecar(Path path) {
+        return sidecarRoot == null && isSidecarFile(path);
+    }
+
+    /**
+     * Returns true if the filename is a sidecar of this store: never with a
+     * sidecar root, where the content tree holds none.
+     */
+    boolean isSidecarEntry(String name) {
+        return sidecarRoot == null && isSidecarName(name);
+    }
+
     static boolean isSidecarFile(Path path) {
         if (path == null) {
             return false;
@@ -672,7 +722,115 @@ public final class DeadPropertyStore {
     }
 
     /**
-     * Computes the sidecar path for a resource without re-statting.
+     * Computes where this store keeps the sidecar of a resource: next to it,
+     * or under the sidecar root when there is one.
+     */
+    Path sidecarFor(Path resource, boolean isDirectory) {
+        if (sidecarRoot == null) {
+            return sidecarPath(resource, isDirectory);
+        }
+        Path key = keyFor(resource);
+        return isDirectory ? key.resolve(SIDECAR_PREFIX + ".") : key;
+    }
+
+    /** The resource's place under the sidecar root: its path relative to the content root. */
+    private Path keyFor(Path resource) {
+        Path relative;
+        if (resource.startsWith(contentRoot)) {
+            relative = contentRoot.relativize(resource);
+        } else if (resource.startsWith(configuredRoot)) {
+            relative = configuredRoot.relativize(resource);
+        } else {
+            throw new IllegalArgumentException("not under the content root: " + resource);
+        }
+        Path key = sidecarRoot;
+        for (Path name : relative) {
+            if (!name.toString().isEmpty()) {
+                key = key.resolve(name.toString());
+            }
+        }
+        return key;
+    }
+
+    /**
+     * Moves a resource's properties after the resource itself has moved
+     * from {@code source} to {@code target}. With the sibling layout a
+     * file's sidecar is renamed alongside it, and a collection's ride along
+     * inside it. With a sidecar root the whole subtree of keys is renamed,
+     * and whatever the target had is replaced.
+     *
+     * <p>Caller must already be on a StorageExecutor thread.
+     */
+    void moveProperties(Path source, Path target, boolean wasDirectory) {
+        if (mode == Mode.NONE) {
+            return;
+        }
+        try {
+            if (sidecarRoot == null) {
+                if (wasDirectory) {
+                    return;
+                }
+                Path from = sidecarPath(source, false);
+                if (Files.exists(from)) {
+                    Files.move(from, sidecarPath(target, false),
+                            StandardCopyOption.REPLACE_EXISTING);
+                }
+                return;
+            }
+            Path to = keyFor(target);
+            deleteKeyTree(to);
+            Path from = keyFor(source);
+            if (Files.exists(from, LinkOption.NOFOLLOW_LINKS)) {
+                Files.createDirectories(to.getParent());
+                Files.move(from, to);
+            }
+        } catch (IOException e) {
+            LOGGER.log(Level.FINE, L10N.getString("fine.sidecar_move_failed"), e);
+        }
+    }
+
+    /**
+     * Removes the properties of a deleted collection and of everything in
+     * it. With the sibling layout they went with the directory, so this does
+     * nothing; with a sidecar root it removes the subtree of keys.
+     *
+     * <p>Caller must already be on a StorageExecutor thread.
+     */
+    void deleteTree(Path resource) {
+        if (sidecarRoot == null || mode == Mode.NONE) {
+            return;
+        }
+        deleteKeyTree(keyFor(resource));
+    }
+
+    private static void deleteKeyTree(Path key) {
+        try {
+            if (!Files.exists(key, LinkOption.NOFOLLOW_LINKS)) {
+                return;
+            }
+            Files.walkFileTree(key, new java.nio.file.SimpleFileVisitor<Path>() {
+                @Override
+                public java.nio.file.FileVisitResult visitFile(Path file,
+                        java.nio.file.attribute.BasicFileAttributes attrs) throws IOException {
+                    Files.delete(file);
+                    return java.nio.file.FileVisitResult.CONTINUE;
+                }
+
+                @Override
+                public java.nio.file.FileVisitResult postVisitDirectory(Path dir, IOException exc)
+                        throws IOException {
+                    Files.delete(dir);
+                    return java.nio.file.FileVisitResult.CONTINUE;
+                }
+            });
+        } catch (IOException e) {
+            LOGGER.log(Level.WARNING, MessageFormat.format(
+                    L10N.getString("warn.sidecar_delete_failed"), key), e);
+        }
+    }
+
+    /**
+     * Computes the sibling sidecar path for a resource without re-statting.
      *
      * @param resource the resource path
      * @param isDirectory true if {@code resource} is a collection
@@ -769,7 +927,7 @@ public final class DeadPropertyStore {
                                final boolean isXML,
                                final boolean remove,
                                final DeadPropertyCallback callback) {
-        final Path sidecar = sidecarPath(resource, isDirectory);
+        final Path sidecar = sidecarFor(resource, isDirectory);
         final AtomicBoolean finished = new AtomicBoolean();
         // The next queued update starts once this one has reported, and does
         // so even if the caller's callback throws.
@@ -899,7 +1057,7 @@ public final class DeadPropertyStore {
     private void writeSidecar(Path resource, boolean isDirectory,
                               Map<String, DeadProperty> props,
                               final DeadPropertyCallback callback) {
-        Path sidecar = sidecarPath(resource, isDirectory);
+        Path sidecar = sidecarFor(resource, isDirectory);
 
         if (props.isEmpty()) {
             try {
@@ -946,6 +1104,9 @@ public final class DeadPropertyStore {
             }
             final ByteBuffer buf = ByteBuffer.wrap(data);
 
+            if (sidecarRoot != null) {
+                Files.createDirectories(sidecar.getParent());
+            }
             final AsyncFile channel = AsyncFile.open(storageExecutor(),
                     sidecar,
                     StandardOpenOption.WRITE,
