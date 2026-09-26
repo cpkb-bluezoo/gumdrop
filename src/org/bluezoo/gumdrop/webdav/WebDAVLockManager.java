@@ -33,6 +33,14 @@ import java.util.concurrent.ConcurrentHashMap;
  *
  * <p>Implements RFC 4918 §6 (locking) and §7 (write locks).
  *
+ * <p>By default locks live in this server's memory, which is the right
+ * authority for one server on a private content tree. Given a lock root
+ * (see {@link SharedLockStore}) every lock is a file there instead, so that
+ * servers sharing the tree also share the locks, and the maps are not
+ * consulted at all: a conflict check that ignored another server's records
+ * would grant two exclusive locks. In that mode every method does blocking
+ * file I/O and belongs on a storage thread.
+ *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see <a href="https://www.rfc-editor.org/rfc/rfc4918">RFC 4918</a>
  */
@@ -40,6 +48,24 @@ class WebDAVLockManager {
 
     private final Map<String, WebDAVLock> locksByToken = new ConcurrentHashMap<String, WebDAVLock>();
     private final Map<Path, List<WebDAVLock>> locksByPath = new ConcurrentHashMap<Path, List<WebDAVLock>>();
+    private final SharedLockStore shared;
+
+    /** Locks held in memory. */
+    WebDAVLockManager() {
+        this.shared = null;
+    }
+
+    /**
+     * Locks kept as files under {@code lockRoot}, keyed by each resource's
+     * path relative to {@code contentRoot}.
+     *
+     * @param contentRoot the content tree the locked resources are in
+     * @param lockRoot the directory holding the lock records, or
+     *        {@code null} to keep locks in memory
+     */
+    WebDAVLockManager(Path contentRoot, Path lockRoot) {
+        this.shared = lockRoot == null ? null : new SharedLockStore(contentRoot, lockRoot);
+    }
 
     /**
      * Acquires a lock on a resource (RFC 4918 §9.10).
@@ -47,6 +73,9 @@ class WebDAVLockManager {
     synchronized WebDAVLock lock(Path path, WebDAVLock.Scope scope, 
                                   WebDAVLock.Type type, int depth,
                                   String owner, long timeoutSeconds) {
+        if (shared != null) {
+            return shared.lock(path, scope, type, depth, owner, timeoutSeconds);
+        }
         if (hasConflictingLock(path, scope)) {
             return null;
         }
@@ -65,9 +94,13 @@ class WebDAVLockManager {
     }
 
     /**
-     * Releases a lock by token (RFC 4918 §9.11).
+     * Releases the lock with this token that covers {@code path}
+     * (RFC 4918 §9.11).
      */
-    synchronized boolean unlock(String token) {
+    synchronized boolean unlock(Path path, String token) {
+        if (shared != null) {
+            return shared.unlock(path, token);
+        }
         WebDAVLock lock = locksByToken.remove(token);
         if (lock == null) {
             return false;
@@ -88,7 +121,10 @@ class WebDAVLockManager {
     /**
      * Refreshes a lock timeout (RFC 4918 §9.10.2).
      */
-    synchronized WebDAVLock refresh(String token, long timeoutSeconds) {
+    synchronized WebDAVLock refresh(Path path, String token, long timeoutSeconds) {
+        if (shared != null) {
+            return shared.refresh(path, token, timeoutSeconds);
+        }
         WebDAVLock lock = locksByToken.get(token);
         if (lock != null && !lock.isExpired()) {
             lock.refresh(timeoutSeconds);
@@ -97,11 +133,14 @@ class WebDAVLockManager {
         return null;
     }
 
-    WebDAVLock getLock(String token) {
+    WebDAVLock getLock(Path path, String token) {
+        if (shared != null) {
+            return shared.getLock(path, token);
+        }
         WebDAVLock lock = locksByToken.get(token);
         if (lock != null && lock.isExpired()) {
             synchronized (this) {
-                unlock(token);
+                unlock(lock.getPath(), token);
             }
             return null;
         }
@@ -109,6 +148,9 @@ class WebDAVLockManager {
     }
 
     List<WebDAVLock> getLocks(Path path) {
+        if (shared != null) {
+            return shared.getLocksAt(path);
+        }
         List<WebDAVLock> result = new ArrayList<WebDAVLock>();
         List<WebDAVLock> pathLocks = locksByPath.get(path);
         if (pathLocks != null) {
@@ -124,6 +166,9 @@ class WebDAVLockManager {
     }
 
     List<WebDAVLock> getCoveringLocks(Path path) {
+        if (shared != null) {
+            return shared.getCoveringLocks(path);
+        }
         List<WebDAVLock> result = new ArrayList<WebDAVLock>();
         synchronized (this) {
             forEachAncestor(path, new PathVisitor() {
@@ -149,7 +194,10 @@ class WebDAVLockManager {
     }
 
     boolean validateToken(Path path, String token) {
-        WebDAVLock lock = getLock(token);
+        if (shared != null) {
+            return shared.validateToken(path, token);
+        }
+        WebDAVLock lock = getLock(path, token);
         return lock != null && lock.covers(path);
     }
 
@@ -205,6 +253,10 @@ class WebDAVLockManager {
     }
 
     synchronized void cleanExpiredLocks() {
+        if (shared != null) {
+            // records are removed by the grant that finds them expired
+            return;
+        }
         Iterator<Map.Entry<String, WebDAVLock>> it = locksByToken.entrySet().iterator();
         while (it.hasNext()) {
             Map.Entry<String, WebDAVLock> entry = it.next();

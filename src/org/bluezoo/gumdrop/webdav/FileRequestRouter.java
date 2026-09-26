@@ -75,6 +75,17 @@ public final class FileRequestRouter implements HttpStreamHandler {
     public FileRequestRouter(Path rootPath, boolean allowWrite,
                       String welcomeFile, boolean webdavEnabled,
                       DeadPropertyStore deadPropertyStore, Realm realm) {
+        this(rootPath, allowWrite, welcomeFile, webdavEnabled, deadPropertyStore, realm, null);
+    }
+
+    /**
+     * @param lockRoot directory in which WebDAV locks are kept as files, so
+     *                 that servers sharing the content tree share their
+     *                 locks; {@code null} keeps locks in memory
+     */
+    public FileRequestRouter(Path rootPath, boolean allowWrite,
+                      String welcomeFile, boolean webdavEnabled,
+                      DeadPropertyStore deadPropertyStore, Realm realm, Path lockRoot) {
         this.rootPath = rootPath;
         this.allowWrite = allowWrite;
         this.webdavEnabled = webdavEnabled;
@@ -137,7 +148,7 @@ public final class FileRequestRouter implements HttpStreamHandler {
         contentTypes.put("webm", "video/webm");
 
         this.lockManager = webdavEnabled
-                ? new WebDAVLockManager() : null;
+                ? new WebDAVLockManager(rootPath, lockRoot) : null;
         this.deadPropertyStore = deadPropertyStore;
     }
 

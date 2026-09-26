@@ -148,6 +148,8 @@ public final class WebDAVRequestHandler implements HttpStreamHandler {
         private boolean webdavEnabled = false;
         private String welcomeFile = "index.html";
         private String deadPropertyStorage = "auto";
+        private Path lockRoot;
+        private Path sidecarRoot;
         private Realm realm;
 
         private Builder() {
@@ -189,6 +191,47 @@ public final class WebDAVRequestHandler implements HttpStreamHandler {
         }
 
         /**
+         * Keeps WebDAV locks as files under this directory instead of in
+         * memory, so that servers sharing the content tree share their
+         * locks. Unset by default: one server on a private tree needs no
+         * lock volume.
+         *
+         * <p>Each lock is a record at the resource's path relative to
+         * {@link #rootPath}, and a lock is granted by creating its record
+         * and finding no conflicting one. That needs a file system where
+         * creating a file exclusively is atomic and one server's record is
+         * visible to the others at once: a local disk or a typical
+         * ReadWriteOnce volume. On NFS, where attribute caching can hide a
+         * record, two servers may both grant an exclusive lock; keep WebDAV
+         * at one replica there.
+         *
+         * @param lockRoot the directory for lock records, or null for memory
+         */
+        public Builder lockRoot(Path lockRoot) {
+            this.lockRoot = lockRoot;
+            return this;
+        }
+
+        /**
+         * Keeps dead properties that would be written as sidecar files
+         * (mode {@code sidecar}, or {@code auto} where extended attributes
+         * are unavailable) under this directory rather than beside the
+         * resources, at each resource's path relative to {@link #rootPath}.
+         * Nothing is then written into the content tree, which may be
+         * read-only, and a content file named like a sidecar is an ordinary
+         * file. Unset by default: sidecars are {@code .webdav_*} siblings.
+         *
+         * <p>This is not the lock root. Share it only between servers that
+         * share the content tree and must see one set of properties.
+         *
+         * @param sidecarRoot the directory for sidecars, or null for siblings
+         */
+        public Builder sidecarRoot(Path sidecarRoot) {
+            this.sidecarRoot = sidecarRoot;
+            return this;
+        }
+
+        /**
          * Configures a {@link Realm} to check RFC 3744 privileges
          * against, enabling ACL support (the {@code acl-*}/{@code
          * *-privilege-set} DAV: properties and the {@code ACL} method).
@@ -217,9 +260,10 @@ public final class WebDAVRequestHandler implements HttpStreamHandler {
             DeadPropertyStore store = null;
             if (webdavEnabled) {
                 store = createDeadPropertyStore(deadPropertyStorage);
+                store.setSidecarRoot(rootPath, sidecarRoot);
             }
             FileRequestRouter fileRouter = new FileRequestRouter(
-                    rootPath, allowWrite, welcomeFile, webdavEnabled, store, realm);
+                    rootPath, allowWrite, welcomeFile, webdavEnabled, store, realm, lockRoot);
             return new WebDAVRequestHandler(fileRouter);
         }
     }

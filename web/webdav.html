@@ -75,6 +75,7 @@ See <a href="configuration.html">Application composition</a>.
 <li><a href="#webdav-methods">WebDAV Methods</a></li>
 <li><a href="#live-properties">Live Properties</a></li>
 <li><a href="#dead-properties">Dead Properties</a></li>
+<li><a href="#storage-roots">Content, lock and sidecar roots</a></li>
 <li><a href="#locking">Locking</a></li>
 <li><a href="#examples">Protocol Examples</a></li>
 </ul>
@@ -297,6 +298,79 @@ unsupported</td></tr>
 returns 403)</td></tr>
 </table>
 
+<h3 id="storage-roots">Content, lock and sidecar roots</h3>
+
+<p>
+A handler has three storage roots, each configured on its own:
+</p>
+
+<table class="config">
+<tr><th>Root</th><th>Default</th><th>Shared across servers</th></tr>
+<tr><td>Content: <code>rootPath</code></td><td>the path you give</td>
+<td>no</td></tr>
+<tr><td>Locks: <code>lockRoot</code></td><td>unset: locks are held in memory</td>
+<td>only when a lock root is set</td></tr>
+<tr><td>Sidecars: <code>sidecarRoot</code></td><td>unset: <code>.webdav_*</code>
+files beside the resources</td>
+<td>only when the content tree is shared too</td></tr>
+</table>
+
+<p>
+With neither set, one server on a private tree is a complete WebDAV server.
+When a lock root or a sidecar root is set, every record is keyed by the
+resource's path <em>relative to that server's content root</em>, so servers
+that mount the same logical tree at different absolute paths agree.
+</p>
+
+<pre>
+WebDAVRequestHandler.builder()
+    .rootPath(Path.of("/var/www/dav"))
+    .allowWrite(true)
+    .webdavEnabled(true)
+    .lockRoot(Path.of("/mnt/dav-locks"))
+    .sidecarRoot(Path.of("/mnt/dav-props"))
+    .build()
+</pre>
+
+<h4>Lock root</h4>
+
+<p>
+Locks are files under the lock root, at the resource's relative path: an
+<code>exclusive</code> file for the exclusive lock and one
+<code>shared/&lt;token&gt;</code> file per shared lock (each path component
+is prefixed <code>_</code> so a resource called <code>exclusive</code> or
+<code>shared</code> is not mistaken for a record). A lock is granted by
+creating its record and then checking ancestors for a lock covering the
+path and descendants for one this lock would cover; on any conflict,
+including a record another server created at the same moment, the new
+record is removed and the client gets 423 Locked. If two servers each see
+the other, both refuse and the clients retry. An expired record is not a
+lock, and the next grant removes it.
+</p>
+
+<p>
+The lock root must be on a file system where creating a file exclusively is
+atomic and one server's record is visible to the others before they finish
+the conflict check: a local disk or a typical ReadWriteOnce volume. NFS
+attribute caching can hide a record, so both servers may grant an exclusive
+lock; use a coherent file system there, or run WebDAV at one replica.
+</p>
+
+<h4>Sidecar root</h4>
+
+<p>
+With a sidecar root, sidecars (mode <code>sidecar</code>, or <code>auto</code>
+where extended attributes are unavailable or too small) are written to
+<code>&lt;sidecar-root&gt;/&lt;relative-path&gt;</code> instead of beside the
+resource; a collection's own properties are the <code>.webdav_.</code> file in
+its directory there. Nothing is added to the content tree, which may be
+read-only, and a content file called <code>.webdav_report.pdf</code> is an
+ordinary file. COPY and MOVE carry the keys, and DELETE of a collection
+removes its subtree. Extended attributes and mode <code>none</code> are
+unchanged. The sidecar root is not the lock root, though both may name the
+same directory in a small deployment.
+</p>
+
 <p>
 Sidecar files are hidden from PROPFIND responses, HTML directory listings,
 and direct GET requests. They are automatically copied, moved, and deleted
@@ -311,7 +385,7 @@ the same resource. Locks are:
 </p>
 
 <ul>
-<li><b>In-memory</b> - locks are not persisted and are lost on server restart</li>
+<li><b>In-memory by default</b> - locks are not persisted and are lost on server restart. With a <a href="#storage-roots">lock root</a> they are files, shared by every server that uses it</li>
 <li><b>Thread-safe</b> - lock management is safe for concurrent access</li>
 <li><b>Time-limited</b> - locks have a configurable timeout (default: 1 hour,
 maximum: 1 week)</li>

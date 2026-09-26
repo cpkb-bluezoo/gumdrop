@@ -61,6 +61,30 @@ class WebDAVLock {
                 : createdAt + (timeoutSeconds * 1000);
     }
 
+    /**
+     * Restores a lock read back from a shared lock record.
+     */
+    WebDAVLock(String token, Path path, Scope scope, Type type, int depth,
+               String owner, long createdAt, long expiresAt) {
+        this.token = token;
+        this.path = path;
+        this.scope = scope;
+        this.type = type;
+        this.depth = depth;
+        this.owner = owner;
+        this.createdAt = createdAt;
+        this.expiresAt = expiresAt;
+    }
+
+    long getCreatedAt() {
+        return createdAt;
+    }
+
+    /** Absolute expiry in epoch milliseconds, or {@link Long#MAX_VALUE} for an infinite lock. */
+    long getExpiresAt() {
+        return expiresAt;
+    }
+
     String getToken() {
         return token;
     }
