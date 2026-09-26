@@ -21,6 +21,8 @@
 
 package org.bluezoo.gumdrop.servlet.manager;
 
+import java.util.concurrent.TimeUnit;
+import java.time.Duration;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.OutputStream;
@@ -154,7 +156,7 @@ public class ManagerServlet extends HttpServlet {
                         resources.getString("maximumPoolSize"), threadPool.getMaximumPoolSize(),
                         resources.getString("maximumPoolSize.caption"), csrfToken);
         appendConfigForm(buf, resources, "keep-alive-time", 
-                        resources.getString("keepAliveTime"), ctx.getWorkerKeepAlive(),
+                        resources.getString("keepAliveTime"), formatKeepAlive(ctx.getWorkerKeepAlive()),
                         resources.getString("keepAliveTime.caption"), csrfToken);
         buf.append("    </div>\n");
         buf.append("  </section>\n");
@@ -497,7 +499,7 @@ public class ManagerServlet extends HttpServlet {
                     }
                 } else if ("keep-alive-time".equals(name)) {
                     try {
-                        ctx.setWorkerKeepAlive(value);
+                        ctx.setWorkerKeepAlive(parseKeepAlive(value));
                     } catch (Exception e) {
                         response.sendError(400);
                         return;
@@ -519,4 +521,47 @@ public class ManagerServlet extends HttpServlet {
         response.sendRedirect(contextPath + "/");
     }
 
+
+    private static final String[] KEEP_ALIVE_SUFFIXES = { "ns", "us", "ms", "s", "m", "h", "d" };
+    private static final TimeUnit[] KEEP_ALIVE_UNITS = {
+        TimeUnit.NANOSECONDS, TimeUnit.MICROSECONDS, TimeUnit.MILLISECONDS,
+        TimeUnit.SECONDS, TimeUnit.MINUTES, TimeUnit.HOURS, TimeUnit.DAYS };
+
+    /** Formats a keep-alive as the text the configuration page shows, such as {@code 60s}. */
+    private static String formatKeepAlive(Duration keepAlive) {
+        long nanos = keepAlive.toNanos();
+        int unit = 2; // a zero keep-alive reads as 0ms
+        if (nanos != 0L) {
+            for (int i = KEEP_ALIVE_UNITS.length - 1; i >= 0; i--) {
+                if (nanos % KEEP_ALIVE_UNITS[i].toNanos(1) == 0L) {
+                    unit = i;
+                    break;
+                }
+            }
+        }
+        return (nanos / KEEP_ALIVE_UNITS[unit].toNanos(1)) + KEEP_ALIVE_SUFFIXES[unit];
+    }
+
+    /**
+     * Parses the text of a keep-alive: a whole number and a unit suffix
+     * (ns, us, ms, s, m, h or d).
+     *
+     * @throws IllegalArgumentException if it is not of that form
+     */
+    private static Duration parseKeepAlive(String text) {
+        String value = text.trim();
+        int best = -1;
+        for (int i = 0; i < KEEP_ALIVE_SUFFIXES.length; i++) {
+            // the longest matching suffix, so that "ms" is not read as "s"
+            if (value.endsWith(KEEP_ALIVE_SUFFIXES[i])
+                    && (best < 0 || KEEP_ALIVE_SUFFIXES[i].length() > KEEP_ALIVE_SUFFIXES[best].length())) {
+                best = i;
+            }
+        }
+        if (best < 0) {
+            throw new IllegalArgumentException("keep-alive has no unit suffix: " + text);
+        }
+        String number = value.substring(0, value.length() - KEEP_ALIVE_SUFFIXES[best].length());
+        return Duration.of(Long.parseLong(number.trim()), KEEP_ALIVE_UNITS[best].toChronoUnit());
+    }
 }

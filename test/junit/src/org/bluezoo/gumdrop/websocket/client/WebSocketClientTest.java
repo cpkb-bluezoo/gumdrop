@@ -21,6 +21,8 @@
 
 package org.bluezoo.gumdrop.websocket.client;
 
+import java.nio.file.Path;
+import org.bluezoo.gumdrop.tls.KeystoreFormat;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
@@ -76,9 +78,9 @@ public class WebSocketClientTest {
         c.setClientCredentials(null);
         c.setVerifyPeer(false);
         c.setTrustManager(null);
-        c.setKeystoreFile("/tmp/none.p12");
+        c.setKeystoreFile(Path.of("/tmp/none.p12"));
         c.setKeystorePass("pw");
-        c.setKeystoreFormat("PKCS12");
+        c.setKeystoreFormat(KeystoreFormat.PKCS12);
         c.setSubprotocol("chat");
         c.setDeflateEnabled(false);
         c.setH3Enabled(true);

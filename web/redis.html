@@ -860,7 +860,7 @@ truststore:
 <pre>
 RedisClient client = new RedisClient(selectorLoop, "redis.example.com", 6379);
 client.setSecure(true);
-client.setKeystoreFile("/path/to/truststore.p12");
+client.setKeystoreFile(Path.of("/path/to/truststore.p12"));
 client.setKeystorePass("password");
 client.connect(handler);
 </pre>
@@ -874,7 +874,7 @@ custom <code>X509TrustManager</code>:
 
 <pre>
 client.setSecure(true);
-client.setKeystoreFile("/path/to/client-keystore.p12");
+client.setKeystoreFile(Path.of("/path/to/client-keystore.p12"));
 client.setKeystorePass("password");
 client.setTrustManager(new PinnedCertTrustManager(fingerprints));
 </pre>

@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.telemetry;
 
+import java.nio.file.Path;
 import org.bluezoo.gumdrop.telemetry.otlp.OtlpExporter;
 
 import org.junit.After;
@@ -106,7 +107,7 @@ public class TelemetryIntegrationTest {
             TestCertificateManager certManager = collector.getCertificateManager();
             File certsDir = new File(System.getProperty("java.io.tmpdir"), "otlp-test-certs");
             File truststoreFile = new File(certsDir, "test-truststore.p12");
-            telemetryConfig.setTruststoreFile(truststoreFile.getAbsolutePath());
+            telemetryConfig.setTruststoreFile(Path.of(truststoreFile.getAbsolutePath()));
             telemetryConfig.setTruststorePass("testpass");
         }
 
@@ -117,13 +118,13 @@ public class TelemetryIntegrationTest {
         // Create HTTP server with telemetry enabled
         httpServer = new Http2Listener();
         httpServer.setPort(HTTP_PORT);
-        httpServer.setAddresses("::1");
+        httpServer.addresses(java.net.InetAddress.getByName("::1"));
         httpServer.setTelemetryConfig(telemetryConfig);
 
         // Create SMTP server with telemetry enabled
         smtpServer = new SmtpListener();
         smtpServer.setPort(SMTP_PORT);
-        smtpServer.setAddresses("::1");
+        smtpServer.addresses(java.net.InetAddress.getByName("::1"));
         smtpServer.setTelemetryConfig(telemetryConfig);
 
         // Start both servers using their own dedicated runtime

@@ -298,7 +298,7 @@ public class AcceptSelectorLoop implements Runnable {
 
     private void doRegisterListener(TcpListener server)
             throws IOException {
-        String socketPath = server.getPath();
+        Path socketPath = server.getPath();
         if (socketPath != null) {
             doRegisterUnixListener(server, socketPath);
         } else {
@@ -306,9 +306,8 @@ public class AcceptSelectorLoop implements Runnable {
         }
     }
 
-    private void doRegisterUnixListener(TcpListener server, String socketPath)
+    private void doRegisterUnixListener(TcpListener server, Path path)
             throws IOException {
-        Path path = Path.of(socketPath);
         Files.deleteIfExists(path);
 
         ServerSocketChannel ssc =
@@ -323,9 +322,9 @@ public class AcceptSelectorLoop implements Runnable {
             String message = Gumdrop.L10N.getString("info.bound_unix_server");
             if (message != null) {
                 message = MessageFormat.format(message,
-                        server.getDescription(), socketPath, (t2 - t1));
+                        server.getDescription(), path, (t2 - t1));
             } else {
-                message = server.getDescription() + " bound to " + socketPath
+                message = server.getDescription() + " bound to " + path
                         + " (" + (t2 - t1) + " ms)";
             }
             LOGGER.fine(message);

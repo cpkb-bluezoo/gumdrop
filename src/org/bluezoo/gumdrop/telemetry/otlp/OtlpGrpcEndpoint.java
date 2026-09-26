@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.telemetry.otlp;
 
+import org.bluezoo.gumdrop.tls.KeystoreFormat;
 import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.SecurityInfo;
@@ -76,7 +77,7 @@ class OtlpGrpcEndpoint {
 
     private Path truststoreFile;
     private String truststorePass;
-    private String truststoreFormat = "PKCS12";
+    private KeystoreFormat truststoreFormat = KeystoreFormat.PKCS12;
     private volatile X509TrustManager trustManager;
 
     private HttpClient client;

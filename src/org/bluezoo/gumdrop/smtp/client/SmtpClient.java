@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.smtp.client;
 
+import org.bluezoo.gumdrop.tls.KeystoreFormat;
 import java.io.IOException;
 import java.net.InetAddress;
 import java.nio.file.Path;
@@ -275,10 +276,6 @@ public class SmtpClient {
         tls.keystoreFile(path);
     }
 
-    public void setKeystoreFile(String path) {
-        tls.keystoreFile(Path.of(path));
-    }
-
     /**
      * Sets the keystore password.
      *
@@ -293,7 +290,7 @@ public class SmtpClient {
      *
      * @param format the keystore format
      */
-    public void setKeystoreFormat(String format) {
+    public void setKeystoreFormat(KeystoreFormat format) {
         tls.keystoreFormat(format);
     }
 
@@ -419,7 +416,7 @@ public class SmtpClient {
      * @param format the format
      * @return this client
      */
-    public SmtpClient keystoreFormat(String format) {
+    public SmtpClient keystoreFormat(KeystoreFormat format) {
         tls.keystoreFormat(format);
         return this;
     }
@@ -572,7 +569,7 @@ public class SmtpClient {
         private X509TrustManager trustManager;
         private Path keystoreFile;
         private String keystorePass;
-        private String keystoreFormat;
+        private KeystoreFormat keystoreFormat;
         private DnsResolver daneResolver;
 
         private Builder() {
@@ -634,7 +631,7 @@ public class SmtpClient {
             return this;
         }
 
-        public Builder keystoreFormat(String keystoreFormat) {
+        public Builder keystoreFormat(KeystoreFormat keystoreFormat) {
             this.keystoreFormat = keystoreFormat;
             return this;
         }

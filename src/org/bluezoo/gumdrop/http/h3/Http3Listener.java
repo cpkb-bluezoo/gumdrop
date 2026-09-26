@@ -201,10 +201,6 @@ public class Http3Listener extends TcpListener
         this.certFile = path;
     }
 
-    public void setCertFile(String path) {
-        this.certFile = Path.of(path);
-    }
-
     /**
      * Sets the PEM private key file for QUIC TLS 1.3.
      *
@@ -212,10 +208,6 @@ public class Http3Listener extends TcpListener
      */
     public void setKeyFile(Path path) {
         this.keyFile = path;
-    }
-
-    public void setKeyFile(String path) {
-        this.keyFile = Path.of(path);
     }
 
     /**
@@ -633,7 +625,7 @@ public class Http3Listener extends TcpListener
     public static final class Builder {
 
         private int port = -1;
-        private String addresses;
+        private InetAddress[] addresses;
         private TlsConfig tls;
         private boolean requireRetry = true;
 
@@ -645,7 +637,7 @@ public class Http3Listener extends TcpListener
             return this;
         }
 
-        public Builder addresses(String addresses) {
+        public Builder addresses(InetAddress... addresses) {
             this.addresses = addresses;
             return this;
         }
@@ -688,7 +680,7 @@ public class Http3Listener extends TcpListener
             Http3Listener listener = new Http3Listener();
             listener.setPort(port);
             if (addresses != null) {
-                listener.setAddresses(addresses);
+                listener.addresses(addresses);
             }
             listener.setRequireRetry(requireRetry);
             if (tls != null) {

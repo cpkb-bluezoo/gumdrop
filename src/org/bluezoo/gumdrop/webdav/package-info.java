@@ -31,7 +31,7 @@
  *
  * <pre>{@code
  * HttpServer server = HttpServer.compose()
- *         .secureEndpoint(443, TlsConfig.pem("cert.pem", "key.pem"))
+ *         .secureEndpoint(443, TlsConfig.pem(Path.of("cert.pem"), Path.of("key.pem")))
  *         .streamHandler(WebDAVRequestHandler.builder()
  *                 .rootPath(Path.of("/var/www/html"))
  *                 .webdavEnabled(true)

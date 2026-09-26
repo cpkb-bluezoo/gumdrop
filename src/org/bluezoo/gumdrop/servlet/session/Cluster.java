@@ -47,6 +47,7 @@ import java.nio.channels.DatagramChannel;
 import java.security.GeneralSecurityException;
 import java.security.SecureRandom;
 import java.text.MessageFormat;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Enumeration;
@@ -54,12 +55,14 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.ResourceBundle;
 import java.util.Set;
 import java.util.StringTokenizer;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -84,6 +87,29 @@ import java.util.logging.Logger;
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 public class Cluster {
+
+    /** The default IPv4 group (link-scoped, {@code 224.0.0.0/24}). */
+    public static final InetAddress DEFAULT_GROUP_IPV4 = literal(224, 0, 80, 80);
+
+    /**
+     * The default IPv6 group: {@code ff12::8080}, a transient link-scoped
+     * group in {@code ff12::/16}, the IPv6 counterpart of
+     * {@link #DEFAULT_GROUP_IPV4}. A link-local address is enough to join it.
+     */
+    public static final InetAddress DEFAULT_GROUP_IPV6 = literal(
+            0xff, 0x12, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x80, 0x80);
+
+    private static InetAddress literal(int... octets) {
+        byte[] bytes = new byte[octets.length];
+        for (int i = 0; i < bytes.length; i++) {
+            bytes[i] = (byte) octets[i];
+        }
+        try {
+            return InetAddress.getByAddress(bytes);
+        } catch (java.net.UnknownHostException e) {
+            throw new ExceptionInInitializerError(e);
+        }
+    }
 
     private static final ResourceBundle L10N = ResourceBundle.getBundle("org.bluezoo.gumdrop.servlet.session.L10N");
     private static final Logger LOGGER = Logger.getLogger(Cluster.class.getName());
@@ -120,11 +146,8 @@ public class Cluster {
     private final ClusterContainer container;
     private final SecretKey sharedSecret;
     private final UUID nodeUuid;
-    private final InetAddress group;
-    private final InetAddress loopback;
     private final int port;
     private final SecureRandom secureRandom;
-    private final ProtocolFamily protocolFamily;
     private final AtomicLong sequenceNumber;
     private final Map<UUID, NodeSequenceState> nodeSequenceStates;
     private final Map<Long, FragmentSet> pendingFragments;
@@ -135,15 +158,60 @@ public class Cluster {
     // Node tracking: nodeUuid -> (contextUuid -> lastSeen)
     private final Map<UUID, Map<UUID, Long>> nodeContexts;
 
-    private InetSocketAddress groupSocketAddress;
-    private InetSocketAddress loopbackSocketAddress;
+    /**
+     * One multicast group and the socket that joins it. IPv4 and IPv6
+     * groups need separate sockets: a datagram channel is of one family.
+     */
+    private static final class Member {
+        final InetAddress group;
+        final boolean optional;
+        final ProtocolFamily family;
+        final InetSocketAddress groupSocketAddress;
+        final InetSocketAddress loopbackSocketAddress;
+        UdpEndpoint endpoint;
+
+        Member(InetAddress group, boolean optional, int port) throws IOException {
+            this.group = group;
+            this.optional = optional;
+            InetAddress loopback;
+            if (group instanceof Inet6Address) {
+                family = StandardProtocolFamily.INET6;
+                loopback = InetAddress.getByAddress(new byte[] { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1 });
+            } else {
+                family = StandardProtocolFamily.INET;
+                loopback = InetAddress.getByAddress(new byte[] { 127, 0, 0, 1 });
+            }
+            groupSocketAddress = new InetSocketAddress(group, port);
+            loopbackSocketAddress = new InetSocketAddress(loopback, port);
+        }
+
+        /** The wildcard address of this member's own family. */
+        InetAddress wildcard() throws IOException {
+            return InetAddress.getByAddress(new byte[group instanceof Inet6Address ? 16 : 4]);
+        }
+    }
+
+    private final List<Member> members = new ArrayList<Member>();
+    private final List<Member> activeMembers = new CopyOnWriteArrayList<Member>();
+
+    // The same message arrives once per joined group; the copy on the other
+    // group is not a replay. Guarded by receiptLock.
+    private static final int MAX_RECENT_RECEIPTS = 512;
+    private final Object receiptLock = new Object();
+    private final Map<String, Member> recentReceipts = new LinkedHashMap<String, Member>() {
+        private static final long serialVersionUID = 1L;
+
+        @Override
+        protected boolean removeEldestEntry(Map.Entry<String, Member> eldest) {
+            return size() > MAX_RECENT_RECEIPTS;
+        }
+    };
     private ByteBuffer pingBuffer;
     private TimerHandle pingTimerHandle;
 
     // Telemetry metrics (null if not configured)
     private ClusterMetrics metrics;
 
-    private UdpEndpoint endpoint;
     private UdpTransportFactory transportFactory;
     private TelemetryConfig telemetryConfig;
 
@@ -164,22 +232,19 @@ public class Cluster {
         this.secureRandom = new SecureRandom();
         this.nodeUuid = UUID.randomUUID();
         this.port = container.getClusterPort();
-        this.group = InetAddress.getByName(container.getClusterGroupAddress());
         this.sequenceNumber = new AtomicLong(0);
         this.nodeSequenceStates = new ConcurrentHashMap<UUID, NodeSequenceState>();
         this.pendingFragments = new ConcurrentHashMap<Long, FragmentSet>();
         this.sessionManagers = new ConcurrentHashMap<UUID, SessionManager>();
         this.nodeContexts = new ConcurrentHashMap<UUID, Map<UUID, Long>>();
 
-        if (group instanceof Inet6Address) {
-            protocolFamily = StandardProtocolFamily.INET6;
-            loopback = InetAddress.getByName("::1");
+        InetAddress explicit = container.getClusterGroupAddress();
+        if (explicit != null) {
+            members.add(new Member(explicit, false, port));
         } else {
-            protocolFamily = StandardProtocolFamily.INET;
-            loopback = InetAddress.getByName("127.0.0.1");
+            members.add(new Member(DEFAULT_GROUP_IPV4, false, port));
+            members.add(new Member(DEFAULT_GROUP_IPV6, true, port));
         }
-        groupSocketAddress = new InetSocketAddress(group, port);
-        loopbackSocketAddress = new InetSocketAddress(loopback, port);
         // Ping buffer includes both node and context UUIDs (context UUID is all zeros for ping)
         pingBuffer = ByteBuffer.allocate(HEADER_SIZE);
     }
@@ -199,25 +264,11 @@ public class Cluster {
      * to the built-in JDK allowlist. Use only for known-safe application
      * types; webapp class loaders are never blanket-allowed.
      *
-     * @param classNames comma- or whitespace-separated fully qualified names
+     * @param classNames fully qualified class names
      */
-    public void setReplicationAllowedClasses(String classNames) {
-        SessionSerializer.configureAllowedClasses(parseClassNameList(classNames));
-    }
-
-    private static Set<String> parseClassNameList(String spec) {
-        if (spec == null || spec.trim().isEmpty()) {
-            return Collections.emptySet();
-        }
-        Set<String> names = new HashSet<String>();
-        StringTokenizer tok = new StringTokenizer(spec, ", \t\n\r");
-        while (tok.hasMoreTokens()) {
-            String name = tok.nextToken().trim();
-            if (!name.isEmpty()) {
-                names.add(name);
-            }
-        }
-        return names;
+    public void setReplicationAllowedClasses(Set<String> classNames) {
+        SessionSerializer.configureAllowedClasses(classNames == null
+                ? Collections.<String>emptySet() : classNames);
     }
 
     /**
@@ -286,6 +337,29 @@ public class Cluster {
         return port;
     }
 
+    /**
+     * Returns the multicast groups this cluster joins (or will join),
+     * in the order messages are sent to them.
+     *
+     * @return the group addresses
+     */
+    List<InetAddress> getGroupAddresses() {
+        List<InetAddress> groups = new ArrayList<InetAddress>();
+        for (Member member : members) {
+            groups.add(member.group);
+        }
+        return groups;
+    }
+
+    /** Returns the groups actually joined after {@link #open}. */
+    List<InetAddress> getJoinedGroupAddresses() {
+        List<InetAddress> groups = new ArrayList<InetAddress>();
+        for (Member member : activeMembers) {
+            groups.add(member.group);
+        }
+        return groups;
+    }
+
     public String getDescription() {
         return "cluster";
     }
@@ -294,37 +368,79 @@ public class Cluster {
         transportFactory = new UdpTransportFactory();
         transportFactory.start();
 
-        DatagramChannel channel = DatagramChannel.open(protocolFamily);
-        channel.configureBlocking(false);
-        channel.setOption(StandardSocketOptions.SO_REUSEADDR, true);
-        channel.bind(new InetSocketAddress(port));
-
-        NetworkInterface networkInterface = null;
-        Enumeration<NetworkInterface> interfaces = NetworkInterface.getNetworkInterfaces();
-        while (interfaces.hasMoreElements()) {
-            NetworkInterface ni = interfaces.nextElement();
-            if (ni.isUp() && ni.supportsMulticast() && !ni.isLoopback()) {
-                networkInterface = ni;
-                break;
+        for (Member member : members) {
+            try {
+                openMember(gumdrop, member);
+                activeMembers.add(member);
+            } catch (IOException e) {
+                if (!member.optional) {
+                    close();
+                    throw e;
+                }
+                // a host with no IPv6 interface simply has one group fewer
+                if (LOGGER.isLoggable(Level.FINE)) {
+                    String message = L10N.getString("fine.cluster_group_skipped");
+                    LOGGER.log(Level.FINE, MessageFormat.format(message, member.group.getHostAddress()), e);
+                }
             }
         }
-        if (networkInterface == null) {
-            throw new IOException(L10N.getString("err.no_network_interface"));
-        }
-        channel.setOption(StandardSocketOptions.IP_MULTICAST_IF, networkInterface);
-        channel.join(group, networkInterface);
-
-        endpoint = transportFactory.createServerEndpoint(gumdrop, channel, new ClusterProtocolHandler());
 
         // Initialize metrics if telemetry is configured
         initializeMetrics();
 
+        schedulePing();
+    }
+
+    private void openMember(Gumdrop gumdrop, final Member member) throws IOException {
+        NetworkInterface networkInterface = findInterface(member.group instanceof Inet6Address);
+        if (networkInterface == null) {
+            throw new IOException(L10N.getString("err.no_network_interface"));
+        }
+        DatagramChannel channel = DatagramChannel.open(member.family);
+        try {
+            channel.configureBlocking(false);
+            channel.setOption(StandardSocketOptions.SO_REUSEADDR, true);
+            // the wildcard of this group's own family, not the JVM's preferred one
+            channel.bind(new InetSocketAddress(member.wildcard(), port));
+            channel.setOption(StandardSocketOptions.IP_MULTICAST_IF, networkInterface);
+            channel.join(member.group, networkInterface);
+        } catch (IOException e) {
+            channel.close();
+            throw e;
+        } catch (RuntimeException e) {
+            channel.close();
+            throw e;
+        }
+
+        member.endpoint = transportFactory.createServerEndpoint(gumdrop, channel, new ClusterProtocolHandler(member));
+
         if (LOGGER.isLoggable(Level.INFO)) {
             String message = L10N.getString("info.cluster_started");
-            message = MessageFormat.format(message, port, group.getHostAddress());
+            message = MessageFormat.format(message, port, member.group.getHostAddress());
             LOGGER.info(message);
         }
-        schedulePing();
+    }
+
+    /**
+     * Returns the first interface that is up, multicast-capable, not
+     * loopback and has an address of the wanted family. For IPv6 a
+     * link-local address is enough to join a link-scoped group.
+     */
+    private static NetworkInterface findInterface(boolean ipv6) throws IOException {
+        Enumeration<NetworkInterface> interfaces = NetworkInterface.getNetworkInterfaces();
+        while (interfaces != null && interfaces.hasMoreElements()) {
+            NetworkInterface ni = interfaces.nextElement();
+            if (!ni.isUp() || !ni.supportsMulticast() || ni.isLoopback()) {
+                continue;
+            }
+            Enumeration<InetAddress> addresses = ni.getInetAddresses();
+            while (addresses.hasMoreElements()) {
+                if ((addresses.nextElement() instanceof Inet6Address) == ipv6) {
+                    return ni;
+                }
+            }
+        }
+        return null;
     }
 
     /**
@@ -341,14 +457,20 @@ public class Cluster {
             pingTimerHandle.cancel();
             pingTimerHandle = null;
         }
-        if (endpoint != null) {
-            endpoint.close();
-            endpoint = null;
+        for (Member member : members) {
+            if (member.endpoint != null) {
+                member.endpoint.close();
+                member.endpoint = null;
+            }
         }
+        activeMembers.clear();
     }
 
     private void schedulePing() {
-        pingTimerHandle = endpoint.scheduleTimer(PING_FREQUENCY, new PingTimerCallback());
+        if (activeMembers.isEmpty()) {
+            return;
+        }
+        pingTimerHandle = activeMembers.get(0).endpoint.scheduleTimer(PING_FREQUENCY, new PingTimerCallback());
     }
 
     private void onPingTimer() {
@@ -381,7 +503,7 @@ public class Cluster {
         schedulePing();
     }
 
-    private void handleReceive(ByteBuffer data, InetSocketAddress source) {
+    private void handleReceive(ByteBuffer data, InetSocketAddress source, Member member) {
         try {
             ByteBuffer buf = decrypt(data);
             long hi = buf.getLong();
@@ -409,7 +531,11 @@ public class Cluster {
                 return;
             }
 
-            if (!validateAndRecordSequence(remoteNodeUuid, msgSequence)) {
+            int sequenceResult = validateAndRecordSequence(remoteNodeUuid, msgSequence, member);
+            if (sequenceResult == SEQUENCE_OTHER_GROUP_COPY) {
+                return;
+            }
+            if (sequenceResult == SEQUENCE_REPLAY) {
                 String message = L10N.getString("warn.cluster_replay_detected");
                 message = MessageFormat.format(message, remoteNodeUuid, msgSequence);
                 LOGGER.warning(message);
@@ -922,19 +1048,21 @@ public class Cluster {
             ByteBuffer ciphertext = encrypt(buf);
             int len = ciphertext.remaining();
 
-            ByteBuffer loopbackBuffer = ciphertext.duplicate();
-            endpoint.sendTo(loopbackBuffer, loopbackSocketAddress);
-            if (log && LOGGER.isLoggable(Level.FINEST)) {
-                String message = L10N.getString("info.cluster_send_unicast");
-                message = MessageFormat.format(message, len, loopbackSocketAddress);
-                LOGGER.finest(message);
-            }
+            for (Member member : activeMembers) {
+                ByteBuffer loopbackBuffer = ciphertext.duplicate();
+                member.endpoint.sendTo(loopbackBuffer, member.loopbackSocketAddress);
+                if (log && LOGGER.isLoggable(Level.FINEST)) {
+                    String message = L10N.getString("info.cluster_send_unicast");
+                    message = MessageFormat.format(message, len, member.loopbackSocketAddress);
+                    LOGGER.finest(message);
+                }
 
-            endpoint.sendTo(ciphertext, groupSocketAddress);
-            if (log && LOGGER.isLoggable(Level.FINEST)) {
-                String message = L10N.getString("info.cluster_send");
-                message = MessageFormat.format(message, len, groupSocketAddress);
-                LOGGER.finest(message);
+                member.endpoint.sendTo(ciphertext.duplicate(), member.groupSocketAddress);
+                if (log && LOGGER.isLoggable(Level.FINEST)) {
+                    String message = L10N.getString("info.cluster_send");
+                    message = MessageFormat.format(message, len, member.groupSocketAddress);
+                    LOGGER.finest(message);
+                }
             }
 
             // Record metrics
@@ -984,6 +1112,28 @@ public class Cluster {
         return decryptedBuf;
     }
 
+    private static final int SEQUENCE_FRESH = 0;
+    private static final int SEQUENCE_REPLAY = 1;
+    private static final int SEQUENCE_OTHER_GROUP_COPY = 2;
+
+    /**
+     * Records a message's sequence number. A message is sent to every
+     * joined group, so the copy arriving on a second group after one on the
+     * first is expected and dropped quietly; the same sequence number
+     * arriving twice on one group is still a replay.
+     */
+    private int validateAndRecordSequence(UUID nodeUuid, long seq, Member member) {
+        String key = nodeUuid + ":" + seq;
+        synchronized (receiptLock) {
+            if (validateAndRecordSequence(nodeUuid, seq)) {
+                recentReceipts.put(key, member);
+                return SEQUENCE_FRESH;
+            }
+            Member first = recentReceipts.get(key);
+            return first != null && first != member ? SEQUENCE_OTHER_GROUP_COPY : SEQUENCE_REPLAY;
+        }
+    }
+
     private boolean validateAndRecordSequence(UUID nodeUuid, long seq) {
         NodeSequenceState state = nodeSequenceStates.get(nodeUuid);
         if (state == null) {
@@ -997,6 +1147,12 @@ public class Cluster {
     }
 
     private class ClusterProtocolHandler implements ProtocolHandler {
+        private final Member member;
+
+        ClusterProtocolHandler(Member member) {
+            this.member = member;
+        }
+
         @Override
         public void connected(Endpoint ep) {
             // endpoint already set via factory
@@ -1004,8 +1160,8 @@ public class Cluster {
 
         @Override
         public void receive(ByteBuffer data) {
-            InetSocketAddress source = (InetSocketAddress) endpoint.getRemoteAddress();
-            handleReceive(data, source);
+            InetSocketAddress source = (InetSocketAddress) member.endpoint.getRemoteAddress();
+            handleReceive(data, source, member);
         }
 
         @Override

@@ -7,7 +7,7 @@ Minimal Gumdrop 3 HTTP server using `HttpServer.compose()` — no XML or
 
 ```java
 HttpServer server = HttpServer.compose()
-        .secureEndpoint(443, TlsConfig.pem("etc/tls/cert.pem", "etc/tls/key.pem"))
+        .secureEndpoint(443, TlsConfig.pem(Path.of("etc/tls/cert.pem"), Path.of("etc/tls/key.pem")))
         .streamHandler(new EchoStreamHandler())
         .server();
 ```

@@ -35,13 +35,18 @@ import org.bluezoo.gumdrop.servlet.session.SessionManager;
 
 import java.io.IOException;
 import java.text.MessageFormat;
+import java.net.InetAddress;
+import java.nio.file.Path;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.NavigableMap;
 import java.util.concurrent.ConcurrentSkipListMap;
 import java.util.concurrent.LinkedBlockingQueue;
@@ -97,17 +102,6 @@ public class Container implements ManagerContainerServer, ClusterContainer {
         }
     };
 
-    static final Map<TimeUnit, String> TIME_UNITS = new HashMap<TimeUnit, String>();
-    static {
-        TIME_UNITS.put(TimeUnit.NANOSECONDS, "ns");
-        TIME_UNITS.put(TimeUnit.MICROSECONDS, "us");
-        TIME_UNITS.put(TimeUnit.MILLISECONDS, "ms");
-        TIME_UNITS.put(TimeUnit.SECONDS, "s");
-        TIME_UNITS.put(TimeUnit.MINUTES, "m");
-        TIME_UNITS.put(TimeUnit.HOURS, "h");
-        TIME_UNITS.put(TimeUnit.DAYS, "d");
-    }
-
     private final ThreadPoolExecutor workerThreadPool;
     private final AsyncTimeoutScheduler asyncTimeoutScheduler;
     private Logger accessLogger;
@@ -159,8 +153,8 @@ public class Container implements ManagerContainerServer, ClusterContainer {
     // Distributed session management
     byte[] clusterKey;
     int clusterPort = 8080;
-    String clusterGroupAddress = "224.0.80.80";
-    String replicationAllowedClasses;
+    InetAddress clusterGroupAddress;
+    Set<String> replicationAllowedClasses;
     Cluster cluster;
 
     @Override public Collection<ManagerContextServer> getContexts() {
@@ -217,40 +211,47 @@ public class Container implements ManagerContainerServer, ClusterContainer {
         clusterPort = value;
     }
 
-    public void setClusterGroupAddress(String address) {
+    /**
+     * Sets the multicast group the cluster uses, in place of the defaults.
+     *
+     * <p>When this is not called the cluster joins
+     * {@link Cluster#DEFAULT_GROUP_IPV4 224.0.80.80} and, where an interface
+     * has an IPv6 address, {@link Cluster#DEFAULT_GROUP_IPV6 ff12::8080},
+     * sending every message to each group it joined. An explicit group
+     * replaces both and is the only one used.
+     *
+     * @param address a multicast address, or {@code null} for the defaults
+     * @throws IllegalArgumentException if the address is not a multicast address
+     */
+    public void setClusterGroupAddress(InetAddress address) {
+        if (address != null && !address.isMulticastAddress()) {
+            throw new IllegalArgumentException("cluster group address must be a multicast address: " + address);
+        }
         clusterGroupAddress = address;
     }
 
     /**
      * Sets the AES-256 session replication key.
      *
-     * @param key exactly 64 hexadecimal characters, decoded as 32 raw bytes
-     * @throws IllegalArgumentException if it is not exactly 64 hexadecimal characters
+     * @param key the 32 raw key bytes; copied
+     * @throws IllegalArgumentException if it is not exactly 32 bytes
      */
-    public void setClusterKey(String key) {
-        if (key == null || key.length() != 64) {
-            throw new IllegalArgumentException("cluster key must be exactly 64 hexadecimal characters");
+    public void setClusterKey(byte[] key) {
+        if (key == null || key.length != 32) {
+            throw new IllegalArgumentException("cluster key must be exactly 32 bytes");
         }
-        byte[] bytes = new byte[32];
-        for (int i = 0; i < bytes.length; i++) {
-            int high = Character.digit(key.charAt(i * 2), 16);
-            int low = Character.digit(key.charAt(i * 2 + 1), 16);
-            if (high < 0 || low < 0 || key.charAt(i * 2) > 'f' || key.charAt(i * 2 + 1) > 'f') {
-                throw new IllegalArgumentException("cluster key must be exactly 64 hexadecimal characters");
-            }
-            bytes[i] = (byte) ((high << 4) | low);
-        }
-        clusterKey = bytes;
+        clusterKey = key.clone();
     }
 
     /**
      * Sets fully qualified class names permitted in Java-serialized replicated
      * session attributes, in addition to the built-in JDK allowlist.
      *
-     * @param classNames comma- or whitespace-separated class names
+     * @param classNames fully qualified class names
      */
-    public void setReplicationAllowedClasses(String classNames) {
-        this.replicationAllowedClasses = classNames;
+    public void setReplicationAllowedClasses(Set<String> classNames) {
+        this.replicationAllowedClasses = classNames == null
+                ? null : new HashSet<String>(classNames);
     }
 
     // ── Servlet runtime (worker pool, auth, access log) ──
@@ -271,9 +272,9 @@ public class Container implements ManagerContainerServer, ClusterContainer {
         return workerThreadPool;
     }
 
-    public void setAccessLog(String path) {
+    public void setAccessLog(Path path) {
         try {
-            FileHandler handler = new FileHandler(path, true);
+            FileHandler handler = new FileHandler(path.toString(), true);
             handler.setFormatter(new MessageFormatter());
             handler.setLevel(Level.FINEST);
             accessLogger = Logger.getAnonymousLogger();
@@ -297,67 +298,12 @@ public class Container implements ManagerContainerServer, ClusterContainer {
         workerThreadPool.setMaximumPoolSize(maximumPoolSize);
     }
 
-    public String getWorkerKeepAlive() {
-        TimeUnit timeUnit = TimeUnit.NANOSECONDS;
-        long t = workerThreadPool.getKeepAliveTime(timeUnit);
-        if (t == 0L) {
-            timeUnit = TimeUnit.MILLISECONDS;
-        } else {
-            if (t % 1000L == 0L) {
-                timeUnit = TimeUnit.MICROSECONDS;
-                t = t / 1000L;
-            }
-            if (t % 1000L == 0L) {
-                timeUnit = TimeUnit.MILLISECONDS;
-                t = t / 1000L;
-            }
-            if (t % 1000L == 0L) {
-                timeUnit = TimeUnit.SECONDS;
-                t = t / 1000L;
-            }
-            if (t % 60L == 0L) {
-                timeUnit = TimeUnit.MINUTES;
-                t = t / 60L;
-            }
-            if (t % 60L == 0L) {
-                timeUnit = TimeUnit.HOURS;
-                t = t / 60L;
-            }
-            if (t % 24L == 0L) {
-                timeUnit = TimeUnit.DAYS;
-                t = t / 24L;
-            }
-        }
-        return new StringBuilder()
-                .append(t)
-                .append(TIME_UNITS.get(timeUnit))
-                .toString();
+    public Duration getWorkerKeepAlive() {
+        return Duration.ofNanos(workerThreadPool.getKeepAliveTime(TimeUnit.NANOSECONDS));
     }
 
-    public void setWorkerKeepAlive(String keepAlive) {
-        String time = keepAlive;
-        TimeUnit timeUnit = null;
-        for (int i = 0; i < TimeUnit.values().length; i++) {
-            TimeUnit tu = TimeUnit.values()[i];
-            String suffix = TIME_UNITS.get(tu);
-            if (time.endsWith(suffix)) {
-                timeUnit = tu;
-                time = time.substring(0,
-                        time.length() - suffix.length());
-                break;
-            }
-        }
-        if (timeUnit != null) {
-            try {
-                long keepAliveTime = Long.parseLong(time);
-                workerThreadPool.setKeepAliveTime(
-                        keepAliveTime, timeUnit);
-            } catch (NumberFormatException e) {
-                Context.LOGGER.warning(MessageFormat.format(
-                        Context.L10N.getString("warn.invalid_keep_alive_format"),
-                        keepAlive));
-            }
-        }
+    public void setWorkerKeepAlive(Duration keepAlive) {
+        workerThreadPool.setKeepAliveTime(keepAlive.toNanos(), TimeUnit.NANOSECONDS);
     }
 
     /**
@@ -613,7 +559,7 @@ public class Container implements ManagerContainerServer, ClusterContainer {
     }
 
     @Override
-    public String getClusterGroupAddress() {
+    public InetAddress getClusterGroupAddress() {
         return clusterGroupAddress;
     }
 

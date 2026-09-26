@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.http;
 
+import org.bluezoo.gumdrop.tls.KeystoreFormat;
 import java.io.IOException;
 import java.net.InetAddress;
 import java.nio.ByteBuffer;
@@ -348,10 +349,6 @@ public class HttpClient implements AltSvcListener {
         tls.keystoreFile(path);
     }
 
-    public void setKeystoreFile(String path) {
-        tls.keystoreFile(Path.of(path));
-    }
-
     /**
      * Sets the keystore password.
      *
@@ -366,7 +363,7 @@ public class HttpClient implements AltSvcListener {
      *
      * @param format the keystore format
      */
-    public void setKeystoreFormat(String format) {
+    public void setKeystoreFormat(KeystoreFormat format) {
         tls.keystoreFormat(format);
     }
 
@@ -429,8 +426,8 @@ public class HttpClient implements AltSvcListener {
      * the {@link #setSecure(boolean)} flag is implicitly true.
      *
      * <p>If PEM certificate/key files are needed for client authentication,
-     * set them via {@link #setCertFile(String)} and
-     * {@link #setKeyFile(String)}.
+     * set them via {@link #setCertFile(Path)} and
+     * {@link #setKeyFile(Path)}.
      *
      * @param enabled true to force HTTP/3
      */
@@ -499,10 +496,6 @@ public class HttpClient implements AltSvcListener {
         tls.certFile(path);
     }
 
-    public void setCertFile(String path) {
-        tls.certFile(Path.of(path));
-    }
-
     /**
      * Sets the PEM private key file for QUIC client authentication.
      *
@@ -510,10 +503,6 @@ public class HttpClient implements AltSvcListener {
      */
     public void setKeyFile(Path path) {
         tls.keyFile(path);
-    }
-
-    public void setKeyFile(String path) {
-        tls.keyFile(Path.of(path));
     }
 
     /**
@@ -744,7 +733,7 @@ public class HttpClient implements AltSvcListener {
     }
 
     /** @return this client */
-    public HttpClient keystoreFormat(String format) {
+    public HttpClient keystoreFormat(KeystoreFormat format) {
         setKeystoreFormat(format);
         return this;
     }
@@ -1804,10 +1793,10 @@ public class HttpClient implements AltSvcListener {
         client.setVerifyPeer(!skipVerify);
 
         if (pemCert != null) {
-            client.setCertFile(pemCert);
+            client.setCertFile(Path.of(pemCert));
         }
         if (pemKey != null) {
-            client.setKeyFile(pemKey);
+            client.setKeyFile(Path.of(pemKey));
         }
 
         if ("3".equals(forceVersion)) {

@@ -400,7 +400,7 @@ sniHostnames.put("*.example.com", "example-wildcard");
 sniHostnames.put("other.com", "other-cert");
 
 Http2Listener listener = new Http2Listener().port(443).secure(true);
-listener.setKeystoreFile("multi-domain.p12");
+listener.setKeystoreFile(Path.of("multi-domain.p12"));
 listener.setKeystorePass("secret");
 listener.setSniHostnames(sniHostnames);
 listener.setSniDefaultAlias("default-cert");
@@ -521,7 +521,7 @@ See <a href="tls.html#ciphers">TLS &amp; DTLS &mdash; cipher suites</a>.
 
 <pre>
 Http3Listener listener = new Http3Listener().port(443);
-listener.setKeystoreFile("keystore.p12");
+listener.setKeystoreFile(Path.of("keystore.p12"));
 listener.setKeystorePass("secret");
 listener.setCipherSuites("TLS_AES_256_GCM_SHA384");
 listener.setNamedGroups("X25519");
@@ -1027,7 +1027,7 @@ offending clients.
 <pre>
 ImapListener listener = new ImapListener().port(143);
 listener.setMaxAuthFailures(5);
-listener.setAuthLockoutTime("5m");
+listener.setAuthLockoutTimeMs(5 * 60 * 1000L);
 ImapServer imap = ImapServer.compose()
     .listener(listener)
     .realm(realm)
@@ -1068,8 +1068,8 @@ SMTP servers support CIDR-based network filtering for allow/block lists:
 
 <pre>
 SmtpListener listener = new SmtpListener().port(25);
-listener.setAllowedNetworks("192.168.0.0/16,10.0.0.0/8,2001:db8::/32");
-listener.setBlockedNetworks("192.168.100.0/24,2001:db8:bad::/48");
+listener.setAllowedNetworks(CidrNetwork.parseList("192.168.0.0/16,10.0.0.0/8,2001:db8::/32"));
+listener.setBlockedNetworks(CidrNetwork.parseList("192.168.100.0/24,2001:db8:bad::/48"));
 SmtpServer smtp = SmtpServer.compose()
     .listener(listener)
     .sessionProvider(SmtpServerSessionProviders.relay()

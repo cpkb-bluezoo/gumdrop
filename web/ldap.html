@@ -446,7 +446,7 @@ configured before connecting:
 
 <pre>
 LdapClient client = new LdapClient(selectorLoop, "ldap.example.com", 389);
-client.setKeystoreFile("/path/to/truststore.p12");
+client.setKeystoreFile(Path.of("/path/to/truststore.p12"));
 client.setKeystorePass("changeit");
 
 client.connect(new LdapConnectionReady() {
@@ -482,7 +482,7 @@ For implicit TLS (LDAPS on port 636), enable secure mode before connecting:
 <pre>
 LdapClient client = new LdapClient(selectorLoop, "ldap.example.com", 636);
 client.setSecure(true);
-client.setKeystoreFile("/path/to/truststore.p12");
+client.setKeystoreFile(Path.of("/path/to/truststore.p12"));
 client.setKeystorePass("changeit");
 client.connect(handler);
 </pre>
@@ -499,7 +499,7 @@ client.connect(handler);
     <td>Keystore for client certificate authentication</td></tr>
 <tr><td><code>setKeystorePass(String)</code></td>
     <td>Keystore password</td></tr>
-<tr><td><code>setKeystoreFormat(String)</code></td>
+<tr><td><code>setKeystoreFormat(KeystoreFormat)</code></td>
     <td>Keystore format (default: PKCS12)</td></tr>
 </table>
 

@@ -176,10 +176,6 @@ public class DoQListener extends TcpListener
         this.certFile = path;
     }
 
-    public void setCertFile(String path) {
-        this.certFile = Path.of(path);
-    }
-
     /**
      * Sets the PEM private key file for QUIC TLS 1.3.
      *
@@ -187,10 +183,6 @@ public class DoQListener extends TcpListener
      */
     public void setKeyFile(Path path) {
         this.keyFile = path;
-    }
-
-    public void setKeyFile(String path) {
-        this.keyFile = Path.of(path);
     }
 
     /**

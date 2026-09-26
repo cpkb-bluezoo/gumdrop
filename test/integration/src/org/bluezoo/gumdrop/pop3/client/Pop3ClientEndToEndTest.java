@@ -81,7 +81,7 @@ public class Pop3ClientEndToEndTest {
         mboxRoot = MailboxFixtures.copy("mbox");
         Pop3Listener server = new Pop3Listener();
         server.setPort(PORT);
-        server.setAddresses(HOST);
+        server.addresses(java.net.InetAddress.getByName(HOST));
         server.setEnableAPOP(false);
         server.setRealm(new TestRealm());
         server.setMailboxFactory(new MboxMailboxFactory(mboxRoot));

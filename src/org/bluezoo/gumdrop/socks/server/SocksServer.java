@@ -155,12 +155,11 @@ public class SocksServer implements Server, SocksServerSessionProvider {
      * If set, only destinations matching one of these networks will
      * be permitted.
      *
-     * @param allowed comma-separated CIDR notation
+     * @param allowed the permitted destination networks, or null
      */
-    public void setAllowedDestinations(String allowed) {
-        if (allowed != null && !allowed.isEmpty()) {
-            this.allowedDestinations = CidrNetwork.parseList(allowed);
-        }
+    public void setAllowedDestinations(List<CidrNetwork> allowed) {
+        this.allowedDestinations = allowed == null || allowed.isEmpty()
+                ? null : new ArrayList<CidrNetwork>(allowed);
     }
 
     /**
@@ -168,12 +167,11 @@ public class SocksServer implements Server, SocksServerSessionProvider {
      * to. Destinations matching any of these networks will be denied.
      * Block rules are evaluated before allow rules.
      *
-     * @param blocked comma-separated CIDR notation
+     * @param blocked the denied destination networks, or null
      */
-    public void setBlockedDestinations(String blocked) {
-        if (blocked != null && !blocked.isEmpty()) {
-            this.blockedDestinations = CidrNetwork.parseList(blocked);
-        }
+    public void setBlockedDestinations(List<CidrNetwork> blocked) {
+        this.blockedDestinations = blocked == null || blocked.isEmpty()
+                ? null : new ArrayList<CidrNetwork>(blocked);
     }
 
     /**
@@ -204,41 +202,6 @@ public class SocksServer implements Server, SocksServerSessionProvider {
      */
     public void setRelayIdleTimeoutMs(long timeoutMs) {
         this.relayIdleTimeoutMs = timeoutMs;
-    }
-
-    /**
-     * Sets the idle timeout using a duration string (e.g. "5m", "300s").
-     *
-     * @param timeout the duration string
-     */
-    public void setRelayIdleTimeout(String timeout) {
-        this.relayIdleTimeoutMs = parseDuration(timeout);
-    }
-
-    private static long parseDuration(String duration) {
-        if (duration != null && !duration.isEmpty()) {
-            duration = duration.trim().toLowerCase();
-            long multiplier = 1;
-            String numPart = duration;
-            if (duration.endsWith("ms")) {
-                numPart = duration.substring(0, duration.length() - 2);
-            } else if (duration.endsWith("s")) {
-                numPart = duration.substring(0, duration.length() - 1);
-                multiplier = 1000;
-            } else if (duration.endsWith("m")) {
-                numPart = duration.substring(0, duration.length() - 1);
-                multiplier = 60 * 1000;
-            } else if (duration.endsWith("h")) {
-                numPart = duration.substring(0, duration.length() - 1);
-                multiplier = 60 * 60 * 1000;
-            }
-            try {
-                return Long.parseLong(numPart.trim()) * multiplier;
-            } catch (NumberFormatException e) {
-                // fall through
-            }
-        }
-        return 0;
     }
 
     /**
@@ -437,8 +400,8 @@ public class SocksServer implements Server, SocksServerSessionProvider {
         private final List<SocksListener> listeners = new ArrayList<SocksListener>();
         private SocksServerSessionProvider sessionProvider;
         private Realm realm;
-        private String allowedDestinations;
-        private String blockedDestinations;
+        private List<CidrNetwork> allowedDestinations;
+        private List<CidrNetwork> blockedDestinations;
         private int maxRelays;
         private long relayIdleTimeoutMs = 5 * 60 * 1000;
 
@@ -474,12 +437,12 @@ public class SocksServer implements Server, SocksServerSessionProvider {
             return this;
         }
 
-        public Composer allowedDestinations(String allowedDestinations) {
+        public Composer allowedDestinations(List<CidrNetwork> allowedDestinations) {
             this.allowedDestinations = allowedDestinations;
             return this;
         }
 
-        public Composer blockedDestinations(String blockedDestinations) {
+        public Composer blockedDestinations(List<CidrNetwork> blockedDestinations) {
             this.blockedDestinations = blockedDestinations;
             return this;
         }

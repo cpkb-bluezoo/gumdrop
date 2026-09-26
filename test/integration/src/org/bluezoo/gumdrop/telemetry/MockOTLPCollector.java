@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.telemetry;
 
+import java.nio.file.Path;
 import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.GumdropConfig;
 import org.bluezoo.gumdrop.TestCertificateManager;
@@ -113,7 +114,7 @@ public class MockOTLPCollector {
         
         server = new OTLPCollectorServer(this);
         server.setPort(port);
-        server.setAddresses("::1");
+        server.addresses(java.net.InetAddress.getByName("::1"));
 
         if (secure) {
             // Set up TLS with test certificates
@@ -128,7 +129,7 @@ public class MockOTLPCollector {
             }
             
             // Configure server TLS
-            server.setKeystoreFile(certManager.getSharedKeystoreFile().getPath());
+            server.setKeystoreFile(Path.of(certManager.getSharedKeystoreFile().getPath()));
             server.setKeystorePass(password);
             server.setSecure(true);
         }

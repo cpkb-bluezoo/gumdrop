@@ -81,7 +81,7 @@ public class ImapClientEndToEndTest {
         maildirRoot = MailboxFixtures.copy("maildir");
         ImapListener server = new ImapListener();
         server.setPort(PORT);
-        server.setAddresses(HOST);
+        server.addresses(java.net.InetAddress.getByName(HOST));
         server.setRealm(new TestRealm());
         server.setMailboxFactory(new MaildirMailboxFactory(maildirRoot));
         server.setAllowPlaintextLogin(true);

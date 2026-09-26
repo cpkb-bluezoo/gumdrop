@@ -594,7 +594,7 @@ public class Http2Listener extends TcpListener {
     public static final class Builder {
 
         private int port = -1;
-        private String addresses;
+        private InetAddress[] addresses;
         private boolean secure;
         private TlsConfig tls;
 
@@ -606,7 +606,7 @@ public class Http2Listener extends TcpListener {
             return this;
         }
 
-        public Builder addresses(String addresses) {
+        public Builder addresses(InetAddress... addresses) {
             this.addresses = addresses;
             return this;
         }
@@ -651,7 +651,7 @@ public class Http2Listener extends TcpListener {
             Http2Listener listener = new Http2Listener();
             listener.setPort(port);
             if (addresses != null) {
-                listener.setAddresses(addresses);
+                listener.addresses(addresses);
             }
             listener.setSecure(secure);
             if (tls != null) {

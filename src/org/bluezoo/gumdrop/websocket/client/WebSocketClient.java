@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.websocket.client;
 
+import org.bluezoo.gumdrop.tls.KeystoreFormat;
 import java.io.IOException;
 import java.net.InetAddress;
 import java.nio.ByteBuffer;
@@ -307,10 +308,6 @@ public class WebSocketClient implements AltSvcListener {
         tls.keystoreFile(path);
     }
 
-    public void setKeystoreFile(String path) {
-        tls.keystoreFile(Path.of(path));
-    }
-
     /**
      * Sets the keystore password.
      *
@@ -325,7 +322,7 @@ public class WebSocketClient implements AltSvcListener {
      *
      * @param format the keystore format
      */
-    public void setKeystoreFormat(String format) {
+    public void setKeystoreFormat(KeystoreFormat format) {
         tls.keystoreFormat(format);
     }
 

@@ -516,7 +516,7 @@ Timeouts can be configured with time unit suffixes (<code>ms</code>, <code>s</co
 
 <pre>
 ImapListener listener = new ImapListener();
-listener.setIdleTimeout("30m");
+listener.setIdleTimeoutMs(30 * 60 * 1000L);
 listener.setReadTimeout("60s");
 listener.setConnectionTimeout("2m");
 ImapServer imap = ImapServer.compose()

@@ -45,7 +45,7 @@ import java.util.logging.Logger;
  *
  * <pre>{@code
  * HttpServer server = HttpServer.compose()
- *         .secureEndpoint(443, TlsConfig.pem("cert.pem", "key.pem"))
+ *         .secureEndpoint(443, TlsConfig.pem(Path.of("cert.pem"), Path.of("key.pem")))
  *         .streamHandler(WebDAVRequestHandler.builder()
  *                 .rootPath(Path.of("/var/www/html"))
  *                 .webdavEnabled(true)
@@ -159,10 +159,6 @@ public final class WebDAVRequestHandler implements HttpStreamHandler {
             }
             this.rootPath = rootPath;
             return this;
-        }
-
-        public Builder rootPath(String rootPath) {
-            return rootPath(Paths.get(rootPath));
         }
 
         public Builder allowWrite(boolean allowWrite) {

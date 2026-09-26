@@ -301,22 +301,52 @@ public class ServerXmlLoaderTest {
     }
 
     @Test
-    public void clusterKeyWithHighBitSetIsAcceptedAsThirtyTwoRawBytes() throws Exception {
+    public void clusterKeyBytesAreStoredAsGiven() {
         org.bluezoo.gumdrop.servlet.Container container = new org.bluezoo.gumdrop.servlet.Container();
-        String hex = "ff00112233445566778899aabbccddeeff00112233445566778899aabbccddee";
-        container.setClusterKey(hex);
+        byte[] given = new byte[32];
+        given[0] = (byte) 0xff;
+        given[31] = (byte) 0xee;
+        container.setClusterKey(given);
         byte[] key = container.getClusterKey();
         assertEquals(32, key.length);
         assertEquals((byte) 0xff, key[0]);
         assertEquals((byte) 0xee, key[31]);
+        given[0] = 0;
+        assertEquals("the key is copied", (byte) 0xff, container.getClusterKey()[0]);
+    }
+
+    @Test(expected = IllegalArgumentException.class)
+    public void clusterKeyOfWrongLengthIsRejected() {
+        new org.bluezoo.gumdrop.servlet.Container().setClusterKey(new byte[16]);
+    }
+
+    @Test(expected = IllegalArgumentException.class)
+    public void clusterGroupAddressMustBeMulticast() throws Exception {
+        new org.bluezoo.gumdrop.servlet.Container().setClusterGroupAddress(
+                java.net.InetAddress.getByAddress(new byte[] { 10, 0, 0, 1 }));
     }
 
     @Test
-    public void leadingZeroClusterKeyKeepsAllThirtyTwoBytes() throws Exception {
-        org.bluezoo.gumdrop.servlet.Container container = new org.bluezoo.gumdrop.servlet.Container();
-        container.setClusterKey("0000000000000000000000000000000000000000000000000000000000000001");
-        byte[] key = container.getClusterKey();
-        assertEquals(32, key.length);
-        assertEquals(1, key[31]);
+    public void clusterGroupAddressLiteralsAreAccepted() {
+        load("<server><cluster port='4000' group-address='ff12::8080' key='" + HEX_63 + "0'/>"
+                + "<listener port='1'/></server>");
+        assertNull(error, error);
+        load("<server><cluster port='4000' group-address='224.0.80.81' key='" + HEX_63 + "0'/>"
+                + "<listener port='1'/></server>");
+        assertNull(error, error);
+    }
+
+    @Test
+    public void clusterGroupAddressIsNeverResolvedAsAName() {
+        load("<server><cluster port='4000' group-address='localhost' key='" + HEX_63 + "0'/>"
+                + "<listener port='1'/></server>");
+        assertError("group-address");
+    }
+
+    @Test
+    public void clusterGroupAddressMustBeMulticastInXml() {
+        load("<server><cluster port='4000' group-address='10.0.0.1' key='" + HEX_63 + "0'/>"
+                + "<listener port='1'/></server>");
+        assertError("group-address");
     }
 }

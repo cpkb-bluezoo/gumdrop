@@ -40,13 +40,13 @@ public class DefaultTelemetryExporterFactory implements TelemetryExporterFactory
         if (!config.isExportConfigured()) {
             return null;
         }
-        if ("file".equalsIgnoreCase(config.getExporterType())) {
+        if (config.getExporterType() == TelemetryConfig.ExporterType.FILE) {
             return new OtlpFileExporter(config,
                     config.getFileTracesPath(),
                     config.getFileLogsPath(),
                     config.getFileMetricsPath());
         }
-        if ("grpc".equalsIgnoreCase(config.getProtocol())) {
+        if (config.getProtocol() == TelemetryConfig.Protocol.GRPC) {
             return new OtlpGrpcExporter(config);
         }
         return new OtlpExporter(config);

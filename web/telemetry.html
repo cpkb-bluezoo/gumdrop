@@ -212,14 +212,14 @@ telemetry.setDeploymentEnvironment("prod-east");
 // OTLP endpoint (OpenTelemetry Collector) - use HTTPS in production
 // For HTTP/protobuf use port 4318; for gRPC use port 4317
 telemetry.setEndpoint("https://otel-collector:4318");
-telemetry.setProtocol("http/protobuf");
+telemetry.setProtocol(TelemetryConfig.Protocol.HTTP_PROTOBUF);
 
 // TLS configuration for OTLP export
-telemetry.setTruststoreFile("/etc/gumdrop/otlp-truststore.p12");
+telemetry.setTruststoreFile(Path.of("/etc/gumdrop/otlp-truststore.p12"));
 telemetry.setTruststorePass("changeit");
 
 // Metrics configuration
-telemetry.setMetricsTemporalityName("cumulative");
+telemetry.setMetricsTemporality(AggregationTemporality.CUMULATIVE);
 telemetry.setMetricsIntervalMs(60000);
 
 telemetry.init();
@@ -816,7 +816,7 @@ for Prometheus-style scrapers.</li>
 </ul>
 
 <pre>
-telemetry.setMetricsTemporalityName("delta");
+telemetry.setMetricsTemporality(AggregationTemporality.DELTA);
 </pre>
 
 <h3 id="distributed">Distributed Tracing</h3>
@@ -930,7 +930,7 @@ telemetry.setServiceName("my-service");
 telemetry.setEndpoint("https://otel-collector:4318");
 
 // Truststore containing the CA certificate for the collector
-telemetry.setTruststoreFile("/etc/gumdrop/otlp-truststore.p12");
+telemetry.setTruststoreFile(Path.of("/etc/gumdrop/otlp-truststore.p12"));
 telemetry.setTruststorePass("changeit");
 telemetry.init();
 </pre>
@@ -1016,7 +1016,7 @@ telemetry.setServiceInstanceId("mail-gw-01");
 
 // HTTPS endpoint (recommended for production)
 telemetry.setEndpoint("https://otel-collector.monitoring:4318");
-telemetry.setTruststoreFile("/etc/gumdrop/otlp-truststore.p12");
+telemetry.setTruststoreFile(Path.of("/etc/gumdrop/otlp-truststore.p12"));
 telemetry.setTruststorePass("changeit");
 
 telemetry.setBatchSize(256);
@@ -1115,7 +1115,7 @@ signal type. Any signal without a configured path writes to stdout.
 <pre>
 TelemetryConfig telemetry = new TelemetryConfig();
 telemetry.setServiceName("my-service");
-telemetry.setExporterType("file");
+telemetry.setExporterType(TelemetryConfig.ExporterType.FILE);
 
 // Separate files per signal type
 telemetry.setFileTracesPath("/var/log/otel/traces.jsonl");
@@ -1139,7 +1139,7 @@ the simplest way to see telemetry output during development:
 <pre>
 TelemetryConfig telemetry = new TelemetryConfig();
 telemetry.setServiceName("my-service");
-telemetry.setExporterType("file");
+telemetry.setExporterType(TelemetryConfig.ExporterType.FILE);
 // No file paths = all output goes to stdout
 telemetry.init();
 </pre>

@@ -213,17 +213,6 @@ public class AuthenticationRateLimiter {
     }
 
     /**
-     * Sets the lockout duration from a string specification.
-     *
-     * <p>Supports suffixes: {@code s} (seconds), {@code m} (minutes), {@code h} (hours)
-     *
-     * @param duration the duration string (e.g., "5m", "300s", "1h")
-     */
-    public void setLockoutTime(String duration) {
-        this.lockoutMs = parseDuration(duration);
-    }
-
-    /**
      * Returns the lockout duration in milliseconds.
      *
      * @return the lockout duration
@@ -248,40 +237,6 @@ public class AuthenticationRateLimiter {
      */
     public void setExponentialBackoff(boolean exponentialBackoff) {
         this.exponentialBackoff = exponentialBackoff;
-    }
-
-    /**
-     * Parses a duration string with time unit suffix.
-     */
-    private long parseDuration(String duration) {
-        if (duration == null || duration.isEmpty()) {
-            return lockoutMs;
-        }
-
-        duration = duration.trim().toLowerCase();
-        long multiplier = 1;
-        String numPart = duration;
-
-        if (duration.endsWith("ms")) {
-            numPart = duration.substring(0, duration.length() - 2);
-            multiplier = 1;
-        } else if (duration.endsWith("s")) {
-            numPart = duration.substring(0, duration.length() - 1);
-            multiplier = 1000;
-        } else if (duration.endsWith("m")) {
-            numPart = duration.substring(0, duration.length() - 1);
-            multiplier = 60 * 1000;
-        } else if (duration.endsWith("h")) {
-            numPart = duration.substring(0, duration.length() - 1);
-            multiplier = 60 * 60 * 1000;
-        }
-
-        try {
-            return Long.parseLong(numPart.trim()) * multiplier;
-        } catch (NumberFormatException e) {
-            LOGGER.warning(MessageFormat.format(L10N.getString("ratelimit.err.invalid_duration"), duration));
-            return lockoutMs;
-        }
     }
 
     /**

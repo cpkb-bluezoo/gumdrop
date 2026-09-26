@@ -54,7 +54,7 @@ public class DefaultTelemetryExporterFactoryIntegrationTest {
     public void grpcProtocolSelectsGrpcExporter() {
         TelemetryConfig config = new TelemetryConfig();
         config.setMetricsEndpoint("http://collector.invalid:4317");
-        config.setProtocol("GRPC");
+        config.setProtocol(TelemetryConfig.Protocol.GRPC);
         TelemetryExporter e =
                 new DefaultTelemetryExporterFactory().createExporter(config);
         try {

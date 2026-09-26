@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.http;
 
+import org.bluezoo.gumdrop.tls.KeystoreFormat;
 import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.IntegrationTestHosts;
 import org.bluezoo.gumdrop.TestTlsFiles;
@@ -75,7 +76,7 @@ public class KeystoreTlsIntegrationTest {
     public void testHttpsWithJksKeystore() throws Exception {
         Path jks = TestTlsFiles.writeTemporaryJksServerKeystore();
         try {
-            runOneGet(TlsConfig.keystore(jks, TestTlsFiles.KEYSTORE_PASSWORD, "JKS"));
+            runOneGet(TlsConfig.keystore(jks, TestTlsFiles.KEYSTORE_PASSWORD, KeystoreFormat.JKS));
         } finally {
             Files.deleteIfExists(jks);
         }

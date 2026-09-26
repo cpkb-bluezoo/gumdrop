@@ -425,7 +425,7 @@ session provider:
 <pre>
 RoleBasedQuotaManager ftpQuota = new RoleBasedQuotaManager();
 ftpQuota.setRealm(ftpRealm);
-ftpQuota.setStorageDir("/var/ftp/quota");
+ftpQuota.setStorageDir(Path.of("/var/ftp/quota"));
 ftpQuota.setDefaultQuota("100MB");
 ftpQuota.setRoleQuota("premium", "10GB");
 ftpQuota.setRoleQuota("enterprise", "unlimited");

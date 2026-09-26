@@ -490,7 +490,7 @@ public class NostrRelayService
 }
 
 HttpServer server = HttpServer.compose()
-        .secureEndpoint(443, TlsConfig.pem("cert.pem", "key.pem"))
+        .secureEndpoint(443, TlsConfig.pem(Path.of("cert.pem"), Path.of("key.pem")))
         .streamHandler(new NostrRelayService().toHandler())
         .server();
 </pre>

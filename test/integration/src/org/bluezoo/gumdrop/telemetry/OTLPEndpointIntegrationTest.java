@@ -81,7 +81,7 @@ public class OTLPEndpointIntegrationTest {
         // Create test server
         server = new Http2Listener();
         server.setPort(TEST_PORT);
-        server.setAddresses("::1");
+        server.addresses(java.net.InetAddress.getByName("::1"));
         server.setStreamHandler(new HttpStreamHandler() {
             @Override
             public HttpRequestHandler openStream(HttpResponseState state) {

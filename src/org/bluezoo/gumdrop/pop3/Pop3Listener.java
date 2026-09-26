@@ -249,17 +249,6 @@ public class Pop3Listener extends TcpListener {
     }
 
     /**
-     * Sets the login delay using a string with optional time unit suffix.
-     * Supported suffixes: ms, s, m, h (milliseconds, seconds, minutes,
-     * hours).
-     *
-     * @param delay the delay string (e.g., "5s", "500ms")
-     */
-    public void setLoginDelay(String delay) {
-        this.loginDelayMs = parseDuration(delay);
-    }
-
-    /**
      * Returns the transaction timeout in milliseconds.
      * RFC 1939 section 3 recommends a minimum 10-minute timeout.
      *
@@ -276,16 +265,6 @@ public class Pop3Listener extends TcpListener {
      */
     public void setTransactionTimeoutMs(long transactionTimeoutMs) {
         this.transactionTimeoutMs = transactionTimeoutMs;
-    }
-
-    /**
-     * Sets the transaction timeout using a string with optional time
-     * unit suffix.
-     *
-     * @param timeout the timeout string (e.g., "10m", "600s")
-     */
-    public void setTransactionTimeout(String timeout) {
-        this.transactionTimeoutMs = parseDuration(timeout);
     }
 
     /**

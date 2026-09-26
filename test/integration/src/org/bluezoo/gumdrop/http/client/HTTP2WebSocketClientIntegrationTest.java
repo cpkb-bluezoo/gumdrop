@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.http.client;
 
+import java.nio.file.Path;
 import java.io.File;
 import java.nio.ByteBuffer;
 import java.util.concurrent.CountDownLatch;
@@ -101,9 +102,9 @@ public class HTTP2WebSocketClientIntegrationTest {
 
         listener = new Http2Listener();
         listener.setPort(PORT);
-        listener.setAddresses(TEST_HOST);
+        listener.addresses(java.net.InetAddress.getByName(TEST_HOST));
         listener.setSecure(true);
-        listener.setKeystoreFile(keystore.getAbsolutePath());
+        listener.setKeystoreFile(Path.of(keystore.getAbsolutePath()));
         listener.setKeystorePass("testpass");
         listener.setStreamHandler(new H2EchoWebSocketHandlerFactory());
 

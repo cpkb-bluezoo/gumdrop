@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.http.client;
 
+import java.nio.file.Path;
 import java.io.File;
 import java.nio.ByteBuffer;
 import java.util.concurrent.CountDownLatch;
@@ -98,9 +99,9 @@ public class HTTP3WebSocketClientIntegrationTest {
 
         listener = new Http3Listener();
         listener.setPort(H3_PORT);
-        listener.setAddresses(TEST_HOST);
-        listener.setCertFile(pemCert.getAbsolutePath());
-        listener.setKeyFile(pemKey.getAbsolutePath());
+        listener.addresses(java.net.InetAddress.getByName(TEST_HOST));
+        listener.setCertFile(Path.of(pemCert.getAbsolutePath()));
+        listener.setKeyFile(Path.of(pemKey.getAbsolutePath()));
         listener.setStreamHandler(new EchoWebSocketHandlerFactory());
 
         gumdrop = Gumdrop.boot(GumdropConfig.create().workerThreads(2));

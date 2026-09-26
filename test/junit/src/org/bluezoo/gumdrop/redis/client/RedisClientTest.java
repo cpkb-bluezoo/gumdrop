@@ -69,7 +69,7 @@ public class RedisClientTest {
     public void testPingViaFacade() throws Exception {
         listener = new FakeRedisListener();
         listener.setPort(0);
-        listener.setAddresses(HOST);
+        listener.addresses(java.net.InetAddress.getByName(HOST));
         gumdrop = Gumdrop.boot();
         gumdrop.addListener(listener);
         gumdrop.start();

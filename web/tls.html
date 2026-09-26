@@ -409,7 +409,7 @@ sniHostnames.put("example.com", "example-cert");
 
 Http2Listener listener = new Http2Listener().port(443).secure(true);
 listener.setTlsVersion(TlsVersion.TLS_1_3);
-listener.setKeystoreFile("keystore.p12");
+listener.setKeystoreFile(Path.of("keystore.p12"));
 listener.setKeystorePass("secret");
 listener.setCipherSuites("TLS_AES_128_GCM_SHA256:TLS_CHACHA20_POLY1305_SHA256");
 listener.setNamedGroups("X25519:SECP256R1");
@@ -434,9 +434,9 @@ examples.
 TcpTransportFactory factory = new TcpTransportFactory();
 factory.setSecure(true);
 factory.setTlsVersion(TlsVersion.TLS_1_3);
-factory.setKeystoreFile("client.p12");
+factory.setKeystoreFile(Path.of("client.p12"));
 factory.setKeystorePass("secret");
-factory.setTruststoreFile("trust.p12");
+factory.setTruststoreFile(Path.of("trust.p12"));
 factory.setTruststorePass("secret");
 factory.setApplicationProtocols("h2", "http/1.1");
 factory.setCipherSuites("TLS_AES_128_GCM_SHA256");

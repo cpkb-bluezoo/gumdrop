@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.http.server;
 
+import org.bluezoo.gumdrop.tls.KeystoreFormat;
 import org.bluezoo.gumdrop.TlsConfigSupport;
 import org.bluezoo.gumdrop.Listener;
 import org.bluezoo.gumdrop.tls.ServerCredentials;
@@ -55,14 +56,6 @@ public final class HttpTlsConfig {
     }
 
     /**
-     * @deprecated use {@link TlsConfig#pem(String, String)}.
-     */
-    @Deprecated
-    public static HttpTlsConfig pem(String certFile, String keyFile) {
-        return new HttpTlsConfig(TlsConfig.pem(certFile, keyFile));
-    }
-
-    /**
      * @deprecated use {@link TlsConfig#keystore(Path, String)}.
      */
     @Deprecated
@@ -75,7 +68,7 @@ public final class HttpTlsConfig {
      */
     @Deprecated
     public static HttpTlsConfig keystore(Path keystoreFile, String keystorePass,
-                                         String keystoreFormat) {
+                                         KeystoreFormat keystoreFormat) {
         return new HttpTlsConfig(
                 TlsConfig.keystore(keystoreFile, keystorePass, keystoreFormat));
     }

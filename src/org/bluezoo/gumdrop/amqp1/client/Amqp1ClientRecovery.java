@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.amqp1.client;
 
+import org.bluezoo.gumdrop.tls.KeystoreFormat;
 import java.io.IOException;
 import java.net.InetAddress;
 import java.nio.ByteBuffer;
@@ -137,7 +138,7 @@ public final class Amqp1ClientRecovery {
     private X509TrustManager trustManager;
     private Path keystoreFile;
     private String keystorePass;
-    private String keystoreFormat;
+    private KeystoreFormat keystoreFormat;
 
     private Gumdrop gumdrop;
     private Amqp1RecoveryHandler appHandler;
@@ -293,7 +294,7 @@ public final class Amqp1ClientRecovery {
         return this;
     }
 
-    public Amqp1ClientRecovery setKeystoreFormat(String format) {
+    public Amqp1ClientRecovery setKeystoreFormat(KeystoreFormat format) {
         this.keystoreFormat = format;
         return this;
     }

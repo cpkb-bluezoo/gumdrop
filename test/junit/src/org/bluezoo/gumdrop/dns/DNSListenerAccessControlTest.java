@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.dns;
 
+import org.bluezoo.gumdrop.util.CidrNetwork;
 import org.junit.Test;
 
 import java.net.InetAddress;
@@ -38,7 +39,7 @@ public class DNSListenerAccessControlTest {
     @Test
     public void testBlockedNetworkRejectsSource() throws Exception {
         DnsListener listener = new DnsListener();
-        listener.setBlockedNetworks("10.0.0.0/8");
+        listener.setBlockedNetworks(CidrNetwork.parseList("10.0.0.0/8"));
 
         InetSocketAddress blocked =
                 new InetSocketAddress("10.1.2.3", 12345);
@@ -52,7 +53,7 @@ public class DNSListenerAccessControlTest {
     @Test
     public void testAllowedNetworkRestrictsSource() throws Exception {
         DnsListener listener = new DnsListener();
-        listener.setAllowedNetworks("192.168.0.0/16");
+        listener.setAllowedNetworks(CidrNetwork.parseList("192.168.0.0/16"));
 
         InetSocketAddress allowed =
                 new InetSocketAddress("192.168.1.50", 53);

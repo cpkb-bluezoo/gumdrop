@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.socks;
 
+import org.bluezoo.gumdrop.util.CidrNetwork;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
@@ -404,7 +405,7 @@ public class SOCKSProtocolHandlerTest {
 
     @Test
     public void testSOCKS4ConnectBlockedDestination() {
-        service.setBlockedDestinations("10.0.0.0/8");
+        service.setBlockedDestinations(CidrNetwork.parseList("10.0.0.0/8"));
 
         ByteBuffer buf = buildSOCKS4Connect(
                 new byte[]{10, 1, 2, 3}, 80, "user");
@@ -417,7 +418,7 @@ public class SOCKSProtocolHandlerTest {
 
     @Test
     public void testSOCKS5ConnectBlockedDestination() {
-        service.setBlockedDestinations("192.168.0.0/16");
+        service.setBlockedDestinations(CidrNetwork.parseList("192.168.0.0/16"));
 
         negotiateSOCKS5NoAuth();
         endpoint.clearSent();
