@@ -86,6 +86,16 @@ final class Dtls12Session implements TlsRecordSink {
         commitFlightIfNeeded();
     }
 
+    Dtls12RecordEngine getRecordEngine() {
+        ensureEngine(null);
+        return engine;
+    }
+
+    void clientContinueAfterTls13Probe(byte[] clientHelloWire, long nextPlaintextSeq) {
+        ensureEngine(null);
+        engine.clientContinueAfterSentClientHello(clientHelloWire, nextPlaintextSeq);
+    }
+
     void receive(byte[] datagram) {
         receive(datagram, 0, datagram.length);
     }

@@ -178,6 +178,30 @@ public final class HandshakeEngine {
     }
 
     /**
+     * Client role: a {@code ClientHello} was already placed on the wire by a
+     * version-negotiating connector; continue from {@code WAIT_SERVER_HELLO}.
+     */
+    void clientNoteClientHelloSent(byte[] wire) {
+        if (config.getRole() != HandshakeRole.CLIENT || state != State.INITIAL) {
+            return;
+        }
+        savedClientHelloBytes = wire;
+        state = State.WAIT_SERVER_HELLO;
+    }
+
+    /**
+     * Outbound {@code ClientHello} handshake bytes after {@link #start} on a client.
+     *
+     * @return framed ClientHello, or null if not in the expected state
+     */
+    byte[] getClientHelloOutboundWire() {
+        if (config.getRole() != HandshakeRole.CLIENT || state != State.WAIT_SERVER_HELLO) {
+            return null;
+        }
+        return savedClientHelloBytes;
+    }
+
+    /**
      * Builds and sends a ClientHello -- the initial one ({@code retryGroup}
      * null) or a followup after a HelloRetryRequest ({@code retryGroup}
      * the group it requested). The initial case generates fresh key
@@ -232,6 +256,9 @@ public final class HandshakeEngine {
         params.advertiseRecordSizeLimit = config.isRecordSizeLimitEnabled();
         params.recordSizeLimit = localRecordSizeLimit;
         params.certificateCompressionAlgorithms = certificateCompressionOffer();
+        params.offerTls12Fallback = config.isOfferTls12Fallback()
+                && (config.getMode() == HandshakeMode.TCP_RECORD_LAYER
+                || config.getMode() == HandshakeMode.DTLS);
 
         SessionTicket ticket = config.getSessionTicket();
         byte[] clientHello;

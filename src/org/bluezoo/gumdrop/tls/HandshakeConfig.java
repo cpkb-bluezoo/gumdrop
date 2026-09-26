@@ -98,6 +98,12 @@ public final class HandshakeConfig {
             CertificateCompressor.defaultEnabledAlgorithms();
     private int maxDecompressedCertificateSize = CertificateCompressor.DEFAULT_MAX_DECOMPRESSED_SIZE;
 
+    /**
+     * TCP TLS client: offer TLS 1.2 in {@code supported_versions} alongside 1.3
+     * when version {@link TlsVersion#NEGOTIATE} is in use.
+     */
+    private boolean offerTls12Fallback;
+
     private AntiReplay antiReplay;
     private TransportParameterConsistencyChecker transportParameterConsistencyChecker = PERMISSIVE_CHECKER;
     private int earlyDataFreshnessMs = 10000;
@@ -588,6 +594,25 @@ public final class HandshakeConfig {
 
     public void setMaxDecompressedCertificateSize(int maxDecompressedCertificateSize) {
         this.maxDecompressedCertificateSize = maxDecompressedCertificateSize;
+    }
+
+    /**
+     * Returns whether the TCP client offers TLS 1.2 in {@code supported_versions}
+     * for version negotiation.
+     *
+     * @return true when TLS 1.2 is advertised alongside 1.3
+     */
+    public boolean isOfferTls12Fallback() {
+        return offerTls12Fallback;
+    }
+
+    /**
+     * Sets whether the TCP client offers TLS 1.2 in {@code supported_versions}.
+     *
+     * @param offerTls12Fallback true to advertise TLS 1.2 for negotiate mode
+     */
+    public void setOfferTls12Fallback(boolean offerTls12Fallback) {
+        this.offerTls12Fallback = offerTls12Fallback;
     }
 
     /**

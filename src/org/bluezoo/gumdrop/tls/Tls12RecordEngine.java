@@ -234,6 +234,13 @@ public final class Tls12RecordEngine {
     }
 
     /**
+     * See {@link Tls12HandshakeEngine#clientNoteClientHelloSent}.
+     */
+    public void clientNoteClientHelloSent(byte[] wire) {
+        engine.clientNoteClientHelloSent(wire);
+    }
+
+    /**
      * Consumes raw bytes off the TCP stream -- any number of complete or
      * partial records. Buffers a trailing partial record for the next call.
      *

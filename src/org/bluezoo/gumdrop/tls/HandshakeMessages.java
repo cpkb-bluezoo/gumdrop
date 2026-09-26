@@ -148,6 +148,8 @@ final class HandshakeMessages {
         byte[] legacySessionId;
         /** GREASE {@code pre_shared_key} on ClientHelloOuter when inner offers a real PSK. */
         GreasePreSharedKey greasePreSharedKey;
+        /** When true, offer TLS 1.2 alongside 1.3 in {@code supported_versions} (TCP negotiate). */
+        boolean offerTls12Fallback;
     }
 
     /** Random PSK material for ECH ClientHelloOuter (RFC 9849 section 6.1.2). */
@@ -225,7 +227,7 @@ final class HandshakeMessages {
         if (!params.applicationProtocols.isEmpty()) {
             writeAlpnExtension(ext, params.applicationProtocols);
         }
-        writeSupportedVersionsClientExtension(ext);
+        writeSupportedVersionsClientExtension(ext, params.offerTls12Fallback);
         writeKeyShareClientExtension(ext, params.groups, params.keyShares);
         if (params.advertiseRecordSizeLimit) {
             writeRecordSizeLimitExtension(ext, params.recordSizeLimit);
@@ -319,6 +321,8 @@ final class HandshakeMessages {
         String serverName;
         byte[] quicTransportParameters;
         boolean supportsTls13;
+        /** Raw two-octet version codes from {@code supported_versions}. */
+        List<Integer> supportedVersionCodes = new ArrayList<Integer>();
         /** From the {@code pre_shared_key} extension's single identity, or null if not offered. */
         byte[] pskIdentity;
         int obfuscatedTicketAge;
@@ -424,7 +428,9 @@ final class HandshakeMessages {
             case EXT_SUPPORTED_VERSIONS: {
                 WireReader vr = new WireReader(new WireReader(extBody).opaque8());
                 while (vr.hasRemaining()) {
-                    if (vr.u16() == TLS_1_3) {
+                    int code = vr.u16();
+                    ch.supportedVersionCodes.add(code);
+                    if (code == TLS_1_3) {
                         ch.supportsTls13 = true;
                     }
                 }
@@ -1169,9 +1175,12 @@ final class HandshakeMessages {
         writeExtension(ext, EXT_ALPN, body.toByteArray());
     }
 
-    private static void writeSupportedVersionsClientExtension(WireWriter ext) {
+    private static void writeSupportedVersionsClientExtension(WireWriter ext, boolean offerTls12Fallback) {
         WireWriter versions = new WireWriter();
         versions.u16(TLS_1_3);
+        if (offerTls12Fallback) {
+            versions.u16(TLS_1_2_LEGACY_VERSION);
+        }
         WireWriter body = new WireWriter();
         body.opaque8(versions.toByteArray());
         writeExtension(ext, EXT_SUPPORTED_VERSIONS, body.toByteArray());

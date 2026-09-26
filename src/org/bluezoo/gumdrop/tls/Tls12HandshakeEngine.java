@@ -216,6 +216,24 @@ final class Tls12HandshakeEngine {
         sink.handshakeDataReady(clientHello);
     }
 
+    /**
+     * Client role: {@code ClientHello} already sent by a version-negotiating connector.
+     */
+    void clientNoteClientHelloSent(byte[] wire) {
+        if (config.getRole() != HandshakeRole.CLIENT || state != State.INITIAL) {
+            return;
+        }
+        try {
+            Tls12HandshakeMessages.ClientHello ch = Tls12HandshakeMessages.parseClientHello(wire);
+            clientRandom = ch.random;
+            sentSessionId = ch.sessionId;
+        } catch (HandshakeFormatException e) {
+            return;
+        }
+        savedClientHelloBytes = wire;
+        state = State.EXPECT_SERVER_HELLO;
+    }
+
     private byte[] savedClientHelloBytes;
 
     /**

@@ -100,8 +100,8 @@ public abstract class Listener {
 
     protected boolean secure = false;
     protected ServerCredentials serverCredentials;
-    protected TlsVersion tlsVersion = TlsVersion.TLS_1_3;
-    protected DtlsVersion dtlsVersion = DtlsVersion.DTLS_1_2;
+    protected TlsVersion tlsVersion = TlsVersion.NEGOTIATE;
+    protected DtlsVersion dtlsVersion = DtlsVersion.NEGOTIATE;
     protected Path keystoreFile;
     protected String keystorePass;
     protected KeystoreFormat keystoreFormat = KeystoreFormat.PKCS12;
@@ -350,7 +350,7 @@ public abstract class Listener {
      * @param tlsVersion the TLS version
      */
     public void setTlsVersion(TlsVersion tlsVersion) {
-        this.tlsVersion = (tlsVersion != null) ? tlsVersion : TlsVersion.TLS_1_3;
+        this.tlsVersion = (tlsVersion != null) ? tlsVersion : TlsVersion.NEGOTIATE;
     }
 
     /**
@@ -368,7 +368,7 @@ public abstract class Listener {
      * @param dtlsVersion the DTLS version
      */
     public void setDtlsVersion(DtlsVersion dtlsVersion) {
-        this.dtlsVersion = (dtlsVersion != null) ? dtlsVersion : DtlsVersion.DTLS_1_2;
+        this.dtlsVersion = (dtlsVersion != null) ? dtlsVersion : DtlsVersion.NEGOTIATE;
     }
 
     /**

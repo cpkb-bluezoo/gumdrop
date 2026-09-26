@@ -118,7 +118,10 @@ public class UdpEndpoint implements Endpoint, ChannelHandler {
     private final Map<InetSocketAddress, Dtls13Session> dtls13Sessions =
             new HashMap<InetSocketAddress, Dtls13Session>();
 
-    private boolean usesDtls13;
+    private final Map<InetSocketAddress, NegotiatingDtlsSession> negotiatingDtlsSessions =
+            new HashMap<InetSocketAddress, NegotiatingDtlsSession>();
+
+    private DtlsVersion dtlsVersionPolicy = DtlsVersion.DTLS_1_2;
 
     private Trace trace;
 
@@ -158,8 +161,7 @@ public class UdpEndpoint implements Endpoint, ChannelHandler {
     void setFactory(TransportFactory factory) {
         this.factory = factory;
         if (factory instanceof UdpTransportFactory) {
-            usesDtls13 = ((UdpTransportFactory) factory).getDtlsVersion()
-                    == DtlsVersion.DTLS_1_3;
+            dtlsVersionPolicy = ((UdpTransportFactory) factory).getDtlsVersion();
         }
     }
 
@@ -203,7 +205,11 @@ public class UdpEndpoint implements Endpoint, ChannelHandler {
      */
     void startClientDtlsHandshake() {
         if (secure && clientMode && remoteAddress != null) {
-            if (usesDtls13) {
+            if (dtlsVersionPolicy == DtlsVersion.NEGOTIATE) {
+                if (getOrCreateNegotiatingDtlsSession(remoteAddress) == null) {
+                    handler.error(new IOException("DTLS session refused"));
+                }
+            } else if (dtlsVersionPolicy == DtlsVersion.DTLS_1_3) {
                 if (getOrCreateDtls13Session(remoteAddress) == null) {
                     handler.error(new IOException("DTLS session refused"));
                 }
@@ -212,6 +218,43 @@ public class UdpEndpoint implements Endpoint, ChannelHandler {
                     handler.error(new IOException("DTLS session refused"));
                 }
             }
+        }
+    }
+
+    private NegotiatingDtlsSession getOrCreateNegotiatingDtlsSession(InetSocketAddress peer) {
+        NegotiatingDtlsSession existing = negotiatingDtlsSessions.get(peer);
+        if (existing != null) {
+            return existing;
+        }
+        if (!admitNewDtlsPeer(peer)) {
+            return null;
+        }
+        UdpTransportFactory udpFactory = (UdpTransportFactory) factory;
+        Dtls12HandshakeConfig config12;
+        Dtls13HandshakeConfig config13;
+        if (clientMode) {
+            String serverName = TcpTransportFactory.tlsServerNameFor(peer.getAddress(), null);
+            config12 = udpFactory.buildClientConfig12(serverName);
+            config13 = udpFactory.buildClientConfig13(serverName);
+        } else {
+            config12 = udpFactory.getSharedServerConfig();
+            config13 = udpFactory.getSharedServerConfig13();
+            if (config12 == null || config13 == null) {
+                throw new IllegalStateException(
+                        "Secure UDP server endpoint has no DTLS negotiation configuration");
+            }
+        }
+        NegotiatingDtlsSession created = new NegotiatingDtlsSession(
+                this, peer, dtlsVersionPolicy, config12, config13, clientMode);
+        negotiatingDtlsSessions.put(peer, created);
+        notifyDtlsSessionOpened(peer);
+        created.beginHandshake();
+        return created;
+    }
+
+    void removeNegotiatingDtlsSession(InetSocketAddress peer) {
+        if (negotiatingDtlsSessions.remove(peer) != null) {
+            notifyDtlsSessionClosed(peer);
         }
     }
 
@@ -328,7 +371,15 @@ public class UdpEndpoint implements Endpoint, ChannelHandler {
      */
     public void sendTo(ByteBuffer data, InetSocketAddress dest) {
         if (secure) {
-            if (usesDtls13) {
+            if (dtlsVersionPolicy == DtlsVersion.NEGOTIATE) {
+                NegotiatingDtlsSession session = negotiatingDtlsSessions.get(dest);
+                if (session == null || !session.isHandshakeComplete()) {
+                    return;
+                }
+                session.sendApplicationData(data);
+                return;
+            }
+            if (dtlsVersionPolicy == DtlsVersion.DTLS_1_3) {
                 Dtls13Session session = dtls13Sessions.get(dest);
                 if (session == null || !session.isHandshakeComplete()) {
                     return;
@@ -416,19 +467,20 @@ public class UdpEndpoint implements Endpoint, ChannelHandler {
         closing = true;
 
         if (secure) {
-            if (usesDtls13) {
-                for (Dtls13Session dtlsSession
-                        : new ArrayList<Dtls13Session>(dtls13Sessions.values())) {
-                    dtlsSession.close();
-                }
-            } else {
-                // Copy first: Dtls12Session.close() calls back into
-                // removeDtlsSession(), which would otherwise mutate
-                // dtlsSessions while this loop is iterating it.
-                for (Dtls12Session dtlsSession
-                        : new ArrayList<Dtls12Session>(dtlsSessions.values())) {
-                    dtlsSession.close();
-                }
+            for (NegotiatingDtlsSession dtlsSession
+                    : new ArrayList<NegotiatingDtlsSession>(negotiatingDtlsSessions.values())) {
+                dtlsSession.close();
+            }
+            for (Dtls13Session dtlsSession
+                    : new ArrayList<Dtls13Session>(dtls13Sessions.values())) {
+                dtlsSession.close();
+            }
+            // Copy first: Dtls12Session.close() calls back into
+            // removeDtlsSession(), which would otherwise mutate
+            // dtlsSessions while this loop is iterating it.
+            for (Dtls12Session dtlsSession
+                    : new ArrayList<Dtls12Session>(dtlsSessions.values())) {
+                dtlsSession.close();
             }
         }
 
@@ -555,21 +607,25 @@ public class UdpEndpoint implements Endpoint, ChannelHandler {
     @Override
     public SecurityInfo getSecurityInfo() {
         if (secure && remoteAddress != null) {
-            if (usesDtls13) {
-                Dtls13Session session = dtls13Sessions.get(remoteAddress);
-                if (session != null) {
-                    SecurityInfo info = session.getSecurityInfo();
-                    if (info != null) {
-                        return info;
-                    }
+            NegotiatingDtlsSession negotiating = negotiatingDtlsSessions.get(remoteAddress);
+            if (negotiating != null) {
+                SecurityInfo info = negotiating.getSecurityInfo();
+                if (info != null) {
+                    return info;
                 }
-            } else {
-                Dtls12Session session = dtlsSessions.get(remoteAddress);
-                if (session != null) {
-                    SecurityInfo info = session.getSecurityInfo();
-                    if (info != null) {
-                        return info;
-                    }
+            }
+            Dtls13Session session13 = dtls13Sessions.get(remoteAddress);
+            if (session13 != null) {
+                SecurityInfo info = session13.getSecurityInfo();
+                if (info != null) {
+                    return info;
+                }
+            }
+            Dtls12Session session12 = dtlsSessions.get(remoteAddress);
+            if (session12 != null) {
+                SecurityInfo info = session12.getSecurityInfo();
+                if (info != null) {
+                    return info;
                 }
             }
         }
@@ -671,7 +727,19 @@ public class UdpEndpoint implements Endpoint, ChannelHandler {
         }
 
         if (secure) {
-            if (usesDtls13) {
+            if (dtlsVersionPolicy == DtlsVersion.NEGOTIATE) {
+                NegotiatingDtlsSession session = getOrCreateNegotiatingDtlsSession(source);
+                if (session == null) {
+                    return;
+                }
+                if (data.hasArray()) {
+                    session.receive(data.array(), data.arrayOffset() + data.position(), data.remaining());
+                } else {
+                    byte[] datagram = new byte[data.remaining()];
+                    data.get(datagram);
+                    session.receive(datagram);
+                }
+            } else if (dtlsVersionPolicy == DtlsVersion.DTLS_1_3) {
                 Dtls13Session session = getOrCreateDtls13Session(source);
                 if (session == null) {
                     return;

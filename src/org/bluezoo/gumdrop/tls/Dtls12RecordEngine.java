@@ -168,6 +168,22 @@ public final class Dtls12RecordEngine {
     }
 
     /**
+     * Client role: {@code ClientHello} already sent on a DTLS 1.3 probe; continue as DTLS 1.2.
+     */
+    public void clientContinueAfterSentClientHello(byte[] handshakeWire, long nextPlaintextSeq) {
+        if (handshakeWire == null || handshakeWire.length < 4 + 34) {
+            return;
+        }
+        plaintextWriteSeq = nextPlaintextSeq;
+        engine.clientNoteClientHelloSent(handshakeWire);
+    }
+
+    /** Epoch-0 plaintext write sequence after the next record would use. */
+    public long plaintextWriteSeq() {
+        return plaintextWriteSeq;
+    }
+
+    /**
      * Returns whether the engine has failed.
      *
      * @return true after a fatal error

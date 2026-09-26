@@ -142,6 +142,16 @@ public final class Dtls13RecordEngine {
         return engine.isComplete();
     }
 
+    /** Epoch-0 plaintext write sequence after the next record would use. */
+    public long plaintextWriteSeq() {
+        return plaintextWriteSeq;
+    }
+
+    /** See {@link HandshakeEngine#getClientHelloOutboundWire}. */
+    public byte[] getClientHelloOutboundWire() {
+        return engine.getClientHelloOutboundWire();
+    }
+
     public boolean isFailed() {
         return failed || engine.isFailed();
     }

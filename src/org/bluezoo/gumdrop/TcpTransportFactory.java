@@ -123,7 +123,7 @@ public class TcpTransportFactory extends TransportFactory {
     // Deployment-time TLS version pin -- see TlsVersion's own doc for why
     // this is never runtime-negotiated. Defaults to TLS_1_3, so every
     // existing caller's behaviour is unchanged.
-    private TlsVersion tlsVersion = TlsVersion.TLS_1_3;
+    private TlsVersion tlsVersion = TlsVersion.NEGOTIATE;
 
     private EchConfig clientEchConfig;
     private boolean clientEchGreaseEnabled;
@@ -182,7 +182,7 @@ public class TcpTransportFactory extends TransportFactory {
      * @param tlsVersion the TLS version
      */
     public void setTlsVersion(TlsVersion tlsVersion) {
-        this.tlsVersion = (tlsVersion != null) ? tlsVersion : TlsVersion.TLS_1_3;
+        this.tlsVersion = (tlsVersion != null) ? tlsVersion : TlsVersion.NEGOTIATE;
     }
 
     // -- SNI configuration --
@@ -387,7 +387,11 @@ public class TcpTransportFactory extends TransportFactory {
                 LOGGER.warning(MessageFormat.format(
                         Gumdrop.L10N.getString("warn.tls12_named_groups_ignored"), namedGroups));
             }
+        } else if (tlsVersion == TlsVersion.TLS_1_3) {
+            resolvedCipherSuites = resolveCipherSuites(cipherSuites);
+            resolvedNamedGroups = resolveNamedGroups(namedGroups);
         } else {
+            resolvedTls12CipherSuites = resolveTls12CipherSuites(cipherSuites);
             resolvedCipherSuites = resolveCipherSuites(cipherSuites);
             resolvedNamedGroups = resolveNamedGroups(namedGroups);
         }
@@ -550,22 +554,14 @@ public class TcpTransportFactory extends TransportFactory {
         // but still needs credentials ready for the in-band upgrade.
         boolean haveCredentials = serverCredentials != null || serverCredentialsResolver != null;
         TcpEndpoint endpoint;
-        if (tlsVersion == TlsVersion.TLS_1_2) {
-            Tls12HandshakeConfig config12 = haveCredentials ? buildServerConfig12() : null;
-            if (secure && config12 == null) {
-                throw new IOException(
-                        "No TLS configuration configured on this transport factory; "
-                                + "cannot create a secure endpoint");
-            }
-            endpoint = new TcpEndpoint(handler, config12, secure);
-        } else {
-            HandshakeConfig config = haveCredentials ? buildServerConfig() : null;
-            if (secure && config == null) {
-                throw new IOException(
-                        "No TLS configuration configured on this transport factory; "
-                                + "cannot create a secure endpoint");
-            }
-            endpoint = new TcpEndpoint(handler, config, secure);
+        endpoint = newServerTlsEndpoint(handler, secure, haveCredentials, null);
+        if (secure && endpoint == null) {
+            throw new IOException(
+                    "No TLS configuration configured on this transport factory; "
+                            + "cannot create a secure endpoint");
+        }
+        if (endpoint == null) {
+            endpoint = new TcpEndpoint(handler);
         }
         endpoint.setFactory(this);
         endpoint.setChannel(channel);
@@ -639,15 +635,7 @@ public class TcpTransportFactory extends TransportFactory {
         // Plaintext clients still need HandshakeConfig ready for in-band
         // upgrades (SMTP/IMAP/POP3/FTP STARTTLS) once start() resolved trust.
         boolean clientTlsConfig = secure || effectiveTrustManager != null;
-        if (tlsVersion == TlsVersion.TLS_1_2) {
-            Tls12HandshakeConfig config12 =
-                    clientTlsConfig ? buildClientConfig12(tlsServerName) : null;
-            endpoint = new TcpEndpoint(handler, config12, secure);
-        } else {
-            HandshakeConfig config =
-                    clientTlsConfig ? buildClientConfig(tlsServerName) : null;
-            endpoint = new TcpEndpoint(handler, config, secure);
-        }
+        endpoint = newClientTlsEndpoint(handler, secure, clientTlsConfig, tlsServerName);
         endpoint.setFactory(this);
         endpoint.setChannel(channel);
         endpoint.setClientMode(true);
@@ -721,15 +709,7 @@ public class TcpTransportFactory extends TransportFactory {
 
         TcpEndpoint endpoint;
         boolean clientTlsConfig = secure || effectiveTrustManager != null;
-        if (tlsVersion == TlsVersion.TLS_1_2) {
-            Tls12HandshakeConfig config12 =
-                    clientTlsConfig ? buildClientConfig12(null) : null;
-            endpoint = new TcpEndpoint(handler, config12, secure);
-        } else {
-            HandshakeConfig config =
-                    clientTlsConfig ? buildClientConfig(null) : null;
-            endpoint = new TcpEndpoint(handler, config, secure);
-        }
+        endpoint = newClientTlsEndpoint(handler, secure, clientTlsConfig, null);
         endpoint.setFactory(this);
         endpoint.setChannel(channel);
         endpoint.setClientMode(true);
@@ -789,6 +769,9 @@ public class TcpTransportFactory extends TransportFactory {
         applyCommonConfig(config);
         EchClientBootstrap.applyToHandshakeConfig(config, clientEchConfig, clientEchGreaseEnabled,
                 clientEchRequired);
+        if (tlsVersion == TlsVersion.NEGOTIATE) {
+            config.setOfferTls12Fallback(true);
+        }
         config.setEchRetryConfigsListener(new EchRetryConfigsListener() {
             @Override
             public void retryConfigsReceived(EchConfig[] authenticatedConfigs) {
@@ -845,6 +828,36 @@ public class TcpTransportFactory extends TransportFactory {
         if (resolvedTls12CipherSuites != null) {
             config.setCipherSuites(resolvedTls12CipherSuites);
         }
+    }
+
+    private TcpEndpoint newServerTlsEndpoint(ProtocolHandler handler, boolean secure,
+            boolean haveCredentials, String tlsServerName) {
+        if (!haveCredentials) {
+            return null;
+        }
+        if (tlsVersion == TlsVersion.TLS_1_2) {
+            return new TcpEndpoint(handler, buildServerConfig12(), secure);
+        }
+        if (tlsVersion == TlsVersion.TLS_1_3) {
+            return new TcpEndpoint(handler, buildServerConfig(), secure);
+        }
+        return new TcpEndpoint(handler, buildServerConfig(), buildServerConfig12(),
+                TlsVersion.NEGOTIATE, secure);
+    }
+
+    private TcpEndpoint newClientTlsEndpoint(ProtocolHandler handler, boolean secure,
+            boolean clientTlsConfig, String tlsServerName) {
+        if (!clientTlsConfig) {
+            return new TcpEndpoint(handler);
+        }
+        if (tlsVersion == TlsVersion.TLS_1_2) {
+            return new TcpEndpoint(handler, buildClientConfig12(tlsServerName), secure);
+        }
+        if (tlsVersion == TlsVersion.TLS_1_3) {
+            return new TcpEndpoint(handler, buildClientConfig(tlsServerName), secure);
+        }
+        return new TcpEndpoint(handler, buildClientConfig(tlsServerName), buildClientConfig12(tlsServerName),
+                TlsVersion.NEGOTIATE, secure);
     }
 
     // -- Registration helpers --

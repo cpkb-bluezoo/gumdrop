@@ -111,6 +111,18 @@ final class Tls12RecordState implements TlsRecordSink {
     }
 
     /**
+     * Feeds a complete ciphertext prefix (for example after TLS version pick).
+     */
+    void feedCiphertext(byte[] data) {
+        if (closed || data == null || data.length == 0) {
+            return;
+        }
+        synchronized (tcpEndpoint.tlsEngineLock) {
+            engine.feedCiphertext(data, this);
+        }
+    }
+
+    /**
      * Processes incoming encrypted data from {@code netIn}. Called by
      * {@link TcpEndpoint#processInbound} after data is appended. The
      * {@code netIn} buffer is in read mode (flipped).

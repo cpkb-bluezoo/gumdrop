@@ -84,7 +84,7 @@ public class UdpTransportFactory extends TransportFactory {
     private List<Tls12CipherSuite> resolvedTls12CipherSuites;
     private List<CipherSuite> resolvedCipherSuites;
     private List<NamedGroup> resolvedNamedGroups;
-    private DtlsVersion dtlsVersion = DtlsVersion.DTLS_1_2;
+    private DtlsVersion dtlsVersion = DtlsVersion.NEGOTIATE;
 
     private boolean requireCookie;
     private byte[] cookieSecret;
@@ -105,7 +105,7 @@ public class UdpTransportFactory extends TransportFactory {
     }
 
     public void setDtlsVersion(DtlsVersion dtlsVersion) {
-        this.dtlsVersion = (dtlsVersion != null) ? dtlsVersion : DtlsVersion.DTLS_1_2;
+        this.dtlsVersion = (dtlsVersion != null) ? dtlsVersion : DtlsVersion.NEGOTIATE;
     }
 
     public void setServerCredentials(ServerCredentials serverCredentials) {
@@ -210,6 +210,9 @@ public class UdpTransportFactory extends TransportFactory {
                     sharedServerConfig = buildServerConfig12();
                 } else if (dtlsVersion == DtlsVersion.DTLS_1_3) {
                     sharedServerConfig13 = buildServerConfig13();
+                } else {
+                    sharedServerConfig = buildServerConfig12();
+                    sharedServerConfig13 = buildServerConfig13();
                 }
             }
         } catch (Exception e) {
@@ -248,6 +251,9 @@ public class UdpTransportFactory extends TransportFactory {
             base.setClientCredentials(clientCredentials);
         }
         applyCommonConfig13(base);
+        if (dtlsVersion == DtlsVersion.NEGOTIATE) {
+            base.setOfferTls12Fallback(true);
+        }
         Dtls13HandshakeConfig config = new Dtls13HandshakeConfig(base);
         applyDtlsSettings13(config);
         return config;

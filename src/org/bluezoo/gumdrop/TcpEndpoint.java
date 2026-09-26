@@ -27,6 +27,7 @@ import org.bluezoo.gumdrop.telemetry.Trace;
 import org.bluezoo.gumdrop.tls.HandshakeConfig;
 import org.bluezoo.gumdrop.tls.Tls12HandshakeConfig;
 import org.bluezoo.gumdrop.tls.TlsProtocolError;
+import org.bluezoo.gumdrop.tls.TlsVersion;
 import org.bluezoo.gumdrop.util.DirectByteBufferPool;
 
 import java.io.IOException;
@@ -131,8 +132,10 @@ public class TcpEndpoint implements Endpoint, ChannelHandler, TlsRecordState.Cal
     private boolean secure;
     private final HandshakeConfig config;
     private final Tls12HandshakeConfig config12;
+    private final TlsVersion tlsVersionPolicy;
     private TlsRecordState tlsState;
     private Tls12RecordState tls12State;
+    private NegotiatingTlsRecordState negotiatingTlsState;
     private long handshakeStartTime;
 
     // -- Transport-level establishment timeouts (server endpoints only) --
@@ -178,7 +181,7 @@ public class TcpEndpoint implements Endpoint, ChannelHandler, TlsRecordState.Cal
      * @param handler the protocol handler
      */
     public TcpEndpoint(ProtocolHandler handler) {
-        this(handler, (HandshakeConfig) null, false);
+        this(handler, null, null, TlsVersion.TLS_1_3, false);
     }
 
     /**
@@ -191,15 +194,7 @@ public class TcpEndpoint implements Endpoint, ChannelHandler, TlsRecordState.Cal
      */
     public TcpEndpoint(ProtocolHandler handler, HandshakeConfig config,
                        boolean secure) {
-        if (handler == null) {
-            throw new NullPointerException("handler");
-        }
-        this.handler = handler;
-        this.config = config;
-        this.config12 = null;
-        this.secure = secure;
-        this.timestampCreated = System.currentTimeMillis();
-        this.timestampLastActivity = this.timestampCreated;
+        this(handler, config, null, TlsVersion.TLS_1_3, secure);
     }
 
     /**
@@ -211,12 +206,30 @@ public class TcpEndpoint implements Endpoint, ChannelHandler, TlsRecordState.Cal
      */
     public TcpEndpoint(ProtocolHandler handler, Tls12HandshakeConfig config12,
                        boolean secure) {
+        this(handler, null, config12, TlsVersion.TLS_1_2, secure);
+    }
+
+    /**
+     * Creates a TcpEndpoint with TLS version policy (negotiate, 1.3, or 1.2).
+     */
+    public TcpEndpoint(ProtocolHandler handler, HandshakeConfig config,
+                       Tls12HandshakeConfig config12, TlsVersion tlsVersionPolicy,
+                       boolean secure) {
         if (handler == null) {
             throw new NullPointerException("handler");
         }
         this.handler = handler;
-        this.config = null;
-        this.config12 = config12;
+        this.tlsVersionPolicy = (tlsVersionPolicy != null) ? tlsVersionPolicy : TlsVersion.NEGOTIATE;
+        if (this.tlsVersionPolicy == TlsVersion.TLS_1_2) {
+            this.config = null;
+            this.config12 = config12;
+        } else if (this.tlsVersionPolicy == TlsVersion.TLS_1_3) {
+            this.config = config;
+            this.config12 = null;
+        } else {
+            this.config = config;
+            this.config12 = config12;
+        }
         this.secure = secure;
         this.timestampCreated = System.currentTimeMillis();
         this.timestampLastActivity = this.timestampCreated;
@@ -375,7 +388,12 @@ public class TcpEndpoint implements Endpoint, ChannelHandler, TlsRecordState.Cal
             timestampConnected = System.currentTimeMillis();
         }
 
-        if (secure && config != null) {
+        if (secure && tlsVersionPolicy == TlsVersion.NEGOTIATE && config != null && config12 != null) {
+            handshakeStartTime = System.currentTimeMillis();
+            negotiatingTlsState = new NegotiatingTlsRecordState(
+                    config, config12, tlsVersionPolicy, this, this, clientMode);
+            bufferSize = negotiatingTlsState.getBufferSize();
+        } else if (secure && config != null) {
             handshakeStartTime = System.currentTimeMillis();
             tlsState = new TlsRecordState(config, this, this);
             bufferSize = tlsState.getBufferSize();
@@ -409,7 +427,9 @@ public class TcpEndpoint implements Endpoint, ChannelHandler, TlsRecordState.Cal
             return;
         }
         updateLastActivity();
-        if (tlsState != null) {
+        if (negotiatingTlsState != null) {
+            negotiatingTlsState.wrap(data);
+        } else if (tlsState != null) {
             tlsState.wrap(data);
         } else if (tls12State != null) {
             tls12State.wrap(data);
@@ -438,7 +458,9 @@ public class TcpEndpoint implements Endpoint, ChannelHandler, TlsRecordState.Cal
                 pendingNetOutBytes(), getRemoteAddress());
         closing = true;
         closeRequested = true;
-        if (tlsState != null) {
+        if (negotiatingTlsState != null) {
+            negotiatingTlsState.closeOutbound();
+        } else if (tlsState != null) {
             tlsState.closeOutbound();
         } else if (tls12State != null) {
             tls12State.closeOutbound();
@@ -495,6 +517,14 @@ public class TcpEndpoint implements Endpoint, ChannelHandler, TlsRecordState.Cal
         if (!secure) {
             return NullSecurityInfo.INSTANCE;
         }
+        if (negotiatingTlsState != null) {
+            if (negotiatingTlsState.isTls13Active()) {
+                return new HandshakeSecurityInfo(
+                        negotiatingTlsState.getActiveTls13Engine(), config, handshakeStartTime);
+            }
+            return new Tls12SecurityInfo(
+                    negotiatingTlsState.getActiveTls12Engine(), config12, handshakeStartTime);
+        }
         if (config != null) {
             return new HandshakeSecurityInfo(tlsState.getEngine(), config, handshakeStartTime);
         }
@@ -509,7 +539,7 @@ public class TcpEndpoint implements Endpoint, ChannelHandler, TlsRecordState.Cal
         if (config == null && config12 == null) {
             throw new IOException("No TLS configuration available for STARTTLS");
         }
-        if (tlsState != null || tls12State != null) {
+        if (negotiatingTlsState != null || tlsState != null || tls12State != null) {
             throw new IOException("TLS state already initialised");
         }
         if (secure) {
@@ -517,7 +547,11 @@ public class TcpEndpoint implements Endpoint, ChannelHandler, TlsRecordState.Cal
         }
         secure = true;
         handshakeStartTime = System.currentTimeMillis();
-        if (config != null) {
+        if (tlsVersionPolicy == TlsVersion.NEGOTIATE && config != null && config12 != null) {
+            negotiatingTlsState = new NegotiatingTlsRecordState(
+                    config, config12, tlsVersionPolicy, this, this, clientMode);
+            bufferSize = negotiatingTlsState.getBufferSize();
+        } else if (config != null) {
             tlsState = new TlsRecordState(config, this, this);
             bufferSize = tlsState.getBufferSize();
         } else {
@@ -530,7 +564,9 @@ public class TcpEndpoint implements Endpoint, ChannelHandler, TlsRecordState.Cal
         // initiateClientTLSHandshake() was a no-op; kick it off now.
         // Servers wait for the ClientHello to arrive via the normal read path.
         if (clientMode) {
-            if (tlsState != null) {
+            if (negotiatingTlsState != null) {
+                negotiatingTlsState.startClientHandshake();
+            } else if (tlsState != null) {
                 tlsState.startClientHandshake();
             } else {
                 tls12State.startClientHandshake();
@@ -681,7 +717,9 @@ public class TcpEndpoint implements Endpoint, ChannelHandler, TlsRecordState.Cal
      */
     final void processInbound() {
         updateLastActivity();
-        if (tlsState != null) {
+        if (negotiatingTlsState != null) {
+            negotiatingTlsState.unwrap();
+        } else if (tlsState != null) {
             tlsState.unwrap();
         } else if (tls12State != null) {
             tls12State.unwrap();
@@ -1004,7 +1042,9 @@ public class TcpEndpoint implements Endpoint, ChannelHandler, TlsRecordState.Cal
         if (!clientMode) {
             return;
         }
-        if (tlsState != null) {
+        if (negotiatingTlsState != null) {
+            negotiatingTlsState.startClientHandshake();
+        } else if (tlsState != null) {
             tlsState.startClientHandshake();
         } else if (tls12State != null) {
             tls12State.startClientHandshake();
@@ -1143,9 +1183,18 @@ public class TcpEndpoint implements Endpoint, ChannelHandler, TlsRecordState.Cal
         // first application data over the established secure channel.
         cancelHandshakeTimeout();
         armFirstByteTimeout();
-        SecurityInfo info = (tlsState != null)
-                ? new HandshakeSecurityInfo(tlsState.getEngine(), config, handshakeStartTime)
-                : new Tls12SecurityInfo(tls12State.getEngine(), config12, handshakeStartTime);
+        SecurityInfo info;
+        if (negotiatingTlsState != null) {
+            info = negotiatingTlsState.isTls13Active()
+                    ? new HandshakeSecurityInfo(
+                            negotiatingTlsState.getActiveTls13Engine(), config, handshakeStartTime)
+                    : new Tls12SecurityInfo(
+                            negotiatingTlsState.getActiveTls12Engine(), config12, handshakeStartTime);
+        } else {
+            info = (tlsState != null)
+                    ? new HandshakeSecurityInfo(tlsState.getEngine(), config, handshakeStartTime)
+                    : new Tls12SecurityInfo(tls12State.getEngine(), config12, handshakeStartTime);
+        }
         handler.securityEstablished(info);
     }
 

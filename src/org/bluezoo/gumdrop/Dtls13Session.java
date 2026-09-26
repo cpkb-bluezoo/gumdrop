@@ -83,6 +83,11 @@ final class Dtls13Session implements TlsRecordSink {
         commitFlightIfNeeded();
     }
 
+    Dtls13RecordEngine getRecordEngine() {
+        ensureEngine();
+        return engine;
+    }
+
     void receive(byte[] datagram) {
         receive(datagram, 0, datagram.length);
     }
