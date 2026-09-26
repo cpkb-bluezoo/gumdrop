@@ -939,10 +939,15 @@ public class Gumdrop {
         draining = true;
 
         // ── Phase 1: stop accepting new connections ──
-        if (acceptLoopRunning) {
-            acceptLoop.shutdown();
-            acceptLoopRunning = false;
+        // Use isRunning(), not acceptLoopRunning: removeServer() /
+        // removeListener() may already have called acceptLoop.shutdown() and
+        // cleared the flag while the accept thread is still blocked in
+        // select(); skipping shutdown here leaves join() stuck forever.
+        AcceptSelectorLoop accept = acceptLoop;
+        if (accept != null && accept.isRunning()) {
+            accept.shutdown();
         }
+        acceptLoopRunning = false;
         // Close server channels now so no new connections are admitted, but
         // keep the listener objects so their in-flight counts can be observed
         // during the drain phase below.

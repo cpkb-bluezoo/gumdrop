@@ -71,7 +71,9 @@ public class WebDAVRequestHandlerCompositionTest {
         Files.write(root.resolve("hello.txt"),
                 "Hello, WebDAV!".getBytes(StandardCharsets.UTF_8));
 
-        gumdrop = Gumdrop.boot(GumdropConfig.create().workerThreads(2));
+        gumdrop = Gumdrop.boot(GumdropConfig.create()
+                .workerThreads(2)
+                .drainTimeoutMs(0));
 
         server = HttpServer.compose()
                 .listener(new Http2Listener()
@@ -105,6 +107,7 @@ public class WebDAVRequestHandlerCompositionTest {
     @Test
     public void testServesStaticFileViaComposedHttpServer() throws Exception {
         HttpClient client = connect(gumdrop, testPort);
+        try {
         HttpRequest request = client.get("/hello.txt");
 
         CountDownLatch latch = new CountDownLatch(1);
@@ -148,6 +151,9 @@ public class WebDAVRequestHandlerCompositionTest {
         assertEquals(200, response.getStatus().code);
         assertEquals("Hello, WebDAV!",
                 new String(bodyBuffer.toByteArray(), StandardCharsets.UTF_8));
+        } finally {
+            client.close();
+        }
     }
 
     @Test
