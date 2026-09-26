@@ -97,6 +97,7 @@ public class ImapListener extends TcpListener {
     protected boolean enableQRESYNC = true;
     protected boolean enableOBJECTID = true;
     protected boolean enableNOTIFY = true;
+    protected boolean enableMETADATA = true;
 
     // RFC 2971 — ID command server fields
     protected Map<String, String> serverIdFields;
@@ -518,6 +519,24 @@ public class ImapListener extends TcpListener {
     }
 
     /**
+     * Returns whether RFC 5464 METADATA is enabled.
+     *
+     * @return true if METADATA is enabled
+     */
+    public boolean isEnableMETADATA() {
+        return enableMETADATA;
+    }
+
+    /**
+     * Sets whether RFC 5464 METADATA is enabled.
+     *
+     * @param enableMETADATA true to enable METADATA
+     */
+    public void setEnableMETADATA(boolean enableMETADATA) {
+        this.enableMETADATA = enableMETADATA;
+    }
+
+    /**
      * Returns the server identification fields sent in response to the
      * ID command (RFC 2971). When {@code null}, a default set containing
      * "name" and "version" is used.
@@ -839,6 +858,9 @@ public class ImapListener extends TcpListener {
             }
             if (enableNOTIFY) {
                 caps.append(" NOTIFY");        // RFC 5465
+            }
+            if (enableMETADATA) {
+                caps.append(" METADATA");      // RFC 5464
             }
         }
 

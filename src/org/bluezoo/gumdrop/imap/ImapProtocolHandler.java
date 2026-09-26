@@ -25,6 +25,7 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.UnsupportedEncodingException;
 import java.net.InetSocketAddress;
+import java.nio.file.Path;
 import java.nio.ByteBuffer;
 import java.nio.channels.CompletionHandler;
 import java.nio.channels.ReadableByteChannel;
@@ -116,6 +117,7 @@ import org.bluezoo.gumdrop.mailbox.Mailbox;
 import org.bluezoo.gumdrop.mailbox.MailboxAttribute;
 import org.bluezoo.gumdrop.mailbox.MailboxFactory;
 import org.bluezoo.gumdrop.mailbox.MailboxStore;
+import org.bluezoo.gumdrop.mailbox.maildir.MaildirMailboxStore;
 import org.bluezoo.gumdrop.mailbox.MessageDescriptor;
 import org.bluezoo.gumdrop.mailbox.MessageSet;
 import org.bluezoo.gumdrop.mailbox.SearchCriteria;
@@ -312,6 +314,8 @@ public final class ImapProtocolHandler
     private boolean notifyEnabled;
     private String selectedMailboxName;
     private final ImapNotifySupport notifySupport;
+    private final ImapMetadataSupport metadataSupport;
+    private ImapMetadataFileStore metadataFileStore;
 
     // APPEND literal state
     private String appendTag = null;
@@ -361,6 +365,8 @@ public final class ImapProtocolHandler
         ByteStreamLexer.checkTokenCap(server.getMaxLineLength(), server.getMaxNetInSize());
         this.lexer = new ImapServerLexer(this, server.getMaxLineLength());
         this.notifySupport = new ImapNotifySupport(new ImapNotifyHandlerHost(this));
+        this.metadataSupport = new ImapMetadataSupport(
+                new ImapMetadataHandlerHost(this));
     }
 
     // ── ProtocolHandler implementation ──
@@ -434,6 +440,7 @@ public final class ImapProtocolHandler
         selectedMailbox = null;
         selectedMailboxName = null;
         store = null;
+        metadataFileStore = null;
         if (mb == null && st == null) {
             return;
         }
@@ -712,6 +719,31 @@ public final class ImapProtocolHandler
 
     void sendSelectedMailboxUpdates() throws IOException {
         sendMailboxUpdates();
+    }
+
+    ImapMetadataFileStore getMetadataFileStore() {
+        return metadataFileStore;
+    }
+
+    String quoteImapString(String value) {
+        StringBuilder sb = new StringBuilder();
+        appendNilOrQuoted(sb, value);
+        return sb.toString();
+    }
+
+    <T> void submitMetadataStorage(final Callable<T> op,
+            final StorageExecutor.Callback<T> callback) {
+        submitStorage(op, callback);
+    }
+
+    private static ImapMetadataFileStore createMetadataStore(MailboxStore s) {
+        if (s instanceof MaildirMailboxStore) {
+            Path userDir = ((MaildirMailboxStore) s).getUserDirectory();
+            if (userDir != null) {
+                return new ImapMetadataFileStore(userDir);
+            }
+        }
+        return null;
     }
 
     private void resetSegmentState() {
@@ -1338,6 +1370,12 @@ public final class ImapProtocolHandler
             case "NOTIFY":
                 notifySupport.handleNotify(tag, args);
                 break;
+            case "GETMETADATA":
+                metadataSupport.handleGetMetadata(tag, args);
+                break;
+            case "SETMETADATA":
+                metadataSupport.handleSetMetadata(tag, args);
+                break;
             case "GETQUOTA":
                 handleGetQuota(tag, args);
                 break;
@@ -1404,6 +1442,12 @@ public final class ImapProtocolHandler
                 break;
             case "NOTIFY":
                 notifySupport.handleNotify(tag, args);
+                break;
+            case "GETMETADATA":
+                metadataSupport.handleGetMetadata(tag, args);
+                break;
+            case "SETMETADATA":
+                metadataSupport.handleSetMetadata(tag, args);
                 break;
             case "GETQUOTA":
                 handleGetQuota(tag, args);
@@ -2437,6 +2481,7 @@ public final class ImapProtocolHandler
         if (factory != null) {
             store = factory.createStore();
             store.open(username);
+            metadataFileStore = createMetadataStore(store);
         }
     }
 
@@ -2500,6 +2545,7 @@ public final class ImapProtocolHandler
             @Override
             public void completed(MailboxStore s) {
                 store = s;
+                metadataFileStore = createMetadataStore(s);
                 state = ImapState.AUTHENTICATED;
                 startAuthenticatedSpan(username, mechanism);
                 if (onSuccess != null) {
@@ -3000,6 +3046,7 @@ public final class ImapProtocolHandler
             @Override
             public void completed(Void ignored) {
                 try {
+                    metadataSupport.onMailboxDeleted(mailboxName);
                     sendTaggedOk(tag, L10N.getString("imap.delete_complete"));
                 } catch (IOException e) {
                     LOGGER.log(Level.WARNING, L10N.getString("warn.failed_send_delete_ok"), e);
@@ -3049,6 +3096,7 @@ public final class ImapProtocolHandler
             @Override
             public void completed(Void ignored) {
                 try {
+                    metadataSupport.onMailboxRenamed(oldName, newName);
                     sendTaggedOk(tag, L10N.getString("imap.rename_complete"));
                 } catch (IOException e) {
                     LOGGER.log(Level.WARNING, L10N.getString("warn.failed_send_rename_ok"), e);

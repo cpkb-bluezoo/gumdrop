@@ -1,5 +1,5 @@
 /*
- * ImapState.java
+ * MetadataReplyHandler.java
  * Copyright (C) 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -21,62 +21,19 @@
 
 package org.bluezoo.gumdrop.imap.client;
 
+import java.util.Map;
+
 /**
- * Internal state of the IMAP client protocol handler.
+ * Handler for RFC 5464 GETMETADATA / SETMETADATA replies.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-enum ImapState {
+public interface MetadataReplyHandler {
 
-    DISCONNECTED,
-    CONNECTING,
+    void handleGetMetadata(ClientAuthenticatedState session, String mailbox,
+            Map<String, String> entries);
 
-    NOT_AUTHENTICATED,
-    CAPABILITY_SENT,
-    LOGIN_SENT,
-    AUTHENTICATE_SENT,
-    AUTH_ABORT_SENT,
-    STARTTLS_SENT,
+    void handleSetMetadata(ClientAuthenticatedState session);
 
-    AUTHENTICATED,
-    SELECT_SENT,
-    EXAMINE_SENT,
-    CREATE_SENT,
-    DELETE_SENT,
-    RENAME_SENT,
-    SUBSCRIBE_SENT,
-    UNSUBSCRIBE_SENT,
-    LIST_SENT,
-    LSUB_SENT,
-    STATUS_SENT,
-    NAMESPACE_SENT,
-    GETQUOTA_SENT,
-    GETQUOTAROOT_SENT,
-    APPEND_SENT,
-    APPEND_DATA,
-    IDLE_SENT,
-    IDLE_ACTIVE,
-    NOOP_SENT,
-    COMPRESS_SENT,
-    ENABLE_SENT,
-    NOTIFY_SENT,
-    GETMETADATA_SENT,
-    SETMETADATA_SENT,
-
-    SELECTED,
-    CLOSE_SENT,
-    UNSELECT_SENT,
-    EXPUNGE_SENT,
-    SEARCH_SENT,
-    SORT_SENT,
-    THREAD_SENT,
-    FETCH_SENT,
-    FETCH_LITERAL,
-    STORE_SENT,
-    COPY_SENT,
-    MOVE_SENT,
-
-    LOGOUT_SENT,
-    ERROR,
-    CLOSED
+    void handleMetadataError(ClientAuthenticatedState session, String message);
 }

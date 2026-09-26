@@ -132,6 +132,15 @@ public class MaildirMailboxStore implements MailboxStore {
         this.open = false;
     }
 
+    /**
+     * Returns the on-disk home directory for the currently open user.
+     *
+     * @return user directory path, or null if the store is not open
+     */
+    public Path getUserDirectory() {
+        return open ? userDirectory : null;
+    }
+
     @Override
     public void open(String username) throws IOException {
         if (username == null || username.isEmpty()) {
