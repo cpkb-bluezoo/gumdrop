@@ -27,7 +27,9 @@ import java.nio.charset.StandardCharsets;
 import java.text.MessageFormat;
 import java.util.ArrayList;
 import java.util.Base64;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.ResourceBundle;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -709,6 +711,36 @@ public final class ImapClientProtocolHandler
         return notifyEnabled;
     }
 
+    private final Map<String, String> pendingMetadataEntries =
+            new LinkedHashMap<String, String>();
+    private String pendingMetadataMailbox;
+
+    @Override
+    public void getMetadata(String getArgs, MetadataReplyHandler callback) {
+        if (getArgs == null || getArgs.trim().isEmpty()) {
+            callback.handleMetadataError(this,
+                    L10N.getString("imap.err.invalid_arguments"));
+            return;
+        }
+        this.currentCallback = callback;
+        pendingMetadataEntries.clear();
+        pendingMetadataMailbox = null;
+        sendTaggedCommand("GETMETADATA " + getArgs,
+                ImapState.GETMETADATA_SENT);
+    }
+
+    @Override
+    public void setMetadata(String setArgs, MetadataReplyHandler callback) {
+        if (setArgs == null || setArgs.trim().isEmpty()) {
+            callback.handleMetadataError(this,
+                    L10N.getString("imap.err.invalid_arguments"));
+            return;
+        }
+        this.currentCallback = callback;
+        sendTaggedCommand("SETMETADATA " + setArgs,
+                ImapState.SETMETADATA_SENT);
+    }
+
     /**
      * Returns whether RFC 6855 UTF8=ACCEPT is active on this connection.
      *
@@ -1113,6 +1145,13 @@ public final class ImapClientProtocolHandler
         }
         if (upper.startsWith("QUOTAROOT ")) {
             dispatchQuotaRootLine(msg.substring(10));
+            return;
+        }
+
+        if (upper.startsWith("METADATA ")) {
+            if (state == ImapState.GETMETADATA_SENT) {
+                parseMetadataResponse(msg.substring(9));
+            }
             return;
         }
 
@@ -1786,6 +1825,12 @@ public final class ImapClientProtocolHandler
             case NOTIFY_SENT:
                 dispatchNotifyComplete(response);
                 break;
+            case GETMETADATA_SENT:
+                dispatchGetMetadataComplete(response);
+                break;
+            case SETMETADATA_SENT:
+                dispatchSetMetadataComplete(response);
+                break;
             case LOGOUT_SENT:
                 state = ImapState.CLOSED;
                 close();
@@ -2166,6 +2211,101 @@ public final class ImapClientProtocolHandler
             callback.handleError(this, response.getMessage());
         }
         pendingEnabled.clear();
+    }
+
+    private void parseMetadataResponse(String rest) {
+        int paren = rest.indexOf('(');
+        if (paren < 0) {
+            return;
+        }
+        pendingMetadataMailbox = unquote(rest.substring(0, paren).trim());
+        String body = rest.substring(paren + 1, rest.lastIndexOf(')'));
+        int i = 0;
+        while (i < body.length()) {
+            while (i < body.length() && body.charAt(i) == ' ') {
+                i++;
+            }
+            if (i >= body.length()) {
+                break;
+            }
+            int entryStart = i;
+            if (body.charAt(i) == '/') {
+                while (i < body.length() && body.charAt(i) != ' ') {
+                    i++;
+                }
+            } else if (body.charAt(i) == '"') {
+                i++;
+                while (i < body.length()) {
+                    if (body.charAt(i) == '\\') {
+                        i += 2;
+                    } else if (body.charAt(i) == '"') {
+                        i++;
+                        break;
+                    } else {
+                        i++;
+                    }
+                }
+            }
+            String entry = body.substring(entryStart, i).trim();
+            if (entry.startsWith("\"")) {
+                entry = unquote(entry);
+            }
+            while (i < body.length() && body.charAt(i) == ' ') {
+                i++;
+            }
+            if (i >= body.length()) {
+                break;
+            }
+            String value;
+            if (body.charAt(i) == '"') {
+                int valStart = i;
+                i++;
+                while (i < body.length()) {
+                    if (body.charAt(i) == '\\') {
+                        i += 2;
+                    } else if (body.charAt(i) == '"') {
+                        i++;
+                        break;
+                    } else {
+                        i++;
+                    }
+                }
+                value = unquote(body.substring(valStart, i));
+            } else {
+                int valStart = i;
+                while (i < body.length() && body.charAt(i) != ' ') {
+                    i++;
+                }
+                value = body.substring(valStart, i);
+            }
+            pendingMetadataEntries.put(entry, value);
+        }
+    }
+
+    private void dispatchGetMetadataComplete(ImapResponse response) {
+        MetadataReplyHandler callback =
+                (MetadataReplyHandler) currentCallback;
+        currentCallback = null;
+        state = restoreBaseState();
+        if (response.isOk()) {
+            callback.handleGetMetadata(this, pendingMetadataMailbox,
+                    new LinkedHashMap<String, String>(pendingMetadataEntries));
+        } else {
+            callback.handleMetadataError(this, response.getMessage());
+        }
+        pendingMetadataEntries.clear();
+    }
+
+    private void dispatchSetMetadataComplete(ImapResponse response) {
+        MetadataReplyHandler callback =
+                (MetadataReplyHandler) currentCallback;
+        currentCallback = null;
+        state = restoreBaseState();
+        if (response.isOk()) {
+            callback.handleSetMetadata(this);
+        } else {
+            callback.handleMetadataError(this, response.getMessage());
+        }
     }
 
     private void dispatchNotifyComplete(ImapResponse response) {

@@ -86,6 +86,22 @@ public interface ClientAuthenticatedState {
      */
     void notifyNone(NotifyReplyHandler callback);
 
+    /**
+     * Retrieves RFC 5464 metadata (arguments after the command keyword).
+     *
+     * @param getArgs GETMETADATA arguments after the command name
+     * @param callback invoked when the server responds
+     */
+    void getMetadata(String getArgs, MetadataReplyHandler callback);
+
+    /**
+     * Updates RFC 5464 metadata (arguments after the command keyword).
+     *
+     * @param setArgs SETMETADATA arguments after the command name
+     * @param callback invoked when the server responds
+     */
+    void setMetadata(String setArgs, MetadataReplyHandler callback);
+
     // RFC 9208 — QUOTA commands
     void getQuota(String quotaRoot, QuotaReplyHandler callback);
 
