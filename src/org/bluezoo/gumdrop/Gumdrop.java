@@ -1056,13 +1056,30 @@ public class Gumdrop {
     /**
      * Returns whether Gumdrop is fully started and ready to serve traffic
      * (all listeners bound and not draining). Intended for readiness probes:
-     * it becomes true only once the accept loop has bound the listeners, and
-     * flips back to false at the start of {@link #shutdown()}.
+     * it becomes true only once the accept loop has bound the listeners, stays
+     * false if any listener failed to bind (see {@link #getBindFailures()}),
+     * and flips back to false at the start of {@link #shutdown()}.
      *
      * @return true when the server is ready to accept work
      */
     public boolean isReady() {
-        return started && ready && !draining;
+        return started && ready && !draining && getBindFailures().isEmpty();
+    }
+
+    /**
+     * Returns the listeners that could not be bound (for example because the
+     * port is in use), each as {@code description: reason}. Binding happens on
+     * the accept loop after {@link #start()} returns, so this is complete once
+     * {@link #isReady()} is true or this is non-empty.
+     *
+     * @return the bind failures so far, empty if every listener bound
+     */
+    public List<String> getBindFailures() {
+        AcceptSelectorLoop loop = acceptLoop;
+        if (loop == null) {
+            return Collections.emptyList();
+        }
+        return loop.getBindFailures();
     }
 
     /**

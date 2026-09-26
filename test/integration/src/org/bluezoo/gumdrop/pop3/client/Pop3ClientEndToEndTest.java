@@ -22,6 +22,7 @@
 package org.bluezoo.gumdrop.pop3.client;
 
 import org.bluezoo.gumdrop.Endpoint;
+import org.bluezoo.gumdrop.ListenerBindCheck;
 import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.GumdropConfig;
 import org.bluezoo.gumdrop.MailboxFixtures;
@@ -88,6 +89,7 @@ public class Pop3ClientEndToEndTest {
         gumdrop = Gumdrop.boot(GumdropConfig.create().workerThreads(1));
         gumdrop.addListener(server);
         waitForPort();
+        ListenerBindCheck.assertBound(gumdrop);
     }
 
     @After

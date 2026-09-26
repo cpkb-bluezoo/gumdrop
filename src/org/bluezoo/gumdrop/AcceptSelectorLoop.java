@@ -37,9 +37,12 @@ import java.nio.channels.SocketChannel;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.text.MessageFormat;
+import java.util.ArrayList;
 import java.util.Iterator;
+import java.util.List;
 import java.util.Set;
 import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import java.util.ResourceBundle;
@@ -89,6 +92,9 @@ public class AcceptSelectorLoop implements Runnable {
     private volatile boolean active;
     private final ConcurrentLinkedQueue<PendingRegistration> pendingRegistrations;
     private volatile Runnable readyCallback;
+
+    /** Listeners that could not be bound, as "description: reason". */
+    private final List<String> bindFailures = new CopyOnWriteArrayList<String>();
 
     AcceptSelectorLoop(Gumdrop gumdrop) {
         this.gumdrop = gumdrop;
@@ -259,10 +265,13 @@ public class AcceptSelectorLoop implements Runnable {
                 // FTP client PORT/EPRT and similar paths may close the
                 // ServerSocketChannel before this loop drains the pending
                 // registration queue; that is normal, not a server fault.
-                if (pending.rawHandler == null && LOGGER.isLoggable(Level.SEVERE)) {
-                    LOGGER.log(Level.SEVERE, MessageFormat.format(
-                            L10N.getString("log.failed_to_register_server"),
-                            pending.listener.getDescription(), e.getMessage()));
+                if (pending.rawHandler == null) {
+                    bindFailures.add(pending.listener.getDescription() + ": " + e);
+                    if (LOGGER.isLoggable(Level.SEVERE)) {
+                        LOGGER.log(Level.SEVERE, MessageFormat.format(
+                                L10N.getString("log.failed_to_register_server"),
+                                pending.listener.getDescription(), e.getMessage()));
+                    }
                 } else if (pending.rawHandler != null
                         && LOGGER.isLoggable(Level.FINE)) {
                     LOGGER.fine(L10N.getString("log.raw_acceptor_closed_before_registration"));
@@ -274,6 +283,9 @@ public class AcceptSelectorLoop implements Runnable {
                 } else {
                     desc = pending.listener.getDescription();
                 }
+                if (pending.rawHandler == null) {
+                    bindFailures.add(desc + ": " + e.getMessage());
+                }
                 if (LOGGER.isLoggable(Level.SEVERE)) {
                     LOGGER.log(Level.SEVERE, MessageFormat.format(
                             L10N.getString("log.failed_to_register_server"),
@@ -281,6 +293,17 @@ public class AcceptSelectorLoop implements Runnable {
                 }
             }
         }
+    }
+
+    /**
+     * Returns the listeners this loop could not bind, each as
+     * {@code description: reason}. Raw acceptors, whose channel is already
+     * bound by their owner, are not included.
+     *
+     * @return the failures so far, empty if every listener bound
+     */
+    List<String> getBindFailures() {
+        return new ArrayList<String>(bindFailures);
     }
 
     /**
