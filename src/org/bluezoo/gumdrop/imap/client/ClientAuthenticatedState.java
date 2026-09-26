@@ -71,6 +71,21 @@ public interface ClientAuthenticatedState {
      */
     void enable(String[] extensions, EnableReplyHandler callback);
 
+    /**
+     * Registers or updates RFC 5465 NOTIFY subscriptions.
+     *
+     * @param notifyArgs arguments after the NOTIFY command keyword
+     * @param callback invoked when the server responds
+     */
+    void notifySet(String notifyArgs, NotifyReplyHandler callback);
+
+    /**
+     * Cancels all RFC 5465 NOTIFY subscriptions.
+     *
+     * @param callback invoked when the server responds
+     */
+    void notifyNone(NotifyReplyHandler callback);
+
     // RFC 9208 — QUOTA commands
     void getQuota(String quotaRoot, QuotaReplyHandler callback);
 

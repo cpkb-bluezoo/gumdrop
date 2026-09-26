@@ -122,6 +122,7 @@ public final class ImapClientProtocolHandler
 
     // RFC 6855 — UTF8=ACCEPT
     private boolean utf8AcceptEnabled;
+    private boolean notifyEnabled;
     private final List<String> pendingEnabled = new ArrayList<String>();
 
     // SELECT/EXAMINE accumulation
@@ -679,6 +680,33 @@ public final class ImapClientProtocolHandler
             cmd.append(' ').append(ext);
         }
         sendTaggedCommand(cmd.toString(), ImapState.ENABLE_SENT);
+    }
+
+    // RFC 5465 — NOTIFY
+    @Override
+    public void notifySet(String notifyArgs, NotifyReplyHandler callback) {
+        if (notifyArgs == null || notifyArgs.trim().isEmpty()) {
+            callback.handleNotifyError(this,
+                    L10N.getString("imap.err.invalid_arguments"));
+            return;
+        }
+        this.currentCallback = callback;
+        sendTaggedCommand("NOTIFY " + notifyArgs, ImapState.NOTIFY_SENT);
+    }
+
+    @Override
+    public void notifyNone(NotifyReplyHandler callback) {
+        this.currentCallback = callback;
+        sendTaggedCommand("NOTIFY NONE", ImapState.NOTIFY_SENT);
+    }
+
+    /**
+     * Returns whether RFC 5465 NOTIFY is active on this connection.
+     *
+     * @return true after ENABLED NOTIFY
+     */
+    public boolean isNotifyEnabled() {
+        return notifyEnabled;
     }
 
     /**
@@ -1480,6 +1508,10 @@ public final class ImapClientProtocolHandler
         String items = msg.substring(parenStart + 1,
                 msg.lastIndexOf(')'));
         parseStatusItems(items);
+        if (state != ImapState.STATUS_SENT && mailboxEventListener != null) {
+            mailboxEventListener.onMailboxStatus(statusMailbox,
+                    statusMessages, statusUidNext);
+        }
     }
 
     private void parseStatusItems(String items) {
@@ -1750,6 +1782,9 @@ public final class ImapClientProtocolHandler
                 break;
             case ENABLE_SENT:
                 dispatchEnableComplete(response);
+                break;
+            case NOTIFY_SENT:
+                dispatchNotifyComplete(response);
                 break;
             case LOGOUT_SENT:
                 state = ImapState.CLOSED;
@@ -2121,6 +2156,8 @@ public final class ImapClientProtocolHandler
             for (String ext : pendingEnabled) {
                 if ("UTF8=ACCEPT".equalsIgnoreCase(ext)) {
                     utf8AcceptEnabled = true;
+                } else if ("NOTIFY".equalsIgnoreCase(ext)) {
+                    notifyEnabled = true;
                 }
             }
             callback.handleEnabled(this,
@@ -2129,6 +2166,18 @@ public final class ImapClientProtocolHandler
             callback.handleError(this, response.getMessage());
         }
         pendingEnabled.clear();
+    }
+
+    private void dispatchNotifyComplete(ImapResponse response) {
+        NotifyReplyHandler callback =
+                (NotifyReplyHandler) currentCallback;
+        currentCallback = null;
+        state = restoreBaseState();
+        if (response.isOk()) {
+            callback.handleNotifyComplete(this);
+        } else {
+            callback.handleNotifyError(this, response.getMessage());
+        }
     }
 
     private void dispatchCompressComplete(ImapResponse response) {

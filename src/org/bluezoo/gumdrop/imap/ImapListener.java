@@ -96,6 +96,7 @@ public class ImapListener extends TcpListener {
     protected boolean enableCONDSTORE = true;
     protected boolean enableQRESYNC = true;
     protected boolean enableOBJECTID = true;
+    protected boolean enableNOTIFY = true;
 
     // RFC 2971 — ID command server fields
     protected Map<String, String> serverIdFields;
@@ -499,6 +500,24 @@ public class ImapListener extends TcpListener {
     }
 
     /**
+     * Returns whether RFC 5465 NOTIFY is enabled.
+     *
+     * @return true if NOTIFY is enabled
+     */
+    public boolean isEnableNOTIFY() {
+        return enableNOTIFY;
+    }
+
+    /**
+     * Sets whether RFC 5465 NOTIFY is enabled.
+     *
+     * @param enableNOTIFY true to enable NOTIFY
+     */
+    public void setEnableNOTIFY(boolean enableNOTIFY) {
+        this.enableNOTIFY = enableNOTIFY;
+    }
+
+    /**
      * Returns the server identification fields sent in response to the
      * ID command (RFC 2971). When {@code null}, a default set containing
      * "name" and "version" is used.
@@ -817,6 +836,9 @@ public class ImapListener extends TcpListener {
             }
             if (enableOBJECTID) {
                 caps.append(" OBJECTID");      // RFC 8474
+            }
+            if (enableNOTIFY) {
+                caps.append(" NOTIFY");        // RFC 5465
             }
         }
 

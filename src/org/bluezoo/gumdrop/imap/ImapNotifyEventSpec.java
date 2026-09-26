@@ -1,5 +1,5 @@
 /*
- * MailboxEventListener.java
+ * ImapNotifyEventSpec.java
  * Copyright (C) 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -19,29 +19,37 @@
  * along with gumdrop.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-package org.bluezoo.gumdrop.imap.client;
+package org.bluezoo.gumdrop.imap;
+
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
 
 /**
- * Listener for unsolicited mailbox events.
+ * One NOTIFY event with optional MessageNew fetch attributes.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-public interface MailboxEventListener {
+public final class ImapNotifyEventSpec {
 
-    void onExists(int count);
+    private final ImapNotifyEventType type;
+    private final List<String> messageNewFetchAtts;
 
-    void onRecent(int count);
+    public ImapNotifyEventSpec(ImapNotifyEventType type) {
+        this(type, Collections.<String>emptyList());
+    }
 
-    void onExpunge(int messageNumber);
+    public ImapNotifyEventSpec(ImapNotifyEventType type,
+            List<String> messageNewFetchAtts) {
+        this.type = type;
+        this.messageNewFetchAtts = new ArrayList<String>(messageNewFetchAtts);
+    }
 
-    void onFlagsUpdate(int messageNumber, String[] flags);
+    public ImapNotifyEventType getType() {
+        return type;
+    }
 
-    /**
-     * RFC 5465 unsolicited STATUS for a watched non-selected mailbox.
-     *
-     * @param mailbox mailbox name from the STATUS response
-     * @param messages MESSAGES status item, or -1 if omitted
-     * @param uidNext UIDNEXT status item, or -1 if omitted
-     */
-    void onMailboxStatus(String mailbox, int messages, long uidNext);
+    public List<String> getMessageNewFetchAtts() {
+        return messageNewFetchAtts;
+    }
 }

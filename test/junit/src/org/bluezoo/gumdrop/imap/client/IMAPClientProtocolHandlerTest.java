@@ -2445,5 +2445,10 @@ public class IMAPClientProtocolHandlerTest {
             fu.flags = flags;
             flagsUpdates.add(fu);
         }
+
+        @Override
+        public void onMailboxStatus(String mailbox, int messages,
+                long uidNext) {
+        }
     }
 }
