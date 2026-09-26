@@ -28,6 +28,7 @@ import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 
+import org.bluezoo.gumdrop.ListenerBindCheck;
 import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.GumdropConfig;
 import org.bluezoo.gumdrop.TestCertificateManager;
@@ -135,6 +136,7 @@ public class TelemetryIntegrationTest {
         // Wait for servers to be ready
         waitForPort(HTTP_PORT);
         waitForPort(SMTP_PORT);
+        ListenerBindCheck.assertBound(gumdrop);
         
         // Wait for OTLP connections to be established
         // The HttpClient connects asynchronously, so we use waitForConnections

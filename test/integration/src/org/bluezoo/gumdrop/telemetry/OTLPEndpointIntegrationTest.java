@@ -25,6 +25,7 @@ import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 
+import org.bluezoo.gumdrop.ListenerBindCheck;
 import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.GumdropConfig;
 import org.bluezoo.gumdrop.http.server.DefaultHttpRequestHandler;
@@ -96,6 +97,7 @@ public class OTLPEndpointIntegrationTest {
 
         // Wait for server
         waitForPort(TEST_PORT);
+        ListenerBindCheck.assertBound(gumdrop);
     }
 
     @After

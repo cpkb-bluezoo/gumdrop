@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.imap;
 
+import org.bluezoo.gumdrop.ListenerBindCheck;
 import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.GumdropConfig;
 import org.bluezoo.gumdrop.MailboxFixtures;
@@ -109,6 +110,7 @@ public class IMAPServerIntegrationTest {
         
         // Wait for server to be ready
         waitForPort(IMAP_PORT, 5000);
+        ListenerBindCheck.assertBound(gumdrop);
     }
     
     @After

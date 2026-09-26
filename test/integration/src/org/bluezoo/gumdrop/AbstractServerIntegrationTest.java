@@ -318,10 +318,21 @@ public abstract class AbstractServerIntegrationTest {
                 }
             }
             
+            List<String> bindFailures = gumdrop.getBindFailures();
+            if (!bindFailures.isEmpty()) {
+                // A probe cannot tell our listener from a stale one on the
+                // same port, so a failed bind is reported here, not later as
+                // a refused connection.
+                String failed = "Listener failed to bind: " + bindFailures;
+                testContext.logEvent("SERVER_BIND_FAILED", failed);
+                throw new IllegalStateException(failed);
+            }
+
             if (allReady) {
                 // Wait for server to process any probe connections from isPortListening()
                 // before the actual test begins
                 Thread.sleep(500);
+                ListenerBindCheck.assertBound(gumdrop);
                 return;
             }
             

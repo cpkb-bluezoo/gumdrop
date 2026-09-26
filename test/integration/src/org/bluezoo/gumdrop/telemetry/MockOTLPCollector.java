@@ -22,6 +22,7 @@
 package org.bluezoo.gumdrop.telemetry;
 
 import java.nio.file.Path;
+import org.bluezoo.gumdrop.ListenerBindCheck;
 import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.GumdropConfig;
 import org.bluezoo.gumdrop.TestCertificateManager;
@@ -303,6 +304,7 @@ public class MockOTLPCollector {
         while (System.currentTimeMillis() < deadline) {
             if (isPortListening("::1", port)) {
                 Thread.sleep(200); // Extra delay for server stabilization
+                ListenerBindCheck.assertBound(gumdrop);
                 return;
             }
             Thread.sleep(100);

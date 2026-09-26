@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.pop3;
 
+import org.bluezoo.gumdrop.ListenerBindCheck;
 import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.GumdropConfig;
 import org.bluezoo.gumdrop.MailboxFixtures;
@@ -131,6 +132,7 @@ public class POP3ServerIntegrationTest {
         // Wait for servers to be ready
         waitForPort(MBOX_PORT, 5000);
         waitForPort(MAILDIR_PORT, 5000);
+        ListenerBindCheck.assertBound(gumdrop);
     }
     
     @After
