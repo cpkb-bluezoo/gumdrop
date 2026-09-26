@@ -68,6 +68,30 @@ public final class MutableZone {
         return new MutableZone(zone.getOrigin(), zone.getDefaultTtl(), copy, soaRr, soa);
     }
 
+    /**
+     * Builds a zone from the records of a completed AXFR, for a secondary
+     * that has no zone loaded yet.
+     *
+     * @throws IllegalArgumentException if the transfer carries no SOA for the origin
+     */
+    static MutableZone fromAxfr(String origin, List<DnsResourceRecord> records) {
+        DnsResourceRecord soa = null;
+        for (int i = 0; i < records.size(); i++) {
+            DnsResourceRecord rr = records.get(i);
+            if (rr.getType() == DnsType.SOA && ZoneFile.normalizeName(rr.getName()).equals(origin)) {
+                soa = rr;
+                break;
+            }
+        }
+        if (soa == null) {
+            throw new IllegalArgumentException("transfer has no SOA for " + origin);
+        }
+        MutableZone zone = new MutableZone(origin, soa.getTTL(),
+                new LinkedHashMap<String, List<DnsResourceRecord>>(), soa, soaDataFromRecord(soa));
+        zone.replaceFromAxfr(records);
+        return zone;
+    }
+
     public String getOrigin() {
         return origin;
     }

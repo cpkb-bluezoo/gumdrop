@@ -35,13 +35,17 @@ import org.bluezoo.gumdrop.dns.TsigKey;
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.text.MessageFormat;
+import java.net.InetAddress;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.Callable;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -74,6 +78,9 @@ public final class AuthoritativeZoneHandler implements DnsQueryHandler {
     private final List<InetSocketAddress> notifyPeers;
     private final boolean notifyFromNsRecords;
     private final Map<String, InetSocketAddress> mastersByOrigin;
+    private volatile ZoneMasterClient masterClient = new ZoneNetworkTasks();
+    private volatile SecondaryZoneRefresher.Scheduler refreshScheduler;
+    private final SecondaryZoneRefresher refresher;
 
     private static final int UDP_AXFR_SIZE_LIMIT = 512;
 
@@ -86,6 +93,7 @@ public final class AuthoritativeZoneHandler implements DnsQueryHandler {
         this.notifyPeers = Collections.emptyList();
         this.notifyFromNsRecords = true;
         this.mastersByOrigin = Collections.emptyMap();
+        this.refresher = newRefresher();
     }
 
     AuthoritativeZoneHandler(List<ManagedZone> managedZones, TsigKey tsigKey,
@@ -107,6 +115,157 @@ public final class AuthoritativeZoneHandler implements DnsQueryHandler {
         this.mastersByOrigin = mastersByOrigin == null
                 ? Collections.<String, InetSocketAddress>emptyMap()
                 : Collections.unmodifiableMap(new HashMap<String, InetSocketAddress>(mastersByOrigin));
+        this.refresher = newRefresher();
+        for (Map.Entry<String, InetSocketAddress> entry : this.mastersByOrigin.entrySet()) {
+            refresher.add(entry.getKey(), entry.getValue());
+        }
+    }
+
+    private SecondaryZoneRefresher newRefresher() {
+        ZoneMasterClient client = new ZoneMasterClient() {
+            @Override
+            public void querySoaSerial(SelectorLoop loop, InetSocketAddress master, String origin,
+                    SerialCallback callback) {
+                masterClient.querySoaSerial(loop, master, origin, callback);
+            }
+
+            @Override
+            public void transfer(SelectorLoop loop, InetSocketAddress master, String origin,
+                    org.bluezoo.gumdrop.dns.client.DnsZoneClient.TransferCallback callback) {
+                masterClient.transfer(loop, master, origin, callback);
+            }
+
+            @Override
+            public void notify(SelectorLoop loop, InetSocketAddress peer, String origin) {
+                masterClient.notify(loop, peer, origin);
+            }
+
+            @Override
+            public InetAddress[] resolve(String host) throws java.net.UnknownHostException {
+                return masterClient.resolve(host);
+            }
+        };
+        SecondaryZoneRefresher.Scheduler scheduler = new SecondaryZoneRefresher.Scheduler() {
+            @Override
+            public void schedule(long delayMs, Runnable task) {
+                SecondaryZoneRefresher.Scheduler delegate = refreshScheduler;
+                if (delegate == null) {
+                    synchronized (AuthoritativeZoneHandler.this) {
+                        if (refreshScheduler == null) {
+                            refreshScheduler = SecondaryZoneRefresher.threadScheduler();
+                        }
+                        delegate = refreshScheduler;
+                    }
+                }
+                delegate.schedule(delayMs, task);
+            }
+
+            @Override
+            public void shutdown() {
+                SecondaryZoneRefresher.Scheduler delegate = refreshScheduler;
+                if (delegate != null) {
+                    delegate.shutdown();
+                }
+            }
+        };
+        return new SecondaryZoneRefresher(client, scheduler, new SecondaryZoneRefresher.Installer() {
+            @Override
+            public MutableZone current(String origin) {
+                return zoneForOrigin(origin);
+            }
+
+            @Override
+            public void install(String origin, List<org.bluezoo.gumdrop.dns.DnsResourceRecord> records) {
+                installTransferred(origin, records);
+            }
+        });
+    }
+
+    /** Test seam: replaces the network operations against masters and peers. */
+    void setMasterClient(ZoneMasterClient client) {
+        this.masterClient = client;
+    }
+
+    /** Test seam: replaces the SOA refresh/retry/expire timer. */
+    void setRefreshScheduler(SecondaryZoneRefresher.Scheduler scheduler) {
+        this.refreshScheduler = scheduler;
+    }
+
+    /** Test seam: the refresher, so tests can pin its clock or inspect expiry. */
+    SecondaryZoneRefresher refresher() {
+        return refresher;
+    }
+
+    @Override
+    public void stop() {
+        refresher.stop();
+    }
+
+    /**
+     * Installs the result of a transfer for a secondary zone: replaces the
+     * loaded zone in place, or creates it when none was loaded, and saves it
+     * under the zone's file access mode.
+     */
+    private void installTransferred(String origin, List<org.bluezoo.gumdrop.dns.DnsResourceRecord> records) {
+        ManagedZone target = null;
+        for (int i = 0; i < managedZones.size(); i++) {
+            ManagedZone managed = managedZones.get(i);
+            MutableZone zone = managed.zone;
+            if (zone != null ? zone.getOrigin().equals(origin) : origin.equals(managed.slaveOrigin)) {
+                target = managed;
+                break;
+            }
+        }
+        if (target == null) {
+            return;
+        }
+        MutableZone zone = target.zone;
+        if (zone != null) {
+            zone.replaceFromAxfr(records);
+        } else {
+            zone = MutableZone.fromAxfr(origin, records);
+            target.zone = zone;
+            if (target.persistPath != null && target.accessMode == ZoneFileAccessMode.READ_WRITE
+                    && target.saveQueue == null && storageExecutor != null) {
+                target.saveQueue = new ZoneStorage.SaveQueue(storageExecutor, target.persistPath);
+            }
+            zones = buildZoneSnapshot(managedZones);
+        }
+        schedulePersist(zone, defaultLoop);
+    }
+
+    /**
+     * Starts refreshing every secondary zone that is available to refresh:
+     * loaded from its file, or with nothing to load. Zones still loading
+     * begin when the load completes.
+     */
+    void beginSecondaryRefresh(SelectorLoop loop) {
+        for (int i = 0; i < managedZones.size(); i++) {
+            ManagedZone managed = managedZones.get(i);
+            MutableZone zone = managed.zone;
+            String origin = zone != null ? zone.getOrigin() : managed.slaveOrigin;
+            if (origin != null && refresher.isSecondary(origin)) {
+                refresher.begin(origin, loop);
+            }
+        }
+    }
+
+    private String firstUnboundSecondaryOrigin() {
+        for (String origin : mastersByOrigin.keySet()) {
+            boolean bound = false;
+            for (int i = 0; i < managedZones.size(); i++) {
+                ManagedZone managed = managedZones.get(i);
+                MutableZone zone = managed.zone;
+                if (zone != null ? zone.getOrigin().equals(origin) : origin.equals(managed.slaveOrigin)) {
+                    bound = true;
+                    break;
+                }
+            }
+            if (!bound) {
+                return origin;
+            }
+        }
+        return null;
     }
 
     /**
@@ -148,6 +307,7 @@ public final class AuthoritativeZoneHandler implements DnsQueryHandler {
                 loadZoneFileAsync(managed);
             }
         }
+        beginSecondaryRefresh(defaultLoop);
     }
 
     /**
@@ -193,17 +353,8 @@ public final class AuthoritativeZoneHandler implements DnsQueryHandler {
                     DnsMessage.RCODE_NOTAUTH));
             return;
         }
-        InetSocketAddress master = mastersByOrigin.get(zone.getOrigin());
-        if (master != null) {
-            final MutableZone refreshZone = zone;
-            final SelectorLoop dispatchLoop = loop != null ? loop : defaultLoop;
-            ZoneNetworkTasks.refreshFromMasterAsync(dispatchLoop,
-                    refreshZone, master, new Runnable() {
-                        @Override
-                        public void run() {
-                            schedulePersist(refreshZone, dispatchLoop);
-                        }
-                    });
+        if (refresher.isSecondary(zone.getOrigin())) {
+            refresher.notified(zone.getOrigin(), loop != null ? loop : defaultLoop);
         }
         callback.onResponse(query.createAuthoritativeEmptyResponse(
                 DnsMessage.RCODE_NOERROR));
@@ -225,6 +376,13 @@ public final class AuthoritativeZoneHandler implements DnsQueryHandler {
         MutableZone zone = zoneForOrigin(zname);
         if (zone == null) {
             respondToUpdate(query, callback, DnsMessage.RCODE_NOTAUTH);
+            return;
+        }
+        if (refresher.isSecondary(zone.getOrigin())) {
+            // A secondary is authoritative for queries but takes its data
+            // from the master: an update here would exist only in this
+            // process until the next transfer.
+            respondToUpdate(query, callback, DnsMessage.RCODE_REFUSED);
             return;
         }
         int rcode = DynamicUpdateProcessor.apply(zone, query);
@@ -257,9 +415,78 @@ public final class AuthoritativeZoneHandler implements DnsQueryHandler {
         if (peers.isEmpty()) {
             return;
         }
-        SelectorLoop dispatchLoop = loop != null ? loop : defaultLoop;
-        ZoneNetworkTasks.notifyPeersAsync(dispatchLoop,
-                zone.getOrigin(), peers);
+        final SelectorLoop dispatchLoop = loop != null ? loop : defaultLoop;
+        final String origin = zone.getOrigin();
+        final List<InetSocketAddress> resolvedPeers = new ArrayList<InetSocketAddress>();
+        final List<InetSocketAddress> named = new ArrayList<InetSocketAddress>();
+        for (int i = 0; i < peers.size(); i++) {
+            InetSocketAddress peer = peers.get(i);
+            if (peer.isUnresolved()) {
+                named.add(peer);
+            } else {
+                resolvedPeers.add(peer);
+            }
+        }
+        if (named.isEmpty()) {
+            notifyEach(dispatchLoop, origin, resolvedPeers);
+            return;
+        }
+        // A name (for example a headless Service) can stand for several
+        // replicas; NOTIFY goes to every address it resolves to.
+        Callable<List<InetSocketAddress>> resolution = new Callable<List<InetSocketAddress>>() {
+            @Override
+            public List<InetSocketAddress> call() {
+                List<InetSocketAddress> out = new ArrayList<InetSocketAddress>();
+                for (int i = 0; i < named.size(); i++) {
+                    InetSocketAddress target = named.get(i);
+                    try {
+                        InetAddress[] addresses = masterClient.resolve(target.getHostString());
+                        for (int j = 0; j < addresses.length; j++) {
+                            out.add(new InetSocketAddress(addresses[j], target.getPort()));
+                        }
+                    } catch (IOException e) {
+                        LOGGER.log(Level.FINE, MessageFormat.format(
+                                DnsServer.L10N.getString("fine.zone_notify_peer_failed"), target), e);
+                    }
+                }
+                return out;
+            }
+        };
+        if (storageExecutor == null) {
+            resolvedPeers.addAll(callResolution(resolution));
+            notifyEach(dispatchLoop, origin, resolvedPeers);
+            return;
+        }
+        storageExecutor.submit(ZoneStorage.loopDispatcher(dispatchLoop), resolution,
+                new StorageExecutor.Callback<List<InetSocketAddress>>() {
+                    @Override
+                    public void completed(List<InetSocketAddress> addresses) {
+                        resolvedPeers.addAll(addresses);
+                        notifyEach(dispatchLoop, origin, resolvedPeers);
+                    }
+
+                    @Override
+                    public void failed(Throwable error) {
+                        notifyEach(dispatchLoop, origin, resolvedPeers);
+                    }
+                });
+    }
+
+    private static List<InetSocketAddress> callResolution(Callable<List<InetSocketAddress>> resolution) {
+        try {
+            return resolution.call();
+        } catch (Exception e) {
+            return Collections.<InetSocketAddress>emptyList();
+        }
+    }
+
+    private void notifyEach(SelectorLoop loop, String origin, List<InetSocketAddress> peers) {
+        Set<InetSocketAddress> sent = new HashSet<InetSocketAddress>();
+        for (int i = 0; i < peers.size(); i++) {
+            if (sent.add(peers.get(i))) {
+                masterClient.notify(loop, peers.get(i), origin);
+            }
+        }
     }
 
     private List<InetSocketAddress> notifyTargetsFor(MutableZone zone) {
@@ -307,6 +534,9 @@ public final class AuthoritativeZoneHandler implements DnsQueryHandler {
                                     storageExecutor, managed.persistPath);
                         }
                         zones = buildZoneSnapshot(managedZones);
+                        if (refresher.isSecondary(result.getOrigin())) {
+                            refresher.begin(result.getOrigin(), defaultLoop);
+                        }
                     }
 
                     @Override
@@ -314,6 +544,12 @@ public final class AuthoritativeZoneHandler implements DnsQueryHandler {
                         LOGGER.log(Level.WARNING, MessageFormat.format(
                                 DnsServer.L10N.getString("warn.zone_load_failed"),
                                 managed.persistPath), error);
+                        // A secondary with no usable file starts from a transfer.
+                        String origin = firstUnboundSecondaryOrigin();
+                        if (origin != null) {
+                            managed.slaveOrigin = origin;
+                            refresher.begin(origin, defaultLoop);
+                        }
                     }
                 });
     }
@@ -348,6 +584,13 @@ public final class AuthoritativeZoneHandler implements DnsQueryHandler {
         MutableZone zone = zoneFor(qname);
         if (zone == null) {
             callback.onResponse(query.createErrorResponse(DnsMessage.RCODE_REFUSED));
+            return;
+        }
+
+        if (refresher.isExpired(zone.getOrigin())) {
+            // RFC 1035 section 4.3.5: past the SOA expire interval without a
+            // successful refresh the zone is no longer served.
+            callback.onResponse(query.createErrorResponse(DnsMessage.RCODE_SERVFAIL));
             return;
         }
 
@@ -687,6 +930,19 @@ public final class AuthoritativeZoneHandler implements DnsQueryHandler {
         }
 
         /**
+         * Adds a NOTIFY target by name. The name is resolved when a NOTIFY is
+         * sent and every address it resolves to is notified, so a headless
+         * Service name reaches every ready replica.
+         */
+        public Builder notifyPeer(String host, int port) {
+            if (host == null) {
+                throw new NullPointerException("host");
+            }
+            notifyPeers.add(InetSocketAddress.createUnresolved(host, port));
+            return this;
+        }
+
+        /**
          * When {@code true} (default), NOTIFY after updates is also sent to
          * in-zone NS targets that have glue A/AAAA records (port 53).
          */
@@ -696,7 +952,9 @@ public final class AuthoritativeZoneHandler implements DnsQueryHandler {
         }
 
         /**
-         * Configures a secondary zone that refreshes from {@code master} on NOTIFY.
+         * Configures a secondary zone that refreshes from {@code master} on start, on the
+         * SOA refresh, retry and expire timers, and on NOTIFY. A secondary refuses
+         * RFC 2136 updates.
          */
         public Builder slaveOf(String zoneOrigin, InetSocketAddress master) {
             mastersByOrigin.put(ZoneFile.normalizeName(zoneOrigin), master);
@@ -727,6 +985,28 @@ public final class AuthoritativeZoneHandler implements DnsQueryHandler {
                     }
                 }
             }
+            // A secondary with no zone file to start from begins with nothing
+            // and takes its first copy from the master.
+            boolean anyDeferred = false;
+            for (int i = 0; i < managed.size(); i++) {
+                if (managed.get(i).zone == null) {
+                    anyDeferred = true;
+                }
+            }
+            if (!anyDeferred) {
+                for (String origin : mastersByOrigin.keySet()) {
+                    boolean present = false;
+                    for (int i = 0; i < managed.size(); i++) {
+                        MutableZone zone = managed.get(i).zone;
+                        if (zone != null && zone.getOrigin().equals(origin)) {
+                            present = true;
+                        }
+                    }
+                    if (!present) {
+                        managed.add(ManagedZone.slaveOnly(origin));
+                    }
+                }
+            }
             if (managed.isEmpty()) {
                 throw new IllegalStateException("at least one zone is required");
             }
@@ -750,6 +1030,9 @@ public final class AuthoritativeZoneHandler implements DnsQueryHandler {
 
     static final class ManagedZone {
         volatile MutableZone zone;
+
+        /** For a secondary that has no zone yet: the origin it will transfer. */
+        volatile String slaveOrigin;
         final Path persistPath;
         final ZoneFileAccessMode accessMode;
         ZoneStorage.SaveQueue saveQueue;
@@ -763,6 +1046,12 @@ public final class AuthoritativeZoneHandler implements DnsQueryHandler {
 
         static ManagedZone inMemory(MutableZone zone) {
             return new ManagedZone(zone, null, ZoneFileAccessMode.READ_ONLY);
+        }
+
+        static ManagedZone slaveOnly(String origin) {
+            ManagedZone managed = new ManagedZone(null, null, ZoneFileAccessMode.READ_ONLY);
+            managed.slaveOrigin = origin;
+            return managed;
         }
 
         static ManagedZone deferred(Path path, ZoneFileAccessMode accessMode) {

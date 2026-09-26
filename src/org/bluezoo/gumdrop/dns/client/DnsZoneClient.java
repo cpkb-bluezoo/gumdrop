@@ -27,6 +27,7 @@ import org.bluezoo.gumdrop.dns.DnsFormatException;
 import org.bluezoo.gumdrop.dns.DnsMessage;
 import org.bluezoo.gumdrop.dns.DnsResourceRecord;
 import org.bluezoo.gumdrop.dns.DnsTsig;
+import org.bluezoo.gumdrop.dns.DnsType;
 import org.bluezoo.gumdrop.dns.TsigKey;
 
 import java.io.IOException;
@@ -60,6 +61,17 @@ public final class DnsZoneClient {
         void onSuccess(List<DnsResourceRecord> records);
 
         void onFailure(Exception error);
+    }
+
+    /**
+     * Queries a server's SOA record for a zone over UDP, as a secondary does
+     * to compare serials before deciding to transfer (RFC 1034 section 4.3.5).
+     */
+    public static void querySoa(SelectorLoop loop, InetSocketAddress server,
+            String zoneName, int timeoutMs, MessageCallback callback) {
+        int id = ThreadLocalRandom.current().nextInt(0x10000);
+        DnsMessage query = DnsMessage.createQuery(id, zoneName, DnsType.SOA);
+        exchangeUdp(loop, server, query, timeoutMs, null, callback);
     }
 
     public static void sendNotify(SelectorLoop loop, InetSocketAddress server,
