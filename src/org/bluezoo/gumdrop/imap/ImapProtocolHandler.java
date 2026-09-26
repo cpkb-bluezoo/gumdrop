@@ -308,6 +308,11 @@ public final class ImapProtocolHandler
     // RFC 6855 — UTF8=ACCEPT (UTF-8 on the wire after ENABLE)
     private boolean utf8AcceptEnabled;
 
+    // RFC 5465 — NOTIFY (selective push)
+    private boolean notifyEnabled;
+    private String selectedMailboxName;
+    private final ImapNotifySupport notifySupport;
+
     // APPEND literal state
     private String appendTag = null;
     private Mailbox appendMailbox = null;
@@ -355,6 +360,7 @@ public final class ImapProtocolHandler
         this.server = server;
         ByteStreamLexer.checkTokenCap(server.getMaxLineLength(), server.getMaxNetInSize());
         this.lexer = new ImapServerLexer(this, server.getMaxLineLength());
+        this.notifySupport = new ImapNotifySupport(new ImapNotifyHandlerHost(this));
     }
 
     // ── ProtocolHandler implementation ──
@@ -409,6 +415,7 @@ public final class ImapProtocolHandler
             }
         } finally {
             cancelIdleTimer();
+            notifySupport.disconnected();
             offloadCloseMailboxAndStore();
             if (deflateLayer != null) {
                 deflateLayer.close();
@@ -425,6 +432,7 @@ public final class ImapProtocolHandler
         final Mailbox mb = selectedMailbox;
         final MailboxStore st = store;
         selectedMailbox = null;
+        selectedMailboxName = null;
         store = null;
         if (mb == null && st == null) {
             return;
@@ -630,6 +638,80 @@ public final class ImapProtocolHandler
      */
     public boolean isUtf8AcceptEnabled() {
         return utf8AcceptEnabled;
+    }
+
+    /**
+     * Returns whether RFC 5465 NOTIFY is active on this connection.
+     *
+     * @return true after successful {@code ENABLE NOTIFY}
+     */
+    public boolean isNotifyEnabled() {
+        return notifyEnabled;
+    }
+
+    boolean isCondstoreEnabled() {
+        return condstoreEnabled;
+    }
+
+    boolean isQresyncEnabled() {
+        return qresyncEnabled;
+    }
+
+    boolean isIdling() {
+        return idling;
+    }
+
+    boolean isSelectedState() {
+        return state == ImapState.SELECTED;
+    }
+
+    void notifySendUntagged(String line) throws IOException {
+        sendUntagged(line);
+    }
+
+    void notifySendTaggedOk(String tag, String message) throws IOException {
+        sendTaggedOk(tag, message);
+    }
+
+    void notifySendTaggedNo(String tag, String message) throws IOException {
+        sendTaggedNo(tag, message);
+    }
+
+    void notifySendTaggedBad(String tag, String message) throws IOException {
+        sendTaggedBad(tag, message);
+    }
+
+    ImapListener getServer() {
+        return server;
+    }
+
+    MailboxStore getMailboxStore() {
+        return store;
+    }
+
+    Mailbox getSelectedMailbox() {
+        return selectedMailbox;
+    }
+
+    String getSelectedMailboxName() {
+        return selectedMailboxName;
+    }
+
+    Endpoint getEndpoint() {
+        return endpoint;
+    }
+
+    boolean canDeliverUnsolicitedNotify() {
+        return authState == AuthState.NONE
+                && appendLiteralRemaining <= 0
+                && !appendMailboxOpening
+                && !appendDiscarding
+                && appendWriter == null
+                && !inGeneralLiteralContinuation;
+    }
+
+    void sendSelectedMailboxUpdates() throws IOException {
+        sendMailboxUpdates();
     }
 
     private void resetSegmentState() {
@@ -1253,6 +1335,9 @@ public final class ImapProtocolHandler
             case "ENABLE":
                 handleEnable(tag, args);
                 break;
+            case "NOTIFY":
+                notifySupport.handleNotify(tag, args);
+                break;
             case "GETQUOTA":
                 handleGetQuota(tag, args);
                 break;
@@ -1316,6 +1401,9 @@ public final class ImapProtocolHandler
                 break;
             case "ENABLE":
                 handleEnable(tag, args);
+                break;
+            case "NOTIFY":
+                notifySupport.handleNotify(tag, args);
                 break;
             case "GETQUOTA":
                 handleGetQuota(tag, args);
@@ -2642,6 +2730,7 @@ public final class ImapProtocolHandler
         final boolean previousReadOnly = selectedReadOnly;
         final MailboxStore currentStore = store;
         selectedMailbox = null;
+        selectedMailboxName = null;
 
         submitStorage(new Callable<Mailbox>() {
             @Override
@@ -2656,6 +2745,7 @@ public final class ImapProtocolHandler
             public void completed(Mailbox mbox) {
                 try {
                     selectedMailbox = mbox;
+                    selectedMailboxName = mailboxName;
                     selectedReadOnly = readOnly;
                     state = ImapState.SELECTED;
 
@@ -3967,6 +4057,15 @@ public final class ImapProtocolHandler
                     enabled.append(' ');
                 }
                 enabled.append("UTF8=ACCEPT");
+            } else if (ext.equals("NOTIFY")
+                    && server.isEnableNOTIFY()
+                    && !notifyEnabled) {
+                notifyEnabled = true;
+                notifySupport.handleEnableNotify();
+                if (enabled.length() > 0) {
+                    enabled.append(' ');
+                }
+                enabled.append("NOTIFY");
             }
         }
         if (enabled.length() > 0) {
@@ -4010,6 +4109,7 @@ public final class ImapProtocolHandler
                 }
                 try {
                     sendMailboxUpdates();
+                    notifySupport.onIdleTick();
                 } catch (IOException e) {
                     LOGGER.log(Level.FINE,
                             L10N.getString("debug.error_sending_idle_updates"), e);
@@ -4326,6 +4426,7 @@ public final class ImapProtocolHandler
         final Mailbox mbox = selectedMailbox;
         final boolean doExpunge = expunge && !selectedReadOnly;
         selectedMailbox = null;
+        selectedMailboxName = null;
         selectedReadOnly = false;
         lastReportedExists = -1;
         lastReportedUIDs = null;
@@ -7181,7 +7282,7 @@ public final class ImapProtocolHandler
         return result.isEmpty() ? null : result.toArray(new String[0]);
     }
 
-    private String quoteMailboxName(String name) {
+    String quoteMailboxName(String name) {
         name = stripControlChars(name);
         if (name.contains(" ") || name.contains("\"") || name.contains("\\")) {
             return "\"" + name.replace("\\", "\\\\").replace("\"", "\\\"")
@@ -7854,6 +7955,7 @@ public final class ImapProtocolHandler
             authenticatedHandler = handler;
             selectedHandler = null;
             selectedMailbox = null;
+            selectedMailboxName = null;
             selectedReadOnly = false;
             state = ImapState.AUTHENTICATED;
             try {
