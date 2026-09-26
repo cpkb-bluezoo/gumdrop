@@ -23,13 +23,19 @@ package org.bluezoo.gumdrop.dns.client;
 
 import java.io.IOException;
 import java.net.InetAddress;
+import java.net.Inet6Address;
 import java.net.InetSocketAddress;
+import java.net.NetworkInterface;
+import java.net.NoRouteToHostException;
+import java.net.SocketException;
 import java.net.UnknownHostException;
 import java.nio.ByteBuffer;
 import java.text.MessageFormat;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.Enumeration;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.LinkedHashSet;
@@ -128,6 +134,15 @@ public class DnsResolver {
 
     private static final int DEFAULT_PORT = 53;
     private static final long DEFAULT_TIMEOUT_MS = 5000;
+
+    /**
+     * RFC 8305 section 5: how long the IPv6 attempt runs alone before the
+     * same query also goes to that provider's IPv4 address.
+     */
+    static final long IPV6_HEAD_START_MS = 250;
+
+    /** Number of providers in the well-known fallback list (Cloudflare, Quad9, Google). */
+    private static final int FALLBACK_PROVIDERS = 3;
     // RFC 1034 section 3.6.2: limit CNAME chain depth to prevent loops
     private static final int MAX_CNAME_DEPTH = 8;
 
@@ -223,6 +238,16 @@ public class DnsResolver {
     private final List<InetSocketAddress> servers;
     private final Map<Integer, PendingQuery> pendingQueries;
     private final List<DnsClientTransport> transports;
+
+    /**
+     * Well-known public fallbacks only: index of each IPv6 server mapped
+     * to the index of the same provider's IPv4 server, which follows it.
+     * Empty for nameservers taken from resolv.conf or added by hand.
+     */
+    private final Map<Integer, Integer> ipv6Partner = new HashMap<>();
+
+    /** Provider number (0 Cloudflare, 1 Quad9, 2 Google) of each IPv6 fallback index. */
+    private final Map<Integer, Integer> ipv6Provider = new HashMap<>();
 
     private DnsClientTransport transportPrototype;
     private long timeoutMs;
@@ -377,6 +402,8 @@ public class DnsResolver {
      */
     public DnsResolver servers(InetAddress... addresses) {
         servers.clear();
+        ipv6Partner.clear();
+        ipv6Provider.clear();
         if (addresses != null) {
             for (int i = 0; i < addresses.length; i++) {
                 if (addresses[i] == null) {
@@ -531,21 +558,237 @@ public class DnsResolver {
     }
 
     /**
-     * Cloudflare → Quad9 → Google. Order matches {@link DnsServerCapabilityCache}
+     * Cloudflare → Quad9 → Google, each provider's IPv6 address followed
+     * by its IPv4 address so one dead address family cannot stack timeouts
+     * ahead of the other. Order matches {@link DnsServerCapabilityCache}
      * DoQ-capable fallbacks (Google has no DoQ).
+     *
+     * <p>See {@link #buildPlan} for how IPv6 is preferred while the host
+     * can reach it and skipped while it cannot.
      */
-    private void addWellKnownPublicFallbacks() {
-        String[] fallbacks = {
-                "1.1.1.1", "1.0.0.1",
-                "9.9.9.9", "149.112.112.112",
-                "8.8.8.8", "8.8.4.4",
+    void addWellKnownPublicFallbacks() {
+        String[][] pairs = {
+                {"2606:4700:4700::1111", "1.1.1.1"},
+                {"2620:fe::fe", "9.9.9.9"},
+                {"2001:4860:4860::8888", "8.8.8.8"},
+                {"2606:4700:4700::1001", "1.0.0.1"},
+                {"2620:fe::9", "149.112.112.112"},
+                {"2001:4860:4860::8844", "8.8.4.4"},
         };
-        for (String address : fallbacks) {
+        for (int i = 0; i < pairs.length; i++) {
             try {
-                addServer(address);
+                int v6Index = servers.size();
+                addServer(pairs[i][0]);
+                addServer(pairs[i][1]);
+                ipv6Partner.put(Integer.valueOf(v6Index), Integer.valueOf(v6Index + 1));
+                ipv6Provider.put(Integer.valueOf(v6Index), Integer.valueOf(i % FALLBACK_PROVIDERS));
             } catch (UnknownHostException e) {
                 // IP literals should not fail
             }
+        }
+    }
+
+    // -- Well-known IPv6 fallbacks: eligibility and planning --
+
+    /** Returns the current time; a test seam. */
+    long currentTimeMillis() {
+        return System.currentTimeMillis();
+    }
+
+    /**
+     * Whether this host has an IPv6 address that could reach the public
+     * internet: global unicast, so not loopback, link-local, unique-local
+     * or site-local. A test seam.
+     */
+    boolean hostHasGlobalIpv6() {
+        try {
+            Enumeration<NetworkInterface> interfaces = NetworkInterface.getNetworkInterfaces();
+            while (interfaces != null && interfaces.hasMoreElements()) {
+                NetworkInterface nic = interfaces.nextElement();
+                if (!nic.isUp() || nic.isLoopback()) {
+                    continue;
+                }
+                Enumeration<InetAddress> addresses = nic.getInetAddresses();
+                while (addresses.hasMoreElements()) {
+                    InetAddress address = addresses.nextElement();
+                    if (address instanceof Inet6Address && isGlobalUnicast((Inet6Address) address)) {
+                        return true;
+                    }
+                }
+            }
+        } catch (SocketException e) {
+            return false;
+        }
+        return false;
+    }
+
+    private static boolean isGlobalUnicast(Inet6Address address) {
+        if (address.isAnyLocalAddress() || address.isLoopbackAddress() || address.isLinkLocalAddress()
+                || address.isSiteLocalAddress() || address.isMulticastAddress()) {
+            return false;
+        }
+        // fc00::/7 is unique-local: not routable on the public internet
+        return (address.getAddress()[0] & 0xfe) != 0xfc;
+    }
+
+    /**
+     * Whether the host is believed able to reach public IPv6. Rechecks
+     * the interfaces at most once a minute, and only when no recent
+     * no-route signal already answers the question.
+     */
+    private boolean ipv6Reachable(long now) {
+        if (DnsFallbackHealth.isNoRoute(now)) {
+            return false;
+        }
+        if (DnsFallbackHealth.globalCheckDue(now) && !hostHasGlobalIpv6()) {
+            DnsFallbackHealth.markNoRoute(now);
+            return false;
+        }
+        return true;
+    }
+
+    private static boolean isNoRouteFailure(Throwable cause) {
+        if (cause instanceof NoRouteToHostException) {
+            return true;
+        }
+        String message = cause == null ? null : cause.getMessage();
+        if (message == null) {
+            return false;
+        }
+        String lower = message.toLowerCase(java.util.Locale.ROOT);
+        return lower.contains("unreachable") || lower.contains("no route to host");
+    }
+
+    private boolean isIpv6Fallback(int index) {
+        return ipv6Partner.containsKey(Integer.valueOf(index));
+    }
+
+    /**
+     * Whether IPv6 fallback {@code index} may be tried now: the host is
+     * believed to reach IPv6, this address has not recently timed out,
+     * and its transport is (or can now be) open. A transport skipped at
+     * {@link #open()} because IPv6 was unreachable is opened here once
+     * that has been re-established.
+     */
+    private boolean ipv6Usable(int index, long now) {
+        if (!ipv6Reachable(now)) {
+            return false;
+        }
+        if (DnsFallbackHealth.isBad(servers.get(index).getAddress().getHostAddress(), now)) {
+            return false;
+        }
+        if (transports.get(index) != null) {
+            return true;
+        }
+        return openIpv6Fallback(index, now);
+    }
+
+    private boolean openIpv6Fallback(int index, long now) {
+        InetSocketAddress server = servers.get(index);
+        TransportCallback callback = new TransportCallback(index);
+        try {
+            transports.set(index, openBestTransport(server, callback));
+            return true;
+        } catch (IOException e) {
+            // an IPv6 fallback that cannot even be opened means no path
+            DnsFallbackHealth.markNoRoute(now);
+            return false;
+        }
+    }
+
+    /**
+     * Returns the order in which servers are tried for a query, as
+     * indexes into {@link #servers}.
+     *
+     * <p>For configured nameservers this is simply their order. For the
+     * well-known fallbacks IPv6 addresses are dropped while the host has
+     * no IPv6 route or that address recently timed out. While IPv4 has
+     * not recently beaten IPv6, each provider's IPv6 address is followed
+     * by its IPv4 address (the pair is raced, see {@link #sendToServer});
+     * otherwise every IPv4 address comes first and the usable IPv6 ones
+     * follow. After IPv4 has won, the pairs start one provider later so
+     * the next probe of IPv6 tries a different provider.
+     */
+    private int[] buildPlan(long now) {
+        int count = servers.size();
+        List<Integer> order = new ArrayList<>();
+        if (ipv6Partner.isEmpty()) {
+            int[] plan = new int[count];
+            for (int i = 0; i < count; i++) {
+                plan[i] = i;
+            }
+            return plan;
+        }
+        List<Integer> pairStarts = new ArrayList<>();
+        for (int i = 0; i < count; i++) {
+            if (isIpv6Fallback(i)) {
+                pairStarts.add(Integer.valueOf(i));
+            } else if (!ipv6Partner.containsValue(Integer.valueOf(i))) {
+                order.add(Integer.valueOf(i));
+            }
+        }
+        boolean headStart = !DnsFallbackHealth.isIpv4Preferred(now);
+        // Only the IPv6 probe rotates providers; while IPv4 is preferred
+        // the provider order is the configured one.
+        int rotation = headStart ? DnsFallbackHealth.rotation() : 0;
+        List<Integer> rotated = new ArrayList<>();
+        for (int group = 0; group < pairStarts.size(); group += FALLBACK_PROVIDERS) {
+            int end = Math.min(group + FALLBACK_PROVIDERS, pairStarts.size());
+            int size = end - group;
+            for (int k = 0; k < size; k++) {
+                rotated.add(pairStarts.get(group + (k + rotation) % size));
+            }
+        }
+        List<Integer> late = new ArrayList<>();
+        List<Integer> ipv4Only = new ArrayList<>();
+        for (Integer v6 : rotated) {
+            boolean usable = ipv6Usable(v6.intValue(), now);
+            if (usable && headStart) {
+                order.add(v6);
+                order.add(ipv6Partner.get(v6));
+            } else if (usable) {
+                order.add(ipv6Partner.get(v6));
+                late.add(v6);
+            } else {
+                ipv4Only.add(ipv6Partner.get(v6));
+            }
+        }
+        order.addAll(ipv4Only);
+        order.addAll(late);
+        int[] plan = new int[order.size()];
+        for (int i = 0; i < plan.length; i++) {
+            plan[i] = order.get(i).intValue();
+        }
+        return plan;
+    }
+
+    /**
+     * Records which server answered a query planned by {@link #buildPlan}.
+     */
+    private void recordFallbackOutcome(PendingQuery pending, int answeredBy, long now) {
+        if (ipv6Partner.isEmpty() || answeredBy < 0 || answeredBy >= servers.size()) {
+            return;
+        }
+        if (isIpv6Fallback(answeredBy)) {
+            DnsFallbackHealth.ipv6Answered(servers.get(answeredBy).getAddress().getHostAddress());
+            return;
+        }
+        // An IPv4 fallback answered. It only counts against IPv6 if that
+        // provider's IPv6 address was tried first.
+        for (Map.Entry<Integer, Integer> entry : ipv6Partner.entrySet()) {
+            if (entry.getValue().intValue() != answeredBy) {
+                continue;
+            }
+            int v6 = entry.getKey().intValue();
+            boolean tried = pending.raced || pending.serverIndex == v6 || pending.triedIpv6(v6);
+            if (tried) {
+                DnsFallbackHealth.preferIpv4(now, DnsFallbackHealth.IPV4_WIN_MS);
+                DnsFallbackHealth.advanceRotation();
+                if (DnsFallbackHealth.badProviderCount(now) >= 2) {
+                    DnsFallbackHealth.preferIpv4(now, DnsFallbackHealth.BLACKHOLE_MS);
+                }
+            }
+            return;
         }
     }
 
@@ -577,6 +820,25 @@ public class DnsResolver {
         for (int i = 0; i < servers.size(); i++) {
             InetSocketAddress server = servers.get(i);
             TransportCallback callback = new TransportCallback(i);
+            if (isIpv6Fallback(i)) {
+                // A well-known IPv6 fallback never fails the resolver: its
+                // IPv4 partner covers it. Skipped here when the host cannot
+                // reach IPv6; opened lazily once that changes.
+                long now = currentTimeMillis();
+                DnsClientTransport transport = null;
+                if (ipv6Reachable(now)) {
+                    try {
+                        transport = openBestTransport(server, callback);
+                    } catch (IOException e) {
+                        DnsFallbackHealth.markNoRoute(now);
+                    }
+                }
+                transports.add(transport);
+                if (transport != null && ddrEnabled && callback.transportType == DnsTransportType.PLAIN) {
+                    startDdrDiscovery(i, server);
+                }
+                continue;
+            }
             transports.add(openBestTransport(server, callback));
             // callback.transportType is only ever PLAIN here when nothing
             // better was already known (an explicit setTransport override
@@ -604,7 +866,9 @@ public class DnsResolver {
         }
         pendingQueries.clear();
         for (DnsClientTransport transport : transports) {
-            transport.close();
+            if (transport != null) {
+                transport.close();
+            }
         }
         transports.clear();
         opened = false;
@@ -913,7 +1177,8 @@ public class DnsResolver {
         // RFC 7873: include DNS cookie in the OPT record.
         // RFC 4035 section 3.2.1: set DO bit when DNSSEC is enabled.
         List<DnsResourceRecord> additionals = new ArrayList<>();
-        InetSocketAddress targetServer = servers.isEmpty() ? null : servers.get(0);
+        int[] plan = buildPlan(currentTimeMillis());
+        InetSocketAddress targetServer = plan.length == 0 ? null : servers.get(plan[0]);
         String serverAddr = targetServer == null ? "" :
                 targetServer.getAddress().getHostAddress();
         byte[] cookieOption = dnsCookie.buildCookieOption(serverAddr);
@@ -951,7 +1216,8 @@ public class DnsResolver {
         long expiry = System.currentTimeMillis() + timeoutMs;
         final PendingQuery pending =
                 new PendingQuery(queryId, name, type, additionalTypes, callback, expiry,
-                        0, serialized, cnameDepth);
+                        plan.length == 0 ? 0 : plan[0], serialized, cnameDepth);
+        pending.plan = plan;
         pendingQueries.put(queryId, pending);
         sendToServer(pending);
     }
@@ -1077,6 +1343,37 @@ public class DnsResolver {
                     pending.name, pending.type, pending.queryId);
             LOGGER.fine(msg);
         }
+        Integer partner = ipv6Partner.get(Integer.valueOf(pending.serverIndex));
+        if (partner != null && pending.cursor + 1 < pending.plan.length
+                && pending.plan[pending.cursor + 1] == partner.intValue()) {
+            final int queryId = pending.queryId;
+            pending.headStartHandle = transport.scheduleTimer(IPV6_HEAD_START_MS, new Runnable() {
+                @Override
+                public void run() {
+                    raceIpv4Partner(queryId);
+                }
+            });
+        }
+    }
+
+    /**
+     * RFC 8305 section 5: the IPv6 attempt has had its head start without
+     * an answer, so the same query also goes to the provider's IPv4
+     * address. Whichever answers first wins.
+     */
+    private void raceIpv4Partner(int queryId) {
+        PendingQuery pending = pendingQueries.get(queryId);
+        if (pending == null || pending.raced || pending.cursor + 1 >= pending.plan.length) {
+            return;
+        }
+        int partnerIndex = pending.plan[pending.cursor + 1];
+        DnsClientTransport transport = transports.get(partnerIndex);
+        if (transport == null) {
+            return;
+        }
+        pending.raced = true;
+        pending.queryData.rewind();
+        transport.send(pending.queryData);
     }
 
     // Descending preference (issue #408): encrypted QUIC-based transport
@@ -1216,7 +1513,7 @@ public class DnsResolver {
     }
 
     // RFC 1035 section 7.3: match response to query by Message ID
-    private void handleResponse(DnsMessage response) {
+    private void handleResponse(DnsMessage response, int answeredBy) {
         int queryId = response.getId();
         PendingQuery pending = pendingQueries.remove(queryId);
         if (pending == null) {
@@ -1227,6 +1524,13 @@ public class DnsResolver {
                 LOGGER.fine(msg);
             }
             return;
+        }
+        if (pending.headStartHandle != null) {
+            pending.headStartHandle.cancel();
+        }
+        recordFallbackOutcome(pending, answeredBy, currentTimeMillis());
+        if (answeredBy >= 0 && answeredBy < servers.size() && !ipv6Partner.isEmpty()) {
+            pending.serverIndex = answeredBy;
         }
         // RFC 7873: extract and cache server cookie from the response
         processResponseCookies(response, pending);
@@ -1329,8 +1633,23 @@ public class DnsResolver {
         if (pending == null) {
             return;
         }
-        int nextIndex = pending.serverIndex + 1;
-        if (nextIndex < transports.size()) {
+        if (pending.headStartHandle != null) {
+            pending.headStartHandle.cancel();
+            pending.headStartHandle = null;
+        }
+        if (isIpv6Fallback(pending.serverIndex)) {
+            // this address, not the family, failed: others stay eligible
+            pending.noteIpv6Attempt(pending.serverIndex);
+            DnsFallbackHealth.markBad(servers.get(pending.serverIndex).getAddress().getHostAddress(),
+                    ipv6Provider.get(Integer.valueOf(pending.serverIndex)).intValue(),
+                    currentTimeMillis());
+        }
+        int step = pending.raced ? 2 : 1;
+        pending.raced = false;
+        int nextCursor = pending.cursor + step;
+        if (nextCursor < pending.plan.length) {
+            int nextIndex = pending.plan[nextCursor];
+            pending.cursor = nextCursor;
             pending.serverIndex = nextIndex;
             if (LOGGER.isLoggable(Level.FINE)) {
                 LOGGER.fine(MessageFormat.format(
@@ -1591,6 +1910,9 @@ public class DnsResolver {
         }
         InetSocketAddress server = servers.get(serverIndex);
         DnsClientTransport oldTransport = transports.get(serverIndex);
+        if (oldTransport == null) {
+            return;
+        }
         TransportCallback callback = new TransportCallback(serverIndex);
         try {
             DnsClientTransport newTransport = openBestTransport(server, callback);
@@ -1694,6 +2016,27 @@ public class DnsResolver {
         final int cnameDepth;
         int serverIndex;
         TimerHandle timeoutHandle;
+
+        /** Server indexes in the order to try them, and the position of the current one. */
+        int[] plan;
+        int cursor;
+
+        /** Whether the current IPv6 attempt's IPv4 partner has also been sent the query. */
+        boolean raced;
+        TimerHandle headStartHandle;
+
+        private Set<Integer> ipv6Attempts;
+
+        void noteIpv6Attempt(int index) {
+            if (ipv6Attempts == null) {
+                ipv6Attempts = new HashSet<>();
+            }
+            ipv6Attempts.add(Integer.valueOf(index));
+        }
+
+        boolean triedIpv6(int index) {
+            return ipv6Attempts != null && ipv6Attempts.contains(Integer.valueOf(index));
+        }
 
         PendingQuery(int queryId, String name, DnsType type,
                      List<DnsType> additionalTypes,
@@ -1916,7 +2259,7 @@ public class DnsResolver {
         public void onReceive(ByteBuffer data) {
             try {
                 DnsMessage response = DnsMessage.parse(data);
-                handleResponse(response);
+                handleResponse(response, serverIndex);
             } catch (DnsFormatException e) {
                 LOGGER.log(Level.WARNING,
                         L10N.getString("err.malformed_response"), e);
@@ -1925,6 +2268,12 @@ public class DnsResolver {
 
         @Override
         public void onError(Exception cause) {
+            if (isIpv6Fallback(serverIndex) && isNoRouteFailure(cause)) {
+                // a well-known IPv6 fallback with no route says nothing
+                // about the nameserver: quiet, and skip IPv6 for a while
+                DnsFallbackHealth.markNoRoute(currentTimeMillis());
+                return;
+            }
             JulWarnings.warn(LOGGER, "DNS resolver transport error", cause);
             // An asynchronous failure (e.g. a QUIC/TLS handshake that
             // fails after open() already returned successfully) means
