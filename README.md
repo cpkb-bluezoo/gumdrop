@@ -47,26 +47,28 @@ non-blocking, event-driven I/O.
 - small and efficient
     - minimal memory footprint
     - fast startup time
-    - single JAR deployment
+    - modular jar deployment
 - simple, extensible interfaces
     - clean separation of protocol handling from business logic
     - implement services without detailed protocol knowledge
     - pluggable authentication via Realm interface
     - pluggable storage via MailboxFactory interface
 - low external dependencies, all pure Java
-    - [gonzalez](https://github.com/cpkb-bluezoo/gonzalez) (XML), [jsonparser](https://github.com/cpkb-bluezoo/jsonparser) (JSON), and J2EE APIs
-    - self-contained implementations (QUIC/HTTP-3, TLS 1.3, protobuf, HPACK, ASN.1, OTel, etc.)
-    - no dependency injection framework required
+    - [gonzalez](https://github.com/cpkb-bluezoo/gonzalez) : XML
+    - [jsonparser](https://github.com/cpkb-bluezoo/jsonparser) : JSON
+    - [jprotobuf](https://github.com/cpkb-bluezoo/jprotobuf) : Protocol Buffers
+    - [micula](https://github.com/cpkb-bluezoo/micula) : Brotli
+    - self-contained implementations (QUIC/HTTP-3, TLS, HPACK, ASN.1, OTel, &c.)
 - requires Java 25+ (LTS)
     - UNIX domain socket support available natively
-    - no native library or build step required for any feature, including QUIC/HTTP-3
+    - no native library or build step required for any feature
 - transparent security
     - TLS/DTLS handled automatically by framework
     - configure once, apply to multiple endpoints
     - optional client certificate authentication built-in
     - rate limiting, quotas, IAM
 - production ready
-    - comprehensive protocol implementations (HTTP, SMTP, IMAP, POP3, FTP, DNS, MQTT, SOCKS)
+    - comprehensive protocol implementations (HTTP, SMTP, IMAP, POP3, FTP, DNS, MQTT, AMQP, SOCKS)
     - security hardening (rate limiting, filtering, attack prevention)
     - enterprise observability via OpenTelemetry integration
 
@@ -84,14 +86,12 @@ non-blocking, event-driven I/O.
 | Transport-level flow control | ✓ | ✓ | ✗ | ✗ |
 | Built-in telemetry (no agent) | ✓ | ✗ | ✗ | ✗ |
 | Unified auth realm across protocols | ✓ | ✗ | ✗ | ✗ |
-| Single JAR, minimal deps | ✓ | ✗ | ✗ | ✗ |
-| No DI framework required | ✓ | ✓ | ✗ | ✓ |
 
-Gumdrop uniquely combines a servlet container with a complete low-level networking framework, so you can run J2EE web apps and build highly efficient custom protocol servers from the same codebase. Unlike Netty, it uses standard `ByteBuffer` throughout — no proprietary buffer abstraction to learn. Its HTTP layer is built on the same simple and coherent event-driven I/O framework used for SMTP, IMAP, DNS, MQTT, FTP, and SOCKS, so you can add fully async mail, messaging, file transfer, DNS, or proxy services without bolting on separate stacks.
+Gumdrop uniquely combines a servlet container with a complete low-level networking framework, so you can run J2EE web apps and build highly efficient custom protocol servers from the same codebase. Unlike Netty, it uses standard `ByteBuffer` throughout - no proprietary buffer abstraction to learn. Its HTTP layer is built on the same simple and coherent reactor-based event-driven I/O framework used for SMTP, IMAP, DNS, MQTT, AMQP, FTP, and SOCKS, so you can add fully async mail, messaging, file transfer, DNS, or proxy services without bolting on separate stacks.
 
 ### Benchmarks
 
-Raw-API HTTP servers (no servlet container) built directly on Gumdrop and on Netty, driven by the same closed-loop load generator (JDK `HttpClient`, one virtual thread per concurrent client, requests issued back-to-back), on the same machine, over loopback. Each scenario ran a 5s warmup (discarded) followed by two 12s measurement windows; the figures below are the average of both. Absolute throughput varies somewhat run-to-run on a shared development machine, so treat these as directional rather than exact — the two servers in a given row were always measured back-to-back in the same run, which is what makes the comparison between them meaningful.
+Raw-API HTTP servers (no servlet container) built directly on Gumdrop and on Netty, driven by the same closed-loop load generator (JDK `HttpClient`, one virtual thread per concurrent client, requests issued back-to-back), on the same machine, over loopback. Each scenario ran a 5s warmup (discarded) followed by two 12s measurement windows; the figures below are the average of both. Absolute throughput varies somewhat run-to-run on a shared development machine, so treat these as directional rather than exact - the two servers in a given row were always measured back-to-back in the same run, which is what makes the comparison between them meaningful.
 
 | Scenario | Concurrency | Req/s (Gumdrop) | Req/s (Netty) | p50 ms (Gumdrop) | p50 ms (Netty) | p99 ms (Gumdrop) | p99 ms (Netty) |
 |---|---:|---:|---:|---:|---:|---:|---:|
@@ -105,22 +105,18 @@ Raw-API HTTP servers (no servlet container) built directly on Gumdrop and on Net
 
 \* Netty saw ~3% request errors in this scenario (short-lived TLS-handshake churn at concurrency 20); Gumdrop saw none. Every other scenario ran error-free on both servers.
 
-Gumdrop is essentially at parity with Netty on plaintext HTTP/1.1 and JSON, ahead on per-request TLS handshake throughput, and behind on sustained keep-alive TLS and HTTP/2.
+Gumdrop is essentially at parity with Netty on plaintext HTTP/1.1 and JSON, ahead on per-request TLS handshake throughput, and behind on sustained keep-alive TLS and HTTP/2. Compression performance was not measured.
 
 ## Full feature list
 
-- a generic, extensible server framework that can transparently handle TLS
-  connections from clients
-    - TCP servers with TLS support
-    - UDP servers with DTLS support
+- a generic, extensible server framework that can transparently handle
+  secure connections from clients
+    - TCP servers with TLS 1.3 and 1.2 support
+    - UDP servers with DTLS 1.3 and 1.2 support
     - QUIC support, pure Java implementation (TLS 1.3 always-on)
-    - fully transparent SSL support for all protocols
-        - keystore/truststore configuration
-        - client certificates
-        - SSL protocols (TLS 1.2, 1.3; DTLS 1.2, 1.3)
-        - cipher suite selection
-        - named group selection (PQC hybrid key exchange on TCP/TLS and QUIC, Java 25+)
-        - SNI
+    - uses standard Java crypto primitives and X.509 cert trust/validation
+    - named group selection (PQC hybrid key exchange and cert validation)
+    - SNI
     - configurable pool of worker threads shared across all servers,
       completely independent of the number of client connections
     - transport-level flow control with backpressure for large
@@ -139,17 +135,13 @@ Gumdrop is essentially at parity with Netty on plaintext HTTP/1.1 and JSON, ahea
         - uses same event-driven asynchronous architecture for peers
         - can use I/O worker thread affinity to avoid context switching
 - HTTP
-    - HTTP/3 over QUIC, 100% pure Java — no JNI, no native library
-        - full HTTP/3 client and server
-        - QPACK header compression
-        - HTTP/3 framing/stream multiplexing
+    - HTTP/3 over QUIC, 100% pure Java
         - request pseudo-header validation, 1xx informational responses
         - Priority header (RFC 9218), GOAWAY last-stream-ID tracking
         - configurable QUIC transport parameters
         - WebSocket over HTTP/3 (RFC 9220) via Extended CONNECT
     - HTTP/2
         - all HTTP/2 frame types and stream multiplexing
-        - HPACK header compression
         - graceful GOAWAY, PING keep-alive, SETTINGS ACK timeout, TLS cipher validation
         - client concurrent-stream limiting, idle timeout
     - HTTP/1.0 and 1.1
@@ -163,7 +155,7 @@ Gumdrop is essentially at parity with Netty on plaintext HTTP/1.1 and JSON, ahea
         - Bearer
         - OAuth (token introspection + local JWT validation)
         - mTLS
-    - fast async event driven callback API for microservices with examples
+    - fast async event-driven callback API for microservices with examples
     - 103 Early Hints (RFC 8297) for resource preloading across HTTP/1.1, HTTP/2, and HTTP/3
     - unified flow control over HTTP transports
     - WebDAV file service
@@ -174,14 +166,15 @@ Gumdrop is essentially at parity with Netty on plaintext HTTP/1.1 and JSON, ahea
             - dead property storage with xattr primary and sidecar fallback
             - MKCOL, COPY, MOVE for resource operations (with dead property propagation)
             - LOCK, UNLOCK for write locking
-    - complete, conformant Java servlet 4.0 container
+        - ACLs integrated with Realm interface
+    - complete, conformant Java servlet 6.1 container
         - secure classloader separation
         - separate thread pool configuration for servlet worker threads,
           distinct from I/O worker loops
         - asynchronous processing
         - enterprise DataSource and MailSession handling, JCA connection
           factories, administered objects and all JNDI resources
-        - hot deployment
+        - optional hot deployment
         - WebSocket servlet support with example showing how to use upgrade
         - programmatic registration of web descriptors
         - complete multipart/form-data handling
@@ -198,8 +191,7 @@ Gumdrop is essentially at parity with Netty on plaintext HTTP/1.1 and JSON, ahea
             - deserialization filtering for complex objects
             - cluster node telemetry metrics
 - SMTP
-    - SMTPS
-    - STARTTLS support
+    - SMTPS and STARTTLS support
     - SMTP AUTH with numerous authentication methods for both standard
       clients and enterprise/military environments (see SASL section below)
     - 8-bit clean message transport
@@ -217,7 +209,7 @@ Gumdrop is essentially at parity with Netty on plaintext HTTP/1.1 and JSON, ahea
         - SPF
         - DKIM (verification and signing, RSA-SHA256 and Ed25519-SHA256)
         - DMARC (policy evaluation, aggregate XML reporting, forensic/failure reporting)
-        - ARC (RFC 8617 chain validation and sealing for forwarded mail, optional ARC-aware DMARC via `ArcDmarcPolicy`)
+        - ARC (RFC 8617 chain validation and sealing for forwarded mail, optional ARC-aware DMARC)
         - custom parsed message processing
     - simple, extensible asynchronous handler mechanism for implementations
     - CHUNKING/BDAT
@@ -392,8 +384,6 @@ Gumdrop is essentially at parity with Netty on plaintext HTTP/1.1 and JSON, ahea
     - authoritative server (`AuthoritativeZoneHandler`) with BIND-style
       zone files (SOA/NS/A/AAAA/CNAME/MX/TXT/PTR, wildcards, RFC 2308
       negative answers, in-zone CNAME chains, glue records)
-    - compose handlers on `DnsServer` (`DnsQueryHandler`, chain, zone relay)
-    - example: `examples/dns-authoritative/`
     - DNSSEC validation (RFC 4033-4035, RFC 5155)
         - EDNS0 DO bit, AD/CD flags
         - RRSIG signature verification (RSA-SHA256/512, ECDSA P-256/P-384,
@@ -403,16 +393,7 @@ Gumdrop is essentially at parity with Netty on plaintext HTTP/1.1 and JSON, ahea
         - NSEC and NSEC3 authenticated denial-of-existence
         - configurable trust anchors (IANA root KSK pre-loaded)
         - all crypto CPU-bound, NIO-safe
-    - supported record types:
-        - A, AAAA (IPv4/IPv6 addresses)
-        - CNAME (aliases)
-        - MX (mail exchange)
-        - NS (name servers)
-        - PTR (reverse DNS)
-        - SOA (start of authority)
-        - SRV (service location)
-        - TXT (text records)
-        - DS, RRSIG, DNSKEY, NSEC, NSEC3, NSEC3PARAM (DNSSEC)
+    - all record types
     - flexible async client resolver
         - UDP, TCP, DoT, DoQ, DoH transports
 - SOCKS proxy
@@ -486,11 +467,6 @@ Gumdrop is essentially at parity with Netty on plaintext HTTP/1.1 and JSON, ahea
       (Kerberos) authentication mechanisms
     - SelectorLoop affinity for server integration
 - AMQP 1.0 client
-    - separate from the AMQP 0-9-1 client above: AMQP 1.0 is a different
-      protocol, spoken natively by RabbitMQ 4 and by brokers such as ActiveMQ
-      Artemis that do not speak 0-9-1
-    - `org.bluezoo.gumdrop.amqp1.codec` (wire layer with no client coupling,
-      reusable by a future server) and `org.bluezoo.gumdrop.amqp1.client`
     - SASL security layer (PLAIN, ANONYMOUS, EXTERNAL, or any
       `SaslClientMechanism`) and implicit TLS (AMQPS)
     - connections, sessions, and sender and receiver links, exposed through
@@ -501,8 +477,7 @@ Gumdrop is essentially at parity with Netty on plaintext HTTP/1.1 and JSON, ahea
     - link credit, session windows, and explicit dispositions (accepted,
       rejected, released, modified) with unsettled and pre-settled deliveries
     - idle-timeout keepalives in both directions
-    - automatic reconnection with exponential backoff that re-attaches the
-      application's links (`Amqp1ClientRecovery`)
+    - automatic reconnection with exponential backoff
 - Redis client
     - RESP2 and RESP3 protocol support (HELLO for protocol negotiation)
     - Redis 6+ ACL auth, CLIENT SETNAME/GETNAME/ID, RESET
