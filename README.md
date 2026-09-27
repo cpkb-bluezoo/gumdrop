@@ -5,7 +5,7 @@
 </p>
 
 <p align="center">
-  <em>Multipurpose, asynchronous, non-blocking, event-driven Java multiserver and servlet container</em>
+  <em>Multipurpose, asynchronous, non-blocking, event-driven Java networking framework and servlet container</em>
 </p>
 
 <p align="center">
@@ -17,8 +17,7 @@
 
 ---
 
-This is gumdrop, a multipurpose Java server framework using asynchronous,
-non-blocking, event-driven I/O.
+This is gumdrop, a multipurpose Java networking framework for servers, clients, and mesh P2P applications using asynchronous, reactor-based, non-blocking, event-driven I/O for performance and scalability.
 
 ## Why Gumdrop?
 

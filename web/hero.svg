@@ -285,7 +285,7 @@
     <text x="0" y="120" class="title-text" filter="url(#textGlow)">gumdrop</text>
     
     <!-- Subtitle -->
-    <text x="0" y="150" class="subtitle-text">100% Pure Java Multiprotocol Server Framework</text>
+    <text x="0" y="150" class="subtitle-text">100% Pure Java Multiprotocol Networking Framework</text>
     
     <!-- Feature badges -->
     <g transform="translate(0, 180)">
