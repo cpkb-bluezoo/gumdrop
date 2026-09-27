@@ -77,15 +77,17 @@ non-blocking, event-driven I/O.
 | Feature | Gumdrop | Netty | Jetty | Tomcat |
 |---------|:-------:|:-----:|:-----:|:------:|
 | Servlet container | ✓ | ✗ | ✓ | ✓ |
-| Low-level async I/O framework | ✓ | ✓ | ✗ | ✗ |
+| Low-level extensible async I/O framework | ✓ | ✓ | ✗ (internal only) | ✗ (internal only) |
 | Standard NIO ByteBuffer | ✓ | ✗ (ByteBuf) | ✓ | ✓ |
-| HTTP/3 & QUIC | ✓ | ✓ | ✓ | ✗ |
+| HTTP/3 & QUIC, pure Java (no native/JNI) | ✓ | ✗ (native `quiche` via JNI) | ✗ (native `quiche` via JNI) | ✗ |
 | SMTP, DNS | ✓ | (clients only, partial) | ✗ | ✗ |
 | MQTT broker &amp; client | ✓ | ✗ | ✗ | ✗ |
 | IMAP, POP3, FTP, SOCKS | ✓ | ✗ | ✗ | ✗ |
 | Transport-level flow control | ✓ | ✓ | ✗ | ✗ |
 | Built-in telemetry (no agent) | ✓ | ✗ | ✗ | ✗ |
 | Unified auth realm across protocols | ✓ | ✗ | ✗ | ✗ |
+| Async client-side DNS resolution | ✓ (built in) | (opt-in `netty-resolver-dns` add-on) | ✗ | ✗ |
+| Client I/O worker thread affinity | ✓ | ✓ | ✗ | ✗ |
 
 Gumdrop uniquely combines a servlet container with a complete low-level networking framework, so you can run J2EE web apps and build highly efficient custom protocol servers from the same codebase. Unlike Netty, it uses standard `ByteBuffer` throughout - no proprietary buffer abstraction to learn. Its HTTP layer is built on the same simple and coherent reactor-based event-driven I/O framework used for SMTP, IMAP, DNS, MQTT, AMQP, FTP, and SOCKS, so you can add fully async mail, messaging, file transfer, DNS, or proxy services without bolting on separate stacks.
 
