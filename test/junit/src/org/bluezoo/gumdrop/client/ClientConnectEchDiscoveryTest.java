@@ -30,6 +30,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
+import org.bluezoo.gumdrop.testsupport.memfs.MemoryFileSystem;
 import org.junit.Test;
 
 import org.bluezoo.gumdrop.TcpTransportFactory;
@@ -197,8 +198,7 @@ public class ClientConnectEchDiscoveryTest {
 
     @Test
     public void dnsListTakesPrecedenceOverTheConfiguredFile() throws Exception {
-        Path file = Files.createTempFile("ech-client-list", ".bin");
-        file.toFile().deleteOnExit();
+        Path file = MemoryFileSystem.create().getPath("/ech-client-list.bin");
         Files.write(file, echList(9));
         TlsConfig tls = enabled().clientEchConfigListFile(file);
 

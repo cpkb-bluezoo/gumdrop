@@ -22,30 +22,20 @@
 package org.bluezoo.gumdrop.socks.client;
 
 import java.io.IOException;
-import java.net.DatagramPacket;
-import java.net.DatagramSocket;
-import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
-import java.util.concurrent.TimeUnit;
 
 import org.junit.Before;
 import org.junit.Test;
 
-import org.bluezoo.gumdrop.ClientEndpoint;
 import org.bluezoo.gumdrop.Endpoint;
-import org.bluezoo.gumdrop.Gumdrop;
-import org.bluezoo.gumdrop.GumdropConfig;
 import org.bluezoo.gumdrop.ProtocolHandler;
 import org.bluezoo.gumdrop.SecurityInfo;
-import org.bluezoo.gumdrop.SelectorLoop;
-import org.bluezoo.gumdrop.TcpTransportFactory;
 import org.bluezoo.gumdrop.UdpTransportFactory;
 
 import static org.junit.Assert.*;
@@ -57,8 +47,6 @@ import static org.junit.Assert.*;
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 public class SocksClientHandlerFlowsTest {
-
-    private static final long GUARD_MS = 10000;
 
     /** Inner handler that records everything. */
     private static final class Inner implements ProtocolHandler {
@@ -121,19 +109,6 @@ public class SocksClientHandlerFlowsTest {
         @Override
         public void error(Exception cause) {
             errors.add(cause);
-        }
-    }
-
-    private static final class LoopEndpoint extends StubEndpoint {
-        private final SelectorLoop loop;
-
-        LoopEndpoint(SelectorLoop loop) {
-            this.loop = loop;
-        }
-
-        @Override
-        public SelectorLoop getSelectorLoop() {
-            return loop;
         }
     }
 
@@ -518,72 +493,5 @@ public class SocksClientHandlerFlowsTest {
         h.connected(endpoint);
         h.error(new IOException("early"));
         assertEquals(1, listener.errors.size());
-    }
-
-    // ── UDP ASSOCIATE over loopback UDP ──
-
-    @Test
-    public void udpAssociateRelaysDatagramsBothWays() throws Exception {
-        Gumdrop gumdrop = Gumdrop.boot(GumdropConfig.create()
-                .workerThreads(1).drainTimeoutMs(0));
-        try {
-            ClientEndpoint keeper = new ClientEndpoint(
-                    new TcpTransportFactory(), gumdrop.nextWorkerLoop(),
-                    "localhost", 1);
-            gumdrop.addClient(keeper);
-            LoopEndpoint control = new LoopEndpoint(gumdrop.nextWorkerLoop());
-            DatagramSocket relay = new DatagramSocket(0,
-                    InetAddress.getLoopbackAddress());
-            relay.setSoTimeout((int) GUARD_MS);
-            try {
-                UdpListener listener = new UdpListener();
-                final SocksClientHandler h = new SocksClientHandler(
-                        new SocksClientConfig(), new UdpTransportFactory(),
-                        listener);
-                h.connected(control);
-                int rp = relay.getLocalPort();
-                h.receive(bytes(5, 0));
-                h.receive(bytes(5, 0, 0, 1, 127, 0, 0, 1, rp >> 8, rp));
-                InetSocketAddress assoc = listener.associated.poll(GUARD_MS,
-                        TimeUnit.MILLISECONDS);
-                assertNotNull(assoc);
-                assertEquals(rp, assoc.getPort());
-
-                h.sendDatagram(new InetSocketAddress("192.0.2.5", 53),
-                        ByteBuffer.wrap(new byte[] {'q'}));
-                byte[] buf = new byte[100];
-                DatagramPacket in = new DatagramPacket(buf, buf.length);
-                relay.receive(in);
-                assertEquals('q', buf[10]);
-
-                byte[] fragment = new byte[] {0, 0, 1, 1, 10, 0, 0, 1, 0, 9,
-                    'f'};
-                byte[] named = new byte[] {0, 0, 0, 3, 1, 'h', 0, 9, 'n'};
-                byte[] good = new byte[] {0, 0, 0, 1, 10, 0, 0, 1, 0, 9, 'g'};
-                SocketAddressHolder.send(relay, in, fragment);
-                SocketAddressHolder.send(relay, in, named);
-                SocketAddressHolder.send(relay, in, good);
-                String got = listener.datagrams.poll(GUARD_MS,
-                        TimeUnit.MILLISECONDS);
-                assertEquals("9:g", got);
-
-                h.disconnected();
-            } finally {
-                relay.close();
-            }
-        } finally {
-            gumdrop.shutdown();
-            gumdrop.join();
-        }
-    }
-
-    /** Sends a datagram back to the sender of a received packet. */
-    private static final class SocketAddressHolder {
-        static void send(DatagramSocket s, DatagramPacket from, byte[] data)
-                throws IOException {
-            DatagramPacket p = new DatagramPacket(data, data.length,
-                    from.getSocketAddress());
-            s.send(p);
-        }
     }
 }

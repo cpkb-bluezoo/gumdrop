@@ -583,6 +583,13 @@ public class SelectorLoop implements Runnable {
                 key.attach(reg.handler);
                 reg.handler.setSelectionKey(key);
                 reg.handler.setSelectorLoop(this);
+                if (reg.handler instanceof UdpEndpoint
+                        && !((UdpEndpoint) reg.handler).pendingDatagrams.isEmpty()) {
+                    // Datagrams queued between connect() and this
+                    // registration found no selection key to request a write
+                    // on; flush them now.
+                    key.interestOps(key.interestOps() | SelectionKey.OP_WRITE);
+                }
                 if (closeStarted) {
                     // Arrived after this loop began closing what it owns:
                     // it is closed too, not served.

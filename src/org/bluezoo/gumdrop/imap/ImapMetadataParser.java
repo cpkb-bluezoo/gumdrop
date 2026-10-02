@@ -115,6 +115,9 @@ public class ImapMetadataParser {
             list.add(new ImapMetadataSetRequest.EntryValue(entry, value));
             inner.skipWhitespace();
         }
+        if (list.isEmpty()) {
+            throw new ParseException("Expected entry values", pos);
+        }
         return list;
     }
 
@@ -212,6 +215,9 @@ public class ImapMetadataParser {
         while (inner.pos < inner.length) {
             entries.add(inner.parseEntryAtom());
             inner.skipWhitespace();
+        }
+        if (entries.isEmpty()) {
+            throw new ParseException("Expected entry list", pos);
         }
         return entries;
     }

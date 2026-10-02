@@ -181,6 +181,7 @@ public class MimeParser {
 	private boolean allowCRLineEnd = false;
 	private byte last = (byte) 0; // last byte read (preserve over receive invocations)
 	private boolean underflow = false; // true if last receive() had unconsumed data
+	private int rescanLength = 0; // bytes of unconsumed data the caller will re-supply
 
 	/**
 	 * Constructor.
@@ -288,6 +289,17 @@ public class MimeParser {
 		// Reset underflow at start of each receive
 		underflow = false;
 
+		// The caller re-supplies the unconsumed partial line in front of the
+		// new data, so it is scanned again: take back what the previous scan
+		// counted and forget its last byte, so neither the locator nor CR
+		// line-end detection is thrown off by the repeat.
+		if (rescanLength > 0) {
+			locator.offset = Math.max(0L, locator.offset - rescanLength);
+			locator.columnNumber = Math.max(0L, locator.columnNumber - rescanLength);
+			last = (byte) 0;
+			rescanLength = 0;
+		}
+
 		switch (state) {
 			case INIT:
 				locator.reset();
@@ -308,11 +320,14 @@ public class MimeParser {
 			byte c = data.get(pos++);
 			locator.offset++;
 			locator.columnNumber++;
+			boolean crOnlyBreak = false;
 			if (c == '\n') {
 				eol = pos;
 			} else if (allowCRLineEnd && last == '\r') {
-				// Previous was CR, this is not LF, so CR was a line ending by itself
-				eol = pos;
+				// Previous was CR, this is not LF, so CR was a line ending by
+				// itself: the line ends before this byte, which starts the next
+				eol = pos - 1;
+				crOnlyBreak = true;
 			}
 			last = c;
 
@@ -339,7 +354,9 @@ public class MimeParser {
 				start = eol;
 				eol = -1;
 				locator.lineNumber++;
-				locator.columnNumber = 0L;
+				// The byte that revealed a CR-only break is already the first
+				// byte of the new line
+				locator.columnNumber = crOnlyBreak ? 1L : 0L;
 			}
 		}
 
@@ -349,6 +366,7 @@ public class MimeParser {
 		
 		// Set underflow flag if there's unconsumed data
 		underflow = data.hasRemaining();
+		rescanLength = data.remaining();
 	}
 
 	/**
@@ -918,51 +936,34 @@ public class MimeParser {
 
 		boolean hasProcessedContent = false;
 
+		// The line ending before a boundary belongs to the boundary, not to
+		// the part (RFC 2046 section 5.1.1). Drop it from the encoded text
+		// before decoding, so it cannot be mistaken for decoded payload bytes.
+		if (isBeforeBoundary) {
+			stripTrailingLineEnding(source);
+		}
+		boolean flushWanted = isBeforeBoundary || endOfStream;
+
 		while (source.hasRemaining()) {
 			decodeBuffer.clear();
 
-			// Decode using ByteBuffer API
-			// Use endOfStream=true when this is the last chunk AND (before boundary OR end of stream)
-			boolean isLastChunk = !source.hasRemaining();
-			boolean flushRemaining = isLastChunk && (isBeforeBoundary || endOfStream);
-			int consumed;
-            int decodeBufferPos = decodeBuffer.position();
-			switch (transferEncoding) {
-			case BASE64:
-				consumed = Base64Decoder.decode(source, decodeBuffer, maxBufferSize,
-						flushRemaining, !allowMalformed); // RFC 2045 §6.8 strict line length
-				break;
-				case QUOTED_PRINTABLE:
-					consumed = QuotedPrintableDecoder.decode(source, decodeBuffer, maxBufferSize, flushRemaining);
-					break;
-				default:
-                    String msg = MessageFormat.format(L10N.getString("err.unsupported_parser_encoding"), transferEncoding);
-					throw new IllegalArgumentException(msg);
+			int consumed = decodeChunk(source, decodeBuffer, transferEncoding,
+					maxBufferSize, false);
+			if (flushWanted && source.hasRemaining()
+					&& decodeBuffer.position() + 3 <= maxBufferSize) {
+				// The decoder has taken every complete unit it can and the
+				// content is complete: flush the residue (an unpadded base64
+				// tail, a dangling '=' in quoted-printable).
+				int room = maxBufferSize - decodeBuffer.position();
+				consumed += decodeChunk(source, decodeBuffer, transferEncoding,
+						room, true);
 			}
-            int decoded = decodeBuffer.position() - decodeBufferPos;
-			if (decoded > 0) {
+			if (decodeBuffer.position() > 0) {
 				decodeBuffer.flip(); // ready for reading
-
-				// If this is the last chunk and isBeforeBoundary, strip trailing line ending
-				if (isLastChunk && isBeforeBoundary) {
-					int limit = decodeBuffer.limit();
-					// Check for CRLF
-					if (limit >= 2 && decodeBuffer.get(limit - 2) == '\r' && decodeBuffer.get(limit - 1) == '\n') {
-						decodeBuffer.limit(limit - 2);
-					} else if (limit >= 1) {
-						byte lastByte = decodeBuffer.get(limit - 1);
-						if (lastByte == '\n' || (allowCRLineEnd && lastByte == '\r')) {
-							decodeBuffer.limit(limit - 1);
-						}
-					}
-				}
-
-				if (decodeBuffer.hasRemaining()) {
-					if (unexpected) {
-						handler.unexpectedContent(decodeBuffer);
-					} else {
-						handler.bodyContent(decodeBuffer);
-					}
+				if (unexpected) {
+					handler.unexpectedContent(decodeBuffer);
+				} else {
+					handler.bodyContent(decodeBuffer);
 				}
 				hasProcessedContent = true;
 			}
@@ -975,6 +976,21 @@ public class MimeParser {
 		}
 		// Set contentFlushed appropriately - indicates we processed content
 		contentFlushed = hasProcessedContent;
+	}
+
+	private int decodeChunk(ByteBuffer source, ByteBuffer dest, TransferEncoding encoding,
+			int max, boolean flushRemaining) {
+		switch (encoding) {
+			case BASE64:
+				return Base64Decoder.decode(source, dest, max, flushRemaining,
+						!allowMalformed); // RFC 2045 section 6.8 strict line length
+			case QUOTED_PRINTABLE:
+				return QuotedPrintableDecoder.decode(source, dest, max, flushRemaining);
+			default:
+				String msg = MessageFormat.format(
+						L10N.getString("err.unsupported_parser_encoding"), encoding);
+				throw new IllegalArgumentException(msg);
+		}
 	}
 
 	/**
@@ -1151,6 +1167,7 @@ public class MimeParser {
 		clearPendingBodyContent();  // Clear any pending body content
 		last = (byte) 0;
 		underflow = false;
+		rescanLength = 0;
 	}
 
 	/**
@@ -1218,54 +1235,31 @@ public class MimeParser {
 			}
 			pos++;
 		}
-		// Check what follows the boundary
+		// Check what follows the boundary: an optional "--" (close delimiter),
+		// optional transport padding (spaces and tabs, RFC 2046 section
+		// 5.1.1), then the line end
+		boolean isEnd = false;
+		if (end - pos >= 2 && buffer.get(pos) == '-' && buffer.get(pos + 1) == '-') {
+			isEnd = true;
+			pos += 2;
+		}
+		while (pos < end && (buffer.get(pos) == ' ' || buffer.get(pos) == '\t')) {
+			pos++;
+		}
 		int remaining = end - pos;
 		if (remaining == 0) {
-			// Exact boundary match
-			return new BoundaryMatch(boundary, false);
-		} else if (remaining == 1) {
-			// Single character - should be CR or LF
+			return new BoundaryMatch(boundary, isEnd);
+		}
+		if (remaining == 1) {
 			byte c = buffer.get(pos);
 			if (c == '\n' || (allowCRLineEnd && c == '\r')) {
-				return new BoundaryMatch(boundary, false);
-			} else {
-				return null;
+				return new BoundaryMatch(boundary, isEnd);
 			}
-		} else if (remaining == 2) {
-			// Two characters - could be CRLF or end boundary "--"
-			byte c1 = buffer.get(pos);
-			byte c2 = buffer.get(pos + 1);
-			if (c1 == '\r' && c2 == '\n') {
-				return new BoundaryMatch(boundary, false);
-			} else if (c1 == '-' && c2 == '-') {
-				// End boundary
-				return new BoundaryMatch(boundary, true);
-			} else {
-				return null;
-			}
-		} else if (remaining >= 2) {
-			// Check for end boundary marker "--"
-			if (buffer.get(pos) == '-' && buffer.get(pos + 1) == '-') {
-				pos += 2;
-				remaining -= 2;
-
-				// Check trailing CR/LF after end marker
-				if (remaining == 0) {
-					return new BoundaryMatch(boundary, true);
-				} else if (remaining == 1) {
-					byte c = buffer.get(pos);
-					if (c == '\n' || (allowCRLineEnd && c == '\r')) {
-						return new BoundaryMatch(boundary, true);
-					}
-				} else if (remaining == 2) {
-					if (buffer.get(pos) == '\r' && buffer.get(pos + 1) == '\n') {
-						return new BoundaryMatch(boundary, true);
-					}
-				}
-			}
-			return null; // Invalid trailing characters
+			return null;
 		}
-
+		if (remaining == 2 && buffer.get(pos) == '\r' && buffer.get(pos + 1) == '\n') {
+			return new BoundaryMatch(boundary, isEnd);
+		}
 		return null;
 	}
 

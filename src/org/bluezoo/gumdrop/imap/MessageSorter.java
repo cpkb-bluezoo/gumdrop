@@ -110,11 +110,13 @@ public final class MessageSorter {
             MessageContext cb, int seqA, int seqB) throws IOException {
         switch (key) {
             case ARRIVAL:
-                return compareInstant(SortKeyAccess.arrival(ca),
-                        SortKeyAccess.arrival(cb));
+                return compareInstant(
+                        ca != null ? SortKeyAccess.arrival(ca) : null,
+                        cb != null ? SortKeyAccess.arrival(cb) : null);
             case DATE:
-                return compareInstant(SortKeyAccess.date(ca),
-                        SortKeyAccess.date(cb));
+                return compareInstant(
+                        ca != null ? SortKeyAccess.date(ca) : null,
+                        cb != null ? SortKeyAccess.date(cb) : null);
             case SIZE:
                 return Long.compare(
                         ca != null ? SortKeyAccess.size(ca) : 0L,

@@ -21,7 +21,10 @@
 
 package org.bluezoo.gumdrop.servlet.jsp;
 
-import java.io.File;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.attribute.FileTime;
 import java.text.MessageFormat;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -63,7 +66,7 @@ public class JspDependencyTracker {
         ResourceBundle.getBundle("org.bluezoo.gumdrop.servlet.jsp.L10N");
     
     private final ServletContext servletContext;
-    private final File webappRoot;
+    private final Path webappRoot;
     
     // JSP path -> last modification time when compiled
     private final Map<String, Long> compilationTimes = new ConcurrentHashMap<String, Long>();
@@ -80,7 +83,7 @@ public class JspDependencyTracker {
      * @param servletContext the servlet context
      * @param webappRoot the root directory of the web application
      */
-    public JspDependencyTracker(ServletContext servletContext, File webappRoot) {
+    public JspDependencyTracker(ServletContext servletContext, Path webappRoot) {
         this.servletContext = servletContext;
         this.webappRoot = webappRoot;
     }
@@ -189,31 +192,38 @@ public class JspDependencyTracker {
      * @return true if the file has been modified since the given time
      */
     private boolean hasChanged(String path, long since) {
-        File file = resolveFile(path);
-        if (file == null || !file.exists()) {
+        Path file = resolveFile(path);
+        if (file == null || !Files.exists(file)) {
             // File doesn't exist - consider it changed (will cause error on compile)
             return true;
         }
-        return file.lastModified() > since;
+        long modified;
+        try {
+            FileTime time = Files.getLastModifiedTime(file);
+            modified = time.toMillis();
+        } catch (IOException e) {
+            modified = 0L; // as File.lastModified() for an unreadable file
+        }
+        return modified > since;
     }
     
     /**
-     * Resolves a path to a File object.
+     * Resolves a path to a file path under the webapp root.
      * 
      * @param path the path (may be relative to webapp root)
-     * @return the File, or null if the path cannot be resolved
+     * @return the path, or null if the path cannot be resolved
      */
-    private File resolveFile(String path) {
+    private Path resolveFile(String path) {
         if (path == null) {
             return null;
         }
         
         // Handle absolute paths
         if (path.startsWith("/")) {
-            return new File(webappRoot, path.substring(1));
+            return webappRoot.resolve(path.substring(1));
         }
         
-        return new File(webappRoot, path);
+        return webappRoot.resolve(path);
     }
     
     /**

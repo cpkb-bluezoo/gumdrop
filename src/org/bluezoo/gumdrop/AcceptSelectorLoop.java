@@ -634,21 +634,30 @@ public class AcceptSelectorLoop implements Runnable {
                     LOGGER.fine(L10N.getString("log.raw_acceptor_closed_before_registration"));
                 }
             } catch (IOException e) {
-                String desc;
-                if (pending.rawHandler != null) {
-                    desc = L10N.getString("log.raw_acceptor_desc");
-                } else {
-                    desc = pending.listener.getDescription();
-                }
-                if (pending.rawHandler == null) {
-                    bindFailures.add(desc + ": " + e.getMessage());
-                }
-                if (LOGGER.isLoggable(Level.SEVERE)) {
-                    LOGGER.log(Level.SEVERE, MessageFormat.format(
-                            L10N.getString("log.failed_to_register_server"),
-                            desc, e.getMessage()));
-                }
+                registrationFailed(pending, e);
+            } catch (RuntimeException e) {
+                // A misconfigured listener (for example one with neither a
+                // port nor a socket path) must fail alone, not end this
+                // thread and with it every other listener's accepting.
+                registrationFailed(pending, e);
             }
+        }
+    }
+
+    private void registrationFailed(PendingRegistration pending, Exception e) {
+        String desc;
+        if (pending.rawHandler != null) {
+            desc = L10N.getString("log.raw_acceptor_desc");
+        } else {
+            desc = pending.listener.getDescription();
+        }
+        if (pending.rawHandler == null) {
+            bindFailures.add(desc + ": " + e.getMessage());
+        }
+        if (LOGGER.isLoggable(Level.SEVERE)) {
+            LOGGER.log(Level.SEVERE, MessageFormat.format(
+                    L10N.getString("log.failed_to_register_server"),
+                    desc, e.getMessage()));
         }
     }
 

@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.tls;
 
+import org.bluezoo.gumdrop.testsupport.memfs.MemoryTemp;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Collections;
@@ -185,7 +186,7 @@ public class DtlsHandshakeConfigWrapperTest {
         assertNull(EchClientBootstrap.selectConfig(null, null));
         assertNull(EchClientBootstrap.selectConfig(new byte[0], null));
 
-        Path file = Files.createTempFile("ech-list", ".bin");
+        Path file = MemoryTemp.createTempFile("ech-list", ".bin");
         try {
             Files.write(file, list);
             EchConfig fromFile = EchClientBootstrap.selectConfig(null, file);

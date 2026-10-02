@@ -543,7 +543,7 @@ public class DkimMessageParser extends MessageParser {
             return null;
         }
         String value = full.substring(colonPos + 1);
-        return DkimSignature.parse(value);
+        return DkimSignature.parseArc(value, false);
     }
 
     @Override
@@ -720,10 +720,11 @@ public class DkimMessageParser extends MessageParser {
             }
 
             if (b == ' ' || b == '\t') {
-                // Whitespace - mark it but don't write yet
-                if (hasContent && !prevWasWSP) {
-                    prevWasWSP = true;
-                }
+                // Whitespace - mark it but don't write yet. Leading
+                // whitespace counts too: RFC 6376 section 3.4.4 reduces
+                // every WSP sequence within a line to one SP and only
+                // removes whitespace at the end of the line.
+                prevWasWSP = true;
             } else {
                 // Non-whitespace content
                 if (prevWasWSP) {

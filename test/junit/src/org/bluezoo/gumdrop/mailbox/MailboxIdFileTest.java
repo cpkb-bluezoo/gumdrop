@@ -21,6 +21,8 @@
 
 package org.bluezoo.gumdrop.mailbox;
 
+import org.bluezoo.gumdrop.testsupport.memfs.MemoryFileSystem;
+import org.junit.Before;
 import org.junit.Test;
 
 import java.io.IOException;
@@ -35,9 +37,26 @@ import static org.junit.Assert.*;
  */
 public class MailboxIdFileTest {
 
+    private MemoryFileSystem fs;
+    private int counter;
+
+    @Before
+    public void setUp() {
+        fs = MemoryFileSystem.create();
+        counter = 0;
+    }
+
+    /** Creates an empty file on the in-memory file system. */
+    private Path tempFile(String prefix, String suffix) throws IOException {
+        counter++;
+        Path p = fs.getPath("/" + prefix + counter + suffix);
+        Files.createFile(p);
+        return p;
+    }
+
     @Test
     public void testLoadReturnsNullWhenFileMissing() throws IOException {
-        Path path = Files.createTempFile("mailboxid", ".missing");
+        Path path = tempFile("mailboxid", ".missing");
         Files.delete(path);
         assertNull(MailboxIdFile.load(path));
     }
@@ -61,7 +80,7 @@ public class MailboxIdFileTest {
 
     @Test
     public void testSaveThenLoadRoundTrips() throws IOException {
-        Path path = Files.createTempFile("mailboxid", ".test");
+        Path path = tempFile("mailboxid", ".test");
         try {
             String id = MailboxIdFile.generate();
             MailboxIdFile.save(path, id);
@@ -73,7 +92,7 @@ public class MailboxIdFileTest {
 
     @Test
     public void testSaveIsAtomicReplace() throws IOException {
-        Path path = Files.createTempFile("mailboxid", ".test");
+        Path path = tempFile("mailboxid", ".test");
         try {
             MailboxIdFile.save(path, "first-id");
             MailboxIdFile.save(path, "second-id");
@@ -97,7 +116,7 @@ public class MailboxIdFileTest {
 
     @Test
     public void testLoadRejectsEmptyFile() throws IOException {
-        Path path = Files.createTempFile("mailboxid", ".test");
+        Path path = tempFile("mailboxid", ".test");
         try {
             assertNull(MailboxIdFile.load(path));
         } finally {
@@ -107,7 +126,7 @@ public class MailboxIdFileTest {
 
     @Test
     public void testLoadRejectsInvalidCharacters() throws IOException {
-        Path path = Files.createTempFile("mailboxid", ".test");
+        Path path = tempFile("mailboxid", ".test");
         try {
             Files.write(path, "not a valid id!\n".getBytes(StandardCharsets.UTF_8));
             assertNull(MailboxIdFile.load(path));
@@ -118,7 +137,7 @@ public class MailboxIdFileTest {
 
     @Test
     public void testLoadTrimsWhitespace() throws IOException {
-        Path path = Files.createTempFile("mailboxid", ".test");
+        Path path = tempFile("mailboxid", ".test");
         try {
             Files.write(path, "  abc-123  \n".getBytes(StandardCharsets.UTF_8));
             assertEquals("abc-123", MailboxIdFile.load(path));

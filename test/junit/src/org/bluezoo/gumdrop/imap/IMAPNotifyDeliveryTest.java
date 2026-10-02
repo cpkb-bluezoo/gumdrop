@@ -34,7 +34,7 @@ import org.junit.Before;
 import org.junit.Test;
 
 import org.bluezoo.gumdrop.Gumdrop;
-import org.bluezoo.gumdrop.GumdropConfig;
+import org.bluezoo.gumdrop.testsupport.TestGumdrop;
 import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.auth.Realm;
 import org.bluezoo.gumdrop.auth.SaslMechanism;
@@ -63,7 +63,7 @@ public class IMAPNotifyDeliveryTest {
     @Before
     public void setUp() throws Exception {
         mem = MemoryFileSystem.create();
-        gumdrop = Gumdrop.boot(GumdropConfig.create().workerThreads(1).drainTimeoutMs(0));
+        gumdrop = TestGumdrop.create();
         Path mailRoot = mem.getPath("/maildir");
         Path userDir = mailRoot.resolve("editor");
         Files.createDirectories(userDir.resolve("cur"));

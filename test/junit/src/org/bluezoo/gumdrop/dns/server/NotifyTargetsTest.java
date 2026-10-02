@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.dns.server;
 
+import org.bluezoo.gumdrop.testsupport.memfs.MemoryTemp;
 import org.junit.Test;
 
 import java.net.InetSocketAddress;
@@ -36,7 +37,7 @@ public class NotifyTargetsTest {
 
     @Test
     public void testInZoneNsGlueBecomesNotifyTarget() throws Exception {
-        Path zone = Files.createTempFile("notify", ".zone");
+        Path zone = MemoryTemp.createTempFile("notify", ".zone");
         Files.writeString(zone, ""
                 + "$ORIGIN example.com.\n"
                 + "@ IN SOA ns1.example.com. host.example.com. 1 7200 3600 1209600 300\n"

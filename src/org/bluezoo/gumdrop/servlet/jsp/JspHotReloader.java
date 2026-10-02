@@ -21,7 +21,6 @@
 
 package org.bluezoo.gumdrop.servlet.jsp;
 
-import java.io.File;
 import java.io.IOException;
 import java.nio.file.FileSystems;
 import java.nio.file.FileVisitResult;
@@ -61,16 +60,16 @@ import org.bluezoo.gumdrop.servlet.Context;
  * 
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-public final class JspHotReloader extends Thread {
+public class JspHotReloader extends Thread {
 
     private static final Logger LOGGER = Logger.getLogger(JspHotReloader.class.getName());
     private static final ResourceBundle L10N = 
         ResourceBundle.getBundle("org.bluezoo.gumdrop.servlet.jsp.L10N");
     
     private final Context context;
-    private final File webappRoot;
+    private final Path webappRoot;
     private final WatchService watchService;
-    private final Map<WatchKey, Path> watchKeys;
+    final Map<WatchKey, Path> watchKeys;
     private final JspReloadCallback callback;
     
     private volatile boolean running = true;
@@ -96,13 +95,23 @@ public final class JspHotReloader extends Thread {
      * @param callback callback for reload events
      * @throws IOException if the watch service cannot be created
      */
-    public JspHotReloader(Context context, File webappRoot, JspReloadCallback callback) 
+    public JspHotReloader(Context context, Path webappRoot, JspReloadCallback callback) 
             throws IOException {
+        this(context, webappRoot, callback, FileSystems.getDefault().newWatchService());
+    }
+
+    /**
+     * Creates a hot reloader over the given watch service (a seam for tests
+     * that supply a mock, since not every file system has a watch
+     * service).
+     */
+    JspHotReloader(Context context, Path webappRoot, JspReloadCallback callback,
+            WatchService watchService) {
         super("jsp-hot-reload-" + context.getContextPath());
         this.context = context;
         this.webappRoot = webappRoot;
         this.callback = callback;
-        this.watchService = FileSystems.getDefault().newWatchService();
+        this.watchService = watchService;
         this.watchKeys = new HashMap<WatchKey, Path>();
         
         setDaemon(true);
@@ -116,7 +125,7 @@ public final class JspHotReloader extends Thread {
      */
     public void startMonitoring() throws IOException {
         // Register all directories containing JSP files
-        registerJSPDirectories(webappRoot.toPath());
+        registerJSPDirectories(webappRoot);
         start();
         
         if (LOGGER.isLoggable(Level.INFO)) {
@@ -150,49 +159,57 @@ public final class JspHotReloader extends Thread {
                     continue;
                 }
                 
-                Path dir = watchKeys.get(key);
-                if (dir == null) {
-                    key.reset();
-                    continue;
-                }
-                
-                for (WatchEvent<?> event : key.pollEvents()) {
-                    WatchEvent.Kind<?> kind = event.kind();
-                    
-                    if (kind == StandardWatchEventKinds.OVERFLOW) {
-                        continue;
-                    }
-                    
-                    Path changed = (Path) event.context();
-                    Path changedPath = dir.resolve(changed);
-                    String fileName = changed.toString().toLowerCase();
-                    
-                    // Check if it's a JSP-related file
-                    if (isJSPFile(fileName) || isTLDFile(fileName) || isTagFile(fileName)) {
-                        handleFileChange(changedPath, kind);
-                    }
-                    
-                    // If a new directory is created, register it
-                    if (kind == StandardWatchEventKinds.ENTRY_CREATE && 
-                        Files.isDirectory(changedPath)) {
-                        try {
-                            registerDirectory(changedPath);
-                        } catch (IOException e) {
-                            String msg = MessageFormat.format(
-                                L10N.getString("hotreload.watch_failed"), changedPath);
-                            LOGGER.log(Level.WARNING, msg, e);
-                        }
-                    }
-                }
-                
-                if (!key.reset()) {
-                    watchKeys.remove(key);
-                }
+                processKey(key);
                 
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 break;
             }
+        }
+    }
+    
+    /**
+     * Processes the pending events of a signalled watch key. Package-private
+     * so that tests can drive it without a live file system watcher.
+     */
+    void processKey(WatchKey key) {
+        Path dir = watchKeys.get(key);
+        if (dir == null) {
+            key.reset();
+            return;
+        }
+        
+        for (WatchEvent<?> event : key.pollEvents()) {
+            WatchEvent.Kind<?> kind = event.kind();
+            
+            if (kind == StandardWatchEventKinds.OVERFLOW) {
+                continue;
+            }
+            
+            Path changed = (Path) event.context();
+            Path changedPath = dir.resolve(changed);
+            String fileName = changed.toString().toLowerCase();
+            
+            // Check if it's a JSP-related file
+            if (isJSPFile(fileName) || isTLDFile(fileName) || isTagFile(fileName)) {
+                handleFileChange(changedPath, kind);
+            }
+            
+            // If a new directory is created, register it
+            if (kind == StandardWatchEventKinds.ENTRY_CREATE && 
+                Files.isDirectory(changedPath)) {
+                try {
+                    registerDirectory(changedPath);
+                } catch (IOException e) {
+                    String msg = MessageFormat.format(
+                        L10N.getString("hotreload.watch_failed"), changedPath);
+                    LOGGER.log(Level.WARNING, msg, e);
+                }
+            }
+        }
+        
+        if (!key.reset()) {
+            watchKeys.remove(key);
         }
     }
     
@@ -239,10 +256,19 @@ public final class JspHotReloader extends Thread {
     }
     
     /**
+     * Registers a directory with the watch service. Overridable so that
+     * tests can hand back a mock key for a path on a file system that
+     * cannot be watched.
+     */
+    WatchKey watch(Path dir, WatchEvent.Kind<?>... kinds) throws IOException {
+        return dir.register(watchService, kinds);
+    }
+
+    /**
      * Registers a single directory for watching.
      */
     private void registerDirectory(Path dir) throws IOException {
-        WatchKey key = dir.register(watchService,
+        WatchKey key = watch(dir,
             StandardWatchEventKinds.ENTRY_CREATE,
             StandardWatchEventKinds.ENTRY_DELETE,
             StandardWatchEventKinds.ENTRY_MODIFY);
@@ -259,8 +285,13 @@ public final class JspHotReloader extends Thread {
      * Gets the path relative to the webapp root.
      */
     private String getRelativePath(Path path) {
-        Path relativePath = webappRoot.toPath().relativize(path);
-        return "/" + relativePath.toString().replace('\\', '/');
+        Path relativePath = webappRoot.relativize(path);
+        StringBuilder buf = new StringBuilder();
+        for (Path name : relativePath) {
+            buf.append('/');
+            buf.append(name.toString());
+        }
+        return buf.toString();
     }
     
     /**

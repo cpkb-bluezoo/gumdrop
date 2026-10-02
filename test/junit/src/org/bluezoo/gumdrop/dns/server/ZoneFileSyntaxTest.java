@@ -24,11 +24,9 @@ package org.bluezoo.gumdrop.dns.server;
 import org.bluezoo.gumdrop.dns.DnsMessage;
 import org.bluezoo.gumdrop.dns.DnsResourceRecord;
 import org.bluezoo.gumdrop.dns.DnsType;
-import org.junit.Rule;
 import org.junit.Test;
-import org.junit.rules.TemporaryFolder;
+import org.bluezoo.gumdrop.testsupport.memfs.MemoryTemp;
 
-import java.io.File;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
@@ -54,13 +52,20 @@ public class ZoneFileSyntaxTest {
             + "@ IN SOA ns1.example.com. host.example.com. 7 7200 3600 1209600 60\n"
             + "@ IN NS ns1.example.com.\n";
 
-    @Rule
-    public TemporaryFolder tmp = new TemporaryFolder();
+    private final Path tmp = newTmp();
+
+    private static Path newTmp() {
+        try {
+            return MemoryTemp.createTempDirectory("syntax");
+        } catch (IOException e) {
+            throw new IllegalStateException(e);
+        }
+    }
 
     private Path write(String name, String text) throws IOException {
-        File f = tmp.newFile(name);
-        Files.write(f.toPath(), text.getBytes(StandardCharsets.UTF_8));
-        return f.toPath();
+        Path f = tmp.resolve(name);
+        Files.write(f, text.getBytes(StandardCharsets.UTF_8));
+        return f;
     }
 
     private ZoneFile load(String body) throws IOException {
@@ -450,7 +455,7 @@ public class ZoneFileSyntaxTest {
     public void testTxtBoundariesAndEscapesSurviveWriteAndReload() throws Exception {
         ZoneFile z = load(""
                 + "w IN TXT \"a\" \"b \\\"q\\\" \\\\\" \"\" \"tab\\009end\"\n");
-        Path out = tmp.newFile("rt-out.zone").toPath();
+        Path out = tmp.resolve("rt-out.zone");
         ZoneFileWriter.writeAtomic(out, z.asMutable());
         ZoneFile again = ZoneFile.load(out);
         List<String> parts = txtStrings(answers(again, "w.example.com.", DnsType.TXT).get(0));

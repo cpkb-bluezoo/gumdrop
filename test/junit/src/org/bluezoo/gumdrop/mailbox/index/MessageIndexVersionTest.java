@@ -21,6 +21,8 @@
 
 package org.bluezoo.gumdrop.mailbox.index;
 
+import org.bluezoo.gumdrop.testsupport.memfs.MemoryFileSystem;
+import org.junit.Before;
 import org.junit.Test;
 
 import java.io.DataOutputStream;
@@ -36,9 +38,26 @@ import static org.junit.Assert.*;
  */
 public class MessageIndexVersionTest {
 
+    private MemoryFileSystem fs;
+    private int counter;
+
+    @Before
+    public void setUp() {
+        fs = MemoryFileSystem.create();
+        counter = 0;
+    }
+
+    /** Creates an empty file on the in-memory file system. */
+    private Path tempFile(String prefix, String suffix) throws IOException {
+        counter++;
+        Path p = fs.getPath("/" + prefix + counter + suffix);
+        Files.createFile(p);
+        return p;
+    }
+
     @Test
     public void testLoadRejectsVersion1Index() throws Exception {
-        Path path = Files.createTempFile("stale", ".gidx");
+        Path path = tempFile("stale", ".gidx");
         try {
             writeMinimalIndex(path, (short) 1, 0);
             try {
@@ -57,7 +76,7 @@ public class MessageIndexVersionTest {
         // Version 2 predates the EMAILID descriptor (issue #465): every
         // entry in it is silently missing EMAILID, so it must be treated
         // as stale like version 1, not loaded as-is.
-        Path path = Files.createTempFile("stale-v2", ".gidx");
+        Path path = tempFile("stale-v2", ".gidx");
         try {
             writeMinimalIndex(path, (short) 2, 0);
             try {
@@ -73,7 +92,7 @@ public class MessageIndexVersionTest {
 
     @Test
     public void testSaveAndLoadVersion3() throws Exception {
-        Path path = Files.createTempFile("v3", ".gidx");
+        Path path = tempFile("v3", ".gidx");
         try {
             MessageIndex index = new MessageIndex(path, 42L, 100L);
             index.addEntry(new MessageIndexEntry(

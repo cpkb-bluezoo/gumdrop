@@ -212,7 +212,7 @@ public class OtlpChannelAndLoggingTest {
 
     @Test
     public void httpHandlerLogsAtEveryLevel() {
-        OtlpExporter e = new OtlpExporter(config());
+        OtlpExporter e = new OtlpExporter(config(), false);
         try {
             OtlpResponseHandler h = new OtlpResponseHandler("traces", e);
             h.ok(new HttpResponse(HttpStatus.OK));
@@ -228,7 +228,7 @@ public class OtlpChannelAndLoggingTest {
 
     @Test
     public void grpcHandlerLogsAtEveryLevel() {
-        OtlpGrpcExporter e = new OtlpGrpcExporter(config());
+        OtlpGrpcExporter e = new OtlpGrpcExporter(config(), false);
         try {
             OtlpGrpcResponseHandler h = new OtlpGrpcResponseHandler("logs", e);
             h.ok(new HttpResponse(HttpStatus.OK));

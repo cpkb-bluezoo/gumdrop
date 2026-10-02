@@ -415,7 +415,7 @@ public class SMTPClientProtocolHandlerTest {
 
         @Override
         public SocketAddress getLocalAddress() {
-            return new InetSocketAddress("localhost", 25);
+            return new InetSocketAddress(java.net.InetAddress.getLoopbackAddress(), 25);
         }
 
         @Override

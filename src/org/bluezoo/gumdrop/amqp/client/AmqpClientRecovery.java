@@ -40,6 +40,7 @@ import javax.security.auth.Subject;
 import org.bluezoo.gumdrop.ClientEndpoint;
 import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.Gumdrop;
+import org.bluezoo.gumdrop.ProtocolHandler;
 import org.bluezoo.gumdrop.ScheduledTimer;
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.SelectorLoop;
@@ -102,7 +103,7 @@ import org.bluezoo.gumdrop.tls.ServerCredentials;
  * needed from the application.
  *
  * <p>Reconnect delays are scheduled on a small dedicated daemon thread
- * (see {@code RETRY_TIMER}'s javadoc), deliberately <em>not</em>
+ * (see {@code RetryTimerHolder}'s javadoc), deliberately <em>not</em>
  * gumdrop's own {@link SelectorLoop} timer infrastructure that the rest
  * of this codebase prefers: {@link Gumdrop} auto-shuts-down every worker
  * loop (and any timers on them) once it has no active clients, services,
@@ -139,11 +140,13 @@ public class AmqpClientRecovery {
      * delay elapses still goes through the normal, gumdrop-managed
      * {@link ClientEndpoint#connect} path like any other connection.
      */
-    private static final ScheduledTimer RETRY_TIMER =
-            new ScheduledTimer("gumdrop-amqp-recovery");
+    private static final class RetryTimerHolder {
+        // Started lazily, on the first real retry, rather than at class load.
+        static final ScheduledTimer TIMER = new ScheduledTimer("gumdrop-amqp-recovery");
 
-    static {
-        RETRY_TIMER.start();
+        static {
+            TIMER.start();
+        }
     }
 
     private final String host;
@@ -394,10 +397,47 @@ public class AmqpClientRecovery {
                         : new ClientEndpoint(transportFactory, hostAddress, port);
             }
             currentEndpoint = endpoint;
-            endpoint.connect(gumdrop, handler);
+            Connector connector = testConnector;
+            if (connector != null) {
+                connector.connect(handler);
+            } else {
+                endpoint.connect(gumdrop, handler);
+            }
         } catch (IOException e) {
             scheduleReconnect(e);
         }
+    }
+
+
+    // ── test seams (package-private; production never sets them) ──
+
+    /** Replaces the endpoint's connect (the endpoint itself is still created). */
+    interface Connector {
+        void connect(ProtocolHandler handler) throws IOException;
+    }
+
+    /** Replaces the retry timer. */
+    interface RetryScheduler {
+        TimerHandle schedule(long delayMs, Runnable task);
+    }
+
+    private Connector testConnector;
+    private RetryScheduler testScheduler;
+
+    void useConnectorForTesting(Connector connector) {
+        this.testConnector = connector;
+    }
+
+    void useRetrySchedulerForTesting(RetryScheduler scheduler) {
+        this.testScheduler = scheduler;
+    }
+
+    private TimerHandle scheduleRetry(long delayMs, Runnable task) {
+        RetryScheduler substitute = testScheduler;
+        if (substitute != null) {
+            return substitute.schedule(delayMs, task);
+        }
+        return RetryTimerHolder.TIMER.schedule(null, delayMs, task);
     }
 
     private void scheduleReconnect(Exception cause) {
@@ -425,7 +465,7 @@ public class AmqpClientRecovery {
             listener.onReconnecting(attempt, delay);
         }
 
-        pendingRetry = RETRY_TIMER.schedule(null, delay, new Runnable() {
+        pendingRetry = scheduleRetry(delay, new Runnable() {
             @Override
             public void run() {
                 doConnect(false);

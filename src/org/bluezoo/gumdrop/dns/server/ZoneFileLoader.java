@@ -449,7 +449,13 @@ final class ZoneFileLoader implements ZoneFileHandler {
     }
 
     private static Path resolveIncludePath(Path parentDir, String filename) {
-        Path candidate = Paths.get(filename);
+        Path candidate;
+        if (parentDir != null) {
+            // resolve in the parent's file system, not the default one
+            candidate = parentDir.getFileSystem().getPath(filename);
+        } else {
+            candidate = Paths.get(filename);
+        }
         if (candidate.isAbsolute()) {
             return candidate.normalize();
         }

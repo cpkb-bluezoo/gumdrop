@@ -28,11 +28,8 @@ import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
-import java.net.DatagramSocket;
-import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
-import java.nio.channels.DatagramChannel;
 import java.util.List;
 
 import org.bluezoo.gumdrop.Endpoint;
@@ -46,7 +43,6 @@ import org.bluezoo.gumdrop.quic.packet.RetryIntegrityTag;
 import org.bluezoo.gumdrop.quic.packet.TransportParameters;
 import org.bluezoo.gumdrop.quic.packet.VersionNegotiationPacket;
 import org.bluezoo.gumdrop.quic.tls.EncryptionLevel;
-import org.bluezoo.gumdrop.testsupport.InlineSelectorLoop;
 import org.junit.Before;
 import org.junit.Test;
 
@@ -453,38 +449,6 @@ public class QuicConnectionDirectTest {
         e.send(ByteBuffer.wrap(new byte[10]));
         f.lb.pump();
         assertEquals(10, f.server.bidi.recs.get(0).bytes);
-    }
-
-    @Test
-    public void datagramChannelEngineReadsFromSocket() throws Exception {
-        QuicEngine engine = new QuicEngine(new QuicTransportFactory(), true);
-        engine.setSelectorLoop(new InlineSelectorLoop());
-        DatagramChannel dc = DatagramChannel.open();
-        dc.configureBlocking(false);
-        dc.bind(new InetSocketAddress(InetAddress.getLoopbackAddress(), 0));
-        engine.init(dc);
-        try {
-            DatagramSocket sender = new DatagramSocket();
-            try {
-                byte[] junk = new byte[] {0x40, 1, 2, 3};
-                sender.send(new java.net.DatagramPacket(junk, junk.length, dc.socket().getLocalSocketAddress()));
-            } finally {
-                sender.close();
-            }
-            for (int i = 0; i < 3; i++) {
-                engine.onReadable();
-            }
-            assertTrue(engine.isOpen());
-            assertNotNull(engine.getSelectorLoop());
-            assertNull(engine.getSelectionKey());
-            engine.setSelectionKey(null);
-            assertEquals(org.bluezoo.gumdrop.ChannelHandler.Type.QUIC, engine.getChannelType());
-            engine.onWritable();
-            engine.close();
-            assertFalse(engine.isOpen());
-        } finally {
-            dc.close();
-        }
     }
 
     @Test

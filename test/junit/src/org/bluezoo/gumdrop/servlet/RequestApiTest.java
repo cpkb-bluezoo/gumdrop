@@ -23,18 +23,16 @@ package org.bluezoo.gumdrop.servlet;
 
 import org.junit.AfterClass;
 import org.junit.BeforeClass;
-import org.junit.ClassRule;
 import org.junit.Test;
-import org.junit.rules.TemporaryFolder;
 
 import java.io.BufferedReader;
-import java.io.File;
-import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.UnsupportedEncodingException;
 import java.net.SocketAddress;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.Collection;
@@ -154,8 +152,7 @@ public class RequestApiTest {
         }
     }
 
-    @ClassRule
-    public static TemporaryFolder tmp = new TemporaryFolder();
+    public static MemoryFolder tmp = new MemoryFolder();
 
     private static IdleContainer container;
     private static Context plain;
@@ -164,17 +161,11 @@ public class RequestApiTest {
     private static Context cert;
 
     private static Context newContext(String path, String loginConfig) throws Exception {
-        File dir = tmp.newFolder("ctx" + path.replace("/", "_"));
-        new File(dir, "WEB-INF").mkdirs();
+        Path dir = tmp.newFolder("ctx" + path.replace("/", "_"));
         String xml = "<web-app xmlns=\"https://jakarta.ee/xml/ns/jakartaee\" version=\"6.1\">"
                 + "<request-character-encoding>UTF-16</request-character-encoding>"
                 + loginConfig + "</web-app>";
-        FileOutputStream out = new FileOutputStream(new File(dir, "WEB-INF/web.xml"));
-        try {
-            out.write(xml.getBytes(StandardCharsets.UTF_8));
-        } finally {
-            out.close();
-        }
+        MemoryFolder.write(dir, "WEB-INF/web.xml", xml);
         Context c = new Context(container, path, dir);
         c.load();
         c.addRealm("r", new TestRealm());
@@ -870,7 +861,7 @@ public class RequestApiTest {
                 "content-type", "multipart/form-data; boundary=bnd",
                 "content-length", Integer.toString(body.length));
         MultipartConfigDef config = new MultipartConfigDef();
-        config.location = tmp.newFolder().getAbsolutePath();
+        config.locationPath = tmp.newFolder("uploads");
         if (limits) {
             config.maxRequestSize = 5L;
         }

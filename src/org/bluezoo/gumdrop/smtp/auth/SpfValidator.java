@@ -1073,6 +1073,13 @@ public class SpfValidator {
             return result;
         }
 
+        if (s.charAt(0) == '/') {
+            // "a//64": the caller has stripped the first slash, leaving
+            // only the IPv6 prefix (RFC 7208 section 5.6 dual-cidr-length)
+            result[1] = parsePrefix(s.substring(1));
+            return result;
+        }
+
         int doubleSlash = s.indexOf("//");
         if (doubleSlash > 0) {
             // Dual CIDR: /24//64

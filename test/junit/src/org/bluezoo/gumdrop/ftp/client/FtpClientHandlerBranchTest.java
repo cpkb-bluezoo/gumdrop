@@ -35,11 +35,10 @@ import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 
-import org.bluezoo.gumdrop.AcceptLoopProbe;
 import org.bluezoo.gumdrop.ClientEndpoint;
 import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.Gumdrop;
-import org.bluezoo.gumdrop.GumdropConfig;
+import org.bluezoo.gumdrop.testsupport.TestGumdrop;
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.TcpTransportFactory;
 import org.bluezoo.gumdrop.testsupport.RefusingTransportFactory;
@@ -65,6 +64,7 @@ public class FtpClientHandlerBranchTest {
     private ClientEndpoint keeper;
 
     private FtpClientProtocolHandler handler;
+    private final FakeActiveListenerOpener listeners = new FakeActiveListenerOpener();
     private TestEndpoint endpoint;
     private final List<String> sent = Collections.synchronizedList(new ArrayList<String>());
     private final List<String> events = new ArrayList<String>();
@@ -216,7 +216,7 @@ public class FtpClientHandlerBranchTest {
 
     @Before
     public void setUp() {
-        gumdrop = Gumdrop.boot(GumdropConfig.create().workerThreads(1).drainTimeoutMs(0));
+        gumdrop = TestGumdrop.create();
         // A registered client keeps the runtime from auto-shutting-down when a
         // data connection attempt fails and deregisters itself.
         keeper = new ClientEndpoint(new TcpTransportFactory(), gumdrop.nextWorkerLoop(), "localhost", 1);
@@ -224,6 +224,7 @@ public class FtpClientHandlerBranchTest {
         endpoint = new TestEndpoint(sent);
         handler = new FtpClientProtocolHandler(new Greeting());
         handler.setGumdrop(gumdrop);
+        handler.activeListenerOpener = listeners;
         handler.connected(endpoint);
     }
 
@@ -950,16 +951,16 @@ public class FtpClientHandlerBranchTest {
         String portCmd = lastSent();
         assertTrue(portCmd, portCmd.startsWith("PORT 127,0,0,1,"));
         reply("200 ok\r\n");
-        java.nio.channels.ServerSocketChannel listener = handler.activeListenerChannel();
+        FtpClientDataConnectionCoordinator.ActiveListener listener = handler.activeListener();
         assertNotNull("PORT opens a listener", listener);
         List<String> log = new ArrayList<String>();
         handler.retr("missing", null, new Down(log));
         reply("550 no such file\r\n");
         assertEquals("[down-failed:550:no such file]", log.toString());
-        assertNull(handler.activeListenerChannel());
-        assertFalse("the active-mode listener must be closed after a failed transfer", listener.isOpen());
-        assertFalse("and deregistered from the accept loop (closeRawAcceptor)",
-                AcceptLoopProbe.isRegistered(gumdrop, listener));
+        assertNull(handler.activeListener());
+        assertTrue("the active-mode listener must be released after a failed transfer",
+                listeners.last.closed);
+        assertTrue("the opened listener is the one released", listener == listeners.last);
     }
 
     @Test

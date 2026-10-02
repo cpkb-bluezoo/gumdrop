@@ -36,6 +36,7 @@ import org.bluezoo.gumdrop.telemetry.ErrorCategory;
 import org.bluezoo.gumdrop.util.JulWarnings;
 import org.bluezoo.gumdrop.telemetry.Span;
 import org.bluezoo.gumdrop.telemetry.SpanKind;
+import org.bluezoo.gumdrop.telemetry.Trace;
 import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
 
 /**
@@ -243,7 +244,10 @@ public abstract class WebSocketConnection {
         if (telemetryConfig != null) {
             String name = spanName != null ? spanName : 
                 L10N.getString("telemetry.websocket_session");
-            this.span = telemetryConfig.createTrace(name, SpanKind.SERVER).getRootSpan();
+            Trace trace = telemetryConfig.createTrace(name, SpanKind.SERVER);
+            if (trace != null) {
+                this.span = trace.getRootSpan();
+            }
         }
     }
 

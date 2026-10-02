@@ -23,18 +23,15 @@ package org.bluezoo.gumdrop.servlet;
 
 import org.junit.AfterClass;
 import org.junit.BeforeClass;
-import org.junit.ClassRule;
 import org.junit.Test;
-import org.junit.rules.TemporaryFolder;
 
 import java.io.ByteArrayOutputStream;
-import java.io.File;
-import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.PrintWriter;
 import java.net.SocketAddress;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Path;
 import java.util.Base64;
 import java.util.Collections;
 import java.util.Enumeration;
@@ -514,12 +511,11 @@ public class ServletEndToEndTest {
         }
     }
 
-    @ClassRule
-    public static TemporaryFolder tmp = new TemporaryFolder();
+    public static MemoryFolder tmp = new MemoryFolder();
 
     private static TestContainer container;
     private static Context context;
-    private static File root;
+    private static Path root;
     private static String savedFactory;
 
     @BeforeClass
@@ -622,14 +618,7 @@ public class ServletEndToEndTest {
     }
 
     private static void write(String path, String content) throws IOException {
-        File f = new File(root, path);
-        f.getParentFile().mkdirs();
-        FileOutputStream out = new FileOutputStream(f);
-        try {
-            out.write(content.getBytes(StandardCharsets.UTF_8));
-        } finally {
-            out.close();
-        }
+        MemoryFolder.write(root, path, content);
     }
 
     private Result send(String method, String target, String... headerPairs) throws Exception {

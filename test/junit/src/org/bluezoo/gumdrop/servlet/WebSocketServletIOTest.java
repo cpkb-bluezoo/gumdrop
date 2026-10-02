@@ -33,8 +33,6 @@ import java.io.IOException;
 import java.lang.reflect.Field;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
@@ -141,39 +139,6 @@ public class WebSocketServletIOTest {
         connection.getEventHandler().closed(1000, "bye");
         assertTrue(allRead.get());
         assertTrue(connection.getInputStream().isFinished());
-    }
-
-    @Test
-    public void testBlockingReadWithoutListener() throws Exception {
-        TrackingState state = new TrackingState();
-        Container service = new Container();
-        StubServletHandler handler = new StubServletHandler(service, state);
-        ServletWebConnection connection =
-                new ServletWebConnection(new NoOpUpgradeHandler(), state, handler);
-
-        final CountDownLatch blocked = new CountDownLatch(1);
-        final CountDownLatch done = new CountDownLatch(1);
-        final AtomicInteger readByte = new AtomicInteger(-1);
-        Thread reader = new Thread(new Runnable() {
-            @Override
-            public void run() {
-                blocked.countDown();
-                try {
-                    readByte.set(connection.getInputStream().read());
-                } catch (IOException e) {
-                    throw new RuntimeException(e);
-                } finally {
-                    done.countDown();
-                }
-            }
-        });
-        reader.start();
-        assertTrue("reader should reach blocking read",
-                blocked.await(2, TimeUnit.SECONDS));
-        connection.getEventHandler().textMessageReceived(null, "z");
-        assertTrue("read should complete after message arrives",
-                done.await(2, TimeUnit.SECONDS));
-        assertEquals('z', readByte.get());
     }
 
     @Test
@@ -306,65 +271,6 @@ public class WebSocketServletIOTest {
             assertTrue(expected.getMessage().contains("not ready")
                     || expected.getMessage().contains("Write not ready"));
         }
-    }
-
-    @Test
-    public void testUpgradeHandlerDestroyMarshalledToWorkerThread() throws Exception {
-        TrackingState state = new TrackingState();
-        Container service = new Container();
-        StubServletHandler handler = new StubServletHandler(service, state);
-        final CountDownLatch initStarted = new CountDownLatch(1);
-        final CountDownLatch destroyDone = new CountDownLatch(1);
-        final AtomicReference<String> destroyThread = new AtomicReference<String>();
-        final String callingThread = Thread.currentThread().getName();
-        HttpUpgradeHandler upgradeHandler = new HttpUpgradeHandler() {
-            @Override
-            public void init(WebConnection wc) {
-                initStarted.countDown();
-            }
-            @Override
-            public void destroy() {
-                destroyThread.set(Thread.currentThread().getName());
-                destroyDone.countDown();
-            }
-        };
-        ServletWebConnection connection =
-                new ServletWebConnection(upgradeHandler, state, handler);
-
-        connection.getEventHandler().opened(new StubWebSocketSession());
-        assertTrue(initStarted.await(2, TimeUnit.SECONDS));
-        connection.getEventHandler().closed(1000, "bye");
-
-        assertTrue(destroyDone.await(2, TimeUnit.SECONDS));
-        assertNotEquals(callingThread, destroyThread.get());
-        assertTrue(destroyThread.get().startsWith("servlet-worker-"));
-    }
-
-    @Test
-    public void testUpgradeHandlerInitMarshalledToWorkerThread() throws Exception {
-        TrackingState state = new TrackingState();
-        Container service = new Container();
-        StubServletHandler handler = new StubServletHandler(service, state);
-        final CountDownLatch initDone = new CountDownLatch(1);
-        final AtomicReference<String> initThread = new AtomicReference<String>();
-        final String callingThread = Thread.currentThread().getName();
-        HttpUpgradeHandler upgradeHandler = new HttpUpgradeHandler() {
-            @Override
-            public void init(WebConnection wc) {
-                initThread.set(Thread.currentThread().getName());
-                initDone.countDown();
-            }
-            @Override
-            public void destroy() { }
-        };
-        ServletWebConnection connection =
-                new ServletWebConnection(upgradeHandler, state, handler);
-
-        connection.getEventHandler().opened(new StubWebSocketSession());
-
-        assertTrue(initDone.await(2, TimeUnit.SECONDS));
-        assertNotEquals(callingThread, initThread.get());
-        assertTrue(initThread.get().startsWith("servlet-worker-"));
     }
 
     @Test

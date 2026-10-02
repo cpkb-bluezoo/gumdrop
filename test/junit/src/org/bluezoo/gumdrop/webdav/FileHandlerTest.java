@@ -622,7 +622,7 @@ public class FileHandlerTest {
      * {@code execute}/{@code onWritable} callbacks inline (simulating an
      * always-writable transport on the calling thread).
      */
-    private static final class RecordingState implements HttpResponseState {
+    static final class RecordingState implements HttpResponseState {
         private final Object lock = new Object();
         private final ByteArrayOutputStream bodyOut = new ByteArrayOutputStream();
         private final CountDownLatch done = new CountDownLatch(1);

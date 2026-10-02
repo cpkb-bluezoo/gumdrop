@@ -149,18 +149,16 @@ public class MaildirFilenameTest {
         // Locks in the non-Windows half of issue #287's design: normal
         // (standard, spec-compliant, interoperable with Dovecot/Courier
         // etc.) behaviour is unchanged on every platform except Windows.
-        org.junit.Assume.assumeFalse(isWindows());
-        assertEquals(":2,", MaildirFilename.INFO_SEPARATOR);
+        assertEquals(":2,", MaildirFilename.infoSeparatorFor("Linux"));
+        assertEquals(":2,", MaildirFilename.infoSeparatorFor("Mac OS X"));
+        assertEquals(":2,", MaildirFilename.infoSeparatorFor(""));
+        assertEquals(":2,", MaildirFilename.infoSeparatorFor(null));
     }
 
     @Test
     public void testGenerationUsesCommaFormOnWindows() {
-        org.junit.Assume.assumeTrue(isWindows());
-        assertEquals(",2,", MaildirFilename.INFO_SEPARATOR);
-    }
-
-    private static boolean isWindows() {
-        return System.getProperty("os.name", "").toLowerCase(java.util.Locale.ROOT).contains("win");
+        assertEquals(",2,", MaildirFilename.infoSeparatorFor("Windows 11"));
+        assertEquals(",2,", MaildirFilename.infoSeparatorFor("WINDOWS"));
     }
 
     @Test(expected = IllegalArgumentException.class)

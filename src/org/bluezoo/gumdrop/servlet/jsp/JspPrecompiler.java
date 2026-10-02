@@ -22,12 +22,13 @@
 package org.bluezoo.gumdrop.servlet.jsp;
 
 import java.io.ByteArrayOutputStream;
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.PrintStream;
+import java.nio.file.DirectoryStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.text.MessageFormat;
 import java.util.ArrayList;
 import java.util.List;
@@ -73,8 +74,8 @@ public class JspPrecompiler {
     private static final ResourceBundle L10N = 
         ResourceBundle.getBundle("org.bluezoo.gumdrop.servlet.jsp.L10N");
     
-    private File webappRoot;
-    private File outputDir;
+    private Path webappRoot;
+    private Path outputDir;
     private String packageName = "org.bluezoo.gumdrop.servlet.jsp.generated";
     private boolean verbose = false;
     private boolean failOnError = true;
@@ -101,14 +102,14 @@ public class JspPrecompiler {
     /**
      * Sets the web application root directory.
      */
-    public void setWebappRoot(File webappRoot) {
+    public void setWebappRoot(Path webappRoot) {
         this.webappRoot = webappRoot;
     }
     
     /**
      * Sets the output directory for compiled classes.
      */
-    public void setOutputDir(File outputDir) {
+    public void setOutputDir(Path outputDir) {
         this.outputDir = outputDir;
     }
     
@@ -147,7 +148,7 @@ public class JspPrecompiler {
      * @throws IOException if an I/O error occurs
      */
     public boolean precompile() throws IOException {
-        if (webappRoot == null || !webappRoot.isDirectory()) {
+        if (webappRoot == null || !Files.isDirectory(webappRoot)) {
             throw new IllegalStateException(L10N.getString("precompiler.webapp_invalid"));
         }
         
@@ -155,12 +156,12 @@ public class JspPrecompiler {
             throw new IllegalStateException(L10N.getString("precompiler.output_not_set"));
         }
         
-        if (!outputDir.exists()) {
-            outputDir.mkdirs();
+        if (!Files.exists(outputDir)) {
+            Files.createDirectories(outputDir);
         }
         
         // Find all JSP files
-        List<File> jspFiles = new ArrayList<File>();
+        List<Path> jspFiles = new ArrayList<Path>();
         findJSPFiles(webappRoot, jspFiles);
         
         if (jspFiles.isEmpty()) {
@@ -180,7 +181,7 @@ public class JspPrecompiler {
         if (threadCount > 1) {
             compileParallel(jspFiles);
         } else {
-            for (File jspFile : jspFiles) {
+            for (Path jspFile : jspFiles) {
                 compileJSP(jspFile);
                 if (failOnError && errorCount > 0) {
                     break;
@@ -204,21 +205,26 @@ public class JspPrecompiler {
     /**
      * Finds all JSP files recursively.
      */
-    private void findJSPFiles(File dir, List<File> result) {
-        File[] files = dir.listFiles();
-        if (files == null) {
+    private void findJSPFiles(Path dir, List<Path> result) {
+        List<Path> files = new ArrayList<Path>();
+        try (DirectoryStream<Path> children = Files.newDirectoryStream(dir)) {
+            for (Path child : children) {
+                files.add(child);
+            }
+        } catch (IOException e) {
             return;
         }
         
-        for (File file : files) {
-            if (file.isDirectory()) {
+        for (Path file : files) {
+            Path fileName = file.getFileName();
+            if (Files.isDirectory(file)) {
                 // Skip WEB-INF and META-INF
-                String name = file.getName();
+                String name = fileName.toString();
                 if (!"WEB-INF".equals(name) && !"META-INF".equals(name)) {
                     findJSPFiles(file, result);
                 }
             } else {
-                String name = file.getName().toLowerCase();
+                String name = fileName.toString().toLowerCase();
                 if (name.endsWith(".jsp") || name.endsWith(".jspx") || 
                     name.endsWith(".jspf")) {
                     result.add(file);
@@ -230,11 +236,11 @@ public class JspPrecompiler {
     /**
      * Compiles JSP files in parallel using multiple threads.
      */
-    private void compileParallel(List<File> jspFiles) {
+    private void compileParallel(List<Path> jspFiles) {
         ExecutorService executor = Executors.newFixedThreadPool(threadCount, 
             new CompilerThreadFactory());
         
-        for (final File jspFile : jspFiles) {
+        for (final Path jspFile : jspFiles) {
             executor.execute(new Runnable() {
                 @Override
                 public void run() {
@@ -254,7 +260,7 @@ public class JspPrecompiler {
     /**
      * Compiles a single JSP file.
      */
-    private synchronized void compileJSP(File jspFile) {
+    private synchronized void compileJSP(Path jspFile) {
         String jspPath = getRelativePath(webappRoot, jspFile);
         
         if (verbose) {
@@ -264,7 +270,7 @@ public class JspPrecompiler {
         
         try {
             // Parse JSP
-            InputStream input = new FileInputStream(jspFile);
+            InputStream input = Files.newInputStream(jspFile);
             JspPage jspPage;
             try {
                 jspPage = parserFactory.parseJSP(input, "UTF-8", jspPath, null);
@@ -362,19 +368,21 @@ public class JspPrecompiler {
     /**
      * Gets the relative path from base to file.
      */
-    private String getRelativePath(File base, File file) {
-        String basePath = base.getAbsolutePath();
-        String filePath = file.getAbsolutePath();
+    private String getRelativePath(Path base, Path file) {
+        Path absBase = base.toAbsolutePath();
+        Path absFile = file.toAbsolutePath();
         
-        if (filePath.startsWith(basePath)) {
-            String relative = filePath.substring(basePath.length());
-            if (relative.startsWith(File.separator)) {
-                relative = relative.substring(1);
+        if (absFile.startsWith(absBase)) {
+            Path relative = absBase.relativize(absFile);
+            StringBuilder buf = new StringBuilder();
+            for (Path name : relative) {
+                buf.append('/');
+                buf.append(name.toString());
             }
-            return "/" + relative.replace(File.separatorChar, '/');
+            return buf.toString();
         }
         
-        return file.getName();
+        return file.getFileName().toString();
     }
     
     /**
@@ -421,9 +429,9 @@ public class JspPrecompiler {
         for (int i = 0; i < args.length; i++) {
             String arg = args[i];
             if ("-webapp".equals(arg) && i + 1 < args.length) {
-                precompiler.setWebappRoot(new File(args[++i]));
+                precompiler.setWebappRoot(Paths.get(args[++i]));
             } else if ("-output".equals(arg) && i + 1 < args.length) {
-                precompiler.setOutputDir(new File(args[++i]));
+                precompiler.setOutputDir(Paths.get(args[++i]));
             } else if ("-package".equals(arg) && i + 1 < args.length) {
                 precompiler.setPackageName(args[++i]);
             } else if ("-verbose".equals(arg)) {

@@ -94,6 +94,25 @@ public class DkimSignature {
      * @return the parsed signature, or null if invalid
      */
     public static DkimSignature parse(String headerValue) {
+        return parse(headerValue, true, true, true);
+    }
+
+    /**
+     * Parses an ARC header value (RFC 8617). An {@code ARC-Message-Signature}
+     * carries the DKIM-Signature tags without {@code v=}; an {@code ARC-Seal}
+     * carries {@code i=}, {@code a=}, {@code b=}, {@code cv=}, {@code d=} and
+     * {@code s=} with neither {@code h=} nor {@code bh=}.
+     *
+     * @param headerValue the header value (after the field name and colon)
+     * @param seal true for an ARC-Seal, false for an ARC-Message-Signature
+     * @return the parsed tags, or null if a required tag is missing
+     */
+    public static DkimSignature parseArc(String headerValue, boolean seal) {
+        return parse(headerValue, false, !seal, !seal);
+    }
+
+    private static DkimSignature parse(String headerValue, boolean requireVersion,
+                                       boolean requireHeaders, boolean requireBodyHash) {
         if (headerValue == null) {
             return null;
         }
@@ -150,9 +169,10 @@ public class DkimSignature {
         }
 
         // Validate required fields
-        if (sig.version == null || sig.algorithm == null ||
+        if ((requireVersion && sig.version == null) || sig.algorithm == null ||
             sig.domain == null || sig.selector == null ||
-            sig.signedHeaders.isEmpty() || sig.bodyHash == null ||
+            (requireHeaders && sig.signedHeaders.isEmpty()) ||
+            (requireBodyHash && sig.bodyHash == null) ||
             sig.signature == null) {
             return null;
         }

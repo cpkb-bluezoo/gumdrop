@@ -27,11 +27,11 @@ import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
-import java.io.File;
 import java.nio.ByteBuffer;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.concurrent.CountDownLatch;
 
 import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
 import org.junit.Test;
@@ -45,12 +45,7 @@ import org.junit.Test;
 public class OtlpEndpointsExtraTest {
 
     private static TelemetryConfig tlsConfig() throws Exception {
-        TelemetryConfig config = new TelemetryConfig();
-        File f = File.createTempFile("missing-truststore", ".p12");
-        f.delete();
-        config.setTruststoreFile(f.toPath());
-        config.setTruststorePass("changeit");
-        return config;
+        return new TelemetryConfig();
     }
 
     @Test
@@ -67,7 +62,7 @@ public class OtlpEndpointsExtraTest {
         assertTrue(e.toString().contains("https://localhost:4318/v1/traces"));
         assertNull(e.getClient());
         assertFalse(e.connectAndWait(10L));
-        OtlpExporter exporter = new OtlpExporter(new TelemetryConfig());
+        OtlpExporter exporter = new OtlpExporter(new TelemetryConfig(), false);
         try {
             OtlpResponseHandler h = new OtlpResponseHandler("traces", exporter);
             e.send(ByteBuffer.allocate(4), h);
@@ -105,7 +100,7 @@ public class OtlpEndpointsExtraTest {
         assertTrue(e.toString().contains("gRPC"));
         assertNull(e.getClient());
         assertFalse(e.connectAndWait(10L));
-        OtlpGrpcExporter exporter = new OtlpGrpcExporter(new TelemetryConfig());
+        OtlpGrpcExporter exporter = new OtlpGrpcExporter(new TelemetryConfig(), false);
         try {
             OtlpGrpcResponseHandler h = new OtlpGrpcResponseHandler("traces", exporter);
             e.send(ByteBuffer.allocate(4), h);
@@ -127,5 +122,41 @@ public class OtlpEndpointsExtraTest {
         assertNotNull(plain);
         assertEquals(9999, plain.getPort());
         assertFalse(plain.isSecure());
+    }
+
+    @Test
+    public void testHttpConnectionHandlerCallbacks() {
+        Map<String, String> none = Collections.<String, String>emptyMap();
+        OtlpEndpoint e = OtlpEndpoint.create(null, "traces", "http://h:1", "/p", none, null);
+        CountDownLatch own = new CountDownLatch(1);
+        OtlpEndpoint.OtlpConnectionHandler withLatch = e.new OtlpConnectionHandler(own);
+        withLatch.onConnected(null);
+        assertEquals(0L, own.getCount());
+        assertFalse("no client object, so not connected", e.isConnected());
+        withLatch.onSecurityEstablished(null);
+        withLatch.onError(new RuntimeException("x"));
+        withLatch.onDisconnected();
+        assertFalse(e.isConnecting());
+        OtlpEndpoint.OtlpConnectionHandler noLatch = e.new OtlpConnectionHandler(null);
+        noLatch.onConnected(null);
+        noLatch.onDisconnected();
+    }
+
+    @Test
+    public void testGrpcConnectionHandlerCallbacks() {
+        Map<String, String> none = Collections.<String, String>emptyMap();
+        OtlpGrpcEndpoint e = OtlpGrpcEndpoint.create(null, "traces", "http://h:1", "/p", none, null);
+        CountDownLatch own = new CountDownLatch(1);
+        OtlpGrpcEndpoint.OtlpGrpcConnectionHandler withLatch = e.new OtlpGrpcConnectionHandler(own);
+        withLatch.onConnected(null);
+        assertEquals(0L, own.getCount());
+        assertFalse(e.isConnected());
+        withLatch.onSecurityEstablished(null);
+        withLatch.onError(new RuntimeException("x"));
+        withLatch.onDisconnected();
+        assertFalse(e.isConnecting());
+        OtlpGrpcEndpoint.OtlpGrpcConnectionHandler noLatch = e.new OtlpGrpcConnectionHandler(null);
+        noLatch.onConnected(null);
+        noLatch.onDisconnected();
     }
 }

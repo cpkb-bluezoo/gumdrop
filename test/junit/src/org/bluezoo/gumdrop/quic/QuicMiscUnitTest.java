@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.quic;
 
+import org.bluezoo.gumdrop.testsupport.memfs.MemoryFileSystem;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
@@ -251,7 +252,7 @@ public class QuicMiscUnitTest {
 
     @Test
     public void factoryStartFailsOnMissingFiles() {
-        Path missing = Paths.get("/nonexistent-gumdrop-quic-test/none.pem");
+        Path missing = MemoryFileSystem.create().getPath("/nonexistent-gumdrop-quic-test/none.pem");
         QuicTransportFactory f = new QuicTransportFactory();
         f.setCaFile(missing);
         try {

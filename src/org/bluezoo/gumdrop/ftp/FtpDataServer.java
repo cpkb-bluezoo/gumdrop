@@ -24,8 +24,6 @@ package org.bluezoo.gumdrop.ftp;
 import org.bluezoo.gumdrop.AcceptSelectorLoop;
 
 import java.io.IOException;
-import java.net.InetSocketAddress;
-import java.nio.channels.ServerSocketChannel;
 import java.nio.channels.SocketChannel;
 
 /**
@@ -43,7 +41,7 @@ class FtpDataServer implements AcceptSelectorLoop.RawAcceptHandler {
     final int requestedPort;
     final FtpDataConnectionCoordinator coordinator;
     private int actualPort = -1;
-    private ServerSocketChannel serverChannel;
+    private FtpDataTransport.PassiveListener listener;
 
     FtpDataServer(FtpControlConnection controlConnection, int port, FtpDataConnectionCoordinator coordinator) {
         this.controlConnection = controlConnection;
@@ -61,14 +59,9 @@ class FtpDataServer implements AcceptSelectorLoop.RawAcceptHandler {
     /**
      * Called after binding to capture the actual port.
      */
-    public void notifyBound(ServerSocketChannel channel) {
-        this.serverChannel = channel;
-        try {
-            InetSocketAddress localAddress = (InetSocketAddress) channel.getLocalAddress();
-            actualPort = localAddress.getPort();
-        } catch (Exception e) {
-            actualPort = requestedPort;
-        }
+    public void notifyBound(FtpDataTransport.PassiveListener bound) {
+        this.listener = bound;
+        actualPort = bound.port();
     }
 
     /**
@@ -81,7 +74,7 @@ class FtpDataServer implements AcceptSelectorLoop.RawAcceptHandler {
         // its ephemeral port) as soon as that connection arrives, rather
         // than holding it open until the next PASV/EPSV or session close
         // (issue #145). coordinator.cleanup() calling stop() again later
-        // is a harmless no-op once serverChannel is already null.
+        // is a harmless no-op once the listener is already released.
         stop();
         FtpDataConnection dataConnection = new FtpDataConnection(sc, coordinator);
         coordinator.acceptDataConnection(dataConnection);
@@ -91,13 +84,9 @@ class FtpDataServer implements AcceptSelectorLoop.RawAcceptHandler {
      * Stops the data server and closes its channel.
      */
     public void stop() {
-        if (serverChannel != null) {
-            try {
-                serverChannel.close();
-            } catch (IOException e) {
-                // Ignore close errors
-            }
-            serverChannel = null;
+        if (listener != null) {
+            listener.close();
+            listener = null;
         }
     }
 }

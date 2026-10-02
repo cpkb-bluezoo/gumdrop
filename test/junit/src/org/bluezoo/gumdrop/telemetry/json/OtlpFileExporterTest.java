@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.telemetry.json;
 
+import org.bluezoo.gumdrop.testsupport.memfs.MemoryTemp;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
@@ -41,7 +42,7 @@ import org.bluezoo.gumdrop.telemetry.metrics.MetricData;
 import org.junit.Test;
 
 /**
- * Tests for {@link OtlpFileExporter} writing to temporary files.
+ * Tests for {@link OtlpFileExporter} writing to an in-memory file system.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
@@ -63,7 +64,7 @@ public class OtlpFileExporterTest {
 
     @Test
     public void testWritesAllSignals() throws IOException {
-        Path dir = Files.createTempDirectory("otlpfile");
+        Path dir = MemoryTemp.createTempDirectory("otlpfile");
         try {
             Path sub = dir.resolve("sub");
             Path traces = sub.resolve("traces.json");
@@ -107,7 +108,7 @@ public class OtlpFileExporterTest {
 
     @Test
     public void testUnwritablePathFallsBack() throws IOException {
-        Path dir = Files.createTempDirectory("otlpfile");
+        Path dir = MemoryTemp.createTempDirectory("otlpfile");
         try {
             Path blocker = dir.resolve("blocker");
             Files.write(blocker, new byte[0]);

@@ -615,6 +615,9 @@ public final class MaildirMailbox implements Mailbox {
                     if (inHeaders) {
                         if (lastWasNewline) {
                             inHeaders = false;
+                            if (bodyLines <= 0) {
+                                return pos + i + 1;
+                            }
                         }
                         lastWasNewline = true;
                     } else {
@@ -1478,7 +1481,11 @@ public final class MaildirMailbox implements Mailbox {
                 long uid = msg.getUid();
                 Long ms = uidModSeq.get(uid);
                 long modSeqVal = ms != null ? ms : 0;
+                final int msgNumber = msg.getMessageNumber();
+                final long msgSize = msg.getSize();
                 context = new MessageContext() {
+                    private MessageContext bodyContext;
+
                     @Override
                     public int getMessageNumber() {
                         return indexed.getMessageNumber();
@@ -1526,7 +1533,19 @@ public final class MaildirMailbox implements Mailbox {
                     @Override
                     public CharSequence getBodyText()
                             throws IOException {
-                        return indexed.getBodyText();
+                        // The index deliberately holds no body text, so
+                        // BODY/TEXT searches parse the message on demand.
+                        if (bodyContext == null) {
+                            bodyContext = new ParsedMessageContext(
+                                    MaildirMailbox.this,
+                                    msgNumber, uid, msgSize,
+                                    indexed.getFlags(), null);
+                        }
+                        return bodyContext.getBodyText();
+                    }
+                    @Override
+                    public String getEmailId() {
+                        return indexed.getEmailId();
                     }
                     @Override
                     public long getModSeq() {

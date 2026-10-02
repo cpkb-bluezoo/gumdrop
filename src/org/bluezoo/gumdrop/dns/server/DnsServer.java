@@ -474,6 +474,13 @@ public class DnsServer implements Server {
             }
 
             @Override
+            public void onResponseSequence(List<DnsMessage> responses) {
+                // multi-message answers (AXFR/IXFR over a framed
+                // transport) must reach the transport intact
+                callback.onResponseSequence(responses);
+            }
+
+            @Override
             public void onError(String error) {
                 callback.onResponse(query.createErrorResponse(
                         DnsMessage.RCODE_SERVFAIL));

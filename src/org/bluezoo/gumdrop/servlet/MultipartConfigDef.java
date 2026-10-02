@@ -31,6 +31,13 @@ import jakarta.servlet.annotation.MultipartConfig;
 class MultipartConfigDef {
 
     String location = "";
+
+    /**
+     * Optional resolved upload directory overriding {@link #location}
+     * (package-private seam so tests can use an in-memory file system).
+     */
+    java.nio.file.Path locationPath;
+
     long maxFileSize = -1L;
     long maxRequestSize = -1L;
     long fileSizeThreshold = 0L;

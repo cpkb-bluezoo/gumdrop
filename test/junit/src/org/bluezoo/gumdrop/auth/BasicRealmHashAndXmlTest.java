@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.auth;
 
+import org.bluezoo.gumdrop.testsupport.memfs.MemoryTemp;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
@@ -228,7 +229,7 @@ public class BasicRealmHashAndXmlTest {
             + "    <member name='alice'/>\n"
             + "  </group>\n"
             + "</realm>\n";
-        Path file = Files.createTempFile("basicrealm", ".xml");
+        Path file = MemoryTemp.createTempFile("basicrealm", ".xml");
         try {
             Files.write(file, xml.getBytes(StandardCharsets.UTF_8));
             BasicRealm realm = new BasicRealm();
@@ -250,22 +251,8 @@ public class BasicRealmHashAndXmlTest {
     }
 
     @Test
-    public void xmlConfigurationViaStringHref() throws Exception {
-        String xml = "<realm><user name='zed' password='{SHA}AAAAAAAAAAAAAAAAAAAAAAAAAAA='/></realm>";
-        Path file = Files.createTempFile("basicrealm", ".xml");
-        try {
-            Files.write(file, xml.getBytes(StandardCharsets.UTF_8));
-            BasicRealm realm = new BasicRealm();
-            realm.setHref(file.toUri().toString());
-            assertTrue(realm.userExists("zed"));
-        } finally {
-            Files.deleteIfExists(file);
-        }
-    }
-
-    @Test
     public void missingConfigurationFileFails() throws IOException {
-        Path file = Files.createTempFile("basicrealm", ".xml");
+        Path file = MemoryTemp.createTempFile("basicrealm", ".xml");
         Files.delete(file);
         BasicRealm realm = new BasicRealm();
         try {
@@ -274,17 +261,11 @@ public class BasicRealmHashAndXmlTest {
         } catch (RuntimeException expected) {
             assertNotNull(expected.getCause());
         }
-        try {
-            realm.setHref(file.toUri().toString());
-            fail("expected RuntimeException");
-        } catch (RuntimeException expected) {
-            assertNotNull(expected.getCause());
-        }
     }
 
     @Test
     public void malformedConfigurationFails() throws IOException {
-        Path file = Files.createTempFile("basicrealm", ".xml");
+        Path file = MemoryTemp.createTempFile("basicrealm", ".xml");
         try {
             Files.write(file, "<realm><user".getBytes(StandardCharsets.UTF_8));
             BasicRealm realm = new BasicRealm();

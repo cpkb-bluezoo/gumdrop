@@ -22,13 +22,13 @@
 package org.bluezoo.gumdrop.imap;
 
 import org.bluezoo.gumdrop.Gumdrop;
-import org.bluezoo.gumdrop.GumdropConfig;
 import org.bluezoo.gumdrop.ProtocolHandler;
 import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.auth.Realm;
 import org.bluezoo.gumdrop.auth.SaslMechanism;
 import org.bluezoo.gumdrop.mailbox.maildir.MaildirMailboxFactory;
 import org.bluezoo.gumdrop.testsupport.RecordingStubEndpoint;
+import org.bluezoo.gumdrop.testsupport.TestGumdrop;
 import org.bluezoo.gumdrop.testsupport.memfs.MemoryFileSystem;
 
 import org.junit.After;
@@ -58,7 +58,7 @@ public class IMAPMetadataTest {
     @Before
     public void setUp() throws Exception {
         mem = MemoryFileSystem.create();
-        gumdrop = Gumdrop.boot(GumdropConfig.create().workerThreads(1).drainTimeoutMs(0));
+        gumdrop = TestGumdrop.create();
     }
 
     @After

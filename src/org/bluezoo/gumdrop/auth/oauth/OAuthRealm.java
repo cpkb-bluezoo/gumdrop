@@ -24,6 +24,7 @@ package org.bluezoo.gumdrop.auth.oauth;
 import org.bluezoo.gumdrop.auth.Realm;
 import org.bluezoo.gumdrop.auth.SaslMechanism;
 import org.bluezoo.gumdrop.Endpoint;
+import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.http.client.DefaultHttpResponseHandler;
@@ -182,6 +183,48 @@ public class OAuthRealm implements Realm {
     
     // Stored config for forSelectorLoop
     private final Properties config;
+
+    /**
+     * The two steps of the introspection call that touch the network: opening
+     * the connection and creating the request on it. Package-private so unit
+     * tests can replace them with an in-memory exchange that feeds scripted
+     * responses synchronously; production always uses {@link #NETWORK}.
+     */
+    interface Exchange {
+        /**
+         * Connects the client and reports progress to the handler.
+         *
+         * @param client the client for the authorization server
+         * @param gumdrop the runtime the connection is made under
+         * @param handler the connection lifecycle handler
+         */
+        void connect(HttpClient client, Gumdrop gumdrop, HttpClientHandler handler);
+
+        /**
+         * Creates a POST request on the connected client.
+         *
+         * @param client the connected client
+         * @param path the request path
+         * @return the request
+         */
+        HttpRequest post(HttpClient client, String path);
+    }
+
+    /** The real exchange: an actual HTTP client connection. */
+    private static final Exchange NETWORK = new Exchange() {
+        @Override
+        public void connect(HttpClient client, Gumdrop gumdrop, HttpClientHandler handler) {
+            client.connect(gumdrop, handler);
+        }
+
+        @Override
+        public HttpRequest post(HttpClient client, String path) {
+            return client.post(path);
+        }
+    };
+
+    /** Introspection transport; replaced by unit tests only. */
+    Exchange exchange = NETWORK;
     
     /**
      * Creates a new OAuthRealm with the specified configuration.
@@ -713,13 +756,13 @@ public class OAuthRealm implements Realm {
         };
         
         // Connect and make request
-        client.connect(selectorLoop.getGumdrop(), new HttpClientHandler() {
+        exchange.connect(client, selectorLoop.getGumdrop(), new HttpClientHandler() {
             @Override
             public void onConnected(Endpoint endpoint) {
                 LOGGER.fine(L10N.getString("debug.oauth_connected"));
                 
                 // Create and send the POST request
-                HttpRequest request = client.post(introspectionEndpoint);
+                HttpRequest request = exchange.post(client, introspectionEndpoint);
                 request.header("Content-Type", "application/x-www-form-urlencoded");
                 request.header("Accept", "application/json");
                 request.header("Authorization", basicAuthHeader);

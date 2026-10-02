@@ -23,54 +23,37 @@ package org.bluezoo.gumdrop;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
-import java.io.IOException;
-import java.net.DatagramPacket;
-import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
-import java.nio.channels.DatagramChannel;
 import java.nio.charset.StandardCharsets;
-import java.util.ArrayList;
 import java.util.List;
 
 import org.bluezoo.gumdrop.testsupport.InlineSelectorLoop;
+import org.bluezoo.gumdrop.testsupport.StubDatagramChannel;
 import org.bluezoo.gumdrop.testsupport.TestCertificates;
 import org.bluezoo.gumdrop.tls.DtlsVersion;
-import org.junit.After;
 import org.junit.Test;
 
 /**
  * Closing a {@link UdpEndpoint} for shutdown: an orderly close writes the
  * datagrams still queued (a DTLS {@code close_notify} among them) to the
- * socket before it closes, an abort discards them. Observed on real
- * loopback sockets, where a datagram sent is already queued at the
- * receiver, so the negative case needs no waiting.
+ * socket before it closes, an abort discards them. Observed on a recording
+ * {@link StubDatagramChannel}, so no real socket or waiting is involved.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 public class UdpEndpointShutdownTest {
 
     private static final InetSocketAddress SERVER_ADDR = new InetSocketAddress("127.0.0.1", 5000);
-    private static final int GUARD_MS = 60000;
     private static final int ALERT = 21;
 
-    private final List<DatagramChannel> channels = new ArrayList<DatagramChannel>();
+    private static final InetSocketAddress PEER_ADDR = new InetSocketAddress("127.0.0.1", 5001);
+    private static final InetSocketAddress LOCAL_ADDR = new InetSocketAddress("127.0.0.1", 5002);
 
-    @After
-    public void closeChannels() throws IOException {
-        for (DatagramChannel channel : channels) {
-            channel.close();
-        }
-    }
-
-    private DatagramChannel bound() throws IOException {
-        DatagramChannel dc = DatagramChannel.open();
-        dc.bind(new InetSocketAddress(InetAddress.getLoopbackAddress(), 0));
-        channels.add(dc);
-        return dc;
+    private static StubDatagramChannel stub() {
+        return new StubDatagramChannel(LOCAL_ADDR);
     }
 
     private static final class Probe implements ProtocolHandler {
@@ -101,22 +84,20 @@ public class UdpEndpointShutdownTest {
         }
     }
 
-    private UdpEndpoint plainEndpointTo(DatagramChannel peer, Probe probe) throws IOException {
+    private static UdpEndpoint plainEndpointTo(StubDatagramChannel channel, Probe probe) {
         UdpEndpoint ep = new UdpEndpoint(probe);
-        ep.setChannel(bound());
+        ep.setChannel(channel);
         ep.setClientMode(true);
-        ep.setRemoteAddress((InetSocketAddress) peer.getLocalAddress());
+        ep.setRemoteAddress(PEER_ADDR);
         ep.setSelectorLoop(new InlineSelectorLoop());
         ep.init();
         return ep;
     }
 
-    private static String receiveText(DatagramChannel peer) throws IOException {
-        peer.socket().setSoTimeout(GUARD_MS);
-        byte[] buf = new byte[64];
-        DatagramPacket packet = new DatagramPacket(buf, buf.length);
-        peer.socket().receive(packet);
-        return new String(buf, 0, packet.getLength(), StandardCharsets.UTF_8);
+    private static String firstSentText(StubDatagramChannel channel) {
+        List<StubDatagramChannel.Sent> sent = channel.getSent();
+        assertEquals(1, sent.size());
+        return new String(sent.get(0).getBytes(), StandardCharsets.UTF_8);
     }
 
     private static ByteBuffer text(String s) {
@@ -125,35 +106,34 @@ public class UdpEndpointShutdownTest {
 
     @Test
     public void orderlyCloseWritesQueuedDatagramsBeforeClosing() throws Exception {
-        DatagramChannel peer = bound();
+        StubDatagramChannel channel = stub();
         Probe probe = new Probe();
-        UdpEndpoint ep = plainEndpointTo(peer, probe);
+        UdpEndpoint ep = plainEndpointTo(channel, probe);
         ep.send(text("bye"));
 
         ep.closeForShutdown(true);
 
-        assertEquals("bye", receiveText(peer));
+        assertEquals("bye", firstSentText(channel));
         assertTrue(probe.disconnected);
         assertFalse(ep.isOpen());
     }
 
     @Test
     public void abortDiscardsQueuedDatagrams() throws Exception {
-        DatagramChannel peer = bound();
+        StubDatagramChannel channel = stub();
         Probe probe = new Probe();
-        UdpEndpoint ep = plainEndpointTo(peer, probe);
+        UdpEndpoint ep = plainEndpointTo(channel, probe);
         ep.send(text("bye"));
 
         ep.closeForShutdown(false);
 
-        peer.configureBlocking(false);
-        assertNull("nothing reaches the peer on abort", peer.receive(ByteBuffer.allocate(64)));
+        assertTrue("nothing reaches the peer on abort", channel.getSent().isEmpty());
         assertTrue(probe.disconnected);
         assertFalse(ep.isOpen());
     }
 
     private static UdpEndpoint dtlsEndpoint(Probe probe, UdpTransportFactory factory, boolean clientMode,
-            DatagramChannel channel) {
+            StubDatagramChannel channel) {
         UdpEndpoint ep = new UdpEndpoint(probe);
         ep.setFactory(factory);
         ep.setSecure(true);
@@ -192,8 +172,8 @@ public class UdpEndpointShutdownTest {
         }
     }
 
-    /** A handshaken DTLS 1.2 server endpoint on a real socket whose one client is {@code peer}. */
-    private UdpEndpoint handshakenServer(DatagramChannel peer) throws Exception {
+    /** A handshaken DTLS 1.2 server endpoint on {@code channel} whose one client is {@link #PEER_ADDR}. */
+    private static UdpEndpoint handshakenServer(StubDatagramChannel channel) throws Exception {
         TestCertificates.Identity identity = TestCertificates.ec256();
         UdpTransportFactory serverFactory = new UdpTransportFactory();
         serverFactory.setSecure(true);
@@ -208,10 +188,10 @@ public class UdpEndpointShutdownTest {
 
         Probe serverProbe = new Probe();
         Probe clientProbe = new Probe();
-        UdpEndpoint server = dtlsEndpoint(serverProbe, serverFactory, false, bound());
+        UdpEndpoint server = dtlsEndpoint(serverProbe, serverFactory, false, channel);
         UdpEndpoint client = dtlsEndpoint(clientProbe, clientFactory, true, null);
         client.startClientDtlsHandshake();
-        deliverAll(server, client, (InetSocketAddress) peer.getLocalAddress());
+        deliverAll(server, client, PEER_ADDR);
         assertTrue(serverProbe.secure);
         assertTrue(clientProbe.secure);
         return server;
@@ -219,28 +199,28 @@ public class UdpEndpointShutdownTest {
 
     @Test
     public void orderlyDtlsCloseSendsCloseNotifyOnTheWire() throws Exception {
-        DatagramChannel peer = bound();
-        UdpEndpoint server = handshakenServer(peer);
+        StubDatagramChannel channel = stub();
+        UdpEndpoint server = handshakenServer(channel);
+        int before = channel.getSent().size();
 
         server.closeForShutdown(true);
 
-        peer.socket().setSoTimeout(GUARD_MS);
-        byte[] buf = new byte[2048];
-        DatagramPacket packet = new DatagramPacket(buf, buf.length);
-        peer.socket().receive(packet);
-        assertEquals("a DTLS alert record is on the wire", ALERT, buf[0] & 0xFF);
+        List<StubDatagramChannel.Sent> sent = channel.getSent();
+        assertEquals("one datagram goes out on close", before + 1, sent.size());
+        byte[] last = sent.get(before).getBytes();
+        assertEquals("a DTLS alert record is on the wire", ALERT, last[0] & 0xFF);
         assertFalse(server.isOpen());
     }
 
     @Test
     public void abortDtlsCloseSendsNothing() throws Exception {
-        DatagramChannel peer = bound();
-        UdpEndpoint server = handshakenServer(peer);
+        StubDatagramChannel channel = stub();
+        UdpEndpoint server = handshakenServer(channel);
+        int before = channel.getSent().size();
 
         server.closeForShutdown(false);
 
-        peer.configureBlocking(false);
-        assertNull("no close_notify on abort", peer.receive(ByteBuffer.allocate(2048)));
+        assertEquals("no close_notify on abort", before, channel.getSent().size());
         assertFalse(server.isOpen());
     }
 }

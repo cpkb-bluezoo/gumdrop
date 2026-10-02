@@ -28,7 +28,6 @@ import java.net.InetSocketAddress;
 import java.net.SocketAddress;
 import java.net.UnknownHostException;
 import java.nio.ByteBuffer;
-import java.nio.channels.ServerSocketChannel;
 import java.nio.charset.StandardCharsets;
 import java.text.MessageFormat;
 import java.util.ArrayList;
@@ -107,9 +106,15 @@ public final class FtpClientProtocolHandler
     /** Test seam: plaintext data transport factory handed to the coordinator in connected(). */
     TcpTransportFactory dataTransportFactory;
 
-    /** The current active-mode data listener channel, or null. Package-private for tests. */
-    ServerSocketChannel activeListenerChannel() {
-        return dataCoordinator == null ? null : dataCoordinator.activeListenerChannel();
+    /** Test seam: how active-mode listeners are opened, handed to the coordinator in connected(). */
+    FtpClientDataConnectionCoordinator.ActiveListenerOpener activeListenerOpener;
+
+    /** Test seam: how data endpoints are created, handed to the coordinator in connected(). */
+    FtpClientDataConnectionCoordinator.DataConnector dataConnector;
+
+    /** The current active-mode data listener, or null. Package-private for tests. */
+    FtpClientDataConnectionCoordinator.ActiveListener activeListener() {
+        return dataCoordinator == null ? null : dataCoordinator.activeListener();
     }
     private Endpoint dataEndpoint;
     private boolean dataConnClosed;
@@ -187,6 +192,12 @@ public final class FtpClientProtocolHandler
         this.dataCoordinator = new FtpClientDataConnectionCoordinator(gumdrop, ep);
         if (dataTransportFactory != null) {
             dataCoordinator.setPlainTransportFactory(dataTransportFactory);
+        }
+        if (activeListenerOpener != null) {
+            dataCoordinator.setActiveListenerOpener(activeListenerOpener);
+        }
+        if (dataConnector != null) {
+            dataCoordinator.setDataConnector(dataConnector);
         }
         state = FtpState.CONNECTING;
 

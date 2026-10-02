@@ -27,10 +27,6 @@ import org.junit.Test;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.util.Map;
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.TimeUnit;
 
 import jakarta.servlet.http.HttpServletRequest;
 
@@ -135,66 +131,5 @@ public class HTTPAuthenticationProviderEvictionTest {
                 nonces(provider).containsKey(freshNonce));
         assertFalse("a nonce older than the TTL must not survive an eviction sweep",
                 nonces(provider).containsKey(staleNonce));
-    }
-
-    @Test
-    public void testSeenCnonceDoesNotSerializeUnrelatedRequests() throws Exception {
-        // Regression coverage for the single-global-lock bug: many threads
-        // registering *distinct* cnonces concurrently must all succeed
-        // (each is genuinely new), which would not reliably happen if a
-        // bug reintroduced contention that silently dropped/blocked entries.
-        final TestProvider provider = new TestProvider();
-        final int threadCount = 32;
-        final int perThread = 200;
-        final CountDownLatch ready = new CountDownLatch(threadCount);
-        final CountDownLatch go = new CountDownLatch(1);
-        final CountDownLatch done = new CountDownLatch(threadCount);
-        final boolean[] allNew = new boolean[threadCount];
-
-        final Method seenCnonce =
-                HttpAuthenticationProvider.class.getDeclaredMethod("seenCnonce", String.class);
-        seenCnonce.setAccessible(true);
-
-        ExecutorService pool = Executors.newFixedThreadPool(threadCount);
-        try {
-            for (int t = 0; t < threadCount; t++) {
-                final int threadIndex = t;
-                pool.submit(new Runnable() {
-                    @Override
-                    public void run() {
-                        ready.countDown();
-                        try {
-                            go.await();
-                        } catch (InterruptedException e) {
-                            Thread.currentThread().interrupt();
-                        }
-                        boolean ok = true;
-                        for (int i = 0; i < perThread; i++) {
-                            try {
-                                Object result = seenCnonce.invoke(provider,
-                                        "thread-" + threadIndex + "-cnonce-" + i);
-                                ok &= (Boolean) result;
-                            } catch (Exception e) {
-                                ok = false;
-                            }
-                        }
-                        allNew[threadIndex] = ok;
-                        done.countDown();
-                    }
-                });
-            }
-            ready.await(5, TimeUnit.SECONDS);
-            go.countDown();
-            assertTrue("all threads should finish well within the timeout",
-                    done.await(10, TimeUnit.SECONDS));
-        } finally {
-            pool.shutdownNow();
-        }
-
-        for (int t = 0; t < threadCount; t++) {
-            assertTrue("every distinct cnonce from thread " + t + " must be reported as new", allNew[t]);
-        }
-        assertEquals("every distinct cnonce across all threads must be tracked exactly once",
-                threadCount * perThread, cnonces(provider).size());
     }
 }

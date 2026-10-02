@@ -96,6 +96,12 @@ public class OtlpExporter implements TelemetryExporter {
 
     // Background thread
     private final ExportThread exportThread;
+
+    /** The export thread, for tests that step it by hand. */
+    ExportThread exportThreadForTesting() {
+        return exportThread;
+    }
+
     private volatile boolean running;
 
     // Standalone runtime for this exporter's outbound HTTP client
@@ -111,8 +117,17 @@ public class OtlpExporter implements TelemetryExporter {
      * @param config the telemetry configuration
      */
     public OtlpExporter(TelemetryConfig config) {
+        this(config, true);
+    }
+
+    /**
+     * Package-private constructor; with {@code active} false no runtime is
+     * booted and no export thread is started, so tests can exercise the
+     * bookkeeping (response handlers, pending exports) without threads.
+     */
+    OtlpExporter(TelemetryConfig config, boolean active) {
         this.config = config;
-        this.gumdrop = Gumdrop.boot(GumdropConfig.create().workerThreads(1));
+        this.gumdrop = active ? Gumdrop.boot(GumdropConfig.create().workerThreads(1)) : null;
 
         // Build resource attributes
         Map<String, String> resourceAttrs = config.getResourceAttributes();
@@ -149,9 +164,9 @@ public class OtlpExporter implements TelemetryExporter {
 
         // Parse and create endpoints
         Map<String, String> headers = config.getParsedHeaders();
-        this.tracesEndpoint = OtlpEndpoint.create(gumdrop, "traces", config.getTracesEndpoint(), "/v1/traces", headers, config);
-        this.logsEndpoint = OtlpEndpoint.create(gumdrop, "logs", config.getLogsEndpoint(), "/v1/logs", headers, config);
-        this.metricsEndpoint = OtlpEndpoint.create(gumdrop, "metrics", config.getMetricsEndpoint(), "/v1/metrics", headers, config);
+        this.tracesEndpoint = createEndpoint(gumdrop, "traces", config.getTracesEndpoint(), "/v1/traces", headers);
+        this.logsEndpoint = createEndpoint(gumdrop, "logs", config.getLogsEndpoint(), "/v1/logs", headers);
+        this.metricsEndpoint = createEndpoint(gumdrop, "metrics", config.getMetricsEndpoint(), "/v1/metrics", headers);
 
         // Track pending exports
         this.pendingExports = ConcurrentHashMap.newKeySet();
@@ -159,12 +174,23 @@ public class OtlpExporter implements TelemetryExporter {
         // Start export thread
         this.running = true;
         this.exportThread = new ExportThread();
-        this.exportThread.start();
+        if (active) {
+            this.exportThread.start();
+        }
 
         String endpoints = (tracesEndpoint != null ? ", traces: " + tracesEndpoint : "") +
                 (logsEndpoint != null ? ", logs: " + logsEndpoint : "") +
                 (metricsEndpoint != null ? ", metrics: " + metricsEndpoint : "");
         logger.info(MessageFormat.format(L10N.getString("info.exporter_started"), endpoints));
+    }
+
+    /**
+     * Creates one outbound endpoint. Package-private so that tests can
+     * substitute an in-memory endpoint; called from the constructor.
+     */
+    OtlpEndpoint createEndpoint(Gumdrop runtime, String endpointName, String url,
+                                String defaultPath, Map<String, String> headers) {
+        return OtlpEndpoint.create(runtime, endpointName, url, defaultPath, headers, config);
     }
 
     @Override
@@ -234,11 +260,13 @@ public class OtlpExporter implements TelemetryExporter {
             metricsEndpoint.close();
         }
 
-        gumdrop.shutdown();
-        try {
-            gumdrop.join();
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
+        if (gumdrop != null) {
+            gumdrop.shutdown();
+            try {
+                gumdrop.join();
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
         }
 
         logger.info(L10N.getString("info.exporter_shutdown"));
@@ -334,7 +362,7 @@ public class OtlpExporter implements TelemetryExporter {
      * Background thread that batches and exports telemetry data.
      * Also handles periodic metrics collection.
      */
-    private class ExportThread extends Thread {
+    final class ExportThread extends Thread {
 
         private volatile boolean flushRequested;
 
@@ -348,71 +376,89 @@ public class OtlpExporter implements TelemetryExporter {
             interrupt();
         }
 
+        private final List<Trace> traceBatch = new ArrayList<>();
+        private final List<LogRecord> logBatch = new ArrayList<>();
+        private final List<List<MetricData>> metricBatches = new ArrayList<>();
+        private long lastFlush = System.currentTimeMillis();
+        private long lastMetricsCollection = lastFlush;
+
         @Override
         public void run() {
-            List<Trace> traceBatch = new ArrayList<>();
-            List<LogRecord> logBatch = new ArrayList<>();
-            List<List<MetricData>> metricBatches = new ArrayList<>();
-            long lastFlush = System.currentTimeMillis();
-            long lastMetricsCollection = lastFlush;
-
             while (running || !traceQueue.isEmpty() || !logQueue.isEmpty() || !metricQueue.isEmpty()) {
                 try {
-                    long now = System.currentTimeMillis();
-                    long flushWait = config.getFlushIntervalMs() - (now - lastFlush);
-                    long metricsWait = config.isMetricsEnabled()
-                            ? config.getMetricsIntervalMs() - (now - lastMetricsCollection)
-                            : flushWait;
-                    long waitTime = Math.min(flushWait, metricsWait);
-
-                    if (waitTime > 0 && !flushRequested) {
-                        Trace polled = traceQueue.poll(waitTime, TimeUnit.MILLISECONDS);
-                        if (polled != null) {
-                            traceBatch.add(polled);
-                        }
-                    }
-
-                    drainQueue(traceQueue, traceBatch);
-                    drainQueue(logQueue, logBatch);
-                    drainQueue(metricQueue, metricBatches);
-
-                    now = System.currentTimeMillis();
-
-                    if (config.isMetricsEnabled()
-                            && (now - lastMetricsCollection) >= config.getMetricsIntervalMs()) {
-                        collectMetrics();
-                        drainQueue(metricQueue, metricBatches);
-                        lastMetricsCollection = now;
-                    }
-
-                    boolean shouldFlush = flushRequested ||
-                            traceBatch.size() >= config.getBatchSize() ||
-                            logBatch.size() >= config.getBatchSize() ||
-                            !metricBatches.isEmpty() ||
-                            (now - lastFlush) >= config.getFlushIntervalMs();
-
-                    if (shouldFlush) {
-                        if (!traceBatch.isEmpty() && tracesEndpoint != null && tracesEndpoint.isConnected()) {
-                            exportTraces(traceBatch);
-                            traceBatch.clear();
-                        }
-                        if (!logBatch.isEmpty() && logsEndpoint != null && logsEndpoint.isConnected()) {
-                            exportLogs(logBatch);
-                            logBatch.clear();
-                        }
-                        if (!metricBatches.isEmpty() && metricsEndpoint != null && metricsEndpoint.isConnected()) {
-                            exportMetrics(metricBatches);
-                            metricBatches.clear();
-                        }
-                        flushRequested = false;
-                        lastFlush = System.currentTimeMillis();
-                    }
-
+                    pass(true);
                 } catch (InterruptedException e) {
                     // Continue to check for shutdown or flush
                 }
             }
+            finalFlush();
+        }
 
+        /**
+         * One iteration of the export loop. Package-private so tests can
+         * step the loop by hand; {@code mayBlock} false skips the wait for
+         * the next trace.
+         */
+        void pass(boolean mayBlock) throws InterruptedException {
+            long now = System.currentTimeMillis();
+            long flushWait = config.getFlushIntervalMs() - (now - lastFlush);
+            long metricsWait = config.isMetricsEnabled()
+                    ? config.getMetricsIntervalMs() - (now - lastMetricsCollection)
+                    : flushWait;
+            long waitTime = Math.min(flushWait, metricsWait);
+
+            if (mayBlock && waitTime > 0 && !flushRequested) {
+                Trace polled = traceQueue.poll(waitTime, TimeUnit.MILLISECONDS);
+                if (polled != null) {
+                    traceBatch.add(polled);
+                }
+            }
+
+            drainQueue(traceQueue, traceBatch);
+            drainQueue(logQueue, logBatch);
+            drainQueue(metricQueue, metricBatches);
+
+            now = System.currentTimeMillis();
+
+            if (config.isMetricsEnabled()
+                    && (now - lastMetricsCollection) >= config.getMetricsIntervalMs()) {
+                collectMetrics();
+                drainQueue(metricQueue, metricBatches);
+                lastMetricsCollection = now;
+            }
+
+            // Consume the request before the pass starts: a request
+            // made while this pass runs must survive it (clearing
+            // the flag at the end of the pass lost such requests).
+            boolean requested = flushRequested;
+            if (requested) {
+                flushRequested = false;
+            }
+            boolean shouldFlush = requested ||
+                    traceBatch.size() >= config.getBatchSize() ||
+                    logBatch.size() >= config.getBatchSize() ||
+                    !metricBatches.isEmpty() ||
+                    (now - lastFlush) >= config.getFlushIntervalMs();
+
+            if (shouldFlush) {
+                if (!traceBatch.isEmpty() && tracesEndpoint != null && tracesEndpoint.isConnected()) {
+                    exportTraces(traceBatch);
+                    traceBatch.clear();
+                }
+                if (!logBatch.isEmpty() && logsEndpoint != null && logsEndpoint.isConnected()) {
+                    exportLogs(logBatch);
+                    logBatch.clear();
+                }
+                if (!metricBatches.isEmpty() && metricsEndpoint != null && metricsEndpoint.isConnected()) {
+                    exportMetrics(metricBatches);
+                    metricBatches.clear();
+                }
+                lastFlush = System.currentTimeMillis();
+            }
+        }
+
+        /** The flush performed once the loop has ended. */
+        void finalFlush() {
             // Final flush including metrics
             if (config.isMetricsEnabled()) {
                 collectMetrics();

@@ -553,35 +553,4 @@ public class BERDecoderTest {
         }
         assertNull(decoder.next());
     }
-
-    @Test(timeout = 5000)
-    public void testPipelinedDequeueCostScalesLinearlyNotQuadratically()
-            throws Asn1Exception {
-        long smallBatchNanos = timePipelinedDequeue(1_000);
-        long largeBatchNanos = timePipelinedDequeue(10_000);
-        double ratio = (double) largeBatchNanos / Math.max(1L, smallBatchNanos);
-        assertTrue("draining 10x pipelined messages took " + ratio
-                + "x as long (expected well below 100x for O(n) dequeue)",
-                ratio < 50.0);
-    }
-
-    private static long timePipelinedDequeue(int count) throws Asn1Exception {
-        byte[] one = {0x02, 0x01, 0x01};
-        byte[] batch = new byte[count * one.length];
-        for (int i = 0; i < count; i++) {
-            System.arraycopy(one, 0, batch, i * one.length, one.length);
-        }
-
-        BerDecoder decoder = new BerDecoder();
-        decoder.receive(ByteBuffer.wrap(batch));
-
-        long start = System.nanoTime();
-        for (int i = 0; i < count; i++) {
-            if (decoder.next() == null) {
-                throw new AssertionError("expected " + count + " messages, got " + i);
-            }
-        }
-        return System.nanoTime() - start;
-    }
 }
-

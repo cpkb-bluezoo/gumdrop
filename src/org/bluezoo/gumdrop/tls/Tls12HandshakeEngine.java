@@ -224,7 +224,7 @@ final class Tls12HandshakeEngine {
             return;
         }
         try {
-            Tls12HandshakeMessages.ClientHello ch = Tls12HandshakeMessages.parseClientHello(wire);
+            Tls12HandshakeMessages.ClientHello ch = Tls12HandshakeMessages.parseClientHello(wire, config.isDtlsTransport());
             clientRandom = ch.random;
             sentSessionId = ch.sessionId;
         } catch (HandshakeFormatException e) {

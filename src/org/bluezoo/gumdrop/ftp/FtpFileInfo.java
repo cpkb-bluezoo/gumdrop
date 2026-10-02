@@ -22,6 +22,7 @@
 package org.bluezoo.gumdrop.ftp;
 
 import java.time.Instant;
+import java.util.Set;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.util.ResourceBundle;
@@ -201,13 +202,30 @@ public class FtpFileInfo {
      * @return formatted MLS entry (e.g., "type=file;size=1234;modify=20250115103000;perm=r; filename.txt")
      */
     public String formatAsMLSEntry() {
+        return formatAsMLSEntry(null);
+    }
+
+    /**
+     * Formats this file info as an RFC 3659 listing entry carrying only the
+     * selected facts (RFC 3659 section 7.9, OPTS MLST).
+     *
+     * @param facts the lower-case fact names to include, or null for all
+     * @return formatted MLS entry
+     */
+    String formatAsMLSEntry(Set<String> facts) {
         StringBuilder sb = new StringBuilder();
-        sb.append("type=").append(directory ? "dir" : "file").append(';');
-        sb.append("size=").append(size).append(';');
-        if (lastModified != null) {
+        if (facts == null || facts.contains("type")) {
+            sb.append("type=").append(directory ? "dir" : "file").append(';');
+        }
+        if (facts == null || facts.contains("size")) {
+            sb.append("size=").append(size).append(';');
+        }
+        if (lastModified != null && (facts == null || facts.contains("modify"))) {
             sb.append("modify=").append(MLST_TIME_FORMAT.format(lastModified)).append(';');
         }
-        sb.append("perm=").append(deriveMLSPermissions()).append(';');
+        if (facts == null || facts.contains("perm")) {
+            sb.append("perm=").append(deriveMLSPermissions()).append(';');
+        }
         sb.append(' ').append(name);
         return sb.toString();
     }

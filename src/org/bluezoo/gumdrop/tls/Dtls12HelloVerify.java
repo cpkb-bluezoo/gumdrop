@@ -94,7 +94,11 @@ public final class Dtls12HelloVerify {
     /**
      * Extracts ClientHello random and cookie from an epoch-0 handshake datagram.
      *
-     * @return parsed values, or null if not a single complete ClientHello
+     * <p>A ClientHello fragmented across datagrams (RFC 6347 section 4.2.3)
+     * is read from its offset-0 fragment, which holds the random and the
+     * cookie; any later fragment yields null.
+     *
+     * @return parsed values, or null if not the start of a ClientHello
      */
     public static ClientHelloFields parseClientHelloFields(byte[] datagram) {
         if (datagram.length < Dtls12RecordFormat.RECORD_HEADER_LEN + Dtls12RecordFormat.FRAGMENT_HEADER_LEN + 34) {
@@ -115,7 +119,10 @@ public final class Dtls12HelloVerify {
         int totalLength = ((fragment[1] & 0xff) << 16) | ((fragment[2] & 0xff) << 8) | (fragment[3] & 0xff);
         int fragmentOffset = ((fragment[6] & 0xff) << 16) | ((fragment[7] & 0xff) << 8) | (fragment[8] & 0xff);
         int fragmentLength = ((fragment[9] & 0xff) << 16) | ((fragment[10] & 0xff) << 8) | (fragment[11] & 0xff);
-        if (fragmentOffset != 0 || fragmentLength != totalLength) {
+        if (fragmentOffset != 0 || fragmentLength > totalLength) {
+            return null;
+        }
+        if (Dtls12RecordFormat.FRAGMENT_HEADER_LEN + fragmentLength > fragment.length) {
             return null;
         }
         try {

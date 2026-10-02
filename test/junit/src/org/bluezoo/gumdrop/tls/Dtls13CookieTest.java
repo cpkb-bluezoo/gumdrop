@@ -261,6 +261,7 @@ public class Dtls13CookieTest {
         new SecureRandom().nextBytes(random);
         KeyExchange x25519Kx = KeyExchange.generate(NamedGroup.X25519);
         HandshakeMessages.ClientHelloParams params = new HandshakeMessages.ClientHelloParams();
+        params.dtlsTransport = true;
         params.random = random;
         params.cipherSuites = Collections.singletonList(CipherSuite.TLS_AES_128_GCM_SHA256);
         params.groups = Arrays.asList(NamedGroup.X25519, NamedGroup.SECP256R1);
@@ -302,6 +303,7 @@ public class Dtls13CookieTest {
     private static HandshakeMessages.ClientHelloParams clientHelloParams(byte[] random, NamedGroup shareGroup,
             boolean includeSecp256r1InGroups) {
         HandshakeMessages.ClientHelloParams params = new HandshakeMessages.ClientHelloParams();
+        params.dtlsTransport = true;
         params.random = random;
         params.cipherSuites = Collections.singletonList(CipherSuite.TLS_AES_128_GCM_SHA256);
         if (includeSecp256r1InGroups) {

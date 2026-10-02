@@ -22,15 +22,14 @@
 
 package org.bluezoo.gumdrop.tls;
 
+import org.bluezoo.gumdrop.testsupport.memfs.MemoryTemp;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 
-import org.junit.Rule;
 import org.junit.Test;
-import org.junit.rules.TemporaryFolder;
 
 import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
@@ -55,8 +54,15 @@ public class EchKeyMaterialTest {
     private static final String SK2_HEX = "77076d0a7318a57d3c16c17251b26645df4c2f87ebc0992ab177fba51db92c2a";
     private static final String PK2_HEX = "8520f0098930a754748b7ddcb43ef75a0dbf3a0d26381af4eba4a98eaa9b4e6a";
 
-    @Rule
-    public TemporaryFolder folder = new TemporaryFolder();
+    private final Path folder = newFolder();
+
+    private static Path newFolder() {
+        try {
+            return MemoryTemp.createTempDirectory("files");
+        } catch (IOException e) {
+            throw new IllegalStateException(e);
+        }
+    }
 
     private static byte[] hex(String s) {
         byte[] out = new byte[s.length() / 2];
@@ -67,13 +73,13 @@ public class EchKeyMaterialTest {
     }
 
     private Path write(String name, String text) throws IOException {
-        Path p = folder.newFile(name).toPath();
+        Path p = folder.resolve(name);
         Files.write(p, text.getBytes(StandardCharsets.US_ASCII));
         return p;
     }
 
     private Path writeList(String name, EchConfig... configs) throws IOException {
-        Path p = folder.newFile(name).toPath();
+        Path p = folder.resolve(name);
         Files.write(p, EchConfig.encodeList(configs));
         return p;
     }
@@ -87,7 +93,7 @@ public class EchKeyMaterialTest {
 
     @Test
     public void rawBinaryKeyFileStillReadsAsOneKey() throws Exception {
-        Path p = folder.newFile("raw.key").toPath();
+        Path p = folder.resolve("raw.key");
         Files.write(p, hex(SK1_HEX));
         List<byte[]> keys = EchKeyMaterial.readPrivateKeys(p);
         assertEquals(1, keys.size());

@@ -12,7 +12,12 @@ Production changes in `src/` should ship with **unit tests** that exercise the n
 
 - Exercise **program logic only**. They **must not** open network sockets (including loopback), send datagrams, or perform **real file I/O** on disk. Use mocks, stubs, in-memory buffers, and fakes (for example `RecordingStubEndpoint`) to supply the data and callbacks production code would get from I/O.
 - Must be **deterministic**: they may not assert on wall-clock time or throughput (for example "N lookups took under X ms"), since the outcome would depend on machine load. Such algorithmic-cost and non-blocking checks belong in `test/integration/src` as `*PerformanceTest` classes, run with `ant integration-test-performance`.
-- Written with **JUnit** (and Hamcrest assertions already in `test/junit/lib/`). The suite is run by **`ant test`** and is what **CI** expects to pass on every change.
+- Written with **JUnit** (and Hamcrest assertions already in `test/junit/lib/`). The suite is run by **`ant test`** (guard tests first, then unit tests; `ant junit-test` runs the unit tests alone) and is what **CI** expects to pass on every change.
+
+**Guard tests** (`test/guard/src`, resources in `test/guard/resources`):
+
+- **Repository checks, not unit tests.** They read source text (style, file headers, `@author`, `Thread.sleep` and wall-clock bans, L10N keys and log calls, naming conventions) and need only the JDK and JUnit, so they compile and run without the production build.
+- **`ant test` runs them first** (`guard-test`, then `junit-test`) with halt-on-failure, so a policy violation fails fast, before the production build and unit tests start. Run them alone with **`ant guard-test`**.
 
 **Integration tests** (`test/integration/src`):
 
@@ -27,6 +32,8 @@ Production changes in `src/` should ship with **unit tests** that exercise the n
 ```bash
 ant test
 ```
+
+`ant test` runs the [guard tests](#test-policy) first, then the unit tests. To run only the guards: `ant guard-test`. To run only the unit tests: `ant junit-test`.
 
 To run one unit test class (do **not** use Maven-style `-Dtest=…`; that is rejected by `build.xml`):
 
@@ -78,15 +85,17 @@ Async unit tests must **not** use `Thread.sleep` or deadline loops that poll mut
 
 Use `@Test(timeout=…)` only as a hang guard, not as the synchronization mechanism.
 
-`NoThreadSleepGuardTest` enforces this across `test/junit/src` with a small allowlist for tests that intentionally exercise real time (rate limiters, timers, cache expiry, filesystem mtimes). Add allowlist entries only when sleeping is the behaviour under test.
+`NoThreadSleepGuardTest` (a guard test, see `test/guard/src`) enforces this across `test/junit/src`, `test/integration/src` **and** `test/guard/src`. The unit allowlist is empty: time-dependent production code exposes a package-private clock or time seam so tests advance time themselves (see the rate limiters, `HttpDateCache`, `QuicConnection`), and timers are captured and fired by hand. The integration allowlist is limited to polling infrastructure outside the JVM that offers no hook to wait on (a RabbitMQ management API, a Postfix or danted container), each entry with its reason; the guard also fails if an allowlist entry no longer sleeps. Integration tests must synchronise on latches, callbacks and lifecycle hooks like unit tests do, and may be nondeterministic only through infrastructure that may be absent, never through parallelism or the clock.
+
+Starting a live `Gumdrop`, selector loop or other thread-driven I/O in a unit test counts as real I/O (see the [test policy](#test-policy)); such a test belongs in `test/integration/src`.
 
 `WallClockAssertionGuardTest` enforces the determinism rule above: no unit test may assert on a duration computed from `System.nanoTime()` or `System.currentTimeMillis()`. Move such checks to a `*PerformanceTest` under `test/integration/src`.
 
-`ContributingStyleGuardTest` enforces the [prohibited language features](#java-version-compatibility) and [timer/callback concurrency](#timers-and-deferred-work) rules across main sources, unit tests, integration tests, and examples. Known debt is listed in `test/junit/resources/contributing-style-allowlist.properties`; remove entries as files are remediated, do not add new ones except for brief migration windows agreed in review.
+`ContributingStyleGuardTest` enforces the [prohibited language features](#java-version-compatibility) and [timer/callback concurrency](#timers-and-deferred-work) rules across main sources, unit tests, integration tests, guard tests, and examples. Known debt is listed in `test/guard/resources/contributing-style-allowlist.properties`; remove entries as files are remediated, do not add new ones except for brief migration windows agreed in review.
 
-`FileHeaderGuardTest` enforces the [file header](#file-headers) template on main sources, unit tests, and integration tests (not `examples/`).
+`FileHeaderGuardTest` enforces the [file header](#file-headers) template on main sources, unit tests, integration tests, and guard tests (not `examples/`).
 
-`JavadocAuthorGuardTest` enforces `@author` on compilation units under main sources, `test/junit/src`, and `test/integration/src` that declare a top-level type.
+`JavadocAuthorGuardTest` enforces `@author` on compilation units under main sources, `test/junit/src`, `test/integration/src`, and `test/guard/src` that declare a top-level type.
 
 `L10nLogGuardTest` flags hardcoded string literals in operator `Logger` calls across all of `src/org/bluezoo/gumdrop`, including multiline `LOGGER.log(...)` forms (see [Localisation](#localisation)); it does not check wire protocol reply text.
 
@@ -193,13 +202,13 @@ Example:
  */
 ```
 
-`FileHeaderGuardTest` checks main sources, unit tests, and integration tests for this full block (not a one-line “part of gumdrop” stub). To repair abbreviated headers in bulk, run `scripts/expand-lgpl-file-headers.py` from the repository root, then `ant junit-test -Djunit.includes=**/FileHeaderGuardTest.java`.
+`FileHeaderGuardTest` checks main sources, unit tests, and integration tests for this full block (not a one-line “part of gumdrop” stub). To repair abbreviated headers in bulk, run `scripts/expand-lgpl-file-headers.py` from the repository root, then `ant guard-test`.
 
 **Examples** under `examples/` are teaching snippets: keep a **short** file comment (filename and one or two lines of purpose). Do not paste the full LGPL header block into examples; it obscures the code readers are meant to copy. Examples still follow the [prohibited language features](#java-version-compatibility) rules enforced by `ContributingStyleGuardTest`.
 
 ## Documentation
 
-- All Java classes must have proper Javadoc with `@author` tag (main sources, unit tests, and integration tests are checked by `JavadocAuthorGuardTest`; run `scripts/add-javadoc-author.py` when adding types)
+- All Java classes must have proper Javadoc with `@author` tag (main sources, unit tests, integration tests, and guard tests are checked by `JavadocAuthorGuardTest`; run `scripts/add-javadoc-author.py` when adding types)
 - Document the intent and purpose, not the obvious mechanics
 - Don't write comments that simply restate what the code does
 

@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.dns.server;
 
+import org.bluezoo.gumdrop.testsupport.memfs.MemoryTemp;
 import org.bluezoo.gumdrop.dns.DnsClass;
 import org.bluezoo.gumdrop.dns.DnsMessage;
 import org.bluezoo.gumdrop.dns.DnsResourceRecord;
@@ -98,7 +99,7 @@ public class IxfrMessageSplitterTest {
     }
 
     private static MutableZone loadSampleZone() throws Exception {
-        Path zone = Files.createTempFile("ixfr", ".zone");
+        Path zone = MemoryTemp.createTempFile("ixfr", ".zone");
         Files.writeString(zone, ""
                 + "$ORIGIN example.com.\n"
                 + "$TTL 300\n"

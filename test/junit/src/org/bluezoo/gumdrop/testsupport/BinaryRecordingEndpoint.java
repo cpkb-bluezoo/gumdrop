@@ -140,6 +140,9 @@ public final class BinaryRecordingEndpoint implements Endpoint {
         writes.add(bytes);
     }
 
+    private Trace trace;
+    private TelemetryConfig telemetryConfig;
+
     @Override public boolean isOpen() { return open; }
     @Override public boolean isClosing() { return false; }
     @Override public void close() { open = false; closeCount++; }
@@ -159,10 +162,22 @@ public final class BinaryRecordingEndpoint implements Endpoint {
         timers.add(t);
         return t;
     }
-    @Override public Trace getTrace() { return null; }
-    @Override public void setTrace(Trace trace) { }
-    @Override public boolean isTelemetryEnabled() { return false; }
-    @Override public TelemetryConfig getTelemetryConfig() { return null; }
+    @Override public Trace getTrace() { return trace; }
+    @Override public void setTrace(Trace trace) { this.trace = trace; }
+    @Override public boolean isTelemetryEnabled() {
+        return telemetryConfig != null && telemetryConfig.isTracesEnabled();
+    }
+    @Override public TelemetryConfig getTelemetryConfig() { return telemetryConfig; }
+
+    /**
+     * Gives this endpoint a telemetry configuration; telemetry is reported
+     * as enabled when it has tracing switched on. Default: none.
+     *
+     * @param config the configuration, or null for none
+     */
+    public void setTelemetryConfig(TelemetryConfig config) {
+        this.telemetryConfig = config;
+    }
     @Override public void pauseRead() { }
     @Override public void resumeRead() { }
     @Override public void onWriteReady(Runnable callback) {

@@ -259,10 +259,10 @@ public class LocalDeliveryFlowTest {
         assertEquals("hello world", factory.deliveries.get(0));
     }
 
-    // -- fakes --
+    // -- mocks --
 
     /** Records what the handler does to the mailbox layer. */
-    private static final class FakeFactory implements MailboxFactory {
+    static final class FakeFactory implements MailboxFactory {
         final List<String> deliveries = new ArrayList<String>();
         final List<String> users = new ArrayList<String>();
         final List<FakeWriter> writers = new ArrayList<FakeWriter>();
@@ -270,10 +270,17 @@ public class LocalDeliveryFlowTest {
         boolean failAppend;
         boolean failFinish;
         boolean failOpenMailbox;
+        boolean failClose;
+        boolean createThrows;
+        boolean finishThrows;
+        boolean failWrite;
         int asyncLimit = Integer.MAX_VALUE;
 
         @Override
         public MailboxStore createStore() {
+            if (createThrows) {
+                throw new IllegalStateException("store unavailable");
+            }
             final FakeFactory self = this;
             final String[] user = new String[1];
             final Mailbox mailbox = (Mailbox) Proxy.newProxyInstance(
@@ -294,6 +301,9 @@ public class LocalDeliveryFlowTest {
                             throw new IOException("no mailbox");
                         }
                         return mailbox;
+                    }
+                    if ("close".equals(name) && self.failClose) {
+                        throw new IOException("store close failed");
                     }
                     return defaultFor(method.getReturnType());
                 }
@@ -320,7 +330,7 @@ public class LocalDeliveryFlowTest {
             String name = method.getName();
             if ("openAsyncAppend".equals(name)) {
                 if (factory.async && factory.writers.size() < factory.asyncLimit) {
-                    FakeWriter writer = new FakeWriter(factory.failFinish);
+                    FakeWriter writer = new FakeWriter(factory.failFinish, factory.failWrite, factory.finishThrows);
                     factory.writers.add(writer);
                     return writer;
                 }
@@ -344,6 +354,9 @@ public class LocalDeliveryFlowTest {
                 factory.deliveries.add(current.toString());
                 return Long.valueOf(1L);
             }
+            if ("close".equals(name) && factory.failClose) {
+                throw new IOException("mailbox close failed");
+            }
             return defaultFor(method.getReturnType());
         }
     }
@@ -362,15 +375,19 @@ public class LocalDeliveryFlowTest {
     }
 
     /** Asynchronous writer capturing everything written to it. */
-    private static final class FakeWriter implements AsyncMessageWriter {
+    static final class FakeWriter implements AsyncMessageWriter {
         final StringBuilder written = new StringBuilder();
         final boolean failFinish;
+        final boolean failWrite;
+        final boolean finishThrows;
         boolean finished;
         boolean aborted;
         boolean pause;
 
-        FakeWriter(boolean failFinish) {
+        FakeWriter(boolean failFinish, boolean failWrite, boolean finishThrows) {
+            this.finishThrows = finishThrows;
             this.failFinish = failFinish;
+            this.failWrite = failWrite;
         }
 
         @Override
@@ -378,6 +395,10 @@ public class LocalDeliveryFlowTest {
             byte[] bytes = new byte[src.remaining()];
             src.get(bytes);
             written.append(new String(bytes, StandardCharsets.US_ASCII));
+            if (failWrite) {
+                h.failed(new IOException("write failed"), src);
+                return;
+            }
             h.completed(Integer.valueOf(bytes.length), src);
         }
 
@@ -389,6 +410,9 @@ public class LocalDeliveryFlowTest {
         @Override
         public void finish(CompletionHandler<Long, Void> h) {
             finished = true;
+            if (finishThrows) {
+                throw new IllegalStateException("writer broke");
+            }
             if (failFinish) {
                 h.failed(new IOException("finish failed"), null);
             } else {

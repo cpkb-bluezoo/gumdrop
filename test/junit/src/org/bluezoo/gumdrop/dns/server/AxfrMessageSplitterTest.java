@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.dns.server;
 
+import org.bluezoo.gumdrop.testsupport.memfs.MemoryTemp;
 import org.bluezoo.gumdrop.dns.DnsMessage;
 import org.bluezoo.gumdrop.dns.DnsType;
 import org.junit.Test;
@@ -38,7 +39,7 @@ public class AxfrMessageSplitterTest {
 
     @Test
     public void testSplitEndsWithSoa() throws Exception {
-        Path zone = Files.createTempFile("axfr", ".zone");
+        Path zone = MemoryTemp.createTempFile("axfr", ".zone");
         Files.writeString(zone, ""
                 + "$ORIGIN example.com.\n"
                 + "$TTL 300\n"

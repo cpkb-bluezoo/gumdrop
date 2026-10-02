@@ -50,7 +50,7 @@ public class JSPDependencyTrackerIntegrationTest {
     @Before
     public void setUp() throws IOException {
         webappRoot = tempFolder.newFolder("webapp");
-        tracker = new JspDependencyTracker(null, webappRoot);
+        tracker = new JspDependencyTracker(null, webappRoot.toPath());
     }
 
     @Test

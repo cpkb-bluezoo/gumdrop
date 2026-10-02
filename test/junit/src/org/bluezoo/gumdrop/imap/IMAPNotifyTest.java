@@ -22,7 +22,7 @@
 package org.bluezoo.gumdrop.imap;
 
 import org.bluezoo.gumdrop.Gumdrop;
-import org.bluezoo.gumdrop.GumdropConfig;
+import org.bluezoo.gumdrop.testsupport.TestGumdrop;
 import org.bluezoo.gumdrop.ProtocolHandler;
 import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.auth.Realm;
@@ -58,7 +58,7 @@ public class IMAPNotifyTest {
     @Before
     public void setUp() throws Exception {
         mem = MemoryFileSystem.create();
-        gumdrop = Gumdrop.boot(GumdropConfig.create().workerThreads(1).drainTimeoutMs(0));
+        gumdrop = TestGumdrop.create();
     }
 
     @After

@@ -26,7 +26,9 @@ import java.util.Base64;
 import java.nio.ByteBuffer;
 import java.nio.CharBuffer;
 import java.nio.charset.Charset;
+import java.nio.charset.CharacterCodingException;
 import java.nio.charset.CharsetDecoder;
+import java.nio.charset.CoderResult;
 import java.nio.charset.StandardCharsets;
 import java.nio.charset.UnsupportedCharsetException;
 import java.net.URLDecoder;
@@ -272,8 +274,11 @@ public class Rfc2047Decoder {
 				end++;
 			}
 		}
-		int valueStart = value.get(start) == '"' ? start + 1 : start;
-		int valueEnd = value.get(start) == '"' && end > start ? end - 1 : end;
+		boolean quoted = value.get(start) == '"';
+		int valueStart = quoted ? start + 1 : start;
+		// Drop the closing quote only when one was actually found
+		boolean closed = quoted && end > valueStart && value.get(end - 1) == '"';
+		int valueEnd = closed ? end - 1 : end;
 		String raw = decodeBufferSegment(value, valueStart, valueEnd, decoder);
 		String decoded = decodeEncodedWords(raw);
 		value.position(end);
@@ -314,7 +319,12 @@ public class Rfc2047Decoder {
 		try {
 			decoder.reset();
 			CharBuffer out = CharBuffer.allocate(slice.remaining() * 2);
-			decoder.decode(slice, out, true);
+			CoderResult cr = decoder.decode(slice, out, true);
+			if (cr.isError()) {
+				// A REPORT-configured decoder stops at the bad byte; do not
+				// silently drop the rest of the segment
+				throw new CharacterCodingException();
+			}
 			decoder.flush(out);
 			out.flip();
 			return out.toString().trim();
@@ -642,8 +652,10 @@ public class Rfc2047Decoder {
 			return paramValue;
 		}
 		try {
-			// Decode percent-encoding to raw bytes (using ISO-8859-1 preserves byte values)
-			String raw = URLDecoder.decode(result.encoded, "ISO-8859-1");
+			// Decode percent-encoding to raw bytes (using ISO-8859-1 preserves
+			// byte values); '+' is a literal plus here, not a space
+			String plusSafe = result.encoded.replace("+", "%2B");
+			String raw = URLDecoder.decode(plusSafe, "ISO-8859-1");
 			// Convert raw bytes to string using the specified charset
 			return bytesToString(raw.getBytes(StandardCharsets.ISO_8859_1), result.charset);
 		} catch (Exception e) {

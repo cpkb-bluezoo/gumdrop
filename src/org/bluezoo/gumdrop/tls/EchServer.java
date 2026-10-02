@@ -69,7 +69,15 @@ public final class EchServer {
     public static OpenResult openInnerClientHello(byte[] framedClientHelloOuter, EchConfig config,
             byte[] recipientPrivateKey, Hpke.RecipientContext retryRecipient)
             throws GeneralSecurityException, HandshakeFormatException {
-        HandshakeMessages.ClientHello outer = HandshakeMessages.parseClientHello(framedClientHelloOuter);
+        return openInnerClientHello(framedClientHelloOuter, config, recipientPrivateKey, retryRecipient,
+                false);
+    }
+
+    static OpenResult openInnerClientHello(byte[] framedClientHelloOuter, EchConfig config,
+            byte[] recipientPrivateKey, Hpke.RecipientContext retryRecipient, boolean dtlsTransport)
+            throws GeneralSecurityException, HandshakeFormatException {
+        HandshakeMessages.ClientHello outer = HandshakeMessages.parseClientHello(framedClientHelloOuter,
+                dtlsTransport);
         if (outer.encryptedClientHelloOuter == null) {
             throw new HandshakeFormatException("ClientHello is not an ECH outer hello");
         }
@@ -79,7 +87,7 @@ public final class EchServer {
         }
         byte[] outerContent = HandshakeMessages.extractClientHelloContent(framedClientHelloOuter);
         byte[] aad = EncryptedClientHello.clientHelloOuterAadWithZeroEchPayload(
-                outerContent, ech.payload.length);
+                outerContent, ech.payload.length, dtlsTransport);
         byte[] encodedInner;
         Hpke.RecipientContext recipient;
         if (ech.enc.length == 0) {

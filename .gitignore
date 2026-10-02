@@ -31,5 +31,7 @@ test/junit/classes/
 test/junit/coverage/
 test/junit/report/
 test/junit/results/
+test/guard/classes/
+test/guard/results/
 build/
 dist/

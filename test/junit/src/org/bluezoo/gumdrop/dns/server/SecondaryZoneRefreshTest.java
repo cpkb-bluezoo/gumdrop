@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.dns.server;
 
+import org.bluezoo.gumdrop.testsupport.memfs.MemoryTemp;
 import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.dns.DnsMessage;
 import org.bluezoo.gumdrop.dns.DnsQueryCallback;
@@ -68,7 +69,7 @@ public class SecondaryZoneRefreshTest {
 
     @Before
     public void writeZone() throws Exception {
-        zoneFile = Files.createTempFile("secondary", ".zone");
+        zoneFile = MemoryTemp.createTempFile("secondary", ".zone");
         Files.writeString(zoneFile, ""
                 + "$ORIGIN example.com.\n"
                 + "$TTL 300\n"

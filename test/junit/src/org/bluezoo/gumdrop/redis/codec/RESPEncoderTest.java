@@ -233,53 +233,8 @@ public class RESPEncoderTest {
         assertTrue(encoded.contains("-100"));
     }
 
-    @Test
-    public void testEncoderIsThreadSafe() throws InterruptedException {
-        // Verify that multiple threads can encode concurrently
-        final int threadCount = 10;
-        final int iterations = 100;
-        Thread[] threads = new Thread[threadCount];
-        final boolean[] success = new boolean[threadCount];
-
-        for (int t = 0; t < threadCount; t++) {
-            final int threadIndex = t;
-            threads[t] = new Thread(new Runnable() {
-                @Override
-                public void run() {
-                    try {
-                        for (int i = 0; i < iterations; i++) {
-                            ByteBuffer result = encoder.encodeCommand("SET",
-                                new String[] { "key" + threadIndex, "value" + i });
-                            // Verify the result is valid
-                            String encoded = bufferToString(result);
-                            if (!encoded.startsWith("*3\r\n$3\r\nSET\r\n")) {
-                                return;
-                            }
-                        }
-                        success[threadIndex] = true;
-                    } catch (Exception e) {
-                        // Test failed
-                    }
-                }
-            });
-        }
-
-        for (Thread thread : threads) {
-            thread.start();
-        }
-        for (Thread thread : threads) {
-            thread.join();
-        }
-
-        for (int t = 0; t < threadCount; t++) {
-            assertTrue("Thread " + t + " failed", success[t]);
-        }
-    }
-
     @Test(expected = IllegalArgumentException.class)
     public void testBulkStringRejectsEmbeddedCrlf() {
         encoder.encode("SET", "key", "value\r\nINJECT");
     }
-
 }
-

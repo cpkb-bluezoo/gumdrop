@@ -21,7 +21,6 @@
 
 package org.bluezoo.gumdrop.servlet;
 
-import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.FileSystems;
@@ -34,6 +33,7 @@ import java.nio.file.WatchEvent;
 import java.nio.file.WatchKey;
 import java.nio.file.WatchService;
 import java.nio.file.attribute.BasicFileAttributes;
+import java.nio.file.attribute.FileTime;
 import java.text.MessageFormat;
 import java.util.HashMap;
 import java.util.Iterator;
@@ -60,13 +60,39 @@ class HotDeploymentThread extends Thread {
     final Map<WatchKey,Context> watchKeys;
 
     HotDeploymentThread(Container container) throws IOException {
+        this(container, FileSystems.getDefault().newWatchService());
+    }
+
+    /**
+     * Creates a watcher over the given watch service (a seam for tests that
+     * supply a mock, since not every file system has a watch service).
+     */
+    HotDeploymentThread(Container container, WatchService watchService) {
         super("hot-deploy");
         this.container = container;
         setDaemon(true);
         setPriority(Thread.MIN_PRIORITY);
         warLastModified = new HashMap<>();
-        watchService = FileSystems.getDefault().newWatchService();
+        this.watchService = watchService;
         watchKeys = new HashMap<>();
+    }
+
+    /**
+     * Registers a directory with the watch service. Overridable so that
+     * tests can hand back a mock key for a path on a file system that
+     * cannot be watched.
+     */
+    WatchKey watch(Path dir, WatchEvent.Kind<?>... kinds) throws IOException {
+        return dir.register(watchService, kinds);
+    }
+
+    private static long lastModified(Path path) {
+        try {
+            FileTime modified = Files.getLastModifiedTime(path);
+            return modified.toMillis();
+        } catch (IOException e) {
+            return 0L; // as File.lastModified() for an unreadable file
+        }
     }
 
     public void run() {
@@ -79,47 +105,9 @@ class HotDeploymentThread extends Thread {
             try {
                 WatchKey key = watchService.poll(1000, TimeUnit.MILLISECONDS);
                 if (key != null) { // filesystem change
-                    Context context = watchKeys.get(key);
-                    if (context != null) {
-                        for (WatchEvent<?> event : key.pollEvents()) {
-                            WatchEvent.Kind<?> kind = event.kind();
-                            if (kind == StandardWatchEventKinds.OVERFLOW) {
-                                continue;
-                            }
-                            Path changed = (Path) event.context();
-                            if (key.watchable().equals(context.root.toPath())) {
-                                // Only check for WEB-INF lifecycle events
-                                if (!changed.getFileName().toString().equals("WEB-INF")) {
-                                    break;
-                                }
-                            }
-                            Path changedPath = ((Path) key.watchable()).resolve(changed);
-                            if (kind == StandardWatchEventKinds.ENTRY_CREATE && Files.isDirectory(changedPath)) {
-                                try {
-                                    registerAll(changedPath, context);
-                                } catch (IOException e) {
-                                    String message = Context.L10N.getString("err.watch_new_directory");
-                                    message = MessageFormat.format(message, context.getContextPath());
-                                    Context.LOGGER.log(Level.SEVERE, message, e);
-                                }
-                            }
-                            redeploy(context);
-                            break;
-                        }
-                    }
-                    if (!key.reset()) {
-                        watchKeys.remove(key);
-                    }
+                    handleKey(key);
                 }
-                // Check contexts with WAR files for changes
-                for (Context context : warLastModified.keySet()) {
-                    long registeredLastModified = warLastModified.get(context);
-                    long lastModified = context.root.lastModified();
-                    if (lastModified != registeredLastModified) {
-                        warLastModified.put(context, lastModified);
-                        redeploy(context);
-                    }
-                }
+                checkWars();
             } catch (InterruptedException e) {
                 try {
                     watchService.close();
@@ -132,20 +120,73 @@ class HotDeploymentThread extends Thread {
         }
     }
 
+    /**
+     * Handles a signalled watch key: redeploys the owning context if a
+     * relevant file changed, and forgets the key once it is no longer valid.
+     */
+    void handleKey(WatchKey key) {
+        Context context = watchKeys.get(key);
+        if (context != null) {
+            for (WatchEvent<?> event : key.pollEvents()) {
+                WatchEvent.Kind<?> kind = event.kind();
+                if (kind == StandardWatchEventKinds.OVERFLOW) {
+                    continue;
+                }
+                Path changed = (Path) event.context();
+                if (key.watchable().equals(context.root)) {
+                    // Only check for WEB-INF lifecycle events
+                    if (!changed.getFileName().toString().equals("WEB-INF")) {
+                        break;
+                    }
+                }
+                Path changedPath = ((Path) key.watchable()).resolve(changed);
+                if (kind == StandardWatchEventKinds.ENTRY_CREATE && Files.isDirectory(changedPath)) {
+                    try {
+                        registerAll(changedPath, context);
+                    } catch (IOException e) {
+                        String message = Context.L10N.getString("err.watch_new_directory");
+                        message = MessageFormat.format(message, context.getContextPath());
+                        Context.LOGGER.log(Level.SEVERE, message, e);
+                    }
+                }
+                redeploy(context);
+                break;
+            }
+        }
+        if (!key.reset()) {
+            watchKeys.remove(key);
+        }
+    }
+
+    /**
+     * Redeploys every WAR-based context whose archive changed since it was
+     * last seen.
+     */
+    void checkWars() {
+        for (Context context : warLastModified.keySet()) {
+            long registeredLastModified = warLastModified.get(context);
+            long lastModified = lastModified(context.root);
+            if (lastModified != registeredLastModified) {
+                warLastModified.put(context, lastModified);
+                redeploy(context);
+            }
+        }
+    }
+
     void init(Context context) {
-        if (context.root.isDirectory()) { // file based, use watch key
+        if (Files.isDirectory(context.root)) { // file based, use watch key
             try {
                 // Always watch the context root for WEB-INF
                 // creation/deletion
-                WatchKey key = context.root.toPath().register(watchService,
+                WatchKey key = watch(context.root,
                         StandardWatchEventKinds.ENTRY_CREATE,
                         StandardWatchEventKinds.ENTRY_DELETE);
                 watchKeys.put(key, context);
                 // If WEB-INF exists, also register it and all
                 // of its subdirectories
-                File webInf = new File(context.root, "WEB-INF");
-                if (webInf.exists() && webInf.isDirectory()) {
-                    registerAll(webInf.toPath(), context);
+                Path webInf = context.root.resolve("WEB-INF");
+                if (Files.isDirectory(webInf)) {
+                    registerAll(webInf, context);
                 }
             } catch (IOException e) {
                 String message = Context.L10N.getString("err.watch_web_inf");
@@ -153,7 +194,7 @@ class HotDeploymentThread extends Thread {
                 Context.LOGGER.log(Level.SEVERE, message, e);
             }
         } else { // WAR based, just store last-modified of war file
-            long lastModified = context.root.lastModified();
+            long lastModified = lastModified(context.root);
             warLastModified.put(context, lastModified);
         }
     }
@@ -161,7 +202,7 @@ class HotDeploymentThread extends Thread {
     void registerAll(Path start, final Context context) throws IOException {
         FileVisitor<Path> visitor = new SimpleFileVisitor<Path>() {
             @Override public FileVisitResult preVisitDirectory(Path dir, BasicFileAttributes attrs) throws IOException {
-                WatchKey key = dir.register(watchService,
+                WatchKey key = watch(dir,
                         StandardWatchEventKinds.ENTRY_CREATE,
                         StandardWatchEventKinds.ENTRY_DELETE,
                         StandardWatchEventKinds.ENTRY_MODIFY);

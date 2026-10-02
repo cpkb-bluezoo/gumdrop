@@ -26,9 +26,7 @@ import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.UnknownHostException;
 import java.nio.ByteBuffer;
-import java.nio.channels.AsynchronousFileChannel;
 import java.nio.channels.CompletionHandler;
-import java.nio.channels.ServerSocketChannel;
 import java.nio.channels.SocketChannel;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
@@ -37,6 +35,7 @@ import java.text.MessageFormat;
 import java.util.ArrayDeque;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Set;
 import java.util.Queue;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.Callable;
@@ -50,10 +49,10 @@ import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.NullSecurityInfo;
 import org.bluezoo.gumdrop.ProtocolHandler;
 import org.bluezoo.gumdrop.StorageExecutor;
+import org.bluezoo.gumdrop.util.AsyncFile;
 import org.bluezoo.gumdrop.util.ByteBufferPool;
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.SelectorLoop;
-import org.bluezoo.gumdrop.TcpEndpoint;
 import org.bluezoo.gumdrop.TcpTransportFactory;
 import org.bluezoo.gumdrop.TimerHandle;
 import org.bluezoo.gumdrop.TransportFactory;
@@ -141,6 +140,7 @@ public class FtpDataConnectionCoordinator {
     }
     
     private final FtpControlConnection controlConnection;
+    private FtpDataTransport transport = new SocketFtpDataTransport();
     private DataConnectionMode mode = DataConnectionMode.NONE;
     
     // Passive mode state
@@ -222,47 +222,13 @@ public class FtpDataConnectionCoordinator {
     public synchronized int setupPassiveMode(int port) throws IOException {
         cleanup(); // Clean up any existing setup
 
-        // Passive mode needs the accept loop to listen for the data
-        // connection; fail cleanly (the caller replies 425) if there is
-        // none, before any socket is opened.
-        FtpListener listener = controlConnection.getServer();
-        Gumdrop gumdrop = (listener != null) ? listener.getGumdrop() : null;
-        AcceptSelectorLoop acceptLoop =
-                (gumdrop != null) ? gumdrop.getAcceptLoop() : null;
-        if (acceptLoop == null) {
-            throw new IOException("No accept loop available for passive mode");
-        }
+        FtpDataServer connector =
+                new FtpDataServer(controlConnection, port, this);
+        connector.notifyBound(transport.listenPassive(
+                controlConnection.getServer(), port, connector));
+        passiveConnector = connector;
+        passivePort = connector.getActualPort();
 
-        passiveConnector = new FtpDataServer(controlConnection, port, this);
-
-        // Bind the socket synchronously so we know the port immediately
-        ServerSocketChannel ssc = ServerSocketChannel.open();
-        ssc.configureBlocking(false);
-
-        if (port == 0) {
-            // System-assigned, unless the listener restricts passive mode
-            // to a configured port range (issue #145) - e.g. deployments
-            // behind a firewall that only forwards a fixed range.
-            FtpListener server = controlConnection.getServer();
-            int minPort = (server != null) ? server.getPasvMinPort() : 0;
-            int maxPort = (server != null) ? server.getPasvMaxPort() : 0;
-            if (minPort > 0 && maxPort >= minPort) {
-                bindWithinRange(ssc, minPort, maxPort);
-            } else {
-                ssc.bind(new InetSocketAddress(0));
-            }
-        } else {
-            // An explicitly requested port bypasses the configured range.
-            ssc.bind(new InetSocketAddress(port));
-        }
-
-        // Get the actual bound port
-        passivePort = ((InetSocketAddress) ssc.getLocalAddress()).getPort();
-        passiveConnector.notifyBound(ssc);
-        
-        // Register the already-bound channel with AcceptSelectorLoop
-        acceptLoop.registerRawAcceptor(ssc, passiveConnector);
-        
         mode = DataConnectionMode.PASSIVE;
         
         if (LOGGER.isLoggable(Level.FINE)) {
@@ -270,27 +236,6 @@ public class FtpDataConnectionCoordinator {
         }
         
         return passivePort;
-    }
-
-    /**
-     * Binds {@code ssc} to the first available port in {@code [minPort,
-     * maxPort]}, trying each in turn.
-     *
-     * @throws IOException if no port in the range is available
-     */
-    private static void bindWithinRange(
-            ServerSocketChannel ssc, int minPort, int maxPort)
-            throws IOException {
-        for (int p = minPort; p <= maxPort; p++) {
-            try {
-                ssc.bind(new InetSocketAddress(p));
-                return;
-            } catch (IOException e) {
-                // Port in use or unavailable; try the next one.
-            }
-        }
-        throw new IOException("No available port in configured PASV port range ["
-                + minPort + "-" + maxPort + "]");
     }
 
     /**
@@ -357,6 +302,31 @@ public class FtpDataConnectionCoordinator {
      */
     public void setControlClientAddress(InetAddress address) {
         this.controlClientAddress = address;
+    }
+
+    /**
+     * Test seam: substitutes the sockets, endpoints and file channels the
+     * data transfers use (see {@link FtpDataTransport}).
+     */
+    void setTransport(FtpDataTransport transport) {
+        this.transport = transport;
+    }
+
+    /** Whether a passive-mode data listener is currently open. */
+    boolean isPassiveListening() {
+        return passiveConnector != null;
+    }
+
+    /** The MLSD facts selected with OPTS MLST, or null for all. */
+    private Set<String> mlstFacts;
+
+    /**
+     * Sets the facts MLSD listings carry (RFC 3659 section 7.9).
+     *
+     * @param facts lower-case fact names, or null for all
+     */
+    void setMlstFacts(Set<String> facts) {
+        this.mlstFacts = facts;
     }
 
     /**
@@ -704,14 +674,14 @@ public class FtpDataConnectionCoordinator {
                     "No selector loop for active data connection"));
             return;
         }
-        final TcpTransportFactory factory = new TcpTransportFactory();
-        factory.start();
-        final TcpEndpoint[] outbound = new TcpEndpoint[1];
+        final FtpDataTransport.ActiveConnection[] outbound =
+                new FtpDataTransport.ActiveConnection[1];
         final TimerHandle[] timeout = new TimerHandle[1];
         final boolean[] finished = new boolean[1];
-        ProtocolHandler connectHandler = new ProtocolHandler() {
+        FtpDataTransport.ActiveConnectCallback connectCallback =
+                new FtpDataTransport.ActiveConnectCallback() {
             @Override
-            public void connected(Endpoint ep) {
+            public void connected(SocketChannel sc) {
                 if (finished[0]) {
                     return;
                 }
@@ -720,35 +690,14 @@ public class FtpDataConnectionCoordinator {
                     timeout[0].cancel();
                     timeout[0] = null;
                 }
-                try {
-                    SocketChannel sc = ((TcpEndpoint) ep).takeSocketChannelForHandoff();
-                    if (sc == null || !sc.isOpen()) {
-                        throw new IOException("Active data connection channel lost");
-                    }
-                    FtpDataConnection connection = new FtpDataConnection(sc,
-                            FtpDataConnectionCoordinator.this);
-                    deliverDataConnection(controlEndpoint, callback,
-                            continuation, connection);
-                } catch (IOException e) {
-                    cleanup();
-                    callback.transferFailed(e);
-                }
+                FtpDataConnection connection = new FtpDataConnection(sc,
+                        FtpDataConnectionCoordinator.this);
+                deliverDataConnection(controlEndpoint, callback,
+                        continuation, connection);
             }
 
             @Override
-            public void receive(ByteBuffer data) {
-            }
-
-            @Override
-            public void disconnected() {
-            }
-
-            @Override
-            public void securityEstablished(SecurityInfo info) {
-            }
-
-            @Override
-            public void error(Exception cause) {
+            public void failed(Exception cause) {
                 if (finished[0]) {
                     return;
                 }
@@ -764,8 +713,8 @@ public class FtpDataConnectionCoordinator {
             }
         };
         try {
-            outbound[0] = factory.connect(gumdrop, dataAddress, port,
-                    connectHandler, loop);
+            outbound[0] = transport.connectActive(gumdrop, dataAddress, port,
+                    loop, connectCallback);
             timeout[0] = controlEndpoint.scheduleTimer(
                     DATA_CONNECTION_TIMEOUT_MS, new Runnable() {
                         @Override
@@ -894,9 +843,9 @@ public class FtpDataConnectionCoordinator {
             return;
         }
 
-        exec.submit(controlEndpoint, new Callable<AsynchronousFileChannel>() {
+        exec.submit(controlEndpoint, new Callable<AsyncFile>() {
             @Override
-            public AsynchronousFileChannel call() throws IOException {
+            public AsyncFile call() throws IOException {
                 Path asyncPath = fs.resolvePathForAsyncRead(
                         transfer.getPath(),
                         transfer.getRestartOffset(),
@@ -906,12 +855,12 @@ public class FtpDataConnectionCoordinator {
                             "Asynchronous file open not supported: "
                                     + transfer.getPath());
                 }
-                return AsynchronousFileChannel.open(
+                return transport.openFile(exec,
                         asyncPath, StandardOpenOption.READ);
             }
-        }, new StorageExecutor.Callback<AsynchronousFileChannel>() {
+        }, new StorageExecutor.Callback<AsyncFile>() {
             @Override
-            public void completed(AsynchronousFileChannel asyncChannel) {
+            public void completed(AsyncFile asyncChannel) {
                 try {
                     registerDownloadHandler(controlEndpoint, asyncChannel,
                             transfer, callback);
@@ -960,11 +909,11 @@ public class FtpDataConnectionCoordinator {
      * secured the control connection, via {@link
      * FtpListener#getTransportFactory()}.
      */
-    private TcpEndpoint registerDataEndpoint(SocketChannel dataSc,
+    private Endpoint registerDataEndpoint(SocketChannel dataSc,
             ProtocolHandler dataHandler, SelectorLoop loop) throws IOException {
         dataSc.configureBlocking(false);
 
-        TcpEndpoint dataEndpoint;
+        TcpTransportFactory secureFactory = null;
         if (dataProtection) {
             FtpListener server = controlConnection.getServer();
             TransportFactory factory =
@@ -974,24 +923,21 @@ public class FtpDataConnectionCoordinator {
                         "PROT P is active but no TLS-capable transport "
                                 + "factory is available for the data connection");
             }
-            dataEndpoint = ((TcpTransportFactory) factory)
-                    .createServerEndpoint(dataSc, dataHandler, true);
-        } else {
-            dataEndpoint = new TcpEndpoint(dataHandler);
-            dataEndpoint.setChannel(dataSc);
-            dataEndpoint.init();
+            secureFactory = (TcpTransportFactory) factory;
         }
+        Endpoint dataEndpoint =
+                transport.createDataEndpoint(dataSc, dataHandler, secureFactory);
 
         if (dataHandler instanceof UploadTransferHandler) {
             ((UploadTransferHandler) dataHandler).setEndpoint(dataEndpoint);
         }
 
-        loop.registerTCP(dataSc, dataEndpoint);
+        transport.registerDataEndpoint(loop, dataSc, dataEndpoint);
         return dataEndpoint;
     }
 
     private void registerDownloadHandler(Endpoint controlEndpoint,
-            AsynchronousFileChannel asyncChannel,
+            AsyncFile asyncChannel,
             PendingTransfer transfer, TransferCallback callback)
             throws IOException {
         SelectorLoop loop = controlEndpoint.getSelectorLoop();
@@ -999,7 +945,7 @@ public class FtpDataConnectionCoordinator {
 
         DownloadTransferHandler downloadHandler =
                 new DownloadTransferHandler(asyncChannel, transfer, callback);
-        TcpEndpoint dataEndpoint = registerDataEndpoint(dataSc, downloadHandler, loop);
+        Endpoint dataEndpoint = registerDataEndpoint(dataSc, downloadHandler, loop);
         downloadHandler.setEndpoint(dataEndpoint);
         if (!dataEndpoint.isSecure()) {
             downloadHandler.writeNextChunk();
@@ -1108,7 +1054,7 @@ public class FtpDataConnectionCoordinator {
 
         ListingTransferHandler listingHandler =
                 new ListingTransferHandler(files, transfer, callback);
-        TcpEndpoint dataEndpoint = registerDataEndpoint(dataSc, listingHandler, loop);
+        Endpoint dataEndpoint = registerDataEndpoint(dataSc, listingHandler, loop);
         listingHandler.setEndpoint(dataEndpoint);
         if (!dataEndpoint.isSecure()) {
             listingHandler.sendNextChunk();
@@ -1153,11 +1099,11 @@ public class FtpDataConnectionCoordinator {
      * Result of an offloaded upload open: channel plus append start position.
      */
     private static final class UploadOpenResult {
-        final AsynchronousFileChannel channel;
+        final AsyncFile channel;
         final long initialPosition;
         final String targetPath;
 
-        UploadOpenResult(AsynchronousFileChannel channel,
+        UploadOpenResult(AsyncFile channel,
                 long initialPosition, String targetPath) {
             this.channel = channel;
             this.initialPosition = initialPosition;
@@ -1220,7 +1166,7 @@ public class FtpDataConnectionCoordinator {
                             "Asynchronous file open not supported: "
                                     + targetPath);
                 }
-                // AsynchronousFileChannel rejects StandardOpenOption.APPEND
+                // An asynchronous file rejects StandardOpenOption.APPEND
                 // (UnsupportedOperationException), so an append is a plain
                 // write positioned at the current end of the file below.
                 StandardOpenOption[] options = transfer.isAppend()
@@ -1231,8 +1177,8 @@ public class FtpDataConnectionCoordinator {
                                 StandardOpenOption.CREATE,
                                 StandardOpenOption.WRITE,
                                 StandardOpenOption.TRUNCATE_EXISTING};
-                AsynchronousFileChannel asyncChannel =
-                        AsynchronousFileChannel.open(asyncPath, options);
+                AsyncFile asyncChannel =
+                        transport.openFile(exec, asyncPath, options);
                 long initialPosition = 0;
                 if (transfer.isAppend()) {
                     initialPosition = asyncChannel.size();
@@ -1290,7 +1236,7 @@ public class FtpDataConnectionCoordinator {
     }
 
     /**
-     * Registers the upload data {@link TcpEndpoint} immediately so PROT P
+     * Registers the upload data data endpoint immediately so PROT P
      * handshakes and early application data are not dropped while the target
      * file is opened asynchronously on a storage thread.
      */
@@ -1516,7 +1462,7 @@ public class FtpDataConnectionCoordinator {
             if (transferType == TransferType.NAME_LIST) {
                 body = file.getName();
             } else if (transferType == TransferType.MACHINE_LISTING) {
-                body = file.formatAsMLSEntry();
+                body = file.formatAsMLSEntry(mlstFacts);
             } else {
                 body = file.formatAsListingLine();
             }
@@ -1566,20 +1512,20 @@ public class FtpDataConnectionCoordinator {
 
     /**
      * Event-driven download handler.  Reads chunks from a file via
-     * AsynchronousFileChannel and sends them via the data endpoint,
+     * AsyncFile and sends them via the data endpoint,
      * using onWriteReady to pace output.
      */
     private class DownloadTransferHandler
             implements ProtocolHandler, Runnable {
 
-        private final AsynchronousFileChannel asyncChannel;
+        private final AsyncFile asyncChannel;
         private final PendingTransfer transfer;
         private final TransferCallback callback;
         private final FtpAsciiLineEndings asciiCodec;
         private long filePosition;
         private Endpoint dataEndpoint;
 
-        DownloadTransferHandler(AsynchronousFileChannel asyncChannel,
+        DownloadTransferHandler(AsyncFile asyncChannel,
                 PendingTransfer transfer,
                 TransferCallback callback) {
             this.asyncChannel = asyncChannel;
@@ -1730,12 +1676,12 @@ public class FtpDataConnectionCoordinator {
 
     /**
      * Event-driven upload handler.  Receives data from the data
-     * endpoint and writes it via AsynchronousFileChannel.
+     * endpoint and writes it via AsyncFile.
      * Pauses reads while a write is in-flight.
      */
     private class UploadTransferHandler implements ProtocolHandler {
 
-        private final AsynchronousFileChannel asyncChannel;
+        private final AsyncFile asyncChannel;
         private final PendingTransfer transfer;
         private final TransferCallback callback;
         private long filePosition;
@@ -1746,7 +1692,7 @@ public class FtpDataConnectionCoordinator {
         private final Queue<ByteBuffer> pendingWrites = new ArrayDeque<>();
         private Endpoint dataEndpoint;
 
-        UploadTransferHandler(AsynchronousFileChannel asyncChannel,
+        UploadTransferHandler(AsyncFile asyncChannel,
                 PendingTransfer transfer,
                 TransferCallback callback,
                 long initialPosition) {

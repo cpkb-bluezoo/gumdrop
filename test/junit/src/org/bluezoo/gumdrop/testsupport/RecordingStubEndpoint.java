@@ -313,10 +313,22 @@ public final class RecordingStubEndpoint implements Endpoint {
         }
         return due.size();
     }
-    @Override public Trace getTrace() { return null; }
-    @Override public void setTrace(Trace trace) { }
-    @Override public boolean isTelemetryEnabled() { return false; }
-    @Override public TelemetryConfig getTelemetryConfig() { return null; }
+    private Trace trace;
+    private TelemetryConfig telemetryConfig;
+
+    /**
+     * Enables telemetry on this endpoint with the given configuration (or
+     * disables it again with {@code null}), so protocol handlers create
+     * their connection traces.
+     */
+    public void setTelemetryConfig(TelemetryConfig config) {
+        this.telemetryConfig = config;
+    }
+
+    @Override public Trace getTrace() { return trace; }
+    @Override public void setTrace(Trace trace) { this.trace = trace; }
+    @Override public boolean isTelemetryEnabled() { return telemetryConfig != null; }
+    @Override public TelemetryConfig getTelemetryConfig() { return telemetryConfig; }
     @Override public void pauseRead() { }
     @Override public void resumeRead() { }
     @Override public void onWriteReady(Runnable callback) {

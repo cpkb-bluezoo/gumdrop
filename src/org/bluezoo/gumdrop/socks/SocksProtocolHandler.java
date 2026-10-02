@@ -37,16 +37,12 @@ import java.util.logging.Logger;
 
 import java.nio.channels.SocketChannel;
 
-import org.bluezoo.gumdrop.ClientEndpoint;
 import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.ProtocolHandler;
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.SelectorLoop;
-import org.bluezoo.gumdrop.TcpEndpoint;
-import org.bluezoo.gumdrop.TcpTransportFactory;
 import org.bluezoo.gumdrop.auth.GssapiServer;
 import org.bluezoo.gumdrop.auth.Realm;
-import org.bluezoo.gumdrop.dns.client.DnsResolver;
 import org.bluezoo.gumdrop.dns.client.ResolveCallback;
 import org.bluezoo.gumdrop.util.JulWarnings;
 import org.bluezoo.gumdrop.socks.server.BindHandler;
@@ -116,6 +112,7 @@ public class SocksProtocolHandler implements ProtocolHandler {
     private GssapiServer.GssapiExchange gssapiExchange;
 
     // Relay
+    private SocksTransport transport = new SocketSocksTransport();
     private SocksRelay relay;
     private SocksUdpRelay udpRelay;
     private SocksBindRelay bindRelay;
@@ -124,6 +121,14 @@ public class SocksProtocolHandler implements ProtocolHandler {
                                 org.bluezoo.gumdrop.socks.server.SocksServer server) {
         this.listener = listener;
         this.server = server;
+    }
+
+    /**
+     * Test seam: substitutes the resolver, upstream connector, BIND listener
+     * and UDP ports (see {@link SocksTransport}).
+     */
+    void setTransport(SocksTransport transport) {
+        this.transport = transport;
     }
 
     public void setConnectHandler(ConnectHandler handler) {
@@ -736,8 +741,7 @@ public class SocksProtocolHandler implements ProtocolHandler {
             close();
             return;
         }
-        DnsResolver resolver = DnsResolver.forLoop(loop);
-        resolver.resolve(request.getHost(), new ResolveCallback() {
+        transport.resolve(loop, request.getHost(), new ResolveCallback() {
             @Override
             public void onResolved(List<InetAddress> addresses) {
                 // Validate every resolved address: if any would be blocked,
@@ -820,18 +824,14 @@ public class SocksProtocolHandler implements ProtocolHandler {
     private void initiateUpstreamConnection(final SocksRequest request,
                                             final InetAddress resolved) {
         try {
-            TcpTransportFactory factory = new TcpTransportFactory();
-            factory.start();
-
             SelectorLoop loop = endpoint.getSelectorLoop();
-            ClientEndpoint client = new ClientEndpoint(
-                    factory, loop, resolved, request.getPort());
 
             relay = new SocksRelay(endpoint, server,
                     getServerMetrics(),
                     server.getRelayIdleTimeoutMs());
 
-            client.connect(loop.getGumdrop(), new ProtocolHandler() {
+            transport.connect(loop.getGumdrop(), loop, resolved,
+                    request.getPort(), new ProtocolHandler() {
                 @Override
                 public void connected(Endpoint upstream) {
                     if (LOGGER.isLoggable(Level.FINE)) {
@@ -973,7 +973,7 @@ public class SocksProtocolHandler implements ProtocolHandler {
         }
 
         try {
-            bindRelay = new SocksBindRelay(endpoint, server,
+            bindRelay = new SocksBindRelay(transport, endpoint, server,
                     server.getRelayIdleTimeoutMs(),
                     expectedPeer,
                     new SocksBindRelay.Callback() {
@@ -1034,9 +1034,6 @@ public class SocksProtocolHandler implements ProtocolHandler {
                         peerAddress.getPort());
             }
 
-            TcpTransportFactory factory = new TcpTransportFactory();
-            factory.start();
-
             relay = new SocksRelay(endpoint, server,
                     getServerMetrics(),
                     server.getRelayIdleTimeoutMs());
@@ -1070,9 +1067,8 @@ public class SocksProtocolHandler implements ProtocolHandler {
             };
 
             SelectorLoop loop = endpoint.getSelectorLoop();
-            TcpEndpoint peerEndpoint =
-                    factory.createServerEndpoint(sc, upstreamHandler);
-            loop.registerTCP(sc, peerEndpoint);
+            Endpoint peerEndpoint =
+                    transport.adoptBindPeer(loop, sc, upstreamHandler);
             upstreamHandler.connected(peerEndpoint);
 
         } catch (IOException e) {
@@ -1146,7 +1142,7 @@ public class SocksProtocolHandler implements ProtocolHandler {
         }
 
         try {
-            udpRelay = new SocksUdpRelay(endpoint, server,
+            udpRelay = new SocksUdpRelay(transport, endpoint, server,
                     mtr, server.getRelayIdleTimeoutMs(),
                     expectedClient);
             InetSocketAddress bound = udpRelay.start();

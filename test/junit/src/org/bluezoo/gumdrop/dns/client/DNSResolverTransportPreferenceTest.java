@@ -201,8 +201,12 @@ public class DNSResolverTransportPreferenceTest {
         DnsResolver resolver = new DnsResolver();
         DnsServerCapabilities caps = DnsServerCapabilities.of(false, 0, false, 0, "/dns-query", 0);
         DnsClientTransport transport = resolver.newTransportInstance(DnsTransportType.DOH, caps);
-        assertNotNull("DoHTransportFactory should be discovered from gumdrop-http.jar on the test classpath",
-                transport);
+        // Discovery is deterministic: the unit test resources carry a
+        // META-INF/services descriptor naming DoHTransportFactoryImpl, so
+        // it does not depend on whether the classpath holds a built
+        // gumdrop-http.jar or plain class directories.
+        assertNotNull("DoHTransportFactory should be discovered from the test "
+                + "classpath's META-INF/services descriptor", transport);
     }
 
     @Test

@@ -112,7 +112,7 @@ public class ResolvConfTest {
     @Test
     public void testNonexistentFileReturnsEmptyList() {
         List<String> result = ResolvConf.parse(
-                Paths.get("/does/not/exist/resolv.conf"));
+                MemoryFileSystem.create().getPath("/does/not/exist/resolv.conf"));
         assertNotNull(result);
         assertTrue(result.isEmpty());
     }

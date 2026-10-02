@@ -33,7 +33,7 @@ import java.util.concurrent.atomic.AtomicReference;
 
 import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.Gumdrop;
-import org.bluezoo.gumdrop.GumdropConfig;
+import org.bluezoo.gumdrop.testsupport.TestGumdrop;
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.ftp.client.*;
 
@@ -58,6 +58,7 @@ public class FTPClientProtocolHandlerTest {
     private static Gumdrop gumdrop;
 
     private FtpClientProtocolHandler handler;
+    private final FakeActiveListenerOpener listeners = new FakeActiveListenerOpener();
     private StubEndpoint endpoint;
     private final List<String> sentCommands = new ArrayList<>();
     private final AtomicBoolean disconnected = new AtomicBoolean();
@@ -65,9 +66,7 @@ public class FTPClientProtocolHandlerTest {
 
     @BeforeClass
     public static void startGumdrop() {
-        gumdrop = Gumdrop.boot(GumdropConfig.create()
-                .workerThreads(1)
-                .drainTimeoutMs(0));
+        gumdrop = TestGumdrop.create();
     }
 
     @AfterClass
@@ -108,11 +107,12 @@ public class FTPClientProtocolHandlerTest {
             }
         });
         handler.setGumdrop(gumdrop);
+        handler.activeListenerOpener = listeners;
         handler.connected(endpoint);
     }
 
     @After
-    public void tearDown() {
+    public void tearDown() throws InterruptedException {
         if (handler != null) {
             handler.disconnected();
         }

@@ -223,8 +223,12 @@ public class SortThreadMetadataParserCoverageTest {
         request = parser.parseSet();
         assertEquals("", request.getMailboxName());
         parser = new ImapMetadataParser("INBOX ()");
-        request = parser.parseSet();
-        assertTrue(request.getEntries().isEmpty());
+        try {
+            parser.parseSet();
+            fail("an empty entry-value list must be rejected");
+        } catch (ParseException expected) {
+            assertNotNull(expected.getMessage());
+        }
     }
 
     @Test

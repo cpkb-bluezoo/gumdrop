@@ -21,17 +21,18 @@
 
 package org.bluezoo.gumdrop.servlet;
 
+import org.bluezoo.gumdrop.testsupport.memfs.MemoryFileSystem;
 import org.junit.Before;
-import org.junit.Rule;
 import org.junit.Test;
-import org.junit.rules.TemporaryFolder;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
-import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.InputStream;
+import java.nio.file.DirectoryStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -56,20 +57,33 @@ public class MultipartParserTest {
 
     private static final String BOUNDARY = "bnd";
 
-    @Rule
-    public TemporaryFolder tmp = new TemporaryFolder();
-
     private MultipartConfigDef config;
-    private File uploads;
+    private Path uploads;
 
     @Before
     public void setUp() throws Exception {
-        uploads = tmp.newFolder("uploads");
+        MemoryFileSystem fs = MemoryFileSystem.create();
+        uploads = fs.getPath("/uploads");
+        Files.createDirectories(uploads);
         config = new MultipartConfigDef();
-        config.location = uploads.getAbsolutePath();
+        config.location = uploads.toString();
+        config.locationPath = uploads;
         config.maxFileSize = 1000L;
         config.maxRequestSize = 5000L;
         config.fileSizeThreshold = 10L;
+    }
+
+    private static int count(Path dir) throws IOException {
+        int n = 0;
+        DirectoryStream<Path> ds = Files.newDirectoryStream(dir);
+        try {
+            for (Path p : ds) {
+                n++;
+            }
+        } finally {
+            ds.close();
+        }
+        return n;
     }
 
     private static String part(String headers, String body) {
@@ -126,11 +140,11 @@ public class MultipartParserTest {
         assertEquals(payload.length(), p.getSize());
         assertEquals(payload, read(p.getInputStream()));
         assertEquals("evil.txt", p.getSubmittedFileName());
-        assertEquals(1, uploads.list().length);
+        assertEquals(1, count(uploads));
         p.write("saved.txt");
-        assertTrue(new File(uploads, "saved.txt").exists());
+        assertTrue(Files.exists(uploads.resolve("saved.txt")));
         p.delete();
-        assertEquals(1, uploads.list().length);
+        assertEquals(1, count(uploads));
     }
 
     @Test
@@ -207,7 +221,7 @@ public class MultipartParserTest {
             assertNotNull(e.getMessage());
         }
         p.write("../../escape.txt");
-        assertTrue(new File(uploads, "escape.txt").exists());
+        assertTrue(Files.exists(uploads.resolve("escape.txt")));
         assertEquals(4L, p.getSize());
     }
 

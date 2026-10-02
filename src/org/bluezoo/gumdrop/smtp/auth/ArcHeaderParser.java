@@ -78,10 +78,10 @@ public final class ArcHeaderParser {
         if ("arc-authentication-results".equals(lower)) {
             handler.arcAuthenticationResults(instance, line);
         } else if ("arc-message-signature".equals(lower)) {
-            DkimSignature parsed = DkimSignature.parse(value);
+            DkimSignature parsed = DkimSignature.parseArc(value, false);
             handler.arcMessageSignature(instance, line, parsed);
         } else if (arcSeal) {
-            DkimSignature parsed = DkimSignature.parse(value);
+            DkimSignature parsed = DkimSignature.parseArc(value, true);
             handler.arcSeal(instance, line, parsed, tagScan.cv);
         }
     }

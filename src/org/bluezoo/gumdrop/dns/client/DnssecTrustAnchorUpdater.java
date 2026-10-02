@@ -30,10 +30,10 @@ import org.bluezoo.gumdrop.dns.DnsType;
 import org.bluezoo.gumdrop.ScheduledTimer;
 import org.bluezoo.gumdrop.TimerHandle;
 
-import java.io.File;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.nio.file.Path;
 import java.text.MessageFormat;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -128,7 +128,7 @@ public class DnssecTrustAnchorUpdater {
     private volatile long addHoldDownMs = DEFAULT_HOLD_DOWN_MS;
     private volatile long removeHoldDownMs = DEFAULT_HOLD_DOWN_MS;
     private volatile long checkIntervalMs = DEFAULT_CHECK_INTERVAL_MS;
-    private File stateFile;
+    private Path stateFile;
 
     private final Map<String, List<TrackedKey>> trustPoints = new ConcurrentHashMap<>();
 
@@ -213,7 +213,7 @@ public class DnssecTrustAnchorUpdater {
      *
      * @param file the state file (need not exist yet)
      */
-    public void setStateFile(File file) {
+    public void setStateFile(Path file) {
         this.stateFile = file;
         loadState();
     }
@@ -608,7 +608,7 @@ public class DnssecTrustAnchorUpdater {
             }
         }
         try {
-            Files.write(stateFile.toPath(), lines, StandardCharsets.US_ASCII);
+            Files.write(stateFile, lines, StandardCharsets.US_ASCII);
         } catch (IOException e) {
             LOGGER.log(Level.WARNING, MessageFormat.format(
                     L10N.getString("rfc5011.state_save_failed"), stateFile), e);
@@ -616,11 +616,11 @@ public class DnssecTrustAnchorUpdater {
     }
 
     private void loadState() {
-        if (stateFile == null || !stateFile.exists()) {
+        if (stateFile == null || !Files.exists(stateFile)) {
             return;
         }
         try {
-            for (String line : Files.readAllLines(stateFile.toPath(), StandardCharsets.US_ASCII)) {
+            for (String line : Files.readAllLines(stateFile, StandardCharsets.US_ASCII)) {
                 if (line.trim().isEmpty()) {
                     continue;
                 }

@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop;
 
+import org.bluezoo.gumdrop.testsupport.TestGumdrop;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -42,8 +43,7 @@ public class GumdropServerRegistryTest {
 
     @Before
     public void setUp() {
-        gumdrop = Gumdrop.boot();
-        gumdrop.shutdown();
+        gumdrop = TestGumdrop.create();
     }
 
     @After

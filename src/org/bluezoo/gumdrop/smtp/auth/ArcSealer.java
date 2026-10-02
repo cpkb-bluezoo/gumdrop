@@ -141,28 +141,22 @@ public class ArcSealer {
         String amsLine = signer.signArc(headersForSign, "ARC-Message-Signature",
                 instance, DEFAULT_AMS_HEADERS, bodyHashB64, null);
 
-        List<String> headersForSeal = new ArrayList<String>(headersForSign);
-        headersForSeal.add(amsLine);
-
-        List<String> sealH = buildSealSignedHeaderNames(instance);
+        // RFC 8617 section 5.1.1: the seal covers every earlier set (AAR,
+        // AMS, AS) and this instance's AAR and AMS; when the incoming chain
+        // failed validation it covers only this instance's own headers.
         ArcCvResult cv = existingChain.isEmpty() ? ArcCvResult.NONE : incomingCv;
-        String asLine = signer.signArc(headersForSeal, "ARC-Seal", instance, sealH,
-                bodyHashB64, cv);
+        List<String> sealed = new ArrayList<String>();
+        if (cv != ArcCvResult.FAIL) {
+            sealed.addAll(arcBlock);
+        }
+        sealed.add(aarLine);
+        sealed.add(amsLine);
+        String asLine = signer.signArcSeal(sealed, instance, cv);
 
         List<String> result = new ArrayList<String>(3);
         result.add(aarLine);
         result.add(amsLine);
         result.add(asLine);
         return result;
-    }
-
-    private static List<String> buildSealSignedHeaderNames(int instance) {
-        List<String> names = new ArrayList<String>();
-        for (int j = 1; j <= instance; j++) {
-            names.add("arc-seal");
-            names.add("arc-message-signature");
-            names.add("arc-authentication-results");
-        }
-        return names;
     }
 }

@@ -273,9 +273,7 @@ public class MqttClient {
             @Override
             public void discovered(byte[] echConfigList) {
                 try {
-                    ClientConnect.prepareTls(secure, tls, transportFactory, echConfigList);
-                    clientEndpoint = ClientConnect.openAndConnect(
-                            gumdrop, dial, transportFactory, protocolHandler);
+                    clientEndpoint = openEndpoint(gumdrop, protocolHandler, echConfigList);
                 } catch (IOException e) {
                     if (returned[0]) {
                         lifecycle.connectionLost(e);
@@ -289,6 +287,26 @@ public class MqttClient {
         if (immediateFailure[0] != null) {
             throw immediateFailure[0];
         }
+    }
+
+    /**
+     * Test seam: prepares TLS, opens the client endpoint and connects it to
+     * the protocol handler. Production behaviour dials the broker over a
+     * real socket; unit tests override this to attach the handler to an
+     * in-memory endpoint and play the broker frame by frame.
+     *
+     * @param gumdrop the runtime this connection is made under
+     * @param handler the protocol handler that receives the connection
+     * @param echConfigList DNS-discovered ECH configuration, or null
+     * @return the connected endpoint (may be null for an in-memory stand-in)
+     * @throws IOException if the endpoint cannot be opened
+     */
+    ClientEndpoint openEndpoint(Gumdrop gumdrop,
+            MqttClientProtocolHandler handler, byte[] echConfigList)
+            throws IOException {
+        ClientConnect.prepareTls(secure, tls, transportFactory, echConfigList);
+        return ClientConnect.openAndConnect(
+                gumdrop, dial, transportFactory, handler);
     }
 
     // ── Operations ──

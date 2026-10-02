@@ -34,7 +34,7 @@ import org.junit.Before;
 import org.junit.Test;
 
 import org.bluezoo.gumdrop.Gumdrop;
-import org.bluezoo.gumdrop.GumdropConfig;
+import org.bluezoo.gumdrop.testsupport.TestGumdrop;
 import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.auth.Realm;
 import org.bluezoo.gumdrop.auth.SaslMechanism;
@@ -56,15 +56,15 @@ public class IMAPSessionCoverageTest {
 
     private MemoryFileSystem mem;
     private Gumdrop gumdrop;
-    private ImapListener listener;
-    private ImapProtocolHandler handler;
-    private RecordingStubEndpoint endpoint;
-    private int tagCounter;
+    ImapListener listener;
+    ImapProtocolHandler handler;
+    RecordingStubEndpoint endpoint;
+    int tagCounter;
 
     @Before
     public void setUp() throws Exception {
         mem = MemoryFileSystem.create();
-        gumdrop = Gumdrop.boot(GumdropConfig.create().workerThreads(1).drainTimeoutMs(0));
+        gumdrop = TestGumdrop.create();
         Path mailRoot = mem.getPath("/maildir");
         Path userDir = mailRoot.resolve("editor");
         Files.createDirectories(userDir.resolve("cur"));
@@ -74,10 +74,20 @@ public class IMAPSessionCoverageTest {
         listener.setRealm(new AcceptingRealm("editor", "editor"));
         listener.setMailboxFactory(new MaildirMailboxFactory(mailRoot));
         listener.setAllowPlaintextLogin(true);
+        configureListener(listener);
         handler = new ImapProtocolHandler(listener);
-        endpoint = new RecordingStubEndpoint(143);
+        endpoint = newEndpoint();
         endpoint.setSelectorLoop(gumdrop.nextWorkerLoop());
         handler.connected(endpoint);
+    }
+
+    /** Lets a subclass adjust the listener before any handler is created. */
+    protected void configureListener(ImapListener l) {
+    }
+
+    /** Creates the endpoint the handler under test is connected to. */
+    protected RecordingStubEndpoint newEndpoint() {
+        return new RecordingStubEndpoint(143);
     }
 
     @After
@@ -88,7 +98,7 @@ public class IMAPSessionCoverageTest {
     }
 
     /** Sends a command with an auto-generated tag; returns the tagged line. */
-    private String cmd(String command) throws Exception {
+    String cmd(String command) throws Exception {
         tagCounter++;
         String tag = "t" + tagCounter;
         endpoint.clearResponses();
@@ -96,36 +106,36 @@ public class IMAPSessionCoverageTest {
         return endpoint.awaitLineStartingWith(tag + " ");
     }
 
-    private void send(String data) {
+    void send(String data) {
         handler.receive(ByteBuffer.wrap(data.getBytes(StandardCharsets.UTF_8)));
     }
 
-    private void ok(String command) throws Exception {
+    void ok(String command) throws Exception {
         String line = cmd(command);
         assertTrue(command + " -> " + line, line.contains(" OK"));
     }
 
-    private void no(String command) throws Exception {
+    void no(String command) throws Exception {
         String line = cmd(command);
         assertTrue(command + " -> " + line, line.contains(" NO"));
     }
 
-    private void bad(String command) throws Exception {
+    void bad(String command) throws Exception {
         String line = cmd(command);
         assertTrue(command + " -> " + line, line.contains(" BAD"));
     }
 
     /** Any tagged completion is acceptable; exercises the code path. */
-    private void any(String command) throws Exception {
+    void any(String command) throws Exception {
         String line = cmd(command);
         assertNotNull(line);
     }
 
-    private void login() throws Exception {
+    void login() throws Exception {
         ok("LOGIN editor editor");
     }
 
-    private void append(String mailbox, String flags, String subject,
+    void append(String mailbox, String flags, String subject,
             String from, String extra) throws Exception {
         String msg = "From: " + from + "\r\n"
                 + "To: bob@example.com\r\n"
@@ -146,7 +156,7 @@ public class IMAPSessionCoverageTest {
         assertTrue(line, line.contains(" OK"));
     }
 
-    private void populate() throws Exception {
+    void populate() throws Exception {
         login();
         append("INBOX", null, "First topic", "alice@example.com", "");
         append("INBOX", "\\Seen", "Second topic", "dave@example.com",
@@ -546,16 +556,22 @@ public class IMAPSessionCoverageTest {
         handler.disconnected();
     }
 
-    private static final class AcceptingRealm implements Realm {
+    static class AcceptingRealm implements Realm {
         private final String user;
         private final String pass;
+        private final boolean admin;
         private static final Set<SaslMechanism> SUPPORTED =
                 Collections.unmodifiableSet(
                         EnumSet.of(SaslMechanism.PLAIN, SaslMechanism.LOGIN));
 
         AcceptingRealm(String user, String pass) {
+            this(user, pass, false);
+        }
+
+        AcceptingRealm(String user, String pass, boolean admin) {
             this.user = user;
             this.pass = pass;
+            this.admin = admin;
         }
 
         @Override
@@ -586,7 +602,7 @@ public class IMAPSessionCoverageTest {
 
         @Override
         public boolean isUserInRole(String username, String role) {
-            return false;
+            return admin && user.equals(username) && "admin".equals(role);
         }
     }
 }

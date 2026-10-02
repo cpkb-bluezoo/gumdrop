@@ -22,7 +22,7 @@
 package org.bluezoo.gumdrop.imap;
 
 import org.bluezoo.gumdrop.Gumdrop;
-import org.bluezoo.gumdrop.GumdropConfig;
+import org.bluezoo.gumdrop.testsupport.TestGumdrop;
 import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.auth.Realm;
 import org.bluezoo.gumdrop.auth.SaslMechanism;
@@ -66,8 +66,8 @@ public class IMAPMaildirAppendTest {
     @Before
     public void setUp() throws Exception {
         mem = MemoryFileSystem.create();
-        gumdrop = Gumdrop.boot(GumdropConfig.create().workerThreads(1).drainTimeoutMs(0));
-        assertNotNull("StorageExecutor must exist after Gumdrop.start()",
+        gumdrop = TestGumdrop.create();
+        assertNotNull("StorageExecutor must exist",
                 gumdrop.getStorageExecutor());
     }
 

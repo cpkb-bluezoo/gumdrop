@@ -149,12 +149,55 @@ public final class ServerXmlLoader {
             callback.onError("Cannot open " + configFile + ": " + e.getMessage());
             return;
         }
+        loadFrom(new ChannelSource(channel), baseDir, configFile.toURI().toString(), callback);
+    }
+
+    /**
+     * Positional, asynchronous chunk reader the loader pulls the document
+     * from. Package-private so unit tests can substitute an in-memory mock
+     * for the real {@link AsynchronousFileChannel}.
+     */
+    interface ChunkSource {
+
+        /**
+         * Reads into {@code dst} from {@code position} and completes
+         * {@code handler} with the byte count, or -1 at end of input.
+         */
+        void read(ByteBuffer dst, long position, CompletionHandler<Integer, Void> handler);
+
+        /**
+         * Releases the underlying resource.
+         */
+        void close();
+    }
+
+    /** {@link ChunkSource} backed by a real asynchronous file channel. */
+    private static final class ChannelSource implements ChunkSource {
+
+        private final AsynchronousFileChannel channel;
+
+        ChannelSource(AsynchronousFileChannel channel) {
+            this.channel = channel;
+        }
+
+        @Override
+        public void read(ByteBuffer dst, long position, CompletionHandler<Integer, Void> handler) {
+            channel.read(dst, position, null, handler);
+        }
+
+        @Override
+        public void close() {
+            closeQuietly(channel);
+        }
+    }
+
+    static void loadFrom(ChunkSource source, File baseDir, String systemId, Callback callback) {
         Handler handler = new Handler(baseDir);
         Parser parser = new Parser();
         setHandler(parser, handler);
         parser.setEntityResolver(XMLParseUtils.DENY_EXTERNAL_ENTITIES);
-        parser.setSystemId(configFile.toURI().toString());
-        new AsyncReader(channel, parser, handler, callback).start();
+        parser.setSystemId(systemId);
+        new AsyncReader(source, parser, handler, callback).start();
     }
 
     /**
@@ -166,14 +209,14 @@ public final class ServerXmlLoader {
      */
     private static final class AsyncReader {
 
-        private final AsynchronousFileChannel channel;
+        private final ChunkSource channel;
         private final Parser parser;
         private final Handler handler;
         private final Callback callback;
         private final ByteBuffer buffer = ByteBuffer.allocate(BUFFER_SIZE);
         private long filePosition;
 
-        AsyncReader(AsynchronousFileChannel channel, Parser parser, Handler handler,
+        AsyncReader(ChunkSource channel, Parser parser, Handler handler,
                 Callback callback) {
             this.channel = channel;
             this.parser = parser;
@@ -186,7 +229,7 @@ public final class ServerXmlLoader {
         }
 
         private void readNext() {
-            channel.read(buffer, filePosition, null, new CompletionHandler<Integer, Void>() {
+            channel.read(buffer, filePosition, new CompletionHandler<Integer, Void>() {
                 @Override
                 public void completed(Integer result, Void attachment) {
                     if (result == null || result < 0) {
@@ -213,12 +256,12 @@ public final class ServerXmlLoader {
         }
 
         private void finish() {
-            closeQuietly(channel);
+            channel.close();
             complete(parser, handler, callback);
         }
 
         private void fail(String message) {
-            closeQuietly(channel);
+            channel.close();
             callback.onError(message);
         }
     }

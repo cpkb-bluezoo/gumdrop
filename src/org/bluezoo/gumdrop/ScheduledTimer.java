@@ -324,6 +324,23 @@ public final class ScheduledTimer implements Runnable {
     }
 
     /**
+     * Returns a snapshot of the entries currently held in the queue, in no
+     * particular order, including any cancelled entries not yet swept, so a
+     * test that never starts the timer thread can find a timer it armed and
+     * fire its callback by hand.
+     *
+     * @return the queued entries
+     */
+    List<TimerEntry> pendingEntries() {
+        lock.lock();
+        try {
+            return new ArrayList<TimerEntry>(queue);
+        } finally {
+            lock.unlock();
+        }
+    }
+
+    /**
      * Shuts down the timer thread.
      */
     public void shutdown() {

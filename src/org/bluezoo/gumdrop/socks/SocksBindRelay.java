@@ -24,7 +24,6 @@ package org.bluezoo.gumdrop.socks;
 import java.io.IOException;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
-import java.nio.channels.ServerSocketChannel;
 import java.nio.channels.SocketChannel;
 import java.text.MessageFormat;
 import java.util.ResourceBundle;
@@ -76,13 +75,14 @@ class SocksBindRelay implements AcceptSelectorLoop.RawAcceptHandler {
         void bindFailed(byte replyCode);
     }
 
+    private final SocksTransport transport;
     private final Endpoint controlEndpoint;
     private final org.bluezoo.gumdrop.socks.server.SocksServer server;
     private final long idleTimeoutMs;
     private final InetAddress expectedPeerAddress;
     private final Callback callback;
 
-    private ServerSocketChannel serverChannel;
+    private SocksTransport.BindListener listener;
     private boolean closed;
     private TimerHandle idleTimer;
 
@@ -102,6 +102,20 @@ class SocksBindRelay implements AcceptSelectorLoop.RawAcceptHandler {
                    long idleTimeoutMs,
                    InetAddress expectedPeerAddress,
                    Callback callback) {
+        this(new SocketSocksTransport(), controlEndpoint, server,
+                idleTimeoutMs, expectedPeerAddress, callback);
+    }
+
+    /**
+     * Creates a BIND relay over the given transport (a test seam: tests
+     * pass a mock that binds no socket).
+     */
+    SocksBindRelay(SocksTransport transport, Endpoint controlEndpoint,
+                   org.bluezoo.gumdrop.socks.server.SocksServer server,
+                   long idleTimeoutMs,
+                   InetAddress expectedPeerAddress,
+                   Callback callback) {
+        this.transport = transport;
         this.controlEndpoint = controlEndpoint;
         this.server = server;
         this.idleTimeoutMs = idleTimeoutMs;
@@ -117,19 +131,9 @@ class SocksBindRelay implements AcceptSelectorLoop.RawAcceptHandler {
      * @throws IOException if the server socket cannot be bound
      */
     InetSocketAddress start() throws IOException {
-        serverChannel = ServerSocketChannel.open();
-        serverChannel.configureBlocking(false);
-        // Bind to loopback only — BIND is a server-assisted relay, not a
-        // general inbound listener, so exposing it on all interfaces is
-        // unnecessary and widens the attack surface.
-        serverChannel.bind(new InetSocketAddress(
-                InetAddress.getLoopbackAddress(), 0));
-
-        InetSocketAddress boundAddress =
-                (InetSocketAddress) serverChannel.getLocalAddress();
-
-        controlEndpoint.getSelectorLoop().getGumdrop().getAcceptLoop()
-                .registerRawAcceptor(serverChannel, this);
+        listener = transport.listenBind(
+                controlEndpoint.getSelectorLoop().getGumdrop(), this);
+        InetSocketAddress boundAddress = listener.address();
 
         startIdleTimer();
 
@@ -247,12 +251,8 @@ class SocksBindRelay implements AcceptSelectorLoop.RawAcceptHandler {
     }
 
     private void closeServerChannel() {
-        if (serverChannel != null && serverChannel.isOpen()) {
-            try {
-                serverChannel.close();
-            } catch (IOException e) {
-                // ignore
-            }
+        if (listener != null) {
+            listener.close();
         }
     }
 

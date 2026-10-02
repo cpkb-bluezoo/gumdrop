@@ -24,6 +24,7 @@ package org.bluezoo.gumdrop.http.server;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
 import java.io.ByteArrayOutputStream;
@@ -36,6 +37,7 @@ import org.bluezoo.gumdrop.http.Headers;
 import org.bluezoo.gumdrop.testsupport.BinaryRecordingEndpoint;
 import org.bluezoo.gumdrop.testsupport.InlineSelectorLoop;
 import org.bluezoo.gumdrop.testsupport.RecordingWebSocketEventHandler;
+import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
 import org.junit.Test;
 
 /**
@@ -601,6 +603,170 @@ public class HttpProtocolHandlerHttp1Test {
         String w = f.wire().toLowerCase();
         assertTrue(w, w.contains("content-encoding: gzip"));
         assertTrue(w, w.contains("transfer-encoding: chunked"));
+    }
+
+    private static String compressionAttempt(boolean encode, boolean withLength, int status,
+            String method, boolean listenerCompresses, String extraName, String extraValue) {
+        Fixture f = new Fixture();
+        f.rec.encode = encode;
+        f.rec.withLength = withLength;
+        f.rec.status = status;
+        f.rec.extraName = extraName;
+        f.rec.extraValue = extraValue;
+        f.listener.setCompressResponses(listenerCompresses);
+        f.open();
+        f.feed(method + " /z HTTP/1.1\r\nHost: h\r\nAccept-Encoding: gzip\r\n\r\n", 100);
+        return f.wire().toLowerCase();
+    }
+
+    @Test
+    public void testResponseCompressionDisqualifiers() {
+        String compressed = compressionAttempt(true, false, 200, "GET", true, null, null);
+        assertTrue(compressed, compressed.contains("content-encoding: gzip"));
+        String withLength = compressionAttempt(true, true, 200, "GET", true, null, null);
+        assertFalse(withLength, withLength.contains("content-encoding: gzip"));
+        String preEncoded = compressionAttempt(true, false, 200, "GET", true, "Content-Encoding", "identity");
+        assertFalse(preEncoded, preEncoded.contains("content-encoding: gzip"));
+        String errorStatus = compressionAttempt(true, false, 404, "GET", true, null, null);
+        assertFalse(errorStatus, errorStatus.contains("content-encoding: gzip"));
+        String redirect = compressionAttempt(true, false, 301, "GET", true, null, null);
+        assertFalse(redirect, redirect.contains("content-encoding: gzip"));
+        String head = compressionAttempt(true, false, 200, "HEAD", true, null, null);
+        assertFalse(head, head.contains("content-encoding: gzip"));
+        String listenerOff = compressionAttempt(true, false, 200, "GET", false, null, null);
+        assertFalse(listenerOff, listenerOff.contains("content-encoding: gzip"));
+        String notOptedIn = compressionAttempt(false, false, 200, "GET", true, null, null);
+        assertFalse(notOptedIn, notOptedIn.contains("content-encoding: gzip"));
+    }
+
+    private static Fixture respondFromHeaders(String request, final int status, final boolean withBody,
+            final String[] extra) {
+        Fixture f = new Fixture();
+        f.rec.hook = new HeadersHook() {
+            @Override
+            public void run(HttpResponseState state, Headers headers) {
+                Headers resp = new Headers();
+                resp.add(":status", Integer.toString(status));
+                for (int i = 0; extra != null && i + 1 < extra.length; i += 2) {
+                    resp.add(extra[i], extra[i + 1]);
+                }
+                state.headers(resp);
+                if (withBody) {
+                    state.startResponseBody();
+                    state.responseBodyContent(ByteBuffer.wrap(new byte[] {'o', 'k'}));
+                    state.endResponseBody();
+                }
+                state.complete();
+            }
+        };
+        f.open();
+        f.feed(request, 100);
+        return f;
+    }
+
+    @Test
+    public void testApplicationSecurityHeadersAreNotDuplicated() {
+        Fixture f = respondFromHeaders("GET /z HTTP/1.1\r\nHost: h\r\n\r\n", 200, true,
+                new String[] {"X-Frame-Options", "DENY", "X-Content-Type-Options", "custom"});
+        String w = f.wire().toLowerCase();
+        assertTrue(w, w.contains("x-frame-options: deny"));
+        assertFalse(w, w.contains("x-frame-options: sameorigin"));
+        assertTrue(w, w.contains("x-content-type-options: custom"));
+        assertFalse(w, w.contains("x-content-type-options: nosniff"));
+    }
+
+    @Test
+    public void testBodylessStatusesAreNotChunked() {
+        String[] statuses = {"204", "304"};
+        for (int i = 0; i < statuses.length; i++) {
+            Fixture f = respondFromHeaders("GET /z HTTP/1.1\r\nHost: h\r\n\r\n",
+                    Integer.parseInt(statuses[i]), false, null);
+            String w = f.wire().toLowerCase();
+            assertTrue(w, w.startsWith("http/1.1 " + statuses[i]));
+            assertFalse(w, w.contains("transfer-encoding"));
+        }
+    }
+
+    @Test
+    public void testHeadersOnlyResponseIsDelimitedWithZeroLength() {
+        Fixture f = respondFromHeaders("GET /z HTTP/1.1\r\nHost: h\r\n\r\n", 200, false, null);
+        String w = f.wire().toLowerCase();
+        assertTrue(w, w.contains("content-length: 0") || w.contains("transfer-encoding: chunked"));
+    }
+
+    @Test
+    public void testConnectionCloseIsEchoedAndClosesTheEndpoint() {
+        Fixture f = respondFromHeaders("GET /z HTTP/1.1\r\nHost: h\r\nConnection: close\r\n\r\n",
+                200, true, null);
+        String w = f.wire().toLowerCase();
+        assertTrue(w, w.contains("connection: close"));
+        assertTrue(f.endpoint.getCloseCount() > 0);
+    }
+
+    @Test
+    public void testInformationalResponseHasNoEntityHeaders() {
+        Fixture f = new Fixture();
+        f.rec.hook = new HeadersHook() {
+            @Override
+            public void run(HttpResponseState state, Headers headers) {
+                Headers early = new Headers();
+                early.add("Link", "</s.css>; rel=preload");
+                state.sendInformational(103, early);
+                Headers resp = new Headers();
+                resp.add(":status", "200");
+                state.headers(resp);
+                state.complete();
+            }
+        };
+        f.open();
+        f.feed("GET /z HTTP/1.1\r\nHost: h\r\n\r\n", 100);
+        String w = f.wire();
+        assertTrue(w, w.startsWith("HTTP/1.1 103"));
+        assertTrue(w, w.contains("HTTP/1.1 200"));
+    }
+
+    private static TelemetryConfig tracing() {
+        TelemetryConfig config = new TelemetryConfig();
+        config.setTracesEnabled(true);
+        return config;
+    }
+
+    @Test
+    public void testTracingStartsSpanAndEndsItWithTheResponseStatus() {
+        Fixture f = new Fixture();
+        f.endpoint.setTelemetryConfig(tracing());
+        f.open();
+        f.feed("GET /t HTTP/1.1\r\nHost: h\r\nUser-Agent: probe\r\n\r\n", 100);
+        assertNotNull(f.endpoint.getTrace());
+        assertTrue(f.wire().toLowerCase(), f.wire().toLowerCase().contains("traceparent:"));
+        assertEquals(1, f.rec.completed);
+    }
+
+    @Test
+    public void testTracingContinuesAnIncomingTraceparent() {
+        Fixture f = new Fixture();
+        f.endpoint.setTelemetryConfig(tracing());
+        f.open();
+        f.feed("GET /t HTTP/1.1\r\nHost: h\r\n"
+                + "traceparent: 00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01\r\n\r\n", 100);
+        String w = f.wire().toLowerCase();
+        assertTrue(w, w.contains("traceparent: 00-4bf92f3577b34da6a3ce929d0e0e4736-"));
+    }
+
+    @Test
+    public void testTracingRecordsErrorStatuses() {
+        Fixture f = new Fixture();
+        f.endpoint.setTelemetryConfig(tracing());
+        f.rec.status = 503;
+        f.open();
+        f.feed("GET /t HTTP/1.1\r\nHost: h\r\n\r\n", 100);
+        assertTrue(f.wire(), f.wire().startsWith("HTTP/1.1 503"));
+        Fixture g = new Fixture();
+        g.endpoint.setTelemetryConfig(tracing());
+        g.rec.status = 404;
+        g.open();
+        g.feed("GET /t HTTP/1.1\r\nHost: h\r\n\r\n", 100);
+        assertTrue(g.wire(), g.wire().startsWith("HTTP/1.1 404"));
     }
 
     @Test

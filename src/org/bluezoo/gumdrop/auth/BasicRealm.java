@@ -23,8 +23,10 @@ package org.bluezoo.gumdrop.auth;
 
 import java.io.File;
 import java.io.IOException;
+import java.io.InputStream;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -489,8 +491,9 @@ public class BasicRealm extends AbstractXMLHandler implements Realm {
     public void setHref(Path path) {
         pendingGroupRefs = new LinkedHashMap<String, String>();
         try {
-            URL url = path.toUri().toURL();
-            XMLParseUtils.parseURL(url, this);
+            try (InputStream in = Files.newInputStream(path)) {
+                XMLParseUtils.parseStream(in, this, path.toUri().toString(), null);
+            }
             resolvePendingGroupReferences();
             logPlaintextPasswordWarning();
         } catch (IOException | SAXException e) {

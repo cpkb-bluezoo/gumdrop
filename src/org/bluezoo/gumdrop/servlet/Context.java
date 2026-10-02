@@ -48,7 +48,6 @@ import org.bluezoo.gumdrop.servlet.manager.HitStatistics;
 import org.bluezoo.gumdrop.servlet.session.SessionContext;
 import org.bluezoo.gumdrop.servlet.session.SessionManager;
 import org.bluezoo.gumdrop.util.IteratorEnumeration;
-import org.bluezoo.gumdrop.util.JarInputStream;
 import org.bluezoo.gumdrop.util.JulWarnings;
 import org.bluezoo.util.ByteArrays;
 
@@ -56,6 +55,7 @@ import org.xml.sax.SAXException;
 
 import java.io.*;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.lang.annotation.Annotation;
@@ -73,8 +73,6 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedDeque;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.jar.JarEntry;
-import java.util.jar.JarFile;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -108,12 +106,7 @@ import org.bluezoo.gumdrop.servlet.jsp.JspParserFactory;
 import org.bluezoo.gumdrop.servlet.jsp.JspPropertyGroupResolver;
 import org.bluezoo.gumdrop.servlet.jsp.JspServlet;
 import org.bluezoo.gumdrop.servlet.jsp.TaglibRegistry;
-import javax.tools.JavaCompiler;
-import javax.tools.JavaFileObject;
-import javax.tools.StandardJavaFileManager;
-import javax.tools.ToolProvider;
 import java.net.URLClassLoader;
-import jakarta.servlet.descriptor.JspPropertyGroupDescriptor;
 import jakarta.servlet.http.HttpSession;
 import jakarta.servlet.http.HttpSessionActivationListener;
 import jakarta.servlet.http.HttpSessionAttributeListener;
@@ -139,37 +132,27 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
     private static final String SCI_SERVICE =
             "META-INF/services/jakarta.servlet.ServletContainerInitializer";
 
-    /**
-     * Filename filter for JAR files.
-     */
-    private static final FilenameFilter JAR_FILTER = new FilenameFilter() {
-        @Override
-        public boolean accept(File dir, String name) {
-            return name.endsWith(".jar");
-        }
-    };
-
     Container container;
     String contextPath;
-    File root;
+    Path root;
     private ContainerClassLoader containerClassLoader;
     private ContextClassLoader contextClassLoader;
     byte[] digest; // MD5 digest of web.xml
 
     // ── Resource lookup caches (issue #137) ──
     //
-    // getResource/getResourcePaths used to reopen the WAR (new JarFile(root))
+    // getResource/getResourcePaths used to reopen the WAR (Archive.open(root))
     // and, on a miss, fully enumerate every entry just to find WEB-INF/lib/
     // *.jar files - on every static-file request, since DefaultServlet calls
-    // getResource up to three times per request. warJarFile is opened once
+    // getResource up to three times per request. warArchive is opened once
     // and kept open for the life of the context; warIndex is built from a
     // single enumeration pass on first use and cached thereafter, serving
     // subsequent directory-listing lookups from a map instead of rescanning.
-    // Lib jar JarFile handles are cached the same way rather than reopened
+    // Lib jar archive handles are cached the same way rather than reopened
     // per lookup.
-    private JarFile warJarFile;
+    private Archive warArchive;
     private volatile WarIndex warIndex;
-    private final Map<File, JarFile> libJarFileCache = new ConcurrentHashMap<>();
+    private final Map<String, Archive> libArchiveCache = new ConcurrentHashMap<>();
 
     /**
      * Cached index over a WAR-packaged context's entries: which entries are
@@ -187,14 +170,14 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
     }
 
     /**
-     * Returns the cached, kept-open {@link JarFile} for this WAR-packaged
+     * Returns the cached, kept-open {@link Archive} for this WAR-packaged
      * context's root, opening it once on first use.
      */
-    synchronized JarFile getWarJarFile() throws IOException {
-        if (warJarFile == null) {
-            warJarFile = new JarFile(root);
+    synchronized Archive getWarArchive() throws IOException {
+        if (warArchive == null) {
+            warArchive = Archive.open(root);
         }
-        return warJarFile;
+        return warArchive;
     }
 
     /**
@@ -214,10 +197,8 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
             Map<String, Set<String>> childrenByDir = new HashMap<>();
             List<String> libJarEntryNames = new ArrayList<>();
             String libPath = "WEB-INF/lib/";
-            JarFile warFile = getWarJarFile();
-            Enumeration<JarEntry> i = warFile.entries();
-            while (i.hasMoreElements()) {
-                String entry = i.nextElement().getName();
+            Archive warFile = getWarArchive();
+            for (String entry : warFile.entryNames()) {
                 // Reject a malicious/malformed WAR entry (e.g. containing
                 // "../") here, at the point the untrusted archive-entry
                 // name is first read, rather than downstream where it is
@@ -284,22 +265,40 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
     }
 
     /**
-     * Returns a cached, kept-open {@link JarFile} for a lib jar, opening it
-     * once rather than reopening it per lookup.
+     * Returns a cached, kept-open {@link Archive} for a lib jar, opening it
+     * once rather than reopening it per lookup. For an exploded context the
+     * jar is read in place; for a WAR it is read out of the WAR (extracted
+     * to a temporary file where the WAR is on the default file system).
+     *
+     * @param path the resource path of the jar, with or without leading '/'
      */
-    JarFile getCachedJarFile(File file) throws IOException {
-        JarFile jar = libJarFileCache.get(file);
-        if (jar != null) {
-            return jar;
+    Archive getLibArchive(String path) throws IOException {
+        if (path.charAt(0) != '/') {
+            path = "/" + path;
         }
-        synchronized (libJarFileCache) {
-            jar = libJarFileCache.get(file);
-            if (jar != null) {
-                return jar;
+        Archive archive = libArchiveCache.get(path);
+        if (archive != null) {
+            return archive;
+        }
+        synchronized (libArchiveCache) {
+            archive = libArchiveCache.get(path);
+            if (archive != null) {
+                return archive;
             }
-            jar = new JarFile(file);
-            libJarFileCache.put(file, jar);
-            return jar;
+            String entry = path.substring(1);
+            if (Files.isDirectory(root)) {
+                Path jarPath = root.resolve(entry);
+                archive = Archive.open(jarPath);
+            } else {
+                String suffix = (contextPath + path).replace('/', '_');
+                Archive war = getWarArchive();
+                archive = war.nested(entry, suffix);
+                if (archive == null) {
+                    throw new FileNotFoundException(path);
+                }
+            }
+            libArchiveCache.put(path, archive);
+            return archive;
         }
     }
 
@@ -309,25 +308,32 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
      */
     private void closeResourceCaches() {
         synchronized (this) {
-            if (warJarFile != null) {
+            if (warArchive != null) {
                 try {
-                    warJarFile.close();
+                    warArchive.close();
                 } catch (IOException e) {
                     LOGGER.log(Level.WARNING, L10N.getString("warn.error_closing_war"), e);
                 }
-                warJarFile = null;
+                warArchive = null;
             }
             warIndex = null;
         }
-        for (JarFile jar : libJarFileCache.values()) {
+        for (Archive jar : libArchiveCache.values()) {
             try {
                 jar.close();
             } catch (IOException e) {
                 LOGGER.log(Level.WARNING, L10N.getString("warn.error_closing_lib_jar"), e);
             }
         }
-        libJarFileCache.clear();
+        libArchiveCache.clear();
     }
+
+    private static final String TEMPDIR_ATTRIBUTE = "jakarta.servlet.context.tempdir";
+
+    // The SRV.3.7.1 temporary directory is created on first use rather than
+    // for every context at construction, so a context that never exposes it
+    // (the common case) does no file system work for it.
+    private boolean tempDirPending;
 
     Map<String,Realm> realms = new LinkedHashMap<>();
 
@@ -503,6 +509,16 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
      * @param root the root directory or WAR file
      */
     public void setRoot(File root) {
+        setRoot((root == null) ? null : root.toPath());
+    }
+
+    /**
+     * Sets the root of this context as a path on any file system (a
+     * package-private seam so that tests can use an in-memory file system).
+     *
+     * @param root the root directory or WAR file
+     */
+    void setRoot(Path root) {
         if (this.root != null) {
             throw new IllegalStateException("Root already set");
         }
@@ -524,9 +540,11 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
 
         // Work out if this context is the manager webapp
         boolean manager = false;
-        if (root.isFile() && root.getName().equals("manager.war")) {
+        Path rootName = root.getFileName();
+        if (Files.isRegularFile(root) && rootName != null
+                && rootName.toString().equals("manager.war")) {
             // compute checksum of the file and compare to correct version
-            try (InputStream in = new FileInputStream(root)) {
+            try (InputStream in = Files.newInputStream(root)) {
                 MessageDigest md5 = MessageDigest.getInstance("MD5");
                 DigestInputStream md5in = new DigestInputStream(in, md5);
                 byte[] buf = new byte[Math.max(4096, in.available())];
@@ -564,6 +582,14 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
     }
 
     public Context(Container container, String contextPath, File root) {
+        this(container, contextPath, (root == null) ? null : root.toPath());
+    }
+
+    /**
+     * Creates a context whose root is a path on any file system (a
+     * package-private seam so that tests can use an in-memory file system).
+     */
+    Context(Container container, String contextPath, Path root) {
         if (contextPath.endsWith("/")) {
             throw new IllegalArgumentException("Illegal context path: " + contextPath);
         }
@@ -639,32 +665,12 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
 
         contextClassLoader.reset();
 
-        // Temporary working directory (SRV.3.7.1)
-        try {
-            File tmpDir = File.createTempFile("gumdrop", contextPath.replace('/', '_'));
-            tmpDir.delete(); // delete file
-            tmpDir.mkdirs(); // replace by directory
-            tmpDir.deleteOnExit();
-            attributes.put("jakarta.servlet.context.tempdir", tmpDir);
-        } catch (IOException e) {
-            RuntimeException e2 = new RuntimeException();
-            e2.initCause(e);
-            throw e2;
-        }
+        // Temporary working directory (SRV.3.7.1): created on first use
+        tempDirPending = true;
 
         hitStatistics = new HitStatisticsImpl();
     }
     
-    /**
-     * Returns a File for accessing the resource at the given path.
-     * For exploded contexts, returns the file directly.
-     * For WAR contexts, extracts the resource to a temp file if needed.
-     * Used for accessing JARs in WEB-INF/lib.
-     */
-    File getLibFile(String path) {
-        return contextClassLoader.getFile(path);
-    }
-
     /**
      * Loads this context from the deployment descriptor.
      */
@@ -800,15 +806,12 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
     }
 
     private boolean isResourceDirectory(String resourcePath) {
-        if (root.isDirectory()) {
+        if (Files.isDirectory(root)) {
             String entry = resourcePath.charAt(0) == '/'
                     ? resourcePath.substring(1)
                     : resourcePath;
-            if (File.separatorChar != '/') {
-                entry = entry.replace('/', File.separatorChar);
-            }
-            File file = new File(root, entry);
-            return file.isDirectory();
+            Path file = root.resolve(entry);
+            return Files.isDirectory(file);
         }
         String entryPath = resourcePath.charAt(0) == '/'
                 ? resourcePath.substring(1)
@@ -868,12 +871,10 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
                     if (!libPath.toLowerCase().endsWith(".jar")) {
                         continue;
                     }
-                    File file = contextClassLoader.getFile(libPath);
-                    try (JarFile jarFile = new JarFile(file)) {
-                        JarEntry entry = jarFile.getJarEntry(SCI_SERVICE);
-                        if (entry != null) {
-                            readServiceProviders(jarFile.getInputStream(entry), providerNames);
-                        }
+                    Archive jarFile = getLibArchive(libPath);
+                    InputStream service = jarFile.stream(SCI_SERVICE);
+                    if (service != null) {
+                        readServiceProviders(service, providerNames);
                     }
                 }
             }
@@ -975,13 +976,12 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
 
     void scanJar(DeploymentDescriptorParser parser, String path, List<WebFragment> webFragments) throws IOException, SAXException {
         String webFragmentPath = "/META-INF/web-fragment.xml";
-        File file = contextClassLoader.getFile(path);
-        try (JarFile jarFile = new JarFile(file)) {
+        try {
+            Archive jarFile = getLibArchive(path);
             WebFragment webFragment = new WebFragment();
             // load web fragment
-            JarEntry jarEntry = jarFile.getJarEntry(webFragmentPath);
-            if (jarEntry != null) {
-                InputStream in = jarFile.getInputStream(jarEntry);
+            InputStream in = jarFile.stream(webFragmentPath.substring(1));
+            if (in != null) {
                 parser.parse(webFragment, in);
                 webFragment.resolve();
             }
@@ -990,16 +990,11 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
             boolean exclude = (noOthers && !absoluteOrdering.contains(webFragment.name));
             if (!exclude && !webFragment.metadataComplete) {
                 // scan classes in jar for annotations
-                Enumeration<JarEntry> i = jarFile.entries();
-                if (i != null) {
-                    while (i.hasMoreElements()) {
-                        jarEntry = i.nextElement();
-                        String entry = jarEntry.getName();
-                        if (entry.endsWith(".class")) {
-                            String className = entry.substring(0, entry.length() - 6).replace('/', '.');
-                            InputStream in = jarFile.getInputStream(jarEntry);
-                            scanClass(webFragment, className, in);
-                        }
+                for (String entry : jarFile.entryNames()) {
+                    if (entry.endsWith(".class")) {
+                        String className = entry.substring(0, entry.length() - 6).replace('/', '.');
+                        InputStream classIn = jarFile.stream(entry);
+                        scanClass(webFragment, className, classIn);
                     }
                 }
             }
@@ -1953,9 +1948,9 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
             }
         }
 
-        if (root.isDirectory()) {
+        if (Files.isDirectory(root)) {
             try {
-                Path rootPath = root.toPath().toRealPath();
+                Path rootPath = root.toRealPath();
                 Path resolved = rootPath;
                 for (String part : parts) {
                     if (!part.isEmpty()) {
@@ -1973,8 +1968,8 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
                     }
                     resolved = realPath;
                 }
-                String entry = rootPath.relativize(resolved).toString()
-                        .replace(File.separatorChar, '/');
+                Path relativePath = rootPath.relativize(resolved);
+                String entry = entryName(relativePath);
                 if (directoryListing) {
                     return entry.isEmpty() ? "" : entry + "/";
                 }
@@ -1987,11 +1982,34 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
         if (!directoryListing && trailingSlash) {
             return null;
         }
-        String entry = relative.replace(File.separatorChar, '/');
+        String separator = root.getFileSystem().getSeparator();
+        String entry = relative;
+        if (!"/".equals(separator)) {
+            entry = relative.replace(separator.charAt(0), '/');
+        }
         if (directoryListing) {
             return entry.isEmpty() ? "" : entry + "/";
         }
         return entry.isEmpty() ? null : entry;
+    }
+
+    /**
+     * Returns a relative path's names joined with '/', independent of the
+     * separator of the file system the path belongs to.
+     */
+    private static String entryName(Path relativePath) {
+        StringBuilder buf = new StringBuilder();
+        for (Path name : relativePath) {
+            String part = name.toString();
+            if (part.isEmpty()) {
+                continue;
+            }
+            if (buf.length() > 0) {
+                buf.append('/');
+            }
+            buf.append(part);
+        }
+        return buf.toString();
     }
 
     /**
@@ -2017,40 +2035,26 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
         }
         String libPath = "WEB-INF/lib/";
         Set<String> ret = new LinkedHashSet<>();
-        List<File> libJarFiles = new ArrayList<>(); // list of jar files to search WEB-INF/resources
-        if (root.isDirectory()) {
-            if (File.separatorChar != '/') {
-                entryPath = entryPath.replace('/', File.separatorChar);
-                libPath = libPath.replace('/', File.separatorChar);
-            }
-            File dir = new File(root, entryPath);
+        List<String> libJarFiles = new ArrayList<>(); // lib jars to search META-INF/resources
+        if (Files.isDirectory(root)) {
+            Path dir = root.resolve(entryPath);
             // Check file entries in root
-            String[] entries = dir.list();
-            if (entries != null) { // may not be a directory
-                for (String entry : entries) {
-                    File child = new File(dir, entry);
-                    if (child.isDirectory()) {
-                        ret.add(path + entry + "/");
-                    } else {
-                        ret.add(path + entry);
+            if (Files.isDirectory(dir)) { // may not be a directory
+                try (DirectoryStream<Path> children = Files.newDirectoryStream(dir)) {
+                    for (Path child : children) {
+                        String entry = child.getFileName().toString();
+                        if (Files.isDirectory(child)) {
+                            ret.add(path + entry + "/");
+                        } else {
+                            ret.add(path + entry);
+                        }
                     }
+                } catch (IOException e) {
+                    // unreadable: treat as having no entries
                 }
             }
             // Check entries in jars in WEB-INF/lib
-            dir = new File(root, libPath);
-            if (dir.exists() && dir.isDirectory()) {
-                FilenameFilter filenameFilter = new FilenameFilter() {
-                    public boolean accept(File dir, String name) {
-                        return name.toLowerCase().endsWith(".jar");
-                    }
-                };
-                entries = dir.list(filenameFilter);
-                if (entries != null) {
-                    for (String entry : entries) {
-                        libJarFiles.add(contextClassLoader.getFile(libPath + entry));
-                    }
-                }
-            }
+            addLibJars(libJarFiles, libPath);
         } else { // war file
             try {
                 WarIndex index = getWarIndex();
@@ -2060,9 +2064,7 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
                         ret.add("/" + entry);
                     }
                 }
-                for (String entry : index.libJarEntryNames) {
-                    libJarFiles.add(contextClassLoader.getFile(entry));
-                }
+                libJarFiles.addAll(index.libJarEntryNames);
             } catch (IOException e) {
                 String message = L10N.getString("err.reading_jar");
                 message = MessageFormat.format(message, root);
@@ -2072,13 +2074,10 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
         if (searchJars) {
             // Search resources in lib jar files (Servlet 3.0 spec section 4.6)
             String prefix = "META-INF/resources" + path;
-            for (File file : libJarFiles) {
+            for (String libJar : libJarFiles) {
                 try {
-                    JarFile jarFile = getCachedJarFile(file);
-                    Enumeration<JarEntry> jarEntries = jarFile.entries();
-                    while (jarEntries.hasMoreElements()) {
-                        JarEntry jarEntry = jarEntries.nextElement();
-                        String entryName = jarEntry.getName();
+                    Archive jarFile = getLibArchive(libJar);
+                    for (String entryName : jarFile.entryNames()) {
                         // Reject a malicious/malformed lib-jar entry (e.g.
                         // containing "../") here, at the point the
                         // untrusted archive-entry name is first read - same
@@ -2101,7 +2100,7 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
                     }
                 } catch (IOException e) {
                     String message = L10N.getString("err.reading_jar");
-                    message = MessageFormat.format(message, file);
+                    message = MessageFormat.format(message, libJar);
                     LOGGER.log(Level.SEVERE, message, e);
                 }
             }
@@ -2113,7 +2112,7 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
      * Search the given lib jar files and add any entries in their
      * WEB/INF/resources/ directory to the given collection.
      */
-    private void searchJars(Collection<String> acc, List<File> libJarFiles, String path) {
+    private void searchJars(Collection<String> acc, List<String> libJarFiles, String path) {
     }
 
     /**
@@ -2141,43 +2140,23 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
             return null;
         }
         String libPath = "WEB-INF/lib/";
-        List<File> libJarFiles = new ArrayList<>(); // list of jar files to search WEB-INF/resources
-        if (root.isDirectory()) {
-            if (File.separatorChar != '/') {
-                entryPath = entryPath.replace('/', File.separatorChar);
-                libPath = libPath.replace('/', File.separatorChar);
-            }
-            File file = new File(root, entryPath);
-            if (file.exists() && file.isFile()) {
+        List<String> libJarFiles = new ArrayList<>(); // lib jars to search META-INF/resources
+        if (Files.isDirectory(root)) {
+            Path file = root.resolve(entryPath);
+            if (Files.isRegularFile(file)) {
                 found = true;
             } else {
                 // Check entries in jars in WEB-INF/lib
-                File dir = new File(root, libPath);
-                if (dir.exists() && dir.isDirectory()) {
-                    FilenameFilter filenameFilter = new FilenameFilter() {
-                        public boolean accept(File dir, String name) {
-                            return name.toLowerCase().endsWith(".jar");
-                        }
-                    };
-                    String[] entries = dir.list(filenameFilter);
-                    if (entries != null) {
-                        for (String entry : entries) {
-                            libJarFiles.add(contextClassLoader.getFile(libPath + entry));
-                        }
-                    }
-                }
+                addLibJars(libJarFiles, libPath);
             }
         } else { // war file
             try {
-                JarFile warFile = getWarJarFile();
-                JarEntry jarEntry = warFile.getJarEntry(entryPath);
-                if (jarEntry != null) {
+                Archive warFile = getWarArchive();
+                if (warFile.contains(entryPath)) {
                     // entry in root
                     found = true;
                 } else {
-                    for (String entry : getWarIndex().libJarEntryNames) {
-                        libJarFiles.add(contextClassLoader.getFile(entry));
-                    }
+                    libJarFiles.addAll(getWarIndex().libJarEntryNames);
                 }
             } catch (IOException e) {
                 String message = L10N.getString("err.reading_jar");
@@ -2192,17 +2171,16 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
             // resources/" prefix before, so this branch could never
             // actually find anything).
             entryPath = "META-INF/resources/" + entryPath;
-            for (File file : libJarFiles) {
+            for (String libJar : libJarFiles) {
                 try {
-                    JarFile jarFile = getCachedJarFile(file);
-                    JarEntry jarEntry = jarFile.getJarEntry(entryPath);
-                    if (jarEntry != null) {
+                    Archive jarFile = getLibArchive(libJar);
+                    if (jarFile.contains(entryPath)) {
                         found = true;
                         break;
                     }
                 } catch (IOException e) {
                     String message = L10N.getString("err.reading_jar");
-                    message = MessageFormat.format(message, file);
+                    message = MessageFormat.format(message, libJar);
                     LOGGER.log(Level.SEVERE, message, e);
                 }
             }
@@ -2237,58 +2215,37 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
             return null;
         }
         String libPath = "WEB-INF/lib/";
-        List<File> libJarFiles = new ArrayList<>(); // list of jar files to search WEB-INF/resources
+        List<String> libJarFiles = new ArrayList<>(); // lib jars to search META-INF/resources
         try {
-            if (root.isDirectory()) {
-                if (File.separatorChar != '/') {
-                    entryPath = entryPath.replace('/', File.separatorChar);
-                    libPath = libPath.replace('/', File.separatorChar);
-                }
-                File file = new File(root, entryPath);
-                if (file.exists() && file.isFile()) {
-                    return new FileInputStream(file);
+            if (Files.isDirectory(root)) {
+                Path file = root.resolve(entryPath);
+                if (Files.isRegularFile(file)) {
+                    return Files.newInputStream(file);
                 } else {
                     // Check entries in jars in WEB-INF/lib
-                    File dir = new File(root, libPath);
-                    if (dir.exists() && dir.isDirectory()) {
-                        FilenameFilter filenameFilter = new FilenameFilter() {
-                            public boolean accept(File dir, String name) {
-                                return name.toLowerCase().endsWith(".jar");
-                            }
-                        };
-                        String[] entries = dir.list(filenameFilter);
-                        if (entries != null) {
-                            for (String entry : entries) {
-                                libJarFiles.add(contextClassLoader.getFile(libPath + entry));
-                            }
-                        }
-                    }
+                    addLibJars(libJarFiles, libPath);
                 }
             } else { // war file
-                // Probe via the shared, kept-open cache first (a fast
+                // Probe via the shared, kept-open archive first (a fast
                 // central-directory index lookup, not a reopen or
-                // enumeration); only open a dedicated JarFile - which the
-                // returned JarInputStream takes ownership of and closes -
+                // enumeration); only open a dedicated handle - which the
+                // returned stream takes ownership of and closes -
                 // once we know there is actually a hit.
-                JarFile cachedWarFile = getWarJarFile();
-                if (cachedWarFile.getJarEntry(entryPath) != null) {
-                    JarFile warFile = new JarFile(root); // NB we cannot auto-close the jarfile, use JarInputStream
-                    JarEntry jarEntry = warFile.getJarEntry(entryPath);
-                    return new JarInputStream(warFile, jarEntry);
+                Archive cachedWar = getWarArchive();
+                if (cachedWar.contains(entryPath)) {
+                    // NB we cannot auto-close the archive, the stream owns it
+                    return cachedWar.streamOwned(entryPath);
                 }
-                for (String entry : getWarIndex().libJarEntryNames) {
-                    libJarFiles.add(contextClassLoader.getFile(entry));
-                }
+                libJarFiles.addAll(getWarIndex().libJarEntryNames);
             }
             // Nothing matched so far
             // Search resources in lib jar files (Servlet 3.0 spec section 4.6)
             String jarResourcePath = "META-INF/resources/" + entryPath;
-            for (File file : libJarFiles) {
-                JarFile cachedJarFile = getCachedJarFile(file);
-                if (cachedJarFile.getJarEntry(jarResourcePath) != null) {
-                    JarFile jarFile = new JarFile(file); // NB we cannot auto-close it, use JarInputStream
-                    JarEntry jarEntry = jarFile.getJarEntry(jarResourcePath);
-                    return new JarInputStream(jarFile, jarEntry);
+            for (String libJar : libJarFiles) {
+                Archive cachedJar = getLibArchive(libJar);
+                if (cachedJar.contains(jarResourcePath)) {
+                    // NB we cannot auto-close it, the stream owns its handle
+                    return cachedJar.streamOwned(jarResourcePath);
                 }
             }
         } catch (IOException e) {
@@ -2297,6 +2254,30 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
             LOGGER.log(Level.SEVERE, message, e);
         }
         return null;
+    }
+
+    /**
+     * Adds the resource paths of the {@code .jar} files directly inside the
+     * given directory of an exploded context.
+     *
+     * @param acc receives the jar resource paths ({@code WEB-INF/lib/x.jar})
+     * @param libPath the lib directory, relative to the root, with trailing '/'
+     */
+    private void addLibJars(List<String> acc, String libPath) {
+        Path dir = root.resolve(libPath);
+        if (!Files.isDirectory(dir)) {
+            return;
+        }
+        try (DirectoryStream<Path> jars = Files.newDirectoryStream(dir)) {
+            for (Path jar : jars) {
+                String entry = jar.getFileName().toString();
+                if (entry.toLowerCase().endsWith(".jar")) {
+                    acc.add(libPath + entry);
+                }
+            }
+        } catch (IOException e) {
+            // unreadable: treat as having no lib jars
+        }
     }
 
     @Override public RequestDispatcher getRequestDispatcher(String path) {
@@ -2608,15 +2589,50 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
         return true;
     }
 
+    /**
+     * Creates the temporary working directory (SRV.3.7.1) if it has not been
+     * requested yet since the last reset and the application has not set or
+     * removed the attribute itself.
+     */
+    private synchronized void materializeTempDir() {
+        if (!tempDirPending) {
+            return;
+        }
+        tempDirPending = false;
+        try {
+            File tmpDir = File.createTempFile("gumdrop", contextPath.replace('/', '_'));
+            tmpDir.delete(); // delete file
+            tmpDir.mkdirs(); // replace by directory
+            tmpDir.deleteOnExit();
+            attributes.put(TEMPDIR_ATTRIBUTE, tmpDir);
+        } catch (IOException e) {
+            RuntimeException e2 = new RuntimeException();
+            e2.initCause(e);
+            throw e2;
+        }
+    }
+
     @Override public Object getAttribute(String name) {
+        if (tempDirPending && TEMPDIR_ATTRIBUTE.equals(name)) {
+            materializeTempDir();
+        }
         return attributes.get(name);
     }
 
     @Override public Enumeration<String> getAttributeNames() {
+        if (tempDirPending) {
+            // list the temporary directory attribute without creating it
+            Set<String> names = new LinkedHashSet<>(attributes.keySet());
+            names.add(TEMPDIR_ATTRIBUTE);
+            return new IteratorEnumeration<String>(names);
+        }
         return new IteratorEnumeration<String>(attributes.keySet());
     }
 
     @Override public void setAttribute(String name, Object value) {
+        if (tempDirPending && TEMPDIR_ATTRIBUTE.equals(name)) {
+            materializeTempDir();
+        }
         if (value == null) {
             removeAttribute(name);
         } else {
@@ -2633,6 +2649,9 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
     }
 
     @Override public void removeAttribute(String name) {
+        if (tempDirPending && TEMPDIR_ATTRIBUTE.equals(name)) {
+            materializeTempDir();
+        }
         Object oldValue = attributes.remove(name);
         ServletContextAttributeEvent event = new ServletContextAttributeEvent(this, name, oldValue);
         for (ServletContextAttributeListener l : servletContextAttributeListeners) {
@@ -3195,228 +3214,6 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
         }
 
         return result + "_jsp";
-    }
-
-    /**
-     * Extracts the character encoding for a JSP file from JSP configuration.
-     * 
-     * @param path the JSP file path to check
-     * @return the encoding specified in JSP config, or "UTF-8" as default
-     */
-    private String extractEncodingFromJspConfig(String path) {
-        // Default encoding
-        String encoding = "UTF-8";
-        
-        // Check JSP configuration for encoding settings
-        if (jspConfig != null) {
-            // Iterate through JSP property groups
-            for (JspPropertyGroupDescriptor propertyGroup : jspConfig.getJspPropertyGroups()) {
-                // Check if this property group applies to our JSP file path
-                if (matchesUrlPatterns(path, propertyGroup.getUrlPatterns())) {
-                    String pageEncoding = propertyGroup.getPageEncoding();
-                    if (pageEncoding != null && !pageEncoding.isEmpty()) {
-                        encoding = pageEncoding;
-                        LOGGER.fine(MessageFormat.format(L10N.getString("debug.jsp_encoding_from_property_group"), encoding, path));
-                        break; // Use the first matching property group
-                    }
-                }
-            }
-        }
-        
-        return encoding;
-    }
-
-    /**
-     * Checks if a JSP file path matches any of the URL patterns in a collection.
-     * 
-     * @param jspPath the JSP file path
-     * @param urlPatterns the collection of URL patterns to match against
-     * @return true if the path matches any pattern, false otherwise
-     */
-    private boolean matchesUrlPatterns(String jspPath, Collection<String> urlPatterns) {
-        if (urlPatterns == null || urlPatterns.isEmpty()) {
-            return false;
-        }
-        
-        for (String pattern : urlPatterns) {
-            if (matchesUrlPattern(jspPath, pattern)) {
-                return true;
-            }
-        }
-        
-        return false;
-    }
-
-    /**
-     * Checks if a JSP file path matches a specific URL pattern.
-     * Supports exact matches, prefix matches (ending with /*), 
-     * and extension matches (starting with *.).
-     * 
-     * @param jspPath the JSP file path
-     * @param pattern the URL pattern to match against
-     * @return true if the path matches the pattern, false otherwise
-     */
-    private boolean matchesUrlPattern(String jspPath, String pattern) {
-        if (pattern == null || jspPath == null) {
-            return false;
-        }
-        
-        // Exact match
-        if (pattern.equals(jspPath)) {
-            return true;
-        }
-        
-        // Extension pattern: *.jsp, *.jspx, etc.
-        if (pattern.startsWith("*.")) {
-            String extension = pattern.substring(1); // Remove the *
-            return jspPath.endsWith(extension);
-        }
-        
-        // Prefix pattern: /admin/*, /secure/*, etc.
-        if (pattern.endsWith("/*")) {
-            String prefix = pattern.substring(0, pattern.length() - 2); // Remove the /*
-            return jspPath.startsWith(prefix + "/") || jspPath.equals(prefix);
-        }
-        
-        // Default servlet pattern: /
-        if (pattern.equals("/")) {
-            return true; // Matches everything
-        }
-        
-        return false;
-    }
-
-    /**
-     * Compiles a Java source file to a class file using the internal Java compiler.
-     */
-    private boolean compileJavaFile(File sourceFile, File classFile, File outputDir) {
-        try {
-            // Use JavaCompiler for compilation
-            JavaCompiler compiler = ToolProvider.getSystemJavaCompiler();
-            if (compiler == null) {
-                LOGGER.severe(L10N.getString("severe.no_java_compiler"));
-                return false;
-            }
-
-            // Set up compilation options
-            List<String> options = new ArrayList<>();
-            options.add("-cp");
-            
-            // Build classpath including servlet API and context classloader
-            StringBuilder classpath = new StringBuilder();
-            
-            // Add current Java classpath (includes compiled Gumdrop classes with JSP API)
-            String currentClasspath = System.getProperty("java.class.path");
-            if (currentClasspath != null) {
-                classpath.append(currentClasspath);
-            }
-            
-            // Add Gumdrop build directory (where JSP API classes are compiled)
-            String gumdropBuildPath = System.getProperty("gumdrop.build.path", "build");
-            File buildDir = new File(gumdropBuildPath);
-            if (buildDir.exists()) {
-                if (classpath.length() > 0) {
-                    classpath.append(File.pathSeparator);
-                }
-                classpath.append(buildDir.getAbsolutePath());
-            }
-            
-            // Add servlet API jars from lib directory
-            String gumdropLibPath = System.getProperty("gumdrop.lib.path", "lib");
-            File libDir = new File(gumdropLibPath);
-            if (libDir.exists()) {
-                File[] jars = libDir.listFiles(JAR_FILTER);
-                if (jars != null) {
-                    for (File jar : jars) {
-                        if (classpath.length() > 0) {
-                            classpath.append(File.pathSeparator);
-                        }
-                        classpath.append(jar.getAbsolutePath());
-                    }
-                }
-            }
-            
-            // Add WEB-INF/lib jars from the context
-            File webInfLib = new File(root, "WEB-INF" + File.separator + "lib");
-            if (webInfLib.exists()) {
-                File[] jars = webInfLib.listFiles(JAR_FILTER);
-                if (jars != null) {
-                    for (File jar : jars) {
-                        if (classpath.length() > 0) {
-                            classpath.append(File.pathSeparator);
-                        }
-                        classpath.append(jar.getAbsolutePath());
-                    }
-                }
-            }
-            
-            // Add WEB-INF/classes directory
-            File webInfClasses = new File(root, "WEB-INF" + File.separator + "classes");
-            if (webInfClasses.exists()) {
-                if (classpath.length() > 0) {
-                    classpath.append(File.pathSeparator);
-                }
-                classpath.append(webInfClasses.getAbsolutePath());
-            }
-
-            options.add(classpath.toString());
-            options.add("-d");
-            options.add(outputDir.getAbsolutePath());
-
-            // Debug logging for classpath
-            if (LOGGER.isLoggable(Level.FINE)) {
-                LOGGER.fine(MessageFormat.format(L10N.getString("debug.jsp_compilation_classpath"), classpath.toString()));
-            }
-
-            // Compile the source file
-            StandardJavaFileManager fileManager = compiler.getStandardFileManager(null, null, null);
-            Iterable<? extends JavaFileObject> compilationUnits = 
-                fileManager.getJavaFileObjectsFromFiles(Arrays.asList(sourceFile));
-
-            JavaCompiler.CompilationTask task = compiler.getTask(
-                null, fileManager, null, options, null, compilationUnits);
-
-            boolean success = task.call();
-            fileManager.close();
-
-            return success && classFile.exists();
-
-        } catch (IOException e) {
-            LOGGER.log(Level.SEVERE, L10N.getString("severe.jsp_compilation_error"), e);
-            return false;
-        }
-    }
-
-    /**
-     * Loads a compiled class file using a custom class loader.
-     */
-    private Class<?> loadCompiledClass(String className, File classFile) throws IOException, ClassNotFoundException {
-        // Read class file bytes
-        byte[] classBytes;
-        try (FileInputStream fis = new FileInputStream(classFile)) {
-            ByteArrayOutputStream baos = new ByteArrayOutputStream();
-            byte[] buffer = new byte[8192];
-            int bytesRead;
-            while ((bytesRead = fis.read(buffer)) != -1) {
-                baos.write(buffer, 0, bytesRead);
-            }
-            classBytes = baos.toByteArray();
-        }
-
-        // Define the class using a custom class loader that can access the context
-        ClassLoader parentLoader = contextClassLoader != null ? contextClassLoader : getClass().getClassLoader();
-        
-        ClassLoader jspClassLoader = new ClassLoader(parentLoader) {
-            @Override
-            protected Class<?> findClass(String name) throws ClassNotFoundException {
-                if (className.equals(name)) {
-                    return defineClass(name, classBytes, 0, classBytes.length);
-                }
-                return super.findClass(name);
-            }
-        };
-
-        return jspClassLoader.loadClass(className);
     }
 
     @Override public ServletRegistration.Dynamic addJspFile(String servletName, String jspFile) {

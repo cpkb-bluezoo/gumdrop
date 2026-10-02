@@ -85,6 +85,7 @@ public class MdnsListener extends Listener {
     private org.bluezoo.gumdrop.mdns.server.MdnsServer server;
     private UdpTransportFactory transportFactory;
     private volatile UdpEndpoint endpoint;
+    private ProtocolHandler datagramHandler;
     private InetAddress group;
     private InetSocketAddress groupAddress;
 
@@ -190,27 +191,63 @@ public class MdnsListener extends Listener {
         transportFactory.start();
 
         try {
-            DatagramChannel channel =
-                    DatagramChannel.open(StandardProtocolFamily.INET);
-            channel.configureBlocking(false);
-            channel.setOption(StandardSocketOptions.SO_REUSEADDR, true);
-            channel.bind(new InetSocketAddress(port));
-            channel.setOption(StandardSocketOptions.IP_MULTICAST_TTL,
-                    MULTICAST_TTL);
-
-            int joined = joinAllInterfaces(channel);
-            if (joined == 0) {
-                LOGGER.warning(MdnsServer.L10N.getString(
-                        "warn.mdns_no_multicast_interface"));
-            }
-
+            DatagramChannel channel = openChannel();
             goodbyeSent = false;
+            datagramHandler = new MdnsDatagramHandler();
             endpoint = transportFactory.createServerEndpoint(
-                    gumdrop, channel, new MdnsDatagramHandler());
+                    gumdrop, channel, datagramHandler);
         } catch (IOException e) {
             LOGGER.log(Level.SEVERE, MessageFormat.format(
                     MdnsServer.L10N.getString("log.mdns_bind_failed"), port), e);
         }
+    }
+
+    /**
+     * Opens, binds and configures the multicast datagram channel, joining
+     * every eligible interface. This is the only part of {@link #start}
+     * that touches the network stack; unit tests override it to supply an
+     * in-memory channel, so lifecycle behaviour can be exercised without
+     * multicast. Production behaviour is unchanged.
+     *
+     * @return the bound, non-blocking channel
+     * @throws IOException if the channel cannot be opened or bound
+     */
+    DatagramChannel openChannel() throws IOException {
+        DatagramChannel channel =
+                DatagramChannel.open(StandardProtocolFamily.INET);
+        channel.configureBlocking(false);
+        channel.setOption(StandardSocketOptions.SO_REUSEADDR, true);
+        channel.bind(new InetSocketAddress(port));
+        channel.setOption(StandardSocketOptions.IP_MULTICAST_TTL,
+                MULTICAST_TTL);
+
+        int joined = joinAllInterfaces(channel);
+        if (joined == 0) {
+            LOGGER.warning(MdnsServer.L10N.getString(
+                    "warn.mdns_no_multicast_interface"));
+        }
+        return channel;
+    }
+
+    /**
+     * Returns the handler that receives this listener's datagrams, or
+     * null before {@link #start}. Lets unit tests deliver a datagram
+     * without a live selector loop.
+     *
+     * @return the datagram handler
+     */
+    ProtocolHandler getDatagramHandler() {
+        return datagramHandler;
+    }
+
+    /**
+     * Returns the bound endpoint, or null. Lets unit tests flush the
+     * endpoint's queued datagrams through an in-memory channel.
+     *
+     * @return the endpoint
+     */
+    UdpEndpoint getEndpoint() {
+        return endpoint;
     }
 
     /**

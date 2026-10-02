@@ -87,6 +87,7 @@ public final class Dtls12RecordEngine {
     private HelloVerifyCallback helloVerifyCallback;
     private boolean alertSent;
     private boolean failed;
+    private int discardedRecords;
 
     /** Datagrams received while a handshake batch was in flight on CryptoExecutor. */
     private final Deque<byte[]> pendingInboundDatagrams = new ArrayDeque<byte[]>();
@@ -175,6 +176,10 @@ public final class Dtls12RecordEngine {
             return;
         }
         plaintextWriteSeq = nextPlaintextSeq;
+        // The probe ClientHello consumed handshake message_seq 0; our next
+        // handshake message (ClientKeyExchange) must carry 1 or the server's
+        // reassembler discards it as a replay (RFC 6347 section 4.2.2).
+        reassembler.nextWriteMessageSeq();
         engine.clientNoteClientHelloSent(handshakeWire);
     }
 
@@ -219,7 +224,7 @@ public final class Dtls12RecordEngine {
         int pos = offset;
         while (pos < end) {
             if (end - pos < RECORD_HEADER_LEN) {
-                fail(sink, AlertDescription.DECODE_ERROR, "truncated DTLS record header");
+                discard();
                 return;
             }
             int contentType = datagram[pos] & 0xff;
@@ -232,11 +237,12 @@ public final class Dtls12RecordEngine {
             }
             int recordLength = ((datagram[pos + 11] & 0xff) << 8) | (datagram[pos + 12] & 0xff);
             if (versionMajor != DTLS_VERSION_MAJOR || versionMinor != DTLS_VERSION_MINOR) {
-                fail(sink, AlertDescription.PROTOCOL_VERSION, "unexpected DTLS version");
+                // the length field of a record with an unknown version cannot be trusted
+                discard();
                 return;
             }
             if (pos + RECORD_HEADER_LEN + recordLength > end) {
-                fail(sink, AlertDescription.DECODE_ERROR, "truncated DTLS record body");
+                discard();
                 return;
             }
             byte[] body = Arrays.copyOfRange(datagram, pos + RECORD_HEADER_LEN,
@@ -253,6 +259,14 @@ public final class Dtls12RecordEngine {
                 return;
             }
         }
+    }
+
+    /**
+     * Records and datagram tails silently discarded because they were
+     * malformed or failed authentication (RFC 6347 section 4.1.2.7).
+     */
+    int discardedRecordCount() {
+        return discardedRecords;
     }
 
     private void resumePendingInboundDatagrams() {
@@ -372,13 +386,28 @@ public final class Dtls12RecordEngine {
         }
     }
 
+    /**
+     * Silently drops an invalid record (RFC 6347 section 4.1.2.7): anyone able
+     * to spoof a datagram could otherwise end the session.
+     */
+    private void discard() {
+        discardedRecords++;
+    }
+
     private boolean processRecord(int contentType, int epoch, long seq, byte[] body, TlsRecordSink sink) {
         if (contentType == CONTENT_CHANGE_CIPHER_SPEC) {
             if (epoch != readEpoch) {
-                fail(sink, AlertDescription.UNEXPECTED_MESSAGE, "ChangeCipherSpec for wrong epoch");
-                return false;
+                // a retransmitted flight repeats its ChangeCipherSpec
+                discard();
+                return true;
             }
             activateRead();
+            return true;
+        }
+        boolean authenticated = epoch != 0;
+        if (!authenticated && engine.isComplete()) {
+            // epoch 0 carries no protection: once the handshake is over it can only be noise
+            discard();
             return true;
         }
 
@@ -386,23 +415,22 @@ public final class Dtls12RecordEngine {
         try {
             plaintext = decryptRecord(contentType, epoch, seq, body);
         } catch (HandshakeFormatException e) {
-            fail(sink, AlertDescription.BAD_RECORD_MAC,
-                    "malformed or unauthenticated DTLS record: " + e.getMessage());
-            return false;
+            discard();
+            return true;
         } catch (GeneralSecurityException e) {
-            fail(sink, AlertDescription.BAD_RECORD_MAC,
-                    "malformed or unauthenticated DTLS record: " + e.getMessage());
-            return false;
+            discard();
+            return true;
         }
         if (plaintext == null) {
-            if (contentType == CONTENT_HANDSHAKE) {
-                fail(sink, AlertDescription.UNEXPECTED_MESSAGE,
-                        "discarded handshake record (epoch=" + epoch + ", seq=" + seq + ")");
-                return false;
-            }
+            // replayed or too old for the replay window
+            discard();
             return true;
         }
         if (plaintext.length > engine.getInboundPlaintextLimit()) {
+            if (!authenticated) {
+                discard();
+                return true;
+            }
             fail(sink, AlertDescription.RECORD_OVERFLOW, "plaintext exceeds negotiated record_size_limit");
             return false;
         }
@@ -414,10 +442,18 @@ public final class Dtls12RecordEngine {
 
         switch (contentType) {
             case CONTENT_ALERT:
+                if (!authenticated && plaintext.length != 2) {
+                    discard();
+                    return true;
+                }
                 return handleAlert(plaintext, sink);
             case CONTENT_HANDSHAKE:
-                return handleHandshake(plaintext, sink);
+                return handleHandshake(plaintext, authenticated, sink);
             case CONTENT_APPLICATION_DATA:
+                if (!authenticated) {
+                    discard();
+                    return true;
+                }
                 if (!engine.isComplete()) {
                     fail(sink, AlertDescription.UNEXPECTED_MESSAGE, "application data before handshake completed");
                     return false;
@@ -425,6 +461,10 @@ public final class Dtls12RecordEngine {
                 sink.applicationDataReady(plaintext);
                 return true;
             default:
+                if (!authenticated) {
+                    discard();
+                    return true;
+                }
                 fail(sink, AlertDescription.UNEXPECTED_MESSAGE, "unknown record content type");
                 return false;
         }
@@ -451,6 +491,10 @@ public final class Dtls12RecordEngine {
         if (body.length < overhead) {
             throw new HandshakeFormatException("ciphertext shorter than AEAD overhead");
         }
+        // The AEAD additional data (and a ChaCha20 nonce) bind the sequence
+        // number carried by this record (RFC 6347 section 4.1.2.1), not a
+        // local count: datagrams are lost and reordered.
+        keys.seq = seq;
         int ciphertextStart = hasExplicit ? 8 : 0;
         int plainLen = body.length - overhead;
         byte[] aad = keys.additionalData(contentType, plainLen);
@@ -482,8 +526,12 @@ public final class Dtls12RecordEngine {
             long combinedSeq, byte[] body) throws GeneralSecurityException, HandshakeFormatException {
         boolean hasExplicit = keys.hasExplicitNonce();
         int overhead = (hasExplicit ? 8 : 0) + 16;
+        if (body.length < overhead) {
+            throw new HandshakeFormatException("ciphertext shorter than AEAD overhead");
+        }
         int ciphertextStart = hasExplicit ? 8 : 0;
         int plainLen = body.length - overhead;
+        keys.seq = combinedSeq & 0x0000FFFFFFFFFFFFL;
         byte[] aad = keys.additionalData(contentType, plainLen);
         byte[] nonce = hasExplicit ? keys.nonceFromWire(Arrays.copyOfRange(body, 0, 8)) : keys.localNonce();
         byte[] ciphertext = Arrays.copyOfRange(body, ciphertextStart, body.length);
@@ -537,8 +585,12 @@ public final class Dtls12RecordEngine {
         return false;
     }
 
-    private boolean handleHandshake(byte[] payload, TlsRecordSink sink) {
+    private boolean handleHandshake(byte[] payload, boolean authenticated, TlsRecordSink sink) {
         if (payload.length < FRAGMENT_HEADER_LEN) {
+            if (!authenticated) {
+                discard();
+                return true;
+            }
             fail(sink, AlertDescription.DECODE_ERROR, "truncated DTLS handshake fragment");
             return false;
         }
@@ -556,6 +608,10 @@ public final class Dtls12RecordEngine {
                 handshakeAsync.scheduleMessages(messages);
             }
         } catch (HandshakeFormatException e) {
+            if (!authenticated) {
+                discard();
+                return true;
+            }
             fail(sink, AlertDescription.DECODE_ERROR, "malformed DTLS handshake fragment: " + e.getMessage());
             return false;
         }

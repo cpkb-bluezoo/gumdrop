@@ -156,16 +156,29 @@ public final class EncryptedClientHello {
      */
     public static byte[] clientHelloOuterAadWithZeroEchPayload(byte[] clientHelloContent, int payloadLength)
             throws HandshakeFormatException {
-        return replaceOuterEchPayload(clientHelloContent, new byte[payloadLength]);
+        return clientHelloOuterAadWithZeroEchPayload(clientHelloContent, payloadLength, false);
     }
 
-    private static byte[] replaceOuterEchPayload(byte[] clientHelloContent, byte[] newPayload)
-            throws HandshakeFormatException {
+    /**
+     * As {@link #clientHelloOuterAadWithZeroEchPayload(byte[], int)}; with
+     * {@code dtlsTransport} the hello carries the DTLS {@code legacy_cookie}
+     * field after {@code legacy_session_id}.
+     */
+    static byte[] clientHelloOuterAadWithZeroEchPayload(byte[] clientHelloContent, int payloadLength,
+            boolean dtlsTransport) throws HandshakeFormatException {
+        return replaceOuterEchPayload(clientHelloContent, new byte[payloadLength], dtlsTransport);
+    }
+
+    private static byte[] replaceOuterEchPayload(byte[] clientHelloContent, byte[] newPayload,
+            boolean dtlsTransport) throws HandshakeFormatException {
         WireReader body = new WireReader(clientHelloContent);
         WireWriter w = new WireWriter();
         w.u16(body.u16());
         w.bytes(body.bytes(32));
         w.opaque8(body.opaque8());
+        if (dtlsTransport) {
+            w.opaque8(body.opaque8());
+        }
         w.opaque16(body.opaque16());
         w.opaque8(body.opaque8());
         WireReader er = new WireReader(body.opaque16());

@@ -109,6 +109,29 @@ public class Dtls12CookieExchangeTest {
     }
 
     @Test
+    public void parseClientHelloFieldsReadsFirstFragmentOfFragmentedClientHello() throws Exception {
+        Tls12HandshakeConfig clientCfg = new Tls12HandshakeConfig(HandshakeRole.CLIENT);
+        clientCfg.setDtlsTransport(true);
+        clientCfg.setServerName(SERVER_NAME);
+        clientCfg.setTrustManager(trustManager);
+        clientCfg.setDtlsCookie(new byte[] { 7, 8, 9 });
+
+        Dtls12RecordEngine client = new Dtls12RecordEngine(clientCfg, 120);
+        RecordingSink sink = new RecordingSink();
+        client.start(sink);
+        assertTrue("ClientHello must be fragmented", sink.outbound.size() > 1);
+
+        // RFC 6347 section 4.2.2: a server must be able to answer a fragmented
+        // first ClientHello with a HelloVerifyRequest; random and cookie sit at
+        // the start of the hello, in the offset-0 fragment.
+        Dtls12HelloVerify.ClientHelloFields fields = Dtls12HelloVerify.parseClientHelloFields(sink.outbound.get(0));
+        assertNotNull(fields);
+        assertEquals(32, fields.random.length);
+        assertArrayEquals(new byte[] { 7, 8, 9 }, fields.cookie);
+        assertEquals(null, Dtls12HelloVerify.parseClientHelloFields(sink.outbound.get(1)));
+    }
+
+    @Test
     public void clientRebuildsEngineAfterHelloVerifyRequestAndCompletesHandshake() throws Exception {
         Tls12HandshakeConfig clientTemplate = new Tls12HandshakeConfig(HandshakeRole.CLIENT);
         clientTemplate.setDtlsTransport(true);

@@ -119,6 +119,17 @@ final class Tls12HandshakeMessages {
         int recordSizeLimit;
     }
 
+    /**
+     * Writes the extensions a TLS 1.2 handshake requires of a ClientHello
+     * (renegotiation_info, extended_master_secret, ec_point_formats) into a
+     * TLS 1.3 probe that may turn out to be answered as TLS 1.2.
+     */
+    static void writeFallbackExtensions(WireWriter ext) {
+        writeExtension(ext, EXT_RENEGOTIATION_INFO, new byte[] { 0 });
+        writeExtension(ext, EXT_EXTENDED_MASTER_SECRET, new byte[0]);
+        writeExtension(ext, EXT_EC_POINT_FORMATS, new byte[] { 1, EC_POINT_FORMAT_UNCOMPRESSED });
+    }
+
     static byte[] buildClientHello(ClientHelloParams params) {
         WireWriter w = new WireWriter();
         w.u16(TLS_1_2_LEGACY_VERSION);

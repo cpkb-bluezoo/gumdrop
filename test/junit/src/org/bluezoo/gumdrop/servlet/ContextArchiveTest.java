@@ -23,19 +23,17 @@ package org.bluezoo.gumdrop.servlet;
 
 import org.junit.After;
 import org.junit.Before;
-import org.junit.Rule;
 import org.junit.Test;
-import org.junit.rules.TemporaryFolder;
 
 import java.io.ByteArrayOutputStream;
-import java.io.File;
 import java.io.FileNotFoundException;
-import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.URL;
 import java.net.URLConnection;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.Enumeration;
 import java.util.Set;
 import java.util.jar.JarOutputStream;
@@ -62,6 +60,8 @@ import static org.junit.Assert.fail;
  * scanning, {@link ResourceURLConnection}, {@link ResourceStreamHandler}
  * and {@link ContextClassLoader} against both a WAR-packaged and an
  * exploded web application that carries a library jar.
+ * The scenarios run on an in-memory file system; the integration subclass
+ * repeats them on the real file system.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
@@ -104,8 +104,22 @@ public class ContextArchiveTest {
 
     private static final String PKG = "org/bluezoo/gumdrop/servlet/";
 
-    @Rule
-    public TemporaryFolder tmp = new TemporaryFolder();
+    public MemoryFolder tmp = new MemoryFolder();
+
+    /**
+     * Creates a scratch directory; overridden by the integration subclass
+     * to run the same scenarios on the real file system.
+     */
+    protected Path newFolder(String name) throws IOException {
+        return tmp.newFolder(name);
+    }
+
+    /**
+     * Returns the path of a not yet existing scratch file.
+     */
+    protected Path scratchFile(String name) throws IOException {
+        return tmp.getRoot().resolve(name);
+    }
 
     private String savedFactory;
     private Container container;
@@ -175,9 +189,9 @@ public class ContextArchiveTest {
         return bout.toByteArray();
     }
 
-    private File buildWar() throws IOException {
-        File war = new File(tmp.getRoot(), "app.war");
-        JarOutputStream out = new JarOutputStream(new FileOutputStream(war));
+    private Path buildWar() throws IOException {
+        Path war = scratchFile("app.war");
+        JarOutputStream out = new JarOutputStream(Files.newOutputStream(war));
         entry(out, "WEB-INF/web.xml", text(WEB_XML));
         entry(out, "index.html", text("<html>war</html>"));
         entry(out, "page.hi", text("hi"));
@@ -191,29 +205,19 @@ public class ContextArchiveTest {
         return war;
     }
 
-    private File buildExploded() throws IOException {
-        File dir = tmp.newFolder("exploded");
-        write(new File(dir, "WEB-INF/web.xml"), text(WEB_XML));
-        write(new File(dir, "index.html"), text("<html>dir</html>"));
-        write(new File(dir, "page.hi"), text("hi"));
-        write(new File(dir, "WEB-INF/classes/" + PKG + "ContextArchiveTest$WarServlet.class"),
+    private Path buildExploded() throws IOException {
+        Path dir = newFolder("exploded");
+        MemoryFolder.write(dir, "WEB-INF/web.xml", text(WEB_XML));
+        MemoryFolder.write(dir, "index.html", text("<html>dir</html>"));
+        MemoryFolder.write(dir, "page.hi", text("hi"));
+        MemoryFolder.write(dir, "WEB-INF/classes/" + PKG + "ContextArchiveTest$WarServlet.class",
                 classBytes(WarServlet.class));
-        write(new File(dir, "WEB-INF/lib/frag.jar"), libJar);
-        write(new File(dir, "WEB-INF/lib/readme.txt"), text("not a jar"));
+        MemoryFolder.write(dir, "WEB-INF/lib/frag.jar", libJar);
+        MemoryFolder.write(dir, "WEB-INF/lib/readme.txt", text("not a jar"));
         return dir;
     }
 
-    private static void write(File f, byte[] data) throws IOException {
-        f.getParentFile().mkdirs();
-        FileOutputStream out = new FileOutputStream(f);
-        try {
-            out.write(data);
-        } finally {
-            out.close();
-        }
-    }
-
-    private Context load(String path, File root) throws Exception {
+    private Context load(String path, Path root) throws Exception {
         Context c = new Context(container, path, root);
         container.addContext(c);
         c.load();
@@ -418,18 +422,20 @@ public class ContextArchiveTest {
         Class<?> assigned = plain.loadClass(name);
         assertSame(plain, assigned.getClassLoader());
         plain.reset();
-        File jar = plain.getFile("WEB-INF/lib/frag.jar");
-        assertNotNull(jar);
-        assertTrue(jar.isFile());
-        File missing = plain.getFile("/WEB-INF/lib/none.jar");
-        assertFalse(missing.isFile());
+        assertNotNull(c.getLibArchive("WEB-INF/lib/frag.jar"));
+        try {
+            c.getLibArchive("/WEB-INF/lib/none.jar");
+            fail("expected IOException");
+        } catch (IOException expected) {
+            assertNotNull(expected);
+        }
         c.destroy();
     }
 
     @Test
     public void testNonJarFileInLibDirectoryIsIgnoredByClassLoader() throws Exception {
-        File dir = tmp.newFolder("nonjar");
-        write(new File(dir, "WEB-INF/lib/readme.txt"), text("not a jar"));
+        Path dir = newFolder("nonjar");
+        MemoryFolder.write(dir, "WEB-INF/lib/readme.txt", text("not a jar"));
         Context c = new Context(container, "/r3nonjar", dir);
         ClassLoader loader = c.getContextClassLoader();
         try {
@@ -443,8 +449,8 @@ public class ContextArchiveTest {
 
     @Test
     public void testCorruptJarReportsCauseOnClassNotFound() throws Exception {
-        File dir = tmp.newFolder("corrupt");
-        write(new File(dir, "WEB-INF/lib/bad.jar"), text("not a zip file"));
+        Path dir = newFolder("corrupt");
+        MemoryFolder.write(dir, "WEB-INF/lib/bad.jar", text("not a zip file"));
         Context c = new Context(container, "/r3corrupt", dir);
         ClassLoader loader = c.getContextClassLoader();
         try {

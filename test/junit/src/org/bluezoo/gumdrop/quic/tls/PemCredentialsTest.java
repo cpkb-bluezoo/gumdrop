@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.quic.tls;
 
+import org.bluezoo.gumdrop.testsupport.memfs.MemoryTemp;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -36,9 +37,7 @@ import java.util.List;
 
 import javax.net.ssl.X509TrustManager;
 
-import org.junit.Rule;
 import org.junit.Test;
-import org.junit.rules.TemporaryFolder;
 
 import org.bluezoo.gumdrop.tls.ServerCredentials;
 
@@ -53,8 +52,15 @@ import org.bluezoo.gumdrop.testsupport.TestCertificates;
  */
 public class PemCredentialsTest {
 
-    @Rule
-    public TemporaryFolder folder = new TemporaryFolder();
+    private final Path folder = newFolder();
+
+    private static Path newFolder() {
+        try {
+            return MemoryTemp.createTempDirectory("files");
+        } catch (IOException e) {
+            throw new IllegalStateException(e);
+        }
+    }
 
     private static String pem(String label, byte[] der) {
         Base64.Encoder encoder = Base64.getMimeEncoder(64, new byte[] {'\n'});
@@ -63,7 +69,7 @@ public class PemCredentialsTest {
     }
 
     private Path write(String name, String content) throws IOException {
-        Path p = folder.newFile(name).toPath();
+        Path p = folder.resolve(name);
         Files.write(p, content.getBytes(StandardCharsets.US_ASCII));
         return p;
     }
@@ -154,7 +160,7 @@ public class PemCredentialsTest {
 
     @Test
     public void testMissingCertificateFileRejected() throws Exception {
-        Path missing = folder.getRoot().toPath().resolve("absent.crt");
+        Path missing = folder.resolve("absent.crt");
         try {
             PemCredentials.loadCertificateChain(missing);
             fail("expected IOException");

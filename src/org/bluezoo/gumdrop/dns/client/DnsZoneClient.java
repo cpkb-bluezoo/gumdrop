@@ -51,6 +51,22 @@ public final class DnsZoneClient {
     private DnsZoneClient() {
     }
 
+    /** Test seam: supplies the UDP transport for one exchange. */
+    interface UdpTransportSource {
+        DnsClientTransport create();
+    }
+
+    /** Test seam, null in production (a real {@link UdpDnsClientTransport} is used). */
+    static volatile UdpTransportSource udpTransportSource;
+
+    private static DnsClientTransport newUdpTransport() {
+        UdpTransportSource source = udpTransportSource;
+        if (source != null) {
+            return source.create();
+        }
+        return new UdpDnsClientTransport();
+    }
+
     public interface MessageCallback {
         void onSuccess(DnsMessage response);
 
@@ -295,7 +311,7 @@ public final class DnsZoneClient {
             }
             return;
         }
-        final UdpDnsClientTransport transport = new UdpDnsClientTransport();
+        final DnsClientTransport transport = newUdpTransport();
         final AtomicCompletion completion = new AtomicCompletion();
         final TimerHandle[] timeout = new TimerHandle[1];
         final ByteBuffer wire = request.serialize();

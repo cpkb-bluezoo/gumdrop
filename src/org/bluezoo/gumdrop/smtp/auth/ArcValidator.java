@@ -130,28 +130,38 @@ public class ArcValidator {
                     ArcCvResult.NONE, false, sets));
             return;
         }
-        verifySetAt(sets, 0, callback);
+        // RFC 8617 section 5.2: cv= rules, then the newest AMS, then every seal
+        for (int k = 0; k < sets.size(); k++) {
+            ArcSet set = sets.get(k);
+            if (set.getParsedMessageSignature() == null
+                    || set.getParsedSeal() == null) {
+                callback.arcResult(new ArcValidationResult(
+                        ArcCvResult.FAIL, true, sets));
+                return;
+            }
+            ArcCvResult expected = (k == 0) ? ArcCvResult.NONE : ArcCvResult.PASS;
+            if (set.getSealCv() != expected) {
+                callback.arcResult(new ArcValidationResult(
+                        ArcCvResult.FAIL, false, sets));
+                return;
+            }
+        }
+        verifyNewestMessageSignature(sets, callback);
     }
 
-    private void verifySetAt(final List<ArcSet> sets, final int index,
-                             final ArcCallback callback) {
-        if (index >= sets.size()) {
-            callback.arcResult(new ArcValidationResult(
-                    ArcCvResult.PASS, false, sets));
-            return;
-        }
-        final ArcSet set = sets.get(index);
-        if (set.getParsedMessageSignature() == null
-                || set.getParsedSeal() == null) {
-            callback.arcResult(new ArcValidationResult(
-                    ArcCvResult.FAIL, true, sets));
-            return;
-        }
+    /**
+     * RFC 8617 section 5.2: only the most recent ARC-Message-Signature has to
+     * verify; earlier ones may legitimately fail after later hops modified the
+     * message.
+     */
+    private void verifyNewestMessageSignature(final List<ArcSet> sets,
+                                              final ArcCallback callback) {
+        ArcSet newest = sets.get(sets.size() - 1);
         DkimValidator dkimValidator = new DkimValidator(resolver);
         dkimValidator.setMessageParser(messageParser);
         dkimValidator.setBodyHash(bodyHash);
-        dkimValidator.verifyHeaderSignature(set.getParsedMessageSignature(),
-                set.getMessageSignature(), new DkimCallback() {
+        dkimValidator.verifyHeaderSignature(newest.getParsedMessageSignature(),
+                newest.getMessageSignature(), new DkimCallback() {
                     @Override
                     public void dkimResult(DkimResult result, String signingDomain,
                                            String selector) {
@@ -160,18 +170,22 @@ public class ArcValidator {
                                     ArcCvResult.FAIL, false, sets));
                             return;
                         }
-                        verifySeal(sets, index, callback);
+                        verifySealAt(sets, sets.size() - 1, callback);
                     }
                 });
     }
 
-    private void verifySeal(final List<ArcSet> sets, final int index,
-                            final ArcCallback callback) {
-        final ArcSet set = sets.get(index);
+    /** Verifies the seals from the newest instance down to i=1. */
+    private void verifySealAt(final List<ArcSet> sets, final int index,
+                              final ArcCallback callback) {
+        if (index < 0) {
+            callback.arcResult(new ArcValidationResult(
+                    ArcCvResult.PASS, false, sets));
+            return;
+        }
+        ArcSet set = sets.get(index);
         DkimValidator sealValidator = new DkimValidator(resolver);
-        sealValidator.setMessageParser(messageParser);
-        sealValidator.setBodyHash(bodyHash);
-        sealValidator.verifyHeaderSignature(set.getParsedSeal(), set.getSeal(),
+        sealValidator.verifyArcSeal(set.getParsedSeal(), sealSigningData(sets, index),
                 new DkimCallback() {
                     @Override
                     public void dkimResult(DkimResult result, String signingDomain,
@@ -181,9 +195,32 @@ public class ArcValidator {
                                     ArcCvResult.FAIL, false, sets));
                             return;
                         }
-                        verifySetAt(sets, index + 1, callback);
+                        verifySealAt(sets, index - 1, callback);
                     }
                 });
+    }
+
+    /**
+     * RFC 8617 section 5.1.1 — the data an ARC-Seal signs: every set up to
+     * the given one as AAR, AMS, AS in relaxed header canonicalization, with
+     * the sealing instance's own {@code b=} empty and no final CRLF.
+     */
+    static String sealSigningData(List<ArcSet> sets, int index) {
+        StringBuilder data = new StringBuilder();
+        for (int k = 0; k <= index; k++) {
+            ArcSet set = sets.get(k);
+            data.append(DkimValidator.relaxedCanonicalizeHeader(
+                    set.getAuthenticationResults()));
+            data.append(DkimValidator.relaxedCanonicalizeHeader(
+                    set.getMessageSignature()));
+            if (k < index) {
+                data.append(DkimValidator.relaxedCanonicalizeHeader(set.getSeal()));
+            } else {
+                data.append(DkimValidator.canonicalizeSignedHeaderField(
+                        set.getSeal(), true));
+            }
+        }
+        return data.toString();
     }
 
     /**
@@ -196,12 +233,14 @@ public class ArcValidator {
         private List<ArcSet> sets = Collections.emptyList();
         private boolean malformed;
         private boolean headersEnded;
+        private boolean duplicate;
 
         void reset() {
             byInstance.clear();
             sets = Collections.emptyList();
             malformed = false;
             headersEnded = false;
+            duplicate = false;
         }
 
         boolean isHeadersEnded() {
@@ -218,13 +257,16 @@ public class ArcValidator {
 
         @Override
         public void arcAuthenticationResults(int instance, String rawLine) {
-            mutableSet(instance).aar = rawLine;
+            MutableSet set = mutableSet(instance);
+            duplicate |= set.aar != null;
+            set.aar = rawLine;
         }
 
         @Override
         public void arcMessageSignature(int instance, String rawLine,
                                         DkimSignature parsed) {
             MutableSet set = mutableSet(instance);
+            duplicate |= set.ams != null;
             set.ams = rawLine;
             set.parsedAms = parsed;
         }
@@ -233,6 +275,7 @@ public class ArcValidator {
         public void arcSeal(int instance, String rawLine, DkimSignature parsed,
                             ArcCvResult sealCv) {
             MutableSet set = mutableSet(instance);
+            duplicate |= set.as != null;
             set.as = rawLine;
             set.parsedAs = parsed;
             set.sealCv = sealCv;
@@ -242,6 +285,11 @@ public class ArcValidator {
         public void arcHeadersEnd() {
             headersEnded = true;
             if (byInstance.isEmpty()) {
+                sets = Collections.emptyList();
+                return;
+            }
+            if (duplicate) {
+                malformed = true;
                 sets = Collections.emptyList();
                 return;
             }

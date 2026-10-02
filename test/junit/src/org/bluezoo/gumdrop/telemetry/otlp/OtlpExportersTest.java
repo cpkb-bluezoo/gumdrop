@@ -64,50 +64,9 @@ public class OtlpExportersTest {
         return config;
     }
 
-    private static void feed(org.bluezoo.gumdrop.telemetry.TelemetryExporter e) {
-        e.export(TelemetryTestData.richTrace());
-        e.export(TelemetryTestData.richTrace());
-        e.export(TelemetryTestData.richTrace());
-        List<LogRecord> logs = TelemetryTestData.logRecords();
-        for (LogRecord r : logs) {
-            e.export(r);
-        }
-        List<MetricData> metrics = TelemetryTestData.metrics();
-        e.export(metrics);
-        e.export(metrics);
-        e.export(metrics);
-        e.export((org.bluezoo.gumdrop.telemetry.Trace) null);
-        e.export((LogRecord) null);
-        e.export((List<MetricData>) null);
-        e.export(new ArrayList<MetricData>());
-    }
-
-    @Test
-    public void testHttpExporterLifecycle() {
-        OtlpExporter e = new OtlpExporter(config());
-        feed(e);
-        e.flush();
-        e.forceFlush();
-        assertTrue(e.waitForConnections(10L));
-        e.shutdown();
-        e.forceFlush();
-        feed(e);
-    }
-
-    @Test
-    public void testGrpcExporterLifecycle() {
-        OtlpGrpcExporter e = new OtlpGrpcExporter(config());
-        feed(e);
-        e.flush();
-        e.forceFlush();
-        e.shutdown();
-        e.forceFlush();
-        feed(e);
-    }
-
     @Test
     public void testHttpResponseHandler() {
-        OtlpExporter e = new OtlpExporter(config());
+        OtlpExporter e = new OtlpExporter(config(), false);
         try {
             OtlpResponseHandler h = new OtlpResponseHandler("traces", e);
             assertFalse(h.isComplete());
@@ -138,7 +97,7 @@ public class OtlpExportersTest {
 
     @Test
     public void testGrpcResponseHandler() {
-        OtlpGrpcExporter e = new OtlpGrpcExporter(config());
+        OtlpGrpcExporter e = new OtlpGrpcExporter(config(), false);
         try {
             OtlpGrpcResponseHandler h = new OtlpGrpcResponseHandler("traces", e);
             assertFalse(h.isComplete());

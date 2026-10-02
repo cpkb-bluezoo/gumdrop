@@ -455,6 +455,107 @@ public class RecoverableChannelImplTest {
         @Override public void onDeliveryComplete() { }
     }
 
+    @Test
+    public void testTransactionFlowAndConfirmCallsAreForwardedAndRebindRestoresListenersAndConfirmMode() {
+        FakeClientChannel first = new FakeClientChannel();
+        RecoverableChannelImpl ch = new RecoverableChannelImpl(1, first, new Runnable() {
+            @Override public void run() { }
+        });
+        FlowListener flow = new FlowListener() {
+            @Override public void onFlow(boolean active) { }
+        };
+        ConfirmListener confirm = new ConfirmListener() {
+            @Override public void onAck(long deliveryTag, boolean multiple) { }
+            @Override public void onNack(long deliveryTag, boolean multiple) { }
+        };
+        ch.setFlowListener(flow);
+        ch.setConfirmListener(confirm);
+        ch.txSelect(null);
+        ch.txCommit(null);
+        ch.txRollback(null);
+        ch.flow(false, null);
+        ch.confirmSelect(new ConfirmSelectHandler() {
+            @Override public void handleConfirmSelectOk() { }
+        });
+        assertTrue(first.callOrder.contains("txSelect"));
+        assertTrue(first.callOrder.contains("txCommit"));
+        assertTrue(first.callOrder.contains("txRollback"));
+        assertTrue(first.callOrder.contains("flow"));
+        assertSame(flow, first.flowListener);
+        assertSame(confirm, first.confirmListener);
+
+        ch.markDisconnected();
+        try {
+            ch.txSelect(null);
+            fail("expected IllegalStateException while disconnected");
+        } catch (IllegalStateException expected) {
+            assertNotNull(expected.getMessage());
+        }
+        ch.setFlowListener(flow);
+        ch.setConfirmListener(confirm);
+
+        FakeClientChannel second = new FakeClientChannel();
+        ch.rebind(second);
+        assertTrue(second.callOrder.contains("confirmSelect"));
+        assertSame(flow, second.flowListener);
+        assertSame(confirm, second.confirmListener);
+        assertNotNull(second.closeListener);
+    }
+
+    @Test
+    public void testRecoverableConnectionTracksChannelsAcrossReconnects() {
+        RecoverableConnectionImpl conn = new RecoverableConnectionImpl();
+        try {
+            conn.channelOpen(1, null);
+            fail("expected IllegalStateException before bind");
+        } catch (IllegalStateException expected) {
+            assertNotNull(expected.getMessage());
+        }
+        try {
+            conn.close(200, "bye", null);
+            fail("expected IllegalStateException before bind");
+        } catch (IllegalStateException expected) {
+            assertNotNull(expected.getMessage());
+        }
+        final int[] completed = new int[1];
+        Runnable onComplete = new Runnable() {
+            @Override public void run() { completed[0]++; }
+        };
+        conn.reopenAndReplayAll(onComplete);
+        assertEquals(1, completed[0]);
+
+        FakeClientConnection first = new FakeClientConnection();
+        conn.bind(first);
+        final ClientChannel[] opened = new ClientChannel[2];
+        conn.channelOpen(5, new ChannelOpenHandler() {
+            @Override public void handleChannelOpenOk(ClientChannel channel) { opened[0] = channel; }
+        });
+        conn.channelOpen(6, new ChannelOpenHandler() {
+            @Override public void handleChannelOpenOk(ClientChannel channel) { opened[1] = channel; }
+        });
+        assertNotNull(opened[0]);
+        assertNotNull(opened[1]);
+        opened[0].exchangeDeclare("ex", "topic", true, false, null, new ExchangeDeclareHandler() {
+            @Override public void handleExchangeDeclareOk() { }
+        });
+
+        conn.markDisconnected();
+        FakeClientConnection second = new FakeClientConnection();
+        conn.bind(second);
+        completed[0] = 0;
+        conn.reopenAndReplayAll(onComplete);
+        assertEquals(1, completed[0]);
+        assertEquals(2, second.openedChannelIds.size());
+        assertEquals(1, second.channelsByid.get(5).exchangeDeclares.size());
+
+        conn.close(200, "bye", new CloseHandler() {
+            @Override public void handleCloseOk() { }
+        });
+        completed[0] = 0;
+        conn.reopenAndReplayAll(onComplete);
+        assertEquals(1, completed[0]);
+    }
+
     private static final class FakeClientChannel implements ClientChannel {
         final List<String> exchangeDeclares = new ArrayList<>();
         final List<String> queueDeclares = new ArrayList<>();

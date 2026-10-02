@@ -37,7 +37,9 @@ import java.time.Instant;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.ResourceBundle;
 import java.util.concurrent.Callable;
 import java.util.logging.Level;
@@ -649,6 +651,45 @@ public final class FtpProtocolHandler
         return null;
     }
 
+    /** Replies 550 and returns false when the session has no file system. */
+    private boolean requireFileSystem() throws IOException {
+        if (getFileSystem() == null) {
+            reply(550, L10N.getString("ftp.err.file_system_error"));
+            return false;
+        }
+        return true;
+    }
+
+    /**
+     * Whether a command may be given before the user has logged in. Only
+     * the login, TLS negotiation and information commands may; everything
+     * that changes data-connection or transfer state, or touches the file
+     * system, requires authentication (RFC 959 section 5.3.1, RFC 2228).
+     */
+    private static boolean allowedBeforeLogin(FtpCommand command) {
+        switch (command) {
+            case USER:
+            case PASS:
+            case ACCT:
+            case AUTH:
+            case PBSZ:
+            case PROT:
+            case CCC:
+            case QUIT:
+            case REIN:
+            case FEAT:
+            case HELP:
+            case NOOP:
+            case SYST:
+            case OPTS:
+            case STAT:
+            case UNKNOWN:
+                return true;
+            default:
+                return false;
+        }
+    }
+
     /**
      * Runs a blocking storage operation off the SelectorLoop and delivers
      * the outcome back on this control connection's loop thread.
@@ -924,6 +965,10 @@ public final class FtpProtocolHandler
     // there is no nested state switch here.
     private void dispatchCommand(FtpCommand command, String unknownText, String args)
             throws IOException {
+        if (!authenticated && !allowedBeforeLogin(command)) {
+            reply(530, L10N.getString("ftp.err.not_logged_in"));
+            return;
+        }
         switch (command) {
             case USER:
                 doUser(args);
@@ -1693,6 +1738,10 @@ public final class FtpProtocolHandler
             return;
         }
 
+        if (!requireFileSystem()) {
+            return;
+        }
+
         try {
             reply(150, L10N.getString("ftp.transfer_starting"));
 
@@ -1808,6 +1857,10 @@ public final class FtpProtocolHandler
             return;
         }
 
+        if (!requireFileSystem()) {
+            return;
+        }
+
         try {
             reply(150, L10N.getString("ftp.transfer_starting"));
 
@@ -1881,6 +1934,10 @@ public final class FtpProtocolHandler
             return;
         }
 
+        if (!requireFileSystem()) {
+            return;
+        }
+
         try {
             reply(150, L10N.getString("ftp.transfer_starting"));
 
@@ -1948,6 +2005,10 @@ public final class FtpProtocolHandler
         }
 
         if (!checkQuotaForUpload(filePath, -1)) {
+            return;
+        }
+
+        if (!requireFileSystem()) {
             return;
         }
 
@@ -2325,6 +2386,10 @@ public final class FtpProtocolHandler
             return;
         }
 
+        if (!requireFileSystem()) {
+            return;
+        }
+
         try {
             reply(150, L10N.getString("ftp.directory_listing"));
 
@@ -2358,6 +2423,10 @@ public final class FtpProtocolHandler
         String listPath = (args != null && !args.trim().isEmpty()) ? args.trim() : currentDirectory;
 
         if (!checkAuthorization(FtpOperation.READ, listPath)) {
+            return;
+        }
+
+        if (!requireFileSystem()) {
             return;
         }
 
@@ -2659,7 +2728,14 @@ public final class FtpProtocolHandler
             return;
         }
 
+        if (!authenticated) {
+            reply(530, L10N.getString("ftp.err.not_logged_in"));
+            return;
+        }
         final String path = args.trim();
+        if (!checkAuthorization(FtpOperation.READ, path)) {
+            return;
+        }
         final FtpFileSystem fs = getFileSystem();
         if (fs == null) {
             reply(550, L10N.getString("ftp.err.file_system_error"));
@@ -2892,6 +2968,10 @@ public final class FtpProtocolHandler
             reply(501, L10N.getString("ftp.err.syntax_error_parameters"));
             return;
         }
+        if (!authenticated) {
+            reply(530, L10N.getString("ftp.err.not_logged_in"));
+            return;
+        }
         final String path = args.trim();
         if (!checkAuthorization(FtpOperation.READ, path)) {
             return;
@@ -2940,6 +3020,10 @@ public final class FtpProtocolHandler
         }
         if (args == null || args.trim().isEmpty()) {
             reply(501, L10N.getString("ftp.err.syntax_error_parameters"));
+            return;
+        }
+        if (!authenticated) {
+            reply(530, L10N.getString("ftp.err.not_logged_in"));
             return;
         }
         final String path = args.trim();
@@ -3023,7 +3107,7 @@ public final class FtpProtocolHandler
                 }
                 // RFC 3659 section 7.2: multi-line 250 with leading space on the entry
                 sendLineQuietly("250-Listing " + path);
-                sendLineQuietly(" " + info.formatAsMLSEntry());
+                sendLineQuietly(" " + info.formatAsMLSEntry(mlstFacts));
                 sendLineQuietly("250 End");
             }
 
@@ -3046,6 +3130,10 @@ public final class FtpProtocolHandler
         if (!checkAuthorization(FtpOperation.READ, listPath)) {
             return;
         }
+        if (!requireFileSystem()) {
+            return;
+        }
+
         try {
             reply(150, L10N.getString("ftp.directory_listing"));
             FtpDataConnectionCoordinator.PendingTransfer transfer =
@@ -3079,9 +3167,50 @@ public final class FtpProtocolHandler
         if ("UTF8 ON".equals(option) || "UTF8".equals(option)) {
             utf8Enabled = true;
             reply(200, "UTF8 set to ON");
+        } else if ("MLST".equals(option) || option.startsWith("MLST ")) {
+            doOptsMlst(option.length() > 4 ? option.substring(5) : "");
         } else {
             reply(501, L10N.getString("ftp.err.syntax_error_parameters"));
         }
+    }
+
+    /** Test seam: substitutes this session's data-transfer transport. */
+    void setDataTransport(FtpDataTransport transport) {
+        dataCoordinator.setTransport(transport);
+    }
+
+    /** Whether a passive-mode data listener is open for this session. */
+    boolean hasPassiveListener() {
+        return dataCoordinator.isPassiveListening();
+    }
+
+    /** The facts selected with OPTS MLST, or null for all (RFC 3659 section 7.9). */
+    private Set<String> mlstFacts;
+
+    // RFC 3659 section 7.9: OPTS MLST [fact;fact;...]. Unsupported facts
+    // are ignored; the reply lists those now in effect.
+    private void doOptsMlst(String factList) throws IOException {
+        Set<String> selected = new LinkedHashSet<String>();
+        int start = 0;
+        while (start <= factList.length()) {
+            int end = factList.indexOf(';', start);
+            if (end < 0) {
+                end = factList.length();
+            }
+            String fact = factList.substring(start, end).trim().toLowerCase();
+            start = end + 1;
+            if (fact.equals("type") || fact.equals("size")
+                    || fact.equals("modify") || fact.equals("perm")) {
+                selected.add(fact);
+            }
+        }
+        mlstFacts = selected;
+        dataCoordinator.setMlstFacts(selected);
+        StringBuilder reply = new StringBuilder("MLST OPTS ");
+        for (String fact : selected) {
+            reply.append(fact).append(';');
+        }
+        reply(200, reply.toString());
     }
 
     // RFC 2389 section 3.2: FEAT response format:

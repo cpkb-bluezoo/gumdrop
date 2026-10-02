@@ -47,7 +47,7 @@ import java.util.*;
 public class GenerateTestData {
 
     private static final String RAW_DATA_DIR = "test/hpack-test-case/raw-data";
-    private static final String OUTPUT_DIR = "test/hpack-test-case/gumdrop";
+    private static final String OUTPUT_DIR = "test/junit/resources/hpack-test-case/gumdrop";
     private static final int DEFAULT_TABLE_SIZE = 4096;
 
     public static void main(String[] args) throws Exception {
@@ -75,6 +75,13 @@ public class GenerateTestData {
             System.out.println("Processing: " + storyFile.getName());
             processStory(storyFile, outputPath);
         }
+
+        StringBuilder index = new StringBuilder();
+        for (File storyFile : storyFiles) {
+            index.append(storyFile.getName()).append('\n');
+        }
+        Files.write(outputPath.resolve("index.txt"),
+                index.toString().getBytes("UTF-8"));
 
         System.out.println("Generated " + storyFiles.length + " story files in " + OUTPUT_DIR);
     }

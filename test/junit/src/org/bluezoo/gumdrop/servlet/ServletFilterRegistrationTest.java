@@ -22,9 +22,7 @@
 package org.bluezoo.gumdrop.servlet;
 
 import org.junit.Before;
-import org.junit.Rule;
 import org.junit.Test;
-import org.junit.rules.TemporaryFolder;
 
 import java.io.IOException;
 import java.util.Arrays;
@@ -151,8 +149,7 @@ public class ServletFilterRegistrationTest {
         }
     }
 
-    @Rule
-    public TemporaryFolder tmp = new TemporaryFolder();
+    public MemoryFolder tmp = new MemoryFolder();
 
     private Context context;
 

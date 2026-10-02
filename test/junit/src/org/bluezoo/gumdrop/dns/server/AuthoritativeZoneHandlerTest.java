@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.dns.server;
 
+import org.bluezoo.gumdrop.testsupport.memfs.MemoryTemp;
 import org.bluezoo.gumdrop.dns.DnsMessage;
 import org.bluezoo.gumdrop.dns.DnsQueryCallback;
 import org.bluezoo.gumdrop.dns.DnsResourceRecord;
@@ -99,7 +100,7 @@ public class AuthoritativeZoneHandlerTest {
 
     @Test
     public void testCnameChain() throws Exception {
-        Path zone = Files.createTempFile("chain", ".zone");
+        Path zone = MemoryTemp.createTempFile("chain", ".zone");
         Files.writeString(zone, ""
                 + "$ORIGIN example.com.\n"
                 + "@ IN SOA ns1.example.com. host.example.com. 1 7200 3600 1209600 300\n"
@@ -123,7 +124,7 @@ public class AuthoritativeZoneHandlerTest {
     }
 
     private static Path writeSampleZone() throws Exception {
-        Path zone = Files.createTempFile("auth", ".zone");
+        Path zone = MemoryTemp.createTempFile("auth", ".zone");
         Files.writeString(zone, ""
                 + "$ORIGIN example.com.\n"
                 + "$TTL 3600\n"

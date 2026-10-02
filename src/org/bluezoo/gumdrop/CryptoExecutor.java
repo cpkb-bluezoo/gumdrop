@@ -158,7 +158,27 @@ public final class CryptoExecutor {
         void failed(Throwable error);
     }
 
-    private final ThreadPoolExecutor executor;
+    /** Where tasks are run: the pool below, or a caller-supplied executor. */
+    private final Executor executor;
+
+    /** The owned pool, or null when {@link #executor} was supplied by the caller. */
+    private final ThreadPoolExecutor pool;
+
+    /**
+     * Creates an executor that hands every task to {@code executor} instead
+     * of owning a thread pool. Used by {@link Gumdrop#embedded} so offloaded
+     * work runs where the caller decides (typically inline, on the calling
+     * thread).
+     *
+     * @param executor where tasks are run
+     */
+    CryptoExecutor(Executor executor) {
+        if (executor == null) {
+            throw new NullPointerException();
+        }
+        this.executor = executor;
+        this.pool = null;
+    }
 
     CryptoExecutor(int threads, int queueCapacity) {
         if (threads < 1) {
@@ -180,13 +200,14 @@ public final class CryptoExecutor {
         // Fixed-size pool with a bounded queue. AbortPolicy so a saturated
         // pool rejects rather than running the task on the calling (loop!)
         // thread; the rejection is turned into a failed() callback below.
-        this.executor = new ThreadPoolExecutor(
+        this.pool = new ThreadPoolExecutor(
                 threads, threads,
                 60L, TimeUnit.SECONDS,
                 new LinkedBlockingQueue<Runnable>(queueCapacity),
                 factory,
                 new ThreadPoolExecutor.AbortPolicy());
-        this.executor.allowCoreThreadTimeOut(true);
+        this.pool.allowCoreThreadTimeOut(true);
+        this.executor = this.pool;
     }
 
     /**
@@ -329,7 +350,10 @@ public final class CryptoExecutor {
      * @return queued task count plus active task count
      */
     int pendingCount() {
-        return executor.getQueue().size() + executor.getActiveCount();
+        if (pool == null) {
+            return 0;
+        }
+        return pool.getQueue().size() + pool.getActiveCount();
     }
 
     /**
@@ -344,9 +368,12 @@ public final class CryptoExecutor {
      * terminate before returning.
      */
     void shutdown() {
-        executor.shutdownNow();
+        if (pool == null) {
+            return;
+        }
+        pool.shutdownNow();
         try {
-            executor.awaitTermination(SHUTDOWN_AWAIT_MS, TimeUnit.MILLISECONDS);
+            pool.awaitTermination(SHUTDOWN_AWAIT_MS, TimeUnit.MILLISECONDS);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
         }

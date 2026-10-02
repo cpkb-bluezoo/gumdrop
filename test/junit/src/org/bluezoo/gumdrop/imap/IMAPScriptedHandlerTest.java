@@ -28,10 +28,12 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.Principal;
 import java.time.OffsetDateTime;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
@@ -41,7 +43,7 @@ import org.junit.Test;
 
 import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.Gumdrop;
-import org.bluezoo.gumdrop.GumdropConfig;
+import org.bluezoo.gumdrop.testsupport.TestGumdrop;
 import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.TcpListener;
 import org.bluezoo.gumdrop.auth.Realm;
@@ -101,14 +103,14 @@ public class IMAPScriptedHandlerTest {
     private Gumdrop gumdrop;
     private ImapListener listener;
     private ImapProtocolHandler handler;
-    private RecordingStubEndpoint endpoint;
-    private ScriptHandler script;
-    private int tagCounter;
+    RecordingStubEndpoint endpoint;
+    ScriptHandler script;
+    int tagCounter;
 
     @Before
     public void setUp() throws Exception {
         mem = MemoryFileSystem.create();
-        gumdrop = Gumdrop.boot(GumdropConfig.create().workerThreads(1).drainTimeoutMs(0));
+        gumdrop = TestGumdrop.create();
         Path mailRoot = mem.getPath("/maildir");
         Path userDir = mailRoot.resolve("editor");
         Files.createDirectories(userDir.resolve("cur"));
@@ -118,8 +120,18 @@ public class IMAPScriptedHandlerTest {
         listener.setRealm(new AcceptingRealm("editor", "editor"));
         listener.setMailboxFactory(new MaildirMailboxFactory(mailRoot));
         listener.setAllowPlaintextLogin(true);
+        configureListener(listener);
         script = new ScriptHandler();
         listener.setSessionProvider(new ScriptProvider(script));
+    }
+
+    /** Lets a subclass adjust the listener before any handler is created. */
+    protected void configureListener(ImapListener l) {
+    }
+
+    /** Creates the endpoint the handler under test is connected to. */
+    protected RecordingStubEndpoint newEndpoint() {
+        return new RecordingStubEndpoint(143);
     }
 
     @After
@@ -129,15 +141,15 @@ public class IMAPScriptedHandlerTest {
         }
     }
 
-    private void connect(int connectVariant) throws Exception {
+    void connect(int connectVariant) throws Exception {
         script.connectVariant = connectVariant;
         handler = new ImapProtocolHandler(listener);
-        endpoint = new RecordingStubEndpoint(143);
+        endpoint = newEndpoint();
         endpoint.setSelectorLoop(gumdrop.nextWorkerLoop());
         handler.connected(endpoint);
     }
 
-    private String cmd(String command) throws Exception {
+    String cmd(String command) throws Exception {
         tagCounter++;
         String tag = "t" + tagCounter;
         endpoint.clearResponses();
@@ -145,42 +157,42 @@ public class IMAPScriptedHandlerTest {
         return endpoint.awaitLineStartingWith(tag + " ");
     }
 
-    private void send(String data) {
+    void send(String data) {
         handler.receive(ByteBuffer.wrap(data.getBytes(StandardCharsets.UTF_8)));
     }
 
-    private void ok(String command) throws Exception {
+    void ok(String command) throws Exception {
         String line = cmd(command);
         assertTrue(command + " -> " + line, line.contains(" OK"));
     }
 
-    private void no(String command) throws Exception {
+    void no(String command) throws Exception {
         String line = cmd(command);
         assertTrue(command + " -> " + line, line.contains(" NO"));
     }
 
-    private void any(String command) throws Exception {
+    void any(String command) throws Exception {
         String line = cmd(command);
         assertNotNull(line);
     }
 
     /** Runs a command with the given variant and expects a tagged OK. */
-    private void okV(int variant, String command) throws Exception {
+    void okV(int variant, String command) throws Exception {
         script.variant = variant;
         ok(command);
     }
 
-    private void noV(int variant, String command) throws Exception {
+    void noV(int variant, String command) throws Exception {
         script.variant = variant;
         no(command);
     }
 
-    private void anyV(int variant, String command) throws Exception {
+    void anyV(int variant, String command) throws Exception {
         script.variant = variant;
         any(command);
     }
 
-    private void login() throws Exception {
+    void login() throws Exception {
         connect(0);
         script.variant = 0;
         ok("LOGIN editor editor");
@@ -201,7 +213,7 @@ public class IMAPScriptedHandlerTest {
         assertTrue(line, line.contains(" OK"));
     }
 
-    private void populate() throws Exception {
+    void populate() throws Exception {
         login();
         append("one");
         append("two");
@@ -996,6 +1008,20 @@ public class IMAPScriptedHandlerTest {
         @Override
         public void getQuotaRoot(QuotaState state, QuotaManager qm,
                 MailboxStore store, String name) {
+            if (variant == 5) {
+                List<String> roots = new ArrayList<String>();
+                roots.add("");
+                roots.add("user.editor");
+                Map<String, long[]> res = new LinkedHashMap<String, long[]>();
+                res.put("STORAGE", new long[] {5L, 100L});
+                res.put("MESSAGE", new long[] {1L, 10L});
+                Map<String, Map<String, long[]>> quotas =
+                        new LinkedHashMap<String, Map<String, long[]>>();
+                quotas.put("", res);
+                quotas.put("user.editor", res);
+                state.sendQuotaRoots(name, roots, quotas, this);
+                return;
+            }
             doQuota(state);
         }
 
@@ -1275,16 +1301,22 @@ public class IMAPScriptedHandlerTest {
         }
     }
 
-    private static final class AcceptingRealm implements Realm {
+    static final class AcceptingRealm implements Realm {
         private final String user;
         private final String pass;
+        private final boolean admin;
         private static final Set<SaslMechanism> SUPPORTED =
                 Collections.unmodifiableSet(
                         EnumSet.of(SaslMechanism.PLAIN, SaslMechanism.LOGIN));
 
         AcceptingRealm(String user, String pass) {
+            this(user, pass, false);
+        }
+
+        AcceptingRealm(String user, String pass, boolean admin) {
             this.user = user;
             this.pass = pass;
+            this.admin = admin;
         }
 
         @Override
@@ -1315,7 +1347,7 @@ public class IMAPScriptedHandlerTest {
 
         @Override
         public boolean isUserInRole(String username, String role) {
-            return false;
+            return admin && user.equals(username) && "admin".equals(role);
         }
     }
 }

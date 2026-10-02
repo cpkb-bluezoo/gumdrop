@@ -398,7 +398,7 @@ public final class TestCertificates {
     /**
      * Writes the identity's chain as PEM to a file in the given directory.
      *
-     * @param dir an existing directory (e.g. a TemporaryFolder root)
+     * @param dir an existing directory (e.g. from MemoryTemp)
      * @param name the file name
      * @param identity the identity
      * @return the file path

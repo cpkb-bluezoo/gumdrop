@@ -582,10 +582,13 @@ public final class MboxMailbox implements Mailbox {
                 dateToUse.format(MBOX_DATE_FORMAT) + "\r\n";
             
             // Position at end of file
-            channel.position(channel.size());
+            long fileSize = channel.size();
+            channel.position(fileSize);
             
-            // If file is not empty, ensure there's a blank line before new message
-            if (channel.size() > 0) {
+            // A message must start at the beginning of a line: complete the
+            // last line of a file that does not end with a line terminator
+            if (fileSize > 0 && !endsWithLineFeed(fileSize)) {
+                channel.position(fileSize);
                 channel.write(ByteBuffer.wrap(new byte[]{CR, LF}));
             }
             
@@ -599,6 +602,12 @@ public final class MboxMailbox implements Mailbox {
             if (messageContent.length == 0 || messageContent[messageContent.length - 1] != LF) {
                 channel.write(ByteBuffer.wrap(new byte[]{CR, LF}));
             }
+
+            // The blank line that terminates every message. It is the
+            // separator that indexing strips, so writing it after each
+            // message (not before the next) keeps a message's content the
+            // same whether or not another message follows it.
+            channel.write(ByteBuffer.wrap(new byte[]{CR, LF}));
             
             // Re-index to pick up new message
             indexMessages();
@@ -932,6 +941,17 @@ public final class MboxMailbox implements Mailbox {
     /**
      * Expunges deleted messages by rewriting the mbox file.
      */
+    /** Returns whether the last byte of the file (of the given size) is a line feed. */
+    private boolean endsWithLineFeed(long fileSize) throws IOException {
+        ByteBuffer last = ByteBuffer.allocate(1);
+        channel.position(fileSize - 1);
+        int n = channel.read(last);
+        if (n <= 0) {
+            return false;
+        }
+        return last.get(0) == LF;
+    }
+
     private void expungeDeletedMessages() throws IOException {
         if (deletedMessages.isEmpty()) {
             return;
@@ -957,19 +977,31 @@ public final class MboxMailbox implements Mailbox {
                     // Copy message content
                     byte[] content = readMessageContent(msg.getStartOffset(), msg.getEndOffset());
                     tempChannel.write(ByteBuffer.wrap(content));
+                    if (content.length == 0 || content[content.length - 1] != LF) {
+                        tempChannel.write(ByteBuffer.wrap(new byte[]{CR, LF}));
+                    }
+                    // Blank-line separator, as written on append
                     tempChannel.write(ByteBuffer.wrap(new byte[]{CR, LF}));
                 }
             }
         }
         
-        // Release lock temporarily for file replacement
+        // Release the lock and the channel for the file replacement: the
+        // channel is bound to the file being replaced, so it must be
+        // reopened on the new file or indexing and later appends would
+        // keep working on the old, now unlinked, contents.
         lock.release();
+        channel.close();
         
-        // Replace original file
-        Files.move(tempFile, mboxFile, StandardCopyOption.REPLACE_EXISTING);
-        
-        // Re-acquire lock
-        lock = channel.lock();
+        try {
+            // Replace original file
+            Files.move(tempFile, mboxFile, StandardCopyOption.REPLACE_EXISTING);
+        } finally {
+            // Re-open and re-acquire the lock on whatever file is now there
+            channel = FileChannel.open(mboxFile, StandardOpenOption.READ,
+                    StandardOpenOption.WRITE);
+            lock = channel.lock();
+        }
         
         // Clear deleted set and re-index
         deletedMessages.clear();
@@ -1041,7 +1073,70 @@ public final class MboxMailbox implements Mailbox {
             MessageContext context;
             
             if (indexEntry != null) {
-                context = new IndexedMessageContext(indexEntry);
+                final IndexedMessageContext indexed =
+                        new IndexedMessageContext(indexEntry);
+                final int ctxNumber = msgNum;
+                final long ctxUid = uid;
+                final long ctxSize = msg.getSize();
+                context = new MessageContext() {
+                    private MessageContext bodyContext;
+
+                    @Override
+                    public int getMessageNumber() {
+                        return indexed.getMessageNumber();
+                    }
+                    @Override
+                    public long getUID() {
+                        return indexed.getUID();
+                    }
+                    @Override
+                    public long getSize() {
+                        return indexed.getSize();
+                    }
+                    @Override
+                    public Set<Flag> getFlags() {
+                        return indexed.getFlags();
+                    }
+                    @Override
+                    public Set<String> getKeywords() {
+                        return indexed.getKeywords();
+                    }
+                    @Override
+                    public OffsetDateTime getInternalDate() {
+                        return indexed.getInternalDate();
+                    }
+                    @Override
+                    public String getHeader(String name) throws IOException {
+                        return indexed.getHeader(name);
+                    }
+                    @Override
+                    public List<String> getHeaders(String name) throws IOException {
+                        return indexed.getHeaders(name);
+                    }
+                    @Override
+                    public OffsetDateTime getSentDate() throws IOException {
+                        return indexed.getSentDate();
+                    }
+                    @Override
+                    public String getEmailId() {
+                        return indexed.getEmailId();
+                    }
+                    @Override
+                    public CharSequence getHeadersText() throws IOException {
+                        return indexed.getHeadersText();
+                    }
+                    @Override
+                    public CharSequence getBodyText() throws IOException {
+                        // The index deliberately holds no body text, so
+                        // BODY/TEXT searches parse the message on demand.
+                        if (bodyContext == null) {
+                            bodyContext = new ParsedMessageContext(
+                                    MboxMailbox.this, ctxNumber, ctxUid,
+                                    ctxSize, indexed.getFlags(), null);
+                        }
+                        return bodyContext.getBodyText();
+                    }
+                };
             } else {
                 // Fall back to parsing if not in index
                 context = new ParsedMessageContext(

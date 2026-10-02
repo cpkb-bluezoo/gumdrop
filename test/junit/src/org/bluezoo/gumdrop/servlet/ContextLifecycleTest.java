@@ -23,17 +23,15 @@ package org.bluezoo.gumdrop.servlet;
 
 import org.junit.After;
 import org.junit.Before;
-import org.junit.Rule;
 import org.junit.Test;
-import org.junit.rules.TemporaryFolder;
 
 import java.io.ByteArrayOutputStream;
-import java.io.File;
-import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
@@ -167,11 +165,10 @@ public class ContextLifecycleTest {
     public static class NotAServlet {
     }
 
-    @Rule
-    public TemporaryFolder tmp = new TemporaryFolder();
+    public MemoryFolder tmp = new MemoryFolder();
 
     private String savedFactory;
-    private File root;
+    private Path root;
     private Container container;
     private Context context;
 
@@ -182,7 +179,7 @@ public class ContextLifecycleTest {
         System.setProperty("java.naming.factory.initial",
                 "org.bluezoo.gumdrop.servlet.jndi.ServletInitialContextFactory");
         root = tmp.newFolder("webapp");
-        new File(root, "WEB-INF").mkdirs();
+        Files.createDirectories(root.resolve("WEB-INF"));
         write("WEB-INF/web.xml", webXml());
         write("index.html", "<html>hi</html>");
         write("sub/page.txt", "page");
@@ -247,30 +244,21 @@ public class ContextLifecycleTest {
     }
 
     private void write(String path, String content) throws IOException {
-        File f = new File(root, path);
-        f.getParentFile().mkdirs();
-        FileOutputStream out = new FileOutputStream(f);
-        try {
-            out.write(content.getBytes(StandardCharsets.UTF_8));
-        } finally {
-            out.close();
-        }
+        MemoryFolder.write(root, path, content);
     }
 
     private void copyClass(Class<?> type) throws IOException {
         String resource = type.getName().replace('.', '/') + ".class";
         InputStream in = type.getClassLoader().getResourceAsStream(resource);
         assertNotNull(in);
-        File dest = new File(root, "WEB-INF/classes/" + resource);
-        dest.getParentFile().mkdirs();
-        FileOutputStream out = new FileOutputStream(dest);
         try {
+            ByteArrayOutputStream bout = new ByteArrayOutputStream();
             byte[] buf = new byte[4096];
             for (int n = in.read(buf); n != -1; n = in.read(buf)) {
-                out.write(buf, 0, n);
+                bout.write(buf, 0, n);
             }
+            MemoryFolder.write(root, "WEB-INF/classes/" + resource, bout.toByteArray());
         } finally {
-            out.close();
             in.close();
         }
     }
@@ -317,7 +305,7 @@ public class ContextLifecycleTest {
 
     @Test
     public void testLoadWithoutDescriptor() throws Exception {
-        File bare = tmp.newFolder("bare");
+        Path bare = tmp.newFolder("bare");
         Context c = new Context(container, "", bare);
         c.load();
         assertNotNull(c.defaultServletDef);
@@ -435,8 +423,8 @@ public class ContextLifecycleTest {
 
     @Test
     public void testResourcesFromWar() throws Exception {
-        File war = tmp.newFile("app.war");
-        java.util.zip.ZipOutputStream zout = new java.util.zip.ZipOutputStream(new FileOutputStream(war));
+        Path war = tmp.newFile("app.war");
+        java.util.zip.ZipOutputStream zout = new java.util.zip.ZipOutputStream(Files.newOutputStream(war));
         try {
             zout.putNextEntry(new java.util.zip.ZipEntry("index.html"));
             zout.write("war-index".getBytes(StandardCharsets.UTF_8));
@@ -511,6 +499,20 @@ public class ContextLifecycleTest {
         assertTrue(EVENTS.contains("attr-added:k"));
         assertTrue(EVENTS.contains("attr-replaced:k"));
         assertTrue(EVENTS.contains("attr-removed:k"));
+        context.destroy();
+    }
+
+    @Test
+    public void testTempDirIsListedWithoutBeingCreated() throws Exception {
+        loadAndInit();
+        Enumeration<String> names = context.getAttributeNames();
+        boolean listed = false;
+        while (names.hasMoreElements()) {
+            if ("jakarta.servlet.context.tempdir".equals(names.nextElement())) {
+                listed = true;
+            }
+        }
+        assertTrue(listed);
         context.destroy();
     }
 

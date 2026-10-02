@@ -259,6 +259,10 @@ public final class HandshakeEngine {
         params.offerTls12Fallback = config.isOfferTls12Fallback()
                 && (config.getMode() == HandshakeMode.TCP_RECORD_LAYER
                 || config.getMode() == HandshakeMode.DTLS);
+        params.dtlsTransport = config.getMode() == HandshakeMode.DTLS;
+        if (params.offerTls12Fallback) {
+            params.tls12CipherSuites = new Tls12HandshakeConfig(HandshakeRole.CLIENT).getCipherSuites();
+        }
 
         SessionTicket ticket = config.getSessionTicket();
         byte[] clientHello;
@@ -302,7 +306,7 @@ public final class HandshakeEngine {
                 clientHelloRandom = echOffer.getClientHelloOuterRandom();
             } else if (isRetry && echGreaseOffered && echGreaseFirstClientHelloFramed != null) {
                 HandshakeMessages.ClientHello greaseFirst = HandshakeMessages.parseClientHello(
-                        echGreaseFirstClientHelloFramed);
+                        echGreaseFirstClientHelloFramed, params.dtlsTransport);
                 params.encryptedClientHelloOuter = greaseFirst.encryptedClientHelloOuter;
                 clientHello = HandshakeMessages.buildClientHelloWithBinder(params, realPskBinder);
             } else if (!isRetry && config.isEchGreaseEnabled()
@@ -898,7 +902,8 @@ public final class HandshakeEngine {
     private void onClientHello(byte[] message, TlsEventSink sink)
             throws HandshakeFormatException, GeneralSecurityException {
         byte[] clientHelloForTranscript = message;
-        HandshakeMessages.ClientHello ch = HandshakeMessages.parseClientHello(message);
+        boolean dtls = config.getMode() == HandshakeMode.DTLS;
+        HandshakeMessages.ClientHello ch = HandshakeMessages.parseClientHello(message, dtls);
         boolean echOuterOffered = ch.encryptedClientHelloOuter != null;
         if (config.isEchServerRequired() && !echOuterOffered) {
             fail(sink, AlertDescription.ECH_REQUIRED, "Client did not offer Encrypted Client Hello");
@@ -912,7 +917,7 @@ public final class HandshakeEngine {
                 if (opened != null) {
                     clientHelloForTranscript = opened.getInnerClientHelloFramed();
                     echHpkeRecipient = opened.getHpkeRecipient();
-                    ch = HandshakeMessages.parseClientHello(clientHelloForTranscript);
+                    ch = HandshakeMessages.parseClientHello(clientHelloForTranscript, dtls);
                     echInnerAccepted = true;
                 } else {
                     echRejectWithRetryConfigs = true;
@@ -1125,7 +1130,8 @@ public final class HandshakeEngine {
             throws HandshakeFormatException, GeneralSecurityException {
         if (echServerKeyInUse != null) {
             return EchServer.openInnerClientHello(message, echServerKeyInUse.getConfig(),
-                    echServerKeyInUse.getPrivateKey(), echHpkeRecipient);
+                    echServerKeyInUse.getPrivateKey(), echHpkeRecipient,
+                    config.getMode() == HandshakeMode.DTLS);
         }
         GeneralSecurityException failure = null;
         List<EchServerKey> keys = config.getEchServerKeys();
@@ -1136,7 +1142,8 @@ public final class HandshakeEngine {
             }
             try {
                 EchServer.OpenResult opened = EchServer.openInnerClientHello(message, key.getConfig(),
-                        key.getPrivateKey(), null);
+                        key.getPrivateKey(), null,
+                        config.getMode() == HandshakeMode.DTLS);
                 echServerKeyInUse = key;
                 return opened;
             } catch (GeneralSecurityException e) {

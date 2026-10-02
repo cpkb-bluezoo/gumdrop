@@ -33,6 +33,7 @@ import java.util.ServiceLoader;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.logging.Handler;
@@ -129,6 +130,12 @@ public class Gumdrop {
     private ScheduledTimer scheduledTimer;
     private StorageExecutor storageExecutor;
     private CryptoExecutor cryptoExecutor;
+
+    /**
+     * Non-null for an {@linkplain #embedded embedded} instance: where its
+     * storage and crypto work runs. Such an instance owns no threads.
+     */
+    private final Executor embeddedWork;
 
     // State
     private volatile boolean started;
@@ -238,6 +245,33 @@ public class Gumdrop {
     }
 
     /**
+     * Creates a runtime that starts no threads, for embedding in a host that
+     * supplies the event loop, and for unit tests that need the runtime only
+     * as a bag of services.
+     *
+     * <p>The single worker loop is {@code loop}, which the caller owns and
+     * drives: {@link #start()} and {@link #shutdown()} neither start nor stop
+     * it. Storage and crypto work is handed to {@code work} (pass an
+     * executor that runs the task immediately for fully synchronous
+     * behaviour). The instance is returned not yet started, but the loop and
+     * both executors are available at once. There is no accept loop
+     * ({@link #ensureAcceptLoop()} throws {@link
+     * UnsupportedOperationException}), no shared timer (timers scheduled
+     * through {@link #scheduleTimer} never fire), no JVM shutdown hook and no
+     * automatic shutdown.
+     *
+     * @param loop the worker loop (never started or stopped by this instance)
+     * @param work where storage and crypto work runs
+     * @return a new, not yet started instance
+     */
+    public static Gumdrop embedded(SelectorLoop loop, Executor work) {
+        if (loop == null || work == null) {
+            throw new NullPointerException();
+        }
+        return new Gumdrop(loop, work);
+    }
+
+    /**
      * Boots a runtime, registers one or more {@link Server}s, and blocks until
      * shutdown completes. This is the lifecycle tail of the former
      * {@code Gumdrop.main}: the JVM shutdown hook registered in the
@@ -278,6 +312,7 @@ public class Gumdrop {
         this.activeClients = Collections.newSetFromMap(new ConcurrentHashMap<ClientEndpoint, Boolean>());
         this.workerCount = workerCount;
         this.nextWorker = new AtomicInteger(0);
+        this.embeddedWork = null;
 
         // Worker loops created on start() - allows restart after shutdown
         this.workerLoops = null;
@@ -293,6 +328,22 @@ public class Gumdrop {
 
         // Register shutdown hook
         Runtime.getRuntime().addShutdownHook(new ShutdownHook());
+    }
+
+    /** Constructor for {@link #embedded}: no threads, no shutdown hook. */
+    private Gumdrop(SelectorLoop loop, Executor work) {
+        this.servers = Collections.synchronizedList(new ArrayList<Server>());
+        this.serverListeners =
+                Collections.synchronizedList(new ArrayList<TcpListener>());
+        this.activeHandlers = Collections.newSetFromMap(new ConcurrentHashMap<ChannelHandler, Boolean>());
+        this.activeClients = Collections.newSetFromMap(new ConcurrentHashMap<ClientEndpoint, Boolean>());
+        this.workerCount = 1;
+        this.nextWorker = new AtomicInteger(0);
+        this.embeddedWork = work;
+        this.workerLoops = new SelectorLoop[] {loop};
+        loop.setGumdrop(this);
+        this.storageExecutor = new StorageExecutor(work);
+        this.cryptoExecutor = new CryptoExecutor(work);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -416,6 +467,10 @@ public class Gumdrop {
      * AcceptSelectorLoop#registerRawAcceptor}.
      */
     public void ensureAcceptLoop() {
+        if (embeddedWork != null) {
+            throw new UnsupportedOperationException(
+                    "an embedded Gumdrop has no accept loop");
+        }
         if (acceptLoop == null || !acceptLoop.isRunning()) {
             acceptLoop = new AcceptSelectorLoop(this);
             acceptLoop.start();
@@ -677,6 +732,10 @@ public class Gumdrop {
         readyLatch = new CountDownLatch(1);
         ready = false;
         draining = false;
+        if (embeddedWork != null) {
+            doStartEmbedded();
+            return;
+        }
 
         // Snapshot the standalone listeners added via addListener() before
         // start(). registerServerListeners() below appends server-owned
@@ -806,6 +865,17 @@ public class Gumdrop {
         }
     }
 
+    /** {@link #doStart()} for an embedded instance: starts servers only, no threads. */
+    private void doStartEmbedded() {
+        for (int i = 0; i < servers.size(); i++) {
+            Server server = servers.get(i);
+            server.start(this);
+            registerServerListeners(server);
+        }
+        ready = true;
+        readyLatch.countDown();
+    }
+
     /**
      * Returns whether Gumdrop has been started.
      *
@@ -846,7 +916,7 @@ public class Gumdrop {
      * keep this instance running. Caller must hold {@link #lifecycleLock}.
      */
     private Thread scheduleAutoShutdownIfIdleLocked() {
-        if (!started || shutdownInProgress) {
+        if (!started || shutdownInProgress || embeddedWork != null) {
             return null;
         }
         if (!(servers.isEmpty() && serverListeners.isEmpty()
@@ -1173,21 +1243,26 @@ public class Gumdrop {
         activeHandlers.clear();
 
         // Stop scheduled timer
-        scheduledTimer.shutdown();
+        if (scheduledTimer != null) {
+            scheduledTimer.shutdown();
+        }
 
-        // Stop the storage I/O worker pool
-        if (storageExecutor != null) {
+        // Stop the storage I/O worker pool (an embedded instance's executors
+        // own no threads and stay usable across a restart)
+        if (storageExecutor != null && embeddedWork == null) {
             storageExecutor.shutdown();
             storageExecutor = null;
         }
 
         // Stop the crypto worker pool
-        if (cryptoExecutor != null) {
+        if (cryptoExecutor != null && embeddedWork == null) {
             cryptoExecutor.shutdown();
             cryptoExecutor = null;
         }
 
-        stopMailboxLifecycle();
+        if (embeddedWork == null) {
+            stopMailboxLifecycle();
+        }
 
         operatorInfo(L10N.getString("info.servers_closed"));
     }
@@ -1252,6 +1327,17 @@ public class Gumdrop {
         SelectorLoop[] loops = workerLoops;
         AcceptSelectorLoop accept = acceptLoop;
         boolean abort = isAbortRequested();
+        if (embeddedWork != null) {
+            // The caller owns the loop: release its resolver, never stop it.
+            final SelectorLoop owned = loops[0];
+            owned.invokeLater(new Runnable() {
+                @Override
+                public void run() {
+                    DnsResolver.removeForLoop(owned);
+                }
+            });
+            return;
+        }
         if (loops != null) {
             for (int i = 0; i < loops.length; i++) {
                 final SelectorLoop loop = loops[i];
@@ -1575,6 +1661,9 @@ public class Gumdrop {
      * @return a handle that can be used to cancel the timer
      */
     public TimerHandle scheduleTimer(ChannelHandler handler, long delayMs, Runnable callback) {
+        if (embeddedWork != null) {
+            return new InertTimerHandle();
+        }
         // Prefer the handler's own SelectorLoop timer to avoid contending on a
         // single process-wide timer lock under high connection churn. The
         // callback fires on that loop's thread either way. Fall back to the
@@ -1640,6 +1729,21 @@ public class Gumdrop {
     // ─────────────────────────────────────────────────────────────────────────
     // Shutdown hook
     // ─────────────────────────────────────────────────────────────────────────
+
+    /** Timer handle of an embedded instance: never fires, can be cancelled. */
+    private static final class InertTimerHandle implements TimerHandle {
+        private volatile boolean cancelled;
+
+        @Override
+        public void cancel() {
+            cancelled = true;
+        }
+
+        @Override
+        public boolean isCancelled() {
+            return cancelled;
+        }
+    }
 
     private class ShutdownHook extends Thread {
         ShutdownHook() {

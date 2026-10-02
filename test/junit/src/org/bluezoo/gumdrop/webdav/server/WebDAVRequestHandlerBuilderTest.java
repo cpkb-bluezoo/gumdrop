@@ -21,13 +21,12 @@
 
 package org.bluezoo.gumdrop.webdav.server;
 
-import java.io.File;
 import java.io.IOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
 
-import org.junit.Rule;
+import org.bluezoo.gumdrop.testsupport.memfs.MemoryFileSystem;
 import org.junit.Test;
-import org.junit.rules.TemporaryFolder;
 
 import static org.junit.Assert.*;
 
@@ -38,12 +37,17 @@ import static org.junit.Assert.*;
  */
 public class WebDAVRequestHandlerBuilderTest {
 
-    @Rule
-    public TemporaryFolder folder = new TemporaryFolder();
+    private final MemoryFileSystem fs = MemoryFileSystem.create();
+
+    private Path dir(String name) throws IOException {
+        Path p = fs.getPath("/" + name);
+        Files.createDirectories(p);
+        return p;
+    }
 
     @Test
     public void buildsPlainFileServer() throws IOException {
-        Path root = folder.newFolder("root").toPath();
+        Path root = dir("root");
         WebDAVRequestHandler h = WebDAVRequestHandler.builder()
                 .rootPath(root)
                 .build();
@@ -57,7 +61,7 @@ public class WebDAVRequestHandlerBuilderTest {
         String[] modes = {"auto", "xattr", "sidecar", "none", null, "  ",
             "AUTO", "bogus"};
         for (int i = 0; i < modes.length; i++) {
-            Path root = folder.newFolder("root" + i).toPath();
+            Path root = dir("root" + i);
             WebDAVRequestHandler h = WebDAVRequestHandler.builder()
                     .rootPath(root)
                     .allowWrite(true)
@@ -72,9 +76,9 @@ public class WebDAVRequestHandlerBuilderTest {
 
     @Test
     public void lockAndSidecarRootsAccepted() throws IOException {
-        Path root = folder.newFolder("data").toPath();
-        Path locks = folder.newFolder("locks").toPath();
-        Path sidecar = folder.newFolder("sidecar").toPath();
+        Path root = dir("data");
+        Path locks = dir("locks");
+        Path sidecar = dir("sidecar");
         WebDAVRequestHandler h = WebDAVRequestHandler.builder()
                 .rootPath(root)
                 .webdavEnabled(true)
@@ -87,7 +91,7 @@ public class WebDAVRequestHandlerBuilderTest {
 
     @Test
     public void blankWelcomeFileFallsBackToDefault() throws IOException {
-        Path root = folder.newFolder("w").toPath();
+        Path root = dir("w");
         WebDAVRequestHandler.builder()
                 .rootPath(root)
                 .welcomeFile("   ")
@@ -105,35 +109,23 @@ public class WebDAVRequestHandlerBuilderTest {
 
     @Test(expected = IllegalArgumentException.class)
     public void buildFailsForMissingRoot() throws IOException {
-        File missing = new File(folder.getRoot(), "does-not-exist");
-        WebDAVRequestHandler.builder().rootPath(missing.toPath()).build();
+        Path missing = fs.getPath("/does-not-exist");
+        WebDAVRequestHandler.builder().rootPath(missing).build();
     }
 
     @Test
     public void validateRootPathAcceptsWritableDirectory() throws IOException {
-        Path root = folder.newFolder("v").toPath();
+        Path root = dir("v");
         WebDAVRequestHandler.validateRootPath(root, true);
         WebDAVRequestHandler.validateRootPath(root, false);
     }
 
     @Test
-    public void validateRootPathWarnsWhenNotWritable() throws IOException {
-        File dir = folder.newFolder("ro");
-        boolean changed = dir.setWritable(false);
-        try {
-            WebDAVRequestHandler.validateRootPath(dir.toPath(), true);
-        } finally {
-            if (changed) {
-                dir.setWritable(true);
-            }
-        }
-    }
-
-    @Test
     public void validateRootPathRejectsRegularFile() throws IOException {
-        File f = folder.newFile("plain.txt");
+        Path f = fs.getPath("/plain.txt");
+        Files.createFile(f);
         try {
-            WebDAVRequestHandler.validateRootPath(f.toPath(), false);
+            WebDAVRequestHandler.validateRootPath(f, false);
             fail("expected IllegalArgumentException");
         } catch (IllegalArgumentException e) {
             assertTrue(e.getMessage().contains("must be a directory"));
@@ -148,33 +140,12 @@ public class WebDAVRequestHandlerBuilderTest {
         } catch (IllegalArgumentException e) {
             assertTrue(e.getMessage().contains("cannot be null"));
         }
-        File missing = new File(folder.getRoot(), "nope");
+        Path missing = fs.getPath("/nope");
         try {
-            WebDAVRequestHandler.validateRootPath(missing.toPath(), false);
+            WebDAVRequestHandler.validateRootPath(missing, false);
             fail("expected IllegalArgumentException");
         } catch (IllegalArgumentException e) {
             assertTrue(e.getMessage().contains("Cannot access root path"));
-        }
-    }
-
-    @Test
-    public void validateRootPathRejectsUnreadableDirectory()
-            throws IOException {
-        File dir = folder.newFolder("noread");
-        boolean changed = dir.setReadable(false);
-        try {
-            if (!dir.canRead()) {
-                try {
-                    WebDAVRequestHandler.validateRootPath(dir.toPath(), false);
-                    fail("expected IllegalArgumentException");
-                } catch (IllegalArgumentException e) {
-                    assertNotNull(e.getMessage());
-                }
-            }
-        } finally {
-            if (changed) {
-                dir.setReadable(true);
-            }
         }
     }
 }

@@ -22,40 +22,33 @@
 package org.bluezoo.gumdrop.dns.server;
 
 import org.bluezoo.gumdrop.Gumdrop;
-import org.bluezoo.gumdrop.GumdropConfig;
 import org.bluezoo.gumdrop.StorageExecutor;
-import org.junit.After;
-import org.junit.Before;
+import org.bluezoo.gumdrop.testsupport.TestGumdrop;
+import org.bluezoo.gumdrop.testsupport.memfs.MemoryFileSystem;
 import org.junit.Test;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.Assert.*;
 
 /**
+ * Zone file saving is offloaded to the storage executor. Runs on an
+ * in-memory file system and a thread-free Gumdrop whose queued executor
+ * stands in for the storage pool.
+ *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 public class ZoneFileWriterTest {
 
-    @Before
-    public void clearObserver() {
-        StorageExecutor.workThreadObserver = null;
-    }
-
-    @After
-    public void tearDownObserver() {
-        StorageExecutor.workThreadObserver = null;
-    }
-
     @Test
-    public void testRoundTripOnStorageThread() throws Exception {
-        Path source = Files.createTempFile("zf-src", ".zone");
-        Path target = Files.createTempFile("zf-out", ".zone");
+    public void testRoundTripIsOffloadedToStorageExecutor() throws Exception {
+        MemoryFileSystem mem = MemoryFileSystem.create();
+        Path source = mem.getPath("/zones/src.zone");
+        Path target = mem.getPath("/zones/out.zone");
+        Files.createDirectories(source.getParent());
         Files.writeString(source, ""
                 + "$ORIGIN example.com.\n"
                 + "$TTL 3600\n"
@@ -63,50 +56,36 @@ public class ZoneFileWriterTest {
                 + "@ IN NS ns1.example.com.\n"
                 + "ns1 IN A 127.0.0.1\n"
                 + "www IN A 192.0.2.1\n");
-        try {
-            MutableZone zone = ZoneFile.load(source).asMutable();
+        MutableZone zone = ZoneFile.load(source).asMutable();
 
-            Gumdrop gumdrop = Gumdrop.boot(GumdropConfig.create().workerThreads(1));
-            try {
-                final AtomicBoolean onStorage = new AtomicBoolean(false);
-                StorageExecutor.workThreadObserver =
-                        new StorageExecutor.WorkThreadObserver() {
-                            @Override
-                            public void observed(Thread thread) {
-                                onStorage.set(true);
-                            }
-                        };
-                final CountDownLatch done = new CountDownLatch(1);
-                final AtomicReference<Throwable> error = new AtomicReference<Throwable>();
-                ZoneStorage.saveAsync(gumdrop.getStorageExecutor(), target, zone,
-                        gumdrop.nextWorkerLoop(),
-                        new StorageExecutor.Callback<Void>() {
-                            @Override
-                            public void completed(Void result) {
-                                done.countDown();
-                            }
+        TestGumdrop.QueuedExecutor work = new TestGumdrop.QueuedExecutor();
+        Gumdrop gumdrop = TestGumdrop.create(work);
+        final AtomicBoolean done = new AtomicBoolean(false);
+        final AtomicReference<Throwable> error = new AtomicReference<Throwable>();
+        ZoneStorage.saveAsync(gumdrop.getStorageExecutor(), target, zone,
+                gumdrop.nextWorkerLoop(),
+                new StorageExecutor.Callback<Void>() {
+                    @Override
+                    public void completed(Void result) {
+                        done.set(true);
+                    }
 
-                            @Override
-                            public void failed(Throwable t) {
-                                error.set(t);
-                                done.countDown();
-                            }
-                        });
-                assertTrue(done.await(10, TimeUnit.SECONDS));
-                assertNull(error.get());
-                assertTrue(onStorage.get());
+                    @Override
+                    public void failed(Throwable t) {
+                        error.set(t);
+                        done.set(true);
+                    }
+                });
+        assertEquals("the save must be queued on the storage executor", 1, work.pendingCount());
+        assertFalse(done.get());
+        assertFalse(Files.exists(target));
+        work.runAll();
+        assertTrue(done.get());
+        assertNull(error.get());
 
-                ZoneFile reloaded = ZoneFile.load(target);
-                assertEquals(1, reloaded.asMutable().getSerial());
-                assertEquals(1, reloaded.lookup("www.example.com.",
-                        org.bluezoo.gumdrop.dns.DnsType.A).getAnswers().size());
-            } finally {
-                gumdrop.shutdown();
-                gumdrop.join();
-            }
-        } finally {
-            Files.deleteIfExists(source);
-            Files.deleteIfExists(target);
-        }
+        ZoneFile reloaded = ZoneFile.load(target);
+        assertEquals(1, reloaded.asMutable().getSerial());
+        assertEquals(1, reloaded.lookup("www.example.com.",
+                org.bluezoo.gumdrop.dns.DnsType.A).getAnswers().size());
     }
 }

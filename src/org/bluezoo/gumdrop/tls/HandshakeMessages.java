@@ -150,6 +150,16 @@ final class HandshakeMessages {
         GreasePreSharedKey greasePreSharedKey;
         /** When true, offer TLS 1.2 alongside 1.3 in {@code supported_versions} (TCP negotiate). */
         boolean offerTls12Fallback;
+        /**
+         * When true (DTLS), write the {@code legacy_cookie} field after
+         * {@code legacy_session_id} (RFC 9147 section 5.3, RFC 6347 section 4.2.1).
+         */
+        boolean dtlsTransport;
+        /**
+         * With {@link #offerTls12Fallback}: the TLS 1.2 suites to offer after the
+         * TLS 1.3 ones, so the probe is a complete TLS 1.2 ClientHello as well.
+         */
+        List<Tls12CipherSuite> tls12CipherSuites;
     }
 
     /** Random PSK material for ECH ClientHelloOuter (RFC 9849 section 6.1.2). */
@@ -209,10 +219,18 @@ final class HandshakeMessages {
         w.bytes(params.random);
         byte[] legacySessionId = params.legacySessionId != null ? params.legacySessionId : new byte[0];
         w.opaque8(legacySessionId);
+        if (params.dtlsTransport) {
+            w.opaque8(new byte[0]);
+        }
 
         WireWriter cs = new WireWriter();
         for (int i = 0; i < params.cipherSuites.size(); i++) {
             cs.u16(params.cipherSuites.get(i).getCode());
+        }
+        if (params.offerTls12Fallback && params.tls12CipherSuites != null) {
+            for (int i = 0; i < params.tls12CipherSuites.size(); i++) {
+                cs.u16(params.tls12CipherSuites.get(i).getCode());
+            }
         }
         w.opaque16(cs.toByteArray());
 
@@ -228,6 +246,11 @@ final class HandshakeMessages {
             writeAlpnExtension(ext, params.applicationProtocols);
         }
         writeSupportedVersionsClientExtension(ext, params.offerTls12Fallback);
+        if (params.offerTls12Fallback) {
+            // RFC 7627 / RFC 5746 / RFC 8422: a TLS 1.2 server answering this
+            // hello must find everything a TLS 1.2 handshake requires of it.
+            Tls12HandshakeMessages.writeFallbackExtensions(ext);
+        }
         writeKeyShareClientExtension(ext, params.groups, params.keyShares);
         if (params.advertiseRecordSizeLimit) {
             writeRecordSizeLimitExtension(ext, params.recordSizeLimit);
@@ -343,17 +366,30 @@ final class HandshakeMessages {
     }
 
     static ClientHello parseClientHello(byte[] fullMessage) throws HandshakeFormatException {
+        return parseClientHello(fullMessage, false);
+    }
+
+    /**
+     * Parses a ClientHello; with {@code dtlsTransport} the {@code legacy_cookie}
+     * field that DTLS places after {@code legacy_session_id} is skipped.
+     */
+    static ClientHello parseClientHello(byte[] fullMessage, boolean dtlsTransport)
+            throws HandshakeFormatException {
         WireReader r = new WireReader(fullMessage);
         requireType(r, HANDSHAKE_TYPE_CLIENT_HELLO);
         WireReader body = r.slice(r.u24());
-        return parseClientHelloBody(body);
+        return parseClientHelloBody(body, dtlsTransport);
     }
 
-    private static ClientHello parseClientHelloBody(WireReader body) throws HandshakeFormatException {
+    private static ClientHello parseClientHelloBody(WireReader body, boolean dtlsTransport)
+            throws HandshakeFormatException {
         ClientHello ch = new ClientHello();
         body.u16();
         ch.random = body.bytes(32);
         ch.legacySessionId = body.opaque8();
+        if (dtlsTransport) {
+            body.opaque8();
+        }
         WireReader csr = new WireReader(body.opaque16());
         while (csr.hasRemaining()) {
             CipherSuite suite = CipherSuite.fromCode(csr.u16());

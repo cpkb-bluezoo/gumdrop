@@ -33,13 +33,15 @@ import org.bluezoo.gumdrop.dns.client.DnsClientTransport;
 import org.bluezoo.gumdrop.dns.client.DnsClientTransportHandler;
 import org.bluezoo.gumdrop.dns.client.DnsResolver;
 
+import org.bluezoo.gumdrop.testsupport.memfs.MemoryTemp;
 import org.junit.Test;
 
 import java.io.ByteArrayOutputStream;
-import java.io.File;
 import java.io.IOException;
 import java.net.InetAddress;
 import java.nio.ByteBuffer;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;
 import java.security.MessageDigest;
@@ -321,8 +323,7 @@ public class DNSSECTrustAnchorUpdaterTest {
 
     @Test
     public void testStateSurvivesRestart() throws Exception {
-        File stateFile = File.createTempFile("rfc5011-test", ".state");
-        stateFile.deleteOnExit();
+        Path stateFile = MemoryTemp.createTempFile("rfc5011-test", ".state");
         try {
             DnssecTrustAnchor anchor1 = new DnssecTrustAnchor();
             FakeClockUpdater updater1 = new FakeClockUpdater(anchor1);
@@ -343,7 +344,7 @@ public class DNSSECTrustAnchorUpdaterTest {
             assertTrue("restored Valid keys must be re-promoted into the trust anchor store",
                     anchor2.isDNSKEYTrusted(ZONE, ksk1Key));
         } finally {
-            stateFile.delete();
+            Files.deleteIfExists(stateFile);
         }
     }
 

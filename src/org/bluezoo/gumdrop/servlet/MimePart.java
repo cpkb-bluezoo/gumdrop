@@ -28,13 +28,13 @@ import org.bluezoo.gumdrop.mime.ContentTypeParser;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
-import java.io.File;
-import java.io.FileInputStream;
 import java.io.FileNotFoundException;
-import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.io.IOException;
 import java.io.OutputStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
@@ -60,7 +60,7 @@ class MimePart implements Part {
 
 	// Content storage - either bytes (small) or file (large)
 	private byte[] bytes;
-	private File tempFile;
+	private Path tempFile;
 	private long size;
 
 	/**
@@ -97,7 +97,7 @@ class MimePart implements Part {
 	/**
 	 * Called when writing is complete to finalize storage.
 	 */
-	void finishWriting(byte[] data, File file, long length) {
+	void finishWriting(byte[] data, Path file, long length) {
 		this.bytes = data;
 		this.tempFile = file;
 		this.size = length;
@@ -106,7 +106,7 @@ class MimePart implements Part {
 	@Override
 	public InputStream getInputStream() throws IOException {
 		if (tempFile != null) {
-			return new FileInputStream(tempFile);
+			return Files.newInputStream(tempFile);
 		}
 		return new ByteArrayInputStream(bytes != null ? bytes : new byte[0]);
 	}
@@ -178,12 +178,14 @@ class MimePart implements Part {
 		if (n == null) {
 			throw new IOException(Context.L10N.getString("err.bad_part_location"));
 		}
-		File dir = new File(location);
-		File dest = new File(dir, n);
-		if (!dest.getCanonicalPath().startsWith(dir.getCanonicalPath() + File.separator)) {
+		Path dir = locationDir();
+		Path dest = dir.resolve(n);
+		Path realDir = canonical(dir);
+		Path realDest = canonical(dest);
+		if (realDest.equals(realDir) || !realDest.startsWith(realDir)) {
 			throw new IOException(Context.L10N.getString("err.bad_part_location"));
 		}
-		try (OutputStream out = new FileOutputStream(dest);
+		try (OutputStream out = Files.newOutputStream(dest);
 			 InputStream in = getInputStream()) {
 			byte[] buf = new byte[8192];
 			int len;
@@ -191,6 +193,37 @@ class MimePart implements Part {
 				out.write(buf, 0, len);
 			}
 		}
+	}
+
+	/**
+	 * Returns the configured upload directory.
+	 */
+	private Path locationDir() {
+		if (config.locationPath != null) {
+			return config.locationPath;
+		}
+		return Paths.get(config.location);
+	}
+
+	/**
+	 * Resolves symbolic links in the longest existing prefix of the path
+	 * and appends the remaining (not yet existing) names, normalised
+	 * (equivalent to File.getCanonicalPath). A path that does not exist yet
+	 * must be resolved through its existing parent, otherwise a directory
+	 * reached through a symbolic link (for example a temporary directory
+	 * under a symlinked /var) would compare unequal to its resolved parent.
+	 */
+	private static Path canonical(Path p) throws IOException {
+		Path abs = p.toAbsolutePath().normalize();
+		if (Files.exists(abs)) {
+			return abs.toRealPath();
+		}
+		Path parent = abs.getParent();
+		if (parent == null) {
+			return abs;
+		}
+		Path name = abs.getFileName();
+		return canonical(parent).resolve(name.toString());
 	}
 
 	private String sanitizeFileName(String fileName) {
@@ -213,8 +246,8 @@ class MimePart implements Part {
 
 	@Override
 	public void delete() throws IOException {
-		if (tempFile != null && tempFile.exists()) {
-			tempFile.delete();
+		if (tempFile != null) {
+			Files.deleteIfExists(tempFile);
 			tempFile = null;
 		}
 		bytes = null;
@@ -244,7 +277,7 @@ class MimePart implements Part {
 	private class ContentSink extends OutputStream {
 
 		private ByteArrayOutputStream memoryBuffer;
-		private FileOutputStream fileOut;
+		private OutputStream fileOut;
 		private long length;
 
 		ContentSink() {
@@ -288,9 +321,9 @@ class MimePart implements Part {
 		}
 
 		private void switchToFile() throws IOException {
-			File dir = new File(config.location);
-			tempFile = File.createTempFile("upload_", ".tmp", dir);
-			fileOut = new FileOutputStream(tempFile);
+			Path dir = locationDir();
+			tempFile = Files.createTempFile(dir, "upload_", ".tmp");
+			fileOut = Files.newOutputStream(tempFile);
 			fileOut.write(memoryBuffer.toByteArray());
 			memoryBuffer = null;
 		}

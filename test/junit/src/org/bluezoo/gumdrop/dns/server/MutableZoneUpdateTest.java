@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.dns.server;
 
+import org.bluezoo.gumdrop.testsupport.memfs.MemoryTemp;
 import org.bluezoo.gumdrop.dns.DnsClass;
 import org.bluezoo.gumdrop.dns.DnsMessage;
 import org.bluezoo.gumdrop.dns.DnsResourceRecord;
@@ -52,7 +53,7 @@ public class MutableZoneUpdateTest {
 
     @Before
     public void setUp() throws Exception {
-        file = Files.createTempFile("mz", ".zone");
+        file = MemoryTemp.createTempFile("mz", ".zone");
         Files.writeString(file, ""
                 + "$ORIGIN example.com.\n"
                 + "$TTL 300\n"

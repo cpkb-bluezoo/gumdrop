@@ -23,6 +23,7 @@ package org.bluezoo.gumdrop.http;
 
 import org.bluezoo.gumdrop.tls.KeystoreFormat;
 import java.io.IOException;
+import java.io.PrintStream;
 import java.net.InetAddress;
 import java.nio.ByteBuffer;
 import java.nio.channels.Channels;
@@ -536,10 +537,13 @@ public class HttpClient implements AltSvcListener {
             throw new IOException("SSRF protection: connection to "
                     + addr.getHostAddress() + " is not permitted");
         }
-        // Block cloud metadata addresses (IPv4 169.254.169.254, IPv6 fd00:ec2::254)
+        // The IPv4 cloud metadata address (169.254.169.254) is link-local and
+        // so already rejected above. IPv6 unique local addresses (fc00::/7,
+        // RFC 4193) are not covered by isSiteLocalAddress() but are the
+        // private IPv6 range, and include the AWS IPv6 metadata endpoint
+        // (fd00:ec2::254), so block them explicitly.
         byte[] raw = addr.getAddress();
-        if (raw.length == 4 && raw[0] == (byte) 169 && raw[1] == (byte) 254
-                && raw[2] == (byte) 169 && raw[3] == (byte) 254) {
+        if (raw.length == 16 && (raw[0] & 0xfe) == 0xfc) {
             throw new IOException("SSRF protection: connection to "
                     + addr.getHostAddress() + " is not permitted");
         }
@@ -1052,35 +1056,49 @@ public class HttpClient implements AltSvcListener {
         applyContentCodingSettings(endpointHandler);
 
         try {
-            if (socketPath != null) {
-                clientEndpoint = (selectorLoop != null)
-                        ? new ClientEndpoint(transportFactory, selectorLoop, socketPath)
-                        : new ClientEndpoint(transportFactory, socketPath);
-            } else if (hostAddress != null) {
+            if (socketPath == null && hostAddress != null) {
                 checkNotPrivate(hostAddress);
-                if (selectorLoop != null) {
-                    clientEndpoint = new ClientEndpoint(
-                            transportFactory, selectorLoop,
-                            hostAddress, port);
-                } else {
-                    clientEndpoint = new ClientEndpoint(
-                            transportFactory, hostAddress, port);
-                }
-            } else {
-                if (selectorLoop != null) {
-                    clientEndpoint = new ClientEndpoint(
-                            transportFactory, selectorLoop,
-                            host, port);
-                } else {
-                    clientEndpoint = new ClientEndpoint(
-                            transportFactory, host, port);
-                }
             }
-            applyDnsResolver(clientEndpoint);
-            clientEndpoint.connect(gumdrop, endpointHandler);
+            connectEndpointForTesting(endpointHandler);
         } catch (IOException e) {
             handler.onError(e);
         }
+    }
+
+    /**
+     * Test seam: creates the client endpoint for the configured target and
+     * connects it to {@code ph}. Production behaviour opens a real socket;
+     * unit tests override this to attach an in-memory endpoint instead.
+     *
+     * @param ph the protocol handler that receives the connection
+     * @throws IOException if the endpoint cannot be created
+     */
+    void connectEndpointForTesting(HttpClientProtocolHandler ph) throws IOException {
+        if (socketPath != null) {
+            clientEndpoint = (selectorLoop != null)
+                    ? new ClientEndpoint(transportFactory, selectorLoop, socketPath)
+                    : new ClientEndpoint(transportFactory, socketPath);
+        } else if (hostAddress != null) {
+            if (selectorLoop != null) {
+                clientEndpoint = new ClientEndpoint(
+                        transportFactory, selectorLoop,
+                        hostAddress, port);
+            } else {
+                clientEndpoint = new ClientEndpoint(
+                        transportFactory, hostAddress, port);
+            }
+        } else {
+            if (selectorLoop != null) {
+                clientEndpoint = new ClientEndpoint(
+                        transportFactory, selectorLoop,
+                        host, port);
+            } else {
+                clientEndpoint = new ClientEndpoint(
+                        transportFactory, host, port);
+            }
+        }
+        applyDnsResolver(clientEndpoint);
+        clientEndpoint.connect(gumdrop, ph);
     }
 
     private void applyDnsResolver(ClientEndpoint endpoint) {
@@ -1629,8 +1647,8 @@ public class HttpClient implements AltSvcListener {
     // CLI entry point
     // ═══════════════════════════════════════════════════════════════════
 
-    private static void printUsage() {
-        System.err.println(
+    private static void printUsage(PrintStream err) {
+        err.println(
                 "Usage: HttpClient [options] <URL>\n"
                 + "\n"
                 + "Options:\n"
@@ -1654,130 +1672,165 @@ public class HttpClient implements AltSvcListener {
     }
 
     /**
-     * CLI entry point for making HTTP requests.
+     * The parsed command line of {@link #main}.
+     */
+    static final class CliOptions {
+        String method = "GET";
+        final List<String> requestHeaders = new ArrayList<String>();
+        String bodyFile;
+        String outputFile;
+        String forceVersion;
+        String pemCert;
+        String pemKey;
+        boolean skipVerify;
+        boolean verbose;
+        boolean headersOnly;
+        String scheme;
+        String host;
+        int port;
+        String path;
+    }
+
+    /**
+     * Parses the command line, writing a diagnostic to {@code err} and
+     * returning {@code null} if it is not valid.
      *
      * @param args command-line arguments
+     * @param err where diagnostics are written
+     * @return the parsed options, or null if the command line is invalid
      */
-    public static void main(String[] args) {
-        String method = "GET";
-        List<String> requestHeaders = new ArrayList<String>();
-        String bodyFile = null;
-        String outputFile = null;
-        String forceVersion = null;
-        String pemCert = null;
-        String pemKey = null;
-        boolean skipVerify = false;
-        boolean verbose = false;
-        boolean headersOnly = false;
+    static CliOptions parseArguments(String[] args, PrintStream err) {
+        CliOptions options = new CliOptions();
         String url = null;
 
         for (int i = 0; i < args.length; i++) {
             String arg = args[i];
             if ("-X".equals(arg)) {
                 if (++i >= args.length) {
-                    System.err.println("Missing argument for -X");
-                    System.exit(1);
+                    err.println("Missing argument for -X");
+                    return null;
                 }
-                method = args[i];
+                options.method = args[i];
             } else if ("-H".equals(arg)) {
                 if (++i >= args.length) {
-                    System.err.println("Missing argument for -H");
-                    System.exit(1);
+                    err.println("Missing argument for -H");
+                    return null;
                 }
-                requestHeaders.add(args[i]);
+                options.requestHeaders.add(args[i]);
             } else if ("-d".equals(arg)) {
                 if (++i >= args.length) {
-                    System.err.println("Missing argument for -d");
-                    System.exit(1);
+                    err.println("Missing argument for -d");
+                    return null;
                 }
-                bodyFile = args[i];
+                options.bodyFile = args[i];
             } else if ("-o".equals(arg)) {
                 if (++i >= args.length) {
-                    System.err.println("Missing argument for -o");
-                    System.exit(1);
+                    err.println("Missing argument for -o");
+                    return null;
                 }
-                outputFile = args[i];
+                options.outputFile = args[i];
             } else if ("--http1.1".equals(arg)) {
-                forceVersion = "1.1";
+                options.forceVersion = "1.1";
             } else if ("--http2".equals(arg)) {
-                forceVersion = "2";
+                options.forceVersion = "2";
             } else if ("--http3".equals(arg)) {
-                forceVersion = "3";
+                options.forceVersion = "3";
             } else if ("-E".equals(arg)) {
                 if (++i >= args.length) {
-                    System.err.println("Missing argument for -E");
-                    System.exit(1);
+                    err.println("Missing argument for -E");
+                    return null;
                 }
                 String certKeyArg = args[i];
                 int colonPos = certKeyArg.indexOf(':');
                 if (colonPos < 0) {
-                    System.err.println(
-                            "Invalid -E format, expected cert:key");
-                    System.exit(1);
+                    err.println("Invalid -E format, expected cert:key");
+                    return null;
                 }
-                pemCert = certKeyArg.substring(0, colonPos);
-                pemKey = certKeyArg.substring(colonPos + 1);
+                options.pemCert = certKeyArg.substring(0, colonPos);
+                options.pemKey = certKeyArg.substring(colonPos + 1);
             } else if ("-k".equals(arg)) {
-                skipVerify = true;
+                options.skipVerify = true;
             } else if ("-v".equals(arg)) {
-                verbose = true;
+                options.verbose = true;
             } else if ("-I".equals(arg)) {
-                headersOnly = true;
-                method = "HEAD";
+                options.headersOnly = true;
+                options.method = "HEAD";
             } else if (arg.startsWith("-")) {
-                System.err.println("Unknown option: " + arg);
-                printUsage();
-                System.exit(1);
+                err.println("Unknown option: " + arg);
+                printUsage(err);
+                return null;
             } else {
                 url = arg;
             }
         }
 
         if (url == null) {
-            printUsage();
-            System.exit(1);
+            printUsage(err);
+            return null;
         }
 
-        String scheme;
         String hostPort;
-        String path;
         if (url.startsWith("https://")) {
-            scheme = "https";
+            options.scheme = "https";
             hostPort = url.substring(8);
         } else if (url.startsWith("http://")) {
-            scheme = "http";
+            options.scheme = "http";
             hostPort = url.substring(7);
         } else {
-            System.err.println("URL must start with http:// or https://");
-            System.exit(1);
-            return;
+            err.println("URL must start with http:// or https://");
+            return null;
         }
 
         int slashPos = hostPort.indexOf('/');
         if (slashPos >= 0) {
-            path = hostPort.substring(slashPos);
+            options.path = hostPort.substring(slashPos);
             hostPort = hostPort.substring(0, slashPos);
         } else {
-            path = "/";
+            options.path = "/";
         }
 
-        String targetHost;
-        int targetPort;
         int colonPos = hostPort.lastIndexOf(':');
         if (colonPos >= 0) {
-            targetHost = hostPort.substring(0, colonPos);
+            options.host = hostPort.substring(0, colonPos);
             try {
-                targetPort = Integer.parseInt(
+                options.port = Integer.parseInt(
                         hostPort.substring(colonPos + 1));
             } catch (NumberFormatException e) {
-                System.err.println("Invalid port number");
-                System.exit(1);
-                return;
+                err.println("Invalid port number");
+                return null;
             }
         } else {
-            targetHost = hostPort;
-            targetPort = "https".equals(scheme) ? 443 : 80;
+            options.host = hostPort;
+            options.port = "https".equals(options.scheme) ? 443 : 80;
         }
+        return options;
+    }
+
+    /**
+     * CLI entry point for making HTTP requests.
+     *
+     * @param args command-line arguments
+     */
+    public static void main(String[] args) {
+        CliOptions options = parseArguments(args, System.err);
+        if (options == null) {
+            System.exit(1);
+            return;
+        }
+        String method = options.method;
+        List<String> requestHeaders = options.requestHeaders;
+        String bodyFile = options.bodyFile;
+        String outputFile = options.outputFile;
+        String forceVersion = options.forceVersion;
+        String pemCert = options.pemCert;
+        String pemKey = options.pemKey;
+        boolean skipVerify = options.skipVerify;
+        boolean verbose = options.verbose;
+        boolean headersOnly = options.headersOnly;
+        String scheme = options.scheme;
+        String path = options.path;
+        String targetHost = options.host;
+        int targetPort = options.port;
 
         Gumdrop gumdrop = Gumdrop.boot(GumdropConfig.create().workerThreads(1));
         SelectorLoop loop = gumdrop.nextWorkerLoop();
@@ -1959,7 +2012,7 @@ public class HttpClient implements AltSvcListener {
         }
     }
 
-    private static HttpResponseHandler createResponseHandler(
+    static HttpResponseHandler createResponseHandler(
             final WritableByteChannel out,
             final boolean outputToStdout,
             final boolean verbose,

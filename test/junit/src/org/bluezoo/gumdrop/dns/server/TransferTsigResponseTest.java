@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.dns.server;
 
+import org.bluezoo.gumdrop.testsupport.memfs.MemoryTemp;
 import org.bluezoo.gumdrop.dns.DnsMessage;
 import org.bluezoo.gumdrop.dns.DnsQueryCallback;
 import org.bluezoo.gumdrop.dns.DnsQueryTransport;
@@ -48,7 +49,7 @@ public class TransferTsigResponseTest {
 
     @Test
     public void testHandlerSignsAxfrSequence() throws Exception {
-        Path zone = Files.createTempFile("tsig-xfr", ".zone");
+        Path zone = MemoryTemp.createTempFile("tsig-xfr", ".zone");
         Files.writeString(zone, ""
                 + "$ORIGIN example.com.\n"
                 + "$TTL 300\n"

@@ -23,6 +23,7 @@ package org.bluezoo.gumdrop.mailbox.mbox;
 
 import org.bluezoo.gumdrop.mailbox.MessageDescriptor;
 import org.bluezoo.gumdrop.testsupport.memfs.MemoryFileSystem;
+import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 
@@ -66,6 +67,12 @@ public class MboxMailboxTest {
         tempDir = MemoryFileSystem.create().getPath("/mbox");
         Files.createDirectories(tempDir);
         mboxFile = tempDir.resolve("test.mbox");
+    }
+
+    @After
+    public void tearDown() {
+        // JVM-global test hook: never leak it into another test.
+        MboxMailbox.beforeJvmGateAcquire = null;
     }
 
     private MboxMailbox openSampleMailbox(boolean readOnly) throws IOException {
@@ -487,72 +494,6 @@ public class MboxMailboxTest {
             assertEquals(Integer.valueOf(3), matches.get(0));
         } finally {
             reopened.close(false);
-        }
-    }
-
-    // Regression test for issue #135: two MboxMailbox instances on the same
-    // file in the same JVM used to race straight to the OS-level FileLock
-    // and the second one would throw OverlappingFileLockException instead
-    // of blocking/queueing. A second open on a background thread must now
-    // block until the first session closes, then succeed - not fail.
-    @Test(timeout = 10000)
-    public void testConcurrentSameJvmSessionsQueueInsteadOfCrashing()
-            throws Exception {
-        MboxMailbox first = openSampleMailbox(true);
-
-        final java.util.concurrent.CountDownLatch secondStarted =
-                new java.util.concurrent.CountDownLatch(1);
-        final java.util.concurrent.CountDownLatch secondAtGate =
-                new java.util.concurrent.CountDownLatch(1);
-        final java.util.concurrent.atomic.AtomicReference<MboxMailbox> secondRef =
-                new java.util.concurrent.atomic.AtomicReference<>();
-        final java.util.concurrent.atomic.AtomicReference<Throwable> secondError =
-                new java.util.concurrent.atomic.AtomicReference<>();
-
-        MboxMailbox.beforeJvmGateAcquire = new Runnable() {
-            @Override
-            public void run() {
-                secondAtGate.countDown();
-            }
-        };
-        try {
-            Thread opener = new Thread(new Runnable() {
-                @Override
-                public void run() {
-                    secondStarted.countDown();
-                    try {
-                        secondRef.set(new MboxMailbox(mboxFile, "test", true));
-                    } catch (Throwable t) {
-                        secondError.set(t);
-                    }
-                }
-            });
-            opener.start();
-
-            assertTrue(secondStarted.await(5, java.util.concurrent.TimeUnit.SECONDS));
-            assertTrue("second open must be blocked on the JVM gate, not have "
-                            + "failed or returned",
-                    secondAtGate.await(5, java.util.concurrent.TimeUnit.SECONDS));
-            assertTrue("second open must still be blocked behind the first "
-                            + "session, not have failed or returned",
-                    opener.isAlive());
-
-            first.close(false);
-            opener.join(5000);
-
-            assertNull("second open must not have thrown "
-                            + "OverlappingFileLockException or any other error",
-                    secondError.get());
-            MboxMailbox second = secondRef.get();
-            assertNotNull("second open must have succeeded once the first "
-                            + "session closed", second);
-            try {
-                assertEquals(2, second.getMessageCount());
-            } finally {
-                second.close(false);
-            }
-        } finally {
-            MboxMailbox.beforeJvmGateAcquire = null;
         }
     }
 }

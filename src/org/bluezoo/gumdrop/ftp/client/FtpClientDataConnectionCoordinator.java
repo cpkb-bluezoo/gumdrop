@@ -77,7 +77,9 @@ final class FtpClientDataConnectionCoordinator {
     private TcpTransportFactory transportFactory;
 
     // Active-mode (PORT/EPRT) listener state, guarded by 'this'.
-    private ServerSocketChannel activeListenerChannel;
+    private ActiveListener activeListener;
+    private ActiveListenerOpener listenerOpener = new LoopListenerOpener();
+    private DataConnector dataConnector = new LoopDataConnector();
     private final BlockingQueue<SocketChannel> incomingActiveConnections =
             new LinkedBlockingQueue<SocketChannel>();
     private ProtocolHandler pendingActiveHandler;
@@ -89,6 +91,133 @@ final class FtpClientDataConnectionCoordinator {
     private boolean dataProtectionEnabled;
     private ServerCredentials dataClientCredentials;
     private TcpTransportFactory secureTransportFactory;
+
+    /** A bound active-mode (PORT/EPRT) listener. Package-private test seam. */
+    interface ActiveListener {
+        /** The bound local address, announced to the server. */
+        InetSocketAddress address();
+
+        /** Releases the listening socket. */
+        void close();
+    }
+
+    /**
+     * Opens active-mode listeners. The default binds a real
+     * {@link ServerSocketChannel} on {@link Gumdrop}'s accept loop; tests
+     * substitute a mock so no socket or loop is needed.
+     */
+    interface ActiveListenerOpener {
+        /**
+         * @param local the control connection's local address to bind
+         * @param onAccept called with the server's incoming data connection
+         * @return the bound listener
+         * @throws IOException if it could not be opened
+         */
+        ActiveListener open(InetAddress local,
+                AcceptSelectorLoop.RawAcceptHandler onAccept) throws IOException;
+    }
+
+    /** Default opener: a real listening channel registered on the accept loop. */
+    private final class LoopListenerOpener implements ActiveListenerOpener {
+        @Override
+        public ActiveListener open(InetAddress local,
+                AcceptSelectorLoop.RawAcceptHandler onAccept) throws IOException {
+            final ServerSocketChannel ssc = ServerSocketChannel.open();
+            ssc.configureBlocking(false);
+            ssc.bind(new InetSocketAddress(local, 0));
+            gumdrop.ensureAcceptLoop();
+            gumdrop.getAcceptLoop().registerRawAcceptor(ssc, onAccept);
+            final InetSocketAddress address = (InetSocketAddress) ssc.getLocalAddress();
+            return new ActiveListener() {
+                @Override
+                public InetSocketAddress address() {
+                    return address;
+                }
+
+                @Override
+                public void close() {
+                    AcceptSelectorLoop loop = gumdrop.getAcceptLoop();
+                    if (loop != null) {
+                        loop.closeRawAcceptor(ssc);
+                        return;
+                    }
+                    try {
+                        ssc.close();
+                    } catch (IOException e) {
+                        // Ignore close errors
+                    }
+                }
+            };
+        }
+    }
+
+    /** Test seam: substitutes how active-mode listeners are opened. */
+    void setActiveListenerOpener(ActiveListenerOpener opener) {
+        this.listenerOpener = opener;
+    }
+
+    /**
+     * Creates the data endpoints themselves. The default opens a {@link
+     * ClientEndpoint} for passive mode and registers an accepted channel on
+     * the control connection's loop for active mode; tests substitute a mock
+     * that hands the handler an in-memory endpoint.
+     */
+    interface DataConnector {
+        /**
+         * Opens the passive-mode connection to the server's data address.
+         *
+         * @param gumdrop the runtime
+         * @param control the control connection (for its loop)
+         * @param address the server's data address
+         * @param handler told of the connection's lifecycle
+         * @param factory the (plain or TLS) transport factory to use
+         * @throws IOException if the connect could not be started
+         */
+        void connect(Gumdrop gumdrop, Endpoint control,
+                InetSocketAddress address, ProtocolHandler handler,
+                TcpTransportFactory factory) throws IOException;
+
+        /**
+         * Adopts the server's incoming active-mode connection, on the
+         * control connection's loop thread.
+         *
+         * @param control the control connection (for its loop)
+         * @param channel the accepted channel
+         * @param handler told of the connection's lifecycle
+         * @throws IOException if the channel could not be adopted
+         */
+        void adopt(Endpoint control, SocketChannel channel,
+                ProtocolHandler handler) throws IOException;
+    }
+
+    /** Default connector: real client endpoints and loop registration. */
+    private static final class LoopDataConnector implements DataConnector {
+        @Override
+        public void connect(Gumdrop gumdrop, Endpoint control,
+                InetSocketAddress address, ProtocolHandler handler,
+                TcpTransportFactory factory) throws IOException {
+            ClientEndpoint dataEndpoint = new ClientEndpoint(factory,
+                    control.getSelectorLoop(),
+                    address.getAddress(), address.getPort());
+            dataEndpoint.connect(gumdrop, handler);
+        }
+
+        @Override
+        public void adopt(Endpoint control, SocketChannel sc,
+                ProtocolHandler handler) throws IOException {
+            sc.configureBlocking(false);
+            TcpEndpoint dataEndpoint = new TcpEndpoint(handler);
+            dataEndpoint.setChannel(sc);
+            dataEndpoint.init();
+            control.getSelectorLoop().registerTCP(sc, dataEndpoint);
+            handler.connected(dataEndpoint);
+        }
+    }
+
+    /** Test seam: substitutes how data endpoints are created. */
+    void setDataConnector(DataConnector connector) {
+        this.dataConnector = connector;
+    }
 
     FtpClientDataConnectionCoordinator(Gumdrop gumdrop, Endpoint controlEndpoint) {
         this.gumdrop = gumdrop;
@@ -120,11 +249,9 @@ final class FtpClientDataConnectionCoordinator {
     void connect(InetSocketAddress dataAddress, ProtocolHandler dataHandler) {
         TcpTransportFactory factory = dataProtectionEnabled
                 ? secureTransportFactory() : plainTransportFactory();
-        ClientEndpoint dataEndpoint = new ClientEndpoint(factory,
-                controlEndpoint.getSelectorLoop(),
-                dataAddress.getAddress(), dataAddress.getPort());
         try {
-            dataEndpoint.connect(gumdrop, dataHandler);
+            dataConnector.connect(gumdrop, controlEndpoint, dataAddress,
+                    dataHandler, factory);
         } catch (IOException e) {
             dataHandler.error(e);
         }
@@ -138,9 +265,9 @@ final class FtpClientDataConnectionCoordinator {
         this.transportFactory = factory;
     }
 
-    /** The current active-mode listener channel, or null. Package-private for tests. */
-    synchronized ServerSocketChannel activeListenerChannel() {
-        return activeListenerChannel;
+    /** The current active-mode listener, or null. Package-private for tests. */
+    synchronized ActiveListener activeListener() {
+        return activeListener;
     }
 
     private TcpTransportFactory plainTransportFactory() {
@@ -188,23 +315,17 @@ final class FtpClientDataConnectionCoordinator {
 
         InetAddress localAddress =
                 ((InetSocketAddress) controlEndpoint.getLocalAddress()).getAddress();
-        ServerSocketChannel ssc = ServerSocketChannel.open();
-        ssc.configureBlocking(false);
-        ssc.bind(new InetSocketAddress(localAddress, 0));
-        synchronized (this) {
-            activeListenerChannel = ssc;
-        }
-
-        gumdrop.ensureAcceptLoop();
-        gumdrop.getAcceptLoop().registerRawAcceptor(ssc,
+        ActiveListener opened = listenerOpener.open(localAddress,
                 new AcceptSelectorLoop.RawAcceptHandler() {
                     @Override
                     public void accepted(SocketChannel sc) throws IOException {
                         onActiveAccept(sc);
                     }
                 });
-
-        return (InetSocketAddress) ssc.getLocalAddress();
+        synchronized (this) {
+            activeListener = opened;
+        }
+        return opened.address();
     }
 
     /**
@@ -270,12 +391,7 @@ final class FtpClientDataConnectionCoordinator {
             @Override
             public void run() {
                 try {
-                    sc.configureBlocking(false);
-                    TcpEndpoint dataEndpoint = new TcpEndpoint(dataHandler);
-                    dataEndpoint.setChannel(sc);
-                    dataEndpoint.init();
-                    controlEndpoint.getSelectorLoop().registerTCP(sc, dataEndpoint);
-                    dataHandler.connected(dataEndpoint);
+                    dataConnector.adopt(controlEndpoint, sc, dataHandler);
                 } catch (IOException e) {
                     dataHandler.error(e);
                 }
@@ -287,10 +403,10 @@ final class FtpClientDataConnectionCoordinator {
      * Detaches the listening socket from this coordinator, for {@link
      * #releaseListener}. Caller holds the lock.
      */
-    private ServerSocketChannel takeListener() {
-        ServerSocketChannel ssc = activeListenerChannel;
-        activeListenerChannel = null;
-        return ssc;
+    private ActiveListener takeListener() {
+        ActiveListener l = activeListener;
+        activeListener = null;
+        return l;
     }
 
     /**
@@ -302,19 +418,9 @@ final class FtpClientDataConnectionCoordinator {
      * this coordinator's lock from any thread but the accept thread, which
      * the loop's own thread may be waiting on.
      */
-    private void releaseListener(ServerSocketChannel ssc) {
-        if (ssc == null) {
-            return;
-        }
-        AcceptSelectorLoop loop = gumdrop.getAcceptLoop();
-        if (loop != null) {
-            loop.closeRawAcceptor(ssc);
-            return;
-        }
-        try {
-            ssc.close();
-        } catch (IOException e) {
-            // Ignore close errors
+    private void releaseListener(ActiveListener listener) {
+        if (listener != null) {
+            listener.close();
         }
     }
 
@@ -324,7 +430,7 @@ final class FtpClientDataConnectionCoordinator {
      * failure cleanup.
      */
     void closeActiveListener() {
-        ServerSocketChannel ssc;
+        ActiveListener ssc;
         synchronized (this) {
             ssc = takeListener();
             pendingActiveHandler = null;

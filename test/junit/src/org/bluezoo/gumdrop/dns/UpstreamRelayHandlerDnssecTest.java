@@ -22,7 +22,7 @@
 package org.bluezoo.gumdrop.dns;
 
 import org.bluezoo.gumdrop.Gumdrop;
-import org.bluezoo.gumdrop.GumdropConfig;
+import org.bluezoo.gumdrop.testsupport.TestGumdrop;
 import org.bluezoo.gumdrop.dns.server.UpstreamRelayHandler;
 import org.junit.After;
 import org.junit.Before;
@@ -42,9 +42,7 @@ public class UpstreamRelayHandlerDnssecTest {
 
     @Before
     public void bootGumdrop() {
-        gumdrop = Gumdrop.boot(GumdropConfig.create()
-                .workerThreads(1)
-                .drainTimeoutMs(0));
+        gumdrop = TestGumdrop.create();
     }
 
     @After

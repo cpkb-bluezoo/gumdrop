@@ -302,7 +302,7 @@ public class SOCKSClientHandlerTest {
         SocksClientHandler handler = new SocksClientHandler(
                 new SocksClientConfig(), new org.bluezoo.gumdrop.UdpTransportFactory(), udpListener);
         try {
-            handler.sendDatagram(new InetSocketAddress("example.com", 53), ByteBuffer.allocate(4));
+            handler.sendDatagram(InetSocketAddress.createUnresolved("example.com", 53), ByteBuffer.allocate(4));
             fail("expected IllegalStateException");
         } catch (IllegalStateException expected) {
             // expected: association not yet established

@@ -23,12 +23,8 @@ package org.bluezoo.gumdrop.servlet;
 
 import org.bluezoo.gumdrop.ContainerClassLoader;
 import org.bluezoo.gumdrop.util.IteratorEnumeration;
-import org.bluezoo.gumdrop.util.JarInputStream;
 
-import java.io.BufferedInputStream;
 import java.io.ByteArrayOutputStream;
-import java.io.File;
-import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.URL;
@@ -43,9 +39,6 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.jar.JarEntry;
-import java.util.jar.JarFile;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.logging.Level;
 
 /**
@@ -70,7 +63,6 @@ final class ContextClassLoader extends ClassLoader {
     private final Context context;
     private final boolean manager; // if this is the manager webapp
 
-    private Map<String,File> files = new ConcurrentHashMap<>();
     private Map<String,InputStream> assignments = new HashMap<>();
 
     ContextClassLoader(ContainerClassLoader parent, Context context, boolean manager) {
@@ -141,7 +133,6 @@ final class ContextClassLoader extends ClassLoader {
     }
 
     void reset() {
-        files.clear();
     }
 
     private Class<?> findContextClass(String name) throws ClassNotFoundException {
@@ -167,17 +158,16 @@ final class ContextClassLoader extends ClassLoader {
                     continue;
                 }
                 try {
-                    File file = getFile(jar);
-                    JarFile jarFile = new JarFile(file); // NB cannot close yet, use JarInputStream
-                    JarEntry jarEntry = jarFile.getJarEntry(entryName);
-                    if (jarEntry != null) {
-                        try (InputStream in2 = new JarInputStream(jarFile, jarEntry)) {
+                    Archive jarFile = context.getLibArchive(jar);
+                    InputStream in2 = jarFile.stream(entryName);
+                    if (in2 != null) {
+                        try {
                             byte[] data = loadClassData(in2, name);
                             return defineClass(name, data, 0, data.length);
                             // XXX ProtectionDomain?
+                        } finally {
+                            in2.close();
                         }
-                    } else {
-                        jarFile.close();
                     }
                 } catch (IOException e) {
                     // The (message, cause) constructor: initCause() always
@@ -201,51 +191,6 @@ final class ContextClassLoader extends ClassLoader {
         } catch (IOException e) {
             throw new ClassNotFoundException(className, e);
         }
-    }
-
-    /**
-     * Return a File object that can be used to access the contents of the
-     * jar file denoted by the specified path.
-     * If the context is based in the filesystem, this can return a File
-     * directly. If the context is in a war file, we will extract the
-     * content of the jar to a temporary file and return that.
-     * @param path the resource path, with or without leading '/'
-     */
-    synchronized File getFile(String path) {
-        // Normalize path to have leading /
-        if (path.charAt(0) != '/') {
-            path = "/" + path;
-        }
-        File file = files.get(path);
-        if (file == null) {
-            if (context.root.isDirectory()) {
-                file = new File(context.root, path.substring(1));
-                if (file.isFile()) {
-                    files.put(path, file);
-                }
-            } else { // war file
-                try (InputStream in = context.getResourceAsStream(path)) {
-                    if (in != null) {
-                        String fileName = (context.getContextPath() + path).replace('/', '_');
-                        file = File.createTempFile("gumdrop", fileName);
-                        file.deleteOnExit();
-                        try (FileOutputStream out = new FileOutputStream(file)) {
-                            byte[] buf = new byte[Math.max(4096, in.available())];
-                            for (int len = in.read(buf); len != -1; len = in.read(buf)) {
-                                out.write(buf, 0, len);
-                            }
-                            files.put(path, file);
-                        }
-                    }
-                } catch (IOException e) {
-                    // Error writing or temporary file or closing resource.
-                    RuntimeException e2 = new RuntimeException();
-                    e2.initCause(e);
-                    throw e2;
-                }
-            }
-        }
-        return file;
     }
 
     @Override public URL getResource(String name) {

@@ -36,9 +36,6 @@ import org.bluezoo.gumdrop.ProtocolHandler;
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.TimerHandle;
-import org.bluezoo.gumdrop.UdpEndpoint;
-import org.bluezoo.gumdrop.UdpTransportFactory;
-import org.bluezoo.gumdrop.dns.client.DnsResolver;
 import org.bluezoo.gumdrop.dns.client.ResolveCallback;
 import org.bluezoo.gumdrop.util.ByteBufferPool;
 
@@ -78,6 +75,7 @@ class SocksUdpRelay {
     private static final ResourceBundle L10N =
             ResourceBundle.getBundle("org.bluezoo.gumdrop.socks.L10N");
 
+    private final SocksTransport transport;
     private final Endpoint tcpControlEndpoint;
     private final org.bluezoo.gumdrop.socks.server.SocksServer server;
     private final SocksServerMetrics metrics;
@@ -85,8 +83,8 @@ class SocksUdpRelay {
     private final InetAddress expectedClientAddress;
     private final SelectorLoop selectorLoop;
 
-    private UdpEndpoint clientFacingEndpoint;
-    private UdpEndpoint upstreamEndpoint;
+    private SocksTransport.UdpPort clientFacingEndpoint;
+    private SocksTransport.UdpPort upstreamEndpoint;
     private InetSocketAddress clientDatagramAddress;
 
     private boolean closed;
@@ -109,6 +107,19 @@ class SocksUdpRelay {
                   org.bluezoo.gumdrop.socks.server.SocksServer server,
                   SocksServerMetrics metrics, long idleTimeoutMs,
                   InetAddress expectedClientAddress) {
+        this(new SocketSocksTransport(), tcpEndpoint, server, metrics,
+                idleTimeoutMs, expectedClientAddress);
+    }
+
+    /**
+     * Creates a UDP ASSOCIATE relay over the given transport (a test seam:
+     * tests pass a mock that binds no socket).
+     */
+    SocksUdpRelay(SocksTransport transport, Endpoint tcpEndpoint,
+                  org.bluezoo.gumdrop.socks.server.SocksServer server,
+                  SocksServerMetrics metrics, long idleTimeoutMs,
+                  InetAddress expectedClientAddress) {
+        this.transport = transport;
         this.tcpControlEndpoint = tcpEndpoint;
         this.server = server;
         this.metrics = metrics;
@@ -125,14 +136,11 @@ class SocksUdpRelay {
      * @throws IOException if the UDP ports cannot be bound
      */
     InetSocketAddress start() throws IOException {
-        UdpTransportFactory factory = new UdpTransportFactory();
-        factory.start();
+        clientFacingEndpoint = transport.openUdp(
+                selectorLoop.getGumdrop(), selectorLoop, new ClientFacingHandler());
 
-        clientFacingEndpoint = factory.createServerEndpoint(
-                selectorLoop.getGumdrop(), null, 0, new ClientFacingHandler(), selectorLoop);
-
-        upstreamEndpoint = factory.createServerEndpoint(
-                selectorLoop.getGumdrop(), null, 0, new UpstreamHandler(), selectorLoop);
+        upstreamEndpoint = transport.openUdp(
+                selectorLoop.getGumdrop(), selectorLoop, new UpstreamHandler());
 
         startTimeMillis = System.currentTimeMillis();
         if (metrics != null) {
@@ -141,8 +149,7 @@ class SocksUdpRelay {
 
         resetIdleTimer();
 
-        InetSocketAddress boundAddress =
-                (InetSocketAddress) clientFacingEndpoint.getLocalAddress();
+        InetSocketAddress boundAddress = clientFacingEndpoint.localAddress();
         if (LOGGER.isLoggable(Level.FINE)) {
             LOGGER.fine(MessageFormat.format(
                     L10N.getString("log.udp_relay_opened"),
@@ -237,9 +244,7 @@ class SocksUdpRelay {
             }
 
             // UdpEndpoint sets remoteAddress before calling receive()
-            InetSocketAddress source =
-                    (InetSocketAddress) clientFacingEndpoint
-                            .getRemoteAddress();
+            InetSocketAddress source = clientFacingEndpoint.remoteAddress();
 
             // RFC 1928 §7: validate client source IP
             if (!source.getAddress().equals(expectedClientAddress)) {
@@ -326,9 +331,7 @@ class SocksUdpRelay {
             }
 
             // UdpEndpoint sets remoteAddress before calling receive()
-            InetSocketAddress source =
-                    (InetSocketAddress) upstreamEndpoint
-                            .getRemoteAddress();
+            InetSocketAddress source = upstreamEndpoint.remoteAddress();
 
             resetIdleTimer();
 
@@ -377,8 +380,7 @@ class SocksUdpRelay {
 
     private void resolveAndForward(final String hostname, final int port,
                                    final ByteBuffer payload) {
-        DnsResolver resolver = DnsResolver.forLoop(selectorLoop);
-        resolver.resolve(hostname, new ResolveCallback() {
+        transport.resolve(selectorLoop, hostname, new ResolveCallback() {
             @Override
             public void onResolved(List<InetAddress> addresses) {
                 // Validate every resolved address before forwarding.

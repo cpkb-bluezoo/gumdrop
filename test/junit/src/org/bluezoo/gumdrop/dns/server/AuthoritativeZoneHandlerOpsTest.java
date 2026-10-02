@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.dns.server;
 
+import org.bluezoo.gumdrop.testsupport.memfs.MemoryTemp;
 import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.dns.DnsClass;
 import org.bluezoo.gumdrop.dns.DnsMessage;
@@ -93,7 +94,7 @@ public class AuthoritativeZoneHandlerOpsTest {
 
     @Before
     public void setUp() throws Exception {
-        file = Files.createTempFile("azh", ".zone");
+        file = MemoryTemp.createTempFile("azh", ".zone");
         Files.writeString(file, ""
                 + "$ORIGIN example.com.\n"
                 + "$TTL 300\n"
@@ -465,7 +466,7 @@ public class AuthoritativeZoneHandlerOpsTest {
     @Test
     public void testMostSpecificZoneWins() throws Exception {
         MutableZone parent = ZoneFile.load(file).asMutable();
-        Path childFile = Files.createTempFile("azh-child", ".zone");
+        Path childFile = MemoryTemp.createTempFile("azh-child", ".zone");
         try {
             Files.writeString(childFile, ""
                     + "$ORIGIN sub.example.com.\n"

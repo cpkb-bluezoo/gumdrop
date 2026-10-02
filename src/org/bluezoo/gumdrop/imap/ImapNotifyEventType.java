@@ -65,30 +65,6 @@ public enum ImapNotifyEventType {
                 return type;
             }
         }
-        if ("MESSAGENEW".equalsIgnoreCase(upper)) {
-            return MESSAGE_NEW;
-        }
-        if ("MESSAGEEXPUNGE".equalsIgnoreCase(upper)) {
-            return MESSAGE_EXPUNGE;
-        }
-        if ("FLAGCHANGE".equalsIgnoreCase(upper)) {
-            return FLAG_CHANGE;
-        }
-        if ("ANNOTATIONCHANGE".equalsIgnoreCase(upper)) {
-            return ANNOTATION_CHANGE;
-        }
-        if ("MAILBOXNAME".equalsIgnoreCase(upper)) {
-            return MAILBOX_NAME;
-        }
-        if ("SUBSCRIPTIONCHANGE".equalsIgnoreCase(upper)) {
-            return SUBSCRIPTION_CHANGE;
-        }
-        if ("MAILBOXMETADATACHANGE".equalsIgnoreCase(upper)) {
-            return MAILBOX_METADATA_CHANGE;
-        }
-        if ("SERVERMETADATACHANGE".equalsIgnoreCase(upper)) {
-            return SERVER_METADATA_CHANGE;
-        }
         return null;
     }
 }

@@ -63,7 +63,6 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.TimeUnit;
 
 import static org.junit.Assert.*;
 
@@ -1058,29 +1057,20 @@ public class AMQPClientProtocolHandlerTest {
                     public boolean isComplete() { return complete; }
                 };
 
-        final Thread testThread = Thread.currentThread();
-        java.util.concurrent.ExecutorService executor = java.util.concurrent.Executors.newSingleThreadExecutor();
-        try {
-            recording.lastHandshake.startOk(recordingMechanism,
-                    new TuneHandler() {
-                        @Override
-                        public void handleTune(int channelMax, long frameMax, int heartbeat, ClientTuned tuned) { }
-                    },
-                    executor);
-            assertTrue("challenge evaluation must complete on executor",
-                    evaluated.await(5, TimeUnit.SECONDS));
-            executor.shutdown();
-            assertTrue("executor must finish dispatching start-ok back onto the endpoint",
-                    executor.awaitTermination(5, TimeUnit.SECONDS));
-        } finally {
-            if (!executor.isShutdown()) {
-                executor.shutdown();
-            }
-        }
+        HandFiredExecutor executor = new HandFiredExecutor();
+        recording.lastHandshake.startOk(recordingMechanism,
+                new TuneHandler() {
+                    @Override
+                    public void handleTune(int channelMax, long frameMax, int heartbeat, ClientTuned tuned) { }
+                },
+                executor);
+        assertEquals("challenge evaluation must be handed to the executor, not run inline",
+                1, executor.queued.size());
+        assertEquals("nothing evaluated until the executor runs the task", 1, evaluated.getCount());
+        executor.runAll();
+        assertEquals(0, evaluated.getCount());
 
         assertEquals(1, evaluatedOn.size());
-        assertNotEquals("challenge evaluation must be offloaded off the calling thread",
-                testThread, evaluatedOn.get(0));
 
         ByteBuffer sent = lastSentMethodArgs(AmqpMethod.CLASS_CONNECTION, AmqpMethod.CONNECTION_START_OK);
         int tableLen = sent.getInt();
@@ -1089,6 +1079,48 @@ public class AMQPClientProtocolHandlerTest {
     }
 
     // ── Stubs ──
+
+    /** Executor that queues tasks so the test runs them by hand, on its own thread. */
+    private static final class HandFiredExecutor extends java.util.concurrent.AbstractExecutorService {
+        final List<Runnable> queued = new ArrayList<>();
+
+        void runAll() {
+            List<Runnable> batch = new ArrayList<>(queued);
+            queued.clear();
+            for (Runnable r : batch) {
+                r.run();
+            }
+        }
+
+        @Override
+        public void execute(Runnable task) {
+            queued.add(task);
+        }
+
+        @Override
+        public void shutdown() {
+        }
+
+        @Override
+        public List<Runnable> shutdownNow() {
+            return new ArrayList<Runnable>();
+        }
+
+        @Override
+        public boolean isShutdown() {
+            return false;
+        }
+
+        @Override
+        public boolean isTerminated() {
+            return false;
+        }
+
+        @Override
+        public boolean awaitTermination(long timeout, java.util.concurrent.TimeUnit unit) {
+            return true;
+        }
+    }
 
     private static final class RecordingHandler implements ConnectionReady {
         boolean connectedCalled;
@@ -1150,7 +1182,7 @@ public class AMQPClientProtocolHandlerTest {
 
         @Override
         public SocketAddress getLocalAddress() {
-            return new InetSocketAddress("localhost", 5672);
+            return new InetSocketAddress(java.net.InetAddress.getLoopbackAddress(), 5672);
         }
 
         @Override

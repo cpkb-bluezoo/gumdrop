@@ -21,15 +21,15 @@
 
 package org.bluezoo.gumdrop.servlet;
 
-import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.URL;
 import java.net.URLConnection;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.attribute.FileTime;
 import java.util.Collection;
-import java.util.jar.JarEntry;
-import java.util.jar.JarFile;
 
 import org.bluezoo.gumdrop.http.ContentTypes;
 
@@ -47,9 +47,9 @@ public class ResourceURLConnection extends URLConnection {
     private boolean connected = false;
     
     // Resource location - only one of these will be set
-    private File file;                  // Direct file in exploded context
+    private Path file;                  // Direct file in exploded context
     private String warEntryName;        // Entry in WAR file
-    private File libJarFile;            // JAR file in WEB-INF/lib
+    private String libJarFile;          // resource path of the JAR file in WEB-INF/lib
     private String libJarEntryName;     // Entry path within the lib JAR
 
     protected ResourceURLConnection(URL url, Context context, String resourcePath) {
@@ -69,14 +69,10 @@ public class ResourceURLConnection extends URLConnection {
             path = path.substring(1);
         }
         
-        if (context.root.isDirectory()) {
+        if (Files.isDirectory(context.root)) {
             // Exploded context - check direct file first
-            String filePath = path;
-            if (File.separatorChar != '/') {
-                filePath = filePath.replace('/', File.separatorChar);
-            }
-            File directFile = new File(context.root, filePath);
-            if (directFile.exists() && directFile.isFile()) {
+            Path directFile = context.root.resolve(path);
+            if (Files.isRegularFile(directFile)) {
                 file = directFile;
                 connected = true;
                 return;
@@ -90,9 +86,8 @@ public class ResourceURLConnection extends URLConnection {
         } else {
             // WAR file - check entry in WAR first, via the shared kept-open
             // handle rather than reopening the WAR for every connect().
-            JarFile warFile = context.getWarJarFile();
-            JarEntry jarEntry = warFile.getJarEntry(path);
-            if (jarEntry != null) {
+            Archive warFile = context.getWarArchive();
+            if (warFile.contains(path)) {
                 warEntryName = path;
                 connected = true;
                 return;
@@ -123,14 +118,9 @@ public class ResourceURLConnection extends URLConnection {
             if (!jarPath.toLowerCase().endsWith(".jar")) {
                 continue;
             }
-            File jarFile = context.getLibFile(jarPath);
-            if (jarFile == null) {
-                continue;
-            }
-            JarFile jar = context.getCachedJarFile(jarFile);
-            JarEntry entry = jar.getJarEntry(jarResourcePath);
-            if (entry != null && !entry.isDirectory()) {
-                libJarFile = jarFile;
+            Archive jar = context.getLibArchive(jarPath);
+            if (jar.isFile(jarResourcePath)) {
+                libJarFile = jarPath;
                 libJarEntryName = jarResourcePath;
                 return true;
             }
@@ -149,18 +139,20 @@ public class ResourceURLConnection extends URLConnection {
             return -1L;
         }
         if (file != null) {
-            return file.length();
+            try {
+                return Files.size(file);
+            } catch (IOException e) {
+                return 0L; // as File.length() for an unreadable file
+            }
         } else if (warEntryName != null) {
             try {
-                JarEntry jarEntry = context.getWarJarFile().getJarEntry(warEntryName);
-                return (jarEntry != null) ? jarEntry.getSize() : -1L;
+                return context.getWarArchive().size(warEntryName);
             } catch (IOException e) {
                 return -1L;
             }
         } else if (libJarFile != null) {
             try {
-                JarEntry entry = context.getCachedJarFile(libJarFile).getJarEntry(libJarEntryName);
-                return (entry != null) ? entry.getSize() : -1L;
+                return context.getLibArchive(libJarFile).size(libJarEntryName);
             } catch (IOException e) {
                 return -1L;
             }
@@ -174,18 +166,21 @@ public class ResourceURLConnection extends URLConnection {
             return -1L;
         }
         if (file != null) {
-            return file.lastModified();
+            try {
+                FileTime modified = Files.getLastModifiedTime(file);
+                return modified.toMillis();
+            } catch (IOException e) {
+                return 0L; // as File.lastModified() for an unreadable file
+            }
         } else if (warEntryName != null) {
             try {
-                JarEntry jarEntry = context.getWarJarFile().getJarEntry(warEntryName);
-                return (jarEntry != null) ? jarEntry.getTime() : -1L;
+                return context.getWarArchive().time(warEntryName);
             } catch (IOException e) {
                 return -1L;
             }
         } else if (libJarFile != null) {
             try {
-                JarEntry entry = context.getCachedJarFile(libJarFile).getJarEntry(libJarEntryName);
-                return (entry != null) ? entry.getTime() : -1L;
+                return context.getLibArchive(libJarFile).time(libJarEntryName);
             } catch (IOException e) {
                 return -1L;
             }

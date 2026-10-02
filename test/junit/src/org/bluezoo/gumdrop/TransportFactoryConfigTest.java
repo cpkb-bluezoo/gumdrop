@@ -29,6 +29,8 @@ import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
+import org.bluezoo.gumdrop.testsupport.TestGumdrop;
+
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.net.InetAddress;
@@ -547,8 +549,7 @@ public class TransportFactoryConfigTest {
         } catch (NullPointerException expected) {
             // expected
         }
-        Gumdrop g = Gumdrop.boot();
-        g.shutdown();
+        Gumdrop g = TestGumdrop.create();
         try {
             ce.connect(g, null);
             fail("expected NullPointerException");

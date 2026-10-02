@@ -21,15 +21,17 @@
 
 package org.bluezoo.gumdrop.servlet.jsp;
 
-import org.junit.Rule;
 import org.junit.Test;
-import org.junit.rules.TemporaryFolder;
 import static org.junit.Assert.*;
 
-import java.io.File;
 import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.attribute.FileTime;
 import java.util.HashSet;
 import java.util.Set;
+
+import org.bluezoo.gumdrop.servlet.MemoryFolder;
 
 /**
  * Unit tests for JspDependencyTracker.
@@ -39,8 +41,11 @@ public class JspDependencyTrackerTest {
 
     private static final long FAR_FUTURE = 4102444800000L;
 
-    @Rule
-    public TemporaryFolder tmp = new TemporaryFolder();
+    public MemoryFolder tmp = new MemoryFolder();
+
+    private static void touch(Path file, long millis) throws IOException {
+        Files.setLastModifiedTime(file, FileTime.fromMillis(millis));
+    }
 
     @Test
     public void testNeverCompiledNeedsRecompilation() throws IOException {
@@ -53,10 +58,10 @@ public class JspDependencyTrackerTest {
 
     @Test
     public void testUpToDateAndChanged() throws IOException {
-        File jsp = tmp.newFile("a.jsp");
-        File inc = tmp.newFile("inc.jspf");
-        jsp.setLastModified(1000L);
-        inc.setLastModified(1000L);
+        Path jsp = tmp.newFile("a.jsp");
+        Path inc = tmp.newFile("inc.jspf");
+        touch(jsp, 1000L);
+        touch(inc, 1000L);
         JspDependencyTracker t = new JspDependencyTracker(null, tmp.getRoot());
         Set<String> deps = new HashSet<String>();
         deps.add("/inc.jspf");
@@ -66,18 +71,18 @@ public class JspDependencyTrackerTest {
         assertEquals(1, t.getDependencies("/a.jsp").size());
         assertTrue(t.getDependents("/inc.jspf").contains("/a.jsp"));
 
-        inc.setLastModified(FAR_FUTURE);
+        touch(inc, FAR_FUTURE);
         assertTrue(t.needsRecompilation("/a.jsp"));
-        inc.setLastModified(1000L);
+        touch(inc, 1000L);
         assertFalse(t.needsRecompilation("/a.jsp"));
-        jsp.setLastModified(FAR_FUTURE);
+        touch(jsp, FAR_FUTURE);
         assertTrue(t.needsRecompilation("/a.jsp"));
     }
 
     @Test
     public void testMissingDependencyAndRelativePath() throws IOException {
-        File jsp = tmp.newFile("b.jsp");
-        jsp.setLastModified(1000L);
+        Path jsp = tmp.newFile("b.jsp");
+        touch(jsp, 1000L);
         JspDependencyTracker t = new JspDependencyTracker(null, tmp.getRoot());
         Set<String> deps = new HashSet<String>();
         deps.add("missing.jspf");

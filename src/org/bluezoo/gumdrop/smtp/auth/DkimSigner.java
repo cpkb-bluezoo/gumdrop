@@ -283,67 +283,90 @@ public class DkimSigner {
     }
 
     /**
-     * RFC 8617 — signs an {@code ARC-Message-Signature} or {@code ARC-Seal}
-     * header using a precomputed body hash ({@code bh=}).
+     * RFC 8617 section 4.1.2 — signs an {@code ARC-Message-Signature} header
+     * using a precomputed body hash ({@code bh=}). The tag set is that of a
+     * DKIM-Signature without {@code v=} and with {@code i=}. The signature
+     * covers the headers named in {@code h=} (canonicalized as configured)
+     * followed by this header itself with {@code b=} empty. Use
+     * {@link #signArcSeal} for the {@code ARC-Seal}.
      *
      * @param rawHeaders headers available when signing
-     * @param headerFieldName {@code ARC-Message-Signature} or {@code ARC-Seal}
+     * @param headerFieldName must be {@code ARC-Message-Signature}
      * @param instance ARC instance number ({@code i=})
      * @param headerNamesToSign {@code h=} tag contents
-     * @param bodyHashB64 base64 body hash (same {@code bh=} for AMS and AS on
-     *                      this hop)
-     * @param chainCv {@code cv=} for ARC-Seal, or null for AMS
+     * @param bodyHashB64 base64 body hash
+     * @param chainCv unused; seals are produced by {@link #signArcSeal}
      * @return complete header line with CRLF
      * @throws Exception if signing fails
      */
     public String signArc(List<String> rawHeaders, String headerFieldName,
                           int instance, List<String> headerNamesToSign,
                           String bodyHashB64, ArcCvResult chainCv) throws Exception {
-        String headerValue = buildArcSignatureHeaderValue(instance, headerNamesToSign,
-                bodyHashB64, "", chainCv, headerFieldName);
+        if (!"ARC-Message-Signature".equalsIgnoreCase(headerFieldName)) {
+            throw new IllegalArgumentException(headerFieldName);
+        }
+        String headerValue = buildArcMessageSignatureValue(instance, headerNamesToSign,
+                bodyHashB64, "");
 
         boolean relaxed = "relaxed".equals(headerCanonicalization);
-        boolean signingSeal = "ARC-Seal".equalsIgnoreCase(headerFieldName);
         StringBuilder dataToSign = new StringBuilder();
         Map<String, Integer> usedCount = new HashMap<String, Integer>();
         for (int i = 0; i < headerNamesToSign.size(); i++) {
             String hn = headerNamesToSign.get(i);
             String headerLine = selectHeaderForArc(rawHeaders, hn, usedCount);
-            if (headerLine == null && signingSeal
-                    && "arc-seal".equals(hn.toLowerCase())) {
-                String selfLine = headerFieldName + ": " + headerValue;
-                String selfCanon = canonicalizeHeader(selfLine, relaxed);
-                if (selfCanon.endsWith(CRLF)) {
-                    selfCanon = selfCanon.substring(0, selfCanon.length() - 2);
-                }
-                dataToSign.append(selfCanon);
-            } else if (headerLine != null) {
+            if (headerLine != null) {
                 dataToSign.append(canonicalizeHeader(headerLine, relaxed));
             }
         }
-        if (!signingSeal) {
-            String selfLine = headerFieldName.toLowerCase() + ":" + headerValue;
-            String selfCanon = canonicalizeHeader(selfLine, relaxed);
-            if (selfCanon.endsWith(CRLF)) {
-                selfCanon = selfCanon.substring(0, selfCanon.length() - 2);
-            }
-            dataToSign.append(selfCanon);
+        String selfLine = headerFieldName + ": " + headerValue;
+        String selfCanon = canonicalizeHeader(selfLine, relaxed);
+        if (selfCanon.endsWith(CRLF)) {
+            selfCanon = selfCanon.substring(0, selfCanon.length() - 2);
         }
+        dataToSign.append(selfCanon);
 
         byte[] sigBytes = computeSignature(
                 dataToSign.toString().getBytes(StandardCharsets.UTF_8));
         String sigB64 = Base64.getEncoder().encodeToString(sigBytes);
-        String finalValue = buildArcSignatureHeaderValue(instance, headerNamesToSign,
-                bodyHashB64, sigB64, chainCv, headerFieldName);
+        String finalValue = buildArcMessageSignatureValue(instance, headerNamesToSign,
+                bodyHashB64, sigB64);
         return headerFieldName + ": " + finalValue + CRLF;
     }
 
-    private String buildArcSignatureHeaderValue(int instance,
-            List<String> headerNamesToSign, String bodyHash,
-            String signatureValue, ArcCvResult chainCv, String headerFieldName) {
+    /**
+     * RFC 8617 sections 4.1.3 and 5.1.1 — signs an {@code ARC-Seal}. The seal
+     * has {@code i=}, {@code a=}, {@code cv=}, {@code d=}, {@code s=} and
+     * {@code b=} but neither {@code h=} nor {@code bh=}. Its signature covers
+     * the given header lines (the ARC sets up to this instance, each as AAR,
+     * AMS, AS, followed by this instance's AAR and AMS) in relaxed header
+     * canonicalization, then this seal with {@code b=} empty.
+     *
+     * @param signedLines the header lines covered, in signing order
+     * @param instance ARC instance number
+     * @param cv chain validation status recorded in the seal
+     * @return complete ARC-Seal header line with CRLF
+     * @throws Exception if signing fails
+     */
+    String signArcSeal(List<String> signedLines, int instance, ArcCvResult cv)
+            throws Exception {
+        String valueWithoutSig = buildArcSealValue(instance, cv, "");
+        StringBuilder dataToSign = new StringBuilder();
+        for (int i = 0; i < signedLines.size(); i++) {
+            dataToSign.append(canonicalizeHeader(signedLines.get(i), true));
+        }
+        String selfCanon = canonicalizeHeader("ARC-Seal: " + valueWithoutSig, true);
+        dataToSign.append(selfCanon.substring(0, selfCanon.length() - 2));
+        byte[] sigBytes = computeSignature(
+                dataToSign.toString().getBytes(StandardCharsets.UTF_8));
+        String sigB64 = Base64.getEncoder().encodeToString(sigBytes);
+        return "ARC-Seal: " + buildArcSealValue(instance, cv, sigB64) + CRLF;
+    }
+
+    private String buildArcMessageSignatureValue(int instance,
+            List<String> headerNamesToSign, String bodyHash, String signatureValue) {
         StringBuilder sb = new StringBuilder();
         sb.append("i=").append(instance);
-        sb.append("; v=1; a=").append(algorithm);
+        sb.append("; a=").append(algorithm);
         sb.append("; c=").append(headerCanonicalization).append("/")
                 .append(bodyCanonicalization);
         sb.append("; d=").append(domain);
@@ -356,9 +379,17 @@ public class DkimSigner {
             sb.append(headerNamesToSign.get(i));
         }
         sb.append("; bh=").append(bodyHash);
-        if (chainCv != null && "ARC-Seal".equalsIgnoreCase(headerFieldName)) {
-            sb.append("; cv=").append(chainCv.name().toLowerCase());
-        }
+        sb.append("; b=").append(signatureValue);
+        return sb.toString();
+    }
+
+    private String buildArcSealValue(int instance, ArcCvResult cv, String signatureValue) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("i=").append(instance);
+        sb.append("; a=").append(algorithm);
+        sb.append("; cv=").append(cv.name().toLowerCase());
+        sb.append("; d=").append(domain);
+        sb.append("; s=").append(selector);
         sb.append("; b=").append(signatureValue);
         return sb.toString();
     }

@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.dns.server;
 
+import org.bluezoo.gumdrop.testsupport.memfs.MemoryTemp;
 import org.bluezoo.gumdrop.dns.DnsMessage;
 import org.bluezoo.gumdrop.dns.DnsQueryCallback;
 import org.bluezoo.gumdrop.dns.DnsResourceRecord;
@@ -45,7 +46,7 @@ public class UpdateTsigResponseTest {
 
     @Test
     public void testHandlerSignsUpdateResponse() throws Exception {
-        Path zone = Files.createTempFile("tsig-upd", ".zone");
+        Path zone = MemoryTemp.createTempFile("tsig-upd", ".zone");
         Files.writeString(zone, ""
                 + "$ORIGIN example.com.\n"
                 + "$TTL 300\n"

@@ -75,15 +75,15 @@ public class StreamPriorityScheduler {
         long totalBytesProcessed = 0L;
         double allocatedBandwidth = 0.0; // Based on priority weight
         
-        void reset() {
+        void reset(long now) {
             consecutiveSchedules = 0;
-            lastScheduled = System.currentTimeMillis();
+            lastScheduled = now;
         }
         
-        void recordActivity(long bytesProcessed) {
+        void recordActivity(long bytesProcessed, long now) {
             totalBytesProcessed += bytesProcessed;
             consecutiveSchedules++;
-            lastScheduled = System.currentTimeMillis();
+            lastScheduled = now;
         }
     }
     
@@ -98,6 +98,14 @@ public class StreamPriorityScheduler {
      */
     public StreamPriorityScheduler(StreamPriorityTree priorityTree) {
         this.priorityTree = priorityTree;
+    }
+    
+    /**
+     * Time source for starvation accounting; a seam so that tests can
+     * drive the clock deterministically.
+     */
+    long currentTimeMillis() {
+        return System.currentTimeMillis();
     }
     
     /**
@@ -130,7 +138,7 @@ public class StreamPriorityScheduler {
                 allocation = new ResourceAllocation();
                 allocations.put(selectedStream, allocation);
             }
-            allocation.reset();
+            allocation.reset(currentTimeMillis());
             
             LOGGER.fine(MessageFormat.format(L10N.getString("debug.scheduled_stream_priority"), selectedStream));
             return selectedStream;
@@ -150,7 +158,7 @@ public class StreamPriorityScheduler {
     public void recordStreamProcessing(int streamId, long bytesProcessed, long processingTimeMs) {
         ResourceAllocation allocation = allocations.get(streamId);
         if (allocation != null) {
-            allocation.recordActivity(bytesProcessed);
+            allocation.recordActivity(bytesProcessed, currentTimeMillis());
             
             // Update bandwidth allocation based on actual usage
             updateBandwidthAllocation(streamId, bytesProcessed, processingTimeMs);
@@ -197,7 +205,7 @@ public class StreamPriorityScheduler {
      * Selects a stream considering priority and fairness constraints.
      */
     private int selectStreamWithFairness(List<Integer> prioritizedStreams) {
-        long currentTime = System.currentTimeMillis();
+        long currentTime = currentTimeMillis();
         
         // Check for starvation prevention - find streams that haven't been scheduled recently
         for (int i = prioritizedStreams.size() - 1; i >= 0; i--) {

@@ -41,9 +41,6 @@ import java.util.Collections;
 import java.util.EnumSet;
 import java.util.List;
 import java.util.Set;
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.Assert.*;
 
@@ -206,61 +203,7 @@ public class MessageIndexTest {
         assertNotNull(loaded.getEntryByUid(2L));
     }
 
-    /**
-     * Regression for issue #337: two sessions saving the same {@code .gidx}
-     * path concurrently must not share one literal temp filename.
-     */
-    @Test(timeout = 15000)
-    public void testConcurrentSavesUseDistinctTempFiles() throws Exception {
-        Path maildirIndex = mem.getPath("/maildir/.gidx");
-        Files.createDirectories(maildirIndex.getParent());
-        Files.deleteIfExists(maildirIndex);
-
-        MessageIndex indexA = new MessageIndex(maildirIndex, 1000L, 1L);
-        indexA.addEntry(createEntry(1L, 1, "loc1", "a@test.com", "Subject A"));
-
-        MessageIndex indexB = new MessageIndex(maildirIndex, 1000L, 1L);
-        indexB.addEntry(createEntry(2L, 2, "loc2", "b@test.com", "Subject B"));
-
-        CountDownLatch go = new CountDownLatch(1);
-        AtomicReference<Exception> errorA = new AtomicReference<>();
-        AtomicReference<Exception> errorB = new AtomicReference<>();
-
-        Thread threadA = new Thread(new Runnable() {
-            @Override
-            public void run() {
-                try {
-                    go.await(10, TimeUnit.SECONDS);
-                    indexA.save();
-                } catch (Exception e) {
-                    errorA.set(e);
-                }
-            }
-        });
-        Thread threadB = new Thread(new Runnable() {
-            @Override
-            public void run() {
-                try {
-                    go.await(10, TimeUnit.SECONDS);
-                    indexB.save();
-                } catch (Exception e) {
-                    errorB.set(e);
-                }
-            }
-        });
-
-        threadA.start();
-        threadB.start();
-        go.countDown();
-        threadA.join(TimeUnit.SECONDS.toMillis(10));
-        threadB.join(TimeUnit.SECONDS.toMillis(10));
-
-        assertNull("first concurrent save failed", errorA.get());
-        assertNull("second concurrent save failed", errorB.get());
-        assertTrue(Files.exists(maildirIndex));
-        assertFalse(Files.exists(maildirIndex.resolveSibling(".gidx.tmp")));
-    }
-
+    
     // ========================================================================
     // Flag Update Tests
     // ========================================================================
@@ -605,8 +548,6 @@ public class MessageIndexTest {
         assertNull(index.getEntryByMessageNumber(2));
     }
 
-
-
     // ========================================================================
     // Iterator Tests
     // ========================================================================
@@ -853,8 +794,6 @@ public class MessageIndexTest {
         assertEquals(Collections.singletonList(1), results);
     }
 
-
-
     // ========================================================================
     // Helper Methods
     // ========================================================================
@@ -891,6 +830,4 @@ public class MessageIndexTest {
             "location", "from@test.com", "to@test.com", "", "", "Subject", "<msg@test.com>", ""
         );
     }
-
 }
-

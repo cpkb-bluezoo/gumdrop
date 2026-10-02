@@ -99,6 +99,11 @@ final class Dtls13Session implements TlsRecordSink {
         retransmit.onProgress();
         cancelRetransmitTimer();
         ensureEngine();
+        if (engine == null) {
+            // ensureEngine() failed the session (misconfigured cookie
+            // exchange); there is no engine to feed.
+            return;
+        }
         flightBuilder.clear();
         engine.feedDatagram(datagram, offset, length, this);
         commitFlightIfNeeded();

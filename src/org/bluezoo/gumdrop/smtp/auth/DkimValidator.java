@@ -100,6 +100,9 @@ public class DkimValidator {
     /** When set, used instead of {@code getRawHeader("dkim-signature")}. */
     private String explicitSignatureHeaderLine;
 
+    /** Canonical signing data supplied for an ARC-Seal, or null. */
+    private String explicitSignedData;
+
     /**
      * Creates a new DKIM validator using the specified DNS resolver.
      *
@@ -173,6 +176,23 @@ public class DkimValidator {
     }
 
     /**
+     * Verifies an {@code ARC-Seal} (RFC 8617 section 5.1.1): the signature is
+     * checked over the supplied canonical data rather than over header fields
+     * selected by {@code h=}, and there is no body hash.
+     *
+     * @param parsed the parsed seal tags
+     * @param canonicalSigningData the canonicalized ARC sets with this seal's
+     *                             {@code b=} empty and no trailing CRLF
+     * @param callback the result callback
+     */
+    void verifyArcSeal(DkimSignature parsed, String canonicalSigningData,
+                       final DkimCallback callback) {
+        this.signature = parsed;
+        this.explicitSignedData = canonicalSigningData;
+        verify(callback);
+    }
+
+    /**
      * Verifies the DKIM signature asynchronously (RFC 6376 §6).
      *
      * <p>Uses {@link #getSignature()} from the message parser unless
@@ -191,7 +211,7 @@ public class DkimValidator {
             return;
         }
 
-        if (messageParser == null) {
+        if (messageParser == null && explicitSignedData == null) {
             // No raw header bytes available
             callback.dkimResult(DkimResult.PERMERROR, signature.getDomain(),
                     signature.getSelector());
@@ -203,10 +223,8 @@ public class DkimValidator {
         // From domain. A signature that never covers From can be replayed
         // unmodified under an arbitrary From address at the same signing
         // domain, so treat it as unusable rather than PASS.
-        boolean arcSeal = explicitSignatureHeaderLine != null
-                && explicitSignatureHeaderLine.toLowerCase()
-                        .startsWith("arc-seal:");
-        if (!arcSeal && !signature.getSignedHeaders().contains("from")) {
+        if (explicitSignedData == null
+                && !signature.getSignedHeaders().contains("from")) {
             callback.dkimResult(DkimResult.PERMERROR, signature.getDomain(),
                     signature.getSelector());
             return;
@@ -220,8 +238,8 @@ public class DkimValidator {
             return;
         }
 
-        // Verify body hash first
-        if (bodyHash != null) {
+        // Verify body hash first (an ARC-Seal has no bh=)
+        if (bodyHash != null && explicitSignedData == null) {
             String expectedHash = signature.getBodyHash();
             if (!ByteArrays.equalsConstantTime(
                     Base64.getDecoder().decode(expectedHash), bodyHash)) {
@@ -388,7 +406,8 @@ public class DkimValidator {
      */
     private boolean verifySignature(PublicKey publicKey) throws Exception {
         // Build the header hash
-        String headerData = buildHeaderHash();
+        String headerData = explicitSignedData != null
+                ? explicitSignedData : buildHeaderHash();
 
         // Determine signature algorithm
         String alg = signature.getAlgorithm();
@@ -426,10 +445,6 @@ public class DkimValidator {
         // Add signed headers in the order specified
         List<String> signedHeaders = signature.getSignedHeaders();
         Map<String, Integer> usedCount = new HashMap<String, Integer>();
-        boolean explicitArcSeal = explicitSignatureHeaderLine != null
-                && explicitSignatureHeaderLine.toLowerCase()
-                        .startsWith("arc-seal:");
-
         for (int i = 0; i < signedHeaders.size(); i++) {
             String headerName = signedHeaders.get(i);
             List<DkimMessageParser.RawHeader> rawHeaders = 
@@ -448,23 +463,12 @@ public class DkimValidator {
             usedCount.put(headerName, idx);
 
             DkimMessageParser.RawHeader rawHeader = rawHeaders.get(idx);
-            if (explicitArcSeal && "arc-seal".equals(headerName)) {
-                String raw = relaxed ? rawHeader.asStringUnfolded()
-                        : rawHeader.asString();
-                sb.append(canonicalizeSignedHeaderField(raw, relaxed));
-            } else {
-                String line = canonicalizeRawHeader(rawHeader, relaxed);
-                sb.append(line);
-            }
+            String line = canonicalizeRawHeader(rawHeader, relaxed);
+            sb.append(line);
         }
 
-        // RFC 8617 ARC-Seal: h= already lists arc-seal with b= removed in the loop.
-        boolean arcSealSignedInH = explicitArcSeal
-                && signedHeaders.contains("arc-seal");
-        if (!arcSealSignedInH) {
-            String dkimHeader = canonicalizeDKIMHeader(relaxed);
-            sb.append(dkimHeader);
-        }
+        String dkimHeader = canonicalizeDKIMHeader(relaxed);
+        sb.append(dkimHeader);
 
         return sb.toString();
     }
@@ -499,7 +503,7 @@ public class DkimValidator {
      *   <li>Remove trailing whitespace before CRLF</li>
      * </ul>
      */
-    private String relaxedCanonicalizeHeader(String header) {
+    static String relaxedCanonicalizeHeader(String header) {
         // Find colon
         int colonPos = header.indexOf(':');
         if (colonPos <= 0) {
@@ -544,8 +548,8 @@ public class DkimValidator {
      * Canonicalizes a signature header field (DKIM-Signature, ARC-Seal, etc.)
      * with the {@code b=} value removed.
      */
-    private String canonicalizeSignedHeaderField(String header, boolean relaxed) {
-        int bPos = header.indexOf("b=");
+    static String canonicalizeSignedHeaderField(String header, boolean relaxed) {
+        int bPos = findBTag(header);
         if (bPos < 0) {
             return stripTrailingCRLF(relaxed ? relaxedCanonicalizeHeader(header)
                     : header);
@@ -568,6 +572,30 @@ public class DkimValidator {
     }
 
     /**
+     * Finds the {@code b=} tag: an occurrence of "b=" whose preceding
+     * non-whitespace character is the field colon or a tag separator, so that
+     * values such as {@code bh=} or a domain containing "b=" never match.
+     */
+    private static int findBTag(String header) {
+        int from = 0;
+        while (true) {
+            int pos = header.indexOf("b=", from);
+            if (pos < 0) {
+                return -1;
+            }
+            int k = pos - 1;
+            while (k >= 0 && (header.charAt(k) == ' ' || header.charAt(k) == '\t'
+                    || header.charAt(k) == '\r' || header.charAt(k) == '\n')) {
+                k--;
+            }
+            if (k < 0 || header.charAt(k) == ';' || header.charAt(k) == ':') {
+                return pos;
+            }
+            from = pos + 2;
+        }
+    }
+
+    /**
      * Removes trailing CRLF or LF from a string.
      */
     private static String unfoldHeaderLine(String header) {
@@ -584,7 +612,7 @@ public class DkimValidator {
         return sb.toString();
     }
 
-    private String stripTrailingCRLF(String s) {
+    private static String stripTrailingCRLF(String s) {
         int len = s.length();
         if (len >= 2 && s.charAt(len - 2) == '\r' && s.charAt(len - 1) == '\n') {
             return s.substring(0, len - 2);
@@ -598,7 +626,7 @@ public class DkimValidator {
     /**
      * Unfolds and compresses whitespace in a header value.
      */
-    private String unfoldAndCompress(String s) {
+    static String unfoldAndCompress(String s) {
         StringBuilder sb = new StringBuilder();
         boolean prevSpace = false;
         boolean started = false;

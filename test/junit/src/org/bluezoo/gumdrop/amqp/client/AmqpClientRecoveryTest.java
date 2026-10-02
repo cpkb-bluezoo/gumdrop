@@ -22,31 +22,30 @@
 package org.bluezoo.gumdrop.amqp.client;
 
 import java.io.IOException;
-import java.io.InputStream;
-import java.io.OutputStream;
+import java.net.ConnectException;
 import java.net.InetAddress;
-import java.net.ServerSocket;
-import java.net.Socket;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
-import java.util.Collections;
+import java.util.Arrays;
 import java.util.List;
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.TimeUnit;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 
-import org.bluezoo.gumdrop.ClientEndpoint;
-import org.bluezoo.gumdrop.Gumdrop;
-import org.bluezoo.gumdrop.GumdropConfig;
-import org.bluezoo.gumdrop.TcpTransportFactory;
-import org.bluezoo.gumdrop.testsupport.RefusingTransportFactory;
+import org.bluezoo.gumdrop.ProtocolHandler;
+import org.bluezoo.gumdrop.SelectorLoop;
+import org.bluezoo.gumdrop.testsupport.InlineSelectorLoop;
+import org.bluezoo.gumdrop.testsupport.TestCertificates;
+import org.bluezoo.gumdrop.tls.KeystoreFormat;
+import org.bluezoo.gumdrop.TimerHandle;
 import org.bluezoo.gumdrop.amqp.AmqpFrame;
 import org.bluezoo.gumdrop.amqp.AmqpMethod;
 import org.bluezoo.gumdrop.amqp.FieldTable;
+import org.bluezoo.gumdrop.testsupport.BinaryRecordingEndpoint;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
@@ -55,34 +54,92 @@ import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
 /**
- * Tests {@link AmqpClientRecovery} against a minimal in-test broker on a
- * loopback socket: mechanism selection, the automatic handshake, loss and
- * recovery notifications, retry exhaustion and the configuration surface.
+ * Tests {@link AmqpClientRecovery} against in-memory brokers: a connector
+ * stand-in hands each connection attempt a recording endpoint and the test
+ * plays the broker side frame by frame; the retry timer is replaced by a
+ * scheduler whose captured tasks the test fires by hand. Mechanism
+ * selection, the automatic handshake, loss and recovery notifications,
+ * retry exhaustion and the configuration surface are all exercised on the
+ * test thread with no sockets, threads, runtime or clock.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 public class AmqpClientRecoveryTest {
 
-    private static final int TIMEOUT_MS = 15000;
+    /** One connection attempt as seen by the stand-in connector. */
+    private static final class Conn {
+        final BinaryRecordingEndpoint endpoint = new BinaryRecordingEndpoint();
+        final ProtocolHandler handler;
 
-    private Gumdrop gumdrop;
-    private ClientEndpoint keeper;
-    private ServerSocket broker;
+        Conn(ProtocolHandler handler) {
+            this.handler = handler;
+        }
+    }
+
+    private static final class FakeConnector implements AmqpClientRecovery.Connector {
+        final List<Conn> conns = new ArrayList<Conn>();
+        IOException failure;
+        int attempts;
+
+        @Override
+        public void connect(ProtocolHandler handler) throws IOException {
+            attempts++;
+            if (failure != null) {
+                throw failure;
+            }
+            Conn c = new Conn(handler);
+            handler.connected(c.endpoint);
+            conns.add(c);
+        }
+
+        Conn next() {
+            assertFalse("no connection attempt arrived", conns.isEmpty());
+            return conns.remove(0);
+        }
+    }
+
+    private static final class HandScheduler implements AmqpClientRecovery.RetryScheduler {
+        final List<Runnable> tasks = new ArrayList<Runnable>();
+        final List<TimerHandle> handles = new ArrayList<TimerHandle>();
+
+        @Override
+        public TimerHandle schedule(long delayMs, Runnable task) {
+            tasks.add(task);
+            final boolean[] cancelled = new boolean[1];
+            TimerHandle handle = new TimerHandle() {
+                @Override
+                public void cancel() {
+                    cancelled[0] = true;
+                }
+
+                @Override
+                public boolean isCancelled() {
+                    return cancelled[0];
+                }
+            };
+            handles.add(handle);
+            return handle;
+        }
+
+        void fireNext() {
+            assertFalse("no retry scheduled", tasks.isEmpty());
+            Runnable task = tasks.remove(0);
+            handles.remove(0);
+            task.run();
+        }
+    }
+
+    private final List<String> events = new ArrayList<String>();
+    private final List<Exception> causes = new ArrayList<Exception>();
+    private FakeConnector connector;
+    private HandScheduler scheduler;
     private AmqpClientRecovery client;
 
-    private final List<String> events = Collections.synchronizedList(new ArrayList<String>());
-    private final List<Exception> causes = Collections.synchronizedList(new ArrayList<Exception>());
-
     private final class Listener implements RecoveryListener {
-        final CountDownLatch lost = new CountDownLatch(1);
-        final CountDownLatch recovered = new CountDownLatch(1);
-        final CountDownLatch failed = new CountDownLatch(1);
-
         @Override
         public void onConnectionLost(Exception cause) {
             causes.add(cause);
             events.add("lost");
-            lost.countDown();
         }
 
         @Override
@@ -93,46 +150,36 @@ public class AmqpClientRecoveryTest {
         @Override
         public void onRecovered() {
             events.add("recovered");
-            recovered.countDown();
         }
 
         @Override
         public void onRecoveryFailed(Exception cause) {
             causes.add(cause);
             events.add("failed");
-            failed.countDown();
         }
     }
 
     private final class First implements RecoveryHandler {
-        final CountDownLatch connected = new CountDownLatch(1);
-        volatile ClientConnection connection;
+        ClientConnection connection;
 
         @Override
         public void onFirstConnect(ClientConnection c) {
             connection = c;
             events.add("first");
-            connected.countDown();
         }
     }
 
     @Before
-    public void setUp() throws Exception {
-        gumdrop = Gumdrop.boot(GumdropConfig.create().workerThreads(1).drainTimeoutMs(0));
-        keeper = new ClientEndpoint(new TcpTransportFactory(), gumdrop.nextWorkerLoop(), "localhost", 1);
-        gumdrop.addClient(keeper);
-        broker = new ServerSocket(0, 5, InetAddress.getByName("127.0.0.1"));
-        broker.setSoTimeout(TIMEOUT_MS);
+    public void setUp() {
+        connector = new FakeConnector();
+        scheduler = new HandScheduler();
     }
 
     @After
-    public void tearDown() throws Exception {
+    public void tearDown() {
         if (client != null) {
             client.close();
         }
-        broker.close();
-        gumdrop.shutdown();
-        gumdrop.join();
     }
 
     private RecoveryPolicy fastPolicy(int maxAttempts) {
@@ -140,37 +187,15 @@ public class AmqpClientRecoveryTest {
                 .withMaxAttempts(maxAttempts);
     }
 
-    // ── minimal broker ──
-
-    private static void readFully(InputStream in, byte[] buf) throws IOException {
-        int off = 0;
-        while (off < buf.length) {
-            int n = in.read(buf, off, buf.length - off);
-            if (n < 0) {
-                throw new IOException("eof");
-            }
-            off += n;
-        }
+    private AmqpClientRecovery newClient() {
+        client = new AmqpClientRecovery(InetAddress.getLoopbackAddress(), 5672);
+        client.useConnectorForTesting(connector);
+        client.useRetrySchedulerForTesting(scheduler);
+        client.recoveryPolicy(fastPolicy(0)).recoveryListener(new Listener());
+        return client;
     }
 
-    /** Reads one frame; returns its payload (class id, method id, arguments). */
-    private static ByteBuffer readFrame(InputStream in) throws IOException {
-        byte[] header = new byte[AmqpFrame.HEADER_SIZE];
-        readFully(in, header);
-        int size = ByteBuffer.wrap(header, 3, 4).getInt();
-        byte[] payload = new byte[size];
-        readFully(in, payload);
-        byte[] end = new byte[1];
-        readFully(in, end);
-        return ByteBuffer.wrap(payload);
-    }
-
-    private static void write(OutputStream out, ByteBuffer frame) throws IOException {
-        byte[] bytes = new byte[frame.remaining()];
-        frame.get(bytes);
-        out.write(bytes);
-        out.flush();
-    }
+    // ── broker frames ──
 
     private static ByteBuffer startFrame(String mechanisms) {
         FieldTable props = new FieldTable().put("product", "TestBroker");
@@ -232,105 +257,85 @@ public class AmqpClientRecoveryTest {
         return new String(name, StandardCharsets.US_ASCII);
     }
 
-    /** Accepts one connection and drives it through open-ok; returns the socket. */
-    private Socket handshake(String offered, String[] chosenMechanism) throws IOException {
-        Socket s = broker.accept();
-        s.setSoTimeout(TIMEOUT_MS);
-        InputStream in = s.getInputStream();
-        OutputStream out = s.getOutputStream();
-        byte[] header = new byte[8];
-        readFully(in, header);
-        assertEquals("AMQP", new String(header, 0, 4, StandardCharsets.US_ASCII));
-        write(out, startFrame(offered));
-        ByteBuffer startOk = readFrame(in);
-        if (chosenMechanism != null) {
-            chosenMechanism[0] = startOkMechanism(startOk);
+    /** The payloads (class id, method id, arguments) of the frames the client sent. */
+    private static List<ByteBuffer> clientFrames(BinaryRecordingEndpoint endpoint) {
+        byte[] all = endpoint.getAllBytes();
+        List<ByteBuffer> frames = new ArrayList<ByteBuffer>();
+        int pos = 0;
+        if (all.length >= 8 && all[0] == 'A' && all[1] == 'M' && all[2] == 'Q' && all[3] == 'P') {
+            pos = 8;
         }
-        write(out, tuneFrame());
-        ByteBuffer tuneOk = readFrame(in);
-        tuneOk.getShort();
-        assertEquals(AmqpMethod.CONNECTION_TUNE_OK, tuneOk.getShort() & 0xFFFF);
-        ByteBuffer open = readFrame(in);
-        open.getShort();
-        assertEquals(AmqpMethod.CONNECTION_OPEN, open.getShort() & 0xFFFF);
-        write(out, openOkFrame());
-        return s;
+        while (pos + AmqpFrame.HEADER_SIZE <= all.length) {
+            int size = ByteBuffer.wrap(all, pos + 3, 4).getInt();
+            byte[] payload = Arrays.copyOfRange(all, pos + AmqpFrame.HEADER_SIZE,
+                    pos + AmqpFrame.HEADER_SIZE + size);
+            frames.add(ByteBuffer.wrap(payload));
+            pos += AmqpFrame.HEADER_SIZE + size + 1;
+        }
+        return frames;
     }
 
-    private static void await(CountDownLatch latch) throws InterruptedException {
-        assertTrue("timed out", latch.await(TIMEOUT_MS, TimeUnit.MILLISECONDS));
+    private static int methodOf(ByteBuffer payload) {
+        ByteBuffer copy = payload.duplicate();
+        copy.getShort();
+        return copy.getShort() & 0xFFFF;
     }
 
-    private AmqpClientRecovery newClient() {
-        client = new AmqpClientRecovery(InetAddress.getLoopbackAddress(), broker.getLocalPort());
-        return client;
+    /** Drives a connection through start, tune and open; returns the chosen mechanism. */
+    private static String handshake(Conn c, String offered) {
+        c.handler.receive(startFrame(offered));
+        List<ByteBuffer> afterStart = clientFrames(c.endpoint);
+        assertEquals(AmqpMethod.CONNECTION_START_OK, methodOf(afterStart.get(0)));
+        String mechanism = startOkMechanism(afterStart.get(0).duplicate());
+        c.handler.receive(tuneFrame());
+        List<ByteBuffer> afterTune = clientFrames(c.endpoint);
+        assertEquals(AmqpMethod.CONNECTION_TUNE_OK, methodOf(afterTune.get(1)));
+        assertEquals(AmqpMethod.CONNECTION_OPEN, methodOf(afterTune.get(2)));
+        c.handler.receive(openOkFrame());
+        return mechanism;
     }
 
     // ── tests ──
 
     @Test
     public void plainHandshakeThenLossAndRecovery() throws Exception {
-        Listener listener = new Listener();
         First first = new First();
-        newClient().credentials("u", "p").virtualHost("/v").recoveryPolicy(fastPolicy(0))
-                .recoveryListener(listener).connect(gumdrop, first);
-        String[] chosen = new String[1];
-        Socket s1 = handshake("PLAIN", chosen);
-        await(first.connected);
-        assertEquals("PLAIN", chosen[0]);
+        newClient().credentials("u", "p").virtualHost("/v").connect(null, first);
+        Conn c1 = connector.next();
+        assertEquals("PLAIN", handshake(c1, "PLAIN"));
         assertNotNull(first.connection);
 
-        s1.close();
-        await(listener.lost);
-        Socket s2 = handshake("PLAIN", null);
-        await(listener.recovered);
-        assertTrue(events.toString(), events.indexOf("lost") < events.indexOf("recovered"));
+        c1.handler.disconnected();
+        assertTrue(events.toString(), events.contains("lost"));
         assertTrue(events.toString(), events.contains("reconnecting:1"));
-        assertEquals("first runs once", 1, Collections.frequency(events, "first"));
-        s2.close();
+        scheduler.fireNext();
+        Conn c2 = connector.next();
+        handshake(c2, "PLAIN");
+        assertTrue(events.toString(), events.indexOf("lost") < events.indexOf("recovered"));
+        assertEquals("first runs once", 1, java.util.Collections.frequency(events, "first"));
     }
 
     @Test
     public void amqplainMechanismIsUsedWhenRequested() throws Exception {
-        First first = new First();
-        newClient().mechanism("AMQPLAIN").recoveryPolicy(fastPolicy(0)).connect(gumdrop, first);
-        String[] chosen = new String[1];
-        Socket s = handshake("PLAIN AMQPLAIN", chosen);
-        await(first.connected);
-        assertEquals("AMQPLAIN", chosen[0]);
-        s.close();
+        newClient().mechanism("AMQPLAIN").connect(null, new First());
+        assertEquals("AMQPLAIN", handshake(connector.next(), "PLAIN AMQPLAIN"));
     }
 
     @Test
     public void externalMechanismIsUsedWhenOffered() throws Exception {
-        First first = new First();
-        newClient().mechanism("external").recoveryPolicy(fastPolicy(0)).connect(gumdrop, first);
-        String[] chosen = new String[1];
-        Socket s = handshake("PLAIN EXTERNAL", chosen);
-        await(first.connected);
-        assertEquals("EXTERNAL", chosen[0]);
-        s.close();
+        newClient().mechanism("external").connect(null, new First());
+        assertEquals("EXTERNAL", handshake(connector.next(), "PLAIN EXTERNAL"));
     }
 
     @Test
     public void unofferedMechanismExhaustsRetriesWithPermanentFailure() throws Exception {
-        Listener listener = new Listener();
         First first = new First();
-        newClient().mechanism("EXTERNAL").recoveryPolicy(fastPolicy(1)).recoveryListener(listener)
-                .connect(gumdrop, first);
-        Socket s = broker.accept();
-        s.setSoTimeout(TIMEOUT_MS);
-        byte[] header = new byte[8];
-        readFully(s.getInputStream(), header);
-        write(s.getOutputStream(), startFrame("PLAIN"));
-        await(listener.lost);
-        s.close();
-        Socket s2 = broker.accept();
-        s2.setSoTimeout(TIMEOUT_MS);
-        readFully(s2.getInputStream(), header);
-        write(s2.getOutputStream(), startFrame("PLAIN"));
-        await(listener.failed);
-        s2.close();
+        newClient().mechanism("EXTERNAL").recoveryPolicy(fastPolicy(1)).connect(null, first);
+        connector.next().handler.receive(startFrame("PLAIN"));
+        assertTrue(events.toString(), events.contains("lost"));
+        scheduler.fireNext();
+        connector.next().handler.receive(startFrame("PLAIN"));
+        assertTrue(events.toString(), events.contains("failed"));
         Exception last = causes.get(causes.size() - 1);
         assertTrue(last.getMessage(), last.getMessage().startsWith("Broker does not offer the requested SASL mechanism"));
         assertFalse(events.contains("first"));
@@ -338,87 +343,71 @@ public class AmqpClientRecoveryTest {
 
     @Test
     public void gssapiWithoutCredentialsFailsTheAttempt() throws Exception {
-        Listener listener = new Listener();
-        newClient().mechanism("GSSAPI").recoveryPolicy(fastPolicy(1)).recoveryListener(listener)
-                .connect(gumdrop, new First());
-        Socket s = broker.accept();
-        s.setSoTimeout(TIMEOUT_MS);
-        byte[] header = new byte[8];
-        readFully(s.getInputStream(), header);
-        write(s.getOutputStream(), startFrame("PLAIN GSSAPI"));
-        await(listener.lost);
+        newClient().mechanism("GSSAPI").recoveryPolicy(fastPolicy(1)).connect(null, new First());
+        connector.next().handler.receive(startFrame("PLAIN GSSAPI"));
+        assertTrue(events.toString(), events.contains("lost"));
         assertTrue(causes.get(0).getMessage(), causes.get(0).getMessage().contains("gssapiCredentials"));
-        s.close();
     }
 
     @Test
     public void brokerInitiatedCloseTriggersReconnect() throws Exception {
-        Listener listener = new Listener();
         First first = new First();
-        newClient().recoveryPolicy(fastPolicy(0)).recoveryListener(listener).connect(gumdrop, first);
-        Socket s1 = handshake("PLAIN", null);
-        await(first.connected);
-        write(s1.getOutputStream(), closeFrame(320, "CONNECTION_FORCED"));
-        await(listener.lost);
-        Exception cause = causes.get(0);
-        assertTrue(cause.getMessage(), cause.getMessage().contains("320"));
-        s1.close();
-        Socket s2 = handshake("PLAIN", null);
-        await(listener.recovered);
-        s2.close();
+        newClient().connect(null, first);
+        Conn c1 = connector.next();
+        handshake(c1, "PLAIN");
+        c1.handler.receive(closeFrame(320, "CONNECTION_FORCED"));
+        assertTrue(events.toString(), events.contains("lost"));
+        assertTrue(causes.get(0).getMessage(), causes.get(0).getMessage().contains("320"));
+        scheduler.fireNext();
+        handshake(connector.next(), "PLAIN");
+        assertTrue(events.toString(), events.contains("recovered"));
+    }
+
+    @Test
+    public void transportErrorTriggersReconnect() throws Exception {
+        newClient().connect(null, new First());
+        Conn c1 = connector.next();
+        c1.handler.error(new IOException("wire broke"));
+        assertTrue(events.toString(), events.contains("lost"));
+        scheduler.fireNext();
+        assertNotNull(connector.next());
     }
 
     @Test
     public void refusedConnectionsAreRetriedThenAbandoned() throws Exception {
-        final RefusingTransportFactory refusing = new RefusingTransportFactory();
-        Listener listener = new Listener();
-        client = new AmqpClientRecovery(InetAddress.getLoopbackAddress(), broker.getLocalPort()) {
-            @Override
-            TcpTransportFactory newTransportFactory() {
-                return refusing;
-            }
-        };
-        client.recoveryPolicy(fastPolicy(2)).recoveryListener(listener).connect(gumdrop, new First());
-        await(listener.failed);
+        connector.failure = new ConnectException("Connection refused");
+        newClient().recoveryPolicy(fastPolicy(2)).connect(null, new First());
+        scheduler.fireNext();
+        scheduler.fireNext();
+        assertTrue(events.toString(), events.contains("failed"));
         assertTrue(events.toString(), events.contains("reconnecting:1"));
         assertTrue(events.toString(), events.contains("reconnecting:2"));
         assertFalse(events.toString(), events.contains("reconnecting:3"));
-        assertEquals("initial attempt plus two retries", 3, refusing.attempts());
+        assertEquals("initial attempt plus two retries", 3, connector.attempts);
+        assertTrue(scheduler.tasks.isEmpty());
     }
 
     @Test
     public void closeStopsFurtherReconnects() throws Exception {
-        Listener listener = new Listener();
-        First first = new First();
-        newClient().recoveryPolicy(new RecoveryPolicy().withInitialDelayMs(60000).withMaxDelayMs(60000))
-                .recoveryListener(listener).connect(gumdrop, first);
-        Socket s = handshake("PLAIN", null);
-        await(first.connected);
-        s.close();
-        await(listener.lost);
+        newClient().connect(null, new First());
+        Conn c = connector.next();
+        handshake(c, "PLAIN");
+        c.handler.disconnected();
+        assertEquals(1, scheduler.handles.size());
+        TimerHandle pending = scheduler.handles.get(0);
         client.close();
-        broker.setSoTimeout(300);
-        try {
-            broker.accept();
-            fail("no reconnect expected after close()");
-        } catch (java.net.SocketTimeoutException expected) {
-            assertFalse(events.contains("recovered"));
-        }
+        assertTrue(pending.isCancelled());
+        scheduler.fireNext();
+        assertEquals("no reconnect after close()", 1, connector.attempts);
+        assertFalse(events.contains("recovered"));
     }
 
     @Test
     public void connectAfterCloseDoesNothing() throws Exception {
         newClient();
         client.close();
-        First first = new First();
-        client.connect(gumdrop, first);
-        broker.setSoTimeout(300);
-        try {
-            broker.accept();
-            fail("a closed client must not connect");
-        } catch (java.net.SocketTimeoutException expected) {
-            assertEquals(1, first.connected.getCount());
-        }
+        client.connect(null, new First());
+        assertEquals(0, connector.attempts);
     }
 
     @Test
@@ -441,12 +430,85 @@ public class AmqpClientRecoveryTest {
         path.close();
     }
 
+    private AmqpClientRecovery wired(AmqpClientRecovery configured) {
+        client = configured;
+        client.useConnectorForTesting(connector);
+        client.useRetrySchedulerForTesting(scheduler);
+        client.recoveryPolicy(fastPolicy(0)).recoveryListener(new Listener());
+        return client;
+    }
+
     @Test
-    public void unixSocketClientToMissingPathReportsLossAndGivesUp() throws Exception {
-        Listener listener = new Listener();
-        client = new AmqpClientRecovery("/nonexistent-dir-for-test/amqp.sock");
-        client.recoveryPolicy(fastPolicy(1)).recoveryListener(listener).connect(gumdrop, new First());
-        await(listener.failed);
-        assertTrue(events.toString(), events.contains("lost"));
+    public void everyAddressingModeBuildsItsEndpointAndConnects() throws Exception {
+        SelectorLoop loop = new InlineSelectorLoop();
+        AmqpClientRecovery[] clients = {
+            new AmqpClientRecovery("localhost", 5672),
+            new AmqpClientRecovery(loop, "localhost", 5672),
+            new AmqpClientRecovery(InetAddress.getLoopbackAddress(), 5672),
+            new AmqpClientRecovery(loop, InetAddress.getLoopbackAddress(), 5672),
+            new AmqpClientRecovery("/tmp/none-for-test.sock"),
+            new AmqpClientRecovery(loop, "/tmp/none-for-test.sock")
+        };
+        for (int i = 0; i < clients.length; i++) {
+            wired(clients[i]).connect(null, new First());
+            assertEquals("mode " + i, i + 1, connector.attempts);
+            clients[i].close();
+        }
+    }
+
+    @Test
+    public void transportSecurityOptionsAreAppliedToEveryAttempt() throws Exception {
+        TestCertificates.Identity identity = TestCertificates.ec256();
+        wired(new AmqpClientRecovery(InetAddress.getLoopbackAddress(), 5672))
+                .setSecure(true).setClientCredentials(identity.credentials())
+                .setTrustManager(identity.trustManager()).setKeystorePass("changeit")
+                .setKeystoreFormat(KeystoreFormat.PKCS12);
+        connector.failure = new ConnectException("Connection refused");
+        client.recoveryPolicy(fastPolicy(1)).connect(null, new First());
+        scheduler.fireNext();
+        assertEquals(2, connector.attempts);
+        assertTrue(events.toString(), events.contains("failed"));
+    }
+
+    @Test
+    public void retryLossIsLoggedAtEveryLevel() throws Exception {
+        Logger logger = Logger.getLogger(AmqpClientRecovery.class.getName());
+        Level saved = logger.getLevel();
+        try {
+            logger.setLevel(Level.FINE);
+            connector.failure = new ConnectException("Connection refused");
+            newClient().recoveryPolicy(fastPolicy(1)).connect(null, new First());
+            scheduler.fireNext();
+            assertTrue(events.toString(), events.contains("failed"));
+            client.close();
+            logger.setLevel(Level.OFF);
+            events.clear();
+            connector.failure = new IOException("Connection closed");
+            newClient().recoveryPolicy(fastPolicy(1)).connect(null, new First());
+            scheduler.fireNext();
+            assertTrue(events.toString(), events.contains("failed"));
+        } finally {
+            logger.setLevel(saved);
+        }
+    }
+
+    @Test
+    public void listenerDefaultsAreNoOpsAndPolicyBacksOff() {
+        RecoveryListener quiet = new RecoveryListener() {
+        };
+        quiet.onConnectionLost(new IOException("x"));
+        quiet.onReconnecting(1, 10L);
+        quiet.onRecovered();
+        quiet.onRecoveryFailed(new IOException("y"));
+        RecoveryPolicy policy = new RecoveryPolicy();
+        assertEquals(1000L, policy.getInitialDelayMs());
+        assertEquals(30000L, policy.getMaxDelayMs());
+        assertEquals(2.0, policy.getMultiplier(), 0.0001);
+        assertEquals(0, policy.getMaxAttempts());
+        assertEquals(1000L, policy.delayFor(0));
+        assertEquals(1000L, policy.delayFor(1));
+        assertEquals(2000L, policy.delayFor(2));
+        assertEquals(4000L, policy.delayFor(3));
+        assertEquals(30000L, policy.delayFor(30));
     }
 }

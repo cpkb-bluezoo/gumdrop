@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.tls;
 
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 
@@ -55,6 +56,7 @@ public class DtlsVersionPickTest {
         params.signatureAlgorithms = Collections.singletonList(SignatureScheme.ECDSA_SECP256R1_SHA256);
         params.applicationProtocols = Collections.emptyList();
         params.offerTls12Fallback = true;
+        params.dtlsTransport = true;
         byte[] ch = HandshakeMessages.buildClientHelloWithBinder(params, null);
         return HandshakeMessages.extractClientHelloContent(ch);
     }
@@ -72,8 +74,15 @@ public class DtlsVersionPickTest {
     }
 
     private static byte[] fragment(int type, int totalLen, int off, byte[] data, int from, int len) {
+        return fragmentSeq(type, 0, totalLen, off, data, from, len);
+    }
+
+    private static byte[] fragmentSeq(int type, int seq, int totalLen, int off, byte[] data, int from,
+            int len) {
         byte[] f = new byte[12 + len];
         f[0] = (byte) type;
+        f[4] = (byte) (seq >> 8);
+        f[5] = (byte) seq;
         f[1] = (byte) (totalLen >> 16);
         f[2] = (byte) (totalLen >> 8);
         f[3] = (byte) totalLen;
@@ -172,5 +181,114 @@ public class DtlsVersionPickTest {
         assertFalse(DtlsVersion.DTLS_1_2.allowsClientPick(TlsVersionPick.Picked.V13));
         assertEquals(3, DtlsVersion.values().length);
         assertEquals(DtlsVersion.DTLS_1_2, DtlsVersion.valueOf("DTLS_1_2"));
+    }
+
+    /** A real DTLS 1.2 ClientHello body (it carries the cookie field RFC 6347 section 4.2.1 adds). */
+    private static byte[] dtls12ClientHelloBody(byte[] cookie) throws Exception {
+        Tls12HandshakeMessages.ClientHelloParams params = new Tls12HandshakeMessages.ClientHelloParams();
+        params.random = new byte[32];
+        params.sessionId = new byte[0];
+        params.cipherSuites = new Tls12HandshakeConfig(HandshakeRole.CLIENT).getCipherSuites();
+        params.signatureAlgorithms = Collections.singletonList(SignatureScheme.ECDSA_SECP256R1_SHA256);
+        params.dtlsTransport = true;
+        params.dtlsCookie = cookie;
+        byte[] framed = Tls12HandshakeMessages.buildClientHello(params);
+        return Arrays.copyOfRange(framed, 4, framed.length);
+    }
+
+    private static byte[] clientHelloRecord(int seq, byte[] body) {
+        return record(22, 0xfe, 0xfd, fragmentSeq(1, seq, body.length, 0, body, 0, body.length));
+    }
+
+    @Test
+    public void dtls12ClientHelloWithoutCookieIsV12() throws Exception {
+        byte[] body = dtls12ClientHelloBody(null);
+        assertEquals(TlsVersionPick.Picked.V12,
+                DtlsVersionPick.findClientHelloInDtls(clientHelloRecord(0, body)));
+    }
+
+    @Test
+    public void dtls12ClientHelloWithCookieIsV12() throws Exception {
+        byte[] body = dtls12ClientHelloBody(new byte[] { 1, 2, 3, 4, 5, 6, 7, 8 });
+        assertEquals(TlsVersionPick.Picked.V12,
+                DtlsVersionPick.findClientHelloInDtls(clientHelloRecord(0, body)));
+    }
+
+    @Test
+    public void helloVerifyRetryClientHelloCarriesMessageSeqOne() throws Exception {
+        byte[] body = dtls12ClientHelloBody(new byte[] { 9, 9, 9, 9 });
+        // After a HelloVerifyRequest the retried ClientHello is message_seq 1
+        // and the seq 0 hello may never have been seen by this buffer.
+        assertEquals(TlsVersionPick.Picked.V12,
+                DtlsVersionPick.findClientHelloInDtls(clientHelloRecord(1, body)));
+        byte[] first = clientHelloRecord(0, dtls12ClientHelloBody(null));
+        byte[] both = concat(first, clientHelloRecord(1, body));
+        assertEquals(TlsVersionPick.Picked.V12, DtlsVersionPick.findClientHelloInDtls(both));
+    }
+
+    @Test
+    public void fragmentedDtls12ClientHelloEveryPrefixIsIncompleteUntilWhole() throws Exception {
+        byte[] body = dtls12ClientHelloBody(new byte[] { 1, 2, 3 });
+        int third = body.length / 3;
+        byte[] r1 = record(22, 0xfe, 0xfd, fragmentSeq(1, 1, body.length, 0, body, 0, third));
+        // Out of order: the tail arrives before the middle.
+        byte[] r3 = record(22, 0xfe, 0xfd,
+                fragmentSeq(1, 1, body.length, 2 * third, body, 2 * third, body.length - 2 * third));
+        byte[] r2 = record(22, 0xfe, 0xfd,
+                fragmentSeq(1, 1, body.length, third, body, third, third));
+        byte[] all = concat(concat(r1, r3), r2);
+        for (int n = 0; n < all.length; n++) {
+            byte[] cut = Arrays.copyOf(all, n);
+            assertNull("prefix " + n, DtlsVersionPick.findClientHelloInDtls(cut));
+        }
+        assertEquals(TlsVersionPick.Picked.V12, DtlsVersionPick.findClientHelloInDtls(all));
+    }
+
+    @Test
+    public void everyPrefixOfWholeDtls12ClientHelloIsIncomplete() throws Exception {
+        byte[] rec = clientHelloRecord(0, dtls12ClientHelloBody(new byte[] { 4, 5 }));
+        for (int n = 0; n < rec.length; n++) {
+            assertNull("prefix " + n, DtlsVersionPick.findClientHelloInDtls(Arrays.copyOf(rec, n)));
+        }
+    }
+
+    @Test
+    public void fragmentedDtls13ClientHelloOutOfOrder() throws Exception {
+        byte[] body = clientHelloBody();
+        int half = body.length / 2;
+        byte[] r1 = record(22, 0xfe, 0xfd, fragment(1, body.length, 0, body, 0, half));
+        byte[] r2 = record(22, 0xfe, 0xfd,
+                fragment(1, body.length, half, body, half, body.length - half));
+        assertEquals(TlsVersionPick.Picked.V13, DtlsVersionPick.findClientHelloInDtls(concat(r2, r1)));
+    }
+
+    @Test
+    public void helloVerifyRequestFromServerMeansV12() throws Exception {
+        byte[] hvr = Dtls12HelloVerify.buildHelloVerifyRequestDatagram(new byte[] { 1, 2, 3 });
+        assertEquals(TlsVersionPick.Picked.V12, DtlsVersionPick.findServerHelloInDtls(hvr));
+        // The client-direction scan must not mistake it for a ClientHello.
+        assertNull(DtlsVersionPick.findClientHelloInDtls(hvr));
+    }
+
+    @Test
+    public void serverHelloAfterHelloVerifyRequestUsesItsOwnMessageSeq() throws Exception {
+        byte[] sh = new byte[2 + 32 + 1 + 2 + 1];
+        sh[0] = (byte) 0xfe;
+        sh[1] = (byte) 0xfd;
+        sh[36] = (byte) 0xc0;
+        sh[37] = 0x2f;
+        byte[] rec = record(22, 0xfe, 0xfd, fragmentSeq(2, 1, sh.length, 0, sh, 0, sh.length));
+        assertEquals(TlsVersionPick.Picked.V12, DtlsVersionPick.findServerHelloInDtls(rec));
+    }
+
+    @Test
+    public void shortFragmentHeaderIsRejected() {
+        byte[] rec = record(22, 0xfe, 0xfd, new byte[5]);
+        try {
+            DtlsVersionPick.findClientHelloInDtls(rec);
+            fail("expected HandshakeFormatException");
+        } catch (HandshakeFormatException expected) {
+            assertTrue(expected.getMessage().length() > 0);
+        }
     }
 }

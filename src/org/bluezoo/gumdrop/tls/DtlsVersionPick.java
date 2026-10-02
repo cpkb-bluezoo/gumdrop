@@ -22,6 +22,9 @@
 package org.bluezoo.gumdrop.tls;
 
 import java.util.Arrays;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 
 /**
  * Pick DTLS 1.2 vs 1.3 from epoch-0 handshake traffic (RFC 6347 / RFC 9147).
@@ -36,6 +39,8 @@ public final class DtlsVersionPick {
     private static final int RECORD_HEADER_LEN = 13;
     private static final int HANDSHAKE_CLIENT_HELLO = 1;
     private static final int HANDSHAKE_SERVER_HELLO = 2;
+    private static final int HANDSHAKE_HELLO_VERIFY_REQUEST = 3;
+    private static final int FRAGMENT_HEADER_LEN = 12;
 
     private DtlsVersionPick() {
     }
@@ -50,7 +55,10 @@ public final class DtlsVersionPick {
 
     private static TlsVersionPick.Picked findHandshake(byte[] buf, int wantType, boolean serverPick)
             throws HandshakeFormatException {
-        DtlsReassembler reasm = new DtlsReassembler();
+        // One reassembler per message_seq: the first ClientHello is seq 0, but
+        // the retry after a HelloVerifyRequest is seq 1 and must be pickable
+        // without the (unseen) seq 0 ever being delivered.
+        Map<Integer, DtlsReassembler> reassemblers = new HashMap<Integer, DtlsReassembler>();
         int off = 0;
         while (off < buf.length) {
             if (buf.length - off < RECORD_HEADER_LEN) {
@@ -69,19 +77,51 @@ public final class DtlsVersionPick {
             if (contentType == CONTENT_HANDSHAKE) {
                 byte[] payload = Arrays.copyOfRange(buf, off + RECORD_HEADER_LEN,
                         off + RECORD_HEADER_LEN + recordLength);
-                for (byte[] msg : reasm.addFragment(payload)) {
-                    if (msg.length < 4 || (msg[0] & 0xff) != wantType) {
-                        continue;
-                    }
-                    byte[] body = Arrays.copyOfRange(msg, 4, msg.length);
-                    if (serverPick) {
-                        return TlsVersionPick.pickServerVersion(body);
-                    }
-                    return TlsVersionPick.pickClientVersion(body);
+                TlsVersionPick.Picked picked = addFragment(reassemblers, payload, wantType, serverPick);
+                if (picked != null) {
+                    return picked;
                 }
             }
             off += RECORD_HEADER_LEN + recordLength;
         }
         return null;
+    }
+
+    private static TlsVersionPick.Picked addFragment(Map<Integer, DtlsReassembler> reassemblers,
+            byte[] payload, int wantType, boolean serverPick) throws HandshakeFormatException {
+        if (payload.length < FRAGMENT_HEADER_LEN) {
+            throw new HandshakeFormatException("DTLS fragment header too short");
+        }
+        int type = payload[0] & 0xff;
+        boolean helloVerify = !serverPick && type == HANDSHAKE_HELLO_VERIFY_REQUEST;
+        if (type != wantType && !helloVerify) {
+            return null;
+        }
+        int messageSeq = ((payload[4] & 0xff) << 8) | (payload[5] & 0xff);
+        Integer key = Integer.valueOf(messageSeq);
+        DtlsReassembler reasm = reassemblers.get(key);
+        if (reasm == null) {
+            reasm = new DtlsReassembler();
+            reassemblers.put(key, reasm);
+        }
+        // The reassembler delivers from message_seq 0 only; each instance
+        // sees a single message, so present it as such.
+        payload[4] = 0;
+        payload[5] = 0;
+        List<byte[]> messages = reasm.addFragment(payload);
+        if (messages.isEmpty()) {
+            return null;
+        }
+        byte[] msg = messages.get(0);
+        if (helloVerify) {
+            // HelloVerifyRequest exists only in DTLS 1.2 (DTLS 1.3 uses
+            // HelloRetryRequest), so the server is a DTLS 1.2 server.
+            return TlsVersionPick.Picked.V12;
+        }
+        byte[] body = Arrays.copyOfRange(msg, 4, msg.length);
+        if (serverPick) {
+            return TlsVersionPick.pickServerVersion(body, true);
+        }
+        return TlsVersionPick.pickClientVersion(body);
     }
 }

@@ -66,36 +66,4 @@ public class WebDAVLockManagerTest {
                 manager.lock(parent, WebDAVLock.Scope.SHARED, WRITE,
                         DavConstants.DEPTH_INFINITY, "parent", 3600));
     }
-
-    @Test(timeout = 10000)
-    public void lockCheckCostDoesNotScaleWithUnrelatedLocks() {
-        WebDAVLockManager manager = new WebDAVLockManager();
-        Path target = Paths.get("/target/resource.txt");
-
-        for (int i = 0; i < 50; i++) {
-            assertNotNull(manager.lock(Paths.get("/other/lock" + i),
-                    WebDAVLock.Scope.SHARED, WRITE, 0, "owner", 3600));
-        }
-        long baselineMs = timeLockChecks(manager, target, 2000);
-
-        for (int i = 50; i < 5000; i++) {
-            assertNotNull(manager.lock(Paths.get("/other/lock" + i),
-                    WebDAVLock.Scope.SHARED, WRITE, 0, "owner", 3600));
-        }
-        long withManyMs = timeLockChecks(manager, target, 2000);
-
-        assertTrue("covering-lock check took " + withManyMs + "ms with 5000 "
-                + "unrelated locks vs " + baselineMs + "ms with 50 -- an "
-                + "unindexed server-wide scan would be far slower",
-                withManyMs < baselineMs * 5 + 50);
-    }
-
-    private static long timeLockChecks(WebDAVLockManager manager, Path target,
-            int iterations) {
-        long start = System.nanoTime();
-        for (int i = 0; i < iterations; i++) {
-            assertFalse(manager.isLocked(target));
-        }
-        return (System.nanoTime() - start) / 1_000_000;
-    }
 }

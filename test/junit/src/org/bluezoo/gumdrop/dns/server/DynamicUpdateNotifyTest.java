@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.dns.server;
 
+import org.bluezoo.gumdrop.testsupport.memfs.MemoryTemp;
 import org.bluezoo.gumdrop.dns.DnsClass;
 import org.bluezoo.gumdrop.dns.DnsMessage;
 import org.bluezoo.gumdrop.dns.DnsResourceRecord;
@@ -41,7 +42,7 @@ public class DynamicUpdateNotifyTest {
 
     @Test
     public void testUpdateAddARecord() throws Exception {
-        Path zone = Files.createTempFile("update", ".zone");
+        Path zone = MemoryTemp.createTempFile("update", ".zone");
         Files.writeString(zone, ""
                 + "$ORIGIN example.com.\n"
                 + "$TTL 300\n"

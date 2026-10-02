@@ -22,10 +22,7 @@
 package org.bluezoo.gumdrop.http.doh;
 
 import java.nio.ByteBuffer;
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.TimeUnit;
 
-import org.bluezoo.gumdrop.TimerHandle;
 import org.bluezoo.gumdrop.dns.client.DnsClientTransportHandler;
 import org.junit.Test;
 
@@ -90,31 +87,5 @@ public class DoHClientTransportTest {
     public void testCloseWithoutOpen() {
         DoHClientTransport transport = new DoHClientTransport();
         transport.close();
-    }
-
-    @Test
-    public void testScheduleTimer() throws Exception {
-        DoHClientTransport transport = new DoHClientTransport();
-        final CountDownLatch latch = new CountDownLatch(1);
-        TimerHandle handle = transport.scheduleTimer(50, new Runnable() {
-            @Override public void run() { latch.countDown(); }
-        });
-        assertNotNull(handle);
-        assertFalse(handle.isCancelled());
-        assertTrue("Timer should fire within 2 seconds",
-                latch.await(2, TimeUnit.SECONDS));
-    }
-
-    @Test
-    public void testScheduleTimerCancel() {
-        DoHClientTransport transport = new DoHClientTransport();
-        TimerHandle handle = transport.scheduleTimer(60_000, new Runnable() {
-            @Override
-            public void run() {
-                fail("Cancelled timer should not fire");
-            }
-        });
-        handle.cancel();
-        assertTrue(handle.isCancelled());
     }
 }

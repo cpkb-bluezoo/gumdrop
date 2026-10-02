@@ -52,12 +52,22 @@ public final class TlsVersionPick {
 
     /** Prefer TLS 1.3 when the peer's {@code ClientHello} advertises it. */
     public static Picked pickServerVersion(byte[] clientHelloBody) throws HandshakeFormatException {
+        return pickServerVersion(clientHelloBody, false);
+    }
+
+    /**
+     * As {@link #pickServerVersion(byte[])}; with {@code dtlsTransport} the
+     * {@code ClientHello} carries the DTLS {@code cookie} field after
+     * {@code legacy_session_id} (RFC 6347 section 4.2.1, RFC 9147 section 5.3).
+     */
+    static Picked pickServerVersion(byte[] clientHelloBody, boolean dtlsTransport)
+            throws HandshakeFormatException {
         if (clientHelloBody.length < 2) {
             throw new HandshakeFormatException("ClientHello too short");
         }
         int legacy = ((clientHelloBody[0] & 0xff) << 8) | (clientHelloBody[1] & 0xff);
         byte[] framed = WireWriter.frameHandshakeMessage(HANDSHAKE_CLIENT_HELLO, clientHelloBody);
-        HandshakeMessages.ClientHello parsed = HandshakeMessages.parseClientHello(framed);
+        HandshakeMessages.ClientHello parsed = HandshakeMessages.parseClientHello(framed, dtlsTransport);
         if (!parsed.supportedVersionCodes.isEmpty()) {
             if (offersV13(parsed.supportedVersionCodes)) {
                 return Picked.V13;

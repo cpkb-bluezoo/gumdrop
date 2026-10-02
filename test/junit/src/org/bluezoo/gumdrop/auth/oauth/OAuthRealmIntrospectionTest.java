@@ -24,215 +24,246 @@ package org.bluezoo.gumdrop.auth.oauth;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNotSame;
+import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 
-import java.io.ByteArrayOutputStream;
 import java.io.IOException;
-import java.io.InputStream;
-import java.io.OutputStream;
-import java.net.InetAddress;
-import java.net.ServerSocket;
-import java.net.Socket;
+import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
-import java.util.Collections;
-import java.util.List;
+import java.security.cert.Certificate;
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.Properties;
-import java.util.concurrent.BlockingQueue;
-import java.util.concurrent.LinkedBlockingQueue;
 
-import org.bluezoo.gumdrop.ClientEndpoint;
 import org.bluezoo.gumdrop.Gumdrop;
-import org.bluezoo.gumdrop.GumdropConfig;
-import org.bluezoo.gumdrop.TcpTransportFactory;
+import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.auth.Realm;
-import org.junit.After;
-import org.junit.Before;
+import org.bluezoo.gumdrop.http.HttpClient;
+import org.bluezoo.gumdrop.http.HttpStatus;
+import org.bluezoo.gumdrop.http.client.HttpClientHandler;
+import org.bluezoo.gumdrop.http.client.HttpRequest;
+import org.bluezoo.gumdrop.http.client.HttpResponse;
+import org.bluezoo.gumdrop.http.client.HttpResponseHandler;
+import org.bluezoo.gumdrop.testsupport.BinaryRecordingEndpoint;
+import org.bluezoo.gumdrop.testsupport.InlineSelectorLoop;
 import org.junit.Test;
 
 /**
- * Token introspection (RFC 7662) end to end against a scripted
- * authorization server on a loopback socket owned by the test. The
- * server answers each connection with the next canned reply (or closes
- * the connection without replying), so every outcome of the streaming
- * introspection response handler is reached without timing.
+ * Token introspection (RFC 7662) in {@link OAuthRealm} against a mock
+ * authorization server. The realm's exchange seam is replaced by an
+ * in-memory one that plays the HTTP response synchronously (status, body
+ * chunks, failure or silence), so every outcome of the streaming
+ * introspection handler is reached with no socket, loop or timing. The
+ * real loopback exchange stays in the integration test.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 public class OAuthRealmIntrospectionTest {
 
-    private static final String CLOSE = "<close>";
+    /** Mock request that records what the realm sent and then replies. */
+    private static final class MockRequest implements HttpRequest {
+        final ScriptedExchange owner;
+        final Map<String, String> headers = new HashMap<String, String>();
+        final StringBuilder body = new StringBuilder();
+        HttpResponseHandler handler;
 
-    private Gumdrop gumdrop;
-    private ClientEndpoint keeper;
-    private ServerSocket server;
-    private Thread acceptor;
-    private final BlockingQueue<String> replies = new LinkedBlockingQueue<String>();
-    private final List<String> requests = Collections.synchronizedList(new ArrayList<String>());
+        MockRequest(ScriptedExchange owner) {
+            this.owner = owner;
+        }
 
-    @Before
-    public void setUp() throws Exception {
-        gumdrop = Gumdrop.boot(GumdropConfig.create().workerThreads(1).drainTimeoutMs(0));
-        // A registered client keeps the runtime (and its loop) alive between requests
-        keeper = new ClientEndpoint(new TcpTransportFactory(), gumdrop.nextWorkerLoop(), "localhost", 1);
-        gumdrop.addClient(keeper);
-        server = new ServerSocket(0, 4, InetAddress.getByName("127.0.0.1"));
-        acceptor = new Thread(new Runnable() {
-            @Override
-            public void run() {
-                serve();
-            }
-        }, "oauth-test-server");
-        acceptor.setDaemon(true);
-        acceptor.start();
-    }
+        @Override
+        public void header(String name, String value) {
+            headers.put(name, value);
+        }
 
-    @After
-    public void tearDown() throws Exception {
-        server.close();
-        acceptor.join();
-        gumdrop.shutdown();
-        gumdrop.join();
-    }
+        @Override
+        public void priority(int weight) {
+        }
 
-    private void serve() {
-        while (true) {
-            Socket s;
-            try {
-                s = server.accept();
-            } catch (IOException e) {
-                return;
-            }
-            try {
-                handle(s);
-            } catch (IOException e) {
-                // client went away; next connection
-            } catch (InterruptedException e) {
-                return;
-            } finally {
-                try {
-                    s.close();
-                } catch (IOException ignored) {
-                    // closing quietly
-                }
-            }
+        @Override
+        public void dependency(HttpRequest parent) {
+        }
+
+        @Override
+        public void exclusive(boolean exclusive) {
+        }
+
+        @Override
+        public void send(HttpResponseHandler handler) {
+            this.handler = handler;
+        }
+
+        @Override
+        public void startRequestBody(HttpResponseHandler handler) {
+            this.handler = handler;
+        }
+
+        @Override
+        public int requestBodyContent(ByteBuffer data) {
+            int n = data.remaining();
+            byte[] b = new byte[n];
+            data.get(b);
+            body.append(new String(b, StandardCharsets.UTF_8));
+            return n;
+        }
+
+        @Override
+        public void endRequestBody() {
+            owner.reply(handler);
+        }
+
+        @Override
+        public void cancel() {
         }
     }
 
-    private void handle(Socket s) throws IOException, InterruptedException {
-        s.setSoTimeout(10000);
-        InputStream in = s.getInputStream();
-        ByteArrayOutputStream head = new ByteArrayOutputStream();
-        int state = 0;
-        while (state < 4) {
-            int b = in.read();
-            if (b < 0) {
+    /** Exchange that answers each call from a script. */
+    private static final class ScriptedExchange implements OAuthRealm.Exchange {
+        final List<MockRequest> requests = new ArrayList<MockRequest>();
+        final List<String> paths = new ArrayList<String>();
+        final List<String> events = new ArrayList<String>();
+        final BinaryRecordingEndpoint endpoint = new BinaryRecordingEndpoint();
+        int status = 200;
+        List<String> chunks = new ArrayList<String>();
+        Exception connectError;
+        Exception requestFailure;
+        boolean silent;
+        boolean tls;
+
+        void respond(int code, String... parts) {
+            status = code;
+            chunks = new ArrayList<String>();
+            for (int i = 0; i < parts.length; i++) {
+                chunks.add(parts[i]);
+            }
+        }
+
+        @Override
+        public void connect(HttpClient client, Gumdrop gumdrop,
+                HttpClientHandler handler) {
+            events.add("connect");
+            if (connectError != null) {
+                handler.onError(connectError);
                 return;
             }
-            head.write(b);
-            if ((b == '\r' && (state == 0 || state == 2))
-                    || (b == '\n' && (state == 1 || state == 3))) {
-                state++;
-            } else if (b == '\r') {
-                state = 1;
+            if (tls) {
+                handler.onSecurityEstablished(new SecurityInfo() {
+                    @Override
+                    public String getProtocol() {
+                        return "TLSv1.3";
+                    }
+
+                    @Override
+                    public String getCipherSuite() {
+                        return "TLS_AES_128_GCM_SHA256";
+                    }
+
+                    @Override
+                    public int getKeySize() {
+                        return 128;
+                    }
+
+                    @Override
+                    public Certificate[] getPeerCertificates() {
+                        return null;
+                    }
+
+                    @Override
+                    public Certificate[] getLocalCertificates() {
+                        return null;
+                    }
+
+                    @Override
+                    public String getApplicationProtocol() {
+                        return null;
+                    }
+
+                    @Override
+                    public long getHandshakeDurationMs() {
+                        return 0L;
+                    }
+
+                    @Override
+                    public boolean isSessionResumed() {
+                        return false;
+                    }
+                });
+            }
+            handler.onConnected(endpoint);
+            handler.onDisconnected();
+        }
+
+        @Override
+        public HttpRequest post(HttpClient client, String path) {
+            paths.add(path);
+            MockRequest r = new MockRequest(this);
+            requests.add(r);
+            return r;
+        }
+
+        void reply(HttpResponseHandler h) {
+            if (silent) {
+                return;
+            }
+            if (requestFailure != null) {
+                h.failed(requestFailure);
+                return;
+            }
+            HttpStatus st = HttpStatus.OK;
+            if (status == 401) {
+                st = HttpStatus.UNAUTHORIZED;
+            } else if (status == 500) {
+                st = HttpStatus.INTERNAL_SERVER_ERROR;
+            }
+            HttpResponse response = new HttpResponse(st);
+            if (status == 200) {
+                h.ok(response);
             } else {
-                state = 0;
+                h.error(response);
             }
-        }
-        String headers = new String(head.toByteArray(), StandardCharsets.ISO_8859_1);
-        int length = 0;
-        String[] lines = headers.split("\r\n");
-        for (int i = 0; i < lines.length; i++) {
-            String lower = lines[i].toLowerCase();
-            if (lower.startsWith("content-length:")) {
-                length = Integer.parseInt(lines[i].substring(15).trim());
+            h.startResponseBody();
+            for (int i = 0; i < chunks.size(); i++) {
+                byte[] b = chunks.get(i).getBytes(StandardCharsets.UTF_8);
+                h.responseBodyContent(ByteBuffer.wrap(b));
             }
+            h.endResponseBody();
+            h.close();
         }
-        byte[] body = new byte[length];
-        int off = 0;
-        while (off < length) {
-            int n = in.read(body, off, length - off);
-            if (n < 0) {
-                return;
-            }
-            off += n;
-        }
-        if (headers.toLowerCase().contains("transfer-encoding: chunked")) {
-            body = readChunked(in);
-        }
-        requests.add(headers + new String(body, StandardCharsets.UTF_8));
-        String reply = replies.take();
-        if (CLOSE.equals(reply)) {
-            return;
-        }
-        OutputStream out = s.getOutputStream();
-        out.write(reply.getBytes(StandardCharsets.UTF_8));
-        out.flush();
     }
 
-    private static String readLine(InputStream in) throws IOException {
-        StringBuilder sb = new StringBuilder();
-        while (true) {
-            int b = in.read();
-            if (b < 0 || b == '\n') {
-                break;
-            }
-            if (b != '\r') {
-                sb.append((char) b);
-            }
-        }
-        return sb.toString();
-    }
-
-    private static byte[] readChunked(InputStream in) throws IOException {
-        ByteArrayOutputStream body = new ByteArrayOutputStream();
-        while (true) {
-            String sizeLine = readLine(in);
-            int size = Integer.parseInt(sizeLine.trim(), 16);
-            if (size == 0) {
-                readLine(in);
-                break;
-            }
-            for (int i = 0; i < size; i++) {
-                int b = in.read();
-                if (b < 0) {
-                    throw new IOException("short chunk");
-                }
-                body.write(b);
-            }
-            readLine(in);
-        }
-        return body.toByteArray();
-    }
-
-    private static String http(int status, String reason, String json) {
-        byte[] b = json.getBytes(StandardCharsets.UTF_8);
-        return "HTTP/1.1 " + status + " " + reason + "\r\n"
-                + "Content-Type: application/json\r\n"
-                + "Content-Length: " + b.length + "\r\n"
-                + "Connection: close\r\n\r\n" + json;
-    }
-
-    private OAuthRealm realm(boolean cache) {
+    private static Properties config(String url, boolean cache) {
         Properties config = new Properties();
-        config.setProperty("oauth.authorization.server.url",
-                "http://127.0.0.1:" + server.getLocalPort());
+        config.setProperty("oauth.authorization.server.url", url);
         config.setProperty("oauth.client.id", "cid");
         config.setProperty("oauth.client.secret", "sec");
-        config.setProperty("oauth.http.timeout", "20000");
+        // zero: a reply that is not already in hand counts as a timeout, with no waiting
+        config.setProperty("oauth.http.timeout", "0");
         config.setProperty("oauth.cache.enabled", Boolean.toString(cache));
         config.setProperty("oauth.scope.mapping.reader", "read");
+        return config;
+    }
+
+    private static OAuthRealm realm(Properties config, ScriptedExchange exchange) {
         OAuthRealm unbound = new OAuthRealm(config);
-        Realm bound = unbound.forSelectorLoop(gumdrop.nextWorkerLoop());
-        return (OAuthRealm) bound;
+        Realm bound = unbound.forSelectorLoop(new InlineSelectorLoop());
+        OAuthRealm realm = (OAuthRealm) bound;
+        realm.exchange = exchange;
+        return realm;
+    }
+
+    private static OAuthRealm realm(boolean cache, ScriptedExchange exchange) {
+        return realm(config("http://auth.test:8080", cache), exchange);
     }
 
     @Test
     public void activeTokenYieldsUserScopesAndExpiry() {
-        OAuthRealm realm = realm(false);
-        replies.add(http(200, "OK",
-                "{\"active\":true,\"username\":\"alice\",\"scope\":\"  read   write \","
-                + "\"exp\":4102444800,\"client_id\":\"x\",\"nested\":{\"exp\":1}}"));
+        ScriptedExchange ex = new ScriptedExchange();
+        ex.respond(200, "{\"active\":true,\"username\":\"alice\",\"scope\":\"  read   write \","
+                + "\"exp\":4102444800,\"client_id\":\"x\",\"nested\":{\"exp\":1}}");
+        OAuthRealm realm = realm(false, ex);
         Realm.TokenValidationResult r = realm.validateOAuthToken("tok+en");
         assertNotNull(r);
         assertTrue(r.valid);
@@ -243,18 +274,41 @@ public class OAuthRealmIntrospectionTest {
         assertEquals(4102444800L, r.expirationTime);
         assertTrue(realm.isUserInRole("alice", "reader"));
         assertFalse(realm.isUserInRole("alice", "unmapped"));
-        assertEquals(1, requests.size());
-        String req = requests.get(0);
-        assertTrue(req, req.startsWith("POST /oauth/introspect"));
-        assertTrue(req, req.contains("token=tok%2Ben"));
-        assertTrue(req, req.contains("Authorization: Basic "));
+        assertEquals(1, ex.requests.size());
+        assertEquals("/oauth/introspect", ex.paths.get(0));
+        MockRequest req = ex.requests.get(0);
+        assertEquals("token=tok%2Ben&token_type_hint=access_token", req.body.toString());
+        assertEquals("application/x-www-form-urlencoded", req.headers.get("Content-Type"));
+        assertEquals("application/json", req.headers.get("Accept"));
+        assertTrue(req.headers.get("Authorization").startsWith("Basic "));
+    }
+
+    @Test
+    public void bodyArrivingInSmallChunksIsParsedIncrementally() {
+        ScriptedExchange ex = new ScriptedExchange();
+        ex.respond(200, "{\"act", "ive\":tr", "ue,\"user", "name\":\"car", "ol\"}");
+        OAuthRealm realm = realm(false, ex);
+        Realm.TokenValidationResult r = realm.validateOAuthToken("t");
+        assertTrue(r.valid);
+        assertEquals("carol", r.username);
+    }
+
+    @Test
+    public void customIntrospectionEndpointIsUsed() {
+        Properties config = config("http://auth.test", false);
+        config.setProperty("oauth.token.introspection.endpoint", "/custom/check");
+        ScriptedExchange ex = new ScriptedExchange();
+        ex.respond(200, "{\"active\":true,\"username\":\"u\"}");
+        OAuthRealm realm = realm(config, ex);
+        assertTrue(realm.validateBearerToken("t").valid);
+        assertEquals("/custom/check", ex.paths.get(0));
     }
 
     @Test
     public void subjectIsUsedWhenUsernameMissing() {
-        OAuthRealm realm = realm(false);
-        replies.add(http(200, "OK", "{\"active\":true,\"sub\":\"subject-1\",\"scope\":\"\"}"));
-        Realm.TokenValidationResult r = realm.validateOAuthToken("t");
+        ScriptedExchange ex = new ScriptedExchange();
+        ex.respond(200, "{\"active\":true,\"sub\":\"subject-1\",\"scope\":\"\"}");
+        Realm.TokenValidationResult r = realm(false, ex).validateOAuthToken("t");
         assertTrue(r.valid);
         assertEquals("subject-1", r.username);
         assertEquals(0, r.scopes.length);
@@ -262,21 +316,20 @@ public class OAuthRealmIntrospectionTest {
 
     @Test
     public void activeTokenWithoutAnyIdentityIsRejected() {
-        OAuthRealm realm = realm(false);
-        replies.add(http(200, "OK", "{\"active\":true,\"username\":\"\"}"));
-        assertFalse(realm.validateOAuthToken("t").valid);
+        ScriptedExchange ex = new ScriptedExchange();
+        ex.respond(200, "{\"active\":true,\"username\":\"\"}");
+        assertFalse(realm(false, ex).validateOAuthToken("t").valid);
     }
 
     @Test
     public void nestedMembersCannotOverrideTopLevelFields() {
-        OAuthRealm realm = realm(false);
-        replies.add(http(200, "OK",
-                "{\"active\":false,\"ext\":{\"active\":true,\"username\":\"mallory\"},"
-                + "\"list\":[{\"active\":true}]}"));
+        ScriptedExchange ex = new ScriptedExchange();
+        OAuthRealm realm = realm(false, ex);
+        ex.respond(200, "{\"active\":false,\"ext\":{\"active\":true,\"username\":\"mallory\"},"
+                + "\"list\":[{\"active\":true}]}");
         assertFalse(realm.validateOAuthToken("t").valid);
-        replies.add(http(200, "OK",
-                "{\"active\":true,\"username\":\"alice\",\"ext\":{\"username\":\"mallory\","
-                + "\"scope\":\"admin\"},\"scope\":\"read\"}"));
+        ex.respond(200, "{\"active\":true,\"username\":\"alice\",\"ext\":{\"username\":\"mallory\","
+                + "\"scope\":\"admin\"},\"scope\":\"read\"}");
         Realm.TokenValidationResult r = realm.validateOAuthToken("t2");
         assertTrue(r.valid);
         assertEquals("alice", r.username);
@@ -286,59 +339,139 @@ public class OAuthRealmIntrospectionTest {
 
     @Test
     public void inactiveTokenIsRejected() {
-        OAuthRealm realm = realm(false);
-        replies.add(http(200, "OK", "{\"active\":false}"));
-        assertFalse(realm.validateOAuthToken("t").valid);
+        ScriptedExchange ex = new ScriptedExchange();
+        ex.respond(200, "{\"active\":false}");
+        assertFalse(realm(false, ex).validateOAuthToken("t").valid);
     }
 
     @Test
-    public void errorStatusIsRejected() {
-        OAuthRealm realm = realm(false);
-        replies.add(http(401, "Unauthorized", "{\"active\":true,\"username\":\"mallory\"}"));
-        assertFalse(realm.validateOAuthToken("t").valid);
+    public void errorStatusIsRejectedEvenWithActiveBody() {
+        ScriptedExchange ex = new ScriptedExchange();
+        ex.respond(401, "{\"active\":true,\"username\":\"mallory\"}");
+        assertFalse(realm(false, ex).validateOAuthToken("t").valid);
+        ex.respond(500, "");
+        assertFalse(realm(false, ex).validateOAuthToken("t").valid);
     }
 
     @Test
     public void malformedJsonIsRejected() {
-        OAuthRealm realm = realm(false);
-        replies.add(http(200, "OK", "{\"active\": tru"));
-        assertFalse(realm.validateOAuthToken("t").valid);
+        ScriptedExchange ex = new ScriptedExchange();
+        ex.respond(200, "{\"active\": tru");
+        assertFalse(realm(false, ex).validateOAuthToken("t").valid);
     }
 
     @Test
-    public void connectionClosedWithoutReplyIsRejected() {
-        OAuthRealm realm = realm(false);
-        replies.add(CLOSE);
+    public void garbageAfterParseErrorIsIgnored() {
+        ScriptedExchange ex = new ScriptedExchange();
+        ex.respond(200, "{]", "more", "{\"active\":true,\"username\":\"x\"}");
+        assertFalse(realm(false, ex).validateOAuthToken("t").valid);
+    }
+
+    @Test
+    public void emptyBodyOnSuccessIsRejected() {
+        ScriptedExchange ex = new ScriptedExchange();
+        ex.respond(200);
+        assertFalse(realm(false, ex).validateOAuthToken("t").valid);
+    }
+
+    @Test
+    public void connectionErrorIsRejected() {
+        ScriptedExchange ex = new ScriptedExchange();
+        ex.connectError = new IOException("refused");
+        OAuthRealm realm = realm(false, ex);
         assertFalse(realm.validateOAuthToken("t").valid);
+        assertTrue(ex.requests.isEmpty());
+    }
+
+    @Test
+    public void requestFailureIsRejected() {
+        ScriptedExchange ex = new ScriptedExchange();
+        ex.requestFailure = new IOException("reset");
+        assertFalse(realm(false, ex).validateOAuthToken("t").valid);
+    }
+
+    @Test
+    public void silentServerTimesOutAndIsRejected() {
+        ScriptedExchange ex = new ScriptedExchange();
+        ex.silent = true;
+        OAuthRealm realm = realm(false, ex);
+        assertFalse(realm.validateOAuthToken("t").valid);
+        assertEquals(1, ex.requests.size());
+    }
+
+    @Test
+    public void secureServerReportsTlsHandshakeToTheHandler() {
+        ScriptedExchange ex = new ScriptedExchange();
+        ex.tls = true;
+        ex.respond(200, "{\"active\":true,\"username\":\"tls-user\"}");
+        OAuthRealm realm = realm(config("https://auth.test", false), ex);
+        assertTrue(realm.validateOAuthToken("t").valid);
+        assertEquals(1, ex.requests.size());
     }
 
     @Test
     public void cachedResultAvoidsSecondRequest() {
-        OAuthRealm realm = realm(true);
-        replies.add(http(200, "OK", "{\"active\":true,\"username\":\"bob\",\"scope\":\"read\"}"));
+        ScriptedExchange ex = new ScriptedExchange();
+        ex.respond(200, "{\"active\":true,\"username\":\"bob\",\"scope\":\"read\"}");
+        OAuthRealm realm = realm(true, ex);
         Realm.TokenValidationResult first = realm.validateOAuthToken("same");
         Realm.TokenValidationResult second = realm.validateOAuthToken("same");
         assertTrue(first.valid);
-        assertTrue(second.valid);
-        assertEquals(1, requests.size());
+        assertSame(first, second);
+        assertEquals(1, ex.requests.size());
+    }
+
+    @Test
+    public void failedValidationIsNotCached() {
+        ScriptedExchange ex = new ScriptedExchange();
+        ex.respond(200, "{\"active\":false}");
+        OAuthRealm realm = realm(true, ex);
+        assertFalse(realm.validateOAuthToken("same").valid);
+        ex.respond(200, "{\"active\":true,\"username\":\"late\"}");
+        assertTrue(realm.validateOAuthToken("same").valid);
+        assertEquals(2, ex.requests.size());
+    }
+
+    @Test
+    public void fullCacheEvictsToMakeRoom() {
+        Properties config = config("http://auth.test", true);
+        config.setProperty("oauth.cache.max.size", "2");
+        config.setProperty("oauth.cache.ttl", "3600");
+        ScriptedExchange ex = new ScriptedExchange();
+        ex.respond(200, "{\"active\":true,\"username\":\"u\"}");
+        OAuthRealm realm = realm(config, ex);
+        for (int i = 0; i < 6; i++) {
+            assertTrue(realm.validateOAuthToken("token-" + i).valid);
+        }
+        assertEquals(6, ex.requests.size());
     }
 
     @Test
     public void blankTokenNeverContactsServer() {
-        OAuthRealm realm = realm(false);
+        ScriptedExchange ex = new ScriptedExchange();
+        OAuthRealm realm = realm(false, ex);
         assertFalse(realm.validateOAuthToken(null).valid);
         assertFalse(realm.validateOAuthToken("   ").valid);
         assertFalse(realm.validateBearerToken("").valid);
-        assertTrue(requests.isEmpty());
+        assertTrue(ex.events.isEmpty());
+    }
+
+    @Test
+    public void rebindingToTheSameLoopKeepsTheRealm() {
+        OAuthRealm realm = new OAuthRealm(config("http://auth.test", false));
+        InlineSelectorLoop loop = new InlineSelectorLoop();
+        Realm bound = realm.forSelectorLoop(loop);
+        assertNotSame(realm, bound);
+        assertSame(bound, bound.forSelectorLoop(loop));
+        assertSame(realm, realm.forSelectorLoop(null));
     }
 
     @Test
     public void unboundRealmCannotIntrospect() {
-        Properties config = new Properties();
-        config.setProperty("oauth.authorization.server.url", "http://127.0.0.1:1");
-        config.setProperty("oauth.client.id", "cid");
-        config.setProperty("oauth.client.secret", "sec");
-        OAuthRealm unbound = new OAuthRealm(config);
+        ScriptedExchange ex = new ScriptedExchange();
+        OAuthRealm unbound = new OAuthRealm(config("http://auth.test", false));
+        unbound.exchange = ex;
         assertFalse(unbound.validateOAuthToken("t").valid);
+        assertTrue(ex.events.isEmpty());
     }
 }

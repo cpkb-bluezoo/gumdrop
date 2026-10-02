@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.dns.server;
 
+import org.bluezoo.gumdrop.testsupport.memfs.MemoryTemp;
 import org.bluezoo.gumdrop.dns.DnsType;
 import org.junit.Test;
 
@@ -48,7 +49,7 @@ public class ZoneFileParserTest {
                 + "@ IN NS ns1.example.com.\n"
                 + "long IN TXT ( \"part one\" \n"
                 + "  \"part two\" )\n";
-        Path file = Files.createTempFile("paren-zone", ".zone");
+        Path file = MemoryTemp.createTempFile("paren-zone", ".zone");
         Files.writeString(file, zone);
         try {
             ZoneFile loaded = ZoneFile.load(file);
@@ -87,7 +88,7 @@ public class ZoneFileParserTest {
 
     @Test
     public void testGenerateExpandsRecords() throws Exception {
-        Path zone = Files.createTempFile("generate", ".zone");
+        Path zone = MemoryTemp.createTempFile("generate", ".zone");
         Files.writeString(zone, ""
                 + "$ORIGIN example.com.\n"
                 + "$TTL 300\n"

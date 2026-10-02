@@ -91,6 +91,7 @@ public final class Dtls13RecordEngine {
     private boolean pendingAck;
     private boolean alertSent;
     private boolean failed;
+    private int discardedRecords;
 
     private final Deque<byte[]> pendingInboundDatagrams = new ArrayDeque<byte[]>();
 
@@ -178,13 +179,13 @@ public final class Dtls13RecordEngine {
         while (offset < end) {
             if ((datagram[offset] & 0xe0) == 0x20) {
                 if (end - offset < UNIFIED_HEADER_LEN) {
-                    fail(sink, AlertDescription.DECODE_ERROR, "truncated DTLS unified header");
+                    discard();
                     return;
                 }
                 int epoch = datagram[offset] & 0x03;
                 int bodyLength = ((datagram[offset + 3] & 0xff) << 8) | (datagram[offset + 4] & 0xff);
                 if (offset + UNIFIED_HEADER_LEN + bodyLength > end) {
-                    fail(sink, AlertDescription.DECODE_ERROR, "truncated DTLS unified record body");
+                    discard();
                     return;
                 }
                 byte[] record = Arrays.copyOfRange(datagram, offset, offset + UNIFIED_HEADER_LEN + bodyLength);
@@ -194,13 +195,13 @@ public final class Dtls13RecordEngine {
                 }
             } else {
                 if (end - offset < RECORD_HEADER_LEN) {
-                    fail(sink, AlertDescription.DECODE_ERROR, "truncated DTLS record header");
+                    discard();
                     return;
                 }
                 int contentType = datagram[offset] & 0xff;
                 if ((datagram[offset + 1] & 0xff) != DTLS_VERSION_MAJOR
                         || (datagram[offset + 2] & 0xff) != DTLS_VERSION_MINOR) {
-                    fail(sink, AlertDescription.PROTOCOL_VERSION, "unexpected DTLS version");
+                    discard();
                     return;
                 }
                 int epoch = ((datagram[offset + 3] & 0xff) << 8) | (datagram[offset + 4] & 0xff);
@@ -210,7 +211,7 @@ public final class Dtls13RecordEngine {
                 }
                 int recordLength = ((datagram[offset + 11] & 0xff) << 8) | (datagram[offset + 12] & 0xff);
                 if (offset + RECORD_HEADER_LEN + recordLength > end) {
-                    fail(sink, AlertDescription.DECODE_ERROR, "truncated DTLS record body");
+                    discard();
                     return;
                 }
                 byte[] body = Arrays.copyOfRange(datagram, offset + RECORD_HEADER_LEN,
@@ -227,6 +228,14 @@ public final class Dtls13RecordEngine {
                 return;
             }
         }
+    }
+
+    /**
+     * Records and datagram tails silently discarded because they were
+     * malformed or failed authentication (RFC 6347 section 4.1.2.7).
+     */
+    int discardedRecordCount() {
+        return discardedRecords;
     }
 
     private void resumePendingInboundDatagrams() {
@@ -331,32 +340,45 @@ public final class Dtls13RecordEngine {
         }
     }
 
+    /**
+     * Silently drops an invalid record (RFC 9147 section 4.5.2): anyone able
+     * to spoof a datagram could otherwise end the session.
+     */
+    private void discard() {
+        discardedRecords++;
+    }
+
+    /** Cleartext records carry no protection, so none of their defects is fatal. */
     private boolean processCleartextRecord(int contentType, int epoch, long seq, byte[] body, TlsRecordSink sink) {
-        if (epoch != EPOCH_PLAINTEXT) {
-            fail(sink, AlertDescription.UNEXPECTED_MESSAGE, "unexpected cleartext epoch " + epoch);
-            return false;
+        if (epoch != EPOCH_PLAINTEXT || engine.isComplete()) {
+            discard();
+            return true;
         }
         if (body.length > engine.getInboundPlaintextLimit()) {
-            fail(sink, AlertDescription.RECORD_OVERFLOW, "plaintext exceeds negotiated record_size_limit");
-            return false;
+            discard();
+            return true;
         }
         switch (contentType) {
             case CONTENT_HANDSHAKE:
-                return handleHandshake(body, sink);
+                return handleHandshake(body, false, sink);
             case CONTENT_ALERT:
+                if (body.length != 2) {
+                    discard();
+                    return true;
+                }
                 return handleAlert(body, sink);
             case CONTENT_CHANGE_CIPHER_SPEC:
                 return true;
             default:
-                fail(sink, AlertDescription.UNEXPECTED_MESSAGE, "unknown cleartext content type");
-                return false;
+                discard();
+                return true;
         }
     }
 
     private boolean processUnifiedRecord(int epoch, byte[] record, TlsRecordSink sink) {
         if (record.length < UNIFIED_HEADER_LEN + AEAD_TAG_LENGTH) {
-            fail(sink, AlertDescription.BAD_RECORD_MAC, "DTLS unified record too short");
-            return false;
+            discard();
+            return true;
         }
         byte[] header = Arrays.copyOfRange(record, 0, UNIFIED_HEADER_LEN);
         byte[] ciphertext = Arrays.copyOfRange(record, UNIFIED_HEADER_LEN, record.length);
@@ -364,21 +386,22 @@ public final class Dtls13RecordEngine {
         Dtls13DirectionalKeys keys = selectReadKeys(epoch);
         DtlsReplayWindow replay = selectReadReplay(epoch);
         if (keys == null || replay == null) {
-            fail(sink, AlertDescription.UNEXPECTED_MESSAGE, "no read keys for epoch " + epoch);
-            return false;
+            discard();
+            return true;
         }
         try {
             byte[] mask = keys.headerProtectionMask(sample);
             PacketProtection.xorPacketNumberBytes(header, 1, TRUNCATED_PN_LENGTH, mask);
         } catch (PacketProtectionException e) {
-            fail(sink, AlertDescription.BAD_RECORD_MAC, "header protection failed");
-            return false;
+            discard();
+            return true;
         }
         int truncatedPn = ((header[1] & 0xff) << 8) | (header[2] & 0xff);
         long highest = replay.highestAccepted();
         long seq = reconstructSequenceNumber(highest, truncatedPn, TRUNCATED_PN_BITS);
         long combinedSeq = combinedSeq(epoch, seq);
         if (!replay.mayAccept(combinedSeq)) {
+            discard();
             return true;
         }
         byte[] plain;
@@ -402,8 +425,8 @@ public final class Dtls13RecordEngine {
             }
         }
         if (plain == null) {
-            fail(sink, AlertDescription.BAD_RECORD_MAC, "malformed or unauthenticated DTLS record");
-            return false;
+            discard();
+            return true;
         }
         replay.recordAccepted(combinedSeq);
         keys.advance();
@@ -441,7 +464,7 @@ public final class Dtls13RecordEngine {
             case CONTENT_ALERT:
                 return handleAlert(payload, sink);
             case CONTENT_HANDSHAKE:
-                return handleHandshake(payload, sink);
+                return handleHandshake(payload, true, sink);
             case CONTENT_APPLICATION_DATA:
                 if (!engine.isComplete()) {
                     fail(sink, AlertDescription.UNEXPECTED_MESSAGE, "application data before handshake completed");
@@ -455,8 +478,12 @@ public final class Dtls13RecordEngine {
         }
     }
 
-    private boolean handleHandshake(byte[] payload, TlsRecordSink sink) {
+    private boolean handleHandshake(byte[] payload, boolean authenticated, TlsRecordSink sink) {
         if (payload.length < FRAGMENT_HEADER_LEN) {
+            if (!authenticated) {
+                discard();
+                return true;
+            }
             fail(sink, AlertDescription.DECODE_ERROR, "truncated DTLS handshake fragment");
             return false;
         }
@@ -466,6 +493,10 @@ public final class Dtls13RecordEngine {
                 handshakeAsync.scheduleMessages(messages);
             }
         } catch (HandshakeFormatException e) {
+            if (!authenticated) {
+                discard();
+                return true;
+            }
             fail(sink, AlertDescription.DECODE_ERROR, "malformed DTLS handshake fragment: " + e.getMessage());
             return false;
         }

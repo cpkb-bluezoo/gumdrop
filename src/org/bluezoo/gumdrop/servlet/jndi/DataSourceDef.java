@@ -552,6 +552,10 @@ public final class DataSourceDef extends Resource implements DataSource {
                 try {
                     Thread.sleep(1000L);
                 } catch (InterruptedException e) {
+                    // close() interrupts this thread to stop it; sleeping
+                    // clears the flag, so restore it and leave the loop
+                    Thread.currentThread().interrupt();
+                    return;
                 }
             }
         }

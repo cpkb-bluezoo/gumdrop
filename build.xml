@@ -81,6 +81,8 @@
        named "test" — Maven/Gradle users often pass -Dtest=SomeClass, which
        would redirect every ${test}/… path into a junk directory at repo root. -->
   <property name='testdir' location='test'/>
+  <property name='guard.classes.dir' location='${testdir}/guard/classes'/>
+  <property name='guard.results.dir' location='${testdir}/guard/results'/>
   <property name='junit.coverage.dir' location='${testdir}/junit/coverage'/>
   <property name='junit.coverage.exec' location='${junit.coverage.dir}/jacoco.exec'/>
   <property name='junit.report.dir' location='${testdir}/junit/report'/>
@@ -166,7 +168,7 @@
     <delete dir='build-mdns' quiet='true'/>
   </target>
 
-  <target name='clean' depends='clean-junit,clean-integration,clean-legacy-dirs'>
+  <target name='clean' depends='clean-junit,clean-guard,clean-integration,clean-legacy-dirs'>
     <delete dir='${build.dir}'/>
     <delete dir='${dist}'/>
     <delete dir='${manager}/WEB-INF/classes'/>
@@ -178,6 +180,11 @@
     <delete dir='${testdir}/junit/results'/>
     <delete dir='${junit.coverage.dir}'/>
     <delete dir='${junit.report.dir}'/>
+  </target>
+
+  <target name='clean-guard'>
+    <delete dir='${guard.classes.dir}'/>
+    <delete dir='${guard.results.dir}'/>
   </target>
 
   <target name='clean-integration'>
@@ -812,7 +819,48 @@
   </target>
 
   <!-- Main test target that runs all available tests -->
-  <target name='test' depends='junit-test' description='Run all unit tests'>
+  <!-- Guard tests (test/guard/src): repository-structure checks (style, file
+       headers, @author, sleep/wall-clock bans, L10n keys, naming) that read
+       source text only. They need just the JDK and JUnit, so they compile
+       and run without build-modules, and run first so that a policy
+       violation fails fast, before the production build and unit tests. -->
+  <target name='guard-build' depends='resolve-test-deps'>
+    <mkdir dir='${guard.classes.dir}'/>
+    <javac srcdir='${testdir}/guard/src' destdir='${guard.classes.dir}' debug='true'
+           release='${java.release.version}'
+           includeantruntime='false'>
+      <classpath>
+        <pathelement location='${testdir}/junit/lib/${junit.jar}'/>
+      </classpath>
+    </javac>
+    <copy todir='${guard.classes.dir}'>
+      <fileset dir='${testdir}/guard/resources'/>
+    </copy>
+  </target>
+
+  <target name='guard-test' depends='guard-build'
+          description='Run repository guard tests (style, headers, policy); fails fast'>
+    <mkdir dir='${guard.results.dir}'/>
+    <junit printsummary='yes' haltonfailure='yes' haltonerror='yes'
+           logfailedtests='true' forkmode='perTest' timeout='120000'
+           dir='${basedir}'>
+      <classpath>
+        <pathelement location='${guard.classes.dir}'/>
+        <pathelement location='${testdir}/junit/lib/${junit.jar}'/>
+        <pathelement location='${testdir}/junit/lib/${hamcrest.jar}'/>
+      </classpath>
+      <batchtest fork='yes' todir='${guard.results.dir}'>
+        <fileset dir='${testdir}/guard/src'>
+          <include name='**/*Test.java'/>
+        </fileset>
+      </batchtest>
+      <formatter type='plain'/>
+    </junit>
+  </target>
+
+  <!-- Main test target: guards first (fail fast), then unit tests. -->
+  <target name='test' depends='guard-test,junit-test'
+          description='Run guard tests, then all unit tests'>
   </target>
 
   <!-- Unit-test coverage report (not part of ant test). HTML under test/junit/report/. -->
@@ -995,7 +1043,7 @@
   <!-- Run WebDAV integration tests (real file system: sidecar I/O, xattrs) -->
   <target name='integration-test-webdav' depends='integration-build'
           description='Run WebDAV integration tests'>
-    <integration-junit includes='**/webdav/*IntegrationTest.java'/>
+    <integration-junit includes='**/webdav/**/*IntegrationTest.java'/>
   </target>
 
   <!-- Run POP3 integration tests -->
@@ -1276,6 +1324,10 @@
           <include name='**/*EndToEndTest.java'/>
           <include name='**/*CompositionTest.java'/>
           <include name='**/UdpEndpointIntegrationTest.java'/>
+          <include name='**/UdpClientSendBeforeRegistrationIntegrationTest.java'/>
+          <include name='**/SelectorLoopTcpLoopbackIntegrationTest.java'/>
+          <include name='**/GumdropLiveConnectionIntegrationTest.java'/>
+          <include name='**/AcceptSelectorLoopUnconfiguredListenerIntegrationTest.java'/>
           <include name='**/UDPTransportFactoryConnectTest.java'/>
           <include name='**/SelectorLoopCrashIsolationTest.java'/>
           <include name='**/ClientEndpointUnixSocketTest.java'/>
@@ -1295,6 +1347,34 @@
           <include name='**/WebDAVPropfindDeadPropertiesParallelTest.java'/>
           <include name='**/AsyncDiskOffloadBoundaryTest.java'/>
           <include name='**/quota/RoleBasedQuotaManagerAsyncSaveIntegrationTest.java'/>
+          <include name='**/AcceptSelectorLoopCloseRawAcceptorIntegrationTest.java'/>
+          <include name='**/AcceptSelectorLoopShutdownIntegrationTest.java'/>
+          <include name='**/SelectorLoopShutdownIntegrationTest.java'/>
+          <include name='**/GumdropShutdownIntegrationTest.java'/>
+          <include name='**/GumdropShutdownOrderIntegrationTest.java'/>
+          <include name='**/GumdropAutoShutdownRaceIntegrationTest.java'/>
+          <include name='**/GumdropAwaitShutdownIntegrationTest.java'/>
+          <include name='**/GumdropBindFailureIntegrationTest.java'/>
+          <include name='**/UdpListenerStopIntegrationTest.java'/>
+          <include name='**/CryptoExecutorIntegrationTest.java'/>
+          <include name='**/StorageExecutorIntegrationTest.java'/>
+          <include name='**/AsyncFileStorageExecutorIntegrationTest.java'/>
+          <include name='**/http/h3/Http3ListenerStopIntegrationTest.java'/>
+          <include name='**/dns/DoQListenerStopIntegrationTest.java'/>
+          <include name='**/dns/client/DoQClientTransportCloseIntegrationTest.java'/>
+          <include name='**/quic/packet/PacketProtectionKeysReentrancyIntegrationTest.java'/>
+          <include name='**/quic/QuicConnectionDirectIntegrationTest.java'/>
+          <include name='**/socks/SocksLiveLoopIntegrationTest.java'/>
+          <include name='**/socks/client/SocksClientHandlerFlowsIntegrationTest.java'/>
+          <include name='**/mqtt/client/MqttClientLoopbackIntegrationTest.java'/>
+          <include name='**/auth/oauth/OAuthRealmIntrospectionIntegrationTest.java'/>
+          <include name='**/auth/BasicRealmHrefIntegrationTest.java'/>
+          <include name='**/mdns/MdnsListenerLifecycleIntegrationTest.java'/>
+          <include name='**/http/doh/DoHClientTransportIntegrationTest.java'/>
+          <include name='**/http/server/HTTPAuthenticationProviderEvictionIntegrationTest.java'/>
+          <include name='**/redis/codec/RESPEncoderIntegrationTest.java'/>
+          <include name='**/ClassLoadersIntegrationTest.java'/>
+          <include name='**/BootstrapIntegrationTest.java'/>
         </fileset>
       </batchtest>
       <formatter type='plain' usefile='false'/>

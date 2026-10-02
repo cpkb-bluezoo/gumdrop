@@ -342,7 +342,8 @@ class FileHandler extends DefaultHttpRequestHandler {
                 state.execute(new Runnable() {
                     @Override
                     public void run() {
-                        attachment.position(attachment.position() + bytesWritten);
+                        // The channel has already advanced the buffer's
+                        // position past the bytes it wrote.
                         writePosition += bytesWritten;
                         if (attachment.hasRemaining()) {
                             // Partial write - retry with remaining data
@@ -1032,6 +1033,12 @@ class FileHandler extends DefaultHttpRequestHandler {
             plan.error = HttpStatus.CONFLICT;
             return plan;
         }
+        // RFC 4918 section 7: a write lock protects the resource's content
+        // from a PUT that does not submit the lock token.
+        if (!checkLockToken(path)) {
+            plan.error = HttpStatus.LOCKED;
+            return plan;
+        }
         plan.existed = Files.exists(path);
 
         Path parentDir = path.getParent();
@@ -1178,6 +1185,9 @@ class FileHandler extends DefaultHttpRequestHandler {
             @Override
             public void completed(ProppatchPrep prep) {
                 if (prep.error != null) {
+                    // The request is answered here; the no-body default
+                    // must not answer it a second time.
+                    pendingNoBodyAction = null;
                     state.resumeRequestBody();
                     sendError(state, prep.error);
                     return;
@@ -1190,6 +1200,7 @@ class FileHandler extends DefaultHttpRequestHandler {
 
             @Override
             public void failed(Throwable error) {
+                pendingNoBodyAction = null;
                 state.resumeRequestBody();
                 LOGGER.log(Level.SEVERE, L10N.getString("severe.error_preparing_proppatch"), error);
                 sendError(state, HttpStatus.INTERNAL_SERVER_ERROR);

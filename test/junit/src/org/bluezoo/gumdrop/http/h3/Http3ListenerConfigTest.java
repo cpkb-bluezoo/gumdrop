@@ -43,6 +43,7 @@ import org.bluezoo.gumdrop.http.server.HttpStreamHandler;
 import org.bluezoo.gumdrop.quic.QuicConnection;
 import org.bluezoo.gumdrop.quic.QuicConnectionTestFactory;
 import org.bluezoo.gumdrop.quic.QuicTransportFactory;
+import org.bluezoo.gumdrop.testsupport.memfs.MemoryFileSystem;
 import org.junit.Test;
 
 /**
@@ -51,6 +52,16 @@ import org.junit.Test;
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 public class Http3ListenerConfigTest {
+
+    private final MemoryFileSystem memFs = MemoryFileSystem.create();
+
+    /** Creates an empty file on the in-memory file system. */
+    private Path memFile(String name) throws java.io.IOException {
+        Path p = memFs.getPath(name);
+        Files.createFile(p);
+        return p;
+    }
+
 
     private static QuicTransportFactory factory(Http3Listener l) throws Exception {
         Method m = Http3Listener.class.getDeclaredMethod("createTransportFactory");
@@ -117,8 +128,8 @@ public class Http3ListenerConfigTest {
     @Test
     public void testTransportFactoryConfiguration() throws Exception {
         Http3Listener l = new Http3Listener();
-        Path cert = Files.createTempFile("h3cert", ".pem");
-        Path key = Files.createTempFile("h3key", ".pem");
+        Path cert = memFile("/h3cert.pem");
+        Path key = memFile("/h3key.pem");
         try {
             l.setCertFile(cert);
             l.setKeyFile(key);
@@ -161,7 +172,7 @@ public class Http3ListenerConfigTest {
             assertTrue(expected.getCause() instanceof IllegalStateException);
         }
         l.setRequireRetry(true);
-        Path keyFile = Files.createTempFile("lbkey", ".hex");
+        Path keyFile = memFile("/lbkey.hex");
         try {
             StringBuilder hex = new StringBuilder();
             for (int i = 0; i < 32; i++) {

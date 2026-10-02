@@ -119,6 +119,11 @@ public final class EmailAddressParser {
 					}
 					b = value.get(value.position());
 				}
+				if (b == ':') {
+					// The phrase was a group name: skip the group's members
+					skipGroup(value);
+					continue;
+				}
 				if (b != '<') {
 					// Bare addr-spec: user@example.com (no angle brackets)
 					if (displayName != null) {
@@ -144,6 +149,11 @@ public final class EmailAddressParser {
 				value.position(localRange[0]).limit(localRange[1]);
 				String localPart = MimeParser.decodeSlice(value, decoder);
 				value.limit(savedLimit);
+				if (localRange[1] < limit && value.get(localRange[1]) == '"'
+						&& localRange[0] > 0 && value.get(localRange[0] - 1) == '"') {
+					// Quoted local-part: step over the closing quote
+					value.position(localRange[1] + 1);
+				}
 				if (value.position() >= limit || value.get(value.position()) != '@') {
 					break;
 				}
@@ -322,10 +332,10 @@ public final class EmailAddressParser {
 				if (c == '\\' && i + 1 < len - 1) {
 					i++;
 				} else if (c < 32 || c == 127) {
-					// In SMTPUTF8 mode, allow UTF-8 (>127), but still reject control chars
-					if (!smtputf8 || c < 128) {
-						return false;
-					}
+					return false;
+				} else if (c > 127 && !smtputf8) {
+					// Non-ASCII is only permitted in SMTPUTF8 mode (RFC 6531)
+					return false;
 				}
 			}
 			return true;
@@ -438,10 +448,14 @@ public final class EmailAddressParser {
 			return null;
 		}
 
+		// Only look within this address: a ':' or '<' belonging to a later
+		// comma-separated address must not change how this one is parsed
+		int addressEnd = findAddressEnd(input, length, pos[0]);
 		int colonPos = findNextUnquotedChar(input, length, ':', pos[0]);
 		int anglePos = findNextUnquotedChar(input, length, '<', pos[0]);
 
-		if (colonPos != -1 && (anglePos == -1 || colonPos < anglePos)) {
+		if (colonPos != -1 && colonPos < addressEnd
+				&& (anglePos == -1 || colonPos < anglePos)) {
 			return parseGroup(input, length, pos, tokenBuffer, smtputf8);
 		} else {
 			return parseIndividualAddress(input, length, pos, tokenBuffer, smtputf8);
@@ -495,6 +509,10 @@ public final class EmailAddressParser {
 		String domain;
 		boolean isLegacyFormat = false;
 		int anglePos = findNextUnquotedChar(input, length, '<', pos[0]);
+		if (anglePos >= findAddressEnd(input, length, pos[0])) {
+			// The '<' belongs to a later address in the list
+			anglePos = -1;
+		}
 		if (anglePos != -1) {
 			if (anglePos > pos[0]) {
 				displayName = parseDisplayName(input, length, pos, tokenBuffer, smtputf8);
@@ -733,6 +751,24 @@ public final class EmailAddressParser {
 		return -1;
 	}
 
+	/**
+	 * Returns the index of the first unquoted, uncommented ',' or ';' at or
+	 * after {@code start} (the end of the address starting there), or
+	 * {@code length} if there is none.
+	 */
+	private static int findAddressEnd(char[] input, int length, int start) {
+		int comma = findNextUnquotedChar(input, length, ',', start);
+		int semi = findNextUnquotedChar(input, length, ';', start);
+		int end = length;
+		if (comma != -1 && comma < end) {
+			end = comma;
+		}
+		if (semi != -1 && semi < end) {
+			end = semi;
+		}
+		return end;
+	}
+
 	static boolean isWhitespace(char c) {
 		return c == ' ' || c == '\t' || c == '\r' || c == '\n';
 	}
@@ -883,6 +919,9 @@ public final class EmailAddressParser {
 		}
 		while (pos < limit && (isAtext(value.get(pos)) || value.get(pos) == '.')) {
 			pos++;
+		}
+		if (pos == start) {
+			return null;
 		}
 		return new int[] { start, pos };
 	}

@@ -145,44 +145,28 @@ public class ArcSealerRoundTripTest {
         List<String> amsH = Arrays.asList("from", "to", "subject", "date", "message-id");
         String ams = signer.signArc(forAms, "ARC-Message-Signature", 1, amsH, bh, null);
 
-        List<String> forAs = new ArrayList<String>(forAms);
-        forAs.add(ams);
-        List<String> sealH = Arrays.asList("arc-seal", "arc-message-signature",
-                "arc-authentication-results");
-        String as = signer.signArc(forAs, "ARC-Seal", 1, sealH, bh, ArcCvResult.NONE);
+        // RFC 8617: the seal has no h= or bh= and signs the ARC set itself
+        // (this test originally pinned the non-standard h=/bh= seal form)
+        String as = signer.signArcSeal(Arrays.asList(aar, ams), 1, ArcCvResult.NONE);
+        assertFalse(as, as.contains(" h="));
+        assertFalse(as, as.contains("bh="));
 
-        StringBuilder raw = new StringBuilder();
-        raw.append(aar);
-        raw.append(ams);
-        raw.append(as);
-        for (int i = 0; i < messageHeaders.size(); i++) {
-            raw.append(messageHeaders.get(i));
-        }
-        raw.append("\r\n");
-        raw.append(new String(body, StandardCharsets.US_ASCII));
-
-        DkimMessageParser parser = new DkimMessageParser();
-        parser.setMessageHandler(new NoopHandler());
-        parser.receive(ByteBuffer.wrap(raw.toString().getBytes(StandardCharsets.US_ASCII)));
-        parser.close();
-
-        DkimMessageParser.RawHeader sealHeader =
-                parser.getRawHeader("arc-seal");
-        String sealValue = ArcHeaderParser.headerValueAfterColon(
-                sealHeader.asString());
-        DkimSignature asSig = DkimSignature.parse(sealValue);
+        String sealValue = ArcHeaderParser.headerValueAfterColon(as);
+        DkimSignature asSig = DkimSignature.parseArc(sealValue, true);
+        assertNotNull(asSig);
+        ArcSet set = new ArcSet(1, aar, ams, as, ArcCvResult.NONE, null, asSig);
         DkimValidator validator = new DkimValidator(resolver);
-        validator.setMessageParser(parser);
-        validator.setBodyHash(parser.getBodyHash());
         final DkimResult[] out = new DkimResult[1];
         final CountDownLatch latch = new CountDownLatch(1);
-        validator.verifyHeaderSignature(asSig, as, new DkimCallback() {
-            @Override
-            public void dkimResult(DkimResult result, String d, String s) {
-                out[0] = result;
-                latch.countDown();
-            }
-        });
+        validator.verifyArcSeal(asSig,
+                ArcValidator.sealSigningData(Collections.singletonList(set), 0),
+                new DkimCallback() {
+                    @Override
+                    public void dkimResult(DkimResult result, String d, String s) {
+                        out[0] = result;
+                        latch.countDown();
+                    }
+                });
         assertTrue(latch.await(5, TimeUnit.SECONDS));
         assertEquals(DkimResult.PASS, out[0]);
     }

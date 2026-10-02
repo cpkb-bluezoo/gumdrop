@@ -140,7 +140,9 @@ class OtlpEndpoint {
         }
     }
 
-    private OtlpEndpoint(Gumdrop gumdrop, String name, String host, int port, String path, boolean secure,
+    // Package-private (not private) so tests can subclass the endpoint
+    // with an in-memory stand-in for the network connection.
+    OtlpEndpoint(Gumdrop gumdrop, String name, String host, int port, String path, boolean secure,
                          Map<String, String> headers) {
         this.gumdrop = gumdrop;
         this.name = name;
@@ -351,7 +353,8 @@ class OtlpEndpoint {
     /**
      * Handler for OTLP connection lifecycle events.
      */
-    private class OtlpConnectionHandler implements HttpClientHandler {
+    // Package-private so tests can drive the callbacks directly.
+    class OtlpConnectionHandler implements HttpClientHandler {
 
         private final CountDownLatch connectLatch;
 

@@ -47,7 +47,10 @@ import org.bluezoo.gumdrop.http.Header;
 public class DecoderTest implements StoryTestInterface {
 
     // Path to test files (gumdrop-encoded from hpack-test-case)
-    private static final String TEST_DIRECTORY = "test/hpack-test-case/gumdrop";
+    // Classpath location of the story files (gumdrop-encoded from
+    // hpack-test-case) and the index naming them, so no directory is
+    // listed on disk and the working directory does not matter.
+    private static final String TEST_DIRECTORY = "/hpack-test-case/gumdrop/";
 
     /*
      * Each file is a "story" which means a sequence of requests on a
@@ -57,9 +60,9 @@ public class DecoderTest implements StoryTestInterface {
      */
     private Decoder decoder;
 
-    private File file;
+    private String file;
 
-    public DecoderTest(File file) {
+    public DecoderTest(String file) {
         this.file = file;
         decoder = new Decoder(4096);
     }
@@ -67,18 +70,22 @@ public class DecoderTest implements StoryTestInterface {
     @Parameters(name = "Test for file: {0}")
     public static Collection<Object[]> data() {
         List<Object[]> parameters = new ArrayList<>();
-        File directory = new File(TEST_DIRECTORY);
-
-        assertTrue(TEST_DIRECTORY + " does not exist or is not a directory",
-                   directory.exists() && directory.isDirectory());
-
-        File[] files = directory.listFiles();
-        if (files != null) {
-            for (File file : files) {
-                if (file.isFile() && file.getName().endsWith(".json")) {
-                    parameters.add(new Object[] { file });
+        try (InputStream index = DecoderTest.class.getResourceAsStream(
+                TEST_DIRECTORY + "index.txt")) {
+            assertTrue(TEST_DIRECTORY + "index.txt is not on the classpath",
+                    index != null);
+            BufferedReader reader = new BufferedReader(
+                    new InputStreamReader(index, "UTF-8"));
+            String line = reader.readLine();
+            while (line != null) {
+                line = line.trim();
+                if (line.endsWith(".json")) {
+                    parameters.add(new Object[] { line });
                 }
+                line = reader.readLine();
             }
+        } catch (IOException e) {
+            fail("Cannot read story index: " + e.getMessage());
         }
         return parameters;
     }
@@ -88,7 +95,9 @@ public class DecoderTest implements StoryTestInterface {
      */
     @Test
     public void testDecode() {
-        try (InputStream in = new FileInputStream(file)) {
+        try (InputStream in = DecoderTest.class.getResourceAsStream(
+                TEST_DIRECTORY + file)) {
+            assertTrue("missing story " + file, in != null);
             JSONParser parser = new JSONParser();
             parser.setContentHandler(new StoryHandler(this));
             parser.parse(in);

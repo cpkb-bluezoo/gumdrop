@@ -31,14 +31,11 @@ import java.io.IOException;
 import java.lang.reflect.Field;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.atomic.AtomicReference;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import jakarta.servlet.ReadListener;
-import jakarta.servlet.ServletOutputStream;
 import jakarta.servlet.WriteListener;
 
 import static org.junit.Assert.*;
@@ -156,36 +153,6 @@ public class ServletNonBlockingIOTest {
         assertEquals(2, request.getInputStream().read(buf, 0, buf.length));
         assertEquals('x', (char) buf[0]);
         assertEquals('y', (char) buf[1]);
-    }
-
-    @Test
-    public void testBlockingReadWithoutListener() throws Exception {
-        RequestBodyStream body = new RequestBodyStream();
-        Request request = newRequest(new StubHTTPResponseState(), body);
-
-        final CountDownLatch blocked = new CountDownLatch(1);
-        final CountDownLatch done = new CountDownLatch(1);
-        final AtomicInteger readByte = new AtomicInteger(-1);
-        Thread reader = new Thread(new Runnable() {
-            @Override
-            public void run() {
-                blocked.countDown();
-                try {
-                    readByte.set(request.getInputStream().read());
-                } catch (IOException e) {
-                    throw new RuntimeException(e);
-                } finally {
-                    done.countDown();
-                }
-            }
-        });
-        reader.start();
-        assertTrue("reader should reach blocking read",
-                blocked.await(2, TimeUnit.SECONDS));
-        body.offer("z".getBytes(StandardCharsets.UTF_8));
-        assertTrue("read should complete after data arrives",
-                done.await(2, TimeUnit.SECONDS));
-        assertEquals('z', readByte.get());
     }
 
     @Test

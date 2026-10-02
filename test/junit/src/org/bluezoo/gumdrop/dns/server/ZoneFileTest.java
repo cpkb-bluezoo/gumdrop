@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.dns.server;
 
+import org.bluezoo.gumdrop.testsupport.memfs.MemoryTemp;
 import org.bluezoo.gumdrop.dns.DnsType;
 import org.junit.Test;
 
@@ -37,7 +38,7 @@ public class ZoneFileTest {
 
     @Test
     public void testWildcardAndNxdomainNodata() throws Exception {
-        Path zone = Files.createTempFile("wildcard", ".zone");
+        Path zone = MemoryTemp.createTempFile("wildcard", ".zone");
         Files.writeString(zone, ""
                 + "$ORIGIN example.com.\n"
                 + "$TTL 300\n"
@@ -70,7 +71,7 @@ public class ZoneFileTest {
 
     @Test
     public void testCnameAtOwner() throws Exception {
-        Path zone = Files.createTempFile("cname", ".zone");
+        Path zone = MemoryTemp.createTempFile("cname", ".zone");
         Files.writeString(zone, ""
                 + "$ORIGIN example.com.\n"
                 + "@ IN SOA ns1.example.com. host.example.com. 1 7200 3600 1209600 300\n"
@@ -89,7 +90,7 @@ public class ZoneFileTest {
 
     @Test
     public void testRequiresSoa() throws Exception {
-        Path zone = Files.createTempFile("no-soa", ".zone");
+        Path zone = MemoryTemp.createTempFile("no-soa", ".zone");
         Files.writeString(zone, ""
                 + "$ORIGIN example.com.\n"
                 + "www IN A 192.0.2.1\n");
@@ -184,7 +185,7 @@ public class ZoneFileTest {
 
     @Test
     public void testGlueCollection() throws Exception {
-        Path zone = Files.createTempFile("glue", ".zone");
+        Path zone = MemoryTemp.createTempFile("glue", ".zone");
         Files.writeString(zone, ""
                 + "$ORIGIN example.com.\n"
                 + "@ IN SOA ns1.example.com. host.example.com. 1 7200 3600 1209600 300\n"

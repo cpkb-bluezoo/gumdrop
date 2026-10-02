@@ -256,7 +256,14 @@ private static final Logger logger = Logger.getLogger(TelemetryJMXBridge.class.g
                     longSum += p.getLongValue();
                 }
             }
-            result.put(baseName, hasDouble ? doubleSum : longSum);
+            // Keep the integral/floating distinction: a ternary here would
+            // numerically promote the long sum to double, and the long
+            // points were previously dropped from a mixed sum.
+            if (hasDouble) {
+                result.put(baseName, doubleSum + longSum);
+            } else {
+                result.put(baseName, longSum);
+            }
         }
 
         private void aggregateHistogramDataPoints(MetricData metric, String baseName, Map<String, Object> result) {

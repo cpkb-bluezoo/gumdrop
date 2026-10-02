@@ -22,13 +22,13 @@
 package org.bluezoo.gumdrop.smtp;
 
 import org.bluezoo.gumdrop.Gumdrop;
-import org.bluezoo.gumdrop.GumdropConfig;
 import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.StorageExecutor;
 import org.bluezoo.gumdrop.auth.Realm;
 import org.bluezoo.gumdrop.auth.SaslMechanism;
 import org.bluezoo.gumdrop.auth.SaslUtils;
 import org.bluezoo.gumdrop.testsupport.RecordingStubEndpoint;
+import org.bluezoo.gumdrop.testsupport.TestGumdrop;
 
 import org.junit.After;
 import org.junit.Before;
@@ -38,11 +38,9 @@ import static org.junit.Assert.*;
 
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
-import java.util.ArrayList;
 import java.util.Base64;
 import java.util.Collections;
 import java.util.EnumSet;
-import java.util.List;
 import java.util.Set;
 
 import javax.crypto.Mac;
@@ -70,18 +68,18 @@ public class SMTPScramCredentialsOffloadTest {
     private static final int TEST_ITERATIONS = 20_000;
 
     private Gumdrop gumdrop;
+    private TestGumdrop.QueuedExecutor work;
 
     @Before
     public void setUp() throws Exception {
-        StorageExecutor.workThreadObserver = null;
-        gumdrop = Gumdrop.boot(GumdropConfig.create().workerThreads(1).drainTimeoutMs(0));
-        assertNotNull("StorageExecutor must exist after Gumdrop.start()",
+        work = new TestGumdrop.QueuedExecutor();
+        gumdrop = TestGumdrop.create(work);
+        assertNotNull("StorageExecutor must exist",
                 gumdrop.getStorageExecutor());
     }
 
     @After
     public void tearDown() {
-        StorageExecutor.workThreadObserver = null;
         if (gumdrop != null && gumdrop.isStarted()) {
             gumdrop.shutdown();
         }
@@ -102,14 +100,6 @@ public class SMTPScramCredentialsOffloadTest {
         sendLine(handler, "EHLO client.example.com");
         endpoint.awaitLineStartingWith("250 ");
 
-        final List<String> observedThreads = Collections.synchronizedList(new ArrayList<String>());
-        StorageExecutor.workThreadObserver = new StorageExecutor.WorkThreadObserver() {
-            @Override
-            public void observed(Thread worker) {
-                observedThreads.add(worker.getName());
-            }
-        };
-
         String clientNonce = "test-client-nonce";
         String clientFirstBare = "n=" + USERNAME + ",r=" + clientNonce;
         String clientFirst = "n,," + clientFirstBare;
@@ -118,16 +108,11 @@ public class SMTPScramCredentialsOffloadTest {
         sendLine(handler, "AUTH SCRAM-SHA-256 "
                 + Base64.getEncoder().encodeToString(
                         clientFirst.getBytes(StandardCharsets.UTF_8)));
+        assertTrue("credential derivation must be offloaded to the storage executor",
+                work.pendingCount() > 0);
+        work.runAll();
         endpoint.awaitLineStartingWith("334 ");
 
-        assertFalse("client-first credential derivation must run through "
-                + "StorageExecutor -- the work-thread observer was never "
-                + "invoked, meaning it ran inline on the calling thread",
-                observedThreads.isEmpty());
-        for (String name : observedThreads) {
-            assertTrue("credential derivation ran on unexpected thread: " + name,
-                    name.startsWith("gumdrop-storage-"));
-        }
 
         String serverFirstLine = endpoint.findLineStartingWith("334 ");
         String serverFirst = new String(
@@ -157,19 +142,14 @@ public class SMTPScramCredentialsOffloadTest {
         String clientFinal = "c=biws,r=" + serverNonce + ",p="
                 + Base64.getEncoder().encodeToString(clientProof);
 
-        observedThreads.clear();
         endpoint.clearResponses();
         sendLine(handler, Base64.getEncoder().encodeToString(
                 clientFinal.getBytes(StandardCharsets.UTF_8)));
+        assertTrue("credential derivation must be offloaded to the storage executor",
+                work.pendingCount() > 0);
+        work.runAll();
         endpoint.awaitLineStartingWith("235 ");
 
-        assertFalse("client-final credential derivation must also run "
-                + "through StorageExecutor",
-                observedThreads.isEmpty());
-        for (String name : observedThreads) {
-            assertTrue("credential derivation ran on unexpected thread: " + name,
-                    name.startsWith("gumdrop-storage-"));
-        }
     }
 
     // ── RFC 5802 §3 client-side proof computation ──

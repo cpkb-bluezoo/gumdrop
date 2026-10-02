@@ -40,6 +40,7 @@ import javax.net.ssl.X509TrustManager;
 import org.bluezoo.gumdrop.ClientEndpoint;
 import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.Gumdrop;
+import org.bluezoo.gumdrop.ProtocolHandler;
 import org.bluezoo.gumdrop.ScheduledTimer;
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.SelectorLoop;
@@ -109,10 +110,13 @@ public final class Amqp1ClientRecovery {
      * reconnection itself still goes through the ordinary, gumdrop-managed
      * {@link ClientEndpoint#connect} path.
      */
-    private static final ScheduledTimer RETRY_TIMER = new ScheduledTimer("gumdrop-amqp1-recovery");
+    private static final class RetryTimerHolder {
+        // Started lazily, on the first real retry, rather than at class load.
+        static final ScheduledTimer TIMER = new ScheduledTimer("gumdrop-amqp1-recovery");
 
-    static {
-        RETRY_TIMER.start();
+        static {
+            TIMER.start();
+        }
     }
 
     /** Default session window, in transfer frames, advertised in each direction. */
@@ -361,6 +365,38 @@ public final class Amqp1ClientRecovery {
         return closed || (gumdrop != null && gumdrop.isDraining());
     }
 
+
+    // ── test seams (package-private; production never sets them) ──
+
+    /** Replaces the endpoint's connect (the endpoint itself is still created). */
+    interface Connector {
+        void connect(ProtocolHandler handler) throws IOException;
+    }
+
+    /** Replaces the retry timer. */
+    interface RetryScheduler {
+        TimerHandle schedule(long delayMs, Runnable task);
+    }
+
+    private Connector testConnector;
+    private RetryScheduler testScheduler;
+
+    void useConnectorForTesting(Connector connector) {
+        this.testConnector = connector;
+    }
+
+    void useRetrySchedulerForTesting(RetryScheduler scheduler) {
+        this.testScheduler = scheduler;
+    }
+
+    private TimerHandle scheduleRetry(long delayMs, Runnable task) {
+        RetryScheduler substitute = testScheduler;
+        if (substitute != null) {
+            return substitute.schedule(delayMs, task);
+        }
+        return RetryTimerHolder.TIMER.schedule(null, delayMs, task);
+    }
+
     private void doConnect(final boolean first) {
         if (shouldStopRecovery()) {
             return;
@@ -401,7 +437,12 @@ public final class Amqp1ClientRecovery {
                         : new ClientEndpoint(transportFactory, hostAddress, port);
             }
             currentEndpoint = endpoint;
-            endpoint.connect(gumdrop, handler);
+            Connector connector = testConnector;
+            if (connector != null) {
+                connector.connect(handler);
+            } else {
+                endpoint.connect(gumdrop, handler);
+            }
         } catch (IOException e) {
             scheduleReconnect(e);
         }
@@ -433,7 +474,7 @@ public final class Amqp1ClientRecovery {
         if (listener != null) {
             listener.onReconnecting(attempt, delay);
         }
-        pendingRetry = RETRY_TIMER.schedule(null, delay, new Runnable() {
+        pendingRetry = scheduleRetry(delay, new Runnable() {
             @Override
             public void run() {
                 doConnect(false);

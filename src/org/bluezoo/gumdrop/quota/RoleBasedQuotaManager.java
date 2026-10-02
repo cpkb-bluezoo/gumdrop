@@ -27,11 +27,11 @@ import org.bluezoo.gumdrop.auth.Realm;
 
 import java.io.BufferedReader;
 import java.io.BufferedWriter;
-import java.io.File;
-import java.nio.file.Path;
-import java.io.FileReader;
-import java.io.FileWriter;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.DirectoryStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.text.MessageFormat;
 import java.util.Map;
 import java.util.Properties;
@@ -82,7 +82,7 @@ public class RoleBasedQuotaManager implements QuotaManager {
     private static final ResourceBundle L10N = ResourceBundle.getBundle("org.bluezoo.gumdrop.quota.L10N");
     
     private Realm realm;
-    private File storageDir;
+    private Path storageDir;
     private QuotaPolicy defaultPolicy;
     private volatile Gumdrop gumdrop;
     
@@ -153,9 +153,13 @@ public class RoleBasedQuotaManager implements QuotaManager {
      * @param storageDir the storage directory path
      */
     public void setStorageDir(Path storageDir) {
-        this.storageDir = storageDir.toFile();
-        if (!this.storageDir.exists()) {
-            this.storageDir.mkdirs();
+        this.storageDir = storageDir;
+        if (!Files.exists(storageDir)) {
+            try {
+                Files.createDirectories(storageDir);
+            } catch (IOException e) {
+                LOGGER.log(Level.WARNING, L10N.getString("quota.err.save_policy_failed"), e);
+            }
         }
     }
     
@@ -423,26 +427,37 @@ public class RoleBasedQuotaManager implements QuotaManager {
     
     @Override
     public void loadUsageData() {
-        if (storageDir == null || !storageDir.exists()) {
-            return;
-        }
-        
-        File[] usageFiles = storageDir.listFiles();
-        if (usageFiles == null) {
+        if (storageDir == null || !Files.exists(storageDir)) {
             return;
         }
         
         int loaded = 0;
-        for (File file : usageFiles) {
-            if (file.getName().endsWith(".usage")) {
-                String username = file.getName().replace(".usage", "");
-                Quota quota = getQuota(username);
-                loadUserUsage(username, quota);
-                loaded++;
-            } else if (file.getName().endsWith(".policy")) {
-                String username = file.getName().replace(".policy", "");
-                loadUserPolicy(username);
-                loaded++;
+        DirectoryStream<Path> stream = null;
+        try {
+            stream = Files.newDirectoryStream(storageDir);
+            for (Path file : stream) {
+                Path fileNamePath = file.getFileName();
+                String fileName = fileNamePath.toString();
+                if (fileName.endsWith(".usage")) {
+                    String username = fileName.replace(".usage", "");
+                    Quota quota = getQuota(username);
+                    loadUserUsage(username, quota);
+                    loaded++;
+                } else if (fileName.endsWith(".policy")) {
+                    String username = fileName.replace(".policy", "");
+                    loadUserPolicy(username);
+                    loaded++;
+                }
+            }
+        } catch (IOException e) {
+            LOGGER.log(Level.WARNING, L10N.getString("quota.err.load_usage_failed"), e);
+        } finally {
+            if (stream != null) {
+                try {
+                    stream.close();
+                } catch (IOException e) {
+                    // Ignore
+                }
             }
         }
         
@@ -533,7 +548,7 @@ public class RoleBasedQuotaManager implements QuotaManager {
             return;
         }
         
-        File file = new File(storageDir, username + ".usage");
+        Path file = storageDir.resolve(username + ".usage");
         Properties props = new Properties();
         props.setProperty("storage.used", String.valueOf(quota.getStorageUsed()));
         props.setProperty("message.count", String.valueOf(quota.getMessageCount()));
@@ -541,7 +556,7 @@ public class RoleBasedQuotaManager implements QuotaManager {
         
         BufferedWriter writer = null;
         try {
-            writer = new BufferedWriter(new FileWriter(file));
+            writer = Files.newBufferedWriter(file, StandardCharsets.UTF_8);
             props.store(writer, "Quota usage for " + username);
         } catch (IOException e) {
             LOGGER.log(Level.WARNING, L10N.getString("quota.err.save_usage_failed"), e);
@@ -561,14 +576,14 @@ public class RoleBasedQuotaManager implements QuotaManager {
             return;
         }
         
-        File file = new File(storageDir, username + ".usage");
-        if (!file.exists()) {
+        Path file = storageDir.resolve(username + ".usage");
+        if (!Files.exists(file)) {
             return;
         }
         
         BufferedReader reader = null;
         try {
-            reader = new BufferedReader(new FileReader(file));
+            reader = Files.newBufferedReader(file, StandardCharsets.UTF_8);
             Properties props = new Properties();
             props.load(reader);
             
@@ -601,14 +616,14 @@ public class RoleBasedQuotaManager implements QuotaManager {
             return;
         }
         
-        File file = new File(storageDir, username + ".policy");
+        Path file = storageDir.resolve(username + ".policy");
         Properties props = new Properties();
         props.setProperty("storage.limit", String.valueOf(policy.getStorageLimit()));
         props.setProperty("message.limit", String.valueOf(policy.getMessageLimit()));
         
         BufferedWriter writer = null;
         try {
-            writer = new BufferedWriter(new FileWriter(file));
+            writer = Files.newBufferedWriter(file, StandardCharsets.UTF_8);
             props.store(writer, "User quota policy for " + username);
         } catch (IOException e) {
             LOGGER.log(Level.WARNING, L10N.getString("quota.err.save_policy_failed"), e);
@@ -628,14 +643,14 @@ public class RoleBasedQuotaManager implements QuotaManager {
             return;
         }
         
-        File file = new File(storageDir, username + ".policy");
-        if (!file.exists()) {
+        Path file = storageDir.resolve(username + ".policy");
+        if (!Files.exists(file)) {
             return;
         }
         
         BufferedReader reader = null;
         try {
-            reader = new BufferedReader(new FileReader(file));
+            reader = Files.newBufferedReader(file, StandardCharsets.UTF_8);
             Properties props = new Properties();
             props.load(reader);
             
@@ -663,9 +678,11 @@ public class RoleBasedQuotaManager implements QuotaManager {
             return;
         }
         
-        File file = new File(storageDir, username + ".policy");
-        if (file.exists()) {
-            file.delete();
+        Path file = storageDir.resolve(username + ".policy");
+        try {
+            Files.deleteIfExists(file);
+        } catch (IOException e) {
+            LOGGER.log(Level.WARNING, L10N.getString("quota.err.save_policy_failed"), e);
         }
     }
 }

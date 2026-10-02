@@ -192,7 +192,7 @@ public final class EchClientHelloBuilder {
     public static Offer buildHelloRetryRequest(Hpke.SenderContext hpkeSender, EchConfig echConfig,
             HandshakeMessages.ClientHelloParams template, byte[] firstInnerFramed, byte[] realPskBinder)
             throws GeneralSecurityException, HandshakeFormatException {
-        HandshakeMessages.ClientHello firstInner = HandshakeMessages.parseClientHello(firstInnerFramed);
+        HandshakeMessages.ClientHello firstInner = HandshakeMessages.parseClientHello(firstInnerFramed, template.dtlsTransport);
 
         HandshakeMessages.ClientHelloParams inner = copyParams(template);
         inner.random = firstInner.random;
@@ -261,6 +261,7 @@ public final class EchClientHelloBuilder {
         copy.recordSizeLimit = src.recordSizeLimit;
         copy.certificateCompressionAlgorithms = src.certificateCompressionAlgorithms;
         copy.legacySessionId = src.legacySessionId;
+        copy.dtlsTransport = src.dtlsTransport;
         return copy;
     }
 

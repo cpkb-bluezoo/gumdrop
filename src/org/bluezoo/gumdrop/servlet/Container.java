@@ -34,9 +34,12 @@ import org.bluezoo.gumdrop.servlet.session.SessionContext;
 import org.bluezoo.gumdrop.servlet.session.SessionManager;
 
 import java.io.IOException;
+import java.io.OutputStream;
 import java.text.MessageFormat;
 import java.net.InetAddress;
+import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -55,10 +58,12 @@ import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
-import java.util.logging.FileHandler;
+import java.util.logging.Formatter;
 import java.util.logging.Handler;
 import java.util.logging.Level;
+import java.util.logging.LogRecord;
 import java.util.logging.Logger;
+import java.util.logging.StreamHandler;
 
 import javax.naming.InitialContext;
 import javax.naming.NamingException;
@@ -272,10 +277,29 @@ public class Container implements ManagerContainerServer, ClusterContainer {
         return workerThreadPool;
     }
 
+    /**
+     * A {@link StreamHandler} that flushes after every record, so each
+     * access log line reaches the file as it is written.
+     */
+    private static final class FlushingStreamHandler extends StreamHandler {
+
+        FlushingStreamHandler(OutputStream out, Formatter formatter) {
+            super(out, formatter);
+        }
+
+        @Override
+        public synchronized void publish(LogRecord record) {
+            super.publish(record);
+            flush();
+        }
+    }
+
     public void setAccessLog(Path path) {
         try {
-            FileHandler handler = new FileHandler(path.toString(), true);
-            handler.setFormatter(new MessageFormatter());
+            OutputStream out = Files.newOutputStream(path,
+                    StandardOpenOption.CREATE, StandardOpenOption.APPEND);
+            MessageFormatter formatter = new MessageFormatter();
+            StreamHandler handler = new FlushingStreamHandler(out, formatter);
             handler.setLevel(Level.FINEST);
             accessLogger = Logger.getAnonymousLogger();
             accessLogger.setLevel(Level.FINEST);
@@ -428,7 +452,7 @@ public class Container implements ManagerContainerServer, ClusterContainer {
             }
             if (hotDeploy) {
                 try {
-                    hotDeploymentThread = new HotDeploymentThread(this);
+                    hotDeploymentThread = newHotDeploymentThread();
                     hotDeploymentThread.start();
                 } catch (IOException e) {
                     String message = Context.L10N.getString("err.hot_deploy");
@@ -464,6 +488,14 @@ public class Container implements ManagerContainerServer, ClusterContainer {
             }
             started = true;
         }
+    }
+
+    /**
+     * Creates the hot-deployment watcher; a seam so that tests can supply a
+     * mock that does not start a real thread or watch the file system.
+     */
+    HotDeploymentThread newHotDeploymentThread() throws IOException {
+        return new HotDeploymentThread(this);
     }
 
     /**

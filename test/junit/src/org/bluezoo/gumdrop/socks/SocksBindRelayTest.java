@@ -24,16 +24,15 @@ package org.bluezoo.gumdrop.socks;
 import java.io.IOException;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
-import java.nio.channels.ServerSocketChannel;
 import java.nio.channels.SocketChannel;
 import java.util.ArrayList;
 import java.util.List;
 
-import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 
 import org.bluezoo.gumdrop.TimerHandle;
+import org.bluezoo.gumdrop.testsupport.StubSocketChannel;
 import org.bluezoo.gumdrop.socks.server.SocksServer;
 import org.bluezoo.gumdrop.util.CidrNetwork;
 
@@ -41,7 +40,8 @@ import static org.junit.Assert.*;
 
 /**
  * Tests for {@link SocksBindRelay} acceptance validation, timeout and close
- * handling. A loopback socket pair supplies the accepted channel.
+ * handling. An in-memory {@link StubSocketChannel} supplies the accepted
+ * channel, so no socket is opened.
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 public class SocksBindRelayTest {
@@ -86,31 +86,20 @@ public class SocksBindRelayTest {
     private SocksServer server;
     private TimerEndpoint endpoint;
     private Recorder recorder;
-    private ServerSocketChannel listen;
-    private SocketChannel clientSide;
 
     @Before
-    public void setUp() throws IOException {
+    public void setUp() {
         server = new SocksServer();
         server.acquireRelay();
         endpoint = new TimerEndpoint();
         recorder = new Recorder();
-        listen = ServerSocketChannel.open();
-        listen.bind(new InetSocketAddress(
-                InetAddress.getLoopbackAddress(), 0));
     }
 
-    @After
-    public void tearDown() throws IOException {
-        if (clientSide != null) {
-            clientSide.close();
-        }
-        listen.close();
-    }
-
-    private SocketChannel connectPair() throws IOException {
-        clientSide = SocketChannel.open(listen.getLocalAddress());
-        return listen.accept();
+    private static SocketChannel connectPair() throws IOException {
+        InetAddress loopback = InetAddress.getByAddress(new byte[]{127, 0, 0, 1});
+        InetSocketAddress local = new InetSocketAddress(loopback, 1080);
+        InetSocketAddress remote = new InetSocketAddress(loopback, 40000);
+        return new StubSocketChannel(local, remote);
     }
 
     @Test

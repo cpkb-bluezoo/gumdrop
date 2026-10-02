@@ -25,7 +25,6 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
-import java.nio.channels.AsynchronousFileChannel;
 import java.nio.channels.CompletionHandler;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
@@ -456,11 +455,7 @@ public final class Pop3ProtocolHandler
     public void tokenTooLong() {
         lexerRecovery.beginDiscard();
         resetLineState();
-        try {
-            sendERR(L10N.getString("pop3.err.line_too_long"));
-        } catch (IOException e) {
-            LOGGER.log(Level.WARNING, L10N.getString("warn.error_sending_line_too_long_reply"), e);
-        }
+        sendERR(L10N.getString("pop3.err.line_too_long"));
     }
 
     private static String decodeAscii(ByteBuffer window) throws CharacterCodingException {
@@ -602,20 +597,15 @@ public final class Pop3ProtocolHandler
             String logMsg =
                     L10N.getString("log.error_processing_data");
             LOGGER.log(Level.WARNING, logMsg, e);
-            try {
-                sendERR(L10N.getString("pop3.err.internal_error"));
-            } catch (IOException e2) {
-                String errMsg =
-                        L10N.getString("log.error_sending_response");
-                LOGGER.log(Level.SEVERE, errMsg, e2);
-            }
+            sendERR(L10N.getString("pop3.err.internal_error"));
+        
             closeEndpoint();
         }
     }
 
     // ── Transport helpers (delegate to Endpoint) ──
 
-    private void sendLine(String line) throws IOException {
+    private void sendLine(String line) {
         if (LOGGER.isLoggable(Level.FINEST)) {
             LOGGER.finest(MessageFormat.format(L10N.getString("debug.finest_pop3_response"), line));
         }
@@ -629,12 +619,12 @@ public final class Pop3ProtocolHandler
     }
 
     // RFC 1939 section 3 — +OK positive status indicator
-    private void sendOK(String message) throws IOException {
+    private void sendOK(String message) {
         sendLine("+OK " + message);
     }
 
     // RFC 1939 section 3 — -ERR negative status indicator
-    private void sendERR(String message) throws IOException {
+    private void sendERR(String message) {
         sendLine("-ERR " + message);
     }
 
@@ -662,17 +652,12 @@ public final class Pop3ProtocolHandler
 
     // RFC 1939 section 4 — server greeting with optional APOP timestamp
     private void sendGreeting() {
-        try {
-            if (apopTimestamp != null) {
-                sendOK(MessageFormat.format(
-                        L10N.getString("pop3.greeting_apop"),
-                        apopTimestamp));
-            } else {
-                sendOK(L10N.getString("pop3.greeting"));
-            }
-        } catch (IOException e) {
-            LOGGER.log(Level.WARNING, L10N.getString("warn.failed_send_greeting"), e);
-            closeEndpoint();
+        if (apopTimestamp != null) {
+            sendOK(MessageFormat.format(
+                    L10N.getString("pop3.greeting_apop"),
+                    apopTimestamp));
+        } else {
+            sendOK(L10N.getString("pop3.greeting"));
         }
     }
 
@@ -825,15 +810,10 @@ public final class Pop3ProtocolHandler
             public void run() {
                 final Realm realm = getRealm();
                 if (realm == null) {
-                    try {
-                        sendERR(L10N.getString(
-                                "pop3.err.auth_not_configured"));
-                        closeEndpoint();
-                    } catch (IOException e) {
-                        LOGGER.log(Level.SEVERE,
-                                L10N.getString("warn.error_during_pass_authentication"), e);
-                        closeEndpoint();
-                    }
+                    sendERR(L10N.getString(
+                            "pop3.err.auth_not_configured"));
+                    closeEndpoint();
+                
                     return;
                 }
 
@@ -866,12 +846,7 @@ public final class Pop3ProtocolHandler
                                                     passUsername));
                                         }
                                         recordAuthenticationSuccess("USER/PASS");
-                                        try {
-                                            sendOK(L10N.getString("pop3.mailbox_opened"));
-                                        } catch (IOException e) {
-                                            LOGGER.log(Level.WARNING,
-                                                    L10N.getString("warn.failed_send_pass_success"), e);
-                                        }
+                                        sendOK(L10N.getString("pop3.mailbox_opened"));
                                     }
                                 });
                             } else {
@@ -953,13 +928,8 @@ public final class Pop3ProtocolHandler
                                                 user));
                                     }
                                     recordAuthenticationSuccess("APOP");
-                                    try {
-                                        sendOK(L10N.getString(
-                                                "pop3.mailbox_opened"));
-                                    } catch (IOException e) {
-                                        LOGGER.log(Level.WARNING,
-                                                L10N.getString("warn.failed_send_apop_success"), e);
-                                    }
+                                    sendOK(L10N.getString(
+                                            "pop3.mailbox_opened"));
                                 }
                             });
                             return;
@@ -1304,12 +1274,7 @@ public final class Pop3ProtocolHandler
                     username = gssUser;
                     state = Pop3State.TRANSACTION;
                     recordAuthenticationSuccess("AUTH GSSAPI");
-                    try {
-                        sendOK(L10N.getString("pop3.mailbox_opened"));
-                    } catch (IOException e) {
-                        LOGGER.log(Level.WARNING,
-                                L10N.getString("warn.failed_send_auth_success"), e);
-                    }
+                    sendOK(L10N.getString("pop3.mailbox_opened"));
                 }
             });
         } catch (IOException e) {
@@ -1326,7 +1291,9 @@ public final class Pop3ProtocolHandler
     private void handleAuthEXTERNAL(String initialResponse)
             throws IOException {
         String authzid = null;
-        if (initialResponse != null && !initialResponse.isEmpty()) {
+        // RFC 5034 section 4: "=" stands for a zero-length initial response
+        if (initialResponse != null && !initialResponse.isEmpty()
+                && !"=".equals(initialResponse)) {
             try {
                 byte[] decoded = Base64.getDecoder()
                         .decode(initialResponse);
@@ -1356,12 +1323,7 @@ public final class Pop3ProtocolHandler
                 username = extUser;
                 state = Pop3State.TRANSACTION;
                 recordAuthenticationSuccess("AUTH EXTERNAL");
-                try {
-                    sendOK(L10N.getString("pop3.mailbox_opened"));
-                } catch (IOException e) {
-                    LOGGER.log(Level.WARNING,
-                            L10N.getString("warn.failed_send_auth_success"), e);
-                }
+                sendOK(L10N.getString("pop3.mailbox_opened"));
             }
         });
     }
@@ -1433,10 +1395,6 @@ public final class Pop3ProtocolHandler
                             try {
                                 sendERR(L10N.getString(
                                         "pop3.err.auth_failed"));
-                            } catch (IOException e) {
-                                LOGGER.log(Level.SEVERE,
-                                        L10N.getString("warn.error_sending_auth_failure"), e);
-                                closeEndpoint();
                             } finally {
                                 resetAuthState();
                             }
@@ -1473,10 +1431,6 @@ public final class Pop3ProtocolHandler
                             try {
                                 sendERR(L10N.getString(
                                         "pop3.err.auth_failed"));
-                            } catch (IOException e) {
-                                LOGGER.log(Level.SEVERE,
-                                        L10N.getString("warn.error_sending_auth_failure"), e);
-                                closeEndpoint();
                             } finally {
                                 resetAuthState();
                             }
@@ -1523,12 +1477,7 @@ public final class Pop3ProtocolHandler
                             username = user;
                             state = Pop3State.TRANSACTION;
                             recordAuthenticationSuccess("AUTH CRAM-MD5");
-                            try {
-                                sendOK(L10N.getString("pop3.mailbox_opened"));
-                            } catch (IOException e) {
-                                LOGGER.log(Level.WARNING,
-                                        L10N.getString("warn.failed_send_auth_success"), e);
-                            }
+                            sendOK(L10N.getString("pop3.mailbox_opened"));
                         }
                     });
                     return;
@@ -1584,12 +1533,7 @@ public final class Pop3ProtocolHandler
                             state = Pop3State.TRANSACTION;
                             recordAuthenticationSuccess(
                                     "AUTH OAUTHBEARER");
-                            try {
-                                sendOK(L10N.getString("pop3.mailbox_opened"));
-                            } catch (IOException e) {
-                                LOGGER.log(Level.WARNING,
-                                        L10N.getString("warn.failed_send_auth_success"), e);
-                            }
+                            sendOK(L10N.getString("pop3.mailbox_opened"));
                         }
                     });
                     return;
@@ -1636,13 +1580,8 @@ public final class Pop3ProtocolHandler
                                 state = Pop3State.TRANSACTION;
                                 recordAuthenticationSuccess(
                                         "AUTH DIGEST-MD5");
-                                try {
-                                    sendOK(L10N.getString(
-                                            "pop3.mailbox_opened"));
-                                } catch (IOException e) {
-                                    LOGGER.log(Level.WARNING,
-                                            L10N.getString("warn.failed_send_auth_success"), e);
-                                }
+                                sendOK(L10N.getString(
+                                        "pop3.mailbox_opened"));
                             }
                         });
                         return;
@@ -1725,42 +1664,33 @@ public final class Pop3ProtocolHandler
         getScramCredentialsAsync(username, new StorageExecutor.Callback<Realm.ScramCredentials>() {
             @Override
             public void completed(Realm.ScramCredentials creds) {
-                try {
-                    if (creds == null) {
-                        sendERR(L10N.getString("pop3.err.auth_failed"));
-                        resetAuthState();
-                        return;
-                    }
-                    String serverNonce = clientNonce + SaslUtils.generateNonce(16);
-                    authNonce = serverNonce;
-                    String serverFirst = SaslUtils.generateScramServerFirst(serverNonce,
-                            creds.salt, creds.iterations);
-                    authChallenge = messageBody + "," + serverFirst;
-                    authSalt = Base64.getDecoder().decode(creds.salt);
-                    authIterations = creds.iterations;
-                    authState = AuthState.SCRAM_FINAL;
-                    sendContinuation(Base64.getEncoder().encodeToString(
-                            serverFirst.getBytes(US_ASCII)));
-                } catch (IOException e) {
-                    LOGGER.log(Level.WARNING,
-                            L10N.getString("warn.failed_complete_scram_client_first"), e);
+                if (creds == null) {
+                    sendERR(L10N.getString("pop3.err.auth_failed"));
+                    resetAuthState();
+                    return;
                 }
+                String serverNonce = clientNonce + SaslUtils.generateNonce(16);
+                authNonce = serverNonce;
+                String serverFirst = SaslUtils.generateScramServerFirst(serverNonce,
+                        creds.salt, creds.iterations);
+                authChallenge = messageBody + "," + serverFirst;
+                authSalt = Base64.getDecoder().decode(creds.salt);
+                authIterations = creds.iterations;
+                authState = AuthState.SCRAM_FINAL;
+                sendContinuation(Base64.getEncoder().encodeToString(
+                        serverFirst.getBytes(US_ASCII)));
             }
 
             @Override
             public void failed(Throwable error) {
-                try {
-                    if (error instanceof UnsupportedOperationException) {
-                        sendERR(L10N.getString("pop3.err.scram_not_available"));
-                    } else {
-                        LOGGER.log(Level.WARNING,
-                                L10N.getString("warn.scram_client_first_processing_error"), error);
-                        sendERR(L10N.getString("pop3.err.auth_failed"));
-                    }
-                    resetAuthState();
-                } catch (IOException e) {
-                    LOGGER.log(Level.WARNING, L10N.getString("warn.failed_send_auth_failure"), e);
+                if (error instanceof UnsupportedOperationException) {
+                    sendERR(L10N.getString("pop3.err.scram_not_available"));
+                } else {
+                    LOGGER.log(Level.WARNING,
+                            L10N.getString("warn.scram_client_first_processing_error"), error);
+                    sendERR(L10N.getString("pop3.err.auth_failed"));
                 }
+                resetAuthState();
             }
         });
     }
@@ -1824,13 +1754,8 @@ public final class Pop3ProtocolHandler
                             state = Pop3State.TRANSACTION;
                             recordAuthenticationSuccess(
                                     "AUTH SCRAM-SHA-256");
-                            try {
-                                sendOK(L10N.getString(
-                                        "pop3.mailbox_opened"));
-                            } catch (IOException e) {
-                                LOGGER.log(Level.WARNING,
-                                        L10N.getString("warn.failed_send_auth_success"), e);
-                            }
+                            sendOK(L10N.getString(
+                                    "pop3.mailbox_opened"));
                         }
                     });
                 } catch (IOException e) {
@@ -1853,8 +1778,6 @@ public final class Pop3ProtocolHandler
                                 "AUTH SCRAM-SHA-256", scramUser);
                         sendERR(L10N.getString("pop3.err.auth_failed"));
                     }
-                } catch (IOException e) {
-                    LOGGER.log(Level.WARNING, L10N.getString("warn.failed_send_auth_failure"), e);
                 } finally {
                     resetAuthState();
                 }
@@ -1872,14 +1795,9 @@ public final class Pop3ProtocolHandler
             public void run() {
                 final Realm realm = getRealm();
                 if (realm == null) {
-                    try {
-                        sendERR(L10N.getString(
-                                "pop3.err.auth_not_configured"));
-                    } catch (IOException e) {
-                        LOGGER.log(Level.SEVERE,
-                                L10N.getString("warn.error_during_authentication"), e);
-                        closeEndpoint();
-                    }
+                    sendERR(L10N.getString(
+                            "pop3.err.auth_not_configured"));
+                
                     return;
                 }
 
@@ -1911,12 +1829,7 @@ public final class Pop3ProtocolHandler
                                         state = Pop3State.TRANSACTION;
                                         recordAuthenticationSuccess(
                                                 "AUTH " + mechanism);
-                                        try {
-                                            sendOK(L10N.getString("pop3.mailbox_opened"));
-                                        } catch (IOException e) {
-                                            LOGGER.log(Level.WARNING,
-                                                    L10N.getString("warn.failed_send_auth_success"), e);
-                                        }
+                                        sendOK(L10N.getString("pop3.mailbox_opened"));
                                     }
                                 });
                                 return;
@@ -1973,7 +1886,7 @@ public final class Pop3ProtocolHandler
     }
 
     // RFC 5034 section 4 — "+" continuation for SASL exchanges
-    private void sendContinuation(String data) throws IOException {
+    private void sendContinuation(String data) {
         sendLine("+ " + data);
     }
 
@@ -1983,12 +1896,7 @@ public final class Pop3ProtocolHandler
     public void acceptConnection(String greeting,
                                   AuthorizationHandler handler) {
         this.authorizationHandler = handler;
-        try {
-            sendOK(greeting);
-        } catch (IOException e) {
-            LOGGER.log(Level.WARNING, L10N.getString("warn.failed_send_greeting"), e);
-            closeEndpoint();
-        }
+        sendOK(greeting);
     }
 
     @Override
@@ -1996,47 +1904,29 @@ public final class Pop3ProtocolHandler
                                           String timestamp,
                                           AuthorizationHandler handler) {
         this.authorizationHandler = handler;
-        try {
-            sendOK(greeting + " " + timestamp);
-        } catch (IOException e) {
-            LOGGER.log(Level.WARNING,
-                    L10N.getString("warn.failed_send_apop_greeting"), e);
-            closeEndpoint();
-        }
+        sendOK(greeting + " " + timestamp);
     }
 
     @Override
     public void rejectConnection() {
-        try {
-            sendERR(L10N.getString(
-                    "pop3.err.connection_rejected"));
-        } catch (IOException e) {
-            LOGGER.log(Level.WARNING,
-                    L10N.getString("warn.failed_send_rejection"), e);
-        }
+        sendERR(L10N.getString(
+                "pop3.err.connection_rejected"));
+    
         closeEndpoint();
     }
 
     @Override
     public void rejectConnection(String message) {
-        try {
-            sendERR(message);
-        } catch (IOException e) {
-            LOGGER.log(Level.WARNING,
-                    L10N.getString("warn.failed_send_rejection"), e);
-        }
+        sendERR(message);
+    
         closeEndpoint();
     }
 
     @Override
     public void serverShuttingDown() {
-        try {
-            sendERR(L10N.getString(
-                    "pop3.err.server_shutting_down"));
-        } catch (IOException e) {
-            LOGGER.log(Level.WARNING,
-                    L10N.getString("warn.failed_send_shutdown_message"), e);
-        }
+        sendERR(L10N.getString(
+                "pop3.err.server_shutting_down"));
+    
         closeEndpoint();
     }
 
@@ -2080,13 +1970,7 @@ public final class Pop3ProtocolHandler
         messageListingCache.invalidate();
         pendingOpenUser = null;
         pendingOpenSuccess = null;
-        try {
-            sendOK(L10N.getString("pop3.mailbox_opened"));
-        } catch (IOException e) {
-            LOGGER.log(Level.WARNING,
-                    L10N.getString("warn.failed_send_mailbox_opened"), e);
-            closeEndpoint();
-        }
+        sendOK(L10N.getString("pop3.mailbox_opened"));
     }
 
     @Override
@@ -2095,22 +1979,13 @@ public final class Pop3ProtocolHandler
         this.authorizationHandler = handler;
         failedAuthAttempts++;
         lastFailedAuthTime = System.currentTimeMillis();
-        try {
-            sendERR(message);
-        } catch (IOException e) {
-            LOGGER.log(Level.WARNING,
-                    L10N.getString("warn.failed_send_auth_rejection"), e);
-        }
+        sendERR(message);
     }
 
     @Override
     public void rejectAndClose(String message) {
-        try {
-            sendERR(message);
-        } catch (IOException e) {
-            LOGGER.log(Level.WARNING,
-                    L10N.getString("warn.failed_send_rejection"), e);
-        }
+        sendERR(message);
+    
         closeEndpoint();
     }
 
@@ -2120,12 +1995,7 @@ public final class Pop3ProtocolHandler
     public void sendStatus(int messageCount, long totalSize,
                             TransactionHandler handler) {
         this.transactionHandler = handler;
-        try {
-            sendOK(messageCount + " " + totalSize);
-        } catch (IOException e) {
-            LOGGER.log(Level.WARNING,
-                    L10N.getString("warn.failed_send_mailbox_status"), e);
-        }
+        sendOK(messageCount + " " + totalSize);
     }
 
     // ── ListState (RFC 1939 section 5 — LIST response) ──
@@ -2134,77 +2004,44 @@ public final class Pop3ProtocolHandler
     public void sendListing(int messageNumber, long size,
                              TransactionHandler handler) {
         this.transactionHandler = handler;
-        try {
-            sendOK(messageNumber + " " + size);
-        } catch (IOException e) {
-            LOGGER.log(Level.WARNING,
-                    L10N.getString("warn.failed_send_list_response"), e);
-        }
+        sendOK(messageNumber + " " + size);
     }
 
     @Override
     public ListWriter beginListing(int messageCount) {
-        try {
-            sendOK(messageCount + " messages");
-        } catch (IOException e) {
-            LOGGER.log(Level.WARNING,
-                    L10N.getString("warn.failed_send_list_header"), e);
-        }
+        sendOK(messageCount + " messages");
+    
         return new ListWriterImpl();
     }
 
     @Override
     public void noSuchMessage(TransactionHandler handler) {
         this.transactionHandler = handler;
-        try {
-            sendERR(L10N.getString("pop3.err.no_such_message"));
-        } catch (IOException e) {
-            LOGGER.log(Level.WARNING,
-                    L10N.getString("warn.failed_send_no_such_message"), e);
-        }
+        sendERR(L10N.getString("pop3.err.no_such_message"));
     }
 
     @Override
     public void messageDeleted(TransactionHandler handler) {
         this.transactionHandler = handler;
-        try {
-            sendERR(L10N.getString("pop3.err.message_deleted"));
-        } catch (IOException e) {
-            LOGGER.log(Level.WARNING,
-                    L10N.getString("warn.failed_send_message_deleted"), e);
-        }
+        sendERR(L10N.getString("pop3.err.message_deleted"));
     }
 
     @Override
     public void error(String message, TransactionHandler handler) {
         this.transactionHandler = handler;
-        try {
-            sendERR(message);
-        } catch (IOException e) {
-            LOGGER.log(Level.WARNING, L10N.getString("warn.failed_send_error"), e);
-        }
+        sendERR(message);
     }
 
     private class ListWriterImpl implements ListWriter {
         @Override
         public void message(int messageNumber, long size) {
-            try {
-                sendLine(messageNumber + " " + size);
-            } catch (IOException e) {
-                LOGGER.log(Level.WARNING,
-                        L10N.getString("warn.failed_send_list_entry"), e);
-            }
+            sendLine(messageNumber + " " + size);
         }
 
         @Override
         public void end(TransactionHandler handler) {
             transactionHandler = handler;
-            try {
-                sendLine(".");
-            } catch (IOException e) {
-                LOGGER.log(Level.WARNING,
-                        L10N.getString("warn.failed_send_list_terminator"), e);
-            }
+            sendLine(".");
         }
     }
 
@@ -2231,13 +2068,8 @@ public final class Pop3ProtocolHandler
                              AsyncMessageContent content,
                              TransactionHandler handler) {
         this.transactionHandler = handler;
-        try {
-            sendOK(size + " octets");
-            startChunkedMessageWrite(content, null);
-        } catch (IOException e) {
-            LOGGER.log(Level.WARNING,
-                    L10N.getString("warn.failed_send_async_message"), e);
-        }
+        sendOK(size + " octets");
+        startChunkedMessageWrite(content, null);
     }
 
     // ── MarkDeletedState (RFC 1939 section 5 — DELE response) ──
@@ -2246,35 +2078,20 @@ public final class Pop3ProtocolHandler
     public void markedDeleted(TransactionHandler handler) {
         this.transactionHandler = handler;
         messageListingCache.removeMessage(pendingDeleteMsgNum);
-        try {
-            sendOK(L10N.getString("pop3.message_deleted"));
-        } catch (IOException e) {
-            LOGGER.log(Level.WARNING,
-                    L10N.getString("warn.failed_send_marked_deleted"), e);
-        }
+        sendOK(L10N.getString("pop3.message_deleted"));
     }
 
     @Override
     public void markedDeleted(String message,
                                TransactionHandler handler) {
         this.transactionHandler = handler;
-        try {
-            sendOK(message);
-        } catch (IOException e) {
-            LOGGER.log(Level.WARNING,
-                    L10N.getString("warn.failed_send_marked_deleted"), e);
-        }
+        sendOK(message);
     }
 
     @Override
     public void alreadyDeleted(TransactionHandler handler) {
         this.transactionHandler = handler;
-        try {
-            sendERR(L10N.getString("pop3.err.message_deleted"));
-        } catch (IOException e) {
-            LOGGER.log(Level.WARNING,
-                    L10N.getString("warn.failed_send_already_deleted"), e);
-        }
+        sendERR(L10N.getString("pop3.err.message_deleted"));
     }
 
     // ── ResetState (RFC 1939 section 5 — RSET response) ──
@@ -2284,14 +2101,9 @@ public final class Pop3ProtocolHandler
                                TransactionHandler handler) {
         this.transactionHandler = handler;
         messageListingCache.invalidate();
-        try {
-            sendOK(MessageFormat.format(
-                    L10N.getString("pop3.reset_response"),
-                    messageCount, totalSize));
-        } catch (IOException e) {
-            LOGGER.log(Level.WARNING,
-                    L10N.getString("warn.failed_send_reset_response"), e);
-        }
+        sendOK(MessageFormat.format(
+                L10N.getString("pop3.reset_response"),
+                messageCount, totalSize));
     }
 
     // ── TopState (RFC 1939 section 7 — TOP response) ──
@@ -2314,12 +2126,8 @@ public final class Pop3ProtocolHandler
     public void sendTop(AsyncMessageContent content, long endOffset,
             TransactionHandler handler) {
         this.transactionHandler = handler;
-        try {
-            sendOK(L10N.getString("pop3.top_follows"));
-            startChunkedMessageWrite(content, endOffset, null);
-        } catch (IOException e) {
-            LOGGER.log(Level.WARNING, L10N.getString("warn.failed_send_top"), e);
-        }
+        sendOK(L10N.getString("pop3.top_follows"));
+        startChunkedMessageWrite(content, endOffset, null);
     }
 
     // ── UidlState (RFC 1939 section 7 — UIDL response) ──
@@ -2328,45 +2136,26 @@ public final class Pop3ProtocolHandler
     public void sendUid(int messageNumber, String uid,
                          TransactionHandler handler) {
         this.transactionHandler = handler;
-        try {
-            sendOK(messageNumber + " " + uid);
-        } catch (IOException e) {
-            LOGGER.log(Level.WARNING,
-                    L10N.getString("warn.failed_send_uidl_response"), e);
-        }
+        sendOK(messageNumber + " " + uid);
     }
 
     @Override
     public UidlWriter beginListing() {
-        try {
-            sendOK(L10N.getString("pop3.uidl_follows"));
-        } catch (IOException e) {
-            LOGGER.log(Level.WARNING,
-                    L10N.getString("warn.failed_send_uidl_header"), e);
-        }
+        sendOK(L10N.getString("pop3.uidl_follows"));
+    
         return new UidlWriterImpl();
     }
 
     private class UidlWriterImpl implements UidlWriter {
         @Override
         public void message(int messageNumber, String uid) {
-            try {
-                sendLine(messageNumber + " " + uid);
-            } catch (IOException e) {
-                LOGGER.log(Level.WARNING,
-                        L10N.getString("warn.failed_send_uidl_entry"), e);
-            }
+            sendLine(messageNumber + " " + uid);
         }
 
         @Override
         public void end(TransactionHandler handler) {
             transactionHandler = handler;
-            try {
-                sendLine(".");
-            } catch (IOException e) {
-                LOGGER.log(Level.WARNING,
-                        L10N.getString("warn.failed_send_uidl_terminator"), e);
-            }
+            sendLine(".");
         }
     }
 
@@ -2376,45 +2165,29 @@ public final class Pop3ProtocolHandler
 
     @Override
     public void commitAndClose() {
-        try {
-            sendOK(L10N.getString("pop3.quit_response"));
-        } catch (IOException e) {
-            LOGGER.log(Level.WARNING,
-                    L10N.getString("warn.failed_send_quit_response"), e);
-        }
+        sendOK(L10N.getString("pop3.quit_response"));
+    
         closeEndpoint();
     }
 
     @Override
     public void commitAndClose(String message) {
-        try {
-            sendOK(message);
-        } catch (IOException e) {
-            LOGGER.log(Level.WARNING,
-                    L10N.getString("warn.failed_send_quit_response"), e);
-        }
+        sendOK(message);
+    
         closeEndpoint();
     }
 
     @Override
     public void partialCommit(String message) {
-        try {
-            sendERR(message);
-        } catch (IOException e) {
-            LOGGER.log(Level.WARNING,
-                    L10N.getString("warn.failed_send_partial_commit"), e);
-        }
+        sendERR(message);
+    
         closeEndpoint();
     }
 
     @Override
     public void updateFailed(String message) {
-        try {
-            sendERR(message);
-        } catch (IOException e) {
-            LOGGER.log(Level.WARNING,
-                    L10N.getString("warn.failed_send_update_failed"), e);
-        }
+        sendERR(message);
+    
         closeEndpoint();
     }
 
@@ -2814,12 +2587,7 @@ public final class Pop3ProtocolHandler
             } catch (IOException e) {
                 LOGGER.log(Level.WARNING, L10N.getString("warn.failed_update_mailbox"), e);
                 recordSessionException(e);
-                try {
-                    sendERR(L10N.getString("pop3.quit_partial"));
-                } catch (IOException e2) {
-                    LOGGER.log(Level.WARNING,
-                            L10N.getString("warn.failed_send_quit_error"), e2);
-                }
+                sendERR(L10N.getString("pop3.quit_partial"));
             }
             closeEndpoint();
             return;
@@ -2841,12 +2609,8 @@ public final class Pop3ProtocolHandler
             @Override
             public void completed(Void ignored) {
                 endpoint.resumeRead();
-                try {
-                    sendOK(L10N.getString("pop3.quit_success"));
-                } catch (IOException e) {
-                    LOGGER.log(Level.WARNING,
-                            L10N.getString("warn.failed_send_quit_ok"), e);
-                }
+                sendOK(L10N.getString("pop3.quit_success"));
+            
                 closeEndpoint();
             }
 
@@ -2858,12 +2622,8 @@ public final class Pop3ProtocolHandler
                         error instanceof Exception
                                 ? (Exception) error
                                 : new Exception(error));
-                try {
-                    sendERR(L10N.getString("pop3.quit_partial"));
-                } catch (IOException e) {
-                    LOGGER.log(Level.WARNING,
-                            L10N.getString("warn.failed_send_quit_error"), e);
-                }
+                sendERR(L10N.getString("pop3.quit_partial"));
+            
                 closeEndpoint();
             }
         });
@@ -2986,12 +2746,7 @@ public final class Pop3ProtocolHandler
                 endpoint.resumeRead();
                 LOGGER.log(Level.WARNING,
                         MessageFormat.format(L10N.getString("warn.failed_open_mailbox_for_user"), user), error);
-                try {
-                    sendERR(L10N.getString("pop3.err.cannot_open_mailbox"));
-                } catch (IOException e) {
-                    LOGGER.log(Level.WARNING,
-                            L10N.getString("warn.failed_send_mailbox_open_error"), e);
-                }
+                sendERR(L10N.getString("pop3.err.cannot_open_mailbox"));
             }
         });
     }
@@ -3129,16 +2884,10 @@ public final class Pop3ProtocolHandler
                 if (handler != null) {
                     transactionHandler = handler;
                 }
-                try {
-                    sendOK(size + " octets");
-                    RetrCompletion retrCompletion =
-                            new RetrCompletion(msgNum, size);
-                    startChunkedMessageWrite(prep.content, retrCompletion);
-                } catch (IOException e) {
-                    LOGGER.log(Level.WARNING,
-                            L10N.getString("warn.failed_send_retr"), e);
-                    closePrepared(prep);
-                }
+                sendOK(size + " octets");
+                RetrCompletion retrCompletion =
+                        new RetrCompletion(msgNum, size);
+                startChunkedMessageWrite(prep.content, retrCompletion);
             }
 
             @Override
@@ -3149,12 +2898,7 @@ public final class Pop3ProtocolHandler
                         error instanceof Exception
                                 ? (Exception) error
                                 : new Exception(error));
-                try {
-                    sendERR(L10N.getString("pop3.err.cannot_retrieve"));
-                } catch (IOException e) {
-                    LOGGER.log(Level.WARNING,
-                            L10N.getString("warn.failed_send_retr_error"), e);
-                }
+                sendERR(L10N.getString("pop3.err.cannot_retrieve"));
             }
         });
     }
@@ -3176,14 +2920,9 @@ public final class Pop3ProtocolHandler
                 if (handler != null) {
                     transactionHandler = handler;
                 }
-                try {
-                    sendOK(L10N.getString("pop3.top_follows"));
-                    startChunkedMessageWrite(prep.content, prep.endOffset,
-                            null);
-                } catch (IOException e) {
-                    LOGGER.log(Level.WARNING, L10N.getString("warn.failed_send_top"), e);
-                    closePrepared(prep);
-                }
+                sendOK(L10N.getString("pop3.top_follows"));
+                startChunkedMessageWrite(prep.content, prep.endOffset,
+                        null);
             }
 
             @Override
@@ -3227,19 +2966,14 @@ public final class Pop3ProtocolHandler
                 if (handler != null) {
                     transactionHandler = handler;
                 }
-                try {
-                    AsyncMessageContent content =
-                            new BufferedAsyncMessageContent(data);
-                    if (retr) {
-                        sendOK(size + " octets");
-                        startChunkedMessageWrite(content, null);
-                    } else {
-                        sendOK(L10N.getString("pop3.top_follows"));
-                        startChunkedMessageWrite(content, null);
-                    }
-                } catch (IOException e) {
-                    LOGGER.log(Level.WARNING,
-                            L10N.getString("warn.failed_send_drained_content"), e);
+                AsyncMessageContent content =
+                        new BufferedAsyncMessageContent(data);
+                if (retr) {
+                    sendOK(size + " octets");
+                    startChunkedMessageWrite(content, null);
+                } else {
+                    sendOK(L10N.getString("pop3.top_follows"));
+                    startChunkedMessageWrite(content, null);
                 }
             }
 
@@ -3247,12 +2981,7 @@ public final class Pop3ProtocolHandler
             public void failed(Throwable error) {
                 LOGGER.log(Level.WARNING,
                         L10N.getString("warn.failed_draining_message_channel"), error);
-                try {
-                    sendERR(L10N.getString("pop3.err.cannot_retrieve"));
-                } catch (IOException e) {
-                    LOGGER.log(Level.WARNING,
-                            L10N.getString("warn.failed_send_drain_error"), e);
-                }
+                sendERR(L10N.getString("pop3.err.cannot_retrieve"));
             }
         });
     }
@@ -3387,7 +3116,7 @@ public final class Pop3ProtocolHandler
 
     /**
      * Chunked message content writer with write-pacing.
-     * Reads from AsynchronousFileChannel or ReadableByteChannel in batches,
+     * Reads from an AsyncMessageContent in batches,
      * uses onWriteReady to pace output. Dot-stuffing and line-counting
      * run on the SelectorLoop thread.
      *
@@ -3400,9 +3129,7 @@ public final class Pop3ProtocolHandler
         private static final int CHUNK_SIZE = 32768;
         private static final int MAX_LINES_PER_CHUNK = 512;
 
-        private final AsynchronousFileChannel asyncChannel;
         private final AsyncMessageContent asyncContent;
-        private final ReadableByteChannel channel;
         private final Runnable completion;
         private final ByteBuffer readBuf;
         private final StringBuilder lineBuilder;
@@ -3411,23 +3138,9 @@ public final class Pop3ProtocolHandler
         private boolean channelExhausted;
         private ByteBuffer pendingAsyncBuf;
 
-        MessageContentWriter(AsynchronousFileChannel asyncChannel,
-                ReadableByteChannel channel,
-                Runnable completion) {
-            this.asyncChannel = asyncChannel;
-            this.asyncContent = null;
-            this.channel = channel;
-            this.completion = completion;
-            this.readBuf = ByteBuffer.allocate(CHUNK_SIZE);
-            this.lineBuilder = new StringBuilder();
-            this.readLimit = Long.MAX_VALUE;
-        }
-
         MessageContentWriter(AsyncMessageContent asyncContent,
                 long readLimit, Runnable completion) {
-            this.asyncChannel = null;
             this.asyncContent = asyncContent;
-            this.channel = null;
             this.completion = completion;
             this.readBuf = ByteBuffer.allocate(CHUNK_SIZE);
             this.lineBuilder = new StringBuilder();
@@ -3440,13 +3153,7 @@ public final class Pop3ProtocolHandler
         }
 
         void writeNextChunk() {
-            if (asyncContent != null) {
-                writeNextChunkAsyncContent();
-            } else if (asyncChannel != null) {
-                writeNextChunkAsync();
-            } else {
-                writeNextChunkSync();
-            }
+            writeNextChunkAsyncContent();
         }
 
         private void writeNextChunkAsyncContent() {
@@ -3506,54 +3213,6 @@ public final class Pop3ProtocolHandler
             });
         }
 
-        private void writeNextChunkAsync() {
-            if (pendingAsyncBuf != null) {
-                processBufferAndContinue(null);
-                return;
-            }
-            ByteBuffer buf = ByteBufferPool.acquire(CHUNK_SIZE);
-            asyncChannel.read(buf, filePosition, null,
-                    new CompletionHandler<Integer, Void>() {
-                        @Override
-                        public void completed(Integer result, Void attachment) {
-                            if (result == null || result <= 0) {
-                                ByteBufferPool.release(buf);
-                                endpoint.execute(new Runnable() {
-                                    @Override
-                                    public void run() {
-                                        channelExhausted = true;
-                                        processBufferAndContinue(null);
-                                    }
-                                });
-                                return;
-                            }
-                            final int bytesRead = result;
-                            filePosition += bytesRead;
-                            buf.flip();
-                            endpoint.execute(new Runnable() {
-                                @Override
-                                public void run() {
-                                    processBufferAndContinue(buf);
-                                }
-                            });
-                        }
-
-                        @Override
-                        public void failed(Throwable exc, Void attachment) {
-                            ByteBufferPool.release(buf);
-                            LOGGER.log(Level.WARNING,
-                                    L10N.getString("warn.async_file_read_failed"), exc);
-                            endpoint.execute(new Runnable() {
-                                @Override
-                                public void run() {
-                                    closeChannels();
-                                    endpoint.onWriteReady(null);
-                                }
-                            });
-                        }
-                    });
-        }
-
         private void processBufferAndContinue(ByteBuffer buf) {
             if (buf != null) {
                 if (pendingAsyncBuf != null) {
@@ -3561,87 +3220,63 @@ public final class Pop3ProtocolHandler
                 }
                 pendingAsyncBuf = buf;
             }
-            try {
-                int linesWritten = 0;
-                ByteBuffer toProcess = pendingAsyncBuf;
+            int linesWritten = 0;
+            ByteBuffer toProcess = pendingAsyncBuf;
 
-                while (linesWritten < MAX_LINES_PER_CHUNK) {
-                    if (toProcess == null || !toProcess.hasRemaining()) {
-                        if (pendingAsyncBuf != null && !pendingAsyncBuf.hasRemaining()) {
-                            ByteBufferPool.release(pendingAsyncBuf);
-                            pendingAsyncBuf = null;
-                        }
-                        break;
-                    }
-
-                    while (toProcess.hasRemaining()
-                            && linesWritten < MAX_LINES_PER_CHUNK) {
-                        byte b = toProcess.get();
-                        if (b == '\n') {
-                            String line = stripCR(lineBuilder);
-                            lineBuilder.setLength(0);
-                            if (line.startsWith(".")) {
-                                sendLine("." + line);
-                            } else {
-                                sendLine(line);
-                            }
-                            linesWritten++;
-                        } else {
-                            lineBuilder.append((char) (b & 0xFF));
-                        }
-                    }
-                }
-
-                boolean hasMore = (pendingAsyncBuf != null
-                                && pendingAsyncBuf.hasRemaining())
-                        || !channelExhausted;
-
-                if (hasMore) {
-                    endpoint.onWriteReady(this);
-                } else {
-                    if (pendingAsyncBuf != null) {
+            while (linesWritten < MAX_LINES_PER_CHUNK) {
+                if (toProcess == null || !toProcess.hasRemaining()) {
+                    if (pendingAsyncBuf != null && !pendingAsyncBuf.hasRemaining()) {
                         ByteBufferPool.release(pendingAsyncBuf);
                         pendingAsyncBuf = null;
                     }
-                    finishTransfer();
+                    break;
                 }
-            } catch (IOException e) {
-                LOGGER.log(Level.WARNING,
-                        L10N.getString("warn.error_chunked_message_write"), e);
+
+                while (toProcess.hasRemaining()
+                        && linesWritten < MAX_LINES_PER_CHUNK) {
+                    byte b = toProcess.get();
+                    if (b == '\n') {
+                        String line = stripCR(lineBuilder);
+                        lineBuilder.setLength(0);
+                        if (line.startsWith(".")) {
+                            sendLine("." + line);
+                        } else {
+                            sendLine(line);
+                        }
+                        linesWritten++;
+                    } else {
+                        lineBuilder.append((char) (b & 0xFF));
+                    }
+                }
+            }
+
+            boolean hasMore = (pendingAsyncBuf != null
+                            && pendingAsyncBuf.hasRemaining())
+                    || !channelExhausted;
+
+            if (hasMore) {
+                endpoint.onWriteReady(this);
+            } else {
                 if (pendingAsyncBuf != null) {
                     ByteBufferPool.release(pendingAsyncBuf);
                     pendingAsyncBuf = null;
                 }
-                closeChannels();
-                endpoint.onWriteReady(null);
+                finishTransfer();
             }
-        }
-
-        private void writeNextChunkSync() {
-            // Sync ReadableByteChannel.read must not run on the SelectorLoop.
-            // Callers use startChannelDrainOffload / startRetrOffload instead.
-            LOGGER.warning(L10N.getString(
-                    "warn.unexpected_sync_message_content_writer"));
-            closeChannels();
-            endpoint.onWriteReady(null);
         }
 
         private void finishTransfer() {
-            try {
-                if (lineBuilder.length() > 0) {
-                    String line = stripCR(lineBuilder);
-                    lineBuilder.setLength(0);
-                    if (line.startsWith(".")) {
-                        sendLine("." + line);
-                    } else {
-                        sendLine(line);
-                    }
+            if (lineBuilder.length() > 0) {
+                String line = stripCR(lineBuilder);
+                lineBuilder.setLength(0);
+                if (line.startsWith(".")) {
+                    sendLine("." + line);
+                } else {
+                    sendLine(line);
                 }
-                sendLine(".");
-            } catch (IOException e) {
-                LOGGER.log(Level.WARNING,
-                        L10N.getString("warn.error_finishing_chunked_message_write"), e);
             }
+            sendLine(".");
+        
             closeChannels();
             endpoint.onWriteReady(null);
             if (completion != null) {
@@ -3656,22 +3291,6 @@ public final class Pop3ProtocolHandler
                 } catch (IOException e) {
                     LOGGER.log(Level.WARNING,
                             L10N.getString("warn.error_closing_async_content"), e);
-                }
-            }
-            if (asyncChannel != null) {
-                try {
-                    asyncChannel.close();
-                } catch (IOException e) {
-                    LOGGER.log(Level.WARNING,
-                            L10N.getString("warn.error_closing_async_message_channel"), e);
-                }
-            }
-            if (channel != null) {
-                try {
-                    channel.close();
-                } catch (IOException e) {
-                    LOGGER.log(Level.WARNING,
-                            L10N.getString("warn.error_closing_message_channel"), e);
                 }
             }
         }
@@ -3716,6 +3335,10 @@ public final class Pop3ProtocolHandler
             String traceName = L10N.getString(
                     "telemetry.pop3_connection");
             connectionTrace = config.createTrace(traceName);
+            if (connectionTrace == null) {
+                // tracing disabled in the configuration (e.g. metrics only)
+                return;
+            }
             Span rootSpan = connectionTrace.getRootSpan();
             rootSpan.addAttribute("net.transport", "ip_tcp");
             rootSpan.addAttribute("net.peer.ip",

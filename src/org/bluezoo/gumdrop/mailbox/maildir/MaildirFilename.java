@@ -89,8 +89,25 @@ public class MaildirFilename {
      * Whether this JVM is running on Windows, where {@code ':'} can't
      * appear in a filename at all (issue #287).
      */
-    private static final boolean WINDOWS = System.getProperty("os.name", "")
-            .toLowerCase(Locale.ROOT).contains("win");
+    private static final boolean WINDOWS = isWindowsOsName(
+            System.getProperty("os.name", ""));
+
+    /**
+     * Whether the given {@code os.name} value denotes Windows. Package
+     * private so the platform decision is testable without depending on
+     * the host running the tests.
+     */
+    static boolean isWindowsOsName(String osName) {
+        return osName != null
+                && osName.toLowerCase(Locale.ROOT).contains("win");
+    }
+
+    /**
+     * The info-section separator for the given {@code os.name} value.
+     */
+    static String infoSeparatorFor(String osName) {
+        return isWindowsOsName(osName) ? ",2," : ":2,";
+    }
 
     /**
      * The Maildir info-section separator this JVM generates new filenames
