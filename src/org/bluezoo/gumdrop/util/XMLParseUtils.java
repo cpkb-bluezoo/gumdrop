@@ -290,10 +290,20 @@ public final class XMLParseUtils {
             throws IOException, SAXException {
         ByteBuffer buffer = ByteBuffer.allocate(BUFFER_SIZE);
 
-        while (channel.read(buffer) != -1 || buffer.position() > 0) {
+        boolean eof = false;
+        while (!eof || buffer.position() > 0) {
+            if (!eof && channel.read(buffer) == -1) {
+                eof = true;
+            }
+            int before = buffer.position();
             buffer.flip();
             parser.receive(buffer);
             buffer.compact();
+            if (eof && buffer.position() >= before) {
+                // At end of input the parser left bytes it can never
+                // complete: stop and let close() report the truncation.
+                break;
+            }
         }
 
         parser.close();

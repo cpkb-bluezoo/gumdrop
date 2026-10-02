@@ -370,6 +370,13 @@ public class MdnsServer implements Server {
     }
 
     @Override
+    public void beginShutdown() {
+        for (int i = 0; i < listeners.size(); i++) {
+            listeners.get(i).beginShutdown();
+        }
+    }
+
+    @Override
     public void stop() {
         for (int i = 0; i < listeners.size(); i++) {
             try {

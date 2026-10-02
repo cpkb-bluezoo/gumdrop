@@ -30,6 +30,7 @@ import java.util.ResourceBundle;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
+import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.http.HttpStatus;
 import org.bluezoo.gumdrop.http.Headers;
 import org.bluezoo.gumdrop.http.client.AltSvcListener;
@@ -230,16 +231,31 @@ class WebSocketClientProtocolHandler extends HttpClientProtocolHandler {
 
         @Override
         public void sendFrame(ByteBuffer frameData) throws IOException {
-            if (endpoint == null) {
+            final Endpoint ep = endpoint;
+            if (ep == null) {
                 throw new IOException("Endpoint not available");
             }
-            endpoint.send(frameData);
+            // Application threads may call WebSocketSession.sendText() etc;
+            // the I/O must run on the connection's own selector loop.
+            final ByteBuffer frame = frameData;
+            ep.execute(new Runnable() {
+                @Override
+                public void run() {
+                    ep.send(frame);
+                }
+            });
         }
 
         @Override
         public void close(boolean normalClose) throws IOException {
-            if (endpoint != null) {
-                endpoint.close();
+            final Endpoint ep = endpoint;
+            if (ep != null) {
+                ep.execute(new Runnable() {
+                    @Override
+                    public void run() {
+                        ep.close();
+                    }
+                });
             }
         }
     }

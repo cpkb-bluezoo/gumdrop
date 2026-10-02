@@ -253,6 +253,11 @@ public final class ServerXmlLoader {
         } catch (SAXException e) {
             callback.onError("server.xml parse error: " + e.getMessage());
             return;
+        } catch (RuntimeException e) {
+            // e.g. a zero-length file: the parser has no document to close.
+            // Without this the callback would never fire on the reader thread.
+            callback.onError("server.xml parse error: " + e);
+            return;
         }
         try {
             callback.onServer(handler.build());

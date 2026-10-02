@@ -108,5 +108,28 @@ public interface ChannelHandler {
         return getSelectorLoop().getTimer().schedule(this, delayMs, callback);
     }
 
+    /**
+     * Closes this handler because its {@link SelectorLoop} is shutting
+     * down. Called by the loop, on the loop's own thread, for every handler
+     * it owns; never call it from another thread.
+     *
+     * <p>When {@code orderly} is true the handler says goodbye before it
+     * goes: it flushes output it has already queued and sends whatever its
+     * protocol layer sends on close (TLS or DTLS {@code close_notify}, QUIC
+     * {@code CONNECTION_CLOSE}). The close may complete later, once the
+     * output has drained, and the loop keeps running until it does or its
+     * hard deadline passes. When {@code orderly} is false (abort) the
+     * handler discards queued output, sends nothing, and releases its
+     * socket and state immediately.
+     *
+     * <p>The default does nothing, which leaves the loop to cancel the
+     * handler's key once its deadline passes.
+     *
+     * @param orderly true for a graceful close with protocol goodbyes,
+     *        false to abort
+     */
+    default void closeForShutdown(boolean orderly) {
+    }
+
 }
 

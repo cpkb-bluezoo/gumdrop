@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.servlet.session;
 
+import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.UdpEndpoint;
 import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.Gumdrop;
@@ -459,11 +460,33 @@ public class Cluster {
         }
         for (Member member : members) {
             if (member.endpoint != null) {
-                member.endpoint.close();
+                closeOnLoop(member.endpoint);
                 member.endpoint = null;
             }
         }
         activeMembers.clear();
+    }
+
+    /**
+     * Closes a member's endpoint on the loop that owns it: this is called
+     * from whichever thread tears the cluster down, which may not do an
+     * endpoint's I/O. An endpoint its loop has already closed is left alone.
+     */
+    private static void closeOnLoop(final UdpEndpoint endpoint) {
+        if (endpoint.isClosing()) {
+            return;
+        }
+        SelectorLoop loop = endpoint.getSelectorLoop();
+        if (loop == null) {
+            endpoint.close();
+            return;
+        }
+        loop.invokeLater(new Runnable() {
+            @Override
+            public void run() {
+                endpoint.close();
+            }
+        });
     }
 
     private void schedulePing() {

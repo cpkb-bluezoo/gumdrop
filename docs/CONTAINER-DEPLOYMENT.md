@@ -154,15 +154,42 @@ or derivative image when you implement a real readiness signal.
 
 [`ContainerMain`](../src/org/bluezoo/gumdrop/servlet/container/ContainerMain.java)
 and composed apps should block on `Gumdrop.awaitShutdown()` after startup.
-`SIGTERM` and Ctrl+C trigger `Gumdrop.shutdown()` (stop accept → drain → force
-stop). Launch scripts use `exec` so the JVM receives signals directly.
+`SIGTERM` and Ctrl+C trigger `Gumdrop.shutdown()` (stop accept → drain → close
+by the owning loops). Launch scripts use `exec` so the JVM receives signals directly.
 
 Phases:
 
-1. **Stop accepting** — accept loop and server channels closed.
-2. **Drain** — wait up to the drain timeout for in-flight connections.
-3. **Force stop** — stop servers (including servlet `Container.destroy()` when
-   applicable), worker loops, timers, pools.
+1. **Stop accepting** - `isReady()` turns false at once. The accept loop closes
+   every TCP listener's listening socket on its own thread, and shutdown does
+   not move on until the sockets are really released. QUIC listeners stop
+   admitting new connections. Each `Server.beginShutdown()` runs so anything
+   that must be said on the network on the way out (an mDNS goodbye) is queued
+   on the owning loop.
+2. **Drain** - wait up to the drain timeout for in-flight connections.
+3. **Close** - every selector loop closes everything it owns, each on its own
+   thread, while the application is still live, so `disconnected()` callbacks
+   see a working application. Connections flush queued output and send TLS/DTLS
+   `close_notify`; QUIC connections send `CONNECTION_CLOSE`. A loop exits when
+   it owns nothing open, or when its hard deadline passes (the drain timeout,
+   clamped to between 1 and 5 seconds), so a peer that never reads cannot hang
+   shutdown. Tasks still queued on a loop run before it exits.
+4. **Tear down** - only now are servers stopped (`Server.stop()`: servlet
+   `Container.destroy()`, caches, pools; no network I/O), then timers and
+   worker pools.
+
+No connection is ever closed by the thread that calls `shutdown()`; that thread
+only coordinates and waits, and every wait is bounded. `shutdown()` is
+idempotent: concurrent callers wait for the one shutdown in progress.
+
+`Gumdrop.shutdownNow()` is the abort form: no drain and no protocol goodbyes.
+Each loop still closes what it owns on its own thread, but at once, discarding
+queued output and sending nothing to peers (`beginShutdown()` is not called). Called during an orderly shutdown
+(for example on a second Ctrl+C) it escalates that shutdown and ends the drain
+immediately.
+
+Once a loop has terminated, `SelectorLoop.tryInvokeLater` returns `false` and
+`invokeLater` logs a warning; a channel registered with it is closed. Nothing
+offered to a terminated loop is silently lost.
 
 Tune drain (milliseconds):
 

@@ -51,6 +51,9 @@ public class ClientEndpointPoolTest {
     private static final class State implements InvocationHandler {
         boolean open = true;
         int closes;
+        /** When set, tasks given to execute() are held instead of run, like a loop that has not got to them yet. */
+        boolean holdTasks;
+        final java.util.List<Runnable> held = new java.util.ArrayList<Runnable>();
 
         @Override
         public Object invoke(Object proxy, Method method, Object[] args) {
@@ -61,6 +64,14 @@ public class ClientEndpointPoolTest {
             if ("close".equals(n)) {
                 open = false;
                 closes++;
+                return null;
+            }
+            if ("execute".equals(n)) {
+                if (holdTasks) {
+                    held.add((Runnable) args[0]);
+                } else {
+                    ((Runnable) args[0]).run();
+                }
                 return null;
             }
             if ("hashCode".equals(n)) {
@@ -257,5 +268,36 @@ public class ClientEndpointPoolTest {
         assertEquals("tls://127.0.0.1:80", c.toString());
         assertTrue(e.toString().startsWith("tcp://127.0.0.1:80@loop-"));
         assertNotNull(a.toString());
+    }
+
+    @Test
+    public void closesAreHandedToTheEndpointsLoopNotDoneByTheCaller() {
+        pool.setMaxEndpointsPerTarget(1);
+        State a = new State();
+        a.holdTasks = true;
+        State b = new State();
+        ClientEndpointPool.PoolEntry ea = pool.register(target, endpoint(a));
+        pool.register(target, endpoint(b));
+
+        pool.release(ea);
+
+        assertEquals("the caller must not close an endpoint it does not own", 0, a.closes);
+        assertEquals(1, a.held.size());
+        a.held.get(0).run();
+        assertEquals(1, a.closes);
+    }
+
+    @Test
+    public void shutdownHandsEveryCloseToItsLoop() {
+        State a = new State();
+        a.holdTasks = true;
+        pool.register(target, endpoint(a));
+
+        pool.shutdown();
+
+        assertEquals(0, a.closes);
+        assertEquals(1, a.held.size());
+        a.held.get(0).run();
+        assertEquals(1, a.closes);
     }
 }

@@ -1218,39 +1218,18 @@ public final class QuicConnection implements QuicTlsEngineListener {
      * @param data the data (copied -- the caller's buffer is not retained)
      * @param fin true if this is the last chunk of the stream
      */
-    void queueStreamData(final long streamId, ByteBuffer data, final boolean fin) {
-        // The caller's buffer is only valid during this call, so copy now;
-        // the queues themselves are touched on the loop thread.
-        final byte[] copy = new byte[data.remaining()];
+    void queueStreamData(long streamId, ByteBuffer data, boolean fin) {
+        byte[] copy = new byte[data.remaining()];
         data.get(copy);
-        runOnLoop(new Runnable() {
-            @Override
-            public void run() {
-                long offset = getAndAdvanceStreamOffset(streamId, copy.length);
-                Long key = Long.valueOf(streamId);
-                List<PendingChunk> chunks = pendingStream.get(key);
-                if (chunks == null) {
-                    chunks = new ArrayList<PendingChunk>();
-                    addPendingStreamChunks(key, chunks);
-                }
-                chunks.add(new PendingChunk(offset, copy, fin));
-                requestFlush();
-            }
-        });
-    }
-
-    // All send-side state is confined to the connection's selector loop
-    // thread. Application threads (e.g. sending a WebSocket message over
-    // HTTP/3) call into the stream endpoint directly, so hand their work to
-    // the loop; on the loop thread, or when no loop is attached (unit
-    // tests), it runs immediately.
-    void runOnLoop(Runnable task) {
-        SelectorLoop loop = engine.getSelectorLoop();
-        if (loop == null) {
-            task.run();
-        } else {
-            loop.invokeLater(task);
+        long offset = getAndAdvanceStreamOffset(streamId, copy.length);
+        Long key = Long.valueOf(streamId);
+        List<PendingChunk> chunks = pendingStream.get(key);
+        if (chunks == null) {
+            chunks = new ArrayList<PendingChunk>();
+            addPendingStreamChunks(key, chunks);
         }
+        chunks.add(new PendingChunk(offset, copy, fin));
+        requestFlush();
     }
 
     // Registers a brand-new pendingStream entry (chunks must not already
@@ -3807,6 +3786,25 @@ public final class QuicConnection implements QuicTlsEngineListener {
                 LOGGER.log(Level.FINE, L10N.getString("fine.connection_close_send_failed"), e);
             }
         }
+        tearDownStreams();
+        engine.onConnectionClosed(this);
+    }
+
+    /**
+     * Closes the connection without telling the peer (no CONNECTION_CLOSE),
+     * still tearing down every stream so their handlers are notified. Used
+     * when the owning engine is aborted at shutdown.
+     */
+    void abort() {
+        if (closed) {
+            return;
+        }
+        closed = true;
+        if (timerHandle != null) {
+            timerHandle.cancel();
+            timerHandle = null;
+        }
+        cancelAllPathValidationAttempts();
         tearDownStreams();
         engine.onConnectionClosed(this);
     }

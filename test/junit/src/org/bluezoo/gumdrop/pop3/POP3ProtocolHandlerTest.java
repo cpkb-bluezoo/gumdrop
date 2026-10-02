@@ -1671,7 +1671,9 @@ public class POP3ProtocolHandlerTest {
         @Override public SecurityInfo getSecurityInfo() {
             return new StubSecurityInfo();
         }
-        @Override public void startTLS() { startTLSCalled = true; }
+        @Override public void startTLS() throws IOException {
+            startTLSCalled = true;
+        }
         @Override public SelectorLoop getSelectorLoop() {
             return null;
         }
@@ -1808,7 +1810,8 @@ public class POP3ProtocolHandlerTest {
         public void unsubscribe(String name) {}
 
         @Override
-        public Mailbox openMailbox(String name, boolean readOnly) {
+        public Mailbox openMailbox(String name, boolean readOnly)
+                throws IOException {
             StubMailbox mbox = new StubMailbox(factory.messageContent,
                     factory.stubMessageCount);
             factory.lastMailbox = mbox;

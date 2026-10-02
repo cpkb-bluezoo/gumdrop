@@ -503,15 +503,26 @@ public class ServletHandler extends DefaultHttpRequestHandler {
         return true; // Let pushPromise determine actual support
     }
 
-    boolean executePush(String method, String uri, Headers headers) {
-        Headers pushHeaders = new Headers();
+    /**
+     * Sends a server push for the servlet. Called on a worker thread, so
+     * the PUSH_PROMISE (HPACK state, the connection's writes) is
+     * rescheduled onto the connection's own selector loop; the push is
+     * fire-and-forget, as the Servlet API defines no result.
+     */
+    void executePush(String method, String uri, Headers headers) {
+        final Headers pushHeaders = new Headers();
         pushHeaders.add(":method", method);
         pushHeaders.add(":path", uri);
         pushHeaders.add(":scheme", state.getScheme());
         for (Header h : headers) {
             pushHeaders.add(h);
         }
-        return state.pushPromise(pushHeaders);
+        state.execute(new Runnable() {
+            @Override
+            public void run() {
+                state.pushPromise(pushHeaders);
+            }
+        });
     }
 
     /**

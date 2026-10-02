@@ -42,6 +42,8 @@ import org.bluezoo.gumdrop.smtp.DeliveryRequirements;
 import org.bluezoo.gumdrop.smtp.SmtpPipeline;
 
 import org.bluezoo.gumdrop.Endpoint;
+import org.bluezoo.gumdrop.Gumdrop;
+import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.auth.Realm;
 import org.bluezoo.gumdrop.mailbox.MailboxFactory;
@@ -372,6 +374,26 @@ public class SimpleRelayHandler implements ClientConnected, HelloHandler,
         return byDomain;
     }
 
+    /**
+     * Opens the outbound SMTP connection to an MX host and attaches the
+     * delivery protocol handler to it. Package-private so unit tests can
+     * substitute an in-memory endpoint for the real socket.
+     *
+     * @param host the MX host to deliver to
+     * @param endpointHandler the SMTP client protocol handler for the connection
+     * @throws IOException if the transport cannot be started or opened
+     */
+    void connectDelivery(String host, SmtpClientProtocolHandler endpointHandler)
+            throws IOException {
+        TcpTransportFactory factory = new TcpTransportFactory();
+        factory.start();
+        ClientEndpoint endpoint = new ClientEndpoint(factory, host, deliveryPort);
+        endpoint.setDnsResolver(dnsResolver);
+        SelectorLoop loop = dnsResolver.getSelectorLoop();
+        Gumdrop gumdrop = loop.getGumdrop();
+        endpoint.connect(gumdrop, endpointHandler);
+    }
+
     // ─────────────────────────────────────────────────────────────────────────
     // Message buffer pipeline
     // ─────────────────────────────────────────────────────────────────────────
@@ -578,15 +600,10 @@ public class SimpleRelayHandler implements ClientConnected, HelloHandler,
 
         void deliverToDomain(String host, List<EmailAddress> domainRecipients) {
             try {
-                TcpTransportFactory factory = new TcpTransportFactory();
-                factory.start();
                 DeliveryHandler handler = new DeliveryHandler(domainRecipients);
                 SmtpClientProtocolHandler endpointHandler =
                         new SmtpClientProtocolHandler(handler);
-                ClientEndpoint endpoint = new ClientEndpoint(
-                        factory, host, deliveryPort);
-                endpoint.setDnsResolver(dnsResolver);
-                endpoint.connect(dnsResolver.getSelectorLoop().getGumdrop(), endpointHandler);
+                connectDelivery(host, endpointHandler);
             } catch (IOException e) {
                 LOGGER.warning(MessageFormat.format(
                         L10N.getString("warn.cannot_connect"), host, e.getMessage()));
@@ -606,6 +623,9 @@ public class SimpleRelayHandler implements ClientConnected, HelloHandler,
 
             private final List<EmailAddress> domainRecipients;
             private int recipientIndex;
+            // recipients of this domain already counted as failed; the
+            // context-wide failCount also holds other domains' failures
+            private int domainFailed;
             private boolean completed;
             private boolean tlsEstablished;
 
@@ -806,6 +826,7 @@ public class SimpleRelayHandler implements ClientConnected, HelloHandler,
                 LOGGER.warning(MessageFormat.format(
                         L10N.getString("warn.rcpt_temp_failure"), domainRecipients.get(recipientIndex - 1)));
                 failCount++;
+                domainFailed++;
                 if (recipientIndex < domainRecipients.size()) {
                     state.rcptTo(domainRecipients.get(recipientIndex++), this);
                 } else if (state.hasAcceptedRecipients()) {
@@ -822,6 +843,7 @@ public class SimpleRelayHandler implements ClientConnected, HelloHandler,
                 LOGGER.warning(MessageFormat.format(
                         L10N.getString("warn.rcpt_rejected"), domainRecipients.get(recipientIndex - 1)));
                 failCount++;
+                domainFailed++;
                 if (recipientIndex < domainRecipients.size()) {
                     state.rcptTo(domainRecipients.get(recipientIndex++), this);
                 } else if (state.hasAcceptedRecipients()) {
@@ -847,7 +869,8 @@ public class SimpleRelayHandler implements ClientConnected, HelloHandler,
             public void handleTemporaryFailure(ClientEnvelopeReady envelope) {
                 LOGGER.warning(L10N.getString("warn.data_temp_failure"));
                 envelope.quit();
-                failCount += domainRecipients.size() - failCount;
+                failCount += domainRecipients.size() - domainFailed;
+                domainFailed = domainRecipients.size();
                 currentDomainIndex++;
                 deliverNext();
             }
@@ -856,7 +879,8 @@ public class SimpleRelayHandler implements ClientConnected, HelloHandler,
             public void handlePermanentFailure(String message) {
                 LOGGER.warning(MessageFormat.format(
                         L10N.getString("warn.data_permanent_failure"), message));
-                failCount += domainRecipients.size() - failCount;
+                failCount += domainRecipients.size() - domainFailed;
+                domainFailed = domainRecipients.size();
                 currentDomainIndex++;
                 deliverNext();
             }
@@ -869,7 +893,7 @@ public class SimpleRelayHandler implements ClientConnected, HelloHandler,
                     LOGGER.info(MessageFormat.format(
                             L10N.getString("info.message_accepted"), queueId));
                 }
-                successCount += domainRecipients.size() - failCount;
+                successCount += domainRecipients.size() - domainFailed;
                 session.quit();
                 currentDomainIndex++;
                 deliverNext();
@@ -879,7 +903,8 @@ public class SimpleRelayHandler implements ClientConnected, HelloHandler,
             public void handleTemporaryFailure(ClientSession session) {
                 LOGGER.warning(L10N.getString("warn.message_temp_failure"));
                 session.quit();
-                failCount += domainRecipients.size() - failCount;
+                failCount += domainRecipients.size() - domainFailed;
+                domainFailed = domainRecipients.size();
                 currentDomainIndex++;
                 deliverNext();
             }
@@ -889,7 +914,8 @@ public class SimpleRelayHandler implements ClientConnected, HelloHandler,
                 LOGGER.warning(MessageFormat.format(
                         L10N.getString("warn.message_permanent_failure"), message));
                 session.quit();
-                failCount += domainRecipients.size() - failCount;
+                failCount += domainRecipients.size() - domainFailed;
+                domainFailed = domainRecipients.size();
                 currentDomainIndex++;
                 deliverNext();
             }

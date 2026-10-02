@@ -176,7 +176,7 @@ public abstract class TcpListener extends Listener {
     // Server channel management
     // ═══════════════════════════════════════════════════════════════════
 
-    void addServerChannel(ServerSocketChannel ssc) {
+    synchronized void addServerChannel(ServerSocketChannel ssc) {
         serverChannels.add(ssc);
     }
 
@@ -192,8 +192,17 @@ public abstract class TcpListener extends Listener {
     /**
      * Closes all server channels. For UNIX domain socket channels,
      * also deletes the socket file.
+     *
+     * <p>This stops the listener accepting, but a channel closed while it
+     * is still registered with the accept loop's selector is only released
+     * by the JDK when that loop next deregisters it. {@link Gumdrop} therefore
+     * has the accept loop do the closing, on its own thread, and waits until
+     * the sockets are really released; call this directly only for a
+     * listener that is not registered with a running accept loop. Listeners
+     * that do not use TCP accept (QUIC) override it to stop admitting new
+     * connections while the existing ones carry on.
      */
-    public void closeServerChannels() {
+    public synchronized void closeServerChannels() {
         for (Iterator<ServerSocketChannel> it = serverChannels.iterator();
              it.hasNext(); ) {
             ServerSocketChannel ssc = it.next();

@@ -1033,6 +1033,10 @@ public class OAuthRealm implements Realm {
         
         // Current parsing context
         private String currentKey;
+        // Nesting depth: only members of the top-level object (depth 1)
+        // are the RFC 7662 section 2.2 response fields; same-named members
+        // of nested objects or arrays must not override them.
+        private int depth;
         
         // Extracted token information
         private boolean active = false;
@@ -1047,15 +1051,31 @@ public class OAuthRealm implements Realm {
         }
         
         @Override
+        public void startObject() throws JSONException {
+            depth++;
+        }
+
+        @Override
+        public void startArray() throws JSONException {
+            depth++;
+        }
+
+        @Override
+        public void endArray() throws JSONException {
+            depth--;
+            this.currentKey = null;
+        }
+
+        @Override
         public void booleanValue(boolean value) throws JSONException {
-            if ("active".equals(currentKey)) {
+            if (depth == 1 && "active".equals(currentKey)) {
                 this.active = value;
             }
         }
         
         @Override
         public void stringValue(String value) throws JSONException {
-            if (currentKey == null) {
+            if (currentKey == null || depth != 1) {
                 return;
             }
             if ("username".equals(currentKey)) {
@@ -1069,7 +1089,7 @@ public class OAuthRealm implements Realm {
         
         @Override
         public void numberValue(Number number) throws JSONException {
-            if ("exp".equals(currentKey)) {
+            if (depth == 1 && "exp".equals(currentKey)) {
                 this.expiration = number.longValue();
             }
         }
@@ -1077,6 +1097,7 @@ public class OAuthRealm implements Realm {
         @Override
         public void endObject() throws JSONException {
             // Reset key context when exiting an object
+            depth--;
             this.currentKey = null;
         }
         

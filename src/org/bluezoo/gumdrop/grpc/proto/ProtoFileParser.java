@@ -199,14 +199,85 @@ public class ProtoFileParser {
     }
 
     private void parseOption() throws ProtoParseException {
-        nextFullIdent();
+        parseOptionName();
         expect('=');
         parseConstant();
         expect(';');
     }
 
+    /**
+     * Parses an option name: an identifier path where a segment may be a
+     * parenthesised extension name, e.g. {@code (google.api.http)} or
+     * {@code (my.opt).sub}. Options are validated and discarded; the model
+     * has no place for them.
+     */
+    private String parseOptionName() throws ProtoParseException {
+        StringBuilder sb = new StringBuilder();
+        boolean more;
+        do {
+            skipWhitespaceAndComments();
+            if (peek() == '(') {
+                consume();
+                skipWhitespaceAndComments();
+                if (peek() == '.') {
+                    consume();
+                    sb.append('.');
+                }
+                String ext = nextFullIdent();
+                if (ext == null) {
+                    throw parseError(L10N.getString("err.expected_ident"));
+                }
+                sb.append('(').append(ext).append(')');
+                expect(')');
+            } else {
+                String part = nextIdentifier();
+                if (part == null) {
+                    throw parseError(L10N.getString("err.expected_ident"));
+                }
+                sb.append(part);
+            }
+            skipWhitespaceAndComments();
+            more = peek() == '.';
+            if (more) {
+                consume();
+                sb.append('.');
+            }
+        } while (more);
+        return sb.toString();
+    }
+
+    /**
+     * Skips an aggregate (message literal) option value, balancing nested
+     * braces and ignoring braces inside strings and comments.
+     */
+    private void skipAggregate() throws ProtoParseException {
+        consume();
+        int depth = 1;
+        while (depth > 0) {
+            skipWhitespaceAndComments();
+            if (pos >= input.length()) {
+                throw new ProtoParseException(L10N.getString("err.unexpected_eof"));
+            }
+            char c = peek();
+            if (c == '"' || c == '\'') {
+                nextString();
+            } else {
+                consume();
+                if (c == '{') {
+                    depth++;
+                } else if (c == '}') {
+                    depth--;
+                }
+            }
+        }
+    }
+
     private Object parseConstant() throws ProtoParseException {
         skipWhitespaceAndComments();
+        if (peek() == '{') {
+            skipAggregate();
+            return null;
+        }
         if (peek() == '"' || peek() == '\'') {
             return nextString();
         }
@@ -244,6 +315,16 @@ public class ProtoFileParser {
         while (pos < input.length() && peek() != '}') {
             if (peek() == ';') {
                 consume();
+                skipWhitespaceAndComments();
+                continue;
+            }
+
+            if (peek() == '.') {
+                // Fully qualified field type with a leading dot
+                FieldDescriptor qualified = parseField(null, fullName, fieldNumbers);
+                if (qualified != null) {
+                    msgBuilder.addField(qualified);
+                }
                 skipWhitespaceAndComments();
                 continue;
             }
@@ -300,14 +381,24 @@ public class ProtoFileParser {
 
     private void parseReserved() throws ProtoParseException {
         skipWhitespaceAndComments();
+        if (peek() == ';') {
+            throw parseError(L10N.getString("err.expected_number"));
+        }
         while (peek() != ';') {
             if (peek() == '"' || peek() == '\'') {
                 nextString();
             } else {
                 nextNumber();
+                skipWhitespaceAndComments();
                 if (peek() == 't') {
+                    // Range: "N to M" or "N to max"
                     nextIdentifier();
-                    nextIdentifier();
+                    skipWhitespaceAndComments();
+                    if (Character.isDigit(peek())) {
+                        nextNumber();
+                    } else {
+                        nextIdentifier();
+                    }
                 }
             }
             skipWhitespaceAndComments();
@@ -342,6 +433,9 @@ public class ProtoFileParser {
         String valueType = nextTypeName();
         expect('>');
         String name = nextIdentifier();
+        if (name == null) {
+            throw parseError(L10N.getString("err.expected_ident"));
+        }
         expect('=');
         int num = nextInt();
         if (fieldNumbers.contains(num)) {
@@ -378,6 +472,9 @@ public class ProtoFileParser {
 
         String typeName = typeOverride != null ? typeOverride : nextTypeName();
         String name = nextIdentifier();
+        if (name == null) {
+            throw parseError(L10N.getString("err.expected_ident"));
+        }
         expect('=');
         int num = nextInt();
         if (fieldNumbers.contains(num)) {
@@ -423,12 +520,17 @@ public class ProtoFileParser {
         skipWhitespaceAndComments();
         if (peek() == '[') {
             consume();
+            boolean more;
             do {
-                nextFullIdent();
+                parseOptionName();
                 expect('=');
                 parseConstant();
                 skipWhitespaceAndComments();
-            } while (peek() == ',');
+                more = peek() == ',';
+                if (more) {
+                    consume();
+                }
+            } while (more);
             expect(']');
         }
     }
@@ -547,10 +649,19 @@ public class ProtoFileParser {
             outputType = outputType + "." + nextFullIdent();
         }
         expect(')');
+        skipWhitespaceAndComments();
         if (peek() == '{') {
             expect('{');
+            skipWhitespaceAndComments();
             while (peek() != '}') {
-                parseOption();
+                if (peek() == ';') {
+                    consume();
+                } else if ("option".equals(nextIdentifier())) {
+                    parseOption();
+                } else {
+                    throw parseError(L10N.getString("err.invalid_rpc"));
+                }
+                skipWhitespaceAndComments();
             }
             expect('}');
         } else {

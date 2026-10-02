@@ -34,6 +34,7 @@ import java.io.IOException;
 import java.net.Socket;
 import java.net.SocketAddress;
 import java.nio.ByteBuffer;
+import java.nio.channels.CancelledKeyException;
 import java.nio.channels.SelectionKey;
 import java.nio.channels.SocketChannel;
 import java.text.MessageFormat;
@@ -489,6 +490,39 @@ public class TcpEndpoint implements Endpoint, ChannelHandler, TlsRecordState.Cal
         if (selectorLoop != null) {
             selectorLoop.requestWrite(this);
         }
+    }
+
+    /**
+     * Closes this endpoint because its loop is shutting down; runs on the
+     * loop thread. Orderly: stops reading, then closes as {@link #close()}
+     * does, so queued output and the TLS {@code close_notify} are flushed
+     * before the socket goes. Abort, or an endpoint that cannot flush
+     * (never registered, or still connecting): releases the socket now.
+     */
+    @Override
+    public void closeForShutdown(boolean orderly) {
+        SelectionKey k = key;
+        boolean canFlush = orderly && k != null && channel != null
+                && channel.isConnected();
+        if (!canFlush) {
+            closing = true;
+            closeRequested = true;
+            doClose();
+            return;
+        }
+        if (closing) {
+            // A close is already waiting for its output to drain; the
+            // loop's hard deadline bounds it.
+            return;
+        }
+        try {
+            if (k.isValid()) {
+                k.interestOps(k.interestOps() & ~SelectionKey.OP_READ);
+            }
+        } catch (CancelledKeyException e) {
+            // closed concurrently; close() below finds nothing to flush
+        }
+        close();
     }
 
     @Override

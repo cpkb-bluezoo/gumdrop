@@ -45,10 +45,21 @@ public class ImapMetadataParser {
 
     public ImapMetadataGetRequest parseGet() throws ParseException {
         skipWhitespace();
-        String mailbox = parseMailboxName();
-        skipWhitespace();
         int maxSize = -1;
         int depth = 0;
+        if (pos < length && input.charAt(pos) == '(') {
+            // RFC 5464: GETMETADATA [options] mailbox entries
+            int saved = pos;
+            String leading = parseParenthesized();
+            if (looksLikeOptions(leading)) {
+                maxSize = parseMaxSize(leading);
+                depth = parseDepth(leading);
+            } else {
+                pos = saved;
+            }
+        }
+        String mailbox = parseMailboxName();
+        skipWhitespace();
         if (pos < length && input.charAt(pos) == '(') {
             String group = parseParenthesized();
             if (looksLikeOptions(group)) {
@@ -57,6 +68,7 @@ public class ImapMetadataParser {
                 skipWhitespace();
             } else {
                 List<String> entries = parseEntryListContent(group);
+                requireEnd();
                 return new ImapMetadataGetRequest(mailbox, maxSize, depth,
                         entries);
             }
@@ -72,6 +84,7 @@ public class ImapMetadataParser {
             entries = new ArrayList<String>();
             entries.add(parseEntryAtom());
         }
+        requireEnd();
         return new ImapMetadataGetRequest(mailbox, maxSize, depth, entries);
     }
 
@@ -85,6 +98,7 @@ public class ImapMetadataParser {
         String group = parseParenthesized();
         List<ImapMetadataSetRequest.EntryValue> entries =
                 parseEntryValues(group);
+        requireEnd();
         return new ImapMetadataSetRequest(mailbox, entries);
     }
 
@@ -126,7 +140,20 @@ public class ImapMetadataParser {
         if (input.charAt(pos) == '"') {
             return parseQuotedString();
         }
-        return parseEntryAtom();
+        // A bare value atom is taken verbatim (unlike an entry name it
+        // must not gain a leading slash).
+        String atom = parseAtom();
+        if (atom == null || atom.isEmpty()) {
+            throw new ParseException("Expected value", pos);
+        }
+        return atom;
+    }
+
+    private void requireEnd() throws ParseException {
+        skipWhitespace();
+        if (pos < length) {
+            throw new ParseException("Unexpected trailing input", pos);
+        }
     }
 
     private boolean looksLikeOptions(String group) {
@@ -163,13 +190,15 @@ public class ImapMetadataParser {
             return 0;
         }
         String rest = group.substring(idx + 5).trim();
-        if (rest.toLowerCase(Locale.ENGLISH).startsWith("infinity")) {
+        int end = rest.indexOf(' ');
+        String token = end < 0 ? rest : rest.substring(0, end);
+        if ("infinity".equalsIgnoreCase(token)) {
             return Integer.MAX_VALUE;
         }
-        if (rest.startsWith("1")) {
+        if ("1".equals(token)) {
             return 1;
         }
-        if (rest.startsWith("0")) {
+        if ("0".equals(token)) {
             return 0;
         }
         throw new ParseException("Invalid DEPTH", pos);

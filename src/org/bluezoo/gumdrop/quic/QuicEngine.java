@@ -175,6 +175,9 @@ public final class QuicEngine implements ChannelHandler, MultiplexedEndpoint {
     private ConnectionAcceptedHandler connectionAcceptedHandler;
     private Trace trace;
     private boolean closing;
+    // False once the engine has been told to stop admitting new
+    // connections (graceful shutdown): existing connections carry on.
+    private boolean admitting = true;
 
     QuicEngine(QuicTransportFactory factory, boolean serverMode) {
         this.factory = factory;
@@ -390,6 +393,12 @@ public final class QuicEngine implements ChannelHandler, MultiplexedEndpoint {
             // stateless reset applies instead).
             if (serverMode && prefix != null && prefix.getPacketType() == LongHeaderCodec.TYPE_INITIAL
                     && !isResetEligible(dcid)) {
+                if (!admitting) {
+                    // Shutting down: a new client is not admitted. The
+                    // Initial is dropped, so the client's retransmissions
+                    // find nobody home and it fails over to another server.
+                    return;
+                }
                 if (factory.isRequireRetry()) {
                     byte[] originalDcid = null;
                     byte[] token = prefix.getToken();
@@ -987,18 +996,48 @@ public final class QuicEngine implements ChannelHandler, MultiplexedEndpoint {
         return closing;
     }
 
+    /**
+     * Stops this server engine admitting new connections: Initial packets
+     * from new clients are dropped from now on, while established
+     * connections carry on until they close. The first step of a graceful
+     * shutdown. Loop thread only.
+     */
+    public void stopAdmitting() {
+        admitting = false;
+    }
+
+    /**
+     * Closes this engine, sending CONNECTION_CLOSE on every connection.
+     * Loop thread only, like every other operation on an engine.
+     */
     @Override
     public void close() {
+        close(true);
+    }
+
+    /**
+     * Closes this engine because its loop is shutting down; runs on the
+     * loop thread. Orderly sends CONNECTION_CLOSE on every connection, an
+     * abort tears each connection down locally without telling the peer.
+     */
+    @Override
+    public void closeForShutdown(boolean orderly) {
+        close(orderly);
+    }
+
+    private void close(boolean sendGoodbyes) {
         if (closing) {
             return;
         }
         closing = true;
-        // Snapshot rather than iterate connections directly: a concurrent
-        // onReadable() on this engine's own SelectorLoop thread (e.g. a
-        // caller closing from an admin/shutdown thread while I/O is still
-        // in flight) can add/remove map entries at the same time.
+        // Snapshot rather than iterate: closing a connection removes it from
+        // the map.
         for (QuicConnection conn : new ArrayList<QuicConnection>(connections.values())) {
-            conn.close();
+            if (sendGoodbyes) {
+                conn.close();
+            } else {
+                conn.abort();
+            }
         }
         connections.clear();
         if (path != null) {

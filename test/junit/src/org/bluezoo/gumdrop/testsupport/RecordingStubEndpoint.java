@@ -33,8 +33,10 @@ import java.net.SocketAddress;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.IdentityHashMap;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 
 /**
@@ -94,6 +96,9 @@ public final class RecordingStubEndpoint implements Endpoint {
     private boolean secure;
     private SelectorLoop selectorLoop;
     private SendFilter sendFilter;
+    private final List<TimerHandle> timers = new ArrayList<TimerHandle>();
+    private final Map<TimerHandle, Runnable> pendingTimerCallbacks =
+            new IdentityHashMap<TimerHandle, Runnable>();
 
     public RecordingStubEndpoint() {
         this(0);
@@ -258,10 +263,55 @@ public final class RecordingStubEndpoint implements Endpoint {
     @Override public SelectorLoop getSelectorLoop() { return selectorLoop; }
     @Override public void execute(Runnable task) { task.run(); }
     @Override public TimerHandle scheduleTimer(long delayMs, Runnable cb) {
-        return new TimerHandle() {
-            @Override public void cancel() { }
-            @Override public boolean isCancelled() { return false; }
+        final Runnable callback = cb;
+        TimerHandle handle = new TimerHandle() {
+            private volatile boolean cancelled;
+            @Override public void cancel() {
+                cancelled = true;
+                synchronized (timers) {
+                    Iterator<TimerHandle> it = timers.iterator();
+                    while (it.hasNext()) {
+                        if (it.next() == this) {
+                            it.remove();
+                        }
+                    }
+                    pendingTimerCallbacks.remove(this);
+                }
+            }
+            @Override public boolean isCancelled() { return cancelled; }
         };
+        synchronized (timers) {
+            timers.add(handle);
+            pendingTimerCallbacks.put(handle, callback);
+        }
+        return handle;
+    }
+
+    /**
+     * Runs every timer scheduled so far that has not been cancelled, once.
+     * Timers are never fired by the passage of time, so tests drive them
+     * explicitly and deterministically. Timers re-armed by a callback wait
+     * for the next call.
+     *
+     * @return the number of timers fired
+     */
+    public int fireTimers() {
+        List<Runnable> due = new ArrayList<Runnable>();
+        synchronized (timers) {
+            Iterator<TimerHandle> it = timers.iterator();
+            while (it.hasNext()) {
+                TimerHandle handle = it.next();
+                Runnable callback = pendingTimerCallbacks.remove(handle);
+                if (callback != null) {
+                    due.add(callback);
+                }
+            }
+            timers.clear();
+        }
+        for (Runnable callback : due) {
+            callback.run();
+        }
+        return due.size();
     }
     @Override public Trace getTrace() { return null; }
     @Override public void setTrace(Trace trace) { }

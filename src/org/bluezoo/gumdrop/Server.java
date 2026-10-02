@@ -82,9 +82,31 @@ public interface Server {
     void start(Gumdrop gumdrop);
 
     /**
-     * Stops this server. Implementations should first stop all
-     * listeners (both static and dynamic), then tear down
-     * application-level resources.
+     * First phase of an orderly shutdown: anything this server must say on
+     * the network on its way out (an mDNS goodbye, announcing departure).
+     * Called by {@link Gumdrop#shutdown()} after the listening sockets have
+     * been released and before the drain; never called for an abort
+     * ({@link Gumdrop#shutdownNow()}), which sends no goodbyes.
+     *
+     * <p>Network work must be handed to the loop that owns the endpoint
+     * (see {@link Endpoint#execute}), never done on the calling thread; the
+     * loop flushes it before it closes the endpoint. Must not tear down
+     * application state: connections are still being served. The default
+     * does nothing.
+     */
+    default void beginShutdown() {
+    }
+
+    /**
+     * Final phase: stops this server once every connection has been closed
+     * by its loop (so every {@code disconnected()} callback has run against
+     * a live application). Implementations tear down application-level
+     * resources (containers, caches, pools) and must not do network I/O or
+     * touch loop-owned endpoints, which are already closed and whose loops
+     * may have terminated; a listener's own {@code stop()} skips endpoints
+     * that are already closed. Also used on its own to remove a server from
+     * a running instance, in which case a listener hands any remaining
+     * close to its loop.
      */
     void stop();
 

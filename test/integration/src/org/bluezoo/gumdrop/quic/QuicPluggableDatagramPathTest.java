@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.quic;
 
+import org.bluezoo.gumdrop.IntegrationLoop;
 import java.io.IOException;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
@@ -307,10 +308,10 @@ public class QuicPluggableDatagramPathTest {
             loop.shutdown();
             loop.awaitQuiesce(2000);
             if (clientEngine != null) {
-                clientEngine.close();
+                IntegrationLoop.close(clientEngine);
             }
             if (serverEngine != null) {
-                serverEngine.close();
+                IntegrationLoop.close(serverEngine);
             }
         }
     }

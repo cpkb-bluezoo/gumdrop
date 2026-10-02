@@ -34,6 +34,7 @@ import java.util.List;
 
 import org.bluezoo.gumdrop.http.Headers;
 import org.bluezoo.gumdrop.testsupport.BinaryRecordingEndpoint;
+import org.bluezoo.gumdrop.testsupport.InlineSelectorLoop;
 import org.bluezoo.gumdrop.testsupport.RecordingWebSocketEventHandler;
 import org.junit.Test;
 
@@ -143,6 +144,7 @@ public class HttpProtocolHandlerHttp1Test {
         }
 
         void open() {
+            endpoint.setSelectorLoop(new InlineSelectorLoop());
             handler = new HttpProtocolHandler(listener);
             handler.connected(endpoint);
         }

@@ -84,6 +84,7 @@ import org.bluezoo.gumdrop.auth.SaslMechanism;
 import org.bluezoo.gumdrop.auth.SaslUtils;
 import org.bluezoo.gumdrop.mime.HeaderLineTooLongException;
 import org.bluezoo.gumdrop.mime.HeaderValueTooLongException;
+import org.bluezoo.gumdrop.imap.server.AppendCompleteState;
 import org.bluezoo.gumdrop.imap.server.AppendDataHandler;
 import org.bluezoo.gumdrop.imap.server.AppendState;
 import org.bluezoo.gumdrop.imap.server.AuthenticatedHandler;
@@ -3765,8 +3766,10 @@ public final class ImapProtocolHandler
                 ? appendPendingData.toByteArray() : new byte[0];
         final Set<Flag> flags = appendFlags;
         final OffsetDateTime date = appendInternalDate;
+        final AppendDataHandler dataHandler = appendDataHandler;
 
         // Clear wire state before offloading so a late literal cannot race.
+        appendDataHandler = null;
         appendTag = null;
         appendPendingData = null;
         appendWriter = null;
@@ -3778,6 +3781,13 @@ public final class ImapProtocolHandler
         appendInternalDate = null;
         appendMailboxName = null;
         appendMessageSize = 0;
+
+        if (dataHandler != null) {
+            // An application AppendDataHandler owns completion of the
+            // message (AppendDataHandler.appendComplete).
+            dataHandler.appendComplete(new AppendCompleteStateImpl(tag), mb);
+            return;
+        }
 
         if (mb == null) {
             try {
@@ -4026,6 +4036,7 @@ public final class ImapProtocolHandler
 
     private void resetAppendState() {
         abortAppendWriter();
+        appendDataHandler = null;
         appendTag = null;
         appendMailbox = null;
         appendMailboxName = null;
@@ -8662,7 +8673,11 @@ public final class ImapProtocolHandler
         public void readyForData(Mailbox mailbox,
                 AppendDataHandler handler) {
             try {
-                mailbox.startAppendMessage(flags, internalDate);
+                if (mailbox != null) {
+                    // acceptLiteral() has no mailbox: the data handler
+                    // owns the storage of the message.
+                    mailbox.startAppendMessage(flags, internalDate);
+                }
                 appendMailbox = mailbox;
                 appendDataHandler = handler;
                 appendTag = tag;
@@ -8759,6 +8774,58 @@ public final class ImapProtocolHandler
             try {
                 sendTaggedNo(tag, "[TOOBIG] "
                         + L10N.getString("imap.err.literal_too_large"));
+            } catch (IOException e) {
+                LOGGER.log(Level.WARNING,
+                        L10N.getString("warn.failed_send_append_no"), e);
+            }
+        }
+
+        @Override
+        public void serverShuttingDown() {
+            doServerShuttingDown();
+        }
+    }
+
+    private class AppendCompleteStateImpl implements AppendCompleteState {
+        private final String tag;
+
+        AppendCompleteStateImpl(String tag) {
+            this.tag = tag;
+        }
+
+        @Override
+        public void appended(AuthenticatedHandler handler) {
+            authenticatedHandler = handler;
+            addSessionEvent("APPEND_COMPLETE");
+            try {
+                sendTaggedOk(tag, L10N.getString("imap.append_complete"));
+            } catch (IOException e) {
+                LOGGER.log(Level.WARNING,
+                        L10N.getString("warn.failed_send_append_ok"), e);
+            }
+        }
+
+        @Override
+        public void appendedWithUid(long uidValidity, long uid,
+                AuthenticatedHandler handler) {
+            authenticatedHandler = handler;
+            addSessionEvent("APPEND_COMPLETE");
+            addSessionAttribute("imap.append.uid", uid);
+            try {
+                sendTaggedOk(tag, "[APPENDUID " + uidValidity + " " + uid
+                        + "] " + L10N.getString("imap.append_complete"));
+            } catch (IOException e) {
+                LOGGER.log(Level.WARNING,
+                        L10N.getString("warn.failed_send_append_ok"), e);
+            }
+        }
+
+        @Override
+        public void appendFailed(String message,
+                AuthenticatedHandler handler) {
+            authenticatedHandler = handler;
+            try {
+                sendTaggedNo(tag, message);
             } catch (IOException e) {
                 LOGGER.log(Level.WARNING,
                         L10N.getString("warn.failed_send_append_no"), e);

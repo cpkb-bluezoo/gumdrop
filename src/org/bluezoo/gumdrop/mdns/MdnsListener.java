@@ -42,6 +42,7 @@ import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.Listener;
 import org.bluezoo.gumdrop.ProtocolHandler;
 import org.bluezoo.gumdrop.SecurityInfo;
+import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.UdpEndpoint;
 import org.bluezoo.gumdrop.UdpTransportFactory;
 import org.bluezoo.gumdrop.mdns.server.MdnsServer;
@@ -83,7 +84,7 @@ public class MdnsListener extends Listener {
     private int port = DEFAULT_PORT;
     private org.bluezoo.gumdrop.mdns.server.MdnsServer server;
     private UdpTransportFactory transportFactory;
-    private UdpEndpoint endpoint;
+    private volatile UdpEndpoint endpoint;
     private InetAddress group;
     private InetSocketAddress groupAddress;
 
@@ -203,6 +204,7 @@ public class MdnsListener extends Listener {
                         "warn.mdns_no_multicast_interface"));
             }
 
+            goodbyeSent = false;
             endpoint = transportFactory.createServerEndpoint(
                     gumdrop, channel, new MdnsDatagramHandler());
         } catch (IOException e) {
@@ -273,14 +275,77 @@ public class MdnsListener extends Listener {
         return false;
     }
 
+    // Set once the goodbye announcement has been handed to the loop.
+    private volatile boolean goodbyeSent;
+
+    /**
+     * First phase of shutdown: hands the goodbye announcement to the
+     * endpoint's loop, which sends it ahead of closing the endpoint. Does
+     * not wait.
+     */
+    public void beginShutdown() {
+        final UdpEndpoint ep = endpoint;
+        if (ep == null || goodbyeSent) {
+            return;
+        }
+        goodbyeSent = true;
+        Runnable task = new Runnable() {
+            @Override
+            public void run() {
+                if (server != null && !ep.isClosing()) {
+                    server.sendGoodbye(MdnsListener.this);
+                }
+            }
+        };
+        SelectorLoop loop = ep.getSelectorLoop();
+        if (loop == null) {
+            task.run();
+        } else {
+            loop.invokeLater(task);
+        }
+    }
+
+    /**
+     * Stops this listener: sends the goodbye if {@link #beginShutdown()}
+     * has not, and closes the endpoint. Both belong on the endpoint's loop,
+     * so they are handed to it; an endpoint already closed by its loop is
+     * left alone and nothing is sent. Does not wait.
+     */
     @Override
     public void stop() {
-        if (server != null) {
-            server.sendGoodbye(this);
+        final UdpEndpoint ep = endpoint;
+        if (ep == null) {
+            // nothing bound to a loop: announce on the caller's thread
+            if (server != null && !goodbyeSent) {
+                goodbyeSent = true;
+                server.sendGoodbye(this);
+            }
+            return;
         }
-        if (endpoint != null) {
-            endpoint.close();
+        if (ep.isClosing()) {
             endpoint = null;
+            return;
+        }
+        final boolean announce = !goodbyeSent;
+        goodbyeSent = true;
+        Runnable task = new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    if (announce && server != null && !ep.isClosing()) {
+                        server.sendGoodbye(MdnsListener.this);
+                    }
+                } finally {
+                    ep.close();
+                    endpoint = null;
+                }
+            }
+        };
+        SelectorLoop loop = ep.getSelectorLoop();
+        if (loop == null) {
+            task.run();
+        } else {
+            loop.invokeLater(task);
         }
     }
 

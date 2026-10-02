@@ -100,15 +100,30 @@ public abstract class UdpListener extends Listener {
     }
 
     /**
-     * Stops this datagram endpoint. Closes the underlying
-     * {@link UdpEndpoint}.
+     * Stops this datagram endpoint. The {@link UdpEndpoint} belongs to its
+     * selector loop, so the close (DTLS {@code close_notify} included) is
+     * handed to that loop and runs on its thread; this method does not wait
+     * for it. An endpoint its loop has already closed is left alone.
      */
     @Override
     public void stop() {
-        if (endpoint != null) {
-            endpoint.close();
-            endpoint = null;
+        final UdpEndpoint toClose = endpoint;
+        endpoint = null;
+        if (toClose == null || toClose.isClosing()) {
+            return;
         }
+        SelectorLoop loop = toClose.getSelectorLoop();
+        if (loop == null) {
+            // never registered with a loop, so none owns it
+            toClose.close();
+            return;
+        }
+        loop.invokeLater(new Runnable() {
+            @Override
+            public void run() {
+                toClose.close();
+            }
+        });
     }
 
     /**

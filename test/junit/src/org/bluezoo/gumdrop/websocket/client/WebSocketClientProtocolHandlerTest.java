@@ -28,6 +28,10 @@ import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
 import java.io.IOException;
+import java.lang.reflect.InvocationHandler;
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
+import java.lang.reflect.Proxy;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -159,6 +163,49 @@ public class WebSocketClientProtocolHandlerTest {
                 ByteBuffer.wrap(new byte[] {1, 2, 3}), false).encode());
         assertEquals(1, ws.binaries.size());
         assertEquals(3, ws.binaries.get(0).length);
+    }
+
+    /**
+     * The application may call the WebSocketSession from any thread, but
+     * all I/O of the connection belongs to its selector loop: the frame
+     * must be handed to the endpoint's execute(), not sent inline.
+     */
+    @Test
+    public void outboundFramesAreRescheduledOntoTheEndpointsLoop() throws IOException {
+        final BinaryRecordingEndpoint real = new BinaryRecordingEndpoint();
+        final List<Runnable> queued = new ArrayList<Runnable>();
+        Endpoint deferring = (Endpoint) Proxy.newProxyInstance(
+                Endpoint.class.getClassLoader(), new Class<?>[] { Endpoint.class },
+                new InvocationHandler() {
+                    @Override
+                    public Object invoke(Object proxy, Method method, Object[] args)
+                            throws Throwable {
+                        if ("execute".equals(method.getName())) {
+                            queued.add((Runnable) args[0]);
+                            return null;
+                        }
+                        try {
+                            return method.invoke(real, args);
+                        } catch (InvocationTargetException e) {
+                            throw e.getCause();
+                        }
+                    }
+                });
+        RecordingWebSocketEventHandler events = new RecordingWebSocketEventHandler();
+        WebSocketClientProtocolHandler h = new WebSocketClientProtocolHandler(
+                httpEvents, events, "localhost", 80, false);
+        h.setWebSocketKey(key);
+        h.connected(deferring);
+        real.clearWrites();
+        queued.clear();
+        assertTrue(h.handleProtocolSwitch(HttpStatus.SWITCHING_PROTOCOLS, validResponse()));
+
+        events.session.sendText("from-worker");
+
+        assertTrue("no write may happen on the calling thread", real.getWrites().isEmpty());
+        assertEquals(1, queued.size());
+        queued.get(0).run();
+        assertEquals(1, real.getWrites().size());
     }
 
     @Test

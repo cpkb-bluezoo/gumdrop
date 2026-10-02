@@ -102,6 +102,12 @@ public interface Endpoint {
      * Closes this endpoint gracefully.
      * For TLS connections, sends close_notify before closing.
      * For QUIC streams, sends a STREAM frame with the FIN bit.
+     *
+     * <p>Like {@link #send}, this is a loop-thread operation: all network
+     * I/O for an endpoint happens on its own {@link SelectorLoop}. A caller
+     * on another thread hands the close to that loop with
+     * {@link #execute(Runnable)}. At shutdown the loop closes every endpoint
+     * it owns itself.
      */
     void close();
 

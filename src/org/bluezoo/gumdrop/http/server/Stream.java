@@ -1915,16 +1915,30 @@ class Stream implements HttpResponseState {
         
         @Override
         public void sendFrame(ByteBuffer frameData) throws IOException {
-            try {
-                sendResponseBody(frameData, false);
-            } catch (ProtocolException e) {
-                throw new IOException("Failed to send WebSocket frame", e);
-            }
+            final ByteBuffer frame = frameData;
+            // WebSocketSession may be used from application threads; the
+            // connection's I/O must run on its own selector loop.
+            Stream.this.execute(new Runnable() {
+                @Override
+                public void run() {
+                    try {
+                        sendResponseBody(frame, false);
+                    } catch (ProtocolException e) {
+                        LOGGER.log(Level.WARNING, L10N.getString("warn.websocket_frame_send_failed"), e);
+                    }
+                }
+            });
         }
         
         @Override
         public void close(boolean normalClose) throws IOException {
-            Stream.this.streamClose(normalClose);
+            final boolean normal = normalClose;
+            Stream.this.execute(new Runnable() {
+                @Override
+                public void run() {
+                    Stream.this.streamClose(normal);
+                }
+            });
         }
     }
     

@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.quic;
 
+import org.bluezoo.gumdrop.IntegrationLoop;
 import java.io.IOException;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
@@ -280,10 +281,10 @@ public class QuicProductionEndToEndTest {
             loop.shutdown();
             loop.awaitQuiesce(2000);
             if (clientEngine != null) {
-                clientEngine.close();
+                IntegrationLoop.close(clientEngine);
             }
             if (serverEngine != null) {
-                serverEngine.close();
+                IntegrationLoop.close(serverEngine);
             }
         }
     }
@@ -418,10 +419,10 @@ public class QuicProductionEndToEndTest {
             loop.shutdown();
             loop.awaitQuiesce(2000);
             if (clientEngine != null) {
-                clientEngine.close();
+                IntegrationLoop.close(clientEngine);
             }
             if (serverEngine != null) {
-                serverEngine.close();
+                IntegrationLoop.close(serverEngine);
             }
         }
     }
@@ -512,10 +513,10 @@ public class QuicProductionEndToEndTest {
             loop.shutdown();
             loop.awaitQuiesce(2000);
             if (clientEngine != null) {
-                clientEngine.close();
+                IntegrationLoop.close(clientEngine);
             }
             if (serverEngine != null) {
-                serverEngine.close();
+                IntegrationLoop.close(serverEngine);
             }
         }
     }
@@ -659,10 +660,10 @@ public class QuicProductionEndToEndTest {
             loop.shutdown();
             loop.awaitQuiesce(2000);
             if (clientEngine != null) {
-                clientEngine.close();
+                IntegrationLoop.close(clientEngine);
             }
             if (serverEngine != null) {
-                serverEngine.close();
+                IntegrationLoop.close(serverEngine);
             }
         }
     }
@@ -851,10 +852,10 @@ public class QuicProductionEndToEndTest {
             loop.shutdown();
             loop.awaitQuiesce(2000);
             if (clientEngine != null) {
-                clientEngine.close();
+                IntegrationLoop.close(clientEngine);
             }
             if (serverEngine != null) {
-                serverEngine.close();
+                IntegrationLoop.close(serverEngine);
             }
         }
     }
@@ -1023,10 +1024,10 @@ public class QuicProductionEndToEndTest {
             loop.shutdown();
             loop.awaitQuiesce(2000);
             if (clientEngine != null) {
-                clientEngine.close();
+                IntegrationLoop.close(clientEngine);
             }
             if (serverEngine != null) {
-                serverEngine.close();
+                IntegrationLoop.close(serverEngine);
             }
         }
     }
@@ -1168,10 +1169,10 @@ public class QuicProductionEndToEndTest {
             loop.shutdown();
             loop.awaitQuiesce(2000);
             if (clientEngine != null) {
-                clientEngine.close();
+                IntegrationLoop.close(clientEngine);
             }
             if (serverEngine != null) {
-                serverEngine.close();
+                IntegrationLoop.close(serverEngine);
             }
         }
     }
@@ -1268,10 +1269,10 @@ public class QuicProductionEndToEndTest {
             loop.shutdown();
             loop.awaitQuiesce(2000);
             if (firstClientEngine != null) {
-                firstClientEngine.close();
+                IntegrationLoop.close(firstClientEngine);
             }
             if (serverEngine != null) {
-                serverEngine.close();
+                IntegrationLoop.close(serverEngine);
             }
         }
     }
@@ -1376,10 +1377,10 @@ public class QuicProductionEndToEndTest {
             loop.shutdown();
             loop.awaitQuiesce(2000);
             if (firstClientEngine != null) {
-                firstClientEngine.close();
+                IntegrationLoop.close(firstClientEngine);
             }
             if (serverEngine != null) {
-                serverEngine.close();
+                IntegrationLoop.close(serverEngine);
             }
         }
     }
@@ -1603,10 +1604,10 @@ public class QuicProductionEndToEndTest {
             loop.shutdown();
             loop.awaitQuiesce(2000);
             if (clientEngine != null) {
-                clientEngine.close();
+                IntegrationLoop.close(clientEngine);
             }
             if (serverEngine != null) {
-                serverEngine.close();
+                IntegrationLoop.close(serverEngine);
             }
         }
     }
@@ -1715,10 +1716,10 @@ public class QuicProductionEndToEndTest {
             loop.shutdown();
             loop.awaitQuiesce(2000);
             if (clientEngine != null) {
-                clientEngine.close();
+                IntegrationLoop.close(clientEngine);
             }
             if (serverEngine != null) {
-                serverEngine.close();
+                IntegrationLoop.close(serverEngine);
             }
         }
     }
@@ -1853,10 +1854,10 @@ public class QuicProductionEndToEndTest {
             loop.shutdown();
             loop.awaitQuiesce(2000);
             if (clientEngine != null) {
-                clientEngine.close();
+                IntegrationLoop.close(clientEngine);
             }
             if (serverEngine != null) {
-                serverEngine.close();
+                IntegrationLoop.close(serverEngine);
             }
         }
     }
@@ -1963,10 +1964,10 @@ public class QuicProductionEndToEndTest {
             loop.shutdown();
             loop.awaitQuiesce(2000);
             if (clientEngine != null) {
-                clientEngine.close();
+                IntegrationLoop.close(clientEngine);
             }
             if (serverEngine != null) {
-                serverEngine.close();
+                IntegrationLoop.close(serverEngine);
             }
         }
     }
@@ -2221,13 +2222,13 @@ public class QuicProductionEndToEndTest {
             loop.shutdown();
             loop.awaitQuiesce(2000);
             if (secondClientEngine != null) {
-                secondClientEngine.close();
+                IntegrationLoop.close(secondClientEngine);
             }
             if (firstClientEngine != null) {
-                firstClientEngine.close();
+                IntegrationLoop.close(firstClientEngine);
             }
             if (serverEngine != null) {
-                serverEngine.close();
+                IntegrationLoop.close(serverEngine);
             }
         }
     }
@@ -2333,13 +2334,13 @@ public class QuicProductionEndToEndTest {
             loop.shutdown();
             loop.awaitQuiesce(2000);
             if (secondClientEngine != null) {
-                secondClientEngine.close();
+                IntegrationLoop.close(secondClientEngine);
             }
             if (firstClientEngine != null) {
-                firstClientEngine.close();
+                IntegrationLoop.close(firstClientEngine);
             }
             if (serverEngine != null) {
-                serverEngine.close();
+                IntegrationLoop.close(serverEngine);
             }
         }
     }
@@ -2454,13 +2455,13 @@ public class QuicProductionEndToEndTest {
             loop.shutdown();
             loop.awaitQuiesce(2000);
             if (secondClientEngine != null) {
-                secondClientEngine.close();
+                IntegrationLoop.close(secondClientEngine);
             }
             if (firstClientEngine != null) {
-                firstClientEngine.close();
+                IntegrationLoop.close(firstClientEngine);
             }
             if (serverEngine != null) {
-                serverEngine.close();
+                IntegrationLoop.close(serverEngine);
             }
         }
     }
@@ -2591,10 +2592,10 @@ public class QuicProductionEndToEndTest {
             loop.shutdown();
             loop.awaitQuiesce(2000);
             if (clientEngine != null) {
-                clientEngine.close();
+                IntegrationLoop.close(clientEngine);
             }
             if (serverEngine != null) {
-                serverEngine.close();
+                IntegrationLoop.close(serverEngine);
             }
         }
     }
@@ -2744,10 +2745,10 @@ public class QuicProductionEndToEndTest {
             loop.shutdown();
             loop.awaitQuiesce(2000);
             if (clientEngine != null) {
-                clientEngine.close();
+                IntegrationLoop.close(clientEngine);
             }
             if (serverEngine != null) {
-                serverEngine.close();
+                IntegrationLoop.close(serverEngine);
             }
         }
     }
@@ -2892,10 +2893,10 @@ public class QuicProductionEndToEndTest {
             loop.shutdown();
             loop.awaitQuiesce(2000);
             if (clientEngine != null) {
-                clientEngine.close();
+                IntegrationLoop.close(clientEngine);
             }
             if (serverEngine != null) {
-                serverEngine.close();
+                IntegrationLoop.close(serverEngine);
             }
         }
     }
@@ -2986,10 +2987,10 @@ public class QuicProductionEndToEndTest {
             loop.shutdown();
             loop.awaitQuiesce(2000);
             if (clientEngine != null) {
-                clientEngine.close();
+                IntegrationLoop.close(clientEngine);
             }
             if (serverEngine != null) {
-                serverEngine.close();
+                IntegrationLoop.close(serverEngine);
             }
         }
     }
@@ -3078,10 +3079,10 @@ public class QuicProductionEndToEndTest {
             loop.shutdown();
             loop.awaitQuiesce(2000);
             if (clientEngine != null) {
-                clientEngine.close();
+                IntegrationLoop.close(clientEngine);
             }
             if (serverEngine != null) {
-                serverEngine.close();
+                IntegrationLoop.close(serverEngine);
             }
         }
     }
@@ -3239,10 +3240,10 @@ public class QuicProductionEndToEndTest {
             loop.shutdown();
             loop.awaitQuiesce(2000);
             if (clientEngine != null) {
-                clientEngine.close();
+                IntegrationLoop.close(clientEngine);
             }
             if (serverEngine != null) {
-                serverEngine.close();
+                IntegrationLoop.close(serverEngine);
             }
         }
     }
@@ -3377,10 +3378,10 @@ public class QuicProductionEndToEndTest {
             loop.shutdown();
             loop.awaitQuiesce(2000);
             if (clientEngine != null) {
-                clientEngine.close();
+                IntegrationLoop.close(clientEngine);
             }
             if (serverEngine != null) {
-                serverEngine.close();
+                IntegrationLoop.close(serverEngine);
             }
         }
     }
@@ -3812,10 +3813,10 @@ public class QuicProductionEndToEndTest {
             loop.shutdown();
             loop.awaitQuiesce(2000);
             if (clientEngine != null) {
-                clientEngine.close();
+                IntegrationLoop.close(clientEngine);
             }
             if (serverEngine != null) {
-                serverEngine.close();
+                IntegrationLoop.close(serverEngine);
             }
         }
     }
@@ -3947,8 +3948,9 @@ public class QuicProductionEndToEndTest {
             setPrivateField(serverConnection, "amplificationBytesReceived", Long.valueOf(smallReceivedBudget));
             setPrivateField(serverConnection, "amplificationBytesSent", Long.valueOf(0L));
 
-            clientEndpoint.get().send(ByteBuffer.wrap("ping".getBytes(StandardCharsets.US_ASCII)));
-            clientEndpoint.get().close();
+            IntegrationLoop.send(clientEndpoint.get(),
+                    ByteBuffer.wrap("ping".getBytes(StandardCharsets.US_ASCII)));
+            IntegrationLoop.close(clientEndpoint.get());
             // The server's readFinished() callback above calls send()/close()
             // synchronously, and both funnel through requestFlush()/flush()
             // on the same call stack -- so by the time this latch fires, the
@@ -3974,10 +3976,10 @@ public class QuicProductionEndToEndTest {
             loop.shutdown();
             loop.awaitQuiesce(2000);
             if (clientEngine != null) {
-                clientEngine.close();
+                IntegrationLoop.close(clientEngine);
             }
             if (serverEngine != null) {
-                serverEngine.close();
+                IntegrationLoop.close(serverEngine);
             }
         }
     }
@@ -4044,7 +4046,7 @@ public class QuicProductionEndToEndTest {
             loop.shutdown();
             loop.awaitQuiesce(2000);
             if (serverEngine != null) {
-                serverEngine.close();
+                IntegrationLoop.close(serverEngine);
             }
         }
     }
@@ -4202,10 +4204,10 @@ public class QuicProductionEndToEndTest {
             loop.shutdown();
             loop.awaitQuiesce(2000);
             if (clientEngine != null) {
-                clientEngine.close();
+                IntegrationLoop.close(clientEngine);
             }
             if (serverEngine != null) {
-                serverEngine.close();
+                IntegrationLoop.close(serverEngine);
             }
         }
     }
@@ -4296,7 +4298,7 @@ public class QuicProductionEndToEndTest {
             loop.shutdown();
             loop.awaitQuiesce(2000);
             if (serverEngine != null) {
-                serverEngine.close();
+                IntegrationLoop.close(serverEngine);
             }
         }
     }
@@ -4492,10 +4494,10 @@ public class QuicProductionEndToEndTest {
             loop.shutdown();
             loop.awaitQuiesce(2000);
             if (clientEngine != null) {
-                clientEngine.close();
+                IntegrationLoop.close(clientEngine);
             }
             if (serverEngine != null) {
-                serverEngine.close();
+                IntegrationLoop.close(serverEngine);
             }
         }
     }
@@ -4674,10 +4676,10 @@ public class QuicProductionEndToEndTest {
             loop.shutdown();
             loop.awaitQuiesce(2000);
             if (clientEngine != null) {
-                clientEngine.close();
+                IntegrationLoop.close(clientEngine);
             }
             if (serverEngine != null) {
-                serverEngine.close();
+                IntegrationLoop.close(serverEngine);
             }
         }
     }
@@ -4840,10 +4842,10 @@ public class QuicProductionEndToEndTest {
             loop.shutdown();
             loop.awaitQuiesce(2000);
             if (clientEngine != null) {
-                clientEngine.close();
+                IntegrationLoop.close(clientEngine);
             }
             if (serverEngine != null) {
-                serverEngine.close();
+                IntegrationLoop.close(serverEngine);
             }
         }
     }
@@ -5023,10 +5025,10 @@ public class QuicProductionEndToEndTest {
             loop.shutdown();
             loop.awaitQuiesce(2000);
             if (clientEngine != null) {
-                clientEngine.close();
+                IntegrationLoop.close(clientEngine);
             }
             if (serverEngine != null) {
-                serverEngine.close();
+                IntegrationLoop.close(serverEngine);
             }
         }
     }
@@ -5231,10 +5233,10 @@ public class QuicProductionEndToEndTest {
             loop.shutdown();
             loop.awaitQuiesce(2000);
             if (clientEngine != null) {
-                clientEngine.close();
+                IntegrationLoop.close(clientEngine);
             }
             if (serverEngine != null) {
-                serverEngine.close();
+                IntegrationLoop.close(serverEngine);
             }
         }
     }
@@ -5400,10 +5402,10 @@ public class QuicProductionEndToEndTest {
             loop.shutdown();
             loop.awaitQuiesce(2000);
             if (clientEngine != null) {
-                clientEngine.close();
+                IntegrationLoop.close(clientEngine);
             }
             if (serverEngine != null) {
-                serverEngine.close();
+                IntegrationLoop.close(serverEngine);
             }
         }
     }

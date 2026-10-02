@@ -57,6 +57,19 @@ public class UdpEndpointIntegrationTest {
         gumdrop = Gumdrop.boot(GumdropConfig.create().workerThreads(1));
     }
 
+    /** The pending-datagram queue belongs to the endpoint's loop. */
+    private static boolean enqueueOnLoop(final UdpEndpoint endpoint, final ByteBuffer data,
+            final InetSocketAddress dest) {
+        final boolean[] result = new boolean[1];
+        IntegrationLoop.run(endpoint.getSelectorLoop(), new Runnable() {
+            @Override
+            public void run() {
+                result[0] = endpoint.enqueuePendingDatagram(data, dest);
+            }
+        });
+        return result[0];
+    }
+
     @After
     public void tearDown() throws InterruptedException {
         gumdrop.shutdown();
@@ -75,7 +88,7 @@ public class UdpEndpointIntegrationTest {
             assertTrue("netIn must be a direct buffer, not a heap allocation",
                     endpoint.netIn.isDirect());
         } finally {
-            endpoint.close();
+            IntegrationLoop.close(endpoint);
         }
     }
 
@@ -89,15 +102,30 @@ public class UdpEndpointIntegrationTest {
         ByteBuffer netIn = endpoint.netIn;
         int capacity = netIn.capacity();
 
-        endpoint.close();
+        // The buffer pools are per thread: close and reacquire on the loop
+        // that owns the endpoint, where the buffer is released.
+        final int cap = capacity;
+        final ByteBuffer[] reacquired = new ByteBuffer[1];
+        final UdpEndpoint ep = endpoint;
+        IntegrationLoop.run(endpoint.getSelectorLoop(), new Runnable() {
+            @Override
+            public void run() {
+                ep.close();
+                reacquired[0] = DirectByteBufferPool.acquire(cap);
+            }
+        });
         assertNull("netIn must be cleared once released", endpoint.netIn);
-
-        ByteBuffer reacquired = DirectByteBufferPool.acquire(capacity);
         try {
             assertSame("closing the endpoint must release netIn back to the pool",
-                    netIn, reacquired);
+                    netIn, reacquired[0]);
         } finally {
-            DirectByteBufferPool.release(reacquired);
+            final ByteBuffer toRelease = reacquired[0];
+            IntegrationLoop.run(endpoint.getSelectorLoop(), new Runnable() {
+                @Override
+                public void run() {
+                    DirectByteBufferPool.release(toRelease);
+                }
+            });
         }
     }
 
@@ -108,32 +136,54 @@ public class UdpEndpointIntegrationTest {
 
         UdpEndpoint endpoint = factory.createServerEndpoint(
                 gumdrop, InetAddress.getLoopbackAddress(), 0, new NoopHandler());
-        ByteBuffer pending = ByteBufferPool.acquire(128);
+        final ByteBuffer[] acquired = new ByteBuffer[1];
+        IntegrationLoop.run(endpoint.getSelectorLoop(), new Runnable() {
+            @Override
+            public void run() {
+                acquired[0] = ByteBufferPool.acquire(128);
+            }
+        });
+        ByteBuffer pending = acquired[0];
         pending.put(new byte[64]);
         pending.flip();
         int capacity = pending.capacity();
 
         try {
             assertTrue("datagram must be accepted into the pending queue",
-                    endpoint.enqueuePendingDatagram(pending,
+                    enqueueOnLoop(endpoint, pending,
                             (InetSocketAddress) endpoint.getLocalAddress()));
             assertFalse("datagram must be queued for write",
                     endpoint.pendingDatagrams.isEmpty());
 
-            endpoint.close();
+            // The buffer pools are per thread: close and reacquire on the
+            // loop that owns the endpoint, where the buffers are released.
+            final int cap = capacity;
+            final ByteBuffer[] reacquired = new ByteBuffer[1];
+            final UdpEndpoint ep = endpoint;
+            IntegrationLoop.run(endpoint.getSelectorLoop(), new Runnable() {
+                @Override
+                public void run() {
+                    ep.close();
+                    reacquired[0] = ByteBufferPool.acquire(cap);
+                }
+            });
             assertTrue("pending queue must be drained on close",
                     endpoint.pendingDatagrams.isEmpty());
-
-            ByteBuffer reacquired = ByteBufferPool.acquire(capacity);
             try {
                 assertSame("close() must release queued datagram buffers",
-                        pending, reacquired);
+                        pending, reacquired[0]);
             } finally {
-                ByteBufferPool.release(reacquired);
+                final ByteBuffer toRelease = reacquired[0];
+                IntegrationLoop.run(endpoint.getSelectorLoop(), new Runnable() {
+                    @Override
+                    public void run() {
+                        ByteBufferPool.release(toRelease);
+                    }
+                });
             }
         } finally {
             if (endpoint.isOpen()) {
-                endpoint.close();
+                IntegrationLoop.close(endpoint);
             }
         }
     }
@@ -153,19 +203,19 @@ public class UdpEndpointIntegrationTest {
             first.put(new byte[60]);
             first.flip();
             assertTrue("first datagram must fit under queue cap",
-                    endpoint.enqueuePendingDatagram(first, dest));
+                    enqueueOnLoop(endpoint, first, dest));
             assertTrue("endpoint stays open under queue cap", endpoint.isOpen());
 
             ByteBuffer second = ByteBufferPool.acquire(64);
             second.put(new byte[50]);
             second.flip();
             assertFalse("overflowing the pending queue must reject the datagram",
-                    endpoint.enqueuePendingDatagram(second, dest));
+                    enqueueOnLoop(endpoint, second, dest));
             assertFalse("overflowing the pending queue must close the endpoint",
                     endpoint.isOpen());
         } finally {
             if (endpoint.isOpen()) {
-                endpoint.close();
+                IntegrationLoop.close(endpoint);
             }
         }
     }

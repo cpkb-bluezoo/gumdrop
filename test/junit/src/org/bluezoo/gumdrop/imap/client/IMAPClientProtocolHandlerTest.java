@@ -22,6 +22,7 @@
 package org.bluezoo.gumdrop.imap.client;
 
 import java.io.ByteArrayOutputStream;
+import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.net.SocketAddress;
 import java.nio.ByteBuffer;
@@ -1586,7 +1587,7 @@ public class IMAPClientProtocolHandlerTest {
         @Override public SecurityInfo getSecurityInfo() {
             return new StubSecurityInfo();
         }
-        @Override public void startTLS() {
+        @Override public void startTLS() throws IOException {
             startTLSCalled = true;
         }
         @Override public SelectorLoop getSelectorLoop() {

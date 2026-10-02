@@ -150,10 +150,29 @@ public class BufferTestServer extends TcpListener {
         connections.clear();
         receives.drainPermits();
         ends.drainPermits();
+        receiveHook = null;
+    }
+
+    /** Optional hook run (on the connection's loop) after each receive() call. */
+    private volatile Runnable receiveHook;
+
+    /**
+     * Sets a hook run on the server connection's selector loop after every
+     * receive() call, so a test can drive its next step from the server's
+     * progress instead of blocking a thread on {@link #awaitReceive()}.
+     *
+     * @param hook the hook, or null
+     */
+    public void setReceiveHook(Runnable hook) {
+        this.receiveHook = hook;
     }
 
     void receiveOccurred() {
         receives.release();
+        Runnable hook = receiveHook;
+        if (hook != null) {
+            hook.run();
+        }
     }
 
     void connectionEnded() {

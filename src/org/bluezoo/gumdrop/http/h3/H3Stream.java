@@ -1066,17 +1066,33 @@ class H3Stream implements ProtocolHandler, H3FrameHandler, HttpResponseState {
             if (state == State.CLOSED) {
                 throw new IOException("Stream closed");
             }
-            responseBodyBytes += frameData.remaining();
-            sendBody(frameData);
+            final ByteBuffer frame = frameData;
+            // Application threads may send via the WebSocketSession; stream
+            // state and the QUIC endpoint belong to the connection's loop.
+            endpoint.execute(new Runnable() {
+                @Override
+                public void run() {
+                    if (state == State.CLOSED) {
+                        return;
+                    }
+                    responseBodyBytes += frame.remaining();
+                    sendBody(frame);
+                }
+            });
         }
 
         @Override
         public void close(boolean normalClose) throws IOException {
-            if (state != State.CLOSED) {
-                endpoint.close();
-                state = State.CLOSED;
-                endTelemetrySpan(200);
-            }
+            endpoint.execute(new Runnable() {
+                @Override
+                public void run() {
+                    if (state != State.CLOSED) {
+                        endpoint.close();
+                        state = State.CLOSED;
+                        endTelemetrySpan(200);
+                    }
+                }
+            });
         }
     }
 

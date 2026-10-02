@@ -92,8 +92,19 @@ public class Gumdrop {
     /** Poll interval while waiting for in-flight connections to drain. */
     private static final long DRAIN_POLL_INTERVAL_MS = 100L;
 
-    /** Maximum time to wait for each worker loop to exit after shutdown. */
+    /**
+     * Grace, beyond a loop's own hard close deadline, that the shutdown
+     * coordinator allows for the loop thread to actually exit. A loop whose
+     * thread is still alive after that is stuck in handler code that never
+     * returns; shutdown reports it and carries on rather than hang.
+     */
     private static final long LOOP_QUIESCE_TIMEOUT_MS = 5_000L;
+
+    /** Lower bound on the per-loop hard close deadline, so goodbyes get a chance even with draining disabled. */
+    private static final long MIN_LOOP_CLOSE_DEADLINE_MS = 1_000L;
+
+    /** Upper bound on the per-loop hard close deadline, so a stuck peer never holds a shutdown for long. */
+    private static final long MAX_LOOP_CLOSE_DEADLINE_MS = 5_000L;
 
     static final ResourceBundle L10N = ResourceBundle.getBundle("org.bluezoo.gumdrop.L10N");
     static final Logger LOGGER = Logger.getLogger(Gumdrop.class.getName());
@@ -111,8 +122,8 @@ public class Gumdrop {
     private final Set<ClientEndpoint> activeClients;
 
     // Infrastructure
-    private AcceptSelectorLoop acceptLoop;
-    private SelectorLoop[] workerLoops;
+    private volatile AcceptSelectorLoop acceptLoop;
+    private volatile SelectorLoop[] workerLoops;
     private final int workerCount;
     private final AtomicInteger nextWorker;
     private ScheduledTimer scheduledTimer;
@@ -155,8 +166,25 @@ public class Gumdrop {
     // shutdown()/join() itself, so it cannot serialise unrelated drains.
     private final Object lifecycleLock = new Object();
 
-    /** True while {@link #shutdown()} is running (hook, signal, or interrupt). */
+    /** True while a shutdown is running (hook, signal, interrupt, or call). Guarded by {@link #lifecycleLock}. */
     private boolean shutdownInProgress;
+
+    /**
+     * Set when {@link #shutdownNow()} is called during a shutdown, to turn it
+     * into an abort. Guarded by {@link #lifecycleLock}; cleared when the
+     * shutdown finishes.
+     */
+    private boolean abortRequested;
+
+    /** Wakes the coordinator out of the drain wait when an abort arrives. */
+    private final Object drainMonitor = new Object();
+
+    /**
+     * Test hook: run on the coordinator thread each time it is about to wait
+     * for in-flight connections to drain, after the listening sockets have
+     * been released.
+     */
+    volatile Runnable drainWaitObserver;
 
     /**
      * Thread blocked in {@link #awaitShutdown()}, signalled on {@code SIGTERM}
@@ -359,9 +387,22 @@ public class Gumdrop {
                 TcpListener ep = (TcpListener) listener;
                 serverListeners.remove(ep);
                 if (ep.requiresTcpAccept()) {
-                    ep.closeServerChannels();
+                    releaseListenerSockets(ep);
                 }
             }
+        }
+    }
+
+    /**
+     * Releases a listener's listening sockets: the accept loop closes them,
+     * on its own thread, and this returns once they are really released.
+     * With no running accept loop nothing else owns the sockets, so they
+     * are closed directly.
+     */
+    private void releaseListenerSockets(TcpListener listener) {
+        AcceptSelectorLoop accept = acceptLoop;
+        if (accept == null || !accept.releaseListener(listener)) {
+            listener.closeServerChannels();
         }
     }
 
@@ -427,7 +468,7 @@ public class Gumdrop {
     public void removeListener(TcpListener server) {
         serverListeners.remove(server);
         server.stop();
-        server.closeServerChannels();
+        releaseListenerSockets(server);
 
         if (serverListeners.isEmpty() && acceptLoopRunning) {
             acceptLoop.shutdown();
@@ -698,6 +739,7 @@ public class Gumdrop {
 
         // Start worker loops
         for (SelectorLoop loop : workerLoops) {
+            loop.setCloseDeadlineMs(loopCloseDeadlineMs());
             loop.start();
         }
 
@@ -804,7 +846,7 @@ public class Gumdrop {
      * keep this instance running. Caller must hold {@link #lifecycleLock}.
      */
     private Thread scheduleAutoShutdownIfIdleLocked() {
-        if (!started) {
+        if (!started || shutdownInProgress) {
             return null;
         }
         if (!(servers.isEmpty() && serverListeners.isEmpty()
@@ -905,25 +947,98 @@ public class Gumdrop {
     }
 
     /**
-     * Shuts down the Gumdrop infrastructure gracefully.
+     * Shuts down the Gumdrop infrastructure in an orderly way: predictable,
+     * safe, and bounded. This is the default form of shutdown;
+     * {@link #shutdownNow()} is the abort form.
      *
-     * <p>Shutdown proceeds in three phases so that in-flight work is not cut
-     * off (important for rolling deploys and scale-down in orchestrators):
+     * <p>Shutdown proceeds in four steps, in this order, so that in-flight
+     * work is not cut off (important for rolling deploys and scale-down in
+     * orchestrators) and every connection is closed by the loop that owns
+     * it:
      * <ol>
-     *   <li><b>Stop accepting</b> — the accept loop is stopped and all server
-     *       channels are closed, so no new connections are admitted, while the
-     *       listener objects are retained to observe their in-flight counts.</li>
-     *   <li><b>Drain</b> — wait up to {@link #getDrainTimeoutMs()} for the
-     *       currently-open connections to finish naturally while the worker
-     *       loops keep running.</li>
-     *   <li><b>Force stop</b> — stop protocol servers, clear state, and shut down the
-     *       worker loops, scheduled timer, and storage pool.</li>
+     *   <li><b>Stop accepting</b> - {@link #isReady()} turns false at once.
+     *       The accept loop closes every TCP listener's listening socket, on
+     *       its own thread, and this does not move on until the sockets are
+     *       really released, so no new connection is admitted from here on.
+     *       QUIC listeners stop admitting new connections, and each server
+     *       gets {@link Server#beginShutdown()} to send anything it must say
+     *       on the network on its way out (via its loops). Established
+     *       connections are untouched. A raw acceptor that an in-flight
+     *       transfer needs (an FTP data listener) stays usable.</li>
+     *   <li><b>Drain</b> - wait up to {@link #getDrainTimeoutMs()} for the
+     *       currently-open connections of the TCP listeners to finish
+     *       naturally while the loops keep serving them. 0 skips this.</li>
+     *   <li><b>Close</b> - every worker loop, and the accept loop, is told
+     *       to close everything it owns, each on its own thread: TCP
+     *       connections flush their queued output and send TLS
+     *       {@code close_notify}, DTLS sessions send {@code close_notify},
+     *       QUIC connections send {@code CONNECTION_CLOSE}. A loop exits when
+     *       it owns nothing open, or when its hard deadline (the drain
+     *       timeout, but never less than one nor more than five seconds)
+     *       passes: a peer that never drains cannot hang the shutdown.
+     *       Tasks still queued on a loop are run before it exits.</li>
+     *   <li><b>Tear down</b> - only now are protocol servers stopped
+     *       ({@link Server#stop()}: application teardown, no network I/O),
+     *       so every {@code disconnected()} callback ran against a live
+     *       application; then the scheduled timer and worker pools are
+     *       shut down.</li>
      * </ol>
+     *
+     * <p>No connection is ever closed by the thread that calls this method:
+     * the calling thread coordinates and waits, bounded at every step.
+     *
+     * <p>Shutdown is idempotent. If another thread is already shutting down,
+     * this call waits for that shutdown to finish instead of starting a
+     * second (a call made on one of the runtime's own loop threads cannot
+     * wait for its own loop, so returns at once). {@code shutdownNow()}
+     * during a shutdown escalates it to an abort.
      *
      * <p>After shutdown, {@link #start()} can be called again to restart.
      */
     public void shutdown() {
-        if (!acquireShutdownLease()) {
+        shutdown(false);
+    }
+
+    /**
+     * Aborts the Gumdrop infrastructure: shutdown without drain and without
+     * protocol goodbyes. No grace is given to in-flight work. Each loop
+     * still closes what it owns on its own thread, but immediately and
+     * discarding queued output: sockets are closed, QUIC and DTLS state is
+     * dropped with nothing sent to the peers, and handlers see their
+     * connection end. Use it for a second Ctrl+C, or when an orderly
+     * shutdown must be cut short.
+     *
+     * <p>If an orderly {@link #shutdown()} is in progress (including one in
+     * its drain wait) it is escalated: the drain ends at once and the loops
+     * are told to abort. Like {@code shutdown()} it is idempotent and
+     * returns only once the runtime has stopped, bounded as described
+     * there.
+     */
+    public void shutdownNow() {
+        shutdown(true);
+    }
+
+    private void shutdown(boolean abort) {
+        boolean coordinator;
+        synchronized (lifecycleLock) {
+            if (shutdownInProgress) {
+                coordinator = false;
+                if (abort) {
+                    abortRequested = true;
+                }
+            } else if (!started) {
+                return;
+            } else {
+                shutdownInProgress = true;
+                abortRequested = abort;
+                coordinator = true;
+            }
+        }
+        if (!coordinator) {
+            if (abort) {
+                escalateToAbort();
+            }
+            awaitOtherShutdown();
             return;
         }
         try {
@@ -933,6 +1048,7 @@ public class Gumdrop {
                 started = false;
                 draining = false;
                 shutdownInProgress = false;
+                abortRequested = false;
                 lifecycleLock.notifyAll();
             }
             flushConsoleLogging();
@@ -940,25 +1056,86 @@ public class Gumdrop {
     }
 
     /**
-     * Claims the one-at-a-time shutdown lease, or returns false if shutdown
-     * already finished or is running on another thread.
+     * Waits for the shutdown another thread coordinates. A thread running on
+     * one of this runtime's own loops cannot wait: that loop could never
+     * finish closing while its thread is blocked here.
      */
-    private boolean acquireShutdownLease() {
-        synchronized (lifecycleLock) {
-            if (!started) {
-                return false;
-            }
-            if (shutdownInProgress) {
-                return false;
-            }
-            shutdownInProgress = true;
+    private void awaitOtherShutdown() {
+        if (isLoopThread(Thread.currentThread())) {
+            return;
+        }
+        try {
+            awaitShutdownFinished();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+    }
+
+    private boolean isLoopThread(Thread t) {
+        AcceptSelectorLoop accept = acceptLoop;
+        if (accept != null && accept.getThread() == t) {
             return true;
         }
+        SelectorLoop[] loops = workerLoops;
+        if (loops != null) {
+            for (int i = 0; i < loops.length; i++) {
+                if (loops[i].getThread() == t) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Turns the shutdown in progress into an abort from any thread: ends the
+     * drain wait and tells every loop to abort its close. Loops are told
+     * directly, so this takes effect even while the coordinator is blocked
+     * waiting on them.
+     */
+    private void escalateToAbort() {
+        synchronized (drainMonitor) {
+            drainMonitor.notifyAll();
+        }
+        SelectorLoop[] loops = workerLoops;
+        if (loops != null) {
+            for (int i = 0; i < loops.length; i++) {
+                loops[i].shutdownNow();
+            }
+        }
+        AcceptSelectorLoop accept = acceptLoop;
+        if (accept != null) {
+            accept.shutdown();
+        }
+    }
+
+    private boolean isAbortRequested() {
+        synchronized (lifecycleLock) {
+            return abortRequested;
+        }
+    }
+
+    /**
+     * The hard deadline given to each loop for its close phase: the drain
+     * timeout, bounded to a range that always allows goodbyes yet never lets
+     * a stuck peer hold a shutdown for long.
+     */
+    private long loopCloseDeadlineMs() {
+        long drain = drainTimeoutMs;
+        if (drain < MIN_LOOP_CLOSE_DEADLINE_MS) {
+            return MIN_LOOP_CLOSE_DEADLINE_MS;
+        }
+        if (drain > MAX_LOOP_CLOSE_DEADLINE_MS) {
+            return MAX_LOOP_CLOSE_DEADLINE_MS;
+        }
+        return drain;
     }
 
     private void doShutdown() {
         long drainTimeout = drainTimeoutMs;
-        if (drainTimeout > 0) {
+        if (isAbortRequested()) {
+            operatorInfo(L10N.getString("info.closing_servers_abort"));
+        } else if (drainTimeout > 0) {
             operatorInfo(MessageFormat.format(
                     L10N.getString("info.closing_servers"), drainTimeout));
         } else {
@@ -970,63 +1147,30 @@ public class Gumdrop {
         ready = false;
         draining = true;
 
-        // ── Phase 1: stop accepting new connections ──
-        // Use isRunning(), not acceptLoopRunning: removeServer() /
-        // removeListener() may already have called acceptLoop.shutdown() and
-        // cleared the flag while the accept thread is still blocked in
-        // select(); skipping shutdown here leaves join() stuck forever.
-        AcceptSelectorLoop accept = acceptLoop;
-        if (accept != null && accept.isRunning()) {
-            accept.shutdown();
-        }
-        acceptLoopRunning = false;
-        // Close server channels now so no new connections are admitted, but
-        // keep the listener objects so their in-flight counts can be observed
-        // during the drain phase below.
-        for (TcpListener server :
-                new ArrayList<TcpListener>(serverListeners)) {
-            server.closeServerChannels();
+        // ── Step 1: stop accepting new connections ──
+        stopAccepting();
+        // Servers say their goodbyes, via their loops, before the drain.
+        // An abort sends none.
+        if (!isAbortRequested()) {
+            beginShutdownServers();
         }
 
-        // ── Phase 2: drain in-flight connections (bounded) ──
-        if (drainTimeout > 0) {
+        // ── Step 2: drain in-flight connections (bounded) ──
+        if (drainTimeout > 0 && !isAbortRequested()) {
             awaitConnectionsDrained(drainTimeout);
         }
 
-        // ── Phase 3: force stop ──
-        // Stop all protocol servers (servers stop their own listeners)
-        for (int i = 0; i < servers.size(); i++) {
-            Server server = servers.get(i);
-            server.stop();
-        }
-        servers.clear();
+        // ── Step 3: each loop closes everything it owns, on its own thread ──
+        // Connections first, so disconnected() callbacks run against a live
+        // application; only then is the application torn down.
+        closeLoops();
 
-        // Stop any standalone server listeners
-        for (TcpListener server :
-                new ArrayList<TcpListener>(serverListeners)) {
-            server.stop();
-            server.closeServerChannels();
-        }
-        serverListeners.clear();
+        // ── Step 4: application teardown (no network I/O) ──
+        stopServers();
 
         // Clear active clients and handlers
         activeClients.clear();
         activeHandlers.clear();
-
-        // Close DNS resolvers bound to worker loops
-        for (SelectorLoop loop : workerLoops) {
-            DnsResolver.removeForLoop(loop);
-        }
-
-        // Stop worker loops, then wait briefly for each to flush and exit.
-        if (workerLoops != null) {
-            for (SelectorLoop loop : workerLoops) {
-                loop.shutdown();
-            }
-            for (SelectorLoop loop : workerLoops) {
-                loop.awaitQuiesce(LOOP_QUIESCE_TIMEOUT_MS);
-            }
-        }
 
         // Stop scheduled timer
         scheduledTimer.shutdown();
@@ -1046,6 +1190,114 @@ public class Gumdrop {
         stopMailboxLifecycle();
 
         operatorInfo(L10N.getString("info.servers_closed"));
+    }
+
+    /** Gives each protocol server its first-phase notice, isolating failures. */
+    private void beginShutdownServers() {
+        for (Server server : new ArrayList<Server>(servers)) {
+            try {
+                server.beginShutdown();
+            } catch (RuntimeException e) {
+                LOGGER.log(Level.WARNING, L10N.getString("log.error_closing_on_shutdown"), e);
+            }
+        }
+    }
+
+    /**
+     * Stops every protocol server and standalone listener. Their network
+     * work is handed to the loops that own it, so this never closes a
+     * connection itself.
+     */
+    private void stopServers() {
+        // Stop all protocol servers (servers stop their own listeners)
+        for (int i = 0; i < servers.size(); i++) {
+            Server server = servers.get(i);
+            server.stop();
+        }
+        servers.clear();
+
+        // Stop any standalone server listeners. closeServerChannels() covers
+        // a listener that was never bound to a running accept loop.
+        for (TcpListener server :
+                new ArrayList<TcpListener>(serverListeners)) {
+            server.stop();
+            server.closeServerChannels();
+        }
+        serverListeners.clear();
+    }
+
+    /**
+     * Step 1. The accept loop releases the TCP listeners' sockets on its own
+     * thread and this returns only when they are really released. Other
+     * listeners are told to stop admitting.
+     */
+    private void stopAccepting() {
+        AcceptSelectorLoop accept = acceptLoop;
+        if (accept != null && accept.isRunning()) {
+            accept.stopAccepting();
+        }
+        acceptLoopRunning = false;
+        for (TcpListener server :
+                new ArrayList<TcpListener>(serverListeners)) {
+            server.closeServerChannels();
+        }
+    }
+
+    /**
+     * Step 3. Tells every loop to close what it owns, then waits for the
+     * loops to exit, bounded. Each loop also closes its DNS resolver first,
+     * on its own thread, since that resolver's sockets belong to the loop.
+     */
+    private void closeLoops() {
+        SelectorLoop[] loops = workerLoops;
+        AcceptSelectorLoop accept = acceptLoop;
+        boolean abort = isAbortRequested();
+        if (loops != null) {
+            for (int i = 0; i < loops.length; i++) {
+                final SelectorLoop loop = loops[i];
+                loop.setCloseDeadlineMs(loopCloseDeadlineMs());
+                loop.invokeLater(new Runnable() {
+                    @Override
+                    public void run() {
+                        DnsResolver.removeForLoop(loop);
+                    }
+                });
+                if (abort) {
+                    loop.shutdownNow();
+                } else {
+                    loop.shutdown();
+                }
+            }
+        }
+        if (accept != null && accept.isRunning()) {
+            accept.shutdown();
+        }
+        long waitMs = loopCloseDeadlineMs() + LOOP_QUIESCE_TIMEOUT_MS;
+        long deadline = System.nanoTime() + waitMs * 1_000_000L;
+        if (loops != null) {
+            for (int i = 0; i < loops.length; i++) {
+                awaitLoopTerminated(loops[i], deadline);
+            }
+        }
+        if (accept != null) {
+            long remaining = Math.max(1L, (deadline - System.nanoTime()) / 1_000_000L);
+            try {
+                if (Thread.currentThread() != accept.getThread()) {
+                    accept.join(remaining);
+                }
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        }
+    }
+
+    private void awaitLoopTerminated(SelectorLoop loop, long deadlineNanos) {
+        long remaining = Math.max(1L, (deadlineNanos - System.nanoTime()) / 1_000_000L);
+        if (!loop.awaitQuiesce(remaining)
+                && Thread.currentThread() != loop.getThread()
+                && LOGGER.isLoggable(Level.WARNING)) {
+            LOGGER.warning(L10N.getString("warn.loop_did_not_terminate"));
+        }
     }
 
     /**
@@ -1180,13 +1432,26 @@ public class Gumdrop {
             LOGGER.info(MessageFormat.format(
                     L10N.getString("info.draining_connections"), remaining, timeoutMs));
         }
-        long deadline = System.currentTimeMillis() + timeoutMs;
-        while (remaining > 0 && System.currentTimeMillis() < deadline) {
-            try {
-                Thread.sleep(DRAIN_POLL_INTERVAL_MS);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
+        Runnable observer = drainWaitObserver;
+        if (observer != null) {
+            observer.run();
+        }
+        long deadline = System.nanoTime() + timeoutMs * 1_000_000L;
+        while (remaining > 0 && !isAbortRequested()) {
+            long left = (deadline - System.nanoTime()) / 1_000_000L;
+            if (left <= 0L) {
                 break;
+            }
+            synchronized (drainMonitor) {
+                if (isAbortRequested()) {
+                    break;
+                }
+                try {
+                    drainMonitor.wait(Math.min(left, DRAIN_POLL_INTERVAL_MS));
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    break;
+                }
             }
             remaining = activeServerConnectionCount();
         }

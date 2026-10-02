@@ -39,6 +39,13 @@ class WebDAVLock {
     /** Lock type: write (§14.29) */
     enum Type { WRITE }
 
+    /**
+     * Test seam: milliseconds added to the system clock for every lock
+     * timestamp, so unit tests can age locks deterministically. Always 0
+     * in production.
+     */
+    static volatile long clockOffsetMillis = 0L;
+
     private final String token;
     private final Path path;
     private final Scope scope;
@@ -56,7 +63,7 @@ class WebDAVLock {
         this.type = type;
         this.depth = depth;
         this.owner = owner;
-        this.createdAt = System.currentTimeMillis();
+        this.createdAt = now();
         this.expiresAt = timeoutSeconds < 0 ? Long.MAX_VALUE 
                 : createdAt + (timeoutSeconds * 1000);
     }
@@ -74,6 +81,10 @@ class WebDAVLock {
         this.owner = owner;
         this.createdAt = createdAt;
         this.expiresAt = expiresAt;
+    }
+
+    private static long now() {
+        return System.currentTimeMillis() + clockOffsetMillis;
     }
 
     long getCreatedAt() {
@@ -110,14 +121,14 @@ class WebDAVLock {
     }
 
     boolean isExpired() {
-        return System.currentTimeMillis() > expiresAt;
+        return now() > expiresAt;
     }
 
     long getRemainingTimeoutSeconds() {
         if (expiresAt == Long.MAX_VALUE) {
             return -1;
         }
-        long remaining = (expiresAt - System.currentTimeMillis()) / 1000;
+        long remaining = (expiresAt - now()) / 1000;
         return remaining > 0 ? remaining : 0;
     }
 
@@ -125,7 +136,7 @@ class WebDAVLock {
         if (timeoutSeconds < 0) {
             this.expiresAt = Long.MAX_VALUE;
         } else {
-            this.expiresAt = System.currentTimeMillis() + (timeoutSeconds * 1000);
+            this.expiresAt = now() + (timeoutSeconds * 1000);
         }
     }
 

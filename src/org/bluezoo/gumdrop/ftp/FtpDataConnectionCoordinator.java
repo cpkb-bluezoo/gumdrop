@@ -1220,11 +1220,13 @@ public class FtpDataConnectionCoordinator {
                             "Asynchronous file open not supported: "
                                     + targetPath);
                 }
+                // AsynchronousFileChannel rejects StandardOpenOption.APPEND
+                // (UnsupportedOperationException), so an append is a plain
+                // write positioned at the current end of the file below.
                 StandardOpenOption[] options = transfer.isAppend()
                         ? new StandardOpenOption[]{
                                 StandardOpenOption.CREATE,
-                                StandardOpenOption.WRITE,
-                                StandardOpenOption.APPEND}
+                                StandardOpenOption.WRITE}
                         : new StandardOpenOption[]{
                                 StandardOpenOption.CREATE,
                                 StandardOpenOption.WRITE,

@@ -268,10 +268,17 @@ public class SearchParser {
             
             // Boolean operators
             case "NOT":
-                return SearchCriteria.not(parseSearchKey());
+                SearchCriteria negated = parseSearchKey();
+                if (negated == null) {
+                    throw new ParseException("NOT requires a search key", pos);
+                }
+                return SearchCriteria.not(negated);
             case "OR":
                 SearchCriteria a = parseSearchKey();
                 SearchCriteria b = parseSearchKey();
+                if (a == null || b == null) {
+                    throw new ParseException("OR requires two search keys", pos);
+                }
                 return SearchCriteria.or(a, b);
             
             default:
@@ -321,11 +328,12 @@ public class SearchParser {
         } else if (parts.size() == 1) {
             return parts.get(0);
         } else {
-            return SearchCriteria.or(
-                parts.get(0),
-                parts.size() == 2 ? parts.get(1) : 
-                    SearchCriteria.and(parts.subList(1, parts.size()).toArray(new SearchCriteria[0]))
-            );
+            // A sequence set is a union of its members
+            SearchCriteria result = parts.get(0);
+            for (int i = 1; i < parts.size(); i++) {
+                result = SearchCriteria.or(result, parts.get(i));
+            }
+            return result;
         }
     }
 

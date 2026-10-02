@@ -34,9 +34,12 @@ import java.nio.channels.SelectionKey;
 import java.nio.channels.Selector;
 import java.nio.channels.SocketChannel;
 import java.text.MessageFormat;
+import java.util.ArrayList;
 import java.util.Iterator;
+import java.util.List;
 import java.util.Set;
 import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -51,7 +54,35 @@ import java.util.ResourceBundle;
  * events to the appropriate handler type.
  *
  * <p>All I/O and TLS/DTLS processing for a handler occurs on its
- * assigned SelectorLoop thread.
+ * assigned SelectorLoop thread. That includes closing it: sending on and
+ * closing an endpoint, UDP/DTLS endpoint or QUIC engine are loop-thread
+ * operations, and other threads hand the work to the owning loop with
+ * {@link #invokeLater(Runnable)}.
+ *
+ * <h4>Shutdown</h4>
+ *
+ * <p>A loop owns every connection, datagram endpoint and QUIC engine
+ * registered with it, and closes all of them itself, on its own thread.
+ * {@link #shutdown()} is the orderly form: each owned handler is asked to
+ * close with its protocol goodbyes ({@link ChannelHandler#closeForShutdown
+ * closeForShutdown(true)}: queued output flushed, TLS/DTLS
+ * {@code close_notify}, QUIC {@code CONNECTION_CLOSE}). {@link
+ * #shutdownNow()} is the abort form: every handler is closed at once with
+ * no goodbyes and queued output discarded. Calling it while an orderly
+ * shutdown is waiting escalates that shutdown. Both are idempotent, return
+ * immediately, and may be called from any thread.
+ *
+ * <p>The loop exits when it owns nothing open, or when its hard deadline
+ * (see {@link #setCloseDeadlineMs}) passes, whichever is first: a peer that
+ * never drains its connection cannot hang a shutdown, its socket is closed
+ * regardless. Just before exiting the loop runs the tasks still queued with
+ * {@code invokeLater} once more, so a queued close is never dropped.
+ *
+ * <p>Once a loop has terminated, {@link #tryInvokeLater(Runnable)} returns
+ * {@code false} and {@link #invokeLater(Runnable)} logs a warning; neither
+ * runs the task, and a channel offered to
+ * {@code register*} is closed (see those methods). Nothing offered to a
+ * terminated loop is silently lost: it is either run, or visibly rejected.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
@@ -89,7 +120,27 @@ public class SelectorLoop implements Runnable {
     // volatile so cross-thread producers reliably observe a non-null selector
     // and their wakeup() takes effect (the loop no longer polls on a timeout).
     private volatile Selector selector;
-    private volatile boolean active;
+
+    private static final int MODE_RUNNING = 0;
+    private static final int MODE_ORDERLY = 1;
+    private static final int MODE_ABORT = 2;
+
+    /**
+     * Default bound on how long a loop that has begun shutting down waits
+     * for its handlers to finish closing before it closes them regardless.
+     */
+    private static final long DEFAULT_CLOSE_DEADLINE_MS = 5000L;
+
+    // Requested shutdown mode (MODE_*); only ever raised, orderly to abort.
+    private final AtomicInteger shutdownMode = new AtomicInteger(MODE_RUNNING);
+    // True once the loop has finished its final drain: from then on work
+    // offered to this loop is rejected rather than queued.
+    private volatile boolean terminated;
+    private volatile long closeDeadlineMs = DEFAULT_CLOSE_DEADLINE_MS;
+    // Loop-thread state of a shutdown in progress.
+    private boolean closeStarted;
+    private boolean abortApplied;
+    private long closeDeadlineAt;
 
     // Queue for registrations (cross-thread)
     private final ConcurrentLinkedQueue<PendingRegistration> pendingRegistrations;
@@ -160,11 +211,14 @@ public class SelectorLoop implements Runnable {
             return; // Already running
         }
         timer.start();
-        // Set before the thread runs, not in run(): a shutdown() that
+        // Reset before the thread runs, not in run(): a shutdown() that
         // arrives before the new thread is scheduled must not be undone
-        // by run() setting the flag afterwards (join() would then wait
+        // by run() resetting the state afterwards (join() would then wait
         // forever).
-        active = true;
+        shutdownMode.set(MODE_RUNNING);
+        terminated = false;
+        closeStarted = false;
+        abortApplied = false;
         thread = new Thread(this, "SelectorLoop-" + index);
         thread.start();
     }
@@ -218,7 +272,7 @@ public class SelectorLoop implements Runnable {
         try {
             selector = Selector.open();
 
-            while (active) {
+            for (;;) {
                 try {
                     // Process any pending registrations
                     processPendingRegistrations();
@@ -229,13 +283,21 @@ public class SelectorLoop implements Runnable {
                     // Process any pending tasks
                     processPendingTasks();
 
+                    // A requested shutdown is carried out here, on this
+                    // thread, after the queued work above has run.
+                    if (shutdownMode.get() != MODE_RUNNING && advanceShutdown()) {
+                        break;
+                    }
+
                     // Block until an I/O event, a wakeup(), or shutdown. Every
                     // path that enqueues a registration, timer, or task calls
                     // wakeup() (whose effect is sticky), so there is no need for
                     // a periodic timeout poll and its baseline CPU wakeups -
                     // SELECT_TIMEOUT_MS is 0 (block indefinitely) unless a
-                    // deployment has explicitly opted into a bound.
-                    selector.select(SELECT_TIMEOUT_MS);
+                    // deployment has explicitly opted into a bound. While a
+                    // shutdown is waiting on its handlers the wait is bounded
+                    // by the shutdown's hard deadline instead.
+                    selector.select(selectTimeoutMs());
 
                     Set<SelectionKey> keys = selector.selectedKeys();
                     for (Iterator<SelectionKey> i = keys.iterator(); i.hasNext(); ) {
@@ -282,14 +344,217 @@ public class SelectorLoop implements Runnable {
         } catch (IOException e) {
             LOGGER.log(Level.SEVERE, L10N.getString("log.failed_to_initialize_selectorloop"), e);
         } finally {
-            if (selector != null) {
-                try {
-                    selector.close();
-                } catch (IOException e) {
-                    LOGGER.log(Level.WARNING, L10N.getString("log.error_closing_selector_1"), e);
-                }
-                selector = null;
+            terminate();
+        }
+    }
+
+    private long selectTimeoutMs() {
+        if (!closeStarted) {
+            return SELECT_TIMEOUT_MS;
+        }
+        long remaining = Math.max(1L, closeDeadlineAt - clockMillis());
+        if (SELECT_TIMEOUT_MS > 0L && SELECT_TIMEOUT_MS < remaining) {
+            return SELECT_TIMEOUT_MS;
+        }
+        return remaining;
+    }
+
+    /**
+     * The clock the shutdown deadline is measured on, in milliseconds.
+     * Monotonic. Overridden by tests, which must not depend on real time.
+     */
+    long clockMillis() {
+        return System.nanoTime() / 1000000L;
+    }
+
+    /**
+     * Sets how long this loop, once told to shut down, waits for its
+     * handlers to finish closing before closing them regardless. The loop
+     * never lingers beyond this bound however its peers behave. Takes
+     * effect for shutdowns that begin after the call.
+     *
+     * @param ms the bound in milliseconds
+     */
+    void setCloseDeadlineMs(long ms) {
+        this.closeDeadlineMs = ms;
+    }
+
+    /**
+     * Carries a requested shutdown one step further. Runs on the loop
+     * thread. Starts the close of every owned handler the first time, and
+     * applies an abort that was requested while an orderly close was
+     * waiting.
+     *
+     * @return true when the loop should exit now
+     */
+    private boolean advanceShutdown() {
+        int mode = shutdownMode.get();
+        long now = clockMillis();
+        if (!closeStarted) {
+            closeStarted = true;
+            closeDeadlineAt = now + closeDeadlineMs;
+            abortApplied = (mode == MODE_ABORT);
+            closeOwned(abortApplied);
+        } else if (mode == MODE_ABORT && !abortApplied) {
+            abortApplied = true;
+            closeOwned(true);
+        }
+        if (openHandlerCount() == 0 && pendingRegistrations.isEmpty()
+                && pendingTasks.isEmpty()) {
+            return true;
+        }
+        if (now >= closeDeadlineAt) {
+            int remaining = openHandlerCount();
+            if (remaining > 0 && LOGGER.isLoggable(Level.WARNING)) {
+                LOGGER.warning(MessageFormat.format(
+                        L10N.getString("log.loop_close_deadline_exceeded"),
+                        Integer.valueOf(index), Integer.valueOf(remaining),
+                        Long.valueOf(closeDeadlineMs)));
             }
+            closeOwned(true);
+            return true;
+        }
+        return false;
+    }
+
+    private int openHandlerCount() {
+        int count = 0;
+        for (SelectionKey key : selector.keys()) {
+            if (key.isValid()) {
+                count++;
+            }
+        }
+        return count;
+    }
+
+    /**
+     * Asks every handler this loop owns to close, then, for an abort,
+     * cancels and closes the channel of any that did not.
+     */
+    private void closeOwned(boolean abort) {
+        List<SelectionKey> owned = new ArrayList<SelectionKey>(selector.keys());
+        for (int i = 0; i < owned.size(); i++) {
+            SelectionKey key = owned.get(i);
+            if (key.isValid()) {
+                closeOne(key, abort);
+            }
+        }
+    }
+
+    private void closeOne(SelectionKey key, boolean abort) {
+        Object attachment = key.attachment();
+        if (attachment instanceof ChannelHandler) {
+            try {
+                ((ChannelHandler) attachment).closeForShutdown(!abort);
+            } catch (Exception e) {
+                LOGGER.log(Level.WARNING,
+                        L10N.getString("log.error_closing_on_shutdown"), e);
+            }
+        }
+        if (abort && key.isValid()) {
+            try {
+                key.channel().close();
+            } catch (IOException e) {
+                // the key is cancelled below regardless
+            }
+            key.cancel();
+        }
+    }
+
+    /**
+     * The loop's last act, on its own thread: runs the work still queued
+     * exactly once, closes what that left open, rejects anything arriving
+     * from now on, and releases the selector.
+     */
+    private void terminate() {
+        try {
+            drainQueues();
+            flushClosingEndpoints();
+            if (selector != null) {
+                closeOwned(true);
+            }
+        } finally {
+            // From here on offered work is rejected. Anything that slipped
+            // in before the flag flipped is run by the second drain, so no
+            // task is ever both accepted and dropped.
+            terminated = true;
+            try {
+                drainQueues();
+                if (selector != null) {
+                    closeOwned(true);
+                }
+            } finally {
+                pendingTimers.clear();
+                timer.shutdown();
+                if (selector != null) {
+                    try {
+                        selector.close();
+                    } catch (IOException e) {
+                        LOGGER.log(Level.WARNING, L10N.getString("log.error_closing_selector_1"), e);
+                    }
+                    selector = null;
+                }
+            }
+        }
+    }
+
+    /**
+     * Runs the queued tasks and disposes of registrations that never got a
+     * selector key: their handlers are closed (never silently dropped).
+     */
+    private void drainQueues() {
+        PendingRegistration reg;
+        while ((reg = pendingRegistrations.poll()) != null) {
+            rejectRegistration(reg);
+        }
+        processPendingTasks();
+    }
+
+    /**
+     * Gives each endpoint that has asked to close, but is waiting for its
+     * output to drain, one last non-blocking attempt to write it.
+     */
+    private void flushClosingEndpoints() {
+        if (selector == null) {
+            return;
+        }
+        List<SelectionKey> owned = new ArrayList<SelectionKey>(selector.keys());
+        for (int i = 0; i < owned.size(); i++) {
+            SelectionKey key = owned.get(i);
+            Object attachment = key.attachment();
+            if (key.isValid() && attachment instanceof TcpEndpoint
+                    && ((TcpEndpoint) attachment).closeRequested) {
+                try {
+                    doTcpEndpointWrite(key, (TcpEndpoint) attachment);
+                } catch (RuntimeException e) {
+                    LOGGER.log(Level.WARNING,
+                            L10N.getString("log.error_closing_on_shutdown"), e);
+                }
+            }
+        }
+    }
+
+    /**
+     * Closes the handler and channel of a registration this loop will not
+     * service. May run on any thread: the handler has not been registered,
+     * so nothing else touches it.
+     */
+    private void rejectRegistration(PendingRegistration reg) {
+        if (LOGGER.isLoggable(Level.WARNING)) {
+            LOGGER.warning(MessageFormat.format(
+                    L10N.getString("log.registration_rejected_loop_terminated"),
+                    Integer.valueOf(index)));
+        }
+        try {
+            reg.handler.closeForShutdown(false);
+        } catch (Exception e) {
+            LOGGER.log(Level.WARNING,
+                    L10N.getString("log.error_closing_on_shutdown"), e);
+        }
+        try {
+            reg.channel.close();
+        } catch (IOException e) {
+            // already closed or unclosable; nothing more to do
         }
     }
 
@@ -298,10 +563,31 @@ public class SelectorLoop implements Runnable {
         while ((reg = pendingRegistrations.poll()) != null) {
             try {
                 int ops = reg.connect ? SelectionKey.OP_CONNECT : SelectionKey.OP_READ;
-                SelectionKey key = reg.channel.register(selector, ops);
+                SelectionKey key;
+                try {
+                    key = reg.channel.register(selector, ops);
+                } catch (CancelledKeyException e) {
+                    // The channel was handed off (e.g. an FTP active-mode
+                    // data connection) and re-registered before the
+                    // selector had deregistered its cancelled key. A
+                    // selection pass flushes the cancelled-key set, after
+                    // which the channel can be registered afresh.
+                    try {
+                        selector.selectNow();
+                    } catch (IOException io) {
+                        LOGGER.log(Level.WARNING,
+                                L10N.getString("log.error_in_selector_loop"), io);
+                    }
+                    key = reg.channel.register(selector, ops);
+                }
                 key.attach(reg.handler);
                 reg.handler.setSelectionKey(key);
                 reg.handler.setSelectorLoop(this);
+                if (closeStarted) {
+                    // Arrived after this loop began closing what it owns:
+                    // it is closed too, not served.
+                    closeOne(key, abortApplied);
+                }
             } catch (ClosedChannelException e) {
                 // Channel was closed before we could register
                 if (LOGGER.isLoggable(Level.FINE)) {
@@ -647,10 +933,7 @@ public class SelectorLoop implements Runnable {
         // a null loop and fall through to Gumdrop's shared timer, which is
         // never started outside of a full Gumdrop.start() server lifecycle.
         endpoint.setSelectorLoop(this);
-        pendingRegistrations.add(new PendingRegistration(channel, endpoint, false));
-        if (selector != null) {
-            selector.wakeup();
-        }
+        enqueueRegistration(new PendingRegistration(channel, endpoint, false));
     }
 
     /**
@@ -662,10 +945,7 @@ public class SelectorLoop implements Runnable {
      */
     void registerForConnect(SocketChannel channel, TcpEndpoint endpoint) {
         endpoint.setSelectorLoop(this);
-        pendingRegistrations.add(new PendingRegistration(channel, endpoint, true));
-        if (selector != null) {
-            selector.wakeup();
-        }
+        enqueueRegistration(new PendingRegistration(channel, endpoint, true));
     }
 
     /**
@@ -681,7 +961,8 @@ public class SelectorLoop implements Runnable {
 
     /**
      * Registers a datagram channel with this SelectorLoop.
-     * Thread-safe.
+     * Thread-safe. If this loop has terminated, the channel is closed and
+     * the handler told to close (abort) instead.
      *
      * @param channel the datagram channel
      * @param handler the datagram server or client
@@ -689,22 +970,56 @@ public class SelectorLoop implements Runnable {
     public void registerDatagram(DatagramChannel channel, ChannelHandler handler) {
         // See the identical comment in register(SocketChannel, TcpEndpoint).
         handler.setSelectorLoop(this);
-        pendingRegistrations.add(new PendingRegistration(channel, handler, false));
-        if (selector != null) {
-            selector.wakeup();
+        enqueueRegistration(new PendingRegistration(channel, handler, false));
+    }
+
+    /**
+     * Queues a registration for the loop thread. If this loop has already
+     * terminated nobody will service it, so the handler and channel are
+     * closed instead, on the calling thread (the handler has not been
+     * registered, so no other thread touches it) and a warning is logged.
+     */
+    private void enqueueRegistration(PendingRegistration reg) {
+        pendingRegistrations.add(reg);
+        if (terminated && pendingRegistrations.remove(reg)) {
+            rejectRegistration(reg);
+            return;
         }
+        wakeup();
     }
 
     // -- Write request methods --
+
+    /**
+     * Schedules a task to run on this SelectorLoop thread, without
+     * reporting whether it was accepted. See {@link #tryInvokeLater} for the
+     * semantics; this is the form to use when there is nothing a caller
+     * could do about a rejection (a rejection is logged as a warning).
+     *
+     * @param task the task to execute
+     */
+    public void invokeLater(Runnable task) {
+        tryInvokeLater(task);
+    }
 
     /**
      * Schedules a task to run on this SelectorLoop thread.
      * If called from this thread, the task is executed immediately.
      * Otherwise, it is queued and the selector is woken up.
      *
+     * <p>Returns {@code true} when the task has run or will run: tasks
+     * still queued when the loop is told to shut down run before it exits.
+     * Returns {@code false}, without running the task, only once the loop
+     * has terminated and can never run it; a warning is logged. The caller
+     * decides what that means for it (a handler that posts its own close,
+     * for example, has nothing left to close, since the loop closed
+     * everything it owned). It never throws, so timers and completion
+     * callbacks racing a shutdown are not disturbed.
+     *
      * @param task the task to execute
+     * @return false if the loop has terminated and the task was not accepted
      */
-    public void invokeLater(Runnable task) {
+    public boolean tryInvokeLater(Runnable task) {
         if (Thread.currentThread() == thread) {
             // We're on the SelectorLoop thread, execute immediately
             try {
@@ -712,13 +1027,32 @@ public class SelectorLoop implements Runnable {
             } catch (Exception e) {
                 LOGGER.log(Level.WARNING, L10N.getString("log.error_in_invokelater_task"), e);
             }
-        } else {
-            // Queue for execution on next selector wakeup
-            pendingTasks.offer(task);
-            if (selector != null) {
-                selector.wakeup();
-            }
+            return true;
         }
+        // Queue for execution on next selector wakeup
+        pendingTasks.offer(task);
+        if (terminated && pendingTasks.remove(task)) {
+            // The final drain has finished (or, in the one case where it
+            // has already taken this task, remove() fails and the task
+            // runs): the task can never run, so reject it visibly.
+            if (LOGGER.isLoggable(Level.WARNING)) {
+                LOGGER.warning(MessageFormat.format(
+                        L10N.getString("log.task_rejected_loop_terminated"),
+                        Integer.valueOf(index)));
+            }
+            return false;
+        }
+        wakeup();
+        return true;
+    }
+
+    /** Queues a loop-internal task, dropping it quietly if the loop is gone. */
+    private void post(Runnable task) {
+        pendingTasks.offer(task);
+        if (terminated && pendingTasks.remove(task)) {
+            return;
+        }
+        wakeup();
     }
 
     /**
@@ -737,10 +1071,7 @@ public class SelectorLoop implements Runnable {
                     // closed concurrently; nothing to pause
                 }
             } else {
-                pendingTasks.offer(new CancelReadTask(key));
-                if (selector != null) {
-                    selector.wakeup();
-                }
+                post(new CancelReadTask(key));
             }
         }
     }
@@ -761,10 +1092,7 @@ public class SelectorLoop implements Runnable {
                     // closed concurrently; nothing to resume
                 }
             } else {
-                pendingTasks.offer(new RequestReadTask(key));
-                if (selector != null) {
-                    selector.wakeup();
-                }
+                post(new RequestReadTask(key));
             }
         }
     }
@@ -832,12 +1160,51 @@ public class SelectorLoop implements Runnable {
     }
 
     /**
-     * Shuts down this SelectorLoop.
+     * Shuts this loop down in an orderly way. Returns immediately; the
+     * work happens on the loop's own thread. Every handler the loop owns
+     * is closed with its protocol goodbyes, queued tasks are run, and the
+     * loop exits once nothing is left open or its hard deadline passes.
+     * Idempotent, and a no-op for a loop that is already shutting down
+     * (or has been told to abort).
      */
     public void shutdown() {
-        active = false;
-        timer.shutdown();
+        requestShutdown(MODE_ORDERLY);
+    }
+
+    /**
+     * Aborts this loop: every owned handler is closed at once with no
+     * goodbyes and queued output is discarded; then the loop exits. If an
+     * orderly {@link #shutdown()} is still waiting on its handlers this
+     * escalates it. Returns immediately; idempotent.
+     */
+    void shutdownNow() {
+        requestShutdown(MODE_ABORT);
+    }
+
+    private void requestShutdown(int mode) {
+        int current = shutdownMode.get();
+        while (current < mode) {
+            if (shutdownMode.compareAndSet(current, mode)) {
+                break;
+            }
+            current = shutdownMode.get();
+        }
+        if (!isRunning()) {
+            // No thread will ever run the loop's own shutdown; at least
+            // stop its timer thread.
+            timer.shutdown();
+        }
         wakeup();
+    }
+
+    /**
+     * Returns whether this loop has finished shutting down: it has run its
+     * final drain and now rejects offered work.
+     *
+     * @return true once terminated
+     */
+    boolean isTerminated() {
+        return terminated;
     }
 
     /**

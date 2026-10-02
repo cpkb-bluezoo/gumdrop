@@ -1279,8 +1279,37 @@ public class HttpClient implements AltSvcListener {
     /**
      * Closes the connection and deregisters from Gumdrop's lifecycle
      * tracking.
+     *
+     * <p>The connection belongs to its selector loop, so the close
+     * (GOAWAY, TLS {@code close_notify}, QUIC {@code CONNECTION_CLOSE}) is
+     * handed to that loop and runs on its thread; this method returns
+     * without waiting for it and may be called from any thread. If the loop
+     * has already terminated it has closed the connection, and only the
+     * lifecycle bookkeeping is done here.
      */
     public void close() {
+        SelectorLoop loop = null;
+        if (quicEngine != null) {
+            loop = quicEngine.getSelectorLoop();
+        } else if (clientEndpoint != null) {
+            loop = clientEndpoint.getSelectorLoop();
+        }
+        Runnable task = new Runnable() {
+            @Override
+            public void run() {
+                closeConnection();
+            }
+        };
+        if (loop == null) {
+            // nothing network-side exists yet, so there is no loop to ask
+            task.run();
+        } else if (!loop.tryInvokeLater(task)) {
+            deregisterAfterLoopTerminated();
+        }
+    }
+
+    /** The close itself; runs on the connection's loop thread. */
+    private void closeConnection() {
         if (h3Handler != null) {
             h3Handler.close();
         }
@@ -1296,6 +1325,14 @@ public class HttpClient implements AltSvcListener {
             if (clientEndpoint != null) {
                 clientEndpoint.close();
             }
+        }
+    }
+
+    private void deregisterAfterLoopTerminated() {
+        if (poolEntry != null) {
+            releaseToPool();
+        } else if (clientEndpoint != null) {
+            clientEndpoint.close();
         }
     }
 

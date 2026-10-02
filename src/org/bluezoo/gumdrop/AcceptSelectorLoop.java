@@ -53,6 +53,20 @@ import java.util.ResourceBundle;
  * Handles OP_ACCEPT events for all ServerSocketChannels and hands off
  * new connections to worker SelectorLoops.
  *
+ * <p>This loop owns the listening sockets of every {@link TcpListener}
+ * and every raw acceptor registered with it, and closes them itself, on
+ * its own thread. {@link #stopAccepting()} releases the listeners'
+ * sockets (the loop keeps running, so raw acceptors that in-flight
+ * transfers still need stay usable); {@link #shutdown()} closes
+ * everything that remains and exits. Neither returns before the sockets
+ * are really released where the caller is told so: closing a channel
+ * registered with a selector from another thread only cancels its key, and
+ * the JDK releases the socket when the selector next deregisters it.
+ *
+ * <p>Once the loop has terminated, a registration offered to it is
+ * refused deterministically: a raw acceptor's channel is closed and a
+ * listener is reported through {@link Gumdrop#getBindFailures()}.
+ *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 public class AcceptSelectorLoop implements Runnable {
@@ -70,6 +84,9 @@ public class AcceptSelectorLoop implements Runnable {
      * descriptors free up is harmless.
      */
     private static final long ACCEPT_BACKOFF_MS = 1000L;
+
+    /** Upper bound on how long a caller waits for the accept thread to service a close request. */
+    private static final long REQUEST_WAIT_NANOS = TimeUnit.SECONDS.toNanos(10L);
 
     /**
      * Handler for raw socket channel accepts.
@@ -92,6 +109,12 @@ public class AcceptSelectorLoop implements Runnable {
     private Thread thread;
     private volatile Selector selector;
     private volatile boolean active;
+    // True once the final drain has finished: registrations offered from
+    // then on are refused rather than queued.
+    private volatile boolean terminated;
+    // Loop thread only: set when stopAccepting() has run, after which
+    // queued listener registrations are not bound.
+    private boolean acceptingStopped;
     private final ConcurrentLinkedQueue<PendingRegistration> pendingRegistrations;
     private volatile Runnable readyCallback;
 
@@ -116,6 +139,8 @@ public class AcceptSelectorLoop implements Runnable {
         // by run() setting the flag afterwards (join() would then wait
         // forever).
         active = true;
+        terminated = false;
+        acceptingStopped = false;
         thread = new Thread(this, "AcceptSelectorLoop");
         thread.start();
     }
@@ -185,47 +210,109 @@ public class AcceptSelectorLoop implements Runnable {
         } catch (IOException e) {
             LOGGER.log(Level.SEVERE, L10N.getString("log.failed_to_initialize_acceptselectorloop"), e);
         } finally {
-            releasePendingCloses();
-            if (selector != null) {
-                try {
-                    selector.close();
-                } catch (IOException e) {
-                    LOGGER.log(Level.WARNING, L10N.getString("log.error_closing_selector"), e);
-                }
-                selector = null;
-            }
+            terminate();
         }
     }
 
     /**
-     * Pending registration containing either a TcpListener (needs binding),
-     * or a raw accept handler with a pre-bound ServerSocketChannel.
+     * The loop's last act, on its own thread: closes every listening socket
+     * it still owns, services or refuses what is still queued, rejects
+     * anything arriving from now on, and releases the selector.
+     */
+    private void terminate() {
+        try {
+            closeOwnedSockets();
+            drainRegistrations();
+        } finally {
+            // Anything that slipped in before the flag flipped is handled
+            // by the second drain, so a request is never accepted and lost.
+            terminated = true;
+            try {
+                drainRegistrations();
+            } finally {
+                if (selector != null) {
+                    try {
+                        selector.close();
+                    } catch (IOException e) {
+                        LOGGER.log(Level.WARNING, L10N.getString("log.error_closing_selector"), e);
+                    }
+                    selector = null;
+                }
+            }
+        }
+    }
+
+    /** Closes the listeners' and raw acceptors' sockets registered here. */
+    private void closeOwnedSockets() {
+        if (selector == null) {
+            return;
+        }
+        List<SelectionKey> owned = new ArrayList<SelectionKey>(selector.keys());
+        for (int i = 0; i < owned.size(); i++) {
+            SelectionKey key = owned.get(i);
+            Object attachment = key.attachment();
+            if (attachment instanceof TcpListener) {
+                ((TcpListener) attachment).closeServerChannels();
+            } else if (key.channel() instanceof ServerSocketChannel) {
+                closeQuietly((ServerSocketChannel) key.channel());
+            }
+            key.cancel();
+        }
+    }
+
+    private enum Kind {
+        /** Bind and register a {@link TcpListener}. */
+        BIND_LISTENER,
+        /** Register an already-bound raw acceptor. */
+        RAW_ACCEPT,
+        /** Close one raw acceptor's socket and flush its key. */
+        CLOSE_RAW,
+        /** Close the listening sockets of one listener, or of all when null. */
+        RELEASE_LISTENERS
+    }
+
+    /**
+     * A request queued for the accept thread: a listener to bind, a raw
+     * acceptor to register, or a close to perform, the latter carrying a
+     * latch the requester waits on.
      */
     private static class PendingRegistration {
+        final Kind kind;
         final TcpListener listener;
         final RawAcceptHandler rawHandler;
-        final ServerSocketChannel channel; // null if listener needs binding
-        final CountDownLatch closed; // non-null for a close request
+        final ServerSocketChannel channel;
+        final CountDownLatch done; // non-null for a close request
 
         PendingRegistration(TcpListener listener) {
+            this.kind = Kind.BIND_LISTENER;
             this.listener = listener;
             this.rawHandler = null;
             this.channel = null;
-            this.closed = null;
+            this.done = null;
         }
 
-        PendingRegistration(ServerSocketChannel channel, CountDownLatch closed) {
+        PendingRegistration(ServerSocketChannel channel, CountDownLatch done) {
+            this.kind = Kind.CLOSE_RAW;
             this.listener = null;
             this.rawHandler = null;
             this.channel = channel;
-            this.closed = closed;
+            this.done = done;
+        }
+
+        PendingRegistration(TcpListener listener, CountDownLatch done) {
+            this.kind = Kind.RELEASE_LISTENERS;
+            this.listener = listener;
+            this.rawHandler = null;
+            this.channel = null;
+            this.done = done;
         }
 
         PendingRegistration(RawAcceptHandler handler, ServerSocketChannel channel) {
+            this.kind = Kind.RAW_ACCEPT;
             this.listener = null;
             this.rawHandler = handler;
             this.channel = channel;
-            this.closed = null;
+            this.done = null;
         }
     }
 
@@ -248,10 +335,7 @@ public class AcceptSelectorLoop implements Runnable {
      * @param server the endpoint server to register
      */
     public void registerListener(TcpListener server) {
-        pendingRegistrations.add(new PendingRegistration(server));
-        if (selector != null) {
-            selector.wakeup();
-        }
+        enqueue(new PendingRegistration(server));
     }
 
     /**
@@ -259,6 +343,7 @@ public class AcceptSelectorLoop implements Runnable {
      * The handler receives raw, non-blocking SocketChannels without
      * endpoint/connection infrastructure. Used by subsystems like FTP
      * data that need the channel itself rather than a full endpoint.
+     * If this loop has terminated, the channel is closed instead.
      *
      * @param channel an already-bound ServerSocketChannel
      * @param handler the handler to receive accepted connections
@@ -267,9 +352,26 @@ public class AcceptSelectorLoop implements Runnable {
         if (!channel.isOpen()) {
             return;
         }
-        pendingRegistrations.add(new PendingRegistration(handler, channel));
-        if (selector != null) {
-            selector.wakeup();
+        enqueue(new PendingRegistration(handler, channel));
+    }
+
+    /**
+     * Queues a request for the accept thread. If the loop has already
+     * terminated nobody will service it, so it is refused on the spot.
+     */
+    private void enqueue(PendingRegistration pending) {
+        pendingRegistrations.add(pending);
+        if (terminated && pendingRegistrations.remove(pending)) {
+            refuse(pending);
+            return;
+        }
+        wakeup();
+    }
+
+    private void wakeup() {
+        Selector sel = selector;
+        if (sel != null) {
+            sel.wakeup();
         }
     }
 
@@ -300,20 +402,72 @@ public class AcceptSelectorLoop implements Runnable {
             return;
         }
         CountDownLatch done = new CountDownLatch(1);
-        pendingRegistrations.add(new PendingRegistration(channel, done));
-        sel.wakeup();
+        enqueue(new PendingRegistration(channel, done));
+        if (!awaitDone(done)) {
+            closeQuietly(channel);
+        }
+    }
+
+    /**
+     * Stops accepting connections for every {@link TcpListener}: their
+     * listening sockets are closed on the accept thread and really
+     * released before this method returns, so no new connection is
+     * admitted from that point on. The loop itself keeps running (raw
+     * acceptors, such as an FTP transfer's data listener, stay usable)
+     * until {@link #shutdown()}. Listeners queued but not yet bound are
+     * not bound afterwards. A no-op returning at once for a loop that is
+     * not running; bounded otherwise.
+     */
+    void stopAccepting() {
+        releaseListeners(null);
+    }
+
+    /**
+     * Closes one listener's listening sockets on the accept thread and
+     * returns once they are really released, or at once if this loop is
+     * not running (in which case the caller closes them itself).
+     *
+     * @param listener the listener whose sockets to release
+     * @return false if the loop was not running and nothing was done
+     */
+    boolean releaseListener(TcpListener listener) {
+        return releaseListeners(listener);
+    }
+
+    private boolean releaseListeners(TcpListener listener) {
+        if (Thread.currentThread() == thread) {
+            doReleaseListeners(listener);
+            return true;
+        }
+        if (!isRunning() || selector == null) {
+            return false;
+        }
+        CountDownLatch done = new CountDownLatch(1);
+        enqueue(new PendingRegistration(listener, done));
+        return awaitDone(done);
+    }
+
+    /**
+     * Waits for the accept thread to service a close request, bounded: it
+     * gives up if the loop exits (its final drain services the request) or
+     * the bound passes, so a caller can never be left waiting.
+     *
+     * @return true if the request was serviced
+     */
+    private boolean awaitDone(CountDownLatch done) {
+        long deadline = System.nanoTime() + REQUEST_WAIT_NANOS;
         try {
             // Poll so that a loop that exits before servicing the request
             // cannot leave this caller waiting.
             while (!done.await(100L, TimeUnit.MILLISECONDS)) {
-                if (!isRunning()) {
-                    closeQuietly(channel);
-                    return;
+                if (!isRunning() || System.nanoTime() - deadline > 0L) {
+                    return done.getCount() == 0L;
                 }
             }
+            return true;
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            closeQuietly(channel);
+            return false;
         }
     }
 
@@ -342,23 +496,95 @@ public class AcceptSelectorLoop implements Runnable {
      */
     private void doCloseRawAcceptor(ServerSocketChannel channel, CountDownLatch done) {
         closeQuietly(channel);
+        flushCancelledKeys();
+        done.countDown();
+    }
+
+    /**
+     * Closes the listening sockets of {@code only}, or of every listener
+     * when it is null, then flushes the cancelled keys so they are
+     * released. Accept thread only.
+     */
+    private void doReleaseListeners(TcpListener only) {
+        if (only == null) {
+            acceptingStopped = true;
+        }
+        Selector sel = selector;
+        if (sel != null) {
+            List<SelectionKey> owned = new ArrayList<SelectionKey>(sel.keys());
+            for (int i = 0; i < owned.size(); i++) {
+                Object attachment = owned.get(i).attachment();
+                if (attachment instanceof TcpListener
+                        && (only == null || attachment == only)) {
+                    ((TcpListener) attachment).closeServerChannels();
+                }
+            }
+        }
+        if (only != null) {
+            // A registration for it still queued must not bind afterwards.
+            for (Iterator<PendingRegistration> i = pendingRegistrations.iterator(); i.hasNext(); ) {
+                PendingRegistration queued = i.next();
+                if (queued.kind == Kind.BIND_LISTENER && queued.listener == only) {
+                    i.remove();
+                }
+            }
+            only.closeServerChannels();
+        }
+        flushCancelledKeys();
+    }
+
+    private void flushCancelledKeys() {
+        Selector sel = selector;
+        if (sel == null) {
+            return;
+        }
         try {
-            selector.selectNow();
+            sel.selectNow();
         } catch (IOException e) {
-            // The loop's own select will deregister the key
-        } finally {
-            done.countDown();
+            // The loop's own select will deregister the keys
         }
     }
 
-    /** Completes close requests still queued when the loop exits. */
-    private void releasePendingCloses() {
+    /**
+     * Refuses a request offered to a loop that can no longer service it:
+     * channels are closed and waiters released, listeners are reported.
+     */
+    private void refuse(PendingRegistration pending) {
+        switch (pending.kind) {
+            case RAW_ACCEPT:
+                closeQuietly(pending.channel);
+                break;
+            case CLOSE_RAW:
+                closeQuietly(pending.channel);
+                pending.done.countDown();
+                break;
+            case RELEASE_LISTENERS:
+                if (pending.listener != null) {
+                    pending.listener.closeServerChannels();
+                }
+                pending.done.countDown();
+                break;
+            case BIND_LISTENER:
+                bindFailures.add(pending.listener.getDescription() + ": "
+                        + L10N.getString("log.accept_loop_terminated"));
+                if (LOGGER.isLoggable(Level.WARNING)) {
+                    LOGGER.warning(MessageFormat.format(
+                            L10N.getString("log.registration_refused_accept_loop_terminated"),
+                            pending.listener.getDescription()));
+                }
+                break;
+        }
+    }
+
+    /**
+     * Services what is still queued as the loop exits: close requests are
+     * performed so their requesters are released, and registrations that
+     * will never be served are refused.
+     */
+    private void drainRegistrations() {
         PendingRegistration pending;
         while ((pending = pendingRegistrations.poll()) != null) {
-            if (pending.closed != null) {
-                closeQuietly(pending.channel);
-                pending.closed.countDown();
-            }
+            refuse(pending);
         }
     }
 
@@ -369,12 +595,28 @@ public class AcceptSelectorLoop implements Runnable {
         PendingRegistration pending;
         while ((pending = pendingRegistrations.poll()) != null) {
             try {
-                if (pending.closed != null) {
-                    doCloseRawAcceptor(pending.channel, pending.closed);
-                } else if (pending.rawHandler != null) {
-                    doRegisterRawAcceptor(pending.rawHandler, pending.channel);
-                } else if (pending.listener != null) {
-                    doRegisterListener(pending.listener);
+                switch (pending.kind) {
+                    case CLOSE_RAW:
+                        doCloseRawAcceptor(pending.channel, pending.done);
+                        break;
+                    case RELEASE_LISTENERS:
+                        doReleaseListeners(pending.listener);
+                        pending.done.countDown();
+                        break;
+                    case RAW_ACCEPT:
+                        doRegisterRawAcceptor(pending.rawHandler, pending.channel);
+                        break;
+                    case BIND_LISTENER:
+                        if (acceptingStopped) {
+                            if (LOGGER.isLoggable(Level.FINE)) {
+                                LOGGER.fine(MessageFormat.format(
+                                        L10N.getString("log.listener_not_bound_accept_stopped"),
+                                        pending.listener.getDescription()));
+                            }
+                        } else {
+                            doRegisterListener(pending.listener);
+                        }
+                        break;
                 }
             } catch (ClosedChannelException e) {
                 // FTP client PORT/EPRT and similar paths may close the
@@ -618,7 +860,7 @@ public class AcceptSelectorLoop implements Runnable {
         // process-wide one (which only register() would otherwise assign,
         // one selector iteration later).
         final TcpListener listener = server;
-        workerLoop.invokeLater(new Runnable() {
+        boolean handedOff = workerLoop.tryInvokeLater(new Runnable() {
             @Override
             public void run() {
                 TcpEndpoint endpoint;
@@ -647,6 +889,16 @@ public class AcceptSelectorLoop implements Runnable {
                 }
             }
         });
+        if (!handedOff) {
+            // The worker loop has terminated: nobody will ever own this
+            // connection, so it is refused here, with its admission undone.
+            try {
+                sc.close();
+            } catch (IOException closeEx) {
+                // Ignore close errors
+            }
+            server.connectionClosed(remoteAddress);
+        }
     }
 
     private void logRejection(SocketAddress remoteAddress) {
@@ -662,13 +914,15 @@ public class AcceptSelectorLoop implements Runnable {
     }
 
     /**
-     * Shuts down this AcceptSelectorLoop.
+     * Shuts down this AcceptSelectorLoop. Returns immediately; on its own
+     * thread the loop closes every listening socket it still owns (listeners'
+     * and raw acceptors'), services or refuses what is still queued, and
+     * exits. There is nothing to drain here, so there is no deadline.
+     * Idempotent.
      */
     void shutdown() {
         active = false;
-        if (selector != null) {
-            selector.wakeup();
-        }
+        wakeup();
     }
 
     /**
@@ -680,6 +934,27 @@ public class AcceptSelectorLoop implements Runnable {
         if (thread != null) {
             thread.join();
         }
+    }
+
+    /**
+     * Waits up to {@code timeoutMs} for this loop's thread to terminate.
+     *
+     * @param timeoutMs the longest to wait, in milliseconds
+     * @throws InterruptedException if interrupted while waiting
+     */
+    void join(long timeoutMs) throws InterruptedException {
+        if (thread != null) {
+            thread.join(timeoutMs);
+        }
+    }
+
+    /**
+     * Returns the thread that runs this loop, or null if not started.
+     *
+     * @return the loop thread
+     */
+    Thread getThread() {
+        return thread;
     }
 
 }

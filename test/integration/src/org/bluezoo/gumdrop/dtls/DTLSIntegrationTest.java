@@ -94,13 +94,53 @@ public class DTLSIntegrationTest {
         return factory;
     }
 
+    /**
+     * Endpoint I/O belongs to the endpoint's own selector loop: run the
+     * send there and wait for it to have been performed.
+     */
+    private static void sendOnLoop(final UdpEndpoint endpoint, final String text)
+            throws InterruptedException {
+        final CountDownLatch sent = new CountDownLatch(1);
+        endpoint.execute(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    endpoint.send(ByteBuffer.wrap(text.getBytes(StandardCharsets.UTF_8)));
+                } finally {
+                    sent.countDown();
+                }
+            }
+        });
+        assertTrue("send should have run on the endpoint's loop",
+                sent.await(TIMEOUT_SECONDS, TimeUnit.SECONDS));
+    }
+
+    private static void closeOnLoop(final UdpEndpoint endpoint) {
+        final CountDownLatch done = new CountDownLatch(1);
+        endpoint.execute(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    endpoint.close();
+                } finally {
+                    done.countDown();
+                }
+            }
+        });
+        try {
+            done.await(TIMEOUT_SECONDS, TimeUnit.SECONDS);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+    }
+
     @After
     public void tearDown() {
         if (clientEndpoint != null) {
-            clientEndpoint.close();
+            closeOnLoop(clientEndpoint);
         }
         if (serverEndpoint != null) {
-            serverEndpoint.close();
+            closeOnLoop(serverEndpoint);
         }
         if (gumdrop != null && gumdrop.isStarted()) {
             gumdrop.shutdown();
@@ -206,7 +246,7 @@ public class DTLSIntegrationTest {
         // both sides default to DtlsVersion.NEGOTIATE, which prefers 1.3
         assertEquals("DTLSv1.3", clientHandler.securityInfo.get().getProtocol());
 
-        clientEndpoint.send(ByteBuffer.wrap("hello over DTLS".getBytes(StandardCharsets.UTF_8)));
+        sendOnLoop(clientEndpoint, "hello over DTLS");
 
         assertTrue("client should have received the echoed reply",
                 clientHandler.replyLatch.await(TIMEOUT_SECONDS, TimeUnit.SECONDS));
@@ -239,8 +279,8 @@ public class DTLSIntegrationTest {
             assertTrue(client2Handler.securityLatch.await(TIMEOUT_SECONDS, TimeUnit.SECONDS));
             assertNull(client2Handler.error.get());
 
-            clientEndpoint.send(ByteBuffer.wrap("from client one".getBytes(StandardCharsets.UTF_8)));
-            clientEndpoint2.send(ByteBuffer.wrap("from client two".getBytes(StandardCharsets.UTF_8)));
+            sendOnLoop(clientEndpoint, "from client one");
+            sendOnLoop(clientEndpoint2, "from client two");
 
             assertTrue(client1Handler.replyLatch.await(TIMEOUT_SECONDS, TimeUnit.SECONDS));
             assertTrue(client2Handler.replyLatch.await(TIMEOUT_SECONDS, TimeUnit.SECONDS));
@@ -248,7 +288,7 @@ public class DTLSIntegrationTest {
             assertEquals("from client one", client1Handler.reply.get());
             assertEquals("from client two", client2Handler.reply.get());
         } finally {
-            clientEndpoint2.close();
+            closeOnLoop(clientEndpoint2);
         }
     }
 

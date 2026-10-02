@@ -366,37 +366,14 @@ public class UdpEndpoint implements Endpoint, ChannelHandler {
      * its handshake yet (or has failed/closed), the data is dropped; the
      * {@code data} buffer is not retained after this call.
      *
+     * <p>Like all endpoint I/O this must be called on the selector loop
+     * thread that owns this endpoint; callers on other threads must
+     * reschedule onto the loop first.
+     *
      * @param data the datagram payload
      * @param dest the destination address
      */
-    public void sendTo(ByteBuffer data, final InetSocketAddress dest) {
-        if (secure && selectorLoop != null
-                && Thread.currentThread() != selectorLoop.getThread()) {
-            // DTLS session state (record engines, flight buffers, the
-            // session maps) is owned by the selector loop thread. A send
-            // from any other thread, typically right after the handshake
-            // has been signalled from inside datagram processing, must not
-            // run concurrently with that processing. The caller's buffer
-            // may be reused as soon as we return, so queue a copy.
-            final ByteBuffer copy = ByteBufferPool.acquire(data.remaining());
-            copy.put(data);
-            copy.flip();
-            selectorLoop.invokeLater(new Runnable() {
-                @Override
-                public void run() {
-                    try {
-                        sendToOnLoop(copy, dest);
-                    } finally {
-                        ByteBufferPool.release(copy);
-                    }
-                }
-            });
-            return;
-        }
-        sendToOnLoop(data, dest);
-    }
-
-    private void sendToOnLoop(ByteBuffer data, InetSocketAddress dest) {
+    public void sendTo(ByteBuffer data, InetSocketAddress dest) {
         if (secure) {
             if (dtlsVersionPolicy == DtlsVersion.NEGOTIATE) {
                 NegotiatingDtlsSession session = negotiatingDtlsSessions.get(dest);
@@ -488,6 +465,26 @@ public class UdpEndpoint implements Endpoint, ChannelHandler {
 
     @Override
     public void close() {
+        close(false);
+    }
+
+    /**
+     * Closes this endpoint because its loop is shutting down; runs on the
+     * loop thread. Orderly: DTLS sessions send their {@code close_notify}
+     * and every datagram still queued is written to the socket before it
+     * closes. Abort: queued datagrams, close_notify included, are discarded.
+     */
+    @Override
+    public void closeForShutdown(boolean orderly) {
+        close(orderly);
+    }
+
+    /**
+     * @param flushQueued whether datagrams still queued (including the
+     *        {@code close_notify} just produced) are written out before the
+     *        socket is closed
+     */
+    private void close(boolean flushQueued) {
         if (closing) {
             return;
         }
@@ -509,6 +506,10 @@ public class UdpEndpoint implements Endpoint, ChannelHandler {
                     : new ArrayList<Dtls12Session>(dtlsSessions.values())) {
                 dtlsSession.close();
             }
+        }
+
+        if (flushQueued) {
+            flushPendingDatagrams();
         }
 
         if (channel != null) {
@@ -548,6 +549,36 @@ public class UdpEndpoint implements Endpoint, ChannelHandler {
     void onPendingDatagramFullySent(PendingDatagram pending) {
         pendingDatagramBytes -= pending.queuedBytes;
         ByteBufferPool.release(pending.data);
+    }
+
+    /**
+     * Writes the queued datagrams to the socket in order, once each, without
+     * waiting: whatever the socket will not take immediately is dropped, as
+     * a datagram socket that is closing has no later chance to send it.
+     * Loop thread only.
+     */
+    private void flushPendingDatagrams() {
+        DatagramChannel dc = channel;
+        if (dc == null || !dc.isOpen()) {
+            return;
+        }
+        PendingDatagram pending;
+        while ((pending = pendingDatagrams.poll()) != null) {
+            try {
+                if (pending.destination != null) {
+                    dc.send(pending.data, pending.destination);
+                } else {
+                    dc.write(pending.data);
+                }
+            } catch (IOException e) {
+                if (LOGGER.isLoggable(Level.FINE)) {
+                    String message = MessageFormat.format(
+                            Gumdrop.L10N.getString("err.write"), "datagram channel");
+                    LOGGER.log(Level.FINE, message, e);
+                }
+            }
+            onPendingDatagramFullySent(pending);
+        }
     }
 
     private void drainPendingDatagrams() {

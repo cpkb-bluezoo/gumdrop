@@ -1709,10 +1709,13 @@ public final class ImapClientProtocolHandler
             if (s.charAt(i) == '"') {
                 int end = s.indexOf('"', i + 1);
                 if (end < 0) {
-                    end = len;
+                    // unterminated quoted string: take the rest
+                    parts.add(s.substring(i));
+                    i = len;
+                } else {
+                    parts.add(s.substring(i, end + 1));
+                    i = end + 1;
                 }
-                parts.add(s.substring(i, end + 1));
-                i = end + 1;
             } else {
                 int end = s.indexOf(' ', i);
                 if (end < 0) {

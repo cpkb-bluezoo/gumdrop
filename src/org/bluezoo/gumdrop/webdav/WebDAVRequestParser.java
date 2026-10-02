@@ -88,7 +88,11 @@ class WebDAVRequestParser extends AbstractXMLHandler {
         }
     }
 
+    /** Upper bound on bytes the XML parser may leave unconsumed between chunks. */
+    private static final int MAX_CARRY = 8192;
+
     private final Parser parser;
+    private ByteBuffer carry;
     private final StringBuilder textContent = new StringBuilder();
 
     private PropfindRequest propfindRequest;
@@ -124,9 +128,40 @@ class WebDAVRequestParser extends AbstractXMLHandler {
         }
     }
 
+    /**
+     * Feeds a chunk of the request body to the XML parser.
+     *
+     * <p>The underlying parser consumes what it can and leaves bytes it
+     * cannot yet decode (for example a lone first byte, a split XML
+     * declaration or a split multi-byte character) in the buffer. The
+     * caller's buffer is only valid during the call, so those few bytes are
+     * kept here and prepended to the next chunk. On return all of
+     * {@code data} has been consumed.
+     *
+     * @param data the next chunk of the body
+     * @throws IOException on a parse error
+     */
     void receive(ByteBuffer data) throws IOException {
+        ByteBuffer input = data;
+        if (carry != null) {
+            int total = carry.remaining() + data.remaining();
+            input = ByteBuffer.allocate(total);
+            input.put(carry);
+            input.put(data);
+            input.flip();
+            carry = null;
+        }
         try {
-            parser.receive(data);
+            parser.receive(input);
+            if (input.hasRemaining()) {
+                if (input.remaining() > MAX_CARRY) {
+                    throw new IOException("Unparseable XML prefix too long");
+                }
+                carry = ByteBuffer.allocate(input.remaining());
+                carry.put(input);
+                carry.flip();
+            }
+            data.position(data.limit());
         } catch (SAXException e) {
             throw new IOException(e.getMessage(), e);
         }
@@ -147,6 +182,7 @@ class WebDAVRequestParser extends AbstractXMLHandler {
     }
 
     void reset() {
+        carry = null;
         try {
             parser.reset();
         } catch (SAXException e) {

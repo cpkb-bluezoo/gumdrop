@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.dns;
 
+import org.bluezoo.gumdrop.IntegrationLoop;
 import java.io.IOException;
 import java.lang.reflect.Field;
 import java.net.InetAddress;
@@ -360,7 +361,7 @@ public class DoQProductionEndToEndTest {
             firstTransport.close();
             secondTransport.close();
             if (serverEngine != null) {
-                serverEngine.close();
+                IntegrationLoop.close(serverEngine);
             }
             SessionTicketCache.clear();
         }
@@ -514,7 +515,7 @@ public class DoQProductionEndToEndTest {
             loop.awaitQuiesce(2000);
             resolver.close();
             if (serverEngine != null) {
-                serverEngine.close();
+                IntegrationLoop.close(serverEngine);
             }
         }
     }

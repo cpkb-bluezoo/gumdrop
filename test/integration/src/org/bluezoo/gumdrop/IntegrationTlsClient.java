@@ -245,7 +245,14 @@ public final class IntegrationTlsClient {
         if (!doneLatch.await(timeoutMs, TimeUnit.MILLISECONDS)) {
             Endpoint open = activeEndpoint.get();
             if (open != null) {
-                open.close();
+                final Endpoint toClose = open;
+                // endpoint I/O belongs to the endpoint's own loop
+                toClose.execute(new Runnable() {
+                    @Override
+                    public void run() {
+                        toClose.close();
+                    }
+                });
             }
             client.close();
             throw new java.io.IOException("TLS session timed out after " + timeoutMs + "ms");

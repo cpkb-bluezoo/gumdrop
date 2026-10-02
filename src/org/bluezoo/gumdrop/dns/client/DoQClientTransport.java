@@ -262,11 +262,29 @@ public class DoQClientTransport implements DnsClientTransport {
         return engine.scheduleTimer(delayMs, callback);
     }
 
+    /**
+     * Closes the QUIC engine. The engine belongs to its selector loop, so
+     * the close (CONNECTION_CLOSE included) is handed to that loop and runs
+     * on its thread; this method does not wait for it. An engine its loop
+     * has already closed is left alone.
+     */
     @Override
     public void close() {
-        if (engine != null) {
-            engine.close();
+        final QuicEngine toClose = engine;
+        if (toClose == null || toClose.isClosing()) {
+            return;
         }
+        SelectorLoop loop = toClose.getSelectorLoop();
+        if (loop == null) {
+            toClose.close();
+            return;
+        }
+        loop.invokeLater(new Runnable() {
+            @Override
+            public void run() {
+                toClose.close();
+            }
+        });
     }
 
     /**

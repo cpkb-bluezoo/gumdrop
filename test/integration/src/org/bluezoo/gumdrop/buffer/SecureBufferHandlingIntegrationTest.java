@@ -151,32 +151,45 @@ public class SecureBufferHandlingIntegrationTest extends AbstractServerIntegrati
         
         final java.util.concurrent.atomic.AtomicReference<Throwable> senderError =
                 new java.util.concurrent.atomic.AtomicReference<Throwable>();
+        final java.util.concurrent.atomic.AtomicReference<org.bluezoo.gumdrop.Endpoint> clientEndpoint =
+                new java.util.concurrent.atomic.AtomicReference<org.bluezoo.gumdrop.Endpoint>();
+        final java.util.concurrent.atomic.AtomicInteger received =
+                new java.util.concurrent.atomic.AtomicInteger();
+        // Every send and the close run on the client connection's own loop.
+        // The next step is driven by the server having received the previous
+        // chunk (hook runs on the server connection's loop), never by a
+        // helper thread blocking on the server.
+        server.setReceiveHook(new Runnable() {
+            @Override
+            public void run() {
+                final int n = received.incrementAndGet();
+                final org.bluezoo.gumdrop.Endpoint ep = clientEndpoint.get();
+                ep.execute(new Runnable() {
+                    @Override
+                    public void run() {
+                        try {
+                            if (n == 1) {
+                                ep.send(ByteBuffer.wrap("7890123".getBytes("US-ASCII")));
+                            } else if (n == 2) {
+                                ep.send(ByteBuffer.wrap("456789".getBytes("US-ASCII")));
+                            } else if (n == 3) {
+                                ep.close();
+                            }
+                        } catch (Exception e) {
+                            senderError.set(e);
+                            ep.close();
+                        }
+                    }
+                });
+            }
+        });
         IntegrationTlsClient.withConnectedEndpoint("::1", TEST_PORT, clientTrust, 10000,
                 new IntegrationTlsClient.ConnectedSession() {
                     @Override
                     public void run(final org.bluezoo.gumdrop.Endpoint endpoint) throws Exception {
-                        // The callback runs on the client's selector loop, which must
-                        // return for writes to flush, so the paced sends run on their
-                        // own thread, each waiting for the server to receive the last.
-                        Thread sender = new Thread(new Runnable() {
-                            @Override
-                            public void run() {
-                                try {
-                                    endpoint.send(ByteBuffer.wrap("0123456".getBytes("US-ASCII")));
-                                    assertTrue("chunk 1 received", server.awaitReceive());
-                                    endpoint.send(ByteBuffer.wrap("7890123".getBytes("US-ASCII")));
-                                    assertTrue("chunk 2 received", server.awaitReceive());
-                                    endpoint.send(ByteBuffer.wrap("456789".getBytes("US-ASCII")));
-                                    assertTrue("chunk 3 received", server.awaitReceive());
-                                } catch (Exception | AssertionError e) {
-                                    senderError.set(e);
-                                } finally {
-                                    endpoint.close();
-                                }
-                            }
-                        }, "secure-buffer-test-sender");
-                        sender.setDaemon(true);
-                        sender.start();
+                        // runs on the client connection's loop
+                        clientEndpoint.set(endpoint);
+                        endpoint.send(ByteBuffer.wrap("0123456".getBytes("US-ASCII")));
                     }
                 });
         

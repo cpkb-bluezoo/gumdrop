@@ -28,6 +28,8 @@ import static org.junit.Assert.assertTrue;
 import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
 import org.bluezoo.gumdrop.telemetry.TelemetryExporter;
 import org.bluezoo.gumdrop.telemetry.json.OtlpFileExporter;
+import org.bluezoo.gumdrop.telemetry.otlp.OtlpExporter;
+import org.bluezoo.gumdrop.telemetry.otlp.OtlpGrpcExporter;
 import org.junit.Test;
 
 /**
@@ -53,5 +55,33 @@ public class DefaultTelemetryExporterFactoryTest {
         TelemetryExporter e =
                 new DefaultTelemetryExporterFactory().createExporter(config);
         assertTrue(e instanceof OtlpFileExporter);
+    }
+
+    @Test
+    public void grpcProtocolSelectsGrpcExporter() {
+        TelemetryConfig config = new TelemetryConfig();
+        config.setEndpoint("http://localhost:4317");
+        config.setProtocol(TelemetryConfig.Protocol.GRPC);
+        TelemetryExporter e =
+                new DefaultTelemetryExporterFactory().createExporter(config);
+        try {
+            assertTrue(e instanceof OtlpGrpcExporter);
+        } finally {
+            e.shutdown();
+        }
+    }
+
+    @Test
+    public void httpProtocolSelectsOtlpHttpExporter() {
+        TelemetryConfig config = new TelemetryConfig();
+        config.setEndpoint("http://localhost:4318");
+        config.setProtocol(TelemetryConfig.Protocol.HTTP_PROTOBUF);
+        TelemetryExporter e =
+                new DefaultTelemetryExporterFactory().createExporter(config);
+        try {
+            assertTrue(e instanceof OtlpExporter);
+        } finally {
+            e.shutdown();
+        }
     }
 }

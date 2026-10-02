@@ -581,12 +581,58 @@ public class Http3Listener extends TcpListener
         }
     }
 
+    /**
+     * Stops admitting new QUIC connections: each engine is told, on its
+     * own loop, to drop Initial packets from new clients. Unlike a TCP
+     * listener the UDP socket is not released here, because established
+     * connections share it; it is closed with the connections, on the
+     * loop that owns it, when the runtime closes its loops or on
+     * {@link #stop()}.
+     */
+    @Override
+    public void closeServerChannels() {
+        List<QuicEngine> snapshot = new ArrayList<QuicEngine>(engines);
+        for (int i = 0; i < snapshot.size(); i++) {
+            final QuicEngine engine = snapshot.get(i);
+            SelectorLoop loop = engine.getSelectorLoop();
+            if (loop != null) {
+                loop.invokeLater(new Runnable() {
+                    @Override
+                    public void run() {
+                        engine.stopAdmitting();
+                    }
+                });
+            }
+        }
+    }
+
+    /**
+     * Stops this listener. Engines belong to their selector loop, so the
+     * close (with CONNECTION_CLOSE on every connection) is handed to that
+     * loop and runs on its thread; this method does not wait for it. An
+     * engine whose loop has already closed it is left alone.
+     */
     @Override
     public void stop() {
-        for (int i = 0; i < engines.size(); i++) {
-            engines.get(i).close();
-        }
+        List<QuicEngine> snapshot = new ArrayList<QuicEngine>(engines);
         engines.clear();
+        for (int i = 0; i < snapshot.size(); i++) {
+            final QuicEngine engine = snapshot.get(i);
+            if (engine.isClosing()) {
+                continue;
+            }
+            SelectorLoop loop = engine.getSelectorLoop();
+            if (loop == null) {
+                engine.close();
+                continue;
+            }
+            loop.invokeLater(new Runnable() {
+                @Override
+                public void run() {
+                    engine.close();
+                }
+            });
+        }
     }
 
     // ── ConnectionAcceptedHandler ──

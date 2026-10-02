@@ -162,6 +162,10 @@ final class ContextClassLoader extends ClassLoader {
             Collections.sort(sorted);
             jars = sorted;
             for (String jar : jars) {
+                if (!jar.toLowerCase().endsWith(".jar")) {
+                    // WEB-INF/lib may also hold non-archive files (readme etc.)
+                    continue;
+                }
                 try {
                     File file = getFile(jar);
                     JarFile jarFile = new JarFile(file); // NB cannot close yet, use JarInputStream
@@ -176,9 +180,10 @@ final class ContextClassLoader extends ClassLoader {
                         jarFile.close();
                     }
                 } catch (IOException e) {
-                    ClassNotFoundException e2 = new ClassNotFoundException(name);
-                    e2.initCause(e);
-                    throw e2;
+                    // The (message, cause) constructor: initCause() always
+                    // throws IllegalStateException on a ClassNotFoundException
+                    // built with the single-argument constructor.
+                    throw new ClassNotFoundException(name, e);
                 }
             }
         }
@@ -194,9 +199,7 @@ final class ContextClassLoader extends ClassLoader {
             }
             return sink.toByteArray();
         } catch (IOException e) {
-            ClassNotFoundException e2 = new ClassNotFoundException(className);
-            e2.initCause(e);
-            throw e2;
+            throw new ClassNotFoundException(className, e);
         }
     }
 

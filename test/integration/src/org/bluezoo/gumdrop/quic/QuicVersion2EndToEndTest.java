@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.quic;
 
+import org.bluezoo.gumdrop.IntegrationLoop;
 import java.lang.reflect.Field;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
@@ -177,10 +178,10 @@ public class QuicVersion2EndToEndTest {
             loop.shutdown();
             loop.awaitQuiesce(2000);
             if (clientEngine != null) {
-                clientEngine.close();
+                IntegrationLoop.close(clientEngine);
             }
             if (serverEngine != null) {
-                serverEngine.close();
+                IntegrationLoop.close(serverEngine);
             }
         }
     }

@@ -72,6 +72,11 @@ public class QuicConnectionStreamDrainPerformanceTest {
         }
 
         @Override
+        public boolean isResumed() {
+            return false;
+        }
+
+        @Override
         public byte[] getClientHandshakeTrafficSecret() {
             return new byte[32];
         }

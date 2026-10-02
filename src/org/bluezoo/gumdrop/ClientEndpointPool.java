@@ -194,7 +194,7 @@ public class ClientEndpointPool {
         }
 
         if (System.currentTimeMillis() - entry.lastUsed > idleTimeoutMs) {
-            entry.endpoint.close();
+            closeOnLoop(entry.endpoint);
             list.remove(entry);
             return tryAcquire(target);
         }
@@ -277,6 +277,21 @@ public class ClientEndpointPool {
     }
 
     /**
+     * Closes a pooled endpoint on the loop that owns it. The pool is called
+     * from arbitrary threads and from its own cleanup timer, none of which
+     * may do an endpoint's I/O, so the close is handed to the endpoint's
+     * loop and runs there.
+     */
+    private static void closeOnLoop(final Endpoint endpoint) {
+        endpoint.execute(new Runnable() {
+            @Override
+            public void run() {
+                endpoint.close();
+            }
+        });
+    }
+
+    /**
      * Removes and closes an endpoint from the pool.
      *
      * @param entry the entry to remove
@@ -292,7 +307,7 @@ public class ClientEndpointPool {
         }
 
         if (entry.endpoint != null && entry.endpoint.isOpen()) {
-            entry.endpoint.close();
+            closeOnLoop(entry.endpoint);
         }
     }
 
@@ -309,7 +324,7 @@ public class ClientEndpointPool {
         for (EndpointList list : pool.values()) {
             for (PoolEntry entry : list.all()) {
                 if (entry.endpoint != null && entry.endpoint.isOpen()) {
-                    entry.endpoint.close();
+                    closeOnLoop(entry.endpoint);
                 }
             }
         }
@@ -367,7 +382,7 @@ public class ClientEndpointPool {
             for (int i = 0; i < expired.size(); i++) {
                 PoolEntry entry = expired.get(i);
                 if (entry.endpoint != null && entry.endpoint.isOpen()) {
-                    entry.endpoint.close();
+                    closeOnLoop(entry.endpoint);
                     closedCount++;
                 }
             }

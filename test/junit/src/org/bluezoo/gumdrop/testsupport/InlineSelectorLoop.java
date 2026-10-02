@@ -24,7 +24,7 @@ package org.bluezoo.gumdrop.testsupport;
 import org.bluezoo.gumdrop.SelectorLoop;
 
 /**
- * {@link SelectorLoop} that runs {@link #invokeLater(Runnable)} tasks on the
+ * {@link SelectorLoop} that runs {@link #tryInvokeLater(Runnable)} tasks on the
  * calling thread, for unit tests that drive protocol handlers without a live
  * worker loop.
  *
@@ -46,10 +46,10 @@ public final class InlineSelectorLoop extends SelectorLoop {
     }
 
     @Override
-    public void invokeLater(Runnable task) {
+    public boolean tryInvokeLater(Runnable task) {
         if (Thread.currentThread() == getThread()) {
             task.run();
-            return;
+            return true;
         }
         EXECUTING.set(Thread.currentThread());
         try {
@@ -57,5 +57,6 @@ public final class InlineSelectorLoop extends SelectorLoop {
         } finally {
             EXECUTING.remove();
         }
+        return true;
     }
 }

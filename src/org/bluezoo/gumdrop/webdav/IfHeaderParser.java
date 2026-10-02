@@ -110,9 +110,7 @@ class IfHeaderParser {
 
         while (pos < header.length()) {
             if (header.charAt(pos) == '<') {
-                // Could be a Resource-Tag (tagged-list) or a state-token in a no-tag-list
-                // Peek ahead to see if there's a '(' after the '>'
-                int savedPos = pos;
+                // A Resource-Tag: "<" Simple-ref ">" followed by one or more lists
                 String uri = readAngleBracketedURI();
                 if (uri == null) {
                     break;
@@ -129,21 +127,9 @@ class IfHeaderParser {
                         skipWhitespace();
                     }
                     groups.add(group);
-                } else {
-                    // Not a resource tag — rewind and treat as no-tag-list
-                    pos = savedPos;
-                    IfGroup group = new IfGroup(null);
-                    while (pos < header.length() && header.charAt(pos) == '(') {
-                        ConditionList list = readConditionList();
-                        if (list != null) {
-                            group.lists.add(list);
-                        }
-                        skipWhitespace();
-                    }
-                    if (!group.lists.isEmpty()) {
-                        groups.add(group);
-                    }
                 }
+                // else: a bare "<uri>" with no list is malformed; it is
+                // consumed and ignored (the cursor already moved past it)
             } else if (header.charAt(pos) == '(') {
                 // No-tag-list
                 IfGroup group = new IfGroup(null);
@@ -203,12 +189,16 @@ class IfHeaderParser {
                 String token = readAngleBracketedURI();
                 if (token != null) {
                     list.conditions.add(new Condition(negated, token, null));
+                } else {
+                    pos++; // unterminated: step past the "<" so the scan advances
                 }
             } else if (c == '[') {
                 // Entity-tag
                 String etag = readEntityTag();
                 if (etag != null) {
                     list.conditions.add(new Condition(negated, null, etag));
+                } else {
+                    pos++; // unterminated: step past the "[" so the scan advances
                 }
             } else {
                 pos++;

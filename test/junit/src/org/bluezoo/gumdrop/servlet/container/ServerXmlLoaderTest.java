@@ -349,4 +349,11 @@ public class ServerXmlLoaderTest {
                 + "<listener port='1'/></server>");
         assertError("group-address");
     }
+
+    @Test
+    public void emptyDocumentReportsErrorInsteadOfThrowing() {
+        load("");
+        assertNull(server);
+        assertNotNull(error);
+    }
 }

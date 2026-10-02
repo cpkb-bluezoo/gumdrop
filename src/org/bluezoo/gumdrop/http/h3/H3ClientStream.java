@@ -303,12 +303,19 @@ class H3ClientStream implements ProtocolHandler, H3FrameHandler {
      */
     void sendRawData(ByteBuffer frameData) {
         int length = frameData.remaining();
-        ByteBuffer out = ByteBuffer.allocate(H3Writer.dataLength(length));
+        final ByteBuffer out = ByteBuffer.allocate(H3Writer.dataLength(length));
         byte[] bytes = new byte[length];
         frameData.get(bytes);
         H3Writer.writeData(out, bytes);
         out.flip();
-        endpoint.send(out);
+        // Callers (WebSocket sessions) may be on any application thread;
+        // the QUIC endpoint is owned by the connection's selector loop.
+        endpoint.execute(new Runnable() {
+            @Override
+            public void run() {
+                endpoint.send(out);
+            }
+        });
     }
 
     /**
@@ -322,10 +329,15 @@ class H3ClientStream implements ProtocolHandler, H3FrameHandler {
      * Closes this stream's endpoint, if not already closed.
      */
     void closeStream() {
-        if (state != State.CLOSED) {
-            endpoint.close();
-            state = State.CLOSED;
-        }
+        endpoint.execute(new Runnable() {
+            @Override
+            public void run() {
+                if (state != State.CLOSED) {
+                    endpoint.close();
+                    state = State.CLOSED;
+                }
+            }
+        });
     }
 
     @Override

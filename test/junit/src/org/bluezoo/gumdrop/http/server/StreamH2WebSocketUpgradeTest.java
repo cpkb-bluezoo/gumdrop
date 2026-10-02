@@ -29,6 +29,7 @@ import org.bluezoo.gumdrop.http.HttpVersion;
 
 import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.SecurityInfo;
+import org.bluezoo.gumdrop.testsupport.InlineSelectorLoop;
 import org.bluezoo.gumdrop.http.h2.H2FrameHandler;
 import org.bluezoo.gumdrop.http.hpack.Decoder;
 import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
@@ -51,6 +52,7 @@ import static org.junit.Assert.*;
 public class StreamH2WebSocketUpgradeTest {
 
     private static class StubConnection implements HttpConnectionLike {
+        private static final SelectorLoop LOOP = new InlineSelectorLoop();
         HttpVersion version = HttpVersion.HTTP_2_0;
         int lastStatusCode = -1;
         boolean rstStreamSent = false;
@@ -103,7 +105,7 @@ public class StreamH2WebSocketUpgradeTest {
                 ByteBuffer headerBlock, boolean endHeaders) { }
         @Override public Stream createPushedStream(int streamId, String method,
                 String uri, Headers headers) { return null; }
-        @Override public SelectorLoop getSelectorLoop() { return null; }
+        @Override public SelectorLoop getSelectorLoop() { return LOOP; }
         @Override public int getMaxHeaderListSize() { return 8192; }
         @Override public long getMaxRequestBodySize() { return 0; }
         @Override public HttpAuthenticationProvider getAuthenticationProvider() { return null; }

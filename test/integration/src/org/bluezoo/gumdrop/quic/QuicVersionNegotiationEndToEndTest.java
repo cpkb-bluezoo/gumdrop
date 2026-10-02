@@ -22,6 +22,7 @@
 
 package org.bluezoo.gumdrop.quic;
 
+import org.bluezoo.gumdrop.IntegrationLoop;
 import java.net.DatagramPacket;
 import java.net.DatagramSocket;
 import java.net.InetAddress;
@@ -131,7 +132,7 @@ public class QuicVersionNegotiationEndToEndTest {
             loop.shutdown();
             loop.awaitQuiesce(2000);
             if (engine != null) {
-                engine.close();
+                IntegrationLoop.close(engine);
             }
         }
     }
@@ -284,7 +285,7 @@ public class QuicVersionNegotiationEndToEndTest {
             loop.shutdown();
             loop.awaitQuiesce(2000);
             if (engine != null) {
-                engine.close();
+                IntegrationLoop.close(engine);
             }
             fakeServer.close();
         }

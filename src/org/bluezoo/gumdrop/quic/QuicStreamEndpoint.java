@@ -272,13 +272,7 @@ public final class QuicStreamEndpoint implements Endpoint {
         closing = true;
         open = false;
         connection.queueStreamData(streamId, EMPTY_BUFFER, true);
-        final QuicStreamEndpoint self = this;
-        connection.runOnLoop(new Runnable() {
-            @Override
-            public void run() {
-                connection.retireStreamIfFullyClosed(streamId, self);
-            }
-        });
+        connection.retireStreamIfFullyClosed(streamId, this);
     }
 
     /**

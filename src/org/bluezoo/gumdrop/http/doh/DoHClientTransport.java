@@ -145,7 +145,8 @@ public class DoHClientTransport implements DnsClientTransport {
         if (port <= 0) {
             port = DEFAULT_DOH_PORT;
         }
-        httpClient = new HttpClient(loop, server.getHostAddress(), port);
+        String hostAddress = server.getHostAddress();
+        httpClient = newHttpClient(loop, hostAddress, port);
         httpClient.setSecure(true);
         if (clientCredentials != null) {
             httpClient.setClientCredentials(clientCredentials);
@@ -176,6 +177,14 @@ public class DoHClientTransport implements DnsClientTransport {
                 connected = false;
             }
         });
+    }
+
+    /**
+     * Creates the underlying HTTP client. Package-private seam so tests can
+     * substitute a client that needs no network.
+     */
+    HttpClient newHttpClient(SelectorLoop loop, String host, int port) {
+        return new HttpClient(loop, host, port);
     }
 
     /**
