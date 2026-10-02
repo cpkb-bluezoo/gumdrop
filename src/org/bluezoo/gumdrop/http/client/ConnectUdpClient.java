@@ -491,10 +491,18 @@ public class ConnectUdpClient implements AltSvcListener {
      * @param targetPort the UDP target's port
      * @param handler the handler to receive CONNECT-UDP events
      */
+    /**
+     * Creates the transport factory for one connection attempt. Package-private
+     * so tests can substitute a factory whose connect fails deterministically.
+     */
+    TcpTransportFactory newTransportFactory() {
+        return new TcpTransportFactory();
+    }
+
     private void connectTcp(final String targetHost, final int targetPort, final ConnectUdpEventHandler handler) {
         final String path = ConnectUdpTarget.encode(targetHost, targetPort);
 
-        transportFactory = new TcpTransportFactory();
+        transportFactory = newTransportFactory();
         transportFactory.setSecure(secure);
         if (clientCredentials != null) {
             transportFactory.setClientCredentials(clientCredentials);
@@ -576,7 +584,7 @@ public class ConnectUdpClient implements AltSvcListener {
                 ? new ConnectUdpClientProtocolHandler(
                         internalHandler, handler, "localhost", secure ? 443 : 80, secure)
                 : new ConnectUdpClientProtocolHandler(
-                        internalHandler, handler, host, port, secure);
+                        internalHandler, handler, cacheKeyHost(), port, secure);
 
         protocolHandler.setH2Enabled(h2Enabled);
         if (h2WithPriorKnowledge) {

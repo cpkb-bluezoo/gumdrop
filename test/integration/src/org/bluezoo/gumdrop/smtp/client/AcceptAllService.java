@@ -38,6 +38,8 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.Semaphore;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -64,6 +66,9 @@ public class AcceptAllService extends SmtpServer {
     private static final Logger logger =
             Logger.getLogger(AcceptAllService.class.getName());
 
+    /** One permit per message received, for {@link #awaitMessage}. */
+    private final Semaphore messagePermits = new Semaphore(0);
+
     /** Queue of received messages for test verification */
     private final ConcurrentLinkedQueue<ReceivedMessage> receivedMessages =
             new ConcurrentLinkedQueue<ReceivedMessage>();
@@ -88,10 +93,22 @@ public class AcceptAllService extends SmtpServer {
     }
 
     /**
+     * Blocks until one more message has been received since the last
+     * {@link #clearMessages()} (each call consumes one arrival). The
+     * timeout only converts a hang into a failure.
+     *
+     * @return false only if the timeout elapsed first
+     */
+    public boolean awaitMessage(long timeout, TimeUnit unit) throws InterruptedException {
+        return messagePermits.tryAcquire(timeout, unit);
+    }
+
+    /**
      * Clears all received messages.
      */
     public void clearMessages() {
         receivedMessages.clear();
+        messagePermits.drainPermits();
     }
 
     /**
@@ -298,6 +315,7 @@ public class AcceptAllService extends SmtpServer {
                 authenticatedUser
             );
             receivedMessages.add(msg);
+            messagePermits.release();
 
             if (logger.isLoggable(Level.FINE)) {
                 logger.fine("Message complete: " + queueId

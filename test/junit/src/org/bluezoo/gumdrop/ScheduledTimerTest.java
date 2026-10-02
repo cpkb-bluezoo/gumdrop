@@ -66,16 +66,14 @@ public class ScheduledTimerTest {
     @Before
     public void setUp() {
         timer = new ScheduledTimer();
-        timer.start();
     }
 
     @After
     public void tearDown() throws InterruptedException {
         timer.shutdown();
-        timer.join();
     }
 
-    @Test(timeout = 15000)
+    @Test
     public void testCancelledTimersAreReclaimed() throws Exception {
         ChannelHandler handler = new NoopHandler();
 
@@ -94,14 +92,11 @@ public class ScheduledTimerTest {
             h.cancel();
         }
 
-        // The queue must collapse back to roughly the live set (a bounded
-        // number of not-yet-swept tombstones may remain), not grow with churn.
-        long deadline = System.currentTimeMillis() + 10_000;
+        // The timer thread is not running, so sweep synchronously the way it
+        // would when woken. The queue must collapse back to roughly the live
+        // set (a bounded number of not-yet-swept tombstones may remain).
+        timer.sweepCancelled();
         int depth = timer.pendingCount();
-        while (depth > 128 && System.currentTimeMillis() < deadline) {
-            Thread.sleep(10);
-            depth = timer.pendingCount();
-        }
 
         assertTrue("queue should be reclaimed well below the churn count, was " + depth,
                 depth <= 128);

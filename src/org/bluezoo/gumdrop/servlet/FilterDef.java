@@ -236,7 +236,7 @@ final class FilterDef implements FilterConfig, FilterReg {
     }
 
     private int lastIndexOfFilterMapping(List<FilterMapping> filterMappings, Collection<String> values, boolean matchServletName) {
-        for (int i = filterMappings.size(); i >= 0; i--) {
+        for (int i = filterMappings.size() - 1; i >= 0; i--) {
             FilterMapping filterMapping = filterMappings.get(i);
             if (containsAny(matchServletName ? filterMapping.servletNames : filterMapping.urlPatterns, values)) {
                 return i;

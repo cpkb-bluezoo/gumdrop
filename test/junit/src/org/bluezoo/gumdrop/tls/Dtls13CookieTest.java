@@ -32,8 +32,6 @@ import java.util.List;
 
 import javax.net.ssl.X509TrustManager;
 
-import org.bluezoo.gumdrop.IntegrationTestHosts;
-import org.bluezoo.gumdrop.TestTlsFiles;
 import org.bluezoo.gumdrop.crypto.KeyExchange;
 import org.bluezoo.gumdrop.crypto.NamedGroup;
 import org.bluezoo.gumdrop.crypto.SignatureScheme;
@@ -46,6 +44,7 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
+import org.bluezoo.gumdrop.testsupport.TestCertificates;
 
 /**
  * RFC 9147 HelloRetryRequest cookie exchange via {@link CookieValidator}.
@@ -54,7 +53,7 @@ import static org.junit.Assert.assertTrue;
 public class Dtls13CookieTest {
 
     /** Must match a DNS SAN on {@code etc/tls/cert.pem} (see {@code integration.tls.names}). */
-    private static final String SERVER_NAME = IntegrationTestHosts.TLS_SERVER_NAME;
+    private static final String SERVER_NAME = TestCertificates.SERVER_NAME;
     private static final byte[] COOKIE_SECRET = "dtls13-cookie-test-secret".getBytes(java.nio.charset.StandardCharsets.US_ASCII);
 
     private static List<X509Certificate> ecChain;
@@ -64,10 +63,9 @@ public class Dtls13CookieTest {
 
     @BeforeClass
     public static void loadCertificates() throws Exception {
-        TestTlsFiles.assumeAvailable();
-        ecChain = TestTlsFiles.certificateChain();
-        ecKey = TestTlsFiles.privateKey();
-        trustManager = TestTlsFiles.trustManager();
+                ecChain = TestCertificates.ec256().getChain();
+        ecKey = TestCertificates.ec256().getPrivateKey();
+        trustManager = TestCertificates.ec256().trustManager();
     }
 
     private static final class RecordingSink implements TlsEventSink {

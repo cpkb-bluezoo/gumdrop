@@ -4610,6 +4610,11 @@ public final class ImapProtocolHandler
             sendTaggedNo(tag, L10N.getString("imap.err.no_mailbox_selected"));
             return;
         }
+        if (args.trim().isEmpty()) {
+            // RFC 3501/5256: a search program is required
+            sendTaggedBad(tag, L10N.getString("imap.err.invalid_arguments"));
+            return;
+        }
 
         if (selectedHandler != null) {
             try {
@@ -4731,6 +4736,11 @@ public final class ImapProtocolHandler
             sendTaggedNo(tag, L10N.getString("imap.err.no_mailbox_selected"));
             return;
         }
+        if (args.trim().isEmpty()) {
+            // RFC 3501/5256: a search program is required
+            sendTaggedBad(tag, L10N.getString("imap.err.invalid_arguments"));
+            return;
+        }
         try {
             SortRequest request = new SortParser(args).parse();
             if (!ImapCharset.isSortThreadSupported(request.getCharset())) {
@@ -4805,6 +4815,11 @@ public final class ImapProtocolHandler
         }
         if (selectedMailbox == null) {
             sendTaggedNo(tag, L10N.getString("imap.err.no_mailbox_selected"));
+            return;
+        }
+        if (args.trim().isEmpty()) {
+            // RFC 3501/5256: a search program is required
+            sendTaggedBad(tag, L10N.getString("imap.err.invalid_arguments"));
             return;
         }
         try {
@@ -6638,7 +6653,30 @@ public final class ImapProtocolHandler
             }
         }
 
+        for (String item : items) {
+            if (!isKnownFetchItem(item)) {
+                return null;
+            }
+        }
         return items;
+    }
+
+    private static boolean isKnownFetchItem(String item) {
+        String upper = item.toUpperCase(Locale.ENGLISH);
+        if (upper.startsWith("BODY[") || upper.startsWith("BODY.PEEK[")
+                || upper.startsWith("BINARY[")
+                || upper.startsWith("BINARY.PEEK[")
+                || upper.startsWith("BINARY.SIZE[")) {
+            return upper.indexOf(']') > 0;
+        }
+        return upper.equals("FLAGS") || upper.equals("UID")
+                || upper.equals("INTERNALDATE") || upper.equals("ENVELOPE")
+                || upper.equals("BODY") || upper.equals("BODYSTRUCTURE")
+                || upper.equals("RFC822") || upper.equals("RFC822.SIZE")
+                || upper.equals("RFC822.HEADER")
+                || upper.equals("RFC822.TEXT") || upper.equals("MODSEQ")
+                || upper.equals("EMAILID") || upper.equals("THREADID")
+                || upper.equals("PREVIEW") || upper.equals("SAVEDATE");
     }
 
     private boolean fetchNeedsSeen(Set<String> fetchItems) {

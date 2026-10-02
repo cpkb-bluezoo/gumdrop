@@ -38,6 +38,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import org.bluezoo.gumdrop.amqp1.codec.Amqp1Error;
@@ -99,6 +100,7 @@ final class FakeAmqp1Broker implements AutoCloseable {
     private final AtomicInteger dispositionsReceived = new AtomicInteger();
     private final AtomicInteger attachesReceived = new AtomicInteger();
     private final AtomicInteger heartbeatsReceived = new AtomicInteger();
+    private volatile CountDownLatch heartbeatLatch = new CountDownLatch(0);
 
     FakeAmqp1Broker() throws IOException {
         serverSocket = new ServerSocket(0, 50, InetAddress.getLoopbackAddress());
@@ -148,6 +150,13 @@ final class FakeAmqp1Broker implements AutoCloseable {
 
     int attachesReceived() {
         return attachesReceived.get();
+    }
+
+    /** Returns a latch released once {@code n} more heartbeats have been received. */
+    CountDownLatch expectHeartbeats(int n) {
+        CountDownLatch latch = new CountDownLatch(n);
+        heartbeatLatch = latch;
+        return latch;
     }
 
     int heartbeatsReceived() {
@@ -400,6 +409,7 @@ final class FakeAmqp1Broker implements AutoCloseable {
         @Override
         public void heartbeat(int channel) {
             heartbeatsReceived.incrementAndGet();
+            heartbeatLatch.countDown();
         }
 
         @Override

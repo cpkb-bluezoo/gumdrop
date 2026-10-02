@@ -49,7 +49,9 @@ public interface ZoneFileHandler {
     void beginGenerate(String rangeSpec, String ownerTemplate) throws IOException;
 
     /**
-     * Starts a normal zone record with the owner-name token.
+     * Starts a normal zone record with the owner-name token, or
+     * {@code null} if the line began with whitespace (RFC 1035 section 5.1:
+     * the owner is the same as that of the previous record).
      */
     void beginRecord(String ownerToken) throws IOException;
 

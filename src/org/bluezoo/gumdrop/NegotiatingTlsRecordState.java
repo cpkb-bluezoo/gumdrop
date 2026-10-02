@@ -90,7 +90,6 @@ final class NegotiatingTlsRecordState {
             active12.unwrap();
             return;
         }
-        boolean activated = false;
         try {
             synchronized (tcpEndpoint.tlsEngineLock) {
                 ByteBuffer in = tcpEndpoint.netIn;
@@ -101,7 +100,9 @@ final class NegotiatingTlsRecordState {
                 if (!tryActivate()) {
                     return;
                 }
-                activated = true;
+                // Everything netIn held is now in prefix and is fed whole
+                // below; netIn is compacted (write mode) once we return, so
+                // it must not be unwrapped again for this read.
                 byte[] prefix = prefixBuffer.toByteArray();
                 prefixBuffer.reset();
                 if (active13 != null) {
@@ -114,13 +115,6 @@ final class NegotiatingTlsRecordState {
             ByteBuffer in = tcpEndpoint.netIn;
             if (in != null) {
                 in.compact();
-            }
-        }
-        if (activated) {
-            if (active13 != null) {
-                active13.unwrap();
-            } else if (active12 != null) {
-                active12.unwrap();
             }
         }
     }

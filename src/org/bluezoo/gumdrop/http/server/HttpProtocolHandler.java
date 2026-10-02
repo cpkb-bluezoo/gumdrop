@@ -597,6 +597,11 @@ public  class HttpProtocolHandler
                 break;
         }
         afterStateTransition();
+        if (fatalParseError) {
+            // stop scanning the rest of this buffer: receive() sees
+            // fatalParseError and abandons it
+            lexer.stopForHandoff();
+        }
         return false;
     }
 
@@ -1827,8 +1832,23 @@ public  class HttpProtocolHandler
             }
             return;
         }
+        // Stream.sendError() marks an HTTP/1.x connection for close: once
+        // the error response is committed nothing further on this
+        // connection may be parsed or dispatched to the application (the
+        // rest of the malformed request, e.g. its terminating blank line,
+        // would otherwise still reach the application handler).
+        boolean http1 = isSequentialHttp1State();
+        if (http1) {
+            fatalParseError = true;
+        }
         try {
             stream.sendError(statusCode);
+            if (http1) {
+                // the request was only partly received, so Stream will not
+                // itself close the connection after this response; close is
+                // graceful (queued output is flushed first) and idempotent
+                closeEndpoint();
+            }
         } catch (ProtocolException e) {
             if (!stream.canCommitErrorResponse()) {
                 if (LOGGER.isLoggable(Level.FINE)) {
@@ -2520,7 +2540,15 @@ public  class HttpProtocolHandler
     // RFC 9112 section 5: field-line = field-name ":" OWS field-value OWS
     private void writeStatusLineAndHeaders(ByteBuffer buf, int statusCode, Headers headers) {
         try {
-            buf.put(VERSION_TOKEN_BYTES[version.ordinal()]);
+            // RFC 9110 section 15.6.6: a request whose version is unknown
+            // (505) or is HTTP/2.0 on an HTTP/1.x connection (e.g. a bad
+            // preface) is still answered with a valid HTTP/1.x status line
+            HttpVersion statusVersion = version;
+            if (statusVersion == HttpVersion.UNKNOWN
+                    || statusVersion == HttpVersion.HTTP_2_0) {
+                statusVersion = HttpVersion.HTTP_1_1;
+            }
+            buf.put(VERSION_TOKEN_BYTES[statusVersion.ordinal()]);
             buf.put((byte) ' ');
             buf.put((byte) ('0' + statusCode / 100));
             buf.put((byte) ('0' + statusCode / 10 % 10));
@@ -2703,8 +2731,9 @@ public  class HttpProtocolHandler
 
     private void cleanupAllStreams() {
         int streamCount = streams.size();
+        Exception cause = new IOException("Connection closed");
         for (Stream stream : streams.values()) {
-            stream.streamClose();
+            stream.streamAbort(cause);
         }
         streams.clear();
         if (streamCount > 0 && LOGGER.isLoggable(Level.FINE)) {
@@ -2852,7 +2881,8 @@ public  class HttpProtocolHandler
             LOGGER.fine(MessageFormat.format(L10N.getString("debug.rst_stream_received"), streamId, H2FrameHandler.errorToString(errorCode)));
         }
         Stream stream = getStream(streamId);
-        stream.streamClose();
+        stream.streamAbort(new IOException("Stream reset by peer: "
+                + H2FrameHandler.errorToString(errorCode)));
         // Intentionally do NOT remove from activeStreams here.  The concurrency
         // slot is held until the stream is fully cleaned up, preventing a
         // rapid-reset attacker from keeping activeStreams.size() artificially

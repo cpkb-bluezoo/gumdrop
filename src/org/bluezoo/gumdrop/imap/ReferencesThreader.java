@@ -333,19 +333,18 @@ public final class ReferencesThreader {
     private static void appendChain(ThreadBranch branch, RefNode node) {
         if (node.record != null) {
             branch.addMember((long) node.record.sequenceNumber);
-        } else if (!node.children.isEmpty()) {
+        }
+        int count = node.children.size();
+        if (count == 0) {
+            return;
+        }
+        if (count == 1) {
             appendChain(branch, node.children.get(0));
             return;
         }
-        if (node.children.isEmpty()) {
-            return;
-        }
-        if (node.children.size() == 1) {
-            appendChain(branch, node.children.get(0));
-            return;
-        }
-        appendChain(branch, node.children.get(0));
-        for (int i = 1; i < node.children.size(); i++) {
+        // RFC 5256: a node with several children (including a dummy
+        // parent) yields one nested branch per child
+        for (int i = 0; i < count; i++) {
             ThreadBranch nested = toBranch(node.children.get(i));
             if (nested != null) {
                 branch.addNested(nested);

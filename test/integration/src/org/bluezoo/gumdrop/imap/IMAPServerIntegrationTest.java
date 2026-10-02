@@ -39,8 +39,6 @@ import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.Timeout;
 
-import java.net.InetSocketAddress;
-import java.net.Socket;
 import java.nio.file.Path;
 import java.util.concurrent.TimeUnit;
 import java.util.logging.Level;
@@ -108,8 +106,6 @@ public class IMAPServerIntegrationTest {
         gumdrop = Gumdrop.boot(GumdropConfig.create().workerThreads(1).drainTimeoutMs(0));
         gumdrop.addListener(imapServer);
         
-        // Wait for server to be ready
-        waitForPort(IMAP_PORT, 5000);
         ListenerBindCheck.assertBound(gumdrop);
     }
     
@@ -120,7 +116,6 @@ public class IMAPServerIntegrationTest {
                 gumdrop.shutdown();
                 gumdrop.join();
             }
-            Thread.sleep(1500); // Allow ports to be released
         } finally {
             MailboxFixtures.delete(mboxRoot);
             if (rootLogger != null && originalLogLevel != null) {
@@ -129,19 +124,6 @@ public class IMAPServerIntegrationTest {
         }
     }
     
-    private void waitForPort(int port, long timeoutMs) throws InterruptedException {
-        long deadline = System.currentTimeMillis() + timeoutMs;
-        while (System.currentTimeMillis() < deadline) {
-            try (Socket socket = new Socket()) {
-                socket.connect(new InetSocketAddress("::1", port), 200);
-                Thread.sleep(200);
-                return;
-            } catch (Exception e) {
-                Thread.sleep(100);
-            }
-        }
-        throw new IllegalStateException("Server failed to start on port " + port);
-    }
     
     // ==================== Connection Tests ====================
     

@@ -21,11 +21,6 @@
 
 package org.bluezoo.gumdrop.tls;
 
-import java.io.IOException;
-import java.io.InputStream;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.security.KeyStore;
 import java.security.PrivateKey;
 import java.security.SecureRandom;
 import java.security.cert.X509Certificate;
@@ -36,11 +31,9 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.TimeUnit;
 
 import javax.net.ssl.X509TrustManager;
 
-import org.junit.AfterClass;
 import org.junit.BeforeClass;
 import org.junit.Test;
 import static org.junit.Assert.assertArrayEquals;
@@ -52,6 +45,7 @@ import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
 import org.bluezoo.gumdrop.crypto.CertificateVerifier;
+import org.bluezoo.gumdrop.testsupport.TestCertificates;
 import org.bluezoo.gumdrop.crypto.Hpke;
 import org.bluezoo.gumdrop.crypto.KeyExchange;
 import org.bluezoo.gumdrop.crypto.NamedGroup;
@@ -76,9 +70,8 @@ import org.bluezoo.gumdrop.crypto.SignatureScheme;
  */
 public class HandshakeEngineLoopbackTest {
 
-    private static final String SERVER_NAME = "test.gumdrop.local";
+    private static final String SERVER_NAME = TestCertificates.SERVER_NAME;
 
-    private static Path certsDirectory;
     private static List<X509Certificate> ecChain;
     private static PrivateKey ecKey;
     private static List<X509Certificate> rsaChain;
@@ -86,81 +79,12 @@ public class HandshakeEngineLoopbackTest {
 
     @BeforeClass
     public static void generateCertificates() throws Exception {
-        certsDirectory = Files.createTempDirectory("handshake-engine-loopback-test");
-        KeyStore ecStore = generateKeyStore("ec", "EC", "secp256r1", "SHA256withECDSA");
-        ecChain = Collections.singletonList((X509Certificate) ecStore.getCertificate("ec"));
-        ecKey = (PrivateKey) ecStore.getKey("ec", "changeit".toCharArray());
-
-        KeyStore rsaStore = generateRsaKeyStore("rsa");
-        rsaChain = Collections.singletonList((X509Certificate) rsaStore.getCertificate("rsa"));
-        rsaKey = (PrivateKey) rsaStore.getKey("rsa", "changeit".toCharArray());
-    }
-
-    private static KeyStore generateKeyStore(String alias, String keyAlg, String groupName, String sigAlg)
-            throws Exception {
-        Path keystorePath = certsDirectory.resolve(alias + ".p12");
-        runKeytool("-genkeypair", "-alias", alias, "-keyalg", keyAlg, "-groupname", groupName,
-                "-sigalg", sigAlg, "-validity", "1", "-dname", "CN=" + SERVER_NAME,
-                "-ext", "san=dns:" + SERVER_NAME, "-keystore", keystorePath.toString(),
-                "-storetype", "PKCS12", "-storepass", "changeit", "-keypass", "changeit");
-        return loadKeyStore(keystorePath);
-    }
-
-    private static KeyStore generateRsaKeyStore(String alias) throws Exception {
-        Path keystorePath = certsDirectory.resolve(alias + ".p12");
-        runKeytool("-genkeypair", "-alias", alias, "-keyalg", "RSA", "-keysize", "2048",
-                "-sigalg", "SHA256withRSA", "-validity", "1", "-dname", "CN=" + SERVER_NAME,
-                "-ext", "san=dns:" + SERVER_NAME, "-keystore", keystorePath.toString(),
-                "-storetype", "PKCS12", "-storepass", "changeit", "-keypass", "changeit");
-        return loadKeyStore(keystorePath);
-    }
-
-    private static void runKeytool(String... args) throws Exception {
-        List<String> command = new ArrayList<String>();
-        command.add("keytool");
-        command.addAll(Arrays.asList(args));
-        ProcessBuilder pb = new ProcessBuilder(command);
-        pb.redirectErrorStream(true);
-        Process process = pb.start();
-        boolean finished = process.waitFor(30, TimeUnit.SECONDS);
-        if (!finished || process.exitValue() != 0) {
-            fail("keytool failed to generate a test certificate");
-        }
-    }
-
-    private static KeyStore loadKeyStore(Path path) throws Exception {
-        KeyStore keyStore = KeyStore.getInstance("PKCS12");
-        try (InputStream in = Files.newInputStream(path)) {
-            keyStore.load(in, "changeit".toCharArray());
-        }
-        return keyStore;
-    }
-
-    @AfterClass
-    public static void deleteCertificates() throws IOException {
-        if (certsDirectory != null) {
-            Files.walkFileTree(certsDirectory, new java.nio.file.SimpleFileVisitor<Path>() {
-                @Override
-                public java.nio.file.FileVisitResult visitFile(Path file, java.nio.file.attribute.BasicFileAttributes attrs) {
-                    deleteQuietly(file);
-                    return java.nio.file.FileVisitResult.CONTINUE;
-                }
-
-                @Override
-                public java.nio.file.FileVisitResult postVisitDirectory(Path dir, IOException exc) {
-                    deleteQuietly(dir);
-                    return java.nio.file.FileVisitResult.CONTINUE;
-                }
-            });
-        }
-    }
-
-    private static void deleteQuietly(Path path) {
-        try {
-            Files.delete(path);
-        } catch (IOException ignored) {
-            // best effort cleanup
-        }
+        TestCertificates.Identity ec = TestCertificates.ec256();
+        ecChain = ec.getChain();
+        ecKey = ec.getPrivateKey();
+        TestCertificates.Identity rsa = TestCertificates.rsa2048();
+        rsaChain = rsa.getChain();
+        rsaKey = rsa.getPrivateKey();
     }
 
     /** Records every event a {@link HandshakeEngine} pushes, for assertions. */

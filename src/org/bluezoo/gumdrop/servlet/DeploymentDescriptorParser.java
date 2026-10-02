@@ -729,6 +729,14 @@ class DeploymentDescriptorParser extends AbstractXMLHandler {
                         pushText();
                 }
                 break;
+            case SECURITY_ROLE_REF:
+                switch (state) {
+                    case DESCRIPTION:
+                    case ROLE_NAME:
+                    case ROLE_LINK:
+                        pushText();
+                }
+                break;
             case SERVLET_MAPPING:
                 switch (state) {
                     case SERVLET_NAME:
@@ -946,6 +954,7 @@ class DeploymentDescriptorParser extends AbstractXMLHandler {
                     case DESCRIPTION:
                     case DISPLAY_NAME:
                     case SERVICE_REF_NAME:
+                    case SERVICE_REF_TYPE:
                     case SERVICE_INTERFACE:
                     case WSDL_FILE:
                     case JAXRPC_MAPPING_FILE:
@@ -1177,6 +1186,13 @@ class DeploymentDescriptorParser extends AbstractXMLHandler {
                     case CONFIG_PROPERTY:
                         pushTarget(new InitParam());
                         break;
+                }
+                break;
+            case PROPERTY:
+                switch (state) {
+                    case NAME:
+                    case VALUE:
+                        pushText();
                 }
                 break;
             case CONFIG_PROPERTY:
@@ -1549,6 +1565,66 @@ class DeploymentDescriptorParser extends AbstractXMLHandler {
                     case ASYNC_SUPPORTED:
                         text = popText();
                         ((ServletDef) peekTarget()).asyncSupported = "true".equalsIgnoreCase(text);
+                        break;
+                }
+                break;
+            case RUN_AS:
+                switch (state) {
+                    case DESCRIPTION:
+                        ((SecurityRole) peekTarget()).description = popText();
+                        break;
+                    case ROLE_NAME:
+                        ((SecurityRole) peekTarget()).roleName = popText();
+                        break;
+                }
+                break;
+            case SECURITY_ROLE_REF:
+                switch (state) {
+                    case DESCRIPTION:
+                        ((SecurityRole) peekTarget()).description = popText();
+                        break;
+                    case ROLE_NAME:
+                        ((SecurityRole) peekTarget()).roleName = popText();
+                        break;
+                    case ROLE_LINK:
+                        ((SecurityRole) peekTarget()).roleLink = popText();
+                        break;
+                }
+                break;
+            case MULTIPART_CONFIG:
+                switch (state) {
+                    case LOCATION:
+                        ((MultipartConfigDef) peekTarget()).location = popText();
+                        break;
+                    case MAX_FILE_SIZE:
+                        text = popText();
+                        try {
+                            ((MultipartConfigDef) peekTarget()).maxFileSize = Long.parseLong(text);
+                        } catch (NumberFormatException e) {
+                            String message = L10N.getString("warn.invalid_number");
+                            message = MessageFormat.format(message, text);
+                            LOGGER.warning(message);
+                        }
+                        break;
+                    case MAX_REQUEST_SIZE:
+                        text = popText();
+                        try {
+                            ((MultipartConfigDef) peekTarget()).maxRequestSize = Long.parseLong(text);
+                        } catch (NumberFormatException e) {
+                            String message = L10N.getString("warn.invalid_number");
+                            message = MessageFormat.format(message, text);
+                            LOGGER.warning(message);
+                        }
+                        break;
+                    case FILE_SIZE_THRESHOLD:
+                        text = popText();
+                        try {
+                            ((MultipartConfigDef) peekTarget()).fileSizeThreshold = Long.parseLong(text);
+                        } catch (NumberFormatException e) {
+                            String message = L10N.getString("warn.invalid_number");
+                            message = MessageFormat.format(message, text);
+                            LOGGER.warning(message);
+                        }
                         break;
                 }
                 break;
@@ -1968,6 +2044,7 @@ class DeploymentDescriptorParser extends AbstractXMLHandler {
                     case HANDLER:
                         HandlerDef handlerDef = (HandlerDef) popTarget();
                         ((ServiceRef) peekTarget()).setHandler(handlerDef);
+                        break;
                     case MAPPED_NAME:
                         ((Injectable) peekTarget()).setMappedName(popText());
                         break;

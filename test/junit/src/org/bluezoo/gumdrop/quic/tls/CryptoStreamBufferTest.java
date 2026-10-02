@@ -204,4 +204,64 @@ public class CryptoStreamBufferTest {
         assertTrue("streamed message split into begin, chunks and end: " + all.size(), all.size() >= 8);
         assertNull("first event is the stream begin, not a message", all.get(0).message());
     }
+
+    private static List<byte[]> wholeMessages(byte[] wire, int chunk)
+            throws StreamReassembler.BufferLimitExceededException {
+        CryptoStreamBuffer buf = new CryptoStreamBuffer();
+        List<byte[]> out = new ArrayList<byte[]>();
+        for (int pos = 0; pos < wire.length; pos += chunk) {
+            int end = Math.min(wire.length, pos + chunk);
+            byte[] piece = java.util.Arrays.copyOfRange(wire, pos, end);
+            List<CryptoStreamBuffer.Event> events = buf.receive(pos, ByteBuffer.wrap(piece));
+            for (int i = 0; i < events.size(); i++) {
+                byte[] m = events.get(i).message();
+                if (m != null) {
+                    out.add(m);
+                }
+            }
+        }
+        return out;
+    }
+
+    @Test
+    public void testOneByteFeedMatchesWholeBufferFeed() throws Exception {
+        byte[] wire = concat(message(1, new byte[] {1, 2, 3, 4, 5}), message(20, new byte[0]),
+                message(2, new byte[] {9, 8, 7}));
+        List<byte[]> whole = wholeMessages(wire, wire.length);
+        assertEquals(3, whole.size());
+        for (int chunk = 1; chunk <= 9; chunk++) {
+            List<byte[]> pieces = wholeMessages(wire, chunk);
+            assertEquals("chunk " + chunk, whole.size(), pieces.size());
+            for (int i = 0; i < whole.size(); i++) {
+                assertArrayEquals("chunk " + chunk + " message " + i, whole.get(i), pieces.get(i));
+            }
+        }
+    }
+
+    @Test
+    public void testZeroLengthStreamedMessageBeginsAndEnds() throws Exception {
+        CryptoStreamBuffer buf = new CryptoStreamBuffer();
+        List<CryptoStreamBuffer.Event> events = buf.receive(0, ByteBuffer.wrap(message(25, new byte[0])));
+        assertEquals(2, events.size());
+        assertNull(events.get(0).message());
+        assertNull(events.get(1).message());
+    }
+
+    @Test
+    public void testStreamedMessageOneByteAtATimeThenOrdinaryMessage() throws Exception {
+        byte[] wire = concat(message(25, new byte[] {1, 2, 3}), message(20, new byte[] {5}));
+        List<byte[]> whole = wholeMessages(wire, 1);
+        assertEquals(1, whole.size());
+        assertEquals(20, whole.get(0)[0] & 0xff);
+    }
+
+    @Test
+    public void testEmptyAndDuplicateFramesYieldNoEvents() throws Exception {
+        CryptoStreamBuffer buf = new CryptoStreamBuffer();
+        assertTrue(buf.receive(0, ByteBuffer.wrap(new byte[0])).isEmpty());
+        byte[] msg = message(1, new byte[] {1});
+        assertEquals(1, buf.receive(0, ByteBuffer.wrap(msg)).size());
+        assertTrue(buf.receive(0, ByteBuffer.wrap(msg)).isEmpty());
+    }
+
 }

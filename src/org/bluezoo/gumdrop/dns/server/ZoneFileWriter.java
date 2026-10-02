@@ -142,7 +142,13 @@ final class ZoneFileWriter {
                         .append(rr.getMXExchange());
                 break;
             case TXT:
-                sb.append(" \"").append(escapeTxt(rr.getText())).append('"');
+                List<String> strings = rr.getTextStrings();
+                if (strings.isEmpty()) {
+                    sb.append(" \"\"");
+                }
+                for (int i = 0; i < strings.size(); i++) {
+                    sb.append(" \"").append(escapeTxt(strings.get(i))).append('"');
+                }
                 break;
             case SOA: {
                 ZoneFile.SoaData soa = zone.getSoaData();
@@ -173,7 +179,25 @@ final class ZoneFileWriter {
         return owner;
     }
 
+    /** Escapes per RFC 1035 section 5.1: backslash, quote, and control octets as \\DDD. */
     private static String escapeTxt(String text) {
-        return text.replace("\\", "\\\\").replace("\"", "\\\"");
+        byte[] bytes = text.getBytes(StandardCharsets.UTF_8);
+        StringBuilder sb = new StringBuilder(bytes.length + 8);
+        for (int i = 0; i < bytes.length; i++) {
+            int c = bytes[i] & 0xFF;
+            if (c == '"' || c == '\\') {
+                sb.append('\\').append((char) c);
+            } else if (c < 0x20 || c == 0x7F) {
+                sb.append('\\');
+                sb.append((char) ('0' + c / 100));
+                sb.append((char) ('0' + (c / 10) % 10));
+                sb.append((char) ('0' + c % 10));
+            } else {
+                // printable ASCII and UTF-8 continuation octets pass through
+                sb.append((char) c);
+            }
+        }
+        return new String(sb.toString().getBytes(StandardCharsets.ISO_8859_1),
+                StandardCharsets.UTF_8);
     }
 }

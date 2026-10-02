@@ -186,6 +186,52 @@ public class H3StreamTest {
     }
 
     /**
+     * RFC 9114 section 4.2: a request carrying a connection-specific
+     * header field is malformed ({@code H3_MESSAGE_ERROR}); the handler
+     * never sees it.
+     */
+    @Test
+    public void testConnectionSpecificHeadersAbortWithMessageError() throws Exception {
+        String[][] bad = new String[][] {
+            {"connection", "keep-alive"},
+            {"keep-alive", "timeout=5"},
+            {"proxy-connection", "keep-alive"},
+            {"transfer-encoding", "chunked"},
+            {"upgrade", "websocket"},
+            {"te", "gzip"},
+        };
+        for (int i = 0; i < bad.length; i++) {
+            H3Stream stream = createStream();
+            StubRequestHandler handler = new StubRequestHandler();
+            setField(stream, "handler", handler);
+            stream.headersFrameReceived(encode(
+                    ":method", "GET",
+                    ":scheme", "https",
+                    ":path", "/",
+                    ":authority", "example.com",
+                    bad[i][0], bad[i][1]));
+            assertEquals(bad[i][0], "CLOSED", getState(stream));
+            assertNull(bad[i][0], getField(stream, "handler"));
+        }
+    }
+
+    @Test
+    public void testTeTrailersIsAllowed() throws Exception {
+        H3Stream stream = createStream();
+        try {
+            stream.headersFrameReceived(encode(
+                    ":method", "GET",
+                    ":scheme", "https",
+                    ":path", "/",
+                    ":authority", "example.com",
+                    "te", "trailers"));
+        } catch (NullPointerException expected) {
+            // got past validation
+        }
+        assertFalse("CLOSED".equals(getState(stream)));
+    }
+
+    /**
      * RFC 9114 section 4.1.2: a malformed Content-Length makes the
      * message malformed ({@code H3_MESSAGE_ERROR}).
      */

@@ -27,6 +27,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 
 import org.bluezoo.gumdrop.Gumdrop;
+import org.bluezoo.gumdrop.ListenerBindCheck;
 import org.bluezoo.gumdrop.GumdropConfig;
 import org.bluezoo.gumdrop.http.Headers;
 import org.bluezoo.gumdrop.http.server.Http2Listener;
@@ -94,7 +95,8 @@ public class HTTP2H2CWebSocketClientIntegrationTest {
         gumdrop = Gumdrop.boot(GumdropConfig.create().workerThreads(2));
         gumdrop.addListener(listener);
 
-        Thread.sleep(500);
+        // Returns once the accept loop has bound the listener.
+        ListenerBindCheck.assertBound(gumdrop);
     }
 
     @AfterClass

@@ -368,6 +368,19 @@ class H3Stream implements ProtocolHandler, H3FrameHandler, HttpResponseState {
                 return;
             }
 
+            // RFC 9114 section 4.2: a request carrying a connection-specific
+            // header field is malformed (Content-Length is not one).
+            for (int i = 0; i < headers.size(); i++) {
+                Header h = headers.get(i);
+                String hname = h.getName();
+                if (!hname.startsWith(":")
+                        && !"content-length".equalsIgnoreCase(hname)
+                        && HttpVersion.isHttp1FramingHeader(hname, h.getValue())) {
+                    abortMessageError("connection-specific header field: " + hname);
+                    return;
+                }
+            }
+
             // Capture Content-Length before stripHttp1FramingHeaders removes
             // it (same ordering as HTTP/2 in Stream): H3 still validates the
             // declared length against DATA bytes (RFC 9114 section 4.1.2)

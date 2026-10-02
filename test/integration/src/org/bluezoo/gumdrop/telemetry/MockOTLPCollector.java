@@ -37,8 +37,6 @@ import org.bluezoo.gumdrop.http.HttpStatus;
 
 import java.io.ByteArrayOutputStream;
 import java.io.File;
-import java.net.InetSocketAddress;
-import java.net.Socket;
 import java.nio.ByteBuffer;
 import java.security.GeneralSecurityException;
 import java.util.ArrayList;
@@ -78,6 +76,8 @@ public class MockOTLPCollector {
     private OTLPCollectorServer server;
     private Gumdrop gumdrop;
     private TestCertificateManager certManager;
+
+    private final Object arrivalLock = new Object();
 
     // Raw request data storage
     private final List<byte[]> rawTraceRequests;
@@ -138,8 +138,8 @@ public class MockOTLPCollector {
         gumdrop = Gumdrop.boot(GumdropConfig.create().workerThreads(2));
         gumdrop.addListener(server);
 
-        // Wait for server to be ready
-        waitForReady();
+        // Wait for the listener to be bound (startup signal, no port probing)
+        ListenerBindCheck.assertBound(gumdrop);
         LOGGER.info("MockOTLPCollector started and ready on port " + port);
     }
 
@@ -160,9 +160,6 @@ public class MockOTLPCollector {
             gumdrop = null;
         }
         server = null;
-        
-        // Allow time for port release
-        Thread.sleep(500);
     }
 
     /**
@@ -289,36 +286,47 @@ public class MockOTLPCollector {
 
     void addTraceRequest(byte[] data) {
         rawTraceRequests.add(data);
+        signalArrival();
     }
 
     void addLogRequest(byte[] data) {
         rawLogRequests.add(data);
+        signalArrival();
     }
 
     void addMetricRequest(byte[] data) {
         rawMetricRequests.add(data);
+        signalArrival();
     }
 
-    private void waitForReady() throws InterruptedException {
-        long deadline = System.currentTimeMillis() + 5000;
-        while (System.currentTimeMillis() < deadline) {
-            if (isPortListening("::1", port)) {
-                Thread.sleep(200); // Extra delay for server stabilization
-                ListenerBindCheck.assertBound(gumdrop);
-                return;
+    private void signalArrival() {
+        synchronized (arrivalLock) {
+            arrivalLock.notifyAll();
+        }
+    }
+
+    /**
+     * Blocks until at least {@code count} trace requests have been received
+     * (since the last {@link #clear()}). Woken by each arriving request; the
+     * timeout only converts a hang into a failure.
+     *
+     * @param count the number of trace requests to wait for
+     * @param hangGuardMs the maximum time to wait
+     * @return true if the count was reached
+     */
+    public boolean awaitTraceRequests(int count, long hangGuardMs) throws InterruptedException {
+        long end = System.nanoTime() + hangGuardMs * 1000000L;
+        synchronized (arrivalLock) {
+            while (rawTraceRequests.size() < count) {
+                long remainingNanos = end - System.nanoTime();
+                if (remainingNanos <= 0) {
+                    return false;
+                }
+                long ms = remainingNanos / 1000000L;
+                arrivalLock.wait(ms + 1);
             }
-            Thread.sleep(100);
         }
-        throw new IllegalStateException("Mock OTLP Collector failed to start on port " + port);
-    }
-
-    private boolean isPortListening(String host, int p) {
-        try (Socket socket = new Socket()) {
-            socket.connect(new InetSocketAddress(host, p), 200);
-            return true;
-        } catch (Exception e) {
-            return false;
-        }
+        return true;
     }
 
     // ========================================================================

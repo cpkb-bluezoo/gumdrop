@@ -25,6 +25,8 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.net.InetAddress;
 import java.nio.ByteBuffer;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import org.bluezoo.gumdrop.ScheduledTimer;
 import org.bluezoo.gumdrop.dns.client.DnsClientTransport;
 import org.bluezoo.gumdrop.dns.client.DnsClientTransportHandler;
@@ -83,6 +85,8 @@ public class DoHClientTransport implements DnsClientTransport {
     private HttpClient httpClient;
     private DnsClientTransportHandler handler;
     private volatile boolean connected;
+    /** Released once the connection is up or has failed; see {@link #awaitConnected}. */
+    private final CountDownLatch connectedLatch = new CountDownLatch(1);
 
     private String path = DEFAULT_PATH;
     private ServerCredentials clientCredentials;
@@ -153,6 +157,7 @@ public class DoHClientTransport implements DnsClientTransport {
             @Override
             public void onConnected(Endpoint endpoint) {
                 connected = true;
+                connectedLatch.countDown();
             }
 
             @Override
@@ -163,6 +168,7 @@ public class DoHClientTransport implements DnsClientTransport {
             @Override
             public void onError(Exception cause) {
                 DoHClientTransport.this.handler.onError(cause);
+                connectedLatch.countDown();
             }
 
             @Override
@@ -170,6 +176,19 @@ public class DoHClientTransport implements DnsClientTransport {
                 connected = false;
             }
         });
+    }
+
+    /**
+     * Blocks until the underlying HTTPS connection is established or has
+     * failed. Synchronisation point for tests; the timeout only converts a
+     * hang into a failure.
+     *
+     * @param timeoutMs hang-guard timeout in milliseconds
+     * @return false only if the timeout elapsed
+     * @throws InterruptedException if interrupted while waiting
+     */
+    boolean awaitConnected(long timeoutMs) throws InterruptedException {
+        return connectedLatch.await(timeoutMs, TimeUnit.MILLISECONDS);
     }
 
     // RFC 8484 section 4.1: send DNS query as HTTP POST with

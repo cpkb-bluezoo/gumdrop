@@ -24,6 +24,7 @@ package org.bluezoo.gumdrop.http;
 import org.bluezoo.gumdrop.tls.KeystoreFormat;
 import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.IntegrationTestHosts;
+import org.bluezoo.gumdrop.ListenerBindCheck;
 import org.bluezoo.gumdrop.TestTlsFiles;
 import org.bluezoo.gumdrop.http.server.Http2Listener;
 import org.bluezoo.gumdrop.tls.TlsConfig;
@@ -31,14 +32,11 @@ import org.junit.After;
 import org.junit.BeforeClass;
 import org.junit.Test;
 
-import java.net.InetSocketAddress;
-import java.net.Socket;
 import java.nio.file.Files;
 import java.nio.file.Path;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
-import static org.junit.Assert.fail;
 
 /**
  * Loopback HTTPS using Java keystores (PKCS#12 and JKS), not PEM paths on the
@@ -95,7 +93,7 @@ public class KeystoreTlsIntegrationTest {
         gumdrop = Gumdrop.boot();
         gumdrop.addServer(server);
 
-        int port = awaitBoundPort(listener);
+        int port = awaitBoundPort(gumdrop, listener);
         String request = "GET / HTTP/1.1\r\n"
                 + "Host: localhost\r\n"
                 + "Connection: close\r\n"
@@ -105,25 +103,11 @@ public class KeystoreTlsIntegrationTest {
         assertEquals(404, response.statusCode);
     }
 
-    private static int awaitBoundPort(Http2Listener listener) throws InterruptedException {
-        long deadline = System.currentTimeMillis() + 5000;
-        while (System.currentTimeMillis() < deadline) {
-            int port = listener.getPort();
-            if (port > 0 && isPortListening(IntegrationTestHosts.LOOPBACK, port)) {
-                return port;
-            }
-            Thread.sleep(50);
-        }
-        fail("HTTPS listener did not bind within 5s (last port=" + listener.getPort() + ")");
-        return -1;
-    }
-
-    private static boolean isPortListening(String host, int port) {
-        try (Socket socket = new Socket()) {
-            socket.connect(new InetSocketAddress(host, port), 200);
-            return true;
-        } catch (Exception e) {
-            return false;
-        }
+    private static int awaitBoundPort(Gumdrop gumdrop, Http2Listener listener)
+            throws InterruptedException {
+        // Gumdrop signals startup once the accept loop has bound (or failed
+        // to bind) every listener; the port is then final.
+        ListenerBindCheck.assertBound(gumdrop);
+        return listener.getPort();
     }
 }

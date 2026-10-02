@@ -132,7 +132,7 @@ public class DefaultServlet extends HttpServlet {
             if (sendNotModifiedIfNeeded(request, response, resourceMeta)) {
                 return;
             }
-            response.setStatus(HttpServletResponse.SC_NO_CONTENT);
+            response.setStatus(HttpServletResponse.SC_OK);
             applyStaticResourceHeaders(response, resourceMeta);
         }
     }

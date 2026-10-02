@@ -168,11 +168,16 @@ public interface HttpRequestHandler {
     /**
      * The request failed due to a transport or protocol-level error
      * before {@link #requestComplete} could be delivered normally --
-     * e.g. the underlying connection was reset, or closed by the peer
-     * with an error (see {@code QuicConnectionCloseException} for the
-     * HTTP/3 case). This is the final callback for this stream; no more
-     * events will be delivered, and any response already sent through
-     * {@code state} is final.
+     * e.g. the underlying connection was closed or errored mid-request
+     * (HTTP/1.1, HTTP/2 and HTTP/3), the peer reset the stream with
+     * RST_STREAM (HTTP/2), sent GOAWAY and closed the connection
+     * (HTTP/2), or closed the connection with an error (see {@code
+     * QuicConnectionCloseException} for the HTTP/3 case). This is the
+     * final callback for this stream: it is delivered at most once, never
+     * after {@link #requestComplete}, and never for a request the server
+     * itself rejected before it reached this handler. No more events will
+     * be delivered, and any response already sent through {@code state}
+     * is final.
      *
      * <p>Default implementation does nothing, so existing implementations
      * are unaffected by this method's addition; override to react to

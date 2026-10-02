@@ -139,29 +139,15 @@ public class HTTPClientIntegrationTest extends AbstractServerIntegrationTest {
     private HttpClientProtocolHandler createConnectedClient(String host, int port) throws Exception {
         TcpTransportFactory factory = new TcpTransportFactory();
         factory.start();
+        ConnectSignal connectSignal = new ConnectSignal();
         HttpClientProtocolHandler endpointHandler = new HttpClientProtocolHandler(
-                new HttpClientHandler() {
-                    @Override
-                    public void onConnected(Endpoint endpoint) {}
-                    @Override
-                    public void onSecurityEstablished(SecurityInfo info) {}
-                    @Override
-                    public void onError(Exception cause) {}
-                    @Override
-                    public void onDisconnected() {}
-                },
+                connectSignal,
                 host, port, false);
 
         ClientEndpoint client = new ClientEndpoint(factory, gumdrop.nextWorkerLoop(), host, port);
         client.connect(gumdrop, endpointHandler);
 
-        long deadline = System.currentTimeMillis() + ASYNC_TIMEOUT_SECONDS * 1000L;
-        while (!endpointHandler.isOpen() && System.currentTimeMillis() < deadline) {
-            Thread.sleep(50);
-        }
-        if (!endpointHandler.isOpen()) {
-            throw new Exception("Connection timed out");
-        }
+        connectSignal.await("Connection timed out");
 
         return endpointHandler;
     }
@@ -179,30 +165,16 @@ public class HTTPClientIntegrationTest extends AbstractServerIntegrationTest {
     private HttpClientProtocolHandler createH2PriorKnowledgeClient(String host, int port) throws Exception {
         TcpTransportFactory factory = new TcpTransportFactory();
         factory.start();
+        ConnectSignal connectSignal = new ConnectSignal();
         HttpClientProtocolHandler endpointHandler = new HttpClientProtocolHandler(
-                new HttpClientHandler() {
-                    @Override
-                    public void onConnected(Endpoint endpoint) {}
-                    @Override
-                    public void onSecurityEstablished(SecurityInfo info) {}
-                    @Override
-                    public void onError(Exception cause) {}
-                    @Override
-                    public void onDisconnected() {}
-                },
+                connectSignal,
                 host, port, false);
         endpointHandler.setH2WithPriorKnowledge(true);
 
         ClientEndpoint client = new ClientEndpoint(factory, gumdrop.nextWorkerLoop(), host, port);
         client.connect(gumdrop, endpointHandler);
 
-        long deadline = System.currentTimeMillis() + ASYNC_TIMEOUT_SECONDS * 1000L;
-        while (!endpointHandler.isOpen() && System.currentTimeMillis() < deadline) {
-            Thread.sleep(50);
-        }
-        if (!endpointHandler.isOpen()) {
-            throw new Exception("Connection timed out");
-        }
+        connectSignal.await("Connection timed out");
 
         return endpointHandler;
     }
@@ -222,35 +194,58 @@ public class HTTPClientIntegrationTest extends AbstractServerIntegrationTest {
         factory.setTrustManager(TestTlsFiles.trustManager());
         factory.start();
 
+        ConnectSignal connectSignal = new ConnectSignal();
         HttpClientProtocolHandler endpointHandler = new HttpClientProtocolHandler(
-                new HttpClientHandler() {
-                    @Override
-                    public void onConnected(Endpoint endpoint) {}
-                    @Override
-                    public void onSecurityEstablished(SecurityInfo info) {}
-                    @Override
-                    public void onError(Exception cause) {
-                        cause.printStackTrace();
-                    }
-                    @Override
-                    public void onDisconnected() {}
-                },
+                connectSignal,
                 host, port, true);
 
         ClientEndpoint client = new ClientEndpoint(factory, gumdrop.nextWorkerLoop(), host, port);
         client.connect(gumdrop, endpointHandler);
 
-        long deadline = System.currentTimeMillis() + ASYNC_TIMEOUT_SECONDS * 1000L;
-        while (!endpointHandler.isOpen() && System.currentTimeMillis() < deadline) {
-            Thread.sleep(50);
-        }
-        if (!endpointHandler.isOpen()) {
-            throw new Exception("Connection timed out - check if TLS handshake is completing");
-        }
+        connectSignal.await("Connection timed out - check if TLS handshake is completing");
 
         return endpointHandler;
     }
 
+
+    /**
+     * Completes when the client handler reports the connection (including
+     * TLS/ALPN setup) as established, or fails at once on a connect error.
+     * The timeout only converts a hang into a failure.
+     */
+    private static final class ConnectSignal implements HttpClientHandler {
+        private final CountDownLatch connected = new CountDownLatch(1);
+        private final AtomicReference<Exception> failure = new AtomicReference<Exception>();
+
+        @Override
+        public void onConnected(Endpoint endpoint) {
+            connected.countDown();
+        }
+
+        @Override
+        public void onSecurityEstablished(SecurityInfo info) {
+        }
+
+        @Override
+        public void onError(Exception cause) {
+            failure.set(cause);
+            connected.countDown();
+        }
+
+        @Override
+        public void onDisconnected() {
+        }
+
+        void await(String timeoutMessage) throws Exception {
+            if (!connected.await(ASYNC_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
+                throw new Exception(timeoutMessage);
+            }
+            Exception cause = failure.get();
+            if (cause != null) {
+                throw cause;
+            }
+        }
+    }
 
     // ─────────────────────────────────────────────────────────────────────────
     // Basic Connectivity Tests

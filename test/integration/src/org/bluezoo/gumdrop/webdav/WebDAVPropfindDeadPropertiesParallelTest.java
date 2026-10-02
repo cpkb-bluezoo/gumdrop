@@ -65,7 +65,8 @@ import java.util.concurrent.atomic.AtomicInteger;
 public class WebDAVPropfindDeadPropertiesParallelTest {
 
     private static final int RESOURCE_COUNT = 24;
-    private static final int STORAGE_DELAY_MS = 20;
+    /** Hang guard for the overlap barrier; never reached when the loads fan out. */
+    private static final long BARRIER_HANG_GUARD_MS = 5000;
 
     private Path tempRoot;
     private Gumdrop gumdrop;
@@ -101,14 +102,16 @@ public class WebDAVPropfindDeadPropertiesParallelTest {
         store.setMode(DeadPropertyStore.Mode.SIDECAR);
         FileHandler handler = newHandler(tempRoot, store);
 
-        final List<Long> storageStartTimes =
-                Collections.synchronizedList(new ArrayList<Long>());
+        final AtomicInteger submissions = new AtomicInteger(0);
+        // Two dead-property loads must be on the pool at the same time for
+        // the barrier to open; a serial chain can never get there.
+        final CountDownLatch overlap = new CountDownLatch(2);
         final AtomicInteger inFlight = new AtomicInteger(0);
         final AtomicInteger maxInFlight = new AtomicInteger(0);
         StorageExecutor.workThreadObserver = new StorageExecutor.WorkThreadObserver() {
             @Override
             public void observed(Thread worker) {
-                storageStartTimes.add(System.nanoTime());
+                int index = submissions.getAndIncrement();
                 int now = inFlight.incrementAndGet();
                 while (true) {
                     int prev = maxInFlight.get();
@@ -120,7 +123,12 @@ public class WebDAVPropfindDeadPropertiesParallelTest {
                     }
                 }
                 try {
-                    Thread.sleep(STORAGE_DELAY_MS);
+                    // Index 0 is PROPFIND enumeration; later ones are
+                    // dead-property loads.
+                    if (index >= 1) {
+                        overlap.countDown();
+                        overlap.await(BARRIER_HANG_GUARD_MS, TimeUnit.MILLISECONDS);
+                    }
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
                 } finally {
@@ -153,23 +161,15 @@ public class WebDAVPropfindDeadPropertiesParallelTest {
 
         assertTrue("expected tree walk plus " + RESOURCE_COUNT
                 + " dead-property storage submissions, saw "
-                + storageStartTimes.size(),
-                storageStartTimes.size() >= 1 + RESOURCE_COUNT);
+                + submissions.get(),
+                submissions.get() >= 1 + RESOURCE_COUNT);
 
-        // Index 0 is PROPFIND enumeration; 1..N are dead-property loads.
-        // Serial chaining waits for each submission (including the
-        // artificial delay) before issuing the next, so four consecutive
-        // loads span at least three delay periods. Fan-out submits them
+        // Serial chaining waits for each submission to finish before
+        // issuing the next, so two loads are never in flight together and
+        // the barrier above would not open. Fan-out submits them
         // back-to-back and lets the pool run several concurrently.
-        long firstDeadPropStart = storageStartTimes.get(1);
-        long fourthDeadPropStart = storageStartTimes.get(4);
-        long spreadMs = (fourthDeadPropStart - firstDeadPropStart) / 1_000_000;
-        long serialFloorMs = 3L * STORAGE_DELAY_MS;
-        assertTrue("first four dead-property submissions spanned only "
-                + spreadMs + "ms -- strict serialisation with a "
-                + STORAGE_DELAY_MS + "ms delay would span at least "
-                + serialFloorMs + "ms between their start times",
-                spreadMs < serialFloorMs);
+        assertEquals("dead-property loads must be submitted concurrently",
+                0L, overlap.getCount());
 
         assertTrue("dead-property loads must overlap on the storage pool "
                 + "(peak in-flight was " + maxInFlight.get() + ")",

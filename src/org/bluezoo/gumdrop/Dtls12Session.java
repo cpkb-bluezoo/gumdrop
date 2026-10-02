@@ -180,7 +180,7 @@ final class Dtls12Session implements TlsRecordSink {
         ByteBuffer buf = ByteBufferPool.acquire(plaintext.length);
         buf.put(plaintext);
         buf.flip();
-        endpoint.deliverPlaintext(buf);
+        endpoint.deliverPlaintext(remoteAddress, buf);
     }
 
     @Override

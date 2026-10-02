@@ -352,9 +352,15 @@ public class HttpClientProtocolHandler
             // RFC 9113 section 9.2.2: validate cipher suite for TLS 1.2
             if (isBlockedH2CipherSuite(info)) {
                 String cipher = info.getCipherSuite();
-                LOGGER.warning(MessageFormat.format(L10N.getString("warn.blocked_h2_cipher_suite_client"), cipher));
-                sendGoaway(H2FrameHandler.ERROR_INADEQUATE_SECURITY,
-                        "blocked cipher suite: " + cipher);
+                String blocked = MessageFormat.format(
+                        L10N.getString("warn.blocked_h2_cipher_suite_client"), cipher);
+                LOGGER.warning(blocked);
+                // No HTTP/2 connection exists yet (no preface sent, no writer),
+                // so there is nothing to GOAWAY: report the failure and close
+                close();
+                if (handler != null) {
+                    handler.onError(new IOException(blocked));
+                }
                 return;
             }
             negotiatedVersion = HttpVersion.HTTP_2_0;
@@ -991,7 +997,33 @@ public class HttpClientProtocolHandler
         if (!isOpen()) {
             throw new IllegalStateException(L10N.getString("err.connection_not_open"));
         }
+        validateRequestLine(method, path);
         return new HttpStream(this, method, path);
+    }
+
+    // RFC 9112 section 3: the request line is written verbatim, so a method
+    // that is not a token or a request-target containing whitespace or control
+    // characters (CR, LF, SP, NUL...) would let a caller smuggle a second
+    // request or header lines onto the connection
+    private static void validateRequestLine(String method, String path) {
+        if (method == null || method.isEmpty()) {
+            throw new IllegalArgumentException(L10N.getString("err.invalid_request_method"));
+        }
+        for (int i = 0; i < method.length(); i++) {
+            char c = method.charAt(i);
+            if (c <= 0x20 || c >= 0x7f || "\"(),/:;<=>?@[\\]{}".indexOf(c) >= 0) {
+                throw new IllegalArgumentException(L10N.getString("err.invalid_request_method"));
+            }
+        }
+        if (path == null || path.isEmpty()) {
+            throw new IllegalArgumentException(L10N.getString("err.invalid_request_target"));
+        }
+        for (int i = 0; i < path.length(); i++) {
+            char c = path.charAt(i);
+            if (c <= 0x20 || c == 0x7f) {
+                throw new IllegalArgumentException(L10N.getString("err.invalid_request_target"));
+            }
+        }
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -1267,6 +1299,11 @@ public class HttpClientProtocolHandler
     // RFC 9112 section 7.1: chunked transfer coding for request body data
     private int sendHTTP11Data(HttpStream request, ByteBuffer data) {
         int bytes = data.remaining();
+        if (bytes == 0) {
+            // A zero-length chunk is the chunked terminator (RFC 9112
+            // section 7.1): an empty write must not end the body early
+            return 0;
+        }
 
         if (request.getHeaders().containsName("Transfer-Encoding")) {
             String chunkHeader = Integer.toHexString(bytes) + "\r\n";
@@ -1378,9 +1415,11 @@ public class HttpClientProtocolHandler
             for (Header header : headers) {
                 String name = header.getName().toLowerCase();
                 // RFC 9113 section 8.2.2: strip HTTP/1 framing headers
-                if ("connection".equals(name) || "transfer-encoding".equals(name)
-                        || "upgrade".equals(name) || "host".equals(name)
-                        || "content-length".equals(name)) {
+                // (Connection, Keep-Alive, Proxy-Connection, Transfer-Encoding,
+                // Upgrade, TE other than "trailers"), which a server must reject
+                String headerValue = header.getValue();
+                if ("host".equals(name)
+                        || HttpVersion.isHttp1FramingHeader(name, headerValue)) {
                     continue;
                 }
                 headerList.add(new Header(name, header.getValue()));
@@ -1877,8 +1916,18 @@ public class HttpClientProtocolHandler
         try {
             contentLength = Long.parseLong(line.trim(), 16);
         } catch (NumberFormatException e) {
+            contentLength = -1;
+        }
+        if (contentLength < 0) {
+            // RFC 9112 section 7.1: the chunk framing can no longer be
+            // trusted, so the response fails and the connection is dropped
+            // rather than guessing where the body ends
             LOGGER.warning(MessageFormat.format(L10N.getString("warn.invalid_chunk_size"), line));
-            contentLength = 0;
+            fatalParseError = true;
+            parseState = ParseState.IDLE;
+            failAllStreams(new IOException(L10N.getString("err.invalid_chunk_size")));
+            close();
+            return;
         }
 
         if (contentLength == 0) {
@@ -2049,13 +2098,8 @@ public class HttpClientProtocolHandler
         }
 
         String scheme = parseAuthScheme(challenge);
-        String authHeader = null;
-
-        if ("basic".equalsIgnoreCase(scheme)) {
-            authHeader = computeBasicAuth();
-        } else if ("digest".equalsIgnoreCase(scheme)) {
-            authHeader = computeDigestAuth(challenge, currentStream.getMethod(), currentStream.getPath());
-        }
+        String authHeader = computeAuthorization(challenge, currentStream.getMethod(),
+                currentStream.getPath());
 
         if (authHeader != null) {
             authRetryPending = true;
@@ -2086,6 +2130,59 @@ public class HttpClientProtocolHandler
         }
 
         return false;
+    }
+
+    private String computeAuthorization(String challenge, String method, String path) {
+        String scheme = parseAuthScheme(challenge);
+        if ("basic".equalsIgnoreCase(scheme)) {
+            return computeBasicAuth();
+        }
+        if ("digest".equalsIgnoreCase(scheme)) {
+            return computeDigestAuth(challenge, method, path);
+        }
+        return null;
+    }
+
+    /**
+     * Returns the Authorization (or Proxy-Authorization) value to retry an
+     * HTTP/2 request with when its response is a 401/407 challenge this
+     * client can answer, or null if the response is to be delivered as is.
+     * Requests that carried a body are not retried: the body is not kept.
+     */
+    private String h2AuthorizationFor(HttpStream stream, HttpStatus status, Headers headers) {
+        if (username == null || password == null || stream.isAuthRetry()) {
+            return null;
+        }
+        String challenge;
+        if (status == HttpStatus.UNAUTHORIZED) {
+            challenge = headers.getValue("www-authenticate");
+        } else if (status == HttpStatus.PROXY_AUTHENTICATION_REQUIRED) {
+            challenge = headers.getValue("proxy-authenticate");
+        } else {
+            return null;
+        }
+        if (challenge == null) {
+            return null;
+        }
+        Headers requestHeaders = stream.getHeaders();
+        if (requestHeaders.containsName("Content-Length")
+                || requestHeaders.containsName("Transfer-Encoding")) {
+            return null;
+        }
+        return computeAuthorization(challenge, stream.getMethod(), stream.getPath());
+    }
+
+    // Re-sends a challenged HTTP/2 request on a new stream with credentials
+    private void retryH2WithAuthorization(HttpStream stream) {
+        HttpStream retry = new HttpStream(this, stream.getMethod(), stream.getPath());
+        for (Header h : stream.getHeaders()) {
+            retry.header(h.getName(), h.getValue());
+        }
+        String headerName = stream.isPendingAuthorizationProxy()
+                ? "Proxy-Authorization" : "Authorization";
+        retry.header(headerName, stream.getPendingAuthorization());
+        retry.markAuthRetry();
+        retry.send(stream.getHandler());
     }
 
     private String parseAuthScheme(String wwwAuthenticate) {
@@ -2265,8 +2362,19 @@ public class HttpClientProtocolHandler
             chunkedEncoding = true;
             parseState = ParseState.CHUNK_SIZE;
         } else if (contentLengthStr != null) {
-            contentLength = Long.parseLong(contentLengthStr.trim());
-            if (contentLength > 0) {
+            contentLength = validateContentLength(contentLengthStr);
+            if (contentLength < 0) {
+                // A challenge whose body cannot be framed cannot be retried
+                // on this connection; fail it as the non-challenge path does
+                LOGGER.warning(MessageFormat.format(
+                        L10N.getString("warn.invalid_content_length"), contentLengthStr));
+                discardingBody = false;
+                pendingAuthChallenge = null;
+                if (currentStream != null && currentStream.getHandler() != null) {
+                    currentStream.getHandler().failed(new IOException("Invalid Content-Length"));
+                }
+                completeResponse();
+            } else if (contentLength > 0) {
                 bytesReceived = 0;
                 parseState = ParseState.BODY;
             } else {
@@ -2344,7 +2452,9 @@ public class HttpClientProtocolHandler
         int dataLength = data.remaining();
 
         try {
-            feedResponseBody(stream, data);
+            if (stream.getPendingAuthorization() == null) {
+                feedResponseBody(stream, data);
+            }
         } catch (Exception e) {
             LOGGER.log(Level.WARNING, L10N.getString("warn.error_in_response_handler"), e);
         }
@@ -2757,8 +2867,35 @@ public class HttpClientProtocolHandler
 
         String statusStr = headers.getValue(":status");
         if (statusStr != null) {
-            int statusCode = Integer.parseInt(statusStr);
+            int statusCode;
+            try {
+                statusCode = Integer.parseInt(statusStr);
+            } catch (NumberFormatException e) {
+                statusCode = -1;
+            }
+            if (statusCode < 100 || statusCode > 599) {
+                // RFC 9113 section 8.3.2: :status is a three-digit code; a
+                // response that does not carry one is malformed (section 8.1.1)
+                failMalformedResponse(stream, streamId);
+                return;
+            }
             HttpStatus status = HttpStatus.fromCode(statusCode);
+            if (status.isInformational() && !endStream) {
+                // RFC 9113 section 8.1: interim (1xx) responses precede the
+                // final response and are not delivered to the handler
+                return;
+            }
+            String authorization = h2AuthorizationFor(stream, status, headers);
+            if (authorization != null) {
+                // Answer the challenge: discard this response (the handler
+                // never sees it) and retry once its stream has ended.
+                stream.setPendingAuthorization(authorization,
+                        status == HttpStatus.PROXY_AUTHENTICATION_REQUIRED);
+                if (endStream) {
+                    completeStream(stream, streamId);
+                }
+                return;
+            }
             HttpResponseHandler responseHandler = stream.getHandler();
             if (responseHandler != null) {
                 try {
@@ -2799,6 +2936,29 @@ public class HttpClientProtocolHandler
         }
     }
 
+    private void failMalformedResponse(HttpStream stream, int streamId) {
+        sendRstStream(streamId, H2FrameHandler.ERROR_PROTOCOL_ERROR);
+        activeStreams.remove(streamId);
+        streamIdByRequest.remove(stream);
+        if (h2FlowControl != null) {
+            h2FlowControl.closeStream(streamId);
+        }
+        PendingData removed = h2PendingData.remove(streamId);
+        if (removed != null) {
+            releasePendingData(removed);
+        }
+        HttpResponseHandler responseHandler = stream.getHandler();
+        if (responseHandler != null) {
+            try {
+                responseHandler.failed(new IOException(L10N.getString("err.invalid_response_status")));
+            } catch (Exception e) {
+                LOGGER.log(Level.WARNING, L10N.getString("warn.error_in_response_handler"), e);
+            }
+        }
+        drainPendingRequests();
+        maybeCloseWhenIdle();
+    }
+
     private void completeStream(HttpStream stream, int streamId) {
         activeStreams.remove(streamId);
         streamIdByRequest.remove(stream);
@@ -2808,6 +2968,12 @@ public class HttpClientProtocolHandler
         PendingData removed = h2PendingData.remove(streamId);
         if (removed != null) {
             releasePendingData(removed);
+        }
+        if (stream.getPendingAuthorization() != null) {
+            retryH2WithAuthorization(stream);
+            drainPendingRequests();
+            maybeCloseWhenIdle();
+            return;
         }
         finishResponseBody(stream);
         HttpResponseHandler responseHandler = stream.getHandler();
@@ -3190,7 +3356,12 @@ public class HttpClientProtocolHandler
         @Override
         public void run() {
             try {
-                if (h2FlowControl != null && data.hasRemaining()) {
+                // The end-of-stream marker (empty data) must queue behind any
+                // earlier data still waiting for flow-control window, or the
+                // stream would be ended before that data is sent
+                if (h2FlowControl != null
+                        && (data.hasRemaining()
+                                || (endStream && h2PendingData.containsKey(streamId)))) {
                     if (h2PendingData.containsKey(streamId)) {
                         queuePendingData(streamId, data, endStream);
                         return;

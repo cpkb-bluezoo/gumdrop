@@ -70,7 +70,7 @@ public class Span {
         this.spanId = SpanId.generate();
         this.name = name;
         this.kind = kind != null ? kind : SpanKind.INTERNAL;
-        this.startTimeUnixNano = System.currentTimeMillis() * 1_000_000L;
+        this.startTimeUnixNano = nowMillis() * 1_000_000L;
         this.status = SpanStatus.UNSET;
         this.ended = false;
 
@@ -108,7 +108,7 @@ public class Span {
         this.spanId = spanId;
         this.name = name;
         this.kind = kind != null ? kind : SpanKind.INTERNAL;
-        this.startTimeUnixNano = System.currentTimeMillis() * 1_000_000L;
+        this.startTimeUnixNano = nowMillis() * 1_000_000L;
         this.status = SpanStatus.UNSET;
         this.ended = false;
 
@@ -505,7 +505,7 @@ public class Span {
      */
     public void end() {
         if (!ended) {
-            endTimeUnixNano = System.currentTimeMillis() * 1_000_000L;
+            endTimeUnixNano = nowMillis() * 1_000_000L;
             ended = true;
             trace.spanEnded(this);
         }
@@ -554,5 +554,18 @@ public class Span {
         }
     }
 
-}
 
+    /**
+     * Test seam: when non-negative, the instant (epoch millis) used instead
+     * of the system clock.
+     */
+    static volatile long fixedTimeMillis = -1L;
+
+    static long nowMillis() {
+        long fixed = fixedTimeMillis;
+        if (fixed >= 0L) {
+            return fixed;
+        }
+        return System.currentTimeMillis();
+    }
+}

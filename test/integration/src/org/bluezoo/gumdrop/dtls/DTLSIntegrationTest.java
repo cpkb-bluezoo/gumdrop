@@ -203,7 +203,8 @@ public class DTLSIntegrationTest {
         assertTrue("DTLS handshake should complete and notify the client",
                 clientHandler.securityLatch.await(TIMEOUT_SECONDS, TimeUnit.SECONDS));
         assertNull("DTLS client error: " + clientHandler.error.get(), clientHandler.error.get());
-        assertEquals("DTLSv1.2", clientHandler.securityInfo.get().getProtocol());
+        // both sides default to DtlsVersion.NEGOTIATE, which prefers 1.3
+        assertEquals("DTLSv1.3", clientHandler.securityInfo.get().getProtocol());
 
         clientEndpoint.send(ByteBuffer.wrap("hello over DTLS".getBytes(StandardCharsets.UTF_8)));
 

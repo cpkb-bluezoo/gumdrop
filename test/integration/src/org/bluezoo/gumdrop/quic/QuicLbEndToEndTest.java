@@ -199,7 +199,24 @@ public class QuicLbEndToEndTest {
             final QuicLbConfig rotated = config(1, 7, KEY);
             serverFactory.setQuicLbConfig(rotated);
             final CountDownLatch flushed = new CountDownLatch(1);
+            final CountDownLatch replacedLatch = new CountDownLatch(1);
             final QuicConnection target = conn;
+            // The retired IDs go once the client's RETIRE_CONNECTION_ID
+            // frames arrive; the hook runs on the loop after each one.
+            target.retireConnectionIdHook = new Runnable() {
+                @Override
+                public void run() {
+                    boolean done = true;
+                    for (byte[] id : target.getOurConnectionIds()) {
+                        if (QuicLbConfig.configIdOf(id[0]) != 1) {
+                            done = false;
+                        }
+                    }
+                    if (done) {
+                        replacedLatch.countDown();
+                    }
+                }
+            };
             loop.invokeLater(new Runnable() {
                 @Override
                 public void run() {
@@ -208,17 +225,7 @@ public class QuicLbEndToEndTest {
                 }
             });
             assertTrue(flushed.await(5, TimeUnit.SECONDS));
-            long deadline = System.currentTimeMillis() + 5000;
-            boolean replaced = false;
-            while (System.currentTimeMillis() < deadline && !replaced) {
-                Thread.sleep(50);
-                replaced = true;
-                for (byte[] id : target.getOurConnectionIds()) {
-                    if (QuicLbConfig.configIdOf(id[0]) != 1) {
-                        replaced = false;
-                    }
-                }
-            }
+            boolean replaced = replacedLatch.await(5, TimeUnit.SECONDS);
             assertTrue("retired config id's IDs replaced after rotation", replaced);
             for (byte[] id : target.getOurConnectionIds()) {
                 assertTrue(rotated.isOwn(id));

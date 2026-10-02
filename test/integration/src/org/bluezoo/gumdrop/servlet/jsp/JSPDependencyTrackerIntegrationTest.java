@@ -84,9 +84,9 @@ public class JSPDependencyTrackerIntegrationTest {
         Set<String> noDeps = new HashSet<String>();
         tracker.recordCompilation("/index.jsp", noDeps);
         
-        // Wait a bit and modify the file
-        Thread.sleep(100);
+        // Modify the file, pushing its mtime clearly past the compile time
         writeFile(jspFile, "<html><body>Modified</body></html>");
+        touchInFuture(jspFile);
         
         // Should now need recompilation
         assertTrue("Modified JSP should need recompilation",
@@ -111,9 +111,9 @@ public class JSPDependencyTrackerIntegrationTest {
         assertFalse("Should not need recompilation initially",
             tracker.needsRecompilation("/main.jsp"));
         
-        // Wait and modify the dependency
-        Thread.sleep(100);
+        // Modify the dependency, pushing its mtime clearly past the compile time
         writeFile(header, "<header>Modified Header</header>");
+        touchInFuture(header);
         
         // Should now need recompilation due to dependency change
         assertTrue("Should need recompilation after dependency modified",
@@ -321,6 +321,12 @@ public class JSPDependencyTrackerIntegrationTest {
         // Should need recompilation because dependency is missing
         assertTrue("Missing dependency should trigger recompilation",
             tracker.needsRecompilation("/exists.jsp"));
+    }
+
+    /** Sets the mtime well after any recorded compilation time (no waiting). */
+    private void touchInFuture(File file) {
+        long later = System.currentTimeMillis() + 60000L;
+        assertTrue("setLastModified", file.setLastModified(later));
     }
 
     private void writeFile(File file, String content) throws IOException {

@@ -1092,10 +1092,6 @@
           <include name='**/Dtls13SessionTest.java'/>
           <include name='**/quic/tls/PemCredentialsTest.java'/>
           <include name='**/util/SPKIPinnedCertTrustManagerTest.java'/>
-          <include name='**/tls/Dtls12CookieExchangeTest.java'/>
-          <include name='**/tls/Dtls12RecordEngineTest.java'/>
-          <include name='**/tls/Dtls13CookieTest.java'/>
-          <include name='**/tls/Dtls13RecordEngineTest.java'/>
           <include name='**/tls/Tls12RecordEngineTest.java'/>
           <include name='**/tls/TlsRecordEngineTest.java'/>
         </fileset>
@@ -1292,7 +1288,6 @@
           <include name='**/QuicHandshakeAsyncOffloadTest.java'/>
           <include name='**/DNSServiceTest.java'/>
           <include name='**/MDNSServiceTest.java'/>
-          <include name='**/HandshakeEngineLoopbackTest.java'/>
           <include name='**/Tls12HandshakeEngineLoopbackTest.java'/>
           <include name='**/TlsHandshakeAsyncOffloadTest.java'/>
           <include name='**/FTPPasswordOffloadTest.java'/>

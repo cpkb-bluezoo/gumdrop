@@ -45,12 +45,18 @@ final class ZoneFileLexer extends ByteStreamLexer<ZoneFileLexer.Token> {
         LPAREN,
         RPAREN,
         NEWLINE,
-        TEXT
+        TEXT,
+        /** Whitespace at the start of an entry: the owner name is omitted. */
+        INDENT
     }
 
     private boolean lastWasCR;
     private boolean inQuote;
     private boolean inComment;
+    private boolean atLineStart = true;
+    private boolean escaped;
+    private int decimalDigits;
+    private int decimalValue;
     private int parenDepth;
     private ByteArrayOutputStream quoteBuffer;
     private final Handler<Token> tokens;
@@ -68,6 +74,9 @@ final class ZoneFileLexer extends ByteStreamLexer<ZoneFileLexer.Token> {
         if (inQuote) {
             inQuote = false;
             quoteBuffer = null;
+            escaped = false;
+            decimalDigits = 0;
+            decimalValue = 0;
         }
     }
 
@@ -90,6 +99,14 @@ final class ZoneFileLexer extends ByteStreamLexer<ZoneFileLexer.Token> {
             if (b == '\n') {
                 inComment = false;
                 lastWasCR = false;
+                // The comment ends the line: terminate the entry (or skip the
+                // line break inside parentheses) and move the token boundary
+                // past the comment text so it cannot leak into the next token.
+                if (parenDepth == 0) {
+                    maybeEmitNewline(pos);
+                } else {
+                    advancePastDelimiter(pos);
+                }
             } else if (b == '\r') {
                 lastWasCR = true;
             } else {
@@ -98,6 +115,40 @@ final class ZoneFileLexer extends ByteStreamLexer<ZoneFileLexer.Token> {
             return true;
         }
         if (inQuote) {
+            if (escaped) {
+                // RFC 1035 section 5.1: \X is the literal X; \DDD is the
+                // octet with that decimal value.
+                if (decimalDigits > 0) {
+                    if (b >= '0' && b <= '9') {
+                        decimalValue = decimalValue * 10 + (b - '0');
+                        decimalDigits++;
+                        if (decimalDigits == 3) {
+                            quoteBuffer.write(decimalValue);
+                            escaped = false;
+                            decimalDigits = 0;
+                            decimalValue = 0;
+                        }
+                        return true;
+                    }
+                    // fewer than three digits: keep the value so far
+                    quoteBuffer.write(decimalValue);
+                    escaped = false;
+                    decimalDigits = 0;
+                    decimalValue = 0;
+                } else if (b >= '0' && b <= '9') {
+                    decimalValue = b - '0';
+                    decimalDigits = 1;
+                    return true;
+                } else {
+                    quoteBuffer.write(b);
+                    escaped = false;
+                    return true;
+                }
+            }
+            if (b == '\\') {
+                escaped = true;
+                return true;
+            }
             if (b == '"') {
                 byte[] quoted = quoteBuffer.toByteArray();
                 quoteBuffer = null;
@@ -108,6 +159,17 @@ final class ZoneFileLexer extends ByteStreamLexer<ZoneFileLexer.Token> {
             }
             quoteBuffer.write(b);
             return true;
+        }
+        if (atLineStart) {
+            if (b == ' ' || b == '\t') {
+                atLineStart = false;
+                emit(Token.INDENT, pos - 1, pos);
+                lastWasCR = false;
+                return true;
+            }
+            if (b != '\n' && b != '\r') {
+                atLineStart = false;
+            }
         }
         if (b == '\n' && lastWasCR) {
             flushAtom(pos - 1);
@@ -148,9 +210,10 @@ final class ZoneFileLexer extends ByteStreamLexer<ZoneFileLexer.Token> {
         }
         if (b == '"') {
             flushAtom(pos - 1);
+            // flushAtom left the token boundary on this quote, so an
+            // underflow inside the string replays it from the opening quote.
             inQuote = true;
             quoteBuffer = new ByteArrayOutputStream();
-            emit(Token.ATOM, pos - 1, pos - 1);
             return true;
         }
         if (b == '(') {
@@ -173,6 +236,7 @@ final class ZoneFileLexer extends ByteStreamLexer<ZoneFileLexer.Token> {
 
     private void maybeEmitNewline(int pos) {
         if (parenDepth == 0) {
+            atLineStart = true;
             emit(Token.NEWLINE, pos - 1, pos);
         }
     }

@@ -27,6 +27,7 @@ import org.bluezoo.gumdrop.quic.packet.QuicVersion;
 import org.bluezoo.util.ByteArrays;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 
 /**
  * Verifies {@link InitialSecrets} against the worked example in
@@ -58,4 +59,27 @@ public class InitialSecretsTest {
         byte[] secret = InitialSecrets.serverSecret(QuicVersion.V1, DCID);
         assertEquals(SERVER_INITIAL_SECRET, ByteArrays.toHexString(secret));
     }
+
+    // RFC 9369 appendix A.1 (QUIC version 2)
+    @Test
+    public void testClientInitialSecretV2() {
+        byte[] secret = InitialSecrets.clientSecret(QuicVersion.V2, DCID);
+        assertEquals("14ec9d6eb9fd7af83bf5a668bc17a7e283766aade7ecd0891f70f9ff7f4bf47b",
+                ByteArrays.toHexString(secret));
+    }
+
+    @Test
+    public void testServerInitialSecretV2() {
+        byte[] secret = InitialSecrets.serverSecret(QuicVersion.V2, DCID);
+        assertEquals("0263db1782731bf4588e7e4d93b7463907cb8cd8200b5da55a8bd488eafc37c1",
+                ByteArrays.toHexString(secret));
+    }
+
+    @Test
+    public void testDifferentConnectionIdChangesSecret() {
+        byte[] other = ByteArrays.toByteArray("8394c8f03e515709");
+        assertFalse(java.util.Arrays.equals(InitialSecrets.clientSecret(QuicVersion.V1, DCID),
+                InitialSecrets.clientSecret(QuicVersion.V1, other)));
+    }
+
 }

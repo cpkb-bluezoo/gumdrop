@@ -30,8 +30,6 @@ import java.util.List;
 import javax.net.ssl.X509TrustManager;
 import java.util.concurrent.atomic.AtomicReference;
 
-import org.bluezoo.gumdrop.IntegrationTestHosts;
-import org.bluezoo.gumdrop.TestTlsFiles;
 
 import org.junit.BeforeClass;
 import org.junit.Test;
@@ -41,6 +39,7 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
+import org.bluezoo.gumdrop.testsupport.TestCertificates;
 
 /**
  * RFC 6347 HelloVerifyRequest cookie exchange: HMAC binding, parsing,
@@ -51,7 +50,7 @@ public class Dtls12CookieExchangeTest {
 
     private static final byte[] COOKIE_SECRET = "dtls12-cookie-test-secret".getBytes(java.nio.charset.StandardCharsets.US_ASCII);
     /** Must match a DNS SAN on {@code etc/tls/cert.pem} (see {@code integration.tls.names}). */
-    private static final String SERVER_NAME = IntegrationTestHosts.TLS_SERVER_NAME;
+    private static final String SERVER_NAME = TestCertificates.SERVER_NAME;
     private static final InetSocketAddress CLIENT_ADDR = new InetSocketAddress("127.0.0.1", 4242);
     private static final InetSocketAddress SERVER_ADDR = new InetSocketAddress("127.0.0.1", 4343);
     private static final InetSocketAddress WRONG_ADDR = new InetSocketAddress("127.0.0.1", 9999);
@@ -63,10 +62,9 @@ public class Dtls12CookieExchangeTest {
 
     @BeforeClass
     public static void loadCertificates() throws Exception {
-        TestTlsFiles.assumeAvailable();
-        ecChain = TestTlsFiles.certificateChain();
-        ecKey = TestTlsFiles.privateKey();
-        trustManager = TestTlsFiles.trustManager();
+                ecChain = TestCertificates.ec256().getChain();
+        ecKey = TestCertificates.ec256().getPrivateKey();
+        trustManager = TestCertificates.ec256().trustManager();
     }
 
     @Test

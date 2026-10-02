@@ -383,7 +383,13 @@ public final class QuicEngine implements ChannelHandler, MultiplexedEndpoint {
         ConnectionIdKey key = new ConnectionIdKey(dcid);
         QuicConnection conn = connections.get(key);
         if (conn == null) {
-            if (serverMode && prefix != null && prefix.getPacketType() == LongHeaderCodec.TYPE_INITIAL) {
+            // An Initial addressed to a connection ID this server chose for a
+            // connection it has since closed is a late packet for that
+            // connection, not a new client: accepting it would create a
+            // phantom connection claiming the old ID (RFC 9000 section 10.3
+            // stateless reset applies instead).
+            if (serverMode && prefix != null && prefix.getPacketType() == LongHeaderCodec.TYPE_INITIAL
+                    && !isResetEligible(dcid)) {
                 if (factory.isRequireRetry()) {
                     byte[] originalDcid = null;
                     byte[] token = prefix.getToken();
@@ -495,6 +501,7 @@ public final class QuicEngine implements ChannelHandler, MultiplexedEndpoint {
                 factory.getTrustManager());
         tlsEngine.setVersionPolicy(version, factory.getVersions());
         factory.applyEchServerSettings(tlsEngine);
+        tlsEngine.setTicketKeys(factory.getTicketKeys());
         conn.setTlsEngine(tlsEngine);
 
         if (connectionAcceptedHandler != null) {
@@ -503,6 +510,12 @@ public final class QuicEngine implements ChannelHandler, MultiplexedEndpoint {
             conn.setStreamAcceptHandler(streamAcceptHandler);
         }
         registerConnectionId(serverScid, conn);
+        // RFC 9000 section 7.2: until the client has seen a packet from
+        // this server it keeps addressing Initial packets to its own
+        // chosen Destination Connection ID, so a retransmitted Initial
+        // must be routed to this connection, not accepted as a new one.
+        // (After a Retry that ID is the server's own, registered above.)
+        connections.put(new ConnectionIdKey(clientDcid), conn);
         return conn;
     }
 
@@ -733,13 +746,14 @@ public final class QuicEngine implements ChannelHandler, MultiplexedEndpoint {
      * earlyDataHandler} if 0-RTT (RFC 9001 section 4.6.1) becomes
      * available first.
      *
-     * <p>If {@link QuicTransportFactory#isEarlyDataEnabled()} is set,
-     * looks up {@link SessionTicketCache} for {@code serverName} (or
+     * <p>Looks up {@link SessionTicketCache} for {@code serverName} (or
      * {@code remote}'s address if {@code serverName} is null, e.g. DoQ)
      * before starting the handshake, and presents any cached ticket --
-     * this is the one and only place session tickets are consulted for
-     * an attempted 0-RTT connection; no ticket cached means an ordinary
-     * handshake, same as today.
+     * this is the one and only place session tickets are consulted. The
+     * ticket resumes the session via PSK; 0-RTT is additionally offered
+     * only if {@link QuicTransportFactory#isEarlyDataEnabled()} is set
+     * and the ticket allows it. No ticket cached means an ordinary
+     * handshake.
      *
      * @param remote the server address
      * @param handler the handler for the auto-opened first stream, may be null
@@ -752,18 +766,16 @@ public final class QuicEngine implements ChannelHandler, MultiplexedEndpoint {
         QuicVersion[] configured = factory.getVersions();
         QuicVersion start = QuicVersion.originalVersion(configured);
         SessionTicketCache.Entry cached = null;
-        if (factory.isEarlyDataEnabled()) {
-            String host = (serverName != null) ? serverName : remote.getAddress().getHostAddress();
-            cached = SessionTicketCache.get(host, remote.getPort());
-            // RFC 9369 section 5: a ticket is only good for the QUIC version
-            // of the connection that issued it, so that is the version to
-            // start in.
-            if (cached != null && !isConfigured(cached.getVersion())) {
-                cached = null;
-            }
-            if (cached != null) {
-                start = cached.getVersion();
-            }
+        String host = (serverName != null) ? serverName : remote.getAddress().getHostAddress();
+        cached = SessionTicketCache.get(host, remote.getPort());
+        // RFC 9369 section 5: a ticket is only good for the QUIC version
+        // of the connection that issued it, so that is the version to
+        // start in.
+        if (cached != null && !isConfigured(cached.getVersion())) {
+            cached = null;
+        }
+        if (cached != null) {
+            start = cached.getVersion();
         }
         startClientAttempt(remote, handler, connHandler, earlyDataHandler, serverName, start, false, cached);
     }

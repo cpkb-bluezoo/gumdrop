@@ -169,12 +169,11 @@ public class SessionManagerTest {
     }
 
     @Test
-    public void testGetSessionUpdatesLastAccessedTime() throws InterruptedException {
+    public void testGetSessionUpdatesLastAccessedTime() {
         HttpSession session = manager.createSession();
+        // Push the last-accessed time into the past instead of waiting
+        ((Session) session).lastAccessedTime -= 100000L;
         long originalTime = session.getLastAccessedTime();
-
-        // Wait a bit
-        Thread.sleep(50);
 
         // Access the session again
         manager.getSession(session.getId(), false);

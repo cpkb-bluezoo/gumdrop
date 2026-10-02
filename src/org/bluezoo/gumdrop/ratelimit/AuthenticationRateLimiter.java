@@ -255,7 +255,7 @@ public class AuthenticationRateLimiter {
         }
 
         FailureTracker tracker = trackers.get(key);
-        return tracker != null && tracker.isLocked(System.currentTimeMillis());
+        return tracker != null && tracker.isLocked(currentTimeMillis());
     }
 
     /**
@@ -279,13 +279,13 @@ public class AuthenticationRateLimiter {
         }
 
         FailureTracker tracker = getOrCreateTracker(key);
-        tracker.recordFailure(System.currentTimeMillis(), maxFailures, lockoutMs, 
+        tracker.recordFailure(currentTimeMillis(), maxFailures, lockoutMs, 
                              maxLockoutMs, exponentialBackoff);
 
         if (LOGGER.isLoggable(Level.FINE)) {
-            if (tracker.isLocked(System.currentTimeMillis())) {
+            if (tracker.isLocked(currentTimeMillis())) {
                 LOGGER.fine(MessageFormat.format(L10N.getString("ratelimit.auth_locked"),
-                    key, tracker.getLockoutRemaining(System.currentTimeMillis()) / 1000));
+                    key, tracker.getLockoutRemaining(currentTimeMillis()) / 1000));
             } else {
                 LOGGER.fine(MessageFormat.format(L10N.getString("ratelimit.auth_failure"),
                     key, tracker.getFailureCount(), maxFailures));
@@ -371,7 +371,7 @@ public class AuthenticationRateLimiter {
         }
 
         FailureTracker tracker = trackers.get(key);
-        return tracker != null ? tracker.getLockoutRemaining(System.currentTimeMillis()) : 0;
+        return tracker != null ? tracker.getLockoutRemaining(currentTimeMillis()) : 0;
     }
 
     /**
@@ -410,7 +410,7 @@ public class AuthenticationRateLimiter {
      * rarely and by only one caller at a time, keeping the tracker map bounded.
      */
     private void maybeCleanup() {
-        long now = System.currentTimeMillis();
+        long now = currentTimeMillis();
         long last = lastCleanup.get();
         if (now - last >= CLEANUP_INTERVAL_MS
                 && lastCleanup.compareAndSet(last, now)) {
@@ -424,10 +424,18 @@ public class AuthenticationRateLimiter {
     }
 
     /**
+     * Returns the current time in milliseconds. Package-private so tests
+     * can substitute a deterministic clock.
+     */
+    long currentTimeMillis() {
+        return System.currentTimeMillis();
+    }
+
+    /**
      * Removes expired trackers that have no recent activity.
      */
     public void cleanup() {
-        long now = System.currentTimeMillis();
+        long now = currentTimeMillis();
         // Expire entries after max lockout duration + window
         long expiryPeriod = maxLockoutMs * 2;
         int removed = 0;

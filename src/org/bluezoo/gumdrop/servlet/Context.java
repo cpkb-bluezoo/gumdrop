@@ -227,22 +227,31 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
                 if (!isSafeArchiveEntryName(entry)) {
                     continue;
                 }
-                // Directory-marker entries (trailing '/') are skipped, not
-                // bucketed under their parent: the original per-request scan
-                // this replaces matched children via entry.indexOf('/',
-                // entryPath.length()) == -1, which a directory entry like
-                // "a/b/" never satisfies (the trailing slash itself is the
-                // extra '/' found), so such entries were always excluded -
-                // replicate that exactly rather than changing the behavior.
-                if (!entry.endsWith("/")) {
-                    int lastSlash = entry.lastIndexOf('/');
-                    String parentDir = (lastSlash == -1) ? "" : entry.substring(0, lastSlash + 1);
+                // Each entry (file or directory marker) is bucketed under its
+                // parent directory, and every ancestor directory is
+                // registered under its own parent too (archives need not
+                // contain explicit directory markers). Directory children
+                // keep their trailing '/', as getResourcePaths requires.
+                String child = entry;
+                while (child.length() > 0) {
+                    String trimmed = child.endsWith("/")
+                            ? child.substring(0, child.length() - 1)
+                            : child;
+                    if (trimmed.isEmpty()) {
+                        break;
+                    }
+                    int lastSlash = trimmed.lastIndexOf('/');
+                    String parentDir = (lastSlash == -1) ? "" : trimmed.substring(0, lastSlash + 1);
                     Set<String> children = childrenByDir.get(parentDir);
                     if (children == null) {
                         children = new LinkedHashSet<>();
                         childrenByDir.put(parentDir, children);
                     }
-                    children.add(entry);
+                    children.add(child);
+                    if (parentDir.isEmpty()) {
+                        break;
+                    }
+                    child = parentDir;
                 }
                 if (entry.startsWith(libPath) && entry.toLowerCase().endsWith(".jar")
                         && entry.indexOf('/', libPath.length()) == -1) {
@@ -1042,7 +1051,7 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
                         }
                         descriptor.addFilterMapping(filterMapping);
                     }
-                    String[] servletNames = webFilter.urlPatterns();
+                    String[] servletNames = webFilter.servletNames();
                     if (servletNames.length > 0) {
                         FilterMapping filterMapping = new FilterMapping(webFilter.dispatcherTypes());
                         filterMapping.filterDef = filterDef;
@@ -2019,7 +2028,12 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
             String[] entries = dir.list();
             if (entries != null) { // may not be a directory
                 for (String entry : entries) {
-                    ret.add(path + entry);
+                    File child = new File(dir, entry);
+                    if (child.isDirectory()) {
+                        ret.add(path + entry + "/");
+                    } else {
+                        ret.add(path + entry);
+                    }
                 }
             }
             // Check entries in jars in WEB-INF/lib
@@ -2078,9 +2092,11 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
                             String tail = entryName.substring(prefix.length());
                             int si = tail.indexOf('/');
                             if (si != -1) {
-                                tail = tail.substring(0, si);
+                                tail = tail.substring(0, si + 1);
                             }
-                            ret.add(path + tail);
+                            if (tail.length() > 0) {
+                                ret.add(path + tail);
+                            }
                         }
                     }
                 } catch (IOException e) {
@@ -2558,7 +2574,10 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
     }
 
     @Override public String getRealPath(String path) {
-        throw new UnsupportedOperationException("ServletContext.getRealPath is a security vulnerability, do not use it");
+        // Resources are served through the ServletContext resource API and
+        // may not map to the filesystem; the spec permits null when no real
+        // path is available (and exposing filesystem paths is undesirable).
+        return null;
     }
 
     @Override public String getServerInfo() {

@@ -132,6 +132,18 @@ public class Amqp1ClientIntegrationTest {
         });
     }
 
+    /** Attaches a sender on the event loop and waits until the broker has given it credit. */
+    private void attachProbe(final Amqp1RecoverableSession session, final Sending probe)
+            throws InterruptedException {
+        onLoop(new Runnable() {
+            @Override
+            public void run() {
+                session.attachSender("probe", "queue://probe", probe);
+            }
+        });
+        await(probe.credit, "credit on the probe link");
+    }
+
     private static void await(CountDownLatch latch, String what) throws InterruptedException {
         assertTrue("timed out waiting for " + what, latch.await(TIMEOUT_SECONDS, TimeUnit.SECONDS));
     }
@@ -280,7 +292,8 @@ public class Amqp1ClientIntegrationTest {
             }
         });
         await(failed, "recovery to be abandoned");
-        Thread.sleep(400); // a retry would be scheduled well within this
+        // a retry is always announced to the listener before it is scheduled,
+        // so no onReconnecting by the time recovery is abandoned means none
         assertEquals(1, broker.connectionsAccepted());
         assertEquals(0, reconnects.get());
     }
@@ -290,9 +303,13 @@ public class Amqp1ClientIntegrationTest {
         broker.addMissingAddress("queue://missing");
         client = newClient();
         final Sending sending = new Sending();
+        final Sending probe = new Sending();
+        final AtomicReference<Amqp1RecoverableSession> sessionRef =
+                new AtomicReference<Amqp1RecoverableSession>();
         client.connect(gumdrop, new Amqp1RecoveryHandler() {
             @Override
             public void onFirstConnect(Amqp1RecoverableSession session) {
+                sessionRef.set(session);
                 session.attachSender("out", "queue://missing", sending);
             }
         });
@@ -300,14 +317,17 @@ public class Amqp1ClientIntegrationTest {
         assertEquals(Amqp1Error.NOT_FOUND, sending.detachError.getCondition());
         assertTrue("the broker closed it", sending.detachClosed);
         assertNull(sending.sender);
-        Thread.sleep(400);
-        assertEquals("a link the broker refused is not attached again", 1, broker.attachesReceived());
+        // The broker handles frames in order: once it has accepted a later
+        // probe link, any retry of the refused link would already be counted.
+        attachProbe(sessionRef.get(), probe);
+        assertEquals("a link the broker refused is not attached again", 2, broker.attachesReceived());
         assertEquals(1, broker.connectionsAccepted());
     }
 
     @Test
     public void testIdleTimeOutKeepsTheConnectionAlive() throws Exception {
         broker.setIdleTimeOut(300);
+        final CountDownLatch heartbeats = broker.expectHeartbeats(3);
         client = newClient();
         final Sending sending = new Sending();
         client.connect(gumdrop, new Amqp1RecoveryHandler() {
@@ -317,7 +337,7 @@ public class Amqp1ClientIntegrationTest {
             }
         });
         await(sending.credit, "link credit");
-        Thread.sleep(1200);
+        await(heartbeats, "three heartbeats");
         assertTrue("heartbeats were sent: " + broker.heartbeatsReceived(),
                 broker.heartbeatsReceived() >= 3);
         assertEquals("the connection was never lost", 1, broker.connectionsAccepted());
@@ -367,10 +387,7 @@ public class Amqp1ClientIntegrationTest {
         assertTrue("the loss was reported as a detach, not a close", sending.detachedOpen.get() >= 1);
         assertEquals(0, sending.detachedClosed.get());
         // the receiver is attached again and must be given credit again
-        long deadline = System.currentTimeMillis() + TIMEOUT_SECONDS * 1000;
-        while (receiving.attached.get() < 2 && System.currentTimeMillis() < deadline) {
-            Thread.sleep(20);
-        }
+        await(receiving.reattached, "the receiver to be attached again");
         assertEquals(2, receiving.attached.get());
 
         // and both still work, through the same objects the application holds
@@ -449,9 +466,13 @@ public class Amqp1ClientIntegrationTest {
         });
         final Sending kept = new Sending();
         final Sending closedByApp = new Sending();
+        final Sending probe = new Sending();
+        final AtomicReference<Amqp1RecoverableSession> sessionRef =
+                new AtomicReference<Amqp1RecoverableSession>();
         client.connect(gumdrop, new Amqp1RecoveryHandler() {
             @Override
             public void onFirstConnect(Amqp1RecoverableSession session) {
+                sessionRef.set(session);
                 session.attachSender("kept", "queue://a", kept);
                 session.attachSender("closed", "queue://b", closedByApp);
             }
@@ -471,9 +492,13 @@ public class Amqp1ClientIntegrationTest {
         broker.dropConnections();
         await(recovered, "recovery");
         await(kept.credit, "credit after recovery");
-        Thread.sleep(300);
+        // The broker handles frames in order: once it has accepted a later
+        // probe link, any re-attach of the closed link would already be counted.
+        attachProbe(sessionRef.get(), probe);
         assertEquals("only the link still wanted came back", 1, closedByApp.attached.get());
         assertEquals(2, kept.attached.get());
+        assertEquals("two initial attaches, one for the kept link, one probe", 4,
+                broker.attachesReceived());
     }
 
     // ── handlers ──
@@ -535,6 +560,7 @@ public class Amqp1ClientIntegrationTest {
         private final long credit;
         final CountDownLatch messages;
         final AtomicInteger attached = new AtomicInteger();
+        final CountDownLatch reattached = new CountDownLatch(2);
         final AtomicInteger chunks = new AtomicInteger();
         final List<String> subjects = new CopyOnWriteArrayList<String>();
         private final List<byte[]> bodies = new CopyOnWriteArrayList<byte[]>();
@@ -556,6 +582,7 @@ public class Amqp1ClientIntegrationTest {
         @Override
         public void handleAttached(Amqp1Receiver receiver, Attach peerAttach) {
             attached.incrementAndGet();
+            reattached.countDown();
             receiver.addCredit(credit); // on every attachment, including after recovery
         }
 

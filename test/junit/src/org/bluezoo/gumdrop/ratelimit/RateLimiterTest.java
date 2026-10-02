@@ -32,9 +32,27 @@ import static org.junit.Assert.*;
  */
 public class RateLimiterTest {
 
+    /** Rate limiter driven by a manually advanced clock. */
+    private static final class ManualRateLimiter extends RateLimiter {
+        private long now = 1000000L;
+
+        ManualRateLimiter(int maxEvents, long windowMs) {
+            super(maxEvents, windowMs);
+        }
+
+        void advance(long ms) {
+            now += ms;
+        }
+
+        @Override
+        long currentTimeMillis() {
+            return now;
+        }
+    }
+
     @Test
     public void testBasicAcquisition() {
-        RateLimiter limiter = new RateLimiter(5, 1000);
+        ManualRateLimiter limiter = new ManualRateLimiter(5, 1000);
         
         // Should allow 5 acquisitions
         for (int i = 0; i < 5; i++) {
@@ -47,7 +65,7 @@ public class RateLimiterTest {
     
     @Test
     public void testCanAcquireDoesNotConsume() {
-        RateLimiter limiter = new RateLimiter(2, 1000);
+        ManualRateLimiter limiter = new ManualRateLimiter(2, 1000);
         
         // canAcquire should not consume permits
         assertTrue(limiter.canAcquire());
@@ -63,8 +81,8 @@ public class RateLimiterTest {
     }
     
     @Test
-    public void testExpirationOverTime() throws InterruptedException {
-        RateLimiter limiter = new RateLimiter(3, 50); // 50ms window
+    public void testExpirationOverTime() {
+        ManualRateLimiter limiter = new ManualRateLimiter(3, 50); // 50ms window
         
         // Fill up the limiter
         assertTrue(limiter.tryAcquire());
@@ -73,16 +91,16 @@ public class RateLimiterTest {
         assertFalse(limiter.tryAcquire()); // Should fail
         
         // Wait for window to expire
-        Thread.sleep(60);
+        limiter.advance(60);
         
         // Now should allow new acquisitions
         assertTrue(limiter.tryAcquire());
     }
     
     @Test
-    public void testSlidingWindow() throws InterruptedException {
+    public void testSlidingWindow() {
         // Use short window for test
-        RateLimiter limiter = new RateLimiter(3, 50);
+        ManualRateLimiter limiter = new ManualRateLimiter(3, 50);
         
         // Acquire 3 permits
         assertTrue(limiter.tryAcquire());
@@ -94,7 +112,7 @@ public class RateLimiterTest {
         assertEquals(0, limiter.getRemaining());
         
         // Wait for window to expire
-        Thread.sleep(60);
+        limiter.advance(60);
         
         // Should be able to acquire again
         assertTrue(limiter.canAcquire());
@@ -102,7 +120,7 @@ public class RateLimiterTest {
     
     @Test
     public void testGetRemaining() {
-        RateLimiter limiter = new RateLimiter(5, 1000);
+        ManualRateLimiter limiter = new ManualRateLimiter(5, 1000);
         
         assertEquals(5, limiter.getRemaining());
         
@@ -116,7 +134,7 @@ public class RateLimiterTest {
     
     @Test
     public void testReset() {
-        RateLimiter limiter = new RateLimiter(3, 1000);
+        ManualRateLimiter limiter = new ManualRateLimiter(3, 1000);
         
         limiter.tryAcquire();
         limiter.tryAcquire();
@@ -132,7 +150,7 @@ public class RateLimiterTest {
     
     @Test
     public void testGetters() {
-        RateLimiter limiter = new RateLimiter(10, 5000);
+        ManualRateLimiter limiter = new ManualRateLimiter(10, 5000);
         
         assertEquals(10, limiter.getMaxEvents());
         assertEquals(5000, limiter.getWindowMs());
@@ -140,27 +158,27 @@ public class RateLimiterTest {
     
     @Test(expected = IllegalArgumentException.class)
     public void testInvalidMaxEventsZero() {
-        new RateLimiter(0, 1000);
+        new ManualRateLimiter(0, 1000);
     }
     
     @Test(expected = IllegalArgumentException.class)
     public void testInvalidMaxEventsNegative() {
-        new RateLimiter(-1, 1000);
+        new ManualRateLimiter(-1, 1000);
     }
     
     @Test(expected = IllegalArgumentException.class)
     public void testInvalidWindowZero() {
-        new RateLimiter(10, 0);
+        new ManualRateLimiter(10, 0);
     }
     
     @Test(expected = IllegalArgumentException.class)
     public void testInvalidWindowNegative() {
-        new RateLimiter(10, -1);
+        new ManualRateLimiter(10, -1);
     }
     
     @Test
     public void testTimeUntilAvailable() {
-        RateLimiter limiter = new RateLimiter(2, 1000);
+        ManualRateLimiter limiter = new ManualRateLimiter(2, 1000);
         
         // No acquisitions yet - should return 0
         assertEquals(0, limiter.getTimeUntilAvailable());
@@ -170,12 +188,14 @@ public class RateLimiterTest {
         limiter.tryAcquire();
         
         // Now full - should return time until first expires
-        assertTrue(limiter.getTimeUntilAvailable() > 0);
+        assertEquals(1000, limiter.getTimeUntilAvailable());
+        limiter.advance(400);
+        assertEquals(600, limiter.getTimeUntilAvailable());
     }
     
     @Test
-    public void testCircularBufferWrapAround() throws InterruptedException {
-        RateLimiter limiter = new RateLimiter(3, 30);
+    public void testCircularBufferWrapAround() {
+        ManualRateLimiter limiter = new ManualRateLimiter(3, 30);
         
         // Fill the buffer multiple times to test wrap-around
         for (int round = 0; round < 3; round++) {
@@ -185,13 +205,13 @@ public class RateLimiterTest {
             assertFalse("Round " + round + " acq 4", limiter.tryAcquire());
             
             // Wait for window to expire
-            Thread.sleep(40);
+            limiter.advance(40);
         }
     }
     
     @Test
     public void testSingleEvent() {
-        RateLimiter limiter = new RateLimiter(1, 1000);
+        ManualRateLimiter limiter = new ManualRateLimiter(1, 1000);
         
         assertTrue(limiter.tryAcquire());
         assertFalse(limiter.tryAcquire());

@@ -33,8 +33,6 @@ import org.bluezoo.gumdrop.auth.SaslMechanism;
 import org.bluezoo.gumdrop.imap.ImapListener;
 import org.bluezoo.gumdrop.mailbox.maildir.MaildirMailboxFactory;
 
-import java.net.InetSocketAddress;
-import java.net.Socket;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
@@ -88,7 +86,6 @@ public class ImapClientEndToEndTest {
         server.setAllowPlaintextLogin(true);
         gumdrop = Gumdrop.boot(GumdropConfig.create().workerThreads(1).drainTimeoutMs(0));
         gumdrop.addListener(server);
-        waitForPort();
         ListenerBindCheck.assertBound(gumdrop);
     }
 
@@ -104,20 +101,6 @@ public class ImapClientEndToEndTest {
         }
     }
 
-    private void waitForPort() throws InterruptedException {
-        long deadline = System.currentTimeMillis() + 5000;
-        while (System.currentTimeMillis() < deadline) {
-            Socket socket = new Socket();
-            try {
-                socket.connect(new InetSocketAddress(HOST, PORT), 200);
-                socket.close();
-                return;
-            } catch (Exception e) {
-                Thread.sleep(100);
-            }
-        }
-        fail("IMAP server did not start");
-    }
 
     /**
      * Runs a scripted session and waits for it to finish.

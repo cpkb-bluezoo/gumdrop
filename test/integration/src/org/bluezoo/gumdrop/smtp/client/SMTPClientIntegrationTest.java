@@ -275,7 +275,8 @@ public class SMTPClientIntegrationTest extends AbstractServerIntegrationTest {
         }
 
         // Wait for server-side message processing and verify
-        pause(200);
+        assertTrue("Server should have processed the message",
+                service.awaitMessage(ASYNC_TIMEOUT_SECONDS, TimeUnit.SECONDS));
         List<AcceptAllService.ReceivedMessage> messages = service.getReceivedMessages();
         assertEquals("Should have received 1 message (lastStep: " + lastStep.get() + ")", 1, messages.size());
         
@@ -361,7 +362,8 @@ public class SMTPClientIntegrationTest extends AbstractServerIntegrationTest {
             throw error.get();
         }
 
-        pause(200);
+        assertTrue("Server should have processed the message",
+                service.awaitMessage(ASYNC_TIMEOUT_SECONDS, TimeUnit.SECONDS));
         List<AcceptAllService.ReceivedMessage> messages = service.getReceivedMessages();
         assertEquals("Should have 1 message", 1, messages.size());
         assertEquals("Should have 3 recipients", 3,
@@ -451,7 +453,8 @@ public class SMTPClientIntegrationTest extends AbstractServerIntegrationTest {
 
         assertTrue("RSET should succeed", rsetSucceeded.get());
 
-        pause(200);
+        assertTrue("Server should have processed the message",
+                service.awaitMessage(ASYNC_TIMEOUT_SECONDS, TimeUnit.SECONDS));
         List<AcceptAllService.ReceivedMessage> messages = service.getReceivedMessages();
         assertEquals("Should have 1 message (first was reset)", 1, messages.size());
         assertEquals("Sender should be from second transaction", 
@@ -528,7 +531,8 @@ public class SMTPClientIntegrationTest extends AbstractServerIntegrationTest {
 
         assertTrue("Connection should be TLS", tlsConfirmed.get());
 
-        pause(200);
+        assertTrue("Server should have processed the message",
+                service.awaitMessage(ASYNC_TIMEOUT_SECONDS, TimeUnit.SECONDS));
         List<AcceptAllService.ReceivedMessage> messages = service.getReceivedMessages();
         assertEquals("Should have 1 message", 1, messages.size());
         assertTrue("Server should see TLS active",
@@ -641,6 +645,8 @@ public class SMTPClientIntegrationTest extends AbstractServerIntegrationTest {
         assertTrue("Client should close after QUIT",
                 sessionClosed.await(ASYNC_TIMEOUT_SECONDS, TimeUnit.SECONDS));
 
+        assertTrue("Server should have processed the message",
+                service.awaitMessage(ASYNC_TIMEOUT_SECONDS, TimeUnit.SECONDS));
         List<AcceptAllService.ReceivedMessage> messages = service.getReceivedMessages();
         assertEquals("Should have 1 message", 1, messages.size());
         assertTrue("Server should see TLS active after STARTTLS",
@@ -719,7 +725,10 @@ public class SMTPClientIntegrationTest extends AbstractServerIntegrationTest {
 
         assertEquals("Should have sent 3 messages", Integer.valueOf(3), messagesSent.get());
 
-        pause(200);
+        for (int i = 0; i < 3; i++) {
+            assertTrue("Server should have processed message " + (i + 1),
+                    service.awaitMessage(ASYNC_TIMEOUT_SECONDS, TimeUnit.SECONDS));
+        }
         List<AcceptAllService.ReceivedMessage> messages = service.getReceivedMessages();
         assertEquals("Should have 3 messages", 3, messages.size());
         
@@ -785,7 +794,8 @@ public class SMTPClientIntegrationTest extends AbstractServerIntegrationTest {
             throw error.get();
         }
 
-        pause(200);
+        assertTrue("Server should have processed the message",
+                service.awaitMessage(ASYNC_TIMEOUT_SECONDS, TimeUnit.SECONDS));
         List<AcceptAllService.ReceivedMessage> messages = service.getReceivedMessages();
         assertEquals("Should have 1 message", 1, messages.size());
         assertNull("Sender should be null for bounce",

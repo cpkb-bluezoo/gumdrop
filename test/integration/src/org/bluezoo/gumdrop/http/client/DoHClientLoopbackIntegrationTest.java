@@ -35,6 +35,7 @@ import org.bluezoo.gumdrop.http.Headers;
 import org.bluezoo.gumdrop.http.HttpServer;
 import org.bluezoo.gumdrop.http.HttpStatus;
 import org.bluezoo.gumdrop.http.doh.DoHClientTransport;
+import org.bluezoo.gumdrop.http.doh.DoHTransportAwait;
 import org.bluezoo.gumdrop.http.server.DefaultHttpRequestHandler;
 import org.bluezoo.gumdrop.http.server.Http2Listener;
 import org.bluezoo.gumdrop.http.server.HttpRequestHandler;
@@ -198,21 +199,10 @@ public class DoHClientLoopbackIntegrationTest extends AbstractServerIntegrationT
     }
 
     private static void waitForDohConnected(DoHClientTransport transport) throws Exception {
-        long deadline = System.currentTimeMillis() + TIMEOUT_SECONDS * 1000L;
-        while (System.currentTimeMillis() < deadline) {
-            if (isDohConnected(transport)) {
-                return;
-            }
-            Thread.sleep(20);
-        }
-        throw new AssertionError("DoH HTTP connection not established");
-    }
-
-    private static boolean isDohConnected(DoHClientTransport transport) throws Exception {
-        java.lang.reflect.Field connectedField =
-                DoHClientTransport.class.getDeclaredField("connected");
-        connectedField.setAccessible(true);
-        return connectedField.getBoolean(transport);
+        // Returns when the connection is up or has failed (a failure also
+        // reaches the handler); the timeout only converts a hang to a failure.
+        assertTrue("DoH HTTP connection not established",
+                DoHTransportAwait.awaitConnected(transport, TIMEOUT_SECONDS * 1000L));
     }
 
     private static final class DoHHandlerFactory implements HttpStreamHandler {

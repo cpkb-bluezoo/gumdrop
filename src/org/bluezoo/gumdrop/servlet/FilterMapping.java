@@ -47,7 +47,8 @@ final class FilterMapping {
     }
 
     FilterMapping(DispatcherType[] dispatcherTypes) {
-        dispatchers = EnumSet.copyOf(Arrays.asList(dispatcherTypes));
+        dispatchers = EnumSet.noneOf(DispatcherType.class);
+        dispatchers.addAll(Arrays.asList(dispatcherTypes));
     }
 
     void addUrlPattern(String urlPattern) {

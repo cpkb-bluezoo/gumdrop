@@ -272,6 +272,7 @@ public final class SmtpProtocolHandler
 
     private Span sessionSpan;
     private int sessionNumber;
+    private int transactionCount;
 
     private EmailAddress pendingRecipient;
 
@@ -997,18 +998,21 @@ public final class SmtpProtocolHandler
         }
     }
 
-    private void handleControlSequenceWithNewData(ByteBuffer newData) throws IOException {
+    /**
+     * Merges the saved control bytes with newly arrived data. The saved
+     * bytes are re-scanned from the state that preceded them (see
+     * {@link #processDataBuffer}), so the combined buffer is returned for
+     * normal processing; the caller then also sees any pipelined bytes
+     * that follow the end-of-data marker.
+     */
+    private ByteBuffer mergeControlSequence(ByteBuffer newData) {
         appendToControlBuffer(newData);
         controlBuffer.flip();
-        if (controlBuffer.hasRemaining()) {
-            ByteBuffer tempBuf = controlBuffer.slice();
-            controlBuffer.clear();
-            if (tempBuf.hasRemaining()) {
-                processDataBuffer(tempBuf);
-            }
-        } else {
-            controlBuffer.clear();
-        }
+        ByteBuffer merged = ByteBuffer.allocate(controlBuffer.remaining());
+        merged.put(controlBuffer);
+        merged.flip();
+        controlBuffer.clear();
+        return merged;
     }
 
     private void saveControlSequence(ByteBuffer source, int start) {
@@ -1094,14 +1098,18 @@ public final class SmtpProtocolHandler
 
     private void handleDataContent(ByteBuffer buf) throws IOException {
         if (controlBuffer.position() > 0) {
-            handleControlSequenceWithNewData(buf);
-            if (state != SmtpState.DATA) {
-                if (buf.hasRemaining()) {
-                    handlePipelinedCommands(buf);
-                }
-                return;
-            }
+            ByteBuffer merged = mergeControlSequence(buf);
+            handleDataBytes(merged);
+            // Whatever was left unconsumed is a suffix of the new data;
+            // leave it in the caller's buffer.
+            int unconsumed = Math.min(merged.remaining(), buf.limit());
+            buf.position(buf.limit() - unconsumed);
+            return;
         }
+        handleDataBytes(buf);
+    }
+
+    private void handleDataBytes(ByteBuffer buf) throws IOException {
         processDataBuffer(buf);
         if (deliveryPending) {
             retainInput(buf);
@@ -1203,6 +1211,15 @@ public final class SmtpProtocolHandler
                 sendChunk(buf, chunkStart, controlStart);
             }
             saveControlSequence(buf, controlStart);
+            // The saved bytes will be scanned again with the next read, so
+            // restore the state they were first scanned from: a saved dot
+            // (or dot and CR) follows a line break, a saved CR or CRLF
+            // follows ordinary content.
+            if (dataState == DataState.SAW_DOT || dataState == DataState.SAW_DOT_CR) {
+                dataState = DataState.SAW_CRLF;
+            } else {
+                dataState = DataState.NORMAL;
+            }
         } else {
             if (buf.position() > chunkStart) {
                 sendChunk(buf, chunkStart, buf.position());
@@ -2673,7 +2690,7 @@ public final class SmtpProtocolHandler
             return;
         }
         int maxTransactions = server.getMaxTransactionsPerSession();
-        if (maxTransactions > 0 && sessionNumber >= maxTransactions) {
+        if (maxTransactions > 0 && transactionCount >= maxTransactions) {
             reply(421, "4.7.0 Too many transactions, closing connection");
             closeEndpoint();
             return;
@@ -2920,6 +2937,7 @@ public final class SmtpProtocolHandler
             mailFromHandler.mailFrom(this, sender, smtputf8, delivery);
         } else {
             this.state = SmtpState.MAIL;
+            transactionCount++;
             reply(250, "2.1.0 Sender ok");
         }
     }
@@ -3427,6 +3445,7 @@ public final class SmtpProtocolHandler
     public void acceptSender(RecipientHandler handler) {
         this.recipientHandler = handler;
         this.state = SmtpState.MAIL;
+        transactionCount++;
         if (mailFromHandler != null) {
             this.currentPipeline = mailFromHandler.getPipeline();
             if (currentPipeline != null) {

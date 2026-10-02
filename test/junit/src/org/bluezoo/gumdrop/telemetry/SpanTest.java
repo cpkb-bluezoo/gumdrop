@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.telemetry;
 
+import org.junit.After;
 import org.junit.Test;
 import static org.junit.Assert.*;
 
@@ -32,6 +33,11 @@ import java.util.List;
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 public class SpanTest {
+
+    @After
+    public void restoreClock() {
+        Span.fixedTimeMillis = -1L;
+    }
 
     // ========================================================================
     // Construction Tests
@@ -120,27 +126,21 @@ public class SpanTest {
 
     @Test
     public void testStartTime() {
-        long before = System.currentTimeMillis() * 1_000_000L;
+        Span.fixedTimeMillis = 1234L;
         Trace trace = new Trace("test", SpanKind.SERVER);
-        long after = System.currentTimeMillis() * 1_000_000L;
-        
         Span span = trace.getRootSpan();
-        long startTime = span.getStartTimeUnixNano();
-        
-        assertTrue("Start time should be >= before", startTime >= before);
-        assertTrue("Start time should be <= after", startTime <= after);
+        assertEquals(1234L * 1_000_000L, span.getStartTimeUnixNano());
     }
 
     @Test
-    public void testEndTime() throws InterruptedException {
+    public void testEndTime() {
+        Span.fixedTimeMillis = 1000L;
         Trace trace = new Trace("test", SpanKind.SERVER);
         Span span = trace.getRootSpan();
-        
-        Thread.sleep(10); // Small delay
+        Span.fixedTimeMillis = 1010L;
         span.end();
-        
-        long endTime = span.getEndTimeUnixNano();
-        assertTrue("End time should be > start time", endTime > span.getStartTimeUnixNano());
+        assertEquals(1010L * 1_000_000L, span.getEndTimeUnixNano());
+        assertEquals(1000L * 1_000_000L, span.getStartTimeUnixNano());
     }
 
     @Test

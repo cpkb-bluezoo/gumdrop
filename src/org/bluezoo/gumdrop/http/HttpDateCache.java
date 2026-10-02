@@ -81,6 +81,12 @@ public final class HttpDateCache {
         scheduleNextRefresh();
     }
 
+    /**
+     * Test seam: when non-negative, the instant (epoch millis) used instead
+     * of the system clock.
+     */
+    static volatile long fixedTimeMillis = -1L;
+
     private HttpDateCache() {
     }
 
@@ -118,8 +124,12 @@ public final class HttpDateCache {
         return cachedDateLineBytes;
     }
 
-    private static void refresh() {
-        String date = DATE_FORMAT.format(System.currentTimeMillis());
+    static void refresh() {
+        long now = fixedTimeMillis;
+        if (now < 0L) {
+            now = System.currentTimeMillis();
+        }
+        String date = DATE_FORMAT.format(now);
         byte[] dateBytes = date.getBytes(StandardCharsets.US_ASCII);
         byte[] line = new byte[DATE_HEADER_PREFIX.length + dateBytes.length + CRLF.length];
         System.arraycopy(DATE_HEADER_PREFIX, 0, line, 0, DATE_HEADER_PREFIX.length);

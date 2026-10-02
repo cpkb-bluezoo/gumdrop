@@ -357,7 +357,15 @@ public class QuicTestPeer implements QuicTlsEngineListener {
         // so this just runs it inline there. receiveDatagram() polls
         // isHandshakeProcessingBusy() afterwards so callers observe a
         // consistent state once it returns, whichever thread this ran on.
-        task.run();
+        // Every asynchronous outcome arrives through here, so waiters
+        // (awaitHandshakeProcessingIdle and friends) are woken after each.
+        try {
+            task.run();
+        } finally {
+            synchronized (this) {
+                notifyAll();
+            }
+        }
     }
 
     @Override
@@ -799,13 +807,10 @@ public class QuicTestPeer implements QuicTlsEngineListener {
     // completeHandshake() sequence could run before this step's
     // response bytes exist in pendingCrypto.
     private void awaitHandshakeProcessingIdle() throws InterruptedException {
-        long deadline = System.currentTimeMillis() + 10000;
-        while (isHandshakeProcessingBusy()) {
-            if (System.currentTimeMillis() > deadline) {
-                throw new IllegalStateException(
-                        "Timed out waiting for async QUIC handshake processing to settle");
+        synchronized (this) {
+            while (isHandshakeProcessingBusy()) {
+                awaitOutcome("async QUIC handshake processing to settle");
             }
-            Thread.sleep(1);
         }
     }
 
@@ -815,17 +820,10 @@ public class QuicTestPeer implements QuicTlsEngineListener {
      * runs {@code engine.start()} asynchronously.
      */
     private void awaitInitialHandshakeOutput() throws InterruptedException {
-        long deadline = System.currentTimeMillis() + 10000;
-        while (pendingCrypto.get(EncryptionLevel.INITIAL).isEmpty()) {
-            awaitHandshakeProcessingIdle();
-            if (!pendingCrypto.get(EncryptionLevel.INITIAL).isEmpty()) {
-                return;
+        synchronized (this) {
+            while (pendingCrypto.get(EncryptionLevel.INITIAL).isEmpty()) {
+                awaitOutcome("ClientHello CRYPTO output");
             }
-            if (System.currentTimeMillis() > deadline) {
-                throw new IllegalStateException(
-                        "Timed out waiting for ClientHello CRYPTO output");
-            }
-            Thread.sleep(1);
         }
     }
 
@@ -838,13 +836,21 @@ public class QuicTestPeer implements QuicTlsEngineListener {
      * {@link org.bluezoo.gumdrop.CryptoExecutor}.
      */
     private void awaitSendKeys(EncryptionLevel level) throws InterruptedException {
-        long deadline = System.currentTimeMillis() + 10000;
-        while (sendKeys.get(level) == null) {
-            if (System.currentTimeMillis() > deadline) {
-                throw new IllegalStateException(
-                        "Timed out waiting for " + level + " send keys to become available");
+        synchronized (this) {
+            while (sendKeys.get(level) == null) {
+                awaitOutcome(level + " send keys to become available");
             }
-            Thread.sleep(1);
+        }
+    }
+
+    // Waits (holding this peer's monitor) for the next asynchronous
+    // outcome to be delivered through execute(). The timeout is only a
+    // guard against a hang; the caller re-checks its condition on wakeup.
+    private void awaitOutcome(String what) throws InterruptedException {
+        long start = System.nanoTime();
+        wait(10000L);
+        if (System.nanoTime() - start >= 10000L * 1000000L) {
+            throw new IllegalStateException("Timed out waiting for " + what);
         }
     }
 

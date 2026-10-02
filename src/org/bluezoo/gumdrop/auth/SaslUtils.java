@@ -285,7 +285,10 @@ public final class SaslUtils {
     public static byte[] hmacMD5(byte[] key, byte[] data) {
         try {
             Mac mac = Mac.getInstance("HmacMD5");
-            mac.init(new SecretKeySpec(key, "HmacMD5"));
+            // RFC 2104 zero-pads keys, so an empty key is equivalent to a
+            // single zero byte; SecretKeySpec itself rejects empty keys
+            byte[] k = key.length == 0 ? new byte[1] : key;
+            mac.init(new SecretKeySpec(k, "HmacMD5"));
             return mac.doFinal(data);
         } catch (NoSuchAlgorithmException | InvalidKeyException e) {
             String msg = MessageFormat.format(L10N.getString("err.sasl_algorithm_failed"), "HMAC-MD5");
@@ -303,7 +306,8 @@ public final class SaslUtils {
     public static byte[] hmacSHA256(byte[] key, byte[] data) {
         try {
             Mac mac = Mac.getInstance("HmacSHA256");
-            mac.init(new SecretKeySpec(key, "HmacSHA256"));
+            byte[] k = key.length == 0 ? new byte[1] : key;
+            mac.init(new SecretKeySpec(k, "HmacSHA256"));
             return mac.doFinal(data);
         } catch (NoSuchAlgorithmException | InvalidKeyException e) {
             String msg = MessageFormat.format(L10N.getString("err.sasl_algorithm_failed"), "HMAC-SHA256");

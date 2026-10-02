@@ -294,9 +294,6 @@ public final class Tls12RecordEngine {
                     if (handshakeAsync.isBusy()) {
                         return;
                     }
-                    if (!engine.isComplete() && inbound.available() > 0) {
-                        return;
-                    }
                 }
             }
         }
@@ -327,6 +324,11 @@ public final class Tls12RecordEngine {
         if (write == null) {
             sink.protocolError(new TlsProtocolError(AlertDescription.INTERNAL_ERROR,
                     "application data sent before handshake completed"));
+            return;
+        }
+        if (length == 0) {
+            // Same as the TLS 1.3 engine: an empty write needs no record
+            // (an empty application_data record is legal but wasteful).
             return;
         }
         writeFragmented(CONTENT_APPLICATION_DATA, plaintext, offset, length, sink);

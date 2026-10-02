@@ -33,6 +33,7 @@ import org.bluezoo.util.BufferingByteChannel;
 
 import java.io.IOException;
 import java.io.OutputStream;
+import java.io.PrintStream;
 import java.nio.ByteBuffer;
 import java.nio.channels.Channels;
 import java.nio.channels.WritableByteChannel;
@@ -170,9 +171,41 @@ private static final Logger logger = Logger.getLogger(OtlpFileExporter.class.get
         logger.info(L10N.getString("info.file_exporter_started"));
     }
 
+    /**
+     * Returns a channel writing to standard output whose close only
+     * flushes, so that closing the exporter never closes the
+     * process-wide System.out.
+     */
+    private static WritableByteChannel newStdoutChannel() {
+        final PrintStream stdout = System.out;
+        // Not Channels.newChannel: that channel is interruptible and
+        // closes its stream when the writing thread is interrupted (as the
+        // export thread is at shutdown), which would close System.out.
+        return new WritableByteChannel() {
+            @Override
+            public int write(ByteBuffer src) throws IOException {
+                int n = src.remaining();
+                byte[] bytes = new byte[n];
+                src.get(bytes);
+                stdout.write(bytes, 0, n);
+                return n;
+            }
+
+            @Override
+            public boolean isOpen() {
+                return true;
+            }
+
+            @Override
+            public void close() {
+                stdout.flush();
+            }
+        };
+    }
+
     private static WritableByteChannel openChannel(Path path) {
         if (path == null) {
-            return Channels.newChannel(System.out);
+            return newStdoutChannel();
         }
         try {
             Path parent = path.getParent();
@@ -185,7 +218,7 @@ private static final Logger logger = Logger.getLogger(OtlpFileExporter.class.get
             return Channels.newChannel(out);
         } catch (IOException e) {
             logger.warning(MessageFormat.format(L10N.getString("warn.file_open_fallback"), path, e.getMessage()));
-            return Channels.newChannel(System.out);
+            return newStdoutChannel();
         }
     }
 

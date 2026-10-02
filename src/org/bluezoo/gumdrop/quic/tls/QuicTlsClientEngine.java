@@ -448,6 +448,11 @@ public final class QuicTlsClientEngine implements QuicTlsEngine {
         return engine.getNegotiatedCipherSuite();
     }
 
+    @Override
+    public boolean isResumed() {
+        return engine.isResumed();
+    }
+
     /**
      * Returns the server's certificate chain, valid once received and verified.
      *

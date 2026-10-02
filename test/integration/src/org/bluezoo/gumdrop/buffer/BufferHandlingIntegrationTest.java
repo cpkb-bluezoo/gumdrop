@@ -93,7 +93,7 @@ public class BufferHandlingIntegrationTest extends AbstractServerIntegrationTest
         server.clearConnections();
         
         sendDataAndClose("0123456789".getBytes("US-ASCII"));
-        pause(200);
+        assertTrue("connection ended", server.awaitConnectionEnd());
         
         assertEquals("Should have one connection", 1, server.getConnections().size());
         BufferTestConnection conn = server.getConnections().get(0);
@@ -113,7 +113,7 @@ public class BufferHandlingIntegrationTest extends AbstractServerIntegrationTest
         
         // Two complete messages
         sendDataAndClose("01234567890123456789".getBytes("US-ASCII"));
-        pause(200);
+        assertTrue("connection ended", server.awaitConnectionEnd());
         
         assertEquals("Should have one connection", 1, server.getConnections().size());
         BufferTestConnection conn = server.getConnections().get(0);
@@ -147,20 +147,19 @@ public class BufferHandlingIntegrationTest extends AbstractServerIntegrationTest
             // First chunk: partial message
             out.write("0123456".getBytes("US-ASCII"));
             out.flush();
-            pause(100); // Ensure separate TCP packets
+            assertTrue("chunk 1 received", server.awaitReceive());
             
             // Second chunk: completes first message, starts second
             out.write("7890123".getBytes("US-ASCII"));
             out.flush();
-            pause(100);
+            assertTrue("chunk 2 received", server.awaitReceive());
             
             // Third chunk: completes second message
             out.write("456789".getBytes("US-ASCII"));
             out.flush();
-            pause(100);
+            assertTrue("chunk 3 received", server.awaitReceive());
         }
-        
-        pause(200); // Allow processing
+        assertTrue("connection ended", server.awaitConnectionEnd());
         
         assertEquals("Should have one connection", 1, server.getConnections().size());
         BufferTestConnection conn = server.getConnections().get(0);
@@ -207,7 +206,7 @@ public class BufferHandlingIntegrationTest extends AbstractServerIntegrationTest
         
         // Send only 5 bytes - less than the 10-byte message pattern
         sendDataAndClose("01234".getBytes("US-ASCII"));
-        pause(200);
+        assertTrue("connection ended", server.awaitConnectionEnd());
         
         assertEquals("Should have one connection", 1, server.getConnections().size());
         BufferTestConnection conn = server.getConnections().get(0);
@@ -229,7 +228,7 @@ public class BufferHandlingIntegrationTest extends AbstractServerIntegrationTest
         
         // 10 bytes (complete) + 5 bytes (incomplete)
         sendDataAndClose("012345678901234".getBytes("US-ASCII"));
-        pause(200);
+        assertTrue("connection ended", server.awaitConnectionEnd());
         
         assertEquals("Should have one connection", 1, server.getConnections().size());
         BufferTestConnection conn = server.getConnections().get(0);
@@ -256,20 +255,19 @@ public class BufferHandlingIntegrationTest extends AbstractServerIntegrationTest
             // Chunk 1: 12 bytes (1 complete + 2 bytes of next)
             out.write("012345678901".getBytes("US-ASCII"));
             out.flush();
-            pause(50);
+            assertTrue("chunk 1 received", server.awaitReceive());
             
             // Chunk 2: 18 bytes (completes msg2, msg3 complete, 8 bytes of msg4)
             out.write("234567890123456789".getBytes("US-ASCII"));
             out.flush();
-            pause(50);
+            assertTrue("chunk 2 received", server.awaitReceive());
             
             // Chunk 3: 12 bytes (completes msg4, msg5 complete)
             out.write("010123456789".getBytes("US-ASCII"));
             out.flush();
-            pause(50);
+            assertTrue("chunk 3 received", server.awaitReceive());
         }
-        
-        pause(200);
+        assertTrue("connection ended", server.awaitConnectionEnd());
         
         assertEquals("Should have one connection", 1, server.getConnections().size());
         BufferTestConnection conn = server.getConnections().get(0);
@@ -308,7 +306,6 @@ public class BufferHandlingIntegrationTest extends AbstractServerIntegrationTest
             OutputStream out = socket.getOutputStream();
             out.write(data);
             out.flush();
-            pause(50);
         }
     }
 }

@@ -69,6 +69,13 @@ public class FilterMappingTest {
     // ===== Constructor with Dispatcher Types =====
 
     @Test
+    public void testConstructorWithEmptyDispatcherTypes() {
+        FilterMapping fm = new FilterMapping(new DispatcherType[0]);
+        assertTrue(fm.dispatchers.isEmpty());
+        assertTrue(fm.matches(DispatcherType.REQUEST));
+    }
+
+    @Test
     public void testConstructorWithDispatcherTypes() {
         FilterMapping fm = new FilterMapping(new DispatcherType[] {
             DispatcherType.REQUEST, DispatcherType.FORWARD

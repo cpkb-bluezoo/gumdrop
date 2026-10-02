@@ -60,6 +60,7 @@ import org.bluezoo.gumdrop.tls.EchDeployment;
 import org.bluezoo.gumdrop.tls.HandshakeConfig;
 import org.bluezoo.gumdrop.tls.ServerCredentials;
 import org.bluezoo.gumdrop.tls.ServerCredentialsResolver;
+import org.bluezoo.gumdrop.tls.TicketKeys;
 import org.bluezoo.gumdrop.util.PinnedCertTrustManager;
 import org.bluezoo.gumdrop.util.SniCredentialsResolver;
 import org.bluezoo.gumdrop.util.TlsUtils;
@@ -137,6 +138,7 @@ public class QuicTransportFactory extends TransportFactory {
     private X509TrustManager trustManager;
     private final byte[] connectionIdStaticKey = new byte[32];
     private final byte[] retryTokenKey = new byte[32];
+    private final TicketKeys ticketKeys;
     private boolean requireRetry;
     private volatile QuicLbConfig quicLbConfig;
     private final List<QuicLbConfig> retiredQuicLbConfigs = new CopyOnWriteArrayList<QuicLbConfig>();
@@ -150,6 +152,9 @@ public class QuicTransportFactory extends TransportFactory {
         this.secure = true;
         new SecureRandom().nextBytes(connectionIdStaticKey);
         new SecureRandom().nextBytes(retryTokenKey);
+        byte[] ticketKey = new byte[16];
+        new SecureRandom().nextBytes(ticketKey);
+        this.ticketKeys = new TicketKeys(ticketKey);
     }
 
     // ── QUIC-specific configuration ──
@@ -575,6 +580,16 @@ public class QuicTransportFactory extends TransportFactory {
 
     byte[] getRetryTokenKey() {
         return retryTokenKey;
+    }
+
+    /**
+     * Returns the session-ticket keyring shared by every server
+     * connection of this factory, so a ticket issued on one connection
+     * (and its 0-RTT early data, RFC 9001 section 4.6) can be resumed
+     * on another. Random per factory instance, like the retry token key.
+     */
+    TicketKeys getTicketKeys() {
+        return ticketKeys;
     }
 
     long getMaxIdleTimeout() {

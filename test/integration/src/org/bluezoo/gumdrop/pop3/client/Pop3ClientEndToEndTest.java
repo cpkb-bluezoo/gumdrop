@@ -33,8 +33,6 @@ import org.bluezoo.gumdrop.auth.SaslMechanism;
 import org.bluezoo.gumdrop.mailbox.mbox.MboxMailboxFactory;
 import org.bluezoo.gumdrop.pop3.Pop3Listener;
 
-import java.net.InetSocketAddress;
-import java.net.Socket;
 import java.nio.ByteBuffer;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -88,7 +86,6 @@ public class Pop3ClientEndToEndTest {
         server.setMailboxFactory(new MboxMailboxFactory(mboxRoot));
         gumdrop = Gumdrop.boot(GumdropConfig.create().workerThreads(1));
         gumdrop.addListener(server);
-        waitForPort();
         ListenerBindCheck.assertBound(gumdrop);
     }
 
@@ -104,20 +101,6 @@ public class Pop3ClientEndToEndTest {
         }
     }
 
-    private void waitForPort() throws InterruptedException {
-        long deadline = System.currentTimeMillis() + 5000;
-        while (System.currentTimeMillis() < deadline) {
-            Socket socket = new Socket();
-            try {
-                socket.connect(new InetSocketAddress(HOST, PORT), 200);
-                socket.close();
-                return;
-            } catch (Exception e) {
-                Thread.sleep(100);
-            }
-        }
-        fail("POP3 server did not start");
-    }
 
     private Script run(Script script) throws Exception {
         Pop3Client client = new Pop3Client(HOST, PORT);

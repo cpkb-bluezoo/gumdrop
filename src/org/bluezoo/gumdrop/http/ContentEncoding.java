@@ -356,17 +356,15 @@ public final class ContentEncoding {
         }
 
         private void drain() {
-            while (!deflater.needsInput() || deflater.finished()) {
+            // Deflate until no more output is produced: this covers input
+            // consumed by an earlier write, a full output buffer, and the
+            // final blocks after finish().
+            while (!deflater.finished()) {
                 int n = deflater.deflate(buf);
-                if (n <= 0 && !deflater.finished()) {
+                if (n <= 0) {
                     break;
                 }
-                if (n > 0) {
-                    pending.addLast(ByteBuffer.wrap(Arrays.copyOf(buf, n)));
-                }
-                if (deflater.finished() && n == 0) {
-                    break;
-                }
+                pending.addLast(ByteBuffer.wrap(Arrays.copyOf(buf, n)));
             }
         }
     }
@@ -377,6 +375,7 @@ public final class ContentEncoding {
         private final byte[] buf = new byte[4096];
         private final Deque<ByteBuffer> pending = new ArrayDeque<ByteBuffer>();
         private boolean headerWritten;
+        private boolean trailerWritten;
         private long uncompressedSize;
 
         @Override
@@ -410,19 +409,18 @@ public final class ContentEncoding {
         }
 
         private void drain(boolean end) {
-            while (!deflater.needsInput() || deflater.finished()) {
+            // Deflate until no more output is produced: this covers input
+            // consumed by an earlier write, a full output buffer, and the
+            // final blocks after finish().
+            while (!deflater.finished()) {
                 int n = deflater.deflate(buf);
-                if (n <= 0 && !deflater.finished()) {
+                if (n <= 0) {
                     break;
                 }
-                if (n > 0) {
-                    pending.addLast(ByteBuffer.wrap(Arrays.copyOf(buf, n)));
-                }
-                if (deflater.finished() && n == 0) {
-                    break;
-                }
+                pending.addLast(ByteBuffer.wrap(Arrays.copyOf(buf, n)));
             }
-            if (end && deflater.finished()) {
+            if (end && deflater.finished() && !trailerWritten) {
+                trailerWritten = true;
                 pending.addLast(ByteBuffer.wrap(gzipTrailerBytes()));
             }
         }
@@ -548,7 +546,7 @@ public final class ContentEncoding {
 
         private void inflateAvailable() throws ContentEncodingException {
             try {
-                while (!inflater.needsInput()) {
+                while (!inflater.finished()) {
                     int n = inflater.inflate(buf);
                     if (n == 0) {
                         break;
@@ -575,6 +573,9 @@ public final class ContentEncoding {
         private final int maxDecompressedSize;
         private final Deque<ByteBuffer> pending = new ArrayDeque<ByteBuffer>();
         private final byte[] buf = new byte[4096];
+        private final CRC32 crc = new CRC32();
+        private final byte[] trailer = new byte[TRAILER_LEN];
+        private int trailerLen;
         private int headerRemaining = GZIP_HEADER.length;
         private Inflater inflater;
         private long decompressedSize;
@@ -600,19 +601,44 @@ public final class ContentEncoding {
                 if (inflater == null) {
                     inflater = new Inflater(true);
                 }
-                byte[] in = new byte[data.remaining()];
-                data.get(in);
-                inflater.setInput(in);
-                inflateAvailable();
+                if (!inflater.finished()) {
+                    byte[] in = new byte[data.remaining()];
+                    data.get(in);
+                    inflater.setInput(in);
+                    inflateAvailable();
+                    if (inflater.finished()) {
+                        // bytes left over after the deflate stream are trailer
+                        int left = inflater.getRemaining();
+                        int total = in.length;
+                        data = ByteBuffer.wrap(in, total - left, left);
+                    }
+                }
+                if (inflater.finished()) {
+                    readTrailer(data);
+                }
             }
             if (end) {
                 ended = true;
-                if (inflater == null || !inflater.finished()) {
+                if (inflater == null || !inflater.finished() || trailerLen != TRAILER_LEN) {
                     throw new ContentEncodingException("truncated gzip body");
                 }
-                if (inflater.getRemaining() != TRAILER_LEN) {
-                    throw new ContentEncodingException("truncated gzip body");
-                }
+                verifyTrailer();
+            }
+        }
+
+        private void readTrailer(ByteBuffer data) {
+            while (trailerLen < TRAILER_LEN && data.hasRemaining()) {
+                trailer[trailerLen++] = data.get();
+            }
+        }
+
+        private void verifyTrailer() throws ContentEncodingException {
+            long c = (trailer[0] & 0xffL) | ((trailer[1] & 0xffL) << 8)
+                    | ((trailer[2] & 0xffL) << 16) | ((trailer[3] & 0xffL) << 24);
+            long isize = (trailer[4] & 0xffL) | ((trailer[5] & 0xffL) << 8)
+                    | ((trailer[6] & 0xffL) << 16) | ((trailer[7] & 0xffL) << 24);
+            if (c != crc.getValue() || isize != (decompressedSize & 0xffffffffL)) {
+                throw new ContentEncodingException("gzip trailer mismatch");
             }
         }
 
@@ -637,7 +663,7 @@ public final class ContentEncoding {
 
         private void inflateAvailable() throws ContentEncodingException {
             try {
-                while (!inflater.needsInput()) {
+                while (!inflater.finished()) {
                     int n = inflater.inflate(buf);
                     if (n == 0) {
                         break;
@@ -646,6 +672,7 @@ public final class ContentEncoding {
                     if (decompressedSize > maxDecompressedSize) {
                         throw new ContentEncodingException("decompressed body exceeds limit");
                     }
+                    crc.update(buf, 0, n);
                     pending.addLast(ByteBuffer.wrap(Arrays.copyOf(buf, n)));
                 }
             } catch (DataFormatException e) {

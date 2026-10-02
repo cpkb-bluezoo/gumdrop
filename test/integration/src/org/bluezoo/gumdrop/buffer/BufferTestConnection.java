@@ -82,6 +82,7 @@ public class BufferTestConnection implements ProtocolHandler {
     @Override
     public void disconnected() {
         peerClosed = true;
+        server.connectionEnded();
         if (LOGGER.isLoggable(Level.FINE)) {
             LOGGER.fine("Connection closed by peer after " + receiveCallCount + " receive calls");
         }
@@ -95,6 +96,7 @@ public class BufferTestConnection implements ProtocolHandler {
     @Override
     public void error(Exception cause) {
         peerClosed = true;
+        server.connectionEnded();
     }
 
     /**
@@ -160,6 +162,8 @@ public class BufferTestConnection implements ProtocolHandler {
             LOGGER.fine("After consume: found " + messagesFound + " messages, " +
                        "remaining=" + data.remaining() + " bytes (incomplete)");
         }
+
+        server.receiveOccurred();
 
         // Note: We leave the buffer position where it is.
         // Any remaining bytes are incomplete message data that the

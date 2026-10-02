@@ -360,6 +360,9 @@ public final class DataSourceDef extends Resource implements DataSource {
     }
 
     public static int getIsolationLevel(String s) {
+        if (s == null) {
+            return Connection.TRANSACTION_NONE;
+        }
         switch (s) {
             case "TRANSACTION_READ_UNCOMMITTED":
                 return Connection.TRANSACTION_READ_UNCOMMITTED;
@@ -575,6 +578,8 @@ public final class DataSourceDef extends Resource implements DataSource {
             Connection c = connectionPool.poll();
             if (c == null) {
                 c = createConnection(username, password, connectionPool); // will be returned to pool when closed
+            } else {
+                ((PooledConnection) c).init();
             }
             return c;
         }
@@ -624,15 +629,9 @@ public final class DataSourceDef extends Resource implements DataSource {
 
         public int hashCode() {
             if (hashCode == -1) {
-                StringBuilder buf = new StringBuilder();
-                if (user != null) {
-                    buf.append(user);
-                }
-                buf.append('\u0000');
-                if (password != null) {
-                    buf.append(password);
-                }
-                hashCode = buf.hashCode();
+                int h = (user == null) ? 0 : user.hashCode();
+                h = 31 * h + ((password == null) ? 0 : password.hashCode());
+                hashCode = h;
             }
             return hashCode;
         }
@@ -640,9 +639,16 @@ public final class DataSourceDef extends Resource implements DataSource {
         public boolean equals(Object other) {
             if (other instanceof Credentials) {
                 Credentials credentials = (Credentials) other;
-                return credentials.user == user && credentials.password == password;
+                return same(user, credentials.user) && same(password, credentials.password);
             }
             return false;
+        }
+
+        private static boolean same(String a, String b) {
+            if (a == null) {
+                return b == null;
+            }
+            return a.equals(b);
         }
 
     }
@@ -709,6 +715,9 @@ public final class DataSourceDef extends Resource implements DataSource {
         }
 
         public void close() throws SQLException {
+            if (closed) {
+                return;
+            }
             closed = true;
             synchronized (connectionPool) {
                 if (connectionPool.size() >= maxPoolSize) {

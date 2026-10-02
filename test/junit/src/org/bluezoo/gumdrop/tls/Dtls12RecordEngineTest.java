@@ -21,11 +21,6 @@
 
 package org.bluezoo.gumdrop.tls;
 
-import java.io.IOException;
-import java.io.InputStream;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.security.KeyStore;
 import java.security.PrivateKey;
 import java.security.cert.X509Certificate;
 import java.util.ArrayList;
@@ -34,9 +29,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.TimeUnit;
 
-import org.junit.AfterClass;
 import org.junit.BeforeClass;
 import org.junit.Test;
 
@@ -49,6 +42,7 @@ import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
 import org.bluezoo.gumdrop.crypto.CertificateVerifier;
+import org.bluezoo.gumdrop.testsupport.TestCertificates;
 
 /**
  * DTLS 1.2 record-layer loopback: datagram relay, lossy harness, GCM/ChaCha,
@@ -57,9 +51,8 @@ import org.bluezoo.gumdrop.crypto.CertificateVerifier;
  */
 public class Dtls12RecordEngineTest {
 
-    private static final String SERVER_NAME = "test.gumdrop.local";
+    private static final String SERVER_NAME = TestCertificates.SERVER_NAME;
 
-    private static Path certsDirectory;
     private static List<X509Certificate> ecChain;
     private static PrivateKey ecKey;
     private static List<X509Certificate> rsaChain;
@@ -67,79 +60,12 @@ public class Dtls12RecordEngineTest {
 
     @BeforeClass
     public static void generateCertificates() throws Exception {
-        certsDirectory = Files.createTempDirectory("dtls12-record-engine-test");
-        KeyStore ecStore = generateKeyStore("ec", "EC", "secp256r1", "SHA256withECDSA");
-        ecChain = Collections.singletonList((X509Certificate) ecStore.getCertificate("ec"));
-        ecKey = (PrivateKey) ecStore.getKey("ec", "changeit".toCharArray());
-
-        KeyStore rsaStore = generateRsaKeyStore("rsa");
-        rsaChain = Collections.singletonList((X509Certificate) rsaStore.getCertificate("rsa"));
-        rsaKey = (PrivateKey) rsaStore.getKey("rsa", "changeit".toCharArray());
-    }
-
-    private static KeyStore generateKeyStore(String alias, String keyAlg, String groupName, String sigAlg)
-            throws Exception {
-        Path keystorePath = certsDirectory.resolve(alias + ".p12");
-        runKeytool("-genkeypair", "-alias", alias, "-keyalg", keyAlg, "-groupname", groupName,
-                "-sigalg", sigAlg, "-validity", "1", "-dname", "CN=" + SERVER_NAME,
-                "-ext", "san=dns:" + SERVER_NAME, "-keystore", keystorePath.toString(),
-                "-storetype", "PKCS12", "-storepass", "changeit", "-keypass", "changeit");
-        return loadKeyStore(keystorePath);
-    }
-
-    private static KeyStore generateRsaKeyStore(String alias) throws Exception {
-        Path keystorePath = certsDirectory.resolve(alias + ".p12");
-        runKeytool("-genkeypair", "-alias", alias, "-keyalg", "RSA", "-keysize", "2048",
-                "-sigalg", "SHA256withRSA", "-validity", "1", "-dname", "CN=" + SERVER_NAME,
-                "-ext", "san=dns:" + SERVER_NAME, "-keystore", keystorePath.toString(),
-                "-storetype", "PKCS12", "-storepass", "changeit", "-keypass", "changeit");
-        return loadKeyStore(keystorePath);
-    }
-
-    private static void runKeytool(String... args) throws Exception {
-        List<String> command = new ArrayList<String>();
-        command.add("keytool");
-        command.addAll(Arrays.asList(args));
-        ProcessBuilder pb = new ProcessBuilder(command);
-        pb.redirectErrorStream(true);
-        Process process = pb.start();
-        if (!process.waitFor(30, TimeUnit.SECONDS) || process.exitValue() != 0) {
-            fail("keytool failed to generate a test certificate");
-        }
-    }
-
-    private static KeyStore loadKeyStore(Path path) throws Exception {
-        KeyStore keyStore = KeyStore.getInstance("PKCS12");
-        try (InputStream in = Files.newInputStream(path)) {
-            keyStore.load(in, "changeit".toCharArray());
-        }
-        return keyStore;
-    }
-
-    @AfterClass
-    public static void deleteCertificates() throws IOException {
-        if (certsDirectory != null) {
-            Files.walkFileTree(certsDirectory, new java.nio.file.SimpleFileVisitor<Path>() {
-                @Override
-                public java.nio.file.FileVisitResult visitFile(Path file, java.nio.file.attribute.BasicFileAttributes attrs) {
-                    deleteQuietly(file);
-                    return java.nio.file.FileVisitResult.CONTINUE;
-                }
-
-                @Override
-                public java.nio.file.FileVisitResult postVisitDirectory(Path dir, IOException exc) {
-                    deleteQuietly(dir);
-                    return java.nio.file.FileVisitResult.CONTINUE;
-                }
-            });
-        }
-    }
-
-    private static void deleteQuietly(Path path) {
-        try {
-            Files.delete(path);
-        } catch (IOException ignored) {
-        }
+        TestCertificates.Identity ec = TestCertificates.ec256();
+        ecChain = ec.getChain();
+        ecKey = ec.getPrivateKey();
+        TestCertificates.Identity rsa = TestCertificates.rsa2048();
+        rsaChain = rsa.getChain();
+        rsaKey = rsa.getPrivateKey();
     }
 
     private static final class RecordingSink implements TlsRecordSink {

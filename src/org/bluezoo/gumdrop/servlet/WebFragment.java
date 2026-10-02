@@ -38,7 +38,7 @@ class WebFragment extends DeploymentDescriptor {
     List<String> after;
 
     boolean isEmpty() {
-        return name != null && super.isEmpty();
+        return name == null && before == null && after == null && super.isEmpty();
     }
 
     boolean isBefore(WebFragment webFragment) {

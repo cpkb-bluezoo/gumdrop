@@ -44,6 +44,9 @@ public final class AltSvcCache {
 
     private static final ConcurrentMap<String, Entry> cache = new ConcurrentHashMap<>();
 
+    /** Test seam: added to the system clock when reading the time. */
+    static volatile long clockOffsetMillis = 0L;
+
     private AltSvcCache() {
     }
 
@@ -59,7 +62,7 @@ public final class AltSvcCache {
      */
     public static void put(String host, int port, String h3Host, int h3Port,
                             long maxAgeSeconds) {
-        long expiry = System.currentTimeMillis() + Math.max(0, maxAgeSeconds) * 1000L;
+        long expiry = now() + Math.max(0, maxAgeSeconds) * 1000L;
         cache.put(key(host, port), new Entry(h3Host, h3Port, expiry));
     }
 
@@ -88,6 +91,10 @@ public final class AltSvcCache {
      */
     public static void clear() {
         cache.clear();
+    }
+
+    static long now() {
+        return System.currentTimeMillis() + clockOffsetMillis;
     }
 
     private static String key(String host, int port) {
@@ -127,7 +134,7 @@ public final class AltSvcCache {
         }
 
         boolean isExpired() {
-            return System.currentTimeMillis() >= expiryTime;
+            return now() >= expiryTime;
         }
     }
 }

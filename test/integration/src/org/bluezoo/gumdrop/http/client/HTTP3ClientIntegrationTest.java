@@ -99,9 +99,9 @@ public class HTTP3ClientIntegrationTest {
         gumdrop = Gumdrop.boot(GumdropConfig.create().workerThreads(2));
         gumdrop.addListener(listener);
 
-        // QUIC binds a UDP socket, so there is no TCP port to poll for
-        // readiness; allow a brief moment for the engine to bind.
-        Thread.sleep(1000);
+        // Http3Listener binds its UDP socket synchronously inside addListener(), and
+        // datagrams sent before the loop registers are queued by the kernel, so there
+        // is nothing further to wait for.
     }
 
     @AfterClass

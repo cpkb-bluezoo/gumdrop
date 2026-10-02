@@ -98,12 +98,11 @@ public class MailboxIndexerPerformanceTest {
         MailboxIndexer poolIndexer = new MailboxIndexer(4);
         try {
             final int mailboxCount = 4;
-            final int workMs = 150;
+            final AtomicInteger overlapped = new AtomicInteger();
             final AtomicInteger inFlight = new AtomicInteger();
             final AtomicInteger maxInFlight = new AtomicInteger();
             final CountDownLatch allRunning = new CountDownLatch(mailboxCount);
 
-            long startNs = System.nanoTime();
             Thread[] clients = new Thread[mailboxCount];
             for (int i = 0; i < mailboxCount; i++) {
                 final MailboxIndexKey k = key("/tmp/parallel-" + i);
@@ -126,7 +125,13 @@ public class MailboxIndexerPerformanceTest {
                                         }
                                     }
                                     allRunning.countDown();
-                                    Thread.sleep(workMs);
+                                    // Every rebuild blocks here until all of
+                                    // them are running at once: a serialising
+                                    // worker can never get there (the timeout
+                                    // only turns that hang into a failure).
+                                    if (allRunning.await(10, TimeUnit.SECONDS)) {
+                                        overlapped.incrementAndGet();
+                                    }
                                     inFlight.decrementAndGet();
                                 }
                             });
@@ -141,15 +146,11 @@ public class MailboxIndexerPerformanceTest {
             for (int i = 0; i < mailboxCount; i++) {
                 clients[i].join(5000);
             }
-            long elapsedMs = (System.nanoTime() - startNs) / 1_000_000;
 
-            assertTrue("unrelated mailbox rebuilds must overlap on the pool "
+            assertEquals("every unrelated rebuild must run concurrently on the pool "
                     + "(peak in-flight was " + maxInFlight.get() + ")",
-                    maxInFlight.get() >= 2);
-            assertTrue("four parallel rebuilds took " + elapsedMs + "ms -- a "
-                    + "single worker serialising them would need at least "
-                    + (mailboxCount * workMs) + "ms",
-                    elapsedMs < mailboxCount * workMs - 100);
+                    mailboxCount, overlapped.get());
+            assertEquals(mailboxCount, maxInFlight.get());
         } finally {
             poolIndexer.shutdown();
         }

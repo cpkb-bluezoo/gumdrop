@@ -267,7 +267,6 @@ public class ClientEndpointPool {
         if (list == null
                 || list.totalCount() > maxEndpointsPerTarget) {
             remove(entry);
-            endpoint.close();
             return;
         }
 
@@ -560,22 +559,15 @@ public class ClientEndpointPool {
         private final Deque<PoolEntry> entries =
                 new ConcurrentLinkedDeque<PoolEntry>();
         private final AtomicInteger totalCount = new AtomicInteger(0);
-        private final AtomicInteger idleCount = new AtomicInteger(0);
 
         void add(PoolEntry entry) {
             entries.add(entry);
             totalCount.incrementAndGet();
-            if (!entry.busy) {
-                idleCount.incrementAndGet();
-            }
         }
 
         void remove(PoolEntry entry) {
             if (entries.remove(entry)) {
                 totalCount.decrementAndGet();
-                if (!entry.busy) {
-                    idleCount.decrementAndGet();
-                }
             }
         }
 
@@ -584,7 +576,6 @@ public class ClientEndpointPool {
             while (it.hasNext()) {
                 PoolEntry entry = it.next();
                 if (!entry.busy) {
-                    idleCount.decrementAndGet();
                     return entry;
                 }
             }
@@ -599,7 +590,6 @@ public class ClientEndpointPool {
                 if (!entry.busy && entry.lastUsed < threshold) {
                     it.remove();
                     totalCount.decrementAndGet();
-                    idleCount.decrementAndGet();
                     expired.add(entry);
                 }
             }
@@ -614,8 +604,18 @@ public class ClientEndpointPool {
             return totalCount.get();
         }
 
+        /**
+         * Counts idle entries. Derived from the entries themselves so
+         * it cannot drift when entries change state via markIdle/markBusy.
+         */
         int idleCount() {
-            return idleCount.get();
+            int count = 0;
+            for (PoolEntry entry : entries) {
+                if (!entry.busy) {
+                    count++;
+                }
+            }
+            return count;
         }
     }
 

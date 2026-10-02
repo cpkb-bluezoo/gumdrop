@@ -28,7 +28,6 @@ import org.bluezoo.gumdrop.http.Header;
 import org.bluezoo.gumdrop.http.Headers;
 
 import java.io.*;
-import java.net.URLEncoder;
 import java.net.URI;
 import java.nio.ByteBuffer;
 import java.nio.CharBuffer;
@@ -178,13 +177,7 @@ private static final Logger LOGGER = Logger.getLogger(Response.class.getName());
         if (request.sessionId != null) {
             url = encodeSessionId(url, request.sessionId);
         }
-        try {
-            return URLEncoder.encode(url, "UTF-8");
-        } catch (UnsupportedEncodingException e) {
-            RuntimeException e2 = new RuntimeException("UTF-8 not supported");
-            e2.initCause(e);
-            throw e2;
-        }
+        return url;
     }
 
     public String encodeRedirectURL(String url) {
@@ -210,8 +203,13 @@ private static final Logger LOGGER = Logger.getLogger(Response.class.getName());
             StringBuffer buf = new StringBuffer(url.substring(0, qi + 1));
             StringTokenizer st = new StringTokenizer(queryString, "&");
             boolean seen = false;
+            boolean first = true;
             while (st.hasMoreTokens()) {
                 String token = st.nextToken();
+                if (!first) {
+                    buf.append('&');
+                }
+                first = false;
                 if (token.startsWith("jsessionid=")) {
                     token = "jsessionid=" + sessionId;
                     seen = true;
@@ -219,6 +217,9 @@ private static final Logger LOGGER = Logger.getLogger(Response.class.getName());
                 buf.append(token);
             }
             if (!seen) {
+                if (!first) {
+                    buf.append('&');
+                }
                 buf.append("jsessionid=" + sessionId);
             }
             return buf.toString();
@@ -247,6 +248,8 @@ private static final Logger LOGGER = Logger.getLogger(Response.class.getName());
         if (committed) {
             throw new IllegalStateException();
         }
+        // Discard any buffered content
+        resetBuffer();
         // Set the status code
         statusCode = sc;
         if (!errorCondition && context != null && !context.errorPages.isEmpty()) {
@@ -401,6 +404,10 @@ private static final Logger LOGGER = Logger.getLogger(Response.class.getName());
     // Helper methods for handler interaction
 
     void writeBody(ByteBuffer buf) throws IOException {
+        // Buffer overflow or explicit flush commits the response
+        if (!committed) {
+            commit();
+        }
         handler.writeBody(buf, true);
     }
 
@@ -623,7 +630,6 @@ private static final Logger LOGGER = Logger.getLogger(Response.class.getName());
             }
             throw new IllegalStateException("already committed");
         }
-        commit();
         if (writer != null) {
             throw new IllegalStateException();
         }
@@ -652,7 +658,6 @@ private static final Logger LOGGER = Logger.getLogger(Response.class.getName());
             }
         }
         Charset c = Charset.forName(encoding);
-        commit();
         if (outputStream != null) {
             throw new IllegalStateException();
         }
@@ -700,12 +705,13 @@ private static final Logger LOGGER = Logger.getLogger(Response.class.getName());
     }
 
     public void flushBuffer() throws IOException {
-        if (!committed) {
-            commit();
-        } else if (outputStream != null) {
+        if (outputStream != null) {
             outputStream.flush();
         } else if (writer != null) {
             writer.flush();
+        }
+        if (!committed) {
+            commit();
         }
     }
 
@@ -713,7 +719,9 @@ private static final Logger LOGGER = Logger.getLogger(Response.class.getName());
         if (committed) {
             throw new IllegalStateException();
         }
-        // NOOP no buffer for status-line or headers
+        if (out instanceof ResponseOutputStream) {
+            ((ResponseOutputStream) out).discardBuffered(writer);
+        }
     }
 
     // Called by worker thread once servlet processing is complete
@@ -744,15 +752,18 @@ private static final Logger LOGGER = Logger.getLogger(Response.class.getName());
     }
 
     public void reset() {
-        committed = false;
+        if (committed) {
+            throw new IllegalStateException();
+        }
         errorCondition = false;
         resetBuffer();
         headers.clear();
         statusCode = 200;
-        outputStream = null;
-        writer = null;
+        errorMessage = null;
         locale = Locale.getDefault();
-        charset = null;
+        if (writer == null) {
+            charset = null;
+        }
 
         if (isCloseConnection()) {
             setHeader("Connection", "close");

@@ -349,8 +349,9 @@ public class XMLJSPParser implements JspParser {
 
             // Handle other JSP elements
             if ("root".equals(elementName)) {
-                handleRootElement(attrMap);
-            } else if ("include".equals(elementName) || "forward".equals(elementName) ||
+                return; // xmlns declarations are processed in namespace()
+            }
+            if ("include".equals(elementName) || "forward".equals(elementName) ||
                        "useBean".equals(elementName) || "setProperty".equals(elementName) ||
                        "getProperty".equals(elementName) || "param".equals(elementName) ||
                        "plugin".equals(elementName) || "params".equals(elementName) ||
@@ -398,18 +399,17 @@ public class XMLJSPParser implements JspParser {
             // Note: Page directives are handled by JspPage internally during code generation
         }
 
-        private void handleRootElement(Map<String, String> attributes) {
-            // Process namespace declarations for taglibs
-            for (Map.Entry<String, String> entry : attributes.entrySet()) {
-                String name = entry.getKey();
-                String value = entry.getValue();
-                
-                // Look for xmlns:prefix declarations (other than xmlns:jsp)
-                if (name.startsWith("xmlns:") && !name.equals("xmlns:jsp")) {
-                    String prefix = name.substring(6);
-                    // Register as a taglib
-                    jspPage.addTaglibDirective(prefix, value);
-                }
+        /**
+         * Namespace declarations are reported by the parser separately from
+         * attributes, so a taglib declared as xmlns:prefix="uri" is seen
+         * here rather than in startElement.
+         */
+        @Override
+        public void namespace(String prefix, String uri) throws SAXException {
+            super.namespace(prefix, uri);
+            if (prefix.length() > 0 && !"jsp".equals(prefix)
+                    && !JSP_NAMESPACE.equals(uri)) {
+                jspPage.addTaglibDirective(prefix, uri);
             }
         }
 

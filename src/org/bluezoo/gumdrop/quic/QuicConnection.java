@@ -221,6 +221,21 @@ public final class QuicConnection implements QuicTlsEngineListener {
     private String serverName;
     private final TransportParameters localTransportParameters;
     private final byte[] connectionIdStaticKey;
+    /**
+     * Added to the wall clock by {@link #nowMillis()}. Always zero in
+     * production; a package-private seam so tests can advance the time
+     * seen by loss detection and path validation (RFC 9002) without
+     * waiting in real time.
+     */
+    long clockOffsetMillis;
+
+    /**
+     * Test hook: run on the event loop after each RETIRE_CONNECTION_ID
+     * frame from the peer has been applied, so a test can synchronise on
+     * connection ID rotation completing instead of polling.
+     */
+    volatile Runnable retireConnectionIdHook;
+
     private final long handshakeStartTime = System.currentTimeMillis();
 
     private final byte[] ourConnectionId;
@@ -1203,18 +1218,39 @@ public final class QuicConnection implements QuicTlsEngineListener {
      * @param data the data (copied -- the caller's buffer is not retained)
      * @param fin true if this is the last chunk of the stream
      */
-    void queueStreamData(long streamId, ByteBuffer data, boolean fin) {
-        byte[] copy = new byte[data.remaining()];
+    void queueStreamData(final long streamId, ByteBuffer data, final boolean fin) {
+        // The caller's buffer is only valid during this call, so copy now;
+        // the queues themselves are touched on the loop thread.
+        final byte[] copy = new byte[data.remaining()];
         data.get(copy);
-        long offset = getAndAdvanceStreamOffset(streamId, copy.length);
-        Long key = Long.valueOf(streamId);
-        List<PendingChunk> chunks = pendingStream.get(key);
-        if (chunks == null) {
-            chunks = new ArrayList<PendingChunk>();
-            addPendingStreamChunks(key, chunks);
+        runOnLoop(new Runnable() {
+            @Override
+            public void run() {
+                long offset = getAndAdvanceStreamOffset(streamId, copy.length);
+                Long key = Long.valueOf(streamId);
+                List<PendingChunk> chunks = pendingStream.get(key);
+                if (chunks == null) {
+                    chunks = new ArrayList<PendingChunk>();
+                    addPendingStreamChunks(key, chunks);
+                }
+                chunks.add(new PendingChunk(offset, copy, fin));
+                requestFlush();
+            }
+        });
+    }
+
+    // All send-side state is confined to the connection's selector loop
+    // thread. Application threads (e.g. sending a WebSocket message over
+    // HTTP/3) call into the stream endpoint directly, so hand their work to
+    // the loop; on the loop thread, or when no loop is attached (unit
+    // tests), it runs immediately.
+    void runOnLoop(Runnable task) {
+        SelectorLoop loop = engine.getSelectorLoop();
+        if (loop == null) {
+            task.run();
+        } else {
+            loop.invokeLater(task);
         }
-        chunks.add(new PendingChunk(offset, copy, fin));
-        requestFlush();
     }
 
     // Registers a brand-new pendingStream entry (chunks must not already
@@ -1816,7 +1852,7 @@ public final class QuicConnection implements QuicTlsEngineListener {
             }
             if (fullPacketNumber > largestReceived[level.ordinal()]) {
                 largestReceived[level.ordinal()] = fullPacketNumber;
-                largestReceivedTime[level.ordinal()] = System.currentTimeMillis();
+                largestReceivedTime[level.ordinal()] = nowMillis();
             }
             if (level == EncryptionLevel.HANDSHAKE) {
                 initialVersionRecvKeys = null;
@@ -1939,7 +1975,7 @@ public final class QuicConnection implements QuicTlsEngineListener {
                 receivedHandshakeAck = true;
             }
             LossDetector.AckResult result = lossDetector.onAckReceived(level, largestAcknowledged, ackDelay,
-                    ranges, peerMaxAckDelay(), System.currentTimeMillis(), peerAddressValidated());
+                    ranges, peerMaxAckDelay(), nowMillis(), peerAddressValidated());
             retireAcknowledgedRanges(level, result.getNewlyAcked());
             Map<Long, long[]> coverage = sentAckCoverage.get(level);
             for (SentPacket lost : result.getNewlyLost()) {
@@ -2152,6 +2188,10 @@ public final class QuicConnection implements QuicTlsEngineListener {
             if (retired != null) {
                 engine.unregisterConnectionId(retired);
                 engine.markResetEligible(retired);
+            }
+            Runnable hook = retireConnectionIdHook;
+            if (hook != null) {
+                hook.run();
             }
         }
 
@@ -2498,7 +2538,7 @@ public final class QuicConnection implements QuicTlsEngineListener {
             return;
         }
         long pto = currentPathValidationPto();
-        long deadline = System.currentTimeMillis() + Math.max(3 * pto, 6 * RttEstimator.K_INITIAL_RTT);
+        long deadline = nowMillis() + Math.max(3 * pto, 6 * RttEstimator.K_INITIAL_RTT);
         PathValidationAttempt attempt = new PathValidationAttempt(deadline);
         pathValidationAttempts.put(candidate, attempt);
         sendPathChallengeAndScheduleRetry(candidate, attempt, pto);
@@ -2518,7 +2558,7 @@ public final class QuicConnection implements QuicTlsEngineListener {
         RANDOM.nextBytes(attempt.challengeData);
         sendPathChallenge(attempt.challengeData, candidate);
 
-        long now = System.currentTimeMillis();
+        long now = nowMillis();
         long delay = Math.min(pto, attempt.deadlineMillis - now);
         if (delay <= 0) {
             abandonMigrationValidation(candidate);
@@ -2539,7 +2579,7 @@ public final class QuicConnection implements QuicTlsEngineListener {
         if (closed || attempt == null) {
             return;
         }
-        if (System.currentTimeMillis() >= attempt.deadlineMillis) {
+        if (nowMillis() >= attempt.deadlineMillis) {
             abandonMigrationValidation(candidate);
             return;
         }
@@ -2592,7 +2632,7 @@ public final class QuicConnection implements QuicTlsEngineListener {
         if (migratedAtMillis == null) {
             return false;
         }
-        if (System.currentTimeMillis() - migratedAtMillis.longValue() >= MIGRATION_COOLDOWN_MILLIS) {
+        if (nowMillis() - migratedAtMillis.longValue() >= MIGRATION_COOLDOWN_MILLIS) {
             recentlyMigratedFromAddresses.remove(source);
             return false;
         }
@@ -2635,7 +2675,7 @@ public final class QuicConnection implements QuicTlsEngineListener {
     // recentlyMigratedFromAddresses' field comment).
     private void completeMigration(InetSocketAddress candidate) {
         if (remoteAddress != null) {
-            recentlyMigratedFromAddresses.put(remoteAddress, Long.valueOf(System.currentTimeMillis()));
+            recentlyMigratedFromAddresses.put(remoteAddress, Long.valueOf(nowMillis()));
         }
         remoteAddress = candidate;
         MigrationCompletedObserver observer = migrationCompletedObserver;
@@ -2773,6 +2813,20 @@ public final class QuicConnection implements QuicTlsEngineListener {
             return SEND_BLOCKED_BY_STREAM_LIMIT;
         }
         return SEND_NOT_BLOCKED;
+    }
+
+    // The bytes the peer's connection-level and stream-level limits still
+    // let us send on a stream (never negative).
+    private int flowControlAllowance(long streamId) {
+        long connectionRoom = peerMaxData - connectionBytesSent;
+        Long sentSoFar = streamBytesSent.get(Long.valueOf(streamId));
+        long sent = sentSoFar != null ? sentSoFar.longValue() : 0;
+        long streamRoom = currentPeerStreamLimit(streamId) - sent;
+        long room = Math.min(connectionRoom, streamRoom);
+        if (room <= 0) {
+            return 0;
+        }
+        return room > Integer.MAX_VALUE ? Integer.MAX_VALUE : (int) room;
     }
 
     private long initialPeerStreamLimit(long streamId) {
@@ -2997,6 +3051,21 @@ public final class QuicConnection implements QuicTlsEngineListener {
             for (int index = 0; index < queued.size(); index++) {
                 PendingChunk chunk = queued.get(index);
                 boolean split = false;
+                // RFC 9000 section 4.1: send as much as the peer's flow
+                // control window still allows and keep the rest queued.
+                // Waiting until the whole chunk fits would deadlock
+                // against a peer that raises its limits only as it
+                // consumes data it has not yet been sent.
+                int allowance = flowControlAllowance(streamId);
+                if (allowance > 0 && allowance < chunk.data.length) {
+                    PendingChunk head = new PendingChunk(chunk.offset,
+                            Arrays.copyOfRange(chunk.data, 0, allowance), false);
+                    PendingChunk tail = new PendingChunk(chunk.offset + allowance,
+                            Arrays.copyOfRange(chunk.data, allowance, chunk.data.length), chunk.fin);
+                    queued.set(index, head);
+                    queued.add(index + 1, tail);
+                    chunk = head;
+                }
                 int frameLength = QuicFrameWriter.streamLength(streamId, chunk.offset, chunk.data.length);
                 if (frameLength > budget) {
                     int fit = streamDataThatFits(streamId, chunk.offset, chunk.data.length, budget);
@@ -3152,7 +3221,7 @@ public final class QuicConnection implements QuicTlsEngineListener {
         if (receivedAt < 0) {
             return 0;
         }
-        long elapsedMicros = Math.max(0, System.currentTimeMillis() - receivedAt) * 1000;
+        long elapsedMicros = Math.max(0, nowMillis() - receivedAt) * 1000;
         return elapsedMicros >>> DEFAULT_ACK_DELAY_EXPONENT;
     }
 
@@ -3453,7 +3522,7 @@ public final class QuicConnection implements QuicTlsEngineListener {
         // be treated as congestion-window-relevant if it's ever declared
         // lost.
         boolean inFlight = ackEliciting || paddingBytes > 0;
-        lossDetector.onPacketSent(level, packetNumber, System.currentTimeMillis(), ackEliciting, inFlight, packet.length);
+        lossDetector.onPacketSent(level, packetNumber, nowMillis(), ackEliciting, inFlight, packet.length);
         // Deferred until every bit of this packet's own construction and
         // bookkeeping above is done: notifyWriteReady() synchronously
         // runs application code, which can call stream.send(...) ->
@@ -3574,7 +3643,7 @@ public final class QuicConnection implements QuicTlsEngineListener {
         PacketProtection.xorPacketNumberBytes(packet, pnOffset, pnLength, mask);
 
         sentZeroRttStream.put(Long.valueOf(packetNumber), sentThisPacket);
-        lossDetector.onPacketSent(EncryptionLevel.ONE_RTT, packetNumber, System.currentTimeMillis(), true, true,
+        lossDetector.onPacketSent(EncryptionLevel.ONE_RTT, packetNumber, nowMillis(), true, true,
                 packet.length);
         // Deferred until every bit of this packet's own construction and
         // bookkeeping above is done -- see the identical comment in
@@ -3603,7 +3672,7 @@ public final class QuicConnection implements QuicTlsEngineListener {
             timerHandle.cancel();
             timerHandle = null;
         }
-        long now = System.currentTimeMillis();
+        long now = nowMillis();
         boolean hasHandshakeKeys = sendKeys.get(EncryptionLevel.HANDSHAKE) != null;
         long deadline = lossDetector.getLossDetectionTimeout(false, peerAddressValidated(), hasHandshakeKeys,
                 peerMaxAckDelay(), now);
@@ -3629,7 +3698,7 @@ public final class QuicConnection implements QuicTlsEngineListener {
         }
         boolean hasHandshakeKeys = sendKeys.get(EncryptionLevel.HANDSHAKE) != null;
         LossDetector.TimeoutResult result = lossDetector.onLossDetectionTimeout(peerAddressValidated(), hasHandshakeKeys,
-                peerMaxAckDelay(), System.currentTimeMillis());
+                peerMaxAckDelay(), nowMillis());
         EncryptionLevel lossSpace = result.getLossSpace();
         if (lossSpace != null) {
             for (SentPacket lost : result.getNewlyLost()) {
@@ -4249,4 +4318,10 @@ public final class QuicConnection implements QuicTlsEngineListener {
             this.fin = fin;
         }
     }
+
+    /** Returns the current time in milliseconds, plus the test-only offset. */
+    private long nowMillis() {
+        return System.currentTimeMillis() + clockOffsetMillis;
+    }
+
 }

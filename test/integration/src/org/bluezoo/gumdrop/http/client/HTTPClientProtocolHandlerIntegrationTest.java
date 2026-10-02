@@ -258,24 +258,9 @@ public class HTTPClientProtocolHandlerIntegrationTest extends AbstractServerInte
         }
         factory.start();
 
+        ConnectSignal connectSignal = new ConnectSignal();
         HttpClientProtocolHandler handler = new HttpClientProtocolHandler(
-                new HttpClientHandler() {
-                    @Override
-                    public void onConnected(Endpoint endpoint) {
-                    }
-
-                    @Override
-                    public void onSecurityEstablished(SecurityInfo info) {
-                    }
-
-                    @Override
-                    public void onError(Exception cause) {
-                    }
-
-                    @Override
-                    public void onDisconnected() {
-                    }
-                },
+                connectSignal,
                 TEST_HOST, port, secure);
         if (forceHttp11) {
             handler.setH2cUpgradeEnabled(false);
@@ -285,14 +270,47 @@ public class HTTPClientProtocolHandlerIntegrationTest extends AbstractServerInte
         ClientEndpoint client = new ClientEndpoint(factory, gumdrop.nextWorkerLoop(), TEST_HOST, port);
         client.connect(gumdrop, handler);
 
-        long deadline = System.currentTimeMillis() + TIMEOUT_SECONDS * 1000L;
-        while (!handler.isOpen() && System.currentTimeMillis() < deadline) {
-            Thread.sleep(50);
-        }
-        if (!handler.isOpen()) {
-            throw new IllegalStateException("client did not connect");
-        }
+        connectSignal.await();
         return handler;
+    }
+
+    /**
+     * Completes when the client handler reports the connection (including
+     * TLS/ALPN setup) as established, or fails at once on a connect error.
+     * The timeout only converts a hang into a failure.
+     */
+    private static final class ConnectSignal implements HttpClientHandler {
+        private final CountDownLatch connected = new CountDownLatch(1);
+        private final AtomicReference<Exception> failure = new AtomicReference<Exception>();
+
+        @Override
+        public void onConnected(Endpoint endpoint) {
+            connected.countDown();
+        }
+
+        @Override
+        public void onSecurityEstablished(SecurityInfo info) {
+        }
+
+        @Override
+        public void onError(Exception cause) {
+            failure.set(cause);
+            connected.countDown();
+        }
+
+        @Override
+        public void onDisconnected() {
+        }
+
+        void await() throws Exception {
+            if (!connected.await(TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
+                throw new IllegalStateException("client did not connect");
+            }
+            Exception cause = failure.get();
+            if (cause != null) {
+                throw cause;
+            }
+        }
     }
 
     private static final class FeaturesHandlerFactory implements HttpStreamHandler {

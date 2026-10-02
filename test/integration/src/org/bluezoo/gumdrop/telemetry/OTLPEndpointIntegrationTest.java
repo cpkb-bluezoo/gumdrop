@@ -48,8 +48,6 @@ import org.bluezoo.gumdrop.http.client.HttpResponseHandler;
 import org.bluezoo.gumdrop.http.client.HttpResponse;
 
 import java.io.ByteArrayOutputStream;
-import java.net.InetSocketAddress;
-import java.net.Socket;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
@@ -73,7 +71,7 @@ public class OTLPEndpointIntegrationTest {
 
     private Gumdrop gumdrop;
     private Http2Listener server;
-    private TestHandler lastHandler;
+    private volatile TestHandler lastHandler;
 
     @Before
     public void setUp() throws Exception {
@@ -95,8 +93,7 @@ public class OTLPEndpointIntegrationTest {
         gumdrop = Gumdrop.boot(GumdropConfig.create().workerThreads(2));
         gumdrop.addListener(server);
 
-        // Wait for server
-        waitForPort(TEST_PORT);
+        // Wait for the listener to be bound
         ListenerBindCheck.assertBound(gumdrop);
     }
 
@@ -106,11 +103,11 @@ public class OTLPEndpointIntegrationTest {
             gumdrop.shutdown();
             gumdrop.join();
         }
-        Thread.sleep(500);
     }
 
     @Test
     public void testHTTPClientChunkedUpload() throws Exception {
+        final CountDownLatch connectedLatch = new CountDownLatch(1);
         TcpTransportFactory factory = new TcpTransportFactory();
         factory.start();
         HttpClientProtocolHandler endpointHandler = new HttpClientProtocolHandler(
@@ -118,6 +115,7 @@ public class OTLPEndpointIntegrationTest {
                     @Override
                     public void onConnected(Endpoint endpoint) {
                         LOGGER.info("Client connected");
+                        connectedLatch.countDown();
                     }
                     @Override
                     public void onSecurityEstablished(SecurityInfo info) {}
@@ -137,11 +135,8 @@ public class OTLPEndpointIntegrationTest {
         client.connect(gumdrop, endpointHandler);
 
         // Wait for connection to be ready
-        long deadline = System.currentTimeMillis() + 5000;
-        while (!endpointHandler.isOpen() && System.currentTimeMillis() < deadline) {
-            Thread.sleep(50);
-        }
-        assertTrue("Should connect", endpointHandler.isOpen());
+        assertTrue("Should connect", connectedLatch.await(30, TimeUnit.SECONDS));
+        assertTrue("Should be open", endpointHandler.isOpen());
 
         final CountDownLatch responseLatch = new CountDownLatch(1);
         final AtomicReference<HttpResponse> responseRef = new AtomicReference<>();
@@ -191,7 +186,6 @@ public class OTLPEndpointIntegrationTest {
 
         // Verify handler received body
         assertNotNull("Should have handler", lastHandler);
-        Thread.sleep(200); // Allow time for body to be processed
         String receivedBody = lastHandler.getReceivedBody();
         LOGGER.info("Server received body: '" + receivedBody + "'");
         assertEquals("Body should match", testData, receivedBody);
@@ -201,12 +195,15 @@ public class OTLPEndpointIntegrationTest {
 
     @Test
     public void testHTTPClientSimpleGET() throws Exception {
+        final CountDownLatch connectedLatch = new CountDownLatch(1);
         TcpTransportFactory factory = new TcpTransportFactory();
         factory.start();
         HttpClientProtocolHandler endpointHandler = new HttpClientProtocolHandler(
                 new HttpClientHandler() {
                     @Override
-                    public void onConnected(Endpoint endpoint) {}
+                    public void onConnected(Endpoint endpoint) {
+                        connectedLatch.countDown();
+                    }
                     @Override
                     public void onSecurityEstablished(SecurityInfo info) {}
                     @Override
@@ -220,11 +217,8 @@ public class OTLPEndpointIntegrationTest {
         ClientEndpoint client = new ClientEndpoint(factory, "::1", TEST_PORT);
         client.connect(gumdrop, endpointHandler);
 
-        long deadline = System.currentTimeMillis() + 5000;
-        while (!endpointHandler.isOpen() && System.currentTimeMillis() < deadline) {
-            Thread.sleep(50);
-        }
-        assertTrue("Should connect", endpointHandler.isOpen());
+        assertTrue("Should connect", connectedLatch.await(30, TimeUnit.SECONDS));
+        assertTrue("Should be open", endpointHandler.isOpen());
 
         final CountDownLatch responseLatch = new CountDownLatch(1);
         final AtomicReference<HttpResponse> responseRef = new AtomicReference<>();
@@ -250,20 +244,6 @@ public class OTLPEndpointIntegrationTest {
         assertEquals("Should be 200 OK", HttpStatus.OK, responseRef.get().getStatus());
 
         endpointHandler.close();
-    }
-
-    private void waitForPort(int port) throws InterruptedException {
-        long deadline = System.currentTimeMillis() + 5000;
-        while (System.currentTimeMillis() < deadline) {
-            try (Socket socket = new Socket()) {
-                socket.connect(new InetSocketAddress("::1", port), 200);
-                Thread.sleep(200);
-                return;
-            } catch (Exception e) {
-                Thread.sleep(100);
-            }
-        }
-        throw new IllegalStateException("Port " + port + " not listening");
     }
 
     /**

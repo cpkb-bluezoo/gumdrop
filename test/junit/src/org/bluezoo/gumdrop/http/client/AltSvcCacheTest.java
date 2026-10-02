@@ -36,6 +36,7 @@ public class AltSvcCacheTest {
     @After
     public void clearCache() {
         AltSvcCache.clear();
+        AltSvcCache.clockOffsetMillis = 0L;
     }
 
     @Test
@@ -67,11 +68,18 @@ public class AltSvcCacheTest {
     }
 
     @Test
-    public void testExpiry() throws Exception {
+    public void testExpiry() {
+        AltSvcCache.put("example.com", 443, null, 443, 10);
+        AltSvcCache.clockOffsetMillis = 5000L;
+        assertNotNull(AltSvcCache.get("example.com", 443));
+        AltSvcCache.clockOffsetMillis = 10000L;
+        assertNull(AltSvcCache.get("example.com", 443));
+    }
+
+    @Test
+    public void testZeroMaxAgeExpiresImmediately() {
         AltSvcCache.put("example.com", 443, null, 443, 0);
-        // maxAgeSeconds=0 -> expiry is "now", so a subsequent get (even a
-        // few ms later) must observe it as expired.
-        Thread.sleep(5);
+        AltSvcCache.clockOffsetMillis = 1L;
         assertNull(AltSvcCache.get("example.com", 443));
     }
 

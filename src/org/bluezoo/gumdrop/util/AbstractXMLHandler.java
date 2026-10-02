@@ -132,7 +132,7 @@ public abstract class AbstractXMLHandler implements XMLHandler {
     }
 
     @Override
-    public final void namespace(String prefix, String uri) throws SAXException {
+    public void namespace(String prefix, String uri) throws SAXException {
         if (pendingBindings == null) {
             pendingBindings = new HashMap<String, String>();
         }

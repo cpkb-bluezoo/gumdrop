@@ -140,7 +140,8 @@ class AsyncContextImpl implements AsyncContext {
                     }
                     
                     // Complete after dispatch unless async was started again
-                    if (!request.isAsyncStarted()) {
+                    // (a new AsyncContext replaces this one on the request)
+                    if (request.asyncContext == AsyncContextImpl.this) {
                         complete();
                     }
                 } catch (Exception e) {

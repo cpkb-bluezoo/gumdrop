@@ -29,17 +29,18 @@ import java.io.IOException;
  * Handles SMTP dot stuffing across message content chunks.
  * 
  * <p>Per RFC 5321, lines beginning with a dot must have an additional dot prepended.
- * This class maintains minimal state across chunk boundaries to properly handle dots that
- * appear at the start of lines when data is streamed in arbitrary chunks.
+ * Content is streamed straight through to the output as each chunk arrives;
+ * the only thing remembered between chunks is where the previous chunk left
+ * off relative to the line structure, so input may be split at arbitrary
+ * byte boundaries without changing the output.
  * 
  * <p>The state machine tracks:
  * <ul>
- * <li>NORMAL - processing normal content</li>
- * <li>SAW_CR - saw carriage return, buffered waiting for LF</li>
- * <li>SAW_CRLF - saw CRLF sequence, buffered waiting to check for dot</li>
+ * <li>NORMAL - in the middle of a line</li>
+ * <li>SAW_CR - the last byte written was a carriage return</li>
+ * <li>SAW_CRLF - at the start of a line (initially, or after CRLF); a dot
+ * here must be doubled</li>
  * </ul>
- * 
- * <p>Only buffers bytes when chunk boundaries split CRLF sequences (max 2 bytes).
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see <a href="https://www.rfc-editor.org/rfc/rfc5321#section-4.5.2">RFC 5321 §4.5.2</a>
@@ -50,179 +51,122 @@ class DotStuffer {
      * Internal state for dot stuffing state machine.
      */
     private enum State {
-        /** Processing normal content - write bytes immediately. */
+        /** In the middle of a line. */
         NORMAL,
         
-        /** Saw CR, buffered waiting to see if LF follows. */
+        /** The previous byte was CR. */
         SAW_CR,
         
-        /** Saw CRLF, buffered waiting to see if dot follows. */
+        /** At the start of a line. */
         SAW_CRLF
     }
     
-    private State state = State.NORMAL;
+    private State state = State.SAW_CRLF;
     
-    // Pre-allocated buffer for boundary cases: contains CRLF.CRLF
-    private final ByteBuffer boundaryBuffer = ByteBuffer.allocate(5);
+    // Terminator pieces: ".\r\n" is used when the content already ended a line
+    private final ByteBuffer terminator = ByteBuffer.allocate(5);
+    private final ByteBuffer dot = ByteBuffer.allocate(1);
     
     /**
      * Creates dot stuffer.
      */
     public DotStuffer() {
-        // Pre-populate boundary buffer with CRLF.CRLF
-        boundaryBuffer.put((byte) '\r');  // 0
-        boundaryBuffer.put((byte) '\n');  // 1  
-        boundaryBuffer.put((byte) '.');   // 2
-        boundaryBuffer.put((byte) '\r');  // 3
-        boundaryBuffer.put((byte) '\n');  // 4
+        terminator.put((byte) '\r');  // 0
+        terminator.put((byte) '\n');  // 1
+        terminator.put((byte) '.');   // 2
+        terminator.put((byte) '\r');  // 3
+        terminator.put((byte) '\n');  // 4
+        dot.put((byte) '.');
     }
     
     /**
      * Processes a chunk of message content, performing dot stuffing as needed.
-     * Uses efficient buffer manipulation to minimize allocations.
+     * The chunk is consumed entirely and written to the output without copying.
      * 
      * @param input message content chunk
      * @param output channel to write processed content to
      * @throws IOException if writing to channel fails
      */
     public void processChunk(ByteBuffer input, WritableByteChannel output) throws IOException {
-        int startPos = input.position();
-        int currentPos;
-        int saveLimit;
-        
-        while (input.hasRemaining()) {
-            byte b = input.get();
-            
+        int segmentStart = input.position();
+        int end = input.limit();
+        for (int pos = segmentStart; pos < end; pos++) {
+            byte b = input.get(pos);
             switch (state) {
                 case NORMAL:
                     if (b == '\r') {
                         state = State.SAW_CR;
-                    } else {
-                        // Continue processing normally
                     }
                     break;
                     
                 case SAW_CR:
                     if (b == '\n') {
                         state = State.SAW_CRLF;
-                    } else {
-                        // CR not followed by LF - need to emit pending CR
-                        // Write everything processed so far including the CR
-                        currentPos = input.position();
-                        input.position(startPos);
-                        saveLimit = input.limit();
-                        input.limit(currentPos);
-                        output.write(input);
-                        input.limit(saveLimit);
-                        
-                        // Reset for next chunk starting with current byte
-                        startPos = currentPos - 1;
-                        input.position(startPos);
-                        state = (b == '\r') ? State.SAW_CR : State.NORMAL;
+                    } else if (b != '\r') {
+                        state = State.NORMAL;
                     }
                     break;
                     
                 case SAW_CRLF:
-                    // Common setup for both branches
-                    currentPos = input.position();
-                    input.position(startPos);
-                    saveLimit = input.limit();
-                    input.limit(currentPos);
-                    output.write(input);
-                    
                     if (b == '.') {
-                        // Found CRLF. - need dot stuffing
-                        // Reposition to the dot and write it again (dot stuffing)
-                        input.position(currentPos - 1);
-                        input.limit(currentPos);
+                        // Line starts with a dot: emit everything before it,
+                        // then an extra dot; the dot itself starts the next segment
+                        input.position(segmentStart);
+                        input.limit(pos);
                         output.write(input);
-                        input.limit(saveLimit);
-                        
-                        // Reset for next chunk
-                        startPos = currentPos;
+                        input.limit(end);
+                        dot.clear();
+                        output.write(dot);
+                        segmentStart = pos;
                         state = State.NORMAL;
+                    } else if (b == '\r') {
+                        state = State.SAW_CR;
                     } else {
-                        // CRLF not followed by dot - write normally
-                        input.limit(saveLimit);
-                        
-                        // Reset for next chunk starting with current byte
-                        startPos = currentPos - 1;
-                        input.position(startPos);
-                        state = (b == '\r') ? State.SAW_CR : State.NORMAL;
+                        state = State.NORMAL;
                     }
                     break;
             }
         }
-        
-        // Write any remaining complete data  
-        if (input.position() > startPos) {
-            input.position(startPos);
+        input.position(segmentStart);
+        input.limit(end);
+        if (input.hasRemaining()) {
             output.write(input);
         }
+        input.position(end);
     }
     
     /**
-     * Completes message transmission by sending final CRLF.CRLF sequence.
-     * Emits any pending bytes and resets state for next message.
+     * Completes message transmission by sending the terminating sequence.
+     * If the content already ended a line only ".CRLF" is sent, otherwise
+     * "CRLF.CRLF". Resets state for the next message.
      * 
      * @param output channel to write end sequence to
      * @throws IOException if writing to channel fails
      */
     public void endMessage(WritableByteChannel output) throws IOException {
-        // Check if we already have CRLF pending before flushing
-        boolean hasCRLF = (state == State.SAW_CRLF);
-        
-        // Emit any pending bytes first  
-        flush(output);
-        
-        // Send terminating sequence in single write
-        if (hasCRLF) {
-            // Already wrote CRLF, just need .\r\n
-            boundaryBuffer.position(2);
-            boundaryBuffer.limit(5);
-        } else {
-            // Need complete \r\n.\r\n sequence  
-            boundaryBuffer.position(0);
-            boundaryBuffer.limit(5);
-        }
-        output.write(boundaryBuffer);
-        
-        // Reset state for next message
+        boolean atLineStart = (state == State.SAW_CRLF);
+        terminator.limit(5);
+        terminator.position(atLineStart ? 2 : 0);
+        output.write(terminator);
         reset();
     }
     
     /**
-     * Emits any pending bytes without ending message.
-     * Use this to ensure all processed content is sent before closing connection.
+     * Retained for callers that want to make sure all processed content has
+     * been emitted before closing the connection. Content is written as it
+     * is processed, so nothing is ever pending and this does nothing.
      * 
-     * @param output channel to write pending bytes to
-     * @throws IOException if writing to channel fails
+     * @param output channel (unused)
+     * @throws IOException never thrown
      */
     public void flush(WritableByteChannel output) throws IOException {
-        switch (state) {
-            case SAW_CR:
-                // Write just the CR: position 0, limit 1
-                boundaryBuffer.position(0);
-                boundaryBuffer.limit(1);
-                output.write(boundaryBuffer);
-                break;
-            case SAW_CRLF:
-                // Write CR and LF: position 0, limit 2  
-                boundaryBuffer.position(0);
-                boundaryBuffer.limit(2);
-                output.write(boundaryBuffer);
-                break;
-            case NORMAL:
-                // No pending bytes
-                break;
-        }
-        state = State.NORMAL;
+        // Nothing is buffered between chunks.
     }
     
     /**
      * Resets dot stuffer state for processing a new message.
      */
     public void reset() {
-        state = State.NORMAL;
+        state = State.SAW_CRLF;
     }
 }

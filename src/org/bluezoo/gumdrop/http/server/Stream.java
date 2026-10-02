@@ -206,6 +206,21 @@ class Stream implements HttpResponseState {
     private boolean handlerBodyStarted = false;
     private boolean handlerBodyEnded = false;
     private boolean requestBodyRejected = false;
+    /**
+     * Set once the framework itself has rejected this request: answered it
+     * with an error (or 401 challenge) response, or reset the stream for
+     * malformed HTTP/2 headers. The application never saw the request in
+     * that case, so it must not be handed the rest of it (body, end of
+     * request) either.
+     */
+    private boolean rejectedByFramework = false;
+
+    /**
+     * True once the handler has received its final callback, either
+     * {@link HttpRequestHandler#requestComplete} or
+     * {@link HttpRequestHandler#failed}, so it is never given a second one.
+     */
+    private boolean handlerFinished = false;
 
     private boolean capsuleMode;
     private final CapsuleParser capsuleParser = new CapsuleParser();
@@ -483,6 +498,7 @@ class Stream implements HttpResponseState {
         // connection-specific header constraints
         if (connection.getVersion() == HttpVersion.HTTP_2_0
                 && headers != null && !validateH2Headers()) {
+            rejectedByFramework = true;
             connection.sendRstStream(streamId, H2FrameHandler.ERROR_PROTOCOL_ERROR);
             state = State.CLOSED;
             timestampCompleted = System.currentTimeMillis();
@@ -854,6 +870,15 @@ class Stream implements HttpResponseState {
                 }
             } else {
                 pastPseudo = true;
+                // RFC 9113 section 8.2.2: a request carrying a
+                // connection-specific header field MUST be treated as
+                // malformed. Content-Length is not one (section 8.1.1).
+                if (!"content-length".equalsIgnoreCase(name)
+                        && HttpVersion.isHttp1FramingHeader(name, header.getValue())) {
+                    LOGGER.warning(MessageFormat.format(
+                            L10N.getString("warn.connection_specific_header"), name));
+                    return false;
+                }
             }
         }
 
@@ -902,6 +927,14 @@ class Stream implements HttpResponseState {
      * <p>This method consumes all data in the buffer (advances position to limit).
      */
     void receiveRequestBody(ByteBuffer buf) {
+        if (rejectedByFramework) {
+            // Discarded, but still counted: HTTP/1.x framing finishes the
+            // request (streamEndRequest, and the deferred Connection: close)
+            // only once the declared body length has been consumed.
+            requestBodyBytesReceived += buf.remaining();
+            buf.position(buf.limit());
+            return;
+        }
         if (webSocketAdapter != null) {
             processWebSocketInput(buf);
             return;
@@ -1074,8 +1107,9 @@ class Stream implements HttpResponseState {
             state = State.HALF_CLOSED_REMOTE;
         }
 
-        // Dispatch to handler if present
-        if (handler != null) {
+        // Dispatch to handler if present (but not for a request the
+        // framework already rejected, e.g. unauthenticated or malformed)
+        if (handler != null && !rejectedByFramework) {
             if (capsuleMode && !capsuleParser.finish()) {
                 try {
                     sendError(400);
@@ -1099,6 +1133,7 @@ class Stream implements HttpResponseState {
             // requestComplete; neither must a stream whose response was
             // already committed by an earlier streamEndRequest().
             if (responseState != ResponseState.COMPLETE) {
+                handlerFinished = true;
                 handler.requestComplete(this);
             }
         }
@@ -1865,6 +1900,12 @@ class Stream implements HttpResponseState {
         public Principal getPrincipal() {
             return authenticatedPrincipal;
         }
+
+        void notifyTransportClosed(int code, String reason) {
+            if (isOpen()) {
+                abnormalClose(code, reason);
+            }
+        }
     }
     
     /**
@@ -1895,6 +1936,7 @@ class Stream implements HttpResponseState {
         if (state == State.IDLE) {
             state = State.OPEN;
         }
+        rejectedByFramework = true;
         Headers headers = new Headers();
         // For HTTP/1.x, add Content-Length: 0 so clients know there's no body
         // Also close connection on error to prevent keep-alive issues
@@ -1916,6 +1958,7 @@ class Stream implements HttpResponseState {
         if (state == State.IDLE) {
             state = State.OPEN;
         }
+        rejectedByFramework = true;
         Headers headers = new Headers();
         String challenge = authProvider.generateChallenge();
         if (challenge != null) {
@@ -1932,6 +1975,31 @@ class Stream implements HttpResponseState {
      */
     void streamClose() {
         streamClose(false);
+    }
+
+    /**
+     * Aborts this stream because the transport failed under it (connection
+     * closed or errored, or the peer reset the stream): closes it
+     * abnormally and gives the application handler its final
+     * {@link HttpRequestHandler#failed} callback. The callback is delivered
+     * at most once, and not at all for a stream the framework itself
+     * rejected, whose handler never saw the request, or one whose handler
+     * already received {@link HttpRequestHandler#requestComplete}.
+     *
+     * @param cause the reason the stream was aborted
+     */
+    void streamAbort(Exception cause) {
+        streamClose(false);
+        if (webSocketAdapter != null) {
+            // RFC 6455 section 7.4: 1006 is reserved for a connection
+            // closed abnormally without a Close frame, as in the H3 path.
+            webSocketAdapter.notifyTransportClosed(1006, cause.getMessage());
+        }
+        if (handler != null && !rejectedByFramework && !handlerFinished
+                && webSocketAdapter == null) {
+            handlerFinished = true;
+            handler.failed(this, cause);
+        }
     }
 
     /**

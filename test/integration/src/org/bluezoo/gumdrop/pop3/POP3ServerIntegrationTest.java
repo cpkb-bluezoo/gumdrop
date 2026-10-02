@@ -41,8 +41,6 @@ import org.junit.Test;
 import org.junit.rules.Timeout;
 
 import java.io.File;
-import java.net.InetSocketAddress;
-import java.net.Socket;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.Base64;
@@ -129,9 +127,6 @@ public class POP3ServerIntegrationTest {
         gumdrop.addListener(mboxServer);
         gumdrop.addListener(maildirServer);
         
-        // Wait for servers to be ready
-        waitForPort(MBOX_PORT, 5000);
-        waitForPort(MAILDIR_PORT, 5000);
         ListenerBindCheck.assertBound(gumdrop);
     }
     
@@ -142,7 +137,6 @@ public class POP3ServerIntegrationTest {
                 gumdrop.shutdown();
                 gumdrop.join();
             }
-            Thread.sleep(1500); // Allow ports to be released
         } finally {
             MailboxFixtures.delete(mboxRoot);
             MailboxFixtures.delete(maildirRoot);
@@ -152,19 +146,6 @@ public class POP3ServerIntegrationTest {
         }
     }
     
-    private void waitForPort(int port, long timeoutMs) throws InterruptedException {
-        long deadline = System.currentTimeMillis() + timeoutMs;
-        while (System.currentTimeMillis() < deadline) {
-            try (Socket socket = new Socket()) {
-                socket.connect(new InetSocketAddress("::1", port), 200);
-                Thread.sleep(200);
-                return;
-            } catch (Exception e) {
-                Thread.sleep(100);
-            }
-        }
-        throw new IllegalStateException("Server failed to start on port " + port);
-    }
     
     // ==================== MBOX Tests ====================
     

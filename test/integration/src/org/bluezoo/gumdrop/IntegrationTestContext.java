@@ -446,49 +446,6 @@ public class IntegrationTestContext {
         }
     }
 
-    /**
-     * Waits for a port to become available for listening.
-     *
-     * @param host the host to check
-     * @param port the port number
-     * @param timeoutMs maximum time to wait
-     * @return true if the port became available within the timeout
-     */
-    public boolean waitForPort(String host, int port, long timeoutMs) {
-        long deadline = System.currentTimeMillis() + timeoutMs;
-        while (System.currentTimeMillis() < deadline) {
-            if (isPortListening(host, port)) {
-                return true;
-            }
-            try {
-                Thread.sleep(50);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                return false;
-            }
-        }
-        return false;
-    }
-
-    /**
-     * Waits for a port to stop listening (e.g., after server shutdown).
-     */
-    public boolean waitForPortClosed(String host, int port, long timeoutMs) {
-        long deadline = System.currentTimeMillis() + timeoutMs;
-        while (System.currentTimeMillis() < deadline) {
-            if (!isPortListening(host, port)) {
-                return true;
-            }
-            try {
-                Thread.sleep(50);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                return false;
-            }
-        }
-        return false;
-    }
-
     // ─────────────────────────────────────────────────────────────────────────────
     // Inner Classes
     // ─────────────────────────────────────────────────────────────────────────────

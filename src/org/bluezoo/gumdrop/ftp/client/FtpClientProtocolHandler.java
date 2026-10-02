@@ -28,6 +28,7 @@ import java.net.InetSocketAddress;
 import java.net.SocketAddress;
 import java.net.UnknownHostException;
 import java.nio.ByteBuffer;
+import java.nio.channels.ServerSocketChannel;
 import java.nio.charset.StandardCharsets;
 import java.text.MessageFormat;
 import java.util.ArrayList;
@@ -41,6 +42,7 @@ import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.ProtocolHandler;
 import org.bluezoo.gumdrop.SecurityInfo;
+import org.bluezoo.gumdrop.TcpTransportFactory;
 import org.bluezoo.gumdrop.tls.ServerCredentials;
 
 /**
@@ -93,6 +95,7 @@ public final class FtpClientProtocolHandler
     // Multi-line response accumulation
     private final List<String> multiLineResponse = new ArrayList<String>();
     private boolean inMultiLineResponse;
+    private int multiLineCode;
 
     // Data connection coordination (RFC 959 §3.2). Only one transfer can
     // be active at a time (FTP's command sequencing is strictly serial),
@@ -100,6 +103,14 @@ public final class FtpClientProtocolHandler
     // object — see FtpClientDataConnectionCoordinator's class Javadoc and
     // the *DataHandler inner classes below.
     private FtpClientDataConnectionCoordinator dataCoordinator;
+
+    /** Test seam: plaintext data transport factory handed to the coordinator in connected(). */
+    TcpTransportFactory dataTransportFactory;
+
+    /** The current active-mode data listener channel, or null. Package-private for tests. */
+    ServerSocketChannel activeListenerChannel() {
+        return dataCoordinator == null ? null : dataCoordinator.activeListenerChannel();
+    }
     private Endpoint dataEndpoint;
     private boolean dataConnClosed;
     private boolean controlAckReceived;
@@ -120,6 +131,8 @@ public final class FtpClientProtocolHandler
     private boolean pendingHasCode;
     private int pendingCode;
     private String pendingCodeError;
+    private String pendingCodeText = "";
+    private String pendingSeparator = "";
     private final StringBuilder replyTextBuilder = new StringBuilder();
     private boolean pendingContinuation;
 
@@ -172,6 +185,9 @@ public final class FtpClientProtocolHandler
     public void connected(Endpoint ep) {
         this.endpoint = ep;
         this.dataCoordinator = new FtpClientDataConnectionCoordinator(gumdrop, ep);
+        if (dataTransportFactory != null) {
+            dataCoordinator.setPlainTransportFactory(dataTransportFactory);
+        }
         state = FtpState.CONNECTING;
 
         if (LOGGER.isLoggable(Level.FINE)) {
@@ -226,6 +242,8 @@ public final class FtpClientProtocolHandler
         switch (type) {
             case CODE:
                 pendingHasCode = true;
+                ByteBuffer codeCopy = window.duplicate();
+                pendingCodeText = decodeAscii(codeCopy);
                 if (window.remaining() != 3) {
                     pendingCodeError = MessageFormat.format(
                             L10N.getString("err.invalid_ftp_response"),
@@ -242,9 +260,11 @@ public final class FtpClientProtocolHandler
                 return false;
             case DASH:
                 pendingContinuation = true;
+                pendingSeparator = "-";
                 return true; // latch text mode for the rest of the line
             case SP:
                 pendingContinuation = false;
+                pendingSeparator = decodeAscii(window);
                 return true; // latch text mode for the rest of the line
             case TEXT:
                 replyTextBuilder.append(decodeAscii(window));
@@ -298,6 +318,8 @@ public final class FtpClientProtocolHandler
         pendingHasCode = false;
         pendingCode = 0;
         pendingCodeError = null;
+        pendingCodeText = "";
+        pendingSeparator = "";
         pendingContinuation = false;
         replyTextBuilder.setLength(0);
     }
@@ -310,10 +332,19 @@ public final class FtpClientProtocolHandler
         String error = pendingCodeError;
         boolean continuation = pendingContinuation;
         String message = replyTextBuilder.toString();
+        String rawLine = pendingCodeText + pendingSeparator + message;
         resetLineState();
 
         if (!hasCode) {
             // A bare CRLF with no reply code at all — silently ignored.
+            return;
+        }
+
+        // RFC 959 §4.2: inside a multi-line reply only the line that repeats
+        // the opening code followed by a space ends it; any other line, with
+        // or without a leading code, is free-form body text.
+        if (inMultiLineResponse && (error != null || code != multiLineCode)) {
+            multiLineResponse.add(rawLine);
             return;
         }
 
@@ -330,6 +361,7 @@ public final class FtpClientProtocolHandler
             if (continuation) {
                 if (!inMultiLineResponse) {
                     inMultiLineResponse = true;
+                    multiLineCode = code;
                     multiLineResponse.clear();
                 }
                 multiLineResponse.add(message);
@@ -382,6 +414,10 @@ public final class FtpClientProtocolHandler
             return;
         }
         state = FtpState.CLOSED;
+        closeEndpoint();
+    }
+
+    private void closeEndpoint() {
         if (endpoint != null) {
             endpoint.close();
         }
@@ -721,7 +757,7 @@ public final class FtpClientProtocolHandler
             handler.handleServiceUnavailable("421 " + message);
         }
 
-        close();
+        closeEndpoint();
     }
 
     private void dispatchResponse(int code, List<String> messages) {
@@ -799,7 +835,7 @@ public final class FtpClientProtocolHandler
                 break;
             case QUIT_SENT:
                 state = FtpState.CLOSED;
-                close();
+                closeEndpoint();
                 break;
             default:
                 if (LOGGER.isLoggable(Level.WARNING)) {
@@ -1066,6 +1102,7 @@ public final class FtpClientProtocolHandler
         if (dataEndpoint != null) {
             dataEndpoint.close();
         }
+        dataCoordinator.closeActiveListener();
         dataEndpoint = null;
         dataConnClosed = false;
         controlAckReceived = false;

@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.servlet;
 
+import java.text.MessageFormat;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.LinkedHashMap;
@@ -289,7 +290,9 @@ abstract class DeploymentDescriptor implements Description {
     boolean isSecurityConstraintTarget(String urlPattern) {
         for (SecurityConstraint sc : securityConstraints) {
             for (ResourceCollection rc : sc.resourceCollections) {
-                return rc.matchesExact(urlPattern);
+                if (rc.matchesExact(urlPattern)) {
+                    return true;
+                }
             }
         }
         return false;
@@ -464,6 +467,7 @@ abstract class DeploymentDescriptor implements Description {
             filterMapping.filterDef = filterDefs.get(filterMapping.filterName);
             if (filterMapping.filterDef == null) {
                 String message = Context.L10N.getString("warn.no_filter_def");
+                message = MessageFormat.format(message, filterMapping.filterName);
                 Context.LOGGER.warning(message);
             }
             filterMapping.servletDefs.clear();
@@ -471,6 +475,7 @@ abstract class DeploymentDescriptor implements Description {
                 ServletDef servletDef = servletDefs.get(servletName);
                 if (servletDef == null) {
                     String message = Context.L10N.getString("warn.no_servlet_def");
+                    message = MessageFormat.format(message, servletName);
                     Context.LOGGER.warning(message);
                 } else {
                     filterMapping.servletDefs.add(servletDef);
@@ -481,6 +486,7 @@ abstract class DeploymentDescriptor implements Description {
             servletMapping.servletDef = servletDefs.get(servletMapping.servletName);
             if (servletMapping.servletDef == null) {
                 String message = Context.L10N.getString("warn.no_servlet_def");
+                message = MessageFormat.format(message, servletMapping.servletName);
                 Context.LOGGER.warning(message);
             }
         }

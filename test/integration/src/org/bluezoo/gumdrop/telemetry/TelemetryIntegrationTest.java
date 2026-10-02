@@ -134,8 +134,6 @@ public class TelemetryIntegrationTest {
         gumdrop.addListener(smtpServer);
 
         // Wait for servers to be ready
-        waitForPort(HTTP_PORT);
-        waitForPort(SMTP_PORT);
         ListenerBindCheck.assertBound(gumdrop);
         
         // Wait for OTLP connections to be established
@@ -148,9 +146,6 @@ public class TelemetryIntegrationTest {
         } else {
             System.out.println("Warning: OTLP connections not fully established, tests may fail");
         }
-        
-        // Give a moment for the connection state to stabilize
-        Thread.sleep(200);
         
         // Clear any warmup data
         collector.clear();
@@ -170,8 +165,6 @@ public class TelemetryIntegrationTest {
             if (collector != null) {
                 collector.stop();
             }
-            // Allow time for port release (TIME_WAIT state)
-            Thread.sleep(2000);
         } finally {
             if (rootLogger != null && originalLogLevel != null) {
                 rootLogger.setLevel(originalLogLevel);
@@ -383,60 +376,15 @@ public class TelemetryIntegrationTest {
     // Helper Methods
     // ========================================================================
 
-    private void waitForPort(int port) throws InterruptedException {
-        long deadline = System.currentTimeMillis() + 5000;
-        while (System.currentTimeMillis() < deadline) {
-            if (isPortListening("::1", port)) {
-                Thread.sleep(200);
-                return;
-            }
-            Thread.sleep(100);
-        }
-        throw new IllegalStateException("Port " + port + " not listening");
-    }
-
-    private boolean isPortListening(String host, int port) {
-        try (Socket socket = new Socket()) {
-            socket.connect(new InetSocketAddress(host, port), 200);
-            return true;
-        } catch (Exception e) {
-            return false;
-        }
-    }
-
     private void waitForTelemetry() throws InterruptedException {
-        // Force flush to ensure all pending telemetry is exported
+        // Force flush to ensure all pending telemetry is exported, then block
+        // until the collector has actually received a trace request (the
+        // timeout is only a hang guard).
         if (exporter != null) {
             exporter.forceFlush();
         }
-        
-        // Wait for async telemetry export to complete
-        int maxWait = 8000;  // Increased timeout
-        int waited = 0;
-        int interval = 200;
-        int initialTraceCount = collector.getTraceRequestCount();
-
-        System.out.println("Waiting for telemetry (initial trace count: " + initialTraceCount + ")...");
-
-        while (waited < maxWait) {
-            Thread.sleep(interval);
-            waited += interval;
-            
-            // Periodic flush to ensure data is sent
-            if (waited % 1000 == 0 && exporter != null) {
-                exporter.forceFlush();
-            }
-            
-            int currentCount = collector.getTraceRequestCount();
-            if (currentCount > initialTraceCount) {
-                System.out.println("Telemetry received after " + waited + "ms (traces: " + currentCount + ")");
-                Thread.sleep(300); // Extra time for any additional exports
-                return;
-            }
-        }
-        
-        System.out.println("Telemetry wait timeout after " + maxWait + "ms (traces: " + 
-            collector.getTraceRequestCount() + ")");
+        assertTrue("Telemetry should reach the collector",
+                collector.awaitTraceRequests(1, 30000));
     }
 
     private String sendHttpRequest(String method, String path, String body) throws IOException {

@@ -2125,10 +2125,19 @@ public class DnsResolver {
 
             @Override
             public void onError(String error) {
-                // The whole exchange failed (timeout/network error, not
-                // a per-type DNS-level outcome) -- every requested type
-                // fails together.
                 collector.fail(primaryType, error);
+                if (optionTypes.isEmpty()) {
+                    // The additional types were never part of this exchange
+                    // (no MQTYPE option was sent), so the primary failing
+                    // says nothing about them: resolve each independently.
+                    for (DnsType t : additionalTypes) {
+                        queryStandaloneForBatch(name, t, collector);
+                    }
+                    return;
+                }
+                // The whole exchange failed (timeout/network error, not
+                // a per-type DNS-level outcome) -- every type that rode
+                // along on it fails together.
                 for (DnsType t : additionalTypes) {
                     collector.fail(t, error);
                 }

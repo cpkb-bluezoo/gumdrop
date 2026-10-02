@@ -57,6 +57,7 @@ public final class ZoneFileParser implements ByteStreamLexer.Handler<ZoneFileLex
 
     private enum State {
         BETWEEN_ENTRIES,
+        BLANK_OWNER,
         DIRECTIVE_ORIGIN,
         DIRECTIVE_TTL,
         DIRECTIVE_INCLUDE_FILE,
@@ -117,7 +118,11 @@ public final class ZoneFileParser implements ByteStreamLexer.Handler<ZoneFileLex
         try {
             dispatchToken(type, window);
         } catch (IOException e) {
-            pendingError = e;
+            // Keep the first error: later tokens are parsed in a confused
+            // state and would otherwise replace the real cause.
+            if (pendingError == null) {
+                pendingError = e;
+            }
             return false;
         }
         return false;
@@ -125,16 +130,28 @@ public final class ZoneFileParser implements ByteStreamLexer.Handler<ZoneFileLex
 
     @Override
     public void rawBytes(ByteBuffer slice) {
-        pendingError = new IOException("Unexpected binary data in zone file");
+        if (pendingError == null) {
+            pendingError = new IOException("Unexpected binary data in zone file");
+        }
     }
 
     @Override
     public void tokenTooLong() {
-        pendingError = new IOException("Zone file token exceeds " + MAX_TOKEN_LENGTH + " bytes");
+        if (pendingError == null) {
+            pendingError = new IOException("Zone file token exceeds " + MAX_TOKEN_LENGTH + " bytes");
+        }
     }
 
     private void dispatchToken(ZoneFileLexer.Token type, ByteBuffer window) throws IOException {
-        if (window.remaining() == 0) {
+        // An empty quoted string ("") is a real, empty field; any other
+        // empty token is only a boundary marker.
+        if (window.remaining() == 0 && type != ZoneFileLexer.Token.QUOTED) {
+            return;
+        }
+        if (type == ZoneFileLexer.Token.INDENT) {
+            if (state == State.BETWEEN_ENTRIES) {
+                state = State.BLANK_OWNER;
+            }
             return;
         }
         if (type == ZoneFileLexer.Token.NEWLINE) {
@@ -145,23 +162,35 @@ public final class ZoneFileParser implements ByteStreamLexer.Handler<ZoneFileLex
             if (state == State.RECORD_BODY || state == State.GENERATE_BODY) {
                 return;
             }
+            if (state == State.BLANK_OWNER) {
+                handler.beginRecord(null);
+                state = State.RECORD_BODY;
+                return;
+            }
             throw new IOException("Unexpected parenthesis in zone file");
         }
         String text = decodeToken(window);
+        boolean quoted = type == ZoneFileLexer.Token.QUOTED;
         switch (state) {
             case BETWEEN_ENTRIES:
                 startEntry(text);
+                break;
+            case BLANK_OWNER:
+                // Leading whitespace: same owner as the previous record
+                handler.beginRecord(null);
+                state = State.RECORD_BODY;
+                handler.appendField(quoted ? text : unquoteAtom(text));
                 break;
             case DIRECTIVE_ORIGIN:
                 handler.origin(ZoneFile.normalizeName(text));
                 state = State.BETWEEN_ENTRIES;
                 break;
             case DIRECTIVE_TTL:
-                handler.defaultTtl(Integer.parseInt(text));
+                handler.defaultTtl(parseTtl(text));
                 state = State.BETWEEN_ENTRIES;
                 break;
             case DIRECTIVE_INCLUDE_FILE:
-                includeFilename = unquoteAtom(text);
+                includeFilename = quoted ? text : unquoteAtom(text);
                 state = State.DIRECTIVE_INCLUDE_OPTIONAL;
                 break;
             case DIRECTIVE_INCLUDE_OPTIONAL:
@@ -179,10 +208,10 @@ public final class ZoneFileParser implements ByteStreamLexer.Handler<ZoneFileLex
                 state = State.GENERATE_BODY;
                 break;
             case GENERATE_BODY:
-                handler.appendField(unquoteAtom(text));
+                handler.appendField(quoted ? text : unquoteAtom(text));
                 break;
             case RECORD_BODY:
-                handler.appendField(unquoteAtom(text));
+                handler.appendField(quoted ? text : unquoteAtom(text));
                 break;
             case SKIP_DIRECTIVE:
                 break;
@@ -252,6 +281,7 @@ public final class ZoneFileParser implements ByteStreamLexer.Handler<ZoneFileLex
             case DIRECTIVE_TTL:
                 throw new IOException("Malformed $TTL: missing value");
             case SKIP_DIRECTIVE:
+            case BLANK_OWNER:
             case BETWEEN_ENTRIES:
                 state = State.BETWEEN_ENTRIES;
                 break;
@@ -264,6 +294,86 @@ public final class ZoneFileParser implements ByteStreamLexer.Handler<ZoneFileLex
         byte[] bytes = new byte[window.remaining()];
         window.get(bytes);
         return new String(bytes, StandardCharsets.UTF_8);
+    }
+
+    /**
+     * Parses a TTL or time interval: a decimal number of seconds, or BIND
+     * style units {@code s}, {@code m}, {@code h}, {@code d}, {@code w}
+     * (case-insensitive, combinable as in {@code 1h30m}). A trailing number
+     * without a unit counts as seconds.
+     *
+     * @throws IOException if the text is not a valid interval or exceeds
+     * the signed 32-bit range
+     */
+    static int parseTtl(String text) throws IOException {
+        long total = 0;
+        long number = 0;
+        boolean haveNumber = false;
+        for (int i = 0; i < text.length(); i++) {
+            char c = text.charAt(i);
+            if (c >= '0' && c <= '9') {
+                number = number * 10 + (c - '0');
+                haveNumber = true;
+                if (number > Integer.MAX_VALUE) {
+                    throw new IOException("Invalid TTL: " + text);
+                }
+                continue;
+            }
+            long unit;
+            switch (c) {
+                case 's':
+                case 'S':
+                    unit = 1;
+                    break;
+                case 'm':
+                case 'M':
+                    unit = 60;
+                    break;
+                case 'h':
+                case 'H':
+                    unit = 3600;
+                    break;
+                case 'd':
+                case 'D':
+                    unit = 86400;
+                    break;
+                case 'w':
+                case 'W':
+                    unit = 604800;
+                    break;
+                default:
+                    throw new IOException("Invalid TTL: " + text);
+            }
+            if (!haveNumber) {
+                throw new IOException("Invalid TTL: " + text);
+            }
+            total += number * unit;
+            number = 0;
+            haveNumber = false;
+            if (total > Integer.MAX_VALUE) {
+                throw new IOException("Invalid TTL: " + text);
+            }
+        }
+        total += number;
+        if (total > Integer.MAX_VALUE || (text.isEmpty())) {
+            throw new IOException("Invalid TTL: " + text);
+        }
+        return (int) total;
+    }
+
+    /** True if the token is shaped like a TTL: a digit followed by digits and unit letters. */
+    static boolean looksLikeTtl(String token) {
+        if (token.isEmpty() || token.charAt(0) < '0' || token.charAt(0) > '9') {
+            return false;
+        }
+        for (int i = 1; i < token.length(); i++) {
+            char c = token.charAt(i);
+            boolean digit = c >= '0' && c <= '9';
+            if (!digit && "smhdwSMHDW".indexOf(c) < 0) {
+                return false;
+            }
+        }
+        return true;
     }
 
     static String unquoteAtom(String token) {

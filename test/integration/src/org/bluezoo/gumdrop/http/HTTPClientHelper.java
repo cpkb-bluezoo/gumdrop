@@ -128,15 +128,11 @@ public class HTTPClientHelper {
             ByteArrayOutputStream baos = new ByteArrayOutputStream();
             byte[] buffer = new byte[8192];
             int bytesRead;
-            long readStart = System.currentTimeMillis();
             boolean hasConnectionClose = request.toLowerCase().contains("connection: close");
             
             while ((bytesRead = in.read(buffer)) != -1) {
                 baos.write(buffer, 0, bytesRead);
                 if (isResponseComplete(baos.toByteArray(), hasConnectionClose)) {
-                    break;
-                }
-                if (System.currentTimeMillis() - readStart > timeout) {
                     break;
                 }
             }
@@ -154,12 +150,6 @@ public class HTTPClientHelper {
                 } catch (IOException e) {
                     // ignore
                 }
-            }
-            // Extra delay to ensure socket is fully released
-            try {
-                Thread.sleep(100);
-            } catch (InterruptedException e) {
-                // ignore
             }
         }
     }

@@ -282,7 +282,7 @@ class MimePart implements Part {
 		}
 
 		private void checkMaxSize() throws IOException {
-			if (length > config.maxFileSize) {
+			if (config.maxFileSize >= 0L && length > config.maxFileSize) {
 				throw new IOException(Context.L10N.getString("err.max_file_size_exceeded"));
 			}
 		}

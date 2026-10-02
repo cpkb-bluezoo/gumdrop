@@ -32,6 +32,8 @@ import java.util.ResourceBundle;
 import java.util.ServiceLoader;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.logging.Handler;
 import java.util.logging.Level;
@@ -129,6 +131,16 @@ public class Gumdrop {
     // shutdown rather than racing against one still in progress.
     private volatile Thread pendingAsyncShutdown;
     private volatile boolean ready;
+    // Released each time the start sequence finishes binding its listeners
+    private volatile CountDownLatch readyLatch = new CountDownLatch(1);
+    // Accept-loop callback for servers/listeners added to a running instance
+    private final Runnable lateBindReady = new Runnable() {
+        @Override
+        public void run() {
+            ready = true;
+            readyLatch.countDown();
+        }
+    };
 
     // Guards the decision-and-flag step of checkAutoShutdown() (checking
     // activeClients/servers/serverListeners are empty and publishing
@@ -275,6 +287,16 @@ public class Gumdrop {
         if (started) {
             server.start(this);
             registerServerListeners(server);
+            if (acceptLoop != null) {
+                // As in addListener(): a server added to a running instance
+                // is bound later on the accept loop, so re-arm the startup
+                // signal for awaitStartupComplete(). The callback is
+                // installed after the registrations were queued.
+                if (readyLatch.getCount() == 0) {
+                    readyLatch = new CountDownLatch(1);
+                }
+                acceptLoop.onReady(lateBindReady);
+            }
         }
     }
 
@@ -383,7 +405,14 @@ public class Gumdrop {
 
         if (started) {
             ensureAcceptLoop();
+            if (readyLatch.getCount() == 0) {
+                // A listener added to a running instance is bound later on
+                // the accept loop; re-arm the startup signal so that
+                // awaitStartupComplete() covers it too.
+                readyLatch = new CountDownLatch(1);
+            }
             acceptLoop.registerListener(server);
+            acceptLoop.onReady(lateBindReady);
         }
     }
 
@@ -604,6 +633,7 @@ public class Gumdrop {
     /** The actual (re)initialisation work of {@link #start()}, run only once {@link #claimStart()} or {@link #startForClient} has claimed the started state. */
     private void doStart() {
         long t1 = System.currentTimeMillis();
+        readyLatch = new CountDownLatch(1);
         ready = false;
         draining = false;
 
@@ -713,6 +743,7 @@ public class Gumdrop {
                 @Override
                 public void run() {
                     ready = true;
+                    readyLatch.countDown();
                     long t2 = System.currentTimeMillis();
                     if (LOGGER.isLoggable(Level.INFO)) {
                         String message = L10N.getString("info.started_gumdrop");
@@ -723,6 +754,7 @@ public class Gumdrop {
             });
         } else {
             ready = true;
+            readyLatch.countDown();
             long t2 = System.currentTimeMillis();
             if (LOGGER.isLoggable(Level.INFO)) {
                 String message = L10N.getString("info.started_gumdrop");
@@ -1069,6 +1101,19 @@ public class Gumdrop {
      */
     public boolean isReady() {
         return started && ready && !draining && getBindFailures().isEmpty();
+    }
+
+    /**
+     * Blocks until the current start sequence has finished binding its
+     * listeners (successfully or not). Synchronisation point for tests;
+     * the timeout only converts a hang into a failure.
+     *
+     * @param timeoutMs hang-guard timeout in milliseconds
+     * @return false only if the timeout elapsed
+     * @throws InterruptedException if interrupted while waiting
+     */
+    boolean awaitStartupComplete(long timeoutMs) throws InterruptedException {
+        return readyLatch.await(timeoutMs, TimeUnit.MILLISECONDS);
     }
 
     /**

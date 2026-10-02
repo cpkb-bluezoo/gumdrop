@@ -51,6 +51,7 @@ final class QuicSecurityInfo implements SecurityInfo {
     private final Certificate[] peerCertificates;
     private final long handshakeDurationMs;
     private final boolean earlyDataAccepted;
+    private final boolean sessionResumed;
 
     /**
      * Creates a QuicSecurityInfo from an established TLS engine's state.
@@ -70,6 +71,7 @@ final class QuicSecurityInfo implements SecurityInfo {
         this.peerCertificates = isServer ? null : parsePeerCerts((QuicTlsClientEngine) tlsEngine);
         this.handshakeDurationMs = System.currentTimeMillis() - handshakeStartTime;
         this.earlyDataAccepted = earlyDataAccepted;
+        this.sessionResumed = tlsEngine.isResumed();
     }
 
     @Override
@@ -118,8 +120,7 @@ final class QuicSecurityInfo implements SecurityInfo {
 
     @Override
     public boolean isSessionResumed() {
-        // Session resumption is not implemented yet -- always false.
-        return false;
+        return sessionResumed;
     }
 
     @Override

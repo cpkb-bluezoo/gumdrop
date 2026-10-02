@@ -129,6 +129,18 @@ public final class HostsFile {
         if ("::".equals(addr)) {
             return new byte[16];
         }
+        // A leading or trailing "::" yields two empty parts when split;
+        // drop one of the colons so only one empty part marks the gap
+        if (addr.startsWith("::")) {
+            addr = addr.substring(1);
+        } else if (addr.startsWith(":")) {
+            return null;
+        }
+        if (addr.endsWith("::")) {
+            addr = addr.substring(0, addr.length() - 1);
+        } else if (addr.endsWith(":")) {
+            return null;
+        }
         // Expand and parse full IPv6 format
         String[] parts = addr.split(":", -1);
         if (parts.length < 2 || parts.length > 8) {

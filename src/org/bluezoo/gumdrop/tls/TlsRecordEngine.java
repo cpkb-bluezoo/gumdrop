@@ -328,12 +328,14 @@ public final class TlsRecordEngine {
             // mistaken for real application data while still in the
             // plaintext epoch (RFC 8446 section 5.2), or application
             // records are AEAD-decrypted before application read keys exist.
+            // Only an in-flight batch justifies stopping: its completion
+            // resumes parsing (see #resumeInboundProcessing). Stopping just
+            // because the handshake is incomplete would strand records
+            // after a record that starts no batch (e.g. a compat
+            // change_cipher_spec before Finished) with nothing to resume.
             if (handshakeAsync.isEnabled()) {
                 synchronized (handshakeAsync.lock()) {
                     if (handshakeAsync.isBusy()) {
-                        return;
-                    }
-                    if (!engine.isComplete() && inbound.available() > 0) {
                         return;
                     }
                 }

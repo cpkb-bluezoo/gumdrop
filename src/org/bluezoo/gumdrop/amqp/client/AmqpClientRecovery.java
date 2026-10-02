@@ -344,11 +344,19 @@ public class AmqpClientRecovery {
         doConnect(true);
     }
 
+    /**
+     * Creates the transport factory for one connection attempt. Package-private
+     * so tests can substitute a factory whose connect fails deterministically.
+     */
+    TcpTransportFactory newTransportFactory() {
+        return new TcpTransportFactory();
+    }
+
     private void doConnect(final boolean first) {
         if (shouldStopRecovery()) {
             return;
         }
-        TcpTransportFactory transportFactory = new TcpTransportFactory();
+        TcpTransportFactory transportFactory = newTransportFactory();
         transportFactory.setSecure(secure);
         if (clientCredentials != null) {
             transportFactory.setClientCredentials(clientCredentials);

@@ -369,7 +369,34 @@ public class UdpEndpoint implements Endpoint, ChannelHandler {
      * @param data the datagram payload
      * @param dest the destination address
      */
-    public void sendTo(ByteBuffer data, InetSocketAddress dest) {
+    public void sendTo(ByteBuffer data, final InetSocketAddress dest) {
+        if (secure && selectorLoop != null
+                && Thread.currentThread() != selectorLoop.getThread()) {
+            // DTLS session state (record engines, flight buffers, the
+            // session maps) is owned by the selector loop thread. A send
+            // from any other thread, typically right after the handshake
+            // has been signalled from inside datagram processing, must not
+            // run concurrently with that processing. The caller's buffer
+            // may be reused as soon as we return, so queue a copy.
+            final ByteBuffer copy = ByteBufferPool.acquire(data.remaining());
+            copy.put(data);
+            copy.flip();
+            selectorLoop.invokeLater(new Runnable() {
+                @Override
+                public void run() {
+                    try {
+                        sendToOnLoop(copy, dest);
+                    } finally {
+                        ByteBufferPool.release(copy);
+                    }
+                }
+            });
+            return;
+        }
+        sendToOnLoop(data, dest);
+    }
+
+    private void sendToOnLoop(ByteBuffer data, InetSocketAddress dest) {
         if (secure) {
             if (dtlsVersionPolicy == DtlsVersion.NEGOTIATE) {
                 NegotiatingDtlsSession session = negotiatingDtlsSessions.get(dest);
@@ -770,10 +797,19 @@ public class UdpEndpoint implements Endpoint, ChannelHandler {
         handler.receive(data);
     }
 
+    // Server mode has one endpoint for many peers; send() replies to
+    // remoteAddress, the peer whose event the handler is being given.
+    private void selectPeer(InetSocketAddress peer) {
+        if (!clientMode) {
+            remoteAddress = peer;
+        }
+    }
+
     /**
      * Called by {@link Dtls12Session} once its handshake completes.
      */
     void notifyDtlsHandshakeComplete(InetSocketAddress peer, SecurityInfo info) {
+        selectPeer(peer);
         handler.securityEstablished(info);
     }
 
@@ -781,8 +817,16 @@ public class UdpEndpoint implements Endpoint, ChannelHandler {
      * Delivers already-decrypted application data to the handler.
      *
      * Used by {@link Dtls12Session} when app data surfaces from the record engine.
+     * The handler's replies must go to the peer the data came from, so the
+     * peer is selected here rather than relying on whichever datagram was
+     * received last: decryption can complete after the handshake worker
+     * finishes, by which time datagrams from other peers may have arrived.
+     *
+     * @param peer the peer whose session decrypted the data
+     * @param plaintext the decrypted application data
      */
-    void deliverPlaintext(ByteBuffer plaintext) {
+    void deliverPlaintext(InetSocketAddress peer, ByteBuffer plaintext) {
+        selectPeer(peer);
         try {
             handler.receive(plaintext);
         } finally {

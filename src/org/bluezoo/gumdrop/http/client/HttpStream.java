@@ -71,6 +71,13 @@ class HttpStream implements HttpRequest {
 
     private ContentEncoding.Decoder inboundResponseDecoder;
 
+    // HTTP/2 authentication retry (RFC 9110 section 11.6.1): the
+    // Authorization value to retry with once this stream's challenge
+    // response has been fully received and discarded.
+    private String pendingAuthorization;
+    private boolean pendingAuthorizationProxy;
+    private boolean authRetry;
+
     /**
      * Creates a new HTTP stream.
      *
@@ -253,6 +260,32 @@ class HttpStream implements HttpRequest {
     @Override
     public void exclusive(boolean exclusive) {
         this.exclusive = exclusive;
+    }
+
+    /**
+     * Records that this stream's response was a 401/407 challenge to be
+     * answered by retrying with the given credentials value.
+     */
+    void setPendingAuthorization(String authorization, boolean proxy) {
+        this.pendingAuthorization = authorization;
+        this.pendingAuthorizationProxy = proxy;
+    }
+
+    String getPendingAuthorization() {
+        return pendingAuthorization;
+    }
+
+    boolean isPendingAuthorizationProxy() {
+        return pendingAuthorizationProxy;
+    }
+
+    /** Returns whether this stream is itself a credentials retry. */
+    boolean isAuthRetry() {
+        return authRetry;
+    }
+
+    void markAuthRetry() {
+        this.authRetry = true;
     }
 
     @Override

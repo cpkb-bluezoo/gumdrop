@@ -498,10 +498,18 @@ public class ConnectIpClient implements AltSvcListener {
      * @param ipProto the IP protocol scope hint
      * @param handler the handler to receive CONNECT-IP events
      */
+    /**
+     * Creates the transport factory for one connection attempt. Package-private
+     * so tests can substitute a factory whose connect fails deterministically.
+     */
+    TcpTransportFactory newTransportFactory() {
+        return new TcpTransportFactory();
+    }
+
     private void connectTcp(final String target, final String ipProto, final ConnectIpEventHandler handler) {
         final String path = ConnectIpTarget.encode(target, ipProto);
 
-        transportFactory = new TcpTransportFactory();
+        transportFactory = newTransportFactory();
         transportFactory.setSecure(secure);
         if (clientCredentials != null) {
             transportFactory.setClientCredentials(clientCredentials);
@@ -582,7 +590,7 @@ public class ConnectIpClient implements AltSvcListener {
                 ? new ConnectIpClientProtocolHandler(
                         internalHandler, handler, "localhost", secure ? 443 : 80, secure)
                 : new ConnectIpClientProtocolHandler(
-                        internalHandler, handler, host, port, secure);
+                        internalHandler, handler, cacheKeyHost(), port, secure);
 
         protocolHandler.setH2Enabled(h2Enabled);
         if (h2WithPriorKnowledge) {

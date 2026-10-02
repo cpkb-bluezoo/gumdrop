@@ -450,6 +450,11 @@ public final class QuicTlsServerEngine implements QuicTlsEngine {
     }
 
     @Override
+    public boolean isResumed() {
+        return engine.isResumed();
+    }
+
+    @Override
     public byte[] getClientHandshakeTrafficSecret() {
         return engine.getClientHandshakeTrafficSecret();
     }

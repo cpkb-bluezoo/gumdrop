@@ -176,12 +176,14 @@ public class WebSocketServerIntegrationTest extends AbstractServerIntegrationTes
 
     /**
      * Regression test for the request-body buffer copy+force-consume bug:
-     * splits a single WebSocket frame's bytes across two separate TCP
-     * writes (a partial header/payload write, then the remainder after a
-     * short delay) so the server must receive it across two distinct
-     * {@code receive()} calls. Before the fix, the incomplete trailing
-     * bytes from the first call were discarded rather than preserved,
-     * corrupting the frame.
+     * a first write carries one complete frame plus the leading part of a
+     * second frame, and the remainder of the second frame follows only after
+     * the echo of the first frame has been received. The echo proves the
+     * server has run {@code receive()} on the first write (so the partial
+     * trailing bytes were left over from that call), without any delay;
+     * the remainder then arrives in a later {@code receive()} call. Before
+     * the fix, the incomplete trailing bytes from the first call were
+     * discarded rather than preserved, corrupting the second frame.
      */
     @Test
     public void testFrameSplitAcrossTwoWrites() throws Exception {
@@ -190,13 +192,18 @@ public class WebSocketServerIntegrationTest extends AbstractServerIntegrationTes
             String responseHeaders = readResponseHeaders(socket);
             assertTrue(responseHeaders.startsWith("HTTP/1.1 101"));
 
+            byte[] first = maskedTextFrame("first");
             byte[] frame = maskedTextFrame("split-across-packets");
             int splitAt = frame.length / 2;
+            byte[] firstWrite = new byte[first.length + splitAt];
+            System.arraycopy(first, 0, firstWrite, 0, first.length);
+            System.arraycopy(frame, 0, firstWrite, first.length, splitAt);
 
             OutputStream out = socket.getOutputStream();
-            out.write(frame, 0, splitAt);
+            out.write(firstWrite);
             out.flush();
-            Thread.sleep(200); // force two distinct receive() calls
+            assertEquals("echo:first", readTextFrame(socket));
+
             out.write(frame, splitAt, frame.length - splitAt);
             out.flush();
 

@@ -34,12 +34,8 @@ import java.util.List;
  */
 public final class ListenerBindCheck {
 
-    /**
-     * Binding is queued to the accept loop when a listener is added, so a
-     * failure can be recorded shortly after a port probe has already
-     * succeeded (against a stale listener); wait this long before trusting it.
-     */
-    private static final long GRACE_MS = 300;
+    /** Hang guard only: startup normally completes within milliseconds. */
+    private static final long STARTUP_HANG_GUARD_MS = 30000;
 
     private ListenerBindCheck() {
     }
@@ -51,14 +47,15 @@ public final class ListenerBindCheck {
      * @throws IllegalStateException naming each listener that failed
      */
     public static void assertBound(Gumdrop gumdrop) throws InterruptedException {
-        long deadline = System.currentTimeMillis() + GRACE_MS;
+        // Bind failures are recorded on the accept loop before it signals
+        // startup complete, so once that has happened the list is final.
+        boolean complete = gumdrop.awaitStartupComplete(STARTUP_HANG_GUARD_MS);
         List<String> failures = gumdrop.getBindFailures();
-        while (failures.isEmpty() && System.currentTimeMillis() < deadline) {
-            Thread.sleep(20);
-            failures = gumdrop.getBindFailures();
-        }
         if (!failures.isEmpty()) {
             throw new IllegalStateException("Listener failed to bind: " + failures);
+        }
+        if (!complete) {
+            throw new IllegalStateException("Gumdrop did not finish starting");
         }
     }
 }

@@ -194,6 +194,9 @@ public class RabbitMQ4IntegrationTest {
         while (sent < 25) {
             final int n = sent;
             final boolean[] sentOne = new boolean[1];
+            // armed before looking at the credit, so a flow arriving after
+            // the check below still releases the wait
+            sending.resetCredit();
             RabbitMQ4TestSupport.onLoop(client, new Runnable() {
                 @Override
                 public void run() {
@@ -207,7 +210,7 @@ public class RabbitMQ4IntegrationTest {
             if (sentOne[0]) {
                 sent++;
             } else {
-                Thread.sleep(10); // no credit yet: wait for the broker's flow
+                await(sending.credit, "the broker's flow to grant more credit");
             }
         }
         await(receiving.messages, "all 25 messages");

@@ -130,6 +130,19 @@ final class FtpClientDataConnectionCoordinator {
         }
     }
 
+    /**
+     * Substitutes the plaintext data-connection transport factory. Package-private
+     * so tests can inject a factory whose connect fails deterministically.
+     */
+    void setPlainTransportFactory(TcpTransportFactory factory) {
+        this.transportFactory = factory;
+    }
+
+    /** The current active-mode listener channel, or null. Package-private for tests. */
+    synchronized ServerSocketChannel activeListenerChannel() {
+        return activeListenerChannel;
+    }
+
     private TcpTransportFactory plainTransportFactory() {
         if (transportFactory == null) {
             transportFactory = new TcpTransportFactory();
@@ -170,7 +183,7 @@ final class FtpClientDataConnectionCoordinator {
      *      PORT/EPRT
      * @throws IOException if the listener could not be opened
      */
-    synchronized InetSocketAddress openActiveListener() throws IOException {
+    InetSocketAddress openActiveListener() throws IOException {
         closeActiveListener();
 
         InetAddress localAddress =
@@ -178,7 +191,9 @@ final class FtpClientDataConnectionCoordinator {
         ServerSocketChannel ssc = ServerSocketChannel.open();
         ssc.configureBlocking(false);
         ssc.bind(new InetSocketAddress(localAddress, 0));
-        activeListenerChannel = ssc;
+        synchronized (this) {
+            activeListenerChannel = ssc;
+        }
 
         gumdrop.ensureAcceptLoop();
         gumdrop.getAcceptLoop().registerRawAcceptor(ssc,
@@ -202,8 +217,9 @@ final class FtpClientDataConnectionCoordinator {
     private void onActiveAccept(SocketChannel sc) {
         ProtocolHandler handler;
         synchronized (this) {
-            // Only one connection is expected per PORT/EPRT.
-            stopListening();
+            // Only one connection is expected per PORT/EPRT. We are on
+            // the accept thread, so this closes in place without waiting.
+            releaseListener(takeListener());
             if (pendingActiveHandler == null) {
                 incomingActiveConnections.offer(sc);
                 return;
@@ -267,15 +283,38 @@ final class FtpClientDataConnectionCoordinator {
         });
     }
 
-    /** Closes just the listening socket, not any already-accepted connection. */
-    private void stopListening() {
-        if (activeListenerChannel != null) {
-            try {
-                activeListenerChannel.close();
-            } catch (IOException e) {
-                // Ignore close errors
-            }
-            activeListenerChannel = null;
+    /**
+     * Detaches the listening socket from this coordinator, for {@link
+     * #releaseListener}. Caller holds the lock.
+     */
+    private ServerSocketChannel takeListener() {
+        ServerSocketChannel ssc = activeListenerChannel;
+        activeListenerChannel = null;
+        return ssc;
+    }
+
+    /**
+     * Closes just the listening socket, not any already-accepted
+     * connection. The close goes through the accept loop, which owns the
+     * channel's selector registration, so the port is really released when
+     * this returns (a plain close from another thread would leave it
+     * accepting until the loop next selects). Must not be called holding
+     * this coordinator's lock from any thread but the accept thread, which
+     * the loop's own thread may be waiting on.
+     */
+    private void releaseListener(ServerSocketChannel ssc) {
+        if (ssc == null) {
+            return;
+        }
+        AcceptSelectorLoop loop = gumdrop.getAcceptLoop();
+        if (loop != null) {
+            loop.closeRawAcceptor(ssc);
+            return;
+        }
+        try {
+            ssc.close();
+        } catch (IOException e) {
+            // Ignore close errors
         }
     }
 
@@ -284,8 +323,15 @@ final class FtpClientDataConnectionCoordinator {
      * never-delivered connection. Used on PORT/EPRT rejection and transfer
      * failure cleanup.
      */
-    synchronized void closeActiveListener() {
-        stopListening();
+    void closeActiveListener() {
+        ServerSocketChannel ssc;
+        synchronized (this) {
+            ssc = takeListener();
+            pendingActiveHandler = null;
+        }
+        // Outside the lock: waits for the accept thread, which may itself
+        // be blocked on this lock in onActiveAccept().
+        releaseListener(ssc);
         SocketChannel sc;
         while ((sc = incomingActiveConnections.poll()) != null) {
             try {
@@ -294,6 +340,5 @@ final class FtpClientDataConnectionCoordinator {
                 // Ignore close errors
             }
         }
-        pendingActiveHandler = null;
     }
 }

@@ -28,6 +28,7 @@ import java.util.ResourceBundle;
 import java.util.concurrent.CancellationException;
 
 import org.bluezoo.gumdrop.http.Header;
+import org.bluezoo.gumdrop.http.HttpVersion;
 import org.bluezoo.gumdrop.http.Headers;
 import org.bluezoo.gumdrop.http.PriorityParams;
 import org.bluezoo.gumdrop.http.client.HttpRequest;
@@ -297,7 +298,15 @@ public class H3Request implements HttpRequest {
             }
         }
         for (int i = 0; i < headers.size(); i++) {
-            result.add(headers.get(i));
+            Header h = headers.get(i);
+            // RFC 9114 section 4.2: connection-specific header fields must
+            // not be sent; a server treats such a request as malformed.
+            String hname = h.getName();
+            if (!"content-length".equalsIgnoreCase(hname)
+                    && HttpVersion.isHttp1FramingHeader(hname, h.getValue())) {
+                continue;
+            }
+            result.add(h);
         }
         h3Handler.applyDefaultAcceptEncoding(result);
         return result;

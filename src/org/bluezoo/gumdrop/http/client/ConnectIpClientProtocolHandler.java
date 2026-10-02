@@ -115,22 +115,19 @@ class ConnectIpClientProtocolHandler extends HttpClientProtocolHandler {
 
         eventHandler.opened(session);
 
-        // Drain any pipelined capsule bytes left in the current receive()
-        // call's buffer beyond what the lexer has consumed so far -- see
-        // HttpClientProtocolHandler#currentReceiveBuffer -- after opened(),
-        // so the application always sees acceptance before any datagram.
-        if (currentReceiveBuffer != null && currentReceiveBuffer.hasRemaining()) {
-            dispatchCapsules(currentReceiveBuffer);
-        }
+        // Any capsule bytes that followed the upgrade response in the same
+        // buffer are re-dispatched to receive() by the HTTP layer once this
+        // hook returns. They must not be read here: while a lexer token is
+        // being delivered, currentReceiveBuffer is narrowed to that token (the
+        // blank line ending the headers), not to the bytes after it.
 
         return true;
     }
 
     /**
-     * Tells the base class's {@code receive()} loop to stop once {@link
-     * #handleProtocolSwitch} has switched to CONNECT-IP mode mid-call,
-     * since that method already drained the remainder of {@code
-     * currentReceiveBuffer} itself.
+     * Tells the base class's {@code receive()} loop to stop lexing HTTP once
+     * {@link #handleProtocolSwitch} has switched to CONNECT-IP mode mid-call,
+     * and to re-dispatch the remainder of the buffer to {@link #receive}.
      */
     @Override
     protected boolean isExternallyHandled() {

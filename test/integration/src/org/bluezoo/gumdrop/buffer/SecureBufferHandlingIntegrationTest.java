@@ -110,7 +110,7 @@ public class SecureBufferHandlingIntegrationTest extends AbstractServerIntegrati
         server.clearConnections();
         
         sendSecureDataAndClose("0123456789".getBytes("US-ASCII"));
-        pause(300);
+        assertTrue("connection ended", server.awaitConnectionEnd());
         
         assertEquals("Should have one connection", 1, server.getConnections().size());
         BufferTestConnection conn = server.getConnections().get(0);
@@ -128,7 +128,7 @@ public class SecureBufferHandlingIntegrationTest extends AbstractServerIntegrati
         server.clearConnections();
         
         sendSecureDataAndClose("01234567890123456789".getBytes("US-ASCII"));
-        pause(300);
+        assertTrue("connection ended", server.awaitConnectionEnd());
         
         assertEquals("Should have one connection", 1, server.getConnections().size());
         BufferTestConnection conn = server.getConnections().get(0);
@@ -149,21 +149,39 @@ public class SecureBufferHandlingIntegrationTest extends AbstractServerIntegrati
         server.setMessagePattern(MESSAGE_PATTERN);
         server.clearConnections();
         
+        final java.util.concurrent.atomic.AtomicReference<Throwable> senderError =
+                new java.util.concurrent.atomic.AtomicReference<Throwable>();
         IntegrationTlsClient.withConnectedEndpoint("::1", TEST_PORT, clientTrust, 10000,
                 new IntegrationTlsClient.ConnectedSession() {
                     @Override
-                    public void run(org.bluezoo.gumdrop.Endpoint endpoint) throws Exception {
-                        endpoint.send(ByteBuffer.wrap("0123456".getBytes("US-ASCII")));
-                        pause(100);
-                        endpoint.send(ByteBuffer.wrap("7890123".getBytes("US-ASCII")));
-                        pause(100);
-                        endpoint.send(ByteBuffer.wrap("456789".getBytes("US-ASCII")));
-                        pause(100);
-                        endpoint.close();
+                    public void run(final org.bluezoo.gumdrop.Endpoint endpoint) throws Exception {
+                        // The callback runs on the client's selector loop, which must
+                        // return for writes to flush, so the paced sends run on their
+                        // own thread, each waiting for the server to receive the last.
+                        Thread sender = new Thread(new Runnable() {
+                            @Override
+                            public void run() {
+                                try {
+                                    endpoint.send(ByteBuffer.wrap("0123456".getBytes("US-ASCII")));
+                                    assertTrue("chunk 1 received", server.awaitReceive());
+                                    endpoint.send(ByteBuffer.wrap("7890123".getBytes("US-ASCII")));
+                                    assertTrue("chunk 2 received", server.awaitReceive());
+                                    endpoint.send(ByteBuffer.wrap("456789".getBytes("US-ASCII")));
+                                    assertTrue("chunk 3 received", server.awaitReceive());
+                                } catch (Exception | AssertionError e) {
+                                    senderError.set(e);
+                                } finally {
+                                    endpoint.close();
+                                }
+                            }
+                        }, "secure-buffer-test-sender");
+                        sender.setDaemon(true);
+                        sender.start();
                     }
                 });
         
-        pause(400);
+        assertNull("sender failed: " + senderError.get(), senderError.get());
+        assertTrue("connection ended", server.awaitConnectionEnd());
         
         assertEquals("Should have one connection", 1, server.getConnections().size());
         BufferTestConnection conn = server.getConnections().get(0);
@@ -206,7 +224,7 @@ public class SecureBufferHandlingIntegrationTest extends AbstractServerIntegrati
         server.clearConnections();
         
         sendSecureDataAndClose("01234".getBytes("US-ASCII"));
-        pause(300);
+        assertTrue("connection ended", server.awaitConnectionEnd());
         
         assertEquals("Should have one connection", 1, server.getConnections().size());
         BufferTestConnection conn = server.getConnections().get(0);
@@ -222,6 +240,5 @@ public class SecureBufferHandlingIntegrationTest extends AbstractServerIntegrati
      */
     private void sendSecureDataAndClose(byte[] data) throws Exception {
         IntegrationTlsClient.sendAndClose("::1", TEST_PORT, data, clientTrust, 5000);
-        pause(100);
     }
 }

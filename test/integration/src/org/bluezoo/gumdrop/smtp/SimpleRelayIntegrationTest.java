@@ -140,7 +140,7 @@ public class SimpleRelayIntegrationTest extends AbstractServerIntegrationTest {
                 response.isPositiveCompletion());
 
         assertTrue("Timed out waiting for downstream delivery",
-                waitForDownstreamMessage(10, TimeUnit.SECONDS));
+                downstreamSink.awaitMessage(10, TimeUnit.SECONDS));
 
         List<AcceptAllService.ReceivedMessage> delivered =
                 downstreamSink.getReceivedMessages();
@@ -152,18 +152,6 @@ public class SimpleRelayIntegrationTest extends AbstractServerIntegrationTest {
 
         String content = new String(msg.getContent(), StandardCharsets.UTF_8);
         assertTrue("Body should contain test payload", content.contains(TEST_BODY));
-    }
-
-    private boolean waitForDownstreamMessage(long timeout, TimeUnit unit)
-            throws InterruptedException {
-        long deadline = System.nanoTime() + unit.toNanos(timeout);
-        while (System.nanoTime() < deadline) {
-            if (downstreamSink.getMessageCount() > 0) {
-                return true;
-            }
-            Thread.sleep(50);
-        }
-        return downstreamSink.getMessageCount() > 0;
     }
 
     private static String stripTrailingDot(String name) {

@@ -911,6 +911,28 @@ public final class DnsResourceRecord {
     }
 
     /**
+     * Returns the TXT record's character-strings individually, preserving
+     * the boundaries that {@link #getText()} discards.
+     *
+     * @return the character-strings in order
+     * @throws IllegalStateException if this is not a TXT record
+     */
+    public List<String> getTextStrings() {
+        if (type != DnsType.TXT) {
+            throw new IllegalStateException("Not a TXT record: " + type);
+        }
+        List<String> strings = new ArrayList<String>();
+        ByteBuffer buf = ByteBuffer.wrap(rdata);
+        while (buf.hasRemaining()) {
+            int len = buf.get() & 0xFF;
+            byte[] segment = new byte[len];
+            buf.get(segment);
+            strings.add(new String(segment, StandardCharsets.UTF_8));
+        }
+        return strings;
+    }
+
+    /**
      * Returns the MX preference (for MX records).
      *
      * @return the preference value

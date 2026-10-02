@@ -26,7 +26,6 @@ import org.bluezoo.gumdrop.Server;
 import org.bluezoo.gumdrop.TestTlsFiles;
 import org.bluezoo.gumdrop.http.server.HstsPolicy;
 import org.bluezoo.gumdrop.http.server.Http2Listener;
-import org.junit.After;
 import org.junit.BeforeClass;
 import org.junit.Test;
 
@@ -61,11 +60,6 @@ public class HTTPSServerIntegrationTest extends AbstractServerIntegrationTest {
                 .hsts(HstsPolicy.enabled(86400))
                 .server();
         return Collections.singletonList(server);
-    }
-    
-    @After
-    public void cleanupBetweenTests() throws Exception {
-        Thread.sleep(500);
     }
     
     @Test
@@ -135,7 +129,6 @@ public class HTTPSServerIntegrationTest extends AbstractServerIntegrationTest {
             System.out.println("[testMultipleHTTPSRequests] request " + i + " got " + response.statusCode);
             
             assertEquals("HTTPS request " + i + " should return 404", 404, response.statusCode);
-            Thread.sleep(300);
         }
     }
     
@@ -154,7 +147,6 @@ public class HTTPSServerIntegrationTest extends AbstractServerIntegrationTest {
                 "::1", 18443, request, true, 10000);
             System.out.println("[testConcurrentHTTPSRequests] request " + i + " got " + response.statusCode);
             assertEquals("HTTPS request " + i + " should return 404", 404, response.statusCode);
-            Thread.sleep(500);
         }
     }
 }

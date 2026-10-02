@@ -56,7 +56,10 @@ final class ZoneFileLoader implements ZoneFileHandler {
         if (state.origin == null) {
             throw new IOException("Zone file missing $ORIGIN: " + absolute);
         }
-        List<DnsResourceRecord> originRecords = state.records.get(state.origin);
+        // The zone origin is the owner of its SOA; a later $ORIGIN only
+        // changes how following names are expanded.
+        String zoneOrigin = state.zoneOrigin != null ? state.zoneOrigin : state.origin;
+        List<DnsResourceRecord> originRecords = state.records.get(zoneOrigin);
         DnsResourceRecord soa = null;
         if (originRecords != null) {
             for (int i = 0; i < originRecords.size(); i++) {
@@ -69,7 +72,7 @@ final class ZoneFileLoader implements ZoneFileHandler {
         if (soa == null || state.soaData == null) {
             throw new IOException("Zone file missing SOA at origin: " + absolute);
         }
-        return new ZoneFile(state.origin, state.defaultTtl, state.records, soa,
+        return new ZoneFile(zoneOrigin, state.defaultTtl, state.records, soa,
                 state.soaData);
     }
 
@@ -79,6 +82,7 @@ final class ZoneFileLoader implements ZoneFileHandler {
     private Deque<Path> activeIncludeStack;
     private EntryBuilder recordBuilder;
     private GenerateBuilder generateBuilder;
+    private String lastOwnerToken;
 
     private ZoneFileLoader(ParseState state) {
         this.state = state;
@@ -117,6 +121,16 @@ final class ZoneFileLoader implements ZoneFileHandler {
                     break;
                 }
             }
+            // A file need not end with a line break: terminate the last line
+            // so a final record or comment is not reported as incomplete.
+            if (parser.isUnderflow()) {
+                buffer.compact();
+            } else {
+                buffer.clear();
+            }
+            buffer.put((byte) '\n');
+            buffer.flip();
+            parser.receive(buffer);
             parser.close();
             endFile(absolute);
         } finally {
@@ -172,7 +186,15 @@ final class ZoneFileLoader implements ZoneFileHandler {
         if (state.origin == null) {
             throw new IOException("Zone record before $ORIGIN");
         }
-        recordBuilder = new EntryBuilder(ownerToken);
+        String owner = ownerToken;
+        if (owner == null) {
+            owner = lastOwnerToken;
+            if (owner == null) {
+                throw new IOException("Zone record with blank owner has no previous owner");
+            }
+        }
+        lastOwnerToken = owner;
+        recordBuilder = new EntryBuilder(owner);
         generateBuilder = null;
     }
 
@@ -213,6 +235,7 @@ final class ZoneFileLoader implements ZoneFileHandler {
         final Map<String, List<DnsResourceRecord>> records =
                 new LinkedHashMap<String, List<DnsResourceRecord>>();
         ZoneFile.SoaData soaData;
+        String zoneOrigin;
         Path zoneRoot;
     }
 
@@ -223,49 +246,30 @@ final class ZoneFileLoader implements ZoneFileHandler {
         private boolean sawClass;
         private String typeToken;
         private final List<String> rdata = new ArrayList<String>();
-        private Phase phase = Phase.MAYBE_TTL;
-
-        private enum Phase {
-            MAYBE_TTL,
-            MAYBE_CLASS,
-            TYPE,
-            RDATA
-        }
 
         EntryBuilder(String ownerToken) {
             this.ownerToken = ownerToken;
         }
 
+        /**
+         * RFC 1035 section 5.1: {@code [<TTL>] [<class>] <type> <RDATA>}, with
+         * the TTL and class in either order and both optional.
+         */
         void append(String token) throws IOException {
-            switch (phase) {
-                case MAYBE_TTL:
-                    if (isDigits(token)) {
-                        ttl = Integer.parseInt(token);
-                        sawTtl = true;
-                        phase = Phase.MAYBE_CLASS;
-                        return;
-                    }
-                    phase = Phase.MAYBE_CLASS;
-                    // fall through
-                case MAYBE_CLASS:
-                    if (isDnsClass(token)) {
-                        sawClass = true;
-                        phase = Phase.TYPE;
-                        return;
-                    }
-                    typeToken = token.toUpperCase(Locale.ROOT);
-                    phase = Phase.RDATA;
-                    return;
-                case TYPE:
-                    typeToken = token.toUpperCase(Locale.ROOT);
-                    phase = Phase.RDATA;
-                    return;
-                case RDATA:
-                    rdata.add(token);
-                    return;
-                default:
-                    throw new IOException("Malformed zone record");
+            if (typeToken != null) {
+                rdata.add(token);
+                return;
             }
+            if (!sawTtl && ZoneFileParser.looksLikeTtl(token)) {
+                ttl = ZoneFileParser.parseTtl(token);
+                sawTtl = true;
+                return;
+            }
+            if (!sawClass && isDnsClass(token)) {
+                sawClass = true;
+                return;
+            }
+            typeToken = token.toUpperCase(Locale.ROOT);
         }
 
         void finish(ParseState state) throws IOException {
@@ -276,10 +280,11 @@ final class ZoneFileLoader implements ZoneFileHandler {
             String owner = ownerName(ownerToken, state.origin);
             DnsType type = DnsType.valueOf(typeToken);
             String[] rdataTokens = rdata.toArray(new String[rdata.size()]);
-            if (type == DnsType.SOA && owner.equals(state.origin) && state.soaData == null) {
-                state.soaData = parseSoaTokens(rdataTokens);
+            if (type == DnsType.SOA && state.soaData == null) {
+                state.soaData = parseSoaTokens(rdataTokens, state.origin);
+                state.zoneOrigin = owner;
             }
-            DnsResourceRecord rr = parseRecord(owner, type, effectiveTtl, rdataTokens);
+            DnsResourceRecord rr = parseRecord(owner, state.origin, type, effectiveTtl, rdataTokens);
             addRecord(state.records, owner, rr);
         }
     }
@@ -289,16 +294,9 @@ final class ZoneFileLoader implements ZoneFileHandler {
         private final String ownerTemplate;
         private int ttl = -1;
         private boolean sawTtl;
+        private boolean sawClass;
         private String typeToken;
         private final List<String> rdata = new ArrayList<String>();
-        private Phase phase = Phase.MAYBE_TTL;
-
-        private enum Phase {
-            MAYBE_TTL,
-            MAYBE_CLASS,
-            TYPE,
-            RDATA
-        }
 
         GenerateBuilder(String rangeSpec, String ownerTemplate) throws IOException {
             this.range = RangeSpec.parse(rangeSpec);
@@ -306,34 +304,20 @@ final class ZoneFileLoader implements ZoneFileHandler {
         }
 
         void append(String token) throws IOException {
-            switch (phase) {
-                case MAYBE_TTL:
-                    if (isDigits(token)) {
-                        ttl = Integer.parseInt(token);
-                        sawTtl = true;
-                        phase = Phase.MAYBE_CLASS;
-                        return;
-                    }
-                    phase = Phase.MAYBE_CLASS;
-                    // fall through
-                case MAYBE_CLASS:
-                    if (isDnsClass(token)) {
-                        phase = Phase.TYPE;
-                        return;
-                    }
-                    typeToken = token.toUpperCase(Locale.ROOT);
-                    phase = Phase.RDATA;
-                    return;
-                case TYPE:
-                    typeToken = token.toUpperCase(Locale.ROOT);
-                    phase = Phase.RDATA;
-                    return;
-                case RDATA:
-                    rdata.add(token);
-                    return;
-                default:
-                    throw new IOException("Malformed $GENERATE");
+            if (typeToken != null) {
+                rdata.add(token);
+                return;
             }
+            if (!sawTtl && ZoneFileParser.looksLikeTtl(token)) {
+                ttl = ZoneFileParser.parseTtl(token);
+                sawTtl = true;
+                return;
+            }
+            if (!sawClass && isDnsClass(token)) {
+                sawClass = true;
+                return;
+            }
+            typeToken = token.toUpperCase(Locale.ROOT);
         }
 
         void finish(ParseState state) throws IOException {
@@ -351,32 +335,20 @@ final class ZoneFileLoader implements ZoneFileHandler {
                 for (int i = 0; i < templateRdata.length; i++) {
                     expanded[i] = substituteGenerateCounter(templateRdata[i], counter);
                 }
-                if (type == DnsType.SOA && owner.equals(state.origin) && state.soaData == null) {
-                    state.soaData = parseSoaTokens(expanded);
+                if (type == DnsType.SOA && state.soaData == null) {
+                    state.soaData = parseSoaTokens(expanded, state.origin);
+                    state.zoneOrigin = owner;
                 }
-                DnsResourceRecord rr = parseRecord(owner, type, effectiveTtl, expanded);
+                DnsResourceRecord rr = parseRecord(owner, state.origin, type, effectiveTtl, expanded);
                 addRecord(state.records, owner, rr);
             }
         }
     }
 
-    private static boolean isDigits(String token) {
-        if (token.isEmpty()) {
-            return false;
-        }
-        for (int i = 0; i < token.length(); i++) {
-            if (!Character.isDigit(token.charAt(i))) {
-                return false;
-            }
-        }
-        return true;
-    }
-
+    /** RFC 1035 section 3.2.4 classes; two-letter type mnemonics such as NS and MX are not classes. */
     private static boolean isDnsClass(String token) {
-        if ("IN".equalsIgnoreCase(token)) {
-            return true;
-        }
-        return token.length() == 2 && Character.isLetter(token.charAt(0));
+        return "IN".equalsIgnoreCase(token) || "CH".equalsIgnoreCase(token)
+                || "HS".equalsIgnoreCase(token) || "CS".equalsIgnoreCase(token);
     }
 
     private static final class RangeSpec {
@@ -494,23 +466,24 @@ final class ZoneFileLoader implements ZoneFileHandler {
         return ZoneFile.expandName(nameToken, origin);
     }
 
-    private static ZoneFile.SoaData parseSoaTokens(String[] tokens) throws IOException {
+    private static ZoneFile.SoaData parseSoaTokens(String[] tokens, String origin)
+            throws IOException {
         if (tokens.length < 7) {
             throw new IOException("Malformed SOA");
         }
         int idx = 0;
-        String mname = ZoneFile.normalizeName(tokens[idx++]);
-        String rname = ZoneFile.normalizeName(tokens[idx++]);
+        String mname = ZoneFile.expandName(tokens[idx++], origin);
+        String rname = ZoneFile.expandName(tokens[idx++], origin);
         long serial = Long.parseLong(tokens[idx++]);
-        int refresh = Integer.parseInt(tokens[idx++]);
-        int retry = Integer.parseInt(tokens[idx++]);
-        int expire = Integer.parseInt(tokens[idx++]);
-        int minimum = Integer.parseInt(tokens[idx++]);
+        int refresh = ZoneFileParser.parseTtl(tokens[idx++]);
+        int retry = ZoneFileParser.parseTtl(tokens[idx++]);
+        int expire = ZoneFileParser.parseTtl(tokens[idx++]);
+        int minimum = ZoneFileParser.parseTtl(tokens[idx++]);
         return new ZoneFile.SoaData(mname, rname, (int) serial, refresh, retry, expire,
                 minimum);
     }
 
-    private static DnsResourceRecord parseRecord(String owner, DnsType type,
+    private static DnsResourceRecord parseRecord(String owner, String origin, DnsType type,
             int ttl, String[] tokens) throws IOException {
         int idx = 0;
         switch (type) {
@@ -521,43 +494,73 @@ final class ZoneFileLoader implements ZoneFileHandler {
                 return DnsResourceRecord.aaaa(owner, ttl,
                         InetAddress.getByName(tokens[idx]));
             case NS:
-                return DnsResourceRecord.ns(owner, ttl, ZoneFile.normalizeName(tokens[idx]));
+                return DnsResourceRecord.ns(owner, ttl, ZoneFile.expandName(tokens[idx], origin));
             case CNAME:
-                return DnsResourceRecord.cname(owner, ttl, ZoneFile.normalizeName(tokens[idx]));
+                return DnsResourceRecord.cname(owner, ttl, ZoneFile.expandName(tokens[idx], origin));
             case PTR:
-                return DnsResourceRecord.ptr(owner, ttl, ZoneFile.normalizeName(tokens[idx]));
+                return DnsResourceRecord.ptr(owner, ttl, ZoneFile.expandName(tokens[idx], origin));
             case MX: {
                 int preference = Integer.parseInt(tokens[idx++]);
                 return DnsResourceRecord.mx(owner, ttl, preference,
-                        ZoneFile.normalizeName(tokens[idx]));
+                        ZoneFile.expandName(tokens[idx], origin));
             }
             case TXT: {
-                StringBuilder sb = new StringBuilder();
+                // RFC 1035 section 3.3.14: each field is its own character-string
+                List<String> strings = new ArrayList<String>();
                 for (int i = idx; i < tokens.length; i++) {
-                    if (i > idx) {
-                        sb.append(' ');
-                    }
-                    sb.append(tokens[i]);
+                    addCharacterStrings(strings, tokens[i]);
                 }
-                return DnsResourceRecord.txt(owner, ttl, sb.toString());
+                return DnsResourceRecord.txt(owner, ttl, strings);
             }
             case SOA: {
                 if (tokens.length < idx + 7) {
                     throw new IOException("Malformed SOA");
                 }
-                String mname = ZoneFile.normalizeName(tokens[idx++]);
-                String rname = ZoneFile.normalizeName(tokens[idx++]);
+                String mname = ZoneFile.expandName(tokens[idx++], origin);
+                String rname = ZoneFile.expandName(tokens[idx++], origin);
                 long serial = Long.parseLong(tokens[idx++]);
-                int refresh = Integer.parseInt(tokens[idx++]);
-                int retry = Integer.parseInt(tokens[idx++]);
-                int expire = Integer.parseInt(tokens[idx++]);
-                int minimum = Integer.parseInt(tokens[idx++]);
+                int refresh = ZoneFileParser.parseTtl(tokens[idx++]);
+                int retry = ZoneFileParser.parseTtl(tokens[idx++]);
+                int expire = ZoneFileParser.parseTtl(tokens[idx++]);
+                int minimum = ZoneFileParser.parseTtl(tokens[idx++]);
                 return DnsResourceRecord.soa(owner, ttl, mname, rname,
                         (int) serial, refresh, retry, expire, minimum);
             }
             default:
                 throw new IOException("Unsupported zone record type: " + type);
         }
+    }
+
+    /**
+     * Adds a field as one or more character-strings of at most 255 UTF-8
+     * octets, splitting long fields on character boundaries.
+     */
+    private static void addCharacterStrings(List<String> strings, String field) {
+        int start = 0;
+        int octets = 0;
+        int i = 0;
+        while (i < field.length()) {
+            int cp = field.codePointAt(i);
+            int charCount = Character.charCount(cp);
+            int size;
+            if (cp < 0x80) {
+                size = 1;
+            } else if (cp < 0x800) {
+                size = 2;
+            } else if (cp < 0x10000) {
+                size = 3;
+            } else {
+                size = 4;
+            }
+            if (octets + size > 255) {
+                strings.add(field.substring(start, i));
+                start = i;
+                octets = 0;
+            }
+            octets += size;
+            i += charCount;
+        }
+        strings.add(field.substring(start));
     }
 
     private static void addRecord(Map<String, List<DnsResourceRecord>> records,

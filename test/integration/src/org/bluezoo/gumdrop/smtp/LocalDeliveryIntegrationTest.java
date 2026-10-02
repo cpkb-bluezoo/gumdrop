@@ -146,9 +146,6 @@ public class LocalDeliveryIntegrationTest extends AbstractServerIntegrationTest 
         assertTrue("Message should be accepted", handler.wasAccepted());
         assertNull("No error should occur", handler.getError());
 
-        // Wait a bit for mailbox to be written and closed
-        Thread.sleep(200);
-
         // Verify message was delivered to mailbox
         MailboxStore store = mailboxFactory.createStore();
         try {
@@ -207,9 +204,6 @@ public class LocalDeliveryIntegrationTest extends AbstractServerIntegrationTest 
                 handler.awaitCompletion(10, TimeUnit.SECONDS));
         assertTrue("Message should be accepted", handler.wasAccepted());
 
-        // Wait for delivery
-        Thread.sleep(200);
-
         // Verify both mailboxes have the message
         verifyMailboxHasMessage(TEST_USER, "Multi-recipient Test");
         verifyMailboxHasMessage(TEST_USER2, "Multi-recipient Test");
@@ -231,9 +225,6 @@ public class LocalDeliveryIntegrationTest extends AbstractServerIntegrationTest 
         assertTrue("All transactions should complete within timeout",
                 handler.awaitCompletion(10, TimeUnit.SECONDS));
         assertEquals("Both messages should be accepted", 2, handler.getAcceptedCount());
-
-        // Wait for delivery
-        Thread.sleep(200);
 
         // Verify mailbox has 2 messages
         MailboxStore store = mailboxFactory.createStore();

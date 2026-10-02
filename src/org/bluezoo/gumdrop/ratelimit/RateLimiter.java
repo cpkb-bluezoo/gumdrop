@@ -85,7 +85,7 @@ public class RateLimiter {
      * @return {@code true} if the event is allowed, {@code false} if rate limited
      */
     public synchronized boolean tryAcquire() {
-        return tryAcquire(System.currentTimeMillis());
+        return tryAcquire(currentTimeMillis());
     }
 
     /**
@@ -117,7 +117,7 @@ public class RateLimiter {
      * @return {@code true} if an event would be allowed, {@code false} if rate limited
      */
     public synchronized boolean canAcquire() {
-        return canAcquire(System.currentTimeMillis());
+        return canAcquire(currentTimeMillis());
     }
 
     /**
@@ -137,7 +137,7 @@ public class RateLimiter {
      * @return the current event count
      */
     public synchronized int getCount() {
-        expireOldEntries(System.currentTimeMillis());
+        expireOldEntries(currentTimeMillis());
         return count;
     }
 
@@ -147,7 +147,7 @@ public class RateLimiter {
      * @return the remaining permits
      */
     public synchronized int getRemaining() {
-        expireOldEntries(System.currentTimeMillis());
+        expireOldEntries(currentTimeMillis());
         return timestamps.length - count;
     }
 
@@ -157,7 +157,7 @@ public class RateLimiter {
      * @return milliseconds until a permit is available, or 0 if one is available now
      */
     public synchronized long getTimeUntilAvailable() {
-        long now = System.currentTimeMillis();
+        long now = currentTimeMillis();
         expireOldEntries(now);
 
         if (count < timestamps.length) {
@@ -193,6 +193,14 @@ public class RateLimiter {
                 break;
             }
         }
+    }
+
+    /**
+     * Returns the current time in milliseconds. Package-private so tests
+     * can substitute a deterministic clock.
+     */
+    long currentTimeMillis() {
+        return System.currentTimeMillis();
     }
 
     /**

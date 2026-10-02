@@ -42,6 +42,7 @@ class ResponseOutputStream extends OutputStream {
     private final Response response;
     private ByteBuffer buf;
     private boolean closed;
+    private boolean discarding;
 
     ResponseOutputStream(Response response, int bufferSize) {
         this.response = response;
@@ -49,6 +50,9 @@ class ResponseOutputStream extends OutputStream {
     }
 
     @Override public synchronized void write(int b) throws IOException {
+        if (discarding) {
+            return;
+        }
         if (closed) {
             String message = L10N.getString("err.stream_closed");
             throw new IllegalStateException(message);
@@ -64,6 +68,9 @@ class ResponseOutputStream extends OutputStream {
     }
 
     @Override public synchronized void write(byte[] b, int offset, int len) throws IOException {
+        if (discarding) {
+            return;
+        }
         if (closed) {
             String message = L10N.getString("err.stream_closed");
             throw new IllegalStateException(message);
@@ -80,6 +87,9 @@ class ResponseOutputStream extends OutputStream {
     }
 
     @Override public synchronized void flush() throws IOException {
+        if (discarding) {
+            return;
+        }
         if (closed) {
             String message = L10N.getString("err.stream_closed");
             throw new IllegalStateException(message);
@@ -97,6 +107,25 @@ class ResponseOutputStream extends OutputStream {
         closed = true;
     }
     
+    /**
+     * Discards all buffered, unsent content, including any bytes still held
+     * by the character encoder of {@code writer}, if non-null.
+     *
+     * @param writer the writer layered over this stream, or null
+     */
+    synchronized void discardBuffered(java.io.PrintWriter writer) {
+        if (writer != null) {
+            // Drain bytes held by the encoder into the void
+            discarding = true;
+            try {
+                writer.flush();
+            } finally {
+                discarding = false;
+            }
+        }
+        buf.clear();
+    }
+
     /**
      * Returns true if the buffer has capacity for more data.
      * Used by {@link ServletOutputStreamWrapper} for non-blocking write support.

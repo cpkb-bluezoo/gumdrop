@@ -160,6 +160,11 @@ public class SelectorLoop implements Runnable {
             return; // Already running
         }
         timer.start();
+        // Set before the thread runs, not in run(): a shutdown() that
+        // arrives before the new thread is scheduled must not be undone
+        // by run() setting the flag afterwards (join() would then wait
+        // forever).
+        active = true;
         thread = new Thread(this, "SelectorLoop-" + index);
         thread.start();
     }
@@ -210,7 +215,6 @@ public class SelectorLoop implements Runnable {
 
     @Override
     public void run() {
-        active = true;
         try {
             selector = Selector.open();
 
@@ -602,7 +606,13 @@ public class SelectorLoop implements Runnable {
             key.interestOps(key.interestOps() & ~SelectionKey.OP_WRITE);
 
         } catch (IOException e) {
-            LOGGER.log(Level.WARNING,
+            // A channel closed under a pending write (the endpoint was
+            // closed from another thread) is routine teardown.
+            Level level = Level.WARNING;
+            if (e instanceof ClosedChannelException) {
+                level = Level.FINE;
+            }
+            LOGGER.log(level,
                     L10N.getString("log.error_writing_datagram_endpoint"), e);
             endpoint.close();
         }
@@ -721,7 +731,11 @@ public class SelectorLoop implements Runnable {
         SelectionKey key = endpoint.getSelectionKey();
         if (key != null && key.isValid()) {
             if (Thread.currentThread() == thread) {
-                key.interestOps(key.interestOps() & ~SelectionKey.OP_READ);
+                try {
+                    key.interestOps(key.interestOps() & ~SelectionKey.OP_READ);
+                } catch (CancelledKeyException e) {
+                    // closed concurrently; nothing to pause
+                }
             } else {
                 pendingTasks.offer(new CancelReadTask(key));
                 if (selector != null) {
@@ -741,7 +755,11 @@ public class SelectorLoop implements Runnable {
         SelectionKey key = endpoint.getSelectionKey();
         if (key != null && key.isValid()) {
             if (Thread.currentThread() == thread) {
-                key.interestOps(key.interestOps() | SelectionKey.OP_READ);
+                try {
+                    key.interestOps(key.interestOps() | SelectionKey.OP_READ);
+                } catch (CancelledKeyException e) {
+                    // closed concurrently; nothing to resume
+                }
             } else {
                 pendingTasks.offer(new RequestReadTask(key));
                 if (selector != null) {
@@ -775,7 +793,15 @@ public class SelectorLoop implements Runnable {
     private void requestWriteInternal(ChannelHandler handler) {
         SelectionKey key = handler.getSelectionKey();
         if (key != null && key.isValid()) {
-            key.interestOps(key.interestOps() | SelectionKey.OP_WRITE);
+            // Another thread (endpoint close, peer reset handled on the
+            // selector thread) may cancel the key between isValid() and
+            // interestOps(): the handler is then closed, so there is
+            // nothing left to write.
+            try {
+                key.interestOps(key.interestOps() | SelectionKey.OP_WRITE);
+            } catch (CancelledKeyException e) {
+                return;
+            }
 
             // Wake up selector if called from a different thread
             if (Thread.currentThread() != thread) {
@@ -876,7 +902,11 @@ public class SelectorLoop implements Runnable {
         @Override
         public void run() {
             if (key.isValid()) {
-                key.interestOps(key.interestOps() & ~SelectionKey.OP_READ);
+                try {
+                    key.interestOps(key.interestOps() & ~SelectionKey.OP_READ);
+                } catch (CancelledKeyException e) {
+                    // closed concurrently
+                }
             }
         }
     }
@@ -894,7 +924,11 @@ public class SelectorLoop implements Runnable {
         @Override
         public void run() {
             if (key.isValid()) {
-                key.interestOps(key.interestOps() | SelectionKey.OP_READ);
+                try {
+                    key.interestOps(key.interestOps() | SelectionKey.OP_READ);
+                } catch (CancelledKeyException e) {
+                    // closed concurrently
+                }
             }
         }
     }

@@ -296,6 +296,19 @@ public final class ScheduledTimer implements Runnable {
     }
 
     /**
+     * Sweeps cancelled entries out of the queue now if enough have
+     * accumulated, as the timer thread does when it wakes. Intended for tests.
+     */
+    void sweepCancelled() {
+        lock.lock();
+        try {
+            purgeCancelledIfNeeded();
+        } finally {
+            lock.unlock();
+        }
+    }
+
+    /**
      * Returns the number of entries currently held in the queue, including any
      * cancelled entries not yet swept. Intended for diagnostics and tests.
      *

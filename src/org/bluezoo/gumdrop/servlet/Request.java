@@ -280,6 +280,8 @@ class Request implements HttpServletRequest {
                 if (ei != -1) {
                     name = token.substring(0, ei);
                     value = token.substring(ei + 1);
+                } else {
+                    value = "";
                 }
                 int sci = value.indexOf(';');
                 if (sci != -1) {
@@ -290,13 +292,13 @@ class Request implements HttpServletRequest {
                         String vname = vtoken, vvalue = null;
                         ei = vtoken.indexOf('=');
                         if (ei != -1) {
-                            vname = token.substring(0, ei);
-                            vvalue = token.substring(ei + 1);
+                            vname = vtoken.substring(0, ei);
+                            vvalue = vtoken.substring(ei + 1);
                         }
                         if ("$Path".equals(vname)) {
-                            path = value;
+                            path = vvalue;
                         } else if ("$Domain".equals(vname)) {
-                            domain = value;
+                            domain = vvalue;
                         }
                     }
                 }
@@ -330,6 +332,9 @@ class Request implements HttpServletRequest {
         }
         try {
             Date date = dateFormat.parse(value);
+            if (date == null) {
+                throw new IllegalArgumentException(value);
+            }
             return date.getTime();
         } catch (ParseException e) {
             throw (IllegalArgumentException) new IllegalArgumentException(value).initCause(e);
@@ -644,12 +649,13 @@ class Request implements HttpServletRequest {
             case NONE:
             case GET_PARTS_CALLED:
                 inputStreamState = InputStreamState.GET_PARTS_CALLED;
-                long contentLength = getContentLength();
-                if (contentLength > multipartConfig.maxRequestSize) {
+                long contentLength = getContentLengthLong();
+                if (multipartConfig.maxRequestSize >= 0L
+                        && contentLength > multipartConfig.maxRequestSize) {
                     throw new IllegalStateException(Context.L10N.getString("err.request_body_exceeds_maximum_size"));
                 }
                 MultipartParser parser = new MultipartParser(multipartConfig, boundary);
-                parts = parser.parse(getInputStream());
+                parts = parser.parse(in);
                 return parts;
             default:
                 throw new IllegalStateException(Context.L10N.getString("err.input_stream_state"));
@@ -944,15 +950,18 @@ class Request implements HttpServletRequest {
                         sink.write(buf, 0, len);
                     }
                     buf = sink.toByteArray();
-                    String body = new String(buf, "US-ASCII");
+                    // The raw body is percent-encoded ASCII; the declared
+                    // charset applies to the decoded octets (addParameter)
+                    String body = new String(buf, "ISO-8859-1");
+                    String formCharset = getFormCharset();
                     int start = 0;
                     int end = body.indexOf('&', start);
                     while (end > start) {
-                        addParameter(accum, body.substring(start, end));
+                        addEncodedParameter(accum, body.substring(start, end), formCharset);
                         start = end + 1;
                         end = body.indexOf('&', start);
                     }
-                    addParameter(accum, body.substring(start));
+                    addEncodedParameter(accum, body.substring(start), formCharset);
                 } catch (IOException e) {
                     Context.LOGGER.warning(MessageFormat.format(
                             Context.L10N.getString("warn.form_parameters_parse_failed"), e.getMessage()));
@@ -965,11 +974,34 @@ class Request implements HttpServletRequest {
         parametersParsed = true;
     }
 
+    /**
+     * Returns the character set used to interpret percent-encoded octets in
+     * a form body: the declared or explicitly set character encoding, else
+     * the context request character encoding, else ISO-8859-1. The US-ASCII
+     * fallback reported by getCharacterEncoding for form bodies is not an
+     * explicit declaration.
+     */
+    private String getFormCharset() {
+        String cs = getCharacterEncoding();
+        if (cs != null && !"US-ASCII".equalsIgnoreCase(cs)) {
+            return cs;
+        }
+        cs = context.getRequestCharacterEncoding();
+        if (cs != null) {
+            return cs;
+        }
+        return "ISO-8859-1";
+    }
+
     static void addParameter(Map<String,List<String>> parameters, String param) {
+        addEncodedParameter(parameters, param, "UTF-8");
+    }
+
+    static void addEncodedParameter(Map<String,List<String>> parameters, String param, String charset) {
         try {
-            param = URLDecoder.decode(param, "UTF-8");
+            param = URLDecoder.decode(param, charset);
         } catch (UnsupportedEncodingException e) {
-            RuntimeException e2 = new RuntimeException("UTF-8 not supported");
+            RuntimeException e2 = new RuntimeException(charset + " not supported");
             e2.initCause(e);
             throw e2;
         }
@@ -1100,7 +1132,7 @@ class Request implements HttpServletRequest {
                 return locales.get(0).toLocale();
             }
         }
-        return null;
+        return Locale.getDefault();
     }
 
     @Override public Enumeration<Locale> getLocales() {
@@ -1130,7 +1162,12 @@ class Request implements HttpServletRequest {
                 spec = token.substring(0, sci);
                 String qspec = token.substring(sci + 1).trim();
                 if (qspec.startsWith("q=")) {
-                    q = parseDouble(qspec.substring(2));
+                    try {
+                        q = parseDouble(qspec.substring(2));
+                    } catch (NumberFormatException e) {
+                        // malformed weight: ignore this language range
+                        continue;
+                    }
                 }
             }
             ret.add(new AcceptLanguage(spec, q));

@@ -32,6 +32,8 @@ import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.concurrent.Semaphore;
+import java.util.concurrent.TimeUnit;
 
 /**
  * A minimal test server for buffer handling integration tests.
@@ -51,6 +53,12 @@ public class BufferTestServer extends TcpListener {
 
     /** Track all created connections for test inspection */
     private final List<BufferTestConnection> connections;
+
+    /** One permit released per receive() call on any connection. */
+    private final Semaphore receives = new Semaphore(0);
+
+    /** One permit released per connection that has ended (disconnected or errored). */
+    private final Semaphore ends = new Semaphore(0);
 
     public BufferTestServer() {
         super();
@@ -140,5 +148,31 @@ public class BufferTestServer extends TcpListener {
      */
     public void clearConnections() {
         connections.clear();
+        receives.drainPermits();
+        ends.drainPermits();
+    }
+
+    void receiveOccurred() {
+        receives.release();
+    }
+
+    void connectionEnded() {
+        ends.release();
+    }
+
+    /**
+     * Blocks until one more receive() call has happened on some connection.
+     * The timeout only turns a hang into a failure.
+     */
+    public boolean awaitReceive() throws InterruptedException {
+        return receives.tryAcquire(10, TimeUnit.SECONDS);
+    }
+
+    /**
+     * Blocks until one connection has ended. All data sent by the peer
+     * before closing has been delivered by then.
+     */
+    public boolean awaitConnectionEnd() throws InterruptedException {
+        return ends.tryAcquire(10, TimeUnit.SECONDS);
     }
 }

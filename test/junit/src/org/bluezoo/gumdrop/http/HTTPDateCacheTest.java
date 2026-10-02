@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.http;
 
+import org.junit.After;
 import org.junit.Test;
 
 import java.nio.charset.StandardCharsets;
@@ -47,21 +48,20 @@ public class HTTPDateCacheTest {
                    date.matches(IMF_FIXDATE_PATTERN));
     }
 
+    @After
+    public void restoreClock() {
+        HttpDateCache.fixedTimeMillis = -1L;
+        HttpDateCache.refresh();
+    }
+
     @Test
-    public void testCachedDateRefreshesPerSecond() throws InterruptedException {
-        String before = HttpDateCache.get();
-        // Poll rather than sleeping the worst case: usually resolves well
-        // under a second, only ever as slow as the fixed sleep it replaces
-        // if the tick lands right after this loop starts.
-        String after = before;
-        long deadline = System.currentTimeMillis() + 2500;
-        while (after.equals(before) && System.currentTimeMillis() < deadline) {
-            Thread.sleep(20);
-            after = HttpDateCache.get();
-        }
-        assertTrue(after.matches(IMF_FIXDATE_PATTERN));
-        assertTrue("Cached date did not refresh: " + before + " == " + after,
-                   !after.equals(before));
+    public void testCachedDateRefreshesFromClock() {
+        HttpDateCache.fixedTimeMillis = 0L;
+        HttpDateCache.refresh();
+        assertEquals("Thu, 01 Jan 1970 00:00:00 GMT", HttpDateCache.get());
+        HttpDateCache.fixedTimeMillis = 1000L;
+        HttpDateCache.refresh();
+        assertEquals("Thu, 01 Jan 1970 00:00:01 GMT", HttpDateCache.get());
     }
 
     /**

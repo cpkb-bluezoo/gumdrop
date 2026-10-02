@@ -195,6 +195,39 @@ public class StreamH2WebSocketUpgradeTest {
         assertFalse(conn.rstStreamSent);
     }
 
+    @Test
+    public void testAbortNotifiesOpenWebSocketOnce() {
+        StubConnection conn = new StubConnection();
+        final int[] closes = new int[2];
+        conn.streamHandler = new HttpStreamHandler() {
+            @Override
+            public HttpRequestHandler openStream(HttpResponseState state) {
+                return new DefaultHttpRequestHandler() {
+                    @Override
+                    public void headers(HttpResponseState state, Headers headers) {
+                        state.upgradeToWebSocket(null, new DefaultWebSocketEventHandler() {
+                            @Override
+                            public void closed(int code, String reason) {
+                                closes[0]++;
+                                closes[1] = code;
+                            }
+                        });
+                    }
+                };
+            }
+        };
+        Stream stream = new Stream(conn, 1);
+        stream.addHeader(new Header(":method", "CONNECT"));
+        stream.addHeader(new Header(":protocol", "websocket"));
+        stream.addHeader(new Header(":scheme", "https"));
+        stream.addHeader(new Header(":path", "/ws"));
+        stream.streamEndHeaders();
+        stream.streamAbort(new java.io.IOException("gone"));
+        stream.streamAbort(new java.io.IOException("gone again"));
+        assertEquals(1, closes[0]);
+        assertEquals(1006, closes[1]);
+    }
+
     // -- upgradeToWebSocket() h2 acceptance (RFC 8441 section 4) --
 
     @Test

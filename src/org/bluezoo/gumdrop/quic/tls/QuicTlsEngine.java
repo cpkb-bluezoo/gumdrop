@@ -94,4 +94,12 @@ public interface QuicTlsEngine {
      * @return the client early traffic secret
      */
     byte[] getClientEarlyTrafficSecret();
+
+    /**
+     * Returns whether this handshake was resumed from a session ticket
+     * (PSK accepted, RFC 8446 section 4.2.11).
+     *
+     * @return true if resumed
+     */
+    boolean isResumed();
 }

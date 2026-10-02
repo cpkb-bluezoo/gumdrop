@@ -32,9 +32,10 @@ import java.nio.file.Paths;
 import java.nio.file.SimpleFileVisitor;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.util.ArrayList;
-import java.util.Arrays;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 import static org.junit.Assert.fail;
@@ -56,34 +57,76 @@ public class NoThreadSleepGuardTest {
     /**
      * Paths under {@code test/junit/src/} permitted to call
      * {@code Thread.sleep} or poll with {@code currentTimeMillis} deadlines.
+     * Empty: a unit test must synchronise with latches or an injected clock.
      */
-    private static final Set<String> THREAD_SLEEP_ALLOWLIST = new HashSet<String>(Arrays.asList(
-            "org/bluezoo/gumdrop/ScheduledTimerTest.java",
-            "org/bluezoo/gumdrop/ratelimit/RateLimiterTest.java",
-            "org/bluezoo/gumdrop/ratelimit/AuthenticationRateLimiterTest.java",
-            "org/bluezoo/gumdrop/http/HTTPDateCacheTest.java",
-            "org/bluezoo/gumdrop/http/client/AltSvcCacheTest.java",
-            "org/bluezoo/gumdrop/telemetry/SpanTest.java",
-            "org/bluezoo/gumdrop/servlet/jsp/JSPDependencyTrackerTest.java",
-            "org/bluezoo/gumdrop/servlet/session/SessionManagerTest.java",
-            "org/bluezoo/gumdrop/mailbox/index/MailboxIndexerTest.java"
-    ));
+    private static final Set<String> THREAD_SLEEP_ALLOWLIST = new HashSet<String>();
+
+    /**
+     * Paths under {@code test/integration/src/} permitted to sleep, each with
+     * the reason. The only acceptable reason is waiting on infrastructure
+     * outside the JVM that offers no hook to wait on (a container, a
+     * broker's management API, a mail delivery agent). Nothing that
+     * synchronises code in this repository belongs here.
+     */
+    private static final Map<String, String> INTEGRATION_SLEEP_ALLOWLIST = new HashMap<String, String>();
+
+    static {
+        INTEGRATION_SLEEP_ALLOWLIST.put("org/bluezoo/gumdrop/amqp/rabbitmq/RabbitMQTestSupport.java",
+                "polls the RabbitMQ management HTTP API until the broker lists the connection");
+        INTEGRATION_SLEEP_ALLOWLIST.put("org/bluezoo/gumdrop/amqp1/rabbitmq/RabbitMQ4TestSupport.java",
+                "polls the RabbitMQ management HTTP API until the broker lists the connection");
+        INTEGRATION_SLEEP_ALLOWLIST.put("org/bluezoo/gumdrop/smtp/postfix/PostfixTestSupport.java",
+                "polls a mailbox file inside the external Postfix container for local delivery");
+        INTEGRATION_SLEEP_ALLOWLIST.put("org/bluezoo/gumdrop/socks/danted/DantedTestSupport.java",
+                "polls a mailbox file inside the external container via exec");
+    }
 
     @Test
     public void junitSourcesMustNotUseThreadSleepOutsideAllowlist() throws Exception {
-        Path junitSrc = locateJunitSourceRoot();
+        scanTree(locateSourceRoot("test/junit/src"), THREAD_SLEEP_ALLOWLIST, "test/junit");
+    }
+
+    @Test
+    public void integrationSourcesMustNotUseThreadSleepOutsideAllowlist() throws Exception {
+        scanTree(locateSourceRoot("test/integration/src"), INTEGRATION_SLEEP_ALLOWLIST.keySet(),
+                "test/integration");
+    }
+
+    @Test
+    public void integrationAllowlistEntriesMustStillSleep() throws Exception {
+        Path root = locateSourceRoot("test/integration/src");
+        final List<String> stale = new ArrayList<String>();
+        for (Map.Entry<String, String> entry : INTEGRATION_SLEEP_ALLOWLIST.entrySet()) {
+            Path file = root.resolve(entry.getKey());
+            if (!Files.isRegularFile(file)) {
+                stale.add(entry.getKey() + ": file no longer exists");
+                continue;
+            }
+            List<String> found = new ArrayList<String>();
+            scanFile(entry.getKey(), new String(Files.readAllBytes(file), StandardCharsets.UTF_8), found);
+            if (found.isEmpty()) {
+                stale.add(entry.getKey() + ": no longer sleeps, remove it from the allowlist");
+            }
+        }
+        if (!stale.isEmpty()) {
+            fail("Stale integration sleep allowlist entries:\n  " + join(stale, "\n  "));
+        }
+    }
+
+    private static void scanTree(final Path root, final Set<String> allowlist, String label)
+            throws Exception {
         final List<String> violations = new ArrayList<String>();
-        Files.walkFileTree(junitSrc, new SimpleFileVisitor<Path>() {
+        Files.walkFileTree(root, new SimpleFileVisitor<Path>() {
             @Override
             public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) throws IOException {
                 if (!file.toString().endsWith(".java")) {
                     return FileVisitResult.CONTINUE;
                 }
-                String relative = junitSrc.relativize(file).toString().replace('\\', '/');
+                String relative = root.relativize(file).toString().replace('\\', '/');
                 if (relative.equals("org/bluezoo/gumdrop/testsupport/NoThreadSleepGuardTest.java")) {
                     return FileVisitResult.CONTINUE;
                 }
-                if (THREAD_SLEEP_ALLOWLIST.contains(relative)) {
+                if (allowlist.contains(relative)) {
                     return FileVisitResult.CONTINUE;
                 }
                 scanFile(relative, new String(Files.readAllBytes(file), StandardCharsets.UTF_8), violations);
@@ -91,28 +134,28 @@ public class NoThreadSleepGuardTest {
             }
         });
         if (!violations.isEmpty()) {
-            fail("Thread.sleep / deadline polling found in test/junit (use latches instead; "
-                    + "see CONTRIBUTING.md). Violations:\n  "
+            fail("sleep / deadline polling found in " + label + " (use latches, callbacks or an "
+                    + "injected clock; see CONTRIBUTING.md). Violations:\n  "
                     + join(violations, "\n  "));
         }
     }
 
-    private static Path locateJunitSourceRoot() {
+    private static Path locateSourceRoot(String relativeRoot) {
         Path cwd = Paths.get(System.getProperty("user.dir"));
-        Path direct = cwd.resolve("test/junit/src");
+        Path direct = cwd.resolve(relativeRoot);
         if (Files.isDirectory(direct)) {
             return direct;
         }
-        Path parent = cwd.resolve("../test/junit/src").normalize();
+        Path parent = cwd.resolve("../" + relativeRoot).normalize();
         if (Files.isDirectory(parent)) {
             return parent;
         }
-        throw new IllegalStateException("Could not locate test/junit/src from " + cwd);
+        throw new IllegalStateException("Could not locate " + relativeRoot + " from " + cwd);
     }
 
     private static void scanFile(String relativePath, String source, List<String> violations) {
         if (containsThreadSleepInCode(source)) {
-            violations.add(relativePath + ": Thread.sleep");
+            violations.add(relativePath + ": sleep");
         }
         if (containsDeadlinePollLoop(source)) {
             violations.add(relativePath + ": while (...currentTimeMillis...) { Thread.sleep }");
@@ -124,7 +167,7 @@ public class NoThreadSleepGuardTest {
         String[] lines = withoutBlockComments.split("\n", -1);
         for (int i = 0; i < lines.length; i++) {
             String code = codePortion(lines[i]);
-            if (code.contains("Thread.sleep(")) {
+            if (code.contains("Thread.sleep(") || code.contains(".sleep(")) {
                 return true;
             }
         }

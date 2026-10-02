@@ -404,15 +404,14 @@ public class TestServlet extends HttpServlet {
             @Override
             public void run() {
                 try {
-                    // Simulate async work
-                    Thread.sleep(delay);
-                    
+                    // The async work is simulated: completing on the container
+                    // thread is enough to exercise the AsyncContext lifecycle.
                     HttpServletResponse asyncResp = (HttpServletResponse) asyncContext.getResponse();
                     asyncResp.setContentType("text/plain");
                     asyncResp.setCharacterEncoding("UTF-8");
                     PrintWriter out = asyncResp.getWriter();
                     out.println("=== Async Response ===");
-                    out.println("Processed asynchronously after " + delay + "ms");
+                    out.println("Processed asynchronously (requested delay " + delay + "ms)");
                     out.println("Thread: " + Thread.currentThread().getName());
                     out.println("Time: " + System.currentTimeMillis());
                     

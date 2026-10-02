@@ -44,6 +44,7 @@ import java.util.concurrent.LinkedBlockingQueue;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
+import org.bluezoo.gumdrop.AcceptSelectorLoop;
 import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.NullSecurityInfo;
@@ -221,6 +222,17 @@ public class FtpDataConnectionCoordinator {
     public synchronized int setupPassiveMode(int port) throws IOException {
         cleanup(); // Clean up any existing setup
 
+        // Passive mode needs the accept loop to listen for the data
+        // connection; fail cleanly (the caller replies 425) if there is
+        // none, before any socket is opened.
+        FtpListener listener = controlConnection.getServer();
+        Gumdrop gumdrop = (listener != null) ? listener.getGumdrop() : null;
+        AcceptSelectorLoop acceptLoop =
+                (gumdrop != null) ? gumdrop.getAcceptLoop() : null;
+        if (acceptLoop == null) {
+            throw new IOException("No accept loop available for passive mode");
+        }
+
         passiveConnector = new FtpDataServer(controlConnection, port, this);
 
         // Bind the socket synchronously so we know the port immediately
@@ -249,7 +261,7 @@ public class FtpDataConnectionCoordinator {
         passiveConnector.notifyBound(ssc);
         
         // Register the already-bound channel with AcceptSelectorLoop
-        controlConnection.getServer().getGumdrop().getAcceptLoop().registerRawAcceptor(ssc, passiveConnector);
+        acceptLoop.registerRawAcceptor(ssc, passiveConnector);
         
         mode = DataConnectionMode.PASSIVE;
         

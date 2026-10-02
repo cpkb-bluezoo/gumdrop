@@ -35,11 +35,25 @@ import static org.junit.Assert.*;
  */
 public class AuthenticationRateLimiterTest {
 
-    private AuthenticationRateLimiter limiter;
+    /** Limiter driven by a manually advanced clock. */
+    private static final class ManualAuthLimiter extends AuthenticationRateLimiter {
+        private long now = 1000000L;
+
+        void advance(long ms) {
+            now += ms;
+        }
+
+        @Override
+        long currentTimeMillis() {
+            return now;
+        }
+    }
+
+    private ManualAuthLimiter limiter;
     
     @Before
     public void setUp() {
-        limiter = new AuthenticationRateLimiter();
+        limiter = new ManualAuthLimiter();
         limiter.setMaxFailures(3);
         limiter.setLockoutDuration(1000); // 1 second for fast tests
     }
@@ -80,7 +94,7 @@ public class AuthenticationRateLimiterTest {
     }
     
     @Test
-    public void testLockoutRemaining() throws InterruptedException {
+    public void testLockoutRemaining() {
         String key = "locked-key";
         
         // Lock the key
@@ -90,12 +104,13 @@ public class AuthenticationRateLimiterTest {
         
         assertTrue(limiter.isLocked(key));
         long remaining = limiter.getLockoutRemaining(key);
-        assertTrue("Remaining should be positive", remaining > 0);
-        assertTrue("Remaining should be <= lockout duration", remaining <= 1000);
+        assertEquals(1000, remaining);
+        limiter.advance(400);
+        assertEquals(600, limiter.getLockoutRemaining(key));
     }
     
     @Test
-    public void testLockoutExpires() throws InterruptedException {
+    public void testLockoutExpires() {
         limiter.setLockoutDuration(50); // 50ms for fast test
         String key = "expiring-key";
         
@@ -105,8 +120,8 @@ public class AuthenticationRateLimiterTest {
         }
         assertTrue(limiter.isLocked(key));
         
-        // Wait for expiration
-        Thread.sleep(100);
+        // Advance past expiration
+        limiter.advance(100);
         
         assertFalse("Lockout should have expired", limiter.isLocked(key));
     }
@@ -148,7 +163,7 @@ public class AuthenticationRateLimiterTest {
     }
     
     @Test
-    public void testExponentialBackoff() throws InterruptedException {
+    public void testExponentialBackoff() {
         limiter.setLockoutDuration(100);
         limiter.setMaxLockoutDuration(10000);
         limiter.setExponentialBackoff(true);
@@ -161,9 +176,10 @@ public class AuthenticationRateLimiterTest {
         }
         assertTrue(limiter.isLocked(key));
         long firstLockout = limiter.getLockoutRemaining(key);
+        assertEquals(100, firstLockout);
         
         // Wait for first lockout to expire
-        Thread.sleep(150);
+        limiter.advance(150);
         assertFalse(limiter.isLocked(key));
         
         // Second lockout - should be 2x duration
@@ -172,6 +188,7 @@ public class AuthenticationRateLimiterTest {
         }
         assertTrue(limiter.isLocked(key));
         long secondLockout = limiter.getLockoutRemaining(key);
+        assertEquals(200, secondLockout);
         
         assertTrue("Second lockout should be longer: " + secondLockout + " vs " + firstLockout,
                    secondLockout > firstLockout);
@@ -250,7 +267,7 @@ public class AuthenticationRateLimiterTest {
     }
     
     @Test
-    public void testCleanup() throws InterruptedException {
+    public void testCleanup() {
         limiter.setLockoutDuration(50);
         limiter.setMaxLockoutDuration(50);
         
@@ -258,7 +275,7 @@ public class AuthenticationRateLimiterTest {
         limiter.recordFailure("cleanup-key");
         
         // Wait for cleanup period
-        Thread.sleep(200);
+        limiter.advance(1000);
         
         // Manual cleanup
         limiter.cleanup();

@@ -107,7 +107,9 @@ public class HTTP3AutoNegotiationIntegrationTest {
         gumdrop = Gumdrop.boot(GumdropConfig.create().workerThreads(2));
         gumdrop.addListener(listener);
 
-        Thread.sleep(1000);
+        // Http3Listener binds its UDP socket synchronously inside addListener(), and
+        // datagrams sent before the loop registers are queued by the kernel, so there
+        // is nothing further to wait for.
     }
 
     @AfterClass

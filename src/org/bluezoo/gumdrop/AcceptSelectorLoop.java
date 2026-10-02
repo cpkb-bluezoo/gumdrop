@@ -42,6 +42,8 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -88,7 +90,7 @@ public class AcceptSelectorLoop implements Runnable {
 
     private final Gumdrop gumdrop;
     private Thread thread;
-    private Selector selector;
+    private volatile Selector selector;
     private volatile boolean active;
     private final ConcurrentLinkedQueue<PendingRegistration> pendingRegistrations;
     private volatile Runnable readyCallback;
@@ -109,6 +111,11 @@ public class AcceptSelectorLoop implements Runnable {
         if (thread != null && thread.isAlive()) {
             return; // Already running
         }
+        // Set before the thread runs, not in run(): a shutdown() that
+        // arrives before the new thread is scheduled must not be undone
+        // by run() setting the flag afterwards (join() would then wait
+        // forever).
+        active = true;
         thread = new Thread(this, "AcceptSelectorLoop");
         thread.start();
     }
@@ -124,7 +131,6 @@ public class AcceptSelectorLoop implements Runnable {
 
     @Override
     public void run() {
-        active = true;
         try {
             selector = Selector.open();
 
@@ -134,13 +140,20 @@ public class AcceptSelectorLoop implements Runnable {
             // Main accept loop
             while (active) {
                 try {
+                    // Read the callback BEFORE draining registrations: a
+                    // callback is always installed after the registration it
+                    // reports on was queued, so seeing it here guarantees
+                    // that registration is processed below before it fires.
+                    Runnable cb = readyCallback;
+
                     // Process any pending server registrations
                     processPendingRegistrations();
 
                     // Fire the ready callback once after initial registrations are bound
-                    Runnable cb = readyCallback;
                     if (cb != null) {
-                        readyCallback = null;
+                        if (readyCallback == cb) {
+                            readyCallback = null;
+                        }
                         cb.run();
                     }
 
@@ -172,6 +185,7 @@ public class AcceptSelectorLoop implements Runnable {
         } catch (IOException e) {
             LOGGER.log(Level.SEVERE, L10N.getString("log.failed_to_initialize_acceptselectorloop"), e);
         } finally {
+            releasePendingCloses();
             if (selector != null) {
                 try {
                     selector.close();
@@ -191,17 +205,27 @@ public class AcceptSelectorLoop implements Runnable {
         final TcpListener listener;
         final RawAcceptHandler rawHandler;
         final ServerSocketChannel channel; // null if listener needs binding
+        final CountDownLatch closed; // non-null for a close request
 
         PendingRegistration(TcpListener listener) {
             this.listener = listener;
             this.rawHandler = null;
             this.channel = null;
+            this.closed = null;
+        }
+
+        PendingRegistration(ServerSocketChannel channel, CountDownLatch closed) {
+            this.listener = null;
+            this.rawHandler = null;
+            this.channel = channel;
+            this.closed = closed;
         }
 
         PendingRegistration(RawAcceptHandler handler, ServerSocketChannel channel) {
             this.listener = null;
             this.rawHandler = handler;
             this.channel = channel;
+            this.closed = null;
         }
     }
 
@@ -250,13 +274,104 @@ public class AcceptSelectorLoop implements Runnable {
     }
 
     /**
+     * Unregisters and closes a raw acceptor's listening socket, returning
+     * only once the socket has really been released.
+     *
+     * <p>Closing a channel that is registered with a selector from another
+     * thread merely cancels its key; the JDK defers the actual socket close
+     * until the selector thread next deregisters the key, so the port would
+     * keep accepting connections for a while. This method performs the
+     * close on the accept thread (flushing the cancelled key) and waits for
+     * it. Called from the accept thread itself (e.g. from within a {@link
+     * RawAcceptHandler}), it closes in place and does not wait; the key is
+     * deregistered when the loop next selects, immediately afterwards.
+     *
+     * @param channel the channel previously passed to {@link
+     *      #registerRawAcceptor}
+     */
+    public void closeRawAcceptor(ServerSocketChannel channel) {
+        if (Thread.currentThread() == thread) {
+            closeQuietly(channel);
+            return;
+        }
+        Selector sel = selector;
+        if (!isRunning() || sel == null) {
+            closeQuietly(channel);
+            return;
+        }
+        CountDownLatch done = new CountDownLatch(1);
+        pendingRegistrations.add(new PendingRegistration(channel, done));
+        sel.wakeup();
+        try {
+            // Poll so that a loop that exits before servicing the request
+            // cannot leave this caller waiting.
+            while (!done.await(100L, TimeUnit.MILLISECONDS)) {
+                if (!isRunning()) {
+                    closeQuietly(channel);
+                    return;
+                }
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            closeQuietly(channel);
+        }
+    }
+
+    /**
+     * Whether the channel still holds a key in this loop's selector. Once a
+     * close has been flushed this is false, which is what lets the JDK
+     * release the underlying socket. Package-private for tests.
+     */
+    boolean isRegistered(ServerSocketChannel channel) {
+        Selector sel = selector;
+        return sel != null && channel.keyFor(sel) != null;
+    }
+
+    private static void closeQuietly(ServerSocketChannel channel) {
+        try {
+            channel.close();
+        } catch (IOException e) {
+            // Ignore close errors
+        }
+    }
+
+    /**
+     * Services a close request on the accept thread: closes the channel,
+     * then flushes the cancelled key so the socket is released before the
+     * requester is released.
+     */
+    private void doCloseRawAcceptor(ServerSocketChannel channel, CountDownLatch done) {
+        closeQuietly(channel);
+        try {
+            selector.selectNow();
+        } catch (IOException e) {
+            // The loop's own select will deregister the key
+        } finally {
+            done.countDown();
+        }
+    }
+
+    /** Completes close requests still queued when the loop exits. */
+    private void releasePendingCloses() {
+        PendingRegistration pending;
+        while ((pending = pendingRegistrations.poll()) != null) {
+            if (pending.closed != null) {
+                closeQuietly(pending.channel);
+                pending.closed.countDown();
+            }
+        }
+    }
+
+    /**
      * Processes pending server registrations on the selector thread.
      */
     private void processPendingRegistrations() {
         PendingRegistration pending;
         while ((pending = pendingRegistrations.poll()) != null) {
             try {
-                if (pending.rawHandler != null) {
+                if (pending.closed != null) {
+                    doCloseRawAcceptor(pending.channel, pending.closed);
+                } else if (pending.rawHandler != null) {
                     doRegisterRawAcceptor(pending.rawHandler, pending.channel);
                 } else if (pending.listener != null) {
                     doRegisterListener(pending.listener);

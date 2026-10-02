@@ -266,9 +266,6 @@ public abstract class AbstractServerIntegrationTest {
                 }
             }
 
-            // Allow time for port release (TIME_WAIT socket state)
-            Thread.sleep(1500);
-            
             // Verify ports are released
             for (String addr : serverAddresses) {
                 String[] parts = addr.split(":");
@@ -300,60 +297,22 @@ public abstract class AbstractServerIntegrationTest {
      * Waits for the server to be ready by checking if ports are bound.
      */
     protected void waitForServerReady() throws InterruptedException {
-        long deadline = System.currentTimeMillis() + getStartupTimeout();
-        
-        while (System.currentTimeMillis() < deadline) {
-            boolean allReady = true;
-            StringBuilder status = new StringBuilder();
-            
-            for (TcpListener server : servers) {
-                int port = server.getPort();
-                boolean listening = isPortListening(IntegrationTestHosts.LOOPBACK, port);
-                status.append(server.getClass().getSimpleName())
-                      .append(":").append(port)
-                      .append("=").append(listening ? "UP" : "DOWN")
-                      .append(" ");
-                if (!listening) {
-                    allReady = false;
-                }
-            }
-            
-            List<String> bindFailures = gumdrop.getBindFailures();
-            if (!bindFailures.isEmpty()) {
-                // A probe cannot tell our listener from a stale one on the
-                // same port, so a failed bind is reported here, not later as
-                // a refused connection.
-                String failed = "Listener failed to bind: " + bindFailures;
-                testContext.logEvent("SERVER_BIND_FAILED", failed);
-                throw new IllegalStateException(failed);
-            }
-
-            if (allReady) {
-                // Wait for server to process any probe connections from isPortListening()
-                // before the actual test begins
-                Thread.sleep(500);
-                ListenerBindCheck.assertBound(gumdrop);
-                return;
-            }
-            
-            testContext.logEvent("SERVER_WAIT", "Waiting... " + status.toString());
-            Thread.sleep(100);
+        // Synchronise on Gumdrop's own startup signal (all listeners bound or
+        // failed) instead of probing ports; the timeout is only a hang guard.
+        boolean complete = gumdrop.awaitStartupComplete(getStartupTimeout());
+        List<String> bindFailures = gumdrop.getBindFailures();
+        if (!bindFailures.isEmpty()) {
+            String failed = "Listener failed to bind: " + bindFailures;
+            testContext.logEvent("SERVER_BIND_FAILED", failed);
+            throw new IllegalStateException(failed);
         }
-        
-        // Build detailed failure message
-        StringBuilder msg = new StringBuilder("Server failed to start within timeout:\n");
-        for (TcpListener server : servers) {
-            int port = server.getPort();
-            boolean listening = isPortListening(IntegrationTestHosts.LOOPBACK, port);
-            msg.append("  ").append(server.getClass().getSimpleName())
-               .append(" on port ").append(port)
-               .append(": ").append(listening ? "listening" : "NOT listening")
-               .append("\n");
+        if (!complete) {
+            String msg = "Server failed to start within timeout";
+            testContext.logEvent("SERVER_TIMEOUT", msg);
+            throw new IllegalStateException(msg);
         }
-        testContext.logEvent("SERVER_TIMEOUT", msg.toString());
-        throw new IllegalStateException(msg.toString());
     }
-    
+
     /**
      * Checks if a port is listening for connections.
      */
@@ -363,28 +322,6 @@ public abstract class AbstractServerIntegrationTest {
             return true;
         } catch (Exception e) {
             return false;
-        }
-    }
-    
-    /**
-     * Pauses briefly to allow async operations to complete.
-     */
-    protected void pause() {
-        try {
-            Thread.sleep(50);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        }
-    }
-    
-    /**
-     * Pauses for a specified duration.
-     */
-    protected void pause(long millis) {
-        try {
-            Thread.sleep(millis);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
         }
     }
     

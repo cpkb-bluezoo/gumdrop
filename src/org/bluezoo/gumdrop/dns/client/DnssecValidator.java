@@ -456,6 +456,9 @@ public final class DnssecValidator {
         for (int i = 0; i < keyData.length; i++) {
             reversed[i] = keyData[keyData.length - 1 - i];
         }
+        // RFC 8032 section 5.1.2: the top bit of the last wire byte is
+        // the sign of x, not part of y
+        reversed[0] = (byte) (reversed[0] & 0x7F);
         BigInteger y = new BigInteger(1, reversed);
         EdECPoint point = new EdECPoint(msb, y);
         EdECPublicKeySpec spec = new EdECPublicKeySpec(paramSpec, point);
