@@ -513,4 +513,38 @@ public final class HttpUtils {
         }
     }
 
+
+    private static final boolean[] TOKEN_OCTETS = new boolean[128];
+
+    static {
+        String punctuation = "!#$%&'*+-.^_`|~";
+        for (int c = 0; c < 128; c++) {
+            TOKEN_OCTETS[c] = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
+                    || (c >= '0' && c <= '9') || punctuation.indexOf(c) >= 0;
+        }
+    }
+
+    /**
+     * Returns whether an octet is a {@code tchar}, a character allowed in a
+     * token such as a field name or method (RFC 9110 section 5.6.2).
+     *
+     * @param b the octet
+     * @return true for a token character
+     */
+    public static boolean isTokenChar(byte b) {
+        return b > 0 && TOKEN_OCTETS[b];
+    }
+
+    /**
+     * Returns whether an octet may appear in a field value: horizontal tab,
+     * the printable ASCII characters and space, and octets above 0x7F, which
+     * are opaque (RFC 9110 section 5.5). Control characters and DEL may not.
+     *
+     * @param b the octet
+     * @return true if the octet is acceptable in a field value
+     */
+    public static boolean isFieldValueOctet(byte b) {
+        return b < 0 || b >= 0x20 && b != 0x7F || b == '\t';
+    }
+
 }

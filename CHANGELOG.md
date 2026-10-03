@@ -148,6 +148,30 @@ user-visible themes since 2.2.x.
 - **`gumdrop-http` no longer depends on the servlet API or JavaMail.**
   `HttpAuthenticationMethods` has its own `BASIC`/`DIGEST`/`FORM`/`CLIENT_CERT`
   constants (same values), and it no longer needs `gumdrop-mime`.
+- **`Http1Parser` and `HttpMessageHandler` (new, not yet wired into the server or
+  client).** A push parser for HTTP/1.x messages that reports a request or
+  response as events in the shape of `MimeHandler`: start events (`method`,
+  `target`, `version`, `status`, `reason`), typed field events (`contentType`,
+  `contentDisposition`, `longHeader`) and `header(name, ByteBuffer)` for the
+  rest, then `endHeaders`, body, `trailer`, `endMessage`, and `error`.
+  Values and body data are read-only views of the received bytes, not copies,
+  except for a field folded over several lines, which is rebuilt. It is strict
+  about what enables request smuggling: CRLF only, token names with nothing
+  before the colon, no control characters in values, and a contradictory
+  `Content-Length`/`Transfer-Encoding` is an error. `HttpMethod` is an open
+  enumeration (known constants, plus any other valid method token) and
+  `HttpError` names the failures. The HTTP/1.x `Host` field is reported as
+  `authority`, as `:authority` is in HTTP/2 and HTTP/3.
+- **`FieldSectionAdapter` (new, not yet wired into the server or client).**
+  Receives the fields the HPACK and QPACK decoders push and turns an HTTP/2 or
+  HTTP/3 field section into the same `HttpMessageHandler` events (the
+  pseudo-headers become `method`, `target`, `scheme`, `authority`, `protocol`
+  and `status`), applying RFC 9113 section 8 and RFC 9114 section 4: lower-case
+  names, pseudo-headers first and once, no connection-specific fields, the
+  pseudo-headers a request or response needs. A section that breaks the rules
+  is one `error` event, sent after the decoder has read all of it. A given
+  message now yields the same events over HTTP/1.x, HTTP/2 and HTTP/3, which a
+  test checks. `FieldDispatcher` is the shared typed-field logic.
 - **Header fields reach the receiver as octets, and are checked there (breaking).**
   The HPACK and QPACK decoders now deliver each field to a
   `HeaderFieldHandler` as the octets that were on the wire, replacing
