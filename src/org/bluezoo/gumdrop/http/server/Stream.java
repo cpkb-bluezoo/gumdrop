@@ -56,7 +56,9 @@ import org.bluezoo.gumdrop.NullSecurityInfo;
 import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.TimerHandle;
 import org.bluezoo.gumdrop.SecurityInfo;
-import org.bluezoo.gumdrop.http.HeaderFieldHandler;
+import org.bluezoo.gumdrop.http.FieldSectionAdapter;
+import org.bluezoo.gumdrop.http.HeaderCollector;
+import org.bluezoo.gumdrop.http.HttpMessageRecorder;
 import org.bluezoo.gumdrop.util.ByteBufferPool;
 import org.bluezoo.gumdrop.websocket.WebSocketConnection;
 import org.bluezoo.gumdrop.websocket.WebSocketEventHandler;
@@ -246,37 +248,27 @@ class Stream implements HttpResponseState {
     }
 
     /**
-     * Reusable header handler for HPACK decoding. Delegates to
-     * {@link #addHeader(Header)} rather than adding directly to
-     * {@code headers} -- HPACK-decoded requests (the normal, non-pushed
-     * HTTP/2 path) must populate {@code method}/{@code requestTarget} the
-     * same way the HTTP/1.1 path already does, or method-bound Digest
-     * authentication (RFC 7616 H(A2)) and HEAD response body suppression
-     * (RFC 9110 section 9.3.2) silently misbehave for HTTP/2.
+     * The events of the request's header section (or trailer section) as the
+     * HTTP/2 adapter produced them. The server decides what to do with a
+     * request (authentication, limits, upgrade, which handler to bind) from
+     * the whole header section, so the events wait here until that decision
+     * has been made and then go to the application handler.
      */
-    private final HeaderFieldHandler hpackHandler = new HeaderFieldHandler() {
-        @Override public void field(ByteBuffer name, ByteBuffer value) {
-            acceptField(name, value);
-        }
-    };
+    private final HttpMessageRecorder recordedEvents = new HttpMessageRecorder();
 
     /**
-     * Set while decoding a header block if any field in it was not valid HTTP
-     * field syntax. The decoder always consumes the whole block, so its
-     * dynamic table stays in step with the peer's; the stream is then rejected
-     * as malformed (RFC 9113 section 8.1.1), not the connection torn down.
+     * Set once the events of this request have been replayed to the handler;
+     * from then on the body and completion events follow, so a handler never
+     * sees a body without the start of the message.
      */
-    private boolean malformedField;
+    private boolean messageEvents;
 
-    /**
-     * Takes one decoded field: adds it to the headers, or notes that the
-     * block held a malformed one.
-     */
-    private void acceptField(ByteBuffer name, ByteBuffer value) {
-        try {
-            addHeader(Header.ofOctets(name, value));
-        } catch (IllegalArgumentException e) {
-            malformedField = true;
+    /** Replays the recorded header-section events to the bound handler. */
+    private void replayRecordedEvents() {
+        if (!recordedEvents.isEmpty()) {
+            messageEvents = true;
+            recordedEvents.replay(handler);
+            recordedEvents.clear();
         }
     }
 
@@ -494,14 +486,32 @@ class Stream implements HttpResponseState {
         return settings.isEmpty() ? null : settings;
     }
 
+    /** RFC 9113 section 8.1.1: answer a malformed request with a stream error. */
+    private void rejectMalformedRequest() {
+        rejectedByFramework = true;
+        connection.sendRstStream(streamId, H2FrameHandler.ERROR_PROTOCOL_ERROR);
+        state = State.CLOSED;
+        timestampCompleted = System.currentTimeMillis();
+    }
+
     void streamEndHeaders() {
         if (headerBlock != null) {
             headerBlock.flip();
+            // RFC 7541: HPACK decompression of the header block. The decoder
+            // pushes the fields into an adapter that applies the HTTP/2 rules
+            // (RFC 9113 section 8.2 and 8.3) and produces the message events;
+            // the same fields, as the exact octets, go to a collector for the
+            // server's own use.
+            recordedEvents.clear();
+            HeaderCollector collected = new HeaderCollector();
+            FieldSectionAdapter adapter = new FieldSectionAdapter(recordedEvents,
+                    HttpVersion.HTTP_2_0,
+                    requestHeadersDispatched ? FieldSectionAdapter.Kind.TRAILERS
+                                             : FieldSectionAdapter.Kind.REQUEST,
+                    collected);
             headers = new Headers();
-            malformedField = false;
             try {
-                // RFC 7541: HPACK decompression of the header block
-                connection.getHpackDecoder().decode(headerBlock, hpackHandler);
+                connection.getHpackDecoder().decode(headerBlock, adapter);
             } catch (IOException e) {
                 // RFC 9113 section 4.3: HPACK decompression failure MUST
                 // be treated as a connection error of type COMPRESSION_ERROR
@@ -514,18 +524,19 @@ class Stream implements HttpResponseState {
             }
             ByteBufferPool.release(headerBlock);
             headerBlock = null;
-        }
-        // RFC 9113 section 8.2: validate pseudo-headers and
-        // connection-specific header constraints. A field that was not valid
-        // field syntax makes the request malformed (section 8.1.1): a stream
-        // error, decided only now that the whole block has been decoded.
-        if (connection.getVersion() == HttpVersion.HTTP_2_0
-                && headers != null && (malformedField || !validateH2Headers())) {
-            rejectedByFramework = true;
-            connection.sendRstStream(streamId, H2FrameHandler.ERROR_PROTOCOL_ERROR);
-            state = State.CLOSED;
-            timestampCompleted = System.currentTimeMillis();
-            return;
+            // RFC 9113 section 8.1.1: a message that breaks the rules for
+            // fields, or has a field that is not valid field syntax, is
+            // malformed, a stream error, decided only now that the whole
+            // block has been decoded so the HPACK state stays in step.
+            boolean accepted = adapter.finish();
+            for (Header header : collected.headers()) {
+                addHeader(header);
+            }
+            if (!accepted || collected.isMalformed()) {
+                recordedEvents.clear();
+                rejectMalformedRequest();
+                return;
+            }
         }
         if (headers != null) {
             connection.applyRfc9218Priority(streamId, headers);
@@ -760,6 +771,7 @@ class Stream implements HttpResponseState {
             } else if (!handlerBodyStarted && !prepareRequestContentDecoding(headers)) {
                 return;
             }
+            replayRecordedEvents();
             handler.headers(this, headers);
         } else {
             openApplicationHandler();
@@ -767,6 +779,7 @@ class Stream implements HttpResponseState {
                 if (!prepareRequestContentDecoding(headers)) {
                     return;
                 }
+                replayRecordedEvents();
                 handler.headers(this, headers);
                 capsuleMode = Capsule.capsuleProtocolEnabled(headers);
             } else if (responseState == ResponseState.INITIAL) {
@@ -849,80 +862,6 @@ class Stream implements HttpResponseState {
                 span.addAttribute("http.user_agent", userAgent);
             }
         }
-    }
-
-    /**
-     * Validates HTTP/2 request headers per RFC 9113 section 8.2 and 8.3.
-     * Returns false if the headers are malformed.
-     */
-    private boolean validateH2Headers() {
-        boolean pastPseudo = false;
-        boolean hasMethod = false;
-        boolean hasScheme = false;
-        boolean hasPath = false;
-        boolean hasProtocol = false;
-        String methodValue = null;
-        Set<String> seenPseudo = new HashSet<String>();
-
-        for (Header header : headers) {
-            String name = header.getName();
-            if (name.startsWith(":")) {
-                // RFC 9113 section 8.3: pseudo-headers MUST appear
-                // before regular headers
-                if (pastPseudo) {
-                    LOGGER.warning(MessageFormat.format(
-                            L10N.getString("warn.pseudo_header_after_regular"), name));
-                    return false;
-                }
-                // RFC 9113 section 8.3: each pseudo-header MUST appear
-                // at most once
-                if (!seenPseudo.add(name)) {
-                    LOGGER.warning(MessageFormat.format(
-                            L10N.getString("warn.duplicate_pseudo_header"), name));
-                    return false;
-                }
-                if (":method".equals(name)) {
-                    hasMethod = true;
-                    methodValue = header.getValue();
-                } else if (":scheme".equals(name)) {
-                    hasScheme = true;
-                } else if (":path".equals(name)) {
-                    hasPath = true;
-                } else if (":protocol".equals(name)) {
-                    hasProtocol = true;
-                }
-            } else {
-                pastPseudo = true;
-                // RFC 9113 section 8.2.2: a request carrying a
-                // connection-specific header field MUST be treated as
-                // malformed. Content-Length is not one (section 8.1.1).
-                if (!"content-length".equalsIgnoreCase(name)
-                        && HttpVersion.isHttp1FramingHeader(name, header.getValue())) {
-                    LOGGER.warning(MessageFormat.format(
-                            L10N.getString("warn.connection_specific_header"), name));
-                    return false;
-                }
-            }
-        }
-
-        // RFC 9113 section 8.3.1: CONNECT requests need only :method
-        if ("CONNECT".equals(methodValue)) {
-            // RFC 8441 section 4: an *extended* CONNECT (:protocol present,
-            // used to bootstrap WebSocket-over-HTTP/2) additionally
-            // requires :scheme and :path, unlike classic CONNECT.
-            if (hasProtocol) {
-                return hasMethod && hasScheme && hasPath;
-            }
-            return hasMethod;
-        }
-        // RFC 9113 section 8.3.1: all other requests MUST include
-        // :method, :scheme, and :path
-        if (!hasMethod || !hasScheme || !hasPath) {
-            LOGGER.warning(MessageFormat.format(
-                    L10N.getString("warn.missing_pseudo_headers"), hasMethod, hasScheme, hasPath));
-            return false;
-        }
-        return true;
     }
 
     /**
@@ -1019,6 +958,9 @@ class Stream implements HttpResponseState {
             if (!handlerBodyStarted) {
                 handlerBodyStarted = true;
                 handler.startRequestBody(this);
+            }
+            if (messageEvents) {
+                handler.bodyContent(buf.asReadOnlyBuffer());
             }
             handler.requestBodyContent(this, buf);
         }
@@ -1157,6 +1099,9 @@ class Stream implements HttpResponseState {
             // already committed by an earlier streamEndRequest().
             if (responseState != ResponseState.COMPLETE) {
                 handlerFinished = true;
+                if (messageEvents) {
+                    handler.endMessage();
+                }
                 handler.requestComplete(this);
             }
         }
@@ -1502,6 +1447,9 @@ class Stream implements HttpResponseState {
                 if (!handlerBodyStarted) {
                     handlerBodyStarted = true;
                     handler.startRequestBody(this);
+                }
+                if (messageEvents) {
+                    handler.bodyContent(decoded.asReadOnlyBuffer());
                 }
                 handler.requestBodyContent(this, decoded);
             }

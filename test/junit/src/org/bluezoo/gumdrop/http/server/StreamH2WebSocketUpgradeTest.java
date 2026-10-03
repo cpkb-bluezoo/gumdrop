@@ -88,7 +88,8 @@ public class StreamH2WebSocketUpgradeTest {
         }
         @Override public void switchToStreamTunnelMode(int streamId) { }
         @Override public org.bluezoo.gumdrop.TimerHandle scheduleTimer(long delayMs, Runnable callback) { return null; }
-        @Override public Decoder getHpackDecoder() { return null; }
+        private final Decoder hpackDecoder = new Decoder(4096);
+        @Override public Decoder getHpackDecoder() { return hpackDecoder; }
         @Override public boolean isSecure() { return true; }
         @Override public TelemetryConfig getTelemetryConfig() { return null; }
         @Override public Trace getTrace() { return null; }
@@ -130,15 +131,23 @@ public class StreamH2WebSocketUpgradeTest {
         };
     }
 
-    // -- validateH2Headers() via Extended CONNECT (RFC 8441 section 4) --
+    /** An HPACK header block for the given fields, as a client would send it. */
+    private static ByteBuffer block(Header... fields) throws Exception {
+        ByteBuffer out = ByteBuffer.allocate(1024);
+        new org.bluezoo.gumdrop.http.hpack.Encoder(4096, Integer.MAX_VALUE)
+                .encode(out, java.util.Arrays.asList(fields));
+        out.flip();
+        return out;
+    }
+
+    // -- the rules for a request's pseudo-headers via Extended CONNECT (RFC 8441 section 4) --
 
     @Test
-    public void testExtendedConnectMissingSchemeRejected() {
+    public void testExtendedConnectMissingSchemeRejected() throws Exception {
         StubConnection conn = new StubConnection();
         Stream stream = new Stream(conn, 1);
-        stream.addHeader(new Header(":method", "CONNECT"));
-        stream.addHeader(new Header(":protocol", "websocket"));
-        stream.addHeader(new Header(":path", "/ws"));
+        stream.appendHeaderBlockFragment(block(new Header(":method", "CONNECT"),
+                new Header(":protocol", "websocket"), new Header(":path", "/ws")));
         stream.streamEndHeaders();
 
         assertTrue("extended CONNECT missing :scheme must be rejected", conn.rstStreamSent);
@@ -146,12 +155,11 @@ public class StreamH2WebSocketUpgradeTest {
     }
 
     @Test
-    public void testExtendedConnectMissingPathRejected() {
+    public void testExtendedConnectMissingPathRejected() throws Exception {
         StubConnection conn = new StubConnection();
         Stream stream = new Stream(conn, 1);
-        stream.addHeader(new Header(":method", "CONNECT"));
-        stream.addHeader(new Header(":protocol", "websocket"));
-        stream.addHeader(new Header(":scheme", "https"));
+        stream.appendHeaderBlockFragment(block(new Header(":method", "CONNECT"),
+                new Header(":protocol", "websocket"), new Header(":scheme", "https")));
         stream.streamEndHeaders();
 
         assertTrue("extended CONNECT missing :path must be rejected", conn.rstStreamSent);
@@ -173,16 +181,28 @@ public class StreamH2WebSocketUpgradeTest {
     }
 
     @Test
-    public void testClassicConnectStillOnlyNeedsMethod() {
-        // RFC 9113 section 8.3.1: classic (non-extended) CONNECT, no
-        // :protocol, needs only :method -- unaffected by the RFC 8441 change.
+    public void testClassicConnectNeedsOnlyTheAuthority() throws Exception {
+        // RFC 9113 section 8.5: classic (non-extended) CONNECT, no :protocol,
+        // has :method and :authority and no :scheme or :path.
         StubConnection conn = new StubConnection();
         Stream stream = new Stream(conn, 1);
-        stream.addHeader(new Header(":method", "CONNECT"));
+        stream.appendHeaderBlockFragment(block(new Header(":method", "CONNECT"),
+                new Header(":authority", "example.test:443")));
         stream.streamEndHeaders();
 
         assertFalse("classic CONNECT (no :protocol) must not require :scheme/:path",
                 conn.rstStreamSent);
+    }
+
+    @Test
+    public void testClassicConnectWithoutAnAuthorityIsRejected() throws Exception {
+        StubConnection conn = new StubConnection();
+        Stream stream = new Stream(conn, 1);
+        stream.appendHeaderBlockFragment(block(new Header(":method", "CONNECT")));
+        stream.streamEndHeaders();
+
+        assertTrue(conn.rstStreamSent);
+        assertEquals(H2FrameHandler.ERROR_PROTOCOL_ERROR, conn.lastRstStreamErrorCode);
     }
 
     @Test

@@ -28,7 +28,9 @@ import static org.junit.Assert.assertTrue;
 
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.List;
 
 import org.bluezoo.gumdrop.testsupport.RecordingMessageHandler;
 import org.junit.Test;
@@ -142,6 +144,19 @@ public class FieldSectionAdapterTest {
                 ":path", "/chat", ":authority", "example.test"),
                 "version HTTP/2.0", "method CONNECT", "protocol websocket", "scheme https",
                 "target /chat", "authority example.test", "endHeaders");
+    }
+
+    @Test
+    public void extendedConnectNeedsSchemeAndPath() {
+        // RFC 8441 section 4
+        assertRefused(request(":method", "CONNECT", ":protocol", "websocket", ":path", "/chat",
+                ":authority", "example.test"),
+                "version HTTP/2.0", "method CONNECT", "protocol websocket", "target /chat",
+                "authority example.test");
+        assertRefused(request(":method", "CONNECT", ":protocol", "websocket", ":scheme", "https",
+                ":authority", "example.test"),
+                "version HTTP/2.0", "method CONNECT", "protocol websocket", "scheme https",
+                "authority example.test");
     }
 
     @Test
@@ -302,5 +317,48 @@ public class FieldSectionAdapterTest {
     public void pseudoHeaderInTrailersIsMalformed() {
         RecordingMessageHandler r = run(FieldSectionAdapter.Kind.TRAILERS, null, ":status", "200");
         assertEvents(r, "error MALFORMED");
+    }
+
+    // ---- raw tap ----
+
+    @Test
+    public void aTapSeesEveryAcceptedFieldAsTheOriginalOctets() {
+        final List<String> tapped = new ArrayList<String>();
+        HeaderFieldHandler tap = new HeaderFieldHandler() {
+            @Override
+            public void field(ByteBuffer name, ByteBuffer value) {
+                tapped.add(RecordingMessageHandler.text(name) + "=" + RecordingMessageHandler.text(value));
+            }
+        };
+        RecordingMessageHandler r = new RecordingMessageHandler();
+        FieldSectionAdapter a = new FieldSectionAdapter(r, HttpVersion.HTTP_2_0,
+                FieldSectionAdapter.Kind.REQUEST, tap);
+        String[] fields = with(GET, "content-type", "text/plain;charset=utf-8", "content-length", "007");
+        for (int i = 0; i < fields.length; i += 2) {
+            a.field(b(fields[i]), b(fields[i + 1]));
+        }
+        assertTrue(a.finish());
+        // typed events lose the exact text ("007" becomes 7); the tap keeps it
+        assertEquals(Arrays.asList(":method=GET", ":scheme=https", ":path=/x", ":authority=example.test",
+                "content-type=text/plain;charset=utf-8", "content-length=007"), tapped);
+        assertTrue(r.events.contains("long content-length 7"));
+    }
+
+    @Test
+    public void aTapIsNotGivenAFieldTheAdapterRefused() {
+        final List<String> tapped = new ArrayList<String>();
+        HeaderFieldHandler tap = new HeaderFieldHandler() {
+            @Override
+            public void field(ByteBuffer name, ByteBuffer value) {
+                tapped.add(RecordingMessageHandler.text(name));
+            }
+        };
+        FieldSectionAdapter a = new FieldSectionAdapter(new RecordingMessageHandler(), HttpVersion.HTTP_2_0,
+                FieldSectionAdapter.Kind.REQUEST, tap);
+        a.field(b(":method"), b("GET"));
+        a.field(b("Bad-Name"), b("x"));
+        a.field(b("accept"), b("*/*"));
+        assertFalse(a.finish());
+        assertEquals(Arrays.asList(":method"), tapped);
     }
 }

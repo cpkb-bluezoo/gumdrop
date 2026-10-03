@@ -58,7 +58,9 @@ import org.bluezoo.gumdrop.http.ContentEncoding;
 import org.bluezoo.gumdrop.http.HttpUtils;
 import org.bluezoo.gumdrop.http.HttpVersion;
 import org.bluezoo.gumdrop.http.Header;
+import org.bluezoo.gumdrop.http.FieldSectionAdapter;
 import org.bluezoo.gumdrop.http.HeaderCollector;
+import org.bluezoo.gumdrop.http.HttpMessageRecorder;
 import org.bluezoo.gumdrop.http.Headers;
 import org.bluezoo.gumdrop.http.Capsule;
 import org.bluezoo.gumdrop.http.CapsuleParser;
@@ -190,6 +192,31 @@ class H3Stream implements ProtocolHandler, H3FrameHandler, HttpResponseState {
         this.state = State.IDLE;
     }
 
+    /**
+     * The events of the request's header section (or trailer section) as the
+     * HTTP/3 adapter produced them. The server decides what to do with a
+     * request (authentication, limits, which handler to bind) from the whole
+     * header section, so the events wait here until that decision has been
+     * made and then go to the application handler.
+     */
+    private final HttpMessageRecorder recordedEvents = new HttpMessageRecorder();
+
+    /**
+     * Set once the events of this request have been replayed to the handler;
+     * from then on the body and completion events follow, so a handler never
+     * sees a body without the start of the message.
+     */
+    private boolean messageEvents;
+
+    /** Replays the recorded header-section events to the bound handler. */
+    private void replayRecordedEvents() {
+        if (!recordedEvents.isEmpty()) {
+            messageEvents = true;
+            recordedEvents.replay(handler);
+            recordedEvents.clear();
+        }
+    }
+
     void openApplicationHandler() {
         if (applicationHandlerOpened || handler != null || connection == null) {
             return;
@@ -310,9 +337,17 @@ class H3Stream implements ProtocolHandler, H3FrameHandler, HttpResponseState {
      */
     @Override
     public void headersFrameReceived(ByteBuffer encodedFieldSection) {
+        // The decoder pushes the fields into an adapter that applies the
+        // HTTP/3 rules (RFC 9114 section 4.2 and 4.3) and produces the message
+        // events; the same fields, as the exact octets, go to a collector for
+        // the server's own use.
+        recordedEvents.clear();
         HeaderCollector collected = new HeaderCollector();
+        FieldSectionAdapter adapter = new FieldSectionAdapter(recordedEvents, HttpVersion.HTTP_3,
+                state == State.IDLE ? FieldSectionAdapter.Kind.REQUEST : FieldSectionAdapter.Kind.TRAILERS,
+                collected);
         try {
-            qpackDecoder.decode(streamId, encodedFieldSection, collected);
+            qpackDecoder.decode(streamId, encodedFieldSection, adapter);
         } catch (ProtocolException e) {
             // Treated as this stream's own malformed HEADERS -- cancelling
             // just this stream, rather than tearing down the whole
@@ -326,10 +361,12 @@ class H3Stream implements ProtocolHandler, H3FrameHandler, HttpResponseState {
             return;
         }
         headersDecoded = true;
-        if (collected.isMalformed()) {
-            // RFC 9114 section 4.1.2: a field that is not valid field syntax
-            // makes the request malformed, a stream error. The section was
-            // decoded and acknowledged in full, so the QPACK state is intact.
+        if (!adapter.finish() || collected.isMalformed()) {
+            // RFC 9114 section 4.1.2: a field that breaks the rules, or is not
+            // valid field syntax, makes the request malformed, a stream error.
+            // The section was decoded and acknowledged in full, so the QPACK
+            // state is intact.
+            recordedEvents.clear();
             abortMessageError("malformed header field");
             if (connection != null) {
                 connection.flushQpackDecoderInstructions();
@@ -428,9 +465,11 @@ class H3Stream implements ProtocolHandler, H3FrameHandler, HttpResponseState {
             if (!prepareRequestContentDecoding(headers)) {
                 return;
             }
+            replayRecordedEvents();
             handler.headers(this, headers);
         } else if (state == State.RECEIVING_BODY || state == State.HALF_CLOSED_REMOTE) {
             if (handler != null) {
+                replayRecordedEvents();
                 handler.headers(this, headers);
             }
         }
@@ -482,6 +521,9 @@ class H3Stream implements ProtocolHandler, H3FrameHandler, HttpResponseState {
             return;
         }
         if (handler != null) {
+            if (messageEvents) {
+                handler.bodyContent(data.asReadOnlyBuffer());
+            }
             handler.requestBodyContent(this, data);
         }
     }
@@ -538,6 +580,9 @@ class H3Stream implements ProtocolHandler, H3FrameHandler, HttpResponseState {
         }
         state = State.HALF_CLOSED_REMOTE;
         if (handler != null) {
+            if (messageEvents) {
+                handler.endMessage();
+            }
             handler.requestComplete(this);
         }
     }
@@ -1513,6 +1558,9 @@ class H3Stream implements ProtocolHandler, H3FrameHandler, HttpResponseState {
                 if (!bodyStarted) {
                     bodyStarted = true;
                     handler.startRequestBody(this);
+                }
+                if (messageEvents) {
+                    handler.bodyContent(decoded.asReadOnlyBuffer());
                 }
                 handler.requestBodyContent(this, decoded);
             }

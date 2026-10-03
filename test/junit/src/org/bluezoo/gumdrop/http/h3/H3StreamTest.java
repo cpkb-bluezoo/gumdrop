@@ -74,7 +74,10 @@ public class H3StreamTest {
             // confirms the error-response path was reached
         }
 
-        assertEquals("GET", getField(stream, "method"));
+        // The field section is refused as a whole, before the stream accepts any
+        // of it: the request is malformed (RFC 9114 section 4.1.2).
+        assertNull("method should not have been accepted", getField(stream, "method"));
+        assertEquals("CLOSED", getState(stream));
     }
 
     /**

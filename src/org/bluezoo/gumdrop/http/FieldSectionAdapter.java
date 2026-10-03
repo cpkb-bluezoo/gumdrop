@@ -73,6 +73,7 @@ public final class FieldSectionAdapter implements HeaderFieldHandler {
     private final HttpVersion version;
     private final Kind kind;
     private final FieldDispatcher dispatcher;
+    private final HeaderFieldHandler tap;
 
     private boolean versionSent;
     private boolean sawRegularField;
@@ -94,6 +95,24 @@ public final class FieldSectionAdapter implements HeaderFieldHandler {
      * @param kind which section of a message it is
      */
     public FieldSectionAdapter(HttpMessageHandler handler, HttpVersion version, Kind kind) {
+        this(handler, version, kind, null);
+    }
+
+    /**
+     * Creates an adapter that also passes every accepted field, as the
+     * original octets, to {@code tap}. The typed events do not always keep
+     * the exact text of a field ({@code Content-Length: 007} is the number 7),
+     * so a receiver that needs the field as it was sent, as the server does for
+     * its own bookkeeping, takes it from here.
+     *
+     * @param handler receives the events
+     * @param version the protocol the section arrived over
+     * @param kind which section of a message it is
+     * @param tap receives each accepted field's name and value octets, or null
+     */
+    public FieldSectionAdapter(HttpMessageHandler handler, HttpVersion version, Kind kind,
+            HeaderFieldHandler tap) {
+        this.tap = tap;
         this.handler = handler;
         this.version = version;
         this.kind = kind;
@@ -132,10 +151,18 @@ public final class FieldSectionAdapter implements HeaderFieldHandler {
             malformed = "invalid value for " + text(name);
             return;
         }
+        int namePosition = name.position();
+        int valuePosition = value.position();
         if (pseudo) {
             pseudoHeader(text(name), value);
         } else {
             regularField(text(name), value);
+        }
+        if (tap != null && !failed && malformed == null) {
+            // a receiver may have consumed the buffers; give the tap the whole field
+            name.position(namePosition);
+            value.position(valuePosition);
+            tap.field(name, value);
         }
     }
 

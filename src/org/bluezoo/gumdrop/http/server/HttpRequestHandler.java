@@ -23,7 +23,13 @@ package org.bluezoo.gumdrop.http.server;
 
 import org.bluezoo.gumdrop.http.Capsule;
 import org.bluezoo.gumdrop.http.Headers;
+import org.bluezoo.gumdrop.http.HttpError;
+import org.bluezoo.gumdrop.http.HttpMessageHandler;
+import org.bluezoo.gumdrop.http.HttpMethod;
 import org.bluezoo.gumdrop.http.HttpStatus;
+import org.bluezoo.gumdrop.http.HttpVersion;
+import org.bluezoo.gumdrop.mime.ContentDisposition;
+import org.bluezoo.gumdrop.mime.ContentType;
 
 import java.nio.ByteBuffer;
 
@@ -78,16 +84,16 @@ import java.nio.ByteBuffer;
  * public class HelloHandler extends DefaultHttpRequestHandler {
  *     
  *     @Override
- *     public void headers(HttpResponseState state, Headers headers) {
+ *     public void headers(HttpResponseState response, Headers headers) {
  *         if ("GET".equals(headers.getMethod())) {
- *             Headers response = new Headers();
- *             response.status(HttpStatus.OK);
- *             response.add("content-type", "text/plain");
- *             state.headers(response);
- *             state.startResponseBody();
- *             state.responseBodyContent(ByteBuffer.wrap("Hello, World!".getBytes()));
- *             state.endResponseBody();
- *             state.complete();
+ *             Headers fields = new Headers();
+ *             fields.status(HttpStatus.OK);
+ *             fields.add("content-type", "text/plain");
+ *             response.headers(fields);
+ *             response.startResponseBody();
+ *             response.responseBodyContent(ByteBuffer.wrap("Hello, World!".getBytes()));
+ *             response.endResponseBody();
+ *             response.complete();
  *         }
  *     }
  * }
@@ -98,7 +104,34 @@ import java.nio.ByteBuffer;
  * @see HttpResponseState
  * @see HttpStreamHandler
  */
-public interface HttpRequestHandler {
+public interface HttpRequestHandler extends HttpMessageHandler {
+
+    // ---- HttpMessageHandler events ----
+    //
+    // A request arrives as the events of HttpMessageHandler (method, target,
+    // fields, endHeaders, body, endMessage), the same whichever protocol
+    // carried it. They default to doing nothing so that a handler written for
+    // the older headers/startRequestBody/requestBodyContent/requestComplete
+    // methods below keeps working while handlers move over to the events; those
+    // methods will then be removed.
+
+    @Override default void method(HttpMethod method) { }
+    @Override default void target(ByteBuffer target) { }
+    @Override default void scheme(ByteBuffer scheme) { }
+    @Override default void authority(ByteBuffer authority) { }
+    @Override default void protocol(ByteBuffer protocol) { }
+    @Override default void version(HttpVersion version) { }
+    @Override default void status(int code) { }
+    @Override default void reason(ByteBuffer phrase) { }
+    @Override default void contentType(ContentType contentType) { }
+    @Override default void contentDisposition(ContentDisposition contentDisposition) { }
+    @Override default void longHeader(String name, long value) { }
+    @Override default void header(String name, ByteBuffer value) { }
+    @Override default void endHeaders() { }
+    @Override default void bodyContent(ByteBuffer data) { }
+    @Override default void trailer(String name, ByteBuffer value) { }
+    @Override default void endMessage() { }
+    @Override default void error(HttpError error, String detail) { }
 
     /**
      * Headers received.
@@ -116,10 +149,10 @@ public interface HttpRequestHandler {
      * headers before {@code startRequestBody()} are request headers;
      * headers after {@code endRequestBody()} are trailers.
      *
-     * @param state the response state for sending the response
+     * @param response for sending the response
      * @param headers the headers (pseudo-headers normalized for all HTTP versions)
      */
-    void headers(HttpResponseState state, Headers headers);
+    void headers(HttpResponseState response, Headers headers);
 
     /**
      * Request body is starting.
@@ -127,9 +160,9 @@ public interface HttpRequestHandler {
      * <p>Called before the first {@link #requestBodyContent} if the request
      * has a body. Not called for requests without a body (GET, HEAD, etc.).
      *
-     * @param state the response state
+     * @param response the response
      */
-    void startRequestBody(HttpResponseState state);
+    void startRequestBody(HttpResponseState response);
 
     /**
      * Request body data received.
@@ -138,10 +171,10 @@ public interface HttpRequestHandler {
      * times. The buffer is only valid during this callback - if the data
      * is needed later, it must be copied.
      *
-     * @param state the response state
+     * @param response the response
      * @param data the body data (position and limit define valid range)
      */
-    void requestBodyContent(HttpResponseState state, ByteBuffer data);
+    void requestBodyContent(HttpResponseState response, ByteBuffer data);
 
     /**
      * Request body complete.
@@ -150,9 +183,9 @@ public interface HttpRequestHandler {
      * data has been received. Trailer headers (if any) will follow via
      * {@link #headers} before {@link #requestComplete}.
      *
-     * @param state the response state
+     * @param response the response
      */
-    void endRequestBody(HttpResponseState state);
+    void endRequestBody(HttpResponseState response);
 
     /**
      * Request stream closed from client side.
@@ -161,9 +194,9 @@ public interface HttpRequestHandler {
      * be delivered. The handler should complete its response if not
      * already done.
      *
-     * @param state the response state
+     * @param response the response
      */
-    void requestComplete(HttpResponseState state);
+    void requestComplete(HttpResponseState response);
 
     /**
      * The request failed due to a transport or protocol-level error
@@ -176,7 +209,7 @@ public interface HttpRequestHandler {
      * final callback for this stream: it is delivered at most once, never
      * after {@link #requestComplete}, and never for a request the server
      * itself rejected before it reached this handler. No more events will
-     * be delivered, and any response already sent through {@code state}
+     * be delivered, and any response already sent through {@code response}
      * is final.
      *
      * <p>Default implementation does nothing, so existing implementations
@@ -185,10 +218,10 @@ public interface HttpRequestHandler {
      * org.bluezoo.gumdrop.http.client.HttpResponseHandler#failed} already
      * lets client code do for the client side.
      *
-     * @param state the response state
+     * @param response the response
      * @param cause the error
      */
-    default void failed(HttpResponseState state, Exception cause) {
+    default void failed(HttpResponseState response, Exception cause) {
         // Default: do nothing
     }
 
@@ -227,10 +260,10 @@ public interface HttpRequestHandler {
      * demuxed by quarter-stream-ID, or a DATAGRAM capsule). Only called
      * when {@link #wantsDatagrams()} is true.
      *
-     * @param state the response state
+     * @param response the response
      * @param data the datagram payload; valid only during this call
      */
-    default void datagramReceived(HttpResponseState state, ByteBuffer data) {
+    default void datagramReceived(HttpResponseState response, ByteBuffer data) {
         // Default: do nothing
     }
 
@@ -238,11 +271,11 @@ public interface HttpRequestHandler {
      * A Capsule Protocol capsule other than DATAGRAM (RFC 9297
      * section 3.2). Unknown types should usually be ignored.
      *
-     * @param state the response state
+     * @param response the response
      * @param type the Capsule Type
      * @param value the Capsule Value; valid only during this call
      */
-    default void capsuleReceived(HttpResponseState state, long type, ByteBuffer value) {
+    default void capsuleReceived(HttpResponseState response, long type, ByteBuffer value) {
         // Default: do nothing
     }
 

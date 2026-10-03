@@ -162,7 +162,24 @@ user-visible themes since 2.2.x.
   enumeration (known constants, plus any other valid method token) and
   `HttpError` names the failures. The HTTP/1.x `Host` field is reported as
   `authority`, as `:authority` is in HTTP/2 and HTTP/3.
-- **`FieldSectionAdapter` (new, not yet wired into the server or client).**
+- **The server's HTTP/2 and HTTP/3 request paths now run on the message events (breaking
+  for handler authors, in stages).** `HttpRequestHandler` extends
+  `HttpMessageHandler`. A request over HTTP/2 or HTTP/3 reaches a handler as
+  `version`, `method`, `scheme`, `target`, `authority`, the field events,
+  `endHeaders`, `bodyContent` and `endMessage`, in that order. The server
+  holds the header section until it has decided what to do with the request
+  (authentication, size limits, upgrade, which handler to bind) and then replays
+  it (`HttpMessageRecorder`). The older `headers`, `startRequestBody`,
+  `requestBodyContent`, `endRequestBody` and `requestComplete` methods are still
+  called, so existing handlers keep working while they move over; they will be
+  removed. The new events are not yet sent for HTTP/1.x requests. The
+  `state` parameter of the handler methods is now named `response`.
+  Consequences of the stricter rules now being applied in one place
+  (`FieldSectionAdapter`): a plain `CONNECT` over HTTP/2 or HTTP/3 must have
+  `:authority` and no `:scheme` or `:path` (RFC 9113 section 8.5); a pseudo-header in
+  trailers is refused; and an HTTP/3 request missing a mandatory pseudo-header
+  is reset with `H3_MESSAGE_ERROR` instead of being answered with a 400.
+- **`FieldSectionAdapter`.**
   Receives the fields the HPACK and QPACK decoders push and turns an HTTP/2 or
   HTTP/3 field section into the same `HttpMessageHandler` events (the
   pseudo-headers become `method`, `target`, `scheme`, `authority`, `protocol`

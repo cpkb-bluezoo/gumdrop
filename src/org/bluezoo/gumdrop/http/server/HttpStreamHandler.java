@@ -37,11 +37,11 @@ public interface HttpStreamHandler {
     /**
      * Opens the application handler for a new stream.
      *
-     * @param stream response state for this stream
+     * @param response the response for this stream, to send the reply with
      * @return the handler for this stream's lifecycle, or {@code null} to
      *         reject with {@code 404 Not Found} if no response was sent via
      *         {@code stream}
      */
-    HttpRequestHandler openStream(HttpResponseState stream);
+    HttpRequestHandler openStream(HttpResponseState response);
 
 }
