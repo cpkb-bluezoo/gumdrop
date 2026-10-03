@@ -179,7 +179,7 @@ class FileHandler extends DefaultHttpRequestHandler {
     private Headers requestHeaders;
 
     /** The response of the stream carrying the request. */
-    private final HttpResponse state;
+    private final HttpResponse response;
 
     /** Set once body bytes have arrived (the request has a body). */
     private boolean bodyReceived;
@@ -218,7 +218,7 @@ class FileHandler extends DefaultHttpRequestHandler {
                 String allowedOptions, String[] welcomeFiles,
                 Map<String, String> contentTypes, WebDAVLockManager lockManager,
                 DeadPropertyStore deadPropertyStore, Realm realm) {
-        this.state = response;
+        this.response = response;
         this.rootPath = rootPath;
         Path canonical;
         try {
@@ -295,7 +295,7 @@ class FileHandler extends DefaultHttpRequestHandler {
 
     @Override
     public void endHeaders() {
-        SelectorLoop loop = state.getSelectorLoop();
+        SelectorLoop loop = response.getSelectorLoop();
         if (deadPropertyStore != null) {
             deadPropertyStore.setGumdrop((loop != null) ? loop.getGumdrop() : null);
         }
@@ -306,7 +306,7 @@ class FileHandler extends DefaultHttpRequestHandler {
             // WebDAVRequestHandler.Builder#realm) already authenticated
             // this request as; this class performs no authentication of
             // its own.
-            principal = state.getPrincipal();
+            principal = response.getPrincipal();
             realm = (loop != null) ? serverRealm.forSelectorLoop(loop) : serverRealm;
         }
         // Extract request info from headers
@@ -352,10 +352,10 @@ class FileHandler extends DefaultHttpRequestHandler {
         
         // Process the request
         try {
-            processRequest(state);
+            processRequest(response);
         } catch (Exception e) {
             LOGGER.log(Level.SEVERE, L10N.getString("severe.error_processing_file_request"), e);
-            sendError(state, HttpStatus.INTERNAL_SERVER_ERROR);
+            sendError(response, HttpStatus.INTERNAL_SERVER_ERROR);
         }
     }
 
@@ -401,14 +401,14 @@ class FileHandler extends DefaultHttpRequestHandler {
             allRequestBodyReceived = true;
         }
         
-        state.pauseRequestBody();
+        response.pauseRequestBody();
         long pos = writePosition;
         asyncWriteChannel.write(copy, pos, copy, new CompletionHandler<Integer, ByteBuffer>() {
             @Override
             public void completed(Integer result, ByteBuffer attachment) {
                 int bytesWritten = result;
                 final CompletionHandler<Integer, ByteBuffer> handler = this;
-                state.execute(new Runnable() {
+                response.execute(new Runnable() {
                     @Override
                     public void run() {
                         // The channel has already advanced the buffer's
@@ -420,10 +420,10 @@ class FileHandler extends DefaultHttpRequestHandler {
                                     attachment, handler);
                         } else {
                             ByteBufferPool.release(attachment);
-                            state.resumeRequestBody();
+                            response.resumeRequestBody();
                             if (allRequestBodyReceived
                                     && writePosition >= bytesReceived) {
-                                finalizePutRequest(state);
+                                finalizePutRequest(response);
                             }
                         }
                     }
@@ -435,10 +435,10 @@ class FileHandler extends DefaultHttpRequestHandler {
                 LOGGER.log(Level.SEVERE, L10N.getString("severe.error_writing_request_body_to_file"), exc);
                 closeWriteChannel();
                 ByteBufferPool.release(attachment);
-                state.execute(new Runnable() {
+                response.execute(new Runnable() {
                     @Override
                     public void run() {
-                        sendError(state, HttpStatus.INTERNAL_SERVER_ERROR);
+                        sendError(response, HttpStatus.INTERNAL_SERVER_ERROR);
                     }
                 });
             }
@@ -450,15 +450,15 @@ class FileHandler extends DefaultHttpRequestHandler {
         // Finalize WebDAV request
         if (webdavParser != null) {
             if (webdavBodyTooLarge) {
-                sendError(state, HttpStatus.PAYLOAD_TOO_LARGE);
+                sendError(response, HttpStatus.PAYLOAD_TOO_LARGE);
                 return;
             }
             try {
                 webdavParser.close();
-                finalizeWebDAVRequest(state);
+                finalizeWebDAVRequest(response);
             } catch (IOException e) {
                 LOGGER.log(Level.WARNING, L10N.getString("warn.error_finalizing_webdav_request"), e);
-                sendError(state, HttpStatus.BAD_REQUEST);
+                sendError(response, HttpStatus.BAD_REQUEST);
             }
             return;
         }
@@ -467,7 +467,7 @@ class FileHandler extends DefaultHttpRequestHandler {
         if (requestBodyExpected && asyncWriteChannel != null) {
             allRequestBodyReceived = true;
             if (writePosition >= bytesReceived) {
-                finalizePutRequest(state);
+                finalizePutRequest(response);
             }
         }
     }
@@ -491,33 +491,33 @@ class FileHandler extends DefaultHttpRequestHandler {
         webdavParser = null;
     }
 
-    private void processRequest(HttpResponse state) throws IOException {
+    private void processRequest(HttpResponse response) throws IOException {
         if ("GET".equals(method) || "HEAD".equals(method)) {
-            handleGetOrHead(state);
+            handleGetOrHead(response);
         } else if ("OPTIONS".equals(method)) {
-            handleOptions(state);
+            handleOptions(response);
         } else if ("DELETE".equals(method)) {
-            handleDelete(state);
+            handleDelete(response);
         } else if ("PUT".equals(method)) {
-            handlePut(state);
+            handlePut(response);
         } else if (webdavEnabled && "PROPFIND".equals(method)) {
-            handlePropfind(state);
+            handlePropfind(response);
         } else if (webdavEnabled && "PROPPATCH".equals(method)) {
-            handleProppatch(state);
+            handleProppatch(response);
         } else if (webdavEnabled && "MKCOL".equals(method)) {
-            handleMkcol(state);
+            handleMkcol(response);
         } else if (webdavEnabled && "COPY".equals(method)) {
-            handleCopy(state);
+            handleCopy(response);
         } else if (webdavEnabled && "MOVE".equals(method)) {
-            handleMove(state);
+            handleMove(response);
         } else if (webdavEnabled && "LOCK".equals(method)) {
-            handleLock(state);
+            handleLock(response);
         } else if (webdavEnabled && "UNLOCK".equals(method)) {
-            handleUnlock(state);
+            handleUnlock(response);
         } else if (aclEnabled && "ACL".equals(method)) {
-            handleAcl(state);
+            handleAcl(response);
         } else {
-            sendError(state, HttpStatus.METHOD_NOT_ALLOWED);
+            sendError(response, HttpStatus.METHOD_NOT_ALLOWED);
         }
     }
 
@@ -525,8 +525,8 @@ class FileHandler extends DefaultHttpRequestHandler {
      * Returns the shared {@link StorageExecutor}, or null when no server is
      * running (a unit-test harness, say).
      */
-    private static StorageExecutor storageExecutor(HttpResponse state) {
-        SelectorLoop loop = state.getSelectorLoop();
+    private static StorageExecutor storageExecutor(HttpResponse response) {
+        SelectorLoop loop = response.getSelectorLoop();
         Gumdrop gumdrop = (loop != null) ? loop.getGumdrop() : null;
         return (gumdrop != null) ? gumdrop.getStorageExecutor() : null;
     }
@@ -546,13 +546,13 @@ class FileHandler extends DefaultHttpRequestHandler {
      * behaviour whether or not the pool is present.
      *
      * @param <T> the result type of the blocking operation
-     * @param state the response state used to marshal the callback to the loop
+     * @param response the response state used to marshal the callback to the loop
      * @param op the blocking work to run off the loop
      * @param callback invoked on the loop with the operation's result or error
      */
-    private <T> void offload(final HttpResponse state,
+    private <T> void offload(final HttpResponse response,
             final Callable<T> op, final StorageExecutor.Callback<T> callback) {
-        StorageExecutor exec = storageExecutor(state);
+        StorageExecutor exec = storageExecutor(response);
         if (exec == null) {
             T result;
             try {
@@ -567,7 +567,7 @@ class FileHandler extends DefaultHttpRequestHandler {
         exec.submit(new Executor() {
             @Override
             public void execute(Runnable command) {
-                state.execute(command);
+                response.execute(command);
             }
         }, op, callback);
     }
@@ -589,9 +589,9 @@ class FileHandler extends DefaultHttpRequestHandler {
     }
 
     /** RFC 9110 section 13 (conditional GET/HEAD), RFC 9111 validators. */
-    private void handleGetOrHead(HttpResponse state) {
-        final StorageExecutor storage = storageExecutor(state);
-        offload(state, new Callable<GetPlan>() {
+    private void handleGetOrHead(HttpResponse response) {
+        final StorageExecutor storage = storageExecutor(response);
+        offload(response, new Callable<GetPlan>() {
             @Override
             public GetPlan call() throws IOException {
                 return computeGetPlan(storage);
@@ -599,13 +599,13 @@ class FileHandler extends DefaultHttpRequestHandler {
         }, new StorageExecutor.Callback<GetPlan>() {
             @Override
             public void completed(GetPlan plan) {
-                emitGetPlan(state, plan);
+                emitGetPlan(response, plan);
             }
 
             @Override
             public void failed(Throwable error) {
                 LOGGER.log(Level.SEVERE, L10N.getString("severe.error_processing_get_head"), error);
-                sendError(state, HttpStatus.INTERNAL_SERVER_ERROR);
+                sendError(response, HttpStatus.INTERNAL_SERVER_ERROR);
             }
         });
     }
@@ -676,54 +676,54 @@ class FileHandler extends DefaultHttpRequestHandler {
     }
 
     /** Emits a {@link GetPlan} on the loop thread. */
-    private void emitGetPlan(HttpResponse state, GetPlan plan) {
+    private void emitGetPlan(HttpResponse response, GetPlan plan) {
         if (plan.error != null) {
-            sendError(state, plan.error);
+            sendError(response, plan.error);
             return;
         }
 
         if (plan.listingHtml != null) {
-            Headers response = new Headers();
-            response.status(HttpStatus.OK);
-            response.add("Content-Type", "text/html; charset=utf-8");
-            response.add("Content-Length",
+            Headers fields = new Headers();
+            fields.status(HttpStatus.OK);
+            fields.add("Content-Type", "text/html; charset=utf-8");
+            fields.add("Content-Length",
                     String.valueOf(plan.listingHtml.length));
-            state.headers(response);
-            state.startResponseBody();
-            state.responseBodyContent(ByteBuffer.wrap(plan.listingHtml));
-            state.endResponseBody();
-            state.complete();
+            response.headers(fields);
+            response.startResponseBody();
+            response.responseBodyContent(ByteBuffer.wrap(plan.listingHtml));
+            response.endResponseBody();
+            response.complete();
             return;
         }
 
         if (plan.notModified) {
-            Headers response = new Headers();
-            response.status(HttpStatus.NOT_MODIFIED);
-            response.add("Last-Modified", dateFormat.format(plan.lastModified));
+            Headers fields = new Headers();
+            fields.status(HttpStatus.NOT_MODIFIED);
+            fields.add("Last-Modified", dateFormat.format(plan.lastModified));
             if (plan.entityTag != null) {
-                response.add("ETag", plan.entityTag);
+                fields.add("ETag", plan.entityTag);
             }
-            state.headers(response);
-            state.complete();
+            response.headers(fields);
+            response.complete();
             return;
         }
 
-        Headers response = new Headers();
-        response.status(HttpStatus.OK);
-        response.add("Last-Modified", dateFormat.format(plan.lastModified));
+        Headers fields = new Headers();
+        fields.status(HttpStatus.OK);
+        fields.add("Last-Modified", dateFormat.format(plan.lastModified));
         if (plan.entityTag != null) {
-            response.add("ETag", plan.entityTag);
+            fields.add("ETag", plan.entityTag);
         }
-        response.add("Content-Type", plan.contentType);
-        response.add("Content-Length", Long.toString(plan.size));
-        state.headers(response);
+        fields.add("Content-Type", plan.contentType);
+        fields.add("Content-Length", Long.toString(plan.size));
+        response.headers(fields);
 
         if ("GET".equals(method)) {
             if (plan.size > 0 && plan.channel != null) {
                 asyncReadChannel = plan.channel;
                 readPosition = 0;
-                state.startResponseBody();
-                readNextChunk(state);
+                response.startResponseBody();
+                readNextChunk(response);
                 // endResponseBody()/complete() invoked from readNextChunk
             } else {
                 if (plan.channel != null) {
@@ -733,7 +733,7 @@ class FileHandler extends DefaultHttpRequestHandler {
                         // ignore
                     }
                 }
-                state.complete();
+                response.complete();
             }
         } else {
             if (plan.channel != null) {
@@ -743,11 +743,11 @@ class FileHandler extends DefaultHttpRequestHandler {
                     // ignore
                 }
             }
-            state.complete();
+            response.complete();
         }
     }
 
-    private void readNextChunk(HttpResponse state) {
+    private void readNextChunk(HttpResponse response) {
         ByteBuffer buf = ByteBufferPool.acquire(8192);
         long pos = readPosition;
         asyncReadChannel.read(buf, pos, buf, new CompletionHandler<Integer, ByteBuffer>() {
@@ -758,28 +758,28 @@ class FileHandler extends DefaultHttpRequestHandler {
                     // EOF (bytesRead < 0) or empty read at end (bytesRead == 0)
                     closeReadChannel();
                     ByteBufferPool.release(attachment);
-                    state.execute(new Runnable() {
+                    response.execute(new Runnable() {
                         @Override
                         public void run() {
-                            state.endResponseBody();
-                            state.complete();
+                            response.endResponseBody();
+                            response.complete();
                         }
                     });
                     return;
                 }
                 readPosition += bytesRead;
-                state.execute(new Runnable() {
+                response.execute(new Runnable() {
                     @Override
                     public void run() {
                         attachment.flip();
                         if (attachment.hasRemaining()) {
-                            state.responseBodyContent(attachment);
+                            response.responseBodyContent(attachment);
                         }
                         ByteBufferPool.release(attachment);
-                        state.onWritable(new Runnable() {
+                        response.onWritable(new Runnable() {
                             @Override
                             public void run() {
-                                readNextChunk(state);
+                                readNextChunk(response);
                             }
                         });
                     }
@@ -791,10 +791,10 @@ class FileHandler extends DefaultHttpRequestHandler {
                 LOGGER.log(Level.SEVERE, L10N.getString("severe.error_reading_file"), exc);
                 closeReadChannel();
                 ByteBufferPool.release(attachment);
-                state.execute(new Runnable() {
+                response.execute(new Runnable() {
                     @Override
                     public void run() {
-                        sendError(state, HttpStatus.INTERNAL_SERVER_ERROR);
+                        sendError(response, HttpStatus.INTERNAL_SERVER_ERROR);
                     }
                 });
             }
@@ -813,17 +813,17 @@ class FileHandler extends DefaultHttpRequestHandler {
     }
 
     /** RFC 9110 §9.3.7 (OPTIONS); RFC 4918 §18 (DAV header, compliance classes 1,2). */
-    private void handleOptions(HttpResponse state) {
-        Headers response = new Headers();
-        response.status(HttpStatus.OK);
-        response.add("Allow", allowedOptions);
+    private void handleOptions(HttpResponse response) {
+        Headers fields = new Headers();
+        fields.status(HttpStatus.OK);
+        fields.add("Allow", allowedOptions);
         if (webdavEnabled) {
             // RFC 3744 §2: servers supporting the ACL extension MUST
             // include "access-control" as a field in this header.
-            response.add(DavConstants.HEADER_DAV, aclEnabled ? "1,2,access-control" : "1,2");
+            fields.add(DavConstants.HEADER_DAV, aclEnabled ? "1,2,access-control" : "1,2");
         }
-        state.headers(response);
-        state.complete();
+        response.headers(fields);
+        response.complete();
     }
 
     /**
@@ -837,8 +837,8 @@ class FileHandler extends DefaultHttpRequestHandler {
      * Forbidden. {@code DAV:acl}/{@code DAV:current-user-privilege-set}
      * remain fully readable via PROPFIND.
      */
-    private void handleAcl(HttpResponse state) {
-        sendError(state, HttpStatus.FORBIDDEN);
+    private void handleAcl(HttpResponse response) {
+        sendError(response, HttpStatus.FORBIDDEN);
     }
 
     /**
@@ -849,13 +849,13 @@ class FileHandler extends DefaultHttpRequestHandler {
      * depth-first. If any individual deletion fails, a 207 Multi-Status
      * response is returned listing the failed resources.
      */
-    private void handleDelete(HttpResponse state) {
+    private void handleDelete(HttpResponse response) {
         if (!allowWrite) {
-            sendError(state, HttpStatus.METHOD_NOT_ALLOWED);
+            sendError(response, HttpStatus.METHOD_NOT_ALLOWED);
             return;
         }
 
-        offload(state, new Callable<DeletePlan>() {
+        offload(response, new Callable<DeletePlan>() {
             @Override
             public DeletePlan call() throws IOException {
                 return computeDeletePlan();
@@ -863,13 +863,13 @@ class FileHandler extends DefaultHttpRequestHandler {
         }, new StorageExecutor.Callback<DeletePlan>() {
             @Override
             public void completed(DeletePlan plan) {
-                emitDeletePlan(state, plan);
+                emitDeletePlan(response, plan);
             }
 
             @Override
             public void failed(Throwable error) {
                 LOGGER.log(Level.SEVERE, L10N.getString("severe.error_processing_delete"), error);
-                sendError(state, HttpStatus.INTERNAL_SERVER_ERROR);
+                sendError(response, HttpStatus.INTERNAL_SERVER_ERROR);
             }
         });
     }
@@ -929,23 +929,23 @@ class FileHandler extends DefaultHttpRequestHandler {
     }
 
     /** Emits a {@link DeletePlan} on the loop thread. */
-    private void emitDeletePlan(HttpResponse state, DeletePlan plan) {
+    private void emitDeletePlan(HttpResponse response, DeletePlan plan) {
         if (plan.multiStatus != null) {
             try {
-                sendDeleteMultiStatus(state, plan.multiStatus);
+                sendDeleteMultiStatus(response, plan.multiStatus);
             } catch (IOException e) {
                 LOGGER.log(Level.SEVERE, L10N.getString("severe.delete_multi_status_error"), e);
-                sendError(state, HttpStatus.INTERNAL_SERVER_ERROR);
+                sendError(response, HttpStatus.INTERNAL_SERVER_ERROR);
             }
             return;
         }
         if (plan.status == HttpStatus.NO_CONTENT) {
-            Headers response = new Headers();
-            response.status(HttpStatus.NO_CONTENT);
-            state.headers(response);
-            state.complete();
+            Headers fields = new Headers();
+            fields.status(HttpStatus.NO_CONTENT);
+            response.headers(fields);
+            response.complete();
         } else {
-            sendError(state, plan.status);
+            sendError(response, plan.status);
         }
     }
 
@@ -1005,7 +1005,7 @@ class FileHandler extends DefaultHttpRequestHandler {
      * Sends a 207 Multi-Status response for a partially failed collection DELETE.
      * RFC 4918 §9.6.1 — only resources that failed are listed.
      */
-    private void sendDeleteMultiStatus(HttpResponse state, List<String[]> errors)
+    private void sendDeleteMultiStatus(HttpResponse response, List<String[]> errors)
             throws IOException {
         ByteArrayOutputStream baos = new ByteArrayOutputStream();
         XMLWriter xml = new XMLWriter(baos);
@@ -1031,15 +1031,15 @@ class FileHandler extends DefaultHttpRequestHandler {
         xml.close();
 
         byte[] body = baos.toByteArray();
-        Headers response = new Headers();
-        response.status(HttpStatus.MULTI_STATUS);
-        response.add("Content-Type", DavConstants.CONTENT_TYPE_XML);
-        response.add("Content-Length", String.valueOf(body.length));
-        state.headers(response);
-        state.startResponseBody();
-        state.responseBodyContent(ByteBuffer.wrap(body));
-        state.endResponseBody();
-        state.complete();
+        Headers fields = new Headers();
+        fields.status(HttpStatus.MULTI_STATUS);
+        fields.add("Content-Type", DavConstants.CONTENT_TYPE_XML);
+        fields.add("Content-Length", String.valueOf(body.length));
+        response.headers(fields);
+        response.startResponseBody();
+        response.responseBodyContent(ByteBuffer.wrap(body));
+        response.endResponseBody();
+        response.complete();
     }
 
     /**
@@ -1053,21 +1053,21 @@ class FileHandler extends DefaultHttpRequestHandler {
     }
 
     /** RFC 9110 §9.3.4 (PUT) — 201 Created / 204 No Content. */
-    private void handlePut(HttpResponse state) {
+    private void handlePut(HttpResponse response) {
         if (!allowWrite) {
-            sendError(state, HttpStatus.METHOD_NOT_ALLOWED);
+            sendError(response, HttpStatus.METHOD_NOT_ALLOWED);
             return;
         }
 
         if (path == null) {
-            sendError(state, HttpStatus.BAD_REQUEST);
+            sendError(response, HttpStatus.BAD_REQUEST);
             return;
         }
 
         // Pause body until the write channel is open (AFC.open is offloaded).
-        state.pauseRequestBody();
-        final StorageExecutor storage = storageExecutor(state);
-        offload(state, new Callable<PutPlan>() {
+        response.pauseRequestBody();
+        final StorageExecutor storage = storageExecutor(response);
+        offload(response, new Callable<PutPlan>() {
             @Override
             public PutPlan call() throws IOException {
                 return computePutPlan(storage);
@@ -1075,14 +1075,14 @@ class FileHandler extends DefaultHttpRequestHandler {
         }, new StorageExecutor.Callback<PutPlan>() {
             @Override
             public void completed(PutPlan plan) {
-                emitPutPlan(state, plan);
+                emitPutPlan(response, plan);
             }
 
             @Override
             public void failed(Throwable error) {
-                state.resumeRequestBody();
+                response.resumeRequestBody();
                 LOGGER.log(Level.SEVERE, L10N.getString("severe.error_processing_put"), error);
-                sendError(state, HttpStatus.INTERNAL_SERVER_ERROR);
+                sendError(response, HttpStatus.INTERNAL_SERVER_ERROR);
             }
         });
     }
@@ -1132,10 +1132,10 @@ class FileHandler extends DefaultHttpRequestHandler {
     }
 
     /** Applies a {@link PutPlan} on the loop and starts accepting the body. */
-    private void emitPutPlan(HttpResponse state, PutPlan plan) {
+    private void emitPutPlan(HttpResponse response, PutPlan plan) {
         if (plan.error != null) {
-            state.resumeRequestBody();
-            sendError(state, plan.error);
+            response.resumeRequestBody();
+            sendError(response, plan.error);
             return;
         }
 
@@ -1144,11 +1144,11 @@ class FileHandler extends DefaultHttpRequestHandler {
         writePosition = 0;
 
         if (requestContentLength == 0) {
-            state.resumeRequestBody();
-            finalizePutRequest(state);
+            response.resumeRequestBody();
+            finalizePutRequest(response);
         } else {
             requestBodyExpected = true;
-            state.resumeRequestBody();
+            response.resumeRequestBody();
         }
     }
 
@@ -1163,7 +1163,7 @@ class FileHandler extends DefaultHttpRequestHandler {
         }
     }
 
-    private void finalizePutRequest(HttpResponse state) {
+    private void finalizePutRequest(HttpResponse response) {
         if (putFinalized) {
             return;
         }
@@ -1174,11 +1174,11 @@ class FileHandler extends DefaultHttpRequestHandler {
 
         HttpStatus status = fileExistedBeforePut ? HttpStatus.NO_CONTENT : HttpStatus.CREATED;
 
-        Headers response = new Headers();
-        response.status(status);
-        response.add("Content-Length", "0");
-        state.headers(response);
-        state.complete();
+        Headers fields = new Headers();
+        fields.status(status);
+        fields.add("Content-Length", "0");
+        response.headers(fields);
+        response.complete();
 
         LOGGER.info(MessageFormat.format(L10N.getString("info.put_completed"), path));
     }
@@ -1188,9 +1188,9 @@ class FileHandler extends DefaultHttpRequestHandler {
     // ─────────────────────────────────────────────────────────────────────────
 
     /** RFC 4918 §9.1 — PROPFIND (allprop, propname, or named properties). */
-    private void handlePropfind(final HttpResponse state) {
+    private void handlePropfind(final HttpResponse response) {
         if (path == null) {
-            sendError(state, HttpStatus.BAD_REQUEST);
+            sendError(response, HttpStatus.BAD_REQUEST);
             return;
         }
 
@@ -1207,7 +1207,7 @@ class FileHandler extends DefaultHttpRequestHandler {
             @Override
             public void run() {
                 webdavParser = null;
-                sendPropfindResponse(state, WebDAVRequestParser.PropfindType.ALLPROP, null, null);
+                sendPropfindResponse(response, WebDAVRequestParser.PropfindType.ALLPROP, null, null);
             }
         };
         // If a body does arrive, the response is sent from finalizeWebDAVRequest.
@@ -1217,14 +1217,14 @@ class FileHandler extends DefaultHttpRequestHandler {
      * RFC 4918 section 9.2 -- PROPPATCH (set/remove properties).
      * Dead properties are persisted via {@link DeadPropertyStore}.
      */
-    private void handleProppatch(final HttpResponse state) {
+    private void handleProppatch(final HttpResponse response) {
         if (!allowWrite) {
-            sendError(state, HttpStatus.FORBIDDEN);
+            sendError(response, HttpStatus.FORBIDDEN);
             return;
         }
 
         if (path == null) {
-            sendError(state, HttpStatus.NOT_FOUND);
+            sendError(response, HttpStatus.NOT_FOUND);
             return;
         }
 
@@ -1235,13 +1235,13 @@ class FileHandler extends DefaultHttpRequestHandler {
         pendingNoBodyAction = new Runnable() {
             @Override
             public void run() {
-                sendError(state, HttpStatus.BAD_REQUEST);
+                sendError(response, HttpStatus.BAD_REQUEST);
             }
         };
 
         // Exists + lock ETag checks run off the loop before accepting the body.
-        state.pauseRequestBody();
-        offload(state, new Callable<ProppatchPrep>() {
+        response.pauseRequestBody();
+        offload(response, new Callable<ProppatchPrep>() {
             @Override
             public ProppatchPrep call() {
                 return computeProppatchPrep();
@@ -1253,22 +1253,22 @@ class FileHandler extends DefaultHttpRequestHandler {
                     // The request is answered here; the no-body default
                     // must not answer it a second time.
                     pendingNoBodyAction = null;
-                    state.resumeRequestBody();
-                    sendError(state, prep.error);
+                    response.resumeRequestBody();
+                    sendError(response, prep.error);
                     return;
                 }
                 pathIsDirectory = prep.isDirectory;
                 webdavParser = new WebDAVRequestParser();
                 requestBodyExpected = true;
-                state.resumeRequestBody();
+                response.resumeRequestBody();
             }
 
             @Override
             public void failed(Throwable error) {
                 pendingNoBodyAction = null;
-                state.resumeRequestBody();
+                response.resumeRequestBody();
                 LOGGER.log(Level.SEVERE, L10N.getString("severe.error_preparing_proppatch"), error);
-                sendError(state, HttpStatus.INTERNAL_SERVER_ERROR);
+                sendError(response, HttpStatus.INTERNAL_SERVER_ERROR);
             }
         });
     }
@@ -1303,26 +1303,26 @@ class FileHandler extends DefaultHttpRequestHandler {
      * Emits the response for a body-less write method (MKCOL/COPY/MOVE): a
      * bare success status (201/204/200) or, for any other status, an error.
      */
-    private void emitWriteResult(HttpResponse state, HttpStatus status) {
+    private void emitWriteResult(HttpResponse response, HttpStatus status) {
         if (status == HttpStatus.CREATED || status == HttpStatus.NO_CONTENT
                 || status == HttpStatus.OK) {
-            Headers response = new Headers();
-            response.status(status);
-            state.headers(response);
-            state.complete();
+            Headers fields = new Headers();
+            fields.status(status);
+            response.headers(fields);
+            response.complete();
         } else {
-            sendError(state, status);
+            sendError(response, status);
         }
     }
 
     /** RFC 4918 §9.3 — MKCOL (create collection). */
-    private void handleMkcol(HttpResponse state) {
+    private void handleMkcol(HttpResponse response) {
         if (!allowWrite) {
-            sendError(state, HttpStatus.FORBIDDEN);
+            sendError(response, HttpStatus.FORBIDDEN);
             return;
         }
 
-        offload(state, new Callable<HttpStatus>() {
+        offload(response, new Callable<HttpStatus>() {
             @Override
             public HttpStatus call() {
                 return computeMkcol();
@@ -1330,13 +1330,13 @@ class FileHandler extends DefaultHttpRequestHandler {
         }, new StorageExecutor.Callback<HttpStatus>() {
             @Override
             public void completed(HttpStatus status) {
-                emitWriteResult(state, status);
+                emitWriteResult(response, status);
             }
 
             @Override
             public void failed(Throwable error) {
                 LOGGER.log(Level.SEVERE, L10N.getString("severe.error_processing_mkcol"), error);
-                sendError(state, HttpStatus.INTERNAL_SERVER_ERROR);
+                sendError(response, HttpStatus.INTERNAL_SERVER_ERROR);
             }
         });
     }
@@ -1370,13 +1370,13 @@ class FileHandler extends DefaultHttpRequestHandler {
     }
 
     /** RFC 4918 §9.8 — COPY with Destination, Overwrite, Depth. */
-    private void handleCopy(HttpResponse state) {
+    private void handleCopy(HttpResponse response) {
         if (!allowWrite) {
-            sendError(state, HttpStatus.FORBIDDEN);
+            sendError(response, HttpStatus.FORBIDDEN);
             return;
         }
 
-        offload(state, new Callable<HttpStatus>() {
+        offload(response, new Callable<HttpStatus>() {
             @Override
             public HttpStatus call() throws IOException {
                 return computeCopy();
@@ -1384,13 +1384,13 @@ class FileHandler extends DefaultHttpRequestHandler {
         }, new StorageExecutor.Callback<HttpStatus>() {
             @Override
             public void completed(HttpStatus status) {
-                emitWriteResult(state, status);
+                emitWriteResult(response, status);
             }
 
             @Override
             public void failed(Throwable error) {
                 LOGGER.log(Level.SEVERE, L10N.getString("severe.error_processing_copy"), error);
-                sendError(state, HttpStatus.INTERNAL_SERVER_ERROR);
+                sendError(response, HttpStatus.INTERNAL_SERVER_ERROR);
             }
         });
     }
@@ -1448,13 +1448,13 @@ class FileHandler extends DefaultHttpRequestHandler {
     }
 
     /** RFC 4918 §9.9 — MOVE with Destination, Overwrite, lock checks. */
-    private void handleMove(HttpResponse state) {
+    private void handleMove(HttpResponse response) {
         if (!allowWrite) {
-            sendError(state, HttpStatus.FORBIDDEN);
+            sendError(response, HttpStatus.FORBIDDEN);
             return;
         }
 
-        offload(state, new Callable<HttpStatus>() {
+        offload(response, new Callable<HttpStatus>() {
             @Override
             public HttpStatus call() throws IOException {
                 return computeMove();
@@ -1462,13 +1462,13 @@ class FileHandler extends DefaultHttpRequestHandler {
         }, new StorageExecutor.Callback<HttpStatus>() {
             @Override
             public void completed(HttpStatus status) {
-                emitWriteResult(state, status);
+                emitWriteResult(response, status);
             }
 
             @Override
             public void failed(Throwable error) {
                 LOGGER.log(Level.SEVERE, L10N.getString("severe.error_processing_move"), error);
-                sendError(state, HttpStatus.INTERNAL_SERVER_ERROR);
+                sendError(response, HttpStatus.INTERNAL_SERVER_ERROR);
             }
         });
     }
@@ -1525,14 +1525,14 @@ class FileHandler extends DefaultHttpRequestHandler {
     }
 
     /** RFC 4918 §9.10 — LOCK (new lock or refresh). */
-    private void handleLock(final HttpResponse state) throws IOException {
+    private void handleLock(final HttpResponse response) throws IOException {
         if (!allowWrite) {
-            sendError(state, HttpStatus.FORBIDDEN);
+            sendError(response, HttpStatus.FORBIDDEN);
             return;
         }
 
         if (path == null) {
-            sendError(state, HttpStatus.BAD_REQUEST);
+            sendError(response, HttpStatus.BAD_REQUEST);
             return;
         }
 
@@ -1541,7 +1541,7 @@ class FileHandler extends DefaultHttpRequestHandler {
             // works the same whether or not the client happens to send
             // one, so (unlike the new-lock case below) there's no need
             // to wait and see whether one arrives.
-            refreshLock(state);
+            refreshLock(response);
             return;
         }
 
@@ -1556,21 +1556,21 @@ class FileHandler extends DefaultHttpRequestHandler {
             @Override
             public void run() {
                 webdavParser = null;
-                createLock(state, WebDAVLock.Scope.EXCLUSIVE, WebDAVLock.Type.WRITE, null);
+                createLock(response, WebDAVLock.Scope.EXCLUSIVE, WebDAVLock.Type.WRITE, null);
             }
         };
     }
 
     /** RFC 4918 §9.10.2 -- refreshes an existing lock named by the Lock-Token header. */
-    private void refreshLock(final HttpResponse state) throws IOException {
+    private void refreshLock(final HttpResponse response) throws IOException {
         final String token = extractLockToken(lockToken);
         if (token == null) {
-            sendError(state, HttpStatus.PRECONDITION_FAILED);
+            sendError(response, HttpStatus.PRECONDITION_FAILED);
             return;
         }
         final long timeout = parseTimeout(requestHeaders.getValue(DavConstants.HEADER_TIMEOUT));
         // With a shared lock root this reads and rewrites the lock's record
-        offload(state, new Callable<WebDAVLock>() {
+        offload(response, new Callable<WebDAVLock>() {
             @Override
             public WebDAVLock call() {
                 return lockManager.refresh(path, token, timeout);
@@ -1579,46 +1579,46 @@ class FileHandler extends DefaultHttpRequestHandler {
             @Override
             public void completed(WebDAVLock refreshed) {
                 if (refreshed == null) {
-                    sendError(state, HttpStatus.PRECONDITION_FAILED);
+                    sendError(response, HttpStatus.PRECONDITION_FAILED);
                     return;
                 }
                 try {
                     boolean isDir = requestPath != null && requestPath.endsWith("/");
-                    sendLockResponse(state, refreshed, false, isDir);
+                    sendLockResponse(response, refreshed, false, isDir);
                 } catch (IOException e) {
                     LOGGER.log(Level.SEVERE, L10N.getString("severe.lock_response_error"), e);
-                    sendError(state, HttpStatus.INTERNAL_SERVER_ERROR);
+                    sendError(response, HttpStatus.INTERNAL_SERVER_ERROR);
                 }
             }
 
             @Override
             public void failed(Throwable error) {
                 LOGGER.log(Level.SEVERE, L10N.getString("severe.error_processing_lock"), error);
-                sendError(state, HttpStatus.INTERNAL_SERVER_ERROR);
+                sendError(response, HttpStatus.INTERNAL_SERVER_ERROR);
             }
         });
     }
 
     /** RFC 4918 §9.11 — UNLOCK by Lock-Token header. */
-    private void handleUnlock(HttpResponse state) {
+    private void handleUnlock(HttpResponse response) {
         if (!allowWrite) {
-            sendError(state, HttpStatus.FORBIDDEN);
+            sendError(response, HttpStatus.FORBIDDEN);
             return;
         }
         
         if (path == null || lockToken == null) {
-            sendError(state, HttpStatus.BAD_REQUEST);
+            sendError(response, HttpStatus.BAD_REQUEST);
             return;
         }
         
         final String token = extractLockToken(lockToken);
         if (token == null) {
-            sendError(state, HttpStatus.BAD_REQUEST);
+            sendError(response, HttpStatus.BAD_REQUEST);
             return;
         }
 
         // With a shared lock root this deletes the lock's record
-        offload(state, new Callable<Boolean>() {
+        offload(response, new Callable<Boolean>() {
             @Override
             public Boolean call() {
                 return Boolean.valueOf(lockManager.unlock(path, token));
@@ -1627,44 +1627,44 @@ class FileHandler extends DefaultHttpRequestHandler {
             @Override
             public void completed(Boolean unlocked) {
                 if (unlocked.booleanValue()) {
-                    Headers response = new Headers();
-                    response.status(HttpStatus.NO_CONTENT);
-                    state.headers(response);
-                    state.complete();
+                    Headers fields = new Headers();
+                    fields.status(HttpStatus.NO_CONTENT);
+                    response.headers(fields);
+                    response.complete();
                     LOGGER.info(MessageFormat.format(L10N.getString("info.unlocked"), path));
                 } else {
-                    sendError(state, HttpStatus.CONFLICT);
+                    sendError(response, HttpStatus.CONFLICT);
                 }
             }
 
             @Override
             public void failed(Throwable error) {
                 LOGGER.log(Level.SEVERE, L10N.getString("severe.error_processing_lock"), error);
-                sendError(state, HttpStatus.INTERNAL_SERVER_ERROR);
+                sendError(response, HttpStatus.INTERNAL_SERVER_ERROR);
             }
         });
     }
 
-    private void finalizeWebDAVRequest(HttpResponse state) throws IOException {
+    private void finalizeWebDAVRequest(HttpResponse response) throws IOException {
         WebDAVRequestParser.PropfindRequest propfind = webdavParser.getPropfindRequest();
         if (propfind != null) {
-            sendPropfindResponse(state, propfind.type, propfind.properties, propfind.include);
+            sendPropfindResponse(response, propfind.type, propfind.properties, propfind.include);
             return;
         }
         
         WebDAVRequestParser.ProppatchRequest proppatch = webdavParser.getProppatchRequest();
         if (proppatch != null) {
-            sendProppatchResponse(state, proppatch);
+            sendProppatchResponse(response, proppatch);
             return;
         }
         
         WebDAVRequestParser.LockRequest lockReq = webdavParser.getLockRequest();
         if (lockReq != null) {
-            createLock(state, lockReq.scope, lockReq.type, lockReq.owner);
+            createLock(response, lockReq.scope, lockReq.type, lockReq.owner);
             return;
         }
         
-        sendError(state, HttpStatus.BAD_REQUEST);
+        sendError(response, HttpStatus.BAD_REQUEST);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -1676,12 +1676,12 @@ class FileHandler extends DefaultHttpRequestHandler {
      * Pre-loads dead properties for all resources (async), then
      * builds the XML response synchronously.
      */
-    private void sendPropfindResponse(final HttpResponse state,
+    private void sendPropfindResponse(final HttpResponse response,
             final WebDAVRequestParser.PropfindType type,
             final List<WebDAVRequestParser.PropertyRef> requestedProps,
             final List<WebDAVRequestParser.PropertyRef> include) {
 
-        offload(state, new Callable<PropfindData>() {
+        offload(response, new Callable<PropfindData>() {
             @Override
             public PropfindData call() throws IOException {
                 return gatherPropfindData();
@@ -1690,7 +1690,7 @@ class FileHandler extends DefaultHttpRequestHandler {
             @Override
             public void completed(PropfindData data) {
                 if (data.error != null) {
-                    sendError(state, data.error);
+                    sendError(response, data.error);
                     return;
                 }
                 if (deadPropertyStore != null
@@ -1698,9 +1698,9 @@ class FileHandler extends DefaultHttpRequestHandler {
                                 != DeadPropertyStore.Mode.NONE) {
                     loadDeadPropertiesParallel(data.resources,
                             new HashMap<Path, Map<String, DeadProperty>>(),
-                            state, type, requestedProps, data.attrs);
+                            response, type, requestedProps, data.attrs);
                 } else {
-                    buildPropfindResponse(state, data.resources, type,
+                    buildPropfindResponse(response, data.resources, type,
                             requestedProps,
                             new HashMap<Path, Map<String, DeadProperty>>(),
                             data.attrs);
@@ -1710,7 +1710,7 @@ class FileHandler extends DefaultHttpRequestHandler {
             @Override
             public void failed(Throwable error) {
                 LOGGER.log(Level.SEVERE, L10N.getString("severe.propfind_enumeration_error"), error);
-                sendError(state, HttpStatus.INTERNAL_SERVER_ERROR);
+                sendError(response, HttpStatus.INTERNAL_SERVER_ERROR);
             }
         });
     }
@@ -1774,12 +1774,12 @@ class FileHandler extends DefaultHttpRequestHandler {
     private void loadDeadPropertiesParallel(
             final List<Path> resources,
             final Map<Path, Map<String, DeadProperty>> allDeadProps,
-            final HttpResponse state,
+            final HttpResponse response,
             final WebDAVRequestParser.PropfindType type,
             final List<WebDAVRequestParser.PropertyRef> requestedProps,
             final Map<Path, BasicFileAttributes> attrsMap) {
         if (resources.isEmpty()) {
-            buildPropfindResponse(state, resources, type,
+            buildPropfindResponse(response, resources, type,
                     requestedProps, allDeadProps, attrsMap);
             return;
         }
@@ -1802,7 +1802,7 @@ class FileHandler extends DefaultHttpRequestHandler {
                                 }
                             }
                             if (remaining.decrementAndGet() == 0) {
-                                buildPropfindResponse(state, resources, type,
+                                buildPropfindResponse(response, resources, type,
                                         requestedProps, allDeadProps, attrsMap);
                             }
                         }
@@ -1810,7 +1810,7 @@ class FileHandler extends DefaultHttpRequestHandler {
                         @Override
                         public void onError(String error) {
                             if (remaining.decrementAndGet() == 0) {
-                                buildPropfindResponse(state, resources, type,
+                                buildPropfindResponse(response, resources, type,
                                         requestedProps, allDeadProps, attrsMap);
                             }
                         }
@@ -1818,7 +1818,7 @@ class FileHandler extends DefaultHttpRequestHandler {
         }
     }
 
-    private void buildPropfindResponse(HttpResponse state,
+    private void buildPropfindResponse(HttpResponse response,
             List<Path> resources,
             WebDAVRequestParser.PropfindType type,
             List<WebDAVRequestParser.PropertyRef> requestedProps,
@@ -1844,17 +1844,17 @@ class FileHandler extends DefaultHttpRequestHandler {
             xml.close();
 
             byte[] body = baos.toByteArray();
-            Headers response = new Headers();
-            response.status(HttpStatus.MULTI_STATUS);
-            response.add("Content-Type",
+            Headers fields = new Headers();
+            fields.status(HttpStatus.MULTI_STATUS);
+            fields.add("Content-Type",
                     DavConstants.CONTENT_TYPE_XML);
-            response.add("Content-Length",
+            fields.add("Content-Length",
                     String.valueOf(body.length));
-            state.headers(response);
-            state.startResponseBody();
-            state.responseBodyContent(ByteBuffer.wrap(body));
-            state.endResponseBody();
-            state.complete();
+            response.headers(fields);
+            response.startResponseBody();
+            response.responseBodyContent(ByteBuffer.wrap(body));
+            response.endResponseBody();
+            response.complete();
         } catch (IOException e) {
             LOGGER.log(Level.SEVERE, L10N.getString("severe.propfind_response_error"), e);
         }
@@ -2199,16 +2199,16 @@ class FileHandler extends DefaultHttpRequestHandler {
      * Applies each property update via {@link DeadPropertyStore}
      * and returns per-property status.
      */
-    private void sendProppatchResponse(final HttpResponse state,
+    private void sendProppatchResponse(final HttpResponse response,
             final WebDAVRequestParser.ProppatchRequest proppatch)
             throws IOException {
         if (deadPropertyStore == null
                 || deadPropertyStore.getMode()
                         == DeadPropertyStore.Mode.NONE) {
-            sendProppatchForbidden(state, proppatch);
+            sendProppatchForbidden(response, proppatch);
             return;
         }
-        applyProppatchUpdate(state, proppatch, 0,
+        applyProppatchUpdate(response, proppatch, 0,
                 new ArrayList<Boolean>());
     }
 
@@ -2217,12 +2217,12 @@ class FileHandler extends DefaultHttpRequestHandler {
      * collecting per-property success/failure results.
      */
     private void applyProppatchUpdate(
-            final HttpResponse state,
+            final HttpResponse response,
             final WebDAVRequestParser.ProppatchRequest proppatch,
             final int index,
             final List<Boolean> results) {
         if (index >= proppatch.updates.size()) {
-            sendProppatchResult(state, proppatch, results);
+            sendProppatchResult(response, proppatch, results);
             return;
         }
 
@@ -2235,7 +2235,7 @@ class FileHandler extends DefaultHttpRequestHandler {
         if (DavConstants.NAMESPACE.equals(ns)
                 && getLivePropertyNames().contains(name)) {
             results.add(Boolean.FALSE);
-            applyProppatchUpdate(state, proppatch, index + 1,
+            applyProppatchUpdate(response, proppatch, index + 1,
                     results);
             return;
         }
@@ -2249,14 +2249,14 @@ class FileHandler extends DefaultHttpRequestHandler {
                         public void onProperties(
                                 Map<String, DeadProperty> props) {
                             results.add(Boolean.TRUE);
-                            applyProppatchUpdate(state, proppatch,
+                            applyProppatchUpdate(response, proppatch,
                                     index + 1, results);
                         }
 
                         @Override
                         public void onError(String error) {
                             results.add(Boolean.FALSE);
-                            applyProppatchUpdate(state, proppatch,
+                            applyProppatchUpdate(response, proppatch,
                                     index + 1, results);
                         }
                     });
@@ -2269,21 +2269,21 @@ class FileHandler extends DefaultHttpRequestHandler {
                         public void onProperties(
                                 Map<String, DeadProperty> props) {
                             results.add(Boolean.TRUE);
-                            applyProppatchUpdate(state, proppatch,
+                            applyProppatchUpdate(response, proppatch,
                                     index + 1, results);
                         }
 
                         @Override
                         public void onError(String error) {
                             results.add(Boolean.FALSE);
-                            applyProppatchUpdate(state, proppatch,
+                            applyProppatchUpdate(response, proppatch,
                                     index + 1, results);
                         }
                     });
         }
     }
 
-    private void sendProppatchResult(HttpResponse state,
+    private void sendProppatchResult(HttpResponse response,
             WebDAVRequestParser.ProppatchRequest proppatch,
             List<Boolean> results) {
         try {
@@ -2341,17 +2341,17 @@ class FileHandler extends DefaultHttpRequestHandler {
             xml.close();
 
             byte[] body = baos.toByteArray();
-            Headers response = new Headers();
-            response.status(HttpStatus.MULTI_STATUS);
-            response.add("Content-Type",
+            Headers fields = new Headers();
+            fields.status(HttpStatus.MULTI_STATUS);
+            fields.add("Content-Type",
                     DavConstants.CONTENT_TYPE_XML);
-            response.add("Content-Length",
+            fields.add("Content-Length",
                     String.valueOf(body.length));
-            state.headers(response);
-            state.startResponseBody();
-            state.responseBodyContent(ByteBuffer.wrap(body));
-            state.endResponseBody();
-            state.complete();
+            response.headers(fields);
+            response.startResponseBody();
+            response.responseBodyContent(ByteBuffer.wrap(body));
+            response.endResponseBody();
+            response.complete();
         } catch (IOException e) {
             LOGGER.log(Level.SEVERE, L10N.getString("severe.proppatch_response_error"), e);
         }
@@ -2375,7 +2375,7 @@ class FileHandler extends DefaultHttpRequestHandler {
     }
 
     /** Fallback when dead property store is not available. */
-    private void sendProppatchForbidden(HttpResponse state,
+    private void sendProppatchForbidden(HttpResponse response,
             WebDAVRequestParser.ProppatchRequest proppatch)
             throws IOException {
         ByteArrayOutputStream baos = new ByteArrayOutputStream();
@@ -2404,15 +2404,15 @@ class FileHandler extends DefaultHttpRequestHandler {
         xml.close();
 
         byte[] body = baos.toByteArray();
-        Headers response = new Headers();
-        response.status(HttpStatus.MULTI_STATUS);
-        response.add("Content-Type", DavConstants.CONTENT_TYPE_XML);
-        response.add("Content-Length", String.valueOf(body.length));
-        state.headers(response);
-        state.startResponseBody();
-        state.responseBodyContent(ByteBuffer.wrap(body));
-        state.endResponseBody();
-        state.complete();
+        Headers fields = new Headers();
+        fields.status(HttpStatus.MULTI_STATUS);
+        fields.add("Content-Type", DavConstants.CONTENT_TYPE_XML);
+        fields.add("Content-Length", String.valueOf(body.length));
+        response.headers(fields);
+        response.startResponseBody();
+        response.responseBodyContent(ByteBuffer.wrap(body));
+        response.endResponseBody();
+        response.complete();
     }
 
     /**
@@ -2426,7 +2426,7 @@ class FileHandler extends DefaultHttpRequestHandler {
     }
 
     /** RFC 4918 §9.10 — create lock; §7.3 — lock-null resource creation. */
-    private void createLock(HttpResponse state, WebDAVLock.Scope scope,
+    private void createLock(HttpResponse response, WebDAVLock.Scope scope,
             WebDAVLock.Type type, String owner) {
         final long timeout = parseTimeout(
                 requestHeaders.getValue(DavConstants.HEADER_TIMEOUT));
@@ -2434,7 +2434,7 @@ class FileHandler extends DefaultHttpRequestHandler {
         final WebDAVLock.Type lockType = type;
         final String lockOwner = owner;
 
-        offload(state, new Callable<LockPlan>() {
+        offload(response, new Callable<LockPlan>() {
             @Override
             public LockPlan call() throws IOException {
                 return computeLockPlan(lockScope, lockType, lockOwner, timeout);
@@ -2443,23 +2443,23 @@ class FileHandler extends DefaultHttpRequestHandler {
             @Override
             public void completed(LockPlan plan) {
                 if (plan.error != null) {
-                    sendError(state, plan.error);
+                    sendError(response, plan.error);
                     return;
                 }
                 pathIsDirectory = plan.isDirectory;
                 try {
-                    sendLockResponse(state, plan.lock, plan.created,
+                    sendLockResponse(response, plan.lock, plan.created,
                             plan.isDirectory);
                 } catch (IOException e) {
                     LOGGER.log(Level.SEVERE, L10N.getString("severe.lock_response_error"), e);
-                    sendError(state, HttpStatus.INTERNAL_SERVER_ERROR);
+                    sendError(response, HttpStatus.INTERNAL_SERVER_ERROR);
                 }
             }
 
             @Override
             public void failed(Throwable error) {
                 LOGGER.log(Level.SEVERE, L10N.getString("severe.error_processing_lock"), error);
-                sendError(state, HttpStatus.INTERNAL_SERVER_ERROR);
+                sendError(response, HttpStatus.INTERNAL_SERVER_ERROR);
             }
         });
     }
@@ -2491,7 +2491,7 @@ class FileHandler extends DefaultHttpRequestHandler {
         return plan;
     }
 
-    private void sendLockResponse(HttpResponse state, WebDAVLock lock,
+    private void sendLockResponse(HttpResponse response, WebDAVLock lock,
             boolean created, boolean isDirectory) throws IOException {
         ByteArrayOutputStream baos = new ByteArrayOutputStream();
         XMLWriter xml = new XMLWriter(baos);
@@ -2539,16 +2539,16 @@ class FileHandler extends DefaultHttpRequestHandler {
         xml.close();
         
         byte[] body = baos.toByteArray();
-        Headers response = new Headers();
-        response.status(created ? HttpStatus.CREATED : HttpStatus.OK);
-        response.add("Content-Type", DavConstants.CONTENT_TYPE_XML);
-        response.add("Content-Length", String.valueOf(body.length));
-        response.add(DavConstants.HEADER_LOCK_TOKEN, "<" + lock.getToken() + ">");
-        state.headers(response);
-        state.startResponseBody();
-        state.responseBodyContent(ByteBuffer.wrap(body));
-        state.endResponseBody();
-        state.complete();
+        Headers fields = new Headers();
+        fields.status(created ? HttpStatus.CREATED : HttpStatus.OK);
+        fields.add("Content-Type", DavConstants.CONTENT_TYPE_XML);
+        fields.add("Content-Length", String.valueOf(body.length));
+        fields.add(DavConstants.HEADER_LOCK_TOKEN, "<" + lock.getToken() + ">");
+        response.headers(fields);
+        response.startResponseBody();
+        response.responseBodyContent(ByteBuffer.wrap(body));
+        response.endResponseBody();
+        response.complete();
         LOGGER.info(MessageFormat.format(L10N.getString("info.locked"), path, lock.getToken()));
     }
 
@@ -3146,12 +3146,12 @@ class FileHandler extends DefaultHttpRequestHandler {
         }
     }
 
-    private void sendError(HttpResponse state, HttpStatus status) {
-        Headers response = new Headers();
-        response.status(status);
-        response.add("Content-Length", "0");
-        state.headers(response);
-        state.complete();
+    private void sendError(HttpResponse response, HttpStatus status) {
+        Headers fields = new Headers();
+        fields.status(status);
+        fields.add("Content-Length", "0");
+        response.headers(fields);
+        response.complete();
     }
 
     // ─────────────────────────────────────────────────────────────────────────

@@ -68,7 +68,7 @@ class ServletWebConnection implements WebConnection {
             ResourceBundle.getBundle("org.bluezoo.gumdrop.servlet.L10N");
 
     private final HttpUpgradeHandler upgradeHandler;
-    private final HttpResponse state;
+    private final HttpResponse response;
     private final ServletHandler handler;
     private final RequestBodyStream messageStream;
     private final WebSocketServletInputStream inputStream;
@@ -88,13 +88,13 @@ class ServletWebConnection implements WebConnection {
      * Creates a new WebConnection for the given upgrade handler.
      *
      * @param upgradeHandler the servlet's upgrade handler
-     * @param state the HTTP response state for backpressure and callbacks
+     * @param response the HTTP response state for backpressure and callbacks
      * @param handler the servlet handler for container callback dispatch
      */
     ServletWebConnection(HttpUpgradeHandler upgradeHandler,
-            HttpResponse state, ServletHandler handler) {
+            HttpResponse response, ServletHandler handler) {
         this.upgradeHandler = upgradeHandler;
-        this.state = state;
+        this.response = response;
         this.handler = handler;
 
         this.messageStream = new RequestBodyStream();
@@ -104,11 +104,11 @@ class ServletWebConnection implements WebConnection {
                 // May be called from the worker thread (inside
                 // RequestBodyStream.read()); resumeRequestBody() must
                 // run on the SelectorLoop thread.
-                if (ServletWebConnection.this.state != null) {
-                    ServletWebConnection.this.state.execute(new Runnable() {
+                if (ServletWebConnection.this.response != null) {
+                    ServletWebConnection.this.response.execute(new Runnable() {
                         @Override
                         public void run() {
-                            ServletWebConnection.this.state.resumeRequestBody();
+                            ServletWebConnection.this.response.resumeRequestBody();
                         }
                     });
                 }
@@ -185,13 +185,13 @@ class ServletWebConnection implements WebConnection {
             awaitResponseWritable();
         }
 
-        if (state == null) {
+        if (response == null) {
             sendMessageDirect(payload, asText);
             return;
         }
 
         final ByteBuffer message = payload;
-        state.execute(new Runnable() {
+        response.execute(new Runnable() {
             @Override
             public void run() {
                 try {
@@ -215,15 +215,15 @@ class ServletWebConnection implements WebConnection {
     }
 
     boolean isResponseWritable() {
-        return state == null
-                || state.pendingResponseBytes() <= PENDING_RESPONSE_HIGH_WATERMARK;
+        return response == null
+                || response.pendingResponseBytes() <= PENDING_RESPONSE_HIGH_WATERMARK;
     }
 
     void dispatchContainerCallback(Runnable task) {
         if (handler != null) {
             handler.dispatchContainerCallback(task);
-        } else if (state != null) {
-            state.execute(task);
+        } else if (response != null) {
+            response.execute(task);
         } else {
             task.run();
         }
@@ -257,14 +257,14 @@ class ServletWebConnection implements WebConnection {
     }
 
     private void awaitResponseWritable() throws IOException {
-        if (isResponseWritable() || state == null) {
+        if (isResponseWritable() || response == null) {
             return;
         }
         final CountDownLatch latch = new CountDownLatch(1);
-        state.execute(new Runnable() {
+        response.execute(new Runnable() {
             @Override
             public void run() {
-                state.onWritable(new Runnable() {
+                response.onWritable(new Runnable() {
                     @Override
                     public void run() {
                         latch.countDown();
@@ -274,11 +274,11 @@ class ServletWebConnection implements WebConnection {
         });
         try {
             if (!latch.await(PENDING_RESPONSE_WAIT_TIMEOUT_MS, TimeUnit.MILLISECONDS)) {
-                state.execute(new Runnable() {
+                response.execute(new Runnable() {
                     @Override
                     public void run() {
-                        state.onWritable(null);
-                        state.cancel();
+                        response.onWritable(null);
+                        response.cancel();
                     }
                 });
                 throw new IOException(
@@ -292,15 +292,15 @@ class ServletWebConnection implements WebConnection {
     }
 
     private void scheduleWritePossibleNotification() {
-        if (writePossibleScheduled || state == null
+        if (writePossibleScheduled || response == null
                 || !outputStream.hasWriteListener()) {
             return;
         }
         writePossibleScheduled = true;
-        state.execute(new Runnable() {
+        response.execute(new Runnable() {
             @Override
             public void run() {
-                state.onWritable(new Runnable() {
+                response.onWritable(new Runnable() {
                     @Override
                     public void run() {
                         writePossibleScheduled = false;
@@ -325,8 +325,8 @@ class ServletWebConnection implements WebConnection {
         if (session == null || !session.isOpen()) {
             return;
         }
-        if (state != null) {
-            state.execute(new Runnable() {
+        if (response != null) {
+            response.execute(new Runnable() {
                 @Override
                 public void run() {
                     try {
@@ -434,8 +434,8 @@ class ServletWebConnection implements WebConnection {
         if (closed || data.length == 0) {
             return;
         }
-        if (messageStream.offer(data) && state != null) {
-            state.pauseRequestBody();
+        if (messageStream.offer(data) && response != null) {
+            response.pauseRequestBody();
         }
         inputStream.dispatchDataAvailable();
     }
@@ -522,8 +522,8 @@ class ServletWebConnection implements WebConnection {
                 }
             }
         };
-        if (state != null) {
-            state.execute(closeTask);
+        if (response != null) {
+            response.execute(closeTask);
         } else {
             closeTask.run();
         }

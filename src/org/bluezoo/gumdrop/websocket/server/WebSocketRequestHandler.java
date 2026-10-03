@@ -236,13 +236,13 @@ public final class WebSocketRequestHandler implements HttpStreamHandler {
     private final class UpgradeHandler extends DefaultHttpRequestHandler
             implements WebSocketMetricsSource {
 
-        private final HttpResponse state;
+        private final HttpResponse response;
         // The request as the connection factory and the subprotocol
         // selector are given it, assembled from the events.
         private final Headers headers = new Headers();
 
-        UpgradeHandler(HttpResponse state) {
-            this.state = state;
+        UpgradeHandler(HttpResponse response) {
+            this.response = response;
         }
 
         private String text(ByteBuffer b) {
@@ -334,7 +334,7 @@ public final class WebSocketRequestHandler implements HttpStreamHandler {
                     offeredExtensions, supportedExtensions);
 
             try {
-                state.upgradeToWebSocket(subprotocol, negotiated, handler);
+                response.upgradeToWebSocket(subprotocol, negotiated, handler);
             } catch (IllegalStateException e) {
                 LOGGER.log(Level.WARNING, L10N.getString("warn.upgrade_failed"), e);
                 sendError(HttpStatus.BAD_REQUEST);
@@ -347,10 +347,10 @@ public final class WebSocketRequestHandler implements HttpStreamHandler {
         }
 
         private void sendError(HttpStatus status) {
-            Headers response = new Headers();
-            response.status(status);
-            state.headers(response);
-            state.complete();
+            Headers fields = new Headers();
+            fields.status(status);
+            response.headers(fields);
+            response.complete();
         }
     }
 

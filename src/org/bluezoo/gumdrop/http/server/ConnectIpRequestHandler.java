@@ -71,7 +71,7 @@ public class ConnectIpRequestHandler extends DefaultHttpRequestHandler {
     private static final ResourceBundle L10N =
             ResourceBundle.getBundle("org.bluezoo.gumdrop.http.L10N");
 
-    private final HttpResponse state;
+    private final HttpResponse response;
     private final ConnectIpPolicy policy;
     private final IpPacketHandler packetHandler;
 
@@ -93,7 +93,7 @@ public class ConnectIpRequestHandler extends DefaultHttpRequestHandler {
         if (packetHandler == null) {
             throw new IllegalArgumentException(L10N.getString("warn.connect_ip_missing_handler"));
         }
-        this.state = response;
+        this.response = response;
         this.policy = policy;
         this.packetHandler = packetHandler;
     }
@@ -170,10 +170,10 @@ public class ConnectIpRequestHandler extends DefaultHttpRequestHandler {
             rejectRequest(403);
             return;
         }
-        if (!state.acceptConnectIp()) {
+        if (!response.acceptConnectIp()) {
             return;
         }
-        session = new ConnectIpSession(state);
+        session = new ConnectIpSession(response);
         packetHandler.opened(session);
     }
 
@@ -185,7 +185,7 @@ public class ConnectIpRequestHandler extends DefaultHttpRequestHandler {
      * {@link ConnectUdpRequestHandler} uses for RFC 9298.
      */
     private boolean isConnectIpRequest() {
-        if (state.getVersion().supportsMultiplexing()) {
+        if (response.getVersion().supportsMultiplexing()) {
             return HttpMethod.CONNECT.equals(requestMethod)
                     && "connect-ip".equalsIgnoreCase(protocol);
         }
@@ -193,10 +193,10 @@ public class ConnectIpRequestHandler extends DefaultHttpRequestHandler {
     }
 
     private void rejectRequest(int statusCode) {
-        Headers response = new Headers();
-        response.status(HttpStatus.fromCode(statusCode));
-        state.headers(response);
-        state.complete();
+        Headers fields = new Headers();
+        fields.status(HttpStatus.fromCode(statusCode));
+        response.headers(fields);
+        response.complete();
     }
 
     @Override
@@ -205,7 +205,7 @@ public class ConnectIpRequestHandler extends DefaultHttpRequestHandler {
     }
 
     @Override
-    public void datagramReceived(HttpResponse state, ByteBuffer data) {
+    public void datagramReceived(HttpResponse response, ByteBuffer data) {
         if (session == null) {
             return;
         }
@@ -217,7 +217,7 @@ public class ConnectIpRequestHandler extends DefaultHttpRequestHandler {
     }
 
     @Override
-    public void capsuleReceived(HttpResponse state, long type, ByteBuffer value) {
+    public void capsuleReceived(HttpResponse response, long type, ByteBuffer value) {
         if (session == null || type != ConnectIpAddress.TYPE_ADDRESS_REQUEST) {
             return;
         }

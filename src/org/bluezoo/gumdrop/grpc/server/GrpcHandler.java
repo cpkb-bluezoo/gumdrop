@@ -69,7 +69,7 @@ public class GrpcHandler extends DefaultHttpRequestHandler {
     private final String requestTypeName;
     private final String responseTypeName;
 
-    private final HttpResponse state;
+    private final HttpResponse response;
     private GrpcResponseSenderImpl responseSender;
     private ProtoMessageHandler requestHandler;
     private ProtoModelAdapter protoAdapter;
@@ -78,9 +78,9 @@ public class GrpcHandler extends DefaultHttpRequestHandler {
     private boolean bodyStarted;
     private boolean bodyRejected;
 
-    GrpcHandler(ProtoFile protoFile, GrpcServer server, HttpResponse state,
+    GrpcHandler(ProtoFile protoFile, GrpcServer server, HttpResponse response,
             String path, long maxMessageSize, RpcDescriptor rpc) {
-        this.state = state;
+        this.response = response;
         this.protoFile = protoFile;
         this.server = server;
         this.path = path;
@@ -99,7 +99,7 @@ public class GrpcHandler extends DefaultHttpRequestHandler {
             return;
         }
 
-        responseSender = new GrpcResponseSenderImpl(state);
+        responseSender = new GrpcResponseSenderImpl(response);
         requestHandler = server.startUnaryCall(path, responseSender);
         if (requestHandler == null) {
             responseSender.sendError(GRPC_STATUS_UNIMPLEMENTED, "Unimplemented");
@@ -185,18 +185,18 @@ public class GrpcHandler extends DefaultHttpRequestHandler {
             return;
         }
         bodyRejected = true;
-        sendError(state, status, message);
+        sendError(response, status, message);
     }
 
-    private void sendError(HttpResponse state, HttpStatus status, String message) {
-        Headers response = new Headers();
-        response.status(status);
-        response.add("content-type", "text/plain");
-        state.headers(response);
-        state.startResponseBody();
-        state.responseBodyContent(ByteBuffer.wrap(message.getBytes()));
-        state.endResponseBody();
-        state.complete();
+    private void sendError(HttpResponse response, HttpStatus status, String message) {
+        Headers fields = new Headers();
+        fields.status(status);
+        fields.add("content-type", "text/plain");
+        response.headers(fields);
+        response.startResponseBody();
+        response.responseBodyContent(ByteBuffer.wrap(message.getBytes()));
+        response.endResponseBody();
+        response.complete();
     }
 
     private final class GrpcResponseSenderImpl implements GrpcResponseSender {
@@ -227,12 +227,12 @@ public class GrpcHandler extends DefaultHttpRequestHandler {
             }
             sent = true;
 
-            Headers response = new Headers();
-            response.status(HttpStatus.OK);
-            response.add("content-type", CONTENT_TYPE_GRPC);
-            response.add("grpc-status", String.valueOf(status));
-            response.add("grpc-message", message != null ? message : "");
-            responseState.headers(response);
+            Headers fields = new Headers();
+            fields.status(HttpStatus.OK);
+            fields.add("content-type", CONTENT_TYPE_GRPC);
+            fields.add("grpc-status", String.valueOf(status));
+            fields.add("grpc-message", message != null ? message : "");
+            responseState.headers(fields);
             responseState.complete();
         }
 
@@ -253,10 +253,10 @@ public class GrpcHandler extends DefaultHttpRequestHandler {
             }
             sent = true;
 
-            Headers response = new Headers();
-            response.status(HttpStatus.OK);
-            response.add("content-type", CONTENT_TYPE_GRPC);
-            responseState.headers(response);
+            Headers fields = new Headers();
+            fields.status(HttpStatus.OK);
+            fields.add("content-type", CONTENT_TYPE_GRPC);
+            responseState.headers(fields);
             responseState.startResponseBody();
             responseState.responseBodyContent(framed);
             responseState.endResponseBody();

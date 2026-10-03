@@ -70,7 +70,7 @@ public class ConnectUdpRequestHandler extends DefaultHttpRequestHandler {
     private static final ResourceBundle L10N =
             ResourceBundle.getBundle("org.bluezoo.gumdrop.http.L10N");
 
-    private final HttpResponse state;
+    private final HttpResponse response;
     private final ConnectUdpPolicy policy;
     private final long idleTimeoutMs;
 
@@ -100,7 +100,7 @@ public class ConnectUdpRequestHandler extends DefaultHttpRequestHandler {
         if (policy == null) {
             throw new IllegalArgumentException(L10N.getString("warn.connect_udp_missing_policy"));
         }
-        this.state = response;
+        this.response = response;
         this.policy = policy;
         this.idleTimeoutMs = idleTimeoutMs;
     }
@@ -170,7 +170,7 @@ public class ConnectUdpRequestHandler extends DefaultHttpRequestHandler {
             return;
         }
 
-        DnsResolver resolver = DnsResolver.forLoop(state.getSelectorLoop());
+        DnsResolver resolver = DnsResolver.forLoop(response.getSelectorLoop());
         resolver.resolve(target.getHost(), new ResolveCallback() {
             @Override
             public void onResolved(List<InetAddress> addresses) {
@@ -208,7 +208,7 @@ public class ConnectUdpRequestHandler extends DefaultHttpRequestHandler {
      * re-validates independently.
      */
     private boolean isConnectUdpRequest() {
-        if (state.getVersion().supportsMultiplexing()) {
+        if (response.getVersion().supportsMultiplexing()) {
             return HttpMethod.CONNECT.equals(requestMethod)
                     && "connect-udp".equalsIgnoreCase(protocol);
         }
@@ -216,7 +216,7 @@ public class ConnectUdpRequestHandler extends DefaultHttpRequestHandler {
     }
 
     private void accept(InetSocketAddress resolvedTarget) {
-        relay = new ConnectUdpRelay(state, idleTimeoutMs);
+        relay = new ConnectUdpRelay(response, idleTimeoutMs);
         try {
             relay.start(resolvedTarget);
         } catch (java.io.IOException e) {
@@ -225,17 +225,17 @@ public class ConnectUdpRequestHandler extends DefaultHttpRequestHandler {
             rejectRequest(502);
             return;
         }
-        if (!state.acceptConnectUdp()) {
+        if (!response.acceptConnectUdp()) {
             relay.close();
             relay = null;
         }
     }
 
     private void rejectRequest(int statusCode) {
-        Headers response = new Headers();
-        response.status(HttpStatus.fromCode(statusCode));
-        state.headers(response);
-        state.complete();
+        Headers fields = new Headers();
+        fields.status(HttpStatus.fromCode(statusCode));
+        response.headers(fields);
+        response.complete();
     }
 
     @Override
@@ -244,7 +244,7 @@ public class ConnectUdpRequestHandler extends DefaultHttpRequestHandler {
     }
 
     @Override
-    public void datagramReceived(HttpResponse state, ByteBuffer data) {
+    public void datagramReceived(HttpResponse response, ByteBuffer data) {
         if (relay != null) {
             relay.receiveDatagram(data);
         }
