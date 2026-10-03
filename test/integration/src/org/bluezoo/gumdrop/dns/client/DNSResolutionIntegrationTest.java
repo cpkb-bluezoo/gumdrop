@@ -30,9 +30,9 @@ import org.bluezoo.gumdrop.http.client.DefaultHttpResponseHandler;
 import org.bluezoo.gumdrop.http.HttpClient;
 import org.bluezoo.gumdrop.http.client.HttpClientHandler;
 import org.bluezoo.gumdrop.http.client.HttpRequest;
-import org.bluezoo.gumdrop.http.client.HttpResponse;
 import org.bluezoo.gumdrop.util.EmptyX509TrustManager;
 
+import org.bluezoo.gumdrop.testsupport.CollectingResponseHandler;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -125,15 +125,15 @@ public class DNSResolutionIntegrationTest {
                 error.get());
 
         HttpRequest request = client.get("/get");
-        request.send(new DefaultHttpResponseHandler() {
+        request.send(new CollectingResponseHandler() {
             @Override
-            public void ok(HttpResponse response) {
-                status.set(response.getStatus());
+            public void ok(HttpStatus response) {
+                status.set(response);
             }
 
             @Override
-            public void error(HttpResponse response) {
-                status.set(response.getStatus());
+            public void error(HttpStatus response) {
+                status.set(response);
             }
 
             @Override

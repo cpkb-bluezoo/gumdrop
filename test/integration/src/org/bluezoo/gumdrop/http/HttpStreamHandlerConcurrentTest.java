@@ -28,7 +28,6 @@ import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.http.client.DefaultHttpResponseHandler;
 import org.bluezoo.gumdrop.http.client.HttpClientHandler;
 import org.bluezoo.gumdrop.http.client.HttpRequest;
-import org.bluezoo.gumdrop.http.client.HttpResponse;
 import org.bluezoo.gumdrop.http.server.Http2Listener;
 import org.bluezoo.gumdrop.http.server.HttpRequestHandler;
 import org.bluezoo.gumdrop.http.server.HttpResponseState;
@@ -36,6 +35,7 @@ import org.bluezoo.gumdrop.http.server.HttpStreamHandler;
 import org.bluezoo.gumdrop.http.Headers;
 import org.bluezoo.gumdrop.http.HttpVersion;
 import org.bluezoo.gumdrop.testsupport.CollectingRequestHandler;
+import org.bluezoo.gumdrop.testsupport.CollectingResponseHandler;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -158,11 +158,11 @@ public class HttpStreamHandlerConcurrentTest {
                              CountDownLatch done) {
         HttpRequest request = client.post(path);
         request.header("Content-Length", String.valueOf(payload.length()));
-        request.startRequestBody(new DefaultHttpResponseHandler() {
+        request.startRequestBody(new CollectingResponseHandler() {
             private final StringBuilder buffer = new StringBuilder();
 
             @Override
-            public void ok(HttpResponse response) {
+            public void ok(HttpStatus response) {
             }
 
             @Override

@@ -23,7 +23,6 @@ package org.bluezoo.gumdrop.telemetry.otlp;
 
 import org.bluezoo.gumdrop.http.HttpStatus;
 import org.bluezoo.gumdrop.http.client.DefaultHttpResponseHandler;
-import org.bluezoo.gumdrop.http.client.HttpResponse;
 
 import java.text.MessageFormat;
 import java.util.ResourceBundle;
@@ -59,27 +58,23 @@ class OtlpGrpcResponseHandler extends DefaultHttpResponseHandler {
     }
 
     @Override
-    public void ok(HttpResponse response) {
-        this.status = response.getStatus();
-        this.success = true;
-
-        if (logger.isLoggable(Level.FINE)) {
-            logger.fine(MessageFormat.format(L10N.getString("fine.otlp_grpc_export_success"), endpointName, status));
+    public void status(int code) {
+        this.status = HttpStatus.fromCode(code);
+        if (status.isSuccess()) {
+            this.success = true;
+            if (logger.isLoggable(Level.FINE)) {
+                logger.fine(MessageFormat.format(L10N.getString("fine.otlp_grpc_export_success"), endpointName, status));
+            }
+        } else {
+            this.success = false;
+            if (logger.isLoggable(Level.WARNING)) {
+                logger.warning(MessageFormat.format(L10N.getString("warn.export_failed"), endpointName, status));
+            }
         }
     }
 
     @Override
-    public void error(HttpResponse response) {
-        this.status = response.getStatus();
-        this.success = false;
-
-        if (logger.isLoggable(Level.WARNING)) {
-            logger.warning(MessageFormat.format(L10N.getString("warn.export_failed"), endpointName, status));
-        }
-    }
-
-    @Override
-    public void close() {
+    public void endMessage() {
         complete = true;
         exporter.onExportComplete(this);
     }

@@ -21,7 +21,6 @@
 
 package org.bluezoo.gumdrop.http.client;
 
-import java.nio.ByteBuffer;
 import java.util.ResourceBundle;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -30,32 +29,21 @@ import java.util.logging.Logger;
  * Default implementation of {@link HttpResponseHandler} with no-op methods.
  *
  * <p>This class provides sensible default behaviour for all handler methods,
- * making it easy to override only the methods you care about.
- *
- * <p><strong>Default Behaviours:</strong>
- * <ul>
- *   <li>{@link #ok(HttpResponse)} - no action</li>
- *   <li>{@link #error(HttpResponse)} - no action</li>
- *   <li>{@link #header(String, String)} - ignored</li>
- *   <li>{@link #startResponseBody()} - no action</li>
- *   <li>{@link #responseBodyContent(ByteBuffer)} - data discarded</li>
- *   <li>{@link #endResponseBody()} - no action</li>
- *   <li>{@link #pushPromise(PushPromise)} - rejected</li>
- *   <li>{@link #close()} - no action</li>
- *   <li>{@link #failed(Exception)} - logged at WARNING level</li>
- * </ul>
+ * making it easy to override only the methods you care about. Every message
+ * event does nothing, a push promise is rejected, and a failure is logged at
+ * WARNING level.
  *
  * <p><strong>Example:</strong>
  * <pre>
  * request.send(new DefaultHttpResponseHandler() {
  *     &#64;Override
- *     public void ok(HttpResponse response) {
- *         System.out.println("Success: " + response.getStatus());
+ *     public void status(int code) {
+ *         System.out.println("Status: " + code);
  *     }
  *
  *     &#64;Override
- *     public void error(HttpResponse response) {
- *         System.err.println("Error: " + response.getStatus());
+ *     public void bodyContent(ByteBuffer data) {
+ *         // use the body
  *     }
  * });
  * </pre>
@@ -76,78 +64,9 @@ public class DefaultHttpResponseHandler implements HttpResponseHandler {
     }
 
     /**
-     * Called when a successful response (2xx) is received.
-     *
-     * <p>Default implementation does nothing.
-     *
-     * @param response the response status
-     */
-    @Override
-    public void ok(HttpResponse response) {
-        // Override to handle success
-    }
-
-    /**
-     * Called when an error response (4xx, 5xx) is received.
-     *
-     * <p>Default implementation does nothing.
-     *
-     * @param response the error response
-     */
-    @Override
-    public void error(HttpResponse response) {
-        // Override to handle errors
-    }
-
-    /**
-     * Called for each HTTP header received.
-     *
-     * <p>Default implementation ignores all headers.
-     *
-     * @param name the header name
-     * @param value the header value
-     */
-    @Override
-    public void header(String name, String value) {
-        // Override to process headers
-    }
-
-    /**
-     * Called when the response body begins.
-     *
-     * <p>Default implementation does nothing.
-     */
-    @Override
-    public void startResponseBody() {
-        // Override to prepare for body
-    }
-
-    /**
-     * Called for each chunk of response body data.
-     *
-     * <p>Default implementation discards the data.
-     *
-     * @param data the body data chunk
-     */
-    @Override
-    public void responseBodyContent(ByteBuffer data) {
-        // Override to process body data
-    }
-
-    /**
-     * Called when the response body is complete.
-     *
-     * <p>Default implementation does nothing.
-     */
-    @Override
-    public void endResponseBody() {
-        // Override to finalize body processing
-    }
-
-    /**
      * Called when an HTTP/2 server push promise is received.
      *
-     * <p>Default implementation rejects all server pushes.
+     * <p>Default implementation rejects the push.
      *
      * @param promise the push promise
      */
@@ -157,19 +76,9 @@ public class DefaultHttpResponseHandler implements HttpResponseHandler {
     }
 
     /**
-     * Called when the response is fully complete.
-     *
-     * <p>Default implementation does nothing.
-     */
-    @Override
-    public void close() {
-        // Override to finalize response processing
-    }
-
-    /**
      * Called when the request fails.
      *
-     * <p>Default implementation logs the exception at WARNING level.
+     * <p>Default implementation logs the failure at WARNING level.
      *
      * @param ex the exception describing the failure
      */
@@ -177,5 +86,5 @@ public class DefaultHttpResponseHandler implements HttpResponseHandler {
     public void failed(Exception ex) {
         logger.log(Level.WARNING, L10N.getString("warn.http_request_failed"), ex);
     }
-}
 
+}

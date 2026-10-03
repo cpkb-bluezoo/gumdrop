@@ -44,6 +44,7 @@ import org.bluezoo.gumdrop.websocket.DefaultWebSocketEventHandler;
 import org.bluezoo.gumdrop.websocket.WebSocketSession;
 import org.bluezoo.gumdrop.websocket.client.WebSocketClient;
 
+import org.bluezoo.gumdrop.testsupport.CollectingResponseHandler;
 import org.junit.AfterClass;
 import org.junit.BeforeClass;
 import org.junit.Rule;
@@ -276,15 +277,15 @@ public class HTTP2WebSocketClientIntegrationTest {
                 @Override
                 public void onSecurityEstablished(org.bluezoo.gumdrop.SecurityInfo info) {
                     HttpRequest request = httpClient.request("GET", "/test");
-                    request.send(new DefaultHttpResponseHandler() {
+                    request.send(new CollectingResponseHandler() {
                         @Override
-                        public void ok(HttpResponse response) {
-                            httpStatus.set(response.getStatus());
+                        public void ok(HttpStatus response) {
+                            httpStatus.set(response);
                         }
 
                         @Override
-                        public void error(HttpResponse response) {
-                            httpStatus.set(response.getStatus());
+                        public void error(HttpStatus response) {
+                            httpStatus.set(response);
                         }
 
                         @Override

@@ -30,9 +30,9 @@ import java.nio.ByteBuffer;
 import org.bluezoo.gumdrop.dns.client.DnsClientTransportHandler;
 import org.bluezoo.gumdrop.http.HttpStatus;
 import org.bluezoo.gumdrop.http.Headers;
-import org.bluezoo.gumdrop.http.client.HttpResponse;
 import org.bluezoo.gumdrop.http.client.HttpResponseHandler;
 import org.bluezoo.gumdrop.http.client.PushPromise;
+import org.bluezoo.gumdrop.testsupport.MessageEvents;
 import org.junit.Test;
 
 import static org.junit.Assert.*;
@@ -112,14 +112,13 @@ public class DoHResponseHandlerTest {
     public void testSuccessfulBodyDeliveredOnce() throws Exception {
         Rec rec = new Rec();
         HttpResponseHandler h = make(rec);
-        h.ok(new HttpResponse(HttpStatus.OK));
-        h.header("content-type", "application/dns-message");
-        h.startResponseBody();
-        h.responseBodyContent(ByteBuffer.wrap(new byte[] {1, 2}));
-        h.responseBodyContent(ByteBuffer.wrap(new byte[] {3}));
+        h.status(HttpStatus.OK.code);
+        h.header("content-type", MessageEvents.octets("application/dns-message"));
+        h.endHeaders();
+        h.bodyContent(ByteBuffer.wrap(new byte[] {1, 2}));
+        h.bodyContent(ByteBuffer.wrap(new byte[] {3}));
         assertEquals(0, rec.receiveCount);
-        h.endResponseBody();
-        h.close();
+        h.endMessage();
         assertEquals(1, rec.receiveCount);
         assertEquals(3, rec.received.remaining());
         assertEquals(1, rec.received.get(0));
@@ -130,8 +129,8 @@ public class DoHResponseHandlerTest {
     public void testEmptyBodyNotDelivered() throws Exception {
         Rec rec = new Rec();
         HttpResponseHandler h = make(rec);
-        h.ok(new HttpResponse(HttpStatus.OK));
-        h.endResponseBody();
+        h.status(HttpStatus.OK.code);
+        h.endMessage();
         assertEquals(0, rec.receiveCount);
     }
 
@@ -139,8 +138,8 @@ public class DoHResponseHandlerTest {
     public void testBodyIgnoredWithoutOk() throws Exception {
         Rec rec = new Rec();
         HttpResponseHandler h = make(rec);
-        h.responseBodyContent(ByteBuffer.wrap(new byte[] {1}));
-        h.endResponseBody();
+        h.bodyContent(ByteBuffer.wrap(new byte[] {1}));
+        h.endMessage();
         assertEquals(0, rec.receiveCount);
     }
 
@@ -148,7 +147,7 @@ public class DoHResponseHandlerTest {
     public void testErrorReported() throws Exception {
         Rec rec = new Rec();
         HttpResponseHandler h = make(rec);
-        h.error(new HttpResponse(HttpStatus.NOT_FOUND));
+        h.status(HttpStatus.NOT_FOUND.code);
         assertTrue(rec.error instanceof IOException);
     }
 

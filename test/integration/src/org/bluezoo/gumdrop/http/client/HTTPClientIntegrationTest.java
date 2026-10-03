@@ -37,6 +37,7 @@ import org.bluezoo.gumdrop.http.HttpStatus;
 import org.bluezoo.gumdrop.http.HttpClient;
 import org.bluezoo.gumdrop.http.HttpVersion;
 import org.bluezoo.gumdrop.http.server.Http2Listener;
+import org.bluezoo.gumdrop.testsupport.CollectingResponseHandler;
 import org.junit.BeforeClass;
 import org.junit.Rule;
 import org.junit.Test;
@@ -280,15 +281,15 @@ public class HTTPClientIntegrationTest extends AbstractServerIntegrationTest {
         AtomicReference<Exception> error = new AtomicReference<>();
 
         HttpRequest request = client.get("/test");
-        request.send(new DefaultHttpResponseHandler() {
+        request.send(new CollectingResponseHandler() {
             @Override
-            public void ok(HttpResponse response) {
-                status.set(response.getStatus());
+            public void ok(HttpStatus response) {
+                status.set(response);
             }
 
             @Override
-            public void error(HttpResponse response) {
-                status.set(response.getStatus());
+            public void error(HttpStatus response) {
+                status.set(response);
             }
 
             @Override
@@ -329,15 +330,15 @@ public class HTTPClientIntegrationTest extends AbstractServerIntegrationTest {
         AtomicReference<Exception> error = new AtomicReference<>();
 
         HttpRequest request = client.head("/test");
-        request.send(new DefaultHttpResponseHandler() {
+        request.send(new CollectingResponseHandler() {
             @Override
-            public void ok(HttpResponse response) {
-                status.set(response.getStatus());
+            public void ok(HttpStatus response) {
+                status.set(response);
             }
 
             @Override
-            public void error(HttpResponse response) {
-                status.set(response.getStatus());
+            public void error(HttpStatus response) {
+                status.set(response);
             }
 
             @Override
@@ -375,15 +376,15 @@ public class HTTPClientIntegrationTest extends AbstractServerIntegrationTest {
         AtomicReference<Exception> error = new AtomicReference<>();
 
         HttpRequest request = client.delete("/test");
-        request.send(new DefaultHttpResponseHandler() {
+        request.send(new CollectingResponseHandler() {
             @Override
-            public void ok(HttpResponse response) {
-                status.set(response.getStatus());
+            public void ok(HttpStatus response) {
+                status.set(response);
             }
 
             @Override
-            public void error(HttpResponse response) {
-                status.set(response.getStatus());
+            public void error(HttpStatus response) {
+                status.set(response);
             }
 
             @Override
@@ -422,15 +423,15 @@ public class HTTPClientIntegrationTest extends AbstractServerIntegrationTest {
         AtomicReference<Exception> error = new AtomicReference<>();
 
         HttpRequest request = client.options("*");
-        request.send(new DefaultHttpResponseHandler() {
+        request.send(new CollectingResponseHandler() {
             @Override
-            public void ok(HttpResponse response) {
-                status.set(response.getStatus());
+            public void ok(HttpStatus response) {
+                status.set(response);
             }
 
             @Override
-            public void error(HttpResponse response) {
-                status.set(response.getStatus());
+            public void error(HttpStatus response) {
+                status.set(response);
             }
 
             @Override
@@ -475,15 +476,15 @@ public class HTTPClientIntegrationTest extends AbstractServerIntegrationTest {
         request.header("Content-Type", "text/plain");
         request.header("Content-Length", String.valueOf(contentBytes.length));
 
-        request.startRequestBody(new DefaultHttpResponseHandler() {
+        request.startRequestBody(new CollectingResponseHandler() {
             @Override
-            public void ok(HttpResponse response) {
-                status.set(response.getStatus());
+            public void ok(HttpStatus response) {
+                status.set(response);
             }
 
             @Override
-            public void error(HttpResponse response) {
-                status.set(response.getStatus());
+            public void error(HttpStatus response) {
+                status.set(response);
             }
 
             @Override
@@ -584,15 +585,15 @@ public class HTTPClientIntegrationTest extends AbstractServerIntegrationTest {
         request.header("Content-Type", "text/plain");
         request.header("Transfer-Encoding", "chunked");
 
-        request.startRequestBody(new DefaultHttpResponseHandler() {
+        request.startRequestBody(new CollectingResponseHandler() {
             @Override
-            public void ok(HttpResponse response) {
-                status.set(response.getStatus());
+            public void ok(HttpStatus response) {
+                status.set(response);
             }
 
             @Override
-            public void error(HttpResponse response) {
-                status.set(response.getStatus());
+            public void error(HttpStatus response) {
+                status.set(response);
             }
 
             @Override
@@ -657,15 +658,15 @@ public class HTTPClientIntegrationTest extends AbstractServerIntegrationTest {
         request.header("Content-Type", "application/octet-stream");
         request.header("Transfer-Encoding", "chunked");
 
-        request.startRequestBody(new DefaultHttpResponseHandler() {
+        request.startRequestBody(new CollectingResponseHandler() {
             @Override
-            public void ok(HttpResponse response) {
-                status.set(response.getStatus());
+            public void ok(HttpStatus response) {
+                status.set(response);
             }
 
             @Override
-            public void error(HttpResponse response) {
-                status.set(response.getStatus());
+            public void error(HttpStatus response) {
+                status.set(response);
             }
 
             @Override
@@ -743,17 +744,17 @@ public class HTTPClientIntegrationTest extends AbstractServerIntegrationTest {
         AtomicReference<Exception> optionsError = new AtomicReference<>();
 
         HttpRequest optionsRequest = client.options("*");
-        optionsRequest.send(new DefaultHttpResponseHandler() {
+        optionsRequest.send(new CollectingResponseHandler() {
             @Override
-            public void ok(HttpResponse response) {
-                optionsStatus.set(response.getStatus());
-                System.out.println("OPTIONS ok response: " + response.getStatus());
+            public void ok(HttpStatus response) {
+                optionsStatus.set(response);
+                System.out.println("OPTIONS ok response: " + response);
             }
 
             @Override
-            public void error(HttpResponse response) {
-                optionsStatus.set(response.getStatus());
-                System.out.println("OPTIONS error response: " + response.getStatus());
+            public void error(HttpStatus response) {
+                optionsStatus.set(response);
+                System.out.println("OPTIONS error response: " + response);
             }
 
             @Override
@@ -818,15 +819,15 @@ public class HTTPClientIntegrationTest extends AbstractServerIntegrationTest {
         request.header("Content-Type", "text/plain");
         request.header("Content-Length", String.valueOf(contentBytes.length));
 
-        request.startRequestBody(new DefaultHttpResponseHandler() {
+        request.startRequestBody(new CollectingResponseHandler() {
             @Override
-            public void ok(HttpResponse response) {
-                status.set(response.getStatus());
+            public void ok(HttpStatus response) {
+                status.set(response);
             }
 
             @Override
-            public void error(HttpResponse response) {
-                status.set(response.getStatus());
+            public void error(HttpStatus response) {
+                status.set(response);
             }
 
             @Override
@@ -901,15 +902,15 @@ public class HTTPClientIntegrationTest extends AbstractServerIntegrationTest {
         request.header("Content-Type", "text/plain");
         // No Content-Length - will be sent as DATA frames
 
-        request.startRequestBody(new DefaultHttpResponseHandler() {
+        request.startRequestBody(new CollectingResponseHandler() {
             @Override
-            public void ok(HttpResponse response) {
-                status.set(response.getStatus());
+            public void ok(HttpStatus response) {
+                status.set(response);
             }
 
             @Override
-            public void error(HttpResponse response) {
-                status.set(response.getStatus());
+            public void error(HttpStatus response) {
+                status.set(response);
             }
 
             @Override
@@ -972,15 +973,15 @@ public class HTTPClientIntegrationTest extends AbstractServerIntegrationTest {
         AtomicReference<Exception> error = new AtomicReference<>();
 
         HttpRequest request = client.get("/test");
-        request.send(new DefaultHttpResponseHandler() {
+        request.send(new CollectingResponseHandler() {
             @Override
-            public void ok(HttpResponse response) {
-                status.set(response.getStatus());
+            public void ok(HttpStatus response) {
+                status.set(response);
             }
 
             @Override
-            public void error(HttpResponse response) {
-                status.set(response.getStatus());
+            public void error(HttpStatus response) {
+                status.set(response);
             }
 
             @Override
@@ -1029,15 +1030,15 @@ public class HTTPClientIntegrationTest extends AbstractServerIntegrationTest {
         request.header("Content-Type", "text/plain");
         request.header("Content-Length", String.valueOf(contentBytes.length));
 
-        request.startRequestBody(new DefaultHttpResponseHandler() {
+        request.startRequestBody(new CollectingResponseHandler() {
             @Override
-            public void ok(HttpResponse response) {
-                status.set(response.getStatus());
+            public void ok(HttpStatus response) {
+                status.set(response);
             }
 
             @Override
-            public void error(HttpResponse response) {
-                status.set(response.getStatus());
+            public void error(HttpStatus response) {
+                status.set(response);
             }
 
             @Override
@@ -1096,15 +1097,15 @@ public class HTTPClientIntegrationTest extends AbstractServerIntegrationTest {
         AtomicReference<Exception> error = new AtomicReference<>();
 
         HttpRequest request = client.get("/test");
-        request.send(new DefaultHttpResponseHandler() {
+        request.send(new CollectingResponseHandler() {
             @Override
-            public void ok(HttpResponse response) {
-                status.set(response.getStatus());
+            public void ok(HttpStatus response) {
+                status.set(response);
             }
 
             @Override
-            public void error(HttpResponse response) {
-                status.set(response.getStatus());
+            public void error(HttpStatus response) {
+                status.set(response);
             }
 
             @Override
@@ -1145,15 +1146,15 @@ public class HTTPClientIntegrationTest extends AbstractServerIntegrationTest {
         request.header("Content-Type", "text/plain");
         request.header("Content-Length", String.valueOf(contentBytes.length));
 
-        request.startRequestBody(new DefaultHttpResponseHandler() {
+        request.startRequestBody(new CollectingResponseHandler() {
             @Override
-            public void ok(HttpResponse response) {
-                status.set(response.getStatus());
+            public void ok(HttpStatus response) {
+                status.set(response);
             }
 
             @Override
-            public void error(HttpResponse response) {
-                status.set(response.getStatus());
+            public void error(HttpStatus response) {
+                status.set(response);
             }
 
             @Override
@@ -1219,15 +1220,15 @@ public class HTTPClientIntegrationTest extends AbstractServerIntegrationTest {
             request.header("Transfer-Encoding", "chunked");
         }
 
-        request.startRequestBody(new DefaultHttpResponseHandler() {
+        request.startRequestBody(new CollectingResponseHandler() {
             @Override
-            public void ok(HttpResponse response) {
-                status.set(response.getStatus());
+            public void ok(HttpStatus response) {
+                status.set(response);
             }
 
             @Override
-            public void error(HttpResponse response) {
-                status.set(response.getStatus());
+            public void error(HttpStatus response) {
+                status.set(response);
             }
 
             @Override
@@ -1299,15 +1300,15 @@ public class HTTPClientIntegrationTest extends AbstractServerIntegrationTest {
         request.header("Content-Type", "text/plain; charset=UTF-8");
         request.header("Content-Length", String.valueOf(contentBytes.length));
 
-        request.startRequestBody(new DefaultHttpResponseHandler() {
+        request.startRequestBody(new CollectingResponseHandler() {
             @Override
-            public void ok(HttpResponse response) {
-                status.set(response.getStatus());
+            public void ok(HttpStatus response) {
+                status.set(response);
             }
 
             @Override
-            public void error(HttpResponse response) {
-                status.set(response.getStatus());
+            public void error(HttpStatus response) {
+                status.set(response);
             }
 
             @Override

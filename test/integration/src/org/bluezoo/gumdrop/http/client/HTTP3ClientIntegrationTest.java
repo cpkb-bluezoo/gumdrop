@@ -31,6 +31,7 @@ import org.bluezoo.gumdrop.http.HttpStatus;
 import org.bluezoo.gumdrop.http.HttpClient;
 import org.bluezoo.gumdrop.http.HttpVersion;
 import org.bluezoo.gumdrop.http.h3.Http3Listener;
+import org.bluezoo.gumdrop.testsupport.CollectingResponseHandler;
 import org.junit.AfterClass;
 import org.junit.BeforeClass;
 import org.junit.Rule;
@@ -181,15 +182,15 @@ public class HTTP3ClientIntegrationTest {
             final AtomicReference<Exception> error = new AtomicReference<>();
             final ByteArrayOutputStream bodyBuffer = new ByteArrayOutputStream();
 
-            DefaultHttpResponseHandler handler = new DefaultHttpResponseHandler() {
+            DefaultHttpResponseHandler handler = new CollectingResponseHandler() {
                 @Override
-                public void ok(HttpResponse response) {
-                    result.status = response.getStatus();
+                public void ok(HttpStatus response) {
+                    result.status = response;
                 }
 
                 @Override
-                public void error(HttpResponse response) {
-                    result.status = response.getStatus();
+                public void error(HttpStatus response) {
+                    result.status = response;
                 }
 
                 @Override
@@ -246,7 +247,7 @@ public class HTTP3ClientIntegrationTest {
         final AtomicReference<Exception> error = new AtomicReference<>();
         final ByteArrayOutputStream bodyBuffer = new ByteArrayOutputStream();
 
-        DefaultHttpResponseHandler handler = new DefaultHttpResponseHandler() {
+        DefaultHttpResponseHandler handler = new CollectingResponseHandler() {
             @Override
             public void responseBodyContent(ByteBuffer data) {
                 byte[] bytes = new byte[data.remaining()];

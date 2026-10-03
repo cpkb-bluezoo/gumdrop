@@ -33,6 +33,7 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 import java.util.zip.GZIPInputStream;
 
+import org.bluezoo.gumdrop.testsupport.CollectingResponseHandler;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -64,7 +65,7 @@ import static org.junit.Assert.assertTrue;
  */
 public class HttpClientProtocolHandlerEdgeTest {
 
-    private static final class Recorder extends DefaultHttpResponseHandler {
+    private static final class Recorder extends CollectingResponseHandler {
         HttpStatus status;
         int okCalls;
         int errorCalls;
@@ -75,15 +76,15 @@ public class HttpClientProtocolHandlerEdgeTest {
         final ByteArrayOutputStream body = new ByteArrayOutputStream();
 
         @Override
-        public void ok(HttpResponse response) {
+        public void ok(HttpStatus response) {
             okCalls++;
-            status = response.getStatus();
+            status = response;
         }
 
         @Override
-        public void error(HttpResponse response) {
+        public void error(HttpStatus response) {
             errorCalls++;
-            status = response.getStatus();
+            status = response;
         }
 
         @Override
@@ -385,26 +386,20 @@ public class HttpClientProtocolHandlerEdgeTest {
         handler.get("/b").send(null);
         feed("HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n3\r\nabc\r\n0\r\nX-T: v\r\n\r\n");
         handler.head("/c").send(null);
-        feed("HTTP/1.1 200 OK\r\n\r\n");
-        handler.get("/d").send(null);
-        feed("HTTP/1.1 200 OK\r\n\r\n");
-        handler.get("/e").send(null);
-        feed("HTTP/1.1 200 OK\r\nContent-Length: x\r\n\r\n");
+        feed("HTTP/1.1 200 OK\r\nContent-Length: 9\r\n\r\n");
         handler.get("/f").send(null);
         feed("HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n");
-        handler.get("/g").send(null);
-        feed("HTTP/1.1 101 Switching Protocols\r\n\r\nHTTP/1.1 404 Nope\r\nContent-Length: 0\r\n\r\n");
         Recorder last = get();
         feed("HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok");
         assertEquals(1, last.okCalls);
         assertEquals("ok", new String(last.body.toByteArray(), StandardCharsets.US_ASCII));
-        assertEquals(8, count(sent(), "Host: example.com"));
+        assertEquals(5, count(sent(), "Host: example.com"));
     }
 
     @Test
-    public void handlerlessChunkedBodyWithTrailerLinesWithoutColons() {
+    public void handlerlessChunkedBodyIsConsumed() {
         handler.get("/b").send(null);
-        feed("HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n2\r\nab\r\n0\r\nnocolon\r\n\r\n");
+        feed("HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n2\r\nab\r\n0\r\n\r\n");
         Recorder r = get();
         feed("HTTP/1.1 204 No Content\r\n\r\n");
         assertEquals(1, r.okCalls);
@@ -412,27 +407,31 @@ public class HttpClientProtocolHandlerEdgeTest {
     }
 
     @Test
-    public void chunkedTrailerWithoutColonAndHiddenContentEncodingTrailer() {
+    public void hiddenContentEncodingTrailerIsNotDelivered() {
         Recorder r = get();
         feed("HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n2\r\nab\r\n0\r\n"
-                + "nocolon\r\nContent-Encoding: gzip\r\nX-Kept: yes\r\n\r\n");
+                + "Content-Encoding: gzip\r\nX-Kept: yes\r\n\r\n");
         assertEquals(1, r.closeCalls);
-        assertTrue(r.headers.toString(), r.headers.contains("X-Kept: yes"));
+        assertTrue(r.headers.toString(), r.headers.contains("x-kept: yes"));
         for (int i = 0; i < r.headers.size(); i++) {
-            assertFalse(r.headers.get(i), r.headers.get(i).startsWith("Content-Encoding"));
+            assertFalse(r.headers.get(i), r.headers.get(i).toLowerCase().startsWith("content-encoding"));
         }
-        assertFalse(r.headers.toString(), r.headers.contains("nocolon"));
     }
 
     @Test
-    public void foldedHeaderBeforeAnyHeaderIsIgnored() {
+    public void aTrailerLineWithoutAColonMakesTheResponseMalformed() {
+        Recorder r = get();
+        feed("HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n2\r\nab\r\n0\r\nnocolon\r\n\r\n");
+        assertEquals(1, r.failures.size());
+    }
+
+    @Test
+    public void foldedHeaderBeforeAnyHeaderIsMalformed() {
+        // RFC 9112 section 5.2: a fold with no field line to continue
         Recorder r = get();
         feed("HTTP/1.1 200 OK\r\n folded-first\r\nX-A: 1\r\nContent-Length: 0\r\n\r\n");
-        assertEquals(1, r.okCalls);
-        assertEquals("X-A: 1", r.headers.get(0));
-        for (int i = 0; i < r.headers.size(); i++) {
-            assertFalse(r.headers.get(i), r.headers.get(i).contains("folded-first"));
-        }
+        assertEquals(1, r.failures.size());
+        assertEquals(0, r.okCalls);
     }
 
     // ── authentication ──
@@ -582,7 +581,7 @@ public class HttpClientProtocolHandlerEdgeTest {
         feed("HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n");
         assertEquals(1, r.okCalls);
         assertEquals("only the final response's headers", 1, r.headers.size());
-        assertEquals("Content-Length: 0", r.headers.get(0));
+        assertEquals("content-length: 0", r.headers.get(0));
     }
 
     @Test
@@ -602,10 +601,10 @@ public class HttpClientProtocolHandlerEdgeTest {
     }
 
     @Test
-    public void challengeWithoutFramingIsRetriedAtOnce() {
+    public void challengeWithAnEmptyBodyIsRetriedAtOnce() {
         handler.credentials("user", "pass");
         get();
-        feed("HTTP/1.1 401 Unauthorized\r\nWWW-Authenticate: Basic realm=\"r\"\r\n\r\n");
+        feed("HTTP/1.1 401 Unauthorized\r\nWWW-Authenticate: Basic realm=\"r\"\r\nContent-Length: 0\r\n\r\n");
         assertEquals(1, count(sent(), "Authorization: Basic"));
     }
 
@@ -628,7 +627,7 @@ public class HttpClientProtocolHandlerEdgeTest {
     }
 
     @Test
-    public void unacceptedProtocolSwitchIsSkippedAsAnInterimResponse() {
+    public void unacceptedProtocolSwitchFailsTheResponse() {
         Switching sw = new Switching(conn);
         BinaryRecordingEndpoint ep = new BinaryRecordingEndpoint();
         sw.connected(ep);
@@ -639,7 +638,8 @@ public class HttpClientProtocolHandlerEdgeTest {
                 + "HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n";
         sw.receive(ByteBuffer.wrap(raw.getBytes(StandardCharsets.UTF_8)));
         assertEquals(1, sw.switchCalls);
-        assertEquals(1, r.okCalls);
+        assertEquals(0, r.okCalls);
+        assertEquals(1, r.failures.size());
     }
 
     @Test
@@ -670,7 +670,8 @@ public class HttpClientProtocolHandlerEdgeTest {
                 + "HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n";
         sw.receive(ByteBuffer.wrap(raw.getBytes(StandardCharsets.UTF_8)));
         assertEquals(1, sw.switchCalls);
-        assertEquals(1, r.okCalls);
+        assertEquals(0, r.okCalls);
+        assertEquals(1, r.failures.size());
     }
 
     @Test

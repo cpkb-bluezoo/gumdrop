@@ -108,7 +108,7 @@ public class OtlpExportPassTest {
         @Override
         public void endRequestBody() {
             ended = true;
-            handler.close();
+            handler.endMessage();
         }
 
         @Override
@@ -220,7 +220,7 @@ public class OtlpExportPassTest {
             if (failSends) {
                 handler.failed(new IOException("no connection"));
             } else {
-                handler.close();
+                handler.endMessage();
             }
         }
 

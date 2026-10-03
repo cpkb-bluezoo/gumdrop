@@ -70,7 +70,8 @@ import org.bluezoo.gumdrop.http.client.HttpClientHandler;
 import org.bluezoo.gumdrop.http.client.HttpClientProtocolHandler;
 import org.bluezoo.gumdrop.http.client.HttpMethodSafety;
 import org.bluezoo.gumdrop.http.client.HttpRequest;
-import org.bluezoo.gumdrop.http.client.HttpResponse;
+import org.bluezoo.gumdrop.mime.ContentDisposition;
+import org.bluezoo.gumdrop.mime.ContentType;
 import org.bluezoo.gumdrop.http.client.HttpResponseHandler;
 import org.bluezoo.gumdrop.http.HttpVersion;
 import org.bluezoo.gumdrop.http.h3.Http3ClientHandler;
@@ -2023,45 +2024,56 @@ public class HttpClient implements AltSvcListener {
         return new DefaultHttpResponseHandler() {
 
             @Override
-            public void ok(HttpResponse response) {
+            public void status(int code) {
                 if (verbose || headersOnly) {
                     HttpVersion version = client.getVersion();
                     String versionStr = version != null
                             ? version.toString() : "HTTP/?";
-                    System.err.println(versionStr + " "
-                            + response.getStatus().code + " "
-                            + response.getStatus());
+                    System.err.println(versionStr + " " + code + " "
+                            + HttpStatus.fromCode(code));
                 }
             }
 
             @Override
-            public void error(HttpResponse response) {
+            public void contentType(ContentType contentType) {
                 if (verbose || headersOnly) {
-                    HttpVersion version = client.getVersion();
-                    String versionStr = version != null
-                            ? version.toString() : "HTTP/?";
-                    System.err.println(versionStr + " "
-                            + response.getStatus().code + " "
-                            + response.getStatus());
+                    System.err.println("content-type: " + contentType.toHeaderValue());
                 }
             }
 
             @Override
-            public void header(String name, String value) {
+            public void contentDisposition(ContentDisposition contentDisposition) {
+                if (verbose || headersOnly) {
+                    System.err.println("content-disposition: " + contentDisposition.toHeaderValue());
+                }
+            }
+
+            @Override
+            public void longHeader(String name, long value) {
                 if (verbose || headersOnly) {
                     System.err.println(name + ": " + value);
                 }
             }
 
             @Override
-            public void startResponseBody() {
+            public void header(String name, ByteBuffer value) {
+                if (verbose || headersOnly) {
+                    byte[] octets = new byte[value.remaining()];
+                    value.duplicate().get(octets);
+                    System.err.println(name + ": "
+                            + new String(octets, java.nio.charset.StandardCharsets.ISO_8859_1));
+                }
+            }
+
+            @Override
+            public void endHeaders() {
                 if (verbose || headersOnly) {
                     System.err.println();
                 }
             }
 
             @Override
-            public void responseBodyContent(ByteBuffer data) {
+            public void bodyContent(ByteBuffer data) {
                 if (headersOnly) {
                     return;
                 }
@@ -2079,7 +2091,7 @@ public class HttpClient implements AltSvcListener {
             }
 
             @Override
-            public void close() {
+            public void endMessage() {
                 doneLatch.countDown();
             }
 

@@ -26,6 +26,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 import org.bluezoo.gumdrop.http.Headers;
 import org.bluezoo.gumdrop.http.HttpStatus;
+import org.bluezoo.gumdrop.testsupport.MessageEvents;
 import org.junit.Test;
 
 import static org.junit.Assert.assertTrue;
@@ -88,12 +89,11 @@ public class DefaultHttpResponseHandlerTest {
     @Test
     public void defaultOkErrorAndBodyHooksAreNoOps() {
         DefaultHttpResponseHandler handler = new DefaultHttpResponseHandler();
-        handler.ok(new HttpResponse(HttpStatus.OK));
-        handler.error(new HttpResponse(HttpStatus.BAD_GATEWAY));
-        handler.header("X-Test", "1");
-        handler.startResponseBody();
-        handler.responseBodyContent(ByteBuffer.wrap(new byte[] { 1 }));
-        handler.endResponseBody();
-        handler.close();
+        handler.status(HttpStatus.OK.code);
+        handler.status(HttpStatus.BAD_GATEWAY.code);
+        handler.header("X-Test", MessageEvents.octets("1"));
+        handler.endHeaders();
+        handler.bodyContent(ByteBuffer.wrap(new byte[] { 1 }));
+        handler.endMessage();
     }
 }

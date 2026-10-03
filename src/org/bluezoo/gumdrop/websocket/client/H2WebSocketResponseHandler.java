@@ -29,9 +29,9 @@ import java.util.ResourceBundle;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
+import org.bluezoo.gumdrop.http.HttpStatus;
 import org.bluezoo.gumdrop.http.client.DefaultHttpResponseHandler;
 import org.bluezoo.gumdrop.http.client.HttpRequest;
-import org.bluezoo.gumdrop.http.client.HttpResponse;
 import org.bluezoo.gumdrop.websocket.WebSocketConnection;
 import org.bluezoo.gumdrop.websocket.WebSocketEventHandler;
 import org.bluezoo.gumdrop.websocket.WebSocketExtension;
@@ -49,9 +49,9 @@ import org.bluezoo.gumdrop.websocket.WebSocketSession;
  * to an Extended CONNECT is indistinguishable, at that layer, from a
  * {@code 200} to any other request. This class is what makes it WebSocket-
  * shaped: it collects {@code sec-websocket-extensions} from the header
- * callbacks (which arrive after {@link #ok}, before {@link #startResponseBody}),
+ * callbacks (which arrive after {@link #ok}, before {@link #endHeaders}),
  * then builds the {@link WebSocketConnection} bridge once headers are
- * complete — {@link #startResponseBody} fires as soon as the server's
+ * complete — {@link #endHeaders} fires as soon as the server's
  * HEADERS frame arrives without {@code END_STREAM} (i.e. exactly when the
  * upgrade is accepted), not lazily on the first WebSocket message.
  *
@@ -82,28 +82,28 @@ class H2WebSocketResponseHandler extends DefaultHttpResponseHandler {
     }
 
     @Override
-    public void ok(HttpResponse response) {
-        // Nothing to do yet -- sec-websocket-extensions (if any) arrives
-        // via header(), and the bridge is built in startResponseBody()
-        // once the header section is known to be complete.
-    }
-
-    @Override
-    public void error(HttpResponse response) {
+    public void status(int code) {
+        HttpStatus status = HttpStatus.fromCode(code);
+        if (status.isSuccess()) {
+            return;
+        }
         failed = true;
         wsHandler.error(new IOException(
-                "WebSocket-over-HTTP/2 upgrade failed: " + response.getStatus()));
+                "WebSocket-over-HTTP/2 upgrade failed: " + status));
     }
 
     @Override
-    public void header(String name, String value) {
+    public void header(String name, ByteBuffer valueBuffer) {
+        byte[] octets = new byte[valueBuffer.remaining()];
+        valueBuffer.duplicate().get(octets);
+        String value = new String(octets, java.nio.charset.StandardCharsets.ISO_8859_1);
         if ("sec-websocket-extensions".equalsIgnoreCase(name)) {
             extensionsHeader = value;
         }
     }
 
     @Override
-    public void startResponseBody() {
+    public void endHeaders() {
         if (failed) {
             return;
         }
@@ -123,7 +123,7 @@ class H2WebSocketResponseHandler extends DefaultHttpResponseHandler {
     }
 
     @Override
-    public void responseBodyContent(ByteBuffer data) {
+    public void bodyContent(ByteBuffer data) {
         if (webSocketAdapter == null) {
             return;
         }
@@ -136,7 +136,7 @@ class H2WebSocketResponseHandler extends DefaultHttpResponseHandler {
     }
 
     @Override
-    public void endResponseBody() {
+    public void endMessage() {
         if (webSocketAdapter != null) {
             webSocketAdapter.notifyTransportClosed(1001, "Transport closed");
         }

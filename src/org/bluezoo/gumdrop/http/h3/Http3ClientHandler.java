@@ -1128,7 +1128,9 @@ public final class Http3ClientHandler implements H3ControlStream.Listener {
         }
         if (!decodeResponseContentCoding || stream.getInboundResponseDecoder() == null) {
             if (data != null && data.hasRemaining()) {
-                responseHandler.responseBodyContent(data);
+                if (stream.isMessageEvents()) {
+                    responseHandler.bodyContent(data.asReadOnlyBuffer());
+                }
             }
             return;
         }
@@ -1136,6 +1138,7 @@ public final class Http3ClientHandler implements H3ControlStream.Listener {
             stream.getInboundResponseDecoder().write(data, false);
             drainInboundResponseDecoded(stream, responseHandler);
         } catch (ContentEncoding.ContentEncodingException e) {
+            stream.clearMessageEvents();
             responseHandler.failed(new IOException(e.getMessage(), e));
         }
     }
@@ -1148,7 +1151,9 @@ public final class Http3ClientHandler implements H3ControlStream.Listener {
         }
         ByteBuffer decoded;
         while ((decoded = decoder.readDecoded()) != null) {
-            responseHandler.responseBodyContent(decoded);
+            if (stream.isMessageEvents()) {
+                responseHandler.bodyContent(decoded.asReadOnlyBuffer());
+            }
         }
     }
 
@@ -1161,7 +1166,6 @@ public final class Http3ClientHandler implements H3ControlStream.Listener {
             return;
         }
         if (!decodeResponseContentCoding || stream.getInboundResponseDecoder() == null) {
-            responseHandler.endResponseBody();
             return;
         }
         try {
@@ -1169,9 +1173,8 @@ public final class Http3ClientHandler implements H3ControlStream.Listener {
             drainInboundResponseDecoded(stream, responseHandler);
             stream.closeInboundResponseDecoder();
         } catch (ContentEncoding.ContentEncodingException e) {
+            stream.clearMessageEvents();
             responseHandler.failed(new IOException(e.getMessage(), e));
-            return;
         }
-        responseHandler.endResponseBody();
     }
 }

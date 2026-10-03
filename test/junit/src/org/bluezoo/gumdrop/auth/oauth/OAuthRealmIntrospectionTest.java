@@ -45,7 +45,6 @@ import org.bluezoo.gumdrop.http.HttpClient;
 import org.bluezoo.gumdrop.http.HttpStatus;
 import org.bluezoo.gumdrop.http.client.HttpClientHandler;
 import org.bluezoo.gumdrop.http.client.HttpRequest;
-import org.bluezoo.gumdrop.http.client.HttpResponse;
 import org.bluezoo.gumdrop.http.client.HttpResponseHandler;
 import org.bluezoo.gumdrop.testsupport.BinaryRecordingEndpoint;
 import org.bluezoo.gumdrop.testsupport.InlineSelectorLoop;
@@ -218,19 +217,13 @@ public class OAuthRealmIntrospectionTest {
             } else if (status == 500) {
                 st = HttpStatus.INTERNAL_SERVER_ERROR;
             }
-            HttpResponse response = new HttpResponse(st);
-            if (status == 200) {
-                h.ok(response);
-            } else {
-                h.error(response);
-            }
-            h.startResponseBody();
+            h.status(st.code);
+            h.endHeaders();
             for (int i = 0; i < chunks.size(); i++) {
                 byte[] b = chunks.get(i).getBytes(StandardCharsets.UTF_8);
-                h.responseBodyContent(ByteBuffer.wrap(b));
+                h.bodyContent(ByteBuffer.wrap(b));
             }
-            h.endResponseBody();
-            h.close();
+            h.endMessage();
         }
     }
 

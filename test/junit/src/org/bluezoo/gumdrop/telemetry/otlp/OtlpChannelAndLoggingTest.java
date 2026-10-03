@@ -41,7 +41,6 @@ import java.util.logging.Logger;
 
 import org.bluezoo.gumdrop.http.HttpStatus;
 import org.bluezoo.gumdrop.http.client.HttpRequest;
-import org.bluezoo.gumdrop.http.client.HttpResponse;
 import org.bluezoo.gumdrop.http.client.HttpResponseHandler;
 import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
 import org.bluezoo.gumdrop.telemetry.metrics.AggregationTemporality;
@@ -215,9 +214,9 @@ public class OtlpChannelAndLoggingTest {
         OtlpExporter e = new OtlpExporter(config(), false);
         try {
             OtlpResponseHandler h = new OtlpResponseHandler("traces", e);
-            h.ok(new HttpResponse(HttpStatus.OK));
-            h.error(new HttpResponse(HttpStatus.SERVICE_UNAVAILABLE));
-            h.error(new HttpResponse(HttpStatus.BAD_REQUEST));
+            h.status(HttpStatus.OK.code);
+            h.status(HttpStatus.SERVICE_UNAVAILABLE.code);
+            h.status(HttpStatus.BAD_REQUEST.code);
             h.failed(new RuntimeException("x"));
             assertTrue(capture.messages.toString(),
                     capture.messages.size() >= 4);
@@ -231,8 +230,8 @@ public class OtlpChannelAndLoggingTest {
         OtlpGrpcExporter e = new OtlpGrpcExporter(config(), false);
         try {
             OtlpGrpcResponseHandler h = new OtlpGrpcResponseHandler("logs", e);
-            h.ok(new HttpResponse(HttpStatus.OK));
-            h.error(new HttpResponse(HttpStatus.BAD_GATEWAY));
+            h.status(HttpStatus.OK.code);
+            h.status(HttpStatus.BAD_GATEWAY.code);
             h.failed(new RuntimeException("x"));
             assertTrue(capture.messages.toString(),
                     capture.messages.size() >= 3);

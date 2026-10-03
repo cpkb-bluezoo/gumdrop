@@ -37,14 +37,15 @@ import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.http.Capsule;
 import org.bluezoo.gumdrop.http.CapsuleParser;
 import org.bluezoo.gumdrop.http.Header;
+import org.bluezoo.gumdrop.http.FieldSectionAdapter;
 import org.bluezoo.gumdrop.http.HeaderCollector;
+import org.bluezoo.gumdrop.http.HttpMessageRecorder;
 import org.bluezoo.gumdrop.http.Headers;
 import org.bluezoo.gumdrop.http.ContentEncoding;
 import org.bluezoo.gumdrop.http.HttpStatus;
 import org.bluezoo.gumdrop.http.HttpUtils;
 import org.bluezoo.gumdrop.http.HttpVersion;
 import org.bluezoo.gumdrop.http.qpack.Decoder;
-import org.bluezoo.gumdrop.http.client.HttpResponse;
 import org.bluezoo.gumdrop.http.client.HttpResponseHandler;
 import org.bluezoo.gumdrop.quic.QuicStreamEndpoint;
 
@@ -62,7 +63,7 @@ import org.bluezoo.gumdrop.quic.QuicStreamEndpoint;
  * protocols itself: it always holds exactly one {@code responseHandler},
  * and callers that need upgrade-specific behaviour (see {@link
  * H3ClientWebSocketResponseHandler}) supply an {@link HttpResponseHandler}
- * that reinterprets the ordinary {@code responseBodyContent}/{@code
+ * that reinterprets the ordinary {@code bodyContent}/{@code
  * wantsDatagrams}/{@code datagramReceived}/{@code capsuleReceived}
  * callbacks accordingly -- exactly how {@code H2WebSocketResponseHandler}
  * already does for HTTP/2, where no such per-protocol branching exists in
@@ -72,12 +73,11 @@ import org.bluezoo.gumdrop.quic.QuicStreamEndpoint;
  * CONNECT is timing: unlike HTTP/2's HEADERS frame, HTTP/3's carries no
  * END_STREAM-equivalent flag (QUIC signals stream completion
  * independently of H3 framing), so this class cannot tell whether a body
- * will follow the way {@code H2WebSocketResponseHandler}'s caller can.
- * Since an Extended CONNECT accept has no HTTP body at all -- the
- * "body" bytes it sees, if any, are already tunnelled-protocol framing --
- * {@link #onHeaders} calls {@link HttpResponseHandler#startResponseBody}
- * immediately for such a request, rather than waiting for a first DATA
- * frame that may never come.
+ * will follow. Since an Extended CONNECT accept has no HTTP body at all --
+ * the "body" bytes it sees, if any, are already tunnelled-protocol framing
+ * -- {@link #onHeaders} enters the body state immediately for such a
+ * request, rather than waiting for a first DATA frame that may never come.
+ * The handler's {@code endHeaders} event already marks acceptance.
  *
  * <p>Response pseudo-headers (RFC 9114 section 4.3.2) are parsed from
  * the initial HEADERS frame, decoded via the connection-shared {@link
@@ -111,6 +111,22 @@ class H3ClientStream implements ProtocolHandler, H3FrameHandler {
     private final H3Parser parser = new H3Parser(this);
     private final Http3ClientHandler connection;
     private final Decoder qpackDecoder;
+
+    // The events of the response field section being decoded, held until the
+    // response is known to be one the handler is to see, and whether the
+    // handler has been given the start of the response as events.
+    private final HttpMessageRecorder responseEvents = new HttpMessageRecorder();
+    private boolean messageEvents;
+
+    /** Whether the handler has been given the start of the response as events. */
+    boolean isMessageEvents() {
+        return messageEvents;
+    }
+
+    /** The response has failed: nothing more is given to the handler as message events. */
+    void clearMessageEvents() {
+        messageEvents = false;
+    }
     private final HttpResponseHandler responseHandler;
     private Endpoint endpoint;
     // Mirrors ((QuicStreamEndpoint) endpoint).getStreamId(), captured
@@ -148,9 +164,8 @@ class H3ClientStream implements ProtocolHandler, H3FrameHandler {
     // CONNECT request (RFC 8441/9220 WebSocket, RFC 9298 CONNECT-UDP, and
     // future CONNECT-IP) never has an HTTP body in the first place -- its
     // "body" bytes, if any, are already tunnelled-protocol framing -- so
-    // for these, startResponseBody() fires immediately once headers
-    // arrive rather than waiting for a first DATA frame that may never
-    // come. Set once in prepareRequest() from the request's own
+    // for these, the body state is entered as soon as headers arrive
+    // rather than waiting for a first DATA frame that may never come. Set once in prepareRequest() from the request's own
     // :method/:protocol.
     private boolean extendedConnect;
 
@@ -414,8 +429,13 @@ class H3ClientStream implements ProtocolHandler, H3FrameHandler {
     @Override
     public void headersFrameReceived(ByteBuffer encodedFieldSection) {
         HeaderCollector collected = new HeaderCollector();
+        FieldSectionAdapter adapter = new FieldSectionAdapter(responseEvents, HttpVersion.HTTP_3,
+                state == State.OPEN ? FieldSectionAdapter.Kind.RESPONSE
+                                    : FieldSectionAdapter.Kind.TRAILERS,
+                collected);
+        responseEvents.clear();
         try {
-            qpackDecoder.decode(streamId, encodedFieldSection, collected);
+            qpackDecoder.decode(streamId, encodedFieldSection, adapter);
         } catch (ProtocolException e) {
             LOGGER.log(Level.WARNING, L10N.getString("warn.qpack_decode_failed"), e);
             state = State.CLOSED;
@@ -423,7 +443,9 @@ class H3ClientStream implements ProtocolHandler, H3FrameHandler {
             return;
         }
         headersDecoded = true;
-        if (collected.isMalformed()) {
+        boolean accepted = adapter.finish();
+        if (!accepted || collected.isMalformed()) {
+            responseEvents.clear();
             // RFC 9114 section 4.1.2: a field that is not valid field syntax
             // makes the response malformed, a stream error. The section was
             // decoded and acknowledged in full, so the QPACK state is intact.
@@ -469,19 +491,17 @@ class H3ClientStream implements ProtocolHandler, H3FrameHandler {
             // about sec-websocket-extensions et al. simply ignores
             // anything else).
             if (statusCode >= 100 && statusCode < 200) {
-                deliverStrippedHeaders(fields);
+                responseEvents.clear();
                 return;
             }
 
             state = State.HEADERS_RECEIVED;
-            HttpStatus status = HttpStatus.fromCode(statusCode);
-            HttpResponse response = new HttpResponse(status);
-            if (statusCode >= 200 && statusCode < 400) {
-                responseHandler.ok(response);
-            } else {
-                responseHandler.error(response);
+            messageEvents = true;
+            if (connection != null && connection.omitContentEncodingHeader("content-encoding")) {
+                responseEvents.removeFields("content-encoding");
             }
-
+            responseEvents.replay(responseHandler);
+            responseEvents.clear();
             Headers hdrs = toHeaders(fields);
             if (connection != null) {
                 connection.prepareInboundResponseDecoding(this, hdrs);
@@ -490,15 +510,6 @@ class H3ClientStream implements ProtocolHandler, H3FrameHandler {
             // it (same ordering as H3Stream / HTTP/2 Stream).
             if (!captureContentLength(hdrs)) {
                 return;
-            }
-            HttpVersion.stripHttp1FramingHeaders(hdrs);
-            for (Header field : hdrs) {
-                if (!field.getName().startsWith(":")) {
-                    if (connection != null && connection.omitContentEncodingHeader(field.getName())) {
-                        continue;
-                    }
-                    responseHandler.header(field.getName(), field.getValue());
-                }
             }
             // RFC 9110 section 6.4.1 / 15.4.5 / 15.4.6: HEAD, 204, and
             // 304 responses must not carry a message body; Content-Length
@@ -516,30 +527,15 @@ class H3ClientStream implements ProtocolHandler, H3FrameHandler {
             if (extendedConnect && !bodyStarted) {
                 bodyStarted = true;
                 state = State.RECEIVING_BODY;
-                responseHandler.startResponseBody();
             }
             return;
         }
 
         // Trailer field section (or late headers after the final status).
-        deliverStrippedHeaders(fields);
-    }
-
-    /**
-     * Strips HTTP/1 framing headers (RFC 9114 section 4.2) and delivers
-     * the remaining non-pseudo fields to the response handler.
-     */
-    private void deliverStrippedHeaders(List<Header> fields) {
-        Headers hdrs = toHeaders(fields);
-        HttpVersion.stripHttp1FramingHeaders(hdrs);
-        for (Header field : hdrs) {
-            if (!field.getName().startsWith(":")) {
-                if (connection != null && connection.omitContentEncodingHeader(field.getName())) {
-                    continue;
-                }
-                responseHandler.header(field.getName(), field.getValue());
-            }
+        if (messageEvents) {
+            responseEvents.replay(responseHandler);
         }
+        responseEvents.clear();
     }
 
     private static Headers toHeaders(List<Header> fields) {
@@ -587,7 +583,6 @@ class H3ClientStream implements ProtocolHandler, H3FrameHandler {
         if (!bodyStarted) {
             bodyStarted = true;
             state = State.RECEIVING_BODY;
-            responseHandler.startResponseBody();
         }
         bodyBytesReceived += data.remaining();
         if (contentLength >= 0 && bodyBytesReceived > contentLength) {
@@ -597,7 +592,9 @@ class H3ClientStream implements ProtocolHandler, H3FrameHandler {
         if (connection != null) {
             connection.feedResponseBody(this, data);
         } else {
-            responseHandler.responseBodyContent(data);
+            if (messageEvents) {
+                responseHandler.bodyContent(data.asReadOnlyBuffer());
+            }
         }
     }
 
@@ -640,15 +637,13 @@ class H3ClientStream implements ProtocolHandler, H3FrameHandler {
             abortMessageError("Content-Length does not match DATA frame bytes");
             return;
         }
-        if (bodyStarted) {
-            if (connection != null) {
-                connection.finishResponseBody(this);
-            } else {
-                responseHandler.endResponseBody();
-            }
+        if (bodyStarted && connection != null) {
+            connection.finishResponseBody(this);
         }
         state = State.CLOSED;
-        responseHandler.close();
+        if (messageEvents) {
+            responseHandler.endMessage();
+        }
     }
 
     /**

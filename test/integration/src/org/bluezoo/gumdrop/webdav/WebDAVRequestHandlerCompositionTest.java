@@ -31,8 +31,9 @@ import org.bluezoo.gumdrop.http.client.DefaultHttpResponseHandler;
 import org.bluezoo.gumdrop.http.client.HttpClientHandler;
 import org.bluezoo.gumdrop.http.client.HttpRequest;
 import org.bluezoo.gumdrop.webdav.server.WebDAVRequestHandler;
-import org.bluezoo.gumdrop.http.client.HttpResponse;
 import org.bluezoo.gumdrop.http.server.Http2Listener;
+import org.bluezoo.gumdrop.testsupport.CollectingResponseHandler;
+import org.bluezoo.gumdrop.http.HttpStatus;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -111,13 +112,13 @@ public class WebDAVRequestHandlerCompositionTest {
         HttpRequest request = client.get("/hello.txt");
 
         CountDownLatch latch = new CountDownLatch(1);
-        AtomicReference<HttpResponse> responseRef = new AtomicReference<HttpResponse>();
+        AtomicReference<HttpStatus> responseRef = new AtomicReference<HttpStatus>();
         ByteArrayOutputStream bodyBuffer = new ByteArrayOutputStream();
         AtomicReference<Exception> errorRef = new AtomicReference<Exception>();
 
-        request.send(new DefaultHttpResponseHandler() {
+        request.send(new CollectingResponseHandler() {
             @Override
-            public void ok(HttpResponse response) {
+            public void ok(HttpStatus response) {
                 responseRef.set(response);
             }
 
@@ -146,9 +147,9 @@ public class WebDAVRequestHandlerCompositionTest {
 
         assertTrue("response not received", latch.await(5, TimeUnit.SECONDS));
         assertNull(errorRef.get());
-        HttpResponse response = responseRef.get();
+        HttpStatus response = responseRef.get();
         assertNotNull(response);
-        assertEquals(200, response.getStatus().code);
+        assertEquals(200, response.code);
         assertEquals("Hello, WebDAV!",
                 new String(bodyBuffer.toByteArray(), StandardCharsets.UTF_8));
         } finally {

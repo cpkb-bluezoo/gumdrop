@@ -39,6 +39,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
+import org.bluezoo.gumdrop.testsupport.CollectingResponseHandler;
 import org.junit.AfterClass;
 import org.junit.BeforeClass;
 import org.junit.Ignore;
@@ -55,7 +56,6 @@ import org.bluezoo.gumdrop.http.server.HttpResponseState;
 import org.bluezoo.gumdrop.http.server.HttpStreamHandler;
 import org.bluezoo.gumdrop.http.HttpStatus;
 import org.bluezoo.gumdrop.http.Headers;
-import org.bluezoo.gumdrop.http.client.HttpResponse;
 import org.bluezoo.gumdrop.http.client.HttpResponseHandler;
 import org.bluezoo.gumdrop.http.client.PushPromise;
 import org.bluezoo.gumdrop.http.qpack.Decoder;
@@ -215,7 +215,7 @@ public class HTTP3ProductionEndToEndTest {
             clientFactory.start();
 
             final CountDownLatch responseLatch = new CountDownLatch(1);
-            final AtomicReference<HttpResponse> okResponse = new AtomicReference<HttpResponse>();
+            final AtomicReference<HttpStatus> okResponse = new AtomicReference<HttpStatus>();
             final AtomicReference<Exception> failure = new AtomicReference<Exception>();
             final AtomicReference<String> body = new AtomicReference<String>();
 
@@ -232,17 +232,17 @@ public class HTTP3ProductionEndToEndTest {
                             requestHeaders.add(":authority", SERVER_NAME);
                             requestHeaders.add(":path", "/");
 
-                            h3.sendRequest(requestHeaders, new HttpResponseHandler() {
+                            h3.sendRequest(requestHeaders, new CollectingResponseHandler() {
                                 private final StringBuilder buf = new StringBuilder();
 
                                 @Override
-                                public void ok(HttpResponse response) {
+                                public void ok(HttpStatus response) {
                                     okResponse.set(response);
                                 }
 
                                 @Override
-                                public void error(HttpResponse response) {
-                                    failure.set(new IOException("Unexpected error status: " + response.getStatus()));
+                                public void error(HttpStatus response) {
+                                    failure.set(new IOException("Unexpected error status: " + response));
                                     responseLatch.countDown();
                                 }
 
@@ -289,7 +289,7 @@ public class HTTP3ProductionEndToEndTest {
                 throw failure.get();
             }
 
-            assertEquals(HttpStatus.OK, okResponse.get().getStatus());
+            assertEquals(HttpStatus.OK, okResponse.get());
             assertEquals("hello h3", body.get());
         } finally {
             // Stop the loop thread first so closing the engines from this
@@ -409,7 +409,7 @@ public class HTTP3ProductionEndToEndTest {
                                     requestHeaders.add(":authority", SERVER_NAME);
                                     requestHeaders.add(":path", "/dgram");
                                     long streamId = h3.sendRequest(requestHeaders,
-                                            new HttpResponseHandler() {
+                                            new CollectingResponseHandler() {
                                                 @Override
                                                 public boolean wantsDatagrams() {
                                                     return true;
@@ -424,15 +424,15 @@ public class HTTP3ProductionEndToEndTest {
                                                 }
 
                                                 @Override
-                                                public void ok(HttpResponse response) {
+                                                public void ok(HttpStatus response) {
                                                     headersLatch.countDown();
                                                 }
 
                                                 @Override
-                                                public void error(HttpResponse response) {
+                                                public void error(HttpStatus response) {
                                                     failure.set(new IOException(
                                                             "Unexpected error status: "
-                                                                    + response.getStatus()));
+                                                                    + response));
                                                     headersLatch.countDown();
                                                 }
 
@@ -617,13 +617,13 @@ public class HTTP3ProductionEndToEndTest {
                                     oversized.add(":authority", SERVER_NAME);
                                     oversized.add(":path", "/too-big");
                                     oversized.add("x-pad", pad.toString());
-                                    h3.sendRequest(oversized, new HttpResponseHandler() {
+                                    h3.sendRequest(oversized, new CollectingResponseHandler() {
                                         @Override
-                                        public void ok(HttpResponse response) {
+                                        public void ok(HttpStatus response) {
                                         }
 
                                         @Override
-                                        public void error(HttpResponse response) {
+                                        public void error(HttpStatus response) {
                                         }
 
                                         @Override
@@ -675,16 +675,16 @@ public class HTTP3ProductionEndToEndTest {
                     okHeaders.add(":scheme", "https");
                     okHeaders.add(":authority", SERVER_NAME);
                     okHeaders.add(":path", "/");
-                    h3Ref.get().sendRequest(okHeaders, new HttpResponseHandler() {
+                    h3Ref.get().sendRequest(okHeaders, new CollectingResponseHandler() {
                         @Override
-                        public void ok(HttpResponse response) {
-                            okStatus.set(response.getStatus());
+                        public void ok(HttpStatus response) {
+                            okStatus.set(response);
                         }
 
                         @Override
-                        public void error(HttpResponse response) {
+                        public void error(HttpStatus response) {
                             okFailure.set(new IOException("Unexpected error status: "
-                                    + response.getStatus()));
+                                    + response));
                             okLatch.countDown();
                         }
 
@@ -2487,7 +2487,7 @@ public class HTTP3ProductionEndToEndTest {
     }
 
     /** Counts down a latch on completion (success or failure), recording any failure. */
-    private static final class LatchResponseHandler implements HttpResponseHandler {
+    private static final class LatchResponseHandler extends CollectingResponseHandler {
         private final CountDownLatch latch;
         private final AtomicReference<Exception> failure;
 
@@ -2497,12 +2497,12 @@ public class HTTP3ProductionEndToEndTest {
         }
 
         @Override
-        public void ok(HttpResponse response) {
+        public void ok(HttpStatus response) {
         }
 
         @Override
-        public void error(HttpResponse response) {
-            failure.set(new IOException("Unexpected error status: " + response.getStatus()));
+        public void error(HttpStatus response) {
+            failure.set(new IOException("Unexpected error status: " + response));
             latch.countDown();
         }
 

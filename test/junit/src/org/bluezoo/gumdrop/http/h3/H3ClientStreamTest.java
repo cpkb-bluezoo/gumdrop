@@ -28,12 +28,13 @@ import java.util.ArrayList;
 import java.util.List;
 
 import org.bluezoo.gumdrop.http.Header;
-import org.bluezoo.gumdrop.http.client.HttpResponse;
 import org.bluezoo.gumdrop.http.client.HttpResponseHandler;
 import org.bluezoo.gumdrop.http.client.PushPromise;
 import org.bluezoo.gumdrop.http.qpack.Decoder;
 import org.bluezoo.gumdrop.http.qpack.SimpleEncoder;
 
+import org.bluezoo.gumdrop.testsupport.CollectingResponseHandler;
+import org.bluezoo.gumdrop.http.HttpStatus;
 import org.junit.Test;
 import static org.junit.Assert.*;
 
@@ -81,7 +82,7 @@ public class H3ClientStreamTest {
         stream.headersFrameReceived(encode("content-type", "text/html"));
 
         assertNotNull("failed() should have been called", handler.failedException);
-        assertTrue(handler.failedException.getMessage().contains("missing :status"));
+        assertNull("a malformed response is never delivered", handler.okResponse);
     }
 
     /**
@@ -128,23 +129,23 @@ public class H3ClientStreamTest {
         stream.headersFrameReceived(encode(":status", "103", "link", "</style.css>; rel=preload"));
 
         assertNull("ok() should not be called for 103", handler.okResponse);
-        assertEquals("link", handler.lastHeaderName);
+        assertNull("interim fields are not delivered", handler.lastHeaderName);
         assertEquals("OPEN", getState(stream));
     }
 
     /**
-     * RFC 9114 section 4.3.2: non-numeric :status should be treated
-     * as 500 (server error).
+     * RFC 9114 section 4.3.2 / RFC 9110 section 15: a :status that is not
+     * a three-digit code makes the response malformed.
      */
     @Test
-    public void testNonNumericStatusTreatedAsError() throws Exception {
+    public void testNonNumericStatusIsMalformed() throws Exception {
         StubResponseHandler handler = new StubResponseHandler();
         H3ClientStream stream = createStream(handler);
 
         stream.headersFrameReceived(encode(":status", "abc"));
 
-        assertNotNull("error() should be called for non-numeric status",
-                handler.errorResponse);
+        assertNull("a malformed response is never delivered", handler.errorResponse);
+        assertNull(handler.okResponse);
     }
 
     /**
@@ -213,7 +214,9 @@ public class H3ClientStreamTest {
      * to the application.
      */
     @Test
-    public void testHttp1FramingHeadersAreStrippedFromResponse() throws Exception {
+    public void testHttp1FramingHeadersMakeTheResponseMalformed() throws Exception {
+        // RFC 9114 section 4.2: connection-specific fields are not used in
+        // HTTP/3; a response carrying one is malformed, not tidied up
         StubResponseHandler handler = new StubResponseHandler();
         H3ClientStream stream = createStream(handler);
 
@@ -221,23 +224,14 @@ public class H3ClientStreamTest {
                 ":status", "200",
                 "content-type", "text/plain",
                 "connection", "keep-alive",
-                "keep-alive", "timeout=5",
-                "transfer-encoding", "chunked",
-                "upgrade", "websocket",
                 "x-custom", "ok"));
 
-        assertNotNull(handler.okResponse);
-        assertTrue(handler.headerNames.contains("content-type"));
-        assertTrue(handler.headerNames.contains("x-custom"));
-        assertFalse(handler.headerNames.contains("connection"));
-        assertFalse(handler.headerNames.contains("keep-alive"));
-        assertFalse(handler.headerNames.contains("transfer-encoding"));
-        assertFalse(handler.headerNames.contains("upgrade"));
+        assertNull("a malformed response is never delivered", handler.okResponse);
     }
 
     /**
-     * Content-Length is still captured for body validation even though
-     * stripHttp1FramingHeaders would remove it from the delivered set.
+     * Content-Length is captured for body validation, and is also delivered
+     * to the handler like any other field.
      */
     @Test
     public void testContentLengthCapturedBeforeFramingStrip() throws Exception {
@@ -250,7 +244,7 @@ public class H3ClientStreamTest {
                 "content-type", "text/plain"));
 
         assertEquals(Long.valueOf(3L), getField(stream, "contentLength"));
-        assertFalse(handler.headerNames.contains("content-length"));
+        assertTrue(handler.headerNames.contains("content-length"));
         assertTrue(handler.headerNames.contains("content-type"));
     }
 
@@ -298,26 +292,22 @@ public class H3ClientStreamTest {
         return ((Enum<?>) f.get(stream)).name();
     }
 
-    private static class StubResponseHandler implements HttpResponseHandler {
-        HttpResponse okResponse;
-        HttpResponse errorResponse;
+    private static class StubResponseHandler extends CollectingResponseHandler {
+        HttpStatus okResponse;
+        HttpStatus errorResponse;
         Exception failedException;
         String lastHeaderName;
         String lastHeaderValue;
         final List<String> headerNames = new ArrayList<String>();
 
-        @Override public void ok(HttpResponse response) { okResponse = response; }
-        @Override public void error(HttpResponse response) { errorResponse = response; }
+        @Override public void ok(HttpStatus response) { okResponse = response; }
+        @Override public void error(HttpStatus response) { errorResponse = response; }
         @Override public void header(String name, String value) {
             lastHeaderName = name;
             lastHeaderValue = value;
             headerNames.add(name);
         }
-        @Override public void startResponseBody() {}
-        @Override public void responseBodyContent(ByteBuffer data) {}
-        @Override public void endResponseBody() {}
         @Override public void pushPromise(PushPromise promise) {}
-        @Override public void close() {}
         @Override public void failed(Exception ex) { failedException = ex; }
     }
 }

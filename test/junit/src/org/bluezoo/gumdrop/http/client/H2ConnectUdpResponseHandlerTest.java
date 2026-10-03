@@ -56,8 +56,8 @@ public class H2ConnectUdpResponseHandlerTest {
         MockHTTPRequest request = new MockHTTPRequest();
         H2ConnectUdpResponseHandler handler = new H2ConnectUdpResponseHandler(request, eventHandler);
 
-        handler.ok(new HttpResponse(HttpStatus.OK));
-        handler.startResponseBody();
+        handler.status(HttpStatus.OK.code);
+        handler.endHeaders();
         assertNotNull("opened() should have been called", eventHandler.session);
 
         byte[] udpPayload = "hello-target".getBytes(StandardCharsets.US_ASCII);
@@ -67,7 +67,7 @@ public class H2ConnectUdpResponseHandlerTest {
         contextEncoded.get(contextBytes);
         byte[] capsuleBytes = Capsule.datagram(contextBytes).encode();
 
-        handler.responseBodyContent(ByteBuffer.wrap(capsuleBytes));
+        handler.bodyContent(ByteBuffer.wrap(capsuleBytes));
 
         assertNotNull("datagramReceived() should have been called", eventHandler.lastDatagram);
         byte[] delivered = new byte[eventHandler.lastDatagram.remaining()];
@@ -81,8 +81,8 @@ public class H2ConnectUdpResponseHandlerTest {
         MockHTTPRequest request = new MockHTTPRequest();
         H2ConnectUdpResponseHandler handler = new H2ConnectUdpResponseHandler(request, eventHandler);
 
-        handler.ok(new HttpResponse(HttpStatus.OK));
-        handler.startResponseBody();
+        handler.status(HttpStatus.OK.code);
+        handler.endHeaders();
         assertNotNull(eventHandler.session);
 
         byte[] udpPayload = "to-target".getBytes(StandardCharsets.US_ASCII);
@@ -107,8 +107,8 @@ public class H2ConnectUdpResponseHandlerTest {
         MockHTTPRequest request = new MockHTTPRequest();
         H2ConnectUdpResponseHandler handler = new H2ConnectUdpResponseHandler(request, eventHandler);
 
-        handler.ok(new HttpResponse(HttpStatus.OK));
-        handler.startResponseBody();
+        handler.status(HttpStatus.OK.code);
+        handler.endHeaders();
         eventHandler.session.close();
 
         assertTrue("close() must end the underlying request body", request.bodyEnded);
@@ -120,9 +120,9 @@ public class H2ConnectUdpResponseHandlerTest {
         MockHTTPRequest request = new MockHTTPRequest();
         H2ConnectUdpResponseHandler handler = new H2ConnectUdpResponseHandler(request, eventHandler);
 
-        handler.ok(new HttpResponse(HttpStatus.OK));
-        handler.startResponseBody();
-        handler.endResponseBody();
+        handler.status(HttpStatus.OK.code);
+        handler.endHeaders();
+        handler.endMessage();
 
         assertTrue("closed() should have been called", eventHandler.closed);
     }
@@ -133,11 +133,11 @@ public class H2ConnectUdpResponseHandlerTest {
         MockHTTPRequest request = new MockHTTPRequest();
         H2ConnectUdpResponseHandler handler = new H2ConnectUdpResponseHandler(request, eventHandler);
 
-        handler.error(new HttpResponse(HttpStatus.FORBIDDEN));
+        handler.status(HttpStatus.FORBIDDEN.code);
         // A rejected Extended CONNECT still gets a startResponseBody()
         // call whenever the h2 stream isn't immediately closed -- the
         // "failed" guard must suppress opened() even so.
-        handler.startResponseBody();
+        handler.endHeaders();
 
         assertNotNull("error() should have been called", eventHandler.error);
         assertNull("opened() should not have been called", eventHandler.session);

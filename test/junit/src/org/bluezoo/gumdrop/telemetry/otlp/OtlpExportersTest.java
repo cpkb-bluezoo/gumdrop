@@ -30,7 +30,6 @@ import java.util.ArrayList;
 import java.util.List;
 
 import org.bluezoo.gumdrop.http.HttpStatus;
-import org.bluezoo.gumdrop.http.client.HttpResponse;
 import org.bluezoo.gumdrop.telemetry.LogRecord;
 import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
 import org.bluezoo.gumdrop.telemetry.TelemetryTestData;
@@ -72,7 +71,7 @@ public class OtlpExportersTest {
             assertFalse(h.isComplete());
             assertFalse(h.isSuccess());
             assertNull(h.getStatus());
-            h.ok(new HttpResponse(HttpStatus.OK));
+            h.status(HttpStatus.OK.code);
             assertTrue(h.isSuccess());
             assertEquals(HttpStatus.OK, h.getStatus());
             HttpStatus[] errs = new HttpStatus[] {
@@ -80,11 +79,11 @@ public class OtlpExportersTest {
                 HttpStatus.BAD_GATEWAY, HttpStatus.SERVICE_UNAVAILABLE,
                 HttpStatus.GATEWAY_TIMEOUT, HttpStatus.BAD_REQUEST};
             for (int i = 0; i < errs.length; i++) {
-                h.error(new HttpResponse(errs[i]));
+                h.status(errs[i].code);
                 assertFalse(h.isSuccess());
                 assertEquals(errs[i], h.getStatus());
             }
-            h.close();
+            h.endMessage();
             assertTrue(h.isComplete());
             OtlpResponseHandler h2 = new OtlpResponseHandler("logs", e);
             h2.failed(new RuntimeException("x"));
@@ -102,12 +101,12 @@ public class OtlpExportersTest {
             OtlpGrpcResponseHandler h = new OtlpGrpcResponseHandler("traces", e);
             assertFalse(h.isComplete());
             assertNull(h.getStatus());
-            h.ok(new HttpResponse(HttpStatus.OK));
+            h.status(HttpStatus.OK.code);
             assertTrue(h.isSuccess());
-            h.error(new HttpResponse(HttpStatus.SERVICE_UNAVAILABLE));
+            h.status(HttpStatus.SERVICE_UNAVAILABLE.code);
             assertFalse(h.isSuccess());
             assertEquals(HttpStatus.SERVICE_UNAVAILABLE, h.getStatus());
-            h.close();
+            h.endMessage();
             assertTrue(h.isComplete());
             OtlpGrpcResponseHandler h2 = new OtlpGrpcResponseHandler("logs", e);
             h2.failed(new RuntimeException("x"));

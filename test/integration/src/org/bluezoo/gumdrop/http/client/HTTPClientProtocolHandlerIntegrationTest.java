@@ -38,6 +38,7 @@ import org.bluezoo.gumdrop.http.server.HttpRequestHandler;
 import org.bluezoo.gumdrop.http.server.HttpResponseState;
 import org.bluezoo.gumdrop.http.server.HttpStreamHandler;
 import org.bluezoo.gumdrop.testsupport.CollectingRequestHandler;
+import org.bluezoo.gumdrop.testsupport.CollectingResponseHandler;
 import org.junit.BeforeClass;
 import org.junit.Rule;
 import org.junit.Test;
@@ -199,15 +200,15 @@ public class HTTPClientProtocolHandlerIntegrationTest extends AbstractServerInte
         AtomicReference<Exception> error = new AtomicReference<Exception>();
         ByteArrayOutputStream bodyOut = new ByteArrayOutputStream();
 
-        DefaultHttpResponseHandler handler = new DefaultHttpResponseHandler() {
+        DefaultHttpResponseHandler handler = new CollectingResponseHandler() {
             @Override
-            public void ok(HttpResponse response) {
-                result.status = response.getStatus();
+            public void ok(HttpStatus response) {
+                result.status = response;
             }
 
             @Override
-            public void error(HttpResponse response) {
-                result.status = response.getStatus();
+            public void error(HttpStatus response) {
+                result.status = response;
             }
 
             @Override

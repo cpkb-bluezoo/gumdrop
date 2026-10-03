@@ -476,14 +476,14 @@ class LookupHandler extends DefaultHttpRequestHandler {
                     private boolean parserInit;
 
                     @Override
-                    public void ok(HttpResponse response) {
+                    public void endHeaders() {
                         responseParser.setContentHandler(jsonHandler);
                         try { responseParser.reset(); } catch (Exception e) { /* ignore */ }
                         parserInit = true;
                     }
 
                     @Override
-                    public void responseBodyContent(ByteBuffer data) {
+                    public void bodyContent(ByteBuffer data) {
                         if (parserInit) {
                             try {
                                 responseParser.receive(data);
@@ -494,7 +494,7 @@ class LookupHandler extends DefaultHttpRequestHandler {
                     }
 
                     @Override
-                    public void close() {
+                    public void endMessage() {
                         try {
                             if (parserInit) responseParser.close();
                         } catch (Exception e) { /* ignore */ }

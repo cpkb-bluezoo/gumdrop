@@ -25,6 +25,7 @@ import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.List;
 
+import org.bluezoo.gumdrop.http.HttpStatus;
 import org.bluezoo.gumdrop.http.Capsule;
 import org.bluezoo.gumdrop.http.CapsuleParser;
 import org.bluezoo.gumdrop.http.HttpDatagramContext;
@@ -39,11 +40,11 @@ import org.bluezoo.gumdrop.http.HttpDatagramContext;
  * {@link HttpResponseHandler} -- a {@code 200} to an Extended CONNECT is
  * indistinguishable, at that layer, from a {@code 200} to any other
  * request. This class is what makes it CONNECT-UDP-shaped: {@link
- * #startResponseBody} signals acceptance (called as soon as the server's
- * HEADERS frame arrives without {@code END_STREAM}, i.e. exactly when the
+ * #endHeaders} signals acceptance (called as soon as the server's
+ * header section has arrived, i.e. exactly when the
  * tunnel is accepted -- see {@code H2WebSocketResponseHandler}'s own
  * documentation for why HTTP/2 can signal this eagerly, unlike HTTP/3),
- * and {@link #responseBodyContent} parses each DATA frame's bytes as
+ * and {@link #bodyContent} parses each DATA frame's bytes as
  * Capsule Protocol capsules (RFC 9297 section 3.2) instead of a plain
  * response body, delivering {@link Capsule#TYPE_DATAGRAM} payloads (RFC
  * 9298 section 5) as UDP payloads. Direct client-side mirror of {@code
@@ -68,20 +69,18 @@ class H2ConnectUdpResponseHandler extends DefaultHttpResponseHandler {
     }
 
     @Override
-    public void ok(HttpResponse response) {
-        // Nothing to do yet -- acceptance is signalled from
-        // startResponseBody(), once headers are known complete.
-    }
-
-    @Override
-    public void error(HttpResponse response) {
+    public void status(int code) {
+        HttpStatus status = HttpStatus.fromCode(code);
+        if (status.isSuccess()) {
+            return;
+        }
         failed = true;
         eventHandler.error(new IOException(
-                "CONNECT-UDP request failed: " + response.getStatus()));
+                "CONNECT-UDP request failed: " + status));
     }
 
     @Override
-    public void startResponseBody() {
+    public void endHeaders() {
         if (failed) {
             return;
         }
@@ -90,7 +89,7 @@ class H2ConnectUdpResponseHandler extends DefaultHttpResponseHandler {
     }
 
     @Override
-    public void responseBodyContent(ByteBuffer data) {
+    public void bodyContent(ByteBuffer data) {
         if (!opened) {
             return;
         }
@@ -114,7 +113,7 @@ class H2ConnectUdpResponseHandler extends DefaultHttpResponseHandler {
     }
 
     @Override
-    public void endResponseBody() {
+    public void endMessage() {
         if (opened) {
             eventHandler.closed();
         }

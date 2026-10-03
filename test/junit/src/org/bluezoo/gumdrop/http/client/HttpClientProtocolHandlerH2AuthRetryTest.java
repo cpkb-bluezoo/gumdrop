@@ -39,6 +39,7 @@ import org.bluezoo.gumdrop.http.hpack.Encoder;
 import org.bluezoo.gumdrop.testsupport.BinaryRecordingEndpoint;
 import org.bluezoo.gumdrop.testsupport.InlineSelectorLoop;
 
+import org.bluezoo.gumdrop.testsupport.CollectingResponseHandler;
 import org.junit.Test;
 
 import static org.junit.Assert.assertEquals;
@@ -163,22 +164,22 @@ public class HttpClientProtocolHandlerH2AuthRetryTest {
         challengeThenSucceed(true);
     }
 
-    private static final class RecordingHandler extends DefaultHttpResponseHandler {
+    private static final class RecordingHandler extends CollectingResponseHandler {
         boolean ok;
         boolean errored;
         boolean closed;
         HttpStatus status;
 
         @Override
-        public void ok(HttpResponse response) {
+        public void ok(HttpStatus response) {
             ok = true;
-            status = response.getStatus();
+            status = response;
         }
 
         @Override
-        public void error(HttpResponse response) {
+        public void error(HttpStatus response) {
             errored = true;
-            status = response.getStatus();
+            status = response;
         }
 
         @Override

@@ -97,9 +97,8 @@ public interface PushPromise {
     /**
      * Accepts the push promise and provides a handler for the pushed response.
      *
-     * <p>The provided handler will receive the same callbacks as a normal response:
-     * {@link HttpResponseHandler#ok(HttpResponse)}, {@link HttpResponseHandler#header(String, String)},
-     * body content callbacks, and {@link HttpResponseHandler#close()}.
+     * <p>The provided handler will receive the same events as a normal response:
+     * the status, the fields, the body content, and the end of the message.
      *
      * <p>This method must be called at most once. After calling this method,
      * {@link #reject()} must not be called.

@@ -221,6 +221,7 @@ public class HttpStreamTest {
         RecordingOps ops = new RecordingOps();
         HttpStream stream = new HttpStream(ops, "GET", "/");
         stream.setInboundResponseDecoder(ContentEncoding.Coding.GZIP);
+        stream.setMessageEvents();
 
         byte[] plain = "decoded-body".getBytes(StandardCharsets.UTF_8);
         ByteArrayOutputStream gzipOut = new ByteArrayOutputStream();
@@ -233,7 +234,7 @@ public class HttpStreamTest {
         final ByteArrayOutputStream seen = new ByteArrayOutputStream();
         stream.drainInboundResponseDecoded(new DefaultHttpResponseHandler() {
             @Override
-            public void responseBodyContent(ByteBuffer data) {
+            public void bodyContent(ByteBuffer data) {
                 if (data.hasRemaining()) {
                     byte[] chunk = new byte[data.remaining()];
                     data.get(chunk);

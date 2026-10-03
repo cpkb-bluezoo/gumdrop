@@ -29,8 +29,8 @@ import java.util.ResourceBundle;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
+import org.bluezoo.gumdrop.http.HttpStatus;
 import org.bluezoo.gumdrop.http.client.DefaultHttpResponseHandler;
-import org.bluezoo.gumdrop.http.client.HttpResponse;
 import org.bluezoo.gumdrop.quic.QuicConnectionCloseException;
 import org.bluezoo.gumdrop.websocket.WebSocketConnection;
 import org.bluezoo.gumdrop.websocket.WebSocketEventHandler;
@@ -47,11 +47,11 @@ import org.bluezoo.gumdrop.websocket.WebSocketSession;
  * calls the ordinary {@link org.bluezoo.gumdrop.http.client.HttpResponseHandler}
  * callback sequence, and this class is what reinterprets that sequence as
  * a WebSocket connection: {@link #header} collects {@code
- * sec-websocket-extensions}, {@link #startResponseBody} builds the {@link
+ * sec-websocket-extensions}, {@link #endHeaders} builds the {@link
  * WebSocketConnection} bridge (called as soon as headers are known
  * complete -- see {@link H3ClientStream}'s own documentation on why HTTP/3
  * signals this eagerly, unlike HTTP/2's {@code H2WebSocketResponseHandler}
- * which waits for {@code !endStream}), and {@link #responseBodyContent}
+ * which waits for {@code !endStream}), and {@link #bodyContent}
  * feeds each DATA frame's bytes to the WebSocket frame parser instead of
  * treating them as a response body. Direct client-side mirror of {@code
  * org.bluezoo.gumdrop.websocket.client.H2WebSocketResponseHandler}.
@@ -102,28 +102,28 @@ class H3ClientWebSocketResponseHandler extends DefaultHttpResponseHandler {
     }
 
     @Override
-    public void ok(HttpResponse response) {
-        // Nothing to do yet -- sec-websocket-extensions (if any) arrives
-        // via header(), and the bridge is built in startResponseBody()
-        // once the header section is known to be complete.
-    }
-
-    @Override
-    public void error(HttpResponse response) {
+    public void status(int code) {
+        HttpStatus status = HttpStatus.fromCode(code);
+        if (status.isSuccess()) {
+            return;
+        }
         failed = true;
         wsHandler.error(new IOException(
-                "WebSocket-over-HTTP/3 upgrade failed: " + response.getStatus()));
+                "WebSocket-over-HTTP/3 upgrade failed: " + status));
     }
 
     @Override
-    public void header(String name, String value) {
+    public void header(String name, ByteBuffer valueBuffer) {
+        byte[] octets = new byte[valueBuffer.remaining()];
+        valueBuffer.duplicate().get(octets);
+        String value = new String(octets, java.nio.charset.StandardCharsets.ISO_8859_1);
         if ("sec-websocket-extensions".equalsIgnoreCase(name)) {
             extensionsHeader = value;
         }
     }
 
     @Override
-    public void startResponseBody() {
+    public void endHeaders() {
         if (failed) {
             return;
         }
@@ -143,7 +143,7 @@ class H3ClientWebSocketResponseHandler extends DefaultHttpResponseHandler {
     }
 
     @Override
-    public void responseBodyContent(ByteBuffer data) {
+    public void bodyContent(ByteBuffer data) {
         if (webSocketAdapter == null) {
             return;
         }
@@ -156,7 +156,7 @@ class H3ClientWebSocketResponseHandler extends DefaultHttpResponseHandler {
     }
 
     @Override
-    public void endResponseBody() {
+    public void endMessage() {
         if (webSocketAdapter != null) {
             webSocketAdapter.notifyTransportClosed(1001, "Transport closed");
         }

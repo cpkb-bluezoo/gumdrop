@@ -40,6 +40,7 @@ import org.bluezoo.gumdrop.http.hpack.Encoder;
 import org.bluezoo.gumdrop.testsupport.BinaryRecordingEndpoint;
 import org.bluezoo.gumdrop.testsupport.InlineSelectorLoop;
 
+import org.bluezoo.gumdrop.testsupport.CollectingResponseHandler;
 import org.junit.Test;
 
 import static org.junit.Assert.assertArrayEquals;
@@ -145,7 +146,7 @@ public class HttpClientProtocolHandlerH2LoopbackTest {
 
         assertEquals(HttpVersion.HTTP_2_0, handler.getVersion());
         assertTrue(rh.ok);
-        assertEquals(HttpStatus.OK, rh.response.getStatus());
+        assertEquals(HttpStatus.OK, rh.response);
         assertTrue(rh.startBody);
         assertTrue(rh.endBody);
         assertArrayEquals("body".getBytes(StandardCharsets.UTF_8), rh.body.toByteArray());
@@ -183,7 +184,7 @@ public class HttpClientProtocolHandlerH2LoopbackTest {
 
         assertEquals(HttpVersion.HTTP_2_0, handler.getVersion());
         assertTrue(rh.ok);
-        assertEquals(HttpStatus.OK, rh.response.getStatus());
+        assertEquals(HttpStatus.OK, rh.response);
         assertTrue(rh.closed);
     }
 
@@ -206,8 +207,8 @@ public class HttpClientProtocolHandlerH2LoopbackTest {
         assertTrue(outbound.length > 0);
     }
 
-    private static final class RecordingHandler extends DefaultHttpResponseHandler {
-        HttpResponse response;
+    private static final class RecordingHandler extends CollectingResponseHandler {
+        HttpStatus response;
         boolean ok;
         boolean startBody;
         boolean endBody;
@@ -215,7 +216,7 @@ public class HttpClientProtocolHandlerH2LoopbackTest {
         final ByteArrayOutputStream body = new ByteArrayOutputStream();
 
         @Override
-        public void ok(HttpResponse response) {
+        public void ok(HttpStatus response) {
             ok = true;
             this.response = response;
         }

@@ -42,10 +42,10 @@ import org.bluezoo.gumdrop.grpc.proto.ProtoModelSerializer;
 import org.bluezoo.gumdrop.http.HttpClient;
 import org.bluezoo.gumdrop.http.HttpStatus;
 import org.bluezoo.gumdrop.http.client.HttpRequest;
-import org.bluezoo.gumdrop.http.client.HttpResponse;
 import org.bluezoo.gumdrop.http.client.HttpResponseHandler;
 import org.bluezoo.protobuf.ByteBufferChannel;
 import org.bluezoo.protobuf.ProtobufWriter;
+import org.bluezoo.gumdrop.testsupport.MessageEvents;
 import org.junit.Before;
 import org.junit.Test;
 
@@ -195,12 +195,11 @@ public class GrpcClientTest {
     public void responseMessageDecodedIntoHandler() throws Exception {
         call();
         HttpResponseHandler r = http.request.handler;
-        r.ok(new HttpResponse(HttpStatus.OK));
-        r.startResponseBody();
-        r.responseBodyContent(response(7, "seven"));
-        r.endResponseBody();
-        r.header("grpc-status", "0");
-        r.close();
+        r.status(HttpStatus.OK.code);
+        r.endHeaders();
+        r.bodyContent(response(7, "seven"));
+        r.header("grpc-status", MessageEvents.octets("0"));
+        r.endMessage();
         assertTrue(handler.errors.toString(), handler.errors.isEmpty());
         assertEquals("example.v1.Res", handler.requestedTypes.get(0));
         assertEquals(1, handler.recorder.ends);
@@ -213,15 +212,15 @@ public class GrpcClientTest {
     public void responseSplitAcrossChunksDecoded() throws Exception {
         call();
         HttpResponseHandler r = http.request.handler;
-        r.startResponseBody();
+        r.endHeaders();
         ByteBuffer whole = response(1, "chunked");
         byte[] bytes = new byte[whole.remaining()];
         whole.get(bytes);
-        r.responseBodyContent(ByteBuffer.wrap(bytes, 0, 3));
-        r.responseBodyContent(ByteBuffer.wrap(bytes, 3, bytes.length - 3));
-        r.responseBodyContent(null);
-        r.responseBodyContent(ByteBuffer.allocate(0));
-        r.close();
+        r.bodyContent(ByteBuffer.wrap(bytes, 0, 3));
+        r.bodyContent(ByteBuffer.wrap(bytes, 3, bytes.length - 3));
+        r.bodyContent(null);
+        r.bodyContent(ByteBuffer.allocate(0));
+        r.endMessage();
         assertTrue(handler.errors.toString(), handler.errors.isEmpty());
         assertEquals("chunked", handler.recorder.fieldValues.get(1));
     }
@@ -231,9 +230,9 @@ public class GrpcClientTest {
         Recorder rec = new Recorder();
         client.unaryCall(http, PATH, request(), "example.v1.Res", rec);
         HttpResponseHandler r = http.request.handler;
-        r.startResponseBody();
-        r.responseBodyContent(response(3, "x"));
-        r.close();
+        r.endHeaders();
+        r.bodyContent(response(3, "x"));
+        r.endMessage();
         assertEquals(1, rec.ends);
         assertEquals(3, rec.fieldValues.get(0));
     }
@@ -241,7 +240,8 @@ public class GrpcClientTest {
     @Test
     public void unknownPathStartsMessageWithoutType() {
         client.unaryCall(http, "/unknown.Service/Method", request(), handler);
-        http.request.handler.startResponseBody();
+        http.request.handler.endHeaders();
+        http.request.handler.bodyContent(ByteBuffer.allocate(0));
         assertEquals(1, handler.requestedTypes.size());
         assertNull(handler.requestedTypes.get(0));
     }
@@ -249,7 +249,7 @@ public class GrpcClientTest {
     @Test
     public void httpErrorStatusReported() {
         call();
-        http.request.handler.error(new HttpResponse(HttpStatus.BAD_GATEWAY));
+        http.request.handler.status(HttpStatus.BAD_GATEWAY.code);
         assertEquals(1, handler.errors.size());
         assertTrue(handler.errors.get(0).getMessage().contains("gRPC error"));
         http.request.handler.failed(new IOException("second"));
@@ -269,11 +269,11 @@ public class GrpcClientTest {
     public void nonZeroGrpcStatusReportedWithDecodedMessage() {
         call();
         HttpResponseHandler r = http.request.handler;
-        r.startResponseBody();
-        r.header("GRPC-Status", "5");
-        r.header("grpc-message", "not%20found%zz%E2%9C%93");
-        r.header("content-type", "application/grpc");
-        r.close();
+        r.endHeaders();
+        r.header("GRPC-Status", MessageEvents.octets("5"));
+        r.header("grpc-message", MessageEvents.octets("not%20found%zz%E2%9C%93"));
+        r.header("content-type", MessageEvents.octets("application/grpc"));
+        r.endMessage();
         assertEquals(1, handler.errors.size());
         String m = handler.errors.get(0).getMessage();
         assertTrue(m, m.contains("gRPC error 5"));
@@ -284,8 +284,8 @@ public class GrpcClientTest {
     public void nonZeroGrpcStatusWithoutMessage() {
         call();
         HttpResponseHandler r = http.request.handler;
-        r.header("grpc-status", "13");
-        r.close();
+        r.header("grpc-status", MessageEvents.octets("13"));
+        r.endMessage();
         assertEquals("gRPC error 13", handler.errors.get(0).getMessage());
     }
 
@@ -293,9 +293,9 @@ public class GrpcClientTest {
     public void plainGrpcMessageNotDecoded() {
         call();
         HttpResponseHandler r = http.request.handler;
-        r.header("grpc-status", "2");
-        r.header("grpc-message", "plain");
-        r.close();
+        r.header("grpc-status", MessageEvents.octets("2"));
+        r.header("grpc-message", MessageEvents.octets("plain"));
+        r.endMessage();
         assertTrue(handler.errors.get(0).getMessage().endsWith(": plain"));
     }
 
@@ -303,11 +303,10 @@ public class GrpcClientTest {
     public void handlerRefusingMessageFailsCall() {
         handler.refuse = true;
         call();
-        http.request.handler.startResponseBody();
+        http.request.handler.endHeaders();
+        http.request.handler.bodyContent(ByteBuffer.wrap(new byte[5]));
         assertEquals(1, handler.errors.size());
-        http.request.handler.responseBodyContent(ByteBuffer.wrap(new byte[5]));
-        http.request.handler.endResponseBody();
-        http.request.handler.close();
+        http.request.handler.endMessage();
         assertEquals(1, handler.errors.size());
     }
 
@@ -315,12 +314,12 @@ public class GrpcClientTest {
     public void truncatedFrameAtEndOfBodyReported() throws Exception {
         call();
         HttpResponseHandler r = http.request.handler;
-        r.startResponseBody();
+        r.endHeaders();
         ByteBuffer whole = response(1, "cut");
         byte[] bytes = new byte[whole.remaining()];
         whole.get(bytes);
-        r.responseBodyContent(ByteBuffer.wrap(bytes, 0, bytes.length - 2));
-        r.endResponseBody();
+        r.bodyContent(ByteBuffer.wrap(bytes, 0, bytes.length - 2));
+        r.endMessage();
         assertEquals(1, handler.errors.size());
         assertTrue(handler.errors.get(0).getMessage().contains("Incomplete"));
     }
@@ -329,29 +328,19 @@ public class GrpcClientTest {
     public void closeWithoutCompleteMessageReported() {
         call();
         HttpResponseHandler r = http.request.handler;
-        r.startResponseBody();
-        r.close();
+        r.endHeaders();
+        r.bodyContent(ByteBuffer.allocate(0));
+        r.endMessage();
         assertEquals(1, handler.errors.size());
-    }
-
-    @Test
-    public void bodyEventsBeforeStartAreIgnored() {
-        call();
-        HttpResponseHandler r = http.request.handler;
-        r.responseBodyContent(ByteBuffer.wrap(new byte[] {1, 2, 3}));
-        r.endResponseBody();
-        r.pushPromise(null);
-        assertTrue(handler.errors.isEmpty());
-        assertNotNull(r);
     }
 
     @Test
     public void corruptMessageBodyReported() {
         call();
         HttpResponseHandler r = http.request.handler;
-        r.startResponseBody();
+        r.endHeaders();
         // frame header claims 3 bytes; payload is not valid protobuf
-        r.responseBodyContent(ByteBuffer.wrap(
+        r.bodyContent(ByteBuffer.wrap(
                 new byte[] {0, 0, 0, 0, 3, (byte) 0xff, (byte) 0xff,
                         (byte) 0xff}));
         assertFalse(handler.errors.isEmpty());

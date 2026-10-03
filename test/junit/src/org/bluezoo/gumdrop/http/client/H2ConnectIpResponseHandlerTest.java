@@ -62,8 +62,8 @@ public class H2ConnectIpResponseHandlerTest {
         MockHTTPRequest request = new MockHTTPRequest();
         H2ConnectIpResponseHandler handler = new H2ConnectIpResponseHandler(request, eventHandler);
 
-        handler.ok(new HttpResponse(HttpStatus.OK));
-        handler.startResponseBody();
+        handler.status(HttpStatus.OK.code);
+        handler.endHeaders();
         assertNotNull("opened() should have been called", eventHandler.session);
 
         byte[] ipPacket = "hello-target".getBytes(StandardCharsets.US_ASCII);
@@ -73,7 +73,7 @@ public class H2ConnectIpResponseHandlerTest {
         contextEncoded.get(contextBytes);
         byte[] capsuleBytes = Capsule.datagram(contextBytes).encode();
 
-        handler.responseBodyContent(ByteBuffer.wrap(capsuleBytes));
+        handler.bodyContent(ByteBuffer.wrap(capsuleBytes));
 
         assertNotNull("packetReceived() should have been called", eventHandler.lastPacket);
         byte[] delivered = new byte[eventHandler.lastPacket.remaining()];
@@ -86,8 +86,8 @@ public class H2ConnectIpResponseHandlerTest {
         RecordingConnectIpHandler eventHandler = new RecordingConnectIpHandler();
         MockHTTPRequest request = new MockHTTPRequest();
         H2ConnectIpResponseHandler handler = new H2ConnectIpResponseHandler(request, eventHandler);
-        handler.ok(new HttpResponse(HttpStatus.OK));
-        handler.startResponseBody();
+        handler.status(HttpStatus.OK.code);
+        handler.endHeaders();
 
         InetAddress assignedAddress = InetAddress.getByName("192.0.2.5");
         ByteBuffer capsuleValue = ConnectIpAddress.encodeList(
@@ -96,7 +96,7 @@ public class H2ConnectIpResponseHandlerTest {
         capsuleValue.get(valueBytes);
         byte[] capsuleBytes = new Capsule(ConnectIpAddress.TYPE_ADDRESS_ASSIGN, valueBytes).encode();
 
-        handler.responseBodyContent(ByteBuffer.wrap(capsuleBytes));
+        handler.bodyContent(ByteBuffer.wrap(capsuleBytes));
 
         assertNotNull("addressAssigned() should have been called", eventHandler.lastAssigned);
         assertEquals(1, eventHandler.lastAssigned.size());
@@ -108,8 +108,8 @@ public class H2ConnectIpResponseHandlerTest {
         RecordingConnectIpHandler eventHandler = new RecordingConnectIpHandler();
         MockHTTPRequest request = new MockHTTPRequest();
         H2ConnectIpResponseHandler handler = new H2ConnectIpResponseHandler(request, eventHandler);
-        handler.ok(new HttpResponse(HttpStatus.OK));
-        handler.startResponseBody();
+        handler.status(HttpStatus.OK.code);
+        handler.endHeaders();
 
         InetAddress start = InetAddress.getByName("10.0.0.0");
         InetAddress end = InetAddress.getByName("10.0.0.255");
@@ -119,7 +119,7 @@ public class H2ConnectIpResponseHandlerTest {
         capsuleValue.get(valueBytes);
         byte[] capsuleBytes = new Capsule(ConnectIpRoute.TYPE_ROUTE_ADVERTISEMENT, valueBytes).encode();
 
-        handler.responseBodyContent(ByteBuffer.wrap(capsuleBytes));
+        handler.bodyContent(ByteBuffer.wrap(capsuleBytes));
 
         assertNotNull("routeAdvertised() should have been called", eventHandler.lastRoutes);
         assertEquals(1, eventHandler.lastRoutes.size());
@@ -132,8 +132,8 @@ public class H2ConnectIpResponseHandlerTest {
         MockHTTPRequest request = new MockHTTPRequest();
         H2ConnectIpResponseHandler handler = new H2ConnectIpResponseHandler(request, eventHandler);
 
-        handler.ok(new HttpResponse(HttpStatus.OK));
-        handler.startResponseBody();
+        handler.status(HttpStatus.OK.code);
+        handler.endHeaders();
         assertNotNull(eventHandler.session);
 
         byte[] ipPacket = "to-target".getBytes(StandardCharsets.US_ASCII);
@@ -158,8 +158,8 @@ public class H2ConnectIpResponseHandlerTest {
         MockHTTPRequest request = new MockHTTPRequest();
         H2ConnectIpResponseHandler handler = new H2ConnectIpResponseHandler(request, eventHandler);
 
-        handler.ok(new HttpResponse(HttpStatus.OK));
-        handler.startResponseBody();
+        handler.status(HttpStatus.OK.code);
+        handler.endHeaders();
         assertNotNull(eventHandler.session);
 
         InetAddress requested = InetAddress.getByName("0.0.0.0");
@@ -183,8 +183,8 @@ public class H2ConnectIpResponseHandlerTest {
         MockHTTPRequest request = new MockHTTPRequest();
         H2ConnectIpResponseHandler handler = new H2ConnectIpResponseHandler(request, eventHandler);
 
-        handler.ok(new HttpResponse(HttpStatus.OK));
-        handler.startResponseBody();
+        handler.status(HttpStatus.OK.code);
+        handler.endHeaders();
         eventHandler.session.close();
 
         assertTrue("close() must end the underlying request body", request.bodyEnded);
@@ -196,9 +196,9 @@ public class H2ConnectIpResponseHandlerTest {
         MockHTTPRequest request = new MockHTTPRequest();
         H2ConnectIpResponseHandler handler = new H2ConnectIpResponseHandler(request, eventHandler);
 
-        handler.ok(new HttpResponse(HttpStatus.OK));
-        handler.startResponseBody();
-        handler.endResponseBody();
+        handler.status(HttpStatus.OK.code);
+        handler.endHeaders();
+        handler.endMessage();
 
         assertTrue("closed() should have been called", eventHandler.closed);
     }
@@ -209,11 +209,11 @@ public class H2ConnectIpResponseHandlerTest {
         MockHTTPRequest request = new MockHTTPRequest();
         H2ConnectIpResponseHandler handler = new H2ConnectIpResponseHandler(request, eventHandler);
 
-        handler.error(new HttpResponse(HttpStatus.FORBIDDEN));
+        handler.status(HttpStatus.FORBIDDEN.code);
         // A rejected Extended CONNECT still gets a startResponseBody()
         // call whenever the h2 stream isn't immediately closed -- the
         // "failed" guard must suppress opened() even so.
-        handler.startResponseBody();
+        handler.endHeaders();
 
         assertNotNull("error() should have been called", eventHandler.error);
         assertNull("opened() should not have been called", eventHandler.session);

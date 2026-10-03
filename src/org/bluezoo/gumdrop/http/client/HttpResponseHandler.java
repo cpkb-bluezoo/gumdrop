@@ -23,47 +23,44 @@ package org.bluezoo.gumdrop.http.client;
 
 import java.nio.ByteBuffer;
 
+import org.bluezoo.gumdrop.http.HttpError;
+import org.bluezoo.gumdrop.http.HttpMessageHandler;
+import org.bluezoo.gumdrop.http.HttpMethod;
+import org.bluezoo.gumdrop.http.HttpVersion;
+import org.bluezoo.gumdrop.mime.ContentDisposition;
+import org.bluezoo.gumdrop.mime.ContentType;
+
 /**
  * Handler interface for receiving HTTP response events.
  *
- * <p>This interface uses an event-driven pattern where response components are
- * delivered incrementally as they arrive, matching the message structure
- * defined by RFC 9112 (HTTP/1.1) and RFC 9113 (HTTP/2). This enables
- * streaming processing of large responses and proper handling of HTTP
- * trailer headers (RFC 9112 section 7.1.2).
+ * <p>A response arrives as the events of {@link HttpMessageHandler}, the same
+ * whichever protocol carried it, and the same events a server handler receives
+ * for a request but for how the message starts: a response begins with
+ * {@code status()} and {@code reason()} where a request begins with
+ * {@code method()} and {@code target()}. They are delivered incrementally as
+ * they arrive, so large responses can be processed as a stream, and trailer
+ * fields reach the handler too (RFC 9112 section 7.1.2).
  *
  * <h3>Event Flow</h3>
  *
- * <p>For a successful response with a body:
+ * <p>For a response with a body:
  * <ol>
- *   <li>{@link #ok(HttpResponse)} - status received</li>
- *   <li>{@link #header(String, String)} - called for each response header</li>
- *   <li>{@link #startResponseBody()} - body begins</li>
- *   <li>{@link #responseBodyContent(ByteBuffer)} - called for each body chunk</li>
- *   <li>{@link #endResponseBody()} - body complete</li>
- *   <li>{@link #header(String, String)} - called for each trailer header (if any)</li>
- *   <li>{@link #close()} - response complete</li>
+ *   <li>{@code version()}, {@code status()}, {@code reason()}</li>
+ *   <li>the field events: {@code contentType()}, {@code longHeader()},
+ *       {@code header()} ..., one per field line</li>
+ *   <li>{@code endHeaders()}</li>
+ *   <li>{@code bodyContent()} - zero or more times</li>
+ *   <li>{@code header()} - for each trailer field, if any</li>
+ *   <li>{@code endMessage()} - the response is complete</li>
  * </ol>
  *
- * <p>For a bodyless response (e.g., 204 No Content):
- * <ol>
- *   <li>{@link #ok(HttpResponse)} - status received</li>
- *   <li>{@link #header(String, String)} - called for each response header</li>
- *   <li>{@link #close()} - response complete</li>
- * </ol>
- *
- * <p>For an error response:
- * <ol>
- *   <li>{@link #error(HttpResponse)} - error status received</li>
- *   <li>{@link #header(String, String)} - called for each response header</li>
- *   <li>(body events if the error response has a body)</li>
- *   <li>{@link #close()} - response complete</li>
- * </ol>
- *
- * <p>For a connection failure:
- * <ol>
- *   <li>{@link #failed(Exception)} - connection or protocol error</li>
- * </ol>
+ * <p>A bodyless response (for example 204 No Content) has no
+ * {@code bodyContent()}. Interim ({@code 1xx}) responses are not delivered. A
+ * malformed response ends with {@code error()}, and a response cut short by
+ * the connection or by the server ends with {@link #failed(Exception)}
+ * instead of {@code endMessage()}; nothing follows either. The status of a
+ * redirect the client does not follow, or of an error, is an ordinary
+ * {@code status()}: a handler that cares about success looks at the code.
  *
  * <h3>HTTP/2 Server Push</h3>
  *
@@ -75,73 +72,28 @@ import java.nio.ByteBuffer;
  * @see HttpRequest
  * @see DefaultHttpResponseHandler
  */
-public interface HttpResponseHandler {
+public interface HttpResponseHandler extends HttpMessageHandler {
 
-    /**
-     * Called when a successful response (2xx) status line is received.
-     *
-     * <p>After this callback, {@link #header(String, String)} will be called
-     * for each response header, followed by body events (if applicable),
-     * and finally {@link #close()}.
-     *
-     * @param response the response status
-     */
-    void ok(HttpResponse response);
+    // ---- HttpMessageHandler events ----
+    //
+    // They default to doing nothing, so a handler overrides the ones it needs.
 
-    /**
-     * Called when an error response (4xx, 5xx, or client-side pseudo-status) is received.
-     *
-     * <p>This is called for HTTP error responses and client-detected conditions
-     * like {@link org.bluezoo.gumdrop.http.HttpStatus#REDIRECT_LOOP}. The response may still have headers
-     * and a body (e.g., an HTML error page), which will be delivered via subsequent
-     * callbacks before {@link #close()}.
-     *
-     * @param response the error response
-     */
-    void error(HttpResponse response);
-
-    /**
-     * Called for each HTTP header received.
-     *
-     * <p>Headers are delivered in the order they are received. This method may be called:
-     * <ul>
-     *   <li>After {@link #ok(HttpResponse)} or {@link #error(HttpResponse)} for response headers</li>
-     *   <li>After {@link #endResponseBody()} for trailer headers (HTTP/2 or chunked encoding)</li>
-     * </ul>
-     *
-     * <p>The same header name may appear multiple times for multi-value headers.
-     *
-     * @param name the header name (case may vary, compare case-insensitively)
-     * @param value the header value
-     */
-    void header(String name, String value);
-
-    /**
-     * Called when the response body begins.
-     *
-     * <p>This is not called for bodyless responses (e.g., 204 No Content, 304 Not Modified).
-     * After this callback, {@link #responseBodyContent(ByteBuffer)} will be called for
-     * each chunk of body data, followed by {@link #endResponseBody()}.
-     */
-    void startResponseBody();
-
-    /**
-     * Called for each chunk of response body data.
-     *
-     * <p>The buffer is only valid during this callback. If the data is needed later,
-     * it must be copied. The buffer's position and limit define the valid data range.
-     *
-     * @param data the body data chunk
-     */
-    void responseBodyContent(ByteBuffer data);
-
-    /**
-     * Called when the response body is complete.
-     *
-     * <p>After this callback, trailer headers (if any) may be delivered via
-     * {@link #header(String, String)}, followed by {@link #close()}.
-     */
-    void endResponseBody();
+    @Override default void method(HttpMethod method) { }
+    @Override default void target(ByteBuffer target) { }
+    @Override default void scheme(ByteBuffer scheme) { }
+    @Override default void authority(ByteBuffer authority) { }
+    @Override default void protocol(ByteBuffer protocol) { }
+    @Override default void version(HttpVersion version) { }
+    @Override default void status(int code) { }
+    @Override default void reason(ByteBuffer phrase) { }
+    @Override default void contentType(ContentType contentType) { }
+    @Override default void contentDisposition(ContentDisposition contentDisposition) { }
+    @Override default void longHeader(String name, long value) { }
+    @Override default void header(String name, ByteBuffer value) { }
+    @Override default void endHeaders() { }
+    @Override default void bodyContent(ByteBuffer data) { }
+    @Override default void endMessage() { }
+    @Override default void error(HttpError error, String detail) { }
 
     /**
      * Called when an HTTP/2 server push promise is received.
@@ -155,18 +107,6 @@ public interface HttpResponseHandler {
      * @param promise the push promise
      */
     void pushPromise(PushPromise promise);
-
-    /**
-     * Called when the response is fully complete.
-     *
-     * <p>This is always the final callback for a successful response, called after
-     * all headers (including trailers) and body data have been delivered. After this
-     * callback, no further callbacks will be invoked for this response.
-     *
-     * <p>This method is analogous to closing a stream or connection from the
-     * response handler's perspective.
-     */
-    void close();
 
     /**
      * Called when the request fails due to a connection error, protocol error,

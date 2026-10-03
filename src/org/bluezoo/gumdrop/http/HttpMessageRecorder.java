@@ -119,6 +119,26 @@ public final class HttpMessageRecorder implements HttpMessageHandler {
         }
     }
 
+    /**
+     * Drops every recorded field event with the given name, whatever its
+     * kind (a typed field such as {@code content-type} included).
+     *
+     * @param name the lower-case field name
+     */
+    public void removeFields(String name) {
+        for (java.util.Iterator<Event> i = events.iterator(); i.hasNext(); ) {
+            Event e = i.next();
+            boolean field = e.kind == Kind.HEADER || e.kind == Kind.LONG;
+            if (field && name.equals(e.name)) {
+                i.remove();
+            } else if (e.kind == Kind.CONTENT_TYPE && name.equals("content-type")) {
+                i.remove();
+            } else if (e.kind == Kind.CONTENT_DISPOSITION && name.equals("content-disposition")) {
+                i.remove();
+            }
+        }
+    }
+
     private static ByteBuffer view(Event e) {
         return ByteBuffer.wrap(e.octets).asReadOnlyBuffer();
     }

@@ -239,47 +239,6 @@ public class HTTPClientProtocolHandlerTest {
         assertEquals(64 * 1024, handler.getMaxResponseHeaderSize());
     }
 
-    // RFC 9110 section 8.6: Content-Length validation
-    @Test
-    public void testValidateContentLengthSimple() {
-        assertEquals(100, HttpClientProtocolHandler.validateContentLength("100"));
-    }
-
-    @Test
-    public void testValidateContentLengthZero() {
-        assertEquals(0, HttpClientProtocolHandler.validateContentLength("0"));
-    }
-
-    @Test
-    public void testValidateContentLengthWithSpaces() {
-        assertEquals(42, HttpClientProtocolHandler.validateContentLength("  42  "));
-    }
-
-    @Test
-    public void testValidateContentLengthMultipleEqual() {
-        assertEquals(200, HttpClientProtocolHandler.validateContentLength("200, 200"));
-    }
-
-    @Test
-    public void testValidateContentLengthMultipleDifferent() {
-        assertEquals(-1, HttpClientProtocolHandler.validateContentLength("100, 200"));
-    }
-
-    @Test
-    public void testValidateContentLengthNegative() {
-        assertEquals(-1, HttpClientProtocolHandler.validateContentLength("-5"));
-    }
-
-    @Test
-    public void testValidateContentLengthNonNumeric() {
-        assertEquals(-1, HttpClientProtocolHandler.validateContentLength("abc"));
-    }
-
-    @Test
-    public void testValidateContentLengthNull() {
-        assertEquals(-1, HttpClientProtocolHandler.validateContentLength(null));
-    }
-
     // closeWhenIdle()/maybeCloseWhenIdle(): when an Alt-Svc-triggered h3
     // upgrade becomes available, this connection must keep serving
     // whatever streams it already accepted rather than being torn down

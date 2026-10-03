@@ -29,10 +29,10 @@ import org.bluezoo.gumdrop.http.Capsule;
 import org.bluezoo.gumdrop.http.ConnectIpAddress;
 import org.bluezoo.gumdrop.http.ConnectIpRoute;
 import org.bluezoo.gumdrop.http.HttpDatagramContext;
+import org.bluezoo.gumdrop.http.HttpStatus;
 import org.bluezoo.gumdrop.http.client.ConnectIpClientSession;
 import org.bluezoo.gumdrop.http.client.ConnectIpEventHandler;
 import org.bluezoo.gumdrop.http.client.DefaultHttpResponseHandler;
-import org.bluezoo.gumdrop.http.client.HttpResponse;
 
 /**
  * RFC 9484 -- bridges a generic HTTP/3 Extended CONNECT response ({@link
@@ -42,7 +42,7 @@ import org.bluezoo.gumdrop.http.client.HttpResponse;
  * <p>{@link H3ClientStream} has no notion of CONNECT-IP at all -- it
  * always calls the ordinary {@link org.bluezoo.gumdrop.http.client.HttpResponseHandler}
  * callback sequence, and this class is what reinterprets that sequence as
- * an IP tunnel: {@link #startResponseBody} signals acceptance (called as
+ * an IP tunnel: {@link #endHeaders} signals acceptance (called as
  * soon as headers are known complete -- see {@link H3ClientStream}'s own
  * documentation on why HTTP/3 signals this eagerly for any Extended
  * CONNECT); {@link #datagramReceived}/{@link #wantsDatagrams} deliver
@@ -83,20 +83,18 @@ class H3ClientConnectIpResponseHandler extends DefaultHttpResponseHandler {
     }
 
     @Override
-    public void ok(HttpResponse response) {
-        // Nothing to do yet -- acceptance is signalled from
-        // startResponseBody(), once headers are known complete.
-    }
-
-    @Override
-    public void error(HttpResponse response) {
+    public void status(int code) {
+        HttpStatus status = HttpStatus.fromCode(code);
+        if (status.isSuccess()) {
+            return;
+        }
         failed = true;
         eventHandler.error(new IOException(
-                "CONNECT-IP request failed: " + response.getStatus()));
+                "CONNECT-IP request failed: " + status));
     }
 
     @Override
-    public void startResponseBody() {
+    public void endHeaders() {
         if (failed) {
             return;
         }
@@ -134,7 +132,7 @@ class H3ClientConnectIpResponseHandler extends DefaultHttpResponseHandler {
     }
 
     @Override
-    public void endResponseBody() {
+    public void endMessage() {
         if (opened) {
             eventHandler.closed();
         }

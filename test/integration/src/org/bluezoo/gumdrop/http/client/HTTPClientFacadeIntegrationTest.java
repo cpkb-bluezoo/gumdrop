@@ -29,6 +29,7 @@ import org.bluezoo.gumdrop.http.HttpClient;
 import org.bluezoo.gumdrop.http.HttpServer;
 import org.bluezoo.gumdrop.http.HttpStatus;
 import org.bluezoo.gumdrop.http.server.Http2Listener;
+import org.bluezoo.gumdrop.testsupport.CollectingResponseHandler;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.Timeout;
@@ -90,10 +91,10 @@ public class HTTPClientFacadeIntegrationTest extends AbstractServerIntegrationTe
             AtomicReference<HttpStatus> status = new AtomicReference<HttpStatus>();
             AtomicReference<Exception> error = new AtomicReference<Exception>();
 
-            client.request("TRACE", "/trace-me").send(new DefaultHttpResponseHandler() {
+            client.request("TRACE", "/trace-me").send(new CollectingResponseHandler() {
                 @Override
-                public void ok(HttpResponse response) {
-                    status.set(response.getStatus());
+                public void ok(HttpStatus response) {
+                    status.set(response);
                 }
 
                 @Override

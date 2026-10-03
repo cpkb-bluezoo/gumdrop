@@ -31,6 +31,7 @@ import org.bluezoo.gumdrop.http.HttpStatus;
 import org.bluezoo.gumdrop.http.HttpClient;
 import org.bluezoo.gumdrop.http.HttpVersion;
 import org.bluezoo.gumdrop.http.server.Http2Listener;
+import org.bluezoo.gumdrop.testsupport.CollectingResponseHandler;
 import org.junit.BeforeClass;
 import org.junit.Rule;
 import org.junit.Test;
@@ -296,15 +297,15 @@ public class HTTPClientVersionIntegrationTest extends AbstractServerIntegrationT
         final AtomicReference<Exception> error = new AtomicReference<>();
         final ByteArrayOutputStream bodyBuffer = new ByteArrayOutputStream();
 
-        DefaultHttpResponseHandler handler = new DefaultHttpResponseHandler() {
+        DefaultHttpResponseHandler handler = new CollectingResponseHandler() {
             @Override
-            public void ok(HttpResponse response) {
-                result.status = response.getStatus();
+            public void ok(HttpStatus response) {
+                result.status = response;
             }
 
             @Override
-            public void error(HttpResponse response) {
-                result.status = response.getStatus();
+            public void error(HttpStatus response) {
+                result.status = response;
             }
 
             @Override

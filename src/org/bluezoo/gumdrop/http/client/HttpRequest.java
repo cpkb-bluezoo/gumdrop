@@ -37,8 +37,8 @@ import java.nio.ByteBuffer;
  * request.header("Accept", "application/json");
  * request.send(new DefaultHttpResponseHandler() {
  *     &#64;Override
- *     public void ok(HttpResponse response) {
- *         // Handle success
+ *     public void status(int code) {
+ *         // Handle the status
  *     }
  * });
  * </pre>

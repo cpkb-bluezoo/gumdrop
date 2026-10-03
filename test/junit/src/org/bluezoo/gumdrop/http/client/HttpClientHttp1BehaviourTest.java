@@ -30,6 +30,7 @@ import java.util.List;
 import java.util.concurrent.CancellationException;
 import java.util.zip.GZIPOutputStream;
 
+import org.bluezoo.gumdrop.testsupport.CollectingResponseHandler;
 import org.junit.Before;
 import org.junit.Test;
 
@@ -58,7 +59,7 @@ import static org.junit.Assert.fail;
  */
 public class HttpClientHttp1BehaviourTest {
 
-    private static final class Recorder extends DefaultHttpResponseHandler {
+    private static final class Recorder extends CollectingResponseHandler {
         HttpStatus status;
         boolean ok;
         boolean error;
@@ -70,16 +71,16 @@ public class HttpClientHttp1BehaviourTest {
         final ByteArrayOutputStream body = new ByteArrayOutputStream();
 
         @Override
-        public void ok(HttpResponse response) {
+        public void ok(HttpStatus response) {
             ok = true;
             okCalls++;
-            status = response.getStatus();
+            status = response;
         }
 
         @Override
-        public void error(HttpResponse response) {
+        public void error(HttpStatus response) {
             error = true;
-            status = response.getStatus();
+            status = response;
         }
 
         @Override
@@ -545,8 +546,8 @@ public class HttpClientHttp1BehaviourTest {
         Recorder r = get();
         feed("HTTP/1.1 200 OK\r\nContent-Length: abc\r\n\r\n");
         assertEquals(1, r.failures.size());
-        assertEquals("Invalid Content-Length", r.failures.get(0).getMessage());
-        assertEquals(1, r.closeCalls);
+        assertTrue(r.failures.get(0).getMessage(), r.failures.get(0).getMessage().contains("Content-Length"));
+        assertEquals(0, r.closeCalls);
     }
 
     @Test
@@ -554,41 +555,35 @@ public class HttpClientHttp1BehaviourTest {
         Recorder r = get();
         feed("HTTP/1.1 200 OK\r\nContent-Length: 4, 5\r\n\r\n");
         assertEquals(1, r.failures.size());
+        // a list of equal values is refused too: the parser takes only digits
         Recorder r2 = new Recorder();
         newHandler("example.com", 80, false);
         handler.get("/p").send(r2);
         feed("HTTP/1.1 200 OK\r\nContent-Length: 2, 2\r\n\r\nhi");
-        assertTrue(r2.failures.isEmpty());
-        assertEquals("hi", new String(r2.body.toByteArray(), StandardCharsets.US_ASCII));
+        assertEquals(1, r2.failures.size());
     }
 
     @Test
-    public void validateContentLengthEdgeCases() {
-        assertEquals(-1, HttpClientProtocolHandler.validateContentLength(null));
-        assertEquals(-1, HttpClientProtocolHandler.validateContentLength("-1"));
-        assertEquals(-1, HttpClientProtocolHandler.validateContentLength(""));
-        assertEquals(0, HttpClientProtocolHandler.validateContentLength(" 0 "));
-        assertEquals(7, HttpClientProtocolHandler.validateContentLength("7,7,7"));
-        assertEquals(-1, HttpClientProtocolHandler.validateContentLength("7,8"));
-        assertEquals(-1, HttpClientProtocolHandler.validateContentLength("99999999999999999999"));
-    }
-
-    @Test
-    public void transferEncodingWinsOverContentLength() {
+    public void transferEncodingTogetherWithContentLengthIsAFramingError() {
+        // RFC 9112 section 6.3: both together may be an attempt at request
+        // smuggling; the response is refused rather than guessed at
         Recorder r = get();
         feed("HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\nContent-Length: 99\r\n\r\n"
                 + "3\r\nabc\r\n0\r\n\r\n");
-        assertEquals("abc", new String(r.body.toByteArray(), StandardCharsets.US_ASCII));
-        assertEquals(1, r.closeCalls);
+        assertEquals(1, r.failures.size());
     }
 
     @Test
-    public void responseWithoutFramingFails() {
+    public void responseWithoutFramingRunsUntilTheConnectionCloses() {
+        // RFC 9112 section 6.3: with no Content-Length or Transfer-Encoding
+        // the body is whatever arrives before the server closes
         Recorder r = get();
-        feed("HTTP/1.1 200 OK\r\nServer: x\r\n\r\n");
-        assertEquals(1, r.failures.size());
-        assertTrue(r.failures.get(0).getMessage().contains("Content-Length"));
+        feed("HTTP/1.1 200 OK\r\nServer: x\r\n\r\nsome data");
+        assertEquals(0, r.closeCalls);
+        handler.disconnected();
+        assertEquals("some data", new String(r.body.toByteArray(), StandardCharsets.US_ASCII));
         assertEquals(1, r.closeCalls);
+        assertTrue(r.failures.isEmpty());
     }
 
     @Test
@@ -597,7 +592,7 @@ public class HttpClientHttp1BehaviourTest {
         feed("HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n"
                 + "4;ext=1\r\nwiki\r\n5\r\npedia\r\n0\r\nX-Trailer: done\r\n\r\n");
         assertEquals("wikipedia", new String(r.body.toByteArray(), StandardCharsets.US_ASCII));
-        assertTrue(r.headers.toString(), r.headers.contains("X-Trailer: done"));
+        assertTrue(r.headers.toString(), r.headers.contains("x-trailer: done"));
         assertTrue(r.endBody);
     }
 
@@ -633,24 +628,31 @@ public class HttpClientHttp1BehaviourTest {
     }
 
     @Test
-    public void headerParsingHandlesFoldingAndJunkLines() {
+    public void headerParsingHandlesFolding() {
         Recorder r = get();
-        feed("HTTP/1.1 200 OK\r\nX-Folded: part1\r\n  part2\r\nno colon here\r\n: nameless\r\n"
-                + "Content-Length: 0\r\n\r\n");
-        assertTrue(r.headers.toString(), r.headers.contains("X-Folded: part1 part2"));
-        assertEquals(2, r.headers.size());
+        feed("HTTP/1.1 200 OK\r\nX-Folded: part1\r\n  part2\r\nContent-Length: 0\r\n\r\n");
+        assertTrue(r.headers.toString(), r.headers.contains("x-folded: part1 part2"));
     }
 
     @Test
-    public void invalidStatusLineYieldsUnknownStatus() {
+    public void aLineThatIsNotAFieldMakesTheResponseMalformed() {
+        Recorder r = get();
+        feed("HTTP/1.1 200 OK\r\nno colon here\r\nContent-Length: 0\r\n\r\n");
+        assertEquals(1, r.failures.size());
+        assertEquals(0, r.okCalls);
+    }
+
+    @Test
+    public void invalidStatusLineMakesTheResponseMalformed() {
         Recorder r = get();
         feed("garbage\r\nContent-Length: 0\r\n\r\n");
-        assertEquals(HttpStatus.UNKNOWN, r.status);
+        assertEquals(1, r.failures.size());
         Recorder r2 = new Recorder();
         newHandler("example.com", 80, false);
         handler.get("/p").send(r2);
         feed("HTTP/1.1 abc Weird\r\nContent-Length: 0\r\n\r\n");
-        assertEquals(HttpStatus.UNKNOWN, r2.status);
+        assertEquals(1, r2.failures.size());
+        // the reason phrase is optional (RFC 9112 section 4)
         Recorder r3 = new Recorder();
         newHandler("example.com", 80, false);
         handler.get("/p").send(r3);
@@ -713,7 +715,7 @@ public class HttpClientHttp1BehaviourTest {
         wire.write(gz);
         feedBytes(wire.toByteArray());
         assertArrayEquals(gz, r.body.toByteArray());
-        assertTrue(r.headers.toString(), r.headers.contains("Content-Encoding: gzip"));
+        assertTrue(r.headers.toString(), r.headers.contains("content-encoding: gzip"));
     }
 
     @Test

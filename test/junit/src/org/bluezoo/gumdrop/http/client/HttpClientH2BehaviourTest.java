@@ -34,6 +34,7 @@ import java.util.Map;
 import java.util.concurrent.CancellationException;
 import java.util.zip.GZIPOutputStream;
 
+import org.bluezoo.gumdrop.testsupport.CollectingResponseHandler;
 import org.junit.Before;
 import org.junit.Test;
 
@@ -102,7 +103,7 @@ public class HttpClientH2BehaviourTest {
         }
     }
 
-    private static final class Recorder extends DefaultHttpResponseHandler {
+    private static final class Recorder extends CollectingResponseHandler {
         int okCalls;
         int errorCalls;
         HttpStatus status;
@@ -117,15 +118,15 @@ public class HttpClientH2BehaviourTest {
         Recorder pushTarget;
 
         @Override
-        public void ok(HttpResponse response) {
+        public void ok(HttpStatus response) {
             okCalls++;
-            status = response.getStatus();
+            status = response;
         }
 
         @Override
-        public void error(HttpResponse response) {
+        public void error(HttpStatus response) {
             errorCalls++;
-            status = response.getStatus();
+            status = response;
         }
 
         @Override

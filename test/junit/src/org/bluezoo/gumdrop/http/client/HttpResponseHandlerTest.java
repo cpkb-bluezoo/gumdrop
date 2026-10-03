@@ -37,14 +37,7 @@ public class HttpResponseHandlerTest {
     @Test
     public void defaultDatagramAndCapsuleMethodsAreNoOps() {
         HttpResponseHandler handler = new HttpResponseHandler() {
-            @Override public void ok(HttpResponse response) { }
-            @Override public void error(HttpResponse response) { }
-            @Override public void header(String name, String value) { }
-            @Override public void startResponseBody() { }
-            @Override public void responseBodyContent(ByteBuffer data) { }
-            @Override public void endResponseBody() { }
             @Override public void pushPromise(PushPromise promise) { }
-            @Override public void close() { }
             @Override public void failed(Exception ex) { }
         };
 

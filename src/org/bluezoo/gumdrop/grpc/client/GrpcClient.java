@@ -33,6 +33,7 @@ import org.bluezoo.gumdrop.grpc.proto.ProtoModelAdapter;
 import org.bluezoo.gumdrop.grpc.proto.ProtoParseException;
 import org.bluezoo.gumdrop.grpc.proto.RpcDescriptor;
 import org.bluezoo.gumdrop.http.HttpClient;
+import org.bluezoo.gumdrop.http.HttpStatus;
 import org.bluezoo.gumdrop.http.client.HttpRequest;
 import org.bluezoo.gumdrop.http.client.HttpResponseHandler;
 import org.bluezoo.protobuf.ProtobufParseException;
@@ -105,6 +106,7 @@ public class GrpcClient {
         private final ProtoFile protoFile;
         private final String defaultResponseTypeName;
         private boolean failed;
+        private boolean bodyStarted;
         private GrpcFrameParser frameParser;
         private ProtobufParser protobufParser;
         private ProtoModelAdapter protoAdapter;
@@ -120,12 +122,11 @@ public class GrpcClient {
         }
 
         @Override
-        public void ok(org.bluezoo.gumdrop.http.client.HttpResponse response) {
-        }
-
-        @Override
-        public void error(org.bluezoo.gumdrop.http.client.HttpResponse response) {
-            fail(new GrpcException("gRPC error: " + response.getStatus()));
+        public void status(int code) {
+            HttpStatus status = HttpStatus.fromCode(code);
+            if (!status.isSuccess()) {
+                fail(new GrpcException("gRPC error: " + status));
+            }
         }
 
         @Override
@@ -134,27 +135,32 @@ public class GrpcClient {
         }
 
         @Override
-        public void header(String name, String value) {
+        public void header(String name, ByteBuffer valueBuffer) {
             // gRPC delivers the RPC-level outcome as trailers (grpc-status /
             // grpc-message, gRPC HTTP/2 protocol spec), not as the HTTP
             // status -- a 200 OK with zero body bytes plus a non-zero
             // grpc-status is a normal, successful-at-the-HTTP-layer error
             // response (e.g. an RPC that aborts before writing any
             // message). Without capturing these, such a response fell
-            // through to endResponseBody()'s generic "Incomplete gRPC
-            // response frame" failure, discarding the real status code and
-            // message. header() is called for both leading and trailing
-            // headers (see HttpResponseHandler's Javadoc), so match by
-            // name rather than assuming position.
+            // through to the generic "Incomplete gRPC response frame"
+            // failure, discarding the real status code and message.
+            // header() is called for both leading and trailing fields, so
+            // match by name rather than assuming position.
             if ("grpc-status".equalsIgnoreCase(name)) {
-                grpcStatus = value;
+                grpcStatus = text(valueBuffer);
             } else if ("grpc-message".equalsIgnoreCase(name)) {
-                grpcMessage = value;
+                grpcMessage = text(valueBuffer);
             }
         }
 
-        @Override
-        public void startResponseBody() {
+        private String text(ByteBuffer b) {
+            byte[] octets = new byte[b.remaining()];
+            b.duplicate().get(octets);
+            return new String(octets, java.nio.charset.StandardCharsets.ISO_8859_1);
+        }
+
+        /** Starts reading the response message; called with the first of the body. */
+        private void startResponseBody() {
             if (failed) {
                 return;
             }
@@ -178,33 +184,31 @@ public class GrpcClient {
         }
 
         @Override
-        public void responseBodyContent(ByteBuffer data) {
+        public void bodyContent(ByteBuffer data) {
+            if (!bodyStarted) {
+                bodyStarted = true;
+                startResponseBody();
+            }
             if (!failed && frameParser != null && data != null && data.hasRemaining()) {
                 frameParser.receive(data);
             }
         }
 
         @Override
-        public void endResponseBody() {
-            if (failed || frameParser == null) {
+        public void endMessage() {
+            if (failed) {
                 return;
             }
             // A genuinely truncated frame (bytes cut off mid-message) is
             // always wrong regardless of what the trailers turn out to
-            // say, so that check stays here. An incomplete *message* is
+            // say, so that check is made first. An incomplete *message* is
             // not necessarily wrong on its own, though: a trailers-only
             // error response (no DATA frame at all, e.g. an RPC that
             // aborts immediately) legitimately never starts one -- so
-            // that check is deferred to close(), once grpc-status has
-            // actually arrived, rather than treated as a framing error.
-            if (frameParser.hasPartialFrame()) {
+            // that check waits for grpc-status to have arrived, rather
+            // than being treated as a framing error.
+            if (frameParser != null && frameParser.hasPartialFrame()) {
                 fail(new GrpcException("Incomplete gRPC response frame"));
-            }
-        }
-
-        @Override
-        public void close() {
-            if (failed) {
                 return;
             }
             if (grpcStatus != null && !"0".equals(grpcStatus)) {
@@ -216,9 +220,8 @@ public class GrpcClient {
             // frameParser is null for a "Trailers-Only" response (gRPC
             // HTTP/2 protocol spec): no DATA frame at all, :status and
             // grpc-status/grpc-message combined into the single response
-            // HEADERS frame, since startResponseBody() (which creates it)
-            // is only called when the initial HEADERS frame doesn't also
-            // carry END_STREAM. A successful grpc-status here with no
+            // HEADERS frame, since the first body content (which creates
+            // it) is only reached when the response has body bytes. A successful grpc-status here with no
             // frameParser and no message ever delivered is itself a
             // protocol violation (a unary RPC must return exactly one
             // message on success), not a client-side framing bug -- but

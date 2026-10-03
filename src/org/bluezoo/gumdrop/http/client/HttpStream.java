@@ -27,6 +27,7 @@ import java.util.ResourceBundle;
 
 import org.bluezoo.gumdrop.http.Headers;
 import org.bluezoo.gumdrop.http.ContentEncoding;
+import org.bluezoo.gumdrop.http.HttpMessageRecorder;
 import org.bluezoo.gumdrop.http.PriorityParams;
 
 /**
@@ -216,6 +217,40 @@ class HttpStream implements HttpRequest {
         }
     }
 
+    // The events of the response field section being decoded, held until the
+    // client has decided what to do with the response (see the HTTP/2 path in
+    // HttpClientProtocolHandler), and the state that goes with them.
+    private final HttpMessageRecorder responseEvents = new HttpMessageRecorder();
+    private boolean responseHeadersReceived;
+    private boolean messageEvents;
+
+    HttpMessageRecorder responseEvents() {
+        return responseEvents;
+    }
+
+    /** Whether the final response's header section has been seen (later sections are trailers). */
+    boolean isResponseHeadersReceived() {
+        return responseHeadersReceived;
+    }
+
+    void setResponseHeadersReceived() {
+        responseHeadersReceived = true;
+    }
+
+    /** Whether the handler has been given the start of the response as events. */
+    boolean isMessageEvents() {
+        return messageEvents;
+    }
+
+    void setMessageEvents() {
+        messageEvents = true;
+    }
+
+    /** The response has failed: nothing more is given to the handler as message events. */
+    void clearMessageEvents() {
+        messageEvents = false;
+    }
+
     void drainInboundResponseDecoded(HttpResponseHandler responseHandler)
             throws ContentEncoding.ContentEncodingException {
         if (inboundResponseDecoder == null || responseHandler == null) {
@@ -223,7 +258,9 @@ class HttpStream implements HttpRequest {
         }
         ByteBuffer decoded;
         while ((decoded = inboundResponseDecoder.readDecoded()) != null) {
-            responseHandler.responseBodyContent(decoded);
+            if (messageEvents) {
+                responseHandler.bodyContent(decoded.asReadOnlyBuffer());
+            }
         }
     }
 

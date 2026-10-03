@@ -22,6 +22,7 @@
 package org.bluezoo.gumdrop.telemetry;
 
 import org.bluezoo.gumdrop.testsupport.CollectingRequestHandler;
+import org.bluezoo.gumdrop.testsupport.CollectingResponseHandler;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -45,7 +46,6 @@ import org.bluezoo.gumdrop.http.client.HttpClientProtocolHandler;
 import org.bluezoo.gumdrop.http.client.HttpClientHandler;
 import org.bluezoo.gumdrop.http.client.HttpRequest;
 import org.bluezoo.gumdrop.http.client.HttpResponseHandler;
-import org.bluezoo.gumdrop.http.client.HttpResponse;
 
 import java.io.ByteArrayOutputStream;
 import java.nio.ByteBuffer;
@@ -139,7 +139,7 @@ public class OTLPEndpointIntegrationTest {
         assertTrue("Should be open", endpointHandler.isOpen());
 
         final CountDownLatch responseLatch = new CountDownLatch(1);
-        final AtomicReference<HttpResponse> responseRef = new AtomicReference<>();
+        final AtomicReference<HttpStatus> responseRef = new AtomicReference<>();
         final AtomicReference<Exception> errorRef = new AtomicReference<>();
 
         // Create POST request with Transfer-Encoding: chunked
@@ -150,10 +150,10 @@ public class OTLPEndpointIntegrationTest {
         LOGGER.info("Starting request body");
         
         // Start body with response handler
-        request.startRequestBody(new DefaultHttpResponseHandler() {
+        request.startRequestBody(new CollectingResponseHandler() {
             @Override
-            public void ok(HttpResponse response) {
-                LOGGER.info("Response 2xx received: " + response.getStatus());
+            public void ok(HttpStatus response) {
+                LOGGER.info("Response 2xx received: " + response);
                 responseRef.set(response);
             }
             @Override
@@ -221,12 +221,12 @@ public class OTLPEndpointIntegrationTest {
         assertTrue("Should be open", endpointHandler.isOpen());
 
         final CountDownLatch responseLatch = new CountDownLatch(1);
-        final AtomicReference<HttpResponse> responseRef = new AtomicReference<>();
+        final AtomicReference<HttpStatus> responseRef = new AtomicReference<>();
 
         HttpRequest request = endpointHandler.get("/test");
-        request.send(new DefaultHttpResponseHandler() {
+        request.send(new CollectingResponseHandler() {
             @Override
-            public void ok(HttpResponse response) {
+            public void ok(HttpStatus response) {
                 responseRef.set(response);
             }
             @Override
@@ -241,7 +241,7 @@ public class OTLPEndpointIntegrationTest {
 
         assertTrue("Should get response", responseLatch.await(5, TimeUnit.SECONDS));
         assertNotNull("Should have response", responseRef.get());
-        assertEquals("Should be 200 OK", HttpStatus.OK, responseRef.get().getStatus());
+        assertEquals("Should be 200 OK", HttpStatus.OK, responseRef.get());
 
         endpointHandler.close();
     }

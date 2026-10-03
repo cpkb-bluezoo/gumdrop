@@ -262,7 +262,7 @@ missing the mandatory <code>:status</code> pseudo-header are treated as
 malformed and the stream is failed.</li>
 <li><b>1xx informational responses</b> (RFC 9114 section 4.1) &ndash;
 interim 1xx HEADERS frames (e.g. 100 Continue, 103 Early Hints) are
-consumed without dispatching <code>ok()</code>/<code>error()</code>;
+consumed without dispatching any message events;
 the client awaits the final response.</li>
 <li><b>GOAWAY stream retry</b> (RFC 9114 section 5.2) &ndash; when
 a server GOAWAY is received, streams with IDs above the last-stream-ID
@@ -1112,13 +1112,13 @@ client.connect(gumdrop, new HttpClientHandler() {
         HttpRequest request = client.get("/api/data");
         request.header("Accept", "application/json");
         request.send(new DefaultHttpResponseHandler() {
-            public void ok(HttpResponse response) {
-                System.out.println("Status: " + response.getStatus());
+            public void status(int code) {
+                System.out.println("Status: " + code);
             }
-            public void responseBodyContent(ByteBuffer data) {
+            public void bodyContent(ByteBuffer data) {
                 // Process response body
             }
-            public void close() {
+            public void endMessage() {
                 System.out.println("Response complete");
                 client.close();
             }

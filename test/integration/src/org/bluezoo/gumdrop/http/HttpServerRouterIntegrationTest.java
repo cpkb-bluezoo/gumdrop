@@ -28,7 +28,6 @@ import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.http.client.DefaultHttpResponseHandler;
 import org.bluezoo.gumdrop.http.client.HttpClientHandler;
 import org.bluezoo.gumdrop.http.client.HttpRequest;
-import org.bluezoo.gumdrop.http.client.HttpResponse;
 import org.bluezoo.gumdrop.http.server.DefaultHttpRequestHandler;
 import org.bluezoo.gumdrop.http.server.Http2Listener;
 import org.bluezoo.gumdrop.http.server.HttpRequestHandler;
@@ -36,6 +35,7 @@ import org.bluezoo.gumdrop.http.server.HttpResponseState;
 import org.bluezoo.gumdrop.http.server.HttpStreamHandler;
 import org.bluezoo.gumdrop.http.server.NotFoundHttpRequestHandler;
 import org.bluezoo.gumdrop.http.Headers;
+import org.bluezoo.gumdrop.testsupport.CollectingResponseHandler;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -103,15 +103,15 @@ public class HttpServerRouterIntegrationTest {
         // Complete on close(), not ok(): ok() only means the response
         // headers have arrived, and the next request on this connection
         // must not be issued while this response is still being parsed.
-        request.send(new DefaultHttpResponseHandler() {
+        request.send(new CollectingResponseHandler() {
             @Override
-            public void ok(HttpResponse response) {
-                statusRef.set(Integer.valueOf(response.getStatus().code));
+            public void ok(HttpStatus response) {
+                statusRef.set(Integer.valueOf(response.code));
             }
 
             @Override
-            public void error(HttpResponse response) {
-                statusRef.set(Integer.valueOf(response.getStatus().code));
+            public void error(HttpStatus response) {
+                statusRef.set(Integer.valueOf(response.code));
             }
 
             @Override

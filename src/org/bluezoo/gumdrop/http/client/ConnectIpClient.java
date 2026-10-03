@@ -42,6 +42,7 @@ import org.bluezoo.gumdrop.dns.DnsQueryCallback;
 import org.bluezoo.gumdrop.dns.DnsResourceRecord;
 import org.bluezoo.gumdrop.dns.DnsType;
 import org.bluezoo.gumdrop.dns.client.DnsResolver;
+import org.bluezoo.gumdrop.http.HttpStatus;
 import org.bluezoo.gumdrop.http.Capsule;
 import org.bluezoo.gumdrop.http.ConnectIpAddress;
 import org.bluezoo.gumdrop.http.ConnectIpRoute;
@@ -905,17 +906,17 @@ public class ConnectIpClient implements AltSvcListener {
         }
 
         @Override
-        public void ok(HttpResponse response) {
+        public void status(int code) {
+            HttpStatus status = HttpStatus.fromCode(code);
+            if (status.isSuccess()) {
             // A 2xx response means the proxy did not upgrade
             handler.error(new IOException(
                     "Proxy did not upgrade to connect-ip: "
-                    + response.getStatus()));
-        }
-
-        @Override
-        public void error(HttpResponse response) {
+                    + status));
+            } else {
             handler.error(new IOException(
-                    "CONNECT-IP upgrade failed: " + response.getStatus()));
+                    "CONNECT-IP upgrade failed: " + status));
+            }
         }
 
         @Override

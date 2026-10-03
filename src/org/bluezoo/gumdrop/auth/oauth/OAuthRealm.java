@@ -31,7 +31,7 @@ import org.bluezoo.gumdrop.http.client.DefaultHttpResponseHandler;
 import org.bluezoo.gumdrop.http.HttpClient;
 import org.bluezoo.gumdrop.http.client.HttpClientHandler;
 import org.bluezoo.gumdrop.http.client.HttpRequest;
-import org.bluezoo.gumdrop.http.client.HttpResponse;
+import org.bluezoo.gumdrop.http.HttpStatus;
 import org.bluezoo.json.JSONParser;
 import org.bluezoo.json.JSONDefaultHandler;
 import org.bluezoo.json.JSONException;
@@ -690,16 +690,14 @@ public class OAuthRealm implements Realm {
             private int statusCode = 0;
             
             @Override
-            public void ok(HttpResponse response) {
-                statusCode = response.getStatus().code;
-                initParser();
-            }
-            
-            @Override
-            public void error(HttpResponse response) {
-                statusCode = response.getStatus().code;
-                String msg = MessageFormat.format(L10N.getString("err.oauth_token_introspection_error"), statusCode);
-                LOGGER.warning(msg);
+            public void status(int code) {
+                statusCode = code;
+                if (HttpStatus.fromCode(code).isSuccess()) {
+                    initParser();
+                } else {
+                    String msg = MessageFormat.format(L10N.getString("err.oauth_token_introspection_error"), statusCode);
+                    LOGGER.warning(msg);
+                }
             }
             
             private void initParser() {
@@ -710,7 +708,7 @@ public class OAuthRealm implements Realm {
             }
             
             @Override
-            public void responseBodyContent(ByteBuffer data) {
+            public void bodyContent(ByteBuffer data) {
                 if (parseError != null) {
                     return;
                 }
@@ -726,7 +724,7 @@ public class OAuthRealm implements Realm {
             }
             
             @Override
-            public void close() {
+            public void endMessage() {
                 // Close the JSON parser to finalize parsing
                 try {
                     if (parserInitialized) {

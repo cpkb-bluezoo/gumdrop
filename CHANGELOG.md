@@ -219,6 +219,30 @@ user-visible themes since 2.2.x.
   `HttpMessageHandler`, for an exchange that ends without `endMessage`
   (reset stream, closed connection, QUIC close); `error` stays for a malformed
   message. The `web/` pages show the new shape.
+- **The HTTP client delivers responses as message events (breaking).**
+  `HttpResponseHandler` extends `HttpMessageHandler`: a response arrives as
+  `version`, `status`, `reason`, the field events, `endHeaders`, `bodyContent`,
+  trailer fields as `header` events, and `endMessage`, over HTTP/1.x, HTTP/2 and
+  HTTP/3 alike, the same events a server handler gets for a request but for how
+  the message starts. The `ok`, `error`, `header(String, String)`,
+  `startResponseBody`, `responseBodyContent`, `endResponseBody` and `close`
+  callbacks, and the `HttpResponse` class, are removed: a handler looks at the
+  status code (an error response is an ordinary `status`), `close` is
+  `endMessage`, and `failed(Exception)` is unchanged. `error(HttpError, String)`
+  reports a malformed response. Interim `1xx` responses are not delivered. Field
+  names reach `header` in lower case and values as octets, with `Content-Type`,
+  `Content-Disposition` and `Content-Length` as their own typed events.
+  `GrpcClient`, `WebSocketClient`, `OAuthRealm`, the DoH transport, the OTLP
+  exporters and the CONNECT-UDP and CONNECT-IP clients are migrated. The
+  HTTP/1.x client now reads responses with `Http1Parser`, and HTTP/2 and HTTP/3
+  field sections go through `FieldSectionAdapter`, so responses are held to the
+  same rules as requests: a malformed status line, a field line with no colon,
+  an obs-fold with nothing to continue, a non-numeric `Content-Length` (or a
+  list of them), `Content-Length` together with `Transfer-Encoding`, a response
+  without `:status`, and a connection-specific field in an HTTP/2 or HTTP/3
+  response all fail the response instead of being tolerated; an unsolicited
+  `101` fails it too. A response with neither length nor chunking runs until
+  the connection closes (RFC 9112 section 6.3) rather than failing.
 - **Trailer fields are `header` events.** `HttpMessageHandler` has no `trailer`
   event: `bodyContent` is called any number of times, and the body ends at the
   first field event after it (a trailer) or at `endMessage`. A handler tells a

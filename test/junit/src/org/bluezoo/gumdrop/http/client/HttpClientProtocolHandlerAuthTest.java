@@ -30,6 +30,7 @@ import org.bluezoo.gumdrop.http.HttpStatus;
 import org.bluezoo.gumdrop.testsupport.BinaryRecordingEndpoint;
 import org.bluezoo.util.ByteArrays;
 
+import org.bluezoo.gumdrop.testsupport.CollectingResponseHandler;
 import org.junit.Before;
 import org.junit.Test;
 
@@ -80,7 +81,7 @@ public class HttpClientProtocolHandlerAuthTest {
         feed("HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok");
 
         assertTrue(rh.ok);
-        assertEquals(HttpStatus.OK, rh.response.getStatus());
+        assertEquals(HttpStatus.OK, rh.response);
         assertEquals("ok", rh.body.toString());
     }
 
@@ -164,20 +165,20 @@ public class HttpClientProtocolHandlerAuthTest {
         return ByteArrays.toHexString(md.digest(input.getBytes(StandardCharsets.UTF_8)));
     }
 
-    private static final class RecordingHandler extends DefaultHttpResponseHandler {
-        HttpResponse response;
+    private static final class RecordingHandler extends CollectingResponseHandler {
+        HttpStatus response;
         boolean ok;
         boolean error;
         final StringBuilder body = new StringBuilder();
 
         @Override
-        public void ok(HttpResponse response) {
+        public void ok(HttpStatus response) {
             ok = true;
             this.response = response;
         }
 
         @Override
-        public void error(HttpResponse response) {
+        public void error(HttpStatus response) {
             error = true;
             this.response = response;
         }

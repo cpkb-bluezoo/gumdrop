@@ -31,9 +31,9 @@ import java.nio.charset.StandardCharsets;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.atomic.AtomicReference;
 
+import org.bluezoo.gumdrop.testsupport.MessageEvents;
 import org.junit.Test;
 
-import org.bluezoo.gumdrop.http.client.HttpResponse;
 import org.bluezoo.gumdrop.http.client.HttpResponseHandler;
 
 import static org.junit.Assert.assertEquals;
@@ -157,16 +157,16 @@ public class HttpClientCliTest {
         String noise = captureErr(new Runnable() {
             @Override
             public void run() {
-                h.ok(new HttpResponse(HttpStatus.OK));
-                h.error(new HttpResponse(HttpStatus.NOT_FOUND));
-                h.header("X", "y");
-                h.startResponseBody();
-                h.responseBodyContent(ByteBuffer.wrap("hello".getBytes(StandardCharsets.US_ASCII)));
+                h.status(HttpStatus.OK.code);
+                h.status(HttpStatus.NOT_FOUND.code);
+                h.header("X", MessageEvents.octets("y"));
+                h.endHeaders();
+                h.bodyContent(ByteBuffer.wrap("hello".getBytes(StandardCharsets.US_ASCII)));
             }
         });
         assertEquals("", noise);
         assertEquals("hello", new String(out.bytes.toByteArray(), StandardCharsets.US_ASCII));
-        h.close();
+        h.endMessage();
         assertEquals(0L, done.getCount());
         assertNull(error.get());
     }
@@ -182,10 +182,10 @@ public class HttpClientCliTest {
         String noise = captureErr(new Runnable() {
             @Override
             public void run() {
-                h.ok(new HttpResponse(HttpStatus.OK));
-                h.error(new HttpResponse(HttpStatus.NOT_FOUND));
-                h.header("X-Test", "yes");
-                h.startResponseBody();
+                h.status(HttpStatus.OK.code);
+                h.status(HttpStatus.NOT_FOUND.code);
+                h.header("X-Test", MessageEvents.octets("yes"));
+                h.endHeaders();
             }
         });
         assertTrue(noise, noise.contains("HTTP/? 200"));
@@ -204,8 +204,8 @@ public class HttpClientCliTest {
         String noise = captureErr(new Runnable() {
             @Override
             public void run() {
-                h.ok(new HttpResponse(HttpStatus.OK));
-                h.responseBodyContent(ByteBuffer.wrap(new byte[] {1, 2, 3}));
+                h.status(HttpStatus.OK.code);
+                h.bodyContent(ByteBuffer.wrap(new byte[] {1, 2, 3}));
             }
         });
         assertTrue(noise.contains("200"));
@@ -234,7 +234,7 @@ public class HttpClientCliTest {
         };
         final HttpResponseHandler h = HttpClient.createResponseHandler(
                 broken, true, false, false, done, error, client);
-        h.responseBodyContent(ByteBuffer.wrap(new byte[] {1}));
+        h.bodyContent(ByteBuffer.wrap(new byte[] {1}));
         IOException failure = new IOException("boom");
         h.failed(failure);
         assertSame(failure, error.get());

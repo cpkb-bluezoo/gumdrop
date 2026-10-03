@@ -100,7 +100,6 @@ import org.bluezoo.gumdrop.http.HttpServer;
 import org.bluezoo.gumdrop.http.client.DefaultHttpResponseHandler;
 import org.bluezoo.gumdrop.http.client.HttpClientHandler;
 import org.bluezoo.gumdrop.http.client.HttpRequest;
-import org.bluezoo.gumdrop.http.client.HttpResponse;
 import org.bluezoo.gumdrop.http.server.DefaultHttpRequestHandler;
 import org.bluezoo.gumdrop.http.server.HttpRequestHandler;
 import org.bluezoo.gumdrop.http.server.HttpResponseState;
@@ -158,12 +157,12 @@ public final class Peer {
                     private final StringBuilder body = new StringBuilder();
 
                     @Override
-                    public void responseBodyContent(ByteBuffer data) {
+                    public void bodyContent(ByteBuffer data) {
                         body.append(StandardCharsets.UTF_8.decode(data));
                     }
 
                     @Override
-                    public void close() {
+                    public void endMessage() {
                         System.out.println(name + " heard: " + body.toString().trim());
                         client.close();
                     }

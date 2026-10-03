@@ -32,6 +32,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 
+import org.bluezoo.gumdrop.testsupport.CollectingResponseHandler;
 import org.junit.BeforeClass;
 import org.junit.Test;
 
@@ -39,7 +40,6 @@ import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.TestTlsFiles;
 import org.bluezoo.gumdrop.http.Headers;
 import org.bluezoo.gumdrop.http.HttpStatus;
-import org.bluezoo.gumdrop.http.client.HttpResponse;
 import org.bluezoo.gumdrop.http.client.HttpResponseHandler;
 import org.bluezoo.gumdrop.http.client.PushPromise;
 import org.bluezoo.gumdrop.http.server.HttpRequestHandler;
@@ -151,7 +151,7 @@ public class Http3QuicV2EndToEndTest {
             clientFactory.start();
 
             final CountDownLatch done = new CountDownLatch(1);
-            final AtomicReference<HttpResponse> okResponse = new AtomicReference<HttpResponse>();
+            final AtomicReference<HttpStatus> okResponse = new AtomicReference<HttpStatus>();
             final AtomicReference<Exception> failure = new AtomicReference<Exception>();
             final AtomicReference<String> body = new AtomicReference<String>();
             final AtomicReference<QuicVersion> version = new AtomicReference<QuicVersion>();
@@ -167,17 +167,17 @@ public class Http3QuicV2EndToEndTest {
                             requestHeaders.add(":scheme", "https");
                             requestHeaders.add(":authority", TestTlsFiles.SERVER_NAME);
                             requestHeaders.add(":path", "/");
-                            h3.sendRequest(requestHeaders, new HttpResponseHandler() {
+                            h3.sendRequest(requestHeaders, new CollectingResponseHandler() {
                                 private final StringBuilder buf = new StringBuilder();
 
                                 @Override
-                                public void ok(HttpResponse response) {
+                                public void ok(HttpStatus response) {
                                     okResponse.set(response);
                                 }
 
                                 @Override
-                                public void error(HttpResponse response) {
-                                    failure.set(new IOException("Unexpected status: " + response.getStatus()));
+                                public void error(HttpStatus response) {
+                                    failure.set(new IOException("Unexpected status: " + response));
                                     done.countDown();
                                 }
 
@@ -223,7 +223,7 @@ public class Http3QuicV2EndToEndTest {
             if (failure.get() != null) {
                 throw failure.get();
             }
-            assertEquals(HttpStatus.OK, okResponse.get().getStatus());
+            assertEquals(HttpStatus.OK, okResponse.get());
             assertEquals(bodyOf(BODY_LENGTH), body.get());
             return version.get();
         } finally {

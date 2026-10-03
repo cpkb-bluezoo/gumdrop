@@ -39,13 +39,13 @@ import org.bluezoo.gumdrop.http.client.ConnectIpClientSession;
 import org.bluezoo.gumdrop.http.client.ConnectIpEventHandler;
 import org.bluezoo.gumdrop.http.client.ConnectUdpEventHandler;
 import org.bluezoo.gumdrop.http.client.ConnectUdpSession;
-import org.bluezoo.gumdrop.http.client.DefaultHttpResponseHandler;
-import org.bluezoo.gumdrop.http.client.HttpResponse;
 import org.bluezoo.gumdrop.http.ConnectIpAddress;
 import org.bluezoo.gumdrop.http.ConnectIpRoute;
 import org.bluezoo.gumdrop.quic.QuicConnection;
 import org.bluezoo.gumdrop.quic.QuicConnectionTestFactory;
 import org.bluezoo.gumdrop.testsupport.RecordingWebSocketEventHandler;
+import org.bluezoo.gumdrop.testsupport.CollectingResponseHandler;
+import org.bluezoo.gumdrop.http.HttpStatus;
 import org.junit.Test;
 
 /**
@@ -56,7 +56,7 @@ import org.junit.Test;
  */
 public class H3ClientFlowTest {
 
-    static final class Rec extends DefaultHttpResponseHandler {
+    static final class Rec extends CollectingResponseHandler {
         final List<String> events = new ArrayList<String>();
         final List<String> headers = new ArrayList<String>();
         int bodyBytes;
@@ -65,12 +65,12 @@ public class H3ClientFlowTest {
         int capsuleCount;
 
         @Override
-        public void ok(HttpResponse response) {
+        public void ok(HttpStatus response) {
             events.add("ok");
         }
 
         @Override
-        public void error(HttpResponse response) {
+        public void error(HttpStatus response) {
             events.add("error");
         }
 

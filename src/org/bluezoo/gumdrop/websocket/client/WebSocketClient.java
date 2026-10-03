@@ -48,6 +48,7 @@ import org.bluezoo.gumdrop.dns.DnsQueryCallback;
 import org.bluezoo.gumdrop.dns.DnsResourceRecord;
 import org.bluezoo.gumdrop.dns.DnsType;
 import org.bluezoo.gumdrop.dns.client.DnsResolver;
+import org.bluezoo.gumdrop.http.HttpStatus;
 import org.bluezoo.gumdrop.http.Header;
 import org.bluezoo.gumdrop.http.Headers;
 import org.bluezoo.gumdrop.http.HttpVersion;
@@ -57,7 +58,6 @@ import org.bluezoo.gumdrop.http.client.DefaultHttpResponseHandler;
 import org.bluezoo.gumdrop.http.HttpClient;
 import org.bluezoo.gumdrop.http.client.HttpClientHandler;
 import org.bluezoo.gumdrop.http.client.HttpRequest;
-import org.bluezoo.gumdrop.http.client.HttpResponse;
 import org.bluezoo.gumdrop.tls.TlsConfig;
 import org.bluezoo.gumdrop.tls.ServerCredentials;
 import org.bluezoo.gumdrop.websocket.PerMessageDeflateExtension;
@@ -1052,17 +1052,17 @@ public class WebSocketClient implements AltSvcListener {
         }
 
         @Override
-        public void ok(HttpResponse response) {
+        public void status(int code) {
+            HttpStatus status = HttpStatus.fromCode(code);
+            if (status.isSuccess()) {
             // A 2xx response means the server did not upgrade
             handler.error(new IOException(
                     "Server did not upgrade to WebSocket: "
-                    + response.getStatus()));
-        }
-
-        @Override
-        public void error(HttpResponse response) {
+                    + status));
+            } else {
             handler.error(new IOException(
-                    "WebSocket upgrade failed: " + response.getStatus()));
+                    "WebSocket upgrade failed: " + status));
+            }
         }
 
         @Override

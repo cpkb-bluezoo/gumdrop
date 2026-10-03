@@ -31,10 +31,12 @@ import java.nio.channels.WritableByteChannel;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.zip.GZIPInputStream;
 
+import org.bluezoo.gumdrop.testsupport.CollectingResponseHandler;
 import org.junit.Before;
 import org.junit.Test;
 
@@ -103,7 +105,7 @@ public class HttpClientProtocolHandlerH2EdgeTest {
         }
     }
 
-    private static final class Recorder extends DefaultHttpResponseHandler {
+    private static final class Recorder extends CollectingResponseHandler {
         int okCalls;
         int errorCalls;
         HttpStatus status;
@@ -117,15 +119,15 @@ public class HttpClientProtocolHandlerH2EdgeTest {
         int promises;
 
         @Override
-        public void ok(HttpResponse response) {
+        public void ok(HttpStatus response) {
             okCalls++;
-            status = response.getStatus();
+            status = response;
         }
 
         @Override
-        public void error(HttpResponse response) {
+        public void error(HttpStatus response) {
             errorCalls++;
-            status = response.getStatus();
+            status = response;
         }
 
         @Override
@@ -453,13 +455,41 @@ public class HttpClientProtocolHandlerH2EdgeTest {
         assertNull(r.status == null ? null : (r.status.isInformational() ? null : "x"));
     }
 
+    /** A handler that implements only the message events and records them. */
+    private static final class EventsOnly extends CollectingResponseHandler {
+        final org.bluezoo.gumdrop.testsupport.RecordingMessageHandler seen =
+                new org.bluezoo.gumdrop.testsupport.RecordingMessageHandler();
+        @Override public void version(org.bluezoo.gumdrop.http.HttpVersion v) { seen.version(v); }
+        @Override public void status(int code) { seen.status(code); }
+        @Override public void header(String n, ByteBuffer v) { seen.header(n, v); }
+        @Override public void longHeader(String n, long v) { seen.longHeader(n, v); }
+        @Override public void contentType(org.bluezoo.gumdrop.mime.ContentType c) { seen.contentType(c); }
+        @Override public void endHeaders() { seen.endHeaders(); }
+        @Override public void bodyContent(ByteBuffer d) { seen.bodyContent(d); }
+        @Override public void endMessage() { seen.endMessage(); }
+    }
+
     @Test
-    public void responseWithoutStatusHeaderJustEndsTheStream() throws Exception {
+    public void aResponseArrivesAsMessageEventsWithTrailersAfterTheBody() throws Exception {
+        ready();
+        EventsOnly r = new EventsOnly();
+        handler.get("/e").send(r);
+        headers(1, false, ":status", "200", "content-type", "text/plain");
+        data(1, "abc".getBytes(java.nio.charset.StandardCharsets.US_ASCII), false);
+        headers(1, true, "x-sum", "7");
+
+        assertEquals(Arrays.asList("version HTTP/2.0", "status 200", "contentType text/plain charset=null",
+                "endHeaders", "body abc", "header x-sum 7", "endMessage"), r.seen.events);
+    }
+
+    @Test
+    public void responseWithoutStatusHeaderIsMalformed() throws Exception {
+        // RFC 9113 section 8.3.2: a response must carry :status
         ready();
         Recorder r = sendGet("/");
         headers(1, true, "x-only", "trailer-like");
         assertEquals(0, r.okCalls + r.errorCalls);
-        assertEquals(1, r.closeCalls);
+        assertEquals(1, r.failures.size());
     }
 
     @Test
@@ -527,7 +557,7 @@ public class HttpClientProtocolHandlerH2EdgeTest {
         });
         assertEquals(1, r.okCalls);
         assertEquals("the stream ended with the header block", 1, r.closeCalls);
-        assertTrue(r.endBody);
+        assertFalse("there was no body to end", r.endBody);
     }
 
     // ── authentication over HTTP/2 ──

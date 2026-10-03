@@ -34,12 +34,12 @@ import java.util.List;
 
 import org.bluezoo.gumdrop.http.HttpStatus;
 import org.bluezoo.gumdrop.http.client.HttpRequest;
-import org.bluezoo.gumdrop.http.client.HttpResponse;
 import org.bluezoo.gumdrop.http.client.HttpResponseHandler;
 import org.bluezoo.gumdrop.testsupport.RecordingWebSocketEventHandler;
 import org.bluezoo.gumdrop.websocket.PerMessageDeflateExtension;
 import org.bluezoo.gumdrop.websocket.WebSocketExtension;
 import org.bluezoo.gumdrop.websocket.WebSocketFrame;
+import org.bluezoo.gumdrop.testsupport.MessageEvents;
 import org.junit.Before;
 import org.junit.Test;
 
@@ -91,8 +91,8 @@ public class H2WebSocketResponseHandlerTest {
     @Test
     public void startResponseBodyOpensWebSocket() {
         H2WebSocketResponseHandler h = handler(noExtensions());
-        h.ok(new HttpResponse(HttpStatus.OK));
-        h.startResponseBody();
+        h.status(HttpStatus.OK.code);
+        h.endHeaders();
         assertEquals(1, ws.openedCount);
         assertTrue(ws.session.isOpen());
     }
@@ -100,8 +100,8 @@ public class H2WebSocketResponseHandlerTest {
     @Test
     public void incomingFramesDelivered() throws IOException {
         H2WebSocketResponseHandler h = handler(noExtensions());
-        h.startResponseBody();
-        h.responseBodyContent(WebSocketFrame.createTextFrame("hi", false)
+        h.endHeaders();
+        h.bodyContent(WebSocketFrame.createTextFrame("hi", false)
                 .encode());
         assertEquals(Arrays.asList("hi"), ws.texts);
     }
@@ -109,7 +109,7 @@ public class H2WebSocketResponseHandlerTest {
     @Test
     public void outboundFramesGoToRequestBodyMasked() throws IOException {
         H2WebSocketResponseHandler h = handler(noExtensions());
-        h.startResponseBody();
+        h.endHeaders();
         ws.session.sendText("out");
         assertEquals(1, request.body.size());
         WebSocketFrame f = WebSocketFrame.parse(
@@ -121,8 +121,8 @@ public class H2WebSocketResponseHandlerTest {
     @Test
     public void closeEndsRequestBody() throws IOException {
         H2WebSocketResponseHandler h = handler(noExtensions());
-        h.startResponseBody();
-        h.responseBodyContent(WebSocketFrame.createCloseFrame(1000, "", false)
+        h.endHeaders();
+        h.bodyContent(WebSocketFrame.createCloseFrame(1000, "", false)
                 .encode());
         assertEquals(Arrays.asList(1000), ws.closeCodes);
         assertTrue(request.ended);
@@ -133,21 +133,21 @@ public class H2WebSocketResponseHandlerTest {
         List<WebSocketExtension> requested = noExtensions();
         requested.add(new PerMessageDeflateExtension());
         H2WebSocketResponseHandler h = handler(requested);
-        h.header("Content-Type", "ignored");
-        h.header("Sec-WebSocket-Extensions", "permessage-deflate");
-        h.startResponseBody();
+        h.header("Content-Type", MessageEvents.octets("ignored"));
+        h.header("Sec-WebSocket-Extensions", MessageEvents.octets("permessage-deflate"));
+        h.endHeaders();
         assertEquals(1, ws.openedCount);
     }
 
     @Test
     public void errorResponseReportsAndSuppressesOpen() {
         H2WebSocketResponseHandler h = handler(noExtensions());
-        h.error(new HttpResponse(HttpStatus.BAD_REQUEST));
+        h.status(HttpStatus.BAD_REQUEST.code);
         assertEquals(1, ws.errors.size());
-        h.startResponseBody();
+        h.endHeaders();
         assertEquals(0, ws.openedCount);
-        h.responseBodyContent(ByteBuffer.wrap(new byte[] {1}));
-        h.endResponseBody();
+        h.bodyContent(ByteBuffer.wrap(new byte[] {1}));
+        h.endMessage();
         h.failed(new IOException("late"));
         assertEquals(1, ws.errors.size());
     }
@@ -155,8 +155,8 @@ public class H2WebSocketResponseHandlerTest {
     @Test
     public void bodyBeforeStartIsIgnored() {
         H2WebSocketResponseHandler h = handler(noExtensions());
-        h.responseBodyContent(ByteBuffer.wrap(new byte[] {1}));
-        h.endResponseBody();
+        h.bodyContent(ByteBuffer.wrap(new byte[] {1}));
+        h.endMessage();
         assertEquals(0, ws.openedCount);
         assertTrue(ws.closeCodes.isEmpty());
     }
@@ -164,18 +164,18 @@ public class H2WebSocketResponseHandlerTest {
     @Test
     public void streamEndReports1001() {
         H2WebSocketResponseHandler h = handler(noExtensions());
-        h.startResponseBody();
-        h.endResponseBody();
+        h.endHeaders();
+        h.endMessage();
         assertEquals(Arrays.asList(1001), ws.closeCodes);
     }
 
     @Test
     public void streamEndAfterCloseNotReportedTwice() throws IOException {
         H2WebSocketResponseHandler h = handler(noExtensions());
-        h.startResponseBody();
-        h.responseBodyContent(WebSocketFrame.createCloseFrame(1000, "", false)
+        h.endHeaders();
+        h.bodyContent(WebSocketFrame.createCloseFrame(1000, "", false)
                 .encode());
-        h.endResponseBody();
+        h.endMessage();
         assertEquals(1, ws.closeCodes.size());
     }
 
@@ -189,7 +189,7 @@ public class H2WebSocketResponseHandlerTest {
     @Test
     public void failureAfterOpenGoesToHandler() {
         H2WebSocketResponseHandler h = handler(noExtensions());
-        h.startResponseBody();
+        h.endHeaders();
         h.failed(new IOException("boom"));
         assertEquals(1, ws.errors.size());
         assertNotNull(ws.errors.get(0));
@@ -198,9 +198,9 @@ public class H2WebSocketResponseHandlerTest {
     @Test
     public void malformedFrameReportedAsError() {
         H2WebSocketResponseHandler h = handler(noExtensions());
-        h.startResponseBody();
+        h.endHeaders();
         // reserved opcode 0x3
-        h.responseBodyContent(ByteBuffer.wrap(new byte[] {(byte) 0x83, 0}));
+        h.bodyContent(ByteBuffer.wrap(new byte[] {(byte) 0x83, 0}));
         // protocol error: the connection answers with a 1002 close frame
         assertFalse(request.body.isEmpty());
     }

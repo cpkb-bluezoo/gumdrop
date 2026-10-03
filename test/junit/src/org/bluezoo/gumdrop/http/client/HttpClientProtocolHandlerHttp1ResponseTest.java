@@ -30,6 +30,7 @@ import java.util.concurrent.atomic.AtomicReference;
 
 import org.bluezoo.gumdrop.http.HttpStatus;
 import org.bluezoo.gumdrop.testsupport.BinaryRecordingEndpoint;
+import org.bluezoo.gumdrop.testsupport.CollectingResponseHandler;
 import org.junit.Before;
 import org.junit.Test;
 
@@ -48,8 +49,8 @@ import static org.junit.Assert.assertTrue;
  */
 public class HttpClientProtocolHandlerHttp1ResponseTest {
 
-    private static final class RecordingHandler extends DefaultHttpResponseHandler {
-        HttpResponse response;
+    private static final class RecordingHandler extends CollectingResponseHandler {
+        HttpStatus response;
         boolean ok;
         boolean error;
         boolean startBody;
@@ -60,13 +61,13 @@ public class HttpClientProtocolHandlerHttp1ResponseTest {
         final ByteArrayOutputStream body = new ByteArrayOutputStream();
 
         @Override
-        public void ok(HttpResponse response) {
+        public void ok(HttpStatus response) {
             ok = true;
             this.response = response;
         }
 
         @Override
-        public void error(HttpResponse response) {
+        public void error(HttpStatus response) {
             error = true;
             this.response = response;
         }
@@ -143,7 +144,7 @@ public class HttpClientProtocolHandlerHttp1ResponseTest {
         feed("HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\nhello");
 
         assertTrue(rh.ok);
-        assertEquals(HttpStatus.OK, rh.response.getStatus());
+        assertEquals(HttpStatus.OK, rh.response);
         assertTrue(rh.startBody);
         assertTrue(rh.endBody);
         assertTrue(rh.closed);
@@ -188,7 +189,7 @@ public class HttpClientProtocolHandlerHttp1ResponseTest {
         feed("HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n");
 
         assertTrue(rh.error);
-        assertEquals(HttpStatus.NOT_FOUND, rh.response.getStatus());
+        assertEquals(HttpStatus.NOT_FOUND, rh.response);
         assertTrue(rh.closed);
     }
 
@@ -198,16 +199,18 @@ public class HttpClientProtocolHandlerHttp1ResponseTest {
         feed("HTTP/1.1 200 OK\r\nContent-Length: 5, 9\r\n\r\n");
 
         assertNotNull(rh.failure);
-        assertTrue(rh.closed);
+        assertFalse(rh.closed);
     }
 
     @Test
-    public void missingLengthAndChunkedFailsRequest() {
+    public void missingLengthAndChunkedRunsUntilTheConnectionCloses() {
         RecordingHandler rh = sendGet();
         feed("HTTP/1.1 200 OK\r\nX-Test: yes\r\n\r\nbody");
+        assertFalse(rh.closed);
+        handler.disconnected();
 
-        assertNotNull(rh.failure);
-        assertTrue(rh.failure.getMessage().contains("Content-Length"));
+        assertNull(rh.failure);
+        assertArrayEquals("body".getBytes(StandardCharsets.US_ASCII), rh.body.toByteArray());
         assertTrue(rh.closed);
     }
 
@@ -303,7 +306,7 @@ public class HttpClientProtocolHandlerHttp1ResponseTest {
         feed("HTTP/1.1 304 Not Modified\r\nETag: \"v1\"\r\n\r\n");
 
         assertTrue(rh.error);
-        assertEquals(HttpStatus.NOT_MODIFIED, rh.response.getStatus());
+        assertEquals(HttpStatus.NOT_MODIFIED, rh.response);
         assertFalse(rh.startBody);
         assertTrue(rh.closed);
     }
@@ -322,7 +325,7 @@ public class HttpClientProtocolHandlerHttp1ResponseTest {
     }
 
     @Test
-    public void chunkedPrecedenceWhenBothLengthAndTransferEncodingPresent() {
+    public void lengthTogetherWithTransferEncodingFailsTheResponse() {
         RecordingHandler rh = sendGet();
         feed("HTTP/1.1 200 OK\r\n"
                 + "Content-Length: 100\r\n"
@@ -331,7 +334,8 @@ public class HttpClientProtocolHandlerHttp1ResponseTest {
                 + "abc\r\n"
                 + "0\r\n\r\n");
 
-        assertTrue(rh.ok);
-        assertArrayEquals("abc".getBytes(StandardCharsets.US_ASCII), rh.body.toByteArray());
+        // RFC 9112 section 6.3: both together may be request smuggling
+        assertFalse(rh.ok);
+        assertNotNull(rh.failure);
     }
 }

@@ -37,7 +37,7 @@ import org.bluezoo.gumdrop.TimerHandle;
 import org.bluezoo.gumdrop.http.HttpClient;
 import org.bluezoo.gumdrop.http.client.HttpClientHandler;
 import org.bluezoo.gumdrop.http.client.HttpRequest;
-import org.bluezoo.gumdrop.http.client.HttpResponse;
+import org.bluezoo.gumdrop.http.HttpStatus;
 import org.bluezoo.gumdrop.http.client.HttpResponseHandler;
 import org.bluezoo.gumdrop.http.client.PushPromise;
 import org.bluezoo.gumdrop.tls.ServerCredentials;
@@ -253,28 +253,20 @@ public class DoHClientTransport implements DnsClientTransport {
 
         // RFC 8484 section 4.2.1: a successful response uses HTTP 200
         @Override
-        public void ok(HttpResponse response) {
-            success = true;
+        public void status(int code) {
+            HttpStatus status = HttpStatus.fromCode(code);
+            if (status.isSuccess()) {
+                success = true;
+            } else {
+                handler.onError(new IOException(
+                        "DoH server returned HTTP error: " + status));
+            }
         }
 
-        @Override
-        public void error(HttpResponse response) {
-            handler.onError(new IOException(
-                    "DoH server returned HTTP error: " + response));
-        }
+        // RFC 8484 section 4.2.1: could validate the content type here
 
         @Override
-        public void header(String name, String value) {
-            // RFC 8484 section 4.2.1: could validate Content-Type here
-        }
-
-        @Override
-        public void startResponseBody() {
-            // Body accumulation handled in responseBodyContent
-        }
-
-        @Override
-        public void responseBodyContent(ByteBuffer data) {
+        public void bodyContent(ByteBuffer data) {
             if (!success) {
                 return;
             }
@@ -284,7 +276,7 @@ public class DoHClientTransport implements DnsClientTransport {
         }
 
         @Override
-        public void endResponseBody() {
+        public void endMessage() {
             if (success && accumulator.size() > 0) {
                 handler.onReceive(
                         ByteBuffer.wrap(accumulator.toByteArray()));
@@ -294,11 +286,6 @@ public class DoHClientTransport implements DnsClientTransport {
         @Override
         public void pushPromise(PushPromise promise) {
             promise.reject();
-        }
-
-        @Override
-        public void close() {
-            // Response complete; DNS message already delivered
         }
 
         @Override

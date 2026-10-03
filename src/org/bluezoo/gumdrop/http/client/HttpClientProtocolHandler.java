@@ -46,7 +46,6 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
-import org.bluezoo.gumdrop.ByteStreamLexer;
 import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.TcpEndpoint;
@@ -64,6 +63,15 @@ import org.bluezoo.gumdrop.http.h2.H2Parser;
 import org.bluezoo.gumdrop.http.h2.H2Writer;
 import org.bluezoo.gumdrop.http.hpack.Decoder;
 import org.bluezoo.gumdrop.http.hpack.Encoder;
+import org.bluezoo.gumdrop.http.FieldSectionAdapter;
+import org.bluezoo.gumdrop.http.HeaderFieldHandler;
+import org.bluezoo.gumdrop.http.HttpError;
+import org.bluezoo.gumdrop.http.HttpMessageHandler;
+import org.bluezoo.gumdrop.http.HttpMessageRecorder;
+import org.bluezoo.gumdrop.http.HttpMethod;
+import org.bluezoo.gumdrop.http.h1.Http1Parser;
+import org.bluezoo.gumdrop.mime.ContentDisposition;
+import org.bluezoo.gumdrop.mime.ContentType;
 import org.bluezoo.gumdrop.http.HeaderCollector;
 import org.bluezoo.gumdrop.telemetry.Trace;
 import org.bluezoo.gumdrop.util.ByteBufferPool;
@@ -91,7 +99,7 @@ import org.bluezoo.gumdrop.util.ByteBufferPool;
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 public class HttpClientProtocolHandler
-        implements ProtocolHandler, ByteStreamLexer.Handler<HttpClientLineLexer.Token>,
+        implements ProtocolHandler,
                    H2FrameHandler, HttpClientConnectionOps {
 
     private static final ResourceBundle L10N =
@@ -199,53 +207,23 @@ public class HttpClientProtocolHandler
     protected ParseState parseState = ParseState.IDLE;
     private HttpStatus responseStatus;
     private Headers responseHeaders;
-    private long contentLength = -1;
-    private long bytesReceived = 0;
-    private boolean chunkedEncoding;
     private boolean discardingBody;
     private String pendingAuthChallenge;
     private boolean pendingProxyAuth;
 
-    // Streaming lexer (issue #85), constructed lazily on first use so it
-    // picks up the current maxResponseHeaderSize even if
-    // setMaxResponseHeaderSize() is called after this handler is
-    // constructed but before the connection starts. Every line-based
-    // state (STATUS_LINE, HEADERS, CHUNK_SIZE, CHUNK_TRAILER) and every
-    // raw-body state (BODY, CHUNK_DATA) is driven through it; HTTP2_AWAITING_
-    // SETTINGS, HTTP2, and the (defensively-preserved, confirmed-
-    // unreachable-in-practice) read-until-close body are handled entirely
-    // outside it — see stopForHandoff() call sites.
-    private HttpClientLineLexer lexer;
-    // Cumulative byte count across the whole status-line + header
-    // section, mirroring the pre-conversion buffer-growth check —
-    // maxResponseHeaderSize bounds the total, not any single line.
-    private int headerByteCount;
-    // Set once a fatal parse error (oversized headers) has already
-    // reported failure and closed the connection; stops receive() from
-    // feeding the lexer anything further in the meantime. See
-    // HttpProtocolHandler.tokenTooLong()'s server-side analogue and its
-    // Javadoc for why this must not force-close synchronously either.
+    // Set once a fatal parse error (a malformed or oversized response) has
+    // already reported failure and closed the connection; stops receive()
+    // from feeding the parser anything further in the meantime.
     private boolean fatalParseError;
     // The buffer passed to the current receive() call, exposed so a
     // subclass hook invoked synchronously from deep within this same call
     // stack (e.g. WebSocketClientProtocolHandler.handleProtocolSwitch(),
-    // called from processHeaderLine()'s SWITCHING_PROTOCOLS branch) can
-    // drain whatever pipelined bytes remain beyond what the lexer has
-    // consumed so far — the zero-copy design has no persistent
-    // accumulation buffer to inspect the way the removed parseBuffer
-    // field used to provide for free.
+    // called when the headers of a 101 response have been read) can drain
+    // whatever pipelined bytes remain beyond what the parser has consumed
+    // so far -- there is no persistent accumulation buffer to inspect.
     protected ByteBuffer currentReceiveBuffer;
-    // RFC 9112 section 7.1: a chunk's data is followed by a mandatory
-    // trailing CRLF; enterRawBody() reads chunk-size + 2 bytes as one
-    // fixed-length raw span, and these two fields track how much of the
-    // current raw run is still real chunk-data vs. terminator bytes to be
-    // discarded (unlike the server, this client does not validate the
-    // terminator's content — see HttpClientLineLexer's class Javadoc).
-    private long chunkDataRemaining;
-    private int chunkTerminatorRemaining;
-
     protected enum ParseState {
-        IDLE, STATUS_LINE, HEADERS, BODY, CHUNK_SIZE, CHUNK_DATA, CHUNK_TRAILER,
+        IDLE, STATUS_LINE,
         /** HTTP/2 connection preface sent; awaiting the peer's first SETTINGS (ALPN h2, prior knowledge, or post-h2c-101). Not cleartext h2c upgrade in flight. */
         HTTP2_AWAITING_SETTINGS,
         HTTP2
@@ -269,6 +247,8 @@ public class HttpClientProtocolHandler
 
     // RFC 9112 section 5: maximum response header size (bytes)
     private int maxResponseHeaderSize = 1024 * 1024;
+    // the most field lines accepted in a response header section
+    private static final int MAX_RESPONSE_FIELD_COUNT = 1000;
 
     /**
      * Creates an HTTP client endpoint handler.
@@ -435,27 +415,14 @@ public class HttpClientProtocolHandler
             processHTTP2Response(data);
             return;
         }
-        if (lexer == null) {
-            lexer = new HttpClientLineLexer(this, maxResponseHeaderSize);
-        }
-
+        Http1Parser parser = responseParser();
         currentReceiveBuffer = data;
         while (data.hasRemaining()) {
             if (fatalParseError) {
                 return;
             }
-            if (parseState == ParseState.BODY && contentLength < 0) {
-                // Dead code in practice (see HttpClientLineLexer's class
-                // Javadoc) — parseState only ever becomes BODY once
-                // contentLength > 0 has already been validated — but
-                // preserved defensively, matching the pre-conversion
-                // parseBody()'s own "else" branch: unbounded, not
-                // lexer-driven, consumes whatever is available.
-                handleBodyUntilCloseBytes(data);
-                continue;
-            }
             int positionBefore = data.position();
-            lexer.feed(data);
+            parser.receive(data);
             if (isHttp2State()) {
                 if (data.hasRemaining()) {
                     processHTTP2Response(data);
@@ -464,11 +431,10 @@ public class HttpClientProtocolHandler
             }
             if (isExternallyHandled()) {
                 // A subclass hook (e.g. WebSocketClientProtocolHandler's
-                // handleProtocolSwitch()) took over synchronously during
-                // this same feed() call. Bytes after the switching
-                // response's headers (already stopped from being lexed as
-                // HTTP) belong to the new protocol: re-dispatch them so
-                // the subclass's receive() consumes them.
+                // handleProtocolSwitch()) took over during this same call.
+                // Bytes after the switching response's headers belong to
+                // the new protocol: re-dispatch them so the subclass's
+                // receive() consumes them.
                 if (data.hasRemaining()) {
                     receive(data);
                 }
@@ -504,6 +470,10 @@ public class HttpClientProtocolHandler
         open = false;
         logIntegrationClientState(Level.WARNING, "disconnected", null);
 
+        // a response that runs until the connection closes ends here
+        if (responseParser != null && !fatalParseError && !isHttp2State()) {
+            responseParser.close();
+        }
         Exception disconnectException = new IOException(L10N.getString("err.connection_disconnected"));
         failAllStreams(disconnectException);
 
@@ -1279,12 +1249,12 @@ public class HttpClientProtocolHandler
         endpoint.send(ByteBuffer.wrap(bytes));
 
         parseState = ParseState.STATUS_LINE;
-        headerByteCount = 0;
         responseStatus = null;
         responseHeaders = new Headers();
-        contentLength = -1;
-        bytesReceived = 0;
-        chunkedEncoding = false;
+        h1Events.clear();
+        // RFC 9112 section 6.3: a response to HEAD, or to a successful
+        // CONNECT, is read accordingly
+        responseParser().expectResponseTo(HttpMethod.of(request.getMethod()));
 
         if (attemptingH2cUpgrade) {
             LOGGER.fine(MessageFormat.format(L10N.getString("debug.sent_http11_h2c_upgrade"), request.getMethod(), request.getPath()));
@@ -1494,411 +1464,230 @@ public class HttpClientProtocolHandler
     // Response parsing
     // ─────────────────────────────────────────────────────────────────────────
 
-    // ── ByteStreamLexer.Handler implementation (issue #85) ──
-    // RFC 9112 sections 4-7: HTTP/1.1 response parsing state machine
-    // (status-line → headers → body via Content-Length or chunked encoding)
+    // ── HTTP/1.x responses (RFC 9112), parsed by Http1Parser ──
 
-    @Override
-    public boolean token(HttpClientLineLexer.Token type, ByteBuffer window) {
-        if (type != HttpClientLineLexer.Token.LINE) {
-            return false;
+    private Http1Parser responseParser;
+    private final ResponseEvents responseEvents = new ResponseEvents();
+    // The events of the response being parsed, held until the client has
+    // decided what to do with it (authentication, protocol switch), then
+    // replayed to the handler
+    private final HttpMessageRecorder h1Events = new HttpMessageRecorder();
+
+    private Http1Parser responseParser() {
+        if (responseParser == null) {
+            responseParser = Http1Parser.forResponses(responseEvents);
+            responseParser.setMaxStartLineLength(maxResponseHeaderSize);
+            responseParser.setMaxFieldLineLength(maxResponseHeaderSize);
+            responseParser.setMaxFieldCount(MAX_RESPONSE_FIELD_COUNT);
+            responseParser.setFieldTap(responseEvents);
         }
-        if (parseState == ParseState.STATUS_LINE || parseState == ParseState.HEADERS) {
-            headerByteCount += window.remaining();
-            // RFC 9112 section 5: protect against unbounded header growth
-            if (headerByteCount > maxResponseHeaderSize) {
-                reportHeaderTooLarge();
-                return false;
-            }
-        }
-        switch (parseState) {
-            case STATUS_LINE:
-                processStatusLine(window);
-                break;
-            case HEADERS:
-                processHeaderLine(window);
-                break;
-            case CHUNK_SIZE:
-                processChunkSizeLine(window);
-                break;
-            case CHUNK_TRAILER:
-                processChunkTrailerLine(window);
-                break;
-            default:
-                break;
-        }
-        afterStateTransition();
-        return false;
+        return responseParser;
     }
 
-    @Override
-    public void rawBytes(ByteBuffer slice) {
-        switch (parseState) {
-            case BODY:
-                handleBodyBytes(slice);
-                break;
-            case CHUNK_DATA:
-                handleChunkDataBytes(slice);
-                break;
-            default:
-                LOGGER.warning(MessageFormat.format(
-                        L10N.getString("warn.unexpected_raw_bytes_in_state"), parseState));
-        }
-    }
-
-    @Override
-    public void tokenTooLong() {
-        // Defense-in-depth only (see HttpClientLineLexer's class Javadoc):
-        // the pre-conversion code had no protection at all against a
-        // single, never-terminated line growing its buffer unboundedly
-        // (its own check only fired on buffer *growth*, i.e. once a line
-        // was already known to be incomplete); this backstop is stricter
-        // than that, which is a deliberate improvement, not a
-        // faithfulness gap — a line this long is not something any real
-        // HTTP/1.1 response should ever produce.
-        reportHeaderTooLarge();
-    }
-
-    private void reportHeaderTooLarge() {
+    /** A parse failure: the connection can no longer be trusted. */
+    private void reportParseError(HttpError error, String detail) {
         fatalParseError = true;
-        LOGGER.warning(MessageFormat.format(
-                L10N.getString("warn.response_header_too_large"), maxResponseHeaderSize));
-        failAllStreams(new IOException("Response header too large"));
+        if (error == HttpError.FIELD_SECTION_TOO_LARGE || error == HttpError.URI_TOO_LONG) {
+            LOGGER.warning(MessageFormat.format(
+                    L10N.getString("warn.response_header_too_large"), maxResponseHeaderSize));
+            failAllStreams(new IOException("Response header too large"));
+        } else {
+            LOGGER.warning(MessageFormat.format(
+                    L10N.getString("warn.invalid_response"), detail));
+            failAllStreams(new IOException(MessageFormat.format(
+                    L10N.getString("err.invalid_response"), detail)));
+        }
         close();
     }
 
     /**
-     * Called after every {@code LINE} token dispatch, and after every raw
-     * body/chunk-data completion, to decide what the lexer should do next
-     * based on the {@code parseState} transition that dispatch may have
-     * just made — mirrors {@code HttpProtocolHandler}'s server-side
-     * {@code afterStateTransition()}.
+     * Receives the events of the HTTP/1.x response being parsed and carries
+     * out the client's part: it keeps the status and fields, handles the
+     * responses the client answers itself (a protocol switch, an interim
+     * response, an authentication challenge), and hands the rest to the
+     * response handler, as the message events and as the older callbacks.
+     *
+     * <p>It is also the parser's field tap, which supplies the fields as sent,
+     * original case and exact text, for the {@code Headers} the client works
+     * from.
      */
-    private void afterStateTransition() {
-        switch (parseState) {
-            case BODY:
-                lexer.enterRawBody(contentLength);
-                break;
-            case CHUNK_DATA:
-                chunkDataRemaining = contentLength;
-                chunkTerminatorRemaining = 2;
-                lexer.enterRawBody(contentLength + 2);
-                break;
-            case STATUS_LINE:
-            case HEADERS:
-            case CHUNK_SIZE:
-            case CHUNK_TRAILER:
-                break; // still lexer-driven; nothing to do
-            default:
-                // IDLE, HTTP2_AWAITING_SETTINGS, HTTP2, and (defensively) BODY
-                // with contentLength < 0: none of these are read through
-                // the lexer — hand control back to receive()'s own
-                // dispatch for the rest of the current buffer.
-                lexer.stopForHandoff();
-        }
-    }
+    private final class ResponseEvents implements HttpMessageHandler, HeaderFieldHandler {
 
-    // RFC 9112 section 4: status-line = HTTP-version SP status-code SP [reason-phrase]
-    private void processStatusLine(ByteBuffer window) {
-        // window includes the trailing CRLF (HttpClientLineLexer's LINE
-        // token contract); strip it to get the line content.
-        int lineEnd = window.remaining() - 2;
-        byte[] lineBytes = new byte[lineEnd];
-        window.get(lineBytes);
+        /** Set once the header section has ended: further fields are trailers. */
+        private boolean headersDone;
+        /** The response is a 1xx interim response, which is not delivered. */
+        private boolean interim;
+        /** Body content has been given to the handler (so its end must be too). */
+        private boolean bodyStarted;
+        /** Octets of field lines so far in the header section. */
+        private int headerBytes;
 
-        String line = new String(lineBytes, StandardCharsets.UTF_8);
-        if (Boolean.getBoolean("gumdrop.http.debug")) {
-            LOGGER.info(MessageFormat.format(
-                    L10N.getString("info.debug_parse_status_line"), line));
+        private HttpResponseHandler handler() {
+            return currentStream != null ? currentStream.getHandler() : null;
         }
 
-        int firstSpace = line.indexOf(' ');
-        int secondSpace = line.indexOf(' ', firstSpace + 1);
+        private String text(ByteBuffer b) {
+            byte[] octets = new byte[b.remaining()];
+            b.duplicate().get(octets);
+            return new String(octets, StandardCharsets.ISO_8859_1);
+        }
 
-        if (firstSpace < 0) {
-            LOGGER.warning(MessageFormat.format(L10N.getString("warn.invalid_status_line"), line));
-            responseStatus = HttpStatus.UNKNOWN;
-        } else {
+        // the tap: the field as it was sent
+        @Override
+        public void field(ByteBuffer name, ByteBuffer value) {
+            if (headersDone) {
+                return;
+            }
+            // RFC 9112 section 5: protect against unbounded header growth;
+            // maxResponseHeaderSize bounds the whole section
+            headerBytes += name.remaining() + value.remaining() + 4;
+            if (headerBytes > maxResponseHeaderSize) {
+                responseParser.handOff();
+                reportParseError(HttpError.FIELD_SECTION_TOO_LARGE, "response header section too large");
+                return;
+            }
             try {
-                String codeStr;
-                if (secondSpace > 0) {
-                    codeStr = line.substring(firstSpace + 1, secondSpace);
-                } else {
-                    codeStr = line.substring(firstSpace + 1);
-                }
-                int statusCode = Integer.parseInt(codeStr.trim());
-                responseStatus = HttpStatus.fromCode(statusCode);
-            } catch (NumberFormatException e) {
-                responseStatus = HttpStatus.UNKNOWN;
+                responseHeaders.add(Header.ofOctets(name, value));
+            } catch (IllegalArgumentException e) {
+                // the parser has already refused a field like this
             }
         }
 
-        parseState = ParseState.HEADERS;
-    }
+        @Override public void method(HttpMethod method) { }
+        @Override public void target(ByteBuffer target) { }
+        @Override public void scheme(ByteBuffer scheme) { }
+        @Override public void authority(ByteBuffer authority) { h1Events.authority(authority); }
+        @Override public void protocol(ByteBuffer protocol) { }
+        @Override public void version(HttpVersion version) { h1Events.version(version); }
 
-    // RFC 9112 section 5: header fields terminated by empty line (CRLF)
-    private void processHeaderLine(ByteBuffer window) {
-        int lineEnd = window.remaining() - 2;
+        @Override
+        public void status(int code) {
+            responseStatus = HttpStatus.fromCode(code);
+            h1Events.status(code);
+        }
 
-        if (lineEnd == 0) {
+        @Override public void reason(ByteBuffer phrase) { h1Events.reason(phrase); }
+        @Override public void contentType(ContentType c) { h1Events.contentType(c); }
+        @Override public void contentDisposition(ContentDisposition d) { h1Events.contentDisposition(d); }
+        @Override public void longHeader(String name, long value) { h1Events.longHeader(name, value); }
 
-                // RFC 9110 section 15.2.2: 101 Switching Protocols
-                if (h2cUpgradeInFlight && responseStatus == HttpStatus.SWITCHING_PROTOCOLS) {
+        @Override
+        public void header(String name, ByteBuffer value) {
+            if (!headersDone) {
+                h1Events.header(name, value);
+                return;
+            }
+            // a trailer field, after the body
+            HttpResponseHandler responseHandler = handler();
+            if (responseHandler == null || discardingBody || omitContentEncodingHeader(name)) {
+                return;
+            }
+            if (currentStream.isMessageEvents()) {
+                responseHandler.header(name, value.asReadOnlyBuffer());
+            }
+        }
+
+        @Override
+        public void endHeaders() {
+            headersDone = true;
+            HttpStatus status = responseStatus;
+
+            // RFC 9110 section 15.2.2: 101 Switching Protocols
+            if (status == HttpStatus.SWITCHING_PROTOCOLS) {
+                if (h2cUpgradeInFlight) {
                     String upgrade = responseHeaders.getValue("upgrade");
                     if (upgrade != null && upgrade.equalsIgnoreCase("h2c")) {
                         LOGGER.fine(L10N.getString("debug.h2c_upgrade_accepted"));
+                        responseParser.handOff();
                         completeH2cUpgrade();
                         return;
-                    } else if (!handleProtocolSwitch(responseStatus, responseHeaders)) {
-                        LOGGER.warning(L10N.getString("warn.unexpected_101_response"));
                     }
                     h2cUpgradeInFlight = false;
-                } else if (responseStatus == HttpStatus.SWITCHING_PROTOCOLS) {
-                    if (handleProtocolSwitch(responseStatus, responseHeaders)) {
-                        // The lexer must not lex bytes that follow the
-                        // response headers as HTTP: receive() hands them
-                        // to the subclass once feed() returns.
-                        lexer.stopForHandoff();
-                        return;
-                    }
-                    LOGGER.warning(L10N.getString("warn.unexpected_101_response"));
-                } else if (h2cUpgradeInFlight) {
-                    LOGGER.fine(L10N.getString("debug.h2c_upgrade_declined"));
-                    h2cUpgradeInFlight = false;
-                    h2cUpgradeRequest = null;
                 }
-
-                // RFC 9110 section 15.2: discard 1xx interim responses
-                // (101 Switching Protocols is handled above)
-                if (responseStatus.isInformational()) {
-                    responseHeaders = new Headers();
-                    responseStatus = null;
-                    parseState = ParseState.STATUS_LINE;
-                    headerByteCount = 0;
+                if (handleProtocolSwitch(status, responseHeaders)) {
+                    // the bytes that follow the headers belong to the new
+                    // protocol: receive() hands them to the subclass
+                    responseParser.handOff();
                     return;
                 }
-
-                if (responseStatus == HttpStatus.UNAUTHORIZED
-                        && username != null && password != null && !authRetryPending) {
-
-                    String wwwAuth = responseHeaders.getValue("www-authenticate");
-                    if (wwwAuth != null && canAnswerChallenge(wwwAuth)) {
-                        pendingAuthChallenge = wwwAuth;
-                        pendingProxyAuth = false;
-                        startBodyDiscard();
-                        return;
-                    }
-                }
-
-                // RFC 9110 section 11.7.1: 407 Proxy Authentication Required
-                if (responseStatus == HttpStatus.PROXY_AUTHENTICATION_REQUIRED
-                        && username != null && password != null && !authRetryPending) {
-
-                    String proxyAuth = responseHeaders.getValue("proxy-authenticate");
-                    if (proxyAuth != null && canAnswerChallenge(proxyAuth)) {
-                        pendingAuthChallenge = proxyAuth;
-                        pendingProxyAuth = true;
-                        startBodyDiscard();
-                        return;
-                    }
-                }
-
-                authRetryPending = false;
-
-                HttpResponseHandler responseHandler = null;
-                if (currentStream != null) {
-                    responseHandler = currentStream.getHandler();
-                }
-                if (responseHandler != null) {
-                    HttpResponse response = new HttpResponse(responseStatus);
-
-                    if (responseStatus.isSuccess()) {
-                        responseHandler.ok(response);
-                    } else {
-                        responseHandler.error(response);
-                    }
-
-                    if (currentStream != null) {
-                        prepareInboundResponseDecoding(currentStream, responseHeaders);
-                    }
-                    for (Header header : responseHeaders) {
-                        if (omitContentEncodingHeader(header.getName())) {
-                            continue;
-                        }
-                        responseHandler.header(header.getName(), header.getValue());
-                    }
-                }
-
-                if (!altSvcNotified && altSvcListener != null) {
-                    String altSvc = responseHeaders.getValue("alt-svc");
-                    if (altSvc != null) {
-                        altSvcNotified = true;
-                        altSvcListener.altSvcReceived(altSvc);
-                    }
-                }
-
-                // RFC 9110 section 9.3.2: HEAD response MUST NOT contain body
-                // RFC 9110 section 15.3.5 / 15.4.5: 204 and 304 have no body
-                boolean headRequest = currentStream != null
-                        && "HEAD".equals(currentStream.getMethod());
-
-                if (headRequest
-                        || responseStatus == HttpStatus.NO_CONTENT
-                        || responseStatus == HttpStatus.NOT_MODIFIED) {
-                    if (Boolean.getBoolean("gumdrop.http.debug")) {
-                        LOGGER.info(L10N.getString("info.debug_no_body"));
-                    }
-                    completeResponse();
-                } else {
-                    // RFC 9112 section 6.3: body length determination precedence
-                    // Transfer-Encoding takes priority over Content-Length
-                    String transferEncoding =
-                            responseHeaders.getValue("transfer-encoding");
-                    String contentLengthStr =
-                            responseHeaders.getValue("content-length");
-                    if (Boolean.getBoolean("gumdrop.http.debug")) {
-                        LOGGER.info(MessageFormat.format(
-                                L10N.getString("info.debug_body_type"), transferEncoding, contentLengthStr));
-                    }
-
-                    // RFC 9112 section 6.2: a message with both
-                    // Transfer-Encoding and Content-Length is potentially
-                    // a smuggling attack — log a warning and ignore
-                    // Content-Length (Transfer-Encoding takes priority)
-                    if (transferEncoding != null && contentLengthStr != null) {
-                        LOGGER.warning(L10N.getString("warn.transfer_encoding_and_content_length"));
-                        contentLengthStr = null;
-                    }
-
-                    if (transferEncoding != null
-                            && transferEncoding.toLowerCase()
-                                    .contains("chunked")) {
-                        chunkedEncoding = true;
-                        parseState = ParseState.CHUNK_SIZE;
-                        if (Boolean.getBoolean("gumdrop.http.debug")) {
-                            LOGGER.info(L10N.getString("info.debug_chunked_start"));
-                        }
-                        if (responseHandler != null) {
-                            responseHandler.startResponseBody();
-                        }
-                    } else if (contentLengthStr != null) {
-                        // RFC 9110 section 8.6: validate Content-Length
-                        contentLength = validateContentLength(contentLengthStr);
-                        if (contentLength < 0) {
-                            LOGGER.warning(MessageFormat.format(
-                                    L10N.getString("warn.invalid_content_length"), contentLengthStr));
-                            if (responseHandler != null) {
-                                responseHandler.failed(new IOException(
-                                        "Invalid Content-Length"));
-                            }
-                            completeResponse();
-                        } else if (contentLength > 0) {
-                            parseState = ParseState.BODY;
-                            if (Boolean.getBoolean("gumdrop.http.debug")) {
-                                LOGGER.info(MessageFormat.format(
-                                        L10N.getString("info.debug_content_length_start"), contentLength));
-                            }
-                            if (responseHandler != null) {
-                                responseHandler.startResponseBody();
-                            }
-                        } else {
-                            completeResponse();
-                        }
-                    } else {
-                        // RFC 9112 section 6.3: response with body must have
-                        // Content-Length or Transfer-Encoding for HTTP/1.1
-                        String msg = "Response has a body but lacks Content-Length "
-                                + "and Transfer-Encoding headers. The server must send "
-                                + "Content-Length or Transfer-Encoding: chunked.";
-                        LOGGER.warning(msg);
-                        if (responseHandler != null) {
-                            responseHandler.failed(new IOException(msg));
-                        }
-                        completeResponse();
-                    }
-                }
-
-            return;
-        }
-
-        byte[] lineBytes = new byte[lineEnd];
-        window.get(lineBytes);
-
-        String line = new String(lineBytes, StandardCharsets.UTF_8);
-
-        // RFC 9112 section 5.2: obs-fold — a line starting with SP
-        // or HTAB is a continuation of the previous header value
-        if (!line.isEmpty() && (line.charAt(0) == ' ' || line.charAt(0) == '\t')) {
-            int lastIdx = responseHeaders.size() - 1;
-            if (lastIdx >= 0) {
-                Header prev = responseHeaders.get(lastIdx);
-                responseHeaders.set(lastIdx,
-                        new Header(prev.getName(),
-                                prev.getValue() + " " + line.trim()));
+                // a 101 nothing asked for: the bytes that follow are in a
+                // protocol this client does not speak
+                LOGGER.warning(L10N.getString("warn.unexpected_101_response"));
+                h1Events.clear();
+                responseParser.handOff();
+                reportParseError(HttpError.MALFORMED, "unexpected 101 Switching Protocols");
+                return;
             }
-            return;
-        }
+            if (h2cUpgradeInFlight) {
+                LOGGER.fine(L10N.getString("debug.h2c_upgrade_declined"));
+                h2cUpgradeInFlight = false;
+                h2cUpgradeRequest = null;
+            }
 
-        int colonPos = line.indexOf(':');
-        if (colonPos > 0) {
-            String name = line.substring(0, colonPos).trim();
-            String value = line.substring(colonPos + 1).trim();
-            responseHeaders.add(name, value);
-        }
-    }
+            // RFC 9110 section 15.2: discard 1xx interim responses
+            if (status.isInformational()) {
+                interim = true;
+                h1Events.clear();
+                return;
+            }
 
-    // RFC 9112 section 6.2: Content-Length delimited body (the
-    // read-until-close case, reachable only defensively, stays outside
-    // the lexer — see handleBodyUntilCloseBytes())
-    private void handleBodyBytes(ByteBuffer slice) {
-        HttpResponseHandler responseHandler = null;
-        if (!discardingBody && currentStream != null) {
-            responseHandler = currentStream.getHandler();
-        }
+            if (status == HttpStatus.UNAUTHORIZED
+                    && username != null && password != null && !authRetryPending) {
+                String wwwAuth = responseHeaders.getValue("www-authenticate");
+                if (wwwAuth != null && canAnswerChallenge(wwwAuth)) {
+                    pendingAuthChallenge = wwwAuth;
+                    pendingProxyAuth = false;
+                    discardingBody = true;
+                    h1Events.clear();
+                    return;
+                }
+            }
 
-        int len = slice.remaining();
-        if (Boolean.getBoolean("gumdrop.http.debug")) {
-            LOGGER.info(MessageFormat.format(
-                    L10N.getString("info.debug_handle_body_bytes"), contentLength, bytesReceived, len));
-        }
+            // RFC 9110 section 11.7.1: 407 Proxy Authentication Required
+            if (status == HttpStatus.PROXY_AUTHENTICATION_REQUIRED
+                    && username != null && password != null && !authRetryPending) {
+                String proxyAuth = responseHeaders.getValue("proxy-authenticate");
+                if (proxyAuth != null && canAnswerChallenge(proxyAuth)) {
+                    pendingAuthChallenge = proxyAuth;
+                    pendingProxyAuth = true;
+                    discardingBody = true;
+                    h1Events.clear();
+                    return;
+                }
+            }
 
-        if (responseHandler != null) {
-            ByteBuffer bodyData = ByteBufferPool.acquire(len);
-            bodyData.put(slice);
-            bodyData.flip();
-            try {
-                feedResponseBody(currentStream, bodyData);
-            } finally {
-                ByteBufferPool.release(bodyData);
+            authRetryPending = false;
+
+            HttpResponseHandler responseHandler = handler();
+            if (responseHandler != null) {
+                if (omitContentEncodingHeader("content-encoding")) {
+                    h1Events.removeFields("content-encoding");
+                }
+                currentStream.setMessageEvents();
+                h1Events.replay(responseHandler);
+                prepareInboundResponseDecoding(currentStream, responseHeaders);
+            }
+            h1Events.clear();
+
+            if (!altSvcNotified && altSvcListener != null) {
+                String altSvc = responseHeaders.getValue("alt-svc");
+                if (altSvc != null) {
+                    altSvcNotified = true;
+                    altSvcListener.altSvcReceived(altSvc);
+                }
             }
         }
-        bytesReceived += len;
 
-        if (bytesReceived >= contentLength) {
-            if (Boolean.getBoolean("gumdrop.http.debug")) {
-                LOGGER.info(L10N.getString("info.debug_body_complete"));
+        @Override
+        public void bodyContent(ByteBuffer data) {
+            if (discardingBody || interim) {
+                return;
             }
-            if (discardingBody) {
-                completeBodyDiscard();
-            } else {
-                finishResponseBody(currentStream);
-                completeResponse();
+            HttpResponseHandler responseHandler = handler();
+            if (responseHandler == null) {
+                return;
             }
-        }
-    }
-
-    // RFC 9112 section 6.3: read-until-close body — dead code in practice
-    // (see HttpClientLineLexer's class Javadoc), preserved defensively.
-    // Not lexer-driven: no length is known up front, so there is no
-    // enterRawBody() count to give it; consumes whatever is available in
-    // the current buffer, exactly as the pre-conversion parseBody()'s own
-    // "else" branch did against parseBuffer.
-    private void handleBodyUntilCloseBytes(ByteBuffer data) {
-        HttpResponseHandler responseHandler = null;
-        if (!discardingBody && currentStream != null) {
-            responseHandler = currentStream.getHandler();
-        }
-        if (responseHandler != null && data.hasRemaining()) {
+            bodyStarted = true;
             ByteBuffer bodyData = ByteBufferPool.acquire(data.remaining());
             bodyData.put(data);
             bodyData.flip();
@@ -1907,126 +1696,39 @@ public class HttpClientProtocolHandler
             } finally {
                 ByteBufferPool.release(bodyData);
             }
-        } else if (discardingBody) {
-            data.position(data.limit());
-        }
-    }
-
-    // RFC 9112 section 7.1: chunk-size in hex followed by CRLF
-    private void processChunkSizeLine(ByteBuffer window) {
-        int lineEnd = window.remaining() - 2;
-        byte[] lineBytes = new byte[lineEnd];
-        window.get(lineBytes);
-
-        String line = new String(lineBytes, StandardCharsets.US_ASCII);
-        // RFC 9112 section 7.1.1: strip chunk extensions (after semicolon)
-        int semi = line.indexOf(';');
-        if (semi >= 0) {
-            line = line.substring(0, semi);
         }
 
-        try {
-            contentLength = Long.parseLong(line.trim(), 16);
-        } catch (NumberFormatException e) {
-            contentLength = -1;
-        }
-        if (contentLength < 0) {
-            // RFC 9112 section 7.1: the chunk framing can no longer be
-            // trusted, so the response fails and the connection is dropped
-            // rather than guessing where the body ends
-            LOGGER.warning(MessageFormat.format(L10N.getString("warn.invalid_chunk_size"), line));
-            fatalParseError = true;
-            parseState = ParseState.IDLE;
-            failAllStreams(new IOException(L10N.getString("err.invalid_chunk_size")));
-            close();
-            return;
-        }
-
-        if (contentLength == 0) {
-            parseState = ParseState.CHUNK_TRAILER;
-        } else {
-            bytesReceived = 0;
-            parseState = ParseState.CHUNK_DATA;
-        }
-    }
-
-    // RFC 9112 section 7.1: chunk-data, plus its mandatory trailing CRLF.
-    // enterRawBody() was called with contentLength + 2 (see
-    // afterStateTransition()); this splits each incoming raw slice at the
-    // chunkDataRemaining boundary into real data (forwarded) vs.
-    // terminator bytes (discarded, unvalidated — see
-    // HttpClientLineLexer's class Javadoc for why this client, unlike the
-    // server, does not check the terminator is actually "\r\n").
-    private void handleChunkDataBytes(ByteBuffer slice) {
-        HttpResponseHandler responseHandler = null;
-        if (!discardingBody && currentStream != null) {
-            responseHandler = currentStream.getHandler();
-        }
-
-        if (chunkDataRemaining > 0) {
-            int dataLen = (int) Math.min(slice.remaining(), chunkDataRemaining);
-            int savedLimit = slice.limit();
-            slice.limit(slice.position() + dataLen);
-            if (responseHandler != null) {
-                ByteBuffer bodyData = ByteBufferPool.acquire(dataLen);
-                bodyData.put(slice);
-                bodyData.flip();
-                try {
-                    feedResponseBody(currentStream, bodyData);
-                } finally {
-                    ByteBufferPool.release(bodyData);
-                }
-            } else {
-                slice.position(slice.limit());
+        @Override
+        public void endMessage() {
+            boolean wasBody = bodyStarted;
+            bodyStarted = false;
+            headersDone = false;
+            headerBytes = 0;
+            if (interim) {
+                interim = false;
+                // the final response follows
+                responseHeaders = new Headers();
+                responseStatus = null;
+                return;
             }
-            slice.limit(savedLimit);
-            chunkDataRemaining -= dataLen;
-            bytesReceived += dataLen;
-        }
-
-        int discardLen = Math.min(slice.remaining(), chunkTerminatorRemaining);
-        slice.position(slice.position() + discardLen);
-        chunkTerminatorRemaining -= discardLen;
-        if (chunkTerminatorRemaining == 0) {
-            parseState = ParseState.CHUNK_SIZE;
-        }
-    }
-
-    // RFC 9112 section 7.1.2: trailer section after final zero-length chunk
-    private void processChunkTrailerLine(ByteBuffer window) {
-        int lineEnd = window.remaining() - 2;
-
-        if (lineEnd == 0) {
             if (discardingBody) {
                 completeBodyDiscard();
-            } else {
-                HttpResponseHandler responseHandler = null;
-                if (currentStream != null) {
-                    responseHandler = currentStream.getHandler();
-                }
-                finishResponseBody(currentStream);
-                completeResponse();
+                return;
             }
-            return;
+            if (wasBody) {
+                finishResponseBody(currentStream);
+            }
+            completeResponse();
         }
 
-        byte[] lineBytes = new byte[lineEnd];
-        window.get(lineBytes);
+        @Override
+        public void error(HttpError error, String detail) {
+            reportParseError(error, detail);
+        }
 
-        if (!discardingBody) {
-            HttpResponseHandler responseHandler = null;
-            if (currentStream != null) {
-                responseHandler = currentStream.getHandler();
-            }
-            String line = new String(lineBytes, StandardCharsets.UTF_8);
-            int colonPos = line.indexOf(':');
-            if (colonPos > 0 && responseHandler != null) {
-                String name = line.substring(0, colonPos).trim();
-                String value = line.substring(colonPos + 1).trim();
-                if (!omitContentEncodingHeader(name)) {
-                    responseHandler.header(name, value);
-                }
-            }
+        @Override
+        public void failed(Exception cause) {
+            // transport failures reach the client through disconnected()/error()
         }
     }
 
@@ -2042,6 +1744,7 @@ public class HttpClientProtocolHandler
         boolean serverClose = responseHeaders != null
                 && "close".equalsIgnoreCase(responseHeaders.getValue("connection"));
 
+        boolean currentStreamWasMessageEvents = currentStream != null && currentStream.isMessageEvents();
         Integer streamId = currentStream != null ? streamIdByRequest.remove(currentStream) : null;
         if (streamId != null) {
             activeStreams.remove(streamId);
@@ -2053,7 +1756,9 @@ public class HttpClientProtocolHandler
             if (Boolean.getBoolean("gumdrop.http.debug")) {
                 LOGGER.info(L10N.getString("info.debug_calling_handler_close"));
             }
-            responseHandler.close();
+            if (currentStreamWasMessageEvents) {
+                responseHandler.endMessage();
+            }
             if (Boolean.getBoolean("gumdrop.http.debug")) {
                 LOGGER.info(L10N.getString("info.debug_handler_close_returned"));
             }
@@ -2065,32 +1770,6 @@ public class HttpClientProtocolHandler
         } else {
             LOGGER.fine(L10N.getString("debug.response_complete"));
             maybeCloseWhenIdle();
-        }
-    }
-
-    // RFC 9110 section 8.6: Content-Length must be a non-negative integer;
-    // if multiple values appear, they MUST all be equal or the message
-    // is invalid. Returns the parsed value, or -1 if invalid.
-    static long validateContentLength(String value) {
-        if (value == null) {
-            return -1;
-        }
-        value = value.trim();
-        if (value.indexOf(',') >= 0) {
-            String[] parts = value.split(",");
-            String first = parts[0].trim();
-            for (int i = 1; i < parts.length; i++) {
-                if (!first.equals(parts[i].trim())) {
-                    return -1;
-                }
-            }
-            value = first;
-        }
-        try {
-            long len = Long.parseLong(value);
-            return len >= 0 ? len : -1;
-        } catch (NumberFormatException e) {
-            return -1;
         }
     }
 
@@ -2373,41 +2052,6 @@ public class HttpClientProtocolHandler
         byte[] bytes = new byte[8];
         ThreadLocalRandom.current().nextBytes(bytes);
         return ByteArrays.toHexString(bytes);
-    }
-
-    // RFC 9112 section 7.1 / 6.3: enter discard mode to consume the
-    // response body before reusing the connection for a retry request
-    private void startBodyDiscard() {
-        discardingBody = true;
-        String transferEncoding = responseHeaders.getValue("transfer-encoding");
-        String contentLengthStr = responseHeaders.getValue("content-length");
-
-        if (transferEncoding != null
-                && transferEncoding.toLowerCase().contains("chunked")) {
-            chunkedEncoding = true;
-            parseState = ParseState.CHUNK_SIZE;
-        } else if (contentLengthStr != null) {
-            contentLength = validateContentLength(contentLengthStr);
-            if (contentLength < 0) {
-                // A challenge whose body cannot be framed cannot be retried
-                // on this connection; fail it as the non-challenge path does
-                LOGGER.warning(MessageFormat.format(
-                        L10N.getString("warn.invalid_content_length"), contentLengthStr));
-                discardingBody = false;
-                pendingAuthChallenge = null;
-                if (currentStream != null && currentStream.getHandler() != null) {
-                    currentStream.getHandler().failed(new IOException("Invalid Content-Length"));
-                }
-                completeResponse();
-            } else if (contentLength > 0) {
-                bytesReceived = 0;
-                parseState = ParseState.BODY;
-            } else {
-                completeBodyDiscard();
-            }
-        } else {
-            completeBodyDiscard();
-        }
     }
 
     private void completeBodyDiscard() {
@@ -2885,9 +2529,17 @@ public class HttpClientProtocolHandler
 
         headerBlockBuffer.flip();
         final HeaderCollector collected = new HeaderCollector();
+        // the field section as message events, held until the response is
+        // known to be one the handler is to see
+        final boolean trailers = stream.isResponseHeadersReceived();
+        final FieldSectionAdapter adapter = new FieldSectionAdapter(stream.responseEvents(),
+                HttpVersion.HTTP_2_0,
+                trailers ? FieldSectionAdapter.Kind.TRAILERS : FieldSectionAdapter.Kind.RESPONSE,
+                collected);
+        stream.responseEvents().clear();
 
         try {
-            hpackDecoder.decode(headerBlockBuffer, collected);
+            hpackDecoder.decode(headerBlockBuffer, adapter);
         } catch (IOException e) {
             LOGGER.log(Level.WARNING, L10N.getString("warn.hpack_decode_error"), e);
             sendGoaway(H2FrameHandler.ERROR_COMPRESSION_ERROR,
@@ -2896,14 +2548,32 @@ public class HttpClientProtocolHandler
         } finally {
             headerBlockBuffer = null;
         }
-        if (collected.isMalformed()) {
+        boolean accepted = adapter.finish();
+        if (!accepted || collected.isMalformed()) {
             // RFC 9113 section 8.1.1: a field that is not valid field syntax
             // makes the response malformed, a stream error. The block was
             // decoded in full, so the HPACK state is intact.
+            stream.responseEvents().clear();
             failMalformedResponse(stream, streamId);
             return;
         }
         final Headers headers = collected.headers();
+        if (trailers) {
+            // fields after the body: given to the handler as further fields
+            HttpResponseHandler trailerHandler = stream.getHandler();
+            if (trailerHandler != null && stream.isMessageEvents()) {
+                try {
+                    stream.responseEvents().replay(trailerHandler);
+                } catch (Exception e) {
+                    LOGGER.log(Level.WARNING, L10N.getString("warn.error_in_response_handler"), e);
+                }
+            }
+            stream.responseEvents().clear();
+            if (endStream) {
+                completeStream(stream, streamId);
+            }
+            return;
+        }
 
         String statusStr = headers.getValue(":status");
         if (statusStr != null) {
@@ -2923,8 +2593,10 @@ public class HttpClientProtocolHandler
             if (status.isInformational() && !endStream) {
                 // RFC 9113 section 8.1: interim (1xx) responses precede the
                 // final response and are not delivered to the handler
+                stream.responseEvents().clear();
                 return;
             }
+            stream.setResponseHeadersReceived();
             String authorization = h2AuthorizationFor(stream, status, headers);
             if (authorization != null) {
                 // Answer the challenge: discard this response (the handler
@@ -2939,24 +2611,13 @@ public class HttpClientProtocolHandler
             HttpResponseHandler responseHandler = stream.getHandler();
             if (responseHandler != null) {
                 try {
-                    HttpResponse response = new HttpResponse(status);
-                    if (status.isSuccess()) {
-                        responseHandler.ok(response);
-                    } else {
-                        responseHandler.error(response);
+                    if (omitContentEncodingHeader("content-encoding")) {
+                        stream.responseEvents().removeFields("content-encoding");
                     }
-
+                    stream.setMessageEvents();
+                    stream.responseEvents().replay(responseHandler);
+                    stream.responseEvents().clear();
                     prepareInboundResponseDecoding(stream, headers);
-                    for (Header header : headers) {
-                        String name = header.getName();
-                        if (!name.startsWith(":") && !omitContentEncodingHeader(name)) {
-                            responseHandler.header(name, header.getValue());
-                        }
-                    }
-
-                    if (!endStream) {
-                        responseHandler.startResponseBody();
-                    }
                 } catch (Exception e) {
                     LOGGER.log(Level.WARNING, L10N.getString("warn.error_in_response_handler"), e);
                 }
@@ -3019,7 +2680,9 @@ public class HttpClientProtocolHandler
         HttpResponseHandler responseHandler = stream.getHandler();
         if (responseHandler != null) {
             try {
-                responseHandler.close();
+                if (stream.isMessageEvents()) {
+                    responseHandler.endMessage();
+                }
             } catch (Exception e) {
                 LOGGER.log(Level.WARNING, L10N.getString("warn.error_in_response_handler"), e);
             }
@@ -3085,7 +2748,9 @@ public class HttpClientProtocolHandler
         }
         if (!decodeResponseContentCoding || stream.getInboundResponseDecoder() == null) {
             if (data != null && data.hasRemaining()) {
-                responseHandler.responseBodyContent(data);
+                if (stream.isMessageEvents()) {
+                    responseHandler.bodyContent(data.asReadOnlyBuffer());
+                }
             }
             return;
         }
@@ -3093,6 +2758,7 @@ public class HttpClientProtocolHandler
             stream.getInboundResponseDecoder().write(data, false);
             stream.drainInboundResponseDecoded(responseHandler);
         } catch (ContentEncoding.ContentEncodingException e) {
+            stream.clearMessageEvents();
             responseHandler.failed(new IOException(e.getMessage(), e));
         }
     }
@@ -3106,16 +2772,14 @@ public class HttpClientProtocolHandler
             return;
         }
         if (!decodeResponseContentCoding || stream.getInboundResponseDecoder() == null) {
-            responseHandler.endResponseBody();
             return;
         }
         try {
             stream.finishInboundResponseDecoded(responseHandler);
         } catch (ContentEncoding.ContentEncodingException e) {
+            stream.clearMessageEvents();
             responseHandler.failed(new IOException(e.getMessage(), e));
-            return;
         }
-        responseHandler.endResponseBody();
     }
 
     // RFC 9113 section 5.1.2: dispatch queued requests when capacity

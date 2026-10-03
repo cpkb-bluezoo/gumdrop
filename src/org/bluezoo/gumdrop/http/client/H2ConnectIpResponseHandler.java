@@ -25,6 +25,7 @@ import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.List;
 
+import org.bluezoo.gumdrop.http.HttpStatus;
 import org.bluezoo.gumdrop.http.Capsule;
 import org.bluezoo.gumdrop.http.CapsuleParser;
 import org.bluezoo.gumdrop.http.ConnectIpAddress;
@@ -40,7 +41,7 @@ import org.bluezoo.gumdrop.http.HttpDatagramContext;
  * H3ClientStream}, and so gets generic per-capsule-type dispatch for
  * free -- see {@code H3ClientConnectIpResponseHandler}), h2 responses
  * route generically through {@link HttpResponseHandler} with no such
- * dispatch of their own: {@link #responseBodyContent} parses each DATA
+ * dispatch of their own: {@link #bodyContent} parses each DATA
  * frame's bytes as Capsule Protocol capsules (RFC 9297 section 3.2)
  * itself, delivering {@link Capsule#TYPE_DATAGRAM} payloads (RFC 9484
  * section 6) as IP packets and the two server-to-client capsule types
@@ -66,20 +67,18 @@ class H2ConnectIpResponseHandler extends DefaultHttpResponseHandler {
     }
 
     @Override
-    public void ok(HttpResponse response) {
-        // Nothing to do yet -- acceptance is signalled from
-        // startResponseBody(), once headers are known complete.
-    }
-
-    @Override
-    public void error(HttpResponse response) {
+    public void status(int code) {
+        HttpStatus status = HttpStatus.fromCode(code);
+        if (status.isSuccess()) {
+            return;
+        }
         failed = true;
         eventHandler.error(new IOException(
-                "CONNECT-IP request failed: " + response.getStatus()));
+                "CONNECT-IP request failed: " + status));
     }
 
     @Override
-    public void startResponseBody() {
+    public void endHeaders() {
         if (failed) {
             return;
         }
@@ -88,7 +87,7 @@ class H2ConnectIpResponseHandler extends DefaultHttpResponseHandler {
     }
 
     @Override
-    public void responseBodyContent(ByteBuffer data) {
+    public void bodyContent(ByteBuffer data) {
         if (!opened) {
             return;
         }
@@ -123,7 +122,7 @@ class H2ConnectIpResponseHandler extends DefaultHttpResponseHandler {
     }
 
     @Override
-    public void endResponseBody() {
+    public void endMessage() {
         if (opened) {
             eventHandler.closed();
         }
