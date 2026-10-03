@@ -1,5 +1,6 @@
 module org.bluezoo.gumdrop.mailbox {
-    requires org.bluezoo.gumdrop.core;
+    requires java.logging;
+    requires transitive org.bluezoo.gumdrop.core;
     requires org.bluezoo.gumdrop.mime;
 
     exports org.bluezoo.gumdrop.mailbox;

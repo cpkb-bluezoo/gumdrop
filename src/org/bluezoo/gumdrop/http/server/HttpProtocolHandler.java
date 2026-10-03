@@ -42,6 +42,7 @@ import java.nio.channels.WritableByteChannel;
 import java.nio.charset.Charset;
 import java.nio.charset.CharsetDecoder;
 import java.nio.charset.CoderResult;
+import java.nio.charset.StandardCharsets;
 import java.text.MessageFormat;
 import java.util.ArrayDeque;
 import java.util.Arrays;
@@ -59,8 +60,6 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.logging.Level;
 import java.util.logging.Logger;
-
-import javax.mail.internet.MimeUtility;
 
 
 import org.bluezoo.gumdrop.ByteStreamLexer;
@@ -188,8 +187,6 @@ public  class HttpProtocolHandler
     private static final int HPACK_ENCODE_BUFFER_SIZE = 8192;
     private static final long STREAM_CLEANUP_INTERVAL_MS = 30000L;
     private static final long STREAM_RETENTION_MS = 30000L;
-    private static final int CHARSET_UNICODE = 1;
-    private static final int CHARSET_Q_ENCODING = 2;
 
     // RFC 9112 section 2: HTTP/1.1 message = start-line CRLF
     //                       *( field-line CRLF ) CRLF [ message-body ]
@@ -2512,17 +2509,9 @@ public  class HttpProtocolHandler
     }
 
     private void appendHeaderWord(String l, int start, int end) {
-        if (end - start > 6 && l.charAt(start) == '=' && l.charAt(start + 1) == '?') {
-            String text = l.substring(start, end);
-            try {
-                text = MimeUtility.decodeWord(text);
-                l = text;
-                start = 0;
-                end = text.length();
-            } catch (Exception e) {
-                LOGGER.log(Level.SEVERE, text, e);
-            }
-        }
+        // Field values are handed to the application as received. RFC 9110
+        // section 5.5 treats octets above 0x7F as opaque and mentions RFC 2047
+        // only as history, so an encoded-word is not decoded here.
         int required = (end - start) + 1;
         if (headerValue.remaining() < required) {
             // capacity must cover what is already buffered (position), not
@@ -2543,63 +2532,58 @@ public  class HttpProtocolHandler
     // RFC 9112 section 4: status-line = HTTP-version SP status-code SP [ reason-phrase ] CRLF
     // RFC 9112 section 5: field-line = field-name ":" OWS field-value OWS
     private void writeStatusLineAndHeaders(ByteBuffer buf, int statusCode, Headers headers) {
-        try {
-            // RFC 9110 section 15.6.6: a request whose version is unknown
-            // (505) or is HTTP/2.0 on an HTTP/1.x connection (e.g. a bad
-            // preface) is still answered with a valid HTTP/1.x status line
-            HttpVersion statusVersion = version;
-            if (statusVersion == HttpVersion.UNKNOWN
-                    || statusVersion == HttpVersion.HTTP_2_0) {
-                statusVersion = HttpVersion.HTTP_1_1;
-            }
-            buf.put(VERSION_TOKEN_BYTES[statusVersion.ordinal()]);
-            buf.put((byte) ' ');
-            buf.put((byte) ('0' + statusCode / 100));
-            buf.put((byte) ('0' + statusCode / 10 % 10));
-            buf.put((byte) ('0' + statusCode % 10));
-            buf.put((byte) ' ');
-            buf.put(HttpConstants.getMessageBytes(statusCode));
-            buf.put(CRLF);
-            for (Header header : headers) {
-                String name = header.getName();
-                // Skip HTTP/2 pseudo-headers (RFC 9113 section 8.3)
-                if (name.charAt(0) == ':') {
-                    continue;
-                }
-                String value = header.getValue();
-                if (value == null) {
-                    continue;
-                }
-                if (writeWellKnownLine(buf, name, value)) {
-                    continue;
-                }
-                // Common case: write the ASCII bytes of a guaranteed-ASCII
-                // name plus the value straight into buf, no intermediate
-                // String/StringBuilder/byte[] allocation. Only a value that
-                // actually contains non-ASCII characters needs the
-                // RFC 2047 encoded-word fallback below (issue #280).
-                if (isAscii(value)) {
-                    writeAscii(buf, name);
-                    buf.put((byte) ':');
-                    buf.put((byte) ' ');
-                    writeAscii(buf, value);
-                    buf.put(CRLF);
-                } else {
-                    int cflags = getCharsetFlags(value);
-                    String enc = ((cflags & CHARSET_Q_ENCODING) != 0) ? "Q" : "B";
-                    String encodedValue = MimeUtility.encodeText(value, "UTF-8", enc);
-                    StringBuilder sb = new StringBuilder();
-                    sb.append(name).append(": ").append(encodedValue).append("\r\n");
-                    buf.put(sb.toString().getBytes(US_ASCII));
-                }
-            }
-            // Empty line terminates header section (RFC 9112 section 2)
-            buf.put(CRLF);
-        } catch (IOException e) {
-            RuntimeException e2 = new RuntimeException();
-            e2.initCause(e);
-            throw e2;
+        // RFC 9110 section 15.6.6: a request whose version is unknown
+        // (505) or is HTTP/2.0 on an HTTP/1.x connection (e.g. a bad
+        // preface) is still answered with a valid HTTP/1.x status line
+        HttpVersion statusVersion = version;
+        if (statusVersion == HttpVersion.UNKNOWN
+                || statusVersion == HttpVersion.HTTP_2_0) {
+            statusVersion = HttpVersion.HTTP_1_1;
         }
+        buf.put(VERSION_TOKEN_BYTES[statusVersion.ordinal()]);
+        buf.put((byte) ' ');
+        buf.put((byte) ('0' + statusCode / 100));
+        buf.put((byte) ('0' + statusCode / 10 % 10));
+        buf.put((byte) ('0' + statusCode % 10));
+        buf.put((byte) ' ');
+        buf.put(HttpConstants.getMessageBytes(statusCode));
+        buf.put(CRLF);
+        for (Header header : headers) {
+            String name = header.getName();
+            // Skip HTTP/2 pseudo-headers (RFC 9113 section 8.3)
+            if (name.charAt(0) == ':') {
+                continue;
+            }
+            String value = header.getValue();
+            if (value == null) {
+                continue;
+            }
+            if (writeWellKnownLine(buf, name, value)) {
+                continue;
+            }
+            // Common case: write the ASCII bytes of a guaranteed-ASCII
+            // name plus the value straight into buf, no intermediate
+            // String/StringBuilder/byte[] allocation. Only a value that
+            // actually contains non-ASCII characters needs the
+            // rejection below (issue #280).
+            if (isAscii(value)) {
+                writeAscii(buf, name);
+                buf.put((byte) ':');
+                buf.put((byte) ' ');
+                writeAscii(buf, value);
+                buf.put(CRLF);
+            } else {
+                // Values are never encoded: RFC 9110 section 5.5 leaves
+                // non-ASCII octets opaque and does not define RFC 2047 for
+                // HTTP. Stream.headers and H3Stream.headers reject them where
+                // the handler sets them; this is the last line of defence.
+                HttpUtils.requireAsciiFieldValues(headers);
+                throw new IllegalArgumentException("Response header '" + name
+                        + "' has a value with control characters that HTTP field values must not carry");
+            }
+        }
+        // Empty line terminates header section (RFC 9112 section 2)
+        buf.put(CRLF);
     }
 
     private static final byte[] CRLF = { (byte) 0x0d, (byte) 0x0a };
@@ -2702,7 +2686,7 @@ public  class HttpProtocolHandler
         }
     }
 
-    /** True iff every character is in the ASCII range accepted by getCharsetFlags. */
+    /** True iff every character is printable ASCII, tab, CR or LF. */
     private static boolean isAscii(String text) {
         int len = text.length();
         for (int i = 0; i < len; i++) {
@@ -2712,25 +2696,6 @@ public  class HttpProtocolHandler
             }
         }
         return true;
-    }
-
-    private static int getCharsetFlags(String text) {
-        int asciiCount = 0;
-        int nonAsciiCount = 0;
-        int len = text.length();
-        for (int i = 0; i < len; i++) {
-            char c = text.charAt(i);
-            if ((c >= 32 && c < 127) || c == '\n' || c == '\r' || c == '\t') {
-                asciiCount++;
-            } else {
-                nonAsciiCount++;
-            }
-        }
-        int ret = (nonAsciiCount == 0) ? 0 : CHARSET_UNICODE;
-        if (nonAsciiCount > asciiCount) {
-            ret |= CHARSET_Q_ENCODING;
-        }
-        return ret;
     }
 
     private void cleanupAllStreams() {

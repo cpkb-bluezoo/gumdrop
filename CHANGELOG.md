@@ -84,6 +84,12 @@ user-visible themes since 2.2.x.
 
 ### Changed
 
+- **JNDI mail sessions use Jakarta Mail** (`jakarta.mail.Session`, resource type
+  `jakarta.mail.Session`) instead of `javax.mail`, matching Servlet 6.1 and the
+  `jakarta.*` namespace used everywhere else. The container now ships the Jakarta
+  Mail and Activation APIs with Eclipse Angus Mail and Angus Activation as the
+  implementation (the Jakarta Mail API alone cannot create a `Session`).
+  A web.xml `res-type` of `javax.mail.Session` no longer matches.
 - **Minimum Java version raised to 25 (LTS)**: Gumdrop 3 requires Java 25 or
   later (bumped from 17 so the in-tree TLS engine can use JCA's native
   ML-KEM/ML-DSA support). The build uses `--release 25` exclusively.
@@ -119,6 +125,50 @@ user-visible themes since 2.2.x.
 
 ### Fixed
 
+- **Module-path correctness of the modular jars.** A new check
+  (`ant jpms-check`, `scripts/check-jpms.py`, run in CI and before every
+  release) compares each module's descriptor, exports and Maven POM with what
+  its classes really use; `--validate-modules` alone did not notice these:
+  - `gumdrop-http` could not be used on the module path (`HttpClient` failed
+    with `IllegalAccessError`: the module did not read `java.logging`); several
+    modules lacked `requires java.logging`, `java.xml`, `java.security.sasl`
+    or the Gonzalez library they use.
+  - The server SPI packages `http.server`, `websocket.server`, `dns.server`,
+    `mdns.server`, `webdav.server`, `servlet.server` and `client` were not
+    exported, so `HttpRequestHandler`, `DnsServer` and the other primary
+    server types were unreachable from other modules.
+  - Classes that load a message bundle belonging to another module
+    (telemetry export, the LDAP and OAuth realms, DKIM parsing) failed with
+    `MissingResourceException`; the owning modules now open the bundle package
+    to them.
+  - Over-declared dependencies are gone: `redis`, `socks`, `ftp`, `amqp`,
+    `mdns` and the other protocol modules require only `core` (previously also
+    `http` and `mime`), so depending on one no longer drags in the others.
+    The Maven POMs in `central/` carry exactly the same dependencies.
+- **`gumdrop-http` no longer depends on the servlet API or JavaMail.**
+  `HttpAuthenticationMethods` has its own `BASIC`/`DIGEST`/`FORM`/`CLIENT_CERT`
+  constants (same values), and it no longer needs `gumdrop-mime`.
+- **Request header values are no longer RFC 2047-decoded (breaking).** The HTTP/1.x
+  server used to turn a field value such as `=?UTF-8?Q?caf=C3=A9?=` into the
+  decoded text before handing it to the application. HTTP does not define that
+  (RFC 9110 section 5.5 mentions RFC 2047 only as history and says to treat
+  octets above 0x7F as opaque), so values now reach the application exactly as
+  received. Each octet maps to the character of the same value (ISO-8859-1), so
+  nothing is lost; an application that expects a particular encoding decodes
+  the value itself. Use the RFC 8187 form for non-ASCII parameters.
+- **Response header values must be US-ASCII (breaking).** A handler that sets a
+  response header whose value has a non-ASCII character now gets an
+  `IllegalArgumentException` from `HttpResponseState.headers(...)` or
+  `sendInformational(...)` (HTTP/1.1, HTTP/2 and HTTP/3), naming the header.
+  Previously HTTP/1.x quietly re-encoded such values as RFC 2047 words, which
+  HTTP does not define (RFC 9110 section 5.5 leaves non-ASCII octets opaque) and
+  which a peer may not decode. Encode the value yourself before setting it, for
+  example with the RFC 8187 form for parameters.
+- **`gumdrop-telemetry` no longer depends on `gumdrop-grpc`**: the OTLP/gRPC
+  exporter frames its own messages (five bytes of framing), checked against the
+  gRPC module's implementation by a test.
+- **`jakarta.servlet.jsp` moved from `gumdrop-core` to `gumdrop-servlet`**, so
+  core no longer needs the servlet API.
 - **Client connections now fall back across resolved addresses** (RFC 8305):
   `ClientEndpoint` previously used only the first address a host name
   resolved to, so an unreachable IPv6 address failed the connection even when

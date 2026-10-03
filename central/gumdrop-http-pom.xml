@@ -6,7 +6,7 @@
 
     <groupId>org.bluezoo</groupId>
     <artifactId>gumdrop-http</artifactId>
-    <version>2.2.1-SNAPSHOT</version>
+    <version>3.0.0-SNAPSHOT</version>
     <packaging>jar</packaging>
 
     <name>Gumdrop HTTP</name>
@@ -21,8 +21,13 @@
         </dependency>
         <dependency>
             <groupId>org.bluezoo</groupId>
-            <artifactId>gumdrop-mime</artifactId>
-            <version>${project.version}</version>
+            <artifactId>jsonparser</artifactId>
+            <version>1.3</version>
+        </dependency>
+        <dependency>
+            <groupId>org.bluezoo</groupId>
+            <artifactId>micula</artifactId>
+            <version>1.0.1</version>
         </dependency>
     </dependencies>
 

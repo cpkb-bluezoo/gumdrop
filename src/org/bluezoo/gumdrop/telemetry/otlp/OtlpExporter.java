@@ -70,7 +70,8 @@ import java.util.logging.Logger;
 public class OtlpExporter implements TelemetryExporter {
 
     private static final ResourceBundle L10N = 
-        ResourceBundle.getBundle("org.bluezoo.gumdrop.telemetry.L10N");
+        ResourceBundle.getBundle("org.bluezoo.gumdrop.telemetry.L10N",
+                org.bluezoo.gumdrop.telemetry.Trace.class.getModule());
     private static final Logger logger = Logger.getLogger(OtlpExporter.class.getName());
 
     private static final int DEFAULT_BUFFER_SIZE = 1024 * 1024; // 1 MB

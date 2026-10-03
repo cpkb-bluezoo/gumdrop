@@ -1,6 +1,6 @@
 module org.bluezoo.gumdrop.mqtt {
-    requires org.bluezoo.gumdrop.core;
-    requires org.bluezoo.gumdrop.mime;
+    requires java.logging;
+    requires transitive org.bluezoo.gumdrop.core;
     requires org.bluezoo.gumdrop.http;
 
     exports org.bluezoo.gumdrop.mqtt;

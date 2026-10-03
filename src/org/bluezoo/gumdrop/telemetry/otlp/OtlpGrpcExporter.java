@@ -66,7 +66,8 @@ public class OtlpGrpcExporter implements TelemetryExporter {
             "/opentelemetry.proto.collector.metrics.v1.MetricsService/Export";
 
     private static final ResourceBundle L10N =
-            ResourceBundle.getBundle("org.bluezoo.gumdrop.telemetry.L10N");
+            ResourceBundle.getBundle("org.bluezoo.gumdrop.telemetry.L10N",
+                org.bluezoo.gumdrop.telemetry.Trace.class.getModule());
     private static final Logger logger = Logger.getLogger(OtlpGrpcExporter.class.getName());
 
     private final TelemetryConfig config;

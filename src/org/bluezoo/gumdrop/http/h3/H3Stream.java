@@ -695,6 +695,7 @@ class H3Stream implements ProtocolHandler, H3FrameHandler, HttpResponseState {
         if (responseBodyStarted) {
             throw new IllegalStateException("Cannot send informational response after body started");
         }
+        HttpUtils.requireAsciiFieldValues(headers);
 
         List<Header> infoHeaders = new ArrayList<Header>();
         infoHeaders.add(new Header(":status", String.valueOf(statusCode)));
@@ -714,6 +715,7 @@ class H3Stream implements ProtocolHandler, H3FrameHandler, HttpResponseState {
 
     @Override
     public void headers(Headers headers) {
+        HttpUtils.requireAsciiFieldValues(headers);
         if (pendingResponseHeaders == null) {
             pendingResponseHeaders = new ArrayList<Header>();
         }

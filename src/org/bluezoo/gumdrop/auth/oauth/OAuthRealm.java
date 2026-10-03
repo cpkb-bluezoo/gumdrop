@@ -140,7 +140,8 @@ import javax.crypto.spec.SecretKeySpec;
  */
 public class OAuthRealm implements Realm {
 
-    static final ResourceBundle L10N = ResourceBundle.getBundle("org.bluezoo.gumdrop.auth.L10N");   
+    static final ResourceBundle L10N = ResourceBundle.getBundle("org.bluezoo.gumdrop.auth.L10N",
+                org.bluezoo.gumdrop.auth.Realm.class.getModule());   
     private static final Logger LOGGER = Logger.getLogger(OAuthRealm.class.getName());
     
     /**

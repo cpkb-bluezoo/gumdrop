@@ -58,7 +58,8 @@ import java.util.logging.Logger;
 class OtlpEndpoint {
 
     private static final ResourceBundle L10N = 
-        ResourceBundle.getBundle("org.bluezoo.gumdrop.telemetry.L10N");
+        ResourceBundle.getBundle("org.bluezoo.gumdrop.telemetry.L10N",
+                org.bluezoo.gumdrop.telemetry.Trace.class.getModule());
     private static final Logger logger = Logger.getLogger(OtlpEndpoint.class.getName());
 
     private final Gumdrop gumdrop;

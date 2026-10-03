@@ -25,8 +25,8 @@ Jars under `lib/` are **not** in git. The first build downloads them via `ant re
 See [lib/README](lib/README) for the full list. In short:
 
 - **Bluezoo:** gonzalez-core, jsonparser, jprotobuf, micula (Brotli)
-- **Jakarta (Servlet 6.x stack):** jakarta.servlet-api, jakarta.annotation-api, jakarta.persistence-api (compile)
-- **Legacy javax / Java EE APIs** (container classpath): javax.mail, javax.annotation-api, javax.ejb-api, javax.persistence-api, jaxws-api
+- **Jakarta (Servlet 6.x stack):** jakarta.servlet-api, jakarta.annotation-api, jakarta.persistence-api, jakarta.mail-api and jakarta.activation-api (compile); Eclipse Angus Mail and Angus Activation (runtime implementations of the mail and activation APIs, which cannot create a mail Session on their own)
+- **Legacy javax / Java EE APIs** (container classpath): javax.annotation-api, javax.ejb-api, javax.persistence-api, jaxws-api
 
 JUnit and Hamcrest (`test/junit/lib/`) are fetched by `ant resolve-test-deps` when you run test targets (`ant test`, `ant integration-test`, etc.), not for a compile-only build.
 

@@ -475,5 +475,42 @@ public final class HttpUtils {
         }
     }
 
-}
 
+    /**
+     * Rejects a header set that holds a value with a character above 0x7F.
+     *
+     * <p>RFC 9110 section 5.5 allows such octets in a field value only as
+     * obsolete text, which a recipient must treat as opaque, and asks that
+     * new fields use US-ASCII. HTTP does not define a way to encode them
+     * (RFC 2047 appears only as history), so a response header holding one
+     * is refused here, where the caller set it, instead of being sent in a
+     * form the peer may read differently or not at all. Encode the value
+     * first if it must carry such text, for instance with the RFC 8187
+     * {@code name*=UTF-8''...} form for parameters.
+     *
+     * <p>Null values are ignored. The offending value is not included in the
+     * message.
+     *
+     * @param headers the response headers about to be set or sent
+     * @throws IllegalArgumentException naming the first header whose value is
+     *     not US-ASCII
+     */
+    public static void requireAsciiFieldValues(Headers headers) {
+        for (Header header : headers) {
+            String value = header.getValue();
+            if (value == null) {
+                continue;
+            }
+            for (int i = 0; i < value.length(); i++) {
+                if (value.charAt(i) > 0x7F) {
+                    throw new IllegalArgumentException("Response header '"
+                            + header.getName() + "' has a value with non-ASCII "
+                            + "characters; HTTP field values must be US-ASCII "
+                            + "(RFC 9110 section 5.5). Encode the value before "
+                            + "setting it, for example with RFC 8187.");
+                }
+            }
+        }
+    }
+
+}

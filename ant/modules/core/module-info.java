@@ -1,6 +1,9 @@
 /**
  * JPMS descriptor for {@code gumdrop-core.jar} (Phase 3).
  */
+// "module" lint: the qualified opens name modules that are not on this
+// module path (they depend on core, not the other way round).
+@SuppressWarnings("module")
 module org.bluezoo.gumdrop.core {
     requires java.logging;
     requires java.naming;
@@ -9,7 +12,7 @@ module org.bluezoo.gumdrop.core {
     requires java.security.jgss;
 
     requires org.bluezoo.gonzalez;
-    requires org.bluezoo.json;
+    requires org.bluezoo.micula;
 
     exports org.bluezoo.gumdrop;
     exports org.bluezoo.gumdrop.util;
@@ -31,7 +34,12 @@ module org.bluezoo.gumdrop.core {
     exports org.bluezoo.gumdrop.telemetry;
     exports org.bluezoo.gumdrop.telemetry.metrics;
     exports org.bluezoo.gumdrop.mailbox.spi;
-    exports jakarta.servlet.jsp;
+    exports org.bluezoo.gumdrop.client;
+    exports org.bluezoo.gumdrop.dns.server;
+
+    // Message bundles (L10N) that other modules look up by name.
+    opens org.bluezoo.gumdrop.auth to org.bluezoo.gumdrop.http, org.bluezoo.gumdrop.ldap;
+    opens org.bluezoo.gumdrop.telemetry to org.bluezoo.gumdrop.telemetry.export;
 
     uses org.bluezoo.gumdrop.mailbox.spi.MailboxLifecycle;
     uses org.bluezoo.gumdrop.telemetry.TelemetryExporterFactory;

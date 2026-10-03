@@ -6,16 +6,29 @@
  * consumers who depend on a single coordinate.
  */
 module org.bluezoo.gumdrop {
+    requires java.compiler;
+    requires java.desktop;
     requires java.logging;
-    requires java.naming;
     requires java.management;
-    requires java.xml;
+    requires java.naming;
     requires java.security.jgss;
+    requires java.security.sasl;
+    requires java.sql;
+    requires java.xml;
 
     requires org.bluezoo.gonzalez;
     requires org.bluezoo.json;
     requires org.bluezoo.protobuf;
     requires org.bluezoo.micula;
+    requires jakarta.servlet;
+
+    // Optional: named by the servlet container for injection, absent in most deployments.
+    requires static jakarta.annotation;
+    requires static jakarta.persistence;
+    requires static java.annotation;
+    requires static jakarta.mail;
+    requires static java.persistence;
+    requires static javax.ejb.api;
 
     exports org.bluezoo.gumdrop;
     exports org.bluezoo.gumdrop.util;
@@ -99,6 +112,13 @@ module org.bluezoo.gumdrop {
     exports org.bluezoo.gumdrop.amqp1.client;
     exports org.bluezoo.gumdrop.mdns;
     exports jakarta.servlet.jsp;
+    exports org.bluezoo.gumdrop.client;
+    exports org.bluezoo.gumdrop.dns.server;
+    exports org.bluezoo.gumdrop.http.server;
+    exports org.bluezoo.gumdrop.websocket.server;
+    exports org.bluezoo.gumdrop.mdns.server;
+    exports org.bluezoo.gumdrop.servlet.server;
+    exports org.bluezoo.gumdrop.webdav.server;
 
     uses org.bluezoo.gumdrop.mailbox.spi.MailboxLifecycle;
     uses org.bluezoo.gumdrop.telemetry.TelemetryExporterFactory;

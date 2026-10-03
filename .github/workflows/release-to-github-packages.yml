@@ -1,5 +1,11 @@
 name: Publish to GitHub Packages
 
+# Publishes every Gumdrop Maven coordinate, each with its own POM, so that
+# all the modules resolve against each other. The artifact list and version
+# guards are shared with the Maven Central workflow through
+# scripts/release-artifacts.sh; the deploy itself is
+# scripts/publish-to-github-packages.sh, which can also be run by hand.
+
 on:
   release:
     types: [published]
@@ -22,40 +28,14 @@ jobs:
           java-version: '25'
           distribution: 'temurin'
           cache: maven
+          # Writes settings.xml with credentials for the repository id the
+          # deploy script uses ("github").
           server-id: github
           server-username: GITHUB_ACTOR
           server-password: GITHUB_TOKEN
 
-      - name: Build with Ant
-        run: ant release
-
-      - name: Deploy artifacts to GitHub Packages
-        run: |
-          VERSION=$(mvn -q -DforceStdout help:evaluate -Dexpression=project.version)
-          mvn deploy:deploy-file \
-            -DgroupId=org.bluezoo \
-            -DartifactId=gumdrop \
-            -Dversion="${VERSION}" \
-            -Dpackaging=jar \
-            -Dfile="dist/gumdrop-${VERSION}.jar" \
-            -DrepositoryId=github \
-            -Durl=https://maven.pkg.github.com/cpkb-bluezoo/gumdrop
-          mvn deploy:deploy-file \
-            -DgroupId=org.bluezoo \
-            -DartifactId=gumdrop-container \
-            -Dversion="${VERSION}" \
-            -Dpackaging=jar \
-            -Dfile="dist/gumdrop-container-${VERSION}.jar" \
-            -DrepositoryId=github \
-            -Durl=https://maven.pkg.github.com/cpkb-bluezoo/gumdrop
-          mvn deploy:deploy-file \
-            -DgroupId=org.bluezoo \
-            -DartifactId=gumdrop-manager \
-            -Dversion="${VERSION}" \
-            -Dpackaging=war \
-            -Dfile="dist/gumdrop-manager-${VERSION}.war" \
-            -DrepositoryId=github \
-            -Durl=https://maven.pkg.github.com/cpkb-bluezoo/gumdrop
+      - name: Deploy all artifacts to GitHub Packages
+        run: ./scripts/publish-to-github-packages.sh
         env:
           GITHUB_ACTOR: ${{ github.actor }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

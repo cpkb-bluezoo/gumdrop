@@ -1,7 +1,6 @@
 module org.bluezoo.gumdrop.grpc {
-    requires org.bluezoo.gumdrop.core;
-    requires org.bluezoo.gumdrop.mime;
-    requires org.bluezoo.gumdrop.http;
+    requires java.logging;
+    requires transitive org.bluezoo.gumdrop.http;
     requires org.bluezoo.protobuf;
 
     exports org.bluezoo.gumdrop.grpc;

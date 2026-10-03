@@ -21,7 +21,6 @@
 
 package org.bluezoo.gumdrop.http.server;
 
-import jakarta.servlet.http.HttpServletRequest;
 
 import org.bluezoo.gumdrop.auth.Realm;
 import org.bluezoo.gumdrop.auth.SaslMechanism;
@@ -85,9 +84,9 @@ public class DefaultHttpAuthenticationProvider
         }
         if (realm.getSupportedSASLMechanisms()
                 .contains(SaslMechanism.DIGEST_MD5)) {
-            return HttpServletRequest.DIGEST_AUTH;
+            return HttpAuthenticationMethods.DIGEST_AUTH;
         }
-        return HttpServletRequest.BASIC_AUTH;
+        return HttpAuthenticationMethods.BASIC_AUTH;
     }
 
     @Override

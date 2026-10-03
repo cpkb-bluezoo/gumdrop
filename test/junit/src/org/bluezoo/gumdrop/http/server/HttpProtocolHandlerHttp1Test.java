@@ -26,6 +26,7 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
 
 import java.io.ByteArrayOutputStream;
 import java.nio.ByteBuffer;
@@ -1074,14 +1075,17 @@ public class HttpProtocolHandlerHttp1Test {
     }
 
     @Test
-    public void testEncodedWordRequestHeaderIsDecoded() {
+    public void testEncodedWordRequestHeaderIsPassedThroughUndecoded() {
+        // RFC 9110 section 5.5 mentions RFC 2047 only as history; HTTP does not
+        // define it, so a field value that looks like an encoded-word is just
+        // text and is handed to the application exactly as received.
         Fixture f = new Fixture();
         List<String> seen = new ArrayList<String>();
         respondingHook(f, "x-enc", seen);
         f.open();
         f.feed("GET /x HTTP/1.1\r\nHost: h\r\nX-Enc: =?UTF-8?Q?caf=C3=A9?= tail\r\n\r\n", 100);
         assertEquals(1, seen.size());
-        assertEquals("caf\u00e9 tail", seen.get(0));
+        assertEquals("=?UTF-8?Q?caf=C3=A9?= tail", seen.get(0));
     }
 
     @Test
@@ -1093,6 +1097,21 @@ public class HttpProtocolHandlerHttp1Test {
         f.feed("GET /x HTTP/1.1\r\nHost: h\r\nX-Enc: =?bogus?Z?zz?=\r\n\r\n", 100);
         assertEquals(1, seen.size());
         assertEquals("=?bogus?Z?zz?=", seen.get(0));
+    }
+
+    @Test
+    public void testNonAsciiRequestHeaderOctetsArePreservedAsOpaqueData() {
+        // RFC 9110 section 5.5: octets 0x80-0xFF (obs-text) are opaque to the
+        // recipient. Each octet maps to the character of the same value, so
+        // nothing is lost or guessed at; the application decides what they
+        // mean. The two octets here are UTF-8 for e-acute, and stay two chars.
+        Fixture f = new Fixture();
+        List<String> seen = new ArrayList<String>();
+        respondingHook(f, "x-raw", seen);
+        f.open();
+        f.feed("GET /x HTTP/1.1\r\nHost: h\r\nX-Raw: caf\u00c3\u00a9\r\n\r\n", 100);
+        assertEquals(1, seen.size());
+        assertEquals("caf\u00c3\u00a9", seen.get(0));
     }
 
     @Test
@@ -1122,19 +1141,23 @@ public class HttpProtocolHandlerHttp1Test {
     }
 
     @Test
-    public void testNonAsciiResponseHeaderValueUsesQuotedPrintableOrBase64() {
-        Fixture f = new Fixture();
-        f.rec.extraName = "X-Note";
-        f.rec.extraValue = "caf\u00e9 au lait";
-        f.open();
-        f.feed("GET /x HTTP/1.1\r\nHost: h\r\n\r\n", 100);
-        assertTrue(f.wire(), f.wire().contains("X-Note: =?UTF-8?B?"));
-        Fixture g = new Fixture();
-        g.rec.extraName = "X-Note";
-        g.rec.extraValue = "\u00e9\u00e8\u00ea\u00eb";
-        g.open();
-        g.feed("GET /x HTTP/1.1\r\nHost: h\r\n\r\n", 100);
-        assertTrue(g.wire(), g.wire().contains("X-Note: =?UTF-8?Q?"));
+    public void testNonAsciiResponseHeaderValueIsRejectedAndNeverSent() {
+        // RFC 9110 section 5.5: non-ASCII field content is opaque, and HTTP
+        // defines no encoding for it, so it is refused where the handler sets
+        // it rather than encoded and sent.
+        for (String value : new String[] {"caf\u00e9 au lait", "\u00e9\u00e8\u00ea\u00eb"}) {
+            Fixture f = new Fixture();
+            f.rec.extraName = "X-Note";
+            f.rec.extraValue = value;
+            f.open();
+            try {
+                f.feed("GET /x HTTP/1.1\r\nHost: h\r\n\r\n", 100);
+                fail("expected IllegalArgumentException from headers()");
+            } catch (IllegalArgumentException e) {
+                assertTrue(e.getMessage(), e.getMessage().contains("X-Note"));
+            }
+            assertFalse(f.wire(), f.wire().contains("X-Note"));
+        }
     }
 
     @Test

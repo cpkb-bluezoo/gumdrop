@@ -53,7 +53,7 @@ For a pure async microservice without servlets:
 - gonzalez-core-1.2.0.jar
 - jsonparser-1.3.jar
 - jakarta.servlet-api-6.1.0.jar (95 KB)
-- javax.mail-1.6.2.jar (659 KB)
+- jakarta.mail-api-2.1.3.jar (236 KB), jakarta.activation-api-2.1.3.jar (67 KB), angus-mail-2.0.3.jar (499 KB), angus-activation-2.0.2.jar (27 KB)
 - javax.annotation-api-1.3.2.jar (27 KB)
 - javax.ejb-api-3.2.2.jar (64 KB)
 - javax.persistence-api-2.2.jar (165 KB)

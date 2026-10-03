@@ -25,11 +25,11 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.Properties;
 
-import javax.mail.PasswordAuthentication;
-import javax.mail.Provider;
-import javax.mail.Session;
-import javax.mail.MailSessionDefinition;
-import javax.mail.NoSuchProviderException;
+import jakarta.mail.PasswordAuthentication;
+import jakarta.mail.Provider;
+import jakarta.mail.Session;
+import jakarta.mail.MailSessionDefinition;
+import jakarta.mail.NoSuchProviderException;
 
 import org.junit.Test;
 import org.xml.sax.helpers.AttributesImpl;
@@ -85,7 +85,7 @@ public class JndiResourceDefinitionsTest {
         MailSession m = fullMailSession();
         assertEquals("mail/s", m.getName());
         assertNull(m.getClassName());
-        assertEquals("javax.mail.Session", m.getInterfaceName());
+        assertEquals("jakarta.mail.Session", m.getInterfaceName());
         Object o = m.newInstance();
         assertTrue(o instanceof Session);
         Session s = (Session) o;

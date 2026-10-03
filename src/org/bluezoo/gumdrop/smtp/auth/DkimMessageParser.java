@@ -296,7 +296,8 @@ public class DkimMessageParser extends MessageParser {
         int length = end - start;
         if (length > 998) {
             throw new HeaderLineTooLongException(
-                ResourceBundle.getBundle("org.bluezoo.gumdrop.mime.L10N")
+                ResourceBundle.getBundle("org.bluezoo.gumdrop.mime.L10N",
+                org.bluezoo.gumdrop.mime.ContentDisposition.class.getModule())
                     .getString("err.header_line_too_long"),
                 locator);
         }
@@ -371,7 +372,8 @@ public class DkimMessageParser extends MessageParser {
         if (currentSize + length > getMaxHeaderValueSize()) {
             throw new HeaderValueTooLongException(
                 MessageFormat.format(
-                    ResourceBundle.getBundle("org.bluezoo.gumdrop.mime.L10N")
+                    ResourceBundle.getBundle("org.bluezoo.gumdrop.mime.L10N",
+                org.bluezoo.gumdrop.mime.ContentDisposition.class.getModule())
                         .getString("err.header_value_too_long"),
                     Integer.valueOf(getMaxHeaderValueSize())),
                 locator);

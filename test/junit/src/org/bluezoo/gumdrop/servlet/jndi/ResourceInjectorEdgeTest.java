@@ -27,7 +27,7 @@ import java.util.Hashtable;
 import java.util.Properties;
 
 import javax.annotation.Resource;
-import javax.mail.Session;
+import jakarta.mail.Session;
 import javax.naming.Context;
 import javax.sql.DataSource;
 

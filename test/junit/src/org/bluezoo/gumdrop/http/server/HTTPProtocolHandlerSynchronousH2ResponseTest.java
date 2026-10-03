@@ -128,6 +128,23 @@ public class HTTPProtocolHandlerSynchronousH2ResponseTest {
 
     private HttpProtocolHandler connection;
 
+    /** Records what happens when it sets a response header that is not US-ASCII. */
+    private static final class NonAsciiHeaderHandler extends DefaultHttpRequestHandler {
+        static volatile RuntimeException thrown;
+
+        @Override
+        public void headers(HttpResponseState state, Headers headers) {
+            Headers response = new Headers();
+            response.add(":status", "200");
+            response.add("x-custom", "caf\u00e9");
+            try {
+                state.headers(response);
+            } catch (RuntimeException e) {
+                thrown = e;
+            }
+        }
+    }
+
     @Before
     public void setUp() {
         Http2Listener listener = new Http2Listener();
@@ -189,5 +206,28 @@ public class HTTPProtocolHandlerSynchronousH2ResponseTest {
         }
 
         assertEquals(0, connection.activeStreamCountForTesting());
+    }
+
+    @Test
+    public void testNonAsciiResponseHeaderIsRejectedWhereTheHandlerSetsIt() throws Exception {
+        Http2Listener listener = new Http2Listener();
+        listener.setStreamHandler(new HttpStreamHandler() {
+            @Override
+            public HttpRequestHandler openStream(HttpResponseState state) {
+                return new NonAsciiHeaderHandler();
+            }
+        });
+        HttpProtocolHandler c = new HttpProtocolHandler(listener);
+        c.connected(new NoopEndpoint());
+        c.securityEstablished(new StubSecurityInfo());
+        c.settingsFrameReceived(false, Collections.emptyMap());
+        NonAsciiHeaderHandler.thrown = null;
+
+        c.headersFrameReceived(3, true, true, 0, false, 16, encodeGetHeaders("/"));
+
+        assertTrue("headers() should have thrown IllegalArgumentException, was: "
+                + NonAsciiHeaderHandler.thrown,
+                NonAsciiHeaderHandler.thrown instanceof IllegalArgumentException);
+        assertTrue(NonAsciiHeaderHandler.thrown.getMessage().contains("x-custom"));
     }
 }

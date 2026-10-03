@@ -110,7 +110,8 @@ import org.bluezoo.gumdrop.ldap.client.SearchScope;
  */
 public class LdapRealm implements Realm {
 
-    static final ResourceBundle L10N = ResourceBundle.getBundle("org.bluezoo.gumdrop.auth.L10N");
+    static final ResourceBundle L10N = ResourceBundle.getBundle("org.bluezoo.gumdrop.auth.L10N",
+                org.bluezoo.gumdrop.auth.Realm.class.getModule());
     private static final Logger LOGGER = Logger.getLogger(LdapRealm.class.getName());
 
     /** Default timeout for LDAP operations in seconds. */

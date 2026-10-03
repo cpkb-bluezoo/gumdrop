@@ -27,3 +27,8 @@ jobs:
 
       - name: Run unit tests
         run: ant clean test
+
+      # Descriptors, exports and Maven POMs must match what the code really
+      # uses; --validate-modules alone does not notice a missing requires.
+      - name: Check module descriptors and POMs
+        run: ant jpms-check

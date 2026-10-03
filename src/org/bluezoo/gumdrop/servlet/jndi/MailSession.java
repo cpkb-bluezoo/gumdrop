@@ -30,11 +30,11 @@ import java.util.ResourceBundle;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
-import javax.mail.Authenticator;
-import javax.mail.MailSessionDefinition;
-import javax.mail.PasswordAuthentication;
-import javax.mail.Provider;
-import javax.mail.Session;
+import jakarta.mail.Authenticator;
+import jakarta.mail.MailSessionDefinition;
+import jakarta.mail.PasswordAuthentication;
+import jakarta.mail.Provider;
+import jakarta.mail.Session;
 
 import org.xml.sax.Attributes;
 
@@ -236,7 +236,7 @@ public final class MailSession extends Resource {
     }
 
     @Override public String getInterfaceName() {
-        return "javax.mail.Session";
+        return "jakarta.mail.Session";
     }
 
     @Override public Object newInstance() {
@@ -262,7 +262,7 @@ public final class MailSession extends Resource {
             return;
         }
         try {
-            String interfaceName = "javax.mail.Provider";
+            String interfaceName = "jakarta.mail.Provider";
             Class<?> t = Class.forName(className);
             Class<?> i = Class.forName(interfaceName);
             if (!i.isAssignableFrom(t)) {

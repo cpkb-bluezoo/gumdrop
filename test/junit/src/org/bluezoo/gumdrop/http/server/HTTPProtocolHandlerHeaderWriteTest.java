@@ -38,8 +38,6 @@ import java.net.SocketAddress;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 
-import javax.mail.internet.MimeUtility;
-
 import static org.junit.Assert.*;
 
 /**
@@ -285,39 +283,33 @@ public class HTTPProtocolHandlerHeaderWriteTest {
     }
 
     @Test
-    public void testMostlyAsciiValueWithOneNonAsciiCharUsesBEncoding() throws Exception {
-        // One non-ASCII char among many ASCII ones: nonAsciiCount is not
-        // greater than asciiCount, so getCharsetFlags does not set
-        // CHARSET_Q_ENCODING - "B" (base64) is used, per the existing,
-        // unchanged encoding choice this test deliberately does not
-        // re-litigate.
-        String value = "plain text with one accent: café and nothing else unusual";
+    public void testNonAsciiValueIsRejectedNotEncoded() throws Exception {
+        // RFC 9110 section 5.5: non-ASCII field content is obsolete text the
+        // recipient must treat as opaque. The writer refuses it rather than
+        // encode it (RFC 2047 is not part of HTTP), so a caller's mistake is
+        // not turned into something the peer may or may not decode.
         Headers headers = new Headers();
-        headers.add("x-custom", value);
+        headers.add("x-custom", "plain text with one accent: caf\u00e9");
 
-        connection.sendResponseHeaders(1, 200, headers, false);
-
-        String expectedEncoded = MimeUtility.encodeText(value, "UTF-8", "B");
-        assertEquals("HTTP/1.1 200 OK\r\n"
-                + "x-custom: " + expectedEncoded + "\r\n"
-                + "\r\n",
-                endpoint.capturedAscii());
+        try {
+            connection.sendResponseHeaders(1, 200, headers, false);
+            fail("expected IllegalArgumentException");
+        } catch (IllegalArgumentException e) {
+            assertTrue(e.getMessage(), e.getMessage().contains("x-custom"));
+        }
     }
 
     @Test
-    public void testMostlyNonAsciiValueUsesQEncoding() throws Exception {
-        // Non-ASCII chars outnumber ASCII ones here, so getCharsetFlags
-        // sets CHARSET_Q_ENCODING and "Q" encoding is used instead.
-        String value = "éèêëàâ x";
+    public void testNonAsciiRejectionHappensBeforeAnyBytesAreWritten() throws Exception {
         Headers headers = new Headers();
-        headers.add("x-custom", value);
+        headers.add("x-first", "ok");
+        headers.add("x-second", "\u00e9\u00e8\u00ea");
 
-        connection.sendResponseHeaders(1, 200, headers, false);
-
-        String expectedEncoded = MimeUtility.encodeText(value, "UTF-8", "Q");
-        assertEquals("HTTP/1.1 200 OK\r\n"
-                + "x-custom: " + expectedEncoded + "\r\n"
-                + "\r\n",
-                endpoint.capturedAscii());
+        try {
+            connection.sendResponseHeaders(1, 200, headers, false);
+            fail("expected IllegalArgumentException");
+        } catch (IllegalArgumentException expected) {
+            assertEquals("", endpoint.capturedAscii());
+        }
     }
 }

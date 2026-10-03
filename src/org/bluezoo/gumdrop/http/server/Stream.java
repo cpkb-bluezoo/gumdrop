@@ -2079,6 +2079,7 @@ class Stream implements HttpResponseState {
             throw new IllegalStateException(
                     "Cannot send informational response in state: " + responseState);
         }
+        HttpUtils.requireAsciiFieldValues(headers);
         // RFC 9110 section 15.2: 1xx not defined for HTTP/1.0
         if (connection.getVersion() == HttpVersion.HTTP_1_0) {
             return;
@@ -2096,6 +2097,7 @@ class Stream implements HttpResponseState {
         if (responseState == ResponseState.COMPLETE) {
             throw new IllegalStateException(L10N.getString("err.response_complete"));
         }
+        HttpUtils.requireAsciiFieldValues(headers);
         // Buffer headers - they will be flushed on startResponseBody() or complete()
         if (bufferedResponseHeaders == null) {
             bufferedResponseHeaders = new Headers();

@@ -18,7 +18,10 @@ Version pins: `boms/versions.properties` (keep in sync with root `pom.xml` and
 | jakarta.servlet-api-* | Maven Central (Jakarta Servlet 6.x API) |
 | jakarta.annotation-api-* | Maven Central (Jakarta Annotations) |
 | jakarta.persistence-api-* | Maven Central (Jakarta Persistence; compile classpath) |
-| javax.mail-* | Maven Central (JavaMail API) |
+| jakarta.mail-api-* | Maven Central (Jakarta Mail API) |
+| jakarta.activation-api-* | Maven Central (Jakarta Activation API) |
+| angus-mail-* | Maven Central (Eclipse Angus Mail, the Jakarta Mail implementation; runtime) |
+| angus-activation-* | Maven Central (Eclipse Angus Activation, the Jakarta Activation implementation; runtime) |
 | javax.annotation-api-* | Maven Central (legacy J2EE annotations) |
 | javax.ejb-api-* | Maven Central (legacy J2EE EJB API) |
 | javax.persistence-api-* | Maven Central (legacy JPA API) |

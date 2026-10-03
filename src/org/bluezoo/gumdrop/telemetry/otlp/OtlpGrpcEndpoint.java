@@ -26,7 +26,6 @@ import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
-import org.bluezoo.gumdrop.grpc.GrpcFraming;
 import org.bluezoo.gumdrop.http.HttpClient;
 import org.bluezoo.gumdrop.http.client.HttpClientHandler;
 import org.bluezoo.gumdrop.http.client.HttpRequest;
@@ -64,7 +63,8 @@ class OtlpGrpcEndpoint {
     private static final int DEFAULT_GRPC_PORT = 4317;
 
     private static final ResourceBundle L10N =
-            ResourceBundle.getBundle("org.bluezoo.gumdrop.telemetry.L10N");
+            ResourceBundle.getBundle("org.bluezoo.gumdrop.telemetry.L10N",
+                org.bluezoo.gumdrop.telemetry.Trace.class.getModule());
     private static final Logger logger = Logger.getLogger(OtlpGrpcEndpoint.class.getName());
 
     private final Gumdrop gumdrop;
@@ -312,6 +312,28 @@ class OtlpGrpcEndpoint {
     }
 
     /**
+     * Length-prefixes a message as gRPC requires: a one-byte compressed flag
+     * (always 0, uncompressed) then the four-byte big-endian message length.
+     *
+     * <p>This is the whole of the gRPC message framing the exporter needs, so
+     * it is written here rather than taken from the gRPC module; that keeps
+     * the telemetry module from depending on gRPC. OtlpGrpcFramingTest checks
+     * it against the gRPC module's own implementation.
+     *
+     * @param message the protobuf message, consumed
+     * @return the framed message, ready to send
+     */
+    static ByteBuffer frame(ByteBuffer message) {
+        int length = message.remaining();
+        ByteBuffer framed = ByteBuffer.allocate(5 + length);
+        framed.put((byte) 0);
+        framed.putInt(length);
+        framed.put(message);
+        framed.flip();
+        return framed;
+    }
+
+    /**
      * Sends gRPC-framed telemetry data to this endpoint.
      *
      * @param data the protobuf-encoded telemetry data (ExportTraceServiceRequest etc.)
@@ -324,7 +346,7 @@ class OtlpGrpcEndpoint {
             return;
         }
 
-        ByteBuffer framed = GrpcFraming.frame(data);
+        ByteBuffer framed = frame(data);
 
         HttpRequest request = httpClient.post(path);
         request.header("Content-Type", CONTENT_TYPE_GRPC);

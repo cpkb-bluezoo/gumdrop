@@ -86,7 +86,8 @@ import java.util.ResourceBundle;
  */
 public class OtlpFileExporter implements TelemetryExporter {
 
-        private static final ResourceBundle L10N = ResourceBundle.getBundle("org.bluezoo.gumdrop.telemetry.L10N");
+        private static final ResourceBundle L10N = ResourceBundle.getBundle("org.bluezoo.gumdrop.telemetry.L10N",
+                org.bluezoo.gumdrop.telemetry.Trace.class.getModule());
 private static final Logger logger = Logger.getLogger(OtlpFileExporter.class.getName());
 
     private static final byte[] NEWLINE = "\n".getBytes(StandardCharsets.UTF_8);

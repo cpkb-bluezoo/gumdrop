@@ -11,6 +11,14 @@
     <pathelement location='${lib}/${jprotobuf.jar}'/>
     <pathelement location='${lib}/${micula.jar}'/>
     <pathelement location='${lib}/${servlet.jar}'/>
+    <!-- Optional libraries the servlet container names (requires static). -->
+    <pathelement location='${lib}/${jakarta.annotation.jar}'/>
+    <pathelement location='${lib}/${jakarta.persistence.jar}'/>
+    <pathelement location='${lib}/${annotation.jar}'/>
+    <pathelement location='${lib}/${persistence.jar}'/>
+    <pathelement location='${lib}/${jakarta.mail.jar}'/>
+    <pathelement location='${lib}/${jakarta.activation.jar}'/>
+    <pathelement location='${lib}/${ejb.jar}'/>
   </path>
 
   <path id='jpms.core.modulepath'>

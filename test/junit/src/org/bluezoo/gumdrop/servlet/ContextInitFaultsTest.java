@@ -228,16 +228,16 @@ public class ContextInitFaultsTest {
         String[] classes = { Target.class.getName(), Target.class.getName(), Target.class.getName() };
         for (int i = 0; i < members.length; i++) {
             body.append("<resource-ref><res-ref-name>ref/m").append(i).append("</res-ref-name>"
-                    + "<res-type>javax.mail.Session</res-type><lookup-name>java:comp/env/mail/s</lookup-name>"
+                    + "<res-type>jakarta.mail.Session</res-type><lookup-name>java:comp/env/mail/s</lookup-name>"
                     + "<injection-target><injection-target-class>").append(classes[i])
                     .append("</injection-target-class><injection-target-name>").append(members[i])
                     .append("</injection-target-name></injection-target></resource-ref>");
         }
-        body.append("<resource-ref><res-ref-name>ref/absent</res-ref-name><res-type>javax.mail.Session</res-type>"
+        body.append("<resource-ref><res-ref-name>ref/absent</res-ref-name><res-type>jakarta.mail.Session</res-type>"
                 + "<lookup-name>java:comp/env/mail/s</lookup-name><injection-target><injection-target-class>"
                 + "com.example.Absent</injection-target-class><injection-target-name>x</injection-target-name>"
                 + "</injection-target></resource-ref>");
-        body.append("<resource-ref><res-ref-name>ref/unbound</res-ref-name><res-type>javax.mail.Session</res-type>"
+        body.append("<resource-ref><res-ref-name>ref/unbound</res-ref-name><res-type>jakarta.mail.Session</res-type>"
                 + "<lookup-name>java:comp/env/mail/none</lookup-name><injection-target><injection-target-class>")
                 .append(Target.class.getName())
                 .append("</injection-target-class><injection-target-name>field</injection-target-name>"

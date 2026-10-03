@@ -21,7 +21,6 @@
 
 package org.bluezoo.gumdrop.http.server;
 
-import jakarta.servlet.http.HttpServletRequest;
 
 /**
  * Constants for HTTP authentication methods.
@@ -38,22 +37,22 @@ public  class HttpAuthenticationMethods {
     /**
      * Basic Authentication (RFC 7617) - username/password with base64 encoding.
      */
-    public static final String BASIC_AUTH = HttpServletRequest.BASIC_AUTH;
+    public static final String BASIC_AUTH = "BASIC";
     
     /**
      * Digest Authentication (RFC 7616) - challenge/response with hashed credentials.
      */
-    public static final String DIGEST_AUTH = HttpServletRequest.DIGEST_AUTH;
+    public static final String DIGEST_AUTH = "DIGEST";
     
     /**
      * Form-based Authentication - HTML form login (servlet-specific).
      */
-    public static final String FORM_AUTH = HttpServletRequest.FORM_AUTH;
+    public static final String FORM_AUTH = "FORM";
     
     /**
      * Client Certificate Authentication - X.509 certificate validation.
      */
-    public static final String CLIENT_CERT_AUTH = HttpServletRequest.CLIENT_CERT_AUTH;
+    public static final String CLIENT_CERT_AUTH = "CLIENT_CERT";
 
     // Extended authentication methods for modern applications
     

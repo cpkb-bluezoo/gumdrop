@@ -371,6 +371,7 @@
     <g transform="translate(0, 356)">
       <text x="0" y="0" opacity="0.85" class="trailer-text" font-weight="700">100% pure Java</text>
       <text x="0" y="16" opacity="0.6" class="trailer-text">Cutting-edge HTTP/3 and QUIC support</text>
+      <text x="0" y="32" opacity="0.6" class="trailer-text">Secure by design</text>
     </g>
   </g>
 

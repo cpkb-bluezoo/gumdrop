@@ -5,7 +5,8 @@
  */
 @SuppressWarnings("module")
 module org.bluezoo.gumdrop.amqp1 {
-    requires org.bluezoo.gumdrop.core;
+    requires java.logging;
+    requires transitive org.bluezoo.gumdrop.core;
 
     exports org.bluezoo.gumdrop.amqp1.client;
     exports org.bluezoo.gumdrop.amqp1.codec;

@@ -64,7 +64,7 @@ public class JCAExampleServlet extends HttpServlet {
     private ConnectionFactory erpConnector;
     
     @Resource(name = "mail/AppMailSession")
-    private javax.mail.Session mailSession;
+    private jakarta.mail.Session mailSession;
     
     // Method injection is also supported
     private javax.jms.ConnectionFactory jmsFactory;
@@ -184,7 +184,7 @@ public class JCAExampleServlet extends HttpServlet {
             out.println("private ConnectionFactory erpConnector;");
             out.println("");
             out.println("@Resource(name = \"mail/AppMailSession\")");
-            out.println("private javax.mail.Session mailSession;");
+            out.println("private jakarta.mail.Session mailSession;");
             out.println("");
             out.println("// Method injection");
             out.println("@Resource(name = \"jms/AppConnectionFactory\")");

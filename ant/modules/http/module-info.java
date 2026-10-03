@@ -1,6 +1,8 @@
 module org.bluezoo.gumdrop.http {
-    requires org.bluezoo.gumdrop.core;
-    requires org.bluezoo.gumdrop.mime;
+    requires java.logging;
+    requires transitive org.bluezoo.gumdrop.core;
+
+    requires org.bluezoo.json;
     requires org.bluezoo.micula;
 
     exports org.bluezoo.gumdrop.http;
@@ -13,4 +15,6 @@ module org.bluezoo.gumdrop.http {
     exports org.bluezoo.gumdrop.websocket.client;
     exports org.bluezoo.gumdrop.auth.oauth;
     exports org.bluezoo.gumdrop.http.doh;
+    exports org.bluezoo.gumdrop.http.server;
+    exports org.bluezoo.gumdrop.websocket.server;
 }

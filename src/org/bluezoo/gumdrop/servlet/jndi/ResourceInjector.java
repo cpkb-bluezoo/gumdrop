@@ -256,7 +256,7 @@ public class ResourceInjector {
             return "jdbc/" + name;
         } else if (packageName.startsWith("javax.jms")) {
             return "jms/" + name;
-        } else if (packageName.startsWith("javax.mail")) {
+        } else if (packageName.startsWith("jakarta.mail")) {
             return "mail/" + name;
         } else if (packageName.startsWith("javax.resource")) {
             return "jca/" + name;

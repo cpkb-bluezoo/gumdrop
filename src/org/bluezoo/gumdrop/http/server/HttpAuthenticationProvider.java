@@ -44,7 +44,6 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.logging.Level;
 import java.util.logging.Logger;
-import jakarta.servlet.http.HttpServletRequest;
 
 /**
  * Abstract base class for HTTP authentication providers.
@@ -73,7 +72,7 @@ import jakarta.servlet.http.HttpServletRequest;
  *     private final Realm realm;
  *     
  *     protected String getAuthMethod() {
- *         return HttpServletRequest.BASIC_AUTH;
+ *         return HttpAuthenticationMethods.BASIC_AUTH;
  *     }
  *     
  *     protected String getRealmName() {
@@ -218,8 +217,7 @@ public abstract class HttpAuthenticationProvider {
      * Gets the authentication method configured for this provider.
      * 
      * <p>The return value should be one of the standard authentication
-     * method constants from {@link HttpServletRequest} or 
-     * {@link HttpAuthenticationMethods}.</p>
+     * method constants from {@link HttpAuthenticationMethods}.</p>
      * 
      * @return the authentication method (e.g., "BASIC", "DIGEST"), or null if none configured
      */
@@ -351,12 +349,12 @@ public abstract class HttpAuthenticationProvider {
         try {
             // HTTP authentication schemes are case-insensitive per RFC 7235
             switch (authMethod) {
-                case HttpServletRequest.BASIC_AUTH:
+                case HttpAuthenticationMethods.BASIC_AUTH:
                     if ("Basic".equalsIgnoreCase(scheme)) {
                         return authenticateBasic(credentials);
                     }
                     break;
-                case HttpServletRequest.DIGEST_AUTH:
+                case HttpAuthenticationMethods.DIGEST_AUTH:
                     if ("Digest".equalsIgnoreCase(scheme)) {
                         return authenticateDigest(credentials, requestMethod, digestUri);
                     }
@@ -406,10 +404,10 @@ public abstract class HttpAuthenticationProvider {
         }
 
         switch (authMethod) {
-            case HttpServletRequest.BASIC_AUTH:
+            case HttpAuthenticationMethods.BASIC_AUTH:
                 return "Basic realm=\"" + realmName + "\"";
 
-            case HttpServletRequest.DIGEST_AUTH:
+            case HttpAuthenticationMethods.DIGEST_AUTH:
                 // Check if the Realm supports Digest authentication
                 if (!supportsDigestAuth()) {
                     LOGGER.severe(L10N.getString("auth.err.digest_not_supported_by_realm"));
@@ -453,9 +451,9 @@ public abstract class HttpAuthenticationProvider {
 
         // HTTP authentication schemes are case-insensitive per RFC 7235
         switch (authMethod) {
-            case HttpServletRequest.BASIC_AUTH:
+            case HttpAuthenticationMethods.BASIC_AUTH:
                 return "Basic".equalsIgnoreCase(scheme);
-            case HttpServletRequest.DIGEST_AUTH:
+            case HttpAuthenticationMethods.DIGEST_AUTH:
                 return "Digest".equalsIgnoreCase(scheme);
             case HttpAuthenticationMethods.BEARER_AUTH:
             case HttpAuthenticationMethods.OAUTH_AUTH:
@@ -476,10 +474,10 @@ public abstract class HttpAuthenticationProvider {
         String authMethod = getAuthMethod();
         if (authMethod != null) {
             switch (authMethod) {
-                case HttpServletRequest.BASIC_AUTH:
+                case HttpAuthenticationMethods.BASIC_AUTH:
                     schemes.add("Basic");
                     break;
-                case HttpServletRequest.DIGEST_AUTH:
+                case HttpAuthenticationMethods.DIGEST_AUTH:
                     schemes.add("Digest");
                     break;
                 case HttpAuthenticationMethods.BEARER_AUTH:

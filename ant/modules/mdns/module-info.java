@@ -1,7 +1,7 @@
 module org.bluezoo.gumdrop.mdns {
-    requires org.bluezoo.gumdrop.core;
-    requires org.bluezoo.gumdrop.mime;
-    requires org.bluezoo.gumdrop.http;
+    requires java.logging;
+    requires transitive org.bluezoo.gumdrop.core;
 
     exports org.bluezoo.gumdrop.mdns;
+    exports org.bluezoo.gumdrop.mdns.server;
 }

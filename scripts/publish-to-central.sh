@@ -36,66 +36,13 @@ for var in GPG_KEY_ID GPG_PASSPHRASE CENTRAL_TOKEN_USERNAME CENTRAL_TOKEN_PASSWO
     fi
 done
 
-BUILD_XML_VERSION=$(grep -m1 "name='version'" build.xml | sed -E "s/.*value='([^']*)'.*/\1/")
-if [ -z "$BUILD_XML_VERSION" ]; then
-    echo "error: could not read the 'version' property from build.xml" >&2
-    exit 1
-fi
+# The artifact list and the version guards are shared with
+# publish-to-github-packages.sh so both registries publish the same thing.
+# shellcheck source=release-artifacts.sh
+. "$(dirname "$0")/release-artifacts.sh"
 
-if [ -z "${VERSION:-}" ]; then
-    VERSION="$BUILD_XML_VERSION"
-    echo "==> Auto-detected VERSION=$VERSION from build.xml"
-fi
-
-case "$VERSION" in
-    *SNAPSHOT*)
-        echo "error: VERSION=$VERSION is a SNAPSHOT version - Maven Central does not accept snapshot publishes" >&2
-        echo "       cut a real release version in build.xml and all central/*-pom.xml files first" >&2
-        exit 1
-        ;;
-esac
-
-if [ "$BUILD_XML_VERSION" != "$VERSION" ]; then
-    echo "error: version mismatch - requested VERSION=$VERSION, but build.xml says $BUILD_XML_VERSION" >&2
-    exit 1
-fi
-
-POM_FILES=(central/*-pom.xml)
-for pom in "${POM_FILES[@]}"; do
-    POM_VERSION=$(grep -m1 '<version>' "$pom" | sed -E 's/.*<version>(.*)<\/version>.*/\1/')
-    if [ "$POM_VERSION" != "$VERSION" ]; then
-        echo "error: version mismatch - VERSION=$VERSION, but $pom says $POM_VERSION" >&2
-        exit 1
-    fi
-done
-
-# artifactId:pomFile:packaging[:sources-mode]
-# sources-mode: shared | own | none  (default shared for jar library artifacts)
-ARTIFACTS=(
-    "gumdrop:central/gumdrop-pom.xml:jar:shared"
-    "gumdrop-core:central/gumdrop-core-pom.xml:jar:shared"
-    "gumdrop-mime:central/gumdrop-mime-pom.xml:jar:shared"
-    "gumdrop-http:central/gumdrop-http-pom.xml:jar:shared"
-    "gumdrop-servlet:central/gumdrop-servlet-pom.xml:jar:shared"
-    "gumdrop-mailbox:central/gumdrop-mailbox-pom.xml:jar:shared"
-    "gumdrop-telemetry:central/gumdrop-telemetry-pom.xml:jar:shared"
-    "gumdrop-ldap:central/gumdrop-ldap-pom.xml:jar:shared"
-    "gumdrop-imap:central/gumdrop-imap-pom.xml:jar:shared"
-    "gumdrop-smtp:central/gumdrop-smtp-pom.xml:jar:shared"
-    "gumdrop-pop3:central/gumdrop-pop3-pom.xml:jar:shared"
-    "gumdrop-ftp:central/gumdrop-ftp-pom.xml:jar:shared"
-    "gumdrop-amqp:central/gumdrop-amqp-pom.xml:jar:shared"
-    "gumdrop-amqp1:central/gumdrop-amqp1-pom.xml:jar:shared"
-    "gumdrop-mqtt:central/gumdrop-mqtt-pom.xml:jar:shared"
-    "gumdrop-redis:central/gumdrop-redis-pom.xml:jar:shared"
-    "gumdrop-grpc:central/gumdrop-grpc-pom.xml:jar:shared"
-    "gumdrop-socks:central/gumdrop-socks-pom.xml:jar:shared"
-    "gumdrop-webdav:central/gumdrop-webdav-pom.xml:jar:shared"
-    "gumdrop-mdns:central/gumdrop-mdns-pom.xml:jar:shared"
-    "gumdrop-container:central/gumdrop-container-pom.xml:jar:own"
-    "gumdrop-manager:central/gumdrop-manager-pom.xml:war:own"
-    "gumdrop-j2ee-bom:central/gumdrop-j2ee-bom-pom.xml:pom:none"
-)
+resolve_version
+reject_snapshot
 
 PUBLISHING_TYPE="${PUBLISHING_TYPE:-AUTOMATIC}"
 WORKDIR="$(mktemp -d)"
@@ -106,14 +53,7 @@ ant release-central -Dversion="$VERSION"
 
 SHARED_SOURCES_JAR="dist/gumdrop-${VERSION}-sources.jar"
 SHARED_JAVADOC_JAR="dist/gumdrop-${VERSION}-javadoc.jar"
-if [ ! -f "$SHARED_SOURCES_JAR" ]; then
-    echo "error: expected shared sources jar not found: $SHARED_SOURCES_JAR" >&2
-    exit 1
-fi
-if [ ! -f "$SHARED_JAVADOC_JAR" ]; then
-    echo "error: expected shared javadoc jar not found: $SHARED_JAVADOC_JAR" >&2
-    exit 1
-fi
+verify_dist
 
 sign_bundle_files() {
     local dir="$1"
