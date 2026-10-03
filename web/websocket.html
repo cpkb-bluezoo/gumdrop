@@ -679,15 +679,15 @@ following OpenTelemetry metrics:
 If you are building an HTTP service with
 <a href="http.html#server-handler">the HTTP server handler API</a> and want to
 support WebSocket alongside regular HTTP requests, you can perform the upgrade
-manually using <code>HttpResponseState.upgradeToWebSocket()</code>:
+manually using <code>HttpResponse.upgradeToWebSocket()</code>:
 </p>
 
 <pre>
 public class MyHandler extends DefaultHttpRequestHandler {
-    private final HttpResponseState state;
+    private final HttpResponse state;
     private final Headers headers = new Headers();
 
-    public MyHandler(HttpResponseState state) {
+    public MyHandler(HttpResponse state) {
         this.state = state;
     }
 

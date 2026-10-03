@@ -56,7 +56,7 @@ import org.bluezoo.gumdrop.dns.client.ResolveCallback;
  * anything with a UDP socket.
  *
  * <p>Works identically over HTTP/1.1, HTTP/2, and HTTP/3: {@link
- * HttpResponseState#acceptConnectUdp} and {@link
+ * HttpResponse#acceptConnectUdp} and {@link
  * HttpRequestHandler#datagramReceived} are the only per-transport
  * mechanics this class relies on, both already implemented per
  * transport.
@@ -70,7 +70,7 @@ public class ConnectUdpRequestHandler extends DefaultHttpRequestHandler {
     private static final ResourceBundle L10N =
             ResourceBundle.getBundle("org.bluezoo.gumdrop.http.L10N");
 
-    private final HttpResponseState state;
+    private final HttpResponse state;
     private final ConnectUdpPolicy policy;
     private final long idleTimeoutMs;
 
@@ -84,7 +84,7 @@ public class ConnectUdpRequestHandler extends DefaultHttpRequestHandler {
      *        must not be null (see {@link ConnectUdpPolicy}'s own
      *        documentation for why there is no permissive default)
      */
-    public ConnectUdpRequestHandler(HttpResponseState response, ConnectUdpPolicy policy) {
+    public ConnectUdpRequestHandler(HttpResponse response, ConnectUdpPolicy policy) {
         this(response, policy, ConnectUdpRelay.DEFAULT_IDLE_TIMEOUT_MS);
     }
 
@@ -95,7 +95,7 @@ public class ConnectUdpRequestHandler extends DefaultHttpRequestHandler {
      * @param idleTimeoutMs closes the relay after this long with no
      *        datagrams relayed in either direction; 0 disables the timeout
      */
-    public ConnectUdpRequestHandler(HttpResponseState response, ConnectUdpPolicy policy,
+    public ConnectUdpRequestHandler(HttpResponse response, ConnectUdpPolicy policy,
             long idleTimeoutMs) {
         if (policy == null) {
             throw new IllegalArgumentException(L10N.getString("warn.connect_udp_missing_policy"));
@@ -204,7 +204,7 @@ public class ConnectUdpRequestHandler extends DefaultHttpRequestHandler {
      * over HTTP/2 or later, so HTTP/1.1 instead sends a literal {@code
      * Upgrade: connect-udp} request (typically {@code GET}, not {@code
      * CONNECT}) -- mirroring {@code Stream#isConnectUdpRequest}, which
-     * this class's caller ({@link HttpResponseState#acceptConnectUdp})
+     * this class's caller ({@link HttpResponse#acceptConnectUdp})
      * re-validates independently.
      */
     private boolean isConnectUdpRequest() {
@@ -244,7 +244,7 @@ public class ConnectUdpRequestHandler extends DefaultHttpRequestHandler {
     }
 
     @Override
-    public void datagramReceived(HttpResponseState state, ByteBuffer data) {
+    public void datagramReceived(HttpResponse state, ByteBuffer data) {
         if (relay != null) {
             relay.receiveDatagram(data);
         }

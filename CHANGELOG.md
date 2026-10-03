@@ -201,7 +201,7 @@ user-visible themes since 2.2.x.
   handler, the servlet and WebDAV handlers and the examples now work from
   `endHeaders`, `bodyContent` and `endMessage` instead of the older
   `headers`, `startRequestBody`, `requestBodyContent`, `endRequestBody` and
-  `requestComplete`. A handler takes its `HttpResponseState` when it is created
+  `requestComplete`. A handler takes its `HttpResponse` when it is created
   (from `openStream(response)`), so the constructors of `NotFoundHttpRequestHandler`
   (no longer a shared `INSTANCE`), `ConnectUdpRequestHandler`,
   `ConnectIpRequestHandler`, `ServletHandler` and the WebDAV file handler gain
@@ -243,6 +243,11 @@ user-visible themes since 2.2.x.
   response all fail the response instead of being tolerated; an unsolicited
   `101` fails it too. A response with neither length nor chunking runs until
   the connection closes (RFC 9112 section 6.3) rather than failing.
+- **`HttpResponseState` is now `HttpResponse` (breaking).** The server-side
+  type a handler answers a request with is renamed to match the `response`
+  parameter of `HttpStreamHandler.openStream(response)`; the client's own
+  `HttpResponse` class is gone, so the name is free. It is still in
+  `org.bluezoo.gumdrop.http.server`.
 - **Trailer fields are `header` events.** `HttpMessageHandler` has no `trailer`
   event: `bodyContent` is called any number of times, and the body ends at the
   first field event after it (a trailer) or at `endMessage`. A handler tells a
@@ -284,7 +289,7 @@ user-visible themes since 2.2.x.
   the value itself. Use the RFC 8187 form for non-ASCII parameters.
 - **Response header values must be US-ASCII (breaking).** A handler that sets a
   response header whose value has a non-ASCII character now gets an
-  `IllegalArgumentException` from `HttpResponseState.headers(...)` or
+  `IllegalArgumentException` from `HttpResponse.headers(...)` or
   `sendInformational(...)` (HTTP/1.1, HTTP/2 and HTTP/3), naming the header.
   Previously HTTP/1.x quietly re-encoded such values as RFC 2047 words, which
   HTTP does not define (RFC 9110 section 5.5 leaves non-ASCII octets opaque) and

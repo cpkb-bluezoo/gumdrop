@@ -496,7 +496,7 @@ public final class DeadPropertyStore {
             return;
         }
         // Dispatch callbacks on the storage thread: this class has no
-        // HttpResponseState; FileHandler already tolerates dead-property
+        // HttpResponse; FileHandler already tolerates dead-property
         // callbacks off the SelectorLoop (same as AFC completions today).
         Executor inline = new Executor() {
             @Override

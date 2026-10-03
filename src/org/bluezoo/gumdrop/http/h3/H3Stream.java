@@ -52,7 +52,7 @@ import org.bluezoo.gumdrop.http.server.HttpAuthenticationProvider;
 import org.bluezoo.gumdrop.http.server.HttpPrincipal;
 import org.bluezoo.gumdrop.http.server.HttpRequestHandler;
 import org.bluezoo.gumdrop.http.server.HttpStreamHandler;
-import org.bluezoo.gumdrop.http.server.HttpResponseState;
+import org.bluezoo.gumdrop.http.server.HttpResponse;
 import org.bluezoo.gumdrop.http.server.HttpServerMetrics;
 import org.bluezoo.gumdrop.http.ContentEncoding;
 import org.bluezoo.gumdrop.http.HttpUtils;
@@ -78,7 +78,7 @@ import org.bluezoo.gumdrop.telemetry.Trace;
  *
  * <p>This is the HTTP/3 equivalent of the HTTP/2 {@code Stream} class.
  * Each instance manages one request/response lifecycle (RFC 9114
- * section 4.1) and implements {@link HttpResponseState} so that
+ * section 4.1) and implements {@link HttpResponse} so that
  * {@link HttpRequestHandler} implementations can send responses
  * identically to HTTP/2.
  *
@@ -96,7 +96,7 @@ import org.bluezoo.gumdrop.telemetry.Trace;
  * @see Http3ServerHandler
  * @see HttpRequestHandler
  */
-class H3Stream implements ProtocolHandler, H3FrameHandler, HttpResponseState {
+class H3Stream implements ProtocolHandler, H3FrameHandler, HttpResponse {
 
     private static final Logger LOGGER = Logger.getLogger(H3Stream.class.getName());
 
@@ -679,7 +679,7 @@ class H3Stream implements ProtocolHandler, H3FrameHandler, HttpResponseState {
         connection.closeWithApplicationError(errorCode, message);
     }
 
-    // ── HttpResponseState Implementation ──
+    // ── HttpResponse Implementation ──
 
     @Override
     public SocketAddress getRemoteAddress() {
@@ -947,7 +947,7 @@ class H3Stream implements ProtocolHandler, H3FrameHandler, HttpResponseState {
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // HttpResponseState.acceptConnectUdp/acceptConnectIp Implementation
+    // HttpResponse.acceptConnectUdp/acceptConnectIp Implementation
     // (RFC 9298, RFC 9484)
     // ─────────────────────────────────────────────────────────────────────────
 

@@ -31,7 +31,7 @@ import java.nio.ByteBuffer;
  * implement its {@code ConnectionHandlerFactory} to return instances of
  * this handler. Alternatively, an HTTP request handler can upgrade
  * manually via
- * {@link org.bluezoo.gumdrop.http.server.HttpResponseState#upgradeToWebSocket}.
+ * {@link org.bluezoo.gumdrop.http.server.HttpResponse#upgradeToWebSocket}.
  *
  * <p>Example usage:
  * <pre>{@code

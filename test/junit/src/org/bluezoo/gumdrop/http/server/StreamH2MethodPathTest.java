@@ -23,7 +23,7 @@ package org.bluezoo.gumdrop.http.server;
 
 import org.bluezoo.gumdrop.http.Header;
 import org.bluezoo.gumdrop.http.Headers;
-import org.bluezoo.gumdrop.http.server.HttpResponseState;
+import org.bluezoo.gumdrop.http.server.HttpResponse;
 import org.bluezoo.gumdrop.http.server.HttpStreamHandler;
 import org.bluezoo.gumdrop.http.HttpVersion;
 
@@ -175,7 +175,7 @@ public class StreamH2MethodPathTest {
         @Override public HttpStreamHandler getStreamHandler() {
             return new HttpStreamHandler() {
                 @Override
-                public HttpRequestHandler openStream(HttpResponseState state) {
+                public HttpRequestHandler openStream(HttpResponse state) {
                     return new DefaultHttpRequestHandler();
                 }
             };

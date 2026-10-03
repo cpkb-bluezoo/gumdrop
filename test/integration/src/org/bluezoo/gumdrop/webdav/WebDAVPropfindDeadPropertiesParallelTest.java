@@ -26,7 +26,7 @@ import org.bluezoo.gumdrop.GumdropConfig;
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.StorageExecutor;
-import org.bluezoo.gumdrop.http.server.HttpResponseState;
+import org.bluezoo.gumdrop.http.server.HttpResponse;
 import org.bluezoo.gumdrop.http.HttpStatus;
 import org.bluezoo.gumdrop.http.HttpVersion;
 import org.bluezoo.gumdrop.http.Headers;
@@ -176,7 +176,7 @@ public class WebDAVPropfindDeadPropertiesParallelTest {
                 maxInFlight.get() >= 2);
     }
 
-    private static FileHandler newHandler(HttpResponseState response, Path root,
+    private static FileHandler newHandler(HttpResponse response, Path root,
             DeadPropertyStore store) {
         Map<String, String> types = new HashMap<String, String>();
         types.put("txt", "text/plain");
@@ -214,7 +214,7 @@ public class WebDAVPropfindDeadPropertiesParallelTest {
         Files.deleteIfExists(p);
     }
 
-    private static final class RecordingState implements HttpResponseState {
+    private static final class RecordingState implements HttpResponse {
         private final Object lock = new Object();
         private final ByteArrayOutputStream bodyOut = new ByteArrayOutputStream();
         private final CountDownLatch done = new CountDownLatch(1);

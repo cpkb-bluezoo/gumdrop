@@ -34,7 +34,7 @@ import org.bluezoo.gumdrop.http.Headers;
 import org.bluezoo.gumdrop.http.server.Http2Listener;
 import org.bluezoo.gumdrop.http.server.HttpRequestHandler;
 import org.bluezoo.gumdrop.http.server.HttpStreamHandler;
-import org.bluezoo.gumdrop.http.server.HttpResponseState;
+import org.bluezoo.gumdrop.http.server.HttpResponse;
 import org.bluezoo.gumdrop.http.HttpStatus;
 import org.bluezoo.gumdrop.websocket.DefaultWebSocketEventHandler;
 import org.bluezoo.gumdrop.websocket.WebSocketSession;
@@ -195,10 +195,10 @@ public class HTTP2H2CWebSocketClientIntegrationTest {
     private static class H2cEchoWebSocketHandlerFactory implements HttpStreamHandler {
 
         @Override
-        public HttpRequestHandler openStream(HttpResponseState state) {
+        public HttpRequestHandler openStream(HttpResponse state) {
             return new CollectingRequestHandler(state) {
                 @Override
-                public void headers(HttpResponseState state, Headers headers) {
+                public void headers(HttpResponse state, Headers headers) {
                     if ("CONNECT".equals(headers.getValue(":method"))
                             && "websocket".equalsIgnoreCase(headers.getValue(":protocol"))) {
                         state.upgradeToWebSocket(null, new DefaultWebSocketEventHandler() {

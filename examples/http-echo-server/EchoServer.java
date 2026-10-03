@@ -8,7 +8,7 @@ import org.bluezoo.gumdrop.http.Headers;
 import org.bluezoo.gumdrop.http.HttpServer;
 import org.bluezoo.gumdrop.http.server.DefaultHttpRequestHandler;
 import org.bluezoo.gumdrop.http.server.HttpRequestHandler;
-import org.bluezoo.gumdrop.http.server.HttpResponseState;
+import org.bluezoo.gumdrop.http.server.HttpResponse;
 import org.bluezoo.gumdrop.http.server.HttpStreamHandler;
 import org.bluezoo.gumdrop.tls.TlsConfig;
 
@@ -63,29 +63,29 @@ public final class EchoServer {
      */
     private static final class EchoStreamHandler implements HttpStreamHandler {
         @Override
-        public HttpRequestHandler openStream(HttpResponseState stream) {
-            return new EchoHandler(stream);
+        public HttpRequestHandler openStream(HttpResponse response) {
+            return new EchoHandler(response);
         }
     }
 
     private static final class EchoHandler extends DefaultHttpRequestHandler {
-        private final HttpResponseState state;
+        private final HttpResponse response;
 
-        EchoHandler(HttpResponseState state) {
-            this.state = state;
+        EchoHandler(HttpResponse response) {
+            this.response = response;
         }
 
         @Override
         public void endHeaders() {
-            Headers response = new Headers();
-            response.add(":status", "200");
-            response.add("content-type", "text/plain");
-            state.headers(response);
-            state.startResponseBody();
-            state.responseBodyContent(
+            Headers fields = new Headers();
+            fields.add(":status", "200");
+            fields.add("content-type", "text/plain");
+            response.headers(fields);
+            response.startResponseBody();
+            response.responseBodyContent(
                     ByteBuffer.wrap("ok\n".getBytes(StandardCharsets.UTF_8)));
-            state.endResponseBody();
-            state.complete();
+            response.endResponseBody();
+            response.complete();
         }
     }
 

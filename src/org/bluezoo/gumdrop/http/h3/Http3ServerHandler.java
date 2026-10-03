@@ -80,7 +80,7 @@ import org.bluezoo.gumdrop.telemetry.Trace;
  *       |
  *   Http3ServerHandler  (per-connection setup: control stream, SETTINGS)
  *       |
- *   H3Stream  (per-request HttpResponseState)
+ *   H3Stream  (per-request HttpResponse)
  *       |
  *   HttpRequestHandler  (application logic, same as HTTP/2)
  * </pre>

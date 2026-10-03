@@ -63,17 +63,17 @@ public class StreamResponseApiTest {
         final List<String> log = new ArrayList<String>();
 
         @Override
-        public void headers(HttpResponseState state, Headers headers) {
+        public void headers(HttpResponse state, Headers headers) {
             log.add("headers");
         }
 
         @Override
-        public void requestComplete(HttpResponseState state) {
+        public void requestComplete(HttpResponse state) {
             log.add("complete");
         }
 
         @Override
-        public void failed(HttpResponseState state, Exception cause) {
+        public void failed(HttpResponse state, Exception cause) {
             log.add("failed");
         }
     }
@@ -87,7 +87,7 @@ public class StreamResponseApiTest {
             conn.version = version;
             conn.streamHandler = new HttpStreamHandler() {
                 @Override
-                public HttpRequestHandler openStream(HttpResponseState state) {
+                public HttpRequestHandler openStream(HttpResponse state) {
                     return CollectingRequestHandler.bind(events, state);
                 }
             };

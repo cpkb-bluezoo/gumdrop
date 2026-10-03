@@ -40,7 +40,7 @@ import org.bluezoo.gumdrop.grpc.proto.RpcDescriptor;
 import org.bluezoo.gumdrop.http.Headers;
 import org.bluezoo.gumdrop.http.HttpStatus;
 import org.bluezoo.gumdrop.http.HttpVersion;
-import org.bluezoo.gumdrop.http.server.HttpResponseState;
+import org.bluezoo.gumdrop.http.server.HttpResponse;
 import org.bluezoo.gumdrop.websocket.WebSocketEventHandler;
 import org.bluezoo.protobuf.ByteBufferChannel;
 import org.bluezoo.protobuf.ProtobufWriter;
@@ -190,7 +190,7 @@ public class GrpcHandlerTest {
         }
     };
 
-    private static final class CapturingState implements HttpResponseState {
+    private static final class CapturingState implements HttpResponse {
         Headers headers;
         final ByteArrayOutputStream body = new ByteArrayOutputStream();
         int completeCount;

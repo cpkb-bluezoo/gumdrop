@@ -34,7 +34,7 @@ import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.http.Headers;
 import org.bluezoo.gumdrop.http.HttpVersion;
-import org.bluezoo.gumdrop.http.server.HttpResponseState;
+import org.bluezoo.gumdrop.http.server.HttpResponse;
 import org.bluezoo.gumdrop.websocket.WebSocketEventHandler;
 import org.bluezoo.gumdrop.testsupport.MessageEvents;
 import org.junit.Test;
@@ -77,7 +77,7 @@ public class ServletHandlerLoopAffinityTest {
     }
 
     /** Response state whose loop only runs tasks when the test says so. */
-    private static final class DeferringState implements HttpResponseState {
+    private static final class DeferringState implements HttpResponse {
         final List<Runnable> queued = new ArrayList<Runnable>();
         int pushes;
         Headers lastPush;

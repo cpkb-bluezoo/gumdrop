@@ -102,7 +102,7 @@ import org.bluezoo.gumdrop.http.client.HttpClientHandler;
 import org.bluezoo.gumdrop.http.client.HttpRequest;
 import org.bluezoo.gumdrop.http.server.DefaultHttpRequestHandler;
 import org.bluezoo.gumdrop.http.server.HttpRequestHandler;
-import org.bluezoo.gumdrop.http.server.HttpResponseState;
+import org.bluezoo.gumdrop.http.server.HttpResponse;
 import org.bluezoo.gumdrop.http.server.HttpStreamHandler;
 
 import java.nio.ByteBuffer;
@@ -198,16 +198,16 @@ public final class Peer {
         }
 
         @Override
-        public HttpRequestHandler openStream(HttpResponseState stream) {
+        public HttpRequestHandler openStream(HttpResponse stream) {
             return new HelloHandler(stream, name);
         }
     }
 
     private static final class HelloHandler extends DefaultHttpRequestHandler {
-        private final HttpResponseState state;
+        private final HttpResponse state;
         private final String name;
 
-        HelloHandler(HttpResponseState state, String name) {
+        HelloHandler(HttpResponse state, String name) {
             this.state = state;
             this.name = name;
         }

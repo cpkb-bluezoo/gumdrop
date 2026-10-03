@@ -38,9 +38,9 @@ import java.nio.ByteBuffer;
  *
  * <p>This interface provides an event-driven API for handling HTTP requests.
  * Each instance handles exactly one request/response exchange (one stream).
- * The server binds instances via {@link HttpStreamHandler#openStream(HttpResponseState)}.
+ * The server binds instances via {@link HttpStreamHandler#openStream(HttpResponse)}.
  * Implementations receive request events and use the provided
- * {@link HttpResponseState} to send the response.
+ * {@link HttpResponse} to send the response.
  *
  * <h2>Event Sequence</h2>
  *
@@ -62,7 +62,7 @@ import java.nio.ByteBuffer;
  * <h2>Response Sending</h2>
  *
  * <p>The handler can send the response at any point using the
- * {@link HttpResponseState} provided to each callback. Common patterns:
+ * {@link HttpResponse} provided to each callback. Common patterns:
  * <ul>
  *   <li>Respond immediately in {@code endHeaders()} for simple requests</li>
  *   <li>Accumulate body data and respond in {@code endMessage()}</li>
@@ -74,9 +74,9 @@ import java.nio.ByteBuffer;
  * <pre>{@code
  * public class HelloHandler extends DefaultHttpRequestHandler {
  *
- *     private final HttpResponseState response;
+ *     private final HttpResponse response;
  *
- *     public HelloHandler(HttpResponseState response) {
+ *     public HelloHandler(HttpResponse response) {
  *         this.response = response;
  *     }
  *
@@ -96,7 +96,7 @@ import java.nio.ByteBuffer;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see DefaultHttpRequestHandler
- * @see HttpResponseState
+ * @see HttpResponse
  * @see HttpStreamHandler
  */
 public interface HttpRequestHandler extends HttpMessageHandler {
@@ -161,7 +161,7 @@ public interface HttpRequestHandler extends HttpMessageHandler {
      * @param response the response
      * @param data the datagram payload; valid only during this call
      */
-    default void datagramReceived(HttpResponseState response, ByteBuffer data) {
+    default void datagramReceived(HttpResponse response, ByteBuffer data) {
         // Default: do nothing
     }
 
@@ -173,7 +173,7 @@ public interface HttpRequestHandler extends HttpMessageHandler {
      * @param type the Capsule Type
      * @param value the Capsule Value; valid only during this call
      */
-    default void capsuleReceived(HttpResponseState response, long type, ByteBuffer value) {
+    default void capsuleReceived(HttpResponse response, long type, ByteBuffer value) {
         // Default: do nothing
     }
 

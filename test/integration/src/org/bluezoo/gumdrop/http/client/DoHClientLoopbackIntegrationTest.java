@@ -38,7 +38,7 @@ import org.bluezoo.gumdrop.http.doh.DoHClientTransport;
 import org.bluezoo.gumdrop.http.doh.DoHTransportAwait;
 import org.bluezoo.gumdrop.http.server.Http2Listener;
 import org.bluezoo.gumdrop.http.server.HttpRequestHandler;
-import org.bluezoo.gumdrop.http.server.HttpResponseState;
+import org.bluezoo.gumdrop.http.server.HttpResponse;
 import org.bluezoo.gumdrop.http.server.HttpStreamHandler;
 
 import org.bluezoo.gumdrop.testsupport.CollectingRequestHandler;
@@ -207,7 +207,7 @@ public class DoHClientLoopbackIntegrationTest extends AbstractServerIntegrationT
 
     private static final class DoHHandlerFactory implements HttpStreamHandler {
         @Override
-        public HttpRequestHandler openStream(HttpResponseState state) {
+        public HttpRequestHandler openStream(HttpResponse state) {
             return CollectingRequestHandler.bind(new DoHHandler(), state);
         }
     }
@@ -218,13 +218,13 @@ public class DoHClientLoopbackIntegrationTest extends AbstractServerIntegrationT
         private final ByteArrayOutputStream body = new ByteArrayOutputStream();
 
         @Override
-        public void headers(HttpResponseState state, Headers headers) {
+        public void headers(HttpResponse state, Headers headers) {
             method = headers.getMethod();
             path = headers.getPath();
         }
 
         @Override
-        public void requestBodyContent(HttpResponseState state, ByteBuffer data) {
+        public void requestBodyContent(HttpResponse state, ByteBuffer data) {
             byte[] chunk = new byte[data.remaining()];
             data.get(chunk);
             try {
@@ -234,7 +234,7 @@ public class DoHClientLoopbackIntegrationTest extends AbstractServerIntegrationT
         }
 
         @Override
-        public void requestComplete(HttpResponseState state) {
+        public void requestComplete(HttpResponse state) {
             if (!"POST".equals(method) || !"/dns-query".equals(path)) {
                 reject(state, HttpStatus.NOT_FOUND);
                 return;
@@ -262,7 +262,7 @@ public class DoHClientLoopbackIntegrationTest extends AbstractServerIntegrationT
             }
         }
 
-        private static void reject(HttpResponseState state, HttpStatus status) {
+        private static void reject(HttpResponse state, HttpStatus status) {
             Headers responseHeaders = new Headers();
             responseHeaders.status(status);
             state.headers(responseHeaders);

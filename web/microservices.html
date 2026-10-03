@@ -144,12 +144,12 @@ import static java.nio.charset.StandardCharsets.UTF_8;
 class XmlEchoHandler extends DefaultHttpRequestHandler {
     private final Parser parser = new Parser();
     private final EchoContentHandler contentHandler = new EchoContentHandler();
-    private final HttpResponseState response;
+    private final HttpResponse response;
     private HttpMethod method;
     private ContentType contentType;
     private boolean accepted;
 
-    XmlEchoHandler(HttpResponseState response) {
+    XmlEchoHandler(HttpResponse response) {
         this.response = response;
     }
 
@@ -259,7 +259,7 @@ import org.bluezoo.gumdrop.http.server.*;
 public class XmlEchoStreamHandler implements HttpStreamHandler {
 
     @Override
-    public HttpRequestHandler openStream(HttpResponseState state) {
+    public HttpRequestHandler openStream(HttpResponse state) {
         return new DefaultHttpRequestHandler() {
             private HttpMethod method;
             private String path;
@@ -392,11 +392,11 @@ class LookupHandler extends DefaultHttpRequestHandler {
     private final int downstreamPort;
     private final JSONParser jsonParser = new JSONParser();
     private final LookupRequestHandler requestHandler = new LookupRequestHandler();
-    private final HttpResponseState state;
+    private final HttpResponse state;
     private HttpMethod method;
     private boolean accepted;
 
-    LookupHandler(HttpResponseState state, String host, int port) {
+    LookupHandler(HttpResponse state, String host, int port) {
         this.state = state;
         this.downstreamHost = host;
         this.downstreamPort = port;
@@ -597,7 +597,7 @@ public class LookupStreamHandler implements HttpStreamHandler {
     }
 
     @Override
-    public HttpRequestHandler openStream(HttpResponseState state) {
+    public HttpRequestHandler openStream(HttpResponse state) {
         return new DefaultHttpRequestHandler() {
             private String path;
 

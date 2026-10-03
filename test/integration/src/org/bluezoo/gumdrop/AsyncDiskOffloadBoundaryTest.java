@@ -26,7 +26,7 @@ import org.bluezoo.gumdrop.ftp.FtpProtocolHandler;
 import org.bluezoo.gumdrop.ftp.file.BasicFTPFileSystem;
 import org.bluezoo.gumdrop.ftp.file.SimpleFTPHandler;
 import org.bluezoo.gumdrop.http.server.HttpRequestHandler;
-import org.bluezoo.gumdrop.http.server.HttpResponseState;
+import org.bluezoo.gumdrop.http.server.HttpResponse;
 import org.bluezoo.gumdrop.http.HttpStatus;
 import org.bluezoo.gumdrop.http.HttpVersion;
 import org.bluezoo.gumdrop.http.Headers;
@@ -463,7 +463,7 @@ public class AsyncDiskOffloadBoundaryTest {
 
     // ── helpers ──
 
-    private static HttpRequestHandler newFileHandler(HttpResponseState response, Path root,
+    private static HttpRequestHandler newFileHandler(HttpResponse response, Path root,
             boolean allowWrite) throws Exception {
         Class<?> handlerClass =
                 Class.forName("org.bluezoo.gumdrop.webdav.FileHandler");
@@ -473,7 +473,7 @@ public class AsyncDiskOffloadBoundaryTest {
                 Class.forName("org.bluezoo.gumdrop.webdav.DeadPropertyStore");
         Class<?> realmClass = Class.forName("org.bluezoo.gumdrop.auth.Realm");
         Constructor<?> ctor = handlerClass.getDeclaredConstructor(
-                HttpResponseState.class, Path.class, boolean.class, boolean.class, String.class,
+                HttpResponse.class, Path.class, boolean.class, boolean.class, String.class,
                 String[].class, Map.class, lockClass, deadClass, realmClass);
         ctor.setAccessible(true);
         Constructor<?> lockCtor = lockClass.getDeclaredConstructor();
@@ -627,7 +627,7 @@ public class AsyncDiskOffloadBoundaryTest {
         }
     }
 
-    private static final class RecordingState implements HttpResponseState {
+    private static final class RecordingState implements HttpResponse {
         private final Object lock = new Object();
         private final ByteArrayOutputStream bodyOut =
                 new ByteArrayOutputStream();

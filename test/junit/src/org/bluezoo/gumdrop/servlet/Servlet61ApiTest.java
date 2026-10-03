@@ -24,7 +24,7 @@ package org.bluezoo.gumdrop.servlet;
 import org.bluezoo.gumdrop.NullSecurityInfo;
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.http.Headers;
-import org.bluezoo.gumdrop.http.server.HttpResponseState;
+import org.bluezoo.gumdrop.http.server.HttpResponse;
 import org.bluezoo.gumdrop.http.HttpVersion;
 
 import org.junit.Test;
@@ -119,20 +119,20 @@ public class Servlet61ApiTest {
     }
 
     private static final class StubServletHandler extends ServletHandler {
-        private final HttpResponseState stubState;
+        private final HttpResponse stubState;
 
-        StubServletHandler(HttpResponseState stubState) {
+        StubServletHandler(HttpResponse stubState) {
             super(new Container(), stubState, 8192);
             this.stubState = stubState;
         }
 
         @Override
-        HttpResponseState getState() {
+        HttpResponse getState() {
             return stubState;
         }
     }
 
-    private static final class StubHTTPResponseState implements HttpResponseState {
+    private static final class StubHTTPResponseState implements HttpResponse {
         String connectionId = "stub-conn";
         String protocolConnectionId = "";
         boolean secure;

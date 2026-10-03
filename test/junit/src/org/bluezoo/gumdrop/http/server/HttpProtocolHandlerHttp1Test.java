@@ -68,7 +68,7 @@ public class HttpProtocolHandlerHttp1Test {
     }
 
     private interface HeadersHook {
-        void run(HttpResponseState state, Headers headers);
+        void run(HttpResponse state, Headers headers);
     }
 
     private static class Fixture {
@@ -81,7 +81,7 @@ public class HttpProtocolHandlerHttp1Test {
             final Recorder r = rec;
             listener.setStreamHandler(new HttpStreamHandler() {
                 @Override
-                public HttpRequestHandler openStream(HttpResponseState state) {
+                public HttpRequestHandler openStream(HttpResponse state) {
                     return new CollectingRequestHandler(state) {
                         @Override
                         public boolean decodeRequestContentCoding() {
@@ -94,7 +94,7 @@ public class HttpProtocolHandlerHttp1Test {
                         }
 
                         @Override
-                        public void headers(HttpResponseState s, Headers headers) {
+                        public void headers(HttpResponse s, Headers headers) {
                             r.methods.add(headers.getValue(":method"));
                             r.paths.add(headers.getValue(":path"));
                             if (r.hook != null) {
@@ -103,7 +103,7 @@ public class HttpProtocolHandlerHttp1Test {
                         }
 
                         @Override
-                        public void requestBodyContent(HttpResponseState s,
+                        public void requestBodyContent(HttpResponse s,
                                 ByteBuffer data) {
                             byte[] b = new byte[data.remaining()];
                             data.get(b);
@@ -111,17 +111,17 @@ public class HttpProtocolHandlerHttp1Test {
                         }
 
                         @Override
-                        public void endRequestBody(HttpResponseState s) {
+                        public void endRequestBody(HttpResponse s) {
                             r.bodyEnds++;
                         }
 
                         @Override
-                        public void failed(HttpResponseState s, Exception cause) {
+                        public void failed(HttpResponse s, Exception cause) {
                             r.failed++;
                         }
 
                         @Override
-                        public void requestComplete(HttpResponseState s) {
+                        public void requestComplete(HttpResponse s) {
                             r.completed++;
                             if (r.hook != null) {
                                 return;
@@ -643,7 +643,7 @@ public class HttpProtocolHandlerHttp1Test {
         Fixture f = new Fixture();
         f.rec.hook = new HeadersHook() {
             @Override
-            public void run(HttpResponseState state, Headers headers) {
+            public void run(HttpResponse state, Headers headers) {
                 Headers resp = new Headers();
                 resp.add(":status", Integer.toString(status));
                 for (int i = 0; extra != null && i + 1 < extra.length; i += 2) {
@@ -707,7 +707,7 @@ public class HttpProtocolHandlerHttp1Test {
         Fixture f = new Fixture();
         f.rec.hook = new HeadersHook() {
             @Override
-            public void run(HttpResponseState state, Headers headers) {
+            public void run(HttpResponse state, Headers headers) {
                 Headers early = new Headers();
                 early.add("Link", "</s.css>; rel=preload");
                 state.sendInformational(103, early);
@@ -961,7 +961,7 @@ public class HttpProtocolHandlerHttp1Test {
         final RecordingWebSocketEventHandler ws = new RecordingWebSocketEventHandler();
         f.rec.hook = new HeadersHook() {
             @Override
-            public void run(HttpResponseState state, Headers headers) {
+            public void run(HttpResponse state, Headers headers) {
                 state.upgradeToWebSocket(null, ws);
             }
         };
@@ -997,7 +997,7 @@ public class HttpProtocolHandlerHttp1Test {
         final boolean[] threw = new boolean[1];
         f.rec.hook = new HeadersHook() {
             @Override
-            public void run(HttpResponseState state, Headers headers) {
+            public void run(HttpResponse state, Headers headers) {
                 try {
                     state.upgradeToWebSocket(null, ws);
                 } catch (IllegalStateException e) {
@@ -1022,7 +1022,7 @@ public class HttpProtocolHandlerHttp1Test {
         final boolean[] accepted = new boolean[1];
         f.rec.hook = new HeadersHook() {
             @Override
-            public void run(HttpResponseState state, Headers headers) {
+            public void run(HttpResponse state, Headers headers) {
                 accepted[0] = state.acceptConnectUdp();
             }
         };
@@ -1042,7 +1042,7 @@ public class HttpProtocolHandlerHttp1Test {
         final boolean[] accepted = new boolean[] {true};
         f.rec.hook = new HeadersHook() {
             @Override
-            public void run(HttpResponseState state, Headers headers) {
+            public void run(HttpResponse state, Headers headers) {
                 accepted[0] = state.acceptConnectIp();
                 Headers resp = new Headers();
                 resp.add(":status", "400");
@@ -1060,7 +1060,7 @@ public class HttpProtocolHandlerHttp1Test {
             final List<String> seen) {
         f.rec.hook = new HeadersHook() {
             @Override
-            public void run(HttpResponseState state, Headers headers) {
+            public void run(HttpResponse state, Headers headers) {
                 seen.add(headers.getValue(headerName));
                 Headers resp = new Headers();
                 resp.add(":status", "200");
@@ -1196,7 +1196,7 @@ public class HttpProtocolHandlerHttp1Test {
         Fixture f = new Fixture();
         f.rec.hook = new HeadersHook() {
             @Override
-            public void run(HttpResponseState state, Headers headers) {
+            public void run(HttpResponse state, Headers headers) {
                 Headers early = new Headers();
                 early.add("Link", "</a>; rel=preload");
                 state.sendInformational(103, early);

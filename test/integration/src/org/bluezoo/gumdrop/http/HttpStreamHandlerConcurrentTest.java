@@ -30,7 +30,7 @@ import org.bluezoo.gumdrop.http.client.HttpClientHandler;
 import org.bluezoo.gumdrop.http.client.HttpRequest;
 import org.bluezoo.gumdrop.http.server.Http2Listener;
 import org.bluezoo.gumdrop.http.server.HttpRequestHandler;
-import org.bluezoo.gumdrop.http.server.HttpResponseState;
+import org.bluezoo.gumdrop.http.server.HttpResponse;
 import org.bluezoo.gumdrop.http.server.HttpStreamHandler;
 import org.bluezoo.gumdrop.http.Headers;
 import org.bluezoo.gumdrop.http.HttpVersion;
@@ -191,7 +191,7 @@ public class HttpStreamHandlerConcurrentTest {
 
     private static final class AccumulatingStreamHandler implements HttpStreamHandler {
         @Override
-        public HttpRequestHandler openStream(HttpResponseState stream) {
+        public HttpRequestHandler openStream(HttpResponse stream) {
             return CollectingRequestHandler.bind(new AccumulatingHandler(), stream);
         }
     }
@@ -202,19 +202,19 @@ public class HttpStreamHandlerConcurrentTest {
         private String path;
 
         @Override
-        public void headers(HttpResponseState state, Headers headers) {
+        public void headers(HttpResponse state, Headers headers) {
             path = headers.getPath();
         }
 
         @Override
-        public void requestBodyContent(HttpResponseState state, ByteBuffer data) {
+        public void requestBodyContent(HttpResponse state, ByteBuffer data) {
             byte[] chunk = new byte[data.remaining()];
             data.get(chunk);
             body.append(new String(chunk, StandardCharsets.UTF_8));
         }
 
         @Override
-        public void endRequestBody(HttpResponseState state) {
+        public void endRequestBody(HttpResponse state) {
             Headers response = new Headers();
             response.add(":status", "200");
             response.add("content-type", "text/plain");

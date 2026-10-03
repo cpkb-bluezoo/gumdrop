@@ -23,7 +23,7 @@ package org.bluezoo.gumdrop.http.server;
 
 import org.bluezoo.gumdrop.http.Header;
 import org.bluezoo.gumdrop.http.Headers;
-import org.bluezoo.gumdrop.http.server.HttpResponseState;
+import org.bluezoo.gumdrop.http.server.HttpResponse;
 import org.bluezoo.gumdrop.http.server.HttpStreamHandler;
 import org.bluezoo.gumdrop.http.HttpVersion;
 
@@ -121,10 +121,10 @@ public class StreamH2WebSocketUpgradeTest {
     private static HttpStreamHandler upgradingStreamHandler() {
         return new HttpStreamHandler() {
             @Override
-            public HttpRequestHandler openStream(HttpResponseState state) {
+            public HttpRequestHandler openStream(HttpResponse state) {
                 return new CollectingRequestHandler(state) {
                     @Override
-                    public void headers(HttpResponseState state, Headers headers) {
+                    public void headers(HttpResponse state, Headers headers) {
                         state.upgradeToWebSocket(null, new DefaultWebSocketEventHandler() { });
                     }
                 };
@@ -223,10 +223,10 @@ public class StreamH2WebSocketUpgradeTest {
         final int[] closes = new int[2];
         conn.streamHandler = new HttpStreamHandler() {
             @Override
-            public HttpRequestHandler openStream(HttpResponseState state) {
+            public HttpRequestHandler openStream(HttpResponse state) {
                 return new CollectingRequestHandler(state) {
                     @Override
-                    public void headers(HttpResponseState state, Headers headers) {
+                    public void headers(HttpResponse state, Headers headers) {
                         state.upgradeToWebSocket(null, new DefaultWebSocketEventHandler() {
                             @Override
                             public void closed(int code, String reason) {

@@ -23,7 +23,7 @@ package org.bluezoo.gumdrop.http.client;
 
 import org.bluezoo.gumdrop.http.Headers;
 import org.bluezoo.gumdrop.http.server.HttpRequestHandler;
-import org.bluezoo.gumdrop.http.server.HttpResponseState;
+import org.bluezoo.gumdrop.http.server.HttpResponse;
 import org.bluezoo.gumdrop.http.server.HttpStreamHandler;
 import org.bluezoo.gumdrop.http.HttpStatus;
 
@@ -57,7 +57,7 @@ public class EchoHandlerFactory implements HttpStreamHandler {
     }
 
     @Override
-    public HttpRequestHandler openStream(HttpResponseState state) {
+    public HttpRequestHandler openStream(HttpResponse state) {
         return CollectingRequestHandler.bind(new EchoHandler(), state);
     }
 
@@ -73,7 +73,7 @@ public class EchoHandlerFactory implements HttpStreamHandler {
         private ByteArrayOutputStream bodyBuffer = new ByteArrayOutputStream();
 
         @Override
-        public void headers(HttpResponseState state, Headers headers) {
+        public void headers(HttpResponse state, Headers headers) {
             this.method = headers.getMethod();
             this.path = headers.getPath();
             this.contentType = headers.getValue("content-type");
@@ -91,12 +91,12 @@ public class EchoHandlerFactory implements HttpStreamHandler {
         }
 
         @Override
-        public void startRequestBody(HttpResponseState state) {
+        public void startRequestBody(HttpResponse state) {
             // Ready to receive body
         }
 
         @Override
-        public void requestBodyContent(HttpResponseState state, ByteBuffer data) {
+        public void requestBodyContent(HttpResponse state, ByteBuffer data) {
             byte[] bytes = new byte[data.remaining()];
             data.get(bytes);
             try {
@@ -107,12 +107,12 @@ public class EchoHandlerFactory implements HttpStreamHandler {
         }
 
         @Override
-        public void endRequestBody(HttpResponseState state) {
+        public void endRequestBody(HttpResponse state) {
             // Body complete
         }
 
         @Override
-        public void requestComplete(HttpResponseState state) {
+        public void requestComplete(HttpResponse state) {
             HttpStatus status = HttpStatus.OK;
 
             // RFC 9110 section 9.3.2: HEAD responses have no message body

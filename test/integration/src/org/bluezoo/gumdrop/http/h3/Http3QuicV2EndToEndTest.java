@@ -43,7 +43,7 @@ import org.bluezoo.gumdrop.http.HttpStatus;
 import org.bluezoo.gumdrop.http.client.HttpResponseHandler;
 import org.bluezoo.gumdrop.http.client.PushPromise;
 import org.bluezoo.gumdrop.http.server.HttpRequestHandler;
-import org.bluezoo.gumdrop.http.server.HttpResponseState;
+import org.bluezoo.gumdrop.http.server.HttpResponse;
 import org.bluezoo.gumdrop.http.server.HttpStreamHandler;
 import org.bluezoo.gumdrop.quic.QuicConnection;
 import org.bluezoo.gumdrop.quic.QuicEngine;
@@ -99,10 +99,10 @@ public class Http3QuicV2EndToEndTest {
             final byte[] responseBody = bodyOf(BODY_LENGTH).getBytes(StandardCharsets.US_ASCII);
             final HttpStreamHandler streamHandler = new HttpStreamHandler() {
                 @Override
-                public HttpRequestHandler openStream(HttpResponseState state) {
+                public HttpRequestHandler openStream(HttpResponse state) {
                     return new CollectingRequestHandler(state) {
                         @Override
-                        public void headers(HttpResponseState state, Headers headers) {
+                        public void headers(HttpResponse state, Headers headers) {
                             Headers response = new Headers();
                             response.add(":status", "200");
                             response.add("content-type", "text/plain");
@@ -117,19 +117,19 @@ public class Http3QuicV2EndToEndTest {
                         }
 
                         @Override
-                        public void startRequestBody(HttpResponseState state) {
+                        public void startRequestBody(HttpResponse state) {
                         }
 
                         @Override
-                        public void requestBodyContent(HttpResponseState state, ByteBuffer data) {
+                        public void requestBodyContent(HttpResponse state, ByteBuffer data) {
                         }
 
                         @Override
-                        public void endRequestBody(HttpResponseState state) {
+                        public void endRequestBody(HttpResponse state) {
                         }
 
                         @Override
-                        public void requestComplete(HttpResponseState state) {
+                        public void requestComplete(HttpResponse state) {
                         }
                     };
                 }

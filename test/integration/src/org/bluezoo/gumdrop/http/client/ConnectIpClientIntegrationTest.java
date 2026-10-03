@@ -32,7 +32,7 @@ import org.bluezoo.gumdrop.http.server.ConnectIpRequestHandler;
 import org.bluezoo.gumdrop.http.server.ConnectIpSession;
 import org.bluezoo.gumdrop.http.server.Http2Listener;
 import org.bluezoo.gumdrop.http.server.HttpRequestHandler;
-import org.bluezoo.gumdrop.http.server.HttpResponseState;
+import org.bluezoo.gumdrop.http.server.HttpResponse;
 import org.bluezoo.gumdrop.http.server.HttpStreamHandler;
 import org.bluezoo.gumdrop.http.server.IpPacketHandler;
 import org.junit.BeforeClass;
@@ -267,7 +267,7 @@ public class ConnectIpClientIntegrationTest extends AbstractServerIntegrationTes
         private final IpPacketHandler echo = new EchoIpPacketHandler();
 
         @Override
-        public HttpRequestHandler openStream(HttpResponseState state) {
+        public HttpRequestHandler openStream(HttpResponse state) {
             return new ConnectIpRequestHandler(state, permissive, echo);
         }
     }

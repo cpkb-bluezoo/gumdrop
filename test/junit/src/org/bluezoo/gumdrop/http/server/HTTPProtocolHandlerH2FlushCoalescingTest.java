@@ -23,7 +23,7 @@ package org.bluezoo.gumdrop.http.server;
 
 import org.bluezoo.gumdrop.http.Header;
 import org.bluezoo.gumdrop.http.Headers;
-import org.bluezoo.gumdrop.http.server.HttpResponseState;
+import org.bluezoo.gumdrop.http.server.HttpResponse;
 import org.bluezoo.gumdrop.http.HttpStatus;
 
 import org.bluezoo.gumdrop.Endpoint;
@@ -49,7 +49,7 @@ import static org.junit.Assert.*;
  * Regression test for issue #322: {@code sendResponseHeaders} and {@code
  * sendResponseBody} each called {@code h2Writer.flush()} independently, so
  * a small HTTP/2 response answered synchronously (headers, one body
- * chunk, then the empty END_STREAM DATA frame {@link HttpResponseState#complete()}
+ * chunk, then the empty END_STREAM DATA frame {@link HttpResponse#complete()}
  * sends once no headers remain buffered) produced three separate {@code
  * EndpointChannel.write()} calls -- three separate TLS records for a
  * secure connection -- instead of coalescing what the writer had already
@@ -62,7 +62,7 @@ public class HTTPProtocolHandlerH2FlushCoalescingTest {
     /** Answers entirely within headers(), like the DefaultHttpRequestHandler javadoc example. */
     private static final class SynchronousGetHandler extends CollectingRequestHandler {
         @Override
-        public void headers(HttpResponseState state, Headers headers) {
+        public void headers(HttpResponse state, Headers headers) {
             if ("GET".equals(headers.getMethod())) {
                 Headers response = new Headers();
                 response.status(HttpStatus.OK);
@@ -119,7 +119,7 @@ public class HTTPProtocolHandlerH2FlushCoalescingTest {
         Http2Listener listener = new Http2Listener();
         listener.setStreamHandler(new HttpStreamHandler() {
             @Override
-            public HttpRequestHandler openStream(HttpResponseState state) {
+            public HttpRequestHandler openStream(HttpResponse state) {
                 return CollectingRequestHandler.bind(new SynchronousGetHandler(), state);
             }
         });

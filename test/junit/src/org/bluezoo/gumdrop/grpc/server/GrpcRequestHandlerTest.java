@@ -41,7 +41,7 @@ import org.bluezoo.gumdrop.http.Headers;
 import org.bluezoo.gumdrop.http.HttpStatus;
 import org.bluezoo.gumdrop.http.HttpVersion;
 import org.bluezoo.gumdrop.http.server.HttpRequestHandler;
-import org.bluezoo.gumdrop.http.server.HttpResponseState;
+import org.bluezoo.gumdrop.http.server.HttpResponse;
 import org.bluezoo.gumdrop.websocket.WebSocketEventHandler;
 import org.junit.BeforeClass;
 import org.junit.Test;
@@ -133,7 +133,7 @@ public class GrpcRequestHandlerTest {
         stream.endHeaders();
     }
 
-    private static final class CapturingState implements HttpResponseState {
+    private static final class CapturingState implements HttpResponse {
         Headers responseHeaders;
         HttpStatus responseStatus;
 

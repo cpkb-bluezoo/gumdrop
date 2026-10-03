@@ -30,7 +30,7 @@ import org.bluezoo.gumdrop.http.client.HttpClientHandler;
 import org.bluezoo.gumdrop.http.client.HttpRequest;
 import org.bluezoo.gumdrop.http.server.Http2Listener;
 import org.bluezoo.gumdrop.http.server.HttpRequestHandler;
-import org.bluezoo.gumdrop.http.server.HttpResponseState;
+import org.bluezoo.gumdrop.http.server.HttpResponse;
 import org.bluezoo.gumdrop.http.server.HttpStreamHandler;
 import org.bluezoo.gumdrop.http.Headers;
 import org.bluezoo.gumdrop.testsupport.CollectingRequestHandler;
@@ -175,14 +175,14 @@ public class HttpServerCompositionTest {
 
     private static final class HelloStreamHandler implements HttpStreamHandler {
         @Override
-        public HttpRequestHandler openStream(HttpResponseState stream) {
+        public HttpRequestHandler openStream(HttpResponse stream) {
             return CollectingRequestHandler.bind(new HelloHandler(), stream);
         }
     }
 
     private static final class HelloHandler extends CollectingRequestHandler {
         @Override
-        public void headers(HttpResponseState state, Headers headers) {
+        public void headers(HttpResponse state, Headers headers) {
             Headers response = new Headers();
             response.add(":status", "200");
             response.add("content-type", "text/plain");

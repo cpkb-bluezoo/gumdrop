@@ -1,5 +1,5 @@
 /*
- * HttpResponseState.java
+ * HttpResponse.java
  * Copyright (C) 2025 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -114,7 +114,7 @@ import org.bluezoo.gumdrop.websocket.WebSocketExtension;
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see HttpRequestHandler
  */
-public interface HttpResponseState {
+public interface HttpResponse {
 
     // ─────────────────────────────────────────────────────────────────────────
     // Connection Info
@@ -566,7 +566,7 @@ public interface HttpResponseState {
      *
      * <p>Example usage:
      * <pre>{@code
-     * public void headers(HttpResponseState state, Headers headers) {
+     * public void headers(HttpResponse state, Headers headers) {
      *     if (WebSocketHandshake.isValidWebSocketUpgrade(headers)) {
      *         String protocol = headers.getValue("Sec-WebSocket-Protocol");
      *         state.upgradeToWebSocket(protocol, new DefaultWebSocketEventHandler() {

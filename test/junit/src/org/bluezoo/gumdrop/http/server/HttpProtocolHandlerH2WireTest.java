@@ -91,7 +91,7 @@ public class HttpProtocolHandlerH2WireTest {
         boolean push;
         boolean informational;
         boolean failedSeen;
-        HttpResponseState lastState;
+        HttpResponse lastState;
         Headers lastHeaders;
         Runnable writable;
     }
@@ -110,10 +110,10 @@ public class HttpProtocolHandlerH2WireTest {
             final App a = app;
             listener.setStreamHandler(new HttpStreamHandler() {
                 @Override
-                public HttpRequestHandler openStream(HttpResponseState state) {
+                public HttpRequestHandler openStream(HttpResponse state) {
                     return new CollectingRequestHandler(state) {
                         @Override
-                        public void headers(HttpResponseState s, Headers headers) {
+                        public void headers(HttpResponse s, Headers headers) {
                             a.events.add("headers");
                             a.lastState = s;
                             a.lastHeaders = headers;
@@ -123,12 +123,12 @@ public class HttpProtocolHandlerH2WireTest {
                         }
 
                         @Override
-                        public void startRequestBody(HttpResponseState s) {
+                        public void startRequestBody(HttpResponse s) {
                             a.events.add("startBody");
                         }
 
                         @Override
-                        public void requestBodyContent(HttpResponseState s,
+                        public void requestBodyContent(HttpResponse s,
                                 ByteBuffer data) {
                             byte[] b = new byte[data.remaining()];
                             data.get(b);
@@ -136,12 +136,12 @@ public class HttpProtocolHandlerH2WireTest {
                         }
 
                         @Override
-                        public void endRequestBody(HttpResponseState s) {
+                        public void endRequestBody(HttpResponse s) {
                             a.events.add("endBody");
                         }
 
                         @Override
-                        public void requestComplete(HttpResponseState s) {
+                        public void requestComplete(HttpResponse s) {
                             a.events.add("complete");
                             if (!a.respondInHeaders) {
                                 respond(s);
@@ -149,12 +149,12 @@ public class HttpProtocolHandlerH2WireTest {
                         }
 
                         @Override
-                        public void failed(HttpResponseState s, Exception cause) {
+                        public void failed(HttpResponse s, Exception cause) {
                             a.failedSeen = true;
                             a.events.add("failed");
                         }
 
-                        private void respond(HttpResponseState s) {
+                        private void respond(HttpResponse s) {
                             if (a.informational) {
                                 Headers early = new Headers();
                                 early.add("Link", "</style.css>; rel=preload");

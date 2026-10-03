@@ -42,7 +42,7 @@ import org.bluezoo.gumdrop.http.Header;
 import org.bluezoo.gumdrop.http.Headers;
 import org.bluezoo.gumdrop.http.HttpStatus;
 import org.bluezoo.gumdrop.http.qpack.SimpleEncoder;
-import org.bluezoo.gumdrop.http.server.HttpResponseState;
+import org.bluezoo.gumdrop.http.server.HttpResponse;
 import org.bluezoo.gumdrop.http.server.HttpServerMetrics;
 import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
 import org.bluezoo.gumdrop.testsupport.RecordingWebSocketEventHandler;
@@ -81,11 +81,11 @@ public class H3ServerEdgeTest {
         @Override public void close() { }
     }
 
-    private static HttpResponseState respondOk(H3ServerFlowTest.Fixture f, H3Stream stream,
+    private static HttpResponse respondOk(H3ServerFlowTest.Fixture f, H3Stream stream,
             boolean body) {
         H3ServerFlowTest.feed(stream, H3ServerFlowTest.get("/"));
         stream.readFinished();
-        HttpResponseState state = f.rec.state;
+        HttpResponse state = f.rec.state;
         Headers h = new Headers();
         h.status(HttpStatus.OK);
         state.headers(h);
@@ -154,9 +154,9 @@ public class H3ServerEdgeTest {
     public void testSecondStreamsBodyIsHeldUntilTheFirstFinishes() throws Exception {
         H3ServerFlowTest.Fixture f = new H3ServerFlowTest.Fixture();
         H3Stream a = f.open();
-        HttpResponseState stateA = respondOk(f, a, true);
+        HttpResponse stateA = respondOk(f, a, true);
         H3Stream b = f.open();
-        HttpResponseState stateB = respondOk(f, b, true);
+        HttpResponse stateB = respondOk(f, b, true);
         assertFalse(a.hasHeldBody());
         assertTrue(b.hasHeldBody());
         stateB.endResponseBody();
@@ -173,7 +173,7 @@ public class H3ServerEdgeTest {
         H3ServerFlowTest.feed(a, H3ServerFlowTest.headersFrame(":method", "GET", ":scheme", "https",
                 ":path", "/", ":authority", "x", "priority", "u=1"));
         a.readFinished();
-        HttpResponseState stateA = f.rec.state;
+        HttpResponse stateA = f.rec.state;
         Headers ha = new Headers();
         ha.status(HttpStatus.OK);
         stateA.headers(ha);
@@ -183,7 +183,7 @@ public class H3ServerEdgeTest {
         H3ServerFlowTest.feed(b, H3ServerFlowTest.headersFrame(":method", "GET", ":scheme", "https",
                 ":path", "/", ":authority", "x", "priority", "u=5"));
         b.readFinished();
-        HttpResponseState stateB = f.rec.state;
+        HttpResponse stateB = f.rec.state;
         Headers hb = new Headers();
         hb.status(HttpStatus.OK);
         stateB.headers(hb);
@@ -199,7 +199,7 @@ public class H3ServerEdgeTest {
     public void testHeldBodiesAreReleasedOneAtATimeLowestStreamFirst() throws Exception {
         H3ServerFlowTest.Fixture f = new H3ServerFlowTest.Fixture();
         H3Stream a = f.open();
-        HttpResponseState stateA = respondOk(f, a, true);
+        HttpResponse stateA = respondOk(f, a, true);
         H3Stream b = f.open();
         respondOk(f, b, true);
         H3Stream c = f.open();

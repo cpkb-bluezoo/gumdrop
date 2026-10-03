@@ -38,9 +38,9 @@ import java.nio.ByteBuffer;
  * <pre>{@code
  * public class HelloHandler extends DefaultHttpRequestHandler {
  *     
- *     private final HttpResponseState state;
+ *     private final HttpResponse state;
  *
- *     public HelloHandler(HttpResponseState state) {
+ *     public HelloHandler(HttpResponse state) {
  *         this.state = state;
  *     }
  *

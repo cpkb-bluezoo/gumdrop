@@ -26,7 +26,7 @@ import org.bluezoo.gumdrop.http.Header;
 import org.bluezoo.gumdrop.http.Headers;
 import org.bluezoo.gumdrop.http.server.HttpAuthenticationProvider;
 import org.bluezoo.gumdrop.http.HttpDateFormat;
-import org.bluezoo.gumdrop.http.server.HttpResponseState;
+import org.bluezoo.gumdrop.http.server.HttpResponse;
 import org.bluezoo.gumdrop.http.HttpVersion;
 import org.bluezoo.gumdrop.websocket.WebSocketHandshake;
 import org.bluezoo.gumdrop.mime.ContentType;
@@ -128,7 +128,7 @@ class Request implements HttpServletRequest {
             queryString = uri.getRawQuery();
         }
         
-        HttpResponseState state = handler.getState();
+        HttpResponse state = handler.getState();
         this.secure = state.isSecure();
         this.requestId = Long.toHexString(REQUEST_SEQ.incrementAndGet());
         this.connectionId = state.getConnectionId();

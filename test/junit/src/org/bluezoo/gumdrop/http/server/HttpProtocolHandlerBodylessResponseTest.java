@@ -44,10 +44,10 @@ public class HttpProtocolHandlerBodylessResponseTest {
         Http2Listener listener = new Http2Listener();
         listener.setStreamHandler(new HttpStreamHandler() {
             @Override
-            public HttpRequestHandler openStream(HttpResponseState state) {
+            public HttpRequestHandler openStream(HttpResponse state) {
                 return new CollectingRequestHandler(state) {
                     @Override
-                    public void headers(HttpResponseState s, Headers headers) {
+                    public void headers(HttpResponse s, Headers headers) {
                         Headers response = new Headers();
                         response.add(":status", status);
                         s.headers(response);
@@ -102,10 +102,10 @@ public class HttpProtocolHandlerBodylessResponseTest {
         Http2Listener listener = new Http2Listener();
         listener.setStreamHandler(new HttpStreamHandler() {
             @Override
-            public HttpRequestHandler openStream(HttpResponseState state) {
+            public HttpRequestHandler openStream(HttpResponse state) {
                 return new CollectingRequestHandler(state) {
                     @Override
-                    public void headers(HttpResponseState s, Headers headers) {
+                    public void headers(HttpResponse s, Headers headers) {
                         Headers response = new Headers();
                         response.add(":status", "200");
                         s.headers(response);

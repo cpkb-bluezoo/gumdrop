@@ -39,7 +39,7 @@ import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.http.Headers;
 import org.bluezoo.gumdrop.http.HttpVersion;
-import org.bluezoo.gumdrop.http.server.HttpResponseState;
+import org.bluezoo.gumdrop.http.server.HttpResponse;
 import org.bluezoo.gumdrop.websocket.WebSocketEventHandler;
 import org.bluezoo.gumdrop.websocket.WebSocketSession;
 
@@ -98,7 +98,7 @@ public class WebSocketServletStreamsTest {
         }
     }
 
-    private static class State implements HttpResponseState {
+    private static class State implements HttpResponse {
         volatile int pending;
 
         @Override
@@ -201,15 +201,15 @@ public class WebSocketServletStreamsTest {
     }
 
     private static final class Handler extends ServletHandler {
-        private final HttpResponseState state;
+        private final HttpResponse state;
 
-        Handler(Container container, HttpResponseState state) {
+        Handler(Container container, HttpResponse state) {
             super(container, state, 8192);
             this.state = state;
         }
 
         @Override
-        HttpResponseState getState() {
+        HttpResponse getState() {
             return state;
         }
     }

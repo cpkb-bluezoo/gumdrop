@@ -25,7 +25,7 @@
  * protocol implemented in the sibling {@link org.bluezoo.gumdrop.http.h3}
  * package, running over QUIC rather than TCP; {@link
  * org.bluezoo.gumdrop.http.server.HttpRequestHandler} and {@link
- * org.bluezoo.gumdrop.http.server.HttpResponseState} are shared by all three
+ * org.bluezoo.gumdrop.http.server.HttpResponse} are shared by all three
  * server versions, so request handlers are written once.
  *
  * <p>Server-side SPI ({@link org.bluezoo.gumdrop.http.server.Http2Listener},
@@ -43,7 +43,7 @@
  *
  * <p>Handlers can send 1xx informational responses (e.g. 103 Early
  * Hints, RFC 8297) before the final response via {@link
- * org.bluezoo.gumdrop.http.server.HttpResponseState#sendInformational}, across
+ * org.bluezoo.gumdrop.http.server.HttpResponse#sendInformational}, across
  * all three HTTP versions.
  *
  * <p>Origin-server caching semantics (validators, conditional GET,

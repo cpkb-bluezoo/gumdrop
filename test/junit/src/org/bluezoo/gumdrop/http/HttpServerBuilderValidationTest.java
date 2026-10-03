@@ -25,7 +25,7 @@ import java.nio.file.Path;
 import org.bluezoo.gumdrop.http.server.Http2Listener;
 import org.bluezoo.gumdrop.http.server.DefaultHttpRequestHandler;
 import org.bluezoo.gumdrop.http.server.HttpRequestHandler;
-import org.bluezoo.gumdrop.http.server.HttpResponseState;
+import org.bluezoo.gumdrop.http.server.HttpResponse;
 import org.bluezoo.gumdrop.http.server.HttpStreamHandler;
 import org.bluezoo.gumdrop.tls.TlsConfig;
 import org.bluezoo.gumdrop.http.h3.Http3Listener;
@@ -85,7 +85,7 @@ public class HttpServerBuilderValidationTest {
         HttpServer.compose()
                 .streamHandler(new HttpStreamHandler() {
                     @Override
-                    public HttpRequestHandler openStream(HttpResponseState stream) {
+                    public HttpRequestHandler openStream(HttpResponse stream) {
                         return new DefaultHttpRequestHandler();
                     }
                 })

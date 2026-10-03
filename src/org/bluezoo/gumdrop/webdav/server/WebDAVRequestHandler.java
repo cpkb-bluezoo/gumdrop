@@ -24,7 +24,7 @@ package org.bluezoo.gumdrop.webdav.server;
 import org.bluezoo.gumdrop.auth.Realm;
 import org.bluezoo.gumdrop.http.Headers;
 import org.bluezoo.gumdrop.http.server.HttpRequestHandler;
-import org.bluezoo.gumdrop.http.server.HttpResponseState;
+import org.bluezoo.gumdrop.http.server.HttpResponse;
 import org.bluezoo.gumdrop.http.server.HttpStreamHandler;
 import org.bluezoo.gumdrop.webdav.DeadPropertyStore;
 import org.bluezoo.gumdrop.webdav.FileRequestRouter;
@@ -70,7 +70,7 @@ public final class WebDAVRequestHandler implements HttpStreamHandler {
     }
 
     @Override
-    public HttpRequestHandler openStream(HttpResponseState stream) {
+    public HttpRequestHandler openStream(HttpResponse stream) {
         return fileRouter.openStream(stream);
     }
 
@@ -239,7 +239,7 @@ public final class WebDAVRequestHandler implements HttpStreamHandler {
          * (e.g. {@code webdav:read}, {@code webdav:write}) via
          * {@link Realm#isUserInRole}; the
          * authenticated username itself comes from
-         * {@link org.bluezoo.gumdrop.http.server.HttpResponseState#getPrincipal()},
+         * {@link org.bluezoo.gumdrop.http.server.HttpResponse#getPrincipal()},
          * which is populated by whatever HTTP authentication (Basic,
          * Digest, Bearer, mTLS) is configured on the listener this
          * handler is deployed behind -- WebDAV ACL support does not

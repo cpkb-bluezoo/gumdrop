@@ -22,7 +22,7 @@
 package org.bluezoo.gumdrop.servlet;
 
 import org.bluezoo.gumdrop.http.Headers;
-import org.bluezoo.gumdrop.http.server.HttpResponseState;
+import org.bluezoo.gumdrop.http.server.HttpResponse;
 import org.bluezoo.gumdrop.http.HttpVersion;
 
 import org.bluezoo.gumdrop.testsupport.MessageEvents;
@@ -279,7 +279,7 @@ public class ServletNonBlockingIOTest {
         return new Request(handler, 8192, "GET", "/test", new Headers(), body);
     }
 
-    private static void bindHandlerState(ServletHandler handler, HttpResponseState state,
+    private static void bindHandlerState(ServletHandler handler, HttpResponse state,
             Request request, Response response) throws Exception {
         java.lang.reflect.Field stateField = ServletHandler.class.getDeclaredField("state");
         stateField.setAccessible(true);
@@ -293,15 +293,15 @@ public class ServletNonBlockingIOTest {
     }
 
     private static final class StubServletHandler extends ServletHandler {
-        private final HttpResponseState stubState;
+        private final HttpResponse stubState;
 
-        StubServletHandler(Container service, HttpResponseState stubState) {
+        StubServletHandler(Container service, HttpResponse stubState) {
             super(service, stubState, 8192);
             this.stubState = stubState;
         }
 
         @Override
-        HttpResponseState getState() {
+        HttpResponse getState() {
             return stubState;
         }
     }
@@ -319,7 +319,7 @@ public class ServletNonBlockingIOTest {
         }
     }
 
-    private static class StubHTTPResponseState implements HttpResponseState {
+    private static class StubHTTPResponseState implements HttpResponse {
         @Override public java.net.SocketAddress getRemoteAddress() {
             return new java.net.InetSocketAddress("127.0.0.1", 54321);
         }

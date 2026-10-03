@@ -34,7 +34,7 @@ import org.bluezoo.gumdrop.http.Header;
 import org.bluezoo.gumdrop.http.Headers;
 import org.bluezoo.gumdrop.http.server.HttpRequestHandler;
 import org.bluezoo.gumdrop.http.server.HttpStreamHandler;
-import org.bluezoo.gumdrop.http.server.HttpResponseState;
+import org.bluezoo.gumdrop.http.server.HttpResponse;
 import org.bluezoo.gumdrop.http.server.Http2Listener;
 import org.bluezoo.gumdrop.http.HttpStatus;
 import org.bluezoo.gumdrop.Endpoint;
@@ -83,7 +83,7 @@ public class OTLPEndpointIntegrationTest {
         server.addresses(java.net.InetAddress.getByName("::1"));
         server.setStreamHandler(new HttpStreamHandler() {
             @Override
-            public HttpRequestHandler openStream(HttpResponseState state) {
+            public HttpRequestHandler openStream(HttpResponse state) {
                 lastHandler = CollectingRequestHandler.bind(new TestHandler(), state);
                 return lastHandler;
             }
@@ -255,12 +255,12 @@ public class OTLPEndpointIntegrationTest {
     static class TestHandler extends CollectingRequestHandler {
         private ByteArrayOutputStream bodyBuffer = new ByteArrayOutputStream();
         private Headers requestHeaders;
-        private HttpResponseState state;
+        private HttpResponse state;
         private String path;
         private boolean hasBody;
 
         @Override
-        public void headers(HttpResponseState state, Headers headers) {
+        public void headers(HttpResponse state, Headers headers) {
             this.state = state;
             this.requestHeaders = headers;
             this.path = headers.getPath();
@@ -270,13 +270,13 @@ public class OTLPEndpointIntegrationTest {
         }
 
         @Override
-        public void startRequestBody(HttpResponseState state) {
+        public void startRequestBody(HttpResponse state) {
             hasBody = true;
             LOGGER.info("  startRequestBody called");
         }
 
         @Override
-        public void requestBodyContent(HttpResponseState state, ByteBuffer data) {
+        public void requestBodyContent(HttpResponse state, ByteBuffer data) {
             int remaining = data.remaining();
             byte[] buf = new byte[remaining];
             data.get(buf);
@@ -287,12 +287,12 @@ public class OTLPEndpointIntegrationTest {
         }
 
         @Override
-        public void endRequestBody(HttpResponseState state) {
+        public void endRequestBody(HttpResponse state) {
             LOGGER.info("  endRequestBody called, total: " + bodyBuffer.size() + " bytes");
         }
 
         @Override
-        public void requestComplete(HttpResponseState state) {
+        public void requestComplete(HttpResponse state) {
             LOGGER.info("  requestComplete called, body=" + hasBody + ", bodySize=" + bodyBuffer.size());
             sendOk();
         }

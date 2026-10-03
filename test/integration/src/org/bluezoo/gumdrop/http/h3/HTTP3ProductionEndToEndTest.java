@@ -52,7 +52,7 @@ import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.StreamAcceptHandler;
 import org.bluezoo.gumdrop.http.server.DefaultHttpRequestHandler;
 import org.bluezoo.gumdrop.http.server.HttpRequestHandler;
-import org.bluezoo.gumdrop.http.server.HttpResponseState;
+import org.bluezoo.gumdrop.http.server.HttpResponse;
 import org.bluezoo.gumdrop.http.server.HttpStreamHandler;
 import org.bluezoo.gumdrop.http.HttpStatus;
 import org.bluezoo.gumdrop.http.Headers;
@@ -164,10 +164,10 @@ public class HTTP3ProductionEndToEndTest {
 
             final HttpStreamHandler streamHandler = new HttpStreamHandler() {
                 @Override
-                public HttpRequestHandler openStream(HttpResponseState state) {
+                public HttpRequestHandler openStream(HttpResponse state) {
                     return new CollectingRequestHandler(state) {
                         @Override
-                        public void headers(HttpResponseState state, Headers headers) {
+                        public void headers(HttpResponse state, Headers headers) {
                             Headers response = new Headers();
                             response.add(":status", "200");
                             response.add("content-type", "text/plain");
@@ -180,19 +180,19 @@ public class HTTP3ProductionEndToEndTest {
                         }
 
                         @Override
-                        public void startRequestBody(HttpResponseState state) {
+                        public void startRequestBody(HttpResponse state) {
                         }
 
                         @Override
-                        public void requestBodyContent(HttpResponseState state, ByteBuffer data) {
+                        public void requestBodyContent(HttpResponse state, ByteBuffer data) {
                         }
 
                         @Override
-                        public void endRequestBody(HttpResponseState state) {
+                        public void endRequestBody(HttpResponse state) {
                         }
 
                         @Override
-                        public void requestComplete(HttpResponseState state) {
+                        public void requestComplete(HttpResponse state) {
                         }
                     };
                 }
@@ -326,7 +326,7 @@ public class HTTP3ProductionEndToEndTest {
 
             final HttpStreamHandler streamHandler = new HttpStreamHandler() {
                 @Override
-                public HttpRequestHandler openStream(HttpResponseState state) {
+                public HttpRequestHandler openStream(HttpResponse state) {
                     return new CollectingRequestHandler(state) {
                         @Override
                         public boolean wantsDatagrams() {
@@ -334,14 +334,14 @@ public class HTTP3ProductionEndToEndTest {
                         }
 
                         @Override
-                        public void datagramReceived(HttpResponseState state, ByteBuffer data) {
+                        public void datagramReceived(HttpResponse state, ByteBuffer data) {
                             byte[] copy = new byte[data.remaining()];
                             data.get(copy);
                             state.sendDatagram(ByteBuffer.wrap(copy));
                         }
 
                         @Override
-                        public void headers(HttpResponseState state, Headers headers) {
+                        public void headers(HttpResponse state, Headers headers) {
                             Headers response = new Headers();
                             response.add(":status", "200");
                             state.headers(response);
@@ -351,19 +351,19 @@ public class HTTP3ProductionEndToEndTest {
                         }
 
                         @Override
-                        public void startRequestBody(HttpResponseState state) {
+                        public void startRequestBody(HttpResponse state) {
                         }
 
                         @Override
-                        public void requestBodyContent(HttpResponseState state, ByteBuffer data) {
+                        public void requestBodyContent(HttpResponse state, ByteBuffer data) {
                         }
 
                         @Override
-                        public void endRequestBody(HttpResponseState state) {
+                        public void endRequestBody(HttpResponse state) {
                         }
 
                         @Override
-                        public void requestComplete(HttpResponseState state) {
+                        public void requestComplete(HttpResponse state) {
                         }
                     };
                 }
@@ -536,10 +536,10 @@ public class HTTP3ProductionEndToEndTest {
             final AtomicBoolean sawTooBig = new AtomicBoolean(false);
             final HttpStreamHandler streamHandler = new HttpStreamHandler() {
                 @Override
-                public HttpRequestHandler openStream(HttpResponseState state) {
+                public HttpRequestHandler openStream(HttpResponse state) {
                     return new CollectingRequestHandler(state) {
                         @Override
-                        public void headers(HttpResponseState state, Headers headers) {
+                        public void headers(HttpResponse state, Headers headers) {
                             if ("/too-big".equals(headers.getPath())) {
                                 sawTooBig.set(true);
                             }
@@ -555,19 +555,19 @@ public class HTTP3ProductionEndToEndTest {
                         }
 
                         @Override
-                        public void startRequestBody(HttpResponseState state) {
+                        public void startRequestBody(HttpResponse state) {
                         }
 
                         @Override
-                        public void requestBodyContent(HttpResponseState state, ByteBuffer data) {
+                        public void requestBodyContent(HttpResponse state, ByteBuffer data) {
                         }
 
                         @Override
-                        public void endRequestBody(HttpResponseState state) {
+                        public void endRequestBody(HttpResponse state) {
                         }
 
                         @Override
-                        public void requestComplete(HttpResponseState state) {
+                        public void requestComplete(HttpResponse state) {
                         }
                     };
                 }
@@ -777,10 +777,10 @@ public class HTTP3ProductionEndToEndTest {
 
             final HttpStreamHandler streamHandler = new HttpStreamHandler() {
                 @Override
-                public HttpRequestHandler openStream(HttpResponseState state) {
+                public HttpRequestHandler openStream(HttpResponse state) {
                     return new CollectingRequestHandler(state) {
                         @Override
-                        public void headers(HttpResponseState state, Headers headers) {
+                        public void headers(HttpResponse state, Headers headers) {
                             Headers response = new Headers();
                             response.add(":status", "200");
                             state.headers(response);
@@ -928,7 +928,7 @@ public class HTTP3ProductionEndToEndTest {
 
             final HttpStreamHandler streamHandler = new HttpStreamHandler() {
                 @Override
-                public HttpRequestHandler openStream(HttpResponseState state) {
+                public HttpRequestHandler openStream(HttpResponse state) {
                     return new DefaultHttpRequestHandler();
                 }
             };
@@ -1169,10 +1169,10 @@ public class HTTP3ProductionEndToEndTest {
 
             final HttpStreamHandler streamHandler = new HttpStreamHandler() {
                 @Override
-                public HttpRequestHandler openStream(HttpResponseState state) {
+                public HttpRequestHandler openStream(HttpResponse state) {
                     return new CollectingRequestHandler(state) {
                         @Override
-                        public void headers(HttpResponseState state, Headers headers) {
+                        public void headers(HttpResponse state, Headers headers) {
                             Headers response = new Headers();
                             response.add(":status", "200");
                             state.headers(response);
@@ -1895,7 +1895,7 @@ public class HTTP3ProductionEndToEndTest {
 
             final HttpStreamHandler streamHandler = new HttpStreamHandler() {
                 @Override
-                public HttpRequestHandler openStream(HttpResponseState state) {
+                public HttpRequestHandler openStream(HttpResponse state) {
                     return new DefaultHttpRequestHandler();
                 }
             };
@@ -2002,7 +2002,7 @@ public class HTTP3ProductionEndToEndTest {
 
             final HttpStreamHandler streamHandler = new HttpStreamHandler() {
                 @Override
-                public HttpRequestHandler openStream(HttpResponseState state) {
+                public HttpRequestHandler openStream(HttpResponse state) {
                     return new DefaultHttpRequestHandler();
                 }
             };
@@ -2144,10 +2144,10 @@ public class HTTP3ProductionEndToEndTest {
 
             final HttpStreamHandler streamHandler = new HttpStreamHandler() {
                 @Override
-                public HttpRequestHandler openStream(HttpResponseState state) {
+                public HttpRequestHandler openStream(HttpResponse state) {
                     return new CollectingRequestHandler(state) {
                         @Override
-                        public void headers(HttpResponseState state, Headers headers) {
+                        public void headers(HttpResponse state, Headers headers) {
                             Headers response = new Headers();
                             response.add(":status", "200");
                             response.add("content-type", "text/plain");
@@ -2160,19 +2160,19 @@ public class HTTP3ProductionEndToEndTest {
                         }
 
                         @Override
-                        public void startRequestBody(HttpResponseState state) {
+                        public void startRequestBody(HttpResponse state) {
                         }
 
                         @Override
-                        public void requestBodyContent(HttpResponseState state, ByteBuffer data) {
+                        public void requestBodyContent(HttpResponse state, ByteBuffer data) {
                         }
 
                         @Override
-                        public void endRequestBody(HttpResponseState state) {
+                        public void endRequestBody(HttpResponse state) {
                         }
 
                         @Override
-                        public void requestComplete(HttpResponseState state) {
+                        public void requestComplete(HttpResponse state) {
                         }
                     };
                 }
@@ -2354,10 +2354,10 @@ public class HTTP3ProductionEndToEndTest {
 
             HttpStreamHandler streamHandler = new HttpStreamHandler() {
                 @Override
-                public HttpRequestHandler openStream(HttpResponseState state) {
+                public HttpRequestHandler openStream(HttpResponse state) {
                     return new CollectingRequestHandler(state) {
                         @Override
-                        public void headers(HttpResponseState state, Headers headers) {
+                        public void headers(HttpResponse state, Headers headers) {
                             if ("CONNECT".equals(headers.getValue(":method"))
                                     && "websocket".equalsIgnoreCase(headers.getValue(":protocol"))) {
                                 state.upgradeToWebSocket(null, new org.bluezoo.gumdrop.websocket.DefaultWebSocketEventHandler() {

@@ -37,12 +37,12 @@ import org.bluezoo.gumdrop.http.HttpStatus;
  */
 public final class NotFoundHttpRequestHandler extends DefaultHttpRequestHandler {
 
-    private final HttpResponseState response;
+    private final HttpResponse response;
 
     /**
      * @param response the response of the stream to answer
      */
-    public NotFoundHttpRequestHandler(HttpResponseState response) {
+    public NotFoundHttpRequestHandler(HttpResponse response) {
         this.response = response;
     }
 

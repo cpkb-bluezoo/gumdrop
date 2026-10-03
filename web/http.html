@@ -156,7 +156,7 @@ From the application&rsquo;s perspective, HTTP/3 is transparent. The same
 <code>HttpRequestHandler</code> interface is used regardless of whether the
 request arrived over HTTP/3, HTTP/2, or HTTP/1.1. The only visible difference
 is the HTTP version reported by
-<code>HttpResponseState.getVersion()</code>.
+<code>HttpResponse.getVersion()</code>.
 </p>
 
 <p><em>Gumdrop 3 uses a single handler (or decorator chain) on
@@ -386,11 +386,11 @@ The server handler API centres on three interfaces:
 <ul>
 <li><b>HttpRequestHandler</b> - receives request events (header fields, body
 chunks, completion) for a single stream, and is given its
-<code>HttpResponseState</code> when it is constructed; implement this or compose
+<code>HttpResponse</code> when it is constructed; implement this or compose
 <code>ServletRequestHandler</code> / <code>WebDAVRequestHandler</code></li>
-<li><b>HttpResponseState</b> — provided to handlers for sending responses
+<li><b>HttpResponse</b> — provided to handlers for sending responses
 (<code>org.bluezoo.gumdrop.http.server</code>)</li>
-<li><b>HttpStreamHandler</b> — one method, <code>openStream(HttpResponseState)</code>,
+<li><b>HttpStreamHandler</b> — one method, <code>openStream(HttpResponse)</code>,
 called once per stream before headers arrive, to bind the
 <code>HttpRequestHandler</code> that will handle it; routing by path/method
 belongs in that handler's own <code>endHeaders()</code> event, not here</li>
@@ -433,7 +433,7 @@ copy them if you keep them. A response uses the same events, with
 <h4>Sending Responses</h4>
 
 <p>
-The <code>HttpResponseState</code> interface provides methods for building
+The <code>HttpResponse</code> interface provides methods for building
 responses:
 </p>
 
@@ -450,10 +450,10 @@ complete()             // finish the response
 
 <pre>
 public class HelloHandler extends DefaultHttpRequestHandler {
-    private final HttpResponseState response;
+    private final HttpResponse response;
     private HttpMethod method;
 
-    public HelloHandler(HttpResponseState response) {
+    public HelloHandler(HttpResponse response) {
         this.response = response;
     }
 
@@ -491,12 +491,12 @@ it has seen to it:
 
 <pre>
 public class RoutingHandler extends DefaultHttpRequestHandler {
-    private final HttpResponseState response;
+    private final HttpResponse response;
     private HttpMethod method;
     private ByteBuffer target;
     private HttpRequestHandler delegate;
 
-    public RoutingHandler(HttpResponseState response) {
+    public RoutingHandler(HttpResponse response) {
         this.response = response;
     }
 
@@ -551,7 +551,7 @@ HttpServer server = HttpServer.compose()
         .listener(new Http2Listener().port(8080))
         .streamHandler(new HttpStreamHandler() {
             @Override
-            public HttpRequestHandler openStream(HttpResponseState state) {
+            public HttpRequestHandler openStream(HttpResponse state) {
                 return new RoutingHandler(state);
             }
         })
@@ -564,7 +564,7 @@ server.start();
 <p>
 If a <code>Realm</code> is configured on the service, authentication is
 performed automatically before the factory is called. The authenticated
-principal is available via <code>HttpResponseState.getPrincipal()</code>.
+principal is available via <code>HttpResponse.getPrincipal()</code>.
 </p>
 
 <p>
@@ -573,10 +573,10 @@ Alternatively, the factory can perform authentication manually:
 
 <pre>
 public class AuthHandler extends DefaultHttpRequestHandler {
-    private final HttpResponseState response;
+    private final HttpResponse response;
     private String auth;
 
-    public AuthHandler(HttpResponseState response) {
+    public AuthHandler(HttpResponse response) {
         this.response = response;
     }
 
@@ -642,7 +642,7 @@ the client has disabled push via settings.
 <h4>Endpoint Information</h4>
 
 <p>
-The <code>HttpResponseState</code> provides access to endpoint details:
+The <code>HttpResponse</code> provides access to endpoint details:
 </p>
 
 <ul>
@@ -661,9 +661,9 @@ For server-sent events or other streaming scenarios:
 
 <pre>
 public class StreamHandler extends DefaultHttpRequestHandler {
-    private final HttpResponseState response;
+    private final HttpResponse response;
 
-    public StreamHandler(HttpResponseState response) {
+    public StreamHandler(HttpResponse response) {
         this.response = response;
     }
     
@@ -689,7 +689,7 @@ public class StreamHandler extends DefaultHttpRequestHandler {
 <p>
 When a handler produces response data faster than the network can deliver it,
 or receives request body data faster than it can process it, backpressure
-prevents unbounded buffering. <code>HttpResponseState</code> provides three
+prevents unbounded buffering. <code>HttpResponse</code> provides three
 methods that work uniformly across HTTP/1.1, HTTP/2, and HTTP/3:
 </p>
 
@@ -711,7 +711,7 @@ pause. Any data that arrived while paused is delivered promptly.</li>
 state.startResponseBody();
 sendNextChunk(state, channel);
 
-void sendNextChunk(HttpResponseState state, ReadableByteChannel src) {
+void sendNextChunk(HttpResponse state, ReadableByteChannel src) {
     ByteBuffer buf = ByteBuffer.allocate(8192);
     int n = src.read(buf);
     if (n > 0) {

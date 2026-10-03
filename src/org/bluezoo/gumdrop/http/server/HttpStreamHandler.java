@@ -42,6 +42,6 @@ public interface HttpStreamHandler {
      *         reject with {@code 404 Not Found} if no response was sent via
      *         {@code stream}
      */
-    HttpRequestHandler openStream(HttpResponseState response);
+    HttpRequestHandler openStream(HttpResponse response);
 
 }

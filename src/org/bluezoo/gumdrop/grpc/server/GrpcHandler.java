@@ -38,7 +38,7 @@ import org.bluezoo.gumdrop.grpc.proto.ProtoParseException;
 import org.bluezoo.gumdrop.grpc.proto.RpcDescriptor;
 import org.bluezoo.gumdrop.http.server.DefaultHttpRequestHandler;
 import org.bluezoo.gumdrop.http.Headers;
-import org.bluezoo.gumdrop.http.server.HttpResponseState;
+import org.bluezoo.gumdrop.http.server.HttpResponse;
 import org.bluezoo.gumdrop.http.HttpStatus;
 import org.bluezoo.protobuf.ByteBufferChannel;
 import org.bluezoo.protobuf.ProtobufParseException;
@@ -69,7 +69,7 @@ public class GrpcHandler extends DefaultHttpRequestHandler {
     private final String requestTypeName;
     private final String responseTypeName;
 
-    private final HttpResponseState state;
+    private final HttpResponse state;
     private GrpcResponseSenderImpl responseSender;
     private ProtoMessageHandler requestHandler;
     private ProtoModelAdapter protoAdapter;
@@ -78,7 +78,7 @@ public class GrpcHandler extends DefaultHttpRequestHandler {
     private boolean bodyStarted;
     private boolean bodyRejected;
 
-    GrpcHandler(ProtoFile protoFile, GrpcServer server, HttpResponseState state,
+    GrpcHandler(ProtoFile protoFile, GrpcServer server, HttpResponse state,
             String path, long maxMessageSize, RpcDescriptor rpc) {
         this.state = state;
         this.protoFile = protoFile;
@@ -188,7 +188,7 @@ public class GrpcHandler extends DefaultHttpRequestHandler {
         sendError(state, status, message);
     }
 
-    private void sendError(HttpResponseState state, HttpStatus status, String message) {
+    private void sendError(HttpResponse state, HttpStatus status, String message) {
         Headers response = new Headers();
         response.status(status);
         response.add("content-type", "text/plain");
@@ -201,10 +201,10 @@ public class GrpcHandler extends DefaultHttpRequestHandler {
 
     private final class GrpcResponseSenderImpl implements GrpcResponseSender {
 
-        private final HttpResponseState responseState;
+        private final HttpResponse responseState;
         private boolean sent;
 
-        GrpcResponseSenderImpl(HttpResponseState responseState) {
+        GrpcResponseSenderImpl(HttpResponse responseState) {
             this.responseState = responseState;
         }
 

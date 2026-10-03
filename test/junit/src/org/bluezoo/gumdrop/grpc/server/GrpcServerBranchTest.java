@@ -42,7 +42,7 @@ import org.bluezoo.gumdrop.http.Headers;
 import org.bluezoo.gumdrop.http.HttpStatus;
 import org.bluezoo.gumdrop.http.HttpVersion;
 import org.bluezoo.gumdrop.http.server.HttpRequestHandler;
-import org.bluezoo.gumdrop.http.server.HttpResponseState;
+import org.bluezoo.gumdrop.http.server.HttpResponse;
 import org.bluezoo.gumdrop.websocket.WebSocketEventHandler;
 import org.bluezoo.protobuf.ByteBufferChannel;
 import org.bluezoo.protobuf.ProtobufWriter;
@@ -312,7 +312,7 @@ public class GrpcServerBranchTest {
         assertEquals(HttpStatus.NOT_FOUND, state.status());
     }
 
-    private static final class CapturingState implements HttpResponseState {
+    private static final class CapturingState implements HttpResponse {
         Headers headers;
         final ByteArrayOutputStream body = new ByteArrayOutputStream();
         int completeCount;

@@ -26,7 +26,7 @@ import org.bluezoo.gumdrop.http.ConnectIpTarget;
 import org.bluezoo.gumdrop.http.Header;
 import org.bluezoo.gumdrop.http.Headers;
 import org.bluezoo.gumdrop.http.HttpDatagramContext;
-import org.bluezoo.gumdrop.http.server.HttpResponseState;
+import org.bluezoo.gumdrop.http.server.HttpResponse;
 import org.bluezoo.gumdrop.http.HttpVersion;
 
 import java.net.SocketAddress;
@@ -55,7 +55,7 @@ import static org.junit.Assert.assertTrue;
  * Transport-agnostic regression test for issue #394's server-side RFC
  * 9484 CONNECT-IP support: a real {@link ConnectIpRequestHandler}
  * driving a real (loopback) {@link IpPacketHandler} against a minimal
- * {@link HttpResponseState} mock -- accept/reject, inbound IP packet
+ * {@link HttpResponse} mock -- accept/reject, inbound IP packet
  * delivery, the {@code ADDRESS_REQUEST}/{@code ADDRESS_ASSIGN} round
  * trip, and {@code ROUTE_ADVERTISEMENT}, none of which need a kernel TUN
  * (see {@link IpPacketHandler}'s own documentation for why gumdrop
@@ -291,7 +291,7 @@ public class ConnectIpRequestHandlerTest {
         }
     }
 
-    private static final class CapturingResponseState implements HttpResponseState {
+    private static final class CapturingResponseState implements HttpResponse {
         final List<byte[]> sentDatagrams = new ArrayList<byte[]>();
         final List<SentCapsule> sentCapsules = new ArrayList<SentCapsule>();
         volatile boolean accepted;

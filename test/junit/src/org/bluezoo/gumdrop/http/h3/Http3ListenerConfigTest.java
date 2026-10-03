@@ -38,7 +38,7 @@ import java.nio.file.Path;
 import org.bluezoo.gumdrop.http.server.DefaultHttpRequestHandler;
 import org.bluezoo.gumdrop.http.server.HstsPolicy;
 import org.bluezoo.gumdrop.http.server.HttpRequestHandler;
-import org.bluezoo.gumdrop.http.server.HttpResponseState;
+import org.bluezoo.gumdrop.http.server.HttpResponse;
 import org.bluezoo.gumdrop.http.server.HttpStreamHandler;
 import org.bluezoo.gumdrop.quic.QuicConnection;
 import org.bluezoo.gumdrop.quic.QuicConnectionTestFactory;
@@ -86,7 +86,7 @@ public class Http3ListenerConfigTest {
         assertFalse(l.getAddSecurityHeaders());
         HttpStreamHandler sh = new HttpStreamHandler() {
             @Override
-            public HttpRequestHandler openStream(HttpResponseState stream) {
+            public HttpRequestHandler openStream(HttpResponse stream) {
                 return new DefaultHttpRequestHandler();
             }
         };
@@ -203,7 +203,7 @@ public class Http3ListenerConfigTest {
         Http3Listener l = new Http3Listener();
         l.setStreamHandler(new HttpStreamHandler() {
             @Override
-            public HttpRequestHandler openStream(HttpResponseState stream) {
+            public HttpRequestHandler openStream(HttpResponse stream) {
                 return null;
             }
         });

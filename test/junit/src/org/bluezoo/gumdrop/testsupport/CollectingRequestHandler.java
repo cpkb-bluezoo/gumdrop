@@ -28,7 +28,7 @@ import org.bluezoo.gumdrop.http.Header;
 import org.bluezoo.gumdrop.http.Headers;
 import org.bluezoo.gumdrop.http.HttpMethod;
 import org.bluezoo.gumdrop.http.server.DefaultHttpRequestHandler;
-import org.bluezoo.gumdrop.http.server.HttpResponseState;
+import org.bluezoo.gumdrop.http.server.HttpResponse;
 import org.bluezoo.gumdrop.mime.ContentDisposition;
 import org.bluezoo.gumdrop.mime.ContentType;
 
@@ -46,14 +46,14 @@ import org.bluezoo.gumdrop.mime.ContentType;
 public class CollectingRequestHandler extends DefaultHttpRequestHandler {
 
     /** The response of the stream carrying the request. */
-    public HttpResponseState response;
+    public HttpResponse response;
 
     private Headers collected = new Headers();
     private boolean headersEnded;
     private boolean bodyStarted;
     private boolean bodyEnded;
 
-    public CollectingRequestHandler(HttpResponseState response) {
+    public CollectingRequestHandler(HttpResponse response) {
         this.response = response;
     }
 
@@ -62,29 +62,29 @@ public class CollectingRequestHandler extends DefaultHttpRequestHandler {
     }
 
     /** Gives a handler its stream's response, and returns it. */
-    public static <T extends CollectingRequestHandler> T bind(T handler, HttpResponseState response) {
+    public static <T extends CollectingRequestHandler> T bind(T handler, HttpResponse response) {
         handler.response = response;
         return handler;
     }
 
     /** The header section, and then any trailers. */
-    public void headers(HttpResponseState state, Headers headers) {
+    public void headers(HttpResponse state, Headers headers) {
     }
 
     /** The first piece of the body is about to arrive. */
-    public void startRequestBody(HttpResponseState state) {
+    public void startRequestBody(HttpResponse state) {
     }
 
     /** A piece of the request body. */
-    public void requestBodyContent(HttpResponseState state, ByteBuffer data) {
+    public void requestBodyContent(HttpResponse state, ByteBuffer data) {
     }
 
     /** The body has ended. */
-    public void endRequestBody(HttpResponseState state) {
+    public void endRequestBody(HttpResponse state) {
     }
 
     /** The end of the request. */
-    public void requestComplete(HttpResponseState state) {
+    public void requestComplete(HttpResponse state) {
     }
 
     private static String text(ByteBuffer b) {
@@ -182,6 +182,6 @@ public class CollectingRequestHandler extends DefaultHttpRequestHandler {
     }
 
     /** The exchange failed. */
-    public void failed(HttpResponseState state, Exception cause) {
+    public void failed(HttpResponse state, Exception cause) {
     }
 }

@@ -69,7 +69,7 @@ import org.bluezoo.gumdrop.auth.Realm;
 import org.bluezoo.gumdrop.auth.SaslMechanism;
 import org.bluezoo.gumdrop.http.Headers;
 import org.bluezoo.gumdrop.http.HttpVersion;
-import org.bluezoo.gumdrop.http.server.HttpResponseState;
+import org.bluezoo.gumdrop.http.server.HttpResponse;
 import org.bluezoo.gumdrop.websocket.WebSocketEventHandler;
 
 import static org.junit.Assert.assertEquals;
@@ -95,7 +95,7 @@ public class RequestApiTest {
         }
     }
 
-    private static final class StubState implements HttpResponseState {
+    private static final class StubState implements HttpResponse {
         boolean secure;
         boolean push = true;
         final List<Headers> pushed = new ArrayList<Headers>();

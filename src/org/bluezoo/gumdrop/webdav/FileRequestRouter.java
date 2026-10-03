@@ -23,7 +23,7 @@ package org.bluezoo.gumdrop.webdav;
 
 import org.bluezoo.gumdrop.auth.Realm;
 import org.bluezoo.gumdrop.http.server.HttpRequestHandler;
-import org.bluezoo.gumdrop.http.server.HttpResponseState;
+import org.bluezoo.gumdrop.http.server.HttpResponse;
 import org.bluezoo.gumdrop.http.server.HttpStreamHandler;
 
 import java.nio.file.Path;
@@ -153,7 +153,7 @@ public final class FileRequestRouter implements HttpStreamHandler {
     }
 
     @Override
-    public HttpRequestHandler openStream(HttpResponseState stream) {
+    public HttpRequestHandler openStream(HttpResponse stream) {
         return new FileHandler(stream, rootPath, allowWrite, webdavEnabled,
                 allowedOptions, welcomeFiles, contentTypes,
                 lockManager, deadPropertyStore, realm);

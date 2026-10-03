@@ -27,7 +27,7 @@ import org.bluezoo.gumdrop.http.HttpMethod;
 import org.bluezoo.gumdrop.http.HttpStatus;
 import org.bluezoo.gumdrop.http.server.DefaultHttpRequestHandler;
 import org.bluezoo.gumdrop.http.server.HttpRequestHandler;
-import org.bluezoo.gumdrop.http.server.HttpResponseState;
+import org.bluezoo.gumdrop.http.server.HttpResponse;
 import org.bluezoo.gumdrop.http.server.HttpStreamHandler;
 import org.bluezoo.gumdrop.mime.ContentDisposition;
 import org.bluezoo.gumdrop.mime.ContentType;
@@ -101,7 +101,7 @@ public final class WebSocketRequestHandler implements HttpStreamHandler {
     }
 
     @Override
-    public HttpRequestHandler openStream(HttpResponseState stream) {
+    public HttpRequestHandler openStream(HttpResponse stream) {
         return new UpgradeHandler(stream);
     }
 
@@ -236,12 +236,12 @@ public final class WebSocketRequestHandler implements HttpStreamHandler {
     private final class UpgradeHandler extends DefaultHttpRequestHandler
             implements WebSocketMetricsSource {
 
-        private final HttpResponseState state;
+        private final HttpResponse state;
         // The request as the connection factory and the subprotocol
         // selector are given it, assembled from the events.
         private final Headers headers = new Headers();
 
-        UpgradeHandler(HttpResponseState state) {
+        UpgradeHandler(HttpResponse state) {
             this.state = state;
         }
 

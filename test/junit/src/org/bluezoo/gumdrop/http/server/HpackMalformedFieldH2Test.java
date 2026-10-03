@@ -145,7 +145,7 @@ public class HpackMalformedFieldH2Test {
         static final List<String> requests = new ArrayList<String>();
 
         @Override
-        public void headers(HttpResponseState state, Headers headers) {
+        public void headers(HttpResponse state, Headers headers) {
             requests.add(headers.getValue(":path") + "|" + headers.getValue("x-raw")
                     + "|" + headers.getValue("x-good"));
         }
@@ -160,7 +160,7 @@ public class HpackMalformedFieldH2Test {
         Http2Listener listener = new Http2Listener();
         listener.setStreamHandler(new HttpStreamHandler() {
             @Override
-            public HttpRequestHandler openStream(HttpResponseState state) {
+            public HttpRequestHandler openStream(HttpResponse state) {
                 return CollectingRequestHandler.bind(new Seen(), state);
             }
         });

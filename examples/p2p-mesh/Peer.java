@@ -12,10 +12,9 @@ import org.bluezoo.gumdrop.http.HttpServer;
 import org.bluezoo.gumdrop.http.client.DefaultHttpResponseHandler;
 import org.bluezoo.gumdrop.http.client.HttpClientHandler;
 import org.bluezoo.gumdrop.http.client.HttpRequest;
-import org.bluezoo.gumdrop.http.client.HttpResponse;
 import org.bluezoo.gumdrop.http.server.DefaultHttpRequestHandler;
 import org.bluezoo.gumdrop.http.server.HttpRequestHandler;
-import org.bluezoo.gumdrop.http.server.HttpResponseState;
+import org.bluezoo.gumdrop.http.server.HttpResponse;
 import org.bluezoo.gumdrop.http.server.HttpStreamHandler;
 
 import java.nio.ByteBuffer;
@@ -91,12 +90,12 @@ public final class Peer {
                     private final StringBuilder body = new StringBuilder();
 
                     @Override
-                    public void responseBodyContent(ByteBuffer data) {
+                    public void bodyContent(ByteBuffer data) {
                         body.append(StandardCharsets.UTF_8.decode(data));
                     }
 
                     @Override
-                    public void close() {
+                    public void endMessage() {
                         System.out.println(name + " heard: " + body.toString().trim());
                         client.close();
                     }
@@ -132,31 +131,31 @@ public final class Peer {
         }
 
         @Override
-        public HttpRequestHandler openStream(HttpResponseState stream) {
-            return new HelloHandler(stream, name);
+        public HttpRequestHandler openStream(HttpResponse response) {
+            return new HelloHandler(response, name);
         }
     }
 
     private static final class HelloHandler extends DefaultHttpRequestHandler {
-        private final HttpResponseState state;
+        private final HttpResponse response;
         private final String name;
 
-        HelloHandler(HttpResponseState state, String name) {
-            this.state = state;
+        HelloHandler(HttpResponse response, String name) {
+            this.response = response;
             this.name = name;
         }
 
         @Override
         public void endHeaders() {
-            Headers response = new Headers();
-            response.add(":status", "200");
-            response.add("content-type", "text/plain");
-            state.headers(response);
-            state.startResponseBody();
-            state.responseBodyContent(ByteBuffer.wrap(
+            Headers fields = new Headers();
+            fields.add(":status", "200");
+            fields.add("content-type", "text/plain");
+            response.headers(fields);
+            response.startResponseBody();
+            response.responseBodyContent(ByteBuffer.wrap(
                     ("hello from " + name + "\n").getBytes(StandardCharsets.UTF_8)));
-            state.endResponseBody();
-            state.complete();
+            response.endResponseBody();
+            response.complete();
         }
     }
 

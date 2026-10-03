@@ -24,7 +24,7 @@ package org.bluezoo.gumdrop.http.server;
 import org.bluezoo.gumdrop.http.HeaderFieldHandler;
 import org.bluezoo.gumdrop.http.Header;
 import org.bluezoo.gumdrop.http.Headers;
-import org.bluezoo.gumdrop.http.server.HttpResponseState;
+import org.bluezoo.gumdrop.http.server.HttpResponse;
 import org.bluezoo.gumdrop.http.HttpStatus;
 
 import org.bluezoo.gumdrop.Endpoint;
@@ -81,7 +81,7 @@ public class HTTPProtocolHandlerSynchronousH2ResponseTest {
     /** Answers entirely within headers(), like the DefaultHttpRequestHandler javadoc example. */
     private static final class SynchronousGetHandler extends CollectingRequestHandler {
         @Override
-        public void headers(HttpResponseState state, Headers headers) {
+        public void headers(HttpResponse state, Headers headers) {
             if ("GET".equals(headers.getMethod())) {
                 Headers response = new Headers();
                 response.status(HttpStatus.OK);
@@ -135,7 +135,7 @@ public class HTTPProtocolHandlerSynchronousH2ResponseTest {
         static volatile RuntimeException thrown;
 
         @Override
-        public void headers(HttpResponseState state, Headers headers) {
+        public void headers(HttpResponse state, Headers headers) {
             Headers response = new Headers();
             response.add(":status", "200");
             response.add("x-custom", "caf\u00e9");
@@ -152,7 +152,7 @@ public class HTTPProtocolHandlerSynchronousH2ResponseTest {
         Http2Listener listener = new Http2Listener();
         listener.setStreamHandler(new HttpStreamHandler() {
             @Override
-            public HttpRequestHandler openStream(HttpResponseState state) {
+            public HttpRequestHandler openStream(HttpResponse state) {
                 return CollectingRequestHandler.bind(new SynchronousGetHandler(), state);
             }
         });
@@ -215,7 +215,7 @@ public class HTTPProtocolHandlerSynchronousH2ResponseTest {
         Http2Listener listener = new Http2Listener();
         listener.setStreamHandler(new HttpStreamHandler() {
             @Override
-            public HttpRequestHandler openStream(HttpResponseState state) {
+            public HttpRequestHandler openStream(HttpResponse state) {
                 return CollectingRequestHandler.bind(new NonAsciiHeaderHandler(), state);
             }
         });

@@ -31,25 +31,25 @@ import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.TimerHandle;
 import org.bluezoo.gumdrop.http.Headers;
 import org.bluezoo.gumdrop.http.HttpVersion;
-import org.bluezoo.gumdrop.http.server.HttpResponseState;
+import org.bluezoo.gumdrop.http.server.HttpResponse;
 import org.bluezoo.gumdrop.telemetry.Trace;
 import org.bluezoo.gumdrop.websocket.WebSocketEventHandler;
 import org.bluezoo.gumdrop.websocket.WebSocketExtension;
 
 /**
- * An {@link HttpResponseState} that passes everything to another one, which
+ * An {@link HttpResponse} that passes everything to another one, which
  * may be set after a handler has been given this one. A handler takes its
  * response when it is created, so a test that builds the handler first and
  * decides later what records the response sets the target here.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-public final class DelegatingResponseState implements HttpResponseState {
+public final class DelegatingResponseState implements HttpResponse {
 
-    private HttpResponseState target;
+    private HttpResponse target;
 
     /** Sets the state that receives the calls. */
-    public void setTarget(HttpResponseState target) {
+    public void setTarget(HttpResponse target) {
         this.target = target;
     }
 

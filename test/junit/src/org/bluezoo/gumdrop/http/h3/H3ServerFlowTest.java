@@ -46,7 +46,7 @@ import org.bluezoo.gumdrop.http.HttpStatus;
 import org.bluezoo.gumdrop.http.qpack.SimpleEncoder;
 import org.bluezoo.gumdrop.http.server.HttpAuthenticationProvider;
 import org.bluezoo.gumdrop.http.server.HttpRequestHandler;
-import org.bluezoo.gumdrop.http.server.HttpResponseState;
+import org.bluezoo.gumdrop.http.server.HttpResponse;
 import org.bluezoo.gumdrop.http.server.HttpServerMetrics;
 import org.bluezoo.gumdrop.http.server.HttpStreamHandler;
 import org.bluezoo.gumdrop.quic.QuicConnection;
@@ -67,7 +67,7 @@ public class H3ServerFlowTest {
     static class Recorder extends CollectingRequestHandler {
         final List<String> events = new ArrayList<String>();
         int bodyBytes;
-        HttpResponseState state;
+        HttpResponse state;
         boolean datagrams;
         boolean decode;
         boolean encode;
@@ -75,35 +75,35 @@ public class H3ServerFlowTest {
         int datagramCount;
 
         @Override
-        public void headers(HttpResponseState s, Headers headers) {
+        public void headers(HttpResponse s, Headers headers) {
             state = s;
             events.add("headers");
         }
 
         @Override
-        public void startRequestBody(HttpResponseState s) {
+        public void startRequestBody(HttpResponse s) {
             events.add("start");
         }
 
         @Override
-        public void requestBodyContent(HttpResponseState s, ByteBuffer data) {
+        public void requestBodyContent(HttpResponse s, ByteBuffer data) {
             bodyBytes += data.remaining();
             events.add("body");
         }
 
         @Override
-        public void endRequestBody(HttpResponseState s) {
+        public void endRequestBody(HttpResponse s) {
             events.add("end");
         }
 
         @Override
-        public void requestComplete(HttpResponseState s) {
+        public void requestComplete(HttpResponse s) {
             state = s;
             events.add("complete");
         }
 
         @Override
-        public void failed(HttpResponseState s, Exception cause) {
+        public void failed(HttpResponse s, Exception cause) {
             events.add("failed");
         }
 
@@ -113,12 +113,12 @@ public class H3ServerFlowTest {
         }
 
         @Override
-        public void datagramReceived(HttpResponseState s, ByteBuffer data) {
+        public void datagramReceived(HttpResponse s, ByteBuffer data) {
             datagramCount++;
         }
 
         @Override
-        public void capsuleReceived(HttpResponseState s, long type, ByteBuffer value) {
+        public void capsuleReceived(HttpResponse s, long type, ByteBuffer value) {
             capsules.add(Long.valueOf(type));
         }
 
@@ -155,7 +155,7 @@ public class H3ServerFlowTest {
             rec = new Recorder();
             HttpStreamHandler sh = new HttpStreamHandler() {
                 @Override
-                public HttpRequestHandler openStream(HttpResponseState stream) {
+                public HttpRequestHandler openStream(HttpResponse stream) {
                     if (nullHandler) {
                         return null;
                     }
@@ -250,7 +250,7 @@ public class H3ServerFlowTest {
     }
 
     static final class HttpResponseStateCheck {
-        static String version(HttpResponseState s) {
+        static String version(HttpResponse s) {
             return s.getVersion().name();
         }
     }

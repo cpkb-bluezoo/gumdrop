@@ -705,7 +705,7 @@ practices.
 |-------------|---------|--------|-------|
 | All standard status codes defined | 15 | Compliant | `HttpStatus` enum covers all RFC 9110 codes |
 | Reason phrases match RFC 9110 | 15 | Compliant | `HttpConstants` updated (413, 414, 416, 422 reason phrases corrected) |
-| 103 Early Hints (RFC 8297) | 15.2 | Compliant | `HttpResponseState.sendInformational()` sends 1xx responses before the final response; implemented for HTTP/1.1, HTTP/2, and HTTP/3; 1xx headers skip Server/Date/Connection per RFC 9110 section 15.2; HTTP/1.0 silently no-ops |
+| 103 Early Hints (RFC 8297) | 15.2 | Compliant | `HttpResponse.sendInformational()` sends 1xx responses before the final response; implemented for HTTP/1.1, HTTP/2, and HTTP/3; 1xx headers skip Server/Date/Connection per RFC 9110 section 15.2; HTTP/1.0 silently no-ops |
 | 418 I'm a Teapot | 15.5.19 | Compliant | |
 
 ---
@@ -1963,7 +1963,7 @@ implemented in Java, with TLS 1.3 integrated via the in-tree engine
 | Sec-WebSocket-Key validation | §4.2.1 | **Compliant** | 16-byte base64 nonce verified |
 | Sec-WebSocket-Version: 13 | §4.2.1 | **Compliant** | Exact match required |
 | Sec-WebSocket-Accept calculation | §4.2.2 | **Compliant** | GUID + SHA-1 + Base64 |
-| 101 Switching Protocols response | §4.2.2 | **Compliant** | Via HttpResponseState.upgradeToWebSocket() |
+| 101 Switching Protocols response | §4.2.2 | **Compliant** | Via HttpResponse.upgradeToWebSocket() |
 | Sec-WebSocket-Protocol negotiation | §4.2.2 | **Compliant** | Via WebSocketServer.selectSubprotocol() |
 | Sec-WebSocket-Extensions | §9.1 | **Compliant** | Extension negotiation framework; permessage-deflate (RFC 7692) |
 
@@ -2401,7 +2401,7 @@ HTTP/1.1 fallback) the same way `WebSocketClient` does for WebSocket.
 | Requirement | Section | Status | Notes |
 |-------------|---------|--------|-------|
 | Client-to-target datagram relay | §5 | **Compliant** | `ConnectUdpRelay.receiveDatagram()` forwards decoded payload to a connected `UdpEndpoint` |
-| Target-to-client datagram relay | §5 | **Compliant** | `ConnectUdpRelay.UpstreamHandler.receive()` re-encodes with Context ID 0 and calls `HttpResponseState.sendDatagram()` |
+| Target-to-client datagram relay | §5 | **Compliant** | `ConnectUdpRelay.UpstreamHandler.receive()` re-encodes with Context ID 0 and calls `HttpResponse.sendDatagram()` |
 | Client-side outbound datagrams | §5 | **Compliant** | `ConnectUdpSession.sendDatagram()`, capsule-framed (RFC 9297 §3.5) on every transport — for HTTP/3 this works whether or not native QUIC DATAGRAM is negotiated |
 | Client-side inbound datagrams | §5 | **Compliant** | `H3ClientConnectUdpResponseHandler`/`H2ConnectUdpResponseHandler`/`ConnectUdpClientProtocolHandler`'s `datagramReceived()`; HTTP/3 delivers via either native QUIC DATAGRAM or the capsule fallback — `H3ClientStream` dispatches both identically |
 | Target address/port fixed for the life of the request (single target, not per-datagram) | §5 | **Compliant** | One `UdpTransportFactory.connect()` upstream socket per accepted request |

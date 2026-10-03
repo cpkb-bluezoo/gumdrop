@@ -35,7 +35,7 @@ import org.bluezoo.gumdrop.http.HttpStatus;
 import org.bluezoo.gumdrop.http.HttpVersion;
 import org.bluezoo.gumdrop.http.server.Http2Listener;
 import org.bluezoo.gumdrop.http.server.HttpRequestHandler;
-import org.bluezoo.gumdrop.http.server.HttpResponseState;
+import org.bluezoo.gumdrop.http.server.HttpResponse;
 import org.bluezoo.gumdrop.http.server.HttpStreamHandler;
 import org.bluezoo.gumdrop.testsupport.CollectingRequestHandler;
 import org.bluezoo.gumdrop.testsupport.CollectingResponseHandler;
@@ -316,7 +316,7 @@ public class HTTPClientProtocolHandlerIntegrationTest extends AbstractServerInte
 
     private static final class FeaturesHandlerFactory implements HttpStreamHandler {
         @Override
-        public HttpRequestHandler openStream(HttpResponseState state) {
+        public HttpRequestHandler openStream(HttpResponse state) {
             return CollectingRequestHandler.bind(new FeaturesHandler(), state);
         }
     }
@@ -332,7 +332,7 @@ public class HTTPClientProtocolHandlerIntegrationTest extends AbstractServerInte
         private boolean sawAuth;
 
         @Override
-        public void headers(HttpResponseState state, Headers headers) {
+        public void headers(HttpResponse state, Headers headers) {
             method = headers.getMethod();
             path = headers.getPath();
             String auth = headers.getValue("authorization");
@@ -340,7 +340,7 @@ public class HTTPClientProtocolHandlerIntegrationTest extends AbstractServerInte
         }
 
         @Override
-        public void requestBodyContent(HttpResponseState state, ByteBuffer data) {
+        public void requestBodyContent(HttpResponse state, ByteBuffer data) {
             if (data.hasRemaining()) {
                 byte[] chunk = new byte[data.remaining()];
                 data.get(chunk);
@@ -349,7 +349,7 @@ public class HTTPClientProtocolHandlerIntegrationTest extends AbstractServerInte
         }
 
         @Override
-        public void requestComplete(HttpResponseState state) {
+        public void requestComplete(HttpResponse state) {
             if ("/protected".equals(path)) {
                 if (!sawAuth) {
                     Headers h = new Headers();
@@ -379,7 +379,7 @@ public class HTTPClientProtocolHandlerIntegrationTest extends AbstractServerInte
             writeTextResponse(state, HttpStatus.OK, payload);
         }
 
-        private static void writeTextResponse(HttpResponseState state, HttpStatus status, String text) {
+        private static void writeTextResponse(HttpResponse state, HttpStatus status, String text) {
             byte[] bytes = text.getBytes(StandardCharsets.UTF_8);
             Headers h = new Headers();
             h.status(status);

@@ -39,7 +39,7 @@ import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.http.Headers;
 import org.bluezoo.gumdrop.http.HttpVersion;
 import org.bluezoo.gumdrop.http.server.HttpRequestHandler;
-import org.bluezoo.gumdrop.http.server.HttpResponseState;
+import org.bluezoo.gumdrop.http.server.HttpResponse;
 import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
 import org.bluezoo.gumdrop.websocket.DefaultWebSocketEventHandler;
 import org.bluezoo.gumdrop.websocket.WebSocketEventHandler;
@@ -52,12 +52,12 @@ import org.junit.Test;
 
 /**
  * Tests the HTTP upgrade decisions of {@link WebSocketRequestHandler}
- * against a stub {@link HttpResponseState}.
+ * against a stub {@link HttpResponse}.
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 public class WebSocketRequestHandlerTest {
 
-    private static final class StubState implements HttpResponseState {
+    private static final class StubState implements HttpResponse {
         Headers responseHeaders;
         boolean completed;
         String subprotocol;

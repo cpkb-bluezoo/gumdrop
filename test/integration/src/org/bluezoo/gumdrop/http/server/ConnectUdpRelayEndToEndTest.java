@@ -25,7 +25,7 @@ import org.bluezoo.gumdrop.http.ConnectUdpTarget;
 import org.bluezoo.gumdrop.http.Header;
 import org.bluezoo.gumdrop.http.Headers;
 import org.bluezoo.gumdrop.http.HttpDatagramContext;
-import org.bluezoo.gumdrop.http.server.HttpResponseState;
+import org.bluezoo.gumdrop.http.server.HttpResponse;
 import org.bluezoo.gumdrop.http.HttpVersion;
 
 import java.net.InetAddress;
@@ -62,7 +62,7 @@ import static org.junit.Assert.assertTrue;
  * resolution and a real policy check, and a real {@link
  * ConnectUdpRelay} underneath it -- the same components a live
  * HTTP/1.1, HTTP/2, or HTTP/3 CONNECT-UDP request would drive, exercised
- * directly against a minimal {@link HttpResponseState} rather than a
+ * directly against a minimal {@link HttpResponse} rather than a
  * full client, since the client-side helper is deferred (see the
  * issue's follow-up).
  *
@@ -123,7 +123,7 @@ public class ConnectUdpRelayEndToEndTest {
         }
     }
 
-    private static final class CapturingResponseState implements HttpResponseState {
+    private static final class CapturingResponseState implements HttpResponse {
         private final SelectorLoop loop;
         final java.util.List<byte[]> sentDatagrams =
                 java.util.Collections.synchronizedList(new java.util.ArrayList<byte[]>());

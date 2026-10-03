@@ -31,7 +31,7 @@ import org.bluezoo.gumdrop.http.Header;
 import org.bluezoo.gumdrop.http.Headers;
 import org.bluezoo.gumdrop.http.server.HttpRequestHandler;
 import org.bluezoo.gumdrop.http.server.HttpStreamHandler;
-import org.bluezoo.gumdrop.http.server.HttpResponseState;
+import org.bluezoo.gumdrop.http.server.HttpResponse;
 import org.bluezoo.gumdrop.http.server.Http2Listener;
 import org.bluezoo.gumdrop.http.HttpStatus;
 
@@ -355,7 +355,7 @@ public class MockOTLPCollector {
         }
 
         @Override
-        public HttpRequestHandler openStream(HttpResponseState state) {
+        public HttpRequestHandler openStream(HttpResponse state) {
             return CollectingRequestHandler.bind(new OTLPRequestHandler(collector), state);
         }
     }
@@ -374,7 +374,7 @@ public class MockOTLPCollector {
         private final MockOTLPCollector collector;
         private ByteArrayOutputStream bodyBuffer;
         private String currentPath;
-        private HttpResponseState state;
+        private HttpResponse state;
         private boolean hasBody;
 
         OTLPRequestHandler(MockOTLPCollector collector) {
@@ -383,7 +383,7 @@ public class MockOTLPCollector {
         }
 
         @Override
-        public void headers(HttpResponseState state, Headers headers) {
+        public void headers(HttpResponse state, Headers headers) {
             this.state = state;
             this.currentPath = headers.getPath();
             
@@ -392,12 +392,12 @@ public class MockOTLPCollector {
         }
 
         @Override
-        public void startRequestBody(HttpResponseState state) {
+        public void startRequestBody(HttpResponse state) {
             hasBody = true;
         }
 
         @Override
-        public void requestBodyContent(HttpResponseState state, ByteBuffer data) {
+        public void requestBodyContent(HttpResponse state, ByteBuffer data) {
             try {
                 int remaining = data.remaining();
                 byte[] buf = new byte[remaining];
@@ -409,12 +409,12 @@ public class MockOTLPCollector {
         }
 
         @Override
-        public void endRequestBody(HttpResponseState state) {
+        public void endRequestBody(HttpResponse state) {
             // Body complete, but wait for requestComplete() before responding
         }
 
         @Override
-        public void requestComplete(HttpResponseState state) {
+        public void requestComplete(HttpResponse state) {
             // Request fully received - now handle it
             byte[] body = bodyBuffer.toByteArray();
             

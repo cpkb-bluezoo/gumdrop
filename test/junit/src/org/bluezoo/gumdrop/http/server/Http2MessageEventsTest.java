@@ -119,7 +119,7 @@ public class Http2MessageEventsTest {
         Http2Listener listener = new Http2Listener();
         listener.setStreamHandler(new HttpStreamHandler() {
             @Override
-            public HttpRequestHandler openStream(HttpResponseState response) {
+            public HttpRequestHandler openStream(HttpResponse response) {
                 return new EventHandler();
             }
         });

@@ -68,7 +68,7 @@ public class StreamResponseHeadersIndexTest {
         listener.setAddSecurityHeaders(true);
         listener.setStreamHandler(new HttpStreamHandler() {
             @Override
-            public HttpRequestHandler openStream(HttpResponseState state) {
+            public HttpRequestHandler openStream(HttpResponse state) {
                 return new DefaultHttpRequestHandler();
             }
         });

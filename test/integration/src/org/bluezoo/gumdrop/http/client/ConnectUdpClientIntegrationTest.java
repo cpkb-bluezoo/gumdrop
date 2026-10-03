@@ -34,7 +34,7 @@ import org.bluezoo.gumdrop.http.server.ConnectUdpPolicy;
 import org.bluezoo.gumdrop.http.server.ConnectUdpRequestHandler;
 import org.bluezoo.gumdrop.http.server.Http2Listener;
 import org.bluezoo.gumdrop.http.server.HttpRequestHandler;
-import org.bluezoo.gumdrop.http.server.HttpResponseState;
+import org.bluezoo.gumdrop.http.server.HttpResponse;
 import org.bluezoo.gumdrop.http.server.HttpStreamHandler;
 import org.junit.Before;
 import org.junit.BeforeClass;
@@ -252,7 +252,7 @@ public class ConnectUdpClientIntegrationTest extends AbstractServerIntegrationTe
         };
 
         @Override
-        public HttpRequestHandler openStream(HttpResponseState state) {
+        public HttpRequestHandler openStream(HttpResponse state) {
             return new ConnectUdpRequestHandler(state, permissive);
         }
     }

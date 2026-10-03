@@ -56,7 +56,7 @@ import java.util.logging.Logger;
  * doing anything else.
  *
  * <p>Works identically over HTTP/1.1, HTTP/2, and HTTP/3: {@link
- * HttpResponseState#acceptConnectIp} and {@link
+ * HttpResponse#acceptConnectIp} and {@link
  * HttpRequestHandler#datagramReceived}/{@link
  * HttpRequestHandler#capsuleReceived} are the only per-transport
  * mechanics this class relies on, both already implemented per
@@ -71,7 +71,7 @@ public class ConnectIpRequestHandler extends DefaultHttpRequestHandler {
     private static final ResourceBundle L10N =
             ResourceBundle.getBundle("org.bluezoo.gumdrop.http.L10N");
 
-    private final HttpResponseState state;
+    private final HttpResponse state;
     private final ConnectIpPolicy policy;
     private final IpPacketHandler packetHandler;
 
@@ -85,7 +85,7 @@ public class ConnectIpRequestHandler extends DefaultHttpRequestHandler {
      * @param packetHandler the forwarding backend for accepted tunnels;
      *        must not be null
      */
-    public ConnectIpRequestHandler(HttpResponseState response, ConnectIpPolicy policy,
+    public ConnectIpRequestHandler(HttpResponse response, ConnectIpPolicy policy,
             IpPacketHandler packetHandler) {
         if (policy == null) {
             throw new IllegalArgumentException(L10N.getString("warn.connect_ip_missing_policy"));
@@ -205,7 +205,7 @@ public class ConnectIpRequestHandler extends DefaultHttpRequestHandler {
     }
 
     @Override
-    public void datagramReceived(HttpResponseState state, ByteBuffer data) {
+    public void datagramReceived(HttpResponse state, ByteBuffer data) {
         if (session == null) {
             return;
         }
@@ -217,7 +217,7 @@ public class ConnectIpRequestHandler extends DefaultHttpRequestHandler {
     }
 
     @Override
-    public void capsuleReceived(HttpResponseState state, long type, ByteBuffer value) {
+    public void capsuleReceived(HttpResponse state, long type, ByteBuffer value) {
         if (session == null || type != ConnectIpAddress.TYPE_ADDRESS_REQUEST) {
             return;
         }

@@ -28,7 +28,7 @@ import org.bluezoo.gumdrop.http.Headers;
 import org.bluezoo.gumdrop.http.HttpMethod;
 import org.bluezoo.gumdrop.mime.ContentDisposition;
 import org.bluezoo.gumdrop.mime.ContentType;
-import org.bluezoo.gumdrop.http.server.HttpResponseState;
+import org.bluezoo.gumdrop.http.server.HttpResponse;
 import org.bluezoo.gumdrop.http.HttpStatus;
 
 import java.io.IOException;
@@ -54,7 +54,7 @@ import java.util.logging.Logger;
  * {@code pauseRequestBody()}/{@code resumeRequestBody()} — rather than
  * blocking the SelectorLoop thread when the servlet reads slower than the
  * network delivers), and response body data is streamed to {@link
- * HttpResponseState} as the servlet writes it, rather than buffered in
+ * HttpResponse} as the servlet writes it, rather than buffered in
  * full (issue #120).
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
@@ -69,7 +69,7 @@ public class ServletHandler extends DefaultHttpRequestHandler {
     private final int bufferSize;
 
     // The HTTP response state - provides connection info and response sending
-    private final HttpResponseState state;
+    private final HttpResponse state;
 
     // Non-blocking bridge for delivering request body to the servlet
     private RequestBodyStream bodyStream;
@@ -104,7 +104,7 @@ public class ServletHandler extends DefaultHttpRequestHandler {
     private String requestTarget;
     private Headers requestHeaders = new Headers();
 
-    public ServletHandler(Container container, HttpResponseState response, int bufferSize) {
+    public ServletHandler(Container container, HttpResponse response, int bufferSize) {
         this.container = container;
         this.state = response;
         this.bufferSize = bufferSize;
@@ -245,10 +245,10 @@ public class ServletHandler extends DefaultHttpRequestHandler {
     // ─────────────────────────────────────────────────────────────────────────
 
     /**
-     * Returns the HttpResponseState for this request.
+     * Returns the HttpResponse for this request.
      * This provides connection info, TLS info, and response sending.
      */
-    HttpResponseState getState() {
+    HttpResponse getState() {
         return state;
     }
 
@@ -578,7 +578,7 @@ public class ServletHandler extends DefaultHttpRequestHandler {
     }
 
     /**
-     * Sends the buffered response via {@link HttpResponseState}.
+     * Sends the buffered response via {@link HttpResponse}.
      *
      * <p>If the response state is owned by a SelectorLoop and we are not
      * on that thread, the actual send is marshalled onto the SelectorLoop

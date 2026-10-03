@@ -35,7 +35,7 @@ import org.bluezoo.gumdrop.TestCertificateManager;
 import org.bluezoo.gumdrop.http.Headers;
 import org.bluezoo.gumdrop.http.server.HttpRequestHandler;
 import org.bluezoo.gumdrop.http.server.HttpStreamHandler;
-import org.bluezoo.gumdrop.http.server.HttpResponseState;
+import org.bluezoo.gumdrop.http.server.HttpResponse;
 import org.bluezoo.gumdrop.http.h3.Http3Listener;
 import org.bluezoo.gumdrop.websocket.DefaultWebSocketEventHandler;
 import org.bluezoo.gumdrop.websocket.WebSocketSession;
@@ -54,7 +54,7 @@ import static org.junit.Assert.*;
  * {@link WebSocketClient} facade with {@link WebSocketClient#setH3Enabled(boolean)}.
  *
  * <p>Drives a real {@link Http3Listener} server that accepts an Extended
- * CONNECT upgrade (via {@link HttpResponseState#upgradeToWebSocket}) and
+ * CONNECT upgrade (via {@link HttpResponse#upgradeToWebSocket}) and
  * echoes text/binary messages back, over real loopback QUIC -- proving
  * the client-side Extended CONNECT path (added alongside the existing,
  * already-working server-side path) actually interoperates end to end.
@@ -210,10 +210,10 @@ public class HTTP3WebSocketClientIntegrationTest {
     private static class EchoWebSocketHandlerFactory implements HttpStreamHandler {
 
         @Override
-        public HttpRequestHandler openStream(HttpResponseState state) {
+        public HttpRequestHandler openStream(HttpResponse state) {
             return new CollectingRequestHandler(state) {
                 @Override
-                public void headers(HttpResponseState state, Headers headers) {
+                public void headers(HttpResponse state, Headers headers) {
                     if ("CONNECT".equals(headers.getValue(":method"))
                             && "websocket".equalsIgnoreCase(headers.getValue(":protocol"))) {
                         state.upgradeToWebSocket(null, new DefaultWebSocketEventHandler() {
@@ -240,7 +240,7 @@ public class HTTP3WebSocketClientIntegrationTest {
                     }
                 }
 
-                private void sendNotFound(HttpResponseState state) {
+                private void sendNotFound(HttpResponse state) {
                     Headers responseHeaders = new Headers();
                     responseHeaders.status(org.bluezoo.gumdrop.http.HttpStatus.NOT_FOUND);
                     state.headers(responseHeaders);

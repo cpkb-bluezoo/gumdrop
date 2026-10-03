@@ -80,18 +80,18 @@ final class ConnectUdpRelay {
      */
     static final long DEFAULT_IDLE_TIMEOUT_MS = 5L * 60L * 1000L;
 
-    private final HttpResponseState state;
+    private final HttpResponse state;
     private final long idleTimeoutMs;
 
     private UdpEndpoint upstream;
     private boolean closed;
     private TimerHandle idleTimer;
 
-    ConnectUdpRelay(HttpResponseState state) {
+    ConnectUdpRelay(HttpResponse state) {
         this(state, DEFAULT_IDLE_TIMEOUT_MS);
     }
 
-    ConnectUdpRelay(HttpResponseState state, long idleTimeoutMs) {
+    ConnectUdpRelay(HttpResponse state, long idleTimeoutMs) {
         this.state = state;
         this.idleTimeoutMs = idleTimeoutMs;
     }

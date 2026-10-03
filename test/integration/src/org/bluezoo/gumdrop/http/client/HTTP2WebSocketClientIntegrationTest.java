@@ -37,7 +37,7 @@ import org.bluezoo.gumdrop.http.Headers;
 import org.bluezoo.gumdrop.http.server.Http2Listener;
 import org.bluezoo.gumdrop.http.server.HttpRequestHandler;
 import org.bluezoo.gumdrop.http.server.HttpStreamHandler;
-import org.bluezoo.gumdrop.http.server.HttpResponseState;
+import org.bluezoo.gumdrop.http.server.HttpResponse;
 import org.bluezoo.gumdrop.http.HttpStatus;
 import org.bluezoo.gumdrop.http.HttpClient;
 import org.bluezoo.gumdrop.websocket.DefaultWebSocketEventHandler;
@@ -59,7 +59,7 @@ import static org.junit.Assert.*;
  *
  * <p>Drives a real {@link Http2Listener} server (TLS, keystore-based, ALPN
  * offering "h2") whose request handler accepts an Extended CONNECT upgrade
- * via {@link HttpResponseState#upgradeToWebSocket} and echoes text/binary
+ * via {@link HttpResponse#upgradeToWebSocket} and echoes text/binary
  * messages back, proving the client-side Extended-CONNECT-over-h2 path
  * (added alongside the already-working h1.1 and h3 paths) interoperates
  * end to end, over real loopback TCP+TLS -- and that ordinary, concurrent
@@ -339,10 +339,10 @@ public class HTTP2WebSocketClientIntegrationTest {
     private static class H2EchoWebSocketHandlerFactory implements HttpStreamHandler {
 
         @Override
-        public HttpRequestHandler openStream(HttpResponseState state) {
+        public HttpRequestHandler openStream(HttpResponse state) {
             return new CollectingRequestHandler(state) {
                 @Override
-                public void headers(HttpResponseState state, Headers headers) {
+                public void headers(HttpResponse state, Headers headers) {
                     if ("CONNECT".equals(headers.getValue(":method"))
                             && "websocket".equalsIgnoreCase(headers.getValue(":protocol"))) {
                         state.upgradeToWebSocket(null, new DefaultWebSocketEventHandler() {

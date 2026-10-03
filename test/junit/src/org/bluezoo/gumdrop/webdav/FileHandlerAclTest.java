@@ -41,7 +41,7 @@ import org.bluezoo.gumdrop.auth.Realm;
 import org.bluezoo.gumdrop.http.Headers;
 import org.bluezoo.gumdrop.http.HttpStatus;
 import org.bluezoo.gumdrop.http.HttpVersion;
-import org.bluezoo.gumdrop.http.server.HttpResponseState;
+import org.bluezoo.gumdrop.http.server.HttpResponse;
 import org.bluezoo.gumdrop.testsupport.memfs.MemoryFileSystem;
 import org.bluezoo.gumdrop.websocket.WebSocketEventHandler;
 
@@ -57,7 +57,7 @@ import static org.junit.Assert.assertTrue;
 /**
  * Tests for RFC 3744 (WebDAV ACL) support in {@link FileHandler}:
  * privileges are checked via {@link Realm#isUserInRole} against the
- * already-authenticated {@link HttpResponseState#getPrincipal()}, not
+ * already-authenticated {@link HttpResponse#getPrincipal()}, not
  * against any separate ACL store this class maintains itself.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
@@ -330,7 +330,7 @@ public class FileHandlerAclTest {
         }
     }
 
-    private static final class RecordingState implements HttpResponseState {
+    private static final class RecordingState implements HttpResponse {
         private final Principal principal;
         private final Object lock = new Object();
         private final ByteArrayOutputStream bodyOut = new ByteArrayOutputStream();

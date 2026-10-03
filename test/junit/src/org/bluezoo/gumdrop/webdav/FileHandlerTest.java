@@ -23,7 +23,7 @@ package org.bluezoo.gumdrop.webdav;
 
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.SelectorLoop;
-import org.bluezoo.gumdrop.http.server.HttpResponseState;
+import org.bluezoo.gumdrop.http.server.HttpResponse;
 import org.bluezoo.gumdrop.http.HttpStatus;
 import org.bluezoo.gumdrop.http.HttpVersion;
 import org.bluezoo.gumdrop.http.Headers;
@@ -53,7 +53,7 @@ import java.util.logging.Logger;
 /**
  * JUnit 4 tests for the WebDAV {@link FileHandler}, exercising the request
  * methods end-to-end through {@link FileHandler#headers} with a recording
- * {@link HttpResponseState} double.
+ * {@link HttpResponse} double.
  *
  * <p>These tests validate that the {@link org.bluezoo.gumdrop.StorageExecutor}
  * offload refactor preserves response semantics. Because no
@@ -633,14 +633,14 @@ public class FileHandlerTest {
                 xml.contains(String.valueOf(HELLO.length())));
     }
 
-    // ── Recording HttpResponseState double ──
+    // ── Recording HttpResponse double ──
 
     /**
-     * A minimal {@link HttpResponseState} that records the response and runs
+     * A minimal {@link HttpResponse} that records the response and runs
      * {@code execute}/{@code onWritable} callbacks inline (simulating an
      * always-writable transport on the calling thread).
      */
-    static final class RecordingState implements HttpResponseState {
+    static final class RecordingState implements HttpResponse {
         private final Object lock = new Object();
         private final ByteArrayOutputStream bodyOut = new ByteArrayOutputStream();
         private final CountDownLatch done = new CountDownLatch(1);

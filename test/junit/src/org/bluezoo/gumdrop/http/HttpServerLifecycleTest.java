@@ -36,7 +36,7 @@ import org.bluezoo.gumdrop.http.server.Http2Listener;
 import org.bluezoo.gumdrop.http.server.HstsPolicy;
 import org.bluezoo.gumdrop.http.server.HttpAuthenticationProvider;
 import org.bluezoo.gumdrop.http.server.HttpRequestHandler;
-import org.bluezoo.gumdrop.http.server.HttpResponseState;
+import org.bluezoo.gumdrop.http.server.HttpResponse;
 import org.bluezoo.gumdrop.http.server.HttpServerServiceHook;
 import org.bluezoo.gumdrop.http.server.HttpStreamHandler;
 import org.bluezoo.gumdrop.testsupport.InlineSelectorLoop;
@@ -63,7 +63,7 @@ public class HttpServerLifecycleTest {
         HttpAuthenticationProvider provider;
 
         @Override
-        public HttpRequestHandler openStream(HttpResponseState stream) {
+        public HttpRequestHandler openStream(HttpResponse stream) {
             return new DefaultHttpRequestHandler();
         }
 
@@ -85,7 +85,7 @@ public class HttpServerLifecycleTest {
 
     private static final class Plain implements HttpStreamHandler {
         @Override
-        public HttpRequestHandler openStream(HttpResponseState stream) {
+        public HttpRequestHandler openStream(HttpResponse stream) {
             return new DefaultHttpRequestHandler();
         }
     }

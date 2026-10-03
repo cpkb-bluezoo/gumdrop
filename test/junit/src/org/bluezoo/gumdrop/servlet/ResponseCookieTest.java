@@ -24,7 +24,7 @@ package org.bluezoo.gumdrop.servlet;
 import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.http.Headers;
-import org.bluezoo.gumdrop.http.server.HttpResponseState;
+import org.bluezoo.gumdrop.http.server.HttpResponse;
 import org.bluezoo.gumdrop.http.HttpVersion;
 import org.bluezoo.gumdrop.websocket.WebSocketEventHandler;
 
@@ -69,20 +69,20 @@ public class ResponseCookieTest {
     }
 
     private static final class StubServletHandler extends ServletHandler {
-        private final HttpResponseState stubState;
+        private final HttpResponse stubState;
 
-        StubServletHandler(HttpResponseState stubState) {
+        StubServletHandler(HttpResponse stubState) {
             super(new Container(), stubState, 8192);
             this.stubState = stubState;
         }
 
         @Override
-        HttpResponseState getState() {
+        HttpResponse getState() {
             return stubState;
         }
     }
 
-    private static final class StubHTTPResponseState implements HttpResponseState {
+    private static final class StubHTTPResponseState implements HttpResponse {
         @Override public SocketAddress getRemoteAddress() {
             return new InetSocketAddress("127.0.0.1", 54321);
         }

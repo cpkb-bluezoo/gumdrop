@@ -61,27 +61,27 @@ public class StreamRequestHeadersTest {
         boolean datagrams;
 
         @Override
-        public void headers(HttpResponseState state, Headers headers) {
+        public void headers(HttpResponse state, Headers headers) {
             log.add("headers");
         }
 
         @Override
-        public void startRequestBody(HttpResponseState state) {
+        public void startRequestBody(HttpResponse state) {
             log.add("start");
         }
 
         @Override
-        public void requestBodyContent(HttpResponseState state, ByteBuffer data) {
+        public void requestBodyContent(HttpResponse state, ByteBuffer data) {
             log.add("body");
         }
 
         @Override
-        public void endRequestBody(HttpResponseState state) {
+        public void endRequestBody(HttpResponse state) {
             log.add("end");
         }
 
         @Override
-        public void requestComplete(HttpResponseState state) {
+        public void requestComplete(HttpResponse state) {
             log.add("complete");
         }
 
@@ -91,12 +91,12 @@ public class StreamRequestHeadersTest {
         }
 
         @Override
-        public void datagramReceived(HttpResponseState state, ByteBuffer data) {
+        public void datagramReceived(HttpResponse state, ByteBuffer data) {
             log.add("datagram");
         }
 
         @Override
-        public void capsuleReceived(HttpResponseState state, long type, ByteBuffer value) {
+        public void capsuleReceived(HttpResponse state, long type, ByteBuffer value) {
             capsules.add(Long.valueOf(type));
         }
     }
@@ -110,7 +110,7 @@ public class StreamRequestHeadersTest {
             conn.version = version;
             conn.streamHandler = new HttpStreamHandler() {
                 @Override
-                public HttpRequestHandler openStream(HttpResponseState state) {
+                public HttpRequestHandler openStream(HttpResponse state) {
                     return CollectingRequestHandler.bind(events, state);
                 }
             };

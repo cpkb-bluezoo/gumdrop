@@ -53,10 +53,10 @@ public class HttpProtocolHandlerHeaderValueTest {
         Http2Listener listener = new Http2Listener();
         listener.setStreamHandler(new HttpStreamHandler() {
             @Override
-            public HttpRequestHandler openStream(HttpResponseState state) {
+            public HttpRequestHandler openStream(HttpResponse state) {
                 return new CollectingRequestHandler(state) {
                     @Override
-                    public void headers(HttpResponseState s, Headers headers) {
+                    public void headers(HttpResponse s, Headers headers) {
                         received = headers;
                     }
                 };

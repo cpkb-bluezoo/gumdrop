@@ -1967,7 +1967,7 @@ public  class HttpProtocolHandler
         stream.streamEndHeaders();
         // RFC 6455 section 4.1: an application's headers() callback may
         // synchronously switch this connection into WEBSOCKET mode (via
-        // switchToWebSocketMode(), called from HttpResponseState.
+        // switchToWebSocketMode(), called from HttpResponse.
         // upgradeToWebSocket()); the parser must then stop at once, so the
         // WebSocket frame bytes that follow are not read as another request.
         if (state == State.WEBSOCKET) {

@@ -94,7 +94,7 @@ import org.bluezoo.gumdrop.telemetry.Trace;
  * @see <a href="https://www.rfc-editor.org/rfc/rfc9112">RFC 9112</a>
  * @see <a href="https://www.rfc-editor.org/rfc/rfc9113#section-5">RFC 9113 section 5</a>
  */
-class Stream implements HttpResponseState {
+class Stream implements HttpResponse {
 
     private static final Logger LOGGER = Logger.getLogger(Stream.class.getName());
     private static final ResourceBundle L10N =
@@ -183,7 +183,7 @@ class Stream implements HttpResponseState {
     private long requestDecodedBytesReceived;
 
     // ─────────────────────────────────────────────────────────────────────────
-    // HttpResponseState implementation
+    // HttpResponse implementation
     // ─────────────────────────────────────────────────────────────────────────
 
     /**
@@ -1615,7 +1615,7 @@ class Stream implements HttpResponseState {
     }
     
     // ─────────────────────────────────────────────────────────────────────────
-    // HttpResponseState.upgradeToWebSocket Implementation
+    // HttpResponse.upgradeToWebSocket Implementation
     // RFC 9110 section 15.2.2: 101 Switching Protocols
     // ─────────────────────────────────────────────────────────────────────────
     
@@ -1720,7 +1720,7 @@ class Stream implements HttpResponseState {
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // HttpResponseState.acceptConnectUdp/acceptConnectIp Implementation
+    // HttpResponse.acceptConnectUdp/acceptConnectIp Implementation
     // (RFC 9298, RFC 9484)
     // ─────────────────────────────────────────────────────────────────────────
 
@@ -2006,7 +2006,7 @@ class Stream implements HttpResponseState {
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // HttpResponseState implementation
+    // HttpResponse implementation
     // ─────────────────────────────────────────────────────────────────────────
 
     @Override

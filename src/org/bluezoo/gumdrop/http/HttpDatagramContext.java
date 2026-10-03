@@ -92,7 +92,7 @@ public final class HttpDatagramContext {
     /**
      * Encodes a Context ID and its payload as a Context ID-prefixed HTTP
      * Datagram payload (RFC 9298 section 5) -- suitable as-is for {@link
-     * HttpResponseState#sendDatagram(ByteBuffer)}.
+     * HttpResponse#sendDatagram(ByteBuffer)}.
      *
      * @param contextId the Context ID, must be in {@code [0, VarInt.MAX_VALUE]}
      * @param payload the flow's protocol data, or {@code null} for none; copied

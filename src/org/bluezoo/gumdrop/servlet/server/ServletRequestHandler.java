@@ -23,7 +23,7 @@ package org.bluezoo.gumdrop.servlet.server;
 
 import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.http.server.HttpRequestHandler;
-import org.bluezoo.gumdrop.http.server.HttpResponseState;
+import org.bluezoo.gumdrop.http.server.HttpResponse;
 import org.bluezoo.gumdrop.http.server.HttpServerServiceHook;
 import org.bluezoo.gumdrop.http.server.HttpStreamHandler;
 import org.bluezoo.gumdrop.servlet.Container;
@@ -67,7 +67,7 @@ public final class ServletRequestHandler
     }
 
     @Override
-    public HttpRequestHandler openStream(HttpResponseState stream) {
+    public HttpRequestHandler openStream(HttpResponse stream) {
         return new ServletHandler(container, stream, container.getBufferSize());
     }
 

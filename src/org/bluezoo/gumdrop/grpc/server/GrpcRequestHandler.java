@@ -29,7 +29,7 @@ import java.nio.charset.StandardCharsets;
 import org.bluezoo.gumdrop.mime.ContentType;
 import org.bluezoo.gumdrop.http.server.DefaultHttpRequestHandler;
 import org.bluezoo.gumdrop.http.server.HttpRequestHandler;
-import org.bluezoo.gumdrop.http.server.HttpResponseState;
+import org.bluezoo.gumdrop.http.server.HttpResponse;
 import org.bluezoo.gumdrop.http.server.HttpStreamHandler;
 import org.bluezoo.gumdrop.http.server.NotFoundHttpRequestHandler;
 
@@ -68,7 +68,7 @@ public class GrpcRequestHandler implements HttpStreamHandler {
     }
 
     @Override
-    public HttpRequestHandler openStream(HttpResponseState response) {
+    public HttpRequestHandler openStream(HttpResponse response) {
         return new GrpcStreamHandler(response);
     }
 
@@ -79,12 +79,12 @@ public class GrpcRequestHandler implements HttpStreamHandler {
      */
     private final class GrpcStreamHandler extends DefaultHttpRequestHandler {
 
-        private final HttpResponseState response;
+        private final HttpResponse response;
         private String path;
         private ContentType contentType;
         private HttpRequestHandler delegate;
 
-        GrpcStreamHandler(HttpResponseState response) {
+        GrpcStreamHandler(HttpResponse response) {
             this.response = response;
         }
 

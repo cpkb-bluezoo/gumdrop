@@ -50,7 +50,7 @@ import org.junit.Test;
  */
 public class ConnectUdpRequestHandlerTest {
 
-    private static final class State implements HttpResponseState {
+    private static final class State implements HttpResponse {
         Headers sent;
         boolean completed;
         HttpVersion version = HttpVersion.HTTP_3;

@@ -31,7 +31,7 @@ import org.bluezoo.gumdrop.http.client.HttpRequest;
 import org.bluezoo.gumdrop.http.server.DefaultHttpRequestHandler;
 import org.bluezoo.gumdrop.http.server.Http2Listener;
 import org.bluezoo.gumdrop.http.server.HttpRequestHandler;
-import org.bluezoo.gumdrop.http.server.HttpResponseState;
+import org.bluezoo.gumdrop.http.server.HttpResponse;
 import org.bluezoo.gumdrop.http.server.HttpStreamHandler;
 import org.bluezoo.gumdrop.http.server.NotFoundHttpRequestHandler;
 import org.bluezoo.gumdrop.http.Headers;
@@ -168,16 +168,16 @@ public class HttpServerRouterIntegrationTest {
 
     private static final class PathDispatchStreamHandler implements HttpStreamHandler {
         @Override
-        public HttpRequestHandler openStream(HttpResponseState stream) {
+        public HttpRequestHandler openStream(HttpResponse stream) {
             return new PathDispatchHandler(stream);
         }
     }
 
     private static final class PathDispatchHandler extends DefaultHttpRequestHandler {
-        private final HttpResponseState state;
+        private final HttpResponse state;
         private String path;
 
-        PathDispatchHandler(HttpResponseState state) {
+        PathDispatchHandler(HttpResponse state) {
             this.state = state;
         }
 
