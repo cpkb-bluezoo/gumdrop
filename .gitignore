@@ -39,3 +39,9 @@ dist/
 # Generated class files (ant clean removes these)
 web/WEB-INF/classes/
 examples/**/*.class
+
+# Benchmark harness: downloaded Netty jars, generated keystore, build output, results
+test/benchmark/lib/
+test/benchmark/certs/
+test/benchmark/out/
+test/benchmark/results/
