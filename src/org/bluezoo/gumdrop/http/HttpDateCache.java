@@ -75,17 +75,19 @@ public final class HttpDateCache {
 
     private static final long REFRESH_INTERVAL_MS = 1000L;
 
+    /**
+     * Test seam: when non-negative, the instant (epoch millis) used instead
+     * of the system clock. Declared before the static initialiser below,
+     * which reads it: static initialisers run in textual order, and a
+     * refresh that ran first would see 0 here and cache 1 January 1970.
+     */
+    static volatile long fixedTimeMillis = -1L;
+
     static {
         refresh();
         REFRESHER.start();
         scheduleNextRefresh();
     }
-
-    /**
-     * Test seam: when non-negative, the instant (epoch millis) used instead
-     * of the system clock.
-     */
-    static volatile long fixedTimeMillis = -1L;
 
     private HttpDateCache() {
     }
