@@ -384,15 +384,16 @@ The server handler API centres on three interfaces:
 </p>
 
 <ul>
-<li><b>HttpRequestHandler</b> — receives request events (headers, body chunks,
-completion) for a single stream; implement this or compose
+<li><b>HttpRequestHandler</b> - receives request events (header fields, body
+chunks, completion) for a single stream, and is given its
+<code>HttpResponseState</code> when it is constructed; implement this or compose
 <code>ServletRequestHandler</code> / <code>WebDAVRequestHandler</code></li>
 <li><b>HttpResponseState</b> — provided to handlers for sending responses
 (<code>org.bluezoo.gumdrop.http.server</code>)</li>
 <li><b>HttpStreamHandler</b> — one method, <code>openStream(HttpResponseState)</code>,
 called once per stream before headers arrive, to bind the
 <code>HttpRequestHandler</code> that will handle it; routing by path/method
-belongs in that handler's own <code>headers()</code> callback, not here</li>
+belongs in that handler's own <code>endHeaders()</code> event, not here</li>
 </ul>
 
 <h4>Event Sequence</h4>
@@ -402,22 +403,32 @@ Request handlers receive events in a well-defined order:
 </p>
 
 <pre>
-headers()              // request headers (:method, :path, etc.)
-startRequestBody()     // if request has a body
-requestBodyContent()   // one or more body chunks
-endRequestBody()       // body complete
-headers()              // trailer headers (if any)
-requestComplete()      // stream closed from client
+version()              // HTTP version
+method(HttpMethod)     // request method
+target(ByteBuffer)     // request target (path and query)
+scheme(ByteBuffer)     // scheme (HTTP/2 and HTTP/3)
+authority(ByteBuffer)  // authority / Host
+contentType(ContentType)               // if present
+contentDisposition(ContentDisposition) // if present
+longHeader(name, long) // numeric fields, e.g. content-length
+header(name, value)    // every other field line, one event per line
+endHeaders()           // header section complete
+bodyContent(ByteBuffer) // zero or more body chunks
+header(name, value)    // trailer fields (a header event after endHeaders)
+endMessage()           // request complete
 </pre>
 
 <p>
-For requests without a body (GET, HEAD, etc.):
+For requests without a body (GET, HEAD, etc.) <code>endHeaders()</code> is
+followed directly by <code>endMessage()</code>. A malformed message is reported
+as <code>error(HttpError, String)</code>; if the exchange ends without
+<code>endMessage()</code> because of a transport failure (RST_STREAM, connection
+closed), <code>failed(Exception)</code> is called instead. Header values passed
+to <code>header(...)</code> are read-only views valid only during the call:
+copy them if you keep them. A response uses the same events, with
+<code>status()</code> and <code>reason()</code> in place of
+<code>method()</code> and <code>target()</code>.
 </p>
-
-<pre>
-headers()              // request headers with END_STREAM
-requestComplete()
-</pre>
 
 <h4>Sending Responses</h4>
 
@@ -439,19 +450,30 @@ complete()             // finish the response
 
 <pre>
 public class HelloHandler extends DefaultHttpRequestHandler {
-    
+    private final HttpResponseState response;
+    private HttpMethod method;
+
+    public HelloHandler(HttpResponseState response) {
+        this.response = response;
+    }
+
     @Override
-    public void headers(HttpResponseState state, Headers headers) {
-        if ("GET".equals(headers.getMethod())) {
-            Headers response = new Headers();
-            response.status(HttpStatus.OK);
-            response.add("content-type", "text/plain");
-            state.headers(response);
-            state.startResponseBody();
-            state.responseBodyContent(
+    public void method(HttpMethod method) {
+        this.method = method;
+    }
+
+    @Override
+    public void endHeaders() {
+        if (method == HttpMethod.GET) {
+            Headers headers = new Headers();
+            headers.status(HttpStatus.OK);
+            headers.add("content-type", "text/plain");
+            response.headers(headers);
+            response.startResponseBody();
+            response.responseBodyContent(
                 ByteBuffer.wrap("Hello, World!".getBytes()));
-            state.endResponseBody();
-            state.complete();
+            response.endResponseBody();
+            response.complete();
         }
     }
 }
@@ -460,27 +482,60 @@ public class HelloHandler extends DefaultHttpRequestHandler {
 <h4>Request Routing</h4>
 
 <p>
-A single <code>HttpRequestHandler</code>'s own <code>headers()</code> callback
-sees the request headers first, so routing decisions based on path, method,
-or other criteria happen there — delegating to another handler is just a
-method call:
+A single <code>HttpRequestHandler</code> sees the request line and header
+fields first, so routing decisions based on path, method, or other criteria
+happen in its <code>endHeaders()</code> event, once the fields it needs have
+been remembered. The router then creates the delegate and replays the events
+it has seen to it:
 </p>
 
 <pre>
 public class RoutingHandler extends DefaultHttpRequestHandler {
+    private final HttpResponseState response;
+    private HttpMethod method;
+    private ByteBuffer target;
+    private HttpRequestHandler delegate;
 
-    public void headers(HttpResponseState state, Headers headers) {
-        String path = headers.getPath();
-        HttpRequestHandler delegate;
+    public RoutingHandler(HttpResponseState response) {
+        this.response = response;
+    }
+
+    @Override
+    public void method(HttpMethod method) {
+        this.method = method;
+    }
+
+    @Override
+    public void target(ByteBuffer target) {
+        // read-only view valid only during this call: copy it
+        this.target = ByteBuffer.allocate(target.remaining()).put(target);
+        this.target.flip();
+    }
+
+    @Override
+    public void endHeaders() {
+        String path = StandardCharsets.UTF_8.decode(target.duplicate()).toString();
 
         if (path.startsWith("/api/")) {
-            delegate = new ApiHandler();
+            delegate = new ApiHandler(response);
         } else if (path.startsWith("/static/")) {
-            delegate = new StaticFileHandler(documentRoot);
+            delegate = new StaticFileHandler(response, documentRoot);
         } else {
-            delegate = new DefaultHandler();
+            delegate = new DefaultHandler(response);
         }
-        delegate.headers(state, headers);
+        delegate.method(method);
+        delegate.target(target);
+        delegate.endHeaders();
+    }
+
+    @Override
+    public void bodyContent(ByteBuffer data) {
+        delegate.bodyContent(data);
+    }
+
+    @Override
+    public void endMessage() {
+        delegate.endMessage();
     }
 }
 </pre>
@@ -497,7 +552,7 @@ HttpServer server = HttpServer.compose()
         .streamHandler(new HttpStreamHandler() {
             @Override
             public HttpRequestHandler openStream(HttpResponseState state) {
-                return new RoutingHandler();
+                return new RoutingHandler(state);
             }
         })
         .server();
@@ -517,18 +572,33 @@ Alternatively, the factory can perform authentication manually:
 </p>
 
 <pre>
-public HttpRequestHandler createHandler(HttpResponseState state,
-                                        Headers headers) {
-    String auth = headers.getValue("authorization");
-    if (!isValidAuth(auth)) {
-        Headers response = new Headers();
-        response.status(HttpStatus.UNAUTHORIZED);
-        response.add("www-authenticate", "Bearer");
-        state.headers(response);
-        state.complete();
-        return null;  // no handler needed
+public class AuthHandler extends DefaultHttpRequestHandler {
+    private final HttpResponseState response;
+    private String auth;
+
+    public AuthHandler(HttpResponseState response) {
+        this.response = response;
     }
-    return new MyHandler();
+
+    @Override
+    public void header(String name, ByteBuffer value) {
+        if ("authorization".equals(name)) {
+            auth = StandardCharsets.UTF_8.decode(value).toString();
+        }
+    }
+
+    @Override
+    public void endHeaders() {
+        if (!isValidAuth(auth)) {
+            Headers headers = new Headers();
+            headers.status(HttpStatus.UNAUTHORIZED);
+            headers.add("www-authenticate", "Bearer");
+            response.headers(headers);
+            response.complete();
+            return;
+        }
+        // continue with the normal handling...
+    }
 }
 </pre>
 
@@ -541,15 +611,21 @@ send resources to the client:
 
 <pre>
 @Override
-public void headers(HttpResponseState state, Headers headers) {
+public void authority(ByteBuffer authority) {
+    // copy: the buffer is only valid during this call
+    this.authority = StandardCharsets.UTF_8.decode(authority).toString();
+}
+
+@Override
+public void endHeaders() {
     // Push a stylesheet that we know the client will need
     Headers pushHeaders = new Headers();
     pushHeaders.add(":method", "GET");
     pushHeaders.add(":path", "/styles/main.css");
-    pushHeaders.add(":scheme", state.getScheme());
-    pushHeaders.add(":authority", headers.getValue(":authority"));
+    pushHeaders.add(":scheme", response.getScheme());
+    pushHeaders.add(":authority", authority);
     
-    if (state.pushPromise(pushHeaders)) {
+    if (response.pushPromise(pushHeaders)) {
         // Push was accepted; the pushed stream will be processed
         // through the factory like any other request
     }
@@ -585,18 +661,23 @@ For server-sent events or other streaming scenarios:
 
 <pre>
 public class StreamHandler extends DefaultHttpRequestHandler {
+    private final HttpResponseState response;
+
+    public StreamHandler(HttpResponseState response) {
+        this.response = response;
+    }
     
     @Override
-    public void headers(HttpResponseState state, Headers headers) {
-        Headers response = new Headers();
-        response.status(HttpStatus.OK);
-        response.add("content-type", "text/event-stream");
-        state.headers(response);
-        state.startResponseBody();
+    public void endHeaders() {
+        Headers headers = new Headers();
+        headers.status(HttpStatus.OK);
+        headers.add("content-type", "text/event-stream");
+        response.headers(headers);
+        response.startResponseBody();
         
-        // Keep reference to state for async sends
+        // The response field stays valid for async sends
         eventEmitter.subscribe(event -> {
-            state.responseBodyContent(
+            response.responseBodyContent(
                 ByteBuffer.wrap(event.toSSE().getBytes()));
         });
     }
@@ -618,7 +699,7 @@ callback invoked when the transport is ready for more response data.
 Use this to send body content in chunks without overwhelming the
 connection.</li>
 <li><b><code>pauseRequestBody()</code></b> &ndash; stops delivery of
-<code>requestBodyContent()</code> events. The transport propagates
+<code>bodyContent()</code> events. The transport propagates
 backpressure to the client per-stream (HTTP/2 and HTTP/3) or per-connection
 (HTTP/1.1).</li>
 <li><b><code>resumeRequestBody()</code></b> &ndash; resumes delivery after a
@@ -646,10 +727,10 @@ void sendNextChunk(HttpResponseState state, ReadableByteChannel src) {
 
 <pre>
 // Throttling request body consumption with read-side backpressure
-public void requestBodyContent(HttpResponseState state, ByteBuffer data) {
+public void bodyContent(ByteBuffer data) {
     if (!processor.ready()) {
-        state.pauseRequestBody();
-        processor.onReady(() -&gt; state.resumeRequestBody());
+        response.pauseRequestBody();
+        processor.onReady(() -&gt; response.resumeRequestBody());
         return;
     }
     processor.consume(data);
@@ -670,13 +751,13 @@ Use <code>cancel()</code> to abort a stream on error:
 
 <pre>
 @Override
-public void requestBodyContent(HttpResponseState state, ByteBuffer data) {
+public void bodyContent(ByteBuffer data) {
     if (data.remaining() > MAX_BODY_SIZE) {
-        Headers response = new Headers();
-        response.status(HttpStatus.REQUEST_ENTITY_TOO_LARGE);
-        state.headers(response);
-        state.complete();
-        state.cancel();  // abort the stream
+        Headers headers = new Headers();
+        headers.status(HttpStatus.REQUEST_ENTITY_TOO_LARGE);
+        response.headers(headers);
+        response.complete();
+        response.cancel();  // abort the stream
     }
 }
 </pre>

@@ -39,6 +39,7 @@ import org.bluezoo.gumdrop.http.Header;
 import org.bluezoo.gumdrop.http.Headers;
 import org.bluezoo.gumdrop.http.hpack.Encoder;
 import org.bluezoo.gumdrop.testsupport.BinaryRecordingEndpoint;
+import org.bluezoo.gumdrop.testsupport.CollectingRequestHandler;
 import org.junit.Test;
 
 /**
@@ -110,7 +111,7 @@ public class HttpProtocolHandlerH2WireTest {
             listener.setStreamHandler(new HttpStreamHandler() {
                 @Override
                 public HttpRequestHandler openStream(HttpResponseState state) {
-                    return new DefaultHttpRequestHandler() {
+                    return new CollectingRequestHandler(state) {
                         @Override
                         public void headers(HttpResponseState s, Headers headers) {
                             a.events.add("headers");

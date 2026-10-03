@@ -44,37 +44,28 @@ import java.nio.ByteBuffer;
  *
  * <h2>Event Sequence</h2>
  *
- * <p>For a request with body and trailers:
+ * <p>A request is the events of {@link HttpMessageHandler}, the same whichever
+ * protocol carried it:
  * <pre>
- * headers()              // initial request headers (:method, :path, etc.)
- * headers()              // continuation headers (if needed)
- * startRequestBody()
- * requestBodyContent()   // first DATA frame
- * requestBodyContent()   // subsequent DATA frames
- * endRequestBody()
- * headers()              // trailer headers
- * requestComplete()      // stream closed from client
+ * version() method() target() scheme() authority()   // the start of the request
+ * contentType() longHeader() header() ...            // one event per field line
+ * endHeaders()
+ * bodyContent() ...                                  // zero or more times
+ * header() ...                                       // trailer fields, if any
+ * endMessage()                                       // the request is complete
  * </pre>
- *
- * <p>For a request without body (GET, HEAD, etc.):
- * <pre>
- * headers()              // request headers with END_STREAM
- * requestComplete()
- * </pre>
- *
- * <p>The {@code headers()} method may be called multiple times:
- * <ul>
- *   <li>Before {@code startRequestBody()} - request headers</li>
- *   <li>After {@code endRequestBody()} - trailer headers</li>
- * </ul>
+ * A response is the same events with {@code status()} and {@code reason()}
+ * in place of {@code method()} and {@code target()}. If the exchange cannot
+ * complete, {@code error()} (a malformed message) or {@link #failed} (the
+ * transport) is the last event instead of {@code endMessage()}.
  *
  * <h2>Response Sending</h2>
  *
  * <p>The handler can send the response at any point using the
  * {@link HttpResponseState} provided to each callback. Common patterns:
  * <ul>
- *   <li>Respond immediately in {@code headers()} for simple requests</li>
- *   <li>Accumulate body data and respond in {@code endRequestBody()}</li>
+ *   <li>Respond immediately in {@code endHeaders()} for simple requests</li>
+ *   <li>Accumulate body data and respond in {@code endMessage()}</li>
  *   <li>Stream response body while receiving request body</li>
  * </ul>
  *
@@ -82,19 +73,23 @@ import java.nio.ByteBuffer;
  *
  * <pre>{@code
  * public class HelloHandler extends DefaultHttpRequestHandler {
- *     
+ *
+ *     private final HttpResponseState response;
+ *
+ *     public HelloHandler(HttpResponseState response) {
+ *         this.response = response;
+ *     }
+ *
  *     @Override
- *     public void headers(HttpResponseState response, Headers headers) {
- *         if ("GET".equals(headers.getMethod())) {
- *             Headers fields = new Headers();
- *             fields.status(HttpStatus.OK);
- *             fields.add("content-type", "text/plain");
- *             response.headers(fields);
- *             response.startResponseBody();
- *             response.responseBodyContent(ByteBuffer.wrap("Hello, World!".getBytes()));
- *             response.endResponseBody();
- *             response.complete();
- *         }
+ *     public void endHeaders() {
+ *         Headers fields = new Headers();
+ *         fields.status(HttpStatus.OK);
+ *         fields.add("content-type", "text/plain");
+ *         response.headers(fields);
+ *         response.startResponseBody();
+ *         response.responseBodyContent(ByteBuffer.wrap("Hello, World!".getBytes()));
+ *         response.endResponseBody();
+ *         response.complete();
  *     }
  * }
  * }</pre>
@@ -108,12 +103,7 @@ public interface HttpRequestHandler extends HttpMessageHandler {
 
     // ---- HttpMessageHandler events ----
     //
-    // A request arrives as the events of HttpMessageHandler (method, target,
-    // fields, endHeaders, body, endMessage), the same whichever protocol
-    // carried it. They default to doing nothing so that a handler written for
-    // the older headers/startRequestBody/requestBodyContent/requestComplete
-    // methods below keeps working while handlers move over to the events; those
-    // methods will then be removed.
+    // They default to doing nothing, so a handler overrides the ones it needs.
 
     @Override default void method(HttpMethod method) { }
     @Override default void target(ByteBuffer target) { }
@@ -131,98 +121,7 @@ public interface HttpRequestHandler extends HttpMessageHandler {
     @Override default void bodyContent(ByteBuffer data) { }
     @Override default void endMessage() { }
     @Override default void error(HttpError error, String detail) { }
-
-    /**
-     * Headers received.
-     *
-     * <p>Called when HTTP headers are received. This may be called multiple
-     * times for the same request:
-     * <ul>
-     *   <li>Initial request headers (always includes :method, :path, :scheme,
-     *       :authority pseudo-headers regardless of HTTP version)</li>
-     *   <li>Continuation headers (if header block spans multiple frames)</li>
-     *   <li>Trailer headers (after {@link #endRequestBody})</li>
-     * </ul>
-     *
-     * <p>The position in the event sequence indicates the header type:
-     * headers before {@code startRequestBody()} are request headers;
-     * headers after {@code endRequestBody()} are trailers.
-     *
-     * @param response for sending the response
-     * @param headers the headers (pseudo-headers normalized for all HTTP versions)
-     */
-    void headers(HttpResponseState response, Headers headers);
-
-    /**
-     * Request body is starting.
-     *
-     * <p>Called before the first {@link #requestBodyContent} if the request
-     * has a body. Not called for requests without a body (GET, HEAD, etc.).
-     *
-     * @param response the response
-     */
-    void startRequestBody(HttpResponseState response);
-
-    /**
-     * Request body data received.
-     *
-     * <p>Called for each chunk of request body data. May be called multiple
-     * times. The buffer is only valid during this callback - if the data
-     * is needed later, it must be copied.
-     *
-     * @param response the response
-     * @param data the body data (position and limit define valid range)
-     */
-    void requestBodyContent(HttpResponseState response, ByteBuffer data);
-
-    /**
-     * Request body complete.
-     *
-     * <p>Called after the last {@link #requestBodyContent} when all body
-     * data has been received. Trailer headers (if any) will follow via
-     * {@link #headers} before {@link #requestComplete}.
-     *
-     * @param response the response
-     */
-    void endRequestBody(HttpResponseState response);
-
-    /**
-     * Request stream closed from client side.
-     *
-     * <p>This is the final callback for this stream. No more events will
-     * be delivered. The handler should complete its response if not
-     * already done.
-     *
-     * @param response the response
-     */
-    void requestComplete(HttpResponseState response);
-
-    /**
-     * The request failed due to a transport or protocol-level error
-     * before {@link #requestComplete} could be delivered normally --
-     * e.g. the underlying connection was closed or errored mid-request
-     * (HTTP/1.1, HTTP/2 and HTTP/3), the peer reset the stream with
-     * RST_STREAM (HTTP/2), sent GOAWAY and closed the connection
-     * (HTTP/2), or closed the connection with an error (see {@code
-     * QuicConnectionCloseException} for the HTTP/3 case). This is the
-     * final callback for this stream: it is delivered at most once, never
-     * after {@link #requestComplete}, and never for a request the server
-     * itself rejected before it reached this handler. No more events will
-     * be delivered, and any response already sent through {@code response}
-     * is final.
-     *
-     * <p>Default implementation does nothing, so existing implementations
-     * are unaffected by this method's addition; override to react to
-     * abnormal termination the way {@link
-     * org.bluezoo.gumdrop.http.client.HttpResponseHandler#failed} already
-     * lets client code do for the client side.
-     *
-     * @param response the response
-     * @param cause the error
-     */
-    default void failed(HttpResponseState response, Exception cause) {
-        // Default: do nothing
-    }
+    @Override default void failed(Exception cause) { }
 
     /**
      * Returns whether this request accepts HTTP Datagrams (RFC 9297).
@@ -233,7 +132,7 @@ public interface HttpRequestHandler extends HttpMessageHandler {
      */
     /**
      * When {@code true}, the server decodes {@code Content-Encoding} on the
-     * request body before {@link #requestBodyContent} (handlers see plain bytes).
+     * request body before {@link #bodyContent} (handlers see plain bytes).
      * Default {@code false} so servlet and similar stacks receive the on-the-wire
      * representation.
      */

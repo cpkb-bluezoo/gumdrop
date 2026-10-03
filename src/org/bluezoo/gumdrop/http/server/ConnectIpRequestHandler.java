@@ -229,17 +229,14 @@ public class ConnectIpRequestHandler extends DefaultHttpRequestHandler {
         packetHandler.addressRequested(session, requested);
     }
 
-    @Override
-    public void requestComplete(HttpResponseState state) {
-        // RFC 9484: the HTTP request exchange finishes once 101/200 is
-        // sent, but the CONNECT-IP tunnel remains open on this connection
-        // until the peer closes it — same lifecycle as CONNECT-UDP (see
-        // ConnectUdpRequestHandler, which also leaves the relay active
-        // after requestComplete). Teardown is via failed() below.
-    }
+    // RFC 9484: the HTTP request exchange finishes once 101/200 is sent, but
+    // the CONNECT-IP tunnel remains open on this connection until the peer
+    // closes it -- same lifecycle as CONNECT-UDP (see ConnectUdpRequestHandler,
+    // which also leaves the relay active after endMessage). endMessage is
+    // therefore left alone, and teardown is via failed() below.
 
     @Override
-    public void failed(HttpResponseState state, Exception cause) {
+    public void failed(Exception cause) {
         if (session != null) {
             ConnectIpSession failed = session;
             session = null;

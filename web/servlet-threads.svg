@@ -58,7 +58,7 @@
   <text x="300" y="373" text-anchor="middle" class="label-small">HTTP parse, TLS, WebSocket frames</text>
 
   <line x1="300" y1="385" x2="300" y2="435" class="arrow" />
-  <text x="310" y="415" class="label-title">ServletHandler.requestBodyContent()</text>
+  <text x="310" y="415" class="label-title">ServletHandler.bodyContent()</text>
 
   <!-- Section: Bridge Layer -->
   <text x="30" y="460" class="section-label">BRIDGE LAYER</text>

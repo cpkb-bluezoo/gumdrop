@@ -348,7 +348,7 @@ public  class HttpProtocolHandler
     /**
      * Set when a bodyless h2c upgrade ({@link #completeH2cUpgrade()}) is
      * committed before {@link Stream#streamEndRequest()} ran, so the
-     * upgrading stream still needs {@link HttpRequestHandler#requestComplete}.
+     * upgrading stream still needs {@link HttpRequestHandler#endMessage}.
      * Cleared when that completion is delivered at the HTTP/2 SETTINGS
      * handshake. Must not run for native h2 (ALPN / prior knowledge).
      */
@@ -1900,6 +1900,12 @@ public  class HttpProtocolHandler
             } else {
                 clientStreamId += 2;
             }
+        }
+
+        @Override
+        public void failed(Exception cause) {
+            // the parser reports malformed input through error(); transport
+            // failures are handled by the connection itself
         }
 
         @Override

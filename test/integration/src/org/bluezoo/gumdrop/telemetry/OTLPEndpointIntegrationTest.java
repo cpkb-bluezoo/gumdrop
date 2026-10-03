@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.telemetry;
 
+import org.bluezoo.gumdrop.testsupport.CollectingRequestHandler;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -28,7 +29,6 @@ import org.junit.Test;
 import org.bluezoo.gumdrop.ListenerBindCheck;
 import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.GumdropConfig;
-import org.bluezoo.gumdrop.http.server.DefaultHttpRequestHandler;
 import org.bluezoo.gumdrop.http.Header;
 import org.bluezoo.gumdrop.http.Headers;
 import org.bluezoo.gumdrop.http.server.HttpRequestHandler;
@@ -84,7 +84,7 @@ public class OTLPEndpointIntegrationTest {
         server.setStreamHandler(new HttpStreamHandler() {
             @Override
             public HttpRequestHandler openStream(HttpResponseState state) {
-                lastHandler = new TestHandler();
+                lastHandler = CollectingRequestHandler.bind(new TestHandler(), state);
                 return lastHandler;
             }
         });
@@ -252,7 +252,7 @@ public class OTLPEndpointIntegrationTest {
      * <p>Uses the correct event-driven pattern: waits for requestComplete()
      * to know when the request is done, not by checking headers.
      */
-    static class TestHandler extends DefaultHttpRequestHandler {
+    static class TestHandler extends CollectingRequestHandler {
         private ByteArrayOutputStream bodyBuffer = new ByteArrayOutputStream();
         private Headers requestHeaders;
         private HttpResponseState state;

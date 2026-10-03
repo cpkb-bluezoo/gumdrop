@@ -33,6 +33,7 @@ import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.http.hpack.Encoder;
 import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
 import org.bluezoo.gumdrop.telemetry.Trace;
+import org.bluezoo.gumdrop.testsupport.CollectingRequestHandler;
 import org.junit.Before;
 import org.junit.Test;
 
@@ -59,7 +60,7 @@ import static org.junit.Assert.*;
 public class HTTPProtocolHandlerH2FlushCoalescingTest {
 
     /** Answers entirely within headers(), like the DefaultHttpRequestHandler javadoc example. */
-    private static final class SynchronousGetHandler extends DefaultHttpRequestHandler {
+    private static final class SynchronousGetHandler extends CollectingRequestHandler {
         @Override
         public void headers(HttpResponseState state, Headers headers) {
             if ("GET".equals(headers.getMethod())) {
@@ -119,7 +120,7 @@ public class HTTPProtocolHandlerH2FlushCoalescingTest {
         listener.setStreamHandler(new HttpStreamHandler() {
             @Override
             public HttpRequestHandler openStream(HttpResponseState state) {
-                return new SynchronousGetHandler();
+                return CollectingRequestHandler.bind(new SynchronousGetHandler(), state);
             }
         });
 

@@ -21,12 +21,12 @@
 
 package org.bluezoo.gumdrop.telemetry;
 
+import org.bluezoo.gumdrop.testsupport.CollectingRequestHandler;
 import java.nio.file.Path;
 import org.bluezoo.gumdrop.ListenerBindCheck;
 import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.GumdropConfig;
 import org.bluezoo.gumdrop.TestCertificateManager;
-import org.bluezoo.gumdrop.http.server.DefaultHttpRequestHandler;
 import org.bluezoo.gumdrop.http.Header;
 import org.bluezoo.gumdrop.http.Headers;
 import org.bluezoo.gumdrop.http.server.HttpRequestHandler;
@@ -356,7 +356,7 @@ public class MockOTLPCollector {
 
         @Override
         public HttpRequestHandler openStream(HttpResponseState state) {
-            return new OTLPRequestHandler(collector);
+            return CollectingRequestHandler.bind(new OTLPRequestHandler(collector), state);
         }
     }
 
@@ -369,7 +369,7 @@ public class MockOTLPCollector {
      * <p>Uses the correct event-driven pattern: waits for requestComplete()
      * to know when the request is fully received.
      */
-    static class OTLPRequestHandler extends DefaultHttpRequestHandler {
+    static class OTLPRequestHandler extends CollectingRequestHandler {
 
         private final MockOTLPCollector collector;
         private ByteArrayOutputStream bodyBuffer;

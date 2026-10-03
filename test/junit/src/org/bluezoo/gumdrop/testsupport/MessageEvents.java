@@ -145,6 +145,7 @@ public final class MessageEvents {
         @Override public void bodyContent(ByteBuffer d) { h.bodyContent(d); }
         @Override public void endMessage() { }
         @Override public void error(HttpError e, String d) { h.error(e, d); }
+        @Override public void failed(Exception c) { h.failed(c); }
     }
 
     /** Delivers a whole request: header section, the body if any, and the end. */

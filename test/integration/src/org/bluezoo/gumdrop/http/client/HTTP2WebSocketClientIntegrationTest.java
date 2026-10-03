@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.http.client;
 
+import org.bluezoo.gumdrop.testsupport.CollectingRequestHandler;
 import java.nio.file.Path;
 import java.io.File;
 import java.nio.ByteBuffer;
@@ -39,7 +40,6 @@ import org.bluezoo.gumdrop.http.server.HttpStreamHandler;
 import org.bluezoo.gumdrop.http.server.HttpResponseState;
 import org.bluezoo.gumdrop.http.HttpStatus;
 import org.bluezoo.gumdrop.http.HttpClient;
-import org.bluezoo.gumdrop.http.server.DefaultHttpRequestHandler;
 import org.bluezoo.gumdrop.websocket.DefaultWebSocketEventHandler;
 import org.bluezoo.gumdrop.websocket.WebSocketSession;
 import org.bluezoo.gumdrop.websocket.client.WebSocketClient;
@@ -339,7 +339,7 @@ public class HTTP2WebSocketClientIntegrationTest {
 
         @Override
         public HttpRequestHandler openStream(HttpResponseState state) {
-            return new DefaultHttpRequestHandler() {
+            return new CollectingRequestHandler(state) {
                 @Override
                 public void headers(HttpResponseState state, Headers headers) {
                     if ("CONNECT".equals(headers.getValue(":method"))

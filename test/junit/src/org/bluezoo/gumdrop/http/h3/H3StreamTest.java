@@ -27,7 +27,6 @@ import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.List;
 
-import org.bluezoo.gumdrop.http.server.DefaultHttpRequestHandler;
 import org.bluezoo.gumdrop.http.Header;
 import org.bluezoo.gumdrop.http.server.HttpResponseState;
 import org.bluezoo.gumdrop.http.qpack.Decoder;
@@ -35,6 +34,7 @@ import org.bluezoo.gumdrop.http.qpack.Encoder;
 import org.bluezoo.gumdrop.http.qpack.SimpleEncoder;
 import org.bluezoo.gumdrop.quic.QuicConnectionCloseException;
 
+import org.bluezoo.gumdrop.http.server.DefaultHttpRequestHandler;
 import org.junit.Test;
 import static org.junit.Assert.*;
 
@@ -184,7 +184,6 @@ public class H3StreamTest {
         stream.error(cause);
 
         assertSame("the exact exception instance must reach failed()", cause, handler.failedCause);
-        assertSame("the state passed to failed() should be this stream", stream, handler.failedState);
         assertEquals("CLOSED", getState(stream));
     }
 
@@ -280,6 +279,7 @@ public class H3StreamTest {
         setField(stream, "bodyBytesReceived", Long.valueOf(2L));
         setField(stream, "handler", new StubRequestHandler());
         setField(stream, "bodyStarted", Boolean.TRUE);
+        setField(stream, "messageEvents", Boolean.TRUE);
 
         stream.readFinished();
 
@@ -300,6 +300,7 @@ public class H3StreamTest {
         setField(stream, "bodyBytesReceived", Long.valueOf(3L));
         setField(stream, "handler", handler);
         setField(stream, "bodyStarted", Boolean.TRUE);
+        setField(stream, "messageEvents", Boolean.TRUE);
 
         stream.readFinished();
 
@@ -330,18 +331,16 @@ public class H3StreamTest {
     }
 
     private static class StubRequestHandler extends DefaultHttpRequestHandler {
-        HttpResponseState failedState;
         Exception failedCause;
         boolean requestCompleteCalled;
 
         @Override
-        public void failed(HttpResponseState state, Exception cause) {
-            failedState = state;
+        public void failed(Exception cause) {
             failedCause = cause;
         }
 
         @Override
-        public void requestComplete(HttpResponseState state) {
+        public void endMessage() {
             requestCompleteCalled = true;
         }
     }

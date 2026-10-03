@@ -22,6 +22,7 @@
 package org.bluezoo.gumdrop.http.h3;
 
 import org.bluezoo.gumdrop.IntegrationLoop;
+import org.bluezoo.gumdrop.testsupport.CollectingRequestHandler;
 import java.io.IOException;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
@@ -99,7 +100,7 @@ public class Http3QuicV2EndToEndTest {
             final HttpStreamHandler streamHandler = new HttpStreamHandler() {
                 @Override
                 public HttpRequestHandler openStream(HttpResponseState state) {
-                    return new HttpRequestHandler() {
+                    return new CollectingRequestHandler(state) {
                         @Override
                         public void headers(HttpResponseState state, Headers headers) {
                             Headers response = new Headers();

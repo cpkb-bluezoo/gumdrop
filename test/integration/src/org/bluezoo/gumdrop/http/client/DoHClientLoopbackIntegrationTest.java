@@ -36,12 +36,12 @@ import org.bluezoo.gumdrop.http.HttpServer;
 import org.bluezoo.gumdrop.http.HttpStatus;
 import org.bluezoo.gumdrop.http.doh.DoHClientTransport;
 import org.bluezoo.gumdrop.http.doh.DoHTransportAwait;
-import org.bluezoo.gumdrop.http.server.DefaultHttpRequestHandler;
 import org.bluezoo.gumdrop.http.server.Http2Listener;
 import org.bluezoo.gumdrop.http.server.HttpRequestHandler;
 import org.bluezoo.gumdrop.http.server.HttpResponseState;
 import org.bluezoo.gumdrop.http.server.HttpStreamHandler;
 
+import org.bluezoo.gumdrop.testsupport.CollectingRequestHandler;
 import org.junit.BeforeClass;
 import org.junit.Rule;
 import org.junit.Test;
@@ -208,11 +208,11 @@ public class DoHClientLoopbackIntegrationTest extends AbstractServerIntegrationT
     private static final class DoHHandlerFactory implements HttpStreamHandler {
         @Override
         public HttpRequestHandler openStream(HttpResponseState state) {
-            return new DoHHandler();
+            return CollectingRequestHandler.bind(new DoHHandler(), state);
         }
     }
 
-    private static final class DoHHandler extends DefaultHttpRequestHandler {
+    private static final class DoHHandler extends CollectingRequestHandler {
         private String method;
         private String path;
         private final ByteArrayOutputStream body = new ByteArrayOutputStream();

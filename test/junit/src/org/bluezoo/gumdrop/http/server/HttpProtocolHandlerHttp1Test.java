@@ -39,6 +39,7 @@ import org.bluezoo.gumdrop.testsupport.BinaryRecordingEndpoint;
 import org.bluezoo.gumdrop.testsupport.InlineSelectorLoop;
 import org.bluezoo.gumdrop.testsupport.RecordingWebSocketEventHandler;
 import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
+import org.bluezoo.gumdrop.testsupport.CollectingRequestHandler;
 import org.junit.Test;
 
 /**
@@ -81,7 +82,7 @@ public class HttpProtocolHandlerHttp1Test {
             listener.setStreamHandler(new HttpStreamHandler() {
                 @Override
                 public HttpRequestHandler openStream(HttpResponseState state) {
-                    return new DefaultHttpRequestHandler() {
+                    return new CollectingRequestHandler(state) {
                         @Override
                         public boolean decodeRequestContentCoding() {
                             return r.decode;

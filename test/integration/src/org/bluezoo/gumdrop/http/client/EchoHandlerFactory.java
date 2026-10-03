@@ -21,13 +21,13 @@
 
 package org.bluezoo.gumdrop.http.client;
 
-import org.bluezoo.gumdrop.http.server.DefaultHttpRequestHandler;
 import org.bluezoo.gumdrop.http.Headers;
 import org.bluezoo.gumdrop.http.server.HttpRequestHandler;
 import org.bluezoo.gumdrop.http.server.HttpResponseState;
 import org.bluezoo.gumdrop.http.server.HttpStreamHandler;
 import org.bluezoo.gumdrop.http.HttpStatus;
 
+import org.bluezoo.gumdrop.testsupport.CollectingRequestHandler;
 import java.io.ByteArrayOutputStream;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
@@ -58,13 +58,13 @@ public class EchoHandlerFactory implements HttpStreamHandler {
 
     @Override
     public HttpRequestHandler openStream(HttpResponseState state) {
-        return new EchoHandler();
+        return CollectingRequestHandler.bind(new EchoHandler(), state);
     }
 
     /**
      * Handler that echoes back request content.
      */
-    private static class EchoHandler extends DefaultHttpRequestHandler {
+    private static class EchoHandler extends CollectingRequestHandler {
 
         private String method;
         private String path;

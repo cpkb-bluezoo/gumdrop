@@ -219,7 +219,7 @@ class Stream implements HttpResponseState {
 
     /**
      * True once the handler has received its final callback, either
-     * {@link HttpRequestHandler#requestComplete} or
+     * {@link HttpRequestHandler#endMessage} or
      * {@link HttpRequestHandler#failed}, so it is never given a second one.
      */
     private boolean handlerFinished = false;
@@ -779,12 +779,10 @@ class Stream implements HttpResponseState {
             if (handlerBodyStarted && !handlerBodyEnded) {
                 // Body was in progress, this must be trailer headers
                 handlerBodyEnded = true;
-                handler.endRequestBody(this);
             } else if (!handlerBodyStarted && !prepareRequestContentDecoding(headers)) {
                 return;
             }
             replayRecordedEvents();
-            handler.headers(this, headers);
         } else {
             openApplicationHandler();
             if (handler != null) {
@@ -792,7 +790,6 @@ class Stream implements HttpResponseState {
                     return;
                 }
                 replayRecordedEvents();
-                handler.headers(this, headers);
                 capsuleMode = Capsule.capsuleProtocolEnabled(headers);
             } else if (responseState == ResponseState.INITIAL) {
                 try {
@@ -967,14 +964,10 @@ class Stream implements HttpResponseState {
 
         // Dispatch to handler if present
         if (handler != null) {
-            if (!handlerBodyStarted) {
-                handlerBodyStarted = true;
-                handler.startRequestBody(this);
-            }
+            handlerBodyStarted = true;
             if (messageEvents) {
                 handler.bodyContent(buf.asReadOnlyBuffer());
             }
-            handler.requestBodyContent(this, buf);
         }
 
         // Consume any remaining data (handler may not have consumed it)
@@ -1099,22 +1092,19 @@ class Stream implements HttpResponseState {
             if (handlerBodyStarted && !handlerBodyEnded) {
                 // Body was started but not ended (no trailers)
                 handlerBodyEnded = true;
-                handler.endRequestBody(this);
             } else if (requestInboundCoding != null || requestContentDecoder != null) {
                 if (!drainDecodedRequestBody(true)) {
                     return;
                 }
             }
-            // Handlers that fully answered from headers() (see
-            // DefaultHttpRequestHandler) must not receive a second
-            // requestComplete; neither must a stream whose response was
-            // already committed by an earlier streamEndRequest().
+            // A handler that fully answered from endHeaders() must not
+            // receive a second end; neither must a stream whose response
+            // was already committed by an earlier streamEndRequest().
             if (responseState != ResponseState.COMPLETE) {
                 handlerFinished = true;
                 if (messageEvents) {
                     handler.endMessage();
                 }
-                handler.requestComplete(this);
             }
         }
 
@@ -1456,21 +1446,16 @@ class Stream implements HttpResponseState {
                     return false;
                 }
                 requestDecodedBytesReceived += n;
-                if (!handlerBodyStarted) {
-                    handlerBodyStarted = true;
-                    handler.startRequestBody(this);
-                }
+                handlerBodyStarted = true;
                 if (messageEvents) {
                     handler.bodyContent(decoded.asReadOnlyBuffer());
                 }
-                handler.requestBodyContent(this, decoded);
             }
             if (finish) {
                 requestContentDecoder.close();
                 requestContentDecoder = null;
                 if (handler != null && handlerBodyStarted && !handlerBodyEnded) {
                     handlerBodyEnded = true;
-                    handler.endRequestBody(this);
                 }
             }
         } catch (ContentEncoding.ContentEncodingException e) {
@@ -1981,7 +1966,7 @@ class Stream implements HttpResponseState {
      * {@link HttpRequestHandler#failed} callback. The callback is delivered
      * at most once, and not at all for a stream the framework itself
      * rejected, whose handler never saw the request, or one whose handler
-     * already received {@link HttpRequestHandler#requestComplete}.
+     * already received {@code endMessage}.
      *
      * @param cause the reason the stream was aborted
      */
@@ -1995,7 +1980,7 @@ class Stream implements HttpResponseState {
         if (handler != null && !rejectedByFramework && !handlerFinished
                 && webSocketAdapter == null) {
             handlerFinished = true;
-            handler.failed(this, cause);
+            handler.failed(cause);
         }
     }
 

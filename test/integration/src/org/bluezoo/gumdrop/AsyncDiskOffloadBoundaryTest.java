@@ -40,6 +40,7 @@ import org.bluezoo.gumdrop.auth.Realm;
 import org.bluezoo.gumdrop.auth.SaslMechanism;
 import org.bluezoo.gumdrop.testsupport.RecordingStubEndpoint;
 
+import org.bluezoo.gumdrop.testsupport.MessageEvents;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -124,12 +125,13 @@ public class AsyncDiskOffloadBoundaryTest {
             }
         };
 
-        HttpRequestHandler handler = newFileHandler(tempRoot, true);
         RecordingState st = new RecordingState(gumdrop.nextWorkerLoop());
+        HttpRequestHandler handler = newFileHandler(st, tempRoot, true);
         Headers req = new Headers();
         req.add(":method", "GET");
         req.add(":path", "/hello.txt");
-        handler.headers(st, req);
+        MessageEvents.headers(handler, req);
+        handler.endMessage();
 
         assertTrue("storage worker not observed",
                 observed.await(5, TimeUnit.SECONDS));
@@ -368,12 +370,13 @@ public class AsyncDiskOffloadBoundaryTest {
                 }
             };
 
-            HttpRequestHandler handler = newFileHandler(tempRoot, true);
             RecordingState st = new RecordingState(gumdrop.nextWorkerLoop());
+            HttpRequestHandler handler = newFileHandler(st, tempRoot, true);
             Headers req = new Headers();
             req.add(":method", "GET");
             req.add(":path", "/sat.txt");
-            handler.headers(st, req);
+            MessageEvents.headers(handler, req);
+        handler.endMessage();
 
             assertTrue("saturated GET must still complete (error path)",
                     st.await(5, TimeUnit.SECONDS));
@@ -460,7 +463,7 @@ public class AsyncDiskOffloadBoundaryTest {
 
     // ── helpers ──
 
-    private static HttpRequestHandler newFileHandler(Path root,
+    private static HttpRequestHandler newFileHandler(HttpResponseState response, Path root,
             boolean allowWrite) throws Exception {
         Class<?> handlerClass =
                 Class.forName("org.bluezoo.gumdrop.webdav.FileHandler");
@@ -470,7 +473,7 @@ public class AsyncDiskOffloadBoundaryTest {
                 Class.forName("org.bluezoo.gumdrop.webdav.DeadPropertyStore");
         Class<?> realmClass = Class.forName("org.bluezoo.gumdrop.auth.Realm");
         Constructor<?> ctor = handlerClass.getDeclaredConstructor(
-                Path.class, boolean.class, boolean.class, String.class,
+                HttpResponseState.class, Path.class, boolean.class, boolean.class, String.class,
                 String[].class, Map.class, lockClass, deadClass, realmClass);
         ctor.setAccessible(true);
         Constructor<?> lockCtor = lockClass.getDeclaredConstructor();
@@ -478,7 +481,7 @@ public class AsyncDiskOffloadBoundaryTest {
         Object lockManager = lockCtor.newInstance();
         Map<String, String> types = new HashMap<String, String>();
         types.put("txt", "text/plain");
-        return (HttpRequestHandler) ctor.newInstance(root, allowWrite, true,
+        return (HttpRequestHandler) ctor.newInstance(response, root, allowWrite, true,
                 "GET, HEAD, PUT, DELETE, OPTIONS, PROPFIND, MKCOL, COPY, MOVE",
                 new String[]{"index.html"}, types, lockManager, null, null);
     }

@@ -365,15 +365,17 @@ public final class GrpcOrHttpStreamHandler implements HttpStreamHandler {
         return new DefaultHttpRequestHandler() {
             private HttpRequestHandler delegate;
 
+            // gRPC requests are recognised by content type. Events that
+            // arrive before it (version, method, target, scheme, authority)
+            // are remembered and replayed to the delegate once chosen
             @Override
-            public void headers(HttpResponseState state, Headers headers) {
-                boolean grpc = "application/grpc".equals(headers.getValue("content-type"));
+            public void contentType(ContentType type) {
+                boolean grpc = type.isMimeType("application/grpc");
                 delegate = grpc ? grpcHandler.openStream(state) : fallback.openStream(state);
-                delegate.headers(state, headers);
+                // replay the remembered events to `delegate`, then forward
+                // header/endHeaders/bodyContent/endMessage/error/failed
+                // to it the same way
             }
-
-            // forward startRequestBody/requestBodyContent/endRequestBody/
-            // requestComplete/failed to `delegate` the same way
         };
     }
 }

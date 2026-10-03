@@ -44,6 +44,7 @@ import org.bluezoo.gumdrop.http.HttpVersion;
 import org.bluezoo.gumdrop.telemetry.SpanKind;
 import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
 import org.bluezoo.gumdrop.telemetry.Trace;
+import org.bluezoo.gumdrop.testsupport.CollectingRequestHandler;
 import org.junit.Test;
 
 /**
@@ -58,7 +59,7 @@ import org.junit.Test;
 public class StreamResponseApiTest {
 
     /** Records what the application handler was told. */
-    private static class Events extends DefaultHttpRequestHandler {
+    private static class Events extends CollectingRequestHandler {
         final List<String> log = new ArrayList<String>();
 
         @Override
@@ -87,7 +88,7 @@ public class StreamResponseApiTest {
             conn.streamHandler = new HttpStreamHandler() {
                 @Override
                 public HttpRequestHandler openStream(HttpResponseState state) {
-                    return events;
+                    return CollectingRequestHandler.bind(events, state);
                 }
             };
         }

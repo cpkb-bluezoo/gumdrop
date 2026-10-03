@@ -34,6 +34,7 @@ import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.http.hpack.Encoder;
 import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
 import org.bluezoo.gumdrop.telemetry.Trace;
+import org.bluezoo.gumdrop.testsupport.CollectingRequestHandler;
 import org.junit.Before;
 import org.junit.Test;
 
@@ -78,7 +79,7 @@ import static org.junit.Assert.*;
 public class HTTPProtocolHandlerSynchronousH2ResponseTest {
 
     /** Answers entirely within headers(), like the DefaultHttpRequestHandler javadoc example. */
-    private static final class SynchronousGetHandler extends DefaultHttpRequestHandler {
+    private static final class SynchronousGetHandler extends CollectingRequestHandler {
         @Override
         public void headers(HttpResponseState state, Headers headers) {
             if ("GET".equals(headers.getMethod())) {
@@ -130,7 +131,7 @@ public class HTTPProtocolHandlerSynchronousH2ResponseTest {
     private HttpProtocolHandler connection;
 
     /** Records what happens when it sets a response header that is not US-ASCII. */
-    private static final class NonAsciiHeaderHandler extends DefaultHttpRequestHandler {
+    private static final class NonAsciiHeaderHandler extends CollectingRequestHandler {
         static volatile RuntimeException thrown;
 
         @Override
@@ -152,7 +153,7 @@ public class HTTPProtocolHandlerSynchronousH2ResponseTest {
         listener.setStreamHandler(new HttpStreamHandler() {
             @Override
             public HttpRequestHandler openStream(HttpResponseState state) {
-                return new SynchronousGetHandler();
+                return CollectingRequestHandler.bind(new SynchronousGetHandler(), state);
             }
         });
 
@@ -215,7 +216,7 @@ public class HTTPProtocolHandlerSynchronousH2ResponseTest {
         listener.setStreamHandler(new HttpStreamHandler() {
             @Override
             public HttpRequestHandler openStream(HttpResponseState state) {
-                return new NonAsciiHeaderHandler();
+                return CollectingRequestHandler.bind(new NonAsciiHeaderHandler(), state);
             }
         });
         HttpProtocolHandler c = new HttpProtocolHandler(listener);

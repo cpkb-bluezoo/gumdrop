@@ -33,11 +33,11 @@ import org.bluezoo.gumdrop.http.Headers;
 import org.bluezoo.gumdrop.http.HttpServer;
 import org.bluezoo.gumdrop.http.HttpStatus;
 import org.bluezoo.gumdrop.http.HttpVersion;
-import org.bluezoo.gumdrop.http.server.DefaultHttpRequestHandler;
 import org.bluezoo.gumdrop.http.server.Http2Listener;
 import org.bluezoo.gumdrop.http.server.HttpRequestHandler;
 import org.bluezoo.gumdrop.http.server.HttpResponseState;
 import org.bluezoo.gumdrop.http.server.HttpStreamHandler;
+import org.bluezoo.gumdrop.testsupport.CollectingRequestHandler;
 import org.junit.BeforeClass;
 import org.junit.Rule;
 import org.junit.Test;
@@ -316,7 +316,7 @@ public class HTTPClientProtocolHandlerIntegrationTest extends AbstractServerInte
     private static final class FeaturesHandlerFactory implements HttpStreamHandler {
         @Override
         public HttpRequestHandler openStream(HttpResponseState state) {
-            return new FeaturesHandler();
+            return CollectingRequestHandler.bind(new FeaturesHandler(), state);
         }
     }
 
@@ -324,7 +324,7 @@ public class HTTPClientProtocolHandlerIntegrationTest extends AbstractServerInte
      * Routes by path: /protected (Basic auth), /alt-svc (Alt-Svc header),
      * everything else echoes the method and body.
      */
-    private static final class FeaturesHandler extends DefaultHttpRequestHandler {
+    private static final class FeaturesHandler extends CollectingRequestHandler {
         private String method;
         private String path;
         private final ByteArrayOutputStream body = new ByteArrayOutputStream();

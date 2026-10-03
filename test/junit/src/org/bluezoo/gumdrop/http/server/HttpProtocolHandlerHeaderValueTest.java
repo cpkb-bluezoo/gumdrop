@@ -29,6 +29,7 @@ import java.nio.charset.StandardCharsets;
 
 import org.bluezoo.gumdrop.http.Headers;
 import org.bluezoo.gumdrop.testsupport.BinaryRecordingEndpoint;
+import org.bluezoo.gumdrop.testsupport.CollectingRequestHandler;
 import org.junit.Before;
 import org.junit.Test;
 
@@ -53,7 +54,7 @@ public class HttpProtocolHandlerHeaderValueTest {
         listener.setStreamHandler(new HttpStreamHandler() {
             @Override
             public HttpRequestHandler openStream(HttpResponseState state) {
-                return new DefaultHttpRequestHandler() {
+                return new CollectingRequestHandler(state) {
                     @Override
                     public void headers(HttpResponseState s, Headers headers) {
                         received = headers;

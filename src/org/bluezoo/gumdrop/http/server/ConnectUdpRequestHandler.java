@@ -251,7 +251,7 @@ public class ConnectUdpRequestHandler extends DefaultHttpRequestHandler {
     }
 
     @Override
-    public void failed(HttpResponseState state, Exception cause) {
+    public void failed(Exception cause) {
         if (relay != null) {
             relay.close();
             relay = null;

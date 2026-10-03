@@ -35,6 +35,7 @@ import org.bluezoo.gumdrop.http.hpack.Decoder;
 import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
 import org.bluezoo.gumdrop.telemetry.Trace;
 import org.bluezoo.gumdrop.websocket.DefaultWebSocketEventHandler;
+import org.bluezoo.gumdrop.testsupport.CollectingRequestHandler;
 import org.junit.Test;
 
 import java.net.InetSocketAddress;
@@ -121,7 +122,7 @@ public class StreamH2WebSocketUpgradeTest {
         return new HttpStreamHandler() {
             @Override
             public HttpRequestHandler openStream(HttpResponseState state) {
-                return new DefaultHttpRequestHandler() {
+                return new CollectingRequestHandler(state) {
                     @Override
                     public void headers(HttpResponseState state, Headers headers) {
                         state.upgradeToWebSocket(null, new DefaultWebSocketEventHandler() { });
@@ -167,14 +168,13 @@ public class StreamH2WebSocketUpgradeTest {
     }
 
     @Test
-    public void testExtendedConnectWithSchemeAndPathAccepted() {
+    public void testExtendedConnectWithSchemeAndPathAccepted() throws Exception {
         StubConnection conn = new StubConnection();
         conn.streamHandler = upgradingStreamHandler();
         Stream stream = new Stream(conn, 1);
-        stream.addHeader(new Header(":method", "CONNECT"));
-        stream.addHeader(new Header(":protocol", "websocket"));
-        stream.addHeader(new Header(":scheme", "https"));
-        stream.addHeader(new Header(":path", "/ws"));
+        stream.appendHeaderBlockFragment(block(new Header(":method", "CONNECT"),
+                new Header(":protocol", "websocket"), new Header(":scheme", "https"),
+                new Header(":path", "/ws")));
         stream.streamEndHeaders();
 
         assertFalse("a well-formed extended CONNECT must not be reset", conn.rstStreamSent);
@@ -218,13 +218,13 @@ public class StreamH2WebSocketUpgradeTest {
     }
 
     @Test
-    public void testAbortNotifiesOpenWebSocketOnce() {
+    public void testAbortNotifiesOpenWebSocketOnce() throws Exception {
         StubConnection conn = new StubConnection();
         final int[] closes = new int[2];
         conn.streamHandler = new HttpStreamHandler() {
             @Override
             public HttpRequestHandler openStream(HttpResponseState state) {
-                return new DefaultHttpRequestHandler() {
+                return new CollectingRequestHandler(state) {
                     @Override
                     public void headers(HttpResponseState state, Headers headers) {
                         state.upgradeToWebSocket(null, new DefaultWebSocketEventHandler() {
@@ -239,10 +239,9 @@ public class StreamH2WebSocketUpgradeTest {
             }
         };
         Stream stream = new Stream(conn, 1);
-        stream.addHeader(new Header(":method", "CONNECT"));
-        stream.addHeader(new Header(":protocol", "websocket"));
-        stream.addHeader(new Header(":scheme", "https"));
-        stream.addHeader(new Header(":path", "/ws"));
+        stream.appendHeaderBlockFragment(block(new Header(":method", "CONNECT"),
+                new Header(":protocol", "websocket"), new Header(":scheme", "https"),
+                new Header(":path", "/ws")));
         stream.streamEndHeaders();
         stream.streamAbort(new java.io.IOException("gone"));
         stream.streamAbort(new java.io.IOException("gone again"));
@@ -253,14 +252,13 @@ public class StreamH2WebSocketUpgradeTest {
     // -- upgradeToWebSocket() h2 acceptance (RFC 8441 section 4) --
 
     @Test
-    public void testUpgradeAcceptedWithHttp200AndSwitchesConnectionMode() {
+    public void testUpgradeAcceptedWithHttp200AndSwitchesConnectionMode() throws Exception {
         StubConnection conn = new StubConnection();
         conn.streamHandler = upgradingStreamHandler();
         Stream stream = new Stream(conn, 1);
-        stream.addHeader(new Header(":method", "CONNECT"));
-        stream.addHeader(new Header(":protocol", "websocket"));
-        stream.addHeader(new Header(":scheme", "https"));
-        stream.addHeader(new Header(":path", "/ws"));
+        stream.appendHeaderBlockFragment(block(new Header(":method", "CONNECT"),
+                new Header(":protocol", "websocket"), new Header(":scheme", "https"),
+                new Header(":path", "/ws")));
         stream.streamEndHeaders();
 
         // RFC 8441 section 4: 200, not 101 -- there is no Sec-WebSocket-Key

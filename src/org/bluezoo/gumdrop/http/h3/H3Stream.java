@@ -319,7 +319,7 @@ class H3Stream implements ProtocolHandler, H3FrameHandler, HttpResponseState {
                 webSocketAdapter.notifyError(cause);
             }
         } else if (handler != null) {
-            handler.failed(this, cause);
+            handler.failed(cause);
         }
         state = State.CLOSED;
         handler = null;
@@ -466,11 +466,9 @@ class H3Stream implements ProtocolHandler, H3FrameHandler, HttpResponseState {
                 return;
             }
             replayRecordedEvents();
-            handler.headers(this, headers);
         } else if (state == State.RECEIVING_BODY || state == State.HALF_CLOSED_REMOTE) {
             if (handler != null) {
                 replayRecordedEvents();
-                handler.headers(this, headers);
             }
         }
     }
@@ -496,7 +494,6 @@ class H3Stream implements ProtocolHandler, H3FrameHandler, HttpResponseState {
             state = State.RECEIVING_BODY;
             if (requestInboundCoding == null && !bodyStarted && handler != null) {
                 bodyStarted = true;
-                handler.startRequestBody(this);
             }
         }
         bodyBytesReceived += data.remaining();
@@ -524,7 +521,6 @@ class H3Stream implements ProtocolHandler, H3FrameHandler, HttpResponseState {
             if (messageEvents) {
                 handler.bodyContent(data.asReadOnlyBuffer());
             }
-            handler.requestBodyContent(this, data);
         }
     }
 
@@ -573,17 +569,12 @@ class H3Stream implements ProtocolHandler, H3FrameHandler, HttpResponseState {
             if (!drainDecodedRequestBody(true)) {
                 return;
             }
-        } else if (state == State.RECEIVING_BODY) {
-            if (handler != null) {
-                handler.endRequestBody(this);
-            }
         }
         state = State.HALF_CLOSED_REMOTE;
         if (handler != null) {
             if (messageEvents) {
                 handler.endMessage();
             }
-            handler.requestComplete(this);
         }
     }
 
@@ -1555,21 +1546,14 @@ class H3Stream implements ProtocolHandler, H3FrameHandler, HttpResponseState {
                     continue;
                 }
                 requestDecodedBytesReceived += decoded.remaining();
-                if (!bodyStarted) {
-                    bodyStarted = true;
-                    handler.startRequestBody(this);
-                }
+                bodyStarted = true;
                 if (messageEvents) {
                     handler.bodyContent(decoded.asReadOnlyBuffer());
                 }
-                handler.requestBodyContent(this, decoded);
             }
             if (finish) {
                 requestContentDecoder.close();
                 requestContentDecoder = null;
-                if (handler != null && bodyStarted) {
-                    handler.endRequestBody(this);
-                }
             }
         } catch (ContentEncoding.ContentEncodingException e) {
             sendErrorResponse(400);

@@ -39,6 +39,8 @@ import org.bluezoo.gumdrop.http.Header;
 import org.bluezoo.gumdrop.http.Headers;
 import org.bluezoo.gumdrop.http.HttpVersion;
 import org.bluezoo.gumdrop.http.hpack.Encoder;
+import org.bluezoo.gumdrop.testsupport.CollectingRequestHandler;
+import org.bluezoo.gumdrop.testsupport.MessageEvents;
 import org.junit.Test;
 
 /**
@@ -52,7 +54,7 @@ import org.junit.Test;
  */
 public class StreamRequestHeadersTest {
 
-    private static class Events extends DefaultHttpRequestHandler {
+    private static class Events extends CollectingRequestHandler {
         final List<String> log = new ArrayList<String>();
         final List<ByteBuffer> bodies = new ArrayList<ByteBuffer>();
         final List<Long> capsules = new ArrayList<Long>();
@@ -109,18 +111,25 @@ public class StreamRequestHeadersTest {
             conn.streamHandler = new HttpStreamHandler() {
                 @Override
                 public HttpRequestHandler openStream(HttpResponseState state) {
-                    return events;
+                    return CollectingRequestHandler.bind(events, state);
                 }
             };
         }
 
         Env http1(String... nameValues) {
             stream = new Stream(conn, 1);
-            stream.addHeader(new Header(":method", "POST"));
-            stream.addHeader(new Header(":path", "/r"));
+            Headers section = new Headers();
+            section.add(new Header(":method", "POST"));
+            section.add(new Header(":path", "/r"));
             for (int i = 0; i + 1 < nameValues.length; i += 2) {
-                stream.addHeader(new Header(nameValues[i], nameValues[i + 1]));
+                section.add(new Header(nameValues[i], nameValues[i + 1]));
             }
+            for (Header header : section) {
+                stream.addHeader(header);
+            }
+            // the server hands the application the events of the header
+            // section, which the protocol layer has recorded
+            MessageEvents.headers(stream.eventRecorder(), section);
             stream.streamEndHeaders();
             return this;
         }

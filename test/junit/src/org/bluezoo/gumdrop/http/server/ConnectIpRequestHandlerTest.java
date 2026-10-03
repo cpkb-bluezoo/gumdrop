@@ -188,7 +188,7 @@ public class ConnectIpRequestHandlerTest {
         ConnectIpRequestHandler handler = new ConnectIpRequestHandler(state, permissive, packetHandler);
         MessageEvents.headers(handler, HttpVersion.HTTP_3, connectIpRequestHeaders(ConnectIpTarget.WILDCARD, ConnectIpTarget.WILDCARD));
 
-        handler.requestComplete(state);
+        handler.endMessage();
 
         assertFalse("requestComplete must not tear down the CONNECT-IP session", packetHandler.closedCalled);
         assertNotNull(packetHandler.session);
@@ -214,7 +214,7 @@ public class ConnectIpRequestHandlerTest {
         MessageEvents.headers(handler, HttpVersion.HTTP_3, connectIpRequestHeaders(ConnectIpTarget.WILDCARD, ConnectIpTarget.WILDCARD));
 
         Exception cause = new java.io.IOException("transport reset");
-        handler.failed(state, cause);
+        handler.failed(cause);
 
         assertTrue("failed() should have been called", packetHandler.failedCalled);
         assertEquals(cause, packetHandler.failedCause);

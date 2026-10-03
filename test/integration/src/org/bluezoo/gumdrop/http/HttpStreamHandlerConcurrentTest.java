@@ -29,13 +29,13 @@ import org.bluezoo.gumdrop.http.client.DefaultHttpResponseHandler;
 import org.bluezoo.gumdrop.http.client.HttpClientHandler;
 import org.bluezoo.gumdrop.http.client.HttpRequest;
 import org.bluezoo.gumdrop.http.client.HttpResponse;
-import org.bluezoo.gumdrop.http.server.DefaultHttpRequestHandler;
 import org.bluezoo.gumdrop.http.server.Http2Listener;
 import org.bluezoo.gumdrop.http.server.HttpRequestHandler;
 import org.bluezoo.gumdrop.http.server.HttpResponseState;
 import org.bluezoo.gumdrop.http.server.HttpStreamHandler;
 import org.bluezoo.gumdrop.http.Headers;
 import org.bluezoo.gumdrop.http.HttpVersion;
+import org.bluezoo.gumdrop.testsupport.CollectingRequestHandler;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -192,11 +192,11 @@ public class HttpStreamHandlerConcurrentTest {
     private static final class AccumulatingStreamHandler implements HttpStreamHandler {
         @Override
         public HttpRequestHandler openStream(HttpResponseState stream) {
-            return new AccumulatingHandler();
+            return CollectingRequestHandler.bind(new AccumulatingHandler(), stream);
         }
     }
 
-    private static final class AccumulatingHandler extends DefaultHttpRequestHandler {
+    private static final class AccumulatingHandler extends CollectingRequestHandler {
 
         private final StringBuilder body = new StringBuilder();
         private String path;

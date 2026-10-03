@@ -22,6 +22,7 @@
 package org.bluezoo.gumdrop.http.h3;
 
 import org.bluezoo.gumdrop.IntegrationLoop;
+import org.bluezoo.gumdrop.testsupport.CollectingRequestHandler;
 import java.io.IOException;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
@@ -164,7 +165,7 @@ public class HTTP3ProductionEndToEndTest {
             final HttpStreamHandler streamHandler = new HttpStreamHandler() {
                 @Override
                 public HttpRequestHandler openStream(HttpResponseState state) {
-                    return new HttpRequestHandler() {
+                    return new CollectingRequestHandler(state) {
                         @Override
                         public void headers(HttpResponseState state, Headers headers) {
                             Headers response = new Headers();
@@ -326,7 +327,7 @@ public class HTTP3ProductionEndToEndTest {
             final HttpStreamHandler streamHandler = new HttpStreamHandler() {
                 @Override
                 public HttpRequestHandler openStream(HttpResponseState state) {
-                    return new HttpRequestHandler() {
+                    return new CollectingRequestHandler(state) {
                         @Override
                         public boolean wantsDatagrams() {
                             return true;
@@ -536,7 +537,7 @@ public class HTTP3ProductionEndToEndTest {
             final HttpStreamHandler streamHandler = new HttpStreamHandler() {
                 @Override
                 public HttpRequestHandler openStream(HttpResponseState state) {
-                    return new HttpRequestHandler() {
+                    return new CollectingRequestHandler(state) {
                         @Override
                         public void headers(HttpResponseState state, Headers headers) {
                             if ("/too-big".equals(headers.getPath())) {
@@ -777,7 +778,7 @@ public class HTTP3ProductionEndToEndTest {
             final HttpStreamHandler streamHandler = new HttpStreamHandler() {
                 @Override
                 public HttpRequestHandler openStream(HttpResponseState state) {
-                    return new DefaultHttpRequestHandler() {
+                    return new CollectingRequestHandler(state) {
                         @Override
                         public void headers(HttpResponseState state, Headers headers) {
                             Headers response = new Headers();
@@ -1169,7 +1170,7 @@ public class HTTP3ProductionEndToEndTest {
             final HttpStreamHandler streamHandler = new HttpStreamHandler() {
                 @Override
                 public HttpRequestHandler openStream(HttpResponseState state) {
-                    return new DefaultHttpRequestHandler() {
+                    return new CollectingRequestHandler(state) {
                         @Override
                         public void headers(HttpResponseState state, Headers headers) {
                             Headers response = new Headers();
@@ -2144,7 +2145,7 @@ public class HTTP3ProductionEndToEndTest {
             final HttpStreamHandler streamHandler = new HttpStreamHandler() {
                 @Override
                 public HttpRequestHandler openStream(HttpResponseState state) {
-                    return new HttpRequestHandler() {
+                    return new CollectingRequestHandler(state) {
                         @Override
                         public void headers(HttpResponseState state, Headers headers) {
                             Headers response = new Headers();
@@ -2354,7 +2355,7 @@ public class HTTP3ProductionEndToEndTest {
             HttpStreamHandler streamHandler = new HttpStreamHandler() {
                 @Override
                 public HttpRequestHandler openStream(HttpResponseState state) {
-                    return new DefaultHttpRequestHandler() {
+                    return new CollectingRequestHandler(state) {
                         @Override
                         public void headers(HttpResponseState state, Headers headers) {
                             if ("CONNECT".equals(headers.getValue(":method"))

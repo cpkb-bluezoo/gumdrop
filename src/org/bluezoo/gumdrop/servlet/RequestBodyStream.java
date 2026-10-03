@@ -34,7 +34,7 @@ import java.util.ArrayDeque;
  * pair that was previously used for the same purpose. {@code
  * PipedOutputStream.write()} blocks once its buffer is full until the
  * reader drains it — since the write happened directly inside {@code
- * ServletHandler.requestBodyContent()}, called on the SelectorLoop thread,
+ * ServletHandler.bodyContent()}, called on the SelectorLoop thread,
  * a servlet that was slow to read (or never read) its request body stalled
  * that entire thread, freezing every other connection multiplexed on the
  * same loop (issue #120).

@@ -684,9 +684,21 @@ manually using <code>HttpResponseState.upgradeToWebSocket()</code>:
 
 <pre>
 public class MyHandler extends DefaultHttpRequestHandler {
+    private final HttpResponseState state;
+    private final Headers headers = new Headers();
+
+    public MyHandler(HttpResponseState state) {
+        this.state = state;
+    }
 
     @Override
-    public void headers(HttpResponseState state, Headers headers) {
+    public void header(String name, ByteBuffer value) {
+        // the value is only valid during this call: copy it
+        headers.add(name, StandardCharsets.UTF_8.decode(value).toString());
+    }
+
+    @Override
+    public void endHeaders() {
         if (WebSocketHandshake.isValidWebSocketUpgrade(headers)) {
             String protocol = headers.getValue("Sec-WebSocket-Protocol");
             state.upgradeToWebSocket(protocol, new EchoWebSocketHandler());

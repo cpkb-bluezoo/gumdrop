@@ -135,11 +135,11 @@ class FileHandler extends DefaultHttpRequestHandler {
     private final Realm serverRealm;
     /** True when both WebDAV and RFC 3744 ACL support are active for this handler. */
     private final boolean aclEnabled;
-    /** {@link #serverRealm} bound to this stream's {@link SelectorLoop} (see {@code Realm#forSelectorLoop}), lazily set in {@link #headers}. */
+    /** {@link #serverRealm} bound to this stream's {@link SelectorLoop} (see {@code Realm#forSelectorLoop}), lazily set in {@link #endHeaders}. */
     private Realm realm;
     /**
      * The authenticated principal for this request, or null if
-     * unauthenticated -- read once in {@link #headers} from
+     * unauthenticated -- read once in {@link #endHeaders} from
      * {@link HttpResponseState#getPrincipal()}, which is populated by
      * whatever HTTP authentication (Basic, Digest, Bearer, mTLS) is
      * configured on the listener this handler is deployed behind, not
@@ -201,16 +201,15 @@ class FileHandler extends DefaultHttpRequestHandler {
      * Set by a handler method that has eagerly started expecting a body
      * (see the {@link #webdavParser} field), so it doesn't have to
      * decide up front whether one is actually coming -- it can't: the
-     * request-handler event sequence only calls
-     * {@link #startRequestBody}/{@link #endRequestBody} at all if the
-     * request has a body, and {@link #headers} (where these methods
+     * request-handler event sequence only calls {@link #bodyContent} at all
+     * if the request has a body, and {@link #endHeaders} (where these methods
      * run) fires before that's known. In particular, {@code
      * Content-Length} is not a reliable signal here -- it's absent for
      * chunked transfer-coding (RFC 9112 §7.1) and never sent at all
      * under HTTP/2/3 unless the client chooses to (RFC 9113/9114 place
-     * no such requirement on it). Cleared by {@link #startRequestBody}
+     * no such requirement on it). Cleared by {@link #bodyContent}
      * as soon as a real body is confirmed to be arriving; run from
-     * {@link #requestComplete} if still set once the stream closes --
+     * {@link #endMessage} if still set once the stream closes --
      * the only point "no body ever arrived" can be known for certain.
      */
     private Runnable pendingNoBodyAction;
@@ -366,7 +365,7 @@ class FileHandler extends DefaultHttpRequestHandler {
             webdavBytesReceived += data.remaining();
             if (webdavBytesReceived > MAX_WEBDAV_REQUEST_BODY) {
                 // Stop feeding the parser; the request is rejected with 413 in
-                // endRequestBody. This bounds parser work regardless of the
+                // the end of the message. This bounds parser work regardless of the
                 // declared Content-Length or transfer encoding.
                 if (!webdavBodyTooLarge) {
                     webdavBodyTooLarge = true;
@@ -473,7 +472,7 @@ class FileHandler extends DefaultHttpRequestHandler {
         if (bodyReceived) {
             endRequestBody();
         }
-        // No startRequestBody ever fired for this request -- it
+        // No bodyContent ever fired for this request -- it
         // genuinely has no body (see the pendingNoBodyAction field
         // comment for why this, not Content-Length, is what's checked).
         if (pendingNoBodyAction != null) {

@@ -166,7 +166,7 @@ public class ConnectUdpRequestHandlerTest {
         State s = new State();
         ConnectUdpRequestHandler h = new ConnectUdpRequestHandler(s, ALLOW_ALL);
         h.datagramReceived(s, ByteBuffer.wrap(new byte[] {0, 1, 2}));
-        h.failed(s, new java.io.IOException("x"));
+        h.failed(new java.io.IOException("x"));
         assertFalse(s.completed);
     }
 }

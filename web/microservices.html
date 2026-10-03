@@ -63,15 +63,18 @@ events in sequence:
 </p>
 
 <pre>
-headers()              // request headers (:method, :path, content-type, etc.)
-startRequestBody()     // body is starting (POST, PUT, etc.)
-requestBodyContent()   // body data chunks (may be called many times)
-endRequestBody()       // body complete
-requestComplete()      // stream closed
+version()              // HTTP version
+method(HttpMethod)     // request method
+target(ByteBuffer)     // request target (path and query)
+header(name, value)    // one event per header field line
+endHeaders()           // header section complete
+bodyContent(ByteBuffer) // body data chunks (zero or more; POST, PUT, etc.)
+header(name, value)    // trailer fields, if any (a header after endHeaders)
+endMessage()           // request complete
 </pre>
 
 <p>
-For efficient parsing, feed each <code>requestBodyContent(ByteBuffer)</code>
+For efficient parsing, feed each <code>bodyContent(ByteBuffer)</code>
 chunk directly into a streaming parser. Do <em>not</em> accumulate the entire
 body in memory first. Both Gonzalez (XML) and jsonparser (JSON) support
 <code>receive(ByteBuffer)</code> for incremental parsing.
@@ -141,55 +144,67 @@ import static java.nio.charset.StandardCharsets.UTF_8;
 class XmlEchoHandler extends DefaultHttpRequestHandler {
     private final Parser parser = new Parser();
     private final EchoContentHandler contentHandler = new EchoContentHandler();
-    private boolean bodyStarted;
+    private final HttpResponseState response;
+    private HttpMethod method;
+    private ContentType contentType;
+    private boolean accepted;
+
+    XmlEchoHandler(HttpResponseState response) {
+        this.response = response;
+    }
 
     @Override
-    public void headers(HttpResponseState state, Headers headers) {
-        if (!"POST".equals(headers.getMethod())) {
-            sendError(state, 405, "Method Not Allowed");
+    public void method(HttpMethod method) {
+        this.method = method;
+    }
+
+    @Override
+    public void contentType(ContentType contentType) {
+        this.contentType = contentType;
+    }
+
+    @Override
+    public void endHeaders() {
+        if (method != HttpMethod.POST) {
+            sendError(405, "Method Not Allowed");
             return;
         }
-        String ct = headers.getValue("content-type");
-        if (ct == null || !ct.startsWith("application/xml")) {
-            sendError(state, 415, "Unsupported Media Type");
+        if (contentType == null || !contentType.isMimeType("application/xml")) {
+            sendError(415, "Unsupported Media Type");
             return;
         }
-        bodyStarted = false;
         parser.setContentHandler(contentHandler);
         try {
             parser.reset();
+            accepted = true;
         } catch (Exception e) {
-            sendError(state, 500, e.getMessage());
+            sendError(500, e.getMessage());
         }
     }
 
     @Override
-    public void startRequestBody(HttpResponseState state) {
-        bodyStarted = true;
-    }
-
-    @Override
-    public void requestBodyContent(HttpResponseState state, ByteBuffer data) {
-        if (!bodyStarted) return;
+    public void bodyContent(ByteBuffer data) {
+        if (!accepted) return;
         try {
             parser.receive(data);
         } catch (Exception e) {
-            sendError(state, 400, "Invalid XML: " + e.getMessage());
+            accepted = false;
+            sendError(400, "Invalid XML: " + e.getMessage());
         }
     }
 
     @Override
-    public void endRequestBody(HttpResponseState state) {
-        if (!bodyStarted) return;
+    public void endMessage() {
+        if (!accepted) return;
         try {
             parser.close();
-            sendXmlResponse(state);
+            sendXmlResponse();
         } catch (Exception e) {
-            sendError(state, 400, "Invalid XML: " + e.getMessage());
+            sendError(400, "Invalid XML: " + e.getMessage());
         }
     }
 
-    private void sendXmlResponse(HttpResponseState state) throws IOException {
+    private void sendXmlResponse() throws IOException {
         String root = contentHandler.getRootElement();
         String text = contentHandler.getText();
 
@@ -203,25 +218,25 @@ class XmlEchoHandler extends DefaultHttpRequestHandler {
         xml.writeEndElement();
         xml.close();
 
-        Headers response = new Headers();
-        response.status(HttpStatus.OK);
-        response.add("content-type", "application/xml");
-        state.headers(response);
-        state.startResponseBody();
-        state.responseBodyContent(ByteBuffer.wrap(baos.toByteArray()));
-        state.endResponseBody();
-        state.complete();
+        Headers headers = new Headers();
+        headers.status(HttpStatus.OK);
+        headers.add("content-type", "application/xml");
+        response.headers(headers);
+        response.startResponseBody();
+        response.responseBodyContent(ByteBuffer.wrap(baos.toByteArray()));
+        response.endResponseBody();
+        response.complete();
     }
 
-    private void sendError(HttpResponseState state, int code, String message) {
-        Headers response = new Headers();
-        response.status(HttpStatus.fromCode(code));
-        response.add("content-type", "text/plain");
-        state.headers(response);
-        state.startResponseBody();
-        state.responseBodyContent(ByteBuffer.wrap(message.getBytes(UTF_8)));
-        state.endResponseBody();
-        state.complete();
+    private void sendError(int code, String message) {
+        Headers headers = new Headers();
+        headers.status(HttpStatus.fromCode(code));
+        headers.add("content-type", "text/plain");
+        response.headers(headers);
+        response.startResponseBody();
+        response.responseBodyContent(ByteBuffer.wrap(message.getBytes(UTF_8)));
+        response.endResponseBody();
+        response.complete();
     }
 }
 </pre>
@@ -231,9 +246,10 @@ class XmlEchoHandler extends DefaultHttpRequestHandler {
 <p>
 Compose a custom <code>HttpStreamHandler</code> instead of subclassing
 <code>HttpServer</code>. Routing happens in the bound
-<code>HttpRequestHandler</code>'s own <code>headers()</code> callback (here,
+<code>HttpRequestHandler</code>'s own <code>endHeaders()</code> event (here,
 all POST requests to <code>/echo</code> get the XML handler, everything else
-gets a plain 404):
+gets a plain 404). The router remembers the method and target as they arrive,
+then replays them to the chosen handler:
 </p>
 
 <pre>
@@ -245,15 +261,33 @@ public class XmlEchoStreamHandler implements HttpStreamHandler {
     @Override
     public HttpRequestHandler openStream(HttpResponseState state) {
         return new DefaultHttpRequestHandler() {
+            private HttpMethod method;
+            private String path;
+            private HttpRequestHandler delegate;
+
             @Override
-            public void headers(HttpResponseState state, Headers headers) {
-                String path = headers.getValue(":path");
-                if ("/echo".equals(path) && "POST".equals(headers.getMethod())) {
-                    new XmlEchoHandler().headers(state, headers);
-                } else {
-                    NotFoundHttpRequestHandler.INSTANCE.headers(state, headers);
-                }
+            public void method(HttpMethod method) {
+                this.method = method;
             }
+
+            @Override
+            public void target(ByteBuffer target) {
+                path = UTF_8.decode(target).toString();
+            }
+
+            @Override
+            public void endHeaders() {
+                if ("/echo".equals(path) &amp;&amp; method == HttpMethod.POST) {
+                    delegate = new XmlEchoHandler(state);
+                } else {
+                    delegate = new NotFoundHttpRequestHandler(state);
+                }
+                // replay method and target to `delegate`, then call
+                // delegate.endHeaders()
+            }
+
+            // forward bodyContent/endMessage/error/failed to `delegate`
+            // the same way
         };
     }
 }
@@ -337,7 +371,7 @@ class LookupRequestHandler extends JSONDefaultHandler {
 
 <p>
 The handler parses the JSON request in <code>responseBodyContent</code>, then
-in <code>endRequestBody</code> initiates an outbound HTTP call. Use
+in <code>endMessage</code> initiates an outbound HTTP call. Use
 <code>state.getSelectorLoop()</code> for SelectorLoop affinity so the client
 connection shares the same I/O thread as the server connection:
 </p>
@@ -358,67 +392,67 @@ class LookupHandler extends DefaultHttpRequestHandler {
     private final int downstreamPort;
     private final JSONParser jsonParser = new JSONParser();
     private final LookupRequestHandler requestHandler = new LookupRequestHandler();
-    private boolean parserInitialised;
-    private HttpResponseState pendingState;
+    private final HttpResponseState state;
+    private HttpMethod method;
+    private boolean accepted;
 
-    LookupHandler(String host, int port) {
+    LookupHandler(HttpResponseState state, String host, int port) {
+        this.state = state;
         this.downstreamHost = host;
         this.downstreamPort = port;
     }
 
     @Override
-    public void headers(HttpResponseState state, Headers headers) {
-        if (!"POST".equals(headers.getMethod())) {
-            sendError(state, 405, "Method Not Allowed");
+    public void method(HttpMethod method) {
+        this.method = method;
+    }
+
+    @Override
+    public void endHeaders() {
+        if (method != HttpMethod.POST) {
+            sendError(405, "Method Not Allowed");
             return;
         }
-        pendingState = state;
-        parserInitialised = false;
         jsonParser.setContentHandler(requestHandler);
         try {
             jsonParser.reset();
+            accepted = true;
         } catch (Exception e) {
-            sendError(state, 500, e.getMessage());
+            sendError(500, e.getMessage());
         }
     }
 
     @Override
-    public void startRequestBody(HttpResponseState state) {
-        // Body starting
-    }
-
-    @Override
-    public void requestBodyContent(HttpResponseState state, ByteBuffer data) {
-        if (!parserInitialised) {
-            jsonParser.setContentHandler(requestHandler);
-            parserInitialised = true;
-        }
+    public void bodyContent(ByteBuffer data) {
+        if (!accepted) return;
         try {
             jsonParser.receive(data);
         } catch (JSONException e) {
-            sendError(state, 400, "Invalid JSON: " + e.getMessage());
+            accepted = false;
+            sendError(400, "Invalid JSON: " + e.getMessage());
         }
     }
 
     @Override
-    public void endRequestBody(HttpResponseState state) {
+    public void endMessage() {
+        if (!accepted) return;
         try {
             jsonParser.close();
         } catch (JSONException e) {
-            sendError(state, 400, "Invalid JSON: " + e.getMessage());
+            sendError(400, "Invalid JSON: " + e.getMessage());
             return;
         }
 
         String query = requestHandler.getQuery();
         if (query == null || query.isEmpty()) {
-            sendError(state, 400, "Missing 'query' field");
+            sendError(400, "Missing 'query' field");
             return;
         }
 
-        callDownstream(state, query);
+        callDownstream(query);
     }
 
-    private void callDownstream(HttpResponseState state, String query) {
+    private void callDownstream(String query) {
         SelectorLoop loop = state.getSelectorLoop();
         HttpClient client = (loop != null)
             ? new HttpClient(loop, downstreamHost, downstreamPort)
@@ -465,12 +499,12 @@ class LookupHandler extends DefaultHttpRequestHandler {
                             if (parserInit) responseParser.close();
                         } catch (Exception e) { /* ignore */ }
                         String result = jsonHandler.getResult();
-                        sendJsonResponse(pendingState, result);
+                        sendJsonResponse(result);
                     }
 
                     @Override
                     public void failed(Exception ex) {
-                        sendError(pendingState, 502, "Downstream error: " + ex.getMessage());
+                        sendError(502, "Downstream error: " + ex.getMessage());
                     }
                 };
 
@@ -482,7 +516,7 @@ class LookupHandler extends DefaultHttpRequestHandler {
 
             @Override
             public void onError(Exception cause) {
-                sendError(pendingState, 502, "Connection failed: " + cause.getMessage());
+                sendError(502, "Connection failed: " + cause.getMessage());
             }
 
             @Override
@@ -493,7 +527,7 @@ class LookupHandler extends DefaultHttpRequestHandler {
         });
     }
 
-    private void sendJsonResponse(HttpResponseState state, String result) {
+    private void sendJsonResponse(String result) {
         String json = "{\"result\":\"" + escapeJson(result != null ? result : "") + "\"}";
         Headers response = new Headers();
         response.status(HttpStatus.OK);
@@ -505,7 +539,7 @@ class LookupHandler extends DefaultHttpRequestHandler {
         state.complete();
     }
 
-    private void sendError(HttpResponseState state, int code, String message) {
+    private void sendError(int code, String message) {
         Headers response = new Headers();
         response.status(HttpStatus.fromCode(code));
         response.add("content-type", "text/plain");
@@ -565,13 +599,23 @@ public class LookupStreamHandler implements HttpStreamHandler {
     @Override
     public HttpRequestHandler openStream(HttpResponseState state) {
         return new DefaultHttpRequestHandler() {
+            private String path;
+
             @Override
-            public void headers(HttpResponseState state, Headers headers) {
-                if ("/lookup".equals(headers.getPath())) {
-                    new LookupHandler(downstreamHost, downstreamPort).headers(state, headers);
+            public void target(ByteBuffer target) {
+                path = UTF_8.decode(target).toString();
+            }
+
+            @Override
+            public void endHeaders() {
+                HttpRequestHandler delegate;
+                if ("/lookup".equals(path)) {
+                    delegate = new LookupHandler(state, downstreamHost, downstreamPort);
                 } else {
-                    NotFoundHttpRequestHandler.INSTANCE.headers(state, headers);
+                    delegate = new NotFoundHttpRequestHandler(state);
                 }
+                // replay the remembered events to `delegate`, then forward
+                // bodyContent/endMessage/error/failed to it
             }
         };
     }
@@ -620,10 +664,10 @@ HttpServer lookup = HttpServer.compose()
 <ul>
 <li>Compose a custom <code>HttpStreamHandler</code> onto <code>HttpServer</code> —
     don't subclass <code>HttpServer</code> for application logic</li>
-<li>Feed <code>requestBodyContent(ByteBuffer)</code> chunks directly to
+<li>Feed <code>bodyContent(ByteBuffer)</code> chunks directly to
     <code>Parser.receive()</code> (Gonzalez) or <code>JSONParser.receive()</code>
     (jsonparser) &mdash; never buffer the entire body</li>
-<li>Call <code>parser.close()</code> in <code>endRequestBody()</code> to
+<li>Call <code>parser.close()</code> in <code>endMessage()</code> to
     finalise parsing</li>
 <li>Use <code>state.getSelectorLoop()</code> when creating HTTP clients for
     SelectorLoop affinity</li>

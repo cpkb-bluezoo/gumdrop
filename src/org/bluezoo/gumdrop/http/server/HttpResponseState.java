@@ -360,7 +360,7 @@ public interface HttpResponseState {
 
     /**
      * Pauses delivery of request body events
-     * ({@link HttpRequestHandler#requestBodyContent}).
+     * ({@link HttpRequestHandler#bodyContent}).
      *
      * <p>When paused, the transport stops reading data from the network
      * for this stream.  Backpressure propagates to the client, causing

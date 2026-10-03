@@ -38,18 +38,22 @@ import java.nio.ByteBuffer;
  * <pre>{@code
  * public class HelloHandler extends DefaultHttpRequestHandler {
  *     
+ *     private final HttpResponseState state;
+ *
+ *     public HelloHandler(HttpResponseState state) {
+ *         this.state = state;
+ *     }
+ *
  *     @Override
- *     public void headers(HttpResponseState state, Headers headers) {
- *         if ("GET".equals(headers.getMethod())) {
- *             Headers response = new Headers();
- *             response.status(HttpStatus.OK);
- *             response.add("content-type", "text/plain");
- *             state.headers(response);
- *             state.startResponseBody();
- *             state.responseBodyContent(ByteBuffer.wrap("Hello, World!".getBytes()));
- *             state.endResponseBody();
- *             state.complete();
- *         }
+ *     public void endHeaders() {
+ *         Headers response = new Headers();
+ *         response.status(HttpStatus.OK);
+ *         response.add("content-type", "text/plain");
+ *         state.headers(response);
+ *         state.startResponseBody();
+ *         state.responseBodyContent(ByteBuffer.wrap("Hello, World!".getBytes()));
+ *         state.endResponseBody();
+ *         state.complete();
  *     }
  * }
  * }</pre>
@@ -59,35 +63,4 @@ import java.nio.ByteBuffer;
  */
 public class DefaultHttpRequestHandler implements HttpRequestHandler {
 
-    @Override
-    public void headers(HttpResponseState state, Headers headers) {
-        // Default: do nothing
-    }
-
-    @Override
-    public void startRequestBody(HttpResponseState state) {
-        // Default: do nothing
-    }
-
-    @Override
-    public void requestBodyContent(HttpResponseState state, ByteBuffer data) {
-        // Default: do nothing
-    }
-
-    @Override
-    public void endRequestBody(HttpResponseState state) {
-        // Default: do nothing
-    }
-
-    @Override
-    public void requestComplete(HttpResponseState state) {
-        // Default: do nothing
-    }
-
-    @Override
-    public void failed(HttpResponseState state, Exception cause) {
-        // Default: do nothing
-    }
-
 }
-

@@ -208,6 +208,17 @@ user-visible themes since 2.2.x.
   a `response` argument. The servlet container now sees a `Content-Type` in its
   normalised form, and an HTTP/1.1 `Host` as `host` for HTTP/2 and HTTP/3 as
   well. `gumdrop-grpc` and `gumdrop-webdav` now require `gumdrop-mime`.
+- **The older request-handler callbacks are removed (breaking).**
+  `HttpRequestHandler` no longer has `headers`, `startRequestBody`,
+  `requestBodyContent`, `endRequestBody` or `requestComplete`. A request is
+  the events of `HttpMessageHandler`: the start-of-request and field events,
+  `endHeaders`, `bodyContent` (zero or more times), trailer fields as `header`
+  events, and `endMessage`, which is what `requestComplete` was. A response
+  uses the same events with `status` and `reason` in place of `method` and
+  `target`. `failed(response, cause)` is now `failed(Exception cause)` on
+  `HttpMessageHandler`, for an exchange that ends without `endMessage`
+  (reset stream, closed connection, QUIC close); `error` stays for a malformed
+  message. The `web/` pages show the new shape.
 - **Trailer fields are `header` events.** `HttpMessageHandler` has no `trailer`
   event: `bodyContent` is called any number of times, and the body ends at the
   first field event after it (a trailer) or at `endMessage`. A handler tells a

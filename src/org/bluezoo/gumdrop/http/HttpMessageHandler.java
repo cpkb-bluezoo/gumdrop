@@ -206,4 +206,16 @@ public interface HttpMessageHandler {
      */
     void error(HttpError error, String detail);
 
+    /**
+     * The exchange ended without {@code endMessage}, for a reason other than
+     * a malformed message: the connection was closed or failed mid-message,
+     * the peer reset the stream (HTTP/2, HTTP/3) or sent GOAWAY, or the QUIC
+     * connection closed with an error. This is the final event for the
+     * message; it is sent at most once, never after {@code endMessage}.
+     * Anything already sent in reply is final.
+     *
+     * @param cause what went wrong
+     */
+    void failed(Exception cause);
+
 }

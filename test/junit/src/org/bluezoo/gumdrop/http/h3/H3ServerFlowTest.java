@@ -44,7 +44,6 @@ import org.bluezoo.gumdrop.http.Header;
 import org.bluezoo.gumdrop.http.Headers;
 import org.bluezoo.gumdrop.http.HttpStatus;
 import org.bluezoo.gumdrop.http.qpack.SimpleEncoder;
-import org.bluezoo.gumdrop.http.server.DefaultHttpRequestHandler;
 import org.bluezoo.gumdrop.http.server.HttpAuthenticationProvider;
 import org.bluezoo.gumdrop.http.server.HttpRequestHandler;
 import org.bluezoo.gumdrop.http.server.HttpResponseState;
@@ -54,6 +53,7 @@ import org.bluezoo.gumdrop.quic.QuicConnection;
 import org.bluezoo.gumdrop.quic.QuicConnectionTestFactory;
 import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
 import org.bluezoo.gumdrop.testsupport.RecordingWebSocketEventHandler;
+import org.bluezoo.gumdrop.testsupport.CollectingRequestHandler;
 import org.junit.Test;
 
 /**
@@ -64,7 +64,7 @@ import org.junit.Test;
  */
 public class H3ServerFlowTest {
 
-    static class Recorder extends DefaultHttpRequestHandler {
+    static class Recorder extends CollectingRequestHandler {
         final List<String> events = new ArrayList<String>();
         int bodyBytes;
         HttpResponseState state;
@@ -159,7 +159,7 @@ public class H3ServerFlowTest {
                     if (nullHandler) {
                         return null;
                     }
-                    return rec;
+                    return CollectingRequestHandler.bind(rec, stream);
                 }
             };
             server = new Http3ServerHandler(conn, sh, auth, metrics, tc, secHeaders, compress, hsts);

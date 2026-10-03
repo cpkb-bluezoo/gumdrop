@@ -41,6 +41,7 @@ import org.bluezoo.gumdrop.TimerHandle;
 import org.bluezoo.gumdrop.http.Headers;
 import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
 import org.bluezoo.gumdrop.telemetry.Trace;
+import org.bluezoo.gumdrop.testsupport.CollectingRequestHandler;
 import org.junit.Before;
 import org.junit.Test;
 
@@ -140,7 +141,7 @@ public class HpackMalformedFieldH2Test {
     }
 
     /** Remembers what the application was shown. */
-    private static final class Seen extends DefaultHttpRequestHandler {
+    private static final class Seen extends CollectingRequestHandler {
         static final List<String> requests = new ArrayList<String>();
 
         @Override
@@ -160,7 +161,7 @@ public class HpackMalformedFieldH2Test {
         listener.setStreamHandler(new HttpStreamHandler() {
             @Override
             public HttpRequestHandler openStream(HttpResponseState state) {
-                return new Seen();
+                return CollectingRequestHandler.bind(new Seen(), state);
             }
         });
         endpoint = new CapturingEndpoint();
