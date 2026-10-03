@@ -47,6 +47,7 @@ import org.bluezoo.gumdrop.websocket.WebSocketExtension;
 import org.bluezoo.gumdrop.websocket.WebSocketHandshake;
 import org.bluezoo.gumdrop.websocket.WebSocketMetricsSource;
 import org.junit.Before;
+import org.bluezoo.gumdrop.testsupport.MessageEvents;
 import org.junit.Test;
 
 /**
@@ -148,7 +149,7 @@ public class WebSocketRequestHandlerTest {
 
     private void open(WebSocketRequestHandler h, Headers headers) {
         HttpRequestHandler rh = h.openStream(state);
-        rh.headers(state, headers);
+        MessageEvents.headers(rh, headers);
     }
 
     @Test
@@ -228,16 +229,6 @@ public class WebSocketRequestHandlerTest {
         assertEquals("/h2ws", seenPath);
         assertSame(appHandler, state.handler);
         assertEquals(1, state.extensions.size());
-    }
-
-    @Test
-    public void extendedConnectFallsBackToAuthorityWithoutPath() {
-        Headers h = new Headers();
-        h.add(":method", "CONNECT");
-        h.add(":protocol", "WebSocket");
-        h.add(":authority", "example.org");
-        open(builder(appHandler).build(), h);
-        assertEquals("example.org", seenPath);
     }
 
     @Test

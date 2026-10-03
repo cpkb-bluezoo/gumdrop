@@ -178,7 +178,7 @@ public class WebSocketServletIOIntegrationTest {
         private final HttpResponseState stubState;
 
         StubServletHandler(Container service, HttpResponseState stubState) {
-            super(service, 8192);
+            super(service, stubState, 8192);
             this.stubState = stubState;
         }
 

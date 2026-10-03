@@ -283,7 +283,7 @@ public final class FieldSectionAdapter implements HeaderFieldHandler {
             return;
         }
         if (kind == Kind.TRAILERS) {
-            handler.trailer(name, value);
+            handler.header(name, value);
         } else if (!dispatcher.field(name, value)) {
             failed = true;
         }

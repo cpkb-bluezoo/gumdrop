@@ -25,11 +25,15 @@ import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.http.server.DefaultHttpRequestHandler;
 import org.bluezoo.gumdrop.http.Header;
 import org.bluezoo.gumdrop.http.Headers;
+import org.bluezoo.gumdrop.http.HttpMethod;
+import org.bluezoo.gumdrop.mime.ContentDisposition;
+import org.bluezoo.gumdrop.mime.ContentType;
 import org.bluezoo.gumdrop.http.server.HttpResponseState;
 import org.bluezoo.gumdrop.http.HttpStatus;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
 import java.text.MessageFormat;
 import java.util.Collections;
 import java.util.LinkedHashMap;
@@ -65,7 +69,7 @@ public class ServletHandler extends DefaultHttpRequestHandler {
     private final int bufferSize;
 
     // The HTTP response state - provides connection info and response sending
-    private HttpResponseState state;
+    private final HttpResponseState state;
 
     // Non-blocking bridge for delivering request body to the servlet
     private RequestBodyStream bodyStream;
@@ -93,8 +97,16 @@ public class ServletHandler extends DefaultHttpRequestHandler {
     private boolean bodyStarted;
     private volatile boolean writePossibleScheduled;
 
-    public ServletHandler(Container container, int bufferSize) {
+    // The request, assembled from the message events until its header
+    // section ends
+    private HttpMethod requestMethod;
+    private boolean headersEnded;
+    private String requestTarget;
+    private Headers requestHeaders = new Headers();
+
+    public ServletHandler(Container container, HttpResponseState response, int bufferSize) {
         this.container = container;
+        this.state = response;
         this.bufferSize = bufferSize;
     }
 
@@ -106,39 +118,60 @@ public class ServletHandler extends DefaultHttpRequestHandler {
     // HttpRequestHandler implementation
     // ─────────────────────────────────────────────────────────────────────────
 
-    @Override
-    public void headers(HttpResponseState state, Headers headers) {
-        this.state = state;
+    private static String text(ByteBuffer b) {
+        byte[] octets = new byte[b.remaining()];
+        b.duplicate().get(octets);
+        return new String(octets, StandardCharsets.ISO_8859_1);
+    }
 
-        // Check if this is trailer headers (after body)
-        if (request != null && requestFinished.get()) {
-            // These are trailer headers - store them
-            requestTrailerFields = new LinkedHashMap<String, String>();
-            for (Header header : headers) {
-                String name = header.getName();
-                if (name.charAt(0) != ':') {
-                    requestTrailerFields.put(name.toLowerCase(), header.getValue());
-                }
+    @Override
+    public void method(HttpMethod method) {
+        requestMethod = method;
+    }
+
+    @Override
+    public void target(ByteBuffer target) {
+        requestTarget = text(target);
+    }
+
+    @Override
+    public void authority(ByteBuffer authority) {
+        requestHeaders.add(new Header("host", text(authority)));
+    }
+
+    @Override
+    public void contentType(ContentType contentType) {
+        requestHeaders.add(new Header("content-type", contentType.toHeaderValue()));
+    }
+
+    @Override
+    public void contentDisposition(ContentDisposition contentDisposition) {
+        requestHeaders.add(new Header("content-disposition", contentDisposition.toHeaderValue()));
+    }
+
+    @Override
+    public void longHeader(String name, long value) {
+        requestHeaders.add(new Header(name, Long.toString(value)));
+    }
+
+    @Override
+    public void header(String name, ByteBuffer value) {
+        if (headersEnded) {
+            // a trailer field, after the body
+            if (requestTrailerFields == null) {
+                requestTrailerFields = new LinkedHashMap<String, String>();
             }
+            requestTrailerFields.put(name.toLowerCase(), text(value));
             return;
         }
+        requestHeaders.add(new Header(name, text(value)));
+    }
 
-        // Extract method and request target from pseudo-headers
-        String method = null;
-        String requestTarget = null;
-        Headers requestHeaders = new Headers(headers.size());
-        for (Header header : headers) {
-            String name = header.getName();
-            String value = header.getValue();
-            if (":method".equals(name)) {
-                method = value;
-            } else if (":path".equals(name)) {
-                requestTarget = value;
-            } else if (name.charAt(0) != ':') {
-                requestHeaders.add(header);
-            }
-        }
-
+    @Override
+    public void endHeaders() {
+        headersEnded = true;
+        String method = requestMethod == null ? null : requestMethod.name();
+        Headers requestHeaders = this.requestHeaders;
         try {
             // Non-blocking bridge for request body delivery. write() (via
             // offer()) never blocks the SelectorLoop thread; it applies
@@ -175,7 +208,7 @@ public class ServletHandler extends DefaultHttpRequestHandler {
     }
 
     @Override
-    public void requestBodyContent(HttpResponseState state, ByteBuffer data) {
+    public void bodyContent(ByteBuffer data) {
         if (bodyStream == null) {
             return;
         }
@@ -195,12 +228,8 @@ public class ServletHandler extends DefaultHttpRequestHandler {
     }
 
     @Override
-    public void endRequestBody(HttpResponseState state) {
+    public void endMessage() {
         requestFinished.set(true);
-    }
-
-    @Override
-    public void requestComplete(HttpResponseState state) {
         // Signal EOF to the servlet's InputStream
         if (bodyStream != null) {
             bodyStream.finish();

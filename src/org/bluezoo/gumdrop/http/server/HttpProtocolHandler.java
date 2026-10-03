@@ -1738,6 +1738,8 @@ public  class HttpProtocolHandler
         private Stream stream;
         /** Set once the request is refused or the connection is handed over: later events are ignored. */
         private boolean ignoring;
+        /** Set once the header section has ended: further fields are trailers. */
+        private boolean headersDone;
 
         private Stream current() {
             if (stream == null) {
@@ -1840,7 +1842,15 @@ public  class HttpProtocolHandler
             if (!ignoring) { recorder().longHeader(name, value); }
         }
         @Override public void header(String name, ByteBuffer value) {
-            if (!ignoring) { recorder().header(name, value); }
+            if (ignoring) {
+                return;
+            }
+            if (headersDone) {
+                // a trailer field, after the body
+                stream.trailerField(name, value);
+            } else {
+                recorder().header(name, value);
+            }
         }
 
         @Override
@@ -1849,6 +1859,7 @@ public  class HttpProtocolHandler
                 return;
             }
             recorder().endHeaders();
+            headersDone = true;
             http1EndHeaders(stream);
         }
 
@@ -1861,14 +1872,10 @@ public  class HttpProtocolHandler
         }
 
         @Override
-        public void trailer(String name, ByteBuffer value) {
-            // trailers are not passed to the application (as before)
-        }
-
-        @Override
         public void endMessage() {
             Stream s = stream;
             stream = null;
+            headersDone = false;
             http1AtMessageStart = true;
             if (ignoring) {
                 return;
@@ -2436,15 +2443,19 @@ public  class HttpProtocolHandler
             // RFC 9113 section 5.1.1: client-initiated streams MUST use odd
             // stream IDs and MUST be monotonically increasing; violation is
             // a connection error of type PROTOCOL_ERROR
-            if (streamId % 2 == 0 || streamId <= lastClientStreamId) {
+            // RFC 9113 section 8.1: a HEADERS frame on a stream that is
+            // already open carries trailers, not a new request, so only a
+            // new stream is held to the rules for opening one.
+            boolean openStream = streams.containsKey(streamId);
+            if (streamId % 2 == 0 || (!openStream && streamId <= lastClientStreamId)) {
                 sendGoaway(H2FrameHandler.ERROR_PROTOCOL_ERROR);
                 closeEndpoint();
                 return;
             }
-            lastClientStreamId = streamId;
+            lastClientStreamId = Math.max(lastClientStreamId, streamId);
             // RFC 9113 section 5.1.2: streams exceeding
             // SETTINGS_MAX_CONCURRENT_STREAMS SHOULD be refused
-            if (activeStreams.size() >= serverMaxConcurrentStreams) {
+            if (!openStream && activeStreams.size() >= serverMaxConcurrentStreams) {
                 sendRstStream(streamId, H2FrameHandler.ERROR_REFUSED_STREAM);
                 return;
             }

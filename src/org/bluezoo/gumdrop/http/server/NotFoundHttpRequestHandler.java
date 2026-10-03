@@ -28,7 +28,8 @@ import org.bluezoo.gumdrop.http.HttpStatus;
  * Default HTTP application handler — responds with {@code 404 Not Found}.
  *
  * <p>Used when an {@link org.bluezoo.gumdrop.http.HttpServer} is composed
- * without an explicit handler. The protocol stack still accepts standard
+ * without an explicit handler, and by routers for a request none of their
+ * routes takes. It answers when the request's header section ends. The protocol stack still accepts standard
  * methods; unknown methods receive {@code 501} from the HTTP layer.
  *
  * @see HttpStreamHandler
@@ -36,19 +37,21 @@ import org.bluezoo.gumdrop.http.HttpStatus;
  */
 public final class NotFoundHttpRequestHandler extends DefaultHttpRequestHandler {
 
-    /** Shared stateless instance. */
-    public static final NotFoundHttpRequestHandler INSTANCE =
-            new NotFoundHttpRequestHandler();
+    private final HttpResponseState response;
 
-    private NotFoundHttpRequestHandler() {
+    /**
+     * @param response the response of the stream to answer
+     */
+    public NotFoundHttpRequestHandler(HttpResponseState response) {
+        this.response = response;
     }
 
     @Override
-    public void headers(HttpResponseState state, Headers headers) {
-        Headers response = new Headers();
-        response.status(HttpStatus.NOT_FOUND);
-        state.headers(response);
-        state.complete();
+    public void endHeaders() {
+        Headers headers = new Headers();
+        headers.status(HttpStatus.NOT_FOUND);
+        response.headers(headers);
+        response.complete();
     }
 
 }

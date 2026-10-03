@@ -31,6 +31,8 @@ import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
 import org.junit.Before;
+import org.bluezoo.gumdrop.testsupport.DelegatingResponseState;
+import org.bluezoo.gumdrop.testsupport.MessageEvents;
 import org.junit.Test;
 
 import org.bluezoo.gumdrop.http.Headers;
@@ -75,12 +77,27 @@ public class FileHandlerMethodsTest {
 
     // helpers
 
+    // A handler takes its response at construction, before the test knows
+    // which RecordingState will record it; see DelegatingResponseState.
+    private final java.util.Map<FileHandler, DelegatingResponseState> responses =
+            new java.util.IdentityHashMap<FileHandler, DelegatingResponseState>();
+
+    private FileHandler track(DelegatingResponseState response, FileHandler handler) {
+        responses.put(handler, response);
+        return handler;
+    }
+
+    private void respondTo(FileHandler handler, RecordingState state) {
+        responses.get(handler).setTarget(state);
+    }
+
     private FileHandler handler(boolean write, boolean dav, boolean withStore) {
         Map<String, String> types = new HashMap<String, String>();
         types.put("txt", "text/plain");
-        return new FileHandler(root, write, dav, "GET, PUT",
+        DelegatingResponseState response = new DelegatingResponseState();
+        return track(response, new FileHandler(response, root, write, dav, "GET, PUT",
                 new String[]{"index.html", ""}, types, locks,
-                withStore ? store : null, null);
+                withStore ? store : null, null));
     }
 
     private FileHandler handler() {
@@ -105,8 +122,9 @@ public class FileHandlerMethodsTest {
     private RecordingState send(FileHandler h, String method, String path, String... kv)
             throws Exception {
         RecordingState st = new RecordingState();
-        h.headers(st, request(method, path, kv));
-        h.requestComplete(st);
+        respondTo(h, st);
+        MessageEvents.headers(h, request(method, path, kv));
+        h.endMessage();
         return done(st);
     }
 
@@ -122,14 +140,13 @@ public class FileHandlerMethodsTest {
     private RecordingState sendChunks(FileHandler h, String method, String path,
             String[] chunks, String... kv) throws Exception {
         RecordingState st = new RecordingState();
-        h.headers(st, request(method, path, kv));
-        h.startRequestBody(st);
+        respondTo(h, st);
+        MessageEvents.headers(h, request(method, path, kv));
         for (int i = 0; i < chunks.length; i++) {
-            h.requestBodyContent(st,
+            h.bodyContent(
                     ByteBuffer.wrap(chunks[i].getBytes(StandardCharsets.UTF_8)));
         }
-        h.endRequestBody(st);
-        h.requestComplete(st);
+        h.endMessage();
         return done(st);
     }
 
@@ -615,23 +632,25 @@ public class FileHandlerMethodsTest {
     public void testOversizedWebdavBodyIsRejected() throws Exception {
         FileHandler h = handler();
         RecordingState st = new RecordingState();
-        h.headers(st, request("PROPFIND", "/hello.txt"));
-        h.startRequestBody(st);
+        respondTo(h, st);
+        MessageEvents.headers(h, request("PROPFIND", "/hello.txt"));
         byte[] big = new byte[600 * 1024];
         java.util.Arrays.fill(big, (byte) ' ');
-        h.requestBodyContent(st, ByteBuffer.wrap(big));
-        h.requestBodyContent(st, ByteBuffer.wrap(big));
-        h.requestBodyContent(st, ByteBuffer.wrap(big));
-        h.endRequestBody(st);
+        h.bodyContent(ByteBuffer.wrap(big));
+        h.bodyContent(ByteBuffer.wrap(big));
+        h.bodyContent(ByteBuffer.wrap(big));
+        h.endMessage();
         assertEquals(HttpStatus.PAYLOAD_TOO_LARGE.code, done(st).status());
     }
 
     // path/header oddities
 
     @Test
-    public void testContentLengthGarbageAndOddDepthValues() throws Exception {
+    public void testOddDepthValue() throws Exception {
+        // a non-numeric Content-Length no longer reaches the handler: the
+        // HTTP parser refuses the request first
         assertEquals(HttpStatus.MULTI_STATUS.code,
-                send(handler(), "PROPFIND", "/", "content-length", "NaN",
+                send(handler(), "PROPFIND", "/",
                         DavConstants.HEADER_DEPTH, "weird").status());
     }
 

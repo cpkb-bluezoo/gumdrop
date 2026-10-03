@@ -39,6 +39,7 @@ import org.bluezoo.gumdrop.http.Header;
 import org.bluezoo.gumdrop.http.Headers;
 import org.bluezoo.gumdrop.http.HttpVersion;
 import org.bluezoo.gumdrop.websocket.WebSocketEventHandler;
+import org.bluezoo.gumdrop.testsupport.MessageEvents;
 import org.junit.Test;
 
 /**
@@ -85,7 +86,7 @@ public class ConnectUdpRequestHandlerTest {
 
     private static Headers request(String protocol, String path, String capsule) {
         Headers h = new Headers();
-        h.add(new Header(":method", "CONNECT"));
+        h.add(new Header(":method", protocol == null ? "GET" : "CONNECT"));
         if (protocol != null) {
             h.add(new Header(":protocol", protocol));
         }
@@ -101,7 +102,7 @@ public class ConnectUdpRequestHandlerTest {
     @Test
     public void testNullPolicyRejected() {
         try {
-            new ConnectUdpRequestHandler(null);
+            new ConnectUdpRequestHandler(new State(), null);
             fail();
         } catch (IllegalArgumentException expected) {
             assertTrue(expected.getMessage() != null);
@@ -110,60 +111,60 @@ public class ConnectUdpRequestHandlerTest {
 
     @Test
     public void testWantsDatagrams() {
-        ConnectUdpRequestHandler h = new ConnectUdpRequestHandler(ALLOW_ALL, 1000L);
+        ConnectUdpRequestHandler h = new ConnectUdpRequestHandler(new State(), ALLOW_ALL, 1000L);
         assertTrue(h.wantsDatagrams());
     }
 
     @Test
     public void testWrongProtocolIs400() {
-        ConnectUdpRequestHandler h = new ConnectUdpRequestHandler(ALLOW_ALL);
         State s = new State();
+        ConnectUdpRequestHandler h = new ConnectUdpRequestHandler(s, ALLOW_ALL);
         String path = ConnectUdpTarget.encode("example.test", 53);
-        h.headers(s, request("websocket", path, "?1"));
+        MessageEvents.headers(h, HttpVersion.HTTP_3, request("websocket", path, "?1"));
         assertEquals("400", s.sent.getValue(":status"));
         assertTrue(s.completed);
     }
 
     @Test
     public void testMissingProtocolIs400() {
-        ConnectUdpRequestHandler h = new ConnectUdpRequestHandler(ALLOW_ALL);
         State s = new State();
+        ConnectUdpRequestHandler h = new ConnectUdpRequestHandler(s, ALLOW_ALL);
         String path = ConnectUdpTarget.encode("example.test", 53);
-        h.headers(s, request(null, path, "?1"));
+        MessageEvents.headers(h, HttpVersion.HTTP_3, request(null, path, "?1"));
         assertEquals("400", s.sent.getValue(":status"));
     }
 
     @Test
     public void testMissingCapsuleProtocolIs400() {
-        ConnectUdpRequestHandler h = new ConnectUdpRequestHandler(ALLOW_ALL);
         State s = new State();
+        ConnectUdpRequestHandler h = new ConnectUdpRequestHandler(s, ALLOW_ALL);
         String path = ConnectUdpTarget.encode("example.test", 53);
-        h.headers(s, request("connect-udp", path, null));
+        MessageEvents.headers(h, HttpVersion.HTTP_3, request("connect-udp", path, null));
         assertEquals("400", s.sent.getValue(":status"));
     }
 
     @Test
     public void testBadTargetPathIs400() {
-        ConnectUdpRequestHandler h = new ConnectUdpRequestHandler(ALLOW_ALL);
         State s = new State();
-        h.headers(s, request("connect-udp", "/not/the/template", "?1"));
+        ConnectUdpRequestHandler h = new ConnectUdpRequestHandler(s, ALLOW_ALL);
+        MessageEvents.headers(h, HttpVersion.HTTP_3, request("connect-udp", "/not/the/template", "?1"));
         assertEquals("400", s.sent.getValue(":status"));
     }
 
     @Test
     public void testHttp1UpgradeStyleWithoutUpgradeHeaderIs400() {
-        ConnectUdpRequestHandler h = new ConnectUdpRequestHandler(ALLOW_ALL);
         State s = new State();
+        ConnectUdpRequestHandler h = new ConnectUdpRequestHandler(s, ALLOW_ALL);
         s.version = HttpVersion.HTTP_1_1;
         String path = ConnectUdpTarget.encode("example.test", 53);
-        h.headers(s, request("connect-udp", path, "?1"));
+        MessageEvents.headers(h, HttpVersion.HTTP_3, request("connect-udp", path, "?1"));
         assertEquals("400", s.sent.getValue(":status"));
     }
 
     @Test
     public void testDatagramAndFailureWithoutRelayAreIgnored() {
-        ConnectUdpRequestHandler h = new ConnectUdpRequestHandler(ALLOW_ALL);
         State s = new State();
+        ConnectUdpRequestHandler h = new ConnectUdpRequestHandler(s, ALLOW_ALL);
         h.datagramReceived(s, ByteBuffer.wrap(new byte[] {0, 1, 2}));
         h.failed(s, new java.io.IOException("x"));
         assertFalse(s.completed);

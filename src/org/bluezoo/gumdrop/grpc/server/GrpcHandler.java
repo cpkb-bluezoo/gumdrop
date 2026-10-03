@@ -69,7 +69,7 @@ public class GrpcHandler extends DefaultHttpRequestHandler {
     private final String requestTypeName;
     private final String responseTypeName;
 
-    private HttpResponseState state;
+    private final HttpResponseState state;
     private GrpcResponseSenderImpl responseSender;
     private ProtoMessageHandler requestHandler;
     private ProtoModelAdapter protoAdapter;
@@ -78,8 +78,9 @@ public class GrpcHandler extends DefaultHttpRequestHandler {
     private boolean bodyStarted;
     private boolean bodyRejected;
 
-    GrpcHandler(ProtoFile protoFile, GrpcServer server, String path,
-            long maxMessageSize, RpcDescriptor rpc) {
+    GrpcHandler(ProtoFile protoFile, GrpcServer server, HttpResponseState state,
+            String path, long maxMessageSize, RpcDescriptor rpc) {
+        this.state = state;
         this.protoFile = protoFile;
         this.server = server;
         this.path = path;
@@ -88,14 +89,9 @@ public class GrpcHandler extends DefaultHttpRequestHandler {
         this.responseTypeName = rpc != null ? rpc.getOutputTypeName() : null;
     }
 
+    /** Begins reading the request message; the header section has ended. */
     @Override
-    public void headers(HttpResponseState state, Headers headers) {
-        this.state = state;
-    }
-
-    @Override
-    public void startRequestBody(HttpResponseState state) {
-        this.state = state;
+    public void endHeaders() {
         bodyStarted = true;
 
         if (requestTypeName == null) {
@@ -126,7 +122,7 @@ public class GrpcHandler extends DefaultHttpRequestHandler {
     }
 
     @Override
-    public void requestBodyContent(HttpResponseState state, ByteBuffer data) {
+    public void bodyContent(ByteBuffer data) {
         if (bodyRejected || !bodyStarted || frameParser == null
                 || data == null || !data.hasRemaining()) {
             return;
@@ -135,7 +131,7 @@ public class GrpcHandler extends DefaultHttpRequestHandler {
     }
 
     @Override
-    public void endRequestBody(HttpResponseState state) {
+    public void endMessage() {
         if (bodyRejected || !bodyStarted) {
             if (!bodyStarted) {
                 reject(HttpStatus.BAD_REQUEST, "Missing request body");

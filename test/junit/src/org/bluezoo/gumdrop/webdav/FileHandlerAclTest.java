@@ -46,6 +46,8 @@ import org.bluezoo.gumdrop.testsupport.memfs.MemoryFileSystem;
 import org.bluezoo.gumdrop.websocket.WebSocketEventHandler;
 
 import org.junit.Before;
+import org.bluezoo.gumdrop.testsupport.DelegatingResponseState;
+import org.bluezoo.gumdrop.testsupport.MessageEvents;
 import org.junit.Test;
 
 import static org.junit.Assert.assertEquals;
@@ -90,9 +92,25 @@ public class FileHandlerAclTest {
         // test has to reproduce it to exercise handleOptions accurately.
         String allowedOptions = "GET, HEAD, PUT, DELETE, OPTIONS, PROPFIND, PROPPATCH, MKCOL, COPY, MOVE, LOCK, UNLOCK"
                 + (realmOrNull != null ? ", ACL" : "");
-        return new FileHandler(root, true, true, allowedOptions,
+        DelegatingResponseState response = new DelegatingResponseState();
+        return track(response, new FileHandler(response, root, true, true, allowedOptions,
                 new String[] { "index.html" }, types,
-                new WebDAVLockManager(), null, realmOrNull);
+                new WebDAVLockManager(), null, realmOrNull));
+    }
+
+
+    // A handler takes its response at construction, before the test knows
+    // which RecordingState will record it; see DelegatingResponseState.
+    private final java.util.Map<FileHandler, DelegatingResponseState> responses =
+            new java.util.IdentityHashMap<FileHandler, DelegatingResponseState>();
+
+    private FileHandler track(DelegatingResponseState response, FileHandler handler) {
+        responses.put(handler, response);
+        return handler;
+    }
+
+    private void respondTo(FileHandler handler, RecordingState state) {
+        responses.get(handler).setTarget(state);
     }
 
     /**
@@ -112,8 +130,9 @@ public class FileHandlerAclTest {
         req.add(":method", method);
         req.add(":path", path);
         RecordingState st = new RecordingState(principal);
-        h.headers(st, req);
-        h.requestComplete(st);
+        respondTo(h, st);
+        MessageEvents.headers(h, req);
+        h.endMessage();
         assertTrue("Response did not complete within timeout for " + method + " " + path,
                 st.await(5, TimeUnit.SECONDS));
         return st;
@@ -141,10 +160,10 @@ public class FileHandlerAclTest {
         req.add(":path", path);
         req.add(DavConstants.HEADER_DEPTH, "0");
         RecordingState st = new RecordingState(principal);
-        h.headers(st, req);
-        h.startRequestBody(st);
-        h.requestBodyContent(st, ByteBuffer.wrap(bodyBytes));
-        h.endRequestBody(st);
+        respondTo(h, st);
+        MessageEvents.headers(h, req);
+        h.bodyContent(ByteBuffer.wrap(bodyBytes));
+        h.endMessage();
         assertTrue("PROPFIND did not complete within timeout for " + path,
                 st.await(5, TimeUnit.SECONDS));
         return st;

@@ -204,7 +204,7 @@ public class WebSocketServletStreamsTest {
         private final HttpResponseState state;
 
         Handler(Container container, HttpResponseState state) {
-            super(container, 8192);
+            super(container, state, 8192);
             this.state = state;
         }
 

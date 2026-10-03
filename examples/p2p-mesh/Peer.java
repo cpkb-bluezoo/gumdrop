@@ -133,19 +133,21 @@ public final class Peer {
 
         @Override
         public HttpRequestHandler openStream(HttpResponseState stream) {
-            return new HelloHandler(name);
+            return new HelloHandler(stream, name);
         }
     }
 
     private static final class HelloHandler extends DefaultHttpRequestHandler {
+        private final HttpResponseState state;
         private final String name;
 
-        HelloHandler(String name) {
+        HelloHandler(HttpResponseState state, String name) {
+            this.state = state;
             this.name = name;
         }
 
         @Override
-        public void headers(HttpResponseState state, Headers headers) {
+        public void endHeaders() {
             Headers response = new Headers();
             response.add(":status", "200");
             response.add("content-type", "text/plain");

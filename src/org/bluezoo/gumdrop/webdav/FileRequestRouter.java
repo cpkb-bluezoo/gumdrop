@@ -154,7 +154,7 @@ public final class FileRequestRouter implements HttpStreamHandler {
 
     @Override
     public HttpRequestHandler openStream(HttpResponseState stream) {
-        return new FileHandler(rootPath, allowWrite, webdavEnabled,
+        return new FileHandler(stream, rootPath, allowWrite, webdavEnabled,
                 allowedOptions, welcomeFiles, contentTypes,
                 lockManager, deadPropertyStore, realm);
     }

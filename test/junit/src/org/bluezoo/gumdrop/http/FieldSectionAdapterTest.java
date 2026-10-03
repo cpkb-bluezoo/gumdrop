@@ -306,10 +306,10 @@ public class FieldSectionAdapterTest {
     // ---- trailers ----
 
     @Test
-    public void trailersAreReportedAsTrailersAndNeedNoPseudoHeaders() {
+    public void trailersAreReportedAsFieldsAndNeedNoPseudoHeaders() {
         boolean[] ok = new boolean[1];
         RecordingMessageHandler r = run(FieldSectionAdapter.Kind.TRAILERS, ok, "x-checksum", "abc");
-        assertEvents(r, "trailer x-checksum abc");
+        assertEvents(r, "header x-checksum abc");
         assertTrue(ok[0]);
     }
 

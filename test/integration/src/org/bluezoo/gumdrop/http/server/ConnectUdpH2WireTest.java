@@ -136,7 +136,7 @@ public class ConnectUdpH2WireTest {
         listener.setStreamHandler(new HttpStreamHandler() {
             @Override
             public HttpRequestHandler openStream(HttpResponseState state) {
-                return new ConnectUdpRequestHandler(permissive) { };
+                return new ConnectUdpRequestHandler(state, permissive) { };
             }
         });
 

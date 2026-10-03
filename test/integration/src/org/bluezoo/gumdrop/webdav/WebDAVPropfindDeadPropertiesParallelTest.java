@@ -34,6 +34,7 @@ import org.bluezoo.gumdrop.websocket.WebSocketEventHandler;
 
 import org.junit.After;
 import org.junit.Before;
+import org.bluezoo.gumdrop.testsupport.MessageEvents;
 import org.junit.Test;
 
 import static org.junit.Assert.*;
@@ -100,7 +101,8 @@ public class WebDAVPropfindDeadPropertiesParallelTest {
 
         DeadPropertyStore store = new DeadPropertyStore();
         store.setMode(DeadPropertyStore.Mode.SIDECAR);
-        FileHandler handler = newHandler(tempRoot, store);
+        RecordingState state = new RecordingState(gumdrop.nextWorkerLoop());
+        FileHandler handler = newHandler(state, tempRoot, store);
 
         final AtomicInteger submissions = new AtomicInteger(0);
         // Two dead-property loads must be on the pool at the same time for
@@ -137,18 +139,16 @@ public class WebDAVPropfindDeadPropertiesParallelTest {
             }
         };
 
-        RecordingState state = new RecordingState(gumdrop.nextWorkerLoop());
         Headers req = new Headers();
         req.add(":method", "PROPFIND");
         req.add(":path", "/tree");
         req.add(DavConstants.HEADER_DEPTH, "infinity");
 
-        handler.headers(state, req);
-        // No body sent -- matching the real HttpRequestHandler contract
-        // (no startRequestBody/endRequestBody at all for a genuinely
-        // bodyless request), requestComplete is what the allprop
-        // fallback fires from (see FileHandler#pendingNoBodyAction).
-        handler.requestComplete(state);
+        MessageEvents.headers(handler, req);
+        // No body sent -- a genuinely bodyless request has no bodyContent
+        // at all, so the end of the message is what the allprop fallback
+        // fires from (see FileHandler#pendingNoBodyAction).
+        handler.endMessage();
         assertTrue("PROPFIND did not complete: " + state.status(),
                 state.await(20, TimeUnit.SECONDS));
 
@@ -176,10 +176,11 @@ public class WebDAVPropfindDeadPropertiesParallelTest {
                 maxInFlight.get() >= 2);
     }
 
-    private static FileHandler newHandler(Path root, DeadPropertyStore store) {
+    private static FileHandler newHandler(HttpResponseState response, Path root,
+            DeadPropertyStore store) {
         Map<String, String> types = new HashMap<String, String>();
         types.put("txt", "text/plain");
-        return new FileHandler(root, true, true,
+        return new FileHandler(response, root, true, true,
                 "GET, HEAD, PUT, DELETE, OPTIONS, PROPFIND, MKCOL, COPY, MOVE",
                 new String[]{"index.html"}, types,
                 new WebDAVLockManager(), store, null);

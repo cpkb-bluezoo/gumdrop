@@ -282,7 +282,7 @@ public final class Http1Parser {
                     progressed = chunkDataEnd(data);
                     break;
                 case BODY_UNTIL_CLOSE:
-                    emitBody(data, data.position(), data.limit());
+                    emitBody(data.position(), data.limit());
                     data.position(data.limit());
                     progressed = true;
                     break;
@@ -652,7 +652,7 @@ public final class Http1Parser {
             value.position(valuePosition);
         }
         if (trailer) {
-            handler.trailer(name, value);
+            handler.header(name, value);
         } else if (request && name.equals("host")) {
             // The authority, as :authority is in HTTP/2 and HTTP/3. Whether the
             // request has exactly one is for the protocol layer (RFC 9112 section 3.2).
@@ -790,7 +790,7 @@ public final class Http1Parser {
     private boolean bodyOfKnownLength(ByteBuffer d, boolean chunk) {
         int p = d.position();
         int n = (int) Math.min(remaining, (long) d.remaining());
-        emitBody(d, p, p + n);
+        emitBody(p, p + n);
         d.position(p + n);
         remaining -= n;
         if (remaining == 0) {
@@ -891,7 +891,7 @@ public final class Http1Parser {
 
     // ---- helpers ----
 
-    private void emitBody(ByteBuffer d, int from, int to) {
+    private void emitBody(int from, int to) {
         if (to > from) {
             handler.bodyContent(slice(from, to));
         }

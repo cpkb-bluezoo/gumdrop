@@ -23,6 +23,7 @@ package org.bluezoo.gumdrop.servlet;
 
 import org.junit.AfterClass;
 import org.junit.BeforeClass;
+import org.bluezoo.gumdrop.testsupport.MessageEvents;
 import org.junit.Test;
 
 import java.io.ByteArrayOutputStream;
@@ -633,19 +634,18 @@ public class ServletEndToEndTest {
 
     private Result sendWith(StubState state, String method, String target, byte[] body,
             String... headerPairs) throws Exception {
-        ServletHandler handler = new ServletHandler(container, 8192);
+        ServletHandler handler = new ServletHandler(container, state, 8192);
         Headers h = new Headers();
         h.add(":method", method);
         h.add(":path", target);
         for (int i = 0; i + 1 < headerPairs.length; i += 2) {
             h.add(headerPairs[i], headerPairs[i + 1]);
         }
-        handler.headers(state, h);
+        MessageEvents.headers(handler, h);
         if (body != null) {
-            handler.requestBodyContent(state, ByteBuffer.wrap(body));
+            handler.bodyContent(ByteBuffer.wrap(body));
         }
-        handler.endRequestBody(state);
-        handler.requestComplete(state);
+        handler.endMessage();
         container.runPending();
         return state.result;
     }

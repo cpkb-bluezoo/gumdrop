@@ -125,6 +125,10 @@ user-visible themes since 2.2.x.
 
 ### Fixed
 
+- **HTTP/2 request trailers no longer cause a GOAWAY.** A HEADERS frame on a
+  stream that was already open was checked as if it opened a new stream, so a
+  client that sent trailers had its connection closed with `PROTOCOL_ERROR`.
+
 - **Module-path correctness of the modular jars.** A new check
   (`ant jpms-check`, `scripts/check-jpms.py`, run in CI and before every
   release) compares each module's descriptor, exports and Maven POM with what
@@ -191,6 +195,23 @@ user-visible themes since 2.2.x.
   data arrives rather than when the chunk size is read; field values are
   passed as sent, with the whitespace inside a value kept; and a field line
   may be at most 8192 octets, folded lines included.
+- **The bundled handlers take the message events (breaking for code that
+  constructs them).** `NotFoundHttpRequestHandler`, the gRPC handlers,
+  `ConnectUdpRequestHandler`, `ConnectIpRequestHandler`, the WebSocket upgrade
+  handler, the servlet and WebDAV handlers and the examples now work from
+  `endHeaders`, `bodyContent` and `endMessage` instead of the older
+  `headers`, `startRequestBody`, `requestBodyContent`, `endRequestBody` and
+  `requestComplete`. A handler takes its `HttpResponseState` when it is created
+  (from `openStream(response)`), so the constructors of `NotFoundHttpRequestHandler`
+  (no longer a shared `INSTANCE`), `ConnectUdpRequestHandler`,
+  `ConnectIpRequestHandler`, `ServletHandler` and the WebDAV file handler gain
+  a `response` argument. The servlet container now sees a `Content-Type` in its
+  normalised form, and an HTTP/1.1 `Host` as `host` for HTTP/2 and HTTP/3 as
+  well. `gumdrop-grpc` and `gumdrop-webdav` now require `gumdrop-mime`.
+- **Trailer fields are `header` events.** `HttpMessageHandler` has no `trailer`
+  event: `bodyContent` is called any number of times, and the body ends at the
+  first field event after it (a trailer) or at `endMessage`. A handler tells a
+  trailer from a header by whether `endHeaders` has been seen.
 - **`FieldSectionAdapter`.**
   Receives the fields the HPACK and QPACK decoders push and turns an HTTP/2 or
   HTTP/3 field section into the same `HttpMessageHandler` events (the

@@ -3,6 +3,7 @@ module org.bluezoo.gumdrop.webdav {
     requires java.xml;
     requires transitive org.bluezoo.gumdrop.core;
     requires org.bluezoo.gumdrop.http;
+    requires org.bluezoo.gumdrop.mime;
 
     requires org.bluezoo.gonzalez;
 

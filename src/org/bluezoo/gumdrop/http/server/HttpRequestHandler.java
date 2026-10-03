@@ -129,7 +129,6 @@ public interface HttpRequestHandler extends HttpMessageHandler {
     @Override default void header(String name, ByteBuffer value) { }
     @Override default void endHeaders() { }
     @Override default void bodyContent(ByteBuffer data) { }
-    @Override default void trailer(String name, ByteBuffer value) { }
     @Override default void endMessage() { }
     @Override default void error(HttpError error, String detail) { }
 

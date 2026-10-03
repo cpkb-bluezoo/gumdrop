@@ -138,7 +138,7 @@ public class Http1ParserTest {
                 + "4;ext=1\r\nWiki\r\n5\r\npedia\r\n0\r\nX-Trail: v\r\n\r\n",
                 "method PUT", "target /p", "version HTTP/1.1",
                 "authority h", "header transfer-encoding chunked", "endHeaders",
-                "body Wikipedia", "trailer x-trail v", "endMessage");
+                "body Wikipedia", "header x-trail v", "endMessage");
     }
 
     @Test

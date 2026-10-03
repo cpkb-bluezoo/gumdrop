@@ -21,12 +21,16 @@
 
 package org.bluezoo.gumdrop.websocket.server;
 
+import org.bluezoo.gumdrop.http.Header;
 import org.bluezoo.gumdrop.http.Headers;
+import org.bluezoo.gumdrop.http.HttpMethod;
 import org.bluezoo.gumdrop.http.HttpStatus;
 import org.bluezoo.gumdrop.http.server.DefaultHttpRequestHandler;
 import org.bluezoo.gumdrop.http.server.HttpRequestHandler;
 import org.bluezoo.gumdrop.http.server.HttpResponseState;
 import org.bluezoo.gumdrop.http.server.HttpStreamHandler;
+import org.bluezoo.gumdrop.mime.ContentDisposition;
+import org.bluezoo.gumdrop.mime.ContentType;
 import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
 import org.bluezoo.gumdrop.websocket.PerMessageDeflateExtension;
 import org.bluezoo.gumdrop.websocket.WebSocketEventHandler;
@@ -35,6 +39,8 @@ import org.bluezoo.gumdrop.websocket.WebSocketHandshake;
 import org.bluezoo.gumdrop.websocket.WebSocketMetricsSource;
 import org.bluezoo.gumdrop.websocket.WebSocketServerMetrics;
 
+import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.ResourceBundle;
@@ -96,7 +102,7 @@ public final class WebSocketRequestHandler implements HttpStreamHandler {
 
     @Override
     public HttpRequestHandler openStream(HttpResponseState stream) {
-        return new UpgradeHandler();
+        return new UpgradeHandler(stream);
     }
 
     /**
@@ -230,8 +236,68 @@ public final class WebSocketRequestHandler implements HttpStreamHandler {
     private final class UpgradeHandler extends DefaultHttpRequestHandler
             implements WebSocketMetricsSource {
 
+        private final HttpResponseState state;
+        // The request as the connection factory and the subprotocol
+        // selector are given it, assembled from the events.
+        private final Headers headers = new Headers();
+
+        UpgradeHandler(HttpResponseState state) {
+            this.state = state;
+        }
+
+        private String text(ByteBuffer b) {
+            byte[] octets = new byte[b.remaining()];
+            b.duplicate().get(octets);
+            return new String(octets, StandardCharsets.ISO_8859_1);
+        }
+
         @Override
-        public void headers(HttpResponseState state, Headers headers) {
+        public void method(HttpMethod method) {
+            headers.add(new Header(":method", method.name()));
+        }
+
+        @Override
+        public void target(ByteBuffer target) {
+            headers.add(new Header(":path", text(target)));
+        }
+
+        @Override
+        public void scheme(ByteBuffer scheme) {
+            headers.add(new Header(":scheme", text(scheme)));
+        }
+
+        @Override
+        public void authority(ByteBuffer authority) {
+            headers.add(new Header(":authority", text(authority)));
+        }
+
+        @Override
+        public void protocol(ByteBuffer protocol) {
+            headers.add(new Header(":protocol", text(protocol)));
+        }
+
+        @Override
+        public void contentType(ContentType contentType) {
+            headers.add(new Header("content-type", contentType.toHeaderValue()));
+        }
+
+        @Override
+        public void contentDisposition(ContentDisposition contentDisposition) {
+            headers.add(new Header("content-disposition", contentDisposition.toHeaderValue()));
+        }
+
+        @Override
+        public void longHeader(String name, long value) {
+            headers.add(new Header(name, Long.toString(value)));
+        }
+
+        @Override
+        public void header(String name, ByteBuffer value) {
+            headers.add(new Header(name, text(value)));
+        }
+
+        @Override
+        public void endHeaders() {
             boolean extendedConnect = "CONNECT".equals(headers.getValue(":method"))
                     && "websocket".equalsIgnoreCase(headers.getValue(":protocol"));
             String offeredExtensions;
@@ -241,22 +307,19 @@ public final class WebSocketRequestHandler implements HttpStreamHandler {
                 // HTTP/3 forbid the RFC 6455 Upgrade: header exchange as
                 // connection-specific, so both use Extended CONNECT instead.
                 path = headers.getValue(":path");
-                if (path == null) {
-                    path = headers.getValue(":authority");
-                }
                 offeredExtensions = headers.getValue("sec-websocket-extensions");
             } else if (WebSocketHandshake.isValidWebSocketUpgrade(headers)) {
                 path = headers.getValue(":path");
                 offeredExtensions = headers.getValue("Sec-WebSocket-Extensions");
             } else {
-                sendError(state, HttpStatus.BAD_REQUEST);
+                sendError(HttpStatus.BAD_REQUEST);
                 return;
             }
 
             WebSocketEventHandler handler =
                     connectionHandlerFactory.create(path, headers);
             if (handler == null) {
-                sendError(state, HttpStatus.FORBIDDEN);
+                sendError(HttpStatus.FORBIDDEN);
                 return;
             }
 
@@ -269,7 +332,7 @@ public final class WebSocketRequestHandler implements HttpStreamHandler {
                 state.upgradeToWebSocket(subprotocol, negotiated, handler);
             } catch (IllegalStateException e) {
                 LOGGER.log(Level.WARNING, L10N.getString("warn.upgrade_failed"), e);
-                sendError(state, HttpStatus.BAD_REQUEST);
+                sendError(HttpStatus.BAD_REQUEST);
             }
         }
 
@@ -278,7 +341,7 @@ public final class WebSocketRequestHandler implements HttpStreamHandler {
             return wsMetrics;
         }
 
-        private void sendError(HttpResponseState state, HttpStatus status) {
+        private void sendError(HttpStatus status) {
             Headers response = new Headers();
             response.status(status);
             state.headers(response);

@@ -121,7 +121,7 @@ public class ConnectIpH1WireTest {
         listener.setStreamHandler(new HttpStreamHandler() {
             @Override
             public HttpRequestHandler openStream(HttpResponseState state) {
-                return new ConnectIpRequestHandler(permissive, noopPacketHandler);
+                return new ConnectIpRequestHandler(state, permissive, noopPacketHandler);
             }
         });
 

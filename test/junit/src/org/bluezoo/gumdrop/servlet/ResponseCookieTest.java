@@ -72,7 +72,7 @@ public class ResponseCookieTest {
         private final HttpResponseState stubState;
 
         StubServletHandler(HttpResponseState stubState) {
-            super(new Container(), 8192);
+            super(new Container(), stubState, 8192);
             this.stubState = stubState;
         }
 

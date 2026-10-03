@@ -253,7 +253,7 @@ public class ConnectUdpClientIntegrationTest extends AbstractServerIntegrationTe
 
         @Override
         public HttpRequestHandler openStream(HttpResponseState state) {
-            return new ConnectUdpRequestHandler(permissive);
+            return new ConnectUdpRequestHandler(state, permissive);
         }
     }
 }

@@ -88,20 +88,18 @@ public class GrpcHandlerTest {
     @Test
     public void unknownRpcReturnsNotFound() {
         CapturingState state = new CapturingState();
-        GrpcHandler handler = new GrpcHandler(protoFile, NOOP_SERVER, "/unknown.Service/Method",
+        GrpcHandler handler = new GrpcHandler(protoFile, NOOP_SERVER, state, "/unknown.Service/Method",
                 GrpcFraming.DEFAULT_MAX_MESSAGE_SIZE, null);
-        handler.headers(state, new Headers());
-        handler.startRequestBody(state);
+        handler.endHeaders();
         assertEquals(HttpStatus.NOT_FOUND, statusOf(state.headers));
     }
 
     @Test
     public void unimplementedServiceReturnsGrpcStatus12() {
         CapturingState state = new CapturingState();
-        GrpcHandler handler = new GrpcHandler(protoFile, NOOP_SERVER, RPC_PATH,
+        GrpcHandler handler = new GrpcHandler(protoFile, NOOP_SERVER, state, RPC_PATH,
                 GrpcFraming.DEFAULT_MAX_MESSAGE_SIZE, sayEchoRpc);
-        handler.headers(state, new Headers());
-        handler.startRequestBody(state);
+        handler.endHeaders();
         assertEquals(HttpStatus.OK, statusOf(state.headers));
         assertEquals("12", state.headers.getValue("grpc-status"));
         assertEquals("Unimplemented", state.headers.getValue("grpc-message"));
@@ -110,22 +108,20 @@ public class GrpcHandlerTest {
     @Test
     public void missingRequestBodyReturnsBadRequest() {
         CapturingState state = new CapturingState();
-        GrpcHandler handler = new GrpcHandler(protoFile, ECHO_SERVER, RPC_PATH,
+        GrpcHandler handler = new GrpcHandler(protoFile, ECHO_SERVER, state, RPC_PATH,
                 GrpcFraming.DEFAULT_MAX_MESSAGE_SIZE, sayEchoRpc);
-        handler.headers(state, new Headers());
-        handler.endRequestBody(state);
+        handler.endMessage();
         assertEquals(HttpStatus.BAD_REQUEST, statusOf(state.headers));
     }
 
     @Test
     public void successfulUnaryCallReturnsFramedResponse() throws Exception {
         CapturingState state = new CapturingState();
-        GrpcHandler handler = new GrpcHandler(protoFile, ECHO_SERVER, RPC_PATH,
+        GrpcHandler handler = new GrpcHandler(protoFile, ECHO_SERVER, state, RPC_PATH,
                 GrpcFraming.DEFAULT_MAX_MESSAGE_SIZE, sayEchoRpc);
-        handler.headers(state, new Headers());
-        handler.startRequestBody(state);
-        handler.requestBodyContent(state, encodeEchoRequest("hello", 1));
-        handler.endRequestBody(state);
+        handler.endHeaders();
+        handler.bodyContent(encodeEchoRequest("hello", 1));
+        handler.endMessage();
 
         assertEquals(HttpStatus.OK, statusOf(state.headers));
         assertEquals("application/grpc", state.headers.getValue("content-type"));
@@ -138,14 +134,13 @@ public class GrpcHandlerTest {
     @Test
     public void truncatedFrameReturnsBadRequest() throws Exception {
         CapturingState state = new CapturingState();
-        GrpcHandler handler = new GrpcHandler(protoFile, ECHO_SERVER, RPC_PATH,
+        GrpcHandler handler = new GrpcHandler(protoFile, ECHO_SERVER, state, RPC_PATH,
                 GrpcFraming.DEFAULT_MAX_MESSAGE_SIZE, sayEchoRpc);
-        handler.headers(state, new Headers());
-        handler.startRequestBody(state);
+        handler.endHeaders();
         ByteBuffer full = encodeEchoRequest("x", 0);
         ByteBuffer partial = ByteBuffer.wrap(full.array(), 0, full.remaining() - 2);
-        handler.requestBodyContent(state, partial);
-        handler.endRequestBody(state);
+        handler.bodyContent(partial);
+        handler.endMessage();
         assertEquals(HttpStatus.BAD_REQUEST, statusOf(state.headers));
     }
 

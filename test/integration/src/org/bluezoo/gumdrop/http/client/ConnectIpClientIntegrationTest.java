@@ -268,7 +268,7 @@ public class ConnectIpClientIntegrationTest extends AbstractServerIntegrationTes
 
         @Override
         public HttpRequestHandler openStream(HttpResponseState state) {
-            return new ConnectIpRequestHandler(permissive, echo);
+            return new ConnectIpRequestHandler(state, permissive, echo);
         }
     }
 }

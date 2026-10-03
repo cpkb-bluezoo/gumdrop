@@ -52,7 +52,7 @@ public final class HttpMessageRecorder implements HttpMessageHandler {
     private enum Kind {
         METHOD, TARGET, SCHEME, AUTHORITY, PROTOCOL, VERSION, STATUS, REASON,
         CONTENT_TYPE, CONTENT_DISPOSITION, LONG, HEADER, END_HEADERS, BODY,
-        TRAILER, END_MESSAGE, ERROR
+        END_MESSAGE, ERROR
     }
 
     private static final class Event {
@@ -111,7 +111,6 @@ public final class HttpMessageRecorder implements HttpMessageHandler {
                 case HEADER: target.header(e.name, view(e)); break;
                 case END_HEADERS: target.endHeaders(); break;
                 case BODY: target.bodyContent(view(e)); break;
-                case TRAILER: target.trailer(e.name, view(e)); break;
                 case END_MESSAGE: target.endMessage(); break;
                 case ERROR: target.error((HttpError) e.object, e.name); break;
                 default: break;
@@ -147,7 +146,6 @@ public final class HttpMessageRecorder implements HttpMessageHandler {
     @Override public void header(String name, ByteBuffer value) { add(Kind.HEADER, name, copy(value), null, 0); }
     @Override public void endHeaders() { add(Kind.END_HEADERS, null, null, null, 0); }
     @Override public void bodyContent(ByteBuffer data) { add(Kind.BODY, null, copy(data), null, 0); }
-    @Override public void trailer(String name, ByteBuffer value) { add(Kind.TRAILER, name, copy(value), null, 0); }
     @Override public void endMessage() { add(Kind.END_MESSAGE, null, null, null, 0); }
     @Override public void error(HttpError error, String detail) { add(Kind.ERROR, detail, null, error, 0); }
 

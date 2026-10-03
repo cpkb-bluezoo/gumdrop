@@ -34,7 +34,11 @@ import org.bluezoo.gumdrop.http.HttpConditionalRequests;
 import org.bluezoo.gumdrop.http.HttpDateFormat;
 import org.bluezoo.gumdrop.http.server.HttpResponseState;
 import org.bluezoo.gumdrop.http.HttpStatus;
+import org.bluezoo.gumdrop.http.Header;
 import org.bluezoo.gumdrop.http.Headers;
+import org.bluezoo.gumdrop.http.HttpMethod;
+import org.bluezoo.gumdrop.mime.ContentDisposition;
+import org.bluezoo.gumdrop.mime.ContentType;
 import org.bluezoo.gumdrop.quota.QuotaPolicy;
 
 import java.io.ByteArrayOutputStream;
@@ -174,6 +178,12 @@ class FileHandler extends DefaultHttpRequestHandler {
     private WebDAVRequestParser webdavParser;
     private Headers requestHeaders;
 
+    /** The response of the stream carrying the request. */
+    private final HttpResponseState state;
+
+    /** Set once body bytes have arrived (the request has a body). */
+    private boolean bodyReceived;
+
     /**
      * Maximum size, in bytes, of a WebDAV request body (PROPFIND/PROPPATCH/
      * LOCK). These are small control documents; a cap bounds the work done by
@@ -205,10 +215,11 @@ class FileHandler extends DefaultHttpRequestHandler {
      */
     private Runnable pendingNoBodyAction;
 
-    FileHandler(Path rootPath, boolean allowWrite, boolean webdavEnabled,
+    FileHandler(HttpResponseState response, Path rootPath, boolean allowWrite, boolean webdavEnabled,
                 String allowedOptions, String[] welcomeFiles,
                 Map<String, String> contentTypes, WebDAVLockManager lockManager,
                 DeadPropertyStore deadPropertyStore, Realm realm) {
+        this.state = response;
         this.rootPath = rootPath;
         Path canonical;
         try {
@@ -228,8 +239,58 @@ class FileHandler extends DefaultHttpRequestHandler {
         this.aclEnabled = webdavEnabled && realm != null;
     }
 
+    // The request, assembled from the message events; processing starts when
+    // its header section ends.
+    private final Headers headers = new Headers();
+
+    private static String text(ByteBuffer b) {
+        byte[] octets = new byte[b.remaining()];
+        b.duplicate().get(octets);
+        return new String(octets, StandardCharsets.ISO_8859_1);
+    }
+
     @Override
-    public void headers(HttpResponseState state, Headers headers) {
+    public void method(HttpMethod method) {
+        headers.add(new Header(":method", method.name()));
+    }
+
+    @Override
+    public void target(ByteBuffer target) {
+        headers.add(new Header(":path", text(target)));
+    }
+
+    @Override
+    public void scheme(ByteBuffer scheme) {
+        headers.add(new Header(":scheme", text(scheme)));
+    }
+
+    @Override
+    public void authority(ByteBuffer authority) {
+        headers.add(new Header(":authority", text(authority)));
+    }
+
+    @Override
+    public void contentType(ContentType contentType) {
+        headers.add(new Header("content-type", contentType.toHeaderValue()));
+    }
+
+    @Override
+    public void contentDisposition(ContentDisposition contentDisposition) {
+        headers.add(new Header("content-disposition", contentDisposition.toHeaderValue()));
+    }
+
+    @Override
+    public void longHeader(String name, long value) {
+        headers.add(new Header(name, Long.toString(value)));
+    }
+
+    @Override
+    public void header(String name, ByteBuffer value) {
+        headers.add(new Header(name, text(value)));
+    }
+
+    @Override
+    public void endHeaders() {
         SelectorLoop loop = state.getSelectorLoop();
         if (deadPropertyStore != null) {
             deadPropertyStore.setGumdrop((loop != null) ? loop.getGumdrop() : null);
@@ -295,7 +356,11 @@ class FileHandler extends DefaultHttpRequestHandler {
     }
 
     @Override
-    public void requestBodyContent(HttpResponseState state, ByteBuffer data) {
+    public void bodyContent(ByteBuffer data) {
+        // A real body is confirmed to be arriving -- see the
+        // pendingNoBodyAction field comment.
+        bodyReceived = true;
+        pendingNoBodyAction = null;
         // Handle WebDAV request body (PROPFIND, PROPPATCH, LOCK)
         if (webdavParser != null) {
             webdavBytesReceived += data.remaining();
@@ -376,8 +441,8 @@ class FileHandler extends DefaultHttpRequestHandler {
         });
     }
 
-    @Override
-    public void endRequestBody(HttpResponseState state) {
+    /** The request body has all arrived: finish what it was for. */
+    private void endRequestBody() {
         // Finalize WebDAV request
         if (webdavParser != null) {
             if (webdavBodyTooLarge) {
@@ -404,14 +469,10 @@ class FileHandler extends DefaultHttpRequestHandler {
     }
 
     @Override
-    public void startRequestBody(HttpResponseState state) {
-        // A real body is confirmed to be arriving -- see the
-        // pendingNoBodyAction field comment.
-        pendingNoBodyAction = null;
-    }
-
-    @Override
-    public void requestComplete(HttpResponseState state) {
+    public void endMessage() {
+        if (bodyReceived) {
+            endRequestBody();
+        }
         // No startRequestBody ever fired for this request -- it
         // genuinely has no body (see the pendingNoBodyAction field
         // comment for why this, not Content-Length, is what's checked).

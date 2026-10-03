@@ -41,6 +41,7 @@ import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.websocket.WebSocketEventHandler;
 
+import org.bluezoo.gumdrop.testsupport.MessageEvents;
 import org.junit.Test;
 
 import static org.junit.Assert.assertArrayEquals;
@@ -85,9 +86,9 @@ public class ConnectIpRequestHandlerTest {
                 return true;
             }
         };
-        ConnectIpRequestHandler handler = new ConnectIpRequestHandler(permissive, packetHandler);
+        ConnectIpRequestHandler handler = new ConnectIpRequestHandler(state, permissive, packetHandler);
 
-        handler.headers(state, connectIpRequestHeaders(ConnectIpTarget.WILDCARD, ConnectIpTarget.WILDCARD));
+        MessageEvents.headers(handler, HttpVersion.HTTP_3, connectIpRequestHeaders(ConnectIpTarget.WILDCARD, ConnectIpTarget.WILDCARD));
 
         assertTrue("CONNECT-IP request should have been accepted", state.accepted);
         assertNotNull("opened() should have been called", packetHandler.session);
@@ -117,8 +118,8 @@ public class ConnectIpRequestHandlerTest {
                 return true;
             }
         };
-        ConnectIpRequestHandler handler = new ConnectIpRequestHandler(permissive, packetHandler);
-        handler.headers(state, connectIpRequestHeaders(ConnectIpTarget.WILDCARD, ConnectIpTarget.WILDCARD));
+        ConnectIpRequestHandler handler = new ConnectIpRequestHandler(state, permissive, packetHandler);
+        MessageEvents.headers(handler, HttpVersion.HTTP_3, connectIpRequestHeaders(ConnectIpTarget.WILDCARD, ConnectIpTarget.WILDCARD));
 
         java.net.InetAddress requestedAddress = java.net.InetAddress.getByName("192.0.2.5");
         List<ConnectIpAddress> requested = Arrays.asList(new ConnectIpAddress(42, requestedAddress, 32));
@@ -145,9 +146,9 @@ public class ConnectIpRequestHandlerTest {
                 return false;
             }
         };
-        ConnectIpRequestHandler handler = new ConnectIpRequestHandler(restrictive, packetHandler);
+        ConnectIpRequestHandler handler = new ConnectIpRequestHandler(state, restrictive, packetHandler);
 
-        handler.headers(state, connectIpRequestHeaders(ConnectIpTarget.WILDCARD, ConnectIpTarget.WILDCARD));
+        MessageEvents.headers(handler, HttpVersion.HTTP_3, connectIpRequestHeaders(ConnectIpTarget.WILDCARD, ConnectIpTarget.WILDCARD));
 
         assertFalse("a policy-denied request must not be accepted", state.accepted);
         assertNull("opened() must not have been called", packetHandler.session);
@@ -164,11 +165,11 @@ public class ConnectIpRequestHandlerTest {
                 return true;
             }
         };
-        ConnectIpRequestHandler handler = new ConnectIpRequestHandler(permissive, packetHandler);
+        ConnectIpRequestHandler handler = new ConnectIpRequestHandler(state, permissive, packetHandler);
 
         Headers headers = connectIpRequestHeaders(ConnectIpTarget.WILDCARD, ConnectIpTarget.WILDCARD);
         headers.removeAll("capsule-protocol");
-        handler.headers(state, headers);
+        MessageEvents.headers(handler, HttpVersion.HTTP_3, headers);
 
         assertFalse(state.accepted);
         assertEquals("400", state.completedHeaders.getValue(":status"));
@@ -184,8 +185,8 @@ public class ConnectIpRequestHandlerTest {
                 return true;
             }
         };
-        ConnectIpRequestHandler handler = new ConnectIpRequestHandler(permissive, packetHandler);
-        handler.headers(state, connectIpRequestHeaders(ConnectIpTarget.WILDCARD, ConnectIpTarget.WILDCARD));
+        ConnectIpRequestHandler handler = new ConnectIpRequestHandler(state, permissive, packetHandler);
+        MessageEvents.headers(handler, HttpVersion.HTTP_3, connectIpRequestHeaders(ConnectIpTarget.WILDCARD, ConnectIpTarget.WILDCARD));
 
         handler.requestComplete(state);
 
@@ -209,8 +210,8 @@ public class ConnectIpRequestHandlerTest {
                 return true;
             }
         };
-        ConnectIpRequestHandler handler = new ConnectIpRequestHandler(permissive, packetHandler);
-        handler.headers(state, connectIpRequestHeaders(ConnectIpTarget.WILDCARD, ConnectIpTarget.WILDCARD));
+        ConnectIpRequestHandler handler = new ConnectIpRequestHandler(state, permissive, packetHandler);
+        MessageEvents.headers(handler, HttpVersion.HTTP_3, connectIpRequestHeaders(ConnectIpTarget.WILDCARD, ConnectIpTarget.WILDCARD));
 
         Exception cause = new java.io.IOException("transport reset");
         handler.failed(state, cause);
@@ -222,7 +223,7 @@ public class ConnectIpRequestHandlerTest {
     @Test
     public void testConstructorRejectsNullPolicy() {
         try {
-            new ConnectIpRequestHandler(null, new LoopbackPacketHandler());
+            new ConnectIpRequestHandler(new CapturingResponseState(), null, new LoopbackPacketHandler());
             org.junit.Assert.fail("expected IllegalArgumentException");
         } catch (IllegalArgumentException expected) {
             // expected
@@ -238,7 +239,7 @@ public class ConnectIpRequestHandlerTest {
             }
         };
         try {
-            new ConnectIpRequestHandler(permissive, null);
+            new ConnectIpRequestHandler(new CapturingResponseState(), permissive, null);
             org.junit.Assert.fail("expected IllegalArgumentException");
         } catch (IllegalArgumentException expected) {
             // expected

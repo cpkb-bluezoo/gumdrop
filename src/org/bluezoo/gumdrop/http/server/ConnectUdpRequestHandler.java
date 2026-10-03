@@ -25,11 +25,13 @@ package org.bluezoo.gumdrop.http.server;
 import org.bluezoo.gumdrop.http.Capsule;
 import org.bluezoo.gumdrop.http.ConnectUdpTarget;
 import org.bluezoo.gumdrop.http.Headers;
+import org.bluezoo.gumdrop.http.HttpMethod;
 import org.bluezoo.gumdrop.http.HttpStatus;
 
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
 import java.text.MessageFormat;
 import java.util.List;
 import java.util.ResourceBundle;
@@ -45,8 +47,9 @@ import org.bluezoo.gumdrop.dns.client.ResolveCallback;
  * approved by a {@link ConnectUdpPolicy}, and relays UDP datagrams
  * between the client and that target for the life of the request.
  *
- * <p>An {@link HttpRequestHandler#headers} implementation delegates to an
- * instance of this class (constructed with a policy) for any request it
+ * <p>An {@link HttpRequestHandler}
+ * delegates the events of a request to an instance of this class (constructed
+ * with the stream's response and a policy) for any request it
  * wants handled as CONNECT-UDP -- typically after checking {@code
  * :method}/{@code :protocol} itself, though this class also re-validates
  * those and the request path (RFC 9298 section 3's URI Template) before doing
@@ -67,6 +70,7 @@ public class ConnectUdpRequestHandler extends DefaultHttpRequestHandler {
     private static final ResourceBundle L10N =
             ResourceBundle.getBundle("org.bluezoo.gumdrop.http.L10N");
 
+    private final HttpResponseState state;
     private final ConnectUdpPolicy policy;
     private final long idleTimeoutMs;
 
@@ -75,44 +79,94 @@ public class ConnectUdpRequestHandler extends DefaultHttpRequestHandler {
     /**
      * Creates a handler using {@link ConnectUdpRelay#DEFAULT_IDLE_TIMEOUT_MS}.
      *
+     * @param response the response of the stream carrying the request
      * @param policy decides which resolved targets may be relayed to;
      *        must not be null (see {@link ConnectUdpPolicy}'s own
      *        documentation for why there is no permissive default)
      */
-    public ConnectUdpRequestHandler(ConnectUdpPolicy policy) {
-        this(policy, ConnectUdpRelay.DEFAULT_IDLE_TIMEOUT_MS);
+    public ConnectUdpRequestHandler(HttpResponseState response, ConnectUdpPolicy policy) {
+        this(response, policy, ConnectUdpRelay.DEFAULT_IDLE_TIMEOUT_MS);
     }
 
     /**
+     * @param response the response of the stream carrying the request
      * @param policy decides which resolved targets may be relayed to;
      *        must not be null
      * @param idleTimeoutMs closes the relay after this long with no
      *        datagrams relayed in either direction; 0 disables the timeout
      */
-    public ConnectUdpRequestHandler(ConnectUdpPolicy policy, long idleTimeoutMs) {
+    public ConnectUdpRequestHandler(HttpResponseState response, ConnectUdpPolicy policy,
+            long idleTimeoutMs) {
         if (policy == null) {
             throw new IllegalArgumentException(L10N.getString("warn.connect_udp_missing_policy"));
         }
+        this.state = response;
         this.policy = policy;
         this.idleTimeoutMs = idleTimeoutMs;
     }
 
+
+    private HttpMethod requestMethod;
+    private String protocol;
+    private String path;
+    private String upgrade;
+    private String capsuleProtocol;
+
     @Override
-    public void headers(final HttpResponseState state, Headers headers) {
-        if (!isConnectUdpRequest(state, headers)) {
-            rejectRequest(state, 400);
+    public void method(HttpMethod method) {
+        requestMethod = method;
+    }
+
+    @Override
+    public void protocol(ByteBuffer protocol) {
+        this.protocol = octetString(protocol);
+    }
+
+    @Override
+    public void target(ByteBuffer target) {
+        path = octetString(target);
+    }
+
+    @Override
+    public void header(String name, ByteBuffer value) {
+        if ("upgrade".equalsIgnoreCase(name)) {
+            upgrade = octetString(value);
+        } else if ("capsule-protocol".equalsIgnoreCase(name)) {
+            capsuleProtocol = octetString(value);
+        }
+    }
+
+    private static String octetString(ByteBuffer b) {
+        byte[] octets = new byte[b.remaining()];
+        b.duplicate().get(octets);
+        return new String(octets, StandardCharsets.ISO_8859_1);
+    }
+
+    /** The request's Capsule-Protocol field, as a field for {@link Capsule#capsuleProtocolEnabled}. */
+    private Headers capsuleHeaders() {
+        Headers headers = new Headers();
+        if (capsuleProtocol != null) {
+            headers.add("capsule-protocol", capsuleProtocol);
+        }
+        return headers;
+    }
+
+    @Override
+    public void endHeaders() {
+        if (!isConnectUdpRequest()) {
+            rejectRequest(400);
             return;
         }
-        if (!Capsule.capsuleProtocolEnabled(headers)) {
+        if (!Capsule.capsuleProtocolEnabled(capsuleHeaders())) {
             LOGGER.warning(L10N.getString("warn.connect_udp_not_capsule"));
-            rejectRequest(state, 400);
+            rejectRequest(400);
             return;
         }
-        final ConnectUdpTarget target = ConnectUdpTarget.parse(headers.getValue(":path"));
+        final ConnectUdpTarget target = ConnectUdpTarget.parse(path);
         if (target == null) {
             LOGGER.warning(MessageFormat.format(
-                    L10N.getString("warn.connect_udp_bad_target"), headers.getValue(":path")));
-            rejectRequest(state, 400);
+                    L10N.getString("warn.connect_udp_bad_target"), path));
+            rejectRequest(400);
             return;
         }
 
@@ -122,7 +176,7 @@ public class ConnectUdpRequestHandler extends DefaultHttpRequestHandler {
             public void onResolved(List<InetAddress> addresses) {
                 for (InetAddress address : addresses) {
                     if (policy.isTargetAllowed(address, target.getPort())) {
-                        accept(state, new InetSocketAddress(address, target.getPort()));
+                        accept(new InetSocketAddress(address, target.getPort()));
                         return;
                     }
                 }
@@ -130,14 +184,14 @@ public class ConnectUdpRequestHandler extends DefaultHttpRequestHandler {
                     LOGGER.fine(MessageFormat.format(L10N.getString("log.connect_udp_target_denied"),
                             target.getHost(), Integer.valueOf(target.getPort())));
                 }
-                rejectRequest(state, 403);
+                rejectRequest(403);
             }
 
             @Override
             public void onError(String error) {
                 LOGGER.warning(MessageFormat.format(
                         L10N.getString("log.connect_udp_dns_failed"), target.getHost(), error));
-                rejectRequest(state, 502);
+                rejectRequest(502);
             }
         });
     }
@@ -153,22 +207,22 @@ public class ConnectUdpRequestHandler extends DefaultHttpRequestHandler {
      * this class's caller ({@link HttpResponseState#acceptConnectUdp})
      * re-validates independently.
      */
-    private static boolean isConnectUdpRequest(HttpResponseState state, Headers headers) {
+    private boolean isConnectUdpRequest() {
         if (state.getVersion().supportsMultiplexing()) {
-            return "CONNECT".equals(headers.getMethod())
-                    && "connect-udp".equalsIgnoreCase(headers.getValue(":protocol"));
+            return HttpMethod.CONNECT.equals(requestMethod)
+                    && "connect-udp".equalsIgnoreCase(protocol);
         }
-        return "connect-udp".equalsIgnoreCase(headers.getValue("upgrade"));
+        return "connect-udp".equalsIgnoreCase(upgrade);
     }
 
-    private void accept(HttpResponseState state, InetSocketAddress resolvedTarget) {
+    private void accept(InetSocketAddress resolvedTarget) {
         relay = new ConnectUdpRelay(state, idleTimeoutMs);
         try {
             relay.start(resolvedTarget);
         } catch (java.io.IOException e) {
             LOGGER.log(Level.WARNING, L10N.getString("warn.connect_udp_upstream_open_failed"), e);
             relay = null;
-            rejectRequest(state, 502);
+            rejectRequest(502);
             return;
         }
         if (!state.acceptConnectUdp()) {
@@ -177,7 +231,7 @@ public class ConnectUdpRequestHandler extends DefaultHttpRequestHandler {
         }
     }
 
-    private void rejectRequest(HttpResponseState state, int statusCode) {
+    private void rejectRequest(int statusCode) {
         Headers response = new Headers();
         response.status(HttpStatus.fromCode(statusCode));
         state.headers(response);

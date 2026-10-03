@@ -38,6 +38,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import org.junit.After;
 import org.junit.Before;
+import org.bluezoo.gumdrop.testsupport.MessageEvents;
 import org.junit.Test;
 
 import org.bluezoo.gumdrop.Endpoint;
@@ -195,13 +196,13 @@ public class ConnectUdpRelayEndToEndTest {
                 return true;
             }
         };
-        ConnectUdpRequestHandler handler = new ConnectUdpRequestHandler(permissive) {
+        ConnectUdpRequestHandler handler = new ConnectUdpRequestHandler(state, permissive) {
         };
 
         loop.invokeLater(new Runnable() {
             @Override
             public void run() {
-                handler.headers(state, connectUdpRequestHeaders(
+                MessageEvents.headers(handler, connectUdpRequestHeaders(
                         echoAddress.getAddress().getHostAddress(), echoAddress.getPort()));
             }
         });
@@ -240,13 +241,13 @@ public class ConnectUdpRelayEndToEndTest {
                 return false;
             }
         };
-        final ConnectUdpRequestHandler handler = new ConnectUdpRequestHandler(restrictive) {
+        final ConnectUdpRequestHandler handler = new ConnectUdpRequestHandler(state, restrictive) {
         };
 
         loop.invokeLater(new Runnable() {
             @Override
             public void run() {
-                handler.headers(state, connectUdpRequestHeaders("127.0.0.1", 9999));
+                MessageEvents.headers(handler, connectUdpRequestHeaders("127.0.0.1", 9999));
             }
         });
 

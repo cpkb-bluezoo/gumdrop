@@ -263,6 +263,13 @@ class Stream implements HttpResponseState {
      */
     private boolean messageEvents;
 
+    /** A trailer field from the HTTP/1.x parser, which sends them as they are read. */
+    void trailerField(String name, ByteBuffer value) {
+        if (handler != null && messageEvents) {
+            handler.header(name, value);
+        }
+    }
+
     /** Replays the recorded header-section events to the bound handler. */
     private void replayRecordedEvents() {
         if (!recordedEvents.isEmpty()) {

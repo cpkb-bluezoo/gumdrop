@@ -110,20 +110,19 @@ public class GrpcServerBranchTest {
         return GrpcFraming.frame(channel.toByteBuffer());
     }
 
-    private static GrpcHandler handlerFor(RecordingServer server, long max) {
-        return new GrpcHandler(protoFile, server, RPC_PATH, max, rpc);
+    private static GrpcHandler handlerFor(CapturingState state, RecordingServer server, long max) {
+        return new GrpcHandler(protoFile, server, state, RPC_PATH, max, rpc);
     }
 
     @Test
     public void garbledProtobufPayloadIsBadRequest() {
         CapturingState state = new CapturingState();
-        GrpcHandler handler = handlerFor(new RecordingServer(), GrpcFraming.DEFAULT_MAX_MESSAGE_SIZE);
-        handler.headers(state, new Headers());
-        handler.startRequestBody(state);
-        handler.requestBodyContent(state, frameOf(new byte[] {(byte) 0x80, (byte) 0x80, (byte) 0x80,
+        GrpcHandler handler = handlerFor(state, new RecordingServer(), GrpcFraming.DEFAULT_MAX_MESSAGE_SIZE);
+        handler.endHeaders();
+        handler.bodyContent(frameOf(new byte[] {(byte) 0x80, (byte) 0x80, (byte) 0x80,
             (byte) 0x80, (byte) 0x80, (byte) 0x80, (byte) 0x80, (byte) 0x80, (byte) 0x80, (byte) 0x80,
             (byte) 0x80}));
-        handler.endRequestBody(state);
+        handler.endMessage();
         assertEquals(HttpStatus.BAD_REQUEST, state.status());
         assertEquals(1, state.completeCount);
     }
@@ -131,11 +130,10 @@ public class GrpcServerBranchTest {
     @Test
     public void truncatedProtobufFieldIsBadRequest() {
         CapturingState state = new CapturingState();
-        GrpcHandler handler = handlerFor(new RecordingServer(), GrpcFraming.DEFAULT_MAX_MESSAGE_SIZE);
-        handler.headers(state, new Headers());
-        handler.startRequestBody(state);
-        handler.requestBodyContent(state, frameOf(new byte[] {0x0A, 0x05, 'a'}));
-        handler.endRequestBody(state);
+        GrpcHandler handler = handlerFor(state, new RecordingServer(), GrpcFraming.DEFAULT_MAX_MESSAGE_SIZE);
+        handler.endHeaders();
+        handler.bodyContent(frameOf(new byte[] {0x0A, 0x05, 'a'}));
+        handler.endMessage();
         assertEquals(HttpStatus.BAD_REQUEST, state.status());
     }
 
@@ -144,11 +142,10 @@ public class GrpcServerBranchTest {
         CapturingState state = new CapturingState();
         RecordingServer server = new RecordingServer();
         server.failOnEnd = true;
-        GrpcHandler handler = handlerFor(server, GrpcFraming.DEFAULT_MAX_MESSAGE_SIZE);
-        handler.headers(state, new Headers());
-        handler.startRequestBody(state);
-        handler.requestBodyContent(state, validRequest());
-        handler.endRequestBody(state);
+        GrpcHandler handler = handlerFor(state, server, GrpcFraming.DEFAULT_MAX_MESSAGE_SIZE);
+        handler.endHeaders();
+        handler.bodyContent(validRequest());
+        handler.endMessage();
         assertEquals(HttpStatus.BAD_REQUEST, state.status());
         assertEquals(1, state.completeCount);
     }
@@ -156,25 +153,23 @@ public class GrpcServerBranchTest {
     @Test
     public void oversizedFrameIsRejectedOnce() throws Exception {
         CapturingState state = new CapturingState();
-        GrpcHandler handler = handlerFor(new RecordingServer(), 2);
-        handler.headers(state, new Headers());
-        handler.startRequestBody(state);
-        handler.requestBodyContent(state, validRequest());
+        GrpcHandler handler = handlerFor(state, new RecordingServer(), 2);
+        handler.endHeaders();
+        handler.bodyContent(validRequest());
         assertEquals(HttpStatus.BAD_REQUEST, state.status());
-        handler.requestBodyContent(state, validRequest());
-        handler.endRequestBody(state);
+        handler.bodyContent(validRequest());
+        handler.endMessage();
         assertEquals(1, state.completeCount);
     }
 
     @Test
     public void emptyAndNullBodyChunksAreIgnored() throws Exception {
         CapturingState state = new CapturingState();
-        GrpcHandler handler = handlerFor(new RecordingServer(), GrpcFraming.DEFAULT_MAX_MESSAGE_SIZE);
-        handler.requestBodyContent(state, validRequest());
-        handler.headers(state, new Headers());
-        handler.startRequestBody(state);
-        handler.requestBodyContent(state, null);
-        handler.requestBodyContent(state, ByteBuffer.allocate(0));
+        GrpcHandler handler = handlerFor(state, new RecordingServer(), GrpcFraming.DEFAULT_MAX_MESSAGE_SIZE);
+        handler.bodyContent(validRequest());
+        handler.endHeaders();
+        handler.bodyContent(null);
+        handler.bodyContent(ByteBuffer.allocate(0));
         assertNull(state.headers);
     }
 
@@ -187,12 +182,11 @@ public class GrpcServerBranchTest {
                 return null;
             }
         };
-        GrpcHandler handler = new GrpcHandler(protoFile, none, RPC_PATH,
+        GrpcHandler handler = new GrpcHandler(protoFile, none, state, RPC_PATH,
                 GrpcFraming.DEFAULT_MAX_MESSAGE_SIZE, rpc);
-        handler.headers(state, new Headers());
-        handler.startRequestBody(state);
-        handler.requestBodyContent(state, ByteBuffer.wrap(new byte[] {1}));
-        handler.endRequestBody(state);
+        handler.endHeaders();
+        handler.bodyContent(ByteBuffer.wrap(new byte[] {1}));
+        handler.endMessage();
         assertEquals("12", state.headers.getValue("grpc-status"));
         assertEquals(1, state.completeCount);
     }
@@ -200,10 +194,9 @@ public class GrpcServerBranchTest {
     @Test
     public void endOfBodyWithNoFramesLeavesNoResponse() {
         CapturingState state = new CapturingState();
-        GrpcHandler handler = handlerFor(new RecordingServer(), GrpcFraming.DEFAULT_MAX_MESSAGE_SIZE);
-        handler.headers(state, new Headers());
-        handler.startRequestBody(state);
-        handler.endRequestBody(state);
+        GrpcHandler handler = handlerFor(state, new RecordingServer(), GrpcFraming.DEFAULT_MAX_MESSAGE_SIZE);
+        handler.endHeaders();
+        handler.endMessage();
         assertEquals(HttpStatus.BAD_REQUEST, state.status());
     }
 
@@ -211,10 +204,10 @@ public class GrpcServerBranchTest {
     public void startingBodyTwiceReplacesTheCall() {
         CapturingState state = new CapturingState();
         RecordingServer server = new RecordingServer();
-        GrpcHandler handler = handlerFor(server, GrpcFraming.DEFAULT_MAX_MESSAGE_SIZE);
-        handler.startRequestBody(state);
+        GrpcHandler handler = handlerFor(state, server, GrpcFraming.DEFAULT_MAX_MESSAGE_SIZE);
+        handler.endHeaders();
         GrpcResponseSender first = server.sender;
-        handler.startRequestBody(state);
+        handler.endHeaders();
         assertNotNull(first);
         assertNotSame(first, server.sender);
     }
@@ -223,8 +216,8 @@ public class GrpcServerBranchTest {
     public void senderStateMachine() throws Exception {
         CapturingState state = new CapturingState();
         RecordingServer server = new RecordingServer();
-        GrpcHandler handler = handlerFor(server, GrpcFraming.DEFAULT_MAX_MESSAGE_SIZE);
-        handler.startRequestBody(state);
+        GrpcHandler handler = handlerFor(state, server, GrpcFraming.DEFAULT_MAX_MESSAGE_SIZE);
+        handler.endHeaders();
         GrpcResponseSender sender = server.sender;
         GrpcResponseMessage message = sender.openMessage("gumdroptest.EchoResponse");
         assertNotNull(message.getSerializer());
@@ -251,26 +244,35 @@ public class GrpcServerBranchTest {
     public void senderErrorVariants() {
         CapturingState state = new CapturingState();
         RecordingServer server = new RecordingServer();
-        GrpcHandler handler = handlerFor(server, GrpcFraming.DEFAULT_MAX_MESSAGE_SIZE);
-        handler.startRequestBody(state);
+        GrpcHandler handler = handlerFor(state, server, GrpcFraming.DEFAULT_MAX_MESSAGE_SIZE);
+        handler.endHeaders();
         server.sender.sendError(3, null);
         assertEquals("3", state.headers.getValue("grpc-status"));
         assertEquals("", state.headers.getValue("grpc-message"));
 
         CapturingState state2 = new CapturingState();
         RecordingServer server2 = new RecordingServer();
-        GrpcHandler handler2 = handlerFor(server2, GrpcFraming.DEFAULT_MAX_MESSAGE_SIZE);
-        handler2.startRequestBody(state2);
+        GrpcHandler handler2 = handlerFor(state2, server2, GrpcFraming.DEFAULT_MAX_MESSAGE_SIZE);
+        handler2.endHeaders();
         server2.sender.sendError(new IllegalStateException("boom"));
         assertEquals("13", state2.headers.getValue("grpc-status"));
         assertEquals("Internal error", state2.headers.getValue("grpc-message"));
 
         CapturingState state3 = new CapturingState();
         RecordingServer server3 = new RecordingServer();
-        GrpcHandler handler3 = handlerFor(server3, GrpcFraming.DEFAULT_MAX_MESSAGE_SIZE);
-        handler3.startRequestBody(state3);
+        GrpcHandler handler3 = handlerFor(state3, server3, GrpcFraming.DEFAULT_MAX_MESSAGE_SIZE);
+        handler3.endHeaders();
         server3.sender.sendError((Throwable) null);
         assertEquals("13", state3.headers.getValue("grpc-status"));
+    }
+
+    private static void deliver(HttpRequestHandler stream, String path) {
+        if (path != null) {
+            stream.target(ByteBuffer.wrap(path.getBytes(java.nio.charset.StandardCharsets.US_ASCII)));
+        }
+        stream.contentType(new org.bluezoo.gumdrop.mime.ContentType("application", "grpc",
+                new java.util.ArrayList<org.bluezoo.gumdrop.mime.Parameter>()));
+        stream.endHeaders();
     }
 
     @Test
@@ -279,22 +281,13 @@ public class GrpcServerBranchTest {
         GrpcRequestHandler requestHandler = new GrpcRequestHandler(protoFile, server);
         CapturingState state = new CapturingState();
         HttpRequestHandler stream = requestHandler.openStream(state);
-        stream.requestComplete(state);
-        try {
-            stream.startRequestBody(state);
-            fail("expected IllegalStateException");
-        } catch (IllegalStateException expected) {
-            assertEquals(HttpStatus.NOT_FOUND, state.status());
-        }
-        Headers headers = new Headers();
-        headers.add(new Header(":path", RPC_PATH));
-        headers.add(new Header("content-type", "application/grpc"));
-        stream.headers(state, headers);
-        stream.headers(state, headers);
-        stream.startRequestBody(state);
-        stream.requestBodyContent(state, validRequest());
-        stream.endRequestBody(state);
-        stream.requestComplete(state);
+        // events before the header section has ended are ignored
+        stream.bodyContent(validRequest());
+        stream.endMessage();
+        deliver(stream, RPC_PATH);
+        deliver(stream, RPC_PATH);
+        stream.bodyContent(validRequest());
+        stream.endMessage();
         assertNotNull(server.sender);
     }
 
@@ -305,12 +298,7 @@ public class GrpcServerBranchTest {
             GrpcRequestHandler requestHandler = new GrpcRequestHandler(protoFile, new RecordingServer());
             CapturingState state = new CapturingState();
             HttpRequestHandler stream = requestHandler.openStream(state);
-            Headers headers = new Headers();
-            if (paths[i] != null) {
-                headers.add(new Header(":path", paths[i]));
-            }
-            headers.add(new Header("content-type", "application/grpc"));
-            stream.headers(state, headers);
+            deliver(stream, paths[i]);
             assertEquals("path " + paths[i], HttpStatus.NOT_FOUND, state.status());
         }
     }
@@ -320,11 +308,7 @@ public class GrpcServerBranchTest {
         GrpcRequestHandler requestHandler = new GrpcRequestHandler(protoFile, new RecordingServer());
         CapturingState state = new CapturingState();
         HttpRequestHandler stream = requestHandler.openStream(state);
-        Headers headers = new Headers();
-        headers.add(new Header(":path", "/gumdroptest.Echo/Missing"));
-        headers.add(new Header("content-type", "application/grpc"));
-        stream.headers(state, headers);
-        stream.startRequestBody(state);
+        deliver(stream, "/gumdroptest.Echo/Missing");
         assertEquals(HttpStatus.NOT_FOUND, state.status());
     }
 

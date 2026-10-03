@@ -118,7 +118,7 @@ public class HttpMessageRecorderTest {
         recorder.header("x", b(bytes("y")));
         recorder.endHeaders();
         recorder.bodyContent(b(bytes("abc")));
-        recorder.trailer("t", b(bytes("u")));
+        recorder.header("t", b(bytes("u")));
         recorder.endMessage();
         recorder.error(HttpError.MALFORMED, "detail");
 
@@ -126,7 +126,7 @@ public class HttpMessageRecorderTest {
         recorder.replay(r);
         assertEquals(Arrays.asList("version HTTP/1.1", "method PURGE", "target /t", "scheme http",
                 "authority h", "protocol websocket", "status 204", "reason No Content", "long age 7",
-                "header x y", "endHeaders", "body abc", "trailer t u", "endMessage", "error MALFORMED"),
+                "header x y", "endHeaders", "body abc", "header t u", "endMessage", "error MALFORMED"),
                 r.events);
     }
 

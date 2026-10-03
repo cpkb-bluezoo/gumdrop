@@ -31,6 +31,8 @@ import org.bluezoo.gumdrop.websocket.WebSocketEventHandler;
 
 import org.bluezoo.gumdrop.testsupport.memfs.MemoryFileSystem;
 import org.junit.Before;
+import org.bluezoo.gumdrop.testsupport.DelegatingResponseState;
+import org.bluezoo.gumdrop.testsupport.MessageEvents;
 import org.junit.Test;
 import static org.junit.Assert.*;
 
@@ -90,14 +92,29 @@ public class FileHandlerTest {
 
     // ── Handler + dispatch helpers ──
 
+    // A handler takes its response at construction, before the test knows
+    // which RecordingState will record it; see DelegatingResponseState.
+    private final java.util.Map<FileHandler, DelegatingResponseState> responses =
+            new java.util.IdentityHashMap<FileHandler, DelegatingResponseState>();
+
+    private FileHandler track(DelegatingResponseState response, FileHandler handler) {
+        responses.put(handler, response);
+        return handler;
+    }
+
+    private void respondTo(FileHandler handler, RecordingState state) {
+        responses.get(handler).setTarget(state);
+    }
+
     private FileHandler newHandler(boolean allowWrite) {
         Map<String, String> types = new HashMap<String, String>();
         types.put("txt", "text/plain");
         types.put("html", "text/html");
-        return new FileHandler(root, allowWrite, true,
+        DelegatingResponseState response = new DelegatingResponseState();
+        return track(response, new FileHandler(response, root, allowWrite, true,
                 "GET, HEAD, PUT, DELETE, OPTIONS, PROPFIND, MKCOL, COPY, MOVE",
                 new String[]{"index.html"}, types,
-                new WebDAVLockManager(), null, null);
+                new WebDAVLockManager(), null, null));
     }
 
     private RecordingState dispatch(FileHandler h, String method, String path,
@@ -111,13 +128,14 @@ public class FileHandlerTest {
             }
         }
         RecordingState st = new RecordingState();
-        h.headers(st, req);
+        respondTo(h, st);
+        MessageEvents.headers(h, req);
         // This helper never sends a body -- matching the real
         // HttpRequestHandler contract (no startRequestBody/
         // endRequestBody at all for a genuinely bodyless request),
         // requestComplete is what a bodyless PROPFIND's allprop
         // fallback fires from (see FileHandler#pendingNoBodyAction).
-        h.requestComplete(st);
+        h.endMessage();
         assertTrue("Response did not complete within timeout for "
                 + method + " " + path, st.await(5, TimeUnit.SECONDS));
         return st;
@@ -324,10 +342,10 @@ public class FileHandlerTest {
             }
         }
         RecordingState st = new RecordingState();
-        h.headers(st, req);
-        h.startRequestBody(st);
-        h.requestBodyContent(st, ByteBuffer.wrap(body.getBytes(StandardCharsets.UTF_8)));
-        h.endRequestBody(st);
+        respondTo(h, st);
+        MessageEvents.headers(h, req);
+        h.bodyContent(ByteBuffer.wrap(body.getBytes(StandardCharsets.UTF_8)));
+        h.endMessage();
         assertTrue("Response did not complete within timeout for " + method + " " + path,
                 st.await(5, TimeUnit.SECONDS));
         return st;

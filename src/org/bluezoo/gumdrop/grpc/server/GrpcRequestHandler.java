@@ -23,7 +23,10 @@ package org.bluezoo.gumdrop.grpc.server;
 
 import org.bluezoo.gumdrop.grpc.GrpcFraming;
 import org.bluezoo.gumdrop.grpc.proto.ProtoFile;
-import org.bluezoo.gumdrop.http.Headers;
+import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
+
+import org.bluezoo.gumdrop.mime.ContentType;
 import org.bluezoo.gumdrop.http.server.DefaultHttpRequestHandler;
 import org.bluezoo.gumdrop.http.server.HttpRequestHandler;
 import org.bluezoo.gumdrop.http.server.HttpResponseState;
@@ -65,68 +68,68 @@ public class GrpcRequestHandler implements HttpStreamHandler {
     }
 
     @Override
-    public HttpRequestHandler openStream(HttpResponseState stream) {
-        return new GrpcStreamHandler();
+    public HttpRequestHandler openStream(HttpResponseState response) {
+        return new GrpcStreamHandler(response);
     }
 
+    /**
+     * Collects the request target and content type, and once the header
+     * section ends hands the request to a {@link GrpcHandler} for the method
+     * (or answers 404 if it is not a gRPC call this server knows).
+     */
     private final class GrpcStreamHandler extends DefaultHttpRequestHandler {
 
+        private final HttpResponseState response;
+        private String path;
+        private ContentType contentType;
         private HttpRequestHandler delegate;
 
+        GrpcStreamHandler(HttpResponseState response) {
+            this.response = response;
+        }
+
         @Override
-        public void headers(HttpResponseState state, Headers headers) {
-            if (delegate != null) {
-                delegate.headers(state, headers);
+        public void target(ByteBuffer target) {
+            byte[] octets = new byte[target.remaining()];
+            target.duplicate().get(octets);
+            path = new String(octets, StandardCharsets.ISO_8859_1);
+        }
+
+        @Override
+        public void contentType(ContentType contentType) {
+            this.contentType = contentType;
+        }
+
+        @Override
+        public void endHeaders() {
+            delegate = createDelegate();
+            if (delegate == null) {
+                new NotFoundHttpRequestHandler(response).endHeaders();
                 return;
             }
-            delegate = createDelegate(state, headers);
-            if (delegate == null) {
-                NotFoundHttpRequestHandler.INSTANCE.headers(state, headers);
-                return;
-            }
-            delegate.headers(state, headers);
+            delegate.endHeaders();
         }
 
         @Override
-        public void startRequestBody(HttpResponseState state) {
-            forward(state).startRequestBody(state);
-        }
-
-        @Override
-        public void requestBodyContent(HttpResponseState state,
-                java.nio.ByteBuffer data) {
-            forward(state).requestBodyContent(state, data);
-        }
-
-        @Override
-        public void endRequestBody(HttpResponseState state) {
-            forward(state).endRequestBody(state);
-        }
-
-        @Override
-        public void requestComplete(HttpResponseState state) {
+        public void bodyContent(ByteBuffer data) {
             if (delegate != null) {
-                delegate.requestComplete(state);
+                delegate.bodyContent(data);
             }
         }
 
-        private HttpRequestHandler forward(HttpResponseState state) {
-            if (delegate == null) {
-                NotFoundHttpRequestHandler.INSTANCE.headers(state, new Headers());
-                throw new IllegalStateException("no delegate before body event");
+        @Override
+        public void endMessage() {
+            if (delegate != null) {
+                delegate.endMessage();
             }
-            return delegate;
         }
 
-        private HttpRequestHandler createDelegate(HttpResponseState state,
-                Headers headers) {
-            String path = headers.getValue(":path");
-            String contentType = headers.getValue("content-type");
-
+        private HttpRequestHandler createDelegate() {
             if (path == null || !path.startsWith("/") || path.length() < 2) {
                 return null;
             }
-            if (!CONTENT_TYPE_GRPC.equals(contentType)) {
+            if (contentType == null
+                    || !CONTENT_TYPE_GRPC.equals(contentType.toHeaderValue())) {
                 return null;
             }
 
@@ -139,7 +142,7 @@ public class GrpcRequestHandler implements HttpStreamHandler {
                 return null;
             }
 
-            return new GrpcHandler(protoFile, server, path, maxMessageSize,
+            return new GrpcHandler(protoFile, server, response, path, maxMessageSize,
                     protoFile.getRpcByPath(path));
         }
     }

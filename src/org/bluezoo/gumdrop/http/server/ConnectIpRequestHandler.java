@@ -27,9 +27,11 @@ import org.bluezoo.gumdrop.http.ConnectIpAddress;
 import org.bluezoo.gumdrop.http.ConnectIpTarget;
 import org.bluezoo.gumdrop.http.Headers;
 import org.bluezoo.gumdrop.http.HttpDatagramContext;
+import org.bluezoo.gumdrop.http.HttpMethod;
 import org.bluezoo.gumdrop.http.HttpStatus;
 
 import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
 import java.text.MessageFormat;
 import java.util.List;
 import java.util.ResourceBundle;
@@ -44,8 +46,9 @@ import java.util.logging.Logger;
  * unlike {@link ConnectUdpRequestHandler}, this class does no forwarding
  * of its own (see {@link IpPacketHandler}'s own documentation for why).
  *
- * <p>An {@link HttpRequestHandler#headers} implementation delegates to an
- * instance of this class (constructed with a policy and a packet handler)
+ * <p>An {@link HttpRequestHandler}
+ * delegates the events of a request to an instance of this class (constructed
+ * with the stream's response, a policy and a packet handler)
  * for any request it wants handled as CONNECT-IP -- typically after
  * checking {@code :method}/{@code :protocol} itself, though this class
  * also re-validates
@@ -68,45 +71,95 @@ public class ConnectIpRequestHandler extends DefaultHttpRequestHandler {
     private static final ResourceBundle L10N =
             ResourceBundle.getBundle("org.bluezoo.gumdrop.http.L10N");
 
+    private final HttpResponseState state;
     private final ConnectIpPolicy policy;
     private final IpPacketHandler packetHandler;
 
     private ConnectIpSession session;
 
     /**
+     * @param response the response of the stream carrying the request
      * @param policy decides which request target scopes may be
      *        accepted; must not be null (see {@link ConnectIpPolicy}'s
      *        own documentation for why there is no permissive default)
      * @param packetHandler the forwarding backend for accepted tunnels;
      *        must not be null
      */
-    public ConnectIpRequestHandler(ConnectIpPolicy policy, IpPacketHandler packetHandler) {
+    public ConnectIpRequestHandler(HttpResponseState response, ConnectIpPolicy policy,
+            IpPacketHandler packetHandler) {
         if (policy == null) {
             throw new IllegalArgumentException(L10N.getString("warn.connect_ip_missing_policy"));
         }
         if (packetHandler == null) {
             throw new IllegalArgumentException(L10N.getString("warn.connect_ip_missing_handler"));
         }
+        this.state = response;
         this.policy = policy;
         this.packetHandler = packetHandler;
     }
 
+
+    private HttpMethod requestMethod;
+    private String protocol;
+    private String path;
+    private String upgrade;
+    private String capsuleProtocol;
+
     @Override
-    public void headers(HttpResponseState state, Headers headers) {
-        if (!isConnectIpRequest(state, headers)) {
-            rejectRequest(state, 400);
+    public void method(HttpMethod method) {
+        requestMethod = method;
+    }
+
+    @Override
+    public void protocol(ByteBuffer protocol) {
+        this.protocol = octetString(protocol);
+    }
+
+    @Override
+    public void target(ByteBuffer target) {
+        path = octetString(target);
+    }
+
+    @Override
+    public void header(String name, ByteBuffer value) {
+        if ("upgrade".equalsIgnoreCase(name)) {
+            upgrade = octetString(value);
+        } else if ("capsule-protocol".equalsIgnoreCase(name)) {
+            capsuleProtocol = octetString(value);
+        }
+    }
+
+    private static String octetString(ByteBuffer b) {
+        byte[] octets = new byte[b.remaining()];
+        b.duplicate().get(octets);
+        return new String(octets, StandardCharsets.ISO_8859_1);
+    }
+
+    /** The request's Capsule-Protocol field, as a field for {@link Capsule#capsuleProtocolEnabled}. */
+    private Headers capsuleHeaders() {
+        Headers headers = new Headers();
+        if (capsuleProtocol != null) {
+            headers.add("capsule-protocol", capsuleProtocol);
+        }
+        return headers;
+    }
+
+    @Override
+    public void endHeaders() {
+        if (!isConnectIpRequest()) {
+            rejectRequest(400);
             return;
         }
-        if (!Capsule.capsuleProtocolEnabled(headers)) {
+        if (!Capsule.capsuleProtocolEnabled(capsuleHeaders())) {
             LOGGER.warning(L10N.getString("warn.connect_ip_not_capsule"));
-            rejectRequest(state, 400);
+            rejectRequest(400);
             return;
         }
-        ConnectIpTarget target = ConnectIpTarget.parse(headers.getValue(":path"));
+        ConnectIpTarget target = ConnectIpTarget.parse(path);
         if (target == null) {
             LOGGER.warning(MessageFormat.format(
-                    L10N.getString("warn.connect_ip_bad_target"), headers.getValue(":path")));
-            rejectRequest(state, 400);
+                    L10N.getString("warn.connect_ip_bad_target"), path));
+            rejectRequest(400);
             return;
         }
         if (!policy.isRequestAllowed(target)) {
@@ -114,7 +167,7 @@ public class ConnectIpRequestHandler extends DefaultHttpRequestHandler {
                 LOGGER.fine(MessageFormat.format(L10N.getString("log.connect_ip_target_denied"),
                         target.getTarget(), target.getIpProto()));
             }
-            rejectRequest(state, 403);
+            rejectRequest(403);
             return;
         }
         if (!state.acceptConnectIp()) {
@@ -131,15 +184,15 @@ public class ConnectIpRequestHandler extends DefaultHttpRequestHandler {
      * {@code Upgrade: connect-ip} request -- the same per-version split
      * {@link ConnectUdpRequestHandler} uses for RFC 9298.
      */
-    private static boolean isConnectIpRequest(HttpResponseState state, Headers headers) {
+    private boolean isConnectIpRequest() {
         if (state.getVersion().supportsMultiplexing()) {
-            return "CONNECT".equals(headers.getMethod())
-                    && "connect-ip".equalsIgnoreCase(headers.getValue(":protocol"));
+            return HttpMethod.CONNECT.equals(requestMethod)
+                    && "connect-ip".equalsIgnoreCase(protocol);
         }
-        return "connect-ip".equalsIgnoreCase(headers.getValue("upgrade"));
+        return "connect-ip".equalsIgnoreCase(upgrade);
     }
 
-    private void rejectRequest(HttpResponseState state, int statusCode) {
+    private void rejectRequest(int statusCode) {
         Headers response = new Headers();
         response.status(HttpStatus.fromCode(statusCode));
         state.headers(response);

@@ -22,6 +22,11 @@
 package org.bluezoo.gumdrop.grpc.server;
 
 import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
+
+import org.bluezoo.gumdrop.mime.ContentType;
+
+import java.nio.ByteBuffer;
 import java.security.Principal;
 import java.net.SocketAddress;
 
@@ -90,22 +95,20 @@ public class GrpcRequestHandlerTest {
     @Test
     public void nonGrpcContentTypeIsNotFound() {
         GrpcRequestHandler handler = new GrpcRequestHandler(echoProto, NOOP_SERVICE);
-        HttpRequestHandler stream = handler.openStream(new CapturingState());
-        Headers headers = new Headers();
-        headers.add(new Header(":path", "/gumdroptest.Echo/SayEcho"));
-        headers.add(new Header("content-type", "application/json"));
         CapturingState state = new CapturingState();
-        stream.headers(state, headers);
+        HttpRequestHandler stream = handler.openStream(state);
+        stream.target(ascii("/gumdroptest.Echo/SayEcho"));
+        stream.contentType(new ContentType("application", "json", null));
+        stream.endHeaders();
         assertEquals(HttpStatus.NOT_FOUND, state.responseStatus);
     }
 
     @Test
     public void invalidPathIsNotFound() {
         GrpcRequestHandler handler = new GrpcRequestHandler(echoProto, NOOP_SERVICE);
-        HttpRequestHandler stream = handler.openStream(new CapturingState());
-        Headers headers = grpcHeaders("/not-a-grpc-path");
         CapturingState state = new CapturingState();
-        stream.headers(state, headers);
+        HttpRequestHandler stream = handler.openStream(state);
+        grpcHeaders(stream, "/not-a-grpc-path");
         assertEquals(HttpStatus.NOT_FOUND, state.responseStatus);
     }
 
@@ -114,17 +117,20 @@ public class GrpcRequestHandlerTest {
         GrpcRequestHandler handler = new GrpcRequestHandler(echoProto, NOOP_SERVICE);
         CapturingState state = new CapturingState();
         HttpRequestHandler stream = handler.openStream(state);
-        stream.headers(state, grpcHeaders("/gumdroptest.Echo/SayEcho"));
-        stream.startRequestBody(state);
+        grpcHeaders(stream, "/gumdroptest.Echo/SayEcho");
         assertEquals(HttpStatus.OK, state.responseStatus);
         assertEquals("12", state.responseHeaders.getValue("grpc-status"));
     }
 
-    private static Headers grpcHeaders(String path) {
-        Headers headers = new Headers();
-        headers.add(new Header(":path", path));
-        headers.add(new Header("content-type", "application/grpc"));
-        return headers;
+    private static ByteBuffer ascii(String s) {
+        return ByteBuffer.wrap(s.getBytes(StandardCharsets.US_ASCII));
+    }
+
+    /** Delivers the header section of a gRPC call to {@code path}. */
+    private static void grpcHeaders(HttpRequestHandler stream, String path) {
+        stream.target(ascii(path));
+        stream.contentType(new ContentType("application", "grpc", null));
+        stream.endHeaders();
     }
 
     private static final class CapturingState implements HttpResponseState {

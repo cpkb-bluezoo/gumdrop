@@ -64,7 +64,7 @@ public class FileSecurityTest {
     private static class TestFileHandler extends FileHandler {
         
         public TestFileHandler(Path rootPath) {
-            super(rootPath, true, false, "GET, HEAD, PUT, DELETE, OPTIONS", new String[]{"index.html"},
+            super(null, rootPath, true, false, "GET, HEAD, PUT, DELETE, OPTIONS", new String[]{"index.html"},
                     Collections.emptyMap(), null, null, null);
         }
         

@@ -25,6 +25,7 @@ import org.bluezoo.gumdrop.http.Headers;
 import org.bluezoo.gumdrop.http.server.HttpResponseState;
 import org.bluezoo.gumdrop.http.HttpVersion;
 
+import org.bluezoo.gumdrop.testsupport.MessageEvents;
 import org.junit.Test;
 
 import java.io.IOException;
@@ -159,11 +160,11 @@ public class ServletNonBlockingIOTest {
     public void testHandlerRequestBodyContentNotifiesReadListener() throws Exception {
         StubHTTPResponseState state = new StubHTTPResponseState();
         Container service = new Container();
-        ServletHandler handler = new ServletHandler(service, 8192);
+        ServletHandler handler = new ServletHandler(service, state, 8192);
         Headers h = new Headers();
         h.add(":method", "POST");
         h.add(":path", "/upload");
-        handler.headers(state, h);
+        MessageEvents.headers(handler, h);
 
         Request request = handler.getRequest();
         assertNotNull(request);
@@ -179,7 +180,7 @@ public class ServletNonBlockingIOTest {
             }
         });
 
-        handler.requestBodyContent(state, ByteBuffer.wrap("x".getBytes(StandardCharsets.UTF_8)));
+        handler.bodyContent(ByteBuffer.wrap("x".getBytes(StandardCharsets.UTF_8)));
         assertTrue(dataAvailable.get() >= 1);
     }
 
@@ -295,7 +296,7 @@ public class ServletNonBlockingIOTest {
         private final HttpResponseState stubState;
 
         StubServletHandler(Container service, HttpResponseState stubState) {
-            super(service, 8192);
+            super(service, stubState, 8192);
             this.stubState = stubState;
         }
 

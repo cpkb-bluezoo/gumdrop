@@ -109,7 +109,6 @@ public class RecordingMessageHandler implements HttpMessageHandler {
     @Override public void header(String name, ByteBuffer value) { flushBody(); view(value); events.add("header " + name + " " + text(value)); }
     @Override public void endHeaders() { flushBody(); events.add("endHeaders"); }
     @Override public void bodyContent(ByteBuffer data) { view(data); body.append(text(data)); }
-    @Override public void trailer(String name, ByteBuffer value) { flushBody(); view(value); events.add("trailer " + name + " " + text(value)); }
     @Override public void endMessage() { flushBody(); events.add("endMessage"); }
     @Override public void error(HttpError e, String detail) { flushBody(); events.add("error " + e); }
 

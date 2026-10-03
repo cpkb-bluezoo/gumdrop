@@ -1,5 +1,5 @@
 /*
- * Http2MessageEventsTest.java
+ * Http1MessageEventsTest.java
  * Copyright (C) 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -31,6 +31,7 @@ import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.security.cert.Certificate;
 import java.util.Arrays;
+import java.util.List;
 import java.util.Collections;
 
 import org.bluezoo.gumdrop.Endpoint;
@@ -57,7 +58,7 @@ import org.junit.Test;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-public class Http2MessageEventsTest {
+public class Http1MessageEventsTest {
 
     /** A handler that implements only the message events and records them. */
     private static final class EventHandler extends DefaultHttpRequestHandler {
@@ -125,81 +126,57 @@ public class Http2MessageEventsTest {
         });
         connection = new HttpProtocolHandler(listener);
         connection.connected(new NoopEndpoint());
-        connection.securityEstablished(new StubSecurityInfo());
-        connection.settingsFrameReceived(false, Collections.emptyMap());
     }
 
-    private static void literal(ByteArrayOutputStream out, int opcode, String name, String value) {
-        byte[] n = name.getBytes(StandardCharsets.US_ASCII);
-        byte[] v = value.getBytes(StandardCharsets.US_ASCII);
-        out.write(opcode);
-        out.write(n.length);
-        out.write(n, 0, n.length);
-        out.write(v.length);
-        out.write(v, 0, v.length);
+    private void feed(String request, int chunk) {
+        byte[] bytes = request.getBytes(StandardCharsets.ISO_8859_1);
+        ByteBuffer pending = ByteBuffer.allocate(bytes.length + 16);
+        pending.flip();
+        for (int i = 0; i < bytes.length; i += chunk) {
+            pending.compact();
+            pending.put(bytes, i, Math.min(chunk, bytes.length - i));
+            pending.flip();
+            connection.receive(pending);
+        }
     }
 
-    private static ByteArrayOutputStream pseudo(String method) {
-        ByteArrayOutputStream out = new ByteArrayOutputStream();
-        literal(out, 0x00, ":method", method);
-        literal(out, 0x00, ":scheme", "https");
-        literal(out, 0x00, ":path", "/upload");
-        literal(out, 0x00, ":authority", "example.test");
-        return out;
-    }
+    private static final String CHUNKED = "POST /up HTTP/1.1\r\nHost: h.test\r\n"
+            + "Transfer-Encoding: chunked\r\nTrailer: x-sum\r\n\r\n"
+            + "3\r\nabc\r\n2\r\nde\r\n0\r\nx-sum: 7\r\n\r\n";
 
-    private void headers(int streamId, boolean endStream, ByteArrayOutputStream block) throws Exception {
-        connection.headersFrameReceived(streamId, endStream, true, 0, false, 16,
-                ByteBuffer.wrap(block.toByteArray()));
+    private static final List<String> CHUNKED_EVENTS = Arrays.asList("method POST",
+            "target /up", "version HTTP/1.1", "scheme https", "authority h.test",
+            "header transfer-encoding chunked", "header trailer x-sum",
+            "endHeaders", "body abcde", "header x-sum 7", "endMessage");
+
+    @Test
+    public void aChunkedBodyAndItsTrailersArriveInOrder() {
+        feed(CHUNKED, Integer.MAX_VALUE);
+        assertEquals(CHUNKED_EVENTS, EventHandler.seen.events);
     }
 
     @Test
-    public void aRequestWithoutABodyIsDeliveredAsEvents() throws Exception {
-        ByteArrayOutputStream block = pseudo("GET");
-        literal(block, 0x00, "x-a", "b");
-        headers(3, true, block);
-
-        assertEquals(Arrays.asList("version HTTP/2.0", "method GET", "scheme https", "target /upload",
-                "authority example.test", "header x-a b", "endHeaders", "endMessage"),
-                EventHandler.seen.events);
-        assertTrue(EventHandler.seen.viewsReadOnly);
+    public void theSameEventsWhateverTheSplit() {
+        for (int chunk : new int[] {1, 2, 3, 7}) {
+            EventHandler.seen.events.clear();
+            setUp();
+            feed(CHUNKED, chunk);
+            assertEquals("chunk " + chunk, CHUNKED_EVENTS, EventHandler.seen.events);
+        }
     }
 
     @Test
-    public void typedFieldsAndABodyArriveInOrder() throws Exception {
-        ByteArrayOutputStream block = pseudo("POST");
-        literal(block, 0x00, "content-type", "text/plain; charset=utf-8");
-        literal(block, 0x00, "content-length", "5");
-        headers(3, false, block);
-        connection.dataFrameReceived(3, false, ByteBuffer.wrap("he".getBytes(StandardCharsets.US_ASCII)));
-        connection.dataFrameReceived(3, true, ByteBuffer.wrap("llo".getBytes(StandardCharsets.US_ASCII)));
-
-        assertEquals(Arrays.asList("version HTTP/2.0", "method POST", "scheme https", "target /upload",
-                "authority example.test", "contentType text/plain charset=utf-8",
-                "long content-length 5", "endHeaders", "body hello", "endMessage"),
+    public void aContentLengthBodyEndsAtTheEndOfTheMessage() {
+        feed("POST /up HTTP/1.1\r\nHost: h.test\r\nContent-Length: 5\r\n\r\nhello", 2);
+        assertEquals(Arrays.asList("method POST", "target /up", "version HTTP/1.1",
+                "scheme https", "authority h.test", "long content-length 5", "endHeaders", "body hello", "endMessage"),
                 EventHandler.seen.events);
     }
 
     @Test
-    public void trailersArriveAsFieldsAfterTheBody() throws Exception {
-        ByteArrayOutputStream block = pseudo("POST");
-        headers(3, false, block);
-        connection.dataFrameReceived(3, false, ByteBuffer.wrap("abc".getBytes(StandardCharsets.US_ASCII)));
-        ByteArrayOutputStream trailers = new ByteArrayOutputStream();
-        literal(trailers, 0x00, "x-checksum", "99");
-        headers(3, true, trailers);
-
-        assertEquals(Arrays.asList("version HTTP/2.0", "method POST", "scheme https", "target /upload",
-                "authority example.test", "endHeaders", "body abc", "header x-checksum 99", "endMessage"),
-                EventHandler.seen.events);
-    }
-
-    @Test
-    public void aRefusedRequestNeverReachesTheHandler() throws Exception {
-        ByteArrayOutputStream block = pseudo("GET");
-        literal(block, 0x00, "connection", "close");      // forbidden in HTTP/2
-        headers(3, true, block);
-
-        assertEquals(Arrays.asList(), EventHandler.seen.events);
+    public void aRequestWithoutABodyHasNoBodyEvent() {
+        feed("GET /x HTTP/1.1\r\nHost: h.test\r\n\r\n", Integer.MAX_VALUE);
+        assertEquals(Arrays.asList("method GET", "target /x", "version HTTP/1.1",
+                "scheme https", "authority h.test", "endHeaders", "endMessage"), EventHandler.seen.events);
     }
 }

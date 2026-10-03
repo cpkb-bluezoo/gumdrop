@@ -68,7 +68,7 @@ public final class ServletRequestHandler
 
     @Override
     public HttpRequestHandler openStream(HttpResponseState stream) {
-        return new ServletHandler(container, container.getBufferSize());
+        return new ServletHandler(container, stream, container.getBufferSize());
     }
 
     @Override

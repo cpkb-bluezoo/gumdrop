@@ -169,21 +169,35 @@ public class HttpServerRouterIntegrationTest {
     private static final class PathDispatchStreamHandler implements HttpStreamHandler {
         @Override
         public HttpRequestHandler openStream(HttpResponseState stream) {
-            return new PathDispatchHandler();
+            return new PathDispatchHandler(stream);
         }
     }
 
     private static final class PathDispatchHandler extends DefaultHttpRequestHandler {
+        private final HttpResponseState state;
+        private String path;
+
+        PathDispatchHandler(HttpResponseState state) {
+            this.state = state;
+        }
+
         @Override
-        public void headers(HttpResponseState state, Headers headers) {
-            if ("/api".equals(headers.getPath())) {
+        public void target(java.nio.ByteBuffer target) {
+            byte[] octets = new byte[target.remaining()];
+            target.duplicate().get(octets);
+            path = new String(octets, java.nio.charset.StandardCharsets.ISO_8859_1);
+        }
+
+        @Override
+        public void endHeaders() {
+            if ("/api".equals(path)) {
                 Headers response = new Headers();
                 response.add(":status", "200");
                 state.headers(response);
                 state.complete();
                 return;
             }
-            NotFoundHttpRequestHandler.INSTANCE.headers(state, headers);
+            new NotFoundHttpRequestHandler(state).endHeaders();
         }
     }
 

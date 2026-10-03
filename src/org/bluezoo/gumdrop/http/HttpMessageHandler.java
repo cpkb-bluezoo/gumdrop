@@ -181,17 +181,13 @@ public interface HttpMessageHandler {
      * Part of the message body, after any transfer coding (such as chunking)
      * has been removed. Content codings such as gzip are not removed.
      *
+     * <p>May be called any number of times, and not at all for a message
+     * with no body. The body ends at the first field event that follows it
+     * (a trailer field, sent as {@code header}) or at {@code endMessage}.
+     *
      * @param data the body octets
      */
     void bodyContent(ByteBuffer data);
-
-    /**
-     * A trailer field, sent after a chunked body (RFC 9112 section 7.1.2).
-     *
-     * @param name the lower-case field name
-     * @param value the value octets
-     */
-    void trailer(String name, ByteBuffer value);
 
     /**
      * The end of the message. For an interim ({@code 1xx}) response this ends

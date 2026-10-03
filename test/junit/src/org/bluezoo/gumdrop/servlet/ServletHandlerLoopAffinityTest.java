@@ -36,6 +36,7 @@ import org.bluezoo.gumdrop.http.Headers;
 import org.bluezoo.gumdrop.http.HttpVersion;
 import org.bluezoo.gumdrop.http.server.HttpResponseState;
 import org.bluezoo.gumdrop.websocket.WebSocketEventHandler;
+import org.bluezoo.gumdrop.testsupport.MessageEvents;
 import org.junit.Test;
 
 /**
@@ -56,12 +57,12 @@ public class ServletHandlerLoopAffinityTest {
             public void serviceRequest(ServletHandler servletHandler) {
             }
         };
-        ServletHandler handler = new ServletHandler(container, 8192);
         DeferringState state = new DeferringState();
+        ServletHandler handler = new ServletHandler(container, state, 8192);
         Headers h = new Headers();
         h.add(":method", "GET");
         h.add(":path", "/index.html");
-        handler.headers(state, h);
+        MessageEvents.headers(handler, h);
         state.queued.clear();
 
         Headers pushHeaders = new Headers();

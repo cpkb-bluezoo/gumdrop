@@ -64,13 +64,19 @@ public final class EchoServer {
     private static final class EchoStreamHandler implements HttpStreamHandler {
         @Override
         public HttpRequestHandler openStream(HttpResponseState stream) {
-            return new EchoHandler();
+            return new EchoHandler(stream);
         }
     }
 
     private static final class EchoHandler extends DefaultHttpRequestHandler {
+        private final HttpResponseState state;
+
+        EchoHandler(HttpResponseState state) {
+            this.state = state;
+        }
+
         @Override
-        public void headers(HttpResponseState state, Headers headers) {
+        public void endHeaders() {
             Headers response = new Headers();
             response.add(":status", "200");
             response.add("content-type", "text/plain");
