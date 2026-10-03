@@ -411,6 +411,7 @@ authority(ByteBuffer)  // authority / Host
 contentType(ContentType)               // if present
 contentDisposition(ContentDisposition) // if present
 longHeader(name, long) // numeric fields, e.g. content-length
+dateHeader(name, Instant) // date fields, e.g. if-modified-since
 header(name, value)    // every other field line, one event per line
 endHeaders()           // header section complete
 bodyContent(ByteBuffer) // zero or more body chunks

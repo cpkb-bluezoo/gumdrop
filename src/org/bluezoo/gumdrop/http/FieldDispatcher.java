@@ -198,7 +198,12 @@ public final class FieldDispatcher {
         try {
             java.util.Date parsed = dates.parse(new String(octets, java.nio.charset.StandardCharsets.US_ASCII),
                     new java.text.ParsePosition(0));
-            return parsed == null ? null : parsed.toInstant();
+            if (parsed == null) {
+                return null;
+            }
+            java.time.Instant when = parsed.toInstant();
+            // a two-digit year in the wrong form is read as year 94, not 1994
+            return when.atOffset(java.time.ZoneOffset.UTC).getYear() < 1900 ? null : when;
         } catch (RuntimeException e) {
             return null;
         }

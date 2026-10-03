@@ -80,19 +80,19 @@ final class ConnectUdpRelay {
      */
     static final long DEFAULT_IDLE_TIMEOUT_MS = 5L * 60L * 1000L;
 
-    private final HttpResponse state;
+    private final HttpResponse response;
     private final long idleTimeoutMs;
 
     private UdpEndpoint upstream;
     private boolean closed;
     private TimerHandle idleTimer;
 
-    ConnectUdpRelay(HttpResponse state) {
-        this(state, DEFAULT_IDLE_TIMEOUT_MS);
+    ConnectUdpRelay(HttpResponse response) {
+        this(response, DEFAULT_IDLE_TIMEOUT_MS);
     }
 
-    ConnectUdpRelay(HttpResponse state, long idleTimeoutMs) {
-        this.state = state;
+    ConnectUdpRelay(HttpResponse response, long idleTimeoutMs) {
+        this.response = response;
         this.idleTimeoutMs = idleTimeoutMs;
     }
 
@@ -105,9 +105,9 @@ final class ConnectUdpRelay {
     void start(InetSocketAddress target) throws IOException {
         UdpTransportFactory factory = new UdpTransportFactory();
         factory.start();
-        upstream = factory.connect(state.getSelectorLoop().getGumdrop(),
+        upstream = factory.connect(response.getSelectorLoop().getGumdrop(),
                 target.getAddress(), target.getPort(),
-                new UpstreamHandler(), state.getSelectorLoop());
+                new UpstreamHandler(), response.getSelectorLoop());
         resetIdleTimer();
     }
 
@@ -158,7 +158,7 @@ final class ConnectUdpRelay {
         if (idleTimer != null) {
             idleTimer.cancel();
         }
-        idleTimer = state.scheduleTimer(idleTimeoutMs, new Runnable() {
+        idleTimer = response.scheduleTimer(idleTimeoutMs, new Runnable() {
             @Override
             public void run() {
                 if (!closed) {
@@ -166,7 +166,7 @@ final class ConnectUdpRelay {
                         LOGGER.fine(L10N.getString("log.connect_udp_idle_timeout"));
                     }
                     close();
-                    state.cancel();
+                    response.cancel();
                 }
             }
         });
@@ -190,7 +190,7 @@ final class ConnectUdpRelay {
             resetIdleTimer();
             ByteBuffer encoded = HttpDatagramContext.encode(
                     HttpDatagramContext.REGISTERED_CONTEXT_ID, data);
-            state.sendDatagram(encoded);
+            response.sendDatagram(encoded);
         }
 
         @Override

@@ -144,6 +144,17 @@ public class Http1ParserTest {
     }
 
     @Test
+    public void theObsoleteDateFormsAreReadAndTheBrokenOnesAreNot() {
+        expectRequest("GET /p HTTP/1.1\r\nHost: h\r\n"
+                + "If-Modified-Since: Sunday, 06-Nov-94 08:49:37 GMT\r\n"
+                + "If-Unmodified-Since: Sun, 06 Nov 94 08:49:37 GMT\r\n\r\n",
+                "method GET", "target /p", "version HTTP/1.1", "authority h",
+                "date if-modified-since 1994-11-06T08:49:37Z",
+                "header if-unmodified-since Sun, 06 Nov 94 08:49:37 GMT",
+                "endHeaders", "endMessage");
+    }
+
+    @Test
     public void aDateFieldThatIsNotADateIsReportedAsAnOrdinaryField() {
         expectRequest("GET /p HTTP/1.1\r\nHost: h\r\n"
                 + "If-Modified-Since: yesterday-ish\r\n"

@@ -45,10 +45,10 @@ import java.util.List;
  */
 public final class ConnectIpSession {
 
-    private final HttpResponse state;
+    private final HttpResponse response;
 
-    ConnectIpSession(HttpResponse state) {
-        this.state = state;
+    ConnectIpSession(HttpResponse response) {
+        this.response = response;
     }
 
     /**
@@ -60,7 +60,7 @@ public final class ConnectIpSession {
      * @return true if the packet was queued
      */
     public boolean sendPacket(ByteBuffer packet) {
-        return state.sendDatagram(HttpDatagramContext.REGISTERED_CONTEXT_ID, packet);
+        return response.sendDatagram(HttpDatagramContext.REGISTERED_CONTEXT_ID, packet);
     }
 
     /**
@@ -71,7 +71,7 @@ public final class ConnectIpSession {
      * @return true if the capsule was queued
      */
     public boolean sendAddressAssign(List<ConnectIpAddress> assignments) {
-        return state.sendCapsule(ConnectIpAddress.TYPE_ADDRESS_ASSIGN, ConnectIpAddress.encodeList(assignments));
+        return response.sendCapsule(ConnectIpAddress.TYPE_ADDRESS_ASSIGN, ConnectIpAddress.encodeList(assignments));
     }
 
     /**
@@ -83,13 +83,13 @@ public final class ConnectIpSession {
      * @return true if the capsule was queued
      */
     public boolean sendRouteAdvertisement(List<ConnectIpRoute> routes) {
-        return state.sendCapsule(ConnectIpRoute.TYPE_ROUTE_ADVERTISEMENT, ConnectIpRoute.encodeList(routes));
+        return response.sendCapsule(ConnectIpRoute.TYPE_ROUTE_ADVERTISEMENT, ConnectIpRoute.encodeList(routes));
     }
 
     /**
      * Closes this tunnel.
      */
     public void close() {
-        state.complete();
+        response.complete();
     }
 }

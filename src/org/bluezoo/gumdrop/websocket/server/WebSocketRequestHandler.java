@@ -101,8 +101,8 @@ public final class WebSocketRequestHandler implements HttpStreamHandler {
     }
 
     @Override
-    public HttpRequestHandler openStream(HttpResponse stream) {
-        return new UpgradeHandler(stream);
+    public HttpRequestHandler openStream(HttpResponse response) {
+        return new UpgradeHandler(response);
     }
 
     /**

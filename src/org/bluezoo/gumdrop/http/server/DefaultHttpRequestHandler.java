@@ -38,10 +38,10 @@ import java.nio.ByteBuffer;
  * <pre>{@code
  * public class HelloHandler extends DefaultHttpRequestHandler {
  *     
- *     private final HttpResponse state;
+ *     private final HttpResponse response;
  *
- *     public HelloHandler(HttpResponse state) {
- *         this.state = state;
+ *     public HelloHandler(HttpResponse response) {
+ *         this.response = response;
  *     }
  *
  *     @Override
@@ -49,11 +49,11 @@ import java.nio.ByteBuffer;
  *         Headers response = new Headers();
  *         response.status(HttpStatus.OK);
  *         response.add("content-type", "text/plain");
- *         state.headers(response);
- *         state.startResponseBody();
- *         state.responseBodyContent(ByteBuffer.wrap("Hello, World!".getBytes()));
- *         state.endResponseBody();
- *         state.complete();
+ *         response.headers(response);
+ *         response.startResponseBody();
+ *         response.responseBodyContent(ByteBuffer.wrap("Hello, World!".getBytes()));
+ *         response.endResponseBody();
+ *         response.complete();
  *     }
  * }
  * }</pre>
