@@ -38,6 +38,7 @@ import javax.net.ssl.X509TrustManager;
 
 import org.bluezoo.gumdrop.crypto.NamedGroup;
 import org.bluezoo.gumdrop.quic.packet.TransportParameters;
+import org.bluezoo.gumdrop.tls.AlertDescription;
 import org.bluezoo.gumdrop.tls.CipherSuite;
 import org.bluezoo.gumdrop.tls.HandshakeConfig;
 import org.bluezoo.gumdrop.tls.HandshakeEngine;
@@ -541,7 +542,17 @@ public final class QuicTlsClientEngine implements QuicTlsEngine {
 
         @Override
         public void peerTransportParameters(byte[] parameters) {
-            deferredDispatch.transportParameters(TransportParameters.decode(ByteBuffer.wrap(parameters)));
+            TransportParameters decoded;
+            try {
+                decoded = TransportParameters.decode(ByteBuffer.wrap(parameters));
+            } catch (IllegalArgumentException e) {
+                // RFC 9000 section 7.4: malformed transport parameters are
+                // a handshake failure, never an escaping runtime exception
+                deferredDispatch.protocolError(EncryptionLevel.HANDSHAKE,
+                        new TlsProtocolError(AlertDescription.ILLEGAL_PARAMETER, e.getMessage()));
+                return;
+            }
+            deferredDispatch.transportParameters(decoded);
         }
 
         @Override

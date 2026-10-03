@@ -32,6 +32,8 @@ public interface ExpungeState {
 
     /**
      * Authorises EXPUNGE and lets the protocol expunge deleted messages.
+     * For UID EXPUNGE only the deleted messages whose UID is in the
+     * requested set are expunged.
      *
      * @param handler continues receiving selected commands
      */

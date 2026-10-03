@@ -168,23 +168,21 @@ public final class ReferencesThreader {
                 continue;
             }
             RefNode parent = child.parent;
+            // RFC 5256 section 2.2: do not promote the children of a
+            // dummy if that would make several of them children of the
+            // root; they stay together under the dummy.
+            if (parent.parent == null && child.children.size() > 1) {
+                continue;
+            }
             int insertAt = parent.children.indexOf(child);
             parent.children.remove(child);
             child.parent = null;
             List<RefNode> promote = new ArrayList<>(child.children);
-            if (parent.parent == null && promote.size() > 1) {
-                for (RefNode grand : promote) {
-                    unlink(grand);
-                    parent.children.add(grand);
-                    grand.parent = parent;
-                }
-            } else {
-                for (int i = 0; i < promote.size(); i++) {
-                    RefNode grand = promote.get(i);
-                    unlink(grand);
-                    parent.children.add(insertAt + i, grand);
-                    grand.parent = parent;
-                }
+            for (int i = 0; i < promote.size(); i++) {
+                RefNode grand = promote.get(i);
+                unlink(grand);
+                parent.children.add(insertAt + i, grand);
+                grand.parent = parent;
             }
         }
     }

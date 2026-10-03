@@ -338,6 +338,11 @@ public final class QuicEngine implements ChannelHandler, MultiplexedEndpoint {
     }
 
     private void receiveDatagram(byte[] bytes, InetSocketAddress source) {
+        if (bytes.length == 0) {
+            // an empty datagram has no header to dispatch on (onReadable
+            // already drops them, but path datagrams arrive here directly)
+            return;
+        }
         boolean longHeader = (bytes[0] & 0x80) != 0;
         byte[] dcid;
         LongHeaderPrefix prefix = null;

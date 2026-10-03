@@ -95,6 +95,7 @@ public final class RecordingStubEndpoint implements Endpoint {
     private boolean open = true;
     private boolean secure;
     private SelectorLoop selectorLoop;
+    private SecurityInfo securityInfo;
     private SendFilter sendFilter;
     private final List<TimerHandle> timers = new ArrayList<TimerHandle>();
     private final Map<TimerHandle, Runnable> pendingTimerCallbacks =
@@ -110,6 +111,15 @@ public final class RecordingStubEndpoint implements Endpoint {
 
     public void setSecure(boolean secure) {
         this.secure = secure;
+    }
+
+    /**
+     * Sets the TLS session details this endpoint reports (null by default).
+     *
+     * @param securityInfo the mock security info to report
+     */
+    public void setSecurityInfo(SecurityInfo securityInfo) {
+        this.securityInfo = securityInfo;
     }
 
     /**
@@ -258,7 +268,7 @@ public final class RecordingStubEndpoint implements Endpoint {
         return new InetSocketAddress("127.0.0.1", 54321);
     }
     @Override public boolean isSecure() { return secure; }
-    @Override public SecurityInfo getSecurityInfo() { return null; }
+    @Override public SecurityInfo getSecurityInfo() { return securityInfo; }
     @Override public void startTLS() { }
     @Override public SelectorLoop getSelectorLoop() { return selectorLoop; }
     @Override public void execute(Runnable task) { task.run(); }

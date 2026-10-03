@@ -86,8 +86,18 @@ public final class DateCriteria implements SearchCriteria {
 
     @Override
     public boolean matches(MessageContext context) throws IOException {
-        LocalDate msgDate = (field == Field.INTERNAL)
-                ? context.getInternalLocalDate() : context.getSentLocalDate();
+        LocalDate msgDate = null;
+        if (field == Field.INTERNAL) {
+            msgDate = context.getInternalLocalDate();
+            if (msgDate == null) {
+                // A message with no determinable internal date uses its
+                // Date header, as the search index does when it builds an
+                // entry, so indexed and parsed searches agree.
+                msgDate = context.getSentLocalDate();
+            }
+        } else {
+            msgDate = context.getSentLocalDate();
+        }
         if (msgDate == null) {
             return false;
         }

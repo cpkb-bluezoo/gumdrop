@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.grpc.proto;
 
+import java.io.ByteArrayOutputStream;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.text.MessageFormat;
@@ -66,6 +67,9 @@ public class ProtoFileParser {
             "bool", "string", "bytes");
 
     private final StringBuilder input = new StringBuilder();
+    // Bytes received so far: decoded only once the input is complete, so a
+    // multi-byte UTF-8 sequence split across receive() calls stays intact
+    private final ByteArrayOutputStream received = new ByteArrayOutputStream();
     private int pos;
     private int line = 1;
     private int column = 1;
@@ -83,7 +87,7 @@ public class ProtoFileParser {
         }
         byte[] bytes = new byte[data.remaining()];
         data.get(bytes);
-        input.append(new String(bytes, StandardCharsets.UTF_8));
+        received.write(bytes, 0, bytes.length);
     }
 
     /**
@@ -97,6 +101,7 @@ public class ProtoFileParser {
             throw new IllegalStateException("Parser already closed");
         }
         closed = true;
+        input.append(new String(received.toByteArray(), StandardCharsets.UTF_8));
         return parseInternal();
     }
 
@@ -729,15 +734,20 @@ public class ProtoFileParser {
                     column = 1;
                 } else if (next == '*') {
                     pos += 2;
+                    boolean terminated = false;
                     while (pos + 1 < input.length()) {
                         if (input.charAt(pos) == '*' && input.charAt(pos + 1) == '/') {
                             pos += 2;
+                            terminated = true;
                             break;
                         }
                         if (input.charAt(pos) == '\n') {
                             line++;
                         }
                         pos++;
+                    }
+                    if (!terminated) {
+                        throw new ProtoParseException(L10N.getString("err.unexpected_eof"));
                     }
                 } else {
                     break;

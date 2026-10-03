@@ -95,7 +95,7 @@ public class SimpleRelayHandlerDirectTest {
         }
     }
 
-    private static final class FakeSecurity implements SecurityInfo {
+    private static final class MockSecurity implements SecurityInfo {
         public String getProtocol() { return "TLSv1.3"; }
         public String getCipherSuite() { return "TLS_AES_128_GCM_SHA256"; }
         public int getKeySize() { return 128; }
@@ -163,7 +163,7 @@ public class SimpleRelayHandlerDirectTest {
                 return "alice";
             }
         });
-        relay.tlsEstablished(new FakeSecurity());
+        relay.tlsEstablished(new MockSecurity());
         assertEquals("acceptHello", states.calls.get(0));
         assertEquals("accept", states.calls.get(1));
     }

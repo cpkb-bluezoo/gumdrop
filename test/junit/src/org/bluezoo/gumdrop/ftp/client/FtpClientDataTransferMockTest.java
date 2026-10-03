@@ -49,7 +49,7 @@ import static org.junit.Assert.assertTrue;
  * Drives the FTP client's data connections (passive and active mode,
  * download, upload, listings, PROT P handling) with the data endpoints
  * supplied by a {@link MockDataConnector} and the active-mode listener by a
- * {@link FakeActiveListenerOpener}: no socket, loop or thread is involved.
+ * {@link MockActiveListenerOpener}: no socket, loop or thread is involved.
  * Control replies are scripted by the test on a stub control endpoint.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
@@ -62,7 +62,7 @@ public class FtpClientDataTransferMockTest {
     private final List<String> sent = Collections.synchronizedList(new ArrayList<String>());
     private final List<Exception> errors = new ArrayList<Exception>();
     private final MockDataConnector connector = new MockDataConnector();
-    private final FakeActiveListenerOpener listeners = new FakeActiveListenerOpener();
+    private final MockActiveListenerOpener listeners = new MockActiveListenerOpener();
     private final InetSocketAddress dataAddress = new InetSocketAddress("127.0.0.1", 40123);
 
     private final class Greeting implements RemoteGreeting {
@@ -470,7 +470,7 @@ public class FtpClientDataTransferMockTest {
         Download dl = new Download();
         handler.retr("a.bin", null, dl);
         assertEquals("RETR a.bin", lastSent());
-        FakeActiveListenerOpener.Listener l = listeners.last;
+        MockActiveListenerOpener.Listener l = listeners.last;
         l.accept(serverChannel());
         assertTrue("listener released on accept", l.closed);
         MockDataConnector.MockDataEndpoint ep = connector.lastAdopted();
@@ -573,7 +573,7 @@ public class FtpClientDataTransferMockTest {
     @Test
     public void secondPortReplacesTheFirstListener() {
         port();
-        FakeActiveListenerOpener.Listener first = listeners.last;
+        MockActiveListenerOpener.Listener first = listeners.last;
         FtpClientDataConnectionCoordinator.ActiveListener oldListener = handler.activeListener();
         port();
         assertTrue(first.closed);
@@ -593,7 +593,7 @@ public class FtpClientDataTransferMockTest {
 
     @Test
     public void portListenerFailureIsReported() {
-        FakeActiveListenerOpener failing = new FakeActiveListenerOpener();
+        MockActiveListenerOpener failing = new MockActiveListenerOpener();
         failing.failWith(new IOException("cannot bind"));
         // use a fresh session whose coordinator gets the failing opener
         FtpClientProtocolHandler h2 = new FtpClientProtocolHandler(new Greeting());
@@ -613,7 +613,7 @@ public class FtpClientDataTransferMockTest {
     @Test
     public void controlDisconnectReleasesTheListener() {
         port();
-        FakeActiveListenerOpener.Listener l = listeners.last;
+        MockActiveListenerOpener.Listener l = listeners.last;
         handler.disconnected();
         assertTrue(l.closed);
     }

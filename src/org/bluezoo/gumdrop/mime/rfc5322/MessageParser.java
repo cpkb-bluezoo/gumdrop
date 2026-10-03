@@ -195,19 +195,6 @@ public class MessageParser extends MimeParser {
 		return stripHeaderWhitespace ? s.trim() : s;
 	}
 
-	private static boolean isAddressHeader(String lowerName) {
-		switch (lowerName) {
-			case "from": case "sender": case "to": case "cc": case "bcc":
-			case "reply-to": case "resent-from": case "return-path": case "resent-sender":
-			case "resent-to": case "resent-cc": case "resent-bcc": case "resent-reply-to":
-			case "envelope-to": case "delivered-to": case "x-original-to":
-			case "errors-to": case "apparently-to":
-				return true;
-			default:
-				return false;
-		}
-	}
-
 	protected void handleDateHeader(String name, ByteBuffer value) throws MimeParseException {
 		if (messageHandler == null) {
 			return;

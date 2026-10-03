@@ -43,6 +43,7 @@ import java.util.Map;
 import java.util.ResourceBundle;
 
 import org.bluezoo.gumdrop.Endpoint;
+import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.auth.Realm.CertificateAuthenticationResult;
 
 /**
@@ -580,8 +581,11 @@ public final class SaslUtils {
         if (!endpoint.isSecure()) {
             return CertificateAuthenticationResult.failure();
         }
-        Certificate[] certs =
-                endpoint.getSecurityInfo().getPeerCertificates();
+        SecurityInfo securityInfo = endpoint.getSecurityInfo();
+        if (securityInfo == null) {
+            return CertificateAuthenticationResult.failure();
+        }
+        Certificate[] certs = securityInfo.getPeerCertificates();
         if (certs == null || certs.length == 0) {
             return CertificateAuthenticationResult.failure();
         }

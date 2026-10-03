@@ -48,7 +48,7 @@ import org.bluezoo.gumdrop.util.AsyncFile;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-final class SocketFtpDataTransport implements FtpDataTransport {
+class SocketFtpDataTransport implements FtpDataTransport {
 
     @Override
     public PassiveListener listenPassive(FtpListener server, int port,
@@ -63,26 +63,7 @@ final class SocketFtpDataTransport implements FtpDataTransport {
             throw new IOException("No accept loop available for passive mode");
         }
 
-        // Bind the socket synchronously so we know the port immediately
-        final ServerSocketChannel ssc = ServerSocketChannel.open();
-        ssc.configureBlocking(false);
-
-        if (port == 0) {
-            // System-assigned, unless the listener restricts passive mode
-            // to a configured port range (issue #145) - e.g. deployments
-            // behind a firewall that only forwards a fixed range.
-            int minPort = (server != null) ? server.getPasvMinPort() : 0;
-            int maxPort = (server != null) ? server.getPasvMaxPort() : 0;
-            if (minPort > 0 && maxPort >= minPort) {
-                bindWithinRange(ssc, minPort, maxPort);
-            } else {
-                ssc.bind(new InetSocketAddress(0));
-            }
-        } else {
-            // An explicitly requested port bypasses the configured range.
-            ssc.bind(new InetSocketAddress(port));
-        }
-
+        final ServerSocketChannel ssc = openBound(server, port);
         final int bound = ((InetSocketAddress) ssc.getLocalAddress()).getPort();
 
         // Register the already-bound channel with AcceptSelectorLoop
@@ -102,6 +83,50 @@ final class SocketFtpDataTransport implements FtpDataTransport {
                 }
             }
         };
+    }
+
+    /**
+     * Opens and binds the passive-mode server channel synchronously so the
+     * port is known immediately; the channel is closed again if binding fails.
+     */
+    ServerSocketChannel openBound(FtpListener server, int port) throws IOException {
+        final ServerSocketChannel ssc = openServerChannel();
+        try {
+            ssc.configureBlocking(false);
+
+            if (port == 0) {
+                // System-assigned, unless the listener restricts passive mode
+                // to a configured port range (issue #145) - e.g. deployments
+                // behind a firewall that only forwards a fixed range.
+                int minPort = (server != null) ? server.getPasvMinPort() : 0;
+                int maxPort = (server != null) ? server.getPasvMaxPort() : 0;
+                if (minPort > 0 && maxPort >= minPort) {
+                    bindWithinRange(ssc, minPort, maxPort);
+                } else {
+                    ssc.bind(new InetSocketAddress(0));
+                }
+            } else {
+                // An explicitly requested port bypasses the configured range.
+                ssc.bind(new InetSocketAddress(port));
+            }
+        } catch (IOException | RuntimeException e) {
+            closeQuietly(ssc);
+            throw e;
+        }
+        return ssc;
+    }
+
+    /** Test seam: opens the passive-mode server channel. */
+    ServerSocketChannel openServerChannel() throws IOException {
+        return ServerSocketChannel.open();
+    }
+
+    private static void closeQuietly(ServerSocketChannel ssc) {
+        try {
+            ssc.close();
+        } catch (IOException e) {
+            // Ignore close errors; the original failure is rethrown
+        }
     }
 
     /**

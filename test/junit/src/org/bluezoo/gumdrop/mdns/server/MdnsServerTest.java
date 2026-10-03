@@ -76,7 +76,7 @@ public class MdnsServerTest {
         }
     }
 
-    private static final class FakeListener extends MdnsListener {
+    private static final class MockListener extends MdnsListener {
         final List<DnsMessage> group = new ArrayList<DnsMessage>();
         final List<DnsMessage> unicast = new ArrayList<DnsMessage>();
         final List<InetSocketAddress> unicastTargets =
@@ -161,14 +161,14 @@ public class MdnsServerTest {
     private static final byte[] OUR_ADDR = {(byte) 192, (byte) 168, 1, 5};
 
     private MdnsServer server;
-    private FakeListener listener;
+    private MockListener listener;
 
     @Before
     public void setUp() throws Exception {
         server = new MdnsServer();
         server.setHostname("box.example.org");
         server.setAdvertiseServices(false);
-        listener = new FakeListener();
+        listener = new MockListener();
         server.addListener(listener);
     }
 

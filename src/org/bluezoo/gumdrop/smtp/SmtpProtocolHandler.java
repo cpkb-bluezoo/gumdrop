@@ -314,29 +314,18 @@ public final class SmtpProtocolHandler
             retainInput(buf);
             return;
         }
-        try {
-            if (state == SmtpState.BDAT) {
-                handleBdatContent(buf);
-            } else if (state == SmtpState.DATA) {
-                handleDataContent(buf);
-            } else {
-                lexer.feed(buf);
-                if (buf.hasRemaining()) {
-                    if (state == SmtpState.BDAT) {
-                        handleBdatContent(buf);
-                    } else if (state == SmtpState.DATA) {
-                        handleDataContent(buf);
-                    }
+        if (state == SmtpState.BDAT) {
+            handleBdatContent(buf);
+        } else if (state == SmtpState.DATA) {
+            handleDataContent(buf);
+        } else {
+            lexer.feed(buf);
+            if (buf.hasRemaining()) {
+                if (state == SmtpState.BDAT) {
+                    handleBdatContent(buf);
+                } else if (state == SmtpState.DATA) {
+                    handleDataContent(buf);
                 }
-            }
-        } catch (IOException e) {
-            try {
-                reply(500, L10N.getString("smtp.err.syntax_error"));
-                String msg = L10N.getString("log.error_processing_data");
-                LOGGER.log(Level.WARNING, msg, e);
-            } catch (IOException e2) {
-                String msg = L10N.getString("log.error_sending_response");
-                LOGGER.log(Level.SEVERE, msg, e2);
             }
         }
     }
@@ -491,11 +480,7 @@ public final class SmtpProtocolHandler
     public void tokenTooLong() {
         lexerRecovery.beginDiscard();
         resetLineState();
-        try {
-            reply(500, L10N.getString("smtp.err.line_too_long"));
-        } catch (IOException e) {
-            LOGGER.log(Level.WARNING, L10N.getString("warn.error_sending_line_too_long_reply"), e);
-        }
+        reply(500, L10N.getString("smtp.err.line_too_long"));
     }
 
     private static String decodeText(ByteBuffer window, boolean utf8)
@@ -626,61 +611,50 @@ public final class SmtpProtocolHandler
         String error = lineErrorMessage;
         resetLineState();
 
-        try {
-            if (error != null) {
-                reply(500, error);
-                return;
-            }
+        if (error != null) {
+            reply(500, error);
+            return;
+        }
 
-            if (authState != AuthState.NONE) {
-                String rawLine = hadArgs
-                        ? (continuationText + " " + args) : continuationText;
-                handleAuthData(rawLine);
-                return;
-            }
+        if (authState != AuthState.NONE) {
+            String rawLine = hadArgs
+                    ? (continuationText + " " + args) : continuationText;
+            handleAuthData(rawLine);
+            return;
+        }
 
-            if (LOGGER.isLoggable(Level.FINEST)) {
-                String msg = L10N.getString("log.smtp_command");
-                msg = MessageFormat.format(msg, command.name(), args != null ? args : "");
-                LOGGER.finest(msg);
-            }
+        if (LOGGER.isLoggable(Level.FINEST)) {
+            String msg = L10N.getString("log.smtp_command");
+            msg = MessageFormat.format(msg, command.name(), args != null ? args : "");
+            LOGGER.finest(msg);
+        }
 
-            dispatchCommand(command, unknownText, args);
+        dispatchCommand(command, unknownText, args);
 
-            if (useUtf8 && command == SmtpCommand.MAIL && !smtputf8 && sawNonAscii) {
-                resetTransaction();
-                reply(553, L10N.getString("smtp.err.smtputf8_required"));
-                return;
-            }
+        if (useUtf8 && command == SmtpCommand.MAIL && !smtputf8 && sawNonAscii) {
+            resetTransaction();
+            reply(553, L10N.getString("smtp.err.smtputf8_required"));
+            return;
+        }
 
-            if (state == SmtpState.DATA || state == SmtpState.BDAT) {
-                lexer.enterContentMode();
-            }
-        } catch (IOException e) {
-            String msg = L10N.getString("log.error_processing_data");
-            LOGGER.log(Level.WARNING, msg, e);
-            try {
-                reply(500, L10N.getString("smtp.err.internal_error"));
-            } catch (IOException e2) {
-                String errMsg = L10N.getString("log.error_sending_response");
-                LOGGER.log(Level.SEVERE, errMsg, e2);
-            }
+        if (state == SmtpState.DATA || state == SmtpState.BDAT) {
+            lexer.enterContentMode();
         }
     }
 
     // ── Transport helpers ──
 
-    private void reply(int code, String message) throws IOException {
+    private void reply(int code, String message) {
         sendResponse(code, message);
     }
 
-    private void replyMultiline(int code, String message) throws IOException {
+    private void replyMultiline(int code, String message) {
         String response = String.format("%d-%s\r\n", code, message);
         ByteBuffer buffer = ByteBuffer.wrap(response.getBytes(US_ASCII));
         endpoint.send(buffer);
     }
 
-    private void sendResponse(int code, String message) throws IOException {
+    private void sendResponse(int code, String message) {
         String response = String.format("%d %s\r\n", code, message);
         ByteBuffer buffer = ByteBuffer.wrap(response.getBytes(US_ASCII));
         endpoint.send(buffer);
@@ -771,12 +745,7 @@ public final class SmtpProtocolHandler
             connectedHandler.connected(this, endpoint);
         } else {
             startSessionSpan();
-            try {
-                reply(220, endpoint.getLocalAddress().toString() + " ESMTP Service ready");
-            } catch (IOException e) {
-                LOGGER.log(Level.SEVERE, L10N.getString("err.error_sending_greeting"), e);
-                closeEndpoint();
-            }
+            reply(220, endpoint.getLocalAddress().toString() + " ESMTP Service ready");
         }
     }
 
@@ -796,8 +765,7 @@ public final class SmtpProtocolHandler
     // already resolved from the KEYWORD token's raw bytes (see
     // matchCommand()); SASL continuation routing happens earlier, in
     // dispatchLine(), before this is ever called.
-    private void dispatchCommand(SmtpCommand command, String unknownText, String args)
-            throws IOException {
+    private void dispatchCommand(SmtpCommand command, String unknownText, String args) {
         if (state == SmtpState.REJECTED) {
             if (command == SmtpCommand.QUIT) {
                 quit(args);
@@ -875,7 +843,7 @@ public final class SmtpProtocolHandler
         return command == SmtpCommand.UNKNOWN ? unknownText : command.name();
     }
 
-    private void handlePipelinedCommands(ByteBuffer buf) throws IOException {
+    private void handlePipelinedCommands(ByteBuffer buf) {
         lexer.feed(buf);
         if (buf.hasRemaining()) {
             if (state == SmtpState.BDAT) {
@@ -975,7 +943,7 @@ public final class SmtpProtocolHandler
         }
     }
 
-    private void sendChunk(ByteBuffer source, int start, int end) throws IOException {
+    private void sendChunk(ByteBuffer source, int start, int end) {
         if (end > start) {
             int savedPosition = source.position();
             int savedLimit = source.limit();
@@ -1096,7 +1064,7 @@ public final class SmtpProtocolHandler
         }
     }
 
-    private void handleDataContent(ByteBuffer buf) throws IOException {
+    private void handleDataContent(ByteBuffer buf) {
         if (controlBuffer.position() > 0) {
             ByteBuffer merged = mergeControlSequence(buf);
             handleDataBytes(merged);
@@ -1109,7 +1077,7 @@ public final class SmtpProtocolHandler
         handleDataBytes(buf);
     }
 
-    private void handleDataBytes(ByteBuffer buf) throws IOException {
+    private void handleDataBytes(ByteBuffer buf) {
         processDataBuffer(buf);
         if (deliveryPending) {
             retainInput(buf);
@@ -1121,7 +1089,7 @@ public final class SmtpProtocolHandler
     }
 
     /** RFC 5321 §4.5.2 — DATA content dot-unstuffing state machine. */
-    private void processDataBuffer(ByteBuffer buf) throws IOException {
+    private void processDataBuffer(ByteBuffer buf) {
         int chunkStart = buf.position();
         while (buf.hasRemaining()) {
             int currentPos = buf.position();
@@ -1156,16 +1124,10 @@ public final class SmtpProtocolHandler
                         dataState = DataState.SAW_DOT_CR;
                     } else {
                         dataState = DataState.NORMAL;
-                        if (b == '\r') {
-                            dataState = DataState.SAW_CR;
-                        }
                     }
                     break;
                 case SAW_DOT_CR:
                     if (b == '\n') {
-                        if (chunkStart < currentPos - 3) {
-                            sendChunk(buf, chunkStart, currentPos - 3);
-                        }
                         long messageSize = dataBytesReceived;
                         int recipientCount = recipients != null ? recipients.size() : 0;
                         boolean exceeded = sizeExceeded;
@@ -1229,7 +1191,7 @@ public final class SmtpProtocolHandler
     }
 
     /** RFC 3030 §3 — BDAT chunk content processing. */
-    private void handleBdatContent(ByteBuffer buf) throws IOException {
+    private void handleBdatContent(ByteBuffer buf) {
         while (buf.hasRemaining() && bdatBytesRemaining > 0) {
             int available = buf.remaining();
             int toProcess = (int) Math.min(available, bdatBytesRemaining);
@@ -1259,7 +1221,7 @@ public final class SmtpProtocolHandler
         }
     }
 
-    private void handleBdatChunkComplete() throws IOException {
+    private void handleBdatChunkComplete() {
         if (bdatLast) {
             long messageSize = dataBytesReceived;
             int recipientCount = recipients != null ? recipients.size() : 0;
@@ -1332,7 +1294,7 @@ public final class SmtpProtocolHandler
     }
 
     /** RFC 5321 §4.1.1.1 — HELO command. */
-    private void helo(String hostname) throws IOException {
+    private void helo(String hostname) {
         if (hostname == null || hostname.trim().isEmpty()) {
             reply(501, "5.0.0 Syntax: HELO hostname");
             return;
@@ -1351,7 +1313,7 @@ public final class SmtpProtocolHandler
     }
 
     /** RFC 5321 §4.1.1.1 — EHLO command with extension negotiation. */
-    private void ehlo(String hostname) throws IOException {
+    private void ehlo(String hostname) {
         if (hostname == null || hostname.trim().isEmpty()) {
             reply(501, "5.0.0 Syntax: EHLO hostname");
             return;
@@ -1373,7 +1335,7 @@ public final class SmtpProtocolHandler
      * RFC 5321 §4.1.1.1 — EHLO 250 multi-line response advertising extensions.
      * Each keyword references its defining RFC.
      */
-    private void sendEhloResponse() throws IOException {
+    private void sendEhloResponse() {
         String localHostname = endpoint.getLocalAddress().toString();
         replyMultiline(250, localHostname + " Hello " + heloName);
         replyMultiline(250, "SIZE " + server.getMaxMessageSize());     // RFC 1870
@@ -1431,7 +1393,7 @@ public final class SmtpProtocolHandler
     }
 
     /** RFC 3207 §4 — STARTTLS command. */
-    private void starttls(String args) throws IOException {
+    private void starttls(String args) {
         if (endpoint.isSecure()) {
             reply(454, "4.7.0 TLS already active");
             return;
@@ -1463,11 +1425,7 @@ public final class SmtpProtocolHandler
                 metrics.starttlsUpgraded();
             }
         } catch (Exception e) {
-            try {
-                reply(454, "4.3.0 TLS not available due to temporary reason");
-            } catch (IOException ioe) {
-                // Ignore
-            }
+            reply(454, "4.3.0 TLS not available due to temporary reason");
             LOGGER.log(Level.WARNING, L10N.getString("warn.starttls_failed"), e);
         }
     }
@@ -1478,7 +1436,7 @@ public final class SmtpProtocolHandler
      * DIGEST-MD5 (RFC 2831), SCRAM-SHA-256 (RFC 5802/7677),
      * OAUTHBEARER (RFC 7628), EXTERNAL (RFC 4422).
      */
-    private void auth(String args) throws IOException {
+    private void auth(String args) {
         if (getRealm() == null) {
             reply(502, "5.5.1 Authentication not available");
             return;
@@ -1541,7 +1499,7 @@ public final class SmtpProtocolHandler
     }
 
     /** RFC 4616 — SASL PLAIN mechanism (authzid NUL authcid NUL password). */
-    private void handleAuthPlain(String initialResponse) throws IOException {
+    private void handleAuthPlain(String initialResponse) {
         try {
             String credentials;
             if (initialResponse != null && !initialResponse.equals("=")) {
@@ -1572,14 +1530,10 @@ public final class SmtpProtocolHandler
             authenticateUserAsync(username, password, new StorageExecutor.Callback<Boolean>() {
                 @Override
                 public void completed(Boolean authenticated) {
-                    try {
-                        if (authenticated) {
-                            notifyAuthenticationSuccess(username, "PLAIN");
-                        } else {
-                            notifyAuthenticationFailure(username, "PLAIN");
-                        }
-                    } catch (IOException e) {
-                        LOGGER.log(Level.WARNING, L10N.getString("warn.auth_plain_complete_failed"), e);
+                    if (authenticated) {
+                        notifyAuthenticationSuccess(username, "PLAIN");
+                    } else {
+                        notifyAuthenticationFailure(username, "PLAIN");
                     }
                     resetAuthState();
                 }
@@ -1587,11 +1541,7 @@ public final class SmtpProtocolHandler
                 @Override
                 public void failed(Throwable t) {
                     LOGGER.log(Level.WARNING, L10N.getString("warn.auth_plain_check_failed"), t);
-                    try {
-                        notifyAuthenticationFailure(username, "PLAIN");
-                    } catch (IOException e) {
-                        LOGGER.log(Level.WARNING, L10N.getString("warn.auth_send_failure_failed"), e);
-                    }
+                    notifyAuthenticationFailure(username, "PLAIN");
                     resetAuthState();
                 }
             });
@@ -1605,7 +1555,7 @@ public final class SmtpProtocolHandler
     }
 
     /** RFC 4422 — SASL EXTERNAL mechanism using TLS client certificate. */
-    private void handleAuthExternal(String initialResponse) throws IOException {
+    private void handleAuthExternal(String initialResponse) {
         String authzid = null;
         if (initialResponse != null && !initialResponse.isEmpty()
                 && !initialResponse.equals("=")) {
@@ -1634,7 +1584,7 @@ public final class SmtpProtocolHandler
     }
 
     /** draft-murchison-sasl-login — SASL LOGIN mechanism (username/password). */
-    private void handleAuthLogin(String initialResponse) throws IOException {
+    private void handleAuthLogin(String initialResponse) {
         try {
             if (initialResponse != null && !initialResponse.equals("=")) {
                 byte[] decoded = Base64.getDecoder().decode(initialResponse);
@@ -1670,7 +1620,7 @@ public final class SmtpProtocolHandler
      * RFC 2195 — CRAM-MD5 mechanism.
      * Server sends a challenge; client responds with "username digest".
      */
-    private void handleAuthCramMD5(String initialResponse) throws IOException {
+    private void handleAuthCramMD5(String initialResponse) {
         try {
             String hostname = endpoint.getLocalAddress().toString();
             authChallenge = SaslUtils.generateCramMD5Challenge(hostname);
@@ -1693,7 +1643,7 @@ public final class SmtpProtocolHandler
      * Server sends a challenge with realm/nonce/qop; client computes response.
      * Deprecated by RFC 6331 but retained for backward compatibility.
      */
-    private void handleAuthDigestMD5(String initialResponse) throws IOException {
+    private void handleAuthDigestMD5(String initialResponse) {
         try {
             authNonce = SaslUtils.generateNonce(16);
             String realmName = endpoint.getLocalAddress().toString();
@@ -1716,7 +1666,7 @@ public final class SmtpProtocolHandler
      * RFC 5802 / RFC 7677 — SCRAM-SHA-256 mechanism.
      * Multi-round: client-first → server-first → client-final → server-final.
      */
-    private void handleAuthScramSHA256(String initialResponse) throws IOException {
+    private void handleAuthScramSHA256(String initialResponse) {
         try {
             if (initialResponse != null && !initialResponse.equals("=")) {
                 processScramClientFirst(initialResponse);
@@ -1735,7 +1685,7 @@ public final class SmtpProtocolHandler
     }
 
     /** RFC 5802 §5 — parse the SCRAM client-first-message and reply with server-first. */
-    private void processScramClientFirst(String encoded) throws IOException {
+    private void processScramClientFirst(String encoded) {
         final String clientFirstBare;
         final String username;
         final String clientNonce;
@@ -1788,53 +1738,45 @@ public final class SmtpProtocolHandler
         getScramCredentialsAsync(username, new StorageExecutor.Callback<Realm.ScramCredentials>() {
             @Override
             public void completed(Realm.ScramCredentials creds) {
-                try {
-                    if (creds == null) {
-                        reply(535, "5.7.8 Authentication credentials invalid");
-                        resetAuthState();
-                        return;
-                    }
-                    pendingAuthUsername = username;
-                    authClientNonce = clientNonce;
-                    String serverNonce = clientNonce + SaslUtils.generateNonce(16);
-                    authNonce = serverNonce;
-                    authSalt = Base64.getDecoder().decode(creds.salt);
-                    authIterations = creds.iterations;
-
-                    String serverFirst = SaslUtils.generateScramServerFirst(
-                            serverNonce, creds.salt, creds.iterations);
-                    // Store the auth message for later verification:
-                    // clientFirstBare + "," + serverFirst
-                    authChallenge = clientFirstBare + "," + serverFirst;
-                    authServerSignature = null; // computed in final step
-
-                    String serverFirstEncoded = Base64.getEncoder()
-                            .encodeToString(serverFirst.getBytes(UTF_8));
-                    reply(334, serverFirstEncoded);
-                    authState = AuthState.SCRAM_FINAL;
-                    authMechanism = "SCRAM-SHA-256";
-                } catch (IOException e) {
-                    LOGGER.log(Level.WARNING, L10N.getString("warn.auth_scram_client_first_failed"), e);
+                if (creds == null) {
+                    reply(535, "5.7.8 Authentication credentials invalid");
+                    resetAuthState();
+                    return;
                 }
+                pendingAuthUsername = username;
+                authClientNonce = clientNonce;
+                String serverNonce = clientNonce + SaslUtils.generateNonce(16);
+                authNonce = serverNonce;
+                authSalt = Base64.getDecoder().decode(creds.salt);
+                authIterations = creds.iterations;
+
+                String serverFirst = SaslUtils.generateScramServerFirst(
+                        serverNonce, creds.salt, creds.iterations);
+                // Store the auth message for later verification:
+                // clientFirstBare + "," + serverFirst
+                authChallenge = clientFirstBare + "," + serverFirst;
+                authServerSignature = null; // computed in final step
+
+                String serverFirstEncoded = Base64.getEncoder()
+                        .encodeToString(serverFirst.getBytes(UTF_8));
+                reply(334, serverFirstEncoded);
+                authState = AuthState.SCRAM_FINAL;
+                authMechanism = "SCRAM-SHA-256";
             }
 
             @Override
             public void failed(Throwable error) {
-                try {
-                    reply(535, "5.7.8 Authentication credentials invalid");
-                    resetAuthState();
-                    if (LOGGER.isLoggable(Level.WARNING)) {
-                        LOGGER.log(Level.WARNING, L10N.getString("warn.auth_scram_sha256_error"), error);
-                    }
-                } catch (IOException e) {
-                    LOGGER.log(Level.WARNING, L10N.getString("warn.auth_send_failure_failed"), e);
+                reply(535, "5.7.8 Authentication credentials invalid");
+                resetAuthState();
+                if (LOGGER.isLoggable(Level.WARNING)) {
+                    LOGGER.log(Level.WARNING, L10N.getString("warn.auth_scram_sha256_error"), error);
                 }
             }
         });
     }
 
     /** RFC 5802 §5 — process SCRAM client-final-message and verify proof. */
-    private void processScramClientFinal(String encoded) throws IOException {
+    private void processScramClientFinal(String encoded) {
         final String clientFinal;
         try {
             clientFinal = new String(Base64.getDecoder().decode(encoded), UTF_8);
@@ -1856,39 +1798,31 @@ public final class SmtpProtocolHandler
         getScramCredentialsAsync(scramUser, new StorageExecutor.Callback<Realm.ScramCredentials>() {
             @Override
             public void completed(Realm.ScramCredentials creds) {
-                try {
-                    if (creds == null) {
-                        reply(535, "5.7.8 Authentication credentials invalid");
-                        resetAuthState();
-                        return;
-                    }
-                    byte[] serverSignature = SaslUtils.verifyScramClientFinal(creds,
-                            authChallenge, clientFinal, authNonce);
-                    if (serverSignature == null) {
-                        notifyAuthenticationFailure(scramUser, "SCRAM-SHA-256");
-                        resetAuthState();
-                        return;
-                    }
-                    String serverFinal = "v=" + Base64.getEncoder().encodeToString(serverSignature);
-                    notifyAuthenticationSuccess(scramUser, "SCRAM-SHA-256");
-                    // RFC 5802 §5: server-final appended to the 235 response
-                    reply(235, "2.7.0 " + Base64.getEncoder().encodeToString(serverFinal.getBytes(UTF_8)));
+                if (creds == null) {
+                    reply(535, "5.7.8 Authentication credentials invalid");
                     resetAuthState();
-                } catch (IOException e) {
-                    LOGGER.log(Level.WARNING, L10N.getString("warn.auth_scram_client_final_failed"), e);
+                    return;
                 }
+                byte[] serverSignature = SaslUtils.verifyScramClientFinal(creds,
+                        authChallenge, clientFinal, authNonce);
+                if (serverSignature == null) {
+                    notifyAuthenticationFailure(scramUser, "SCRAM-SHA-256");
+                    resetAuthState();
+                    return;
+                }
+                String serverFinal = "v=" + Base64.getEncoder().encodeToString(serverSignature);
+                notifyAuthenticationSuccess(scramUser, "SCRAM-SHA-256");
+                // RFC 5802 §5: server-final appended to the 235 response
+                reply(235, "2.7.0 " + Base64.getEncoder().encodeToString(serverFinal.getBytes(UTF_8)));
+                resetAuthState();
             }
 
             @Override
             public void failed(Throwable error) {
-                try {
-                    reply(535, "5.7.8 Authentication credentials invalid");
-                    resetAuthState();
-                    if (LOGGER.isLoggable(Level.WARNING)) {
-                        LOGGER.log(Level.WARNING, L10N.getString("warn.auth_scram_sha256_error"), error);
-                    }
-                } catch (IOException e) {
-                    LOGGER.log(Level.WARNING, L10N.getString("warn.auth_send_failure_failed"), e);
+                reply(535, "5.7.8 Authentication credentials invalid");
+                resetAuthState();
+                if (LOGGER.isLoggable(Level.WARNING)) {
+                    LOGGER.log(Level.WARNING, L10N.getString("warn.auth_scram_sha256_error"), error);
                 }
             }
         });
@@ -1898,7 +1832,7 @@ public final class SmtpProtocolHandler
      * RFC 7628 — OAUTHBEARER mechanism.
      * Client sends a single message containing the Bearer token.
      */
-    private void handleAuthOAuthBearer(String initialResponse) throws IOException {
+    private void handleAuthOAuthBearer(String initialResponse) {
         try {
             if (initialResponse != null && !initialResponse.equals("=")) {
                 processOAuthBearerResponse(initialResponse);
@@ -1917,7 +1851,7 @@ public final class SmtpProtocolHandler
     }
 
     /** RFC 7628 §3.1 — validate the OAUTHBEARER initial client response. */
-    private void processOAuthBearerResponse(String encoded) throws IOException {
+    private void processOAuthBearerResponse(String encoded) {
         String decoded = new String(Base64.getDecoder().decode(encoded), UTF_8);
         Map<String, String> oauthParams = SaslUtils.parseOAuthBearerCredentials(decoded);
         String token = oauthParams.get("token");
@@ -1950,7 +1884,7 @@ public final class SmtpProtocolHandler
     }
 
     /** RFC 4752 — SASL GSSAPI mechanism (Kerberos V5). */
-    private void handleAuthGSSAPI(String initialResponse) throws IOException {
+    private void handleAuthGSSAPI(String initialResponse) {
         GssapiServer gssapiServer = server.getGSSAPIServer();
         if (gssapiServer == null) {
             reply(504, "5.5.4 Authentication mechanism not supported");
@@ -1973,7 +1907,7 @@ public final class SmtpProtocolHandler
     }
 
     /** RFC 4752 §3.1 — processes a GSSAPI token exchange step. */
-    private void processGSSAPIToken(String line) throws IOException {
+    private void processGSSAPIToken(String line) {
         try {
             byte[] clientToken = Base64.getDecoder().decode(line);
             byte[] responseToken = gssapiExchange.acceptToken(clientToken);
@@ -2005,7 +1939,7 @@ public final class SmtpProtocolHandler
     }
 
     /** RFC 4752 §3.1 para 7-8 — processes the security layer response. */
-    private void processGSSAPISecurityLayer(String line) throws IOException {
+    private void processGSSAPISecurityLayer(String line) {
         try {
             byte[] wrapped = Base64.getDecoder().decode(line);
             String gssName =
@@ -2037,7 +1971,7 @@ public final class SmtpProtocolHandler
      * RFC 4954 §4 — process AUTH continuation data.
      * If the client sends "*", the exchange is aborted (501).
      */
-    private void handleAuthData(String data) throws IOException {
+    private void handleAuthData(String data) {
         // RFC 4954 §4 — "*" aborts the authentication exchange
         if ("*".equals(data)) {
             reply(501, "5.0.0 Authentication aborted");
@@ -2077,33 +2011,29 @@ public final class SmtpProtocolHandler
                             new StorageExecutor.Callback<Boolean>() {
                         @Override
                         public void completed(Boolean authenticated0) {
-                            try {
-                                if (authenticated0) {
-                                    authenticatedUser = loginUsername;
-                                    authMechanism = "LOGIN";
-                                    if (helloHandler != null) {
-                                        Principal principal = new Principal() {
-                                            @Override
-                                            public String getName() {
-                                                return loginUsername;
-                                            }
-                                            @Override
-                                            public String toString() {
-                                                return loginUsername;
-                                            }
-                                        };
-                                        helloHandler.authenticated(
-                                                SmtpProtocolHandler.this, principal);
-                                    } else {
-                                        authenticated = true;
-                                        recordAuthenticationSuccess(loginUsername, "LOGIN");
-                                        reply(235, "2.7.0 Authentication successful");
-                                    }
+                            if (authenticated0) {
+                                authenticatedUser = loginUsername;
+                                authMechanism = "LOGIN";
+                                if (helloHandler != null) {
+                                    Principal principal = new Principal() {
+                                        @Override
+                                        public String getName() {
+                                            return loginUsername;
+                                        }
+                                        @Override
+                                        public String toString() {
+                                            return loginUsername;
+                                        }
+                                    };
+                                    helloHandler.authenticated(
+                                            SmtpProtocolHandler.this, principal);
                                 } else {
-                                    notifyAuthenticationFailure(loginUsername, "LOGIN");
+                                    authenticated = true;
+                                    recordAuthenticationSuccess(loginUsername, "LOGIN");
+                                    reply(235, "2.7.0 Authentication successful");
                                 }
-                            } catch (IOException e) {
-                                LOGGER.log(Level.WARNING, L10N.getString("warn.auth_login_complete_failed"), e);
+                            } else {
+                                notifyAuthenticationFailure(loginUsername, "LOGIN");
                             }
                             resetAuthState();
                         }
@@ -2112,11 +2042,7 @@ public final class SmtpProtocolHandler
                         public void failed(Throwable t) {
                             LOGGER.log(Level.WARNING,
                                     L10N.getString("warn.auth_login_check_failed"), t);
-                            try {
-                                notifyAuthenticationFailure(loginUsername, "LOGIN");
-                            } catch (IOException e) {
-                                LOGGER.log(Level.WARNING, L10N.getString("warn.auth_send_failure_failed"), e);
-                            }
+                            notifyAuthenticationFailure(loginUsername, "LOGIN");
                             resetAuthState();
                         }
                     });
@@ -2159,7 +2085,7 @@ public final class SmtpProtocolHandler
     }
 
     /** RFC 2195 §2 — verify CRAM-MD5 response ("username digest"). */
-    private void handleCramMD5Response(String encodedData) throws IOException {
+    private void handleCramMD5Response(String encodedData) {
         String response = new String(Base64.getDecoder().decode(encodedData), US_ASCII);
         int spaceIdx = response.lastIndexOf(' ');
         if (spaceIdx <= 0) {
@@ -2182,7 +2108,7 @@ public final class SmtpProtocolHandler
     }
 
     /** RFC 2831 §2.1.2 — verify DIGEST-MD5 response. */
-    private void handleDigestMD5Response(String encodedData) throws IOException {
+    private void handleDigestMD5Response(String encodedData) {
         String response = new String(Base64.getDecoder().decode(encodedData), UTF_8);
         Map<String, String> params = SaslUtils.parseDigestParams(response);
         String username = params.get("username");
@@ -2212,7 +2138,7 @@ public final class SmtpProtocolHandler
     }
 
     /** RFC 7628 §3.2.2 — handle OAUTHBEARER continuation (either initial or error ack). */
-    private void handleOAuthDataResponse(String data) throws IOException {
+    private void handleOAuthDataResponse(String data) {
         // After an error challenge (334), client sends empty response to acknowledge
         String decoded = new String(Base64.getDecoder().decode(data), UTF_8);
         if (decoded.isEmpty() || decoded.equals("\u0001")) {
@@ -2352,7 +2278,7 @@ public final class SmtpProtocolHandler
         clientCertificate = null;
     }
 
-    private void notifyAuthenticationSuccess(String username, String mechanism) throws IOException {
+    private void notifyAuthenticationSuccess(String username, String mechanism) {
         authenticatedUser = username;
         authMechanism = mechanism;
         if (helloHandler != null) {
@@ -2374,7 +2300,7 @@ public final class SmtpProtocolHandler
         }
     }
 
-    private void notifyAuthenticationFailure(String username, String mechanism) throws IOException {
+    private void notifyAuthenticationFailure(String username, String mechanism) {
         SmtpServerMetrics metrics = getServerMetrics();
         if (metrics != null) {
             metrics.authAttempt(mechanism);
@@ -2384,7 +2310,7 @@ public final class SmtpProtocolHandler
     }
 
     /** RFC 5321 §4.1.1.10 — QUIT command; reply 221 and close. */
-    private void quit(String args) throws IOException {
+    private void quit(String args) {
         endSessionSpan("QUIT");
         this.state = SmtpState.QUIT;
         reply(221, "2.0.0 Goodbye");
@@ -2395,12 +2321,12 @@ public final class SmtpProtocolHandler
     }
 
     /** RFC 5321 §4.1.1.9 — NOOP command; reply 250. */
-    private void noop(String args) throws IOException {
+    private void noop(String args) {
         reply(250, "2.0.0 Ok");
     }
 
     /** RFC 5321 §4.1.1.8 — HELP command; reply 214. */
-    private void help(String args) throws IOException {
+    private void help(String args) {
         if (args == null || args.trim().isEmpty()) {
             replyMultiline(214, "2.0.0 Gumdrop SMTP server - supported commands:");
             replyMultiline(214, "  HELO EHLO MAIL RCPT DATA BDAT RSET ETRN");
@@ -2454,12 +2380,12 @@ public final class SmtpProtocolHandler
     }
 
     /** RFC 5321 §4.1.1.6 — VRFY command; 252 per §7.3 (information hiding). */
-    private void vrfy(String args) throws IOException {
+    private void vrfy(String args) {
         reply(252, "2.5.2 Cannot VRFY user, but will accept message and attempt delivery");
     }
 
     /** RFC 5321 §4.1.1.7 — EXPN command; 502 (not implemented, optional). */
-    private void expn(String args) throws IOException {
+    private void expn(String args) {
         reply(502, "5.5.1 EXPN not implemented");
     }
 
@@ -2467,7 +2393,7 @@ public final class SmtpProtocolHandler
      * RFC 1985 — ETRN command (Remote Message Queue Starting).
      * Optional; returns 502 since this server does not support on-demand relay.
      */
-    private void etrn(String args) throws IOException {
+    private void etrn(String args) {
         if (!extendedSMTP) {
             reply(502, "5.5.1 ETRN requires EHLO");
             return;
@@ -2498,7 +2424,7 @@ public final class SmtpProtocolHandler
     }
 
     /** Postfix XCLIENT extension — override client connection attributes. */
-    private void xclient(String args) throws IOException {
+    private void xclient(String args) {
         if (!isXclientAuthorized()) {
             reply(550, "5.7.0 XCLIENT not authorized");
             return;
@@ -2665,7 +2591,7 @@ public final class SmtpProtocolHandler
     }
 
     /** RFC 5321 §4.1.1.5 — RSET command; reset transaction state, reply 250. */
-    private void rset(String args) throws IOException {
+    private void rset(String args) {
         endSessionSpan("RSET");
         resetDataState();
         if (mailFromHandler != null) {
@@ -2684,7 +2610,7 @@ public final class SmtpProtocolHandler
      * SMTPUTF8 (RFC 6531), RET/ENVID (RFC 3461), REQUIRETLS (RFC 8689),
      * MT-PRIORITY (RFC 6710), HOLDFOR/HOLDUNTIL (RFC 4865), BY (RFC 2852).
      */
-    private void mail(String args) throws IOException {
+    private void mail(String args) {
         if (state != SmtpState.READY) {
             reply(503, "5.0.0 Bad sequence of commands");
             return;
@@ -2970,7 +2896,7 @@ public final class SmtpProtocolHandler
      * RFC 5321 §4.1.1.3 — RCPT TO command.
      * Parameters: NOTIFY/ORCPT (RFC 3461 §4.1–4.2).
      */
-    private void rcpt(String args) throws IOException {
+    private void rcpt(String args) {
         if (state != SmtpState.MAIL && state != SmtpState.RCPT) {
             reply(503, "5.0.0 Bad sequence of commands");
             return;
@@ -3107,7 +3033,7 @@ public final class SmtpProtocolHandler
      * RFC 5321 §4.1.1.4 — DATA command; §4.5.2 dot transparency.
      * RFC 3030 — BODY=BINARYMIME requires BDAT, not DATA.
      */
-    private void data(String args) throws IOException {
+    private void data(String args) {
         if (state != SmtpState.RCPT) {
             reply(503, "5.0.0 Bad sequence of commands");
             return;
@@ -3134,16 +3060,11 @@ public final class SmtpProtocolHandler
     private void doAcceptMessage() {
         resetDataState();
         this.state = SmtpState.DATA;
-        try {
-            reply(354, "Start mail input; end with <CRLF>.<CRLF>");
-        } catch (IOException e) {
-            LOGGER.log(Level.SEVERE, L10N.getString("err.error_sending_354_response"), e);
-            closeEndpoint();
-        }
+        reply(354, "Start mail input; end with <CRLF>.<CRLF>");
     }
 
     /** RFC 3030 §3 — BDAT command for chunked content transfer. */
-    private void bdat(String args) throws IOException {
+    private void bdat(String args) {
         if (!extendedSMTP) {
             reply(503, "5.0.0 BDAT requires EHLO");
             return;
@@ -3267,35 +3188,20 @@ public final class SmtpProtocolHandler
     @Override
     public void rejectMessageStorageFull(RecipientHandler handler) {
         this.recipientHandler = handler;
-        try {
-            reply(452, "4.3.1 Insufficient system storage");
-        } catch (IOException e) {
-            LOGGER.log(Level.SEVERE, L10N.getString("err.error_sending_rejection"), e);
-            closeEndpoint();
-        }
+        reply(452, "4.3.1 Insufficient system storage");
     }
 
     @Override
     public void rejectMessageProcessingError(RecipientHandler handler) {
         this.recipientHandler = handler;
-        try {
-            reply(451, "4.3.0 Local processing error");
-        } catch (IOException e) {
-            LOGGER.log(Level.SEVERE, L10N.getString("err.error_sending_rejection"), e);
-            closeEndpoint();
-        }
+        reply(451, "4.3.0 Local processing error");
     }
 
     @Override
     public void rejectMessage(String message, MailFromHandler handler) {
         this.mailFromHandler = handler;
         resetTransaction();
-        try {
-            reply(550, "5.7.0 " + message);
-        } catch (IOException e) {
-            LOGGER.log(Level.SEVERE, L10N.getString("err.error_sending_rejection"), e);
-            closeEndpoint();
-        }
+        reply(550, "5.7.0 " + message);
     }
 
     // ── ConnectedState implementation (RFC 5321 §4.2 — greeting) ──
@@ -3304,13 +3210,8 @@ public final class SmtpProtocolHandler
     @Override
     public void acceptConnection(String greeting, HelloHandler handler) {
         this.helloHandler = handler;
-        try {
-            startSessionSpan();
-            reply(220, greeting);
-        } catch (IOException e) {
-            LOGGER.log(Level.SEVERE, L10N.getString("err.error_sending_greeting"), e);
-            closeEndpoint();
-        }
+        startSessionSpan();
+        reply(220, greeting);
     }
 
     @Override
@@ -3322,11 +3223,7 @@ public final class SmtpProtocolHandler
     @Override
     public void rejectConnection(String message) {
         this.state = SmtpState.REJECTED;
-        try {
-            reply(554, "5.0.0 " + message);
-        } catch (IOException e) {
-            LOGGER.log(Level.SEVERE, L10N.getString("err.error_sending_rejection"), e);
-        }
+        reply(554, "5.0.0 " + message);
         closeEndpoint();
         if (connectedHandler != null) {
             connectedHandler.disconnected();
@@ -3340,52 +3237,31 @@ public final class SmtpProtocolHandler
     public void acceptHello(MailFromHandler handler) {
         this.mailFromHandler = handler;
         this.state = SmtpState.READY;
-        try {
-            sendEhloResponse();
-        } catch (IOException e) {
-            LOGGER.log(Level.SEVERE, L10N.getString("err.error_sending_ehlo_response"), e);
-            closeEndpoint();
-        }
+        sendEhloResponse();
     }
 
     @Override
     public void rejectHelloTemporary(String message, HelloHandler handler) {
         this.helloHandler = handler;
-        try {
-            reply(421, "4.3.0 " + message);
-        } catch (IOException e) {
-            LOGGER.log(Level.SEVERE, L10N.getString("err.error_sending_rejection"), e);
-        }
+        reply(421, "4.3.0 " + message);
     }
 
     @Override
     public void rejectHello(String message, HelloHandler handler) {
         this.helloHandler = handler;
-        try {
-            reply(550, "5.0.0 " + message);
-        } catch (IOException e) {
-            LOGGER.log(Level.SEVERE, L10N.getString("err.error_sending_rejection"), e);
-        }
+        reply(550, "5.0.0 " + message);
     }
 
     @Override
     public void rejectHelloAndClose(String message) {
         this.state = SmtpState.REJECTED;
-        try {
-            reply(554, "5.0.0 " + message);
-        } catch (IOException e) {
-            LOGGER.log(Level.SEVERE, L10N.getString("err.error_sending_rejection"), e);
-        }
+        reply(554, "5.0.0 " + message);
         closeEndpoint();
     }
 
     @Override
     public void serverShuttingDown() {
-        try {
-            reply(421, "4.3.0 Server shutting down");
-        } catch (IOException e) {
-            LOGGER.log(Level.SEVERE, L10N.getString("err.error_sending_shutdown_notice"), e);
-        }
+        reply(421, "4.3.0 Server shutting down");
         closeEndpoint();
     }
 
@@ -3398,12 +3274,7 @@ public final class SmtpProtocolHandler
         this.mailFromHandler = handler;
         this.state = SmtpState.READY;
         recordAuthenticationSuccess(authenticatedUser, authMechanism);
-        try {
-            reply(235, "2.7.0 Authentication successful");
-        } catch (IOException e) {
-            LOGGER.log(Level.SEVERE, L10N.getString("err.error_sending_auth_success"), e);
-            closeEndpoint();
-        }
+        reply(235, "2.7.0 Authentication successful");
     }
 
     /** RFC 4954 — 535 authentication credentials invalid. */
@@ -3415,12 +3286,7 @@ public final class SmtpProtocolHandler
             metrics.authAttempt(authMechanism);
             metrics.authFailure(authMechanism);
         }
-        try {
-            reply(535, "5.7.8 Authentication rejected");
-        } catch (IOException e) {
-            LOGGER.log(Level.SEVERE, L10N.getString("err.error_sending_auth_failure"), e);
-            closeEndpoint();
-        }
+        reply(535, "5.7.8 Authentication rejected");
     }
 
     @Override
@@ -3430,11 +3296,7 @@ public final class SmtpProtocolHandler
             metrics.authAttempt(authMechanism);
             metrics.authFailure(authMechanism);
         }
-        try {
-            reply(535, "5.7.8 Authentication rejected");
-        } catch (IOException e) {
-            LOGGER.log(Level.SEVERE, L10N.getString("err.error_sending_auth_failure"), e);
-        }
+        reply(535, "5.7.8 Authentication rejected");
         closeEndpoint();
     }
 
@@ -3455,92 +3317,55 @@ public final class SmtpProtocolHandler
         String senderAddr = (mailFrom != null) ? mailFrom.getEnvelopeAddress() : "";
         addSessionAttribute("smtp.mail_from", senderAddr);
         addSessionEvent("MAIL FROM: " + senderAddr);
-        try {
-            reply(250, "2.1.0 Sender ok");
-        } catch (IOException e) {
-            LOGGER.log(Level.SEVERE, L10N.getString("err.error_sending_acceptance"), e);
-            closeEndpoint();
-        }
+        reply(250, "2.1.0 Sender ok");
     }
 
     @Override
     public void rejectSenderGreylist(MailFromHandler handler) {
         this.mailFromHandler = handler;
-        try {
-            reply(450, "4.7.1 Greylisting in effect, please try again later");
-        } catch (IOException e) {
-            LOGGER.log(Level.SEVERE, L10N.getString("err.error_sending_rejection"), e);
-        }
+        reply(450, "4.7.1 Greylisting in effect, please try again later");
     }
 
     @Override
     public void rejectSenderRateLimit(MailFromHandler handler) {
         this.mailFromHandler = handler;
-        try {
-            reply(450, "4.7.1 Rate limit exceeded, please try again later");
-        } catch (IOException e) {
-            LOGGER.log(Level.SEVERE, L10N.getString("err.error_sending_rejection"), e);
-        }
+        reply(450, "4.7.1 Rate limit exceeded, please try again later");
     }
 
     @Override
     public void rejectSenderStorageFull(MailFromHandler handler) {
         this.mailFromHandler = handler;
-        try {
-            reply(452, "4.3.1 Insufficient system storage");
-        } catch (IOException e) {
-            LOGGER.log(Level.SEVERE, L10N.getString("err.error_sending_rejection"), e);
-        }
+        reply(452, "4.3.1 Insufficient system storage");
     }
 
     @Override
     public void rejectSenderBlockedDomain(MailFromHandler handler) {
         this.mailFromHandler = handler;
-        try {
-            reply(550, "5.1.1 Sender domain blocked by policy");
-        } catch (IOException e) {
-            LOGGER.log(Level.SEVERE, L10N.getString("err.error_sending_rejection"), e);
-        }
+        reply(550, "5.1.1 Sender domain blocked by policy");
     }
 
     @Override
     public void rejectSenderInvalidDomain(MailFromHandler handler) {
         this.mailFromHandler = handler;
-        try {
-            reply(550, "5.1.1 Sender domain does not exist");
-        } catch (IOException e) {
-            LOGGER.log(Level.SEVERE, L10N.getString("err.error_sending_rejection"), e);
-        }
+        reply(550, "5.1.1 Sender domain does not exist");
     }
 
     @Override
     public void rejectSenderPolicy(String message, MailFromHandler handler) {
         this.mailFromHandler = handler;
-        try {
-            reply(553, "5.7.1 " + message);
-        } catch (IOException e) {
-            LOGGER.log(Level.SEVERE, L10N.getString("err.error_sending_rejection"), e);
-        }
+        reply(553, "5.7.1 " + message);
     }
 
     @Override
     public void rejectSenderSpam(MailFromHandler handler) {
         this.mailFromHandler = handler;
-        try {
-            reply(554, "5.7.1 Sender has poor reputation");
-        } catch (IOException e) {
-            LOGGER.log(Level.SEVERE, L10N.getString("err.error_sending_rejection"), e);
-        }
+        reply(554, "5.7.1 Sender has poor reputation");
     }
 
     @Override
     public void rejectSenderSyntax(MailFromHandler handler) {
         this.mailFromHandler = handler;
-        try {
-            reply(501, "5.1.3 Invalid sender address format");
-        } catch (IOException e) {
-            LOGGER.log(Level.SEVERE, L10N.getString("err.error_sending_rejection"), e);
-        }
+        reply(501, "5.1.3 Invalid sender address format");
     }
 
     // ── RecipientState implementation (RFC 5321 §4.1.1.3) ──
@@ -3562,12 +3387,7 @@ public final class SmtpProtocolHandler
         String addr = recipient.getEnvelopeAddress();
         addSessionAttribute("smtp.rcpt_count", recipients.size());
         addSessionEvent("RCPT TO: " + addr);
-        try {
-            reply(250, "2.1.5 " + addr + "... Recipient ok");
-        } catch (IOException e) {
-            LOGGER.log(Level.SEVERE, L10N.getString("err.error_sending_acceptance"), e);
-            closeEndpoint();
-        }
+        reply(250, "2.1.5 " + addr + "... Recipient ok");
     }
 
     /** RFC 5321 §4.1.1.3 — 251 user not local; will forward. */
@@ -3583,101 +3403,61 @@ public final class SmtpProtocolHandler
         this.state = SmtpState.RCPT;
         addSessionAttribute("smtp.rcpt_count", recipients.size());
         addSessionEvent("RCPT TO (forward): " + recipient.getEnvelopeAddress());
-        try {
-            reply(251, "2.1.5 User not local; will forward to " + forwardPath);
-        } catch (IOException e) {
-            LOGGER.log(Level.SEVERE, L10N.getString("err.error_sending_acceptance"), e);
-        }
+        reply(251, "2.1.5 User not local; will forward to " + forwardPath);
     }
 
     @Override
     public void rejectRecipientUnavailable(RecipientHandler handler) {
         this.recipientHandler = handler;
-        try {
-            reply(450, "4.2.1 Mailbox temporarily unavailable");
-        } catch (IOException e) {
-            LOGGER.log(Level.SEVERE, L10N.getString("err.error_sending_rejection"), e);
-        }
+        reply(450, "4.2.1 Mailbox temporarily unavailable");
     }
 
     @Override
     public void rejectRecipientSystemError(RecipientHandler handler) {
         this.recipientHandler = handler;
-        try {
-            reply(451, "4.3.0 Local error in processing");
-        } catch (IOException e) {
-            LOGGER.log(Level.SEVERE, L10N.getString("err.error_sending_rejection"), e);
-        }
+        reply(451, "4.3.0 Local error in processing");
     }
 
     @Override
     public void rejectRecipientStorageFull(RecipientHandler handler) {
         this.recipientHandler = handler;
-        try {
-            reply(452, "4.3.1 Insufficient system storage");
-        } catch (IOException e) {
-            LOGGER.log(Level.SEVERE, L10N.getString("err.error_sending_rejection"), e);
-        }
+        reply(452, "4.3.1 Insufficient system storage");
     }
 
     @Override
     public void rejectRecipientNotFound(RecipientHandler handler) {
         this.recipientHandler = handler;
-        try {
-            reply(550, "5.1.1 Mailbox unavailable");
-        } catch (IOException e) {
-            LOGGER.log(Level.SEVERE, L10N.getString("err.error_sending_rejection"), e);
-        }
+        reply(550, "5.1.1 Mailbox unavailable");
     }
 
     @Override
     public void rejectRecipientNotLocal(RecipientHandler handler) {
         this.recipientHandler = handler;
-        try {
-            reply(551, "5.1.1 User not local");
-        } catch (IOException e) {
-            LOGGER.log(Level.SEVERE, L10N.getString("err.error_sending_rejection"), e);
-        }
+        reply(551, "5.1.1 User not local");
     }
 
     @Override
     public void rejectRecipientQuota(RecipientHandler handler) {
         this.recipientHandler = handler;
-        try {
-            reply(552, "5.2.2 Mailbox full, quota exceeded");
-        } catch (IOException e) {
-            LOGGER.log(Level.SEVERE, L10N.getString("err.error_sending_rejection"), e);
-        }
+        reply(552, "5.2.2 Mailbox full, quota exceeded");
     }
 
     @Override
     public void rejectRecipientInvalid(RecipientHandler handler) {
         this.recipientHandler = handler;
-        try {
-            reply(553, "5.1.3 Mailbox name not allowed");
-        } catch (IOException e) {
-            LOGGER.log(Level.SEVERE, L10N.getString("err.error_sending_rejection"), e);
-        }
+        reply(553, "5.1.3 Mailbox name not allowed");
     }
 
     @Override
     public void rejectRecipientRelayDenied(RecipientHandler handler) {
         this.recipientHandler = handler;
-        try {
-            reply(551, "5.7.1 Relaying denied");
-        } catch (IOException e) {
-            LOGGER.log(Level.SEVERE, L10N.getString("err.error_sending_rejection"), e);
-        }
+        reply(551, "5.7.1 Relaying denied");
     }
 
     @Override
     public void rejectRecipientPolicy(String message, RecipientHandler handler) {
         this.recipientHandler = handler;
-        try {
-            reply(553, "5.7.1 " + message);
-        } catch (IOException e) {
-            LOGGER.log(Level.SEVERE, L10N.getString("err.error_sending_rejection"), e);
-        }
+        reply(553, "5.7.1 " + message);
     }
 
     // ── MessageStartState implementation (RFC 5321 §4.1.1.4) ──
@@ -3696,16 +3476,11 @@ public final class SmtpProtocolHandler
     public void acceptMessageDelivery(String queueId, MailFromHandler handler) {
         this.mailFromHandler = handler;
         resetTransaction();
-        try {
-            String msg = "2.0.0 Message accepted for delivery";
-            if (queueId != null) {
-                msg = msg + " " + queueId;
-            }
-            reply(250, msg);
-        } catch (IOException e) {
-            LOGGER.log(Level.SEVERE, L10N.getString("err.error_sending_acceptance"), e);
-            closeEndpoint();
+        String msg = "2.0.0 Message accepted for delivery";
+        if (queueId != null) {
+            msg = msg + " " + queueId;
         }
+        reply(250, msg);
         endDelivery();
     }
 
@@ -3713,11 +3488,7 @@ public final class SmtpProtocolHandler
     public void rejectMessageTemporary(String message, MailFromHandler handler) {
         this.mailFromHandler = handler;
         resetTransaction();
-        try {
-            reply(450, "4.0.0 " + message);
-        } catch (IOException e) {
-            LOGGER.log(Level.SEVERE, L10N.getString("err.error_sending_rejection"), e);
-        }
+        reply(450, "4.0.0 " + message);
         endDelivery();
     }
 
@@ -3725,11 +3496,7 @@ public final class SmtpProtocolHandler
     public void rejectMessagePermanent(String message, MailFromHandler handler) {
         this.mailFromHandler = handler;
         resetTransaction();
-        try {
-            reply(550, "5.0.0 " + message);
-        } catch (IOException e) {
-            LOGGER.log(Level.SEVERE, L10N.getString("err.error_sending_rejection"), e);
-        }
+        reply(550, "5.0.0 " + message);
         endDelivery();
     }
 
@@ -3737,11 +3504,7 @@ public final class SmtpProtocolHandler
     public void rejectMessagePolicy(String message, MailFromHandler handler) {
         this.mailFromHandler = handler;
         resetTransaction();
-        try {
-            reply(553, "5.7.1 " + message);
-        } catch (IOException e) {
-            LOGGER.log(Level.SEVERE, L10N.getString("err.error_sending_rejection"), e);
-        }
+        reply(553, "5.7.1 " + message);
         endDelivery();
     }
 
@@ -3752,12 +3515,7 @@ public final class SmtpProtocolHandler
     public void acceptReset(MailFromHandler handler) {
         this.mailFromHandler = handler;
         resetTransaction();
-        try {
-            reply(250, "2.0.0 Reset OK");
-        } catch (IOException e) {
-            LOGGER.log(Level.SEVERE, L10N.getString("err.error_sending_reset_response"), e);
-            closeEndpoint();
-        }
+        reply(250, "2.0.0 Reset OK");
     }
 
     // ── SmtpConnectionMetadata implementation (RFC 5321 / RFC 3461 / RFC 8689) ──

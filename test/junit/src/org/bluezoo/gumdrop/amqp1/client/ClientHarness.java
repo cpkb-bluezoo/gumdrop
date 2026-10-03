@@ -28,7 +28,7 @@ import java.util.List;
 
 import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.SecurityInfo;
-import org.bluezoo.gumdrop.amqp1.client.FakeAmqp1Peer.Out;
+import org.bluezoo.gumdrop.amqp1.client.MockAmqp1Peer.Out;
 import org.bluezoo.gumdrop.amqp1.codec.Amqp1Error;
 import org.bluezoo.gumdrop.amqp1.codec.Amqp1Frame;
 import org.bluezoo.gumdrop.amqp1.codec.Attach;
@@ -41,28 +41,28 @@ import org.bluezoo.gumdrop.amqp1.codec.Transfer;
 
 /**
  * Drives an {@link Amqp1ClientProtocolHandler} against a
- * {@link FakeAmqp1Peer} through the SASL and open handshake and the
+ * {@link MockAmqp1Peer} through the SASL and open handshake and the
  * beginning of a session, so a test can start from an active session.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 final class ClientHarness {
 
-    final FakeAmqp1Peer peer = new FakeAmqp1Peer();
+    final MockAmqp1Peer peer = new MockAmqp1Peer();
     final ConnectionRecorder ready = new ConnectionRecorder();
     final Amqp1ClientProtocolHandler handler = new Amqp1ClientProtocolHandler(ready);
     Amqp1Connection connection;
 
-    /** The peer channel number the fake broker uses for its side of sessions. */
+    /** The peer channel number the mock broker uses for its side of sessions. */
     static final int PEER_CHANNEL = 5;
 
     void feed(ByteBuffer... parts) {
-        handler.receive(ByteBuffer.wrap(FakeAmqp1Peer.concat(parts)));
+        handler.receive(ByteBuffer.wrap(MockAmqp1Peer.concat(parts)));
     }
 
     /** Feeds the bytes one at a time, as a slow network would. */
     void feedByteByByte(ByteBuffer... parts) {
-        byte[] data = FakeAmqp1Peer.concat(parts);
+        byte[] data = MockAmqp1Peer.concat(parts);
         ByteBuffer buf = ByteBuffer.allocate(data.length + 16);
         for (int i = 0; i < data.length; i++) {
             buf.put(data[i]);
@@ -75,12 +75,12 @@ final class ClientHarness {
     /** Completes SASL (ANONYMOUS) and the open exchange. */
     void open(Open ours, Open theirs) {
         handler.connected(peer);
-        feed(FakeAmqp1Peer.saslHeader(),
-                FakeAmqp1Peer.saslFrame(new SaslMechanisms(Arrays.asList("ANONYMOUS"))));
+        feed(MockAmqp1Peer.saslHeader(),
+                MockAmqp1Peer.saslFrame(new SaslMechanisms(Arrays.asList("ANONYMOUS"))));
         ready.handshake.authenticateAnonymous(null, ready.auth);
-        feed(FakeAmqp1Peer.saslFrame(new SaslOutcome(SaslOutcome.OK, null)));
+        feed(MockAmqp1Peer.saslFrame(new SaslOutcome(SaslOutcome.OK, null)));
         ready.auth.opener.open(ours, ready.openHandler);
-        feed(FakeAmqp1Peer.amqpHeader(), FakeAmqp1Peer.amqpFrame(0, theirs));
+        feed(MockAmqp1Peer.amqpHeader(), MockAmqp1Peer.amqpFrame(0, theirs));
         connection = ready.openHandler.connection;
     }
 
@@ -98,7 +98,7 @@ final class ClientHarness {
         SessionRecorder rec = new SessionRecorder();
         connection.beginSession(ours, rec);
         theirs.setRemoteChannel(Integer.valueOf(0));
-        feed(FakeAmqp1Peer.amqpFrame(PEER_CHANNEL, theirs));
+        feed(MockAmqp1Peer.amqpFrame(PEER_CHANNEL, theirs));
         return rec;
     }
 
@@ -110,7 +110,7 @@ final class ClientHarness {
 
     /** A frame from the broker on its session channel. */
     static ByteBuffer brokerFrame(Performative p) {
-        return FakeAmqp1Peer.amqpFrame(PEER_CHANNEL, p);
+        return MockAmqp1Peer.amqpFrame(PEER_CHANNEL, p);
     }
 
     /** A transfer frame from the broker, with message octets after the performative. */

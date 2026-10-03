@@ -54,7 +54,7 @@ import static org.junit.Assert.*;
 
 /**
  * End-to-end tests of {@link AmqpClientRecovery} (and transitively
- * {@link AmqpClientProtocolHandler}) against {@link FakeAMQPBroker} over a
+ * {@link AmqpClientProtocolHandler}) against {@link MockAMQPBroker} over a
  * real loopback socket — exercising connect, channel open, exchange/queue
  * declare, bind, publish, consume, ack, publisher confirms, and a forced
  * disconnect-then-recover scenario, per issue #154's "no real broker in
@@ -69,13 +69,13 @@ public class AMQPClientIntegrationTest {
 
     private static final long TIMEOUT_SECONDS = 10;
 
-    private FakeAMQPBroker broker;
+    private MockAMQPBroker broker;
     private AmqpClientRecovery client;
     private Gumdrop gumdrop;
 
     @Before
     public void setUp() throws IOException {
-        broker = new FakeAMQPBroker();
+        broker = new MockAMQPBroker();
         gumdrop = Gumdrop.boot(GumdropConfig.create().workerThreads(2));
     }
 

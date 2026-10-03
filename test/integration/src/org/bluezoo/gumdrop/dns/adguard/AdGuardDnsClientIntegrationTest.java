@@ -61,7 +61,7 @@ import static org.junit.Assume.assumeTrue;
  *
  * <p>Same rationale as every other suite in this session: an independent
  * implementation on the other end of the wire catches bugs a
- * same-lineage fake server can't. Writing the DoH and DoQ cases surfaced
+ * same-lineage mock server can't. Writing the DoH and DoQ cases surfaced
  * a real gap -- neither {@code DoHClientTransport} nor {@code
  * DoQClientTransport} exposed any way to configure TLS trust (no
  * {@code setTrustManager}/{@code setPinnedCertFingerprint} equivalent), even though the transport

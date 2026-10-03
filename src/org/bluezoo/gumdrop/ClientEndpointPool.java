@@ -372,7 +372,7 @@ public class ClientEndpointPool {
         }
     }
 
-    private void cleanupIdleEndpoints() {
+    void cleanupIdleEndpoints() {
         long now = System.currentTimeMillis();
         long threshold = now - idleTimeoutMs;
         int closedCount = 0;

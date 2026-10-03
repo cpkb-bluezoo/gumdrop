@@ -242,8 +242,9 @@ public final class MqttProtocolHandler implements ProtocolHandler, MqttEventHand
                     L10N.getString("err.connect_wrong_state"), state));
             return;
         }
-        cancelTimer(connectTimer);
-        connectTimer = null;
+        // The connect timer stays armed until the connect decision is
+        // made (completeConnect or an explicit rejection), so an
+        // asynchronous ConnectHandler that never answers is timed out
 
         version = packet.getVersion();
         parser.setVersion(version);
@@ -300,6 +301,8 @@ public final class MqttProtocolHandler implements ProtocolHandler, MqttEventHand
     }
 
     private void completeConnect(ConnectPacket packet, String clientId) {
+        cancelTimer(connectTimer);
+        connectTimer = null;
         boolean sessionPresent = false;
         MqttSession existing = subscriptionManager.getSession(clientId);
         if (existing != null) {
@@ -712,6 +715,8 @@ public final class MqttProtocolHandler implements ProtocolHandler, MqttEventHand
                 return;
             }
             resolved = true;
+            cancelTimer(connectTimer);
+            connectTimer = null;
             state = State.DISCONNECTING;
             sendConnAck(false, returnCode);
             endpoint.close();

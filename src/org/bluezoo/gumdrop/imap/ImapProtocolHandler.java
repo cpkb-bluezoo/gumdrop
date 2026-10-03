@@ -49,6 +49,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Base64;
 import java.util.EnumSet;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
@@ -127,7 +128,6 @@ import org.bluezoo.gumdrop.quota.Quota;
 import org.bluezoo.gumdrop.quota.QuotaManager;
 import org.bluezoo.gumdrop.quota.QuotaPolicy;
 import org.bluezoo.gumdrop.util.ByteBufferPool;
-import org.bluezoo.gumdrop.telemetry.ErrorCategory;
 import org.bluezoo.gumdrop.telemetry.Span;
 import org.bluezoo.gumdrop.telemetry.SpanKind;
 import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
@@ -592,7 +592,7 @@ public final class ImapProtocolHandler
     @Override
     public void tokenTooLong() {
         lexerRecovery.beginDiscard();
-        String tag = currentTag != null ? currentTag : "*";
+        String tag = inProgressTag();
         // A segment this malformed makes the whole in-progress command
         // (including any literal-continuation state) unreliable; abandon
         // it entirely rather than trying to resume mid-command. The
@@ -745,6 +745,15 @@ public final class ImapProtocolHandler
             }
         }
         return null;
+    }
+
+    /**
+     * The tag of the command currently being assembled (which is not yet
+     * {@link #currentTag}: that only advances once a command is complete), or
+     * {@code "*"} when no tag has been read yet.
+     */
+    private String inProgressTag() {
+        return pendingTagText.isEmpty() ? "*" : pendingTagText;
     }
 
     private void resetSegmentState() {
@@ -908,8 +917,7 @@ public final class ImapProtocolHandler
         try {
             if (segmentError != null) {
                 String err = segmentError;
-                String tag = currentTag != null ? currentTag
-                        : (!pendingTagText.isEmpty() ? pendingTagText : "*");
+                String tag = inProgressTag();
                 resetCommandState();
                 sendTaggedBad(tag, err);
                 return;
@@ -926,10 +934,9 @@ public final class ImapProtocolHandler
                     && literalSpec != null && isAppendCommandWord();
             if (literalSpec != null && !isAppend) {
                 if (literalSpec[0] > server.getMaxLiteralSize()) {
-                    String tag = inGeneralLiteralContinuation
-                            ? currentTag
-                            : (pendingHasSp && !pendingTagText.isEmpty()
-                                    ? pendingTagText : "*");
+                    String tag = (inGeneralLiteralContinuation
+                            || pendingHasSp)
+                            ? inProgressTag() : "*";
                     resetCommandState();
                     sendTaggedNo(tag, L10N.getString("imap.err.literal_too_large"));
                     return;
@@ -1233,21 +1240,6 @@ public final class ImapProtocolHandler
         if (sessionSpan != null && !sessionSpan.isEnded()
                 && exception != null) {
             sessionSpan.recordExceptionWithCategory(exception);
-        }
-    }
-
-    private void recordSessionException(Throwable exception,
-            ErrorCategory category) {
-        if (sessionSpan != null && !sessionSpan.isEnded()
-                && exception != null) {
-            sessionSpan.recordException(exception, category);
-        }
-    }
-
-    private void recordImapError(ErrorCategory category, String message) {
-        if (sessionSpan != null && !sessionSpan.isEnded()
-                && category != null) {
-            sessionSpan.recordError(category, message);
         }
     }
 
@@ -2451,39 +2443,6 @@ public final class ImapProtocolHandler
                 return realm.getScramCredentials(username);
             }
         }, callback);
-    }
-
-    private void openMailStore(String username) throws IOException {
-        openMailStore(username, "PASSWORD", null);
-    }
-
-    private void openMailStore(String username, String mechanism)
-            throws IOException {
-        openMailStore(username, mechanism, null);
-    }
-
-    private void openMailStore(String username, String mechanism, String tag)
-            throws IOException {
-        authenticatedUser = username;
-
-        if (notAuthenticatedHandler != null) {
-            Principal principal = createPrincipal(username);
-            String responseTag = (tag != null) ? tag : pendingAuthTag;
-            notAuthenticatedHandler.authenticate(
-                    new AuthenticateStateImpl(responseTag, mechanism),
-                    principal, server.getMailboxFactory());
-            return;
-        }
-
-        state = ImapState.AUTHENTICATED;
-        startAuthenticatedSpan(username, mechanism);
-
-        MailboxFactory factory = server.getMailboxFactory();
-        if (factory != null) {
-            store = factory.createStore();
-            store.open(username);
-            metadataFileStore = createMetadataStore(store);
-        }
     }
 
     /**
@@ -4539,26 +4498,83 @@ public final class ImapProtocolHandler
         }
 
         if (selectedHandler != null) {
-            selectedHandler.expunge(new ExpungeStateImpl(tag),
+            selectedHandler.expunge(new ExpungeStateImpl(tag, null),
                     selectedMailbox);
             return;
         }
 
-        executeExpunge(tag);
+        executeExpunge(tag, null);
     }
 
-    private void executeExpunge(final String tag) {
+    // RFC 4315 / RFC 9051 section 6.4.9 - UID EXPUNGE command
+    private void handleUidExpunge(String tag, String args)
+            throws IOException {
+        if (selectedReadOnly) {
+            sendTaggedNo(tag, L10N.getString("imap.err.read_only"));
+            return;
+        }
+
+        MessageSet uidSet;
+        try {
+            uidSet = MessageSet.parse(args.trim());
+        } catch (IllegalArgumentException e) {
+            sendTaggedBad(tag, L10N.getString("imap.err.invalid_arguments"));
+            return;
+        }
+
+        if (selectedHandler != null) {
+            selectedHandler.uidExpunge(new ExpungeStateImpl(tag, uidSet),
+                    selectedMailbox, uidSet);
+            return;
+        }
+
+        executeExpunge(tag, uidSet);
+    }
+
+    /**
+     * True when the message is marked deleted, either by the IMAP
+     * {@code \Deleted} flag or by the in-memory deletion mark.
+     */
+    private boolean isMarkedDeleted(Mailbox mbox, int msgNum)
+            throws IOException {
+        return mbox.isDeleted(msgNum)
+                || mbox.getFlags(msgNum).contains(Flag.DELETED);
+    }
+
+    /**
+     * Expunges messages marked deleted: every such message when
+     * {@code uidSet} is null, otherwise only those whose UID is in the set
+     * (UID EXPUNGE).
+     */
+    private void executeExpunge(final String tag, final MessageSet uidSet) {
         final Mailbox mbox = selectedMailbox;
         final boolean useQresync = qresyncEnabled;
 
         submitStorage(new Callable<Object>() {
             @Override
             public Object call() throws IOException {
+                // null: every deleted message; otherwise only the deleted
+                // messages whose UID is in the UID EXPUNGE set.
+                Set<Integer> targets = null;
+                if (uidSet != null) {
+                    targets = new HashSet<Integer>();
+                    List<Integer> listed =
+                            resolveMatchingMessages(mbox, uidSet, true);
+                    for (int i = 0; i < listed.size(); i++) {
+                        int msgNum = listed.get(i).intValue();
+                        if (isMarkedDeleted(mbox, msgNum)) {
+                            targets.add(Integer.valueOf(msgNum));
+                        }
+                    }
+                }
+                List<Long> expungedUids = new ArrayList<Long>();
                 if (useQresync) {
-                    List<Long> expungedUids = new ArrayList<Long>();
                     int count = mbox.getMessageCount();
                     for (int msgNum = 1; msgNum <= count; msgNum++) {
-                        if (mbox.isDeleted(msgNum)) {
+                        boolean selected = (targets != null)
+                                ? targets.contains(Integer.valueOf(msgNum))
+                                : isMarkedDeleted(mbox, msgNum);
+                        if (selected) {
                             try {
                                 expungedUids.add(Long.parseLong(
                                         mbox.getUniqueId(msgNum)));
@@ -4567,10 +4583,20 @@ public final class ImapProtocolHandler
                             }
                         }
                     }
-                    mbox.expunge();
+                }
+                List<Integer> expunged;
+                if (targets == null) {
+                    expunged = mbox.expunge();
+                } else if (targets.isEmpty()) {
+                    expunged = new ArrayList<Integer>();
+                } else {
+                    List<Integer> toExpunge = new ArrayList<Integer>(targets);
+                    expunged = mbox.expungeMessages(toExpunge);
+                }
+                if (useQresync) {
                     return expungedUids;
                 }
-                return mbox.expunge();
+                return expunged;
             }
         }, new StorageExecutor.Callback<Object>() {
             @Override
@@ -4594,9 +4620,13 @@ public final class ImapProtocolHandler
                             sendUntagged(sb.toString());
                         }
                     } else {
+                        // The numbers are pre-expunge sequence numbers in
+                        // ascending order; each EXPUNGE renumbers the
+                        // messages after it (RFC 9051 section 7.5.1), so
+                        // report them highest first.
                         List<Integer> expunged = (List<Integer>) result;
-                        for (int msgNum : expunged) {
-                            sendUntagged(msgNum + " EXPUNGE");
+                        for (int i = expunged.size() - 1; i >= 0; i--) {
+                            sendUntagged(expunged.get(i) + " EXPUNGE");
                         }
                     }
                     sendTaggedOk(tag,
@@ -4928,7 +4958,7 @@ public final class ImapProtocolHandler
                 handleMove(tag, subArgs, true);
                 break;
             case "EXPUNGE":
-                handleExpunge(tag);
+                handleUidExpunge(tag, subArgs);
                 break;
             default:
                 sendTaggedBad(tag, MessageFormat.format(
@@ -5249,7 +5279,10 @@ public final class ImapProtocolHandler
                     || upper.equals("RFC822.HEADER")
                     || upper.equals("RFC822.TEXT")
                     || upper.startsWith("BODY[")
-                    || upper.startsWith("BODY.PEEK[")) {
+                    || upper.startsWith("BODY.PEEK[")
+                    || upper.equals("BODYSTRUCTURE")
+                    || upper.equals("BODY")
+                    || isParsedSectionItem(item)) {
                 return true;
             }
         }
@@ -5398,6 +5431,8 @@ public final class ImapProtocolHandler
                 throws IOException {
             long msgUid = resolveUid(mailbox, msgNum);
             String asyncItem = findStreamableLiteralItem(fetchItems);
+            fetchSections = prep.sections;
+            fetchStructure = prep.structure;
 
             if (asyncItem != null && prep.asyncContent != null) {
                 sendFetchResponseAsync(mailbox, msgNum, msgUid, fetchItems,
@@ -5413,6 +5448,7 @@ public final class ImapProtocolHandler
 
             sendFetchResponse(mailbox, msgNum, msgUid, fetchItems, uid,
                     prep.contentBytes);
+            fetchSections = null;
             if (prep.asyncContent != null) {
                 try {
                     prep.asyncContent.close();
@@ -5507,10 +5543,18 @@ public final class ImapProtocolHandler
     private static final class PreparedFetch {
         final AsyncMessageContent asyncContent;
         final byte[] contentBytes;
+        /** Extracted part sections and previews, keyed by FETCH item. */
+        final Map<String, MimeSectionExtractor.Result> sections;
+        /** Computed ENVELOPE / BODY / BODYSTRUCTURE, or null. */
+        final MimeSectionExtractor.Structure structure;
 
-        PreparedFetch(AsyncMessageContent asyncContent, byte[] contentBytes) {
+        PreparedFetch(AsyncMessageContent asyncContent, byte[] contentBytes,
+                Map<String, MimeSectionExtractor.Result> sections,
+                MimeSectionExtractor.Structure structure) {
             this.asyncContent = asyncContent;
             this.contentBytes = contentBytes;
+            this.sections = sections;
+            this.structure = structure;
         }
     }
 
@@ -5540,7 +5584,168 @@ public final class ImapProtocolHandler
                 async = new BufferedAsyncMessageContent(bytes);
             }
         }
-        return new PreparedFetch(async, bytes);
+        Map<String, MimeSectionExtractor.Result> sections =
+                extractSections(mailbox, msgNum, fetchItems);
+        MimeSectionExtractor.Structure structure =
+                computeStructure(mailbox, msgNum, fetchItems);
+        return new PreparedFetch(async, bytes, sections, structure);
+    }
+
+    /**
+     * Streams the message to compute ENVELOPE, BODY and BODYSTRUCTURE for
+     * the items the mailbox descriptor cannot answer. Only the top-level
+     * headers are read when just ENVELOPE is wanted.
+     */
+    private MimeSectionExtractor.Structure computeStructure(Mailbox mailbox,
+            int msgNum, Set<String> fetchItems) throws IOException {
+        MessageDescriptor desc = mailbox.getMessage(msgNum);
+        boolean cachedEnvelope = false;
+        boolean cachedStructure = false;
+        if (desc instanceof ImapMessageDescriptor) {
+            ImapMessageDescriptor imapDesc = (ImapMessageDescriptor) desc;
+            cachedEnvelope = imapDesc.getEnvelope() != null;
+            cachedStructure = imapDesc.getBodyStructure() != null;
+        }
+        boolean wantEnvelope = false;
+        boolean wantStructure = false;
+        for (String item : fetchItems) {
+            String upper = item.toUpperCase(Locale.ENGLISH);
+            if (upper.equals("ENVELOPE") && !cachedEnvelope) {
+                wantEnvelope = true;
+            } else if ((upper.equals("BODYSTRUCTURE")
+                    || upper.equals("BODY")) && !cachedStructure) {
+                wantStructure = true;
+            }
+        }
+        if (!wantEnvelope && !wantStructure) {
+            return null;
+        }
+        ReadableByteChannel channel = mailbox.getMessageContent(msgNum);
+        try {
+            return MimeSectionExtractor.structure(channel, !wantStructure);
+        } finally {
+            channel.close();
+        }
+    }
+
+    /**
+     * True for FETCH items answered by the MIME section parser: BODY
+     * sections addressing a part by number or selecting header fields,
+     * BINARY items and PREVIEW. The parser streams the message and stops
+     * once the section is complete, so these never need the whole message in
+     * memory.
+     */
+    private static boolean isParsedSectionItem(String item) {
+        String upper = item.toUpperCase(Locale.ENGLISH);
+        if (upper.equals("PREVIEW")) {
+            return true;
+        }
+        if (upper.startsWith("BINARY[") || upper.startsWith("BINARY.PEEK[")
+                || upper.startsWith("BINARY.SIZE[")) {
+            return true;
+        }
+        if (upper.startsWith("BODY[") || upper.startsWith("BODY.PEEK[")) {
+            int open = upper.indexOf('[');
+            return open + 1 < upper.length()
+                    && (Character.isDigit(upper.charAt(open + 1))
+                        || upper.startsWith("HEADER.FIELDS", open + 1));
+        }
+        return false;
+    }
+
+    /** The text between the brackets of a BODY/BINARY item. */
+    private static String sectionText(String item) {
+        int open = item.indexOf('[');
+        int close = item.indexOf(']', open);
+        return item.substring(open + 1, close);
+    }
+
+    /** The {offset, count} of an item's partial suffix, or null. */
+    private static long[] partialOf(String item) {
+        int close = item.indexOf(']');
+        if (close < 0 || close + 1 >= item.length()
+                || item.charAt(close + 1) != '<') {
+            return null;
+        }
+        int gt = item.indexOf('>', close + 1);
+        if (gt < 0) {
+            return null;
+        }
+        String partial = item.substring(close + 2, gt);
+        int dot = partial.indexOf('.');
+        if (dot <= 0) {
+            return null;
+        }
+        try {
+            return new long[] {
+                Long.parseLong(partial.substring(0, dot)),
+                Long.parseLong(partial.substring(dot + 1))
+            };
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
+
+    /**
+     * Streams the message once per parsed-section item and keeps only the
+     * requested section (or window of it). Runs on a storage thread.
+     */
+    private Map<String, MimeSectionExtractor.Result> extractSections(
+            Mailbox mailbox, int msgNum, Set<String> fetchItems)
+            throws IOException {
+        Map<String, MimeSectionExtractor.Result> results = null;
+        for (String item : fetchItems) {
+            if (!isParsedSectionItem(item)) {
+                continue;
+            }
+            if (results == null) {
+                results = new HashMap<String, MimeSectionExtractor.Result>();
+            }
+            String upper = item.toUpperCase(Locale.ENGLISH);
+            MimeSectionExtractor.Result result;
+            if (upper.equals("PREVIEW")) {
+                result = runExtraction(mailbox, msgNum,
+                        MimeSectionSpec.preview(),
+                        MimeSectionExtractor.Form.PREVIEW, -1, 0);
+            } else {
+                boolean binary = upper.startsWith("BINARY");
+                MimeSectionSpec spec =
+                        MimeSectionSpec.parse(sectionText(item), binary);
+                if (spec == null) {
+                    result = new MimeSectionExtractor.Result();
+                } else {
+                    MimeSectionExtractor.Form form = binary
+                            ? MimeSectionExtractor.Form.BINARY
+                            : MimeSectionExtractor.Form.BODY;
+                    if (upper.startsWith("BINARY.SIZE[")) {
+                        form = MimeSectionExtractor.Form.BINARY_SIZE;
+                    }
+                    long offset = -1;
+                    long count = 0;
+                    long[] partial = partialOf(item);
+                    if (partial != null) {
+                        offset = partial[0];
+                        count = partial[1];
+                    }
+                    result = runExtraction(mailbox, msgNum, spec, form,
+                            offset, count);
+                }
+            }
+            results.put(item, result);
+        }
+        return results;
+    }
+
+    private MimeSectionExtractor.Result runExtraction(Mailbox mailbox,
+            int msgNum, MimeSectionSpec spec, MimeSectionExtractor.Form form,
+            long offset, long count) throws IOException {
+        ReadableByteChannel channel = mailbox.getMessageContent(msgNum);
+        try {
+            return MimeSectionExtractor.extract(channel, spec, form, offset,
+                    count);
+        } finally {
+            channel.close();
+        }
     }
 
     /**
@@ -5552,18 +5757,13 @@ public final class ImapProtocolHandler
         for (String item : fetchItems) {
             String upper = item.toUpperCase(Locale.ENGLISH);
             if (upper.equals("ENVELOPE")) {
-                MessageDescriptor desc = mailbox.getMessage(msgNum);
-                if (desc instanceof ImapMessageDescriptor) {
-                    ImapMessageDescriptor.Envelope env =
-                            ((ImapMessageDescriptor) desc).getEnvelope();
-                    if (env != null) {
-                        continue;
-                    }
-                }
-                return true;
+                continue;
             }
             if (upper.equals("RFC822.HEADER")) {
                 return true;
+            }
+            if (isParsedSectionItem(item)) {
+                continue;
             }
             if (upper.startsWith("BODY[") || upper.startsWith("BODY.PEEK[")) {
                 int bo = upper.indexOf('[');
@@ -5629,7 +5829,7 @@ public final class ImapProtocolHandler
                         endpoint.execute(new Runnable() {
                             @Override
                             public void run() {
-                                closeAndComplete();
+                                abortShortLiteral(null);
                             }
                         });
                         return;
@@ -5655,16 +5855,32 @@ public final class ImapProtocolHandler
                 public void failed(Throwable exc,
                         ByteBuffer attachment) {
                     ByteBufferPool.release(attachment);
-                    LOGGER.log(Level.WARNING,
-                            L10N.getString("warn.async_literal_read_failed"), exc);
                     endpoint.execute(new Runnable() {
                         @Override
                         public void run() {
-                            closeAndComplete();
+                            abortShortLiteral(exc);
                         }
                     });
                 }
             });
+        }
+
+        /**
+         * The content ended or failed before the announced literal length
+         * was delivered. The client is waiting for exactly that many octets,
+         * so the stream cannot be resynchronised: drop the connection
+         * instead of sending the suffix and the tagged completion.
+         */
+        private void abortShortLiteral(Throwable cause) {
+            LOGGER.log(Level.WARNING,
+                    L10N.getString("warn.async_literal_read_failed"), cause);
+            try {
+                content.close();
+            } catch (IOException e) {
+                LOGGER.log(Level.WARNING,
+                        L10N.getString("debug.error_closing_async_content"), e);
+            }
+            closeEndpoint();
         }
 
         private void closeAndComplete() {
@@ -5718,7 +5934,11 @@ public final class ImapProtocolHandler
             first = false;
 
             String upper = item.toUpperCase(Locale.ENGLISH);
-            if (upper.equals("FLAGS")) {
+            if (isParsedSectionItem(item)) {
+                writeSectionItem(out, item);
+            } else if (upper.equals("THREADID")) {
+                out.write("THREADID NIL".getBytes(US_ASCII));
+            } else if (upper.equals("FLAGS")) {
                 writeFetchFlags(out, mailbox, msgNum);
             } else if (upper.equals("UID")) {
                 out.write(("UID " + msgUid).getBytes(US_ASCII));
@@ -5885,7 +6105,7 @@ public final class ImapProtocolHandler
                     int bo = item.indexOf('[');
                     int bc = item.indexOf(']', bo);
                     String sec = item.substring(bo + 1, bc);
-                    asyncItemHeader = item.substring(0, bc + 1);
+                    asyncItemHeader = bodyResponseName(item, bc);
                     if (bc + 1 < item.length()
                             && item.charAt(bc + 1) == '<') {
                         int ac = item.indexOf('>', bc + 1);
@@ -5947,7 +6167,11 @@ public final class ImapProtocolHandler
                 continue;
             }
 
-            if (upper.equals("FLAGS")) {
+            if (isParsedSectionItem(item)) {
+                writeSectionItem(target, item);
+            } else if (upper.equals("THREADID")) {
+                target.write("THREADID NIL".getBytes(US_ASCII));
+            } else if (upper.equals("FLAGS")) {
                 writeFetchFlags(target, mailbox, msgNum);
             } else if (upper.equals("UID")) {
                 target.write(("UID " + msgUid).getBytes(US_ASCII));
@@ -6087,6 +6311,12 @@ public final class ImapProtocolHandler
             }
         }
 
+        if (fetchStructure != null && fetchStructure.envelope != null) {
+            out.write("ENVELOPE ".getBytes(US_ASCII));
+            out.write(fetchStructure.envelope.getBytes(
+                    StandardCharsets.ISO_8859_1));
+            return;
+        }
         if (contentBytes == null) {
             out.write("ENVELOPE NIL".getBytes(US_ASCII));
             return;
@@ -6112,6 +6342,17 @@ public final class ImapProtocolHandler
                 out.write((name + " ").getBytes(US_ASCII));
                 out.write(formatBodyStructureFromDescriptor(bs,
                         extensible).getBytes(US_ASCII));
+                return;
+            }
+        }
+
+        if (fetchStructure != null) {
+            String wire = extensible ? fetchStructure.bodyStructure
+                    : fetchStructure.body;
+            if (wire != null) {
+                String label = extensible ? "BODYSTRUCTURE " : "BODY ";
+                out.write(label.getBytes(US_ASCII));
+                out.write(wire.getBytes(StandardCharsets.ISO_8859_1));
                 return;
             }
         }
@@ -6145,6 +6386,93 @@ public final class ImapProtocolHandler
         out.write((itemName + " {" + data.length + "}\r\n")
                 .getBytes(US_ASCII));
         out.write(data);
+    }
+
+    /**
+     * The data item name to use in a FETCH response for the requested
+     * {@code BODY[...]} or {@code BODY.PEEK[...]} item: the {@code .PEEK}
+     * form is request-only (RFC 9051 section 7.5.2), so it is reported as
+     * {@code BODY[...]}.
+     *
+     * @param item the requested item
+     * @param bracketClose the index of the closing bracket in {@code item}
+     */
+    private static String bodyResponseName(String item, int bracketClose) {
+        String name = item.substring(0, bracketClose + 1);
+        if (name.regionMatches(true, 0, "BODY.PEEK[", 0, 10)) {
+            return "BODY" + name.substring(9);
+        }
+        if (name.regionMatches(true, 0, "BINARY.PEEK[", 0, 12)) {
+            return "BINARY" + name.substring(11);
+        }
+        return name;
+    }
+
+    /**
+     * Writes a BODY[part], BINARY, BINARY.SIZE or PREVIEW item from the
+     * sections extracted for the current message (NIL when the part does
+     * not exist or cannot be represented).
+     */
+    private void writeSectionItem(ByteArrayOutputStream out, String item)
+            throws IOException {
+        String upper = item.toUpperCase(Locale.ENGLISH);
+        MimeSectionExtractor.Result result = null;
+        if (fetchSections != null) {
+            result = fetchSections.get(item);
+        }
+        boolean available = result != null && result.available;
+        if (upper.equals("PREVIEW")) {
+            out.write("PREVIEW ".getBytes(US_ASCII));
+            if (!available) {
+                out.write("NIL".getBytes(US_ASCII));
+            } else {
+                writeQuotedOrLiteral(out, result.data);
+            }
+            return;
+        }
+        int close = item.indexOf(']');
+        String name = bodyResponseName(item, close);
+        if (upper.startsWith("BINARY.SIZE[")) {
+            out.write((name + " " + (available ? result.size : 0))
+                    .getBytes(US_ASCII));
+            return;
+        }
+        if (!available) {
+            out.write((name + " NIL").getBytes(US_ASCII));
+            return;
+        }
+        if (partialOf(item) != null) {
+            out.write((name + "<" + result.origin + "> {"
+                    + result.data.length + "}\r\n").getBytes(US_ASCII));
+        } else {
+            out.write((name + " {" + result.data.length + "}\r\n")
+                    .getBytes(US_ASCII));
+        }
+        out.write(result.data);
+    }
+
+    private void writeQuotedOrLiteral(ByteArrayOutputStream out, byte[] text)
+            throws IOException {
+        boolean plain = true;
+        for (int i = 0; i < text.length; i++) {
+            if (text[i] < 0x20 || text[i] >= 0x7f) {
+                plain = false;
+                break;
+            }
+        }
+        if (!plain) {
+            out.write(("{" + text.length + "}\r\n").getBytes(US_ASCII));
+            out.write(text);
+            return;
+        }
+        out.write('"');
+        for (int i = 0; i < text.length; i++) {
+            if (text[i] == '"' || text[i] == '\\') {
+                out.write('\\');
+            }
+            out.write(text[i]);
+        }
+        out.write('"');
     }
 
     private void writeFetchBodySection(ByteArrayOutputStream out,
@@ -6205,12 +6533,12 @@ public final class ImapProtocolHandler
             byte[] partial = new byte[length];
             System.arraycopy(data, offset, partial, 0, length);
             String origin = "<" + offset + ">";
-            out.write((item.substring(0, bracketClose + 1)
+            out.write((bodyResponseName(item, bracketClose)
                     + origin + " {" + length + "}\r\n")
                     .getBytes(US_ASCII));
             out.write(partial);
         } else {
-            out.write((item.substring(0, bracketClose + 1)
+            out.write((bodyResponseName(item, bracketClose)
                     + " {" + data.length + "}\r\n")
                     .getBytes(US_ASCII));
             out.write(data);
@@ -6660,7 +6988,18 @@ public final class ImapProtocolHandler
                 while (i < str.length() && str.charAt(i) != ' ') {
                     i++;
                 }
-                items.add(str.substring(start, i));
+                String token = str.substring(start, i);
+                items.add(token);
+                if (token.equalsIgnoreCase("PREVIEW")) {
+                    // RFC 8970: PREVIEW may carry the modifier (LAZY)
+                    int next = i;
+                    while (next < str.length() && str.charAt(next) == ' ') {
+                        next++;
+                    }
+                    if (str.regionMatches(true, next, "(LAZY)", 0, 6)) {
+                        i = next + 6;
+                    }
+                }
             }
         }
 
@@ -6687,7 +7026,7 @@ public final class ImapProtocolHandler
                 || upper.equals("RFC822.HEADER")
                 || upper.equals("RFC822.TEXT") || upper.equals("MODSEQ")
                 || upper.equals("EMAILID") || upper.equals("THREADID")
-                || upper.equals("PREVIEW") || upper.equals("SAVEDATE");
+                || upper.equals("PREVIEW");
     }
 
     private boolean fetchNeedsSeen(Set<String> fetchItems) {
@@ -6696,7 +7035,8 @@ public final class ImapProtocolHandler
             if (upper.equals("RFC822")
                     || upper.equals("RFC822.TEXT")
                     || (upper.startsWith("BODY[")
-                        && !upper.startsWith("BODY.PEEK["))) {
+                        && !upper.startsWith("BODY.PEEK["))
+                    || upper.startsWith("BINARY[")) {
                 return true;
             }
         }
@@ -6781,6 +7121,12 @@ public final class ImapProtocolHandler
     // different message is always a different array) turns what used
     // to be an O(message length) re-scan per FETCH item into one scan
     // per message.
+    /** Parsed sections of the message whose FETCH response is being built. */
+    private Map<String, MimeSectionExtractor.Result> fetchSections;
+
+    /** Computed structure of the message being answered, or null. */
+    private MimeSectionExtractor.Structure fetchStructure;
+
     private byte[] headerBodySplitCacheMessage;
     private int headerBodySplitCacheIndex = -1;
 
@@ -7331,10 +7677,32 @@ public final class ImapProtocolHandler
             return null;
         }
         arg = arg.trim();
-        if (arg.startsWith("\"") && arg.endsWith("\"")) {
-            return arg.substring(1, arg.length() - 1);
+        if (arg.startsWith("\"")) {
+            return unquoteMailboxName(arg);
         }
         return arg;
+    }
+
+    /**
+     * Decodes a quoted-string mailbox name (RFC 9051 section 4.3): the
+     * backslash escapes a quote or another backslash. Returns null when the
+     * string is not properly terminated.
+     */
+    private static String unquoteMailboxName(String quoted) {
+        int end = quoted.length() - 1;
+        if (end < 1 || quoted.charAt(end) != '"') {
+            return null;
+        }
+        StringBuilder sb = new StringBuilder(end);
+        for (int i = 1; i < end; i++) {
+            char c = quoted.charAt(i);
+            if (c == '\\' && i + 1 < end) {
+                i++;
+                c = quoted.charAt(i);
+            }
+            sb.append(c);
+        }
+        return sb.toString();
     }
 
     private String[] parseQuotedStrings(String args, int count) {
@@ -7508,14 +7876,6 @@ public final class ImapProtocolHandler
         private final String tag;
         private final String mechanism;
         private final Runnable onSuccess;
-
-        AuthenticateStateImpl(String tag) {
-            this(tag, "PASSWORD", null);
-        }
-
-        AuthenticateStateImpl(String tag, String mechanism) {
-            this(tag, mechanism, null);
-        }
 
         AuthenticateStateImpl(String tag, String mechanism,
                 Runnable onSuccess) {
@@ -8084,15 +8444,17 @@ public final class ImapProtocolHandler
 
     private class ExpungeStateImpl implements ExpungeState {
         private final String tag;
+        private final MessageSet uidSet;
 
-        ExpungeStateImpl(String tag) {
+        ExpungeStateImpl(String tag, MessageSet uidSet) {
             this.tag = tag;
+            this.uidSet = uidSet;
         }
 
         @Override
         public void proceed(SelectedHandler handler) {
             selectedHandler = handler;
-            executeExpunge(tag);
+            executeExpunge(tag, uidSet);
         }
 
         @Override

@@ -48,7 +48,7 @@ import org.bluezoo.gumdrop.dns.client.ResolveCallback;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-final class SocketSocksTransport implements SocksTransport {
+class SocketSocksTransport implements SocksTransport {
 
     @Override
     public void resolve(SelectorLoop loop, String host,
@@ -67,16 +67,30 @@ final class SocketSocksTransport implements SocksTransport {
         client.connect(gumdrop, handler);
     }
 
+    /** Test seam: opens the BIND server channel. */
+    ServerSocketChannel openServerChannel() throws IOException {
+        return ServerSocketChannel.open();
+    }
+
     @Override
     public BindListener listenBind(Gumdrop gumdrop,
             AcceptSelectorLoop.RawAcceptHandler acceptor) throws IOException {
-        final ServerSocketChannel channel = ServerSocketChannel.open();
-        channel.configureBlocking(false);
-        // Bind to loopback only - BIND is a server-assisted relay, not a
-        // general inbound listener, so exposing it on all interfaces is
-        // unnecessary and widens the attack surface.
-        channel.bind(new InetSocketAddress(
-                InetAddress.getLoopbackAddress(), 0));
+        final ServerSocketChannel channel = openServerChannel();
+        try {
+            channel.configureBlocking(false);
+            // Bind to loopback only - BIND is a server-assisted relay, not a
+            // general inbound listener, so exposing it on all interfaces is
+            // unnecessary and widens the attack surface.
+            channel.bind(new InetSocketAddress(
+                    InetAddress.getLoopbackAddress(), 0));
+        } catch (IOException | RuntimeException e) {
+            try {
+                channel.close();
+            } catch (IOException ce) {
+                // Ignore close errors; the original failure is rethrown
+            }
+            throw e;
+        }
         final InetSocketAddress bound =
                 (InetSocketAddress) channel.getLocalAddress();
         gumdrop.getAcceptLoop().registerRawAcceptor(channel, acceptor);

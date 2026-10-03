@@ -1484,7 +1484,21 @@ public final class MaildirMailbox implements Mailbox {
                 final int msgNumber = msg.getMessageNumber();
                 final long msgSize = msg.getSize();
                 context = new MessageContext() {
-                    private MessageContext bodyContext;
+                    private MessageContext parsedContext;
+
+                    /**
+                     * The index holds neither the body nor every header, so
+                     * those searches parse the message on demand.
+                     */
+                    private MessageContext parsed() {
+                        if (parsedContext == null) {
+                            parsedContext = new ParsedMessageContext(
+                                    MaildirMailbox.this,
+                                    msgNumber, uid, msgSize,
+                                    indexed.getFlags(), null);
+                        }
+                        return parsedContext;
+                    }
 
                     @Override
                     public int getMessageNumber() {
@@ -1513,12 +1527,18 @@ public final class MaildirMailbox implements Mailbox {
                     @Override
                     public String getHeader(String name)
                             throws IOException {
-                        return indexed.getHeader(name);
+                        if (IndexedMessageContext.isIndexedHeader(name)) {
+                            return indexed.getHeader(name);
+                        }
+                        return parsed().getHeader(name);
                     }
                     @Override
                     public List<String> getHeaders(String name)
                             throws IOException {
-                        return indexed.getHeaders(name);
+                        if (IndexedMessageContext.isIndexedHeader(name)) {
+                            return indexed.getHeaders(name);
+                        }
+                        return parsed().getHeaders(name);
                     }
                     @Override
                     public OffsetDateTime getSentDate()
@@ -1528,20 +1548,12 @@ public final class MaildirMailbox implements Mailbox {
                     @Override
                     public CharSequence getHeadersText()
                             throws IOException {
-                        return indexed.getHeadersText();
+                        return parsed().getHeadersText();
                     }
                     @Override
                     public CharSequence getBodyText()
                             throws IOException {
-                        // The index deliberately holds no body text, so
-                        // BODY/TEXT searches parse the message on demand.
-                        if (bodyContext == null) {
-                            bodyContext = new ParsedMessageContext(
-                                    MaildirMailbox.this,
-                                    msgNumber, uid, msgSize,
-                                    indexed.getFlags(), null);
-                        }
-                        return bodyContext.getBodyText();
+                        return parsed().getBodyText();
                     }
                     @Override
                     public String getEmailId() {

@@ -43,7 +43,7 @@ import static org.junit.Assert.*;
 
 /**
  * Exercises the real AMQP client's SASL mechanisms (issue #188) against a
- * real RabbitMQ broker, which -- unlike {@code FakeAMQPBroker} -- is a
+ * real RabbitMQ broker, which -- unlike {@code MockAMQPBroker} -- is a
  * genuine implementation of {@code AMQPLAIN} and of rejecting bad
  * credentials, so this is the only place these paths get tested against
  * an implementation gumdrop didn't write itself. Not run in CI, see

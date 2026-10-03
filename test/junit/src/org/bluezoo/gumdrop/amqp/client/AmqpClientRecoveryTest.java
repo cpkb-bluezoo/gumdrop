@@ -76,7 +76,7 @@ public class AmqpClientRecoveryTest {
         }
     }
 
-    private static final class FakeConnector implements AmqpClientRecovery.Connector {
+    private static final class MockConnector implements AmqpClientRecovery.Connector {
         final List<Conn> conns = new ArrayList<Conn>();
         IOException failure;
         int attempts;
@@ -131,7 +131,7 @@ public class AmqpClientRecoveryTest {
 
     private final List<String> events = new ArrayList<String>();
     private final List<Exception> causes = new ArrayList<Exception>();
-    private FakeConnector connector;
+    private MockConnector connector;
     private HandScheduler scheduler;
     private AmqpClientRecovery client;
 
@@ -171,7 +171,7 @@ public class AmqpClientRecoveryTest {
 
     @Before
     public void setUp() {
-        connector = new FakeConnector();
+        connector = new MockConnector();
         scheduler = new HandScheduler();
     }
 

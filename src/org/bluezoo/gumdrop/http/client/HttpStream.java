@@ -288,6 +288,16 @@ class HttpStream implements HttpRequest {
         this.authRetry = true;
     }
 
+    /**
+     * Binds the response handler of a server-pushed stream. The request
+     * was made by the server, so nothing is sent for it.
+     */
+    void attachPushedResponseHandler(HttpResponseHandler responseHandler) {
+        this.handler = responseHandler;
+        this.headersSent = true;
+        this.bodySent = true;
+    }
+
     @Override
     public void send(HttpResponseHandler handler) {
         if (this.handler != null) {

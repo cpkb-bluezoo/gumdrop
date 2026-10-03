@@ -56,7 +56,7 @@ import org.junit.Test;
 /**
  * Tests for receiving links: attach, credit, streamed delivery of
  * messages across transfer frames, disposition and session windows,
- * against the fake broker.
+ * against the mock broker.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */

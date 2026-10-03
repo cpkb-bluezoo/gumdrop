@@ -222,6 +222,63 @@ public class H3ClientConnectIpResponseHandlerTest {
         }
     }
 
+    @Test
+    public void testDatagramWithAnUnregisteredContextIdIsIgnored() throws Exception {
+        RecordingConnectIpHandler handler = new RecordingConnectIpHandler();
+        H3ClientStream stream = createConnectIpStream(handler);
+        stream.headersFrameReceived(encode(":status", "200", "capsule-protocol", "?1"));
+        ByteBuffer contextEncoded = HttpDatagramContext.encode(7L, ByteBuffer.wrap(new byte[] {1, 2}));
+        byte[] contextBytes = new byte[contextEncoded.remaining()];
+        contextEncoded.get(contextBytes);
+        stream.dataFrameReceived(ByteBuffer.wrap(Capsule.datagram(contextBytes).encode()), true);
+        assertNull(handler.lastPacket);
+        stream.dataFrameReceived(ByteBuffer.wrap(Capsule.datagram(new byte[0]).encode()), true);
+        assertNull(handler.lastPacket);
+    }
+
+    @Test
+    public void testMalformedAndUnknownCapsulesAreIgnored() throws Exception {
+        RecordingConnectIpHandler handler = new RecordingConnectIpHandler();
+        H3ClientStream stream = createConnectIpStream(handler);
+        stream.headersFrameReceived(encode(":status", "200", "capsule-protocol", "?1"));
+        byte[] badAddress = new byte[] {0, 9, 1, 2};
+        stream.dataFrameReceived(ByteBuffer.wrap(
+                new Capsule(ConnectIpAddress.TYPE_ADDRESS_ASSIGN, badAddress).encode()), true);
+        byte[] badRoute = new byte[] {9, 9, 9};
+        stream.dataFrameReceived(ByteBuffer.wrap(
+                new Capsule(ConnectIpRoute.TYPE_ROUTE_ADVERTISEMENT, badRoute).encode()), true);
+        stream.dataFrameReceived(ByteBuffer.wrap(
+                new Capsule(0x7777L, new byte[] {1}).encode()), true);
+        assertNull(handler.lastAssigned);
+        assertNull(handler.lastRoutes);
+        assertNull(handler.lastPacket);
+    }
+
+    @Test
+    public void testEndOfStreamClosesAnOpenedSessionOnly() throws Exception {
+        RecordingConnectIpHandler opened = new RecordingConnectIpHandler();
+        H3ClientStream stream = createConnectIpStream(opened);
+        stream.headersFrameReceived(encode(":status", "200", "capsule-protocol", "?1"));
+        stream.readFinished();
+        assertEquals(true, opened.closed);
+        RecordingConnectIpHandler rejected = new RecordingConnectIpHandler();
+        H3ClientStream other = createConnectIpStream(rejected);
+        other.headersFrameReceived(encode(":status", "403"));
+        other.readFinished();
+        assertEquals(false, rejected.closed);
+    }
+
+    @Test
+    public void testTransportFailureIsReportedOnlyOnce() throws Exception {
+        RecordingConnectIpHandler handler = new RecordingConnectIpHandler();
+        H3ClientStream stream = createConnectIpStream(handler);
+        java.io.IOException first = new java.io.IOException("first");
+        stream.error(first);
+        assertEquals(first, handler.error);
+        stream.error(new java.io.IOException("second"));
+        assertEquals(first, handler.error);
+    }
+
     private H3ClientStream createConnectIpStream(ConnectIpEventHandler handler) throws Exception {
         H3ClientConnectIpResponseHandler responseHandler = new H3ClientConnectIpResponseHandler(handler);
         // connection is null: exercises the stream/handler wiring in

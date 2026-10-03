@@ -372,4 +372,57 @@ public class ClusterRecordingMemberTest {
         assertEquals("fragment", m.invoke(null, Byte.valueOf((byte) 4)));
         assertEquals("unknown", m.invoke(null, Byte.valueOf((byte) 9)));
     }
+
+    @Test
+    public void testSessionManagerUsesTheClusterWhenSet() throws Exception {
+        assertFalse(manager.isClusteringEnabled());
+        manager.setCluster(cluster);
+        assertTrue(manager.isClusteringEnabled());
+        UUID before = manager.getContextUuid();
+        UUID after = manager.regenerateContextUuid();
+        assertFalse(before.equals(after));
+        assertEquals(after, manager.getContextUuid());
+        Session s = (Session) manager.createSession();
+        s.setAttribute("a", "b");
+        manager.replicateSession(s);
+        assertEquals(2, endpoint.destinations.size());
+        manager.removeSession(s.getId());
+        assertEquals(4, endpoint.destinations.size());
+        manager.setCluster(null);
+        assertFalse(manager.isClusteringEnabled());
+    }
+
+    @Test
+    public void testUnregisterContextForgetsTheManager() throws Exception {
+        assertTrue(cluster.getSessionManager(contextUuid) == manager);
+        cluster.unregisterContext(contextUuid);
+        assertNull(cluster.getSessionManager(contextUuid));
+        cluster.unregisterContext(contextUuid);
+        assertNull(cluster.getSessionManager(contextUuid));
+    }
+
+    @Test
+    public void testSessionManagerLookupByDigest() throws Exception {
+        Object found = method(Cluster.class, "getSessionManagerByDigest")
+                .invoke(cluster, new Object[] {new byte[16]});
+        assertTrue(found == manager);
+        cluster.unregisterContext(contextUuid);
+        Object gone = method(Cluster.class, "getSessionManagerByDigest")
+                .invoke(cluster, new Object[] {new byte[16]});
+        assertNull(gone);
+    }
+
+    @Test
+    public void testReplicationAllowedClassesAreConfiguredOnTheSerializer() throws Exception {
+        java.util.Set<String> extra = new java.util.HashSet<String>();
+        extra.add(StringBuilder.class.getName());
+        cluster.setReplicationAllowedClasses(extra);
+        try {
+            assertTrue(SessionSerializer.isAllowedDeserializationClass(StringBuilder.class));
+            cluster.setReplicationAllowedClasses(null);
+            assertFalse(SessionSerializer.isAllowedDeserializationClass(StringBuilder.class));
+        } finally {
+            SessionSerializer.configureAllowedClasses(null);
+        }
+    }
 }

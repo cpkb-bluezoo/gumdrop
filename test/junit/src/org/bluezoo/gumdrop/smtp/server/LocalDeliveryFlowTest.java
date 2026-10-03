@@ -54,15 +54,15 @@ public class LocalDeliveryFlowTest {
 
     private RecordingStubEndpoint endpoint;
     private SmtpProtocolHandler handler;
-    private FakeFactory factory;
+    private MockFactory factory;
 
     @Before
     public void setUp() {
-        factory = new FakeFactory();
+        factory = new MockFactory();
         start(factory);
     }
 
-    private void start(FakeFactory f) {
+    private void start(MockFactory f) {
         SmtpListener listener = new SmtpListener();
         LocalDeliveryHandler local = new LocalDeliveryHandler(f, "Example.COM", "mx.example.com");
         handler = new SmtpProtocolHandler(listener, local);
@@ -169,7 +169,7 @@ public class LocalDeliveryFlowTest {
         raw("Subject: hi\r\n\r\nasync body\r\n.\r\n");
         assertTrue(last(), last().startsWith("250"));
         assertEquals(1, factory.writers.size());
-        FakeWriter writer = factory.writers.get(0);
+        MockWriter writer = factory.writers.get(0);
         assertTrue(writer.finished);
         assertTrue(writer.written.toString().contains("async body"));
     }
@@ -215,7 +215,7 @@ public class LocalDeliveryFlowTest {
         expect("DATA", "354");
         raw("Subject: partial\r\n");
         assertEquals(1, factory.writers.size());
-        FakeWriter writer = factory.writers.get(0);
+        MockWriter writer = factory.writers.get(0);
         writer.pause = true;
         raw("more\r\n");
         assertTrue(writer.written.toString().contains("more"));
@@ -228,7 +228,7 @@ public class LocalDeliveryFlowTest {
         toRcpt();
         expect("DATA", "354");
         raw("partial\r\n");
-        FakeWriter writer = factory.writers.get(0);
+        MockWriter writer = factory.writers.get(0);
         assertFalse(writer.finished);
     }
 
@@ -262,10 +262,10 @@ public class LocalDeliveryFlowTest {
     // -- mocks --
 
     /** Records what the handler does to the mailbox layer. */
-    static final class FakeFactory implements MailboxFactory {
+    static final class MockFactory implements MailboxFactory {
         final List<String> deliveries = new ArrayList<String>();
         final List<String> users = new ArrayList<String>();
-        final List<FakeWriter> writers = new ArrayList<FakeWriter>();
+        final List<MockWriter> writers = new ArrayList<MockWriter>();
         boolean async;
         boolean failAppend;
         boolean failFinish;
@@ -281,7 +281,7 @@ public class LocalDeliveryFlowTest {
             if (createThrows) {
                 throw new IllegalStateException("store unavailable");
             }
-            final FakeFactory self = this;
+            final MockFactory self = this;
             final String[] user = new String[1];
             final Mailbox mailbox = (Mailbox) Proxy.newProxyInstance(
                     Mailbox.class.getClassLoader(), new Class<?>[] {Mailbox.class},
@@ -316,11 +316,11 @@ public class LocalDeliveryFlowTest {
 
     /** Invocation handler for the mailbox proxy. */
     private static final class MailboxHandler implements InvocationHandler {
-        private final FakeFactory factory;
+        private final MockFactory factory;
         private final String[] user;
         private StringBuilder current;
 
-        MailboxHandler(FakeFactory factory, String[] user) {
+        MailboxHandler(MockFactory factory, String[] user) {
             this.factory = factory;
             this.user = user;
         }
@@ -330,7 +330,7 @@ public class LocalDeliveryFlowTest {
             String name = method.getName();
             if ("openAsyncAppend".equals(name)) {
                 if (factory.async && factory.writers.size() < factory.asyncLimit) {
-                    FakeWriter writer = new FakeWriter(factory.failFinish, factory.failWrite, factory.finishThrows);
+                    MockWriter writer = new MockWriter(factory.failFinish, factory.failWrite, factory.finishThrows);
                     factory.writers.add(writer);
                     return writer;
                 }
@@ -375,7 +375,7 @@ public class LocalDeliveryFlowTest {
     }
 
     /** Asynchronous writer capturing everything written to it. */
-    static final class FakeWriter implements AsyncMessageWriter {
+    static final class MockWriter implements AsyncMessageWriter {
         final StringBuilder written = new StringBuilder();
         final boolean failFinish;
         final boolean failWrite;
@@ -384,7 +384,7 @@ public class LocalDeliveryFlowTest {
         boolean aborted;
         boolean pause;
 
-        FakeWriter(boolean failFinish, boolean failWrite, boolean finishThrows) {
+        MockWriter(boolean failFinish, boolean failWrite, boolean finishThrows) {
             this.finishThrows = finishThrows;
             this.failFinish = failFinish;
             this.failWrite = failWrite;

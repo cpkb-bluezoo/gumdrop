@@ -58,7 +58,7 @@ public class FTPClientProtocolHandlerTest {
     private static Gumdrop gumdrop;
 
     private FtpClientProtocolHandler handler;
-    private final FakeActiveListenerOpener listeners = new FakeActiveListenerOpener();
+    private final MockActiveListenerOpener listeners = new MockActiveListenerOpener();
     private StubEndpoint endpoint;
     private final List<String> sentCommands = new ArrayList<>();
     private final AtomicBoolean disconnected = new AtomicBoolean();

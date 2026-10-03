@@ -100,7 +100,7 @@ public class SelectorLoopShutdownIntegrationTest {
      * close. When {@code stubborn} it ignores an orderly close (a peer that
      * never drains); when {@code stuck} it ignores every close.
      */
-    private static final class FakeHandler implements ChannelHandler {
+    private static final class MockHandler implements ChannelHandler {
         final boolean stubborn;
         final boolean stuck;
         final List<Boolean> modes = Collections.synchronizedList(new ArrayList<Boolean>());
@@ -110,7 +110,7 @@ public class SelectorLoopShutdownIntegrationTest {
         volatile SelectionKey key;
         volatile SelectorLoop loop;
 
-        FakeHandler(boolean stubborn, boolean stuck) {
+        MockHandler(boolean stubborn, boolean stuck) {
             this.stubborn = stubborn;
             this.stuck = stuck;
         }
@@ -195,8 +195,8 @@ public class SelectorLoopShutdownIntegrationTest {
         await(done);
     }
 
-    private FakeHandler register(SelectorLoop loop, boolean stubborn, boolean stuck) throws Exception {
-        FakeHandler handler = new FakeHandler(stubborn, stuck);
+    private MockHandler register(SelectorLoop loop, boolean stubborn, boolean stuck) throws Exception {
+        MockHandler handler = new MockHandler(stubborn, stuck);
         DatagramChannel dc = openChannel();
         loop.registerDatagram(dc, handler);
         barrier(loop);
@@ -211,8 +211,8 @@ public class SelectorLoopShutdownIntegrationTest {
     @Test
     public void orderlyShutdownClosesOwnedHandlersOnTheLoopThread() throws Exception {
         SelectorLoop loop = startedLoop();
-        FakeHandler a = register(loop, false, false);
-        FakeHandler b = register(loop, false, false);
+        MockHandler a = register(loop, false, false);
+        MockHandler b = register(loop, false, false);
 
         loop.shutdown();
         awaitTerminated(loop);
@@ -230,7 +230,7 @@ public class SelectorLoopShutdownIntegrationTest {
     @Test
     public void abortClosesWithoutGoodbyes() throws Exception {
         SelectorLoop loop = startedLoop();
-        FakeHandler a = register(loop, false, false);
+        MockHandler a = register(loop, false, false);
 
         loop.shutdownNow();
         awaitTerminated(loop);
@@ -243,7 +243,7 @@ public class SelectorLoopShutdownIntegrationTest {
     @Test
     public void loopDoesNotExitWhileAnOrderlyCloseIsStillPending() throws Exception {
         SelectorLoop loop = startedLoop();
-        FakeHandler stubborn = register(loop, true, false);
+        MockHandler stubborn = register(loop, true, false);
 
         loop.shutdown();
         await(stubborn.orderlyAsked);
@@ -255,7 +255,7 @@ public class SelectorLoopShutdownIntegrationTest {
     @Test
     public void abortEscalatesAnOrderlyShutdownInProgress() throws Exception {
         SelectorLoop loop = startedLoop();
-        FakeHandler stubborn = register(loop, true, false);
+        MockHandler stubborn = register(loop, true, false);
 
         loop.shutdown();
         await(stubborn.orderlyAsked);
@@ -274,7 +274,7 @@ public class SelectorLoopShutdownIntegrationTest {
         loops.add(loop);
         loop.setCloseDeadlineMs(5000L);
         loop.start();
-        FakeHandler stuck = register(loop, true, true);
+        MockHandler stuck = register(loop, true, true);
         final SelectionKey key = stuck.getSelectionKey();
         final DatagramChannel dc = (DatagramChannel) key.channel();
 
@@ -369,7 +369,7 @@ public class SelectorLoopShutdownIntegrationTest {
         loop.shutdown();
         awaitTerminated(loop);
 
-        FakeHandler late = new FakeHandler(false, false);
+        MockHandler late = new MockHandler(false, false);
         DatagramChannel dc = openChannel();
         loop.registerDatagram(dc, late);
 
@@ -381,11 +381,11 @@ public class SelectorLoopShutdownIntegrationTest {
     @Test
     public void registrationQueuedDuringClosingIsClosedToo() throws Exception {
         SelectorLoop loop = startedLoop();
-        FakeHandler stubborn = register(loop, true, false);
+        MockHandler stubborn = register(loop, true, false);
         loop.shutdown();
         await(stubborn.orderlyAsked);
 
-        FakeHandler late = new FakeHandler(false, false);
+        MockHandler late = new MockHandler(false, false);
         DatagramChannel dc = openChannel();
         loop.registerDatagram(dc, late);
         await(late.anyAsked);
@@ -401,7 +401,7 @@ public class SelectorLoopShutdownIntegrationTest {
         // hold it when the abort arrives. A handler that obeyed the orderly
         // close could be gone before the abort is processed, which would
         // make "the abort is the last word" depend on thread timing.
-        FakeHandler a = register(loop, true, false);
+        MockHandler a = register(loop, true, false);
 
         loop.shutdown();
         loop.shutdown();

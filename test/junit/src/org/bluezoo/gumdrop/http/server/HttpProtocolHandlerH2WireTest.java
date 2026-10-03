@@ -1216,6 +1216,87 @@ public class HttpProtocolHandlerH2WireTest {
         assertNotNull(enc);
     }
 
+    private static byte[] concat(byte[]... parts) {
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        for (int i = 0; i < parts.length; i++) {
+            out.write(parts[i], 0, parts[i].length);
+        }
+        return out.toByteArray();
+    }
+
+    @Test
+    public void testCorruptedPrefaceAtEveryPositionIsNotConsumed() {
+        for (int i = 0; i < PREFACE.length; i++) {
+            Conn c = new Conn();
+            c.open();
+            byte[] bad = PREFACE.clone();
+            bad[i] = (byte) '!';
+            c.send(bad);
+            List<Frame> frames = c.frames();
+            assertEquals("position " + i, 6, goawayError(frames));
+        }
+    }
+
+    @Test
+    public void testEveryInitialSettingIsApplied() {
+        Conn c = new Conn();
+        c.open();
+        c.send(PREFACE);
+        byte[] settings = concat(
+                setting(1, 8192), setting(2, 1), setting(3, 50),
+                setting(4, 100000), setting(5, 32768), setting(6, 20000),
+                setting(8, 1), setting(9, 1), setting(0x99, 7));
+        c.send(frame(4, 0, 0, settings));
+        assertEquals(20000, c.handler.getMaxHeaderListSize());
+        assertTrue(c.handler.isEnablePush());
+        assertEquals(0, c.endpoint.getCloseCount());
+        assertTrue(count(c.frames(), 4) >= 2);
+    }
+
+    @Test
+    public void testEverySettingIsReappliedAfterHandshake() {
+        Conn c = new Conn();
+        c.handshake();
+        byte[] settings = concat(
+                setting(1, 2048), setting(2, 0), setting(3, 7),
+                setting(4, 70000), setting(5, 20000), setting(6, 9000),
+                setting(8, 0), setting(9, 0), setting(0x99, 1));
+        c.send(frame(4, 0, 0, settings));
+        assertEquals(9000, c.handler.getMaxHeaderListSize());
+        assertFalse(c.handler.isEnablePush());
+        assertEquals(0, c.endpoint.getCloseCount());
+        byte[] again = concat(setting(2, 1), setting(8, 1));
+        c.send(frame(4, 0, 0, again));
+        assertTrue(c.handler.isEnablePush());
+    }
+
+    @Test
+    public void testClosedStreamIsSweptOnceRetentionExpires() {
+        Conn c = new Conn();
+        c.handshake();
+        c.request(1, "GET", "/a", true);
+        Stream s = c.handler.getStream(1);
+        assertTrue(s.isClosed());
+        c.handler.lastStreamCleanup = 0L;
+        c.handler.getStream(0);
+        assertEquals("recent closed stream is retained", 1,
+                c.handler.streamCountForTesting());
+        s.timestampCompleted = 1L;
+        c.handler.lastStreamCleanup = 0L;
+        c.handler.getStream(0);
+        assertEquals(0, c.handler.streamCountForTesting());
+    }
+
+    @Test
+    public void testOpenStreamSurvivesTheSweep() {
+        Conn c = new Conn();
+        c.handshake();
+        c.request(1, "POST", "/a", false);
+        c.handler.lastStreamCleanup = 0L;
+        c.handler.getStream(0);
+        assertEquals(1, c.handler.streamCountForTesting());
+    }
+
     private static final class PriorityParamsProbe {
         static void check(HttpProtocolHandler h) {
             assertNotNull(h.h2PriorityOf(1));

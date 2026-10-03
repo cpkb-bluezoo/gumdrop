@@ -316,12 +316,15 @@ public final class BerDecoder {
      * all beyond the {@link Asn1Element}s and leaf value byte arrays the
      * result must own regardless.
      */
+    /** Deepest nesting of constructed elements accepted from a peer. */
+    private static final int MAX_NESTING = 64;
+
     private List<Asn1Element> parseChildren(byte[] data) throws Asn1Exception {
         List<Asn1Element> children = new ArrayList<Asn1Element>();
         int pos = 0;
         int end = data.length;
         while (pos < end) {
-            pos = parseOneElement(data, pos, end, children);
+            pos = parseOneElement(data, pos, end, children, 1);
         }
         return children;
     }
@@ -339,8 +342,11 @@ public final class BerDecoder {
      * {@link #receive} calls -- appropriate here since all of {@code
      * data} is already available at once.
      */
-    private int parseOneElement(byte[] data, int pos, int end, List<Asn1Element> children)
-            throws Asn1Exception {
+    private int parseOneElement(byte[] data, int pos, int end, List<Asn1Element> children,
+            int depth) throws Asn1Exception {
+        if (depth > MAX_NESTING) {
+            throw new Asn1Exception("Elements nested too deeply");
+        }
         if (pos >= end) {
             throw new Asn1Exception("Truncated element in constructed type");
         }
@@ -401,7 +407,8 @@ public final class BerDecoder {
             int childPos = pos;
             int childEnd = pos + elementLength;
             while (childPos < childEnd) {
-                childPos = parseOneElement(data, childPos, childEnd, nestedChildren);
+                childPos = parseOneElement(data, childPos, childEnd, nestedChildren,
+                        depth + 1);
             }
             element = new Asn1Element(elementTag, nestedChildren);
         } else {

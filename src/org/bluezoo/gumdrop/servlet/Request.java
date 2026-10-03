@@ -74,6 +74,9 @@ class Request implements HttpServletRequest {
         GET_PARTS_CALLED;
     }
 
+    /** The spelling of the client certificate method in web.xml login-config. */
+    private static final String CLIENT_CERT_DESCRIPTOR_NAME = "CLIENT-CERT";
+
     static final DateFormat dateFormat = new HttpDateFormat();
     private static final byte COLON = 0x3a;
 
@@ -241,7 +244,15 @@ class Request implements HttpServletRequest {
     // -- HttpServletRequest --
 
     @Override public String getAuthType() {
-        return (userPrincipal == null) ? null : context.getAuthMethod();
+        if (userPrincipal == null) {
+            return null;
+        }
+        String authMethod = context.getAuthMethod();
+        if (CLIENT_CERT_DESCRIPTOR_NAME.equals(authMethod)) {
+            // web.xml spells it CLIENT-CERT; the API constant is CLIENT_CERT
+            return HttpServletRequest.CLIENT_CERT_AUTH;
+        }
+        return authMethod;
     }
 
     @SuppressWarnings("removal") // legacy $Version cookie parsing; Cookie.setVersion until API removal
@@ -497,7 +508,8 @@ class Request implements HttpServletRequest {
         // Handle servlet-specific authentication methods
         if (HttpServletRequest.FORM_AUTH.equals(authMethod)) {
             return authenticateForm(response);
-        } else if (HttpServletRequest.CLIENT_CERT_AUTH.equals(authMethod)) {
+        } else if (HttpServletRequest.CLIENT_CERT_AUTH.equals(authMethod)
+                || CLIENT_CERT_DESCRIPTOR_NAME.equals(authMethod)) {
             return authenticateClientCert(response);
         }
 
@@ -537,6 +549,17 @@ class Request implements HttpServletRequest {
     }
 
     /**
+     * Resolves a context-relative path from the deployment descriptor (such
+     * as the form login page) against this request's context path.
+     */
+    private String contextRelative(String path) {
+        if (path != null && path.startsWith("/")) {
+            return contextPath + path;
+        }
+        return path;
+    }
+
+    /**
      * Handle FORM authentication (servlet-specific).
      */
     private boolean authenticateForm(HttpServletResponse response) throws IOException {
@@ -545,14 +568,14 @@ class Request implements HttpServletRequest {
         String realm = context.getRealmName();
 
         if (username == null) {
-            response.sendRedirect(context.getFormLoginPage());
+            response.sendRedirect(contextRelative(context.getFormLoginPage()));
             return false;
         } else {
             if (!context.passwordMatch(realm, username, password)) {
                 String message = Context.L10N.getString("err.auth_fail");
                 message = MessageFormat.format(message, username);
                 Context.LOGGER.warning(message);
-                response.sendRedirect(context.getFormErrorPage());
+                response.sendRedirect(contextRelative(context.getFormErrorPage()));
                 return false;
             }
         }
@@ -929,14 +952,7 @@ class Request implements HttpServletRequest {
         Map<String,List<String>> accum = new LinkedHashMap<>();
         // Parameters specified in query-string
         if (queryString != null) {
-            int start = 0;
-            int end = queryString.indexOf('&', start);
-            while (end > start) {
-                addParameter(accum, queryString.substring(start, end));
-                start = end + 1;
-                end = queryString.indexOf('&', start);
-            }
-            addParameter(accum, queryString.substring(start));
+            addEncodedParameters(accum, queryString, "UTF-8");
         }
         // Parameters in x-www-form-urlencoded POST body
         if ("POST".equals(method)) {
@@ -954,14 +970,7 @@ class Request implements HttpServletRequest {
                     // charset applies to the decoded octets (addParameter)
                     String body = new String(buf, "ISO-8859-1");
                     String formCharset = getFormCharset();
-                    int start = 0;
-                    int end = body.indexOf('&', start);
-                    while (end > start) {
-                        addEncodedParameter(accum, body.substring(start, end), formCharset);
-                        start = end + 1;
-                        end = body.indexOf('&', start);
-                    }
-                    addEncodedParameter(accum, body.substring(start), formCharset);
+                    addEncodedParameters(accum, body, formCharset);
                 } catch (IOException e) {
                     Context.LOGGER.warning(MessageFormat.format(
                             Context.L10N.getString("warn.form_parameters_parse_failed"), e.getMessage()));
@@ -991,6 +1000,27 @@ class Request implements HttpServletRequest {
             return cs;
         }
         return "ISO-8859-1";
+    }
+
+    /**
+     * Adds every name=value pair of an {@code &}-separated, percent-encoded
+     * parameter string, skipping empty segments such as those produced by
+     * consecutive or trailing ampersands.
+     */
+    static void addEncodedParameters(Map<String,List<String>> parameters, String encoded,
+            String charset) {
+        int len = encoded.length();
+        int start = 0;
+        while (start <= len) {
+            int end = encoded.indexOf('&', start);
+            if (end < 0) {
+                end = len;
+            }
+            if (end > start) {
+                addEncodedParameter(parameters, encoded.substring(start, end), charset);
+            }
+            start = end + 1;
+        }
     }
 
     static void addParameter(Map<String,List<String>> parameters, String param) {
@@ -1281,16 +1311,18 @@ class Request implements HttpServletRequest {
         if (!isAsyncSupported()) {
             throw new IllegalStateException("Async not supported for this request");
         }
-        while (request instanceof ServletRequestWrapper) {
-            request = ((ServletRequestWrapper) request).getRequest();
+        ServletRequest innerRequest = request;
+        while (innerRequest instanceof ServletRequestWrapper) {
+            innerRequest = ((ServletRequestWrapper) innerRequest).getRequest();
         }
-        if (request != this) {
+        if (innerRequest != this) {
             throw new IllegalStateException("Request must wrap this request");
         }
-        while (response instanceof ServletResponseWrapper) {
-            response = ((ServletResponseWrapper) response).getResponse();
+        ServletResponse innerResponse = response;
+        while (innerResponse instanceof ServletResponseWrapper) {
+            innerResponse = ((ServletResponseWrapper) innerResponse).getResponse();
         }
-        if (response != handler.getResponse()) {
+        if (innerResponse != handler.getResponse()) {
             throw new IllegalStateException("Response must wrap this response");
         }
         if (asyncContext != null && asyncContext.isCompleted()) {

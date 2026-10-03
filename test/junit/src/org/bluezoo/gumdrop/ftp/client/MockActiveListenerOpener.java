@@ -1,5 +1,5 @@
 /*
- * FakeActiveListenerOpener.java
+ * MockActiveListenerOpener.java
  * Copyright (C) 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -36,7 +36,7 @@ import org.bluezoo.gumdrop.AcceptSelectorLoop;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-final class FakeActiveListenerOpener
+final class MockActiveListenerOpener
         implements FtpClientDataConnectionCoordinator.ActiveListenerOpener {
 
     /** A listener that records its close. */

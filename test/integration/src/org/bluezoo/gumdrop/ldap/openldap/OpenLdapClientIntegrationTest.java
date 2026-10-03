@@ -70,7 +70,7 @@ import static org.junit.Assume.assumeTrue;
  *
  * <p>Same rationale as the Postfix/vsftpd/Dante tests: an independent
  * implementation on the other end of the wire catches bugs a same-lineage
- * fake server can't.
+ * mock server can't.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */

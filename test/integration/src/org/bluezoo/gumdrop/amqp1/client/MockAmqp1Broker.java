@@ -1,5 +1,5 @@
 /*
- * FakeAmqp1Broker.java
+ * MockAmqp1Broker.java
  * Copyright (C) 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -78,7 +78,7 @@ import org.bluezoo.gumdrop.amqp1.codec.Transfer;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-final class FakeAmqp1Broker implements AutoCloseable {
+final class MockAmqp1Broker implements AutoCloseable {
 
     private static final int FRAME_PAYLOAD = 32768;
 
@@ -102,7 +102,7 @@ final class FakeAmqp1Broker implements AutoCloseable {
     private final AtomicInteger heartbeatsReceived = new AtomicInteger();
     private volatile CountDownLatch heartbeatLatch = new CountDownLatch(0);
 
-    FakeAmqp1Broker() throws IOException {
+    MockAmqp1Broker() throws IOException {
         serverSocket = new ServerSocket(0, 50, InetAddress.getLoopbackAddress());
         acceptThread = new Thread(new Runnable() {
             @Override

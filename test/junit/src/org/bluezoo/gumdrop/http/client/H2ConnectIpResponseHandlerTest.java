@@ -59,7 +59,7 @@ public class H2ConnectIpResponseHandlerTest {
     @Test
     public void testAcceptedRequestOpensAndDeliversInboundPacket() throws Exception {
         RecordingConnectIpHandler eventHandler = new RecordingConnectIpHandler();
-        FakeHTTPRequest request = new FakeHTTPRequest();
+        MockHTTPRequest request = new MockHTTPRequest();
         H2ConnectIpResponseHandler handler = new H2ConnectIpResponseHandler(request, eventHandler);
 
         handler.ok(new HttpResponse(HttpStatus.OK));
@@ -84,7 +84,7 @@ public class H2ConnectIpResponseHandlerTest {
     @Test
     public void testAddressAssignCapsuleIsDelivered() throws Exception {
         RecordingConnectIpHandler eventHandler = new RecordingConnectIpHandler();
-        FakeHTTPRequest request = new FakeHTTPRequest();
+        MockHTTPRequest request = new MockHTTPRequest();
         H2ConnectIpResponseHandler handler = new H2ConnectIpResponseHandler(request, eventHandler);
         handler.ok(new HttpResponse(HttpStatus.OK));
         handler.startResponseBody();
@@ -106,7 +106,7 @@ public class H2ConnectIpResponseHandlerTest {
     @Test
     public void testRouteAdvertisementCapsuleIsDelivered() throws Exception {
         RecordingConnectIpHandler eventHandler = new RecordingConnectIpHandler();
-        FakeHTTPRequest request = new FakeHTTPRequest();
+        MockHTTPRequest request = new MockHTTPRequest();
         H2ConnectIpResponseHandler handler = new H2ConnectIpResponseHandler(request, eventHandler);
         handler.ok(new HttpResponse(HttpStatus.OK));
         handler.startResponseBody();
@@ -129,7 +129,7 @@ public class H2ConnectIpResponseHandlerTest {
     @Test
     public void testSendPacketProducesCorrectlyFramedCapsuleOnRequestBody() throws Exception {
         RecordingConnectIpHandler eventHandler = new RecordingConnectIpHandler();
-        FakeHTTPRequest request = new FakeHTTPRequest();
+        MockHTTPRequest request = new MockHTTPRequest();
         H2ConnectIpResponseHandler handler = new H2ConnectIpResponseHandler(request, eventHandler);
 
         handler.ok(new HttpResponse(HttpStatus.OK));
@@ -155,7 +155,7 @@ public class H2ConnectIpResponseHandlerTest {
     @Test
     public void testSendAddressRequestProducesCorrectlyFramedCapsule() throws Exception {
         RecordingConnectIpHandler eventHandler = new RecordingConnectIpHandler();
-        FakeHTTPRequest request = new FakeHTTPRequest();
+        MockHTTPRequest request = new MockHTTPRequest();
         H2ConnectIpResponseHandler handler = new H2ConnectIpResponseHandler(request, eventHandler);
 
         handler.ok(new HttpResponse(HttpStatus.OK));
@@ -180,7 +180,7 @@ public class H2ConnectIpResponseHandlerTest {
     @Test
     public void testCloseEndsTheRequestBody() throws Exception {
         RecordingConnectIpHandler eventHandler = new RecordingConnectIpHandler();
-        FakeHTTPRequest request = new FakeHTTPRequest();
+        MockHTTPRequest request = new MockHTTPRequest();
         H2ConnectIpResponseHandler handler = new H2ConnectIpResponseHandler(request, eventHandler);
 
         handler.ok(new HttpResponse(HttpStatus.OK));
@@ -193,7 +193,7 @@ public class H2ConnectIpResponseHandlerTest {
     @Test
     public void testEndResponseBodyNotifiesClosed() throws Exception {
         RecordingConnectIpHandler eventHandler = new RecordingConnectIpHandler();
-        FakeHTTPRequest request = new FakeHTTPRequest();
+        MockHTTPRequest request = new MockHTTPRequest();
         H2ConnectIpResponseHandler handler = new H2ConnectIpResponseHandler(request, eventHandler);
 
         handler.ok(new HttpResponse(HttpStatus.OK));
@@ -206,7 +206,7 @@ public class H2ConnectIpResponseHandlerTest {
     @Test
     public void testRejectedRequestReportsErrorWithoutOpening() throws Exception {
         RecordingConnectIpHandler eventHandler = new RecordingConnectIpHandler();
-        FakeHTTPRequest request = new FakeHTTPRequest();
+        MockHTTPRequest request = new MockHTTPRequest();
         H2ConnectIpResponseHandler handler = new H2ConnectIpResponseHandler(request, eventHandler);
 
         handler.error(new HttpResponse(HttpStatus.FORBIDDEN));
@@ -219,7 +219,7 @@ public class H2ConnectIpResponseHandlerTest {
         assertNull("opened() should not have been called", eventHandler.session);
     }
 
-    private static class FakeHTTPRequest implements HttpRequest {
+    private static class MockHTTPRequest implements HttpRequest {
         final List<byte[]> sentChunks = new ArrayList<byte[]>();
         boolean bodyEnded;
 

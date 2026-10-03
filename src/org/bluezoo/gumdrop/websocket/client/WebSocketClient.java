@@ -707,7 +707,7 @@ public class WebSocketClient implements AltSvcListener {
                 ? new WebSocketClientProtocolHandler(
                         internalHandler, handler, "localhost", secure ? 443 : 80, secure)
                 : new WebSocketClientProtocolHandler(
-                        internalHandler, handler, host, port, secure);
+                        internalHandler, handler, cacheKeyHost(), port, secure);
         protocolHandler.setWebSocketKey(key);
         protocolHandler.setRequestedExtensions(allExtensions);
 

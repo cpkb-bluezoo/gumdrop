@@ -60,11 +60,11 @@ import static org.junit.Assert.*;
  * {@link RabbitMQTestSupport}.
  *
  * <p>Covers the same ground {@code AMQPClientIntegrationTest} covers
- * against {@code FakeAMQPBroker} (declare/bind/publish/consume,
- * publisher confirms) plus transactions, which the fake broker doesn't
+ * against {@code MockAMQPBroker} (declare/bind/publish/consume,
+ * publisher confirms) plus transactions, which the mock broker doesn't
  * implement -- these exist to catch anything a from-scratch AMQP 0-9-1
  * implementation gets subtly wrong against a real, spec-compliant peer
- * that a hand-rolled fake broker might silently agree with anyway.
+ * that a hand-rolled mock broker might silently agree with anyway.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */

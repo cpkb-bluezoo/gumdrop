@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.amqp;
 
+import java.nio.BufferUnderflowException;
 import java.nio.ByteBuffer;
 import java.util.Date;
 
@@ -314,6 +315,14 @@ public final class BasicProperties {
      * an {@link AmqpFrame#TYPE_HEADER} frame).
      */
     public static Header decode(ByteBuffer buf) throws AmqpProtocolException {
+        try {
+            return decodeHeader(buf);
+        } catch (BufferUnderflowException e) {
+            throw new AmqpProtocolException("Truncated content-header frame", e);
+        }
+    }
+
+    private static Header decodeHeader(ByteBuffer buf) throws AmqpProtocolException {
         if (buf.remaining() < 14) {
             throw new AmqpProtocolException("Truncated content-header frame");
         }

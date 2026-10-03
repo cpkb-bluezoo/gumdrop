@@ -352,7 +352,8 @@ public  class HttpProtocolHandler
      * handshake. Must not run for native h2 (ALPN / prior knowledge).
      */
     private boolean h2cBodylessUpgradeNeedsRequestComplete;
-    private long lastStreamCleanup = 0L;
+    /** Package-private so tests can rewind the cleanup gate (no clock needed). */
+    long lastStreamCleanup = 0L;
     private int webSocketStreamId = -1;
 
     // RFC 9113 section 6.5.3: SETTINGS_TIMEOUT enforcement
@@ -2524,7 +2525,10 @@ public  class HttpProtocolHandler
         }
         int required = (end - start) + 1;
         if (headerValue.remaining() < required) {
-            CharBuffer tmp = CharBuffer.allocate(headerValue.remaining()
+            // capacity must cover what is already buffered (position), not
+            // the free space (remaining): the latter overflowed once a
+            // value of several words outgrew the buffer a second time
+            CharBuffer tmp = CharBuffer.allocate(headerValue.position()
                     + Math.max(HEADER_VALUE_BUFFER_SIZE, required));
             headerValue.flip();
             tmp.put(headerValue);

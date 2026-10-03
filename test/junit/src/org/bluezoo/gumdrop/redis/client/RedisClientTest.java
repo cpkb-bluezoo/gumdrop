@@ -48,7 +48,7 @@ public class RedisClientTest {
     private static final long TIMEOUT_SECONDS = 5;
 
     private Gumdrop gumdrop;
-    private FakeRedisListener listener;
+    private MockRedisListener listener;
 
     @After
     public void tearDown() throws InterruptedException {
@@ -67,17 +67,17 @@ public class RedisClientTest {
 
     @Test
     public void testPingViaFacade() throws Exception {
-        listener = new FakeRedisListener();
+        listener = new MockRedisListener();
         listener.setPort(0);
         listener.addresses(java.net.InetAddress.getByName(HOST));
         gumdrop = Gumdrop.boot();
         gumdrop.addListener(listener);
         gumdrop.start();
-        assertTrue("fake server should bind within timeout",
+        assertTrue("mock server should bind within timeout",
                 listener.awaitBound(TIMEOUT_SECONDS, TimeUnit.SECONDS));
 
         int port = listener.getPort();
-        assertTrue("fake server should have an ephemeral port assigned", port > 0);
+        assertTrue("mock server should have an ephemeral port assigned", port > 0);
 
         CountDownLatch doneLatch = new CountDownLatch(1);
         AtomicReference<String> pong = new AtomicReference<String>();
@@ -143,7 +143,7 @@ public class RedisClientTest {
         assertEquals(HOST, client.getDial().getHost());
     }
 
-    static final class FakeRedisListener extends TcpListener {
+    static final class MockRedisListener extends TcpListener {
         private int port = -1;
         private int connectionCount;
         private final CountDownLatch boundLatch = new CountDownLatch(1);
@@ -176,16 +176,16 @@ public class RedisClientTest {
         @Override
         protected ProtocolHandler createHandler() {
             connectionCount++;
-            return new FakeRedisConnection();
+            return new MockRedisConnection();
         }
 
         @Override
         public String getDescription() {
-            return "FakeRedis";
+            return "MockRedis";
         }
     }
 
-    static final class FakeRedisConnection implements ProtocolHandler {
+    static final class MockRedisConnection implements ProtocolHandler {
         private Endpoint endpoint;
         private final StringBuilder request = new StringBuilder();
 

@@ -68,6 +68,21 @@ public class DoQConnectionPool implements DnsClientTransport {
 
     private static long maxIdleTimeMs = 30_000;
 
+    /** Creates the transport for a new pool entry; replaced by tests. */
+    interface TransportSource {
+        DoQClientTransport create();
+    }
+
+    private static volatile TransportSource transportSource;
+
+    /**
+     * Test seam: replaces how new pool entries obtain their transport, or
+     * restores the default when {@code null}.
+     */
+    static void setTransportSource(TransportSource source) {
+        transportSource = source;
+    }
+
     private PoolEntry entry;
 
     /**
@@ -123,7 +138,8 @@ public class DoQConnectionPool implements DnsClientTransport {
                     existing.transport.close();
                 }
                 PoolEntry pe = new PoolEntry();
-                pe.transport = new DoQClientTransport();
+                TransportSource source = transportSource;
+                pe.transport = source != null ? source.create() : new DoQClientTransport();
                 pe.handler = handler;
                 pe.loop = loop;
                 pe.server = server;

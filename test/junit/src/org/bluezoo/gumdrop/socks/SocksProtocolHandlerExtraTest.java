@@ -67,18 +67,28 @@ public class SocksProtocolHandlerExtraTest {
         server = new SocksServer();
         listener = new SocksListener();
         listener.setServer(server);
-        listener.setTelemetryConfig(new TelemetryConfig());
+        listener.setTelemetryConfig(telemetryConfig());
         listener.start();
         handler = server.createProtocolHandler(listener);
         endpoint = new StubEndpoint();
         handler.connected(endpoint);
     }
 
+    /** Telemetry configuration for the listener; subclasses disable metrics. */
+    TelemetryConfig telemetryConfig() {
+        return new TelemetryConfig();
+    }
+
+    /** Whether the listener is expected to have metrics. */
+    boolean expectsMetrics() {
+        return true;
+    }
+
     // ── Listener ──
 
     @Test
     public void listenerEnablesMetricsWhenTelemetryConfigured() {
-        assertNotNull(listener.getMetrics());
+        assertEquals(expectsMetrics(), listener.getMetrics() != null);
         assertSame(server, listener.getServer());
     }
 
@@ -498,6 +508,28 @@ public class SocksProtocolHandlerExtraTest {
         handler.receive(socks4(SOCKS4_CMD_BIND, new byte[]{0, 0, 0, 0},
                 0, "u"));
         assertEquals(SOCKS4_REPLY_REJECTED, endpoint.getLastSent()[1]);
+        assertFalse(endpoint.isOpen());
+    }
+
+    @Test
+    public void connectRelayLimitReachedSocks4() {
+        server.setMaxRelays(1);
+        server.acquireRelay();
+        handler.receive(socks4(SOCKS4_CMD_CONNECT, new byte[]{(byte) 192, 0, 2, 1},
+                80, "u"));
+        assertEquals(SOCKS4_REPLY_REJECTED, endpoint.getLastSent()[1]);
+        assertFalse(endpoint.isOpen());
+    }
+
+    @Test
+    public void connectRelayLimitReachedSocks5() {
+        server.setMaxRelays(1);
+        server.acquireRelay();
+        offerMethods(SOCKS5_AUTH_NONE);
+        endpoint.clearSent();
+        handler.receive(request(SOCKS5_CMD_CONNECT, SOCKS5_ATYP_IPV4,
+                new byte[]{(byte) 192, 0, 2, 1, 0, 80}));
+        assertEquals(SOCKS5_REPLY_GENERAL_FAILURE, endpoint.getLastSent()[1]);
         assertFalse(endpoint.isOpen());
     }
 

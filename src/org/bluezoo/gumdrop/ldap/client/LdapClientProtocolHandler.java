@@ -157,6 +157,17 @@ public class LdapClientProtocolHandler
             while ((message = decoder.next()) != null) {
                 processMessage(message);
             }
+        } catch (RuntimeException e) {
+            // A structurally well-formed BER message with the wrong shape
+            // for its operation (a missing child, a primitive where a
+            // constructed element belongs) surfaces from the response
+            // handlers as an unchecked exception: report it as a protocol
+            // error rather than let it escape into the selector loop.
+            Asn1Exception malformed = new Asn1Exception("Malformed LDAP message");
+            malformed.initCause(e);
+            logger.log(Level.WARNING, L10N.getString("warn.protocol_error"), malformed);
+            handler.onError(malformed);
+            close();
         } catch (Asn1Exception e) {
             logger.log(Level.WARNING, L10N.getString("warn.protocol_error"), e);
             handler.onError(e);

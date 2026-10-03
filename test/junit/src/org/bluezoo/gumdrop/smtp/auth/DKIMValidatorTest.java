@@ -82,11 +82,11 @@ public class DKIMValidatorTest {
         @Override public void obsoleteStructure(ObsoleteStructureType type) throws MimeParseException { }
     }
 
-    /** Fake resolver that answers any TXT query with a fixed public-key record, synchronously. */
-    private static class FakeKeyResolver extends DnsResolver {
+    /** Mock resolver that answers any TXT query with a fixed public-key record, synchronously. */
+    private static class MockKeyResolver extends DnsResolver {
         private final String txtRecord;
 
-        FakeKeyResolver(String txtRecord) {
+        MockKeyResolver(String txtRecord) {
             this.txtRecord = txtRecord;
         }
 
@@ -135,7 +135,7 @@ public class DKIMValidatorTest {
 
         // Build the matching public-key DNS TXT record.
         String p = Base64.getEncoder().encodeToString(kp.getPublic().getEncoded());
-        FakeKeyResolver resolver = new FakeKeyResolver("v=DKIM1; k=rsa; p=" + p);
+        MockKeyResolver resolver = new MockKeyResolver("v=DKIM1; k=rsa; p=" + p);
 
         DkimValidator validator = new DkimValidator(resolver);
         validator.setMessageParser(parser);

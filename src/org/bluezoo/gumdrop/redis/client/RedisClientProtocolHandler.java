@@ -135,6 +135,16 @@ public class RedisClientProtocolHandler implements ProtocolHandler, RedisSession
             LOGGER.log(Level.WARNING, L10N.getString("err.protocol_error"), e);
             handler.onError(e);
             close();
+        } catch (RuntimeException e) {
+            // A well-formed RESP value of the wrong shape for the pending
+            // command or Pub/Sub event (a simple string where an integer
+            // was due, a short array) is read through accessors that throw
+            // unchecked exceptions: treat it as a protocol error rather
+            // than let it escape into the selector loop.
+            RespException malformed = new RespException("Malformed server reply", e);
+            LOGGER.log(Level.WARNING, L10N.getString("err.protocol_error"), malformed);
+            handler.onError(malformed);
+            close();
         }
     }
 
@@ -419,18 +429,6 @@ public class RedisClientProtocolHandler implements ProtocolHandler, RedisSession
         }
         pendingCommands.add(new PendingCommand(callback));
         ByteBuffer buf = encoder.encodeCommand(command, args);
-        endpoint.send(buf);
-    }
-
-    private void sendCommandMixed(Object callback, String command, Object... args) {
-        if (endpoint == null || closed) {
-            if (callback != null) {
-                dispatchError(callback, L10N.getString("err.not_connected"));
-            }
-            return;
-        }
-        pendingCommands.add(new PendingCommand(callback));
-        ByteBuffer buf = encoder.encode(command, args);
         endpoint.send(buf);
     }
 

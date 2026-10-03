@@ -1073,6 +1073,8 @@ public class MimeParser {
 		if (pendingBodyContent.remaining() >= required) {
 			return;
 		}
+		// Flip to read mode so compact() preserves the data written so far
+		pendingBodyContent.flip();
 		pendingBodyContent.compact();
 		if (pendingBodyContent.remaining() < required) {
 			int newCapacity = Math.max(pendingBodyContent.capacity() * 2, pendingBodyContent.position() + required);

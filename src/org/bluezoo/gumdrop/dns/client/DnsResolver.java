@@ -1085,7 +1085,14 @@ public class DnsResolver {
                     public void onResult(DnsType type, List<DnsResourceRecord> records) {
                         List<InetAddress> target = (type == DnsType.AAAA) ? v6Addresses : v4Addresses;
                         for (DnsResourceRecord rr : records) {
-                            target.add(rr.getAddress());
+                            try {
+                                target.add(rr.getAddress());
+                            } catch (IllegalStateException e) {
+                                // an A/AAAA record whose RDATA is not an
+                                // address (a malformed or hostile answer)
+                                // contributes nothing
+                                continue;
+                            }
                         }
                     }
 

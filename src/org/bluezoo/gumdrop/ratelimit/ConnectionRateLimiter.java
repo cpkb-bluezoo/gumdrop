@@ -368,7 +368,7 @@ public class ConnectionRateLimiter {
     private RateLimiter getOrCreateLimiter(InetAddress ip) {
         RateLimiter limiter = connectionRates.get(ip);
         if (limiter == null) {
-            limiter = new RateLimiter(maxConnectionsPerWindow, windowMs);
+            limiter = newLimiter(maxConnectionsPerWindow, windowMs);
             RateLimiter existing = connectionRates.putIfAbsent(ip, limiter);
             if (existing != null) {
                 limiter = existing;
@@ -378,13 +378,29 @@ public class ConnectionRateLimiter {
     }
 
     /**
+     * Creates the per-IP window limiter. Package-private so tests can
+     * substitute a limiter driven by a deterministic clock.
+     */
+    RateLimiter newLimiter(int maxEvents, long window) {
+        return new RateLimiter(maxEvents, window);
+    }
+
+    /**
+     * Returns the current time in milliseconds. Package-private so tests
+     * can substitute a deterministic clock.
+     */
+    long currentTimeMillis() {
+        return System.currentTimeMillis();
+    }
+
+    /**
      * Runs {@link #cleanup()} inline at most once per
      * {@link #CLEANUP_INTERVAL_MS}. Safe to call on the hot accept path: the
      * CAS gate ensures the O(n) scan happens rarely and only one caller runs
      * it at a time.
      */
     private void maybeCleanup() {
-        long now = System.currentTimeMillis();
+        long now = currentTimeMillis();
         long last = lastCleanup.get();
         if (now - last >= CLEANUP_INTERVAL_MS
                 && lastCleanup.compareAndSet(last, now)) {
@@ -401,7 +417,6 @@ public class ConnectionRateLimiter {
      * Removes expired rate limiters that have no recent activity.
      */
     public void cleanup() {
-        long now = System.currentTimeMillis();
         int removed = 0;
 
         Iterator<Map.Entry<InetAddress, RateLimiter>> it = connectionRates.entrySet().iterator();

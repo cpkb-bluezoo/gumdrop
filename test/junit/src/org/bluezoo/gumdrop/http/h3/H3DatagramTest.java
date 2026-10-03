@@ -68,4 +68,52 @@ public class H3DatagramTest {
         assertEquals(0x33L, H3FrameHandler.SETTINGS_H3_DATAGRAM);
         assertEquals(0x33L, H3ErrorCode.H3_DATAGRAM_ERROR);
     }
+
+    @Test
+    public void testNegativeStreamIdIsRejectedByEncode() {
+        assertNull(H3Datagram.encode(-4, new byte[] { 'x' }));
+    }
+
+    @Test
+    public void testStreamIdBeyondTheQuarterRangeIsRejectedByEncode() {
+        long beyond = (((1L << 62) - 1) / 4L + 1L) * 4L;
+        assertNull(H3Datagram.encode(beyond, new byte[0]));
+    }
+
+    @Test
+    public void testNullPayloadEncodesAsEmpty() {
+        byte[] encoded = H3Datagram.encode(4, null);
+        H3Datagram decoded = H3Datagram.decode(ByteBuffer.wrap(encoded));
+        assertEquals(4L, decoded.getStreamId());
+        assertEquals(0, decoded.getPayload().length);
+    }
+
+    @Test
+    public void testNullBufferIsRejectedByDecode() {
+        assertNull(H3Datagram.decode(null));
+    }
+
+    @Test
+    public void testTruncatedQuarterStreamIdIsRejectedByDecode() {
+        assertNull(H3Datagram.decode(ByteBuffer.wrap(new byte[] { 0x40 })));
+        assertNull(H3Datagram.decode(ByteBuffer.wrap(new byte[] { (byte) 0xc0, 0, 0 })));
+    }
+
+    @Test
+    public void testQuarterStreamIdAboveTheLimitIsRejectedByDecode() {
+        byte[] max = new byte[] {
+            (byte) 0xff, (byte) 0xff, (byte) 0xff, (byte) 0xff,
+            (byte) 0xff, (byte) 0xff, (byte) 0xff, (byte) 0xff };
+        assertNull(H3Datagram.decode(ByteBuffer.wrap(max)));
+    }
+
+    @Test
+    public void testLargestQuarterStreamIdIsAccepted() {
+        byte[] edge = new byte[] {
+            (byte) 0xcf, (byte) 0xff, (byte) 0xff, (byte) 0xff,
+            (byte) 0xff, (byte) 0xff, (byte) 0xff, (byte) 0xff, 7 };
+        H3Datagram decoded = H3Datagram.decode(ByteBuffer.wrap(edge));
+        assertEquals(((1L << 60) - 1) * 4L, decoded.getStreamId());
+        assertEquals(7, decoded.getPayload()[0]);
+    }
 }

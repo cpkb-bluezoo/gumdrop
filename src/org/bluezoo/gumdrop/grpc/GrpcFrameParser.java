@@ -93,7 +93,10 @@ public class GrpcFrameParser {
      * @param buf input data (read mode)
      */
     public void receive(ByteBuffer buf) {
-        while (buf.hasRemaining()) {
+        // An empty message (zero-length payload) completes with its header
+        // and has no payload bytes to wait for, so it must not depend on
+        // more input arriving
+        while (buf.hasRemaining() || (state == State.PAYLOAD && payloadRemaining == 0)) {
             if (state == State.HEADER) {
                 if (!processHeader(buf)) {
                     return;

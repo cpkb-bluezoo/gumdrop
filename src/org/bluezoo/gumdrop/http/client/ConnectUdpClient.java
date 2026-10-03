@@ -443,7 +443,7 @@ public class ConnectUdpClient implements AltSvcListener {
             return;
         }
 
-        DnsResolver resolver = DnsResolver.forLoop(loop);
+        DnsResolver resolver = resolverFor(loop);
         resolver.queryHTTPS(host, new DnsQueryCallback() {
             @Override
             public void onResponse(DnsMessage response) {
@@ -468,6 +468,14 @@ public class ConnectUdpClient implements AltSvcListener {
                 connectViaAltSvcCacheOrTcp(targetHost, targetPort, handler);
             }
         });
+    }
+
+    /**
+     * Resolver used for the HTTPS record query. Package-private so tests
+     * can substitute a resolver with canned answers.
+     */
+    DnsResolver resolverFor(SelectorLoop loop) {
+        return DnsResolver.forLoop(loop);
     }
 
     private void connectViaAltSvcCacheOrTcp(String targetHost, int targetPort, ConnectUdpEventHandler handler) {

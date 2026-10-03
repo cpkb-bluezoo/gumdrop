@@ -113,7 +113,7 @@ public final class Dtls12HelloVerify {
         }
         byte[] fragment = Arrays.copyOfRange(datagram, Dtls12RecordFormat.RECORD_HEADER_LEN,
                 Dtls12RecordFormat.RECORD_HEADER_LEN + length);
-        if ((fragment[0] & 0xff) != 1) {
+        if (fragment.length < Dtls12RecordFormat.FRAGMENT_HEADER_LEN || (fragment[0] & 0xff) != 1) {
             return null;
         }
         int totalLength = ((fragment[1] & 0xff) << 16) | ((fragment[2] & 0xff) << 8) | (fragment[3] & 0xff);

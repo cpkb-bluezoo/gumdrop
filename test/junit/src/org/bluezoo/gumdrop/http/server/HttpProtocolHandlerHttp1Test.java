@@ -1056,4 +1056,117 @@ public class HttpProtocolHandlerHttp1Test {
         f.feed("GET /x HTTP/1.1\r\nHost: h\r\n\r\n", 100);
         assertFalse(accepted[0]);
     }
+
+    private static String respondingHook(Fixture f, final String headerName,
+            final List<String> seen) {
+        f.rec.hook = new HeadersHook() {
+            @Override
+            public void run(HttpResponseState state, Headers headers) {
+                seen.add(headers.getValue(headerName));
+                Headers resp = new Headers();
+                resp.add(":status", "200");
+                resp.add("Content-Length", "0");
+                state.headers(resp);
+                state.complete();
+            }
+        };
+        return headerName;
+    }
+
+    @Test
+    public void testEncodedWordRequestHeaderIsDecoded() {
+        Fixture f = new Fixture();
+        List<String> seen = new ArrayList<String>();
+        respondingHook(f, "x-enc", seen);
+        f.open();
+        f.feed("GET /x HTTP/1.1\r\nHost: h\r\nX-Enc: =?UTF-8?Q?caf=C3=A9?= tail\r\n\r\n", 100);
+        assertEquals(1, seen.size());
+        assertEquals("caf\u00e9 tail", seen.get(0));
+    }
+
+    @Test
+    public void testMalformedEncodedWordRequestHeaderIsKeptVerbatim() {
+        Fixture f = new Fixture();
+        List<String> seen = new ArrayList<String>();
+        respondingHook(f, "x-enc", seen);
+        f.open();
+        f.feed("GET /x HTTP/1.1\r\nHost: h\r\nX-Enc: =?bogus?Z?zz?=\r\n\r\n", 100);
+        assertEquals(1, seen.size());
+        assertEquals("=?bogus?Z?zz?=", seen.get(0));
+    }
+
+    @Test
+    public void testRequestHeaderValueLargerThanTheValueBufferIsKept() {
+        StringBuilder big = new StringBuilder();
+        for (int i = 0; i < 5000; i++) {
+            big.append((char) ('a' + i % 26));
+        }
+        Fixture f = new Fixture();
+        List<String> seen = new ArrayList<String>();
+        respondingHook(f, "x-big", seen);
+        f.open();
+        f.feed("GET /x HTTP/1.1\r\nHost: h\r\nX-Big: " + big + "\r\n " + big
+                + "\r\n\r\n", 100);
+        assertEquals(1, seen.size());
+        assertEquals(big + " " + big, seen.get(0));
+    }
+
+    @Test
+    public void testQuotedStringKeepsInnerWhitespaceAndEscapes() {
+        Fixture f = new Fixture();
+        List<String> seen = new ArrayList<String>();
+        respondingHook(f, "x-q", seen);
+        f.open();
+        f.feed("GET /x HTTP/1.1\r\nHost: h\r\nX-Q: a \"b  \\\" c\"  d\r\n\r\n", 100);
+        assertEquals("a \"b  \\\" c\" d", seen.get(0));
+    }
+
+    @Test
+    public void testNonAsciiResponseHeaderValueUsesQuotedPrintableOrBase64() {
+        Fixture f = new Fixture();
+        f.rec.extraName = "X-Note";
+        f.rec.extraValue = "caf\u00e9 au lait";
+        f.open();
+        f.feed("GET /x HTTP/1.1\r\nHost: h\r\n\r\n", 100);
+        assertTrue(f.wire(), f.wire().contains("X-Note: =?UTF-8?B?"));
+        Fixture g = new Fixture();
+        g.rec.extraName = "X-Note";
+        g.rec.extraValue = "\u00e9\u00e8\u00ea\u00eb";
+        g.open();
+        g.feed("GET /x HTTP/1.1\r\nHost: h\r\n\r\n", 100);
+        assertTrue(g.wire(), g.wire().contains("X-Note: =?UTF-8?Q?"));
+    }
+
+    @Test
+    public void testPriContinuationMustMatchAtEveryPosition() {
+        String tail = "\r\nSM\r\n\r\n";
+        for (int i = 0; i < tail.length(); i++) {
+            StringBuilder sb = new StringBuilder(tail);
+            sb.setCharAt(i, '!');
+            Fixture f = run("PRI * HTTP/2.0\r\n" + sb);
+            assertTrue("position " + i + f.wire(), f.wire().contains(" 400 "));
+        }
+    }
+
+    @Test
+    public void testInformationalResponseIsDroppedOnHttp10() {
+        Fixture f = new Fixture();
+        f.rec.hook = new HeadersHook() {
+            @Override
+            public void run(HttpResponseState state, Headers headers) {
+                Headers early = new Headers();
+                early.add("Link", "</a>; rel=preload");
+                state.sendInformational(103, early);
+                Headers resp = new Headers();
+                resp.add(":status", "200");
+                resp.add("Content-Length", "0");
+                state.headers(resp);
+                state.complete();
+            }
+        };
+        f.open();
+        f.feed("GET /x HTTP/1.0\r\nHost: h\r\n\r\n", 100);
+        assertFalse(f.wire(), f.wire().contains("103"));
+        assertTrue(f.wire(), f.wire().startsWith("HTTP/1.0 200"));
+    }
 }

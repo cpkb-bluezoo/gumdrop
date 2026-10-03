@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.quic.packet;
 
+import java.nio.BufferUnderflowException;
 import java.nio.ByteBuffer;
 
 /**
@@ -423,12 +424,30 @@ public final class TransportParameters {
      * @param buf the buffer to decode from, positioned at the start of
      *            the list, consumed fully on return
      * @return the decoded parameters
+     * @throws IllegalArgumentException if the list is truncated or a
+     *         length field is inconsistent with the bytes present
      */
     public static TransportParameters decode(ByteBuffer buf) {
+        try {
+            return decodeList(buf);
+        } catch (BufferUnderflowException | IndexOutOfBoundsException | NegativeArraySizeException e) {
+            // VarInt.decode() and ByteBuffer.get() assume the bytes are
+            // there; truncated peer input must surface as one malformed
+            // error, not as whichever runtime exception fell out
+            throw new IllegalArgumentException("Malformed transport parameters", e);
+        }
+    }
+
+    private static TransportParameters decodeList(ByteBuffer buf) {
         TransportParameters params = new TransportParameters();
         while (buf.hasRemaining()) {
             long id = VarInt.decode(buf);
-            int length = (int) VarInt.decode(buf);
+            long declared = VarInt.decode(buf);
+            if (declared > buf.remaining()) {
+                throw new IllegalArgumentException("Malformed transport parameters: length "
+                        + declared + " exceeds the " + buf.remaining() + " bytes present");
+            }
+            int length = (int) declared;
             int valueStart = buf.position();
 
             if (id == MAX_IDLE_TIMEOUT) {

@@ -65,7 +65,7 @@ public class ArcSealerRoundTripTest {
         gen.initialize(2048);
         KeyPair kp = gen.generateKeyPair();
         String p = java.util.Base64.getEncoder().encodeToString(kp.getPublic().getEncoded());
-        FakeKeyResolver resolver = new FakeKeyResolver("v=DKIM1; k=rsa; p=" + p);
+        MockKeyResolver resolver = new MockKeyResolver("v=DKIM1; k=rsa; p=" + p);
 
         List<String> messageHeaders = new ArrayList<String>();
         messageHeaders.add("From: sender@example.com\r\n");
@@ -118,7 +118,7 @@ public class ArcSealerRoundTripTest {
         gen.initialize(2048);
         KeyPair kp = gen.generateKeyPair();
         String p = java.util.Base64.getEncoder().encodeToString(kp.getPublic().getEncoded());
-        FakeKeyResolver resolver = new FakeKeyResolver("v=DKIM1; k=rsa; p=" + p);
+        MockKeyResolver resolver = new MockKeyResolver("v=DKIM1; k=rsa; p=" + p);
 
         List<String> messageHeaders = new ArrayList<String>();
         messageHeaders.add("From: sender@example.com\r\n");
@@ -178,7 +178,7 @@ public class ArcSealerRoundTripTest {
         KeyPair kp = gen.generateKeyPair();
 
         String p = java.util.Base64.getEncoder().encodeToString(kp.getPublic().getEncoded());
-        FakeKeyResolver resolver = new FakeKeyResolver("v=DKIM1; k=rsa; p=" + p);
+        MockKeyResolver resolver = new MockKeyResolver("v=DKIM1; k=rsa; p=" + p);
 
         List<String> messageHeaders = new ArrayList<>();
         messageHeaders.add("From: sender@example.com\r\n");
@@ -249,10 +249,10 @@ public class ArcSealerRoundTripTest {
         assertEquals("chain cv", ArcCvResult.PASS, captured[0].getChainCv());
     }
 
-    private static class FakeKeyResolver extends DnsResolver {
+    private static class MockKeyResolver extends DnsResolver {
         private final String txtRecord;
 
-        FakeKeyResolver(String txtRecord) {
+        MockKeyResolver(String txtRecord) {
             this.txtRecord = txtRecord;
         }
 

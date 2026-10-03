@@ -63,7 +63,7 @@ import static org.junit.Assume.assumeTrue;
  *
  * <p>Same rationale as the Postfix/vsftpd tests: an independent
  * implementation of the protocol on the other end of the wire catches
- * bugs a same-lineage fake server can't. Here the protocol under test is
+ * bugs a same-lineage mock server can't. Here the protocol under test is
  * SOCKS5 itself (RFC 1928 CONNECT, RFC 1929 username/password), proven
  * by tunnelling a real SMTP transaction through the proxy to the same
  * Postfix container the {@code smtp.postfix} tests use -- see {@link

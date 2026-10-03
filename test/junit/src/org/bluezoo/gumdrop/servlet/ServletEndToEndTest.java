@@ -414,7 +414,7 @@ public class ServletEndToEndTest {
     // ===== Harness =====
 
     /** Container that captures the handler instead of using worker threads. */
-    private static final class TestContainer extends Container {
+    static class TestContainer extends Container {
         ServletHandler pending;
 
         @Override
@@ -433,7 +433,7 @@ public class ServletEndToEndTest {
     }
 
     /** Captured response. */
-    private static final class Result {
+    static final class Result {
         int status;
         Headers headers;
         ByteArrayOutputStream body = new ByteArrayOutputStream();
@@ -451,7 +451,7 @@ public class ServletEndToEndTest {
         }
     }
 
-    private static class StubState implements HttpResponseState {
+    static class StubState implements HttpResponseState {
         final Result result = new Result();
         boolean secure;
 
@@ -496,7 +496,7 @@ public class ServletEndToEndTest {
     }
 
     /** Realm that authenticates alice/pw as an admin. */
-    private static final class TestRealm implements Realm {
+    static final class TestRealm implements Realm {
         @Override public Realm forSelectorLoop(SelectorLoop loop) { return this; }
         @Override public Set<SaslMechanism> getSupportedSASLMechanisms() {
             return Collections.<SaslMechanism>emptySet();

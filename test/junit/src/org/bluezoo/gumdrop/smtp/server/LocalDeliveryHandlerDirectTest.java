@@ -29,7 +29,7 @@ import org.junit.Before;
 import org.junit.Test;
 
 import org.bluezoo.gumdrop.mime.rfc5322.EmailAddress;
-import org.bluezoo.gumdrop.smtp.server.LocalDeliveryFlowTest.FakeFactory;
+import org.bluezoo.gumdrop.smtp.server.LocalDeliveryFlowTest.MockFactory;
 import org.bluezoo.gumdrop.testsupport.RecordingStubEndpoint;
 
 import static org.junit.Assert.assertEquals;
@@ -47,13 +47,13 @@ import static org.junit.Assert.assertTrue;
  */
 public class LocalDeliveryHandlerDirectTest {
 
-    private FakeFactory factory;
+    private MockFactory factory;
     private LocalDeliveryHandler handler;
     private RecordingSmtpStates states;
 
     @Before
     public void setUp() {
-        factory = new FakeFactory();
+        factory = new MockFactory();
         handler = new LocalDeliveryHandler(factory, "Example.com", "mx.example.com");
         states = new RecordingSmtpStates();
         handler.connected(states, new RecordingStubEndpoint(25));

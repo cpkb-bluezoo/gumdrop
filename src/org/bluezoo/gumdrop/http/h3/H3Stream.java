@@ -516,7 +516,10 @@ class H3Stream implements ProtocolHandler, H3FrameHandler, HttpResponseState {
             abortMessageError("Content-Length does not match DATA frame bytes");
             return;
         }
-        if (requestInboundCoding != null) {
+        if (requestInboundCoding != null || requestContentDecoder != null) {
+            // an active decoder (created by the first DATA frame, which
+            // clears requestInboundCoding) must be finished too: that
+            // flushes buffered output and rejects a truncated stream
             if (!drainDecodedRequestBody(true)) {
                 return;
             }

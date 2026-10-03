@@ -315,6 +315,9 @@ final class MemoryFileSystemProvider extends FileSystemProvider {
     @Override
     public FileChannel newFileChannel(Path path, Set<? extends OpenOption> options,
             FileAttribute<?>... attrs) throws IOException {
+        if (fs.ioFails(path)) {
+            throw new IOException("injected I/O failure: " + path);
+        }
         boolean append = options.contains(StandardOpenOption.APPEND);
         boolean write = options.contains(StandardOpenOption.WRITE) || append;
         boolean read = options.contains(StandardOpenOption.READ) || !write;
@@ -373,6 +376,9 @@ final class MemoryFileSystemProvider extends FileSystemProvider {
     @Override
     public DirectoryStream<Path> newDirectoryStream(Path dir,
             DirectoryStream.Filter<? super Path> filter) throws IOException {
+        if (fs.ioFails(dir)) {
+            throw new IOException("injected I/O failure: " + dir);
+        }
         List<Path> entries = new ArrayList<Path>();
         synchronized (fs.lock) {
             MemoryNode node = require(dir);
@@ -409,6 +415,9 @@ final class MemoryFileSystemProvider extends FileSystemProvider {
 
     @Override
     public void createDirectory(Path dir, FileAttribute<?>... attrs) throws IOException {
+        if (fs.ioFails(dir)) {
+            throw new IOException("injected I/O failure: " + dir);
+        }
         synchronized (fs.lock) {
             Location loc = locateForCreate(dir, false);
             if (loc.node != null) {
@@ -451,6 +460,9 @@ final class MemoryFileSystemProvider extends FileSystemProvider {
 
     @Override
     public void delete(Path path) throws IOException {
+        if (fs.ioFails(path)) {
+            throw new IOException("injected I/O failure: " + path);
+        }
         synchronized (fs.lock) {
             Location loc = locate(path, false);
             if (loc.node == null) {
@@ -623,6 +635,9 @@ final class MemoryFileSystemProvider extends FileSystemProvider {
     public <A extends BasicFileAttributes> A readAttributes(Path path, Class<A> type,
             LinkOption... options) throws IOException {
         if (type != BasicFileAttributes.class && type != PosixFileAttributes.class) {
+            throw new UnsupportedOperationException(type.getName());
+        }
+        if (type == PosixFileAttributes.class && fs.posixUnsupported()) {
             throw new UnsupportedOperationException(type.getName());
         }
         synchronized (fs.lock) {

@@ -356,4 +356,38 @@ public class ServerXmlLoaderTest {
         assertNull(server);
         assertNotNull(error);
     }
+
+    @Test
+    public void realmHrefIsOnlySupportedForBasicRealm() {
+        load("<server><realm name='r' class='org.bluezoo.gumdrop.auth.ldap.LdapRealm' "
+                + "href='realm.xml'/><listener port='1'/></server>");
+        assertError("realm href is only supported for BasicRealm");
+        assertTrue(error, error.contains("LdapRealm"));
+    }
+
+    @Test
+    public void keystorePassWithoutKeystoreFileIsRejected() {
+        load("<server><listener port='8443' secure='true' "
+                + "keystore-pass='pw'/></server>");
+        assertError("keystore-file");
+    }
+
+    @Test
+    public void unknownKeystoreFormatIsRejected() {
+        load("<server><listener port='8443' secure='true' "
+                + "keystore-file='ks.p12' keystore-pass='pw' "
+                + "keystore-format='BOGUS'/></server>");
+        assertError("keystore-format must be PKCS12, JKS or JCEKS");
+        assertTrue(error, error.contains("BOGUS"));
+    }
+
+    @Test
+    public void clusterKeyWithNonAsciiDigitsIsRejected() {
+        StringBuilder key = new StringBuilder();
+        for (int i = 0; i < 64; i++) {
+            key.append('\uFF11');
+        }
+        load("<server><cluster port='4000' key='" + key + "'/><listener port='1'/></server>");
+        assertError("cluster key");
+    }
 }

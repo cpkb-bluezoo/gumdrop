@@ -454,7 +454,7 @@ public class ConnectIpClient implements AltSvcListener {
             return;
         }
 
-        DnsResolver resolver = DnsResolver.forLoop(loop);
+        DnsResolver resolver = resolverFor(loop);
         resolver.queryHTTPS(host, new DnsQueryCallback() {
             @Override
             public void onResponse(DnsMessage response) {
@@ -475,6 +475,14 @@ public class ConnectIpClient implements AltSvcListener {
                 connectViaAltSvcCacheOrTcp(target, ipProto, handler);
             }
         });
+    }
+
+    /**
+     * Resolver used for the HTTPS record query. Package-private so tests
+     * can substitute a resolver with canned answers.
+     */
+    DnsResolver resolverFor(SelectorLoop loop) {
+        return DnsResolver.forLoop(loop);
     }
 
     private void connectViaAltSvcCacheOrTcp(String target, String ipProto, ConnectIpEventHandler handler) {

@@ -274,7 +274,8 @@ class AsyncContextImpl implements AsyncContext {
         }
     }
 
-    private void handleTimeout() {
+    /** Package-private so that tests can fire the timeout without waiting for it. */
+    void handleTimeout() {
         if (completed) {
             return;
         }

@@ -131,6 +131,51 @@ public class H3ClientConnectUdpResponseHandlerTest {
         assertNull("opened() should not have been called", handler.session);
     }
 
+    private static byte[] capsuleFor(long contextId, byte[] payload) {
+        ByteBuffer contextEncoded = HttpDatagramContext.encode(contextId, ByteBuffer.wrap(payload));
+        byte[] contextBytes = new byte[contextEncoded.remaining()];
+        contextEncoded.get(contextBytes);
+        return Capsule.datagram(contextBytes).encode();
+    }
+
+    @Test
+    public void testDatagramWithAnUnregisteredContextIdIsIgnored() throws Exception {
+        RecordingConnectUdpHandler handler = new RecordingConnectUdpHandler();
+        H3ClientStream stream = createConnectUdpStream(handler);
+        stream.headersFrameReceived(encode(":status", "200", "capsule-protocol", "?1"));
+        byte[] capsule = capsuleFor(5L, "ignored".getBytes(StandardCharsets.US_ASCII));
+        stream.dataFrameReceived(ByteBuffer.wrap(capsule), true);
+        assertNull(handler.lastDatagram);
+        byte[] empty = Capsule.datagram(new byte[0]).encode();
+        stream.dataFrameReceived(ByteBuffer.wrap(empty), true);
+        assertNull(handler.lastDatagram);
+    }
+
+    @Test
+    public void testEndOfStreamClosesAnOpenedSessionOnly() throws Exception {
+        RecordingConnectUdpHandler opened = new RecordingConnectUdpHandler();
+        H3ClientStream stream = createConnectUdpStream(opened);
+        stream.headersFrameReceived(encode(":status", "200", "capsule-protocol", "?1"));
+        stream.readFinished();
+        assertEquals(true, opened.closed);
+        RecordingConnectUdpHandler rejected = new RecordingConnectUdpHandler();
+        H3ClientStream other = createConnectUdpStream(rejected);
+        other.headersFrameReceived(encode(":status", "403"));
+        other.readFinished();
+        assertEquals(false, rejected.closed);
+    }
+
+    @Test
+    public void testTransportFailureIsReportedOnlyOnce() throws Exception {
+        RecordingConnectUdpHandler handler = new RecordingConnectUdpHandler();
+        H3ClientStream stream = createConnectUdpStream(handler);
+        java.io.IOException first = new java.io.IOException("first");
+        stream.error(first);
+        assertEquals(first, handler.error);
+        stream.error(new java.io.IOException("second"));
+        assertEquals(first, handler.error);
+    }
+
     /**
      * Strips the HTTP/3 DATA frame envelope (RFC 9114 section 7.2.1: a
      * type varint, a length varint, then the payload) to recover the

@@ -70,7 +70,7 @@ import static org.junit.Assume.assumeTrue;
  * there. Postfix is a wire-compatible but wholly independent
  * implementation -- exactly the same reasoning that motivated testing the
  * AMQP client against real RabbitMQ (see {@code RabbitMQTestSupport}),
- * where it caught bugs the fake-broker tests could not.
+ * where it caught bugs the mock-broker tests could not.
  *
  * <p>Delivered mail is read back from Postfix's own mbox spool (via
  * {@link PostfixTestSupport#awaitMailbox}), not from anything gumdrop

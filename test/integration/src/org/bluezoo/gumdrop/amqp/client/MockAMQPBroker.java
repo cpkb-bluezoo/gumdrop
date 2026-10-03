@@ -1,5 +1,5 @@
 /*
- * FakeAMQPBroker.java
+ * MockAMQPBroker.java
  * Copyright (C) 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -81,9 +81,9 @@ import java.util.logging.Logger;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-final class FakeAMQPBroker implements AutoCloseable {
+final class MockAMQPBroker implements AutoCloseable {
 
-    private static final Logger LOGGER = Logger.getLogger(FakeAMQPBroker.class.getName());
+    private static final Logger LOGGER = Logger.getLogger(MockAMQPBroker.class.getName());
 
     private final ServerSocket serverSocket;
     private final Thread acceptThread;
@@ -98,7 +98,7 @@ final class FakeAMQPBroker implements AutoCloseable {
     private volatile String requiredUsername;
     private volatile String requiredPassword;
 
-    FakeAMQPBroker() throws IOException {
+    MockAMQPBroker() throws IOException {
         serverSocket = new ServerSocket(0, 50, InetAddress.getLoopbackAddress());
         acceptThread = new Thread(new Runnable() {
             @Override
@@ -309,7 +309,7 @@ final class FakeAMQPBroker implements AutoCloseable {
                 if (!readFully(in, header)) {
                     return;
                 }
-                // Not validating the exact protocol header bytes — a fake
+                // Not validating the exact protocol header bytes — a mock
                 // broker doesn't need to be a protocol-negotiation
                 // conformance suite.
 
@@ -391,10 +391,10 @@ final class FakeAMQPBroker implements AutoCloseable {
             try {
                 dispatch(channel, classId, methodId, payload);
             } catch (AmqpProtocolException e) {
-                LOGGER.log(Level.WARNING, "Fake broker: malformed method", e);
+                LOGGER.log(Level.WARNING, "Mock broker: malformed method", e);
                 forceClose();
             } catch (RuntimeException e) {
-                LOGGER.log(Level.WARNING, "Fake broker: error handling method", e);
+                LOGGER.log(Level.WARNING, "Mock broker: error handling method", e);
                 forceClose();
             }
         }
@@ -524,7 +524,7 @@ final class FakeAMQPBroker implements AutoCloseable {
                 case AmqpMethod.BASIC_ACK:
                 case AmqpMethod.BASIC_NACK:
                 case AmqpMethod.BASIC_REJECT:
-                    // Delivery acknowledgment from the client; a fake broker
+                    // Delivery acknowledgment from the client; a mock broker
                     // doesn't need to act on it beyond bookkeeping.
                     return;
                 default:
@@ -564,7 +564,7 @@ final class FakeAMQPBroker implements AutoCloseable {
             try {
                 pendingHeader = BasicProperties.decode(payload);
             } catch (AmqpProtocolException e) {
-                LOGGER.log(Level.WARNING, "Fake broker: malformed content-header", e);
+                LOGGER.log(Level.WARNING, "Mock broker: malformed content-header", e);
                 forceClose();
                 return;
             }
@@ -608,7 +608,7 @@ final class FakeAMQPBroker implements AutoCloseable {
 
         @Override
         public void frameError(String message) {
-            LOGGER.log(Level.WARNING, "Fake broker: frame error: {0}", message);
+            LOGGER.log(Level.WARNING, "Mock broker: frame error: {0}", message);
             forceClose();
         }
 

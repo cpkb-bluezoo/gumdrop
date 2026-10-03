@@ -363,4 +363,111 @@ public class H3FrameCodecTest {
         assertEquals(2, handler.events.size());
         assertEquals("data:second-chunk:true", handler.events.get(1));
     }
+
+    private static byte[] rawFrame(long type, byte[] payload) {
+        ByteBuffer out = ByteBuffer.allocate(16 + payload.length);
+        VarInt.encode(type, out);
+        VarInt.encode(payload.length, out);
+        out.put(payload);
+        out.flip();
+        byte[] bytes = new byte[out.remaining()];
+        out.get(bytes);
+        return bytes;
+    }
+
+    private static void feedByteAtATime(H3Parser parser, byte[] bytes) {
+        for (int i = 0; i < bytes.length; i++) {
+            ByteBuffer single = ByteBuffer.wrap(new byte[] { bytes[i] });
+            parser.receive(single);
+        }
+    }
+
+    @Test(expected = IllegalArgumentException.class)
+    public void testNullHandlerIsRejected() {
+        new H3Parser(null);
+    }
+
+    @Test
+    public void testMultiByteTypeAndLengthVarintsSplitAcrossReads() {
+        byte[] payload = new byte[300];
+        for (int i = 0; i < payload.length; i++) {
+            payload[i] = (byte) ('a' + i % 26);
+        }
+        RecordingHandler handler = new RecordingHandler();
+        H3Parser parser = new H3Parser(handler);
+        feedByteAtATime(parser, rawFrame(0x1f * 100 + 0x21, payload));
+        assertEquals(1, handler.events.size());
+        assertEquals("unknown:" + (0x1f * 100 + 0x21), handler.events.get(0));
+        RecordingHandler headers = new RecordingHandler();
+        H3Parser headerParser = new H3Parser(headers);
+        feedByteAtATime(headerParser, rawFrame(H3FrameHandler.TYPE_HEADERS, payload));
+        assertEquals(1, headers.events.size());
+        assertTrue(headers.events.get(0).startsWith("headers:abcdefghijklmnopqrstuvwxyz"));
+    }
+
+    @Test
+    public void testTwoByteVarintWithOnlyItsFirstByteAvailableWaitsForTheRest() {
+        RecordingHandler handler = new RecordingHandler();
+        H3Parser parser = new H3Parser(handler);
+        byte[] frame = rawFrame(H3FrameHandler.TYPE_GOAWAY, new byte[] {0x07});
+        parser.receive(ByteBuffer.wrap(new byte[] {0x40}));
+        assertTrue(handler.events.isEmpty());
+        parser.receive(ByteBuffer.wrap(new byte[] {0x07, 0x01}));
+        assertTrue(handler.events.isEmpty());
+        parser.receive(ByteBuffer.wrap(new byte[] {0x07}));
+        assertEquals(1, handler.events.size());
+        assertEquals("goaway:7", handler.events.get(0));
+        assertEquals(3, frame.length);
+    }
+
+    @Test
+    public void testZeroLengthDataFrameIsDeliveredAsEndOfFrame() {
+        RecordingHandler handler = new RecordingHandler();
+        H3Parser parser = new H3Parser(handler);
+        parser.receive(ByteBuffer.wrap(rawFrame(H3FrameHandler.TYPE_DATA, new byte[0])));
+        assertEquals(1, handler.events.size());
+        assertEquals("data::true", handler.events.get(0));
+    }
+
+    @Test
+    public void testPriorityUpdateWithInvalidUtf8IsAFrameError() {
+        byte[] bad = new byte[] {0x00, (byte) 0xff, (byte) 0xfe};
+        RecordingHandler request = new RecordingHandler();
+        new H3Parser(request).receive(ByteBuffer.wrap(
+                rawFrame(H3FrameHandler.TYPE_PRIORITY_UPDATE_REQUEST, bad)));
+        assertEquals(1, request.events.size());
+        assertTrue(request.events.get(0), request.events.get(0).startsWith("error:PRIORITY_UPDATE"));
+        RecordingHandler push = new RecordingHandler();
+        new H3Parser(push).receive(ByteBuffer.wrap(
+                rawFrame(H3FrameHandler.TYPE_PRIORITY_UPDATE_PUSH, bad)));
+        assertEquals(1, push.events.size());
+        assertTrue(push.events.get(0), push.events.get(0).startsWith("error:PRIORITY_UPDATE"));
+    }
+
+    @Test
+    public void testPriorityUpdatePushFrame() {
+        byte[] field = "u=3".getBytes(StandardCharsets.US_ASCII);
+        byte[] payload = new byte[1 + field.length];
+        payload[0] = 0x05;
+        System.arraycopy(field, 0, payload, 1, field.length);
+        RecordingHandler handler = new RecordingHandler();
+        new H3Parser(handler).receive(ByteBuffer.wrap(
+                rawFrame(H3FrameHandler.TYPE_PRIORITY_UPDATE_PUSH, payload)));
+        assertEquals("priority_update_push:5:u=3", handler.events.get(0));
+    }
+
+    @Test
+    public void testPayloadsShorterThanTheirFieldsAreFrameErrors() {
+        long[] types = {
+            H3FrameHandler.TYPE_CANCEL_PUSH, H3FrameHandler.TYPE_GOAWAY,
+            H3FrameHandler.TYPE_MAX_PUSH_ID, H3FrameHandler.TYPE_PUSH_PROMISE,
+            H3FrameHandler.TYPE_PRIORITY_UPDATE_REQUEST
+        };
+        for (int i = 0; i < types.length; i++) {
+            RecordingHandler handler = new RecordingHandler();
+            new H3Parser(handler).receive(ByteBuffer.wrap(rawFrame(types[i], new byte[0])));
+            assertEquals("type " + types[i], 1, handler.events.size());
+            assertTrue(handler.events.get(0), handler.events.get(0).startsWith("error:Malformed frame payload"));
+        }
+    }
 }

@@ -90,7 +90,7 @@ public class LdapRealmTest {
     private static final LdapResult DENIED = new LdapResult(
             LdapResultCode.INVALID_CREDENTIALS, "", "denied", null);
 
-    /** What the fake server does and what it saw. */
+    /** What the mock server does and what it saw. */
     private static final class Script {
         boolean connectError;
         boolean neverReady;
@@ -104,10 +104,10 @@ public class LdapRealmTest {
         int connects;
     }
 
-    private static final class FakeSession implements LdapSession {
+    private static final class MockSession implements LdapSession {
         private final Script script;
 
-        FakeSession(Script script) {
+        MockSession(Script script) {
             this.script = script;
         }
 
@@ -145,10 +145,10 @@ public class LdapRealmTest {
         }
     }
 
-    private static final class FakeConnection implements LdapConnected {
+    private static final class MockConnection implements LdapConnected {
         private final Script script;
 
-        FakeConnection(Script script) {
+        MockConnection(Script script) {
             this.script = script;
         }
 
@@ -179,7 +179,7 @@ public class LdapRealmTest {
 
         private void finishBind(boolean ok, BindResultHandler cb) {
             if (ok) {
-                cb.handleBindSuccess(new FakeSession(script));
+                cb.handleBindSuccess(new MockSession(script));
             } else {
                 cb.handleBindFailure(DENIED, this);
             }
@@ -211,16 +211,16 @@ public class LdapRealmTest {
                 ready.onError(new IOException("refused"));
                 return;
             }
-            ready.handleReady(new FakeConnection(script));
+            ready.handleReady(new MockConnection(script));
         }
     }
 
     /** Certificate that only knows its DER bytes and subject. */
-    private static final class FakeCert extends X509Certificate {
+    private static final class MockCert extends X509Certificate {
         private final byte[] der;
         private final X500Principal subject;
 
-        FakeCert(byte[] der, String subject) {
+        MockCert(byte[] der, String subject) {
             this.der = der;
             this.subject = new X500Principal(subject);
         }
@@ -257,7 +257,7 @@ public class LdapRealmTest {
                 throws CertificateException, NoSuchAlgorithmException,
                 InvalidKeyException, NoSuchProviderException,
                 SignatureException { }
-        @Override public String toString() { return "FakeCert"; }
+        @Override public String toString() { return "MockCert"; }
         @Override public PublicKey getPublicKey() { return null; }
         @Override public boolean hasUnsupportedCriticalExtension() {
             return false;
@@ -458,14 +458,14 @@ public class LdapRealmTest {
 
     @Test
     public void certificateAuthenticationDisabledByDefault() {
-        assertNull(realm.authenticateCertificate(new FakeCert(
+        assertNull(realm.authenticateCertificate(new MockCert(
                 new byte[] {1}, "CN=alice")));
         assertEquals(0, script.connects);
     }
 
     @Test
     public void noCertificateModeYieldsNull() {
-        assertNull(realm.authenticateCertificate(new FakeCert(
+        assertNull(realm.authenticateCertificate(new MockCert(
                 new byte[] {1}, "CN=alice")));
     }
 
@@ -475,7 +475,7 @@ public class LdapRealmTest {
         script.results.add(entry("uid=alice,dc=example,dc=com", "uid",
                 "alice"));
         Realm.CertificateAuthenticationResult r =
-                realm.authenticateCertificate(new FakeCert(
+                realm.authenticateCertificate(new MockCert(
                         new byte[] {1, (byte) 0xab}, "CN=alice"));
         assertTrue(r.valid);
         assertEquals("alice", r.username);
@@ -489,7 +489,7 @@ public class LdapRealmTest {
     @Test
     public void binaryModeNoMatchFails() {
         realm.setCertLookupMode(LdapRealm.CertLookupMode.BINARY);
-        assertFalse(realm.authenticateCertificate(new FakeCert(
+        assertFalse(realm.authenticateCertificate(new MockCert(
                 new byte[] {1}, "CN=alice")).valid);
     }
 
@@ -501,7 +501,7 @@ public class LdapRealmTest {
         script.results.add(entry("uid=alice,dc=example,dc=com", "mail",
                 "alice@example.com"));
         Realm.CertificateAuthenticationResult r =
-                realm.authenticateCertificate(new FakeCert(new byte[] {1},
+                realm.authenticateCertificate(new MockCert(new byte[] {1},
                         "CN=alice,O=Acme\\, Inc"));
         assertTrue(r.valid);
         assertEquals("alice@example.com", r.username);
@@ -516,7 +516,7 @@ public class LdapRealmTest {
         realm.setCertLookupMode(LdapRealm.CertLookupMode.SUBJECT);
         realm.setCertSubjectFilter("(cn={CN})");
         script.results.add(entry("uid=x,dc=example,dc=com", "uid", "x"));
-        realm.authenticateCertificate(new FakeCert(new byte[] {1},
+        realm.authenticateCertificate(new MockCert(new byte[] {1},
                 "CN=a\\+b"));
         assertEquals("(cn=a+b)", script.searches.get(0).getFilter());
     }
@@ -524,7 +524,7 @@ public class LdapRealmTest {
     @Test
     public void subjectModeWithoutFilterFails() {
         realm.setCertLookupMode(LdapRealm.CertLookupMode.SUBJECT);
-        assertFalse(realm.authenticateCertificate(new FakeCert(
+        assertFalse(realm.authenticateCertificate(new MockCert(
                 new byte[] {1}, "CN=alice")).valid);
         assertEquals(0, script.connects);
     }
@@ -533,7 +533,7 @@ public class LdapRealmTest {
     public void certificateLookupErrorFails() {
         realm.setCertLookupMode(LdapRealm.CertLookupMode.BINARY);
         script.connectError = true;
-        assertFalse(realm.authenticateCertificate(new FakeCert(
+        assertFalse(realm.authenticateCertificate(new MockCert(
                 new byte[] {1}, "CN=alice")).valid);
     }
 

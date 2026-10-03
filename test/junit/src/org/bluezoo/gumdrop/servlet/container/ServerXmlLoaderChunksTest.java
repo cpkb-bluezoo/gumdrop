@@ -47,7 +47,7 @@ import org.junit.Test;
 public class ServerXmlLoaderChunksTest {
 
     /** Serves a byte array in chunks of at most chunkSize bytes. */
-    private static final class FakeSource implements ServerXmlLoader.ChunkSource {
+    private static final class MockSource implements ServerXmlLoader.ChunkSource {
 
         private final byte[] data;
         private final int chunkSize;
@@ -55,7 +55,7 @@ public class ServerXmlLoaderChunksTest {
         int reads;
         boolean closed;
 
-        FakeSource(String content, int chunkSize, boolean failReads) {
+        MockSource(String content, int chunkSize, boolean failReads) {
             this.data = content.getBytes(StandardCharsets.UTF_8);
             this.chunkSize = chunkSize;
             this.failReads = failReads;
@@ -88,8 +88,8 @@ public class ServerXmlLoaderChunksTest {
     private HttpServer server;
     private String error;
 
-    private FakeSource load(String xml, int chunkSize, boolean failReads) {
-        FakeSource source = new FakeSource(xml, chunkSize, failReads);
+    private MockSource load(String xml, int chunkSize, boolean failReads) {
+        MockSource source = new MockSource(xml, chunkSize, failReads);
         ServerXmlLoader.loadFrom(source, new File("/base"), "file:///base/server.xml",
                 new ServerXmlLoader.Callback() {
                     @Override
@@ -107,7 +107,7 @@ public class ServerXmlLoaderChunksTest {
 
     @Test
     public void loadsServerFromChunks() {
-        FakeSource source = load("<server><context path='/app' root='webapp' distributable='true'/>"
+        MockSource source = load("<server><context path='/app' root='webapp' distributable='true'/>"
                 + "<listener port='8080'/></server>", 7, false);
         assertNull(error, error);
         assertNotNull(server);
@@ -130,7 +130,7 @@ public class ServerXmlLoaderChunksTest {
 
     @Test
     public void malformedInputReportsParseError() {
-        FakeSource source = load("<server><listener port='8080'></server>", 5, false);
+        MockSource source = load("<server><listener port='8080'></server>", 5, false);
         assertNull(server);
         assertNotNull(error);
         assertTrue(error, error.indexOf("parse error") >= 0);
@@ -139,7 +139,7 @@ public class ServerXmlLoaderChunksTest {
 
     @Test
     public void emptyInputReportsError() {
-        FakeSource source = load("", 5, false);
+        MockSource source = load("", 5, false);
         assertNull(server);
         assertNotNull(error);
         assertTrue(source.closed);
@@ -147,7 +147,7 @@ public class ServerXmlLoaderChunksTest {
 
     @Test
     public void readFailureIsReported() {
-        FakeSource source = load("<server/>", 5, true);
+        MockSource source = load("<server/>", 5, true);
         assertNull(server);
         assertEquals("Error reading server.xml: disk gone", error);
         assertTrue(source.closed);

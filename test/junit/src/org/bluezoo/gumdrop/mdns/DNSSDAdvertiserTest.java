@@ -39,7 +39,7 @@ import org.bluezoo.gumdrop.dns.DnsType;
 import static org.junit.Assert.*;
 
 /**
- * Unit tests for {@link DnssdAdvertiser}, exercised against fake
+ * Unit tests for {@link DnssdAdvertiser}, exercised against mock
  * {@link Server}/{@link Listener} implementations rather than a real
  * {@code Gumdrop} instance -- the point of {@link DnssdAdvertiser}
  * taking its server list as a plain parameter.
@@ -66,8 +66,8 @@ public class DNSSDAdvertiserTest {
 
     @Test
     public void testAdvertisesKnownServiceType() {
-        Server server = new FakeServer(
-                Arrays.<Listener>asList(new FakeListener("http", 8080)));
+        Server server = new MockServer(
+                Arrays.<Listener>asList(new MockListener("http", 8080)));
         List<DnsResourceRecord> records = build(Collections.singletonList(server));
 
         List<DnsResourceRecord> ptrs = ofType(records, DnsType.PTR);
@@ -96,16 +96,16 @@ public class DNSSDAdvertiserTest {
 
     @Test
     public void testUnknownDescriptionIsSkippedNotErrored() {
-        Server server = new FakeServer(
-                Arrays.<Listener>asList(new FakeListener("health", 9090)));
+        Server server = new MockServer(
+                Arrays.<Listener>asList(new MockListener("health", 9090)));
         List<DnsResourceRecord> records = build(Collections.singletonList(server));
         assertTrue(records.isEmpty());
     }
 
     @Test
     public void testExcludedDescriptionIsSkipped() {
-        Server server = new FakeServer(
-                Arrays.<Listener>asList(new FakeListener("http", 8080)));
+        Server server = new MockServer(
+                Arrays.<Listener>asList(new MockListener("http", 8080)));
         Set<String> excluded = new HashSet<String>(Arrays.asList("http"));
 
         List<DnsResourceRecord> records = DnssdAdvertiser.buildRecords(
@@ -116,16 +116,16 @@ public class DNSSDAdvertiserTest {
 
     @Test
     public void testNonPositivePortIsSkipped() {
-        Server server = new FakeServer(
-                Arrays.<Listener>asList(new FakeListener("http", -1)));
+        Server server = new MockServer(
+                Arrays.<Listener>asList(new MockListener("http", -1)));
         List<DnsResourceRecord> records = build(Collections.singletonList(server));
         assertTrue(records.isEmpty());
     }
 
     @Test
     public void testPtrRecordsAreSharedNotCacheFlushed() {
-        Server server = new FakeServer(
-                Arrays.<Listener>asList(new FakeListener("http", 8080)));
+        Server server = new MockServer(
+                Arrays.<Listener>asList(new MockListener("http", 8080)));
         List<DnsResourceRecord> records = build(Collections.singletonList(server));
 
         for (DnsResourceRecord rr : ofType(records, DnsType.PTR)) {
@@ -135,8 +135,8 @@ public class DNSSDAdvertiserTest {
 
     @Test
     public void testSrvAndTxtRecordsAreCacheFlushed() {
-        Server server = new FakeServer(
-                Arrays.<Listener>asList(new FakeListener("http", 8080)));
+        Server server = new MockServer(
+                Arrays.<Listener>asList(new MockListener("http", 8080)));
         List<DnsResourceRecord> records = build(Collections.singletonList(server));
 
         for (DnsResourceRecord rr : ofType(records, DnsType.SRV)) {
@@ -149,9 +149,9 @@ public class DNSSDAdvertiserTest {
 
     @Test
     public void testTwoServiceTypesEachGetTheirOwnMetaPtr() {
-        Server server = new FakeServer(Arrays.<Listener>asList(
-                new FakeListener("http", 8080),
-                new FakeListener("imap", 143)));
+        Server server = new MockServer(Arrays.<Listener>asList(
+                new MockListener("http", 8080),
+                new MockListener("imap", 143)));
         List<DnsResourceRecord> records = build(Collections.singletonList(server));
 
         List<DnsResourceRecord> metaPtrs = new ArrayList<DnsResourceRecord>();
@@ -165,8 +165,8 @@ public class DNSSDAdvertiserTest {
 
     @Test
     public void testTxtRecordHasSingleEmptyStringNotZeroLength() {
-        Server server = new FakeServer(
-                Arrays.<Listener>asList(new FakeListener("http", 8080)));
+        Server server = new MockServer(
+                Arrays.<Listener>asList(new MockListener("http", 8080)));
         List<DnsResourceRecord> records = build(Collections.singletonList(server));
 
         DnsResourceRecord txt = ofType(records, DnsType.TXT).get(0);
@@ -183,10 +183,10 @@ public class DNSSDAdvertiserTest {
         return null;
     }
 
-    private static final class FakeServer implements Server {
+    private static final class MockServer implements Server {
         private final List<Listener> listeners;
 
-        FakeServer(List<Listener> listeners) {
+        MockServer(List<Listener> listeners) {
             this.listeners = listeners;
         }
 
@@ -200,11 +200,11 @@ public class DNSSDAdvertiserTest {
         @Override public void stop() { }
     }
 
-    private static final class FakeListener extends Listener {
+    private static final class MockListener extends Listener {
         private final String description;
         private final int port;
 
-        FakeListener(String description, int port) {
+        MockListener(String description, int port) {
             this.description = description;
             this.port = port;
         }

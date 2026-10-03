@@ -556,4 +556,230 @@ public class ManagerServletTest {
             // client went away
         }
     }
+
+    // ── branch coverage additions ──
+
+    private void withHeaders(final String origin, final String referer) {
+        final HttpServletRequest inner = request;
+        request = (HttpServletRequest) Proxy.newProxyInstance(
+                ManagerServletTest.class.getClassLoader(),
+                new Class<?>[] {HttpServletRequest.class},
+                new InvocationHandler() {
+                    @Override
+                    public Object invoke(Object p, Method m, Object[] a)
+                            throws Throwable {
+                        if ("getHeader".equals(m.getName())) {
+                            if ("Origin".equals(a[0])) {
+                                return origin;
+                            }
+                            if ("Referer".equals(a[0])) {
+                                return referer;
+                            }
+                            return null;
+                        }
+                        try {
+                            return m.invoke(inner, a);
+                        } catch (java.lang.reflect.InvocationTargetException e) {
+                            throw e.getCause();
+                        }
+                    }
+                });
+    }
+
+    private void assertAccepted() {
+        assertTrue(responseAnswers.calls.contains("sendRedirect:/manager/"));
+        assertFalse(responseAnswers.calls.contains("sendError:403"));
+    }
+
+    @Test
+    public void postWithNonStringSessionTokenIsForbidden() throws Exception {
+        asPost();
+        sessionAnswers.attributes.put(ManagerServlet.CSRF_ATTRIBUTE, Integer.valueOf(7));
+        withParams("core-pool-size", "7");
+        post();
+        assertForbiddenAndUnchanged();
+    }
+
+    @Test
+    public void postOnDefaultHttpsPortOmitsPortFromOrigin() throws Exception {
+        asPost();
+        requestAnswers.with("getScheme", "https");
+        requestAnswers.with("getServerPort", Integer.valueOf(443));
+        withParams("core-pool-size", "3");
+        withHeaders("https://manager.example", null);
+        post();
+        assertAccepted();
+        assertEquals(3, pool.getCorePoolSize());
+    }
+
+    @Test
+    public void postOnDefaultHttpPortOmitsPortFromOrigin() throws Exception {
+        asPost();
+        requestAnswers.with("getServerPort", Integer.valueOf(80));
+        withParams("core-pool-size", "3");
+        withHeaders("http://manager.example", null);
+        post();
+        assertAccepted();
+    }
+
+    @Test
+    public void postOnNonDefaultPortRequiresPortInOrigin() throws Exception {
+        asPost();
+        requestAnswers.with("getScheme", "https");
+        requestAnswers.with("getServerPort", Integer.valueOf(8443));
+        withParams("core-pool-size", "3");
+        withHeaders("https://manager.example", null);
+        post();
+        assertForbiddenAndUnchanged();
+    }
+
+    @Test
+    public void postWithMatchingRefererAndNoOriginIsAccepted() throws Exception {
+        asPost();
+        withParams("core-pool-size", "3");
+        withHeaders(null, "http://manager.example:8080/manager/");
+        post();
+        assertAccepted();
+    }
+
+    @Test
+    public void postWithRefererEqualToOwnOriginIsAccepted() throws Exception {
+        asPost();
+        withParams("core-pool-size", "3");
+        withHeaders(null, "http://manager.example:8080");
+        post();
+        assertAccepted();
+    }
+
+    @Test
+    public void postWithForeignRefererAndNoOriginIsForbidden() throws Exception {
+        asPost();
+        withParams("core-pool-size", "3");
+        withHeaders(null, "http://evil.example/manager/");
+        post();
+        assertForbiddenAndUnchanged();
+    }
+
+    @Test
+    public void postWithoutOriginOrRefererIsAccepted() throws Exception {
+        asPost();
+        withParams("core-pool-size", "3");
+        withHeaders(null, null);
+        post();
+        assertAccepted();
+    }
+
+    @Test
+    public void postWithoutLocaleStillRedirects() throws Exception {
+        asPost();
+        requestAnswers.with("getLocale", null);
+        withParams("core-pool-size", "3");
+        post();
+        assertAccepted();
+    }
+
+    @Test
+    public void postParsesEveryKeepAliveUnit() throws Exception {
+        String[] text = {"4ns", "6us", "5ms", "7s", "2m", "3h", "1d", " 8 s "};
+        java.time.temporal.ChronoUnit[] unit = {
+            java.time.temporal.ChronoUnit.NANOS, java.time.temporal.ChronoUnit.MICROS,
+            java.time.temporal.ChronoUnit.MILLIS, java.time.temporal.ChronoUnit.SECONDS,
+            java.time.temporal.ChronoUnit.MINUTES, java.time.temporal.ChronoUnit.HOURS,
+            java.time.temporal.ChronoUnit.DAYS, java.time.temporal.ChronoUnit.SECONDS};
+        long[] amount = {4, 6, 5, 7, 2, 3, 1, 8};
+        for (int i = 0; i < text.length; i++) {
+            responseAnswers.calls.clear();
+            contextAnswers.calls.clear();
+            asPost();
+            params.put("keep-alive-time", text[i]);
+            withParams();
+            post();
+            java.time.Duration expected = java.time.Duration.of(amount[i], unit[i]);
+            assertTrue(text[i], contextAnswers.calls.contains("setWorkerKeepAlive:" + expected));
+            assertAccepted();
+        }
+    }
+
+    @Test
+    public void postKeepAliveWithoutUnitIsBadRequest() throws Exception {
+        asPost();
+        withParams("keep-alive-time", "42");
+        post();
+        assertTrue(responseAnswers.calls.contains("sendError:400"));
+        assertFalse(contextAnswers.calls.contains("setWorkerKeepAlive:PT42S"));
+    }
+
+    @Test
+    public void postKeepAliveWithNonNumericAmountIsBadRequest() throws Exception {
+        asPost();
+        withParams("keep-alive-time", "fast s");
+        post();
+        assertTrue(responseAnswers.calls.contains("sendError:400"));
+    }
+
+    private String renderedKeepAlive(java.time.Duration keepAlive) throws Exception {
+        contextAnswers.with("getWorkerKeepAlive", keepAlive);
+        body.sink.reset();
+        servlet.service(request, response);
+        String out = html();
+        String marker = "id='keep-alive-time' name='keep-alive-time' value='";
+        int start = out.indexOf(marker);
+        assertTrue(out, start >= 0);
+        start += marker.length();
+        return out.substring(start, out.indexOf('\'', start));
+    }
+
+    @Test
+    public void getFormatsKeepAliveInTheLargestExactUnit() throws Exception {
+        assertEquals("0ms", renderedKeepAlive(java.time.Duration.ZERO));
+        assertEquals("7ns", renderedKeepAlive(java.time.Duration.ofNanos(7)));
+        assertEquals("5us", renderedKeepAlive(java.time.Duration.ofNanos(5000)));
+        assertEquals("1500ms", renderedKeepAlive(java.time.Duration.ofMillis(1500)));
+        assertEquals("90s", renderedKeepAlive(java.time.Duration.ofSeconds(90)));
+        assertEquals("3m", renderedKeepAlive(java.time.Duration.ofMinutes(3)));
+        assertEquals("5h", renderedKeepAlive(java.time.Duration.ofHours(5)));
+        assertEquals("2d", renderedKeepAlive(java.time.Duration.ofDays(2)));
+    }
+
+    @Test
+    public void getRendersFiltersAndServletsWithSparseDescriptors() throws Exception {
+        Answers urlOnly = new Answers()
+                .with("getName", "urlonly")
+                .with("getDisplayName", "Url Only")
+                .with("getUrlPatternMappings", Arrays.asList("/only"));
+        Answers bareFilter = new Answers().with("getName", "barefilter");
+        Answers bareServlet = new Answers().with("getName", "baresvc");
+        @SuppressWarnings("unchecked")
+        Map<String, Object> filters =
+                (Map<String, Object>) contextAnswers.values.get("getFilterRegistrations");
+        @SuppressWarnings("unchecked")
+        Map<String, Object> servlets =
+                (Map<String, Object>) contextAnswers.values.get("getServletRegistrations");
+        filters.put("urlonly", proxy(FilterReg.class, urlOnly));
+        filters.put("barefilter", proxy(FilterReg.class, bareFilter));
+        servlets.put("baresvc", proxy(ServletReg.class, bareServlet));
+        urlOnly.with("getServletNameMappings", Collections.emptyList());
+        bareFilter.with("getServletNameMappings", Collections.emptyList());
+        bareFilter.with("getUrlPatternMappings", Collections.emptyList());
+        bareServlet.with("getMappings", Collections.emptyList());
+        servlet.service(request, response);
+        String out = html();
+        assertTrue(out, out.contains("Url Only"));
+        assertTrue(out.contains("<div class='component-mapping'>/only</div>"));
+        assertTrue(out.contains("barefilter"));
+        assertTrue(out.contains("baresvc"));
+    }
+
+    @Test
+    public void getRejectsMoreMalformedIcons() throws Exception {
+        String[] bad = {"/", "/a b.png", "/a\u007fb.png", "/a\nb.png"};
+        for (int i = 0; i < bad.length; i++) {
+            contextAnswers.with("getSmallIcon", bad[i]);
+            body.sink.reset();
+            servlet.service(request, response);
+            String out = html();
+            assertFalse(out.contains("src='" + bad[i] + "'"));
+            assertTrue(out.contains("/manager/gumdrop_green_16x16.png"));
+        }
+    }
 }

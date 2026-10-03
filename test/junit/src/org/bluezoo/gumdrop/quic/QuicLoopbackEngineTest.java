@@ -174,6 +174,16 @@ public class QuicLoopbackEngineTest {
     }
 
     @Test
+    public void emptyPathDatagramIsIgnored() throws Exception {
+        QuicLoopback lb = new QuicLoopback();
+        Pair p = new Pair(lb);
+        lb.injectToServer(new byte[0]);
+        lb.injectToClient(new byte[0]);
+        assertFalse(p.server.conn.isClosed());
+        assertFalse(p.client.conn.isClosed());
+    }
+
+    @Test
     public void corruptedPacketFromPeerIsDropped() throws Exception {
         QuicLoopback lb = new QuicLoopback();
         Pair p = new Pair(lb);

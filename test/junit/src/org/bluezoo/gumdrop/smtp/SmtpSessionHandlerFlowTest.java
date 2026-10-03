@@ -634,7 +634,7 @@ public class SmtpSessionHandlerFlowTest {
     // -- script and helpers --
 
     /** Stub endpoint counting read pause and resume calls. */
-    private static final class CountingEndpoint extends SMTPProtocolHandlerTest.StubEndpoint {
+    static final class CountingEndpoint extends SMTPProtocolHandlerTest.StubEndpoint {
         int pauseCount;
         int resumeCount;
 
@@ -650,7 +650,7 @@ public class SmtpSessionHandlerFlowTest {
     }
 
     /** Listener with STARTTLS pretended available. */
-    private static final class StartTlsListener extends SmtpListener {
+    static final class StartTlsListener extends SmtpListener {
         @Override
         protected boolean isSTARTTLSAvailable() {
             return true;
@@ -658,7 +658,7 @@ public class SmtpSessionHandlerFlowTest {
     }
 
     /** Listener authorising XCLIENT. */
-    private static final class XclientListener extends SmtpListener {
+    static final class XclientListener extends SmtpListener {
         @Override
         protected boolean isXclientAuthorized(java.net.InetAddress addr) {
             return true;
@@ -700,7 +700,7 @@ public class SmtpSessionHandlerFlowTest {
     }
 
     /** Session handler whose behaviour at each stage is set by mode fields. */
-    private static final class Script implements ClientConnected, HelloHandler,
+    static final class Script implements ClientConnected, HelloHandler,
             MailFromHandler, RecipientHandler, MessageDataHandler {
 
         int connMode;
@@ -712,6 +712,9 @@ public class SmtpSessionHandlerFlowTest {
         int resetMode;
         int authMode;
         boolean pause;
+        boolean holdCompletion;
+        SmtpPipeline pipeline;
+        MessageEndState heldEnd;
 
         boolean connected;
         boolean disconnected;
@@ -804,7 +807,7 @@ public class SmtpSessionHandlerFlowTest {
 
         @Override
         public SmtpPipeline getPipeline() {
-            return null;
+            return pipeline;
         }
 
         @Override
@@ -934,6 +937,10 @@ public class SmtpSessionHandlerFlowTest {
         @Override
         public void messageComplete(MessageEndState state) {
             completed = true;
+            if (holdCompletion) {
+                heldEnd = state;
+                return;
+            }
             switch (endMode) {
                 case 1:
                     state.rejectMessageTemporary("try later", this);

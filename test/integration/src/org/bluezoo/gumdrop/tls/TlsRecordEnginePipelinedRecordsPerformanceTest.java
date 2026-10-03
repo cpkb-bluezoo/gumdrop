@@ -51,7 +51,7 @@ import org.bluezoo.gumdrop.TestTlsFiles;
  * simply nothing generates this pattern at integration-test volumes, so
  * a dedicated microbenchmark is needed to see it at all).
  *
- * <p>This drives a real TLS 1.3 loopback handshake (not a fake buffer),
+ * <p>This drives a real TLS 1.3 loopback handshake (not a mock buffer),
  * then has the server seal many small application-data records and
  * hands the client every ciphertext byte in a <em>single</em> {@code
  * feedCiphertext} call, the way a saturated TCP read would.

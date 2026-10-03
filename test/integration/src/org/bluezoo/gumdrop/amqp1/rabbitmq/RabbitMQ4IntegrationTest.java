@@ -68,7 +68,7 @@ import org.junit.Test;
  *
  * <p>These exist to catch anything a from-scratch AMQP 1.0 implementation
  * gets subtly wrong against a real, independent implementation that the
- * in-process {@code FakeAmqp1Broker} (built from the same codec, so it can
+ * in-process {@code MockAmqp1Broker} (built from the same codec, so it can
  * share the client's misreadings of the specification) would silently agree
  * with: the SASL handshake, addressing, credit and delivery-count
  * arithmetic, settlement, and framing of a large message.

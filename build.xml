@@ -1369,12 +1369,15 @@
           <include name='**/mqtt/client/MqttClientLoopbackIntegrationTest.java'/>
           <include name='**/auth/oauth/OAuthRealmIntrospectionIntegrationTest.java'/>
           <include name='**/auth/BasicRealmHrefIntegrationTest.java'/>
+          <include name='**/auth/GssapiKerberosIntegrationTest.java'/>
           <include name='**/mdns/MdnsListenerLifecycleIntegrationTest.java'/>
           <include name='**/http/doh/DoHClientTransportIntegrationTest.java'/>
           <include name='**/http/server/HTTPAuthenticationProviderEvictionIntegrationTest.java'/>
           <include name='**/redis/codec/RESPEncoderIntegrationTest.java'/>
           <include name='**/ClassLoadersIntegrationTest.java'/>
           <include name='**/BootstrapIntegrationTest.java'/>
+          <include name='**/UnixSocketListenerIntegrationTest.java'/>
+          <include name='**/ScheduledTimerLiveIntegrationTest.java'/>
         </fileset>
       </batchtest>
       <formatter type='plain' usefile='false'/>

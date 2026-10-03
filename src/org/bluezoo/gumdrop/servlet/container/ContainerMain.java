@@ -22,6 +22,8 @@
 package org.bluezoo.gumdrop.servlet.container;
 
 import java.io.File;
+import java.io.PrintStream;
+import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -71,15 +73,42 @@ public final class ContainerMain {
     private ContainerMain() {
     }
 
+    /**
+     * Receives the composed server once configuration has loaded. The
+     * production launcher hands it to {@link Gumdrop#serve}, which
+     * blocks until the runtime exits; tests substitute a recording mock.
+     */
+    interface Launcher {
+        void launch(HttpServer server) throws Exception;
+    }
+
     public static void main(String[] args) throws Exception {
-        File configFile = resolveConfigFile(args);
+        int status = run(args, System.getenv(), System.err, new Launcher() {
+            @Override
+            public void launch(HttpServer server) throws InterruptedException {
+                Gumdrop.serve(server);
+            }
+        });
+        if (status != 0) {
+            System.exit(status);
+        }
+    }
+
+    /**
+     * Resolves and loads the configuration and launches the server.
+     *
+     * @return 0 once the launcher returns, or 1 if no configuration was
+     * found or it was invalid (after reporting the reason to {@code err})
+     */
+    static int run(String[] args, Map<String, String> env, PrintStream err,
+            Launcher launcher) throws Exception {
+        File configFile = resolveConfigFile(args, env);
         if (configFile == null || !configFile.isFile()) {
-            System.err.println(
+            err.println(
                     "gumdrop: no server.xml found (looked for: an explicit argument, "
                     + "$GUMDROP_CONFIG, $GUMDROP_HOME/conf/server.xml, ./conf/server.xml). "
                     + "See docs/CONTAINER-DEPLOYMENT.md.");
-            System.exit(1);
-            return;
+            return 1;
         }
 
         final CountDownLatch loaded = new CountDownLatch(1);
@@ -102,23 +131,27 @@ public final class ContainerMain {
 
         String error = errorRef.get();
         if (error != null) {
-            System.err.println("gumdrop: " + error);
-            System.exit(1);
-            return;
+            err.println("gumdrop: " + error);
+            return 1;
         }
 
-        Gumdrop.serve(serverRef.get());
+        launcher.launch(serverRef.get());
+        return 0;
     }
 
     static File resolveConfigFile(String[] args) {
+        return resolveConfigFile(args, System.getenv());
+    }
+
+    static File resolveConfigFile(String[] args, Map<String, String> env) {
         if (args.length > 0 && !args[0].isEmpty()) {
             return new File(args[0]);
         }
-        String fromEnv = System.getenv("GUMDROP_CONFIG");
+        String fromEnv = env.get("GUMDROP_CONFIG");
         if (fromEnv != null && !fromEnv.isEmpty()) {
             return new File(fromEnv);
         }
-        String gumdropHome = System.getenv("GUMDROP_HOME");
+        String gumdropHome = env.get("GUMDROP_HOME");
         if (gumdropHome != null && !gumdropHome.isEmpty()) {
             File fromHome = new File(new File(gumdropHome, "conf"), "server.xml");
             if (fromHome.isFile()) {

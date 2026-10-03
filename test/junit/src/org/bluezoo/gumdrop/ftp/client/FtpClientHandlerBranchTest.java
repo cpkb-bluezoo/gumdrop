@@ -64,7 +64,7 @@ public class FtpClientHandlerBranchTest {
     private ClientEndpoint keeper;
 
     private FtpClientProtocolHandler handler;
-    private final FakeActiveListenerOpener listeners = new FakeActiveListenerOpener();
+    private final MockActiveListenerOpener listeners = new MockActiveListenerOpener();
     private TestEndpoint endpoint;
     private final List<String> sent = Collections.synchronizedList(new ArrayList<String>());
     private final List<String> events = new ArrayList<String>();

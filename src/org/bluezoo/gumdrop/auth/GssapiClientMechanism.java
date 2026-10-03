@@ -116,6 +116,18 @@ public final class GssapiClientMechanism implements SaslClientMechanism {
         }
     }
 
+    /**
+     * Creates a mechanism around an already-created GSS context. Package-private
+     * so tests can supply a mock context.
+     *
+     * @param subject the JAAS Subject the context runs under
+     * @param context the GSS context to drive
+     */
+    GssapiClientMechanism(Subject subject, GSSContext context) {
+        this.subject = subject;
+        this.context = context;
+    }
+
     @Override
     public String getMechanismName() {
         return "GSSAPI";

@@ -450,6 +450,7 @@ public final class DnsMessage {
             throw new DnsFormatException(L10N.getString("err.truncated_rdata"));
         }
 
+        int rdataStart = data.position();
         byte[] rdata = new byte[rdLength];
         data.get(rdata);
 
@@ -462,8 +463,98 @@ public final class DnsMessage {
         DnsType type = DnsType.fromValue(typeValue);
         DnsClass dnsClass = DnsClass.fromValue(classValue & ~QU_OR_CACHE_FLUSH_BIT);
 
+        // RFC 1035 section 4.1.4 / RFC 3597 section 4: only the RFC 1035
+        // types may carry compression pointers in their RDATA, and those
+        // pointers are relative to the whole message, so expand them here
+        // while the message is at hand and keep canonical RDATA.
+        byte[] expanded = expandRdataNames(type, original, rdataStart, rdLength);
+        if (expanded != null) {
+            rdata = expanded;
+        }
+
         return new DnsResourceRecord(name, type, typeValue,
                 dnsClass, classValue, ttl, rdata);
+    }
+
+    /**
+     * Returns the RDATA of a CNAME, NS, PTR, MX or SOA record with its
+     * domain names expanded (uncompressed), or null if the type carries no
+     * compressible names or the RDATA is malformed (it is then kept raw).
+     *
+     * @throws IllegalStateException if an expanded name is malformed
+     *         (pointer loop, out-of-range pointer, over 255 octets)
+     */
+    private static byte[] expandRdataNames(DnsType type, ByteBuffer original,
+                                           int start, int length) {
+        if (type != DnsType.CNAME && type != DnsType.NS && type != DnsType.PTR
+                && type != DnsType.MX && type != DnsType.SOA) {
+            return null;
+        }
+        int end = start + length;
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        int pos = start;
+        if (type == DnsType.MX) {
+            if (length < 2) {
+                return null;
+            }
+            out.write(original.get(start));
+            out.write(original.get(start + 1));
+            pos += 2;
+        }
+        int names = (type == DnsType.SOA) ? 2 : 1;
+        for (int i = 0; i < names; i++) {
+            int wire = inlineNameLength(original, pos, end);
+            if (wire < 0) {
+                return null;
+            }
+            ByteBuffer in = original.duplicate();
+            in.limit(end);
+            in.position(pos);
+            String name = decodeName(in, original);
+            byte[] encoded;
+            try {
+                encoded = encodeName(name);
+            } catch (IllegalArgumentException e) {
+                throw new IllegalStateException(L10N.getString("err.name_too_long_decode"), e);
+            }
+            out.write(encoded, 0, encoded.length);
+            pos += wire;
+        }
+        if (type == DnsType.SOA) {
+            if (end - pos != 20) {
+                return null;
+            }
+            for (int i = pos; i < end; i++) {
+                out.write(original.get(i));
+            }
+        } else if (pos != end) {
+            return null;
+        }
+        return out.toByteArray();
+    }
+
+    /**
+     * Length in the message of the name starting at {@code pos}, as it
+     * appears inline (labels up to a terminating zero or a two-octet
+     * pointer), or -1 if it runs past {@code end} or uses a reserved label
+     * type.
+     */
+    private static int inlineNameLength(ByteBuffer msg, int pos, int end) {
+        int p = pos;
+        while (p < end) {
+            int len = msg.get(p) & 0xFF;
+            if (len == 0) {
+                return p + 1 - pos;
+            }
+            if ((len & COMPRESSION_MASK) == COMPRESSION_POINTER) {
+                return (p + 2 <= end) ? p + 2 - pos : -1;
+            }
+            if (len > MAX_LABEL_LENGTH) {
+                return -1;
+            }
+            p += 1 + len;
+        }
+        return -1;
     }
 
     /**

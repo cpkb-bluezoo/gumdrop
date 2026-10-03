@@ -349,6 +349,17 @@ public final class FieldTable {
      * the containing frame/property list's 4-byte length prefix).
      */
     public static FieldTable decode(ByteBuffer buf, int contentSize) throws AmqpProtocolException {
+        return decode(buf, contentSize, 0);
+    }
+
+    /** Deepest nesting of tables and arrays accepted from a peer. */
+    private static final int MAX_NESTING = 32;
+
+    private static FieldTable decode(ByteBuffer buf, int contentSize, int depth)
+            throws AmqpProtocolException {
+        if (depth > MAX_NESTING) {
+            throw new AmqpProtocolException("Field-table nesting too deep");
+        }
         int end = buf.position() + contentSize;
         if (end > buf.limit()) {
             throw new AmqpProtocolException("Truncated field-table");
@@ -356,7 +367,7 @@ public final class FieldTable {
         LinkedHashMap<String, Object> map = new LinkedHashMap<String, Object>();
         while (buf.position() < end) {
             String name = readShortString(buf);
-            Object value = readValue(buf);
+            Object value = readValue(buf, depth);
             map.put(name, value);
         }
         if (buf.position() != end) {
@@ -365,37 +376,53 @@ public final class FieldTable {
         return new FieldTable(map);
     }
 
-    private static Object readValue(ByteBuffer buf) throws AmqpProtocolException {
-        if (!buf.hasRemaining()) {
+    private static void need(ByteBuffer buf, int n) throws AmqpProtocolException {
+        if (buf.remaining() < n) {
             throw new AmqpProtocolException("Truncated field-table value");
         }
+    }
+
+    private static Object readValue(ByteBuffer buf, int depth) throws AmqpProtocolException {
+        need(buf, 1);
         byte tag = buf.get();
         switch (tag) {
             case TAG_VOID:
                 return null;
             case TAG_BOOLEAN:
+                need(buf, 1);
                 return buf.get() != 0;
             case TAG_SHORT_SHORT_INT:
+                need(buf, 1);
                 return buf.get();
             case TAG_SHORT_SHORT_UINT:
+                need(buf, 1);
                 return (short) (buf.get() & 0xFF);
             case TAG_SHORT_INT:
+                need(buf, 2);
                 return buf.getShort();
             case TAG_SHORT_UINT:
+                need(buf, 2);
                 return buf.getShort() & 0xFFFF;
             case TAG_LONG_INT:
+                need(buf, 4);
                 return buf.getInt();
             case TAG_LONG_UINT:
+                need(buf, 4);
                 return buf.getInt() & 0xFFFFFFFFL;
             case TAG_LONG_LONG_INT:
+                need(buf, 8);
                 return buf.getLong();
             case TAG_LONG_LONG_UINT:
+                need(buf, 8);
                 return buf.getLong(); // caller must treat as unsigned if the high bit matters
             case TAG_FLOAT:
+                need(buf, 4);
                 return buf.getFloat();
             case TAG_DOUBLE:
+                need(buf, 8);
                 return buf.getDouble();
             case TAG_DECIMAL: {
+                need(buf, 5);
                 int scale = buf.get() & 0xFF;
                 int unscaled = buf.getInt();
                 return new BigDecimal(BigInteger.valueOf(unscaled), scale);
@@ -403,23 +430,42 @@ public final class FieldTable {
             case TAG_LONG_STRING:
                 return readLongString(buf);
             case TAG_BYTE_ARRAY: {
+                need(buf, 4);
                 int len = buf.getInt();
+                if (len < 0 || buf.remaining() < len) {
+                    throw new AmqpProtocolException("Truncated field-table byte array");
+                }
                 byte[] b = new byte[len];
                 buf.get(b);
                 return b;
             }
             case TAG_TIMESTAMP:
+                need(buf, 8);
                 return new Date(buf.getLong() * 1000L);
             case TAG_FIELD_TABLE: {
+                need(buf, 4);
                 int len = buf.getInt();
-                return decode(buf, len);
+                if (len < 0) {
+                    throw new AmqpProtocolException("Negative field-table length");
+                }
+                return decode(buf, len, depth + 1);
             }
             case TAG_ARRAY: {
+                need(buf, 4);
                 int len = buf.getInt();
+                if (len < 0 || buf.remaining() < len) {
+                    throw new AmqpProtocolException("Truncated field-table array");
+                }
+                if (depth + 1 > MAX_NESTING) {
+                    throw new AmqpProtocolException("Field-table nesting too deep");
+                }
                 int end = buf.position() + len;
                 List<Object> list = new ArrayList<Object>();
                 while (buf.position() < end) {
-                    list.add(readValue(buf));
+                    list.add(readValue(buf, depth + 1));
+                }
+                if (buf.position() != end) {
+                    throw new AmqpProtocolException("Field-table array overran declared size");
                 }
                 return list;
             }

@@ -1,5 +1,5 @@
 /*
- * FakeAmqp1Peer.java
+ * MockAmqp1Peer.java
  * Copyright (C) 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -47,7 +47,7 @@ import org.bluezoo.gumdrop.telemetry.Trace;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-final class FakeAmqp1Peer implements Endpoint {
+final class MockAmqp1Peer implements Endpoint {
 
     /** One item the client sent: a protocol header, a frame, or a heartbeat. */
     static final class Out {

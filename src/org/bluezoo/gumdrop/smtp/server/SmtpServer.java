@@ -260,17 +260,16 @@ public abstract class SmtpServer implements Server, SmtpServerSessionProvider {
         initService();
 
         for (int i = 0; i < listeners.size(); i++) {
-            Object listener = listeners.get(i);
-            if (listener instanceof SmtpListener) {
-                SmtpListener ep = (SmtpListener) listener;
-                wireEndpoint(ep);
-                SmtpServerSessionProvider provider = getSessionProvider();
-                if (provider != null) {
-                    ep.setSessionProvider(provider);
-                }
-                ep.setServer(this);
+            // Only SmtpListener instances can be added (addListener,
+            // setListeners), so every element is one.
+            SmtpListener ep = (SmtpListener) listeners.get(i);
+            wireEndpoint(ep);
+            SmtpServerSessionProvider provider = getSessionProvider();
+            if (provider != null) {
+                ep.setSessionProvider(provider);
             }
-            startListener(gumdrop, listener);
+            ep.setServer(this);
+            startListener(gumdrop, ep);
         }
     }
 
@@ -301,25 +300,21 @@ public abstract class SmtpServer implements Server, SmtpServerSessionProvider {
         ep.setAuthRequired(authRequired);
     }
 
-    private void startListener(Gumdrop gumdrop, Object listener) {
-        if (listener instanceof Listener) {
-            try {
-                ((Listener) listener).start(gumdrop);
-            } catch (Exception e) {
-                LOGGER.log(Level.SEVERE,
-                        MessageFormat.format(L10N.getString("log.listener_start_failed"), listener), e);
-            }
+    private void startListener(Gumdrop gumdrop, Listener listener) {
+        try {
+            listener.start(gumdrop);
+        } catch (Exception e) {
+            LOGGER.log(Level.SEVERE,
+                    MessageFormat.format(L10N.getString("log.listener_start_failed"), listener), e);
         }
     }
 
-    private void stopListener(Object listener) {
-        if (listener instanceof Listener) {
-            try {
-                ((Listener) listener).stop();
-            } catch (Exception e) {
-                LOGGER.log(Level.WARNING,
-                        MessageFormat.format(L10N.getString("log.listener_stop_error"), listener), e);
-            }
+    private void stopListener(Listener listener) {
+        try {
+            listener.stop();
+        } catch (Exception e) {
+            LOGGER.log(Level.WARNING,
+                    MessageFormat.format(L10N.getString("log.listener_stop_error"), listener), e);
         }
     }
 

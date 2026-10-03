@@ -233,9 +233,9 @@ public final class AmqpClientProtocolHandler implements ProtocolHandler, AmqpFra
 
     @Override
     public void methodFrame(int channel, ByteBuffer payload) {
-        int classId = payload.getShort() & 0xFFFF;
-        int methodId = payload.getShort() & 0xFFFF;
         try {
+            int classId = payload.getShort() & 0xFFFF;
+            int methodId = payload.getShort() & 0xFFFF;
             if (channel == 0) {
                 dispatchConnectionMethod(classId, methodId, payload);
             } else {

@@ -54,7 +54,7 @@ import org.junit.Test;
 /**
  * End-to-end tests of {@link Amqp1ClientRecovery} (and so of
  * {@link Amqp1ClientProtocolHandler}, the session and link classes and the
- * codec) against {@link FakeAmqp1Broker} over a real loopback socket:
+ * codec) against {@link MockAmqp1Broker} over a real loopback socket:
  * SASL, publishing and consuming with credit and settlement, streaming a
  * large message in both directions, and reconnecting with the links
  * attached again.
@@ -69,13 +69,13 @@ public class Amqp1ClientIntegrationTest {
 
     private static final long TIMEOUT_SECONDS = 10;
 
-    private FakeAmqp1Broker broker;
+    private MockAmqp1Broker broker;
     private Amqp1ClientRecovery client;
     private Gumdrop gumdrop;
 
     @Before
     public void setUp() throws IOException {
-        broker = new FakeAmqp1Broker();
+        broker = new MockAmqp1Broker();
         gumdrop = Gumdrop.boot(GumdropConfig.create().workerThreads(2));
     }
 

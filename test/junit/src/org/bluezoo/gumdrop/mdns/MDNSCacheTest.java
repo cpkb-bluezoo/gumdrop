@@ -36,7 +36,7 @@ import org.bluezoo.gumdrop.dns.DnsType;
 import static org.junit.Assert.*;
 
 /**
- * Unit tests for {@link MdnsCache} against a {@link FakeRefresher} that
+ * Unit tests for {@link MdnsCache} against a {@link MockRefresher} that
  * captures scheduled callbacks (keyed by their exact delay) instead of
  * running them on a real clock, so tests fire the 80/85/90/95/100%
  * refresh schedule (RFC 6762 section 5.2) deterministically.
@@ -56,7 +56,7 @@ public class MDNSCacheTest {
 
     @Test
     public void testAddAndLookup() throws Exception {
-        FakeRefresher refresher = new FakeRefresher();
+        MockRefresher refresher = new MockRefresher();
         MdnsCache cache = new MdnsCache(refresher);
 
         cache.addAll(Arrays.asList(a("host.local", 120, "10.0.0.1", true)));
@@ -68,13 +68,13 @@ public class MDNSCacheTest {
 
     @Test
     public void testLookupMissReturnsEmpty() {
-        MdnsCache cache = new MdnsCache(new FakeRefresher());
+        MdnsCache cache = new MdnsCache(new MockRefresher());
         assertTrue(cache.lookup("nothing.local", DnsType.A).isEmpty());
     }
 
     @Test
     public void testCacheFlushReplacesRRSetAfterGracePeriod() throws Exception {
-        FakeRefresher refresher = new FakeRefresher();
+        MockRefresher refresher = new MockRefresher();
         MdnsCache cache = new MdnsCache(refresher);
 
         cache.addAll(Arrays.asList(a("host.local", 120, "10.0.0.1", true)));
@@ -96,7 +96,7 @@ public class MDNSCacheTest {
 
     @Test
     public void testNonFlushRecordsAccumulate() throws Exception {
-        MdnsCache cache = new MdnsCache(new FakeRefresher());
+        MdnsCache cache = new MdnsCache(new MockRefresher());
 
         // Shared record types (e.g. PTR in real use) don't set
         // cache-flush and are additive, not replacing.
@@ -108,7 +108,7 @@ public class MDNSCacheTest {
 
     @Test
     public void testGoodbyeRemovesAfterGracePeriod() throws Exception {
-        FakeRefresher refresher = new FakeRefresher();
+        MockRefresher refresher = new MockRefresher();
         MdnsCache cache = new MdnsCache(refresher);
 
         cache.addAll(Arrays.asList(a("host.local", 120, "10.0.0.1", true)));
@@ -121,7 +121,7 @@ public class MDNSCacheTest {
 
     @Test
     public void testUpsertUsesOneTimerPerRecord() throws Exception {
-        FakeRefresher refresher = new FakeRefresher();
+        MockRefresher refresher = new MockRefresher();
         MdnsCache cache = new MdnsCache(refresher);
 
         cache.addAll(Arrays.asList(a("host.local", 10, "10.0.0.1", true)));
@@ -136,7 +136,7 @@ public class MDNSCacheTest {
 
     @Test
     public void testActiveRefreshFiresAtEachStageThenExpires() throws Exception {
-        FakeRefresher refresher = new FakeRefresher();
+        MockRefresher refresher = new MockRefresher();
         MdnsCache cache = new MdnsCache(refresher);
 
         // TTL 10s -> refresh at 8000/8500/9000/9500ms, expiry at 10000ms.
@@ -159,7 +159,7 @@ public class MDNSCacheTest {
 
     @Test
     public void testRefreshedRecordCancelsStalePendingTimers() throws Exception {
-        FakeRefresher refresher = new FakeRefresher();
+        MockRefresher refresher = new MockRefresher();
         MdnsCache cache = new MdnsCache(refresher);
 
         cache.addAll(Arrays.asList(a("host.local", 10, "10.0.0.1", true)));
@@ -177,7 +177,7 @@ public class MDNSCacheTest {
 
     @Test
     public void testClearCancelsAllTimersAndEmptiesCache() throws Exception {
-        FakeRefresher refresher = new FakeRefresher();
+        MockRefresher refresher = new MockRefresher();
         MdnsCache cache = new MdnsCache(refresher);
 
         cache.addAll(Arrays.asList(a("host.local", 120, "10.0.0.1", true)));
@@ -194,7 +194,7 @@ public class MDNSCacheTest {
      * (keyed by its exact delay) instead of running it, so tests can
      * fire a specific stage deterministically via {@link #fireByDelay}.
      */
-    static class FakeRefresher implements MdnsCache.Refresher {
+    static class MockRefresher implements MdnsCache.Refresher {
 
         static final class Scheduled {
             final long delay;

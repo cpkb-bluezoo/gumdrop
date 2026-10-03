@@ -23,6 +23,7 @@ package org.bluezoo.gumdrop.dns.client;
 
 import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.dns.DnsCache;
+import org.bluezoo.gumdrop.dns.DnsClass;
 import org.bluezoo.gumdrop.dns.DnsMessage;
 import org.bluezoo.gumdrop.dns.DnsQueryCallback;
 import org.bluezoo.gumdrop.dns.DnsQuestion;
@@ -181,6 +182,20 @@ public class DnsResolverResolveTest {
         assertEquals(2, r.addresses.size());
         assertTrue(r.addresses.get(0).getHostAddress().contains(":"));
         assertEquals("192.0.2.1", r.addresses.get(1).getHostAddress());
+        assertEquals(1, r.calls);
+    }
+
+    @Test
+    public void testMalformedAddressRecordIsSkipped() throws Exception {
+        List<DnsResourceRecord> records = new ArrayList<DnsResourceRecord>();
+        records.add(new DnsResourceRecord("h.example.test.", DnsType.A,
+                DnsClass.IN, 60, new byte[3]));
+        records.add(a("h.example.test.", "192.0.2.1"));
+        answers.put(DnsType.A, records);
+        Result r = new Result();
+        resolver.resolve("h.example.test", r);
+        assertEquals(1, r.addresses.size());
+        assertEquals("192.0.2.1", r.addresses.get(0).getHostAddress());
         assertEquals(1, r.calls);
     }
 

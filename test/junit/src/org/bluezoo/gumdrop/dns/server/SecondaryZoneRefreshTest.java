@@ -63,7 +63,7 @@ public class SecondaryZoneRefreshTest {
     private static final int EXPIRE = 3600;
 
     private Path zoneFile;
-    private final FakeClient client = new FakeClient();
+    private final MockClient client = new MockClient();
     private final ManualScheduler scheduler = new ManualScheduler();
     private long clock = 1_000_000L;
 
@@ -283,7 +283,7 @@ public class SecondaryZoneRefreshTest {
 
     // ── Test doubles ──
 
-    private static final class FakeClient implements ZoneMasterClient {
+    private static final class MockClient implements ZoneMasterClient {
         int masterSerial;
         boolean soaFails;
         boolean transferFails;

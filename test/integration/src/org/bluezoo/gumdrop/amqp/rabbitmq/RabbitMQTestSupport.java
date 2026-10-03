@@ -39,7 +39,7 @@ import java.util.regex.Pattern;
  * Connection settings and helpers shared by the {@code amqp.rabbitmq}
  * integration tests, which exercise the real AMQP client
  * ({@code org.bluezoo.gumdrop.amqp.client}) against a real RabbitMQ
- * broker rather than {@code FakeAMQPBroker} -- not run in CI (there is no
+ * broker rather than {@code MockAMQPBroker} -- not run in CI (there is no
  * broker there), only locally against a broker you already have running.
  *
  * <p>All settings are overridable via system properties so this isn't
@@ -110,7 +110,7 @@ final class RabbitMQTestSupport {
 
     // ── Management API (issue: needed to force-close a live connection
     // from outside the client under test, to exercise real-broker
-    // recovery -- FakeAMQPBroker can just drop its socket, but there is
+    // recovery -- MockAMQPBroker can just drop its socket, but there is
     // no equivalent hook on a real, already-running RabbitMQ) ──
 
     private static final Pattern CONNECTION_NAME_PATTERN =
@@ -121,7 +121,7 @@ final class RabbitMQTestSupport {
      * via the management HTTP API ({@code DELETE
      * /api/connections/{name}}). Used to simulate an unexpected network
      * drop against a real broker, the same way {@code
-     * FakeAMQPBroker.disconnectAll()} does against the fake one.
+     * MockAMQPBroker.disconnectAll()} does against the mock one.
      *
      * <p>Simple rather than targeted (closes every connection, not just
      * the one under test): fine for a dedicated local test broker with

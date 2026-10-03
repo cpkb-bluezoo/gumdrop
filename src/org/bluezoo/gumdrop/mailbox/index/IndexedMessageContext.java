@@ -128,6 +128,31 @@ public class IndexedMessageContext implements MessageContext {
     }
 
     /**
+     * Returns whether the index holds the value of the named header. Any
+     * other header can only be answered by parsing the message.
+     *
+     * @param name the header name, in any case
+     * @return true if {@link #getHeader} is answered from the index
+     */
+    public static boolean isIndexedHeader(String name) {
+        String lowerName = name.toLowerCase(Locale.ROOT);
+        switch (lowerName) {
+            case "from":
+            case "sender":
+            case "to":
+            case "cc":
+            case "bcc":
+            case "subject":
+            case "message-id":
+            case "references":
+            case "in-reply-to":
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    /**
      * Gets the indexed value for a header.
      * Only commonly searched headers are indexed.
      */

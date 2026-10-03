@@ -1252,11 +1252,6 @@ public final class FtpProtocolHandler
 
     // RFC 959 section 4.1.1: CWD <SP> <pathname> <CRLF>
     private void doCwd(String args) throws IOException {
-        if (!authenticated) {
-            reply(530, L10N.getString("ftp.err.not_logged_in"));
-            return;
-        }
-
         if (args == null || args.trim().isEmpty()) {
             reply(501, L10N.getString("ftp.err.syntax_error_parameters"));
             return;
@@ -1302,11 +1297,6 @@ public final class FtpProtocolHandler
 
     // RFC 959 section 4.1.1: CDUP <CRLF>
     private void doCdup(String args) throws IOException {
-        if (!authenticated) {
-            reply(530, L10N.getString("ftp.err.not_logged_in"));
-            return;
-        }
-
         if (!checkAuthorization(FtpOperation.NAVIGATE, "..")) {
             return;
         }
@@ -1722,11 +1712,6 @@ public final class FtpProtocolHandler
 
     // RFC 959 section 4.1.3: RETR <SP> <pathname> <CRLF>
     private void doRetr(String args) throws IOException {
-        if (!authenticated) {
-            reply(530, L10N.getString("ftp.err.not_logged_in"));
-            return;
-        }
-
         if (args == null || args.trim().isEmpty()) {
             reply(501, L10N.getString("ftp.err.syntax_error_parameters"));
             return;
@@ -1837,11 +1822,6 @@ public final class FtpProtocolHandler
 
     // RFC 959 section 4.1.3: STOR <SP> <pathname> <CRLF>
     private void doStor(String args) throws IOException {
-        if (!authenticated) {
-            reply(530, L10N.getString("ftp.err.not_logged_in"));
-            return;
-        }
-
         if (args == null || args.trim().isEmpty()) {
             reply(501, L10N.getString("ftp.err.syntax_error_parameters"));
             return;
@@ -1921,11 +1901,6 @@ public final class FtpProtocolHandler
 
     // RFC 959 section 4.1.3: STOU <CRLF>
     private void doStou(String args) throws IOException {
-        if (!authenticated) {
-            reply(530, L10N.getString("ftp.err.not_logged_in"));
-            return;
-        }
-
         if (!checkAuthorization(FtpOperation.WRITE, null)) {
             return;
         }
@@ -1988,11 +1963,6 @@ public final class FtpProtocolHandler
 
     // RFC 959 section 4.1.3: APPE <SP> <pathname> <CRLF>
     private void doAppe(String args) throws IOException {
-        if (!authenticated) {
-            reply(530, L10N.getString("ftp.err.not_logged_in"));
-            return;
-        }
-
         if (args == null || args.trim().isEmpty()) {
             reply(501, L10N.getString("ftp.err.syntax_error_parameters"));
             return;
@@ -2069,11 +2039,6 @@ public final class FtpProtocolHandler
 
     // RFC 959 section 4.1.3: ALLO <SP> <decimal-integer> <CRLF>
     private void doAllo(String args) throws IOException {
-        if (!authenticated) {
-            reply(530, L10N.getString("ftp.err.not_logged_in"));
-            return;
-        }
-
         if (args == null || args.trim().isEmpty()) {
             reply(501, L10N.getString("ftp.err.syntax_error_parameters"));
             return;
@@ -2084,7 +2049,13 @@ public final class FtpProtocolHandler
             FtpFileSystem fs = getFileSystem();
             if (fs != null) {
                 FtpFileOperationResult result = fs.allocateSpace("", size, metadata);
-                handleFileOperationResult(result, "allocation of " + size + " bytes");
+                if (result == FtpFileOperationResult.SUCCESS) {
+                    // RFC 959 section 4.1.3: ALLO success is 200, not the
+                    // 250 file-action reply
+                    reply(200, L10N.getString("ftp.command_ok"));
+                } else {
+                    handleFileOperationResult(result, "allocation of " + size + " bytes");
+                }
             } else {
                 reply(200, L10N.getString("ftp.command_ok"));
             }
@@ -2095,11 +2066,6 @@ public final class FtpProtocolHandler
 
     // RFC 959 section 4.1.3 / RFC 3659 section 5: REST <SP> <marker> <CRLF>
     private void doRest(String args) throws IOException {
-        if (!authenticated) {
-            reply(530, L10N.getString("ftp.err.not_logged_in"));
-            return;
-        }
-
         if (args == null || args.trim().isEmpty()) {
             reply(501, L10N.getString("ftp.err.syntax_error_parameters"));
             return;
@@ -2117,11 +2083,6 @@ public final class FtpProtocolHandler
 
     // RFC 959 section 4.1.3: RNFR <SP> <pathname> <CRLF>
     private void doRnfr(String args) throws IOException {
-        if (!authenticated) {
-            reply(530, L10N.getString("ftp.err.not_logged_in"));
-            return;
-        }
-
         if (args == null || args.trim().isEmpty()) {
             reply(501, L10N.getString("ftp.err.syntax_error_parameters"));
             return;
@@ -2166,11 +2127,6 @@ public final class FtpProtocolHandler
 
     // RFC 959 section 4.1.3: RNTO <SP> <pathname> <CRLF>
     private void doRnto(String args) throws IOException {
-        if (!authenticated) {
-            reply(530, L10N.getString("ftp.err.not_logged_in"));
-            return;
-        }
-
         if (renameFrom == null) {
             reply(503, L10N.getString("ftp.err.bad_sequence"));
             return;
@@ -2227,11 +2183,6 @@ public final class FtpProtocolHandler
 
     // RFC 959 section 4.1.3: DELE <SP> <pathname> <CRLF>
     private void doDele(String args) throws IOException {
-        if (!authenticated) {
-            reply(530, L10N.getString("ftp.err.not_logged_in"));
-            return;
-        }
-
         if (args == null || args.trim().isEmpty()) {
             reply(501, L10N.getString("ftp.err.syntax_error_parameters"));
             return;
@@ -2273,11 +2224,6 @@ public final class FtpProtocolHandler
 
     // RFC 959 section 4.1.3: RMD <SP> <pathname> <CRLF>
     private void doRmd(String args) throws IOException {
-        if (!authenticated) {
-            reply(530, L10N.getString("ftp.err.not_logged_in"));
-            return;
-        }
-
         if (args == null || args.trim().isEmpty()) {
             reply(501, L10N.getString("ftp.err.syntax_error_parameters"));
             return;
@@ -2316,11 +2262,6 @@ public final class FtpProtocolHandler
 
     // RFC 959 section 4.1.3: MKD <SP> <pathname> <CRLF>
     private void doMkd(String args) throws IOException {
-        if (!authenticated) {
-            reply(530, L10N.getString("ftp.err.not_logged_in"));
-            return;
-        }
-
         if (args == null || args.trim().isEmpty()) {
             reply(501, L10N.getString("ftp.err.syntax_error_parameters"));
             return;
@@ -2365,21 +2306,11 @@ public final class FtpProtocolHandler
 
     // RFC 959 section 4.1.3: PWD <CRLF>
     private void doPwd(String args) throws IOException {
-        if (!authenticated) {
-            reply(530, L10N.getString("ftp.err.not_logged_in"));
-            return;
-        }
-
         reply(257, "\"" + currentDirectory + "\" " + L10N.getString("ftp.directory_created").substring(4));
     }
 
     // RFC 959 section 4.1.3: LIST [<SP> <pathname>] <CRLF>
     private void doList(String args) throws IOException {
-        if (!authenticated) {
-            reply(530, L10N.getString("ftp.err.not_logged_in"));
-            return;
-        }
-
         String listPath = (args != null && !args.trim().isEmpty()) ? args.trim() : currentDirectory;
 
         if (!checkAuthorization(FtpOperation.READ, listPath)) {
@@ -2415,11 +2346,6 @@ public final class FtpProtocolHandler
     // RFC 959 section 4.1.3: NLST [<SP> <pathname>] <CRLF>
     // NLST returns file names only (not full listing lines).
     private void doNlst(String args) throws IOException {
-        if (!authenticated) {
-            reply(530, L10N.getString("ftp.err.not_logged_in"));
-            return;
-        }
-
         String listPath = (args != null && !args.trim().isEmpty()) ? args.trim() : currentDirectory;
 
         if (!checkAuthorization(FtpOperation.READ, listPath)) {
@@ -2454,11 +2380,6 @@ public final class FtpProtocolHandler
 
     // RFC 959 section 4.1.3: SITE <SP> <string> <CRLF>
     private void doSite(String args) throws IOException {
-        if (!authenticated) {
-            reply(530, L10N.getString("ftp.err.not_logged_in"));
-            return;
-        }
-
         String siteCommand = (args != null) ? args.trim() : "";
         String upperCommand = siteCommand.toUpperCase();
 
@@ -2960,16 +2881,8 @@ public final class FtpProtocolHandler
     // RFC 3659 section 4: SIZE <SP> <pathname> <CRLF>
     // Returns the transfer size of the file identified by <pathname>.
     private void doSize(String args) throws IOException {
-        if (!authenticated) {
-            reply(530, L10N.getString("ftp.err.not_logged_in"));
-            return;
-        }
         if (args == null || args.trim().isEmpty()) {
             reply(501, L10N.getString("ftp.err.syntax_error_parameters"));
-            return;
-        }
-        if (!authenticated) {
-            reply(530, L10N.getString("ftp.err.not_logged_in"));
             return;
         }
         final String path = args.trim();
@@ -3014,16 +2927,8 @@ public final class FtpProtocolHandler
     // RFC 3659 section 3: MDTM <SP> <pathname> <CRLF>
     // Returns the last modification time of the file as YYYYMMDDhhmmss (UTC).
     private void doMdtm(String args) throws IOException {
-        if (!authenticated) {
-            reply(530, L10N.getString("ftp.err.not_logged_in"));
-            return;
-        }
         if (args == null || args.trim().isEmpty()) {
             reply(501, L10N.getString("ftp.err.syntax_error_parameters"));
-            return;
-        }
-        if (!authenticated) {
-            reply(530, L10N.getString("ftp.err.not_logged_in"));
             return;
         }
         final String path = args.trim();
@@ -3078,10 +2983,6 @@ public final class FtpProtocolHandler
     // RFC 3659 section 7.2: MLST <SP> <pathname> <CRLF>
     // Returns a single machine-readable listing entry over the control connection.
     private void doMlst(String args) throws IOException {
-        if (!authenticated) {
-            reply(530, L10N.getString("ftp.err.not_logged_in"));
-            return;
-        }
         final String path = (args != null && !args.trim().isEmpty())
                 ? args.trim() : currentDirectory;
         if (!checkAuthorization(FtpOperation.READ, path)) {
@@ -3122,10 +3023,6 @@ public final class FtpProtocolHandler
     // RFC 3659 section 7.2: MLSD [<SP> <pathname>] <CRLF>
     // Machine-readable directory listing over the data connection.
     private void doMlsd(String args) throws IOException {
-        if (!authenticated) {
-            reply(530, L10N.getString("ftp.err.not_logged_in"));
-            return;
-        }
         String listPath = (args != null && !args.trim().isEmpty()) ? args.trim() : currentDirectory;
         if (!checkAuthorization(FtpOperation.READ, listPath)) {
             return;

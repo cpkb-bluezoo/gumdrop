@@ -42,7 +42,7 @@ import java.util.Map;
 
 import org.bluezoo.gumdrop.ProtocolHandler;
 import org.bluezoo.gumdrop.TimerHandle;
-import org.bluezoo.gumdrop.amqp1.client.FakeAmqp1Peer.Out;
+import org.bluezoo.gumdrop.amqp1.client.MockAmqp1Peer.Out;
 import org.bluezoo.gumdrop.amqp1.codec.Amqp1Encoder;
 import org.bluezoo.gumdrop.amqp1.codec.Amqp1Error;
 import org.bluezoo.gumdrop.amqp1.codec.Attach;
@@ -66,7 +66,7 @@ import org.junit.Test;
 
 /**
  * Tests {@link Amqp1ClientRecovery} against in-memory peers: a connector
- * stand-in hands each connection attempt a {@link FakeAmqp1Peer}, and the
+ * stand-in hands each connection attempt a {@link MockAmqp1Peer}, and the
  * retry timer is replaced by a scheduler whose captured tasks the test
  * fires by hand, so the SASL, open and session handshakes, link recording
  * and replay, loss detection and retry policy are all driven byte by byte
@@ -80,7 +80,7 @@ public class Amqp1ClientRecoveryTest {
 
     /** One connection attempt as seen by the stand-in connector. */
     private static final class Conn {
-        final FakeAmqp1Peer peer = new FakeAmqp1Peer();
+        final MockAmqp1Peer peer = new MockAmqp1Peer();
         final ProtocolHandler handler;
 
         Conn(ProtocolHandler handler) {
@@ -89,7 +89,7 @@ public class Amqp1ClientRecoveryTest {
     }
 
     /** Connector that hands each connect to the test, or fails it. */
-    private static class FakeConnector implements Amqp1ClientRecovery.Connector {
+    private static class MockConnector implements Amqp1ClientRecovery.Connector {
         final List<Conn> conns = new ArrayList<Conn>();
         IOException failure;
         int attempts;
@@ -173,7 +173,7 @@ public class Amqp1ClientRecoveryTest {
     }
 
     private Amqp1ClientRecovery client;
-    private FakeConnector connector;
+    private MockConnector connector;
     private HandScheduler scheduler;
     private Events events;
     private Amqp1RecoverableSession recoverable;
@@ -181,7 +181,7 @@ public class Amqp1ClientRecoveryTest {
 
     @Before
     public void setUp() {
-        connector = new FakeConnector();
+        connector = new MockConnector();
         scheduler = new HandScheduler();
         events = new Events();
     }
@@ -225,23 +225,23 @@ public class Amqp1ClientRecoveryTest {
     // ---- driving the broker side ----
 
     private static void feed(Conn c, ByteBuffer... parts) {
-        c.handler.receive(ByteBuffer.wrap(FakeAmqp1Peer.concat(parts)));
+        c.handler.receive(ByteBuffer.wrap(MockAmqp1Peer.concat(parts)));
     }
 
     private static void offerMechanisms(Conn c, String... mechanisms) {
-        feed(c, FakeAmqp1Peer.saslHeader(),
-                FakeAmqp1Peer.saslFrame(new SaslMechanisms(Arrays.asList(mechanisms))));
+        feed(c, MockAmqp1Peer.saslHeader(),
+                MockAmqp1Peer.saslFrame(new SaslMechanisms(Arrays.asList(mechanisms))));
     }
 
     private static void finishSaslAndOpen(Conn c) {
-        feed(c, FakeAmqp1Peer.saslFrame(new SaslOutcome(SaslOutcome.OK, null)));
-        feed(c, FakeAmqp1Peer.amqpHeader(), FakeAmqp1Peer.amqpFrame(0, new Open("broker")));
+        feed(c, MockAmqp1Peer.saslFrame(new SaslOutcome(SaslOutcome.OK, null)));
+        feed(c, MockAmqp1Peer.amqpHeader(), MockAmqp1Peer.amqpFrame(0, new Open("broker")));
     }
 
     private static void beginSession(Conn c) {
         Begin begin = new Begin(0, 2048, 2048);
         begin.setRemoteChannel(Integer.valueOf(0));
-        feed(c, FakeAmqp1Peer.amqpFrame(PEER_CHANNEL, begin));
+        feed(c, MockAmqp1Peer.amqpFrame(PEER_CHANNEL, begin));
     }
 
     /** Runs a connection to an active session using ANONYMOUS. */
@@ -587,16 +587,16 @@ public class Amqp1ClientRecoveryTest {
         newClient().connect(null, appHandler(null, null));
         Conn c1 = connector.next();
         offerMechanisms(c1, "ANONYMOUS");
-        feed(c1, FakeAmqp1Peer.saslFrame(new SaslOutcome(SaslOutcome.OK, null)));
-        feed(c1, FakeAmqp1Peer.amqpHeader());
-        feed(c1, FakeAmqp1Peer.amqpFrame(0, new Close(new Amqp1Error(Amqp1Error.NOT_FOUND, "gone"))));
+        feed(c1, MockAmqp1Peer.saslFrame(new SaslOutcome(SaslOutcome.OK, null)));
+        feed(c1, MockAmqp1Peer.amqpHeader());
+        feed(c1, MockAmqp1Peer.amqpFrame(0, new Close(new Amqp1Error(Amqp1Error.NOT_FOUND, "gone"))));
         assertTrue(events.log.toString(), events.log.contains("lost"));
         assertTrue(events.causes.toString(), events.causes.get(0).getMessage().contains("Connection closed by broker"));
         scheduler.fireNext();
         Conn c2 = connector.next();
         bringUp(c2);
         assertTrue(events.log.toString(), events.log.contains("recovered"));
-        feed(c2, FakeAmqp1Peer.amqpFrame(PEER_CHANNEL, new End(new Amqp1Error(Amqp1Error.NOT_FOUND, "bye"))));
+        feed(c2, MockAmqp1Peer.amqpFrame(PEER_CHANNEL, new End(new Amqp1Error(Amqp1Error.NOT_FOUND, "bye"))));
         scheduler.fireNext();
         Conn c3 = connector.next();
         bringUp(c3);
@@ -632,7 +632,7 @@ public class Amqp1ClientRecoveryTest {
         Conn c = connector.next();
         offerMechanisms(c, "PLAIN", "ANONYMOUS");
         assertTrue(sentSaslMechanism(c, "PLAIN"));
-        feed(c, FakeAmqp1Peer.saslFrame(new SaslOutcome(SaslOutcome.AUTH, null)));
+        feed(c, MockAmqp1Peer.saslFrame(new SaslOutcome(SaslOutcome.AUTH, null)));
         assertTrue(events.log.toString(), events.log.contains("failed"));
         assertTrue(events.causes.get(0).getMessage().contains("SASL code 1"));
     }
@@ -642,7 +642,7 @@ public class Amqp1ClientRecoveryTest {
         newClient().credentials("u", "p").connect(null, appHandler(null, null));
         Conn c = connector.next();
         offerMechanisms(c, "PLAIN");
-        feed(c, FakeAmqp1Peer.saslFrame(new SaslOutcome(SaslOutcome.SYS_TEMP, null)));
+        feed(c, MockAmqp1Peer.saslFrame(new SaslOutcome(SaslOutcome.SYS_TEMP, null)));
         assertTrue(events.log.toString(), events.log.contains("reconnecting:1"));
         scheduler.fireNext();
         Conn c2 = connector.next();

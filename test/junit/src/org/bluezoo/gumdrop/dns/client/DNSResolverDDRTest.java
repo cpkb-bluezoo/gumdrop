@@ -223,6 +223,129 @@ public class DNSResolverDDRTest {
         resolver.close();
     }
 
+    @Test
+    public void testPortsFromRecordsAndDefaultDohPath() throws Exception {
+        TestableResolver resolver = new TestableResolver();
+        resolver.setDdrEnabled(true);
+        resolver.addServer("203.0.113.1");
+        resolver.open();
+
+        Map<Integer, byte[]> dotParams = new LinkedHashMap<>();
+        dotParams.put(DnsResourceRecord.SVCB_PARAM_ALPN,
+                DnsResourceRecord.encodeSVCBAlpn(Arrays.asList("dot")));
+        dotParams.put(DnsResourceRecord.SVCB_PARAM_PORT, DnsResourceRecord.encodeSVCBPort(8853));
+        Map<Integer, byte[]> dohParams = new LinkedHashMap<>();
+        dohParams.put(DnsResourceRecord.SVCB_PARAM_ALPN,
+                DnsResourceRecord.encodeSVCBAlpn(Arrays.asList("h3", "doq")));
+        dohParams.put(DnsResourceRecord.SVCB_PARAM_PORT, DnsResourceRecord.encodeSVCBPort(8443));
+        Map<Integer, byte[]> secondDoq = new LinkedHashMap<>();
+        secondDoq.put(DnsResourceRecord.SVCB_PARAM_ALPN,
+                DnsResourceRecord.encodeSVCBAlpn(Arrays.asList("doq", "dot", "h2")));
+        DnsResourceRecord a = DnsResourceRecord.a("_dns.resolver.arpa", 60,
+                InetAddress.getByName("192.0.2.1"));
+        DnsResourceRecord dot = DnsResourceRecord.svcb("_dns.resolver.arpa", 300, 1, ".", dotParams);
+        DnsResourceRecord doh = DnsResourceRecord.svcb("_dns.resolver.arpa", 300, 2, ".", dohParams);
+        DnsResourceRecord again = DnsResourceRecord.svcb("_dns.resolver.arpa", 300, 3, ".", secondDoq);
+        resolver.ddrTransport.handler.onReceive(ddrResponse(a, dot, doh, again).serialize());
+
+        DnsServerCapabilities caps = DnsServerCapabilityCache.get(server("203.0.113.1"));
+        assertTrue(caps.isDotSupported());
+        assertEquals(8853, caps.getDotPort());
+        assertTrue(caps.isDoqSupported());
+        assertEquals("the first record advertising an ALPN wins", 8443, caps.getDoqPort());
+        assertTrue(caps.isDohSupported());
+        assertEquals(DnsServerCapabilityCache.DOH_PATH, caps.getDohPath());
+        resolver.close();
+    }
+
+    @Test
+    public void testNoErrorWithoutAnswersIsNothingUsable() throws Exception {
+        TestableResolver resolver = new TestableResolver();
+        resolver.setDdrEnabled(true);
+        resolver.addServer("203.0.113.1");
+        resolver.open();
+        resolver.ddrTransport.handler.onReceive(ddrResponse().serialize());
+        assertFalse(DnsServerCapabilityCache.get(server("203.0.113.1")).isDotSupported());
+        assertTrue(resolver.ddrTransport.closed);
+        assertEquals(Collections.singletonList(DnsTransportType.PLAIN), resolver.attempted);
+        resolver.close();
+    }
+
+    @Test
+    public void testSvcbWithoutKnownAlpnIsNothingUsable() throws Exception {
+        TestableResolver resolver = new TestableResolver();
+        resolver.setDdrEnabled(true);
+        resolver.addServer("203.0.113.1");
+        resolver.open();
+        Map<Integer, byte[]> params = new LinkedHashMap<>();
+        params.put(DnsResourceRecord.SVCB_PARAM_ALPN,
+                DnsResourceRecord.encodeSVCBAlpn(Arrays.asList("http/1.1")));
+        DnsResourceRecord svcb = DnsResourceRecord.svcb("_dns.resolver.arpa", 300, 1, ".", params);
+        resolver.ddrTransport.handler.onReceive(ddrResponse(svcb).serialize());
+        assertFalse(DnsServerCapabilityCache.get(server("203.0.113.1")).isDohSupported());
+        resolver.close();
+    }
+
+    @Test
+    public void testMalformedResponseAndLateEventsAreIgnored() throws Exception {
+        TestableResolver resolver = new TestableResolver();
+        resolver.setDdrEnabled(true);
+        resolver.addServer("203.0.113.1");
+        resolver.open();
+        resolver.ddrTransport.handler.onReceive(ByteBuffer.wrap(new byte[] {1, 2, 3}));
+        assertTrue(resolver.ddrTransport.closed);
+        // once handled, further receive/error/timeout events do nothing
+        resolver.ddrTransport.closed = false;
+        resolver.ddrTransport.handler.onReceive(ddrResponse().serialize());
+        resolver.ddrTransport.handler.onError(new java.io.IOException("late"));
+        resolver.ddrTransport.onTimeoutCallback.run();
+        assertFalse(resolver.ddrTransport.closed);
+        resolver.close();
+    }
+
+    @Test
+    public void testTransportErrorEndsDiscovery() throws Exception {
+        TestableResolver resolver = new TestableResolver();
+        resolver.setDdrEnabled(true);
+        resolver.addServer("203.0.113.1");
+        resolver.open();
+        resolver.ddrTransport.handler.onError(new java.io.IOException("reset"));
+        assertTrue(resolver.ddrTransport.closed);
+        resolver.close();
+    }
+
+    @Test
+    public void testUpgradeAfterCloseAndFailedUpgradeAreHarmless() throws Exception {
+        TestableResolver resolver = new TestableResolver();
+        resolver.setDdrEnabled(true);
+        resolver.addServer("203.0.113.1");
+        resolver.open();
+        Map<Integer, byte[]> params = new LinkedHashMap<>();
+        params.put(DnsResourceRecord.SVCB_PARAM_ALPN,
+                DnsResourceRecord.encodeSVCBAlpn(Arrays.asList("dot")));
+        DnsResourceRecord svcb = DnsResourceRecord.svcb("_dns.resolver.arpa", 300, 1, ".", params);
+        // the replacement transports cannot open: the upgrade is abandoned
+        resolver.failOpens = true;
+        resolver.ddrTransport.handler.onReceive(ddrResponse(svcb).serialize());
+        assertTrue(DnsServerCapabilityCache.get(server("203.0.113.1")).isDotSupported());
+        resolver.close();
+
+        TestableResolver closed = new TestableResolver();
+        closed.setDdrEnabled(true);
+        closed.addServer("203.0.113.2");
+        closed.open();
+        closed.close();
+        int before = closed.attempted.size();
+        closed.ddrTransport.handler.onReceive(ddrResponse(svcb).serialize());
+        assertEquals("a closed resolver does not reopen transports", before, closed.attempted.size());
+    }
+
+    @Test
+    public void testDefaultDiscoveryTransportIsUdp() {
+        DnsResolver resolver = new DnsResolver();
+        assertTrue(resolver.createDdrTransport() instanceof UdpDnsClientTransport);
+    }
+
     // ── Helpers ──
 
     private static InetSocketAddress server(String address) throws Exception {
@@ -250,9 +373,14 @@ public class DNSResolverDDRTest {
         boolean closed;
         Runnable onTimeoutCallback;
 
+        boolean failOpen;
+
         @Override
         public void open(InetAddress server, int port, SelectorLoop loop,
-                         DnsClientTransportHandler handler) {
+                         DnsClientTransportHandler handler) throws java.io.IOException {
+            if (failOpen) {
+                throw new java.io.IOException("cannot open");
+            }
             this.handler = handler;
         }
 
@@ -288,12 +416,18 @@ public class DNSResolverDDRTest {
                 new EnumMap<>(DnsTransportType.class);
         final List<DnsTransportType> attempted = new ArrayList<>();
         final RecordingTransport ddrTransport = new RecordingTransport();
+        boolean failOpens;
 
         @Override
         DnsClientTransport newTransportInstance(DnsTransportType type, DnsServerCapabilities caps) {
             attempted.add(type);
             DnsClientTransport transport = transports.get(type);
-            return transport != null ? transport : new RecordingTransport();
+            if (transport != null) {
+                return transport;
+            }
+            RecordingTransport fresh = new RecordingTransport();
+            fresh.failOpen = failOpens;
+            return fresh;
         }
 
         @Override

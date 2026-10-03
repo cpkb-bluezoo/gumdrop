@@ -100,12 +100,17 @@ public class ReferencesThreaderTest {
         assertEquals("(1 (2)(3))", f);
     }
 
+    /**
+     * RFC 5256 section 2.2: the children of a missing message are not
+     * promoted to the root when that would make several of them roots; they
+     * stay together as siblings under the (dummy) parent.
+     */
     @Test
-    public void testMissingParentDummyPromoted() throws Exception {
+    public void testMissingParentKeepsSiblingsTogether() throws Exception {
         String f = thread(
                 msg(1, "Topic", "<b@t>", "<gone@t>", null),
                 msg(2, "Re: Topic", "<c@t>", "<gone@t>", null));
-        assertEquals("(1 2)", f);
+        assertEquals("((1)(2))", f);
     }
 
     @Test

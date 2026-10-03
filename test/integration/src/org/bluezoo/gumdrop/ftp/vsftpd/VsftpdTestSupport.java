@@ -39,7 +39,7 @@ import java.security.cert.X509Certificate;
  * instance rather than gumdrop's own FTP server -- not run in CI, only
  * locally against a container you already have running. See {@link
  * org.bluezoo.gumdrop.smtp.postfix.PostfixTestSupport} for the sibling
- * of this class and the rationale shared by both (a same-lineage fake
+ * of this class and the rationale shared by both (a same-lineage mock
  * server can't disagree with the client on wire-level details).
  *
  * <p>Notably, {@code FTPClientIntegrationTest} (against gumdrop's own

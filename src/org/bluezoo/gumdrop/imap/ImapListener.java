@@ -856,6 +856,8 @@ public class ImapListener extends TcpListener {
             if (enableOBJECTID) {
                 caps.append(" OBJECTID");      // RFC 8474
             }
+            caps.append(" BINARY");            // RFC 3516
+            caps.append(" PREVIEW");           // RFC 8970
             if (enableNOTIFY) {
                 caps.append(" NOTIFY");        // RFC 5465
             }

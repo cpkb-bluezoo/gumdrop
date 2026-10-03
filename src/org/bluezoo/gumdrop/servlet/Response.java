@@ -336,12 +336,12 @@ private static final Logger LOGGER = Logger.getLogger(Response.class.getName());
             buf.append("</h1>\r\n");
             if (servletName != null) {
                 buf.append("\t\t<p class='servlet-name'>");
-                buf.append(servletName);
+                buf.append(escapeHtml(servletName));
                 buf.append("</p>\r\n");
             }
             if (msg != null) {
                 buf.append("\t\t<p class='message'>");
-                buf.append(msg);
+                buf.append(escapeHtml(msg));
                 buf.append("</p>\r\n");
             }
             if (err != null) {
@@ -354,7 +354,7 @@ private static final Logger LOGGER = Logger.getLogger(Response.class.getName());
                     err.printStackTrace(w);
                     w.flush();
                     buf.append("\t\t<pre class='stack-trace'>\r\n");
-                    buf.append(sink.toString());
+                    buf.append(escapeHtml(sink.toString()));
                     buf.append("\r\n\t\t</pre>\r\n");
                 }
             }
@@ -376,7 +376,42 @@ private static final Logger LOGGER = Logger.getLogger(Response.class.getName());
         }
     }
 
+    /**
+     * Escapes text for inclusion in the default error page, so that a
+     * message or stack trace derived from request data cannot inject markup.
+     */
+    private static String escapeHtml(String text) {
+        StringBuilder sb = new StringBuilder(text.length() + 16);
+        for (int i = 0; i < text.length(); i++) {
+            char c = text.charAt(i);
+            switch (c) {
+                case '&':
+                    sb.append("&amp;");
+                    break;
+                case '<':
+                    sb.append("&lt;");
+                    break;
+                case '>':
+                    sb.append("&gt;");
+                    break;
+                case '"':
+                    sb.append("&quot;");
+                    break;
+                case '\'':
+                    sb.append("&#39;");
+                    break;
+                default:
+                    sb.append(c);
+            }
+        }
+        return sb.toString();
+    }
+
     void commit() throws IOException {
+        if (charset != null) {
+            // Make the explicit character encoding visible in Content-Type
+            getContentType();
+        }
         // If the servlet did not set the Content-Length, close the connection
         if (getContentLength() == -1) {
             setCloseConnection(true);
@@ -595,6 +630,7 @@ private static final Logger LOGGER = Logger.getLogger(Response.class.getName());
         if (charset != null) {
             // Find charset parameter and replace or add if necessary
             StringBuffer buf = new StringBuffer();
+            boolean hasCharset = false;
             StringTokenizer st = new StringTokenizer(contentType, "; ");
             while (st.hasMoreTokens()) {
                 String token = st.nextToken();
@@ -603,12 +639,17 @@ private static final Logger LOGGER = Logger.getLogger(Response.class.getName());
                     String key = token.substring(0, ei);
                     if ("charset".equals(key)) {
                         token = key + "=" + charset;
+                        hasCharset = true;
                     }
                 }
                 if (buf.length() > 0) {
                     buf.append("; ");
                 }
                 buf.append(token);
+            }
+            if (!hasCharset) {
+                buf.append("; charset=");
+                buf.append(charset);
             }
             contentType = buf.toString();
             setHeader("Content-Type", contentType);

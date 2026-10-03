@@ -950,13 +950,13 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
         if (frag1.isBefore(frag2) && !frag2.isBefore(frag1)) {
             return -1;
         }
-        if (frag2.isBefore(frag2) && !frag1.isBefore(frag1)) {
+        if (frag2.isBefore(frag1) && !frag1.isBefore(frag2)) {
             return 1;
         }
         if (frag1.isAfter(frag2) && !frag2.isAfter(frag1)) {
             return 1;
         }
-        if (frag2.isAfter(frag2) && !frag1.isAfter(frag1)) {
+        if (frag2.isAfter(frag1) && !frag1.isAfter(frag2)) {
             return -1;
         }
         if (frag1.isBeforeOthers() && !frag2.isBeforeOthers()) {

@@ -185,7 +185,13 @@ public class HttpClientProtocolHandler
     // RFC 9113 section 6.8: highest server-initiated (even) stream ID seen
     private int highestServerStreamId = 0;
 
-    private int continuationStreamId;
+    // Header block in progress (RFC 9113 section 4.3): the END_STREAM flag
+    // of the HEADERS frame that opened it, and, for a PUSH_PROMISE, the
+    // promised stream. A CONTINUATION frame carries the id of the stream
+    // that opened the block (never the promised stream), so neither can be
+    // recovered from it.
+    private boolean continuationEndStream;
+    private int continuationPromisedStreamId;
     private ByteBuffer headerBlockBuffer;
 
     // HTTP/1.1 parsing state
@@ -1073,10 +1079,13 @@ public class HttpClientProtocolHandler
 
     @Override
     public int sendRequestBody(HttpStream request, ByteBuffer data) {
+        if (data == null) {
+            return 0;
+        }
         if (negotiatedVersion == HttpVersion.HTTP_2_0) {
             return sendHTTP2Data(request, data);
         }
-        final int remaining = data != null ? data.remaining() : 0;
+        final int remaining = data.remaining();
         if (runOnSelectorLoop(new Runnable() {
             @Override
             public void run() {
@@ -1090,7 +1099,10 @@ public class HttpClientProtocolHandler
 
     @Override
     public int sendRequestBodyEncoded(HttpStream request, ByteBuffer data, boolean end) {
-        int plainBytes = data != null ? data.remaining() : 0;
+        if (data == null) {
+            data = ByteBuffer.allocate(0);
+        }
+        int plainBytes = data.remaining();
         try {
             ContentEncoding.Encoder encoder = request.getOrCreateRequestContentEncoder();
             if (encoder == null) {
@@ -1670,7 +1682,7 @@ public class HttpClientProtocolHandler
                         && username != null && password != null && !authRetryPending) {
 
                     String wwwAuth = responseHeaders.getValue("www-authenticate");
-                    if (wwwAuth != null) {
+                    if (wwwAuth != null && canAnswerChallenge(wwwAuth)) {
                         pendingAuthChallenge = wwwAuth;
                         pendingProxyAuth = false;
                         startBodyDiscard();
@@ -1683,7 +1695,7 @@ public class HttpClientProtocolHandler
                         && username != null && password != null && !authRetryPending) {
 
                     String proxyAuth = responseHeaders.getValue("proxy-authenticate");
-                    if (proxyAuth != null) {
+                    if (proxyAuth != null && canAnswerChallenge(proxyAuth)) {
                         pendingAuthChallenge = proxyAuth;
                         pendingProxyAuth = true;
                         startBodyDiscard();
@@ -2092,6 +2104,19 @@ public class HttpClientProtocolHandler
 
     // RFC 9110 section 11.6.1 / 11.7.1: authentication retry for
     // 401 (WWW-Authenticate) and 407 (Proxy-Authenticate)
+    // A challenge this client cannot answer (unsupported scheme, unusable
+    // Digest parameters) must reach the response handler as an ordinary
+    // error response: swallowing it would leave the connection waiting
+    // for a retry that is never sent
+    private boolean canAnswerChallenge(String challenge) {
+        if (currentStream == null) {
+            return false;
+        }
+        String authHeader = computeAuthorization(challenge, currentStream.getMethod(),
+                currentStream.getPath());
+        return authHeader != null;
+    }
+
     private boolean attemptAuthentication(String challenge) {
         if (currentStream == null) {
             return false;
@@ -2499,7 +2524,7 @@ public class HttpClientProtocolHandler
         if (endHeaders) {
             processHeaders(stream, streamId, endStream);
         } else {
-            continuationStreamId = streamId;
+            continuationEndStream = endStream;
         }
     }
 
@@ -2624,7 +2649,7 @@ public class HttpClientProtocolHandler
         if (endHeaders) {
             processPushPromise(streamId, promisedStreamId);
         } else {
-            continuationStreamId = promisedStreamId;
+            continuationPromisedStreamId = promisedStreamId;
         }
     }
 
@@ -2710,7 +2735,7 @@ public class HttpClientProtocolHandler
                     HttpClientProtocolHandler.this,
                     getMethod() != null ? getMethod() : "GET",
                     getPath() != null ? getPath() : "/");
-            promisedStream.send(handler);
+            promisedStream.attachPushedResponseHandler(handler);
             activeStreams.put(promisedStreamId, promisedStream);
             streamIdByRequest.put(promisedStream, promisedStreamId);
             if (h2FlowControl != null) {
@@ -2794,6 +2819,15 @@ public class HttpClientProtocolHandler
     @Override
     public void continuationFrameReceived(int streamId, boolean endHeaders,
             ByteBuffer headerBlockFragment) {
+        if (continuationPromisedStreamId != 0) {
+            appendHeaderBlockFragment(streamId, headerBlockFragment);
+            if (endHeaders) {
+                int promisedStreamId = continuationPromisedStreamId;
+                continuationPromisedStreamId = 0;
+                processPushPromise(streamId, promisedStreamId);
+            }
+            return;
+        }
         HttpStream stream = activeStreams.get(streamId);
         if (stream == null) {
             LOGGER.warning(MessageFormat.format(L10N.getString("warn.continuation_for_unknown_stream"), streamId));
@@ -2803,8 +2837,9 @@ public class HttpClientProtocolHandler
         appendHeaderBlockFragment(streamId, headerBlockFragment);
 
         if (endHeaders) {
-            processHeaders(stream, streamId, false);
-            continuationStreamId = 0;
+            boolean endStream = continuationEndStream;
+            continuationEndStream = false;
+            processHeaders(stream, streamId, endStream);
         }
     }
 

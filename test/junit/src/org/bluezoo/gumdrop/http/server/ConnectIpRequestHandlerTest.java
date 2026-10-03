@@ -54,7 +54,7 @@ import static org.junit.Assert.assertTrue;
  * Transport-agnostic regression test for issue #394's server-side RFC
  * 9484 CONNECT-IP support: a real {@link ConnectIpRequestHandler}
  * driving a real (loopback) {@link IpPacketHandler} against a minimal
- * {@link HttpResponseState} fake -- accept/reject, inbound IP packet
+ * {@link HttpResponseState} mock -- accept/reject, inbound IP packet
  * delivery, the {@code ADDRESS_REQUEST}/{@code ADDRESS_ASSIGN} round
  * trip, and {@code ROUTE_ADVERTISEMENT}, none of which need a kernel TUN
  * (see {@link IpPacketHandler}'s own documentation for why gumdrop

@@ -265,4 +265,72 @@ public class DotUnstufferTest {
                 + "End of message.\r\n";
         assertEquals(expected, collectedString());
     }
+
+    // ── Unstuffed dots, stray CRs and chunk boundaries ──
+
+    private void feedAll(String data, String expected) {
+        boolean more = unstuffer.process(wrap(data));
+        assertFalse(more);
+        assertTrue(completed);
+        assertEquals(expected, collectedString());
+    }
+
+    @Test
+    public void testLeadingDotNotStuffedOnFirstLine() {
+        feedAll(".X\r\n.\r\n", ".X\r\n");
+    }
+
+    @Test
+    public void testLeadingDotNotStuffedOnLaterLine() {
+        feedAll("A\r\n.X\r\n.\r\n", "A\r\n.X\r\n");
+    }
+
+    @Test
+    public void testDotCrWithoutLfOnFirstLine() {
+        feedAll(".\rX\r\n.\r\n", ".\rX\r\n");
+    }
+
+    @Test
+    public void testDotCrWithoutLfOnLaterLine() {
+        feedAll("A\r\n.\rX\r\n.\r\n", "A\r\n.\rX\r\n");
+    }
+
+    @Test
+    public void testDotCrFollowedByCr() {
+        feedAll(".\r\r\n.\r\n", ".\r\r\n");
+    }
+
+    @Test
+    public void testDoubleCrBeforeLf() {
+        feedAll("A\r\r\nB\r\n.\r\n", "A\r\r\nB\r\n");
+    }
+
+    @Test
+    public void testCrNotFollowedByLfInsideLine() {
+        feedAll("A\rB\r\n.\r\n", "A\rB\r\n");
+    }
+
+    @Test
+    public void testChunkEndingInCrIsCompletedByNextChunk() {
+        boolean more = unstuffer.process(wrap("abc\r"));
+        assertTrue(more);
+        feedAll("\n.\r\n", "abc\r\n");
+    }
+
+    @Test
+    public void testBlankLineBetweenContentLines() {
+        feedAll("A\r\n\r\nB\r\n.\r\n", "A\r\n\r\nB\r\n");
+    }
+
+    @Test
+    public void testBlankFirstLine() {
+        feedAll("\r\nB\r\n.\r\n", "\r\nB\r\n");
+    }
+
+    @Test
+    public void testEmptyChunkRequestsMoreData() {
+        boolean more = unstuffer.process(ByteBuffer.allocate(0));
+        assertTrue(more);
+        assertFalse(completed);
+    }
 }

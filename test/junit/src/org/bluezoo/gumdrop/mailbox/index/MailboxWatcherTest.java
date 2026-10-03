@@ -48,13 +48,13 @@ import org.junit.Before;
 import org.junit.Test;
 
 /**
- * Dispatch logic of {@link MailboxWatcher} driven by a fake
+ * Dispatch logic of {@link MailboxWatcher} driven by a mock
  * {@link WatchService}: no file system, no OS event latency. Behaviour
  * against the real {@code WatchService} is covered by
  * {@code MailboxWatcherIntegrationTest}.
  *
  * <p>Waits use latches bounded only as a hang guard; events are delivered
- * synchronously to the watcher's thread by the fake.
+ * synchronously to the watcher's thread by the mock.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
@@ -62,11 +62,11 @@ public class MailboxWatcherTest {
 
     private static final long HANG_GUARD_SECONDS = 30;
 
-    private static final class FakeEvent implements WatchEvent<Path> {
+    private static final class MockEvent implements WatchEvent<Path> {
         private final Kind<Path> kind;
         private final Path context;
 
-        FakeEvent(Kind<Path> kind, Path context) {
+        MockEvent(Kind<Path> kind, Path context) {
             this.kind = kind;
             this.context = context;
         }
@@ -76,12 +76,12 @@ public class MailboxWatcherTest {
         @Override public Path context() { return context; }
     }
 
-    private static final class FakeKey implements WatchKey {
+    private static final class MockKey implements WatchKey {
         private final Path dir;
         private final List<WatchEvent<?>> events;
         int resets;
 
-        FakeKey(Path dir, List<WatchEvent<?>> events) {
+        MockKey(Path dir, List<WatchEvent<?>> events) {
             this.dir = dir;
             this.events = events;
         }
@@ -94,19 +94,19 @@ public class MailboxWatcherTest {
     }
 
     /** Hands queued keys to the watcher thread; close() wakes and stops it. */
-    private static final class FakeWatchService implements WatchService {
+    private static final class MockWatchService implements WatchService {
         private final BlockingQueue<WatchKey> queue = new LinkedBlockingQueue<WatchKey>();
-        private static final WatchKey POISON = new FakeKey(null, null);
+        private static final WatchKey POISON = new MockKey(null, null);
         private volatile boolean closed;
 
         void deliver(Path dir, WatchEvent.Kind<Path> kind, String name) {
             List<WatchEvent<?>> events = new ArrayList<WatchEvent<?>>();
-            events.add(new FakeEvent(kind, Paths.get(name)));
-            queue.add(new FakeKey(dir, events));
+            events.add(new MockEvent(kind, Paths.get(name)));
+            queue.add(new MockKey(dir, events));
         }
 
-        FakeKey deliverKey(Path dir, List<WatchEvent<?>> events) {
-            FakeKey key = new FakeKey(dir, events);
+        MockKey deliverKey(Path dir, List<WatchEvent<?>> events) {
+            MockKey key = new MockKey(dir, events);
             queue.add(key);
             return key;
         }
@@ -136,7 +136,7 @@ public class MailboxWatcherTest {
     }
 
     /** Registers directories without touching the file system. */
-    private static final class FakeRegistrar implements MailboxWatcher.DirectoryRegistrar {
+    private static final class MockRegistrar implements MailboxWatcher.DirectoryRegistrar {
         final List<Path> registered = new CopyOnWriteArrayList<Path>();
         boolean fail;
 
@@ -149,15 +149,15 @@ public class MailboxWatcherTest {
         }
     }
 
-    private FakeWatchService service;
-    private FakeRegistrar registrar;
+    private MockWatchService service;
+    private MockRegistrar registrar;
     private MailboxWatcher watcher;
     private Path dir;
 
     @Before
     public void setUp() {
-        service = new FakeWatchService();
-        registrar = new FakeRegistrar();
+        service = new MockWatchService();
+        registrar = new MockRegistrar();
         watcher = new MailboxWatcher(service, registrar);
         dir = Paths.get("mailbox-watcher-test-dir").toAbsolutePath().normalize();
     }
@@ -262,7 +262,7 @@ public class MailboxWatcherTest {
             @Override public int count() { return 1; }
             @Override public Object context() { return null; }
         });
-        events.add(new FakeEvent(StandardWatchEventKinds.ENTRY_CREATE, Paths.get("real.txt")));
+        events.add(new MockEvent(StandardWatchEventKinds.ENTRY_CREATE, Paths.get("real.txt")));
         service.deliverKey(dir, events);
         await(r.first);
         assertEquals(Collections.singletonList("real.txt"), r.names);
@@ -296,8 +296,8 @@ public class MailboxWatcherTest {
             @Override public void onChange(String name) { both.countDown(); }
         });
         List<WatchEvent<?>> events = new ArrayList<WatchEvent<?>>();
-        events.add(new FakeEvent(StandardWatchEventKinds.ENTRY_CREATE, Paths.get("x")));
-        FakeKey key = service.deliverKey(dir, events);
+        events.add(new MockEvent(StandardWatchEventKinds.ENTRY_CREATE, Paths.get("x")));
+        MockKey key = service.deliverKey(dir, events);
         service.deliver(dir, StandardWatchEventKinds.ENTRY_CREATE, "y");
         await(both);
         // the second delivery is only processed after the first key's

@@ -65,7 +65,7 @@ import org.bluezoo.gumdrop.quic.tls.StreamReassembler;
 public class QuicConnectionStreamDrainPerformanceTest {
 
     /** Returns fixed, non-cryptographically-meaningful secrets -- this test never decrypts anything. */
-    private static final class FakeTlsEngine implements QuicTlsEngine {
+    private static final class MockTlsEngine implements QuicTlsEngine {
         @Override
         public void receiveCryptoData(EncryptionLevel level, long offset, ByteBuffer data)
                 throws StreamReassembler.BufferLimitExceededException {
@@ -145,7 +145,7 @@ public class QuicConnectionStreamDrainPerformanceTest {
         peer.setInitialMaxStreamsBidi(100);
         conn.seedRememberedTransportParameters(peer);
 
-        conn.setTlsEngine(new FakeTlsEngine());
+        conn.setTlsEngine(new MockTlsEngine());
         conn.handshakeFinished(); // derives real ONE_RTT keys without a real TLS handshake
 
         // Bypasses openStream()/getSecurityInfo() (which requires a real

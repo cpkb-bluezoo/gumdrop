@@ -391,7 +391,7 @@ public class SimpleRelayDeliveryTest {
         endpoint.setSecure(true);
         handler = new SmtpProtocolHandler(new SmtpListener(), relay);
         handler.connected(endpoint);
-        handler.securityEstablished(new FakeSecurityInfo());
+        handler.securityEstablished(new MockSecurityInfo());
         endpoint.clearResponses();
         expect("EHLO c.example.com", "250");
         expect("MAIL FROM:<s@example.org> REQUIRETLS", "250");
@@ -429,7 +429,7 @@ public class SimpleRelayDeliveryTest {
         greetAndEhlo(o, "STARTTLS");
         assertTrue(o.sent("STARTTLS"));
         o.reply("220 ready");
-        o.client.securityEstablished(new FakeSecurityInfo());
+        o.client.securityEstablished(new MockSecurityInfo());
         o.wire.clearResponses();
         o.reply("250-mx");
         o.reply("250 STARTTLS");
@@ -451,7 +451,7 @@ public class SimpleRelayDeliveryTest {
         assertTrue(last(), last().startsWith("4"));
     }
 
-    private static final class FakeSecurityInfo implements SecurityInfo {
+    private static final class MockSecurityInfo implements SecurityInfo {
         @Override
         public String getProtocol() {
             return "TLSv1.3";

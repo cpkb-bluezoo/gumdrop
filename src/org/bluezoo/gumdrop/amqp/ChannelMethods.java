@@ -49,6 +49,7 @@ public final class ChannelMethods {
     /** {@code channel.open-ok} (20,11) — sent by the server; no fields we care about. */
     public static void decodeOpenOk(ByteBuffer payload) throws AmqpProtocolException {
         int len = payload.getInt();
+        ConnectionMethods.checkLength(payload, len);
         payload.position(payload.position() + len); // reserved-1 (channel-id), discarded
     }
 

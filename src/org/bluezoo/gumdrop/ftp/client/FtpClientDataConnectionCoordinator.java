@@ -70,7 +70,7 @@ import org.bluezoo.gumdrop.tls.ServerCredentials;
  * @see <a href="https://www.rfc-editor.org/rfc/rfc959">RFC 959</a> §3.2
  * @see <a href="https://www.rfc-editor.org/rfc/rfc2428">RFC 2428</a> (EPRT/EPSV)
  */
-final class FtpClientDataConnectionCoordinator {
+class FtpClientDataConnectionCoordinator {
 
     private final Gumdrop gumdrop;
     private final Endpoint controlEndpoint;
@@ -117,14 +117,33 @@ final class FtpClientDataConnectionCoordinator {
                 AcceptSelectorLoop.RawAcceptHandler onAccept) throws IOException;
     }
 
+    /** Test seam: the default opener, which binds a real channel. */
+    ActiveListenerOpener loopListenerOpener() {
+        return new LoopListenerOpener();
+    }
+
+    /** Test seam: opens the active-mode server channel. */
+    ServerSocketChannel openServerChannel() throws IOException {
+        return ServerSocketChannel.open();
+    }
+
     /** Default opener: a real listening channel registered on the accept loop. */
     private final class LoopListenerOpener implements ActiveListenerOpener {
         @Override
         public ActiveListener open(InetAddress local,
                 AcceptSelectorLoop.RawAcceptHandler onAccept) throws IOException {
-            final ServerSocketChannel ssc = ServerSocketChannel.open();
-            ssc.configureBlocking(false);
-            ssc.bind(new InetSocketAddress(local, 0));
+            final ServerSocketChannel ssc = openServerChannel();
+            try {
+                ssc.configureBlocking(false);
+                ssc.bind(new InetSocketAddress(local, 0));
+            } catch (IOException | RuntimeException e) {
+                try {
+                    ssc.close();
+                } catch (IOException ce) {
+                    // Ignore close errors; the original failure is rethrown
+                }
+                throw e;
+            }
             gumdrop.ensureAcceptLoop();
             gumdrop.getAcceptLoop().registerRawAcceptor(ssc, onAccept);
             final InetSocketAddress address = (InetSocketAddress) ssc.getLocalAddress();

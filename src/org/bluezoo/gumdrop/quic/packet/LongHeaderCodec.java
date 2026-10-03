@@ -333,6 +333,14 @@ public final class LongHeaderCodec {
      *         contain its mandatory 16-byte integrity tag
      */
     public static RetryPacket parseRetry(byte[] packet) {
+        try {
+            return parseRetryChecked(packet);
+        } catch (java.nio.BufferUnderflowException e) {
+            throw new IllegalArgumentException("Retry packet too short", e);
+        }
+    }
+
+    private static RetryPacket parseRetryChecked(byte[] packet) {
         ByteBuffer buf = ByteBuffer.wrap(packet);
         buf.get(); // first byte -- caller already dispatched on packet type
         buf.getInt(); // version

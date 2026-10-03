@@ -39,6 +39,7 @@ import jakarta.servlet.ServletContext;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServlet;
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletRequestWrapper;
 import jakarta.servlet.http.HttpServletResponse;
 
 /**
@@ -67,7 +68,29 @@ public class DefaultServlet extends HttpServlet {
                     request.getContextPath(), path, request.getQueryString()));
             return;
         }
-        super.service(request, response);
+        super.service(new LenientDateRequest(request), response);
+    }
+
+    /**
+     * Treats a malformed date header as absent, as RFC 9110 requires for
+     * conditional request headers, instead of failing the request with the
+     * {@link IllegalArgumentException} that the Servlet API specifies for
+     * {@code getDateHeader}.
+     */
+    private static final class LenientDateRequest extends HttpServletRequestWrapper {
+
+        LenientDateRequest(HttpServletRequest request) {
+            super(request);
+        }
+
+        @Override
+        public long getDateHeader(String name) {
+            try {
+                return super.getDateHeader(name);
+            } catch (IllegalArgumentException e) {
+                return -1L;
+            }
+        }
     }
 
     /**

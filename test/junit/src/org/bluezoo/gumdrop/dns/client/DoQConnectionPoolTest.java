@@ -21,8 +21,16 @@
 
 package org.bluezoo.gumdrop.dns.client;
 
+import org.bluezoo.gumdrop.SelectorLoop;
+import org.bluezoo.gumdrop.TimerHandle;
 import org.junit.After;
 import org.junit.Test;
+
+import java.io.IOException;
+import java.net.InetAddress;
+import java.nio.ByteBuffer;
+import java.util.ArrayList;
+import java.util.List;
 
 import static org.junit.Assert.*;
 
@@ -38,6 +46,141 @@ public class DoQConnectionPoolTest {
     public void tearDown() {
         DoQConnectionPool.closeAll();
         DoQConnectionPool.setMaxIdleTimeMs(30_000);
+        DoQConnectionPool.setTransportSource(null);
+    }
+
+    /** Transport mock that records calls instead of opening a QUIC connection. */
+    private static final class MockTransport extends DoQClientTransport {
+        int opens;
+        int sends;
+        int closes;
+        int timers;
+        boolean failOpen;
+
+        @Override
+        public void open(InetAddress server, int port, SelectorLoop loop,
+                         DnsClientTransportHandler handler) throws IOException {
+            opens++;
+            if (failOpen) {
+                throw new IOException("quic unavailable");
+            }
+        }
+
+        @Override
+        public void send(ByteBuffer data) {
+            sends++;
+        }
+
+        @Override
+        public TimerHandle scheduleTimer(long delayMs, Runnable callback) {
+            timers++;
+            return null;
+        }
+
+        @Override
+        public void close() {
+            closes++;
+        }
+    }
+
+    private static final class Source implements DoQConnectionPool.TransportSource {
+        final List<MockTransport> created = new ArrayList<MockTransport>();
+        boolean failOpen;
+
+        @Override
+        public DoQClientTransport create() {
+            MockTransport t = new MockTransport();
+            t.failOpen = failOpen;
+            created.add(t);
+            return t;
+        }
+    }
+
+    private static final class NoopHandler implements DnsClientTransportHandler {
+        @Override
+        public void onReceive(ByteBuffer data) {
+        }
+
+        @Override
+        public void onError(Exception cause) {
+        }
+    }
+
+    @Test
+    public void testOpenReusesLiveConnectionAndDelegates() throws Exception {
+        Source source = new Source();
+        DoQConnectionPool.setTransportSource(source);
+        InetAddress host = InetAddress.getByName("192.0.2.9");
+        DoQConnectionPool first = new DoQConnectionPool();
+        first.open(host, 853, null, new NoopHandler());
+        assertEquals(1, DoQConnectionPool.poolSize());
+        first.send(ByteBuffer.allocate(4));
+        assertNull(first.scheduleTimer(10, new Runnable() {
+            @Override public void run() { }
+        }));
+        DoQConnectionPool second = new DoQConnectionPool();
+        second.open(host, 853, null, new NoopHandler());
+        assertEquals("a live connection is shared", 1, source.created.size());
+        assertEquals("the shared connection is opened once", 1, source.created.get(0).opens);
+        second.send(ByteBuffer.allocate(4));
+        assertEquals(2, source.created.get(0).sends);
+        assertEquals(1, source.created.get(0).timers);
+        second.close();
+        assertEquals("closing a lease keeps the connection", 1, DoQConnectionPool.poolSize());
+        assertEquals(0, source.created.get(0).closes);
+        // a different port is a different connection
+        DoQConnectionPool other = new DoQConnectionPool();
+        other.open(host, 8853, null, new NoopHandler());
+        assertEquals(2, DoQConnectionPool.poolSize());
+    }
+
+    @Test
+    public void testStaleConnectionIsReplacedAndEvicted() throws Exception {
+        Source source = new Source();
+        DoQConnectionPool.setTransportSource(source);
+        InetAddress host = InetAddress.getByName("192.0.2.10");
+        DoQConnectionPool lease = new DoQConnectionPool();
+        lease.open(host, 853, null, new NoopHandler());
+        DoQConnectionPool.setMaxIdleTimeMs(-1);
+        DoQConnectionPool again = new DoQConnectionPool();
+        again.open(host, 853, null, new NoopHandler());
+        assertEquals("an unusable entry is replaced", 2, source.created.size());
+        assertEquals(1, source.created.get(0).closes);
+        again.close();
+        assertEquals("idle entries are evicted on close", 0, DoQConnectionPool.poolSize());
+        assertEquals(1, source.created.get(1).closes);
+    }
+
+    @Test
+    public void testCloseAllClosesPooledTransports() throws Exception {
+        Source source = new Source();
+        DoQConnectionPool.setTransportSource(source);
+        DoQConnectionPool lease = new DoQConnectionPool();
+        lease.open(InetAddress.getByName("192.0.2.11"), 853, null, new NoopHandler());
+        DoQConnectionPool.closeAll();
+        assertEquals(0, DoQConnectionPool.poolSize());
+        assertEquals(1, source.created.get(0).closes);
+    }
+
+    @Test
+    public void testFailedOpenIsRetriedOnNextOpen() throws Exception {
+        Source source = new Source();
+        source.failOpen = true;
+        DoQConnectionPool.setTransportSource(source);
+        InetAddress host = InetAddress.getByName("192.0.2.12");
+        DoQConnectionPool lease = new DoQConnectionPool();
+        try {
+            lease.open(host, 853, null, new NoopHandler());
+            fail("open failure must propagate");
+        } catch (IOException expected) {
+            assertEquals("quic unavailable", expected.getMessage());
+        }
+        // the entry never became usable, so the next open builds a new one
+        source.failOpen = false;
+        DoQConnectionPool retry = new DoQConnectionPool();
+        retry.open(host, 853, null, new NoopHandler());
+        assertEquals(2, source.created.size());
+        assertEquals(1, source.created.get(1).opens);
     }
 
     @Test

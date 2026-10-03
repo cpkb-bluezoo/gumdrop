@@ -63,6 +63,9 @@ public final class MemoryFileSystem extends FileSystem {
             new java.util.concurrent.CopyOnWriteArrayList<Path>();
     private final java.util.List<Path> noUserAttributes =
             new java.util.concurrent.CopyOnWriteArrayList<Path>();
+    private final java.util.List<Path> failingIoZones =
+            new java.util.concurrent.CopyOnWriteArrayList<Path>();
+    private volatile boolean posixUnsupported;
     final MemoryNode rootNode;
     final MemoryPath rootPath;
     private long clock = CLOCK_START;
@@ -130,6 +133,39 @@ public final class MemoryFileSystem extends FileSystem {
      */
     public void failMovesTo(Path target) {
         failingMoveTargets.add(target.toAbsolutePath().normalize());
+    }
+
+    /**
+     * Makes creating directories, deleting, opening files and listing
+     * directories fail with an I/O error for {@code zone} and everything
+     * under it, while attribute reads still work, to test error handling.
+     *
+     * @param zone the top of the tree whose operations fail
+     */
+    public void failIoUnder(Path zone) {
+        failingIoZones.add(zone.toAbsolutePath().normalize());
+    }
+
+    /**
+     * Makes this file system refuse POSIX attribute views, as a Windows
+     * volume does, so that code with a basic-attributes fallback can be tested.
+     */
+    public void disablePosixAttributes() {
+        posixUnsupported = true;
+    }
+
+    boolean posixUnsupported() {
+        return posixUnsupported;
+    }
+
+    boolean ioFails(Path path) {
+        Path normalized = path.toAbsolutePath().normalize();
+        for (Path zone : failingIoZones) {
+            if (normalized.startsWith(zone)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     boolean movesTo(Path target) {

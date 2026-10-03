@@ -53,7 +53,7 @@ public class H2ConnectUdpResponseHandlerTest {
     @Test
     public void testAcceptedRequestOpensAndDeliversInboundDatagram() throws Exception {
         RecordingConnectUdpHandler eventHandler = new RecordingConnectUdpHandler();
-        FakeHTTPRequest request = new FakeHTTPRequest();
+        MockHTTPRequest request = new MockHTTPRequest();
         H2ConnectUdpResponseHandler handler = new H2ConnectUdpResponseHandler(request, eventHandler);
 
         handler.ok(new HttpResponse(HttpStatus.OK));
@@ -78,7 +78,7 @@ public class H2ConnectUdpResponseHandlerTest {
     @Test
     public void testSendDatagramProducesCorrectlyFramedCapsuleOnRequestBody() throws Exception {
         RecordingConnectUdpHandler eventHandler = new RecordingConnectUdpHandler();
-        FakeHTTPRequest request = new FakeHTTPRequest();
+        MockHTTPRequest request = new MockHTTPRequest();
         H2ConnectUdpResponseHandler handler = new H2ConnectUdpResponseHandler(request, eventHandler);
 
         handler.ok(new HttpResponse(HttpStatus.OK));
@@ -104,7 +104,7 @@ public class H2ConnectUdpResponseHandlerTest {
     @Test
     public void testCloseEndsTheRequestBody() throws Exception {
         RecordingConnectUdpHandler eventHandler = new RecordingConnectUdpHandler();
-        FakeHTTPRequest request = new FakeHTTPRequest();
+        MockHTTPRequest request = new MockHTTPRequest();
         H2ConnectUdpResponseHandler handler = new H2ConnectUdpResponseHandler(request, eventHandler);
 
         handler.ok(new HttpResponse(HttpStatus.OK));
@@ -117,7 +117,7 @@ public class H2ConnectUdpResponseHandlerTest {
     @Test
     public void testEndResponseBodyNotifiesClosed() throws Exception {
         RecordingConnectUdpHandler eventHandler = new RecordingConnectUdpHandler();
-        FakeHTTPRequest request = new FakeHTTPRequest();
+        MockHTTPRequest request = new MockHTTPRequest();
         H2ConnectUdpResponseHandler handler = new H2ConnectUdpResponseHandler(request, eventHandler);
 
         handler.ok(new HttpResponse(HttpStatus.OK));
@@ -130,7 +130,7 @@ public class H2ConnectUdpResponseHandlerTest {
     @Test
     public void testRejectedRequestReportsErrorWithoutOpening() throws Exception {
         RecordingConnectUdpHandler eventHandler = new RecordingConnectUdpHandler();
-        FakeHTTPRequest request = new FakeHTTPRequest();
+        MockHTTPRequest request = new MockHTTPRequest();
         H2ConnectUdpResponseHandler handler = new H2ConnectUdpResponseHandler(request, eventHandler);
 
         handler.error(new HttpResponse(HttpStatus.FORBIDDEN));
@@ -143,7 +143,7 @@ public class H2ConnectUdpResponseHandlerTest {
         assertNull("opened() should not have been called", eventHandler.session);
     }
 
-    private static class FakeHTTPRequest implements HttpRequest {
+    private static class MockHTTPRequest implements HttpRequest {
         final List<byte[]> sentChunks = new ArrayList<byte[]>();
         boolean bodyEnded;
 

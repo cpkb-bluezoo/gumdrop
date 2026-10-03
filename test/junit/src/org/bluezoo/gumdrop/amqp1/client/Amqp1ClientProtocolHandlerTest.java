@@ -39,7 +39,7 @@ import java.util.List;
 
 import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.SecurityInfo;
-import org.bluezoo.gumdrop.amqp1.client.FakeAmqp1Peer.Out;
+import org.bluezoo.gumdrop.amqp1.client.MockAmqp1Peer.Out;
 import org.bluezoo.gumdrop.amqp1.codec.Amqp1Error;
 import org.bluezoo.gumdrop.amqp1.codec.Amqp1Frame;
 import org.bluezoo.gumdrop.amqp1.codec.Begin;
@@ -57,21 +57,21 @@ import org.junit.Test;
 
 /**
  * Tests for {@link Amqp1ClientProtocolHandler} against an in-process
- * fake broker: the SASL and AMQP handshake, sessions, close, idle
+ * mock broker: the SASL and AMQP handshake, sessions, close, idle
  * timeouts and error handling, with input also fed one byte at a time.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 public class Amqp1ClientProtocolHandlerTest {
 
-    private FakeAmqp1Peer peer;
+    private MockAmqp1Peer peer;
     private Recorder ready;
     private TestClock clock;
     private Amqp1ClientProtocolHandler handler;
 
     @Before
     public void setUp() {
-        peer = new FakeAmqp1Peer();
+        peer = new MockAmqp1Peer();
         ready = new Recorder();
         clock = new TestClock();
         handler = new Amqp1ClientProtocolHandler(ready, clock);
@@ -80,11 +80,11 @@ public class Amqp1ClientProtocolHandlerTest {
     // ── helpers ──
 
     private void feed(ByteBuffer... parts) {
-        handler.receive(ByteBuffer.wrap(FakeAmqp1Peer.concat(parts)));
+        handler.receive(ByteBuffer.wrap(MockAmqp1Peer.concat(parts)));
     }
 
     private void feedByteByByte(ByteBuffer... parts) {
-        byte[] data = FakeAmqp1Peer.concat(parts);
+        byte[] data = MockAmqp1Peer.concat(parts);
         ByteBuffer buf = ByteBuffer.allocate(data.length + 16);
         for (int i = 0; i < data.length; i++) {
             buf.put(data[i]);
@@ -102,10 +102,10 @@ public class Amqp1ClientProtocolHandlerTest {
     /** Connects and completes SASL with ANONYMOUS, leaving the connection ready to open. */
     private void connectAndAuthenticate() {
         handler.connected(peer);
-        feed(FakeAmqp1Peer.saslHeader(),
-                FakeAmqp1Peer.saslFrame(new SaslMechanisms(Arrays.asList("ANONYMOUS", "PLAIN"))));
+        feed(MockAmqp1Peer.saslHeader(),
+                MockAmqp1Peer.saslFrame(new SaslMechanisms(Arrays.asList("ANONYMOUS", "PLAIN"))));
         ready.handshake.authenticateAnonymous(null, ready.auth);
-        feed(FakeAmqp1Peer.saslFrame(new SaslOutcome(SaslOutcome.OK, null)));
+        feed(MockAmqp1Peer.saslFrame(new SaslOutcome(SaslOutcome.OK, null)));
     }
 
     /** Runs the whole handshake, leaving an open connection. */
@@ -116,7 +116,7 @@ public class Amqp1ClientProtocolHandlerTest {
     private void openConnection(Open ours) {
         connectAndAuthenticate();
         ready.auth.opener.open(ours, ready.openHandler);
-        feed(FakeAmqp1Peer.amqpHeader(), FakeAmqp1Peer.amqpFrame(0, peerOpen("broker")));
+        feed(MockAmqp1Peer.amqpHeader(), MockAmqp1Peer.amqpFrame(0, peerOpen("broker")));
         assertNotNull("connection should be open", ready.openHandler.connection);
     }
 
@@ -146,8 +146,8 @@ public class Amqp1ClientProtocolHandlerTest {
     @Test
     public void testMechanismsAreDelivered() {
         handler.connected(peer);
-        feed(FakeAmqp1Peer.saslHeader(),
-                FakeAmqp1Peer.saslFrame(new SaslMechanisms(Arrays.asList("PLAIN", "ANONYMOUS"))));
+        feed(MockAmqp1Peer.saslHeader(),
+                MockAmqp1Peer.saslFrame(new SaslMechanisms(Arrays.asList("PLAIN", "ANONYMOUS"))));
         assertEquals(Arrays.asList("PLAIN", "ANONYMOUS"), ready.mechanisms);
         assertNotNull(ready.handshake);
     }
@@ -155,8 +155,8 @@ public class Amqp1ClientProtocolHandlerTest {
     @Test
     public void testPlainSendsInitialResponse() {
         handler.connected(peer);
-        feed(FakeAmqp1Peer.saslHeader(),
-                FakeAmqp1Peer.saslFrame(new SaslMechanisms(Arrays.asList("PLAIN"))));
+        feed(MockAmqp1Peer.saslHeader(),
+                MockAmqp1Peer.saslFrame(new SaslMechanisms(Arrays.asList("PLAIN"))));
         ready.handshake.authenticate("alice", "s3cret", ready.auth);
         List<Out> out = peer.output();
         assertEquals("sasl/0 SaslInit", out.get(1).toString());
@@ -168,8 +168,8 @@ public class Amqp1ClientProtocolHandlerTest {
     @Test
     public void testAnonymousSendsTrace() {
         handler.connected(peer);
-        feed(FakeAmqp1Peer.saslHeader(),
-                FakeAmqp1Peer.saslFrame(new SaslMechanisms(Arrays.asList("ANONYMOUS"))));
+        feed(MockAmqp1Peer.saslHeader(),
+                MockAmqp1Peer.saslFrame(new SaslMechanisms(Arrays.asList("ANONYMOUS"))));
         ready.handshake.authenticateAnonymous("guest@example.org", ready.auth);
         SaslInit init = (SaslInit) peer.output().get(1).performative;
         assertEquals("ANONYMOUS", init.getMechanism());
@@ -180,8 +180,8 @@ public class Amqp1ClientProtocolHandlerTest {
     @Test
     public void testAnonymousWithoutTraceSendsNoInitialResponse() {
         handler.connected(peer);
-        feed(FakeAmqp1Peer.saslHeader(),
-                FakeAmqp1Peer.saslFrame(new SaslMechanisms(Arrays.asList("ANONYMOUS"))));
+        feed(MockAmqp1Peer.saslHeader(),
+                MockAmqp1Peer.saslFrame(new SaslMechanisms(Arrays.asList("ANONYMOUS"))));
         ready.handshake.authenticateAnonymous(null, ready.auth);
         assertNull(((SaslInit) peer.output().get(1).performative).getInitialResponse());
     }
@@ -221,13 +221,13 @@ public class Amqp1ClientProtocolHandlerTest {
     @Test
     public void testHandshakeWithInputOneByteAtATime() {
         handler.connected(peer);
-        feedByteByByte(FakeAmqp1Peer.saslHeader(),
-                FakeAmqp1Peer.saslFrame(new SaslMechanisms(Arrays.asList("ANONYMOUS"))));
+        feedByteByByte(MockAmqp1Peer.saslHeader(),
+                MockAmqp1Peer.saslFrame(new SaslMechanisms(Arrays.asList("ANONYMOUS"))));
         assertEquals(Arrays.asList("ANONYMOUS"), ready.mechanisms);
         ready.handshake.authenticateAnonymous(null, ready.auth);
-        feedByteByByte(FakeAmqp1Peer.saslFrame(new SaslOutcome(SaslOutcome.OK, null)),
-                FakeAmqp1Peer.amqpHeader(),
-                FakeAmqp1Peer.amqpFrame(0, peerOpen("broker")));
+        feedByteByByte(MockAmqp1Peer.saslFrame(new SaslOutcome(SaslOutcome.OK, null)),
+                MockAmqp1Peer.amqpHeader(),
+                MockAmqp1Peer.amqpFrame(0, peerOpen("broker")));
         assertNotNull(ready.auth.opener);
         ready.auth.opener.open("c", null, ready.openHandler);
         assertEquals("broker", ready.openHandler.peerOpen.getContainerId());
@@ -236,7 +236,7 @@ public class Amqp1ClientProtocolHandlerTest {
     @Test
     public void testPeerOpenBeforeOurOpenIsHeldUntilWeOpen() {
         connectAndAuthenticate();
-        feed(FakeAmqp1Peer.amqpHeader(), FakeAmqp1Peer.amqpFrame(0, peerOpen("broker")));
+        feed(MockAmqp1Peer.amqpHeader(), MockAmqp1Peer.amqpFrame(0, peerOpen("broker")));
         assertNull("not open until we have opened too", ready.openHandler.connection);
         ready.auth.opener.open("c", null, ready.openHandler);
         assertNotNull(ready.openHandler.connection);
@@ -245,8 +245,8 @@ public class Amqp1ClientProtocolHandlerTest {
     @Test
     public void testMultiRoundSaslChallenge() {
         handler.connected(peer);
-        feed(FakeAmqp1Peer.saslHeader(),
-                FakeAmqp1Peer.saslFrame(new SaslMechanisms(Arrays.asList("X-CHALLENGE"))));
+        feed(MockAmqp1Peer.saslHeader(),
+                MockAmqp1Peer.saslFrame(new SaslMechanisms(Arrays.asList("X-CHALLENGE"))));
         ready.handshake.authenticate(new SaslClientMechanism() {
             @Override
             public String getMechanismName() {
@@ -270,18 +270,18 @@ public class Amqp1ClientProtocolHandlerTest {
             }
         }, ready.auth);
         assertNull(((SaslInit) peer.output().get(1).performative).getInitialResponse());
-        feed(FakeAmqp1Peer.saslFrame(new SaslChallenge("nonce".getBytes(StandardCharsets.UTF_8))));
+        feed(MockAmqp1Peer.saslFrame(new SaslChallenge("nonce".getBytes(StandardCharsets.UTF_8))));
         SaslResponse response = (SaslResponse) peer.output().get(2).performative;
         assertArrayEquals("re:nonce".getBytes(StandardCharsets.UTF_8), response.getData());
-        feed(FakeAmqp1Peer.saslFrame(new SaslOutcome(SaslOutcome.OK, null)));
+        feed(MockAmqp1Peer.saslFrame(new SaslOutcome(SaslOutcome.OK, null)));
         assertNotNull(ready.auth.opener);
     }
 
     @Test
     public void testMechanismEvaluationOffloadedToExecutor() {
         handler.connected(peer);
-        feed(FakeAmqp1Peer.saslHeader(),
-                FakeAmqp1Peer.saslFrame(new SaslMechanisms(Arrays.asList("ANONYMOUS"))));
+        feed(MockAmqp1Peer.saslHeader(),
+                MockAmqp1Peer.saslFrame(new SaslMechanisms(Arrays.asList("ANONYMOUS"))));
         final List<Runnable> queued = new ArrayList<Runnable>();
         java.util.concurrent.ExecutorService executor =
                 new java.util.concurrent.AbstractExecutorService() {
@@ -324,8 +324,8 @@ public class Amqp1ClientProtocolHandlerTest {
     @Test
     public void testMechanismNotOfferedFailsConnection() {
         handler.connected(peer);
-        feed(FakeAmqp1Peer.saslHeader(),
-                FakeAmqp1Peer.saslFrame(new SaslMechanisms(Arrays.asList("ANONYMOUS"))));
+        feed(MockAmqp1Peer.saslHeader(),
+                MockAmqp1Peer.saslFrame(new SaslMechanisms(Arrays.asList("ANONYMOUS"))));
         ready.handshake.authenticate("u", "p", ready.auth); // PLAIN not offered
         assertNotNull(ready.error);
         assertTrue(ready.error.getMessage().contains("PLAIN"));
@@ -335,10 +335,10 @@ public class Amqp1ClientProtocolHandlerTest {
     @Test
     public void testSaslFailureReportedAndConnectionClosed() {
         handler.connected(peer);
-        feed(FakeAmqp1Peer.saslHeader(),
-                FakeAmqp1Peer.saslFrame(new SaslMechanisms(Arrays.asList("PLAIN"))));
+        feed(MockAmqp1Peer.saslHeader(),
+                MockAmqp1Peer.saslFrame(new SaslMechanisms(Arrays.asList("PLAIN"))));
         ready.handshake.authenticate("u", "wrong", ready.auth);
-        feed(FakeAmqp1Peer.saslFrame(new SaslOutcome(SaslOutcome.AUTH, null)));
+        feed(MockAmqp1Peer.saslFrame(new SaslOutcome(SaslOutcome.AUTH, null)));
         assertEquals(SaslOutcome.AUTH, ready.auth.failureCode);
         assertNull(ready.auth.opener);
         assertTrue(peer.closed);
@@ -347,7 +347,7 @@ public class Amqp1ClientProtocolHandlerTest {
     @Test
     public void testServerWithoutSaslIsAnError() {
         handler.connected(peer);
-        feed(FakeAmqp1Peer.amqpHeader());
+        feed(MockAmqp1Peer.amqpHeader());
         assertNotNull(ready.error);
         assertTrue(peer.closed);
     }
@@ -371,24 +371,24 @@ public class Amqp1ClientProtocolHandlerTest {
     @Test
     public void testAmqpFrameDuringSaslIsAnError() {
         handler.connected(peer);
-        feed(FakeAmqp1Peer.saslHeader(), FakeAmqp1Peer.amqpFrame(0, peerOpen("x")));
+        feed(MockAmqp1Peer.saslHeader(), MockAmqp1Peer.amqpFrame(0, peerOpen("x")));
         assertNotNull(ready.error);
     }
 
     @Test
     public void testSaslFrameAfterSaslCompleteIsAnError() {
         connectAndAuthenticate();
-        feed(FakeAmqp1Peer.amqpHeader(),
-                FakeAmqp1Peer.saslFrame(new SaslMechanisms(Arrays.asList("PLAIN"))));
+        feed(MockAmqp1Peer.amqpHeader(),
+                MockAmqp1Peer.saslFrame(new SaslMechanisms(Arrays.asList("PLAIN"))));
         assertNotNull(ready.error);
     }
 
     @Test
     public void testSaslOutcomeWithoutInitIsAnError() {
         handler.connected(peer);
-        feed(FakeAmqp1Peer.saslHeader(),
-                FakeAmqp1Peer.saslFrame(new SaslMechanisms(Arrays.asList("PLAIN"))),
-                FakeAmqp1Peer.saslFrame(new SaslOutcome(SaslOutcome.OK, null)));
+        feed(MockAmqp1Peer.saslHeader(),
+                MockAmqp1Peer.saslFrame(new SaslMechanisms(Arrays.asList("PLAIN"))),
+                MockAmqp1Peer.saslFrame(new SaslOutcome(SaslOutcome.OK, null)));
         assertNotNull(ready.error);
     }
 
@@ -424,7 +424,7 @@ public class Amqp1ClientProtocolHandlerTest {
         ready.auth.opener.open(ours, ready.openHandler);
         Open theirs = new Open("broker");
         theirs.setChannelMax(3);
-        feed(FakeAmqp1Peer.amqpHeader(), FakeAmqp1Peer.amqpFrame(0, theirs));
+        feed(MockAmqp1Peer.amqpHeader(), MockAmqp1Peer.amqpFrame(0, theirs));
         assertEquals(3, ready.openHandler.connection.getChannelMax());
     }
 
@@ -434,7 +434,7 @@ public class Amqp1ClientProtocolHandlerTest {
         ready.auth.opener.open("c", null, ready.openHandler);
         Open theirs = new Open("broker");
         theirs.setMaxFrameSize(4096);
-        feed(FakeAmqp1Peer.amqpHeader(), FakeAmqp1Peer.amqpFrame(0, theirs));
+        feed(MockAmqp1Peer.amqpHeader(), MockAmqp1Peer.amqpFrame(0, theirs));
         assertEquals(4096L, ready.openHandler.connection.getPeerMaxFrameSize());
     }
 
@@ -475,7 +475,7 @@ public class Amqp1ClientProtocolHandlerTest {
         beginSession();
         Begin reply = new Begin(0, 100, 100);
         reply.setRemoteChannel(Integer.valueOf(0));
-        feed(FakeAmqp1Peer.amqpFrame(7, reply)); // the broker uses its own channel number
+        feed(MockAmqp1Peer.amqpFrame(7, reply)); // the broker uses its own channel number
         SessionRecorder s = ready.sessions.get(0);
         assertNotNull(s.session);
         assertEquals(0, s.session.getLocalChannel());
@@ -495,11 +495,11 @@ public class Amqp1ClientProtocolHandlerTest {
         Begin r1 = new Begin(0, 20, 20);
         r1.setRemoteChannel(Integer.valueOf(1));
         // the broker answers in the opposite order on channels 9 and 4
-        feed(FakeAmqp1Peer.amqpFrame(9, r1), FakeAmqp1Peer.amqpFrame(4, r0));
+        feed(MockAmqp1Peer.amqpFrame(9, r1), MockAmqp1Peer.amqpFrame(4, r0));
         assertEquals(1, ready.sessions.get(1).session.getLocalChannel());
         assertEquals(0, ready.sessions.get(0).session.getLocalChannel());
         // an end on peer channel 9 ends the session on our channel 1
-        feed(FakeAmqp1Peer.amqpFrame(9, new End()));
+        feed(MockAmqp1Peer.amqpFrame(9, new End()));
         assertTrue(ready.sessions.get(1).ended);
         assertFalse(ready.sessions.get(0).ended);
         assertEquals("amqp/1 End", lastOut().toString());
@@ -511,12 +511,12 @@ public class Amqp1ClientProtocolHandlerTest {
         beginSession();
         Begin reply = new Begin(0, 10, 10);
         reply.setRemoteChannel(Integer.valueOf(0));
-        feed(FakeAmqp1Peer.amqpFrame(3, reply));
+        feed(MockAmqp1Peer.amqpFrame(3, reply));
         ready.sessions.get(0).session.end(null);
         assertEquals("amqp/0 End", lastOut().toString());
         assertFalse(ready.sessions.get(0).ended);
         int sentBefore = peer.output().size();
-        feed(FakeAmqp1Peer.amqpFrame(3, new End()));
+        feed(MockAmqp1Peer.amqpFrame(3, new End()));
         assertTrue(ready.sessions.get(0).ended);
         assertNull(ready.sessions.get(0).endError);
         assertEquals("no second end sent", sentBefore, peer.output().size());
@@ -528,8 +528,8 @@ public class Amqp1ClientProtocolHandlerTest {
         beginSession();
         Begin reply = new Begin(0, 10, 10);
         reply.setRemoteChannel(Integer.valueOf(0));
-        feed(FakeAmqp1Peer.amqpFrame(3, reply));
-        feed(FakeAmqp1Peer.amqpFrame(3, new End(new Amqp1Error(Amqp1Error.NOT_ALLOWED, "no"))));
+        feed(MockAmqp1Peer.amqpFrame(3, reply));
+        feed(MockAmqp1Peer.amqpFrame(3, new End(new Amqp1Error(Amqp1Error.NOT_ALLOWED, "no"))));
         assertEquals(Amqp1Error.NOT_ALLOWED, ready.sessions.get(0).endError.getCondition());
         assertEquals("amqp/0 End", lastOut().toString());
     }
@@ -540,8 +540,8 @@ public class Amqp1ClientProtocolHandlerTest {
         beginSession();
         Begin reply = new Begin(0, 10, 10);
         reply.setRemoteChannel(Integer.valueOf(0));
-        feed(FakeAmqp1Peer.amqpFrame(3, reply));
-        feed(FakeAmqp1Peer.amqpFrame(3, new End()));
+        feed(MockAmqp1Peer.amqpFrame(3, reply));
+        feed(MockAmqp1Peer.amqpFrame(3, new End()));
         beginSession();
         assertEquals(0, lastOut().channel);
     }
@@ -571,7 +571,7 @@ public class Amqp1ClientProtocolHandlerTest {
     @Test
     public void testPeerInitiatedSessionIsRefused() {
         openConnection();
-        feed(FakeAmqp1Peer.amqpFrame(0, new Begin(0, 10, 10)));
+        feed(MockAmqp1Peer.amqpFrame(0, new Begin(0, 10, 10)));
         assertNotNull(ready.error);
         Out last = lastOut();
         assertEquals("amqp/0 Close", last.toString());
@@ -583,14 +583,14 @@ public class Amqp1ClientProtocolHandlerTest {
         openConnection();
         Begin stray = new Begin(0, 10, 10);
         stray.setRemoteChannel(Integer.valueOf(4));
-        feed(FakeAmqp1Peer.amqpFrame(2, stray));
+        feed(MockAmqp1Peer.amqpFrame(2, stray));
         assertNotNull(ready.error);
     }
 
     @Test
     public void testEndOnUnknownChannelIsAnError() {
         openConnection();
-        feed(FakeAmqp1Peer.amqpFrame(5, new End()));
+        feed(MockAmqp1Peer.amqpFrame(5, new End()));
         assertNotNull(ready.error);
     }
 
@@ -600,7 +600,7 @@ public class Amqp1ClientProtocolHandlerTest {
         beginSession();
         Begin reply = new Begin(0, 10, 10);
         reply.setRemoteChannel(Integer.valueOf(0));
-        feed(FakeAmqp1Peer.amqpFrame(3, reply));
+        feed(MockAmqp1Peer.amqpFrame(3, reply));
         Amqp1Session s = ready.sessions.get(0).session;
         s.end(null);
         try {
@@ -619,7 +619,7 @@ public class Amqp1ClientProtocolHandlerTest {
         ready.openHandler.connection.close(null);
         assertEquals("amqp/0 Close", lastOut().toString());
         assertFalse(peer.closed);
-        feed(FakeAmqp1Peer.amqpFrame(0, new Close()));
+        feed(MockAmqp1Peer.amqpFrame(0, new Close()));
         assertTrue(ready.closed);
         assertNull(ready.closeError);
         assertTrue(peer.closed);
@@ -639,7 +639,7 @@ public class Amqp1ClientProtocolHandlerTest {
     @Test
     public void testPeerInitiatedCloseIsAnsweredAndReported() {
         openConnection();
-        feed(FakeAmqp1Peer.amqpFrame(0,
+        feed(MockAmqp1Peer.amqpFrame(0,
                 new Close(new Amqp1Error(Amqp1Error.CONNECTION_FORCED, "shutting down"))));
         assertTrue(ready.closed);
         assertEquals(Amqp1Error.CONNECTION_FORCED, ready.closeError.getCondition());
@@ -653,8 +653,8 @@ public class Amqp1ClientProtocolHandlerTest {
         beginSession();
         Begin reply = new Begin(0, 10, 10);
         reply.setRemoteChannel(Integer.valueOf(0));
-        feed(FakeAmqp1Peer.amqpFrame(3, reply));
-        feed(FakeAmqp1Peer.amqpFrame(0, new Close()));
+        feed(MockAmqp1Peer.amqpFrame(3, reply));
+        feed(MockAmqp1Peer.amqpFrame(0, new Close()));
         assertTrue(ready.sessions.get(0).ended);
     }
 
@@ -687,9 +687,9 @@ public class Amqp1ClientProtocolHandlerTest {
         ours.setIdleTimeOut(1000);
         connectAndAuthenticate();
         ready.auth.opener.open(ours, ready.openHandler);
-        feed(FakeAmqp1Peer.amqpHeader(), FakeAmqp1Peer.amqpFrame(0, theirs));
+        feed(MockAmqp1Peer.amqpHeader(), MockAmqp1Peer.amqpFrame(0, theirs));
         handler.disconnected();
-        for (FakeAmqp1Peer.Timer t : peer.timers) {
+        for (MockAmqp1Peer.Timer t : peer.timers) {
             assertTrue(t.cancelled);
         }
     }
@@ -702,7 +702,7 @@ public class Amqp1ClientProtocolHandlerTest {
         theirs.setIdleTimeOut(1000);
         connectAndAuthenticate();
         ready.auth.opener.open("c", null, ready.openHandler);
-        feed(FakeAmqp1Peer.amqpHeader(), FakeAmqp1Peer.amqpFrame(0, theirs));
+        feed(MockAmqp1Peer.amqpHeader(), MockAmqp1Peer.amqpFrame(0, theirs));
         assertEquals(1, peer.timers.size());
         assertEquals("checked at half the peer's timeout", 500L, peer.timers.get(0).delayMs);
         int before = peer.output().size();
@@ -720,7 +720,7 @@ public class Amqp1ClientProtocolHandlerTest {
         theirs.setIdleTimeOut(1000);
         connectAndAuthenticate();
         ready.auth.opener.open("c", null, ready.openHandler);
-        feed(FakeAmqp1Peer.amqpHeader(), FakeAmqp1Peer.amqpFrame(0, theirs));
+        feed(MockAmqp1Peer.amqpHeader(), MockAmqp1Peer.amqpFrame(0, theirs));
         clock.advanceMillis(400);
         beginSession(); // traffic: resets the send clock
         int before = peer.output().size();
@@ -794,7 +794,7 @@ public class Amqp1ClientProtocolHandlerTest {
         ByteBuffer open = new Open("broker").encode();
         byte[] body = new byte[open.remaining() + 3];
         open.get(body, 0, open.remaining());
-        handler.receive(ByteBuffer.wrap(FakeAmqp1Peer.concat(FakeAmqp1Peer.amqpHeader(),
+        handler.receive(ByteBuffer.wrap(MockAmqp1Peer.concat(MockAmqp1Peer.amqpHeader(),
                 Amqp1Frame.encode(Amqp1Frame.TYPE_AMQP, 0, ByteBuffer.wrap(body)))));
         assertNotNull(ready.error);
     }
@@ -811,24 +811,24 @@ public class Amqp1ClientProtocolHandlerTest {
     public void testOpenOnNonZeroChannelIsAnError() {
         connectAndAuthenticate();
         ready.auth.opener.open("c", null, ready.openHandler);
-        feed(FakeAmqp1Peer.amqpHeader(), FakeAmqp1Peer.amqpFrame(2, peerOpen("broker")));
+        feed(MockAmqp1Peer.amqpHeader(), MockAmqp1Peer.amqpFrame(2, peerOpen("broker")));
         assertNotNull(ready.error);
     }
 
     @Test
     public void testSecondPeerOpenIsAnError() {
         openConnection();
-        feed(FakeAmqp1Peer.amqpFrame(0, peerOpen("broker")));
+        feed(MockAmqp1Peer.amqpFrame(0, peerOpen("broker")));
         assertNotNull(ready.error);
     }
 
     @Test
     public void testNothingProcessedAfterFailure() {
         openConnection();
-        feed(FakeAmqp1Peer.amqpFrame(5, new End()));
+        feed(MockAmqp1Peer.amqpFrame(5, new End()));
         assertNotNull(ready.error);
         ready.error = null;
-        feed(FakeAmqp1Peer.amqpFrame(5, new End()));
+        feed(MockAmqp1Peer.amqpFrame(5, new End()));
         assertNull("no further errors after the connection failed", ready.error);
     }
 

@@ -453,8 +453,10 @@ public class H2Parser {
                     return;
                 }
             } else if (identifier == H2FrameHandler.SETTINGS_INITIAL_WINDOW_SIZE) {
-                // RFC 9113 section 6.5.2: value MUST NOT exceed 2^31-1
-                if (value > 0x7FFFFFFF) {
+                // RFC 9113 section 6.5.2: value MUST NOT exceed 2^31-1.
+                // The 32-bit wire value is held in an int, so anything
+                // above 2^31-1 shows up as negative here.
+                if (value < 0) {
                     handler.frameError(H2FrameHandler.ERROR_FLOW_CONTROL_ERROR, 0,
                         "SETTINGS_INITIAL_WINDOW_SIZE too large");
                     return;

@@ -87,9 +87,14 @@ public class SocksTransferMockTest {
         server = new SocksServer();
         listener = new SocksListener();
         listener.setServer(server);
-        listener.setTelemetryConfig(new TelemetryConfig());
+        listener.setTelemetryConfig(telemetryConfig());
         listener.start();
         newSession(gumdrop.nextWorkerLoop());
+    }
+
+    /** Telemetry configuration for the listener; subclasses enable metrics. */
+    TelemetryConfig telemetryConfig() {
+        return new TelemetryConfig();
     }
 
     private void newSession(SelectorLoop loop) {

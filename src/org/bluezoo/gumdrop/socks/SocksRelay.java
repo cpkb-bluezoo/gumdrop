@@ -41,10 +41,17 @@ import org.bluezoo.gumdrop.TimerHandle;
  * (SelectorLoop affinity). This ensures the relay operates as a
  * simple in-thread data shuttle with no cross-thread synchronization.
  *
- * <p>The relay propagates transport-level backpressure: when one side
- * is slow to consume data, reading from the other side is paused via
- * {@link Endpoint#pauseRead()}, causing TCP flow control to propagate
- * backpressure to the sender.
+ * <p>The relay propagates transport-level backpressure in each direction
+ * independently. After a chunk is handed to one side, reading from the
+ * other side is paused with {@link Endpoint#pauseRead()} until the
+ * destination's output buffer has drained (signalled by its one-shot
+ * {@link Endpoint#onWriteReady(Runnable)} callback), when reading resumes.
+ * At most one chunk per direction is therefore buffered in the relay's
+ * destination, however much the source sends, and TCP flow control
+ * propagates the stall to the sending peer. Pausing and resuming happen
+ * on the connection's own selector loop; the pause is requested before the
+ * data is sent so a drain signalled during the send cannot be lost, and the
+ * callbacks are cleared when the relay closes.
  *
  * <p>An idle timeout closes the relay if no data flows in either
  * direction within the configured duration.
@@ -94,7 +101,6 @@ class SocksRelay {
         if (metrics != null) {
             metrics.relayOpened();
         }
-        setupBackpressure();
         resetIdleTimer();
     }
 
@@ -107,6 +113,20 @@ class SocksRelay {
         }
         int bytes = data.remaining();
         resetIdleTimer();
+        if (bytes > 0) {
+            // Pause before sending: the drain callback then always follows.
+            clientReadPaused = true;
+            clientEndpoint.pauseRead();
+            upstreamEndpoint.onWriteReady(new Runnable() {
+                @Override
+                public void run() {
+                    if (clientReadPaused && !closed) {
+                        clientReadPaused = false;
+                        clientEndpoint.resumeRead();
+                    }
+                }
+            });
+        }
         upstreamEndpoint.send(data);
         if (metrics != null && bytes > 0) {
             metrics.bytesRelayed(bytes, "upstream");
@@ -122,6 +142,20 @@ class SocksRelay {
         }
         int bytes = data.remaining();
         resetIdleTimer();
+        if (bytes > 0) {
+            // Pause before sending: the drain callback then always follows.
+            upstreamReadPaused = true;
+            upstreamEndpoint.pauseRead();
+            clientEndpoint.onWriteReady(new Runnable() {
+                @Override
+                public void run() {
+                    if (upstreamReadPaused && !closed) {
+                        upstreamReadPaused = false;
+                        upstreamEndpoint.resumeRead();
+                    }
+                }
+            });
+        }
         clientEndpoint.send(data);
         if (metrics != null && bytes > 0) {
             metrics.bytesRelayed(bytes, "downstream");
@@ -142,28 +176,6 @@ class SocksRelay {
     void upstreamDisconnected() {
         upstreamDisconnected = true;
         closeRelay();
-    }
-
-    private void setupBackpressure() {
-        clientEndpoint.onWriteReady(new Runnable() {
-            @Override
-            public void run() {
-                if (upstreamReadPaused && !closed) {
-                    upstreamReadPaused = false;
-                    upstreamEndpoint.resumeRead();
-                }
-            }
-        });
-
-        upstreamEndpoint.onWriteReady(new Runnable() {
-            @Override
-            public void run() {
-                if (clientReadPaused && !closed) {
-                    clientReadPaused = false;
-                    clientEndpoint.resumeRead();
-                }
-            }
-        });
     }
 
     private void resetIdleTimer() {
@@ -193,6 +205,12 @@ class SocksRelay {
             return;
         }
         closed = true;
+        clientReadPaused = false;
+        upstreamReadPaused = false;
+        clientEndpoint.onWriteReady(null);
+        if (upstreamEndpoint != null) {
+            upstreamEndpoint.onWriteReady(null);
+        }
         if (idleTimer != null) {
             idleTimer.cancel();
             idleTimer = null;

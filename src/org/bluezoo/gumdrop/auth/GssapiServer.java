@@ -75,9 +75,18 @@ public final class GssapiServer {
 
     private static final Oid KRB5_OID;
 
+    /**
+     * Name type of a Kerberos principal such as
+     * {@code imap/mail.example.com@EXAMPLE.COM}. The service principal is
+     * given in this form (it is also the JAAS keytab principal), not as a
+     * host-based {@code service@host} name.
+     */
+    private static final Oid KRB5_PRINCIPAL_NAME;
+
     static {
         try {
             KRB5_OID = new Oid("1.2.840.113554.1.2.2");
+            KRB5_PRINCIPAL_NAME = new Oid("1.2.840.113554.1.2.2.1");
         } catch (GSSException e) {
             throw new RuntimeException("Kerberos OID unavailable", e);
         }
@@ -127,7 +136,7 @@ public final class GssapiServer {
                             GSSManager manager = GSSManager.getInstance();
                             GSSName serverName = manager.createName(
                                     servicePrincipal,
-                                    GSSName.NT_HOSTBASED_SERVICE);
+                                    KRB5_PRINCIPAL_NAME);
                             return manager.createCredential(serverName,
                                     GSSCredential.DEFAULT_LIFETIME,
                                     KRB5_OID,
@@ -145,6 +154,21 @@ public final class GssapiServer {
                     servicePrincipal);
             throw new IOException(msg, e.getCause());
         }
+    }
+
+    /**
+     * Creates a server around an already-acquired subject and credential.
+     * Package-private so tests can supply mock collaborators without a keytab.
+     *
+     * @param serviceSubject the service JAAS Subject
+     * @param serverCredential the acceptor credential, or null
+     * @param servicePrincipal the service principal name
+     */
+    GssapiServer(Subject serviceSubject, GSSCredential serverCredential,
+            String servicePrincipal) {
+        this.serviceSubject = serviceSubject;
+        this.serverCredential = serverCredential;
+        this.servicePrincipal = servicePrincipal;
     }
 
     /**

@@ -303,7 +303,10 @@ public class H3Parser {
                 // notified so it can enforce SETTINGS-first (section 7.2.4).
                 handler.unknownFrameReceived(frameType);
             }
-        } catch (BufferUnderflowException e) {
+        } catch (BufferUnderflowException | IndexOutOfBoundsException e) {
+            // VarInt.decode() peeks its first byte by absolute index, so a
+            // payload with no bytes left at all surfaces as an
+            // IndexOutOfBoundsException rather than a BufferUnderflowException
             handler.frameError("Malformed frame payload for type " + frameType
                     + ": fields do not fit within the declared frame length");
         }

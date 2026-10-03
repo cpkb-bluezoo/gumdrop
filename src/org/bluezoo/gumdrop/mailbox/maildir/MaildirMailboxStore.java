@@ -40,6 +40,7 @@ import java.nio.channels.ReadableByteChannel;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
 import java.text.MessageFormat;
 import java.time.OffsetDateTime;
@@ -526,8 +527,9 @@ public class MaildirMailboxStore implements MailboxStore {
         }
         
         Path subscriptionsPath = userDirectory.resolve(SUBSCRIPTIONS_FILE);
-        
-        BufferedWriter writer = Files.newBufferedWriter(subscriptionsPath, StandardCharsets.UTF_8,
+        Path tempPath = userDirectory.resolve(SUBSCRIPTIONS_FILE + ".tmp");
+
+        BufferedWriter writer = Files.newBufferedWriter(tempPath, StandardCharsets.UTF_8,
             StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
         try {
             List<String> sorted = new ArrayList<>(subscriptions);
@@ -539,6 +541,7 @@ public class MaildirMailboxStore implements MailboxStore {
         } finally {
             writer.close();
         }
+        Files.move(tempPath, subscriptionsPath, StandardCopyOption.REPLACE_EXISTING);
     }
 
     @Override
@@ -562,12 +565,14 @@ public class MaildirMailboxStore implements MailboxStore {
     public void subscribe(String mailboxName) throws IOException {
         ensureOpen();
         subscriptions.add(normalizeMailboxName(mailboxName));
+        saveSubscriptions();
     }
 
     @Override
     public void unsubscribe(String mailboxName) throws IOException {
         ensureOpen();
         subscriptions.remove(normalizeMailboxName(mailboxName));
+        saveSubscriptions();
     }
 
     /**
@@ -716,6 +721,7 @@ public class MaildirMailboxStore implements MailboxStore {
 
         // Remove from subscriptions
         subscriptions.remove(normalized);
+        saveSubscriptions();
         
         if (LOGGER.isLoggable(Level.FINE)) {
             LOGGER.fine(MessageFormat.format(
@@ -787,6 +793,7 @@ public class MaildirMailboxStore implements MailboxStore {
                 subscriptions.add(rename[1]);
             }
         }
+        saveSubscriptions();
         
         if (LOGGER.isLoggable(Level.FINE)) {
             LOGGER.fine(MessageFormat.format(

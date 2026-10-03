@@ -25,6 +25,7 @@ import org.bluezoo.gumdrop.mime.MimeParser;
 import org.bluezoo.gumdrop.mime.rfc2047.Rfc2047Decoder;
 import java.nio.ByteBuffer;
 import java.nio.charset.CharsetDecoder;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.ResourceBundle;
@@ -89,6 +90,7 @@ public final class EmailAddressParser {
 		try {
 			List<EmailAddress> addresses = new ArrayList<>();
 			int limit = value.limit();
+			boolean utf8 = decoder != null && decoder.charset().equals(StandardCharsets.UTF_8);
 			while (value.position() < limit) {
 				skipCfws(value);
 				if (value.position() >= limit) {
@@ -105,15 +107,9 @@ public final class EmailAddressParser {
 					displayName = Rfc2047Decoder.decodeDisplayName(value, decoder, false, stopBytes);
 					if (value.position() >= limit) {
 						// EOF after display phrase - may be bare addr-spec at end
-						if (displayName != null) {
-							String trimmed = displayName.trim();
-							int atIdx = trimmed.lastIndexOf('@');
-							if (atIdx > 0 && atIdx < trimmed.length() - 1
-									&& trimmed.indexOf('<') < 0 && trimmed.indexOf('>') < 0) {
-								String localPart = trimmed.substring(0, atIdx);
-								String domain = trimmed.substring(atIdx + 1);
-								addresses.add(new EmailAddress(null, localPart, domain, true));
-							}
+						EmailAddress bare = bareAddress(displayName);
+						if (bare != null) {
+							addresses.add(bare);
 						}
 						break;
 					}
@@ -126,22 +122,16 @@ public final class EmailAddressParser {
 				}
 				if (b != '<') {
 					// Bare addr-spec: user@example.com (no angle brackets)
-					if (displayName != null) {
-						String trimmed = displayName.trim();
-						int atIdx = trimmed.lastIndexOf('@');
-						if (atIdx > 0 && atIdx < trimmed.length() - 1
-								&& trimmed.indexOf('<') < 0 && trimmed.indexOf('>') < 0) {
-							String localPart = trimmed.substring(0, atIdx);
-							String domain = trimmed.substring(atIdx + 1);
-							addresses.add(new EmailAddress(null, localPart, domain, true));
-							// Next iteration's skipCfws will skip the comma
-							continue;
-						}
+					EmailAddress bare = bareAddress(displayName);
+					if (bare != null) {
+						addresses.add(bare);
+						// Next iteration's skipCfws will skip the comma
+						continue;
 					}
 					break;
 				}
 				value.position(value.position() + 1);
-				int[] localRange = parseLocalPartRange(value);
+				int[] localRange = parseLocalPartRange(value, utf8);
 				if (localRange == null) {
 					break;
 				}
@@ -158,7 +148,7 @@ public final class EmailAddressParser {
 					break;
 				}
 				value.position(value.position() + 1);
-				int[] domainRange = parseDomainRange(value);
+				int[] domainRange = parseDomainRange(value, utf8);
 				if (domainRange == null) {
 					break;
 				}
@@ -175,6 +165,46 @@ public final class EmailAddressParser {
 		} catch (Exception e) {
 			return null;
 		}
+	}
+
+	/**
+	 * Interprets a phrase that was parsed in place of a display name as a bare
+	 * addr-spec ({@code local@domain}), ignoring trailing or leading comments.
+	 *
+	 * @return the address, or null if the phrase is not a plain addr-spec
+	 */
+	private static EmailAddress bareAddress(String phrase) {
+		if (phrase == null) {
+			return null;
+		}
+		StringBuilder sb = new StringBuilder(phrase.length());
+		int depth = 0;
+		for (int i = 0; i < phrase.length(); i++) {
+			char c = phrase.charAt(i);
+			if (c == '(') {
+				depth++;
+			} else if (c == ')') {
+				if (depth > 0) {
+					depth--;
+				}
+			} else if (depth == 0) {
+				sb.append(c);
+			}
+		}
+		String trimmed = sb.toString().trim();
+		int atIdx = trimmed.lastIndexOf('@');
+		if (atIdx <= 0 || atIdx >= trimmed.length() - 1) {
+			return null;
+		}
+		for (int i = 0; i < trimmed.length(); i++) {
+			char c = trimmed.charAt(i);
+			if (c <= ' ' || c == '<' || c == '>' || c == '"') {
+				return null;
+			}
+		}
+		String localPart = trimmed.substring(0, atIdx);
+		String domain = trimmed.substring(atIdx + 1);
+		return new EmailAddress(null, localPart, domain, true);
 	}
 
 	public static List<EmailAddress> parseEmailAddressList(String value, boolean smtputf8) {
@@ -239,7 +269,7 @@ public final class EmailAddressParser {
 			int[] pos = new int[] { 0 };
 			StringBuilder tokenBuffer = new StringBuilder(256);
 			skipWhitespaceAndComments(input, length, pos);
-			EmailAddress address = parseIndividualAddress(input, length, pos, tokenBuffer);
+			EmailAddress address = parseIndividualAddress(input, length, pos, tokenBuffer, false);
 			skipWhitespaceAndComments(input, length, pos);
 			if (pos[0] < length) {
 				return null;
@@ -314,10 +344,6 @@ public final class EmailAddressParser {
 
 	// -- Envelope address validation --
 
-	private static boolean isValidLocalPart(String localPart) {
-		return isValidLocalPart(localPart, false);
-	}
-
 	private static boolean isValidLocalPart(String localPart, boolean smtputf8) {
 		int len = localPart.length();
 		if (len == 0 || len > 64) {
@@ -359,10 +385,6 @@ public final class EmailAddressParser {
 			}
 		}
 		return true;
-	}
-
-	private static boolean isValidDomain(String domain) {
-		return isValidDomain(domain, false);
 	}
 
 	private static boolean isValidDomain(String domain, boolean smtputf8) {
@@ -411,10 +433,6 @@ public final class EmailAddressParser {
 		return true;
 	}
 
-	private static boolean isAtomChar(char c) {
-		return isAtomChar(c, false);
-	}
-
 	private static boolean isAtomChar(char c, boolean smtputf8) {
 		if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
 		    (c >= '0' && c <= '9')) {
@@ -437,10 +455,6 @@ public final class EmailAddressParser {
 
 	// -- RFC 5322 address list parsing --
 
-	private static EmailAddress parseAddress(char[] input, int length, int[] pos, StringBuilder tokenBuffer) {
-		return parseAddress(input, length, pos, tokenBuffer, false);
-	}
-
 	private static EmailAddress parseAddress(char[] input, int length, int[] pos, StringBuilder tokenBuffer, boolean smtputf8) {
 		skipWhitespaceAndComments(input, length, pos);
 
@@ -460,10 +474,6 @@ public final class EmailAddressParser {
 		} else {
 			return parseIndividualAddress(input, length, pos, tokenBuffer, smtputf8);
 		}
-	}
-
-	private static GroupEmailAddress parseGroup(char[] input, int length, int[] pos, StringBuilder tokenBuffer) {
-		return parseGroup(input, length, pos, tokenBuffer, false);
 	}
 
 	private static GroupEmailAddress parseGroup(char[] input, int length, int[] pos, StringBuilder tokenBuffer, boolean smtputf8) {
@@ -493,10 +503,6 @@ public final class EmailAddressParser {
 		pos[0]++;
 		skipWhitespaceAndComments(input, length, pos);
 		return new GroupEmailAddress(groupName, members, null);
-	}
-
-	private static EmailAddress parseIndividualAddress(char[] input, int length, int[] pos, StringBuilder tokenBuffer) {
-		return parseIndividualAddress(input, length, pos, tokenBuffer, false);
 	}
 
 	private static EmailAddress parseIndividualAddress(char[] input, int length, int[] pos, StringBuilder tokenBuffer, boolean smtputf8) {
@@ -542,10 +548,6 @@ public final class EmailAddressParser {
 		}
 	}
 
-	private static String parseDisplayName(char[] input, int length, int[] pos, StringBuilder tokenBuffer) {
-		return parseDisplayName(input, length, pos, tokenBuffer, false);
-	}
-
 	private static String parseDisplayName(char[] input, int length, int[] pos, StringBuilder tokenBuffer, boolean smtputf8) {
 		tokenBuffer.setLength(0);
 		skipWhitespaceAndComments(input, length, pos);
@@ -578,10 +580,6 @@ public final class EmailAddressParser {
 		return result.isEmpty() ? null : result;
 	}
 
-	private static String[] parseAddrSpec(char[] input, int length, int[] pos, StringBuilder tokenBuffer) {
-		return parseAddrSpec(input, length, pos, tokenBuffer, false);
-	}
-
 	private static String[] parseAddrSpec(char[] input, int length, int[] pos, StringBuilder tokenBuffer, boolean smtputf8) {
 		tokenBuffer.setLength(0);
 		parseLocalPart(input, length, pos, tokenBuffer, smtputf8);
@@ -594,10 +592,6 @@ public final class EmailAddressParser {
 		parseDomain(input, length, pos, tokenBuffer, smtputf8);
 		String domain = tokenBuffer.toString();
 		return new String[] { localPart, domain };
-	}
-
-	private static void parseLocalPart(char[] input, int length, int[] pos, StringBuilder tokenBuffer) {
-		parseLocalPart(input, length, pos, tokenBuffer, false);
 	}
 
 	private static void parseLocalPart(char[] input, int length, int[] pos, StringBuilder tokenBuffer, boolean smtputf8) {
@@ -654,10 +648,6 @@ public final class EmailAddressParser {
 				parseAtom(input, length, pos, tokenBuffer, smtputf8);
 			}
 		}
-	}
-
-	static void parseAtom(char[] input, int length, int[] pos, StringBuilder tokenBuffer) {
-		parseAtom(input, length, pos, tokenBuffer, false);
 	}
 
 	static void parseAtom(char[] input, int length, int[] pos, StringBuilder tokenBuffer, boolean smtputf8) {
@@ -795,15 +785,6 @@ public final class EmailAddressParser {
 
 	// ----- ByteBuffer-based parsing (Phase F) -----
 
-	private static int indexOf(ByteBuffer buf, byte target, int from, int to) {
-		for (int i = from; i < to; i++) {
-			if (buf.get(i) == target) {
-				return i;
-			}
-		}
-		return -1;
-	}
-
 	/** Advances value.position() past CFWS. */
 	private static void skipCfws(ByteBuffer value) {
 		int limit = value.limit();
@@ -853,7 +834,14 @@ public final class EmailAddressParser {
 		}
 	}
 
-	private static boolean isAtext(byte b) {
+	/**
+	 * Tests a byte of an addr-spec atom. Bytes of multi-byte UTF-8 sequences
+	 * (negative values) are atext only when {@code utf8} is set (RFC 6532).
+	 */
+	private static boolean isAtext(byte b, boolean utf8) {
+		if (b < 0) {
+			return utf8;
+		}
 		if (b <= 32 || b >= 127) {
 			return false;
 		}
@@ -862,7 +850,7 @@ public final class EmailAddressParser {
 	}
 
 	/** Returns { start, end } for local-part (exclusive end), or null. Uses value.position() and value.limit(); does not advance. */
-	private static int[] parseLocalPartRange(ByteBuffer value) {
+	private static int[] parseLocalPartRange(ByteBuffer value, boolean utf8) {
 		int limit = value.limit();
 		int pos = value.position();
 		if (pos >= limit) {
@@ -885,7 +873,7 @@ public final class EmailAddressParser {
 			}
 			return null;
 		}
-		while (pos < limit && (isAtext(value.get(pos)) || value.get(pos) == '.')) {
+		while (pos < limit && (isAtext(value.get(pos), utf8) || value.get(pos) == '.')) {
 			pos++;
 		}
 		if (pos == start) {
@@ -895,7 +883,7 @@ public final class EmailAddressParser {
 	}
 
 	/** Returns { start, end } for domain (exclusive end), or null. Uses value.position() and value.limit(); does not advance. */
-	private static int[] parseDomainRange(ByteBuffer value) {
+	private static int[] parseDomainRange(ByteBuffer value, boolean utf8) {
 		int limit = value.limit();
 		int pos = value.position();
 		if (pos >= limit) {
@@ -917,7 +905,7 @@ public final class EmailAddressParser {
 			pos++;
 			return new int[] { start, pos };
 		}
-		while (pos < limit && (isAtext(value.get(pos)) || value.get(pos) == '.')) {
+		while (pos < limit && (isAtext(value.get(pos), utf8) || value.get(pos) == '.')) {
 			pos++;
 		}
 		if (pos == start) {

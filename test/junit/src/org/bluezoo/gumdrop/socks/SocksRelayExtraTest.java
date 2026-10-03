@@ -47,6 +47,7 @@ public class SocksRelayExtraTest {
         final List<TimerHandle> handles = new ArrayList<TimerHandle>();
         Runnable writeReady;
         int resumed;
+        int paused;
 
         @Override
         public TimerHandle scheduleTimer(long delayMs, Runnable callback) {
@@ -64,6 +65,11 @@ public class SocksRelayExtraTest {
         @Override
         public void resumeRead() {
             resumed++;
+        }
+
+        @Override
+        public void pauseRead() {
+            paused++;
         }
     }
 
@@ -120,15 +126,101 @@ public class SocksRelayExtraTest {
     }
 
     @Test
-    public void writeReadyResumesUpstreamOnlyWhenPaused() {
+    public void slowUpstreamPausesClientReadsUntilItDrains() {
         relay.upstreamConnected(upstream);
-        assertNotNull(client.writeReady);
-        assertNotNull(upstream.writeReady);
-        // nothing paused: callbacks do not resume reads
-        client.writeReady.run();
-        upstream.writeReady.run();
-        assertEquals(0, upstream.resumed);
+        relay.clientData(ByteBuffer.wrap(new byte[]{1, 2, 3}));
+        assertEquals(1, client.paused);
         assertEquals(0, client.resumed);
+        assertEquals(0, upstream.paused);
+        assertNotNull(upstream.writeReady);
+        upstream.writeReady.run();
+        assertEquals(1, client.resumed);
+        assertEquals(0, upstream.resumed);
+    }
+
+    @Test
+    public void slowClientPausesUpstreamReadsUntilItDrains() {
+        relay.upstreamConnected(upstream);
+        relay.upstreamData(ByteBuffer.wrap(new byte[]{1, 2, 3}));
+        assertEquals(1, upstream.paused);
+        assertEquals(0, client.paused);
+        assertEquals(0, upstream.resumed);
+        assertNotNull(client.writeReady);
+        client.writeReady.run();
+        assertEquals(1, upstream.resumed);
+        assertEquals(0, client.resumed);
+    }
+
+    @Test
+    public void directionsAreBackpressuredIndependently() {
+        relay.upstreamConnected(upstream);
+        relay.clientData(ByteBuffer.wrap(new byte[]{1}));
+        relay.upstreamData(ByteBuffer.wrap(new byte[]{2}));
+        assertEquals(1, client.paused);
+        assertEquals(1, upstream.paused);
+        client.writeReady.run();
+        assertEquals(1, upstream.resumed);
+        assertEquals(0, client.resumed);
+        upstream.writeReady.run();
+        assertEquals(1, client.resumed);
+    }
+
+    @Test
+    public void everyChunkIsDeliveredInOrderAcrossPauseAndResume() {
+        relay.upstreamConnected(upstream);
+        for (int i = 0; i < 5; i++) {
+            relay.clientData(ByteBuffer.wrap(new byte[]{(byte) i}));
+            assertEquals(i + 1, client.paused);
+            upstream.writeReady.run();
+            assertEquals(i + 1, client.resumed);
+        }
+        assertEquals(5, upstream.getSentCount());
+    }
+
+    @Test
+    public void duplicateDrainSignalResumesOnlyOnce() {
+        relay.upstreamConnected(upstream);
+        relay.clientData(ByteBuffer.wrap(new byte[]{1}));
+        Runnable drained = upstream.writeReady;
+        drained.run();
+        drained.run();
+        assertEquals(1, client.resumed);
+    }
+
+    @Test
+    public void closeWhilePausedClearsDrainCallbacksAndIgnoresLateDrain() {
+        relay.upstreamConnected(upstream);
+        relay.clientData(ByteBuffer.wrap(new byte[]{1}));
+        Runnable drained = upstream.writeReady;
+        relay.upstreamDisconnected();
+        assertNull(upstream.writeReady);
+        assertNull(client.writeReady);
+        drained.run();
+        assertEquals(0, client.resumed);
+        assertEquals(0, server.getActiveRelayCount());
+    }
+
+    @Test
+    public void bufferedBytesStayBoundedByOneChunkHoweverMuchTheSourceHas() {
+        relay.upstreamConnected(upstream);
+        int chunk = 1024;
+        int fed = 0;
+        int delivered = 0;
+        int maxPending = 0;
+        for (int i = 0; i < 200; i++) {
+            // a transport that honours pauseRead delivers nothing while paused
+            if (client.paused > client.resumed) {
+                upstream.writeReady.run();
+            }
+            assertEquals(client.paused, client.resumed);
+            relay.clientData(ByteBuffer.wrap(new byte[chunk]));
+            fed += chunk;
+            delivered = upstream.getSentCount() * chunk;
+            int pending = fed - (client.resumed * chunk);
+            maxPending = Math.max(maxPending, pending);
+        }
+        assertEquals(chunk, maxPending);
+        assertEquals(fed, delivered);
     }
 
     @Test
@@ -140,8 +232,8 @@ public class SocksRelayExtraTest {
         relay.upstreamData(ByteBuffer.wrap(new byte[]{1}));
         assertEquals(0, upstream.getSentCount());
         assertEquals(0, client.getSentCount());
-        client.writeReady.run();
-        upstream.writeReady.run();
+        assertEquals(0, client.paused);
+        assertEquals(0, upstream.paused);
     }
 
     @Test

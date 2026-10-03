@@ -38,7 +38,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
-import org.bluezoo.gumdrop.amqp1.client.FakeAmqp1Peer.Out;
+import org.bluezoo.gumdrop.amqp1.client.MockAmqp1Peer.Out;
 import org.bluezoo.gumdrop.amqp1.codec.Amqp1Error;
 import org.bluezoo.gumdrop.amqp1.codec.Attach;
 import org.bluezoo.gumdrop.amqp1.codec.Begin;
@@ -59,7 +59,7 @@ import org.junit.Test;
 
 /**
  * Tests for sending links: attach, credit, streamed transfer, session
- * windows, settlement and detach, against the fake broker.
+ * windows, settlement and detach, against the mock broker.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
@@ -745,7 +745,7 @@ public class Amqp1SenderTest {
     @Test
     public void testConnectionCloseDetachesLinksWithoutClosingThem() {
         SenderRecorder rec = readySender();
-        h.feed(FakeAmqp1Peer.amqpFrame(0, new Close()));
+        h.feed(MockAmqp1Peer.amqpFrame(0, new Close()));
         assertTrue(rec.detached);
         assertFalse(rec.detachClosed);
     }

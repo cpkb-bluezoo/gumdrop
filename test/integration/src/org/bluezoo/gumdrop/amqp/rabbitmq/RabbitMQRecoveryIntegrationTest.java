@@ -56,7 +56,7 @@ import static org.junit.Assert.*;
  * not run in CI, see {@link RabbitMQTestSupport}.
  *
  * <p>{@code AMQPClientIntegrationTest} already covers this against
- * {@code FakeAMQPBroker}, which can just drop its socket on command.
+ * {@code MockAMQPBroker}, which can just drop its socket on command.
  * There is no equivalent hook on an already-running real broker, so this
  * uses RabbitMQ's management HTTP API ({@code DELETE
  * /api/connections/{name}}, via {@link RabbitMQTestSupport#forceCloseAllConnections})

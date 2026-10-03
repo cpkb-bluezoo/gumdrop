@@ -54,6 +54,7 @@ import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
@@ -1079,7 +1080,21 @@ public final class MboxMailbox implements Mailbox {
                 final long ctxUid = uid;
                 final long ctxSize = msg.getSize();
                 context = new MessageContext() {
-                    private MessageContext bodyContext;
+                    private MessageContext parsedContext;
+
+                    /**
+                     * The index holds neither the body nor every header, so
+                     * those searches parse the message on demand.
+                     */
+                    private MessageContext parsed() {
+                        if (parsedContext == null) {
+                            parsedContext = new ParsedMessageContext(
+                                    MboxMailbox.this, ctxNumber, ctxUid,
+                                    ctxSize, indexed.getFlags(),
+                                    fromLineDate(msg));
+                        }
+                        return parsedContext;
+                    }
 
                     @Override
                     public int getMessageNumber() {
@@ -1107,11 +1122,17 @@ public final class MboxMailbox implements Mailbox {
                     }
                     @Override
                     public String getHeader(String name) throws IOException {
-                        return indexed.getHeader(name);
+                        if (IndexedMessageContext.isIndexedHeader(name)) {
+                            return indexed.getHeader(name);
+                        }
+                        return parsed().getHeader(name);
                     }
                     @Override
                     public List<String> getHeaders(String name) throws IOException {
-                        return indexed.getHeaders(name);
+                        if (IndexedMessageContext.isIndexedHeader(name)) {
+                            return indexed.getHeaders(name);
+                        }
+                        return parsed().getHeaders(name);
                     }
                     @Override
                     public OffsetDateTime getSentDate() throws IOException {
@@ -1123,18 +1144,11 @@ public final class MboxMailbox implements Mailbox {
                     }
                     @Override
                     public CharSequence getHeadersText() throws IOException {
-                        return indexed.getHeadersText();
+                        return parsed().getHeadersText();
                     }
                     @Override
                     public CharSequence getBodyText() throws IOException {
-                        // The index deliberately holds no body text, so
-                        // BODY/TEXT searches parse the message on demand.
-                        if (bodyContext == null) {
-                            bodyContext = new ParsedMessageContext(
-                                    MboxMailbox.this, ctxNumber, ctxUid,
-                                    ctxSize, indexed.getFlags(), null);
-                        }
-                        return bodyContext.getBodyText();
+                        return parsed().getBodyText();
                     }
                 };
             } else {
@@ -1145,7 +1159,7 @@ public final class MboxMailbox implements Mailbox {
                     uid,
                     msg.getSize(),
                     getFlags(msgNum),
-                    null
+                    fromLineDate(msg)
                 );
             }
             
@@ -1363,6 +1377,44 @@ public final class MboxMailbox implements Mailbox {
     }
 
     /**
+     * Returns the date of the "From " line that precedes a message, which is
+     * the mbox's record of when it was delivered, or null if the line has no
+     * parseable date.
+     */
+    private OffsetDateTime fromLineDate(MboxMessageDescriptor msg) {
+        try {
+            long lineEnd = msg.getStartOffset() - 1;
+            if (lineEnd <= 0) {
+                return null;
+            }
+            int span = (int) Math.min(lineEnd, 1024L);
+            long from = lineEnd - span;
+            byte[] buf = readMessageContent(from, lineEnd);
+            int lineStart = 0;
+            for (int i = buf.length - 2; i >= 0; i--) {
+                if (buf[i] == LF) {
+                    lineStart = i + 1;
+                    break;
+                }
+            }
+            String line = new String(buf, lineStart, buf.length - lineStart,
+                    StandardCharsets.ISO_8859_1).trim();
+            if (!line.startsWith("From ")) {
+                return null;
+            }
+            int sender = line.indexOf(' ', 5);
+            if (sender < 0) {
+                return null;
+            }
+            String stamp = line.substring(sender + 1).trim();
+            LocalDateTime parsed = LocalDateTime.parse(stamp, MBOX_DATE_FORMAT);
+            return parsed.atOffset(ZoneOffset.UTC);
+        } catch (IOException | RuntimeException e) {
+            return null;
+        }
+    }
+
+    /**
      * Adds a single message to the search index.
      */
     private void addMessageToSearchIndex(MboxMessageDescriptor msg, long uid,
@@ -1374,10 +1426,16 @@ public final class MboxMailbox implements Mailbox {
         // Location is the offset range in the mbox file
         String location = msg.getStartOffset() + ":" + msg.getEndOffset();
         
-        // Get internal date millis
+        // Get internal date millis: as given, else the date of the
+        // message's "From " line, else 0 (the index builder then falls back
+        // to the Date header)
         long internalDateMillis = 0;
-        if (internalDate != null) {
-            internalDateMillis = internalDate.toInstant().toEpochMilli();
+        OffsetDateTime effectiveDate = internalDate;
+        if (effectiveDate == null) {
+            effectiveDate = fromLineDate(msg);
+        }
+        if (effectiveDate != null) {
+            internalDateMillis = effectiveDate.toInstant().toEpochMilli();
         }
         
         // Build index entry by parsing message headers, computing the

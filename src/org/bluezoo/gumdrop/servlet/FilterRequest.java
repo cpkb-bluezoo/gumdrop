@@ -129,14 +129,7 @@ class FilterRequest extends HttpServletRequestWrapper {
         Map<String,List<String>> accum = new LinkedHashMap<>();
         // Parameters specified in query-string
         if (queryString != null) {
-            int start = 0;
-            int end = queryString.indexOf('&', start);
-            while (end > start) {
-                Request.addParameter(accum, queryString.substring(start, end));
-                start = end + 1;
-                end = queryString.indexOf('&', start);
-            }
-            Request.addParameter(accum, queryString.substring(start));
+            Request.addEncodedParameters(accum, queryString, "UTF-8");
         }
         // Parameters specified in original request
         Map<String,String[]> originalParameters = super.getParameterMap();

@@ -602,7 +602,7 @@ public class SmtpClientSessionFlowTest {
     // -- helpers --
 
     /** Endpoint whose startTLS can be made to fail. */
-    private static final class TlsFailingEndpoint extends SMTPClientProtocolHandlerTest.StubEndpoint {
+    static final class TlsFailingEndpoint extends SMTPClientProtocolHandlerTest.StubEndpoint {
         boolean failTls;
 
         TlsFailingEndpoint(List<String> sent) {
@@ -618,7 +618,7 @@ public class SmtpClientSessionFlowTest {
     }
 
     /** Records every callback invoked on it. */
-    private static final class Recorder implements RemoteGreeting, EhloReplyHandler,
+    static final class Recorder implements RemoteGreeting, EhloReplyHandler,
             HeloReplyHandler, StarttlsReplyHandler, AuthReplyHandler, AuthAbortHandler,
             MailFromReplyHandler, RcptToReplyHandler, DataReplyHandler,
             MessageReplyHandler, RsetReplyHandler {

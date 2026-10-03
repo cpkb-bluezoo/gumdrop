@@ -712,12 +712,24 @@ public final class DnsResourceRecord {
                 ttl, buf.array());
     }
 
+    /**
+     * Fails if the RDATA is shorter than the fixed part an accessor reads,
+     * so that a malformed record from the network surfaces as the
+     * documented {@link IllegalStateException} rather than an index error.
+     */
+    private void requireRdata(int minLength) {
+        if (rdata.length < minLength) {
+            throw new IllegalStateException("Truncated " + type + " RDATA");
+        }
+    }
+
     // -- TLSA RDATA accessors (RFC 6698 section 2.1) --
 
     private void checkTLSA() {
         if (type != DnsType.TLSA) {
             throw new IllegalStateException("Not a TLSA record: " + type);
         }
+        requireRdata(3);
     }
 
     /**
@@ -903,6 +915,9 @@ public final class DnsResourceRecord {
         ByteBuffer buf = ByteBuffer.wrap(rdata);
         while (buf.hasRemaining()) {
             int len = buf.get() & 0xFF;
+            if (buf.remaining() < len) {
+                throw new IllegalStateException("Truncated TXT RDATA");
+            }
             byte[] segment = new byte[len];
             buf.get(segment);
             sb.append(new String(segment, StandardCharsets.UTF_8));
@@ -925,6 +940,9 @@ public final class DnsResourceRecord {
         ByteBuffer buf = ByteBuffer.wrap(rdata);
         while (buf.hasRemaining()) {
             int len = buf.get() & 0xFF;
+            if (buf.remaining() < len) {
+                throw new IllegalStateException("Truncated TXT RDATA");
+            }
             byte[] segment = new byte[len];
             buf.get(segment);
             strings.add(new String(segment, StandardCharsets.UTF_8));
@@ -942,6 +960,7 @@ public final class DnsResourceRecord {
         if (type != DnsType.MX) {
             throw new IllegalStateException("Not an MX record: " + type);
         }
+        requireRdata(2);
         return ((rdata[0] & 0xFF) << 8) | (rdata[1] & 0xFF);
     }
 
@@ -955,6 +974,7 @@ public final class DnsResourceRecord {
         if (type != DnsType.MX) {
             throw new IllegalStateException("Not an MX record: " + type);
         }
+        requireRdata(2);
         ByteBuffer buf = ByteBuffer.wrap(rdata);
         buf.getShort(); // skip preference
         return DnsMessage.decodeName(buf, ByteBuffer.wrap(rdata));
@@ -970,6 +990,7 @@ public final class DnsResourceRecord {
         if (type != DnsType.SRV) {
             throw new IllegalStateException("Not an SRV record: " + type);
         }
+        requireRdata(6);
         return ((rdata[0] & 0xFF) << 8) | (rdata[1] & 0xFF);
     }
 
@@ -985,6 +1006,7 @@ public final class DnsResourceRecord {
         if (type != DnsType.SRV) {
             throw new IllegalStateException("Not an SRV record: " + type);
         }
+        requireRdata(6);
         return ((rdata[2] & 0xFF) << 8) | (rdata[3] & 0xFF);
     }
 
@@ -998,6 +1020,7 @@ public final class DnsResourceRecord {
         if (type != DnsType.SRV) {
             throw new IllegalStateException("Not an SRV record: " + type);
         }
+        requireRdata(6);
         return ((rdata[4] & 0xFF) << 8) | (rdata[5] & 0xFF);
     }
 
@@ -1012,6 +1035,7 @@ public final class DnsResourceRecord {
         if (type != DnsType.SRV) {
             throw new IllegalStateException("Not an SRV record: " + type);
         }
+        requireRdata(6);
         ByteBuffer buf = ByteBuffer.wrap(rdata);
         buf.position(6); // skip priority + weight + port
         return DnsMessage.decodeName(buf, ByteBuffer.wrap(rdata));
@@ -1023,6 +1047,7 @@ public final class DnsResourceRecord {
         if (type != DnsType.SVCB && type != DnsType.HTTPS) {
             throw new IllegalStateException("Not an SVCB/HTTPS record: " + type);
         }
+        requireRdata(2);
     }
 
     /**
@@ -1110,6 +1135,9 @@ public final class DnsResourceRecord {
         ByteBuffer buf = ByteBuffer.wrap(value);
         while (buf.hasRemaining()) {
             int len = buf.get() & 0xFF;
+            if (buf.remaining() < len) {
+                throw new IllegalStateException("Truncated SVCB alpn value");
+            }
             byte[] segment = new byte[len];
             buf.get(segment);
             protocols.add(new String(segment, StandardCharsets.US_ASCII));
@@ -1161,6 +1189,7 @@ public final class DnsResourceRecord {
         if (type != DnsType.RRSIG) {
             throw new IllegalStateException("Not an RRSIG record: " + type);
         }
+        requireRdata(18);
     }
 
     /**
@@ -1308,6 +1337,7 @@ public final class DnsResourceRecord {
         if (type != DnsType.DNSKEY) {
             throw new IllegalStateException("Not a DNSKEY record: " + type);
         }
+        requireRdata(4);
     }
 
     /**
@@ -1424,6 +1454,7 @@ public final class DnsResourceRecord {
         if (type != DnsType.DS) {
             throw new IllegalStateException("Not a DS record: " + type);
         }
+        requireRdata(4);
     }
 
     /**
@@ -1516,6 +1547,7 @@ public final class DnsResourceRecord {
         if (type != DnsType.NSEC3) {
             throw new IllegalStateException("Not an NSEC3 record: " + type);
         }
+        requireRdata(5);
     }
 
     /**
@@ -1564,6 +1596,7 @@ public final class DnsResourceRecord {
     public byte[] getNSEC3Salt() {
         checkNSEC3();
         int saltLen = rdata[4] & 0xFF;
+        requireRdata(5 + saltLen);
         byte[] salt = new byte[saltLen];
         if (saltLen > 0) {
             System.arraycopy(rdata, 5, salt, 0, saltLen);
@@ -1583,7 +1616,9 @@ public final class DnsResourceRecord {
         checkNSEC3();
         int saltLen = rdata[4] & 0xFF;
         int hashOffset = 5 + saltLen;
+        requireRdata(hashOffset + 1);
         int hashLen = rdata[hashOffset] & 0xFF;
+        requireRdata(hashOffset + 1 + hashLen);
         byte[] hash = new byte[hashLen];
         System.arraycopy(rdata, hashOffset + 1, hash, 0, hashLen);
         return hash;
@@ -1600,7 +1635,9 @@ public final class DnsResourceRecord {
         checkNSEC3();
         int saltLen = rdata[4] & 0xFF;
         int hashOffset = 5 + saltLen;
+        requireRdata(hashOffset + 1);
         int hashLen = rdata[hashOffset] & 0xFF;
+        requireRdata(hashOffset + 1 + hashLen);
         int bitmapOffset = hashOffset + 1 + hashLen;
         ByteBuffer buf = ByteBuffer.wrap(rdata);
         buf.position(bitmapOffset);
@@ -1613,6 +1650,7 @@ public final class DnsResourceRecord {
         if (type != DnsType.NSEC3PARAM) {
             throw new IllegalStateException("Not an NSEC3PARAM record: " + type);
         }
+        requireRdata(5);
     }
 
     /**
@@ -1661,6 +1699,7 @@ public final class DnsResourceRecord {
     public byte[] getNSEC3PARAMSalt() {
         checkNSEC3PARAM();
         int saltLen = rdata[4] & 0xFF;
+        requireRdata(5 + saltLen);
         byte[] salt = new byte[saltLen];
         if (saltLen > 0) {
             System.arraycopy(rdata, 5, salt, 0, saltLen);

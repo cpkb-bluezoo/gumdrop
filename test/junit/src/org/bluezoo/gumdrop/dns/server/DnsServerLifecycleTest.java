@@ -55,7 +55,7 @@ import static org.junit.Assert.*;
 public class DnsServerLifecycleTest {
 
     /** Listener that records start/stop instead of binding a socket. */
-    private static final class FakeListener extends DnsListener {
+    private static final class MockListener extends DnsListener {
         int starts;
         int stops;
         boolean failStart;
@@ -156,7 +156,7 @@ public class DnsServerLifecycleTest {
 
     @Test
     public void composerBuildsServerWithListenersAndHandler() {
-        FakeListener udp = new FakeListener();
+        MockListener udp = new MockListener();
         DoTListener dot = new DoTListener();
         DoQListener doq = new DoQListener();
         LifeHandler handler = new LifeHandler();
@@ -177,21 +177,21 @@ public class DnsServerLifecycleTest {
     public void setListenersAcceptsKnownTypesAndSkipsOthers() {
         DnsServer server = new DnsServer();
         List<Object> items = new ArrayList<Object>();
-        items.add(new FakeListener());
+        items.add(new MockListener());
         items.add(new DoTListener());
         items.add(new DoQListener());
         items.add(new org.bluezoo.gumdrop.dns.DnsTcpListener());
         items.add("not a listener");
         server.setListeners(items);
         assertEquals(4, server.getListeners().size());
-        server.addListener(new FakeListener());
+        server.addListener(new MockListener());
         assertEquals(5, server.getListeners().size());
     }
 
     @Test
     public void startWiresListenersStartsHandlerAndStopTearsDown() {
-        FakeListener ok = new FakeListener();
-        FakeListener failing = new FakeListener();
+        MockListener ok = new MockListener();
+        MockListener failing = new MockListener();
         failing.failStart = true;
         failing.failStop = true;
         LifeHandler handler = new LifeHandler();
@@ -217,9 +217,9 @@ public class DnsServerLifecycleTest {
 
     @Test
     public void startEnablesMetricsWhenListenerTelemetryAsksForThem() {
-        FakeListener plain = new FakeListener();
+        MockListener plain = new MockListener();
         plain.telemetry = new TelemetryConfig();
-        FakeListener metered = new FakeListener();
+        MockListener metered = new MockListener();
         TelemetryConfig tc = new TelemetryConfig();
         tc.setMetricsEnabled(true);
         metered.telemetry = tc;
@@ -234,7 +234,7 @@ public class DnsServerLifecycleTest {
 
     @Test
     public void startWithoutHandlerUsesEmptyHandlerAndMaxMqtypesSetter() throws Exception {
-        FakeListener l = new FakeListener();
+        MockListener l = new MockListener();
         DnsServer server = new DnsServer();
         server.addListener(l);
         server.setMaxMQTypes(2);

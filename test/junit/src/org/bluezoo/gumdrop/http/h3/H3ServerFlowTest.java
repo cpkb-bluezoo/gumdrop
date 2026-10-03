@@ -33,6 +33,7 @@ import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Base64;
+import java.util.Collections;
 import java.util.List;
 import java.util.zip.GZIPOutputStream;
 
@@ -806,5 +807,37 @@ public class H3ServerFlowTest {
             f.rec.state.responseBodyContent(ByteBuffer.wrap(new byte[] {(byte) i}));
             f.rec.state.complete();
         }
+    }
+
+    @Test
+    public void testTruncatedGzipRequestBodyIsRejectedAtEndOfRequest() throws Exception {
+        Fixture f = new Fixture();
+        f.rec.decode = true;
+        H3Stream stream = f.open();
+        byte[] whole = gzip("hello world hello world".getBytes("UTF-8"));
+        byte[] truncated = new byte[whole.length - 8];
+        System.arraycopy(whole, 0, truncated, 0, truncated.length);
+        feed(stream, concat(
+                headersFrame(":method", "POST", ":scheme", "https", ":path", "/",
+                        ":authority", "x", "content-encoding", "gzip"),
+                dataFrame(truncated)));
+        stream.readFinished();
+        assertFalse(f.rec.events.toString(), f.rec.events.contains("complete"));
+    }
+
+    @Test
+    public void testCompleteGzipRequestBodyEndsTheDecoderAtEndOfRequest() throws Exception {
+        Fixture f = new Fixture();
+        f.rec.decode = true;
+        H3Stream stream = f.open();
+        byte[] whole = gzip("hello world hello world".getBytes("UTF-8"));
+        feed(stream, concat(
+                headersFrame(":method", "POST", ":scheme", "https", ":path", "/",
+                        ":authority", "x", "content-encoding", "gzip"),
+                dataFrame(whole)));
+        stream.readFinished();
+        assertEquals(23, f.rec.bodyBytes);
+        assertEquals(1, Collections.frequency(f.rec.events, "end"));
+        assertTrue(f.rec.events.toString(), f.rec.events.contains("complete"));
     }
 }

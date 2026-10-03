@@ -25,6 +25,8 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 
 import java.io.File;
+import java.util.HashMap;
+import java.util.Map;
 
 import org.junit.Test;
 
@@ -53,5 +55,36 @@ public class ContainerMainTest {
     public void noArgumentsFallsThroughToDefaults() {
         File f = ContainerMain.resolveConfigFile(new String[0]);
         assertNotNull(f);
+    }
+
+    @Test
+    public void environmentConfigVariableIsUsedWhenNoArgument() {
+        Map<String, String> env = new HashMap<String, String>();
+        env.put("GUMDROP_CONFIG", "/opt/gumdrop/alt.xml");
+        File f = ContainerMain.resolveConfigFile(new String[0], env);
+        assertEquals(new File("/opt/gumdrop/alt.xml"), f);
+    }
+
+    @Test
+    public void explicitArgumentBeatsEnvironment() {
+        Map<String, String> env = new HashMap<String, String>();
+        env.put("GUMDROP_CONFIG", "/opt/gumdrop/alt.xml");
+        File f = ContainerMain.resolveConfigFile(new String[] {"arg.xml"}, env);
+        assertEquals(new File("arg.xml"), f);
+    }
+
+    @Test
+    public void emptyEnvironmentValuesFallBackToWorkingDirectoryDefault() {
+        Map<String, String> env = new HashMap<String, String>();
+        env.put("GUMDROP_CONFIG", "");
+        env.put("GUMDROP_HOME", "");
+        File f = ContainerMain.resolveConfigFile(new String[0], env);
+        assertEquals(new File("conf/server.xml"), f);
+    }
+
+    @Test
+    public void emptyEnvironmentFallsBackToWorkingDirectoryDefault() {
+        File f = ContainerMain.resolveConfigFile(new String[0], new HashMap<String, String>());
+        assertEquals(new File("conf/server.xml"), f);
     }
 }

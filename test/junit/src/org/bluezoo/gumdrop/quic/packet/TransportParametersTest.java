@@ -207,4 +207,55 @@ public class TransportParametersTest {
             assertTrue("case " + i, decoded.isVersionInformationMalformed());
         }
     }
+
+    private static byte[] fullEncoding() {
+        TransportParameters params = new TransportParameters();
+        params.setMaxIdleTimeout(30000);
+        params.setInitialMaxData(1_000_000);
+        params.setInitialMaxStreamsBidi(100);
+        params.setMaxDatagramFrameSize(1200);
+        params.setInitialSourceConnectionId(ByteArrays.toByteArray("0102030405060708"));
+        params.setOriginalDestinationConnectionId(ByteArrays.toByteArray("8394c8f03e515708"));
+        params.setStatelessResetToken(ByteArrays.toByteArray("00112233445566778899aabbccddeeff"));
+        params.setVersionInformation(1, new int[] {1, 0x6b3343cf});
+        return params.encode();
+    }
+
+    @Test
+    public void testEveryTruncationEitherDecodesOrIsRejectedAsMalformed() {
+        byte[] encoded = fullEncoding();
+        for (int cut = 0; cut < encoded.length; cut++) {
+            byte[] prefix = new byte[cut];
+            System.arraycopy(encoded, 0, prefix, 0, cut);
+            try {
+                TransportParameters.decode(ByteBuffer.wrap(prefix));
+            } catch (IllegalArgumentException expected) {
+                assertTrue("cut " + cut, expected.getMessage() != null);
+            }
+        }
+    }
+
+    @Test(expected = IllegalArgumentException.class)
+    public void testEmptyValueWhereAVarIntIsRequiredIsMalformed() {
+        byte[] bad = new byte[] {0x04, 0x00};
+        TransportParameters.decode(ByteBuffer.wrap(bad));
+    }
+
+    @Test(expected = IllegalArgumentException.class)
+    public void testLengthBeyondTheBufferIsMalformed() {
+        byte[] bad = new byte[] {0x0f, 0x10, 1, 2};
+        TransportParameters.decode(ByteBuffer.wrap(bad));
+    }
+
+    @Test(expected = IllegalArgumentException.class)
+    public void testHugeLengthIsMalformedNotANegativeArraySize() {
+        byte[] bad = new byte[] {0x0f, (byte) 0xbf, (byte) 0xff, (byte) 0xff, (byte) 0xff};
+        TransportParameters.decode(ByteBuffer.wrap(bad));
+    }
+
+    @Test(expected = IllegalArgumentException.class)
+    public void testValueShorterThanItsVarIntIsMalformed() {
+        byte[] bad = new byte[] {0x04, 0x01, (byte) 0x80};
+        TransportParameters.decode(ByteBuffer.wrap(bad));
+    }
 }

@@ -131,4 +131,28 @@ public class ServerXmlLoaderFileIntegrationTest {
         assertNull(server);
         assertNotNull(error);
     }
+
+    private static final String REALM = "<realm><user name='bob' password='pw'/></realm>";
+
+    @Test
+    public void realmHrefResolvesAgainstConfigurationDirectory() throws Exception {
+        write("realm.xml", REALM);
+        File f = write("server.xml", "<server><realm name='r' "
+                + "class='org.bluezoo.gumdrop.auth.BasicRealm' href='realm.xml'/>"
+                + "<listener port='8080'/></server>");
+        load(f);
+        assertNull(error, error);
+        assertNotNull(server);
+    }
+
+    @Test
+    public void absoluteRealmHrefIsUsedAsGiven() throws Exception {
+        File realm = write("abs-realm.xml", REALM);
+        File f = write("server.xml", "<server><realm name='r' "
+                + "class='org.bluezoo.gumdrop.auth.BasicRealm' href='" + realm.getAbsolutePath()
+                + "'/><listener port='8080'/></server>");
+        load(f);
+        assertNull(error, error);
+        assertNotNull(server);
+    }
 }

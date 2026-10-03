@@ -760,7 +760,15 @@ public class ELEvaluator {
             return null;
         }
         
-        // Handle bracket notation
+        // Handle bracket notation, including chained suffixes such as
+        // "[0][1]" (navigate the first bracket, then the remainder)
+        if (property.startsWith("[")) {
+            int close = findClosingBracket(property);
+            if (close > 0 && close < property.length() - 1) {
+                Object next = navigateProperty(base, property.substring(0, close + 1));
+                return navigateProperty(next, property.substring(close + 1));
+            }
+        }
         if (property.startsWith("[") && property.endsWith("]")) {
             String key = property.substring(1, property.length() - 1).trim();
             
@@ -781,8 +789,43 @@ public class ELEvaluator {
             return invokeMethod(base, methodName, argsString);
         }
         
+        // Handle a property followed by bracket suffixes: "items[0]"
+        int bracketPos = property.indexOf('[');
+        if (bracketPos > 0) {
+            Object next = navigateProperty(base, property.substring(0, bracketPos));
+            return navigateProperty(next, property.substring(bracketPos));
+        }
+        
+        // Dotted access on a map is a key lookup: a.b is a['b']
+        if (base instanceof Map) {
+            return ((Map<?, ?>) base).get(property);
+        }
+        
         // Handle property access
         return getProperty(base, property);
+    }
+    
+    /**
+     * Returns the index of the bracket closing the one that opens at
+     * position 0 of the given text, skipping quoted keys, or -1.
+     */
+    private static int findClosingBracket(String text) {
+        boolean inString = false;
+        char stringChar = 0;
+        for (int i = 1; i < text.length(); i++) {
+            char c = text.charAt(i);
+            if (inString) {
+                if (c == stringChar) {
+                    inString = false;
+                }
+            } else if (c == '\'' || c == '"') {
+                inString = true;
+                stringChar = c;
+            } else if (c == ']') {
+                return i;
+            }
+        }
+        return -1;
     }
     
     /**

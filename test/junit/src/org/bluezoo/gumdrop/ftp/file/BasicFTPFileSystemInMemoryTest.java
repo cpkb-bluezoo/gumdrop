@@ -54,9 +54,9 @@ import static org.junit.Assert.assertTrue;
  */
 public class BasicFTPFileSystemInMemoryTest {
 
-    private MemoryFileSystem mem;
-    private Path root;
-    private BasicFTPFileSystem fs;
+    MemoryFileSystem mem;
+    Path root;
+    BasicFTPFileSystem fs;
 
     @Before
     public void setUp() throws IOException {

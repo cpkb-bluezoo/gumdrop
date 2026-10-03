@@ -538,7 +538,7 @@ public class MDNSServiceTest {
         @Override
         public boolean isBound() {
             // start() above never creates a real endpoint; tell
-            // MdnsServer the (fake) bind succeeded anyway so it
+            // MdnsServer the (mock) bind succeeded anyway so it
             // proceeds to probing.
             return true;
         }

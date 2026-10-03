@@ -58,7 +58,7 @@ import static org.junit.Assume.assumeTrue;
  *
  * <p>Same rationale as the Postfix/vsftpd/Dante/OpenLDAP/Redis/Mosquitto
  * tests: an independent implementation on the other end of the wire
- * catches bugs a same-lineage fake server can't. Writing this test
+ * catches bugs a same-lineage mock server can't. Writing this test
  * surfaced a real one -- see the class comment on {@code
  * GrpcClient.StreamingResponseHandler} (now capturing grpc-status/
  * grpc-message trailers) for what {@link #testAlwaysFailSurfacesGrpcStatus}

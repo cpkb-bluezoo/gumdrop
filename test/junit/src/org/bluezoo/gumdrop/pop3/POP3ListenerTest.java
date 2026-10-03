@@ -23,6 +23,11 @@ package org.bluezoo.gumdrop.pop3;
 
 import org.junit.Test;
 
+import org.bluezoo.gumdrop.TcpListener;
+import org.bluezoo.gumdrop.pop3.server.ClientConnected;
+import org.bluezoo.gumdrop.pop3.server.Pop3Server;
+import org.bluezoo.gumdrop.pop3.server.Pop3ServerSessionProvider;
+
 import static org.junit.Assert.*;
 
 /**
@@ -75,5 +80,51 @@ public class POP3ListenerTest {
         Pop3Listener listener = new Pop3Listener();
         listener.setEnablePipelining(true);
         assertTrue(listener.isEnablePipelining());
+    }
+
+    @Test
+    public void testSessionProviderFailureFallsBackToServerThenNull() {
+        Pop3Listener listener = new Pop3Listener();
+        listener.setSessionProvider(new Pop3ServerSessionProvider() {
+            @Override
+            public ClientConnected openSession(TcpListener l) {
+                throw new IllegalStateException("provider failed");
+            }
+        });
+        listener.setServer(new Pop3Server() {
+            @Override
+            public ClientConnected openSession(TcpListener l) {
+                throw new IllegalStateException("server failed");
+            }
+        });
+        assertNull(listener.openApplicationSession());
+    }
+
+    @Test
+    public void testSessionProviderFailureUsesServerSession() {
+        final ClientConnected expected = new ClientConnected() {
+            @Override
+            public void connected(org.bluezoo.gumdrop.pop3.server.ConnectedState state,
+                    org.bluezoo.gumdrop.Endpoint endpoint) {
+            }
+
+            @Override
+            public void disconnected() {
+            }
+        };
+        Pop3Listener listener = new Pop3Listener();
+        listener.setSessionProvider(new Pop3ServerSessionProvider() {
+            @Override
+            public ClientConnected openSession(TcpListener l) {
+                throw new IllegalStateException("provider failed");
+            }
+        });
+        listener.setServer(new Pop3Server() {
+            @Override
+            public ClientConnected openSession(TcpListener l) {
+                return expected;
+            }
+        });
+        assertSame(expected, listener.openApplicationSession());
     }
 }

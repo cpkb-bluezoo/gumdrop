@@ -313,7 +313,7 @@ public class LdapClientProtocolFlowTest {
     public void testStartTlsSuccessThenSecurityEstablished() {
         protocol.startTLS(all);
         protocol.receive(result(1, 0x78, 0, "", "", null, null));
-        protocol.securityEstablished(new FakeSecurityInfo());
+        protocol.securityEstablished(new MockSecurityInfo());
         assertTrue(all.tlsEstablished);
     }
 
@@ -348,7 +348,7 @@ public class LdapClientProtocolFlowTest {
     public void testSecurityEstablishedWithoutPendingStartTls() {
         LdapClientProtocolHandler p = new LdapClientProtocolHandler(handler, true);
         p.connected(endpoint);
-        p.securityEstablished(new FakeSecurityInfo());
+        p.securityEstablished(new MockSecurityInfo());
         assertFalse(all.tlsEstablished);
     }
 
@@ -598,7 +598,7 @@ public class LdapClientProtocolFlowTest {
         }
     }
 
-    private static class FakeSecurityInfo implements SecurityInfo {
+    private static class MockSecurityInfo implements SecurityInfo {
         @Override
         public String getProtocol() {
             return "TLSv1.3";

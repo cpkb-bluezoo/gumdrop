@@ -40,7 +40,7 @@ import org.bluezoo.gumdrop.dns.DnsResourceRecord;
  *
  * <p>Takes the list of {@link Server}s to advertise as a plain
  * parameter rather than reading {@code Gumdrop.getServers()} off some
- * ambient instance itself, so it's independently unit-testable against fake servers
+ * ambient instance itself, so it's independently unit-testable against mock servers
  * without needing a running {@code Gumdrop} instance &mdash; the same
  * reasoning behind {@link MdnsCache} taking its scheduling capability
  * through a small interface instead of reaching into {@link MdnsListener}

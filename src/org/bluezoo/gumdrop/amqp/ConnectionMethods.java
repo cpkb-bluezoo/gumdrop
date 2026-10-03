@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.amqp;
 
+import java.nio.BufferUnderflowException;
 import java.nio.ByteBuffer;
 
 /**
@@ -60,6 +61,18 @@ public final class ConnectionMethods {
             this.serverProperties = serverProperties;
             this.mechanisms = mechanisms;
             this.locales = locales;
+        }
+    }
+
+    /**
+     * Rejects a declared length that is negative or longer than the bytes
+     * actually present, so a hostile length cannot drive an allocation.
+     *
+     * @throws BufferUnderflowException if the length is invalid
+     */
+    static void checkLength(ByteBuffer payload, int length) {
+        if (length < 0 || length > payload.remaining()) {
+            throw new BufferUnderflowException();
         }
     }
 
@@ -113,6 +126,7 @@ public final class ConnectionMethods {
         FieldTable clientProperties = FieldTable.decode(payload, tableLen);
         String mechanism = FieldTable.getShortString(payload);
         int responseLen = payload.getInt();
+        checkLength(payload, responseLen);
         byte[] response = new byte[responseLen];
         payload.get(response);
         String locale = FieldTable.getShortString(payload);
@@ -148,6 +162,7 @@ public final class ConnectionMethods {
      */
     public static byte[] decodeSecure(ByteBuffer payload) {
         int len = payload.getInt();
+        checkLength(payload, len);
         byte[] challenge = new byte[len];
         payload.get(challenge);
         return challenge;

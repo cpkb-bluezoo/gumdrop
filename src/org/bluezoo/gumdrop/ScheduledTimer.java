@@ -103,6 +103,11 @@ public final class ScheduledTimer implements Runnable {
         if (thread != null && thread.isAlive()) {
             return; // Already running
         }
+        // Armed here, not in run(): a shutdown() issued before the new
+        // thread has been scheduled must not be overwritten by the thread
+        // starting up, or the thread would run (and join() would block)
+        // forever after being told to stop.
+        active = true;
         thread = new Thread(this, name);
         thread.setDaemon(true);
         thread.start();
@@ -119,7 +124,6 @@ public final class ScheduledTimer implements Runnable {
 
     @Override
     public void run() {
-        active = true;
         TimerEntry toDispatch = null;
 
         while (active) {

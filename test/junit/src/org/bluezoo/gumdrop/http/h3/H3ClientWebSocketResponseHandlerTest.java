@@ -107,9 +107,65 @@ public class H3ClientWebSocketResponseHandlerTest {
                 wsHandler.errorCalledAfterOpen);
     }
 
+
+    @Test
+    public void testOfferedExtensionAcceptedByTheServerIsActivated() throws Exception {
+        RecordingWsHandler wsHandler = new RecordingWsHandler();
+        java.util.List<org.bluezoo.gumdrop.websocket.WebSocketExtension> offered =
+                new java.util.ArrayList<org.bluezoo.gumdrop.websocket.WebSocketExtension>();
+        offered.add(new H3ServerEdgeTest.StubExtension("permessage-x", null));
+        H3ClientStream stream = createWebSocketStream(wsHandler, offered);
+
+        stream.headersFrameReceived(encode(":status", "200",
+                "sec-websocket-extensions", "permessage-x"));
+
+        assertNotNull("opened() should have been called", wsHandler.session);
+        assertNull(wsHandler.error);
+    }
+
+    @Test
+    public void testGenericStreamFailureAfterUpgradeIsAnError() throws Exception {
+        RecordingWsHandler wsHandler = new RecordingWsHandler();
+        H3ClientStream stream = createWebSocketStream(wsHandler);
+        stream.headersFrameReceived(encode(":status", "200"));
+
+        stream.error(new java.io.IOException("stream reset"));
+
+        assertEquals(1, wsHandler.errorCount);
+        assertEquals(-1, wsHandler.closeCode);
+    }
+
+    @Test
+    public void testFailureBeforeUpgradeIsReportedOnce() throws Exception {
+        RecordingWsHandler wsHandler = new RecordingWsHandler();
+        H3ClientStream stream = createWebSocketStream(wsHandler);
+
+        stream.error(new java.io.IOException("connection lost"));
+
+        assertEquals(1, wsHandler.errorCount);
+        assertNull(wsHandler.session);
+    }
+
+    @Test
+    public void testFailureAfterARejectedUpgradeIsNotReportedAgain() throws Exception {
+        RecordingWsHandler wsHandler = new RecordingWsHandler();
+        H3ClientStream stream = createWebSocketStream(wsHandler);
+        stream.headersFrameReceived(encode(":status", "403"));
+        assertEquals(1, wsHandler.errorCount);
+
+        stream.error(new java.io.IOException("connection lost"));
+
+        assertEquals(1, wsHandler.errorCount);
+    }
+
     private H3ClientStream createWebSocketStream(WebSocketEventHandler wsHandler) throws Exception {
+        return createWebSocketStream(wsHandler, null);
+    }
+
+    private H3ClientStream createWebSocketStream(WebSocketEventHandler wsHandler,
+            java.util.List<org.bluezoo.gumdrop.websocket.WebSocketExtension> offered) throws Exception {
         H3ClientWebSocketResponseHandler responseHandler =
-                new H3ClientWebSocketResponseHandler(null, wsHandler);
+                new H3ClientWebSocketResponseHandler(offered, wsHandler);
         // connection is null: exercises the stream/handler wiring in
         // isolation, without a real Http3ClientHandler/QuicConnection
         // stack -- H3ClientStream tolerates this (see H3ClientStreamTest).
@@ -175,6 +231,7 @@ public class H3ClientWebSocketResponseHandlerTest {
         int closeCode = -1;
         String closeReason;
         Throwable error;
+        int errorCount;
         boolean errorCalledAfterOpen;
 
         @Override
@@ -200,6 +257,7 @@ public class H3ClientWebSocketResponseHandlerTest {
         @Override
         public void error(Throwable cause) {
             this.error = cause;
+            errorCount++;
             if (session != null) {
                 errorCalledAfterOpen = true;
             }
