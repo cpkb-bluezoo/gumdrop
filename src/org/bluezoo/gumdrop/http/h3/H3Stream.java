@@ -62,6 +62,7 @@ import org.bluezoo.gumdrop.http.FieldSectionAdapter;
 import org.bluezoo.gumdrop.http.HeaderCollector;
 import org.bluezoo.gumdrop.http.HttpMessageRecorder;
 import org.bluezoo.gumdrop.http.Headers;
+import org.bluezoo.gumdrop.http.HttpMethod;
 import org.bluezoo.gumdrop.http.Capsule;
 import org.bluezoo.gumdrop.http.CapsuleParser;
 import org.bluezoo.gumdrop.http.PriorityParams;
@@ -150,6 +151,8 @@ class H3Stream implements ProtocolHandler, H3FrameHandler, HttpResponse {
     private boolean responseStarted;
     private boolean responseBodyStarted;
     private List<Header> pendingResponseHeaders;
+    private List<Header> responseTrailers;
+    private boolean pushOpen;
 
     // RFC 9204 section 4.4.2: whether this stream's request field
     // section was ever successfully decoded -- if not, and the stream
@@ -732,53 +735,105 @@ class H3Stream implements ProtocolHandler, H3FrameHandler, HttpResponse {
     }
 
     @Override
-    public void sendInformational(int statusCode, Headers headers) {
-        if (statusCode < 100 || statusCode > 199) {
-            throw new IllegalArgumentException("Status code must be 1xx: " + statusCode);
+    public void status(int code) {
+        if (code < 100 || code > 599) {
+            throw new IllegalArgumentException("Invalid status code: " + code);
         }
-        if (responseBodyStarted) {
-            throw new IllegalStateException("Cannot send informational response after body started");
+        if (responseBodyStarted || responseStarted) {
+            throw new IllegalStateException(MessageFormat.format(
+                    HTTP_L10N.getString("err.response_status_late"), "started"));
         }
-        HttpUtils.requireAsciiFieldValues(headers);
-
-        List<Header> infoHeaders = new ArrayList<Header>();
-        infoHeaders.add(new Header(":status", String.valueOf(statusCode)));
-        for (int i = 0; i < headers.size(); i++) {
-            Header h = headers.get(i);
-            String name = h.getName();
-            if ("Connection".equalsIgnoreCase(name) || "Keep-Alive".equalsIgnoreCase(name)
-                    || "Transfer-Encoding".equalsIgnoreCase(name)) {
-                continue;
-            }
-            infoHeaders.add(h);
-        }
-
-        sendHeaderFrame(infoHeaders, false);
-        responseStarted = true;
-    }
-
-    @Override
-    public void headers(Headers headers) {
-        HttpUtils.requireAsciiFieldValues(headers);
         if (pendingResponseHeaders == null) {
             pendingResponseHeaders = new ArrayList<Header>();
         }
-        for (int i = 0; i < headers.size(); i++) {
-            pendingResponseHeaders.add(headers.get(i));
-        }
+        removeHeaders(pendingResponseHeaders, ":status");
+        pendingResponseHeaders.add(0, new Header(":status", Integer.toString(code)));
     }
 
     @Override
-    public void startResponseBody() {
+    public void header(String name, String value) {
+        HttpUtils.requireAsciiFieldValue(name, value);
+        if (pushOpen) {
+            return; // push is declined: the promised request is discarded
+        }
+        if (state == State.CLOSED) {
+            throw new IllegalStateException(HTTP_L10N.getString("err.response_complete"));
+        }
+        String lower = name.toLowerCase(java.util.Locale.ROOT);
+        if (responseBodyStarted) {
+            // after the body began this is a trailer field (RFC 9110 section 6.5)
+            if (HttpUtils.isForbiddenInTrailers(lower)) {
+                throw new IllegalArgumentException(MessageFormat.format(
+                        HTTP_L10N.getString("err.trailer_not_allowed"), name));
+            }
+            if (responseTrailers == null) {
+                responseTrailers = new ArrayList<Header>();
+            }
+            responseTrailers.add(new Header(lower, value));
+            return;
+        }
+        if (pendingResponseHeaders == null) {
+            pendingResponseHeaders = new ArrayList<Header>();
+        }
+        pendingResponseHeaders.add(new Header(lower, value));
+    }
+
+    @Override
+    public void endHeaders() {
+        if (pushOpen) {
+            throw new IllegalStateException(HTTP_L10N.getString("err.push_promise_open"));
+        }
+        if (responseStarted || responseBodyStarted) {
+            return; // the header section is already out
+        }
+        int interim = interimStatus();
+        if (interim != 0) {
+            List<Header> fields = pendingResponseHeaders;
+            pendingResponseHeaders = null;
+            sendHeaderFrame(fields, false);
+            return;
+        }
+        ensureStatus();
         flushHeaders(false);
         responseBodyStarted = true;
     }
 
+    /** The pending status if it is 1xx, else 0. */
+    private int interimStatus() {
+        if (pendingResponseHeaders != null && !pendingResponseHeaders.isEmpty()) {
+            Header first = pendingResponseHeaders.get(0);
+            if (":status".equals(first.getName()) && first.getValue().startsWith("1")) {
+                return Integer.parseInt(first.getValue());
+            }
+        }
+        return 0;
+    }
+
+    /** A response with no status is a 200. */
+    private void ensureStatus() {
+        if (pendingResponseHeaders == null) {
+            pendingResponseHeaders = new ArrayList<Header>();
+        }
+        if (pendingResponseHeaders.isEmpty()
+                || !":status".equals(pendingResponseHeaders.get(0).getName())) {
+            pendingResponseHeaders.add(0, new Header(":status", "200"));
+        }
+    }
+
     @Override
-    public void responseBodyContent(ByteBuffer data) {
-        if (!responseStarted) {
-            flushHeaders(false);
-            responseBodyStarted = true;
+    public void bodyContent(ByteBuffer data) {
+        if (pushOpen) {
+            throw new IllegalStateException(HTTP_L10N.getString("err.push_promise_open"));
+        }
+        if (state == State.CLOSED) {
+            throw new IllegalStateException(HTTP_L10N.getString("err.response_complete"));
+        }
+        if (!responseStarted && !responseBodyStarted) {
+            endHeaders();
+        }
+        if (responseTrailers != null) {
+            throw new IllegalStateException(MessageFormat.format(
+                    HTTP_L10N.getString("err.response_body_late"), "trailers"));
         }
         int len = data.remaining();
         responseBodyBytes += len;
@@ -789,16 +844,22 @@ class H3Stream implements ProtocolHandler, H3FrameHandler, HttpResponse {
     }
 
     @Override
-    public void endResponseBody() {
-        // Nothing to send here; FIN is sent with complete()
-    }
-
-    @Override
-    public void complete() {
-        if (!responseStarted) {
+    public void endMessage() {
+        if (pushOpen) {
+            throw new IllegalStateException(HTTP_L10N.getString("err.push_promise_open"));
+        }
+        if (state == State.CLOSED) {
+            return; // already complete
+        }
+        if (!responseStarted && !responseBodyStarted) {
+            ensureStatus();
             flushHeaders(true);
         } else if (responseBodyStarted) {
             finishResponseContentEncoder();
+            if (responseTrailers != null) {
+                sendHeaderFrame(responseTrailers, false);
+                responseTrailers = null;
+            }
             endpoint.close();
         }
         state = State.CLOSED;
@@ -809,13 +870,25 @@ class H3Stream implements ProtocolHandler, H3FrameHandler, HttpResponse {
     }
 
     /**
-     * RFC 9114 section 4.6 — server push. HTTP/3 server push uses
+     * RFC 9114 section 4.6 - server push. HTTP/3 server push uses
      * PUSH_PROMISE frames on the request stream plus a unidirectional
      * push stream. Push is rarely used in practice and many clients
      * disable it. This implementation declines all push requests.
      */
     @Override
-    public boolean pushPromise(Headers headers) {
+    public void startPushPromise(HttpMethod method, String target) {
+        if (pushOpen) {
+            throw new IllegalStateException(HTTP_L10N.getString("err.push_promise_open"));
+        }
+        pushOpen = true;
+    }
+
+    @Override
+    public boolean endPushPromise() {
+        if (!pushOpen) {
+            throw new IllegalStateException(HTTP_L10N.getString("err.push_promise_not_open"));
+        }
+        pushOpen = false;
         return false;
     }
 

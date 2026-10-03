@@ -26,6 +26,7 @@ import org.bluezoo.gumdrop.http.server.DefaultHttpRequestHandler;
 import org.bluezoo.gumdrop.http.Header;
 import org.bluezoo.gumdrop.http.Headers;
 import org.bluezoo.gumdrop.http.HttpMethod;
+import org.bluezoo.gumdrop.http.HttpUtils;
 import org.bluezoo.gumdrop.mime.ContentDisposition;
 import org.bluezoo.gumdrop.mime.ContentType;
 import org.bluezoo.gumdrop.http.server.HttpResponse;
@@ -37,6 +38,7 @@ import java.nio.charset.StandardCharsets;
 import java.text.MessageFormat;
 import java.util.Collections;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.ResourceBundle;
 import java.util.concurrent.CountDownLatch;
@@ -380,7 +382,7 @@ public class ServletHandler extends DefaultHttpRequestHandler {
         state.execute(new Runnable() {
             @Override
             public void run() {
-                state.responseBodyContent(chunk);
+                state.bodyContent(chunk);
             }
         });
     }
@@ -462,19 +464,26 @@ public class ServletHandler extends DefaultHttpRequestHandler {
             return;
         }
         headersSent = true;
-        final Headers headers = buildResponseHeaders();
+        final int status = statusCode;
+        final Headers fields = responseHeaders;
         state.execute(new Runnable() {
             @Override
             public void run() {
-                state.headers(headers);
+                state.status(HttpStatus.fromCode(status).code);
+                if (fields != null) {
+                    for (Header header : fields) {
+                        state.header(header.getName(), header.getValue());
+                    }
+                }
             }
         });
     }
 
     /**
-     * Sends response headers (if not already sent) and signals the start
-     * of the response body, at most once, lazily on the first {@link
-     * #writeBody(ByteBuffer)} call.
+     * Sends response headers (if not already sent) and records that the
+     * response body has started, at most once, lazily on the first {@link
+     * #writeBody(ByteBuffer)} call. The first body content ends the header
+     * section.
      */
     private synchronized void ensureBodyStarted() {
         ensureHeadersSent();
@@ -482,23 +491,6 @@ public class ServletHandler extends DefaultHttpRequestHandler {
             return;
         }
         bodyStarted = true;
-        state.execute(new Runnable() {
-            @Override
-            public void run() {
-                state.startResponseBody();
-            }
-        });
-    }
-
-    private Headers buildResponseHeaders() {
-        Headers headers = new Headers();
-        headers.status(HttpStatus.fromCode(statusCode));
-        if (responseHeaders != null) {
-            for (Header header : responseHeaders) {
-                headers.add(header);
-            }
-        }
-        return headers;
     }
 
     void endResponse() {
@@ -543,18 +535,18 @@ public class ServletHandler extends DefaultHttpRequestHandler {
      * rescheduled onto the connection's own selector loop; the push is
      * fire-and-forget, as the Servlet API defines no result.
      */
-    void executePush(String method, String uri, Headers headers) {
-        final Headers pushHeaders = new Headers();
-        pushHeaders.add(":method", method);
-        pushHeaders.add(":path", uri);
-        pushHeaders.add(":scheme", state.getScheme());
-        for (Header h : headers) {
-            pushHeaders.add(h);
-        }
+    void executePush(String method, String uri, List<String[]> pushHeaders) {
+        final HttpMethod pushMethod = HttpMethod.of(method);
+        final String target = uri;
+        final List<String[]> fields = pushHeaders;
         state.execute(new Runnable() {
             @Override
             public void run() {
-                state.pushPromise(pushHeaders);
+                state.startPushPromise(pushMethod, target);
+                for (String[] field : fields) {
+                    state.header(field[0], field[1]);
+                }
+                state.endPushPromise();
             }
         });
     }
@@ -575,11 +567,9 @@ public class ServletHandler extends DefaultHttpRequestHandler {
     // ─────────────────────────────────────────────────────────────────────────
 
     private void sendError(HttpStatus status) {
-        Headers headers = new Headers();
-        headers.status(status);
-        headers.add("Content-Length", "0");
-        state.headers(headers);
-        state.complete();
+        state.status(status.code);
+        state.longHeader("Content-Length", 0L);
+        state.endMessage();
     }
 
     /**
@@ -640,8 +630,6 @@ public class ServletHandler extends DefaultHttpRequestHandler {
     private void sendResponseDirect() {
         try {
             if (bodyStarted) {
-                state.endResponseBody();
-
                 Map<String, String> trailerFields = null;
                 if (trailerFieldsSupplier != null) {
                     try {
@@ -652,15 +640,18 @@ public class ServletHandler extends DefaultHttpRequestHandler {
                     }
                 }
                 if (trailerFields != null && !trailerFields.isEmpty()) {
-                    Headers trailers = new Headers();
                     for (Map.Entry<String, String> entry : trailerFields.entrySet()) {
-                        trailers.add(entry.getKey(), entry.getValue());
+                        // a field that must be known before the content
+                        // cannot be a trailer; a recipient may ignore it
+                        // (RFC 9110 section 6.5.1)
+                        if (!HttpUtils.isForbiddenInTrailers(entry.getKey())) {
+                            state.header(entry.getKey(), entry.getValue());
+                        }
                     }
-                    state.headers(trailers);
                 }
             }
 
-            state.complete();
+            state.endMessage();
 
         } catch (Exception e) {
             LOGGER.log(Level.SEVERE, L10N.getString("severe.error_sending_response"), e);

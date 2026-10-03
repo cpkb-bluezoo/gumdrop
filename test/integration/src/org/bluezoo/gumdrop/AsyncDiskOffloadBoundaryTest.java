@@ -30,6 +30,7 @@ import org.bluezoo.gumdrop.http.server.HttpResponse;
 import org.bluezoo.gumdrop.http.HttpStatus;
 import org.bluezoo.gumdrop.http.HttpVersion;
 import org.bluezoo.gumdrop.http.Headers;
+import org.bluezoo.gumdrop.testsupport.ResponseRecorder;
 import org.bluezoo.gumdrop.imap.ImapListener;
 import org.bluezoo.gumdrop.imap.ImapProtocolHandler;
 import org.bluezoo.gumdrop.mailbox.maildir.MaildirMailboxFactory;
@@ -633,8 +634,7 @@ public class AsyncDiskOffloadBoundaryTest {
                 new ByteArrayOutputStream();
         private final CountDownLatch done = new CountDownLatch(1);
         private final SelectorLoop selectorLoop;
-        private Headers responseHeaders;
-        private int statusCode = -1;
+        private final ResponseRecorder recorder = new ResponseRecorder();
 
         RecordingState(SelectorLoop selectorLoop) {
             this.selectorLoop = selectorLoop;
@@ -646,7 +646,7 @@ public class AsyncDiskOffloadBoundaryTest {
 
         int status() {
             synchronized (lock) {
-                return statusCode;
+                return recorder.isStarted() ? recorder.getStatus() : -1;
             }
         }
 
@@ -657,34 +657,41 @@ public class AsyncDiskOffloadBoundaryTest {
         }
 
         @Override
-        public void headers(Headers headers) {
+        public void status(int code) {
             synchronized (lock) {
-                this.responseHeaders = headers;
-                String s = headers.getValue(":status");
-                if (s != null) {
-                    try {
-                        statusCode = Integer.parseInt(s);
-                    } catch (NumberFormatException ignore) {
-                    }
-                }
+                recorder.status(code);
             }
         }
 
-        @Override public void startResponseBody() { }
+        @Override
+        public void header(String name, String value) {
+            synchronized (lock) {
+                recorder.header(name, value);
+            }
+        }
 
         @Override
-        public void responseBodyContent(ByteBuffer data) {
+        public void endHeaders() {
             synchronized (lock) {
+                recorder.endHeaders();
+            }
+        }
+
+        @Override
+        public void bodyContent(ByteBuffer data) {
+            synchronized (lock) {
+                recorder.bodyContent();
                 byte[] b = new byte[data.remaining()];
                 data.get(b);
                 bodyOut.write(b, 0, b.length);
             }
         }
 
-        @Override public void endResponseBody() { }
-
         @Override
-        public void complete() {
+        public void endMessage() {
+            synchronized (lock) {
+                recorder.endMessage();
+            }
             done.countDown();
         }
 
@@ -702,7 +709,8 @@ public class AsyncDiskOffloadBoundaryTest {
 
         @Override public void pauseRequestBody() { }
         @Override public void resumeRequestBody() { }
-        @Override public boolean pushPromise(Headers headers) { return false; }
+        @Override public void startPushPromise(org.bluezoo.gumdrop.http.HttpMethod method, String target) { }
+        @Override public boolean endPushPromise() { return false; }
         @Override public void upgradeToWebSocket(String subprotocol,
                 WebSocketEventHandler handler) { }
         @Override public void cancel() { done.countDown(); }

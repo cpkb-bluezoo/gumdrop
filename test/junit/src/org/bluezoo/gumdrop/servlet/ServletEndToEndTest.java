@@ -33,9 +33,11 @@ import java.net.SocketAddress;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.Base64;
 import java.util.Collections;
 import java.util.Enumeration;
+import java.util.List;
 import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -436,7 +438,7 @@ public class ServletEndToEndTest {
     /** Captured response. */
     static final class Result {
         int status;
-        Headers headers;
+        final List<Header> headers = new ArrayList<Header>();
         ByteArrayOutputStream body = new ByteArrayOutputStream();
         boolean complete;
         final CountDownLatch done = new CountDownLatch(1);
@@ -448,7 +450,12 @@ public class ServletEndToEndTest {
         }
 
         String header(String name) {
-            return headers == null ? null : headers.getValue(name);
+            for (Header h : headers) {
+                if (h.getName().equalsIgnoreCase(name)) {
+                    return h.getValue();
+                }
+            }
+            return null;
         }
     }
 
@@ -468,22 +475,28 @@ public class ServletEndToEndTest {
         @Override public String getScheme() { return secure ? "https" : "http"; }
         @Override public SelectorLoop getSelectorLoop() { return null; }
         @Override public java.security.Principal getPrincipal() { return null; }
-        @Override public void headers(Headers headers) {
-            result.headerCalls++;
-            if (result.headers == null) {
-                result.headers = headers;
-                String s = headers.getValue(":status");
-                result.status = s == null ? 0 : Integer.parseInt(s);
+        @Override public void status(int code) {
+            if (code >= 200 && result.headerCalls == 0) {
+                result.headerCalls++;
+                result.status = code;
             }
         }
-        @Override public void startResponseBody() { }
-        @Override public void responseBodyContent(ByteBuffer data) {
+        @Override public void header(String name, String value) {
+            if (result.headerCalls > 0 && !result.complete) {
+                result.headers.add(new Header(name, value));
+            }
+        }
+        @Override public void endHeaders() { }
+        @Override public void bodyContent(ByteBuffer data) {
             byte[] b = new byte[data.remaining()];
             data.get(b);
             result.body.write(b, 0, b.length);
         }
-        @Override public void endResponseBody() { }
-        @Override public void complete() {
+        @Override public void endMessage() {
+            if (result.headerCalls == 0) {
+                result.headerCalls++;
+                result.status = 200;
+            }
             result.complete = true;
             result.done.countDown();
         }
@@ -491,7 +504,8 @@ public class ServletEndToEndTest {
         @Override public void onWritable(Runnable callback) { }
         @Override public void pauseRequestBody() { }
         @Override public void resumeRequestBody() { }
-        @Override public boolean pushPromise(Headers headers) { return true; }
+        @Override public void startPushPromise(org.bluezoo.gumdrop.http.HttpMethod method, String target) { }
+        @Override public boolean endPushPromise() { return true; }
         @Override public void upgradeToWebSocket(String protocol, WebSocketEventHandler handler) { }
         @Override public void cancel() { result.cancelled = true; }
     }

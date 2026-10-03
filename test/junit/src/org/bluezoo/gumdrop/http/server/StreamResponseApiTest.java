@@ -34,13 +34,16 @@ import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.security.cert.Certificate;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.http.Header;
 import org.bluezoo.gumdrop.http.Headers;
+import org.bluezoo.gumdrop.http.HttpMethod;
 import org.bluezoo.gumdrop.http.HttpVersion;
+import org.bluezoo.gumdrop.mime.ContentType;
 import org.bluezoo.gumdrop.telemetry.SpanKind;
 import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
 import org.bluezoo.gumdrop.telemetry.Trace;
@@ -118,26 +121,20 @@ public class StreamResponseApiTest {
         return new Env(HttpVersion.HTTP_1_1).get();
     }
 
-    private static Headers status(String code) {
-        Headers h = new Headers();
-        h.add(":status", code);
-        return h;
-    }
-
     // ------------------------------------------------------------------
     // informational responses
 
     @Test
-    public void testInformationalStatusMustBeOneHundredSeries() {
+    public void testStatusMustBeInTheValidRange() {
         Env e = h2();
         try {
-            e.stream.sendInformational(200, new Headers());
+            e.stream.status(99);
             fail("expected IllegalArgumentException");
         } catch (IllegalArgumentException expected) {
             assertTrue(e.conn.statuses.isEmpty());
         }
         try {
-            e.stream.sendInformational(99, new Headers());
+            e.stream.status(600);
             fail("expected IllegalArgumentException");
         } catch (IllegalArgumentException expected) {
             assertTrue(e.conn.statuses.isEmpty());
@@ -147,18 +144,45 @@ public class StreamResponseApiTest {
     @Test
     public void testInformationalIsSentBeforeTheFinalResponse() {
         Env e = h2();
-        e.stream.sendInformational(103, new Headers());
+        e.stream.status(103);
+        e.stream.header("link", "</style.css>; rel=preload");
+        e.stream.endHeaders();
         assertEquals(Integer.valueOf(103), e.conn.statuses.get(0));
         assertFalse(e.conn.headerEndStreams.get(0).booleanValue());
+        assertEquals("</style.css>; rel=preload", e.conn.sentHeaders.get(0).getValue("link"));
+        // the final response still works after the interim one
+        e.stream.status(200);
+        e.stream.header("x-final", "yes");
+        e.stream.bodyContent(ByteBuffer.wrap("ok".getBytes(StandardCharsets.ISO_8859_1)));
+        e.stream.endMessage();
+        assertEquals(Integer.valueOf(200), e.conn.statuses.get(1));
+        assertEquals("yes", e.conn.sentHeaders.get(1).getValue("x-final"));
+        assertNull("interim fields must not leak into the final response",
+                e.conn.sentHeaders.get(1).getValue("link"));
+        assertEquals("ok", e.conn.bodyString());
+        assertTrue(e.conn.bodyEndStreams.get(e.conn.bodyEndStreams.size() - 1).booleanValue());
+    }
+
+    @Test
+    public void testSeveralInformationalResponsesMayPrecedeTheFinalOne() {
+        Env e = h2();
+        e.stream.status(103);
+        e.stream.endHeaders();
+        e.stream.status(103);
+        e.stream.endHeaders();
+        e.stream.status(204);
+        e.stream.endMessage();
+        assertEquals(3, e.conn.statuses.size());
+        assertEquals(Integer.valueOf(204), e.conn.statuses.get(2));
     }
 
     @Test
     public void testInformationalAfterResponseStartedIsIllegal() {
         Env e = h2();
-        e.stream.headers(status("200"));
-        e.stream.startResponseBody();
+        e.stream.status(200);
+        e.stream.endHeaders();
         try {
-            e.stream.sendInformational(103, new Headers());
+            e.stream.status(103);
             fail("expected IllegalStateException");
         } catch (IllegalStateException expected) {
             assertEquals(1, e.conn.statuses.size());
@@ -168,7 +192,8 @@ public class StreamResponseApiTest {
     @Test
     public void testInformationalIsDroppedOnHttp10() {
         Env e = new Env(HttpVersion.HTTP_1_0).get();
-        e.stream.sendInformational(103, new Headers());
+        e.stream.status(103);
+        e.stream.endHeaders();
         assertTrue(e.conn.statuses.isEmpty());
     }
 
@@ -176,104 +201,188 @@ public class StreamResponseApiTest {
     // response state machine
 
     @Test
-    public void testBodyCallsOutOfOrderAreIllegal() {
+    public void testStatusDefaultsTo200WhenNoneIsSet() {
         Env e = h2();
-        try {
-            e.stream.responseBodyContent(ByteBuffer.wrap(new byte[] {1}));
-            fail("body before start");
-        } catch (IllegalStateException expected) {
-            assertTrue(e.conn.bodyEndStreams.isEmpty());
-        }
-        try {
-            e.stream.endResponseBody();
-            fail("end before start");
-        } catch (IllegalStateException expected) {
-            assertTrue(e.conn.bodyEndStreams.isEmpty());
-        }
-        e.stream.headers(status("200"));
-        e.stream.startResponseBody();
-        try {
-            e.stream.startResponseBody();
-            fail("second start");
-        } catch (IllegalStateException expected) {
-            assertEquals(1, e.conn.statuses.size());
-        }
+        e.stream.header("x-a", "b");
+        e.stream.endHeaders();
+        assertEquals(Integer.valueOf(200), e.conn.statuses.get(0));
+        assertFalse(e.conn.headerEndStreams.get(0).booleanValue());
+        Env f = h2();
+        f.stream.bodyContent(ByteBuffer.wrap(new byte[] {1}));
+        assertEquals(Integer.valueOf(200), f.conn.statuses.get(0));
+        assertEquals(1, f.conn.body.size());
+    }
+
+    @Test
+    public void testTypedFieldsAreFormattedAsFieldValues() {
+        Env e = h2();
+        e.stream.status(200);
+        e.stream.longHeader("content-length", 1234L);
+        e.stream.dateHeader("last-modified", Instant.ofEpochSecond(0L));
+        e.stream.contentType(new ContentType("text", "plain", null));
+        e.stream.endHeaders();
+        Headers sent = e.conn.sentHeaders.get(0);
+        assertEquals("1234", sent.getValue("content-length"));
+        assertEquals("Thu, 01 Jan 1970 00:00:00 GMT", sent.getValue("last-modified"));
+        String type = sent.getValue("content-type");
+        assertNotNull(type);
+        assertTrue(type, type.startsWith("text/plain"));
+    }
+
+    @Test
+    public void testEndHeadersSendsTheHeaderSectionBeforeAnyBody() {
+        Env e = h2();
+        e.stream.status(200);
+        e.stream.header("content-type", "text/event-stream");
+        e.stream.endHeaders();
+        assertEquals(1, e.conn.statuses.size());
+        assertFalse(e.conn.headerEndStreams.get(0).booleanValue());
+        assertTrue(e.conn.bodyEndStreams.isEmpty());
+        assertEquals("text/event-stream", e.conn.sentHeaders.get(0).getValue("content-type"));
+        // a second endHeaders is a no-op
+        e.stream.endHeaders();
+        assertEquals(1, e.conn.statuses.size());
+        e.stream.bodyContent(ByteBuffer.wrap(new byte[] {1}));
+        assertEquals(1, e.conn.statuses.size());
+        assertEquals(1, e.conn.body.size());
+    }
+
+    @Test
+    public void testFirstBodyContentEndsTheHeaderSection() {
+        Env e = h2();
+        e.stream.status(201);
+        e.stream.header("location", "/new");
+        assertTrue("nothing is sent until the section is ended", e.conn.statuses.isEmpty());
+        e.stream.bodyContent(ByteBuffer.wrap(new byte[] {1}));
+        assertEquals(Integer.valueOf(201), e.conn.statuses.get(0));
+        assertEquals("/new", e.conn.sentHeaders.get(0).getValue("location"));
+        assertFalse(e.conn.headerEndStreams.get(0).booleanValue());
+    }
+
+    @Test
+    public void testStatusOnlyResponseEndsTheStreamWithTheHeaderSection() {
+        Env e = h2();
+        e.stream.status(204);
+        e.stream.endMessage();
+        assertEquals(1, e.conn.statuses.size());
+        assertEquals(Integer.valueOf(204), e.conn.statuses.get(0));
+        assertTrue(e.conn.headerEndStreams.get(0).booleanValue());
+        assertTrue("no body frame for a status-only response",
+                e.conn.bodyEndStreams.isEmpty());
     }
 
     @Test
     public void testTrailersFollowTheBodyAndEndTheStream() {
         Env e = h2();
-        e.stream.headers(status("200"));
-        e.stream.startResponseBody();
-        e.stream.responseBodyContent(ByteBuffer.wrap("abc".getBytes(StandardCharsets.ISO_8859_1)));
-        e.stream.endResponseBody();
-        Headers trailers = new Headers();
-        trailers.add("x-checksum", "42");
-        e.stream.headers(trailers);
-        e.stream.complete();
-        int last = e.conn.sentHeaders.size() - 1;
-        assertTrue(e.conn.headerEndStreams.get(last).booleanValue());
-        assertEquals("42", e.conn.sentHeaders.get(last).getValue("x-checksum"));
+        e.stream.status(200);
+        e.stream.bodyContent(ByteBuffer.wrap("abc".getBytes(StandardCharsets.ISO_8859_1)));
+        e.stream.header("x-checksum", "42");
+        e.stream.endMessage();
+        assertEquals("the response header section only", 1, e.conn.sentHeaders.size());
+        assertEquals("one trailer section", 1, e.conn.sentTrailers.size());
+        assertEquals("42", e.conn.sentTrailers.get(0).getValue("x-checksum"));
+        assertNull("no pseudo-header in a trailer section", e.conn.sentTrailers.get(0).getValue(":status"));
         assertEquals("abc", e.conn.bodyString());
     }
 
     @Test
-    public void testCompleteIsIdempotentAndHeadersAfterItAreRejected() {
+    public void testForbiddenTrailerNameIsRejected() {
         Env e = h2();
-        e.stream.headers(status("204"));
-        e.stream.complete();
-        int sent = e.conn.statuses.size();
-        e.stream.complete();
-        assertEquals(sent, e.conn.statuses.size());
+        e.stream.status(200);
+        e.stream.bodyContent(ByteBuffer.wrap(new byte[] {1}));
         try {
-            e.stream.headers(new Headers());
-            fail("headers after complete");
+            e.stream.header("content-length", "1");
+            fail("expected IllegalArgumentException");
+        } catch (IllegalArgumentException expected) {
+            assertEquals(1, e.conn.statuses.size());
+        }
+        // the response can still be finished normally
+        e.stream.endMessage();
+        assertTrue(e.conn.bodyEndStreams.get(e.conn.bodyEndStreams.size() - 1).booleanValue());
+    }
+
+    @Test
+    public void testBodyContentAfterATrailerIsIllegal() {
+        Env e = h2();
+        e.stream.status(200);
+        e.stream.bodyContent(ByteBuffer.wrap(new byte[] {1}));
+        e.stream.header("x-checksum", "42");
+        try {
+            e.stream.bodyContent(ByteBuffer.wrap(new byte[] {2}));
+            fail("expected IllegalStateException");
+        } catch (IllegalStateException expected) {
+            assertEquals(1, e.conn.body.size());
+        }
+    }
+
+    @Test
+    public void testNonAsciiFieldValueIsRejected() {
+        Env e = h2();
+        e.stream.status(200);
+        try {
+            e.stream.header("x-custom", "caf\u00e9");
+            fail("expected IllegalArgumentException");
+        } catch (IllegalArgumentException expected) {
+            assertTrue(expected.getMessage(), expected.getMessage().contains("x-custom"));
+        }
+        e.stream.endMessage();
+        assertNull(e.conn.sentHeaders.get(0).getValue("x-custom"));
+    }
+
+    @Test
+    public void testEndMessageIsIdempotentAndFieldsAfterItAreRejected() {
+        Env e = h2();
+        e.stream.status(204);
+        e.stream.endMessage();
+        int sent = e.conn.statuses.size();
+        e.stream.endMessage();
+        assertEquals(sent, e.conn.statuses.size());
+        assertTrue(e.conn.bodyEndStreams.isEmpty());
+        try {
+            e.stream.header("x-late", "1");
+            fail("header after endMessage");
         } catch (IllegalStateException expected) {
             assertEquals(sent, e.conn.statuses.size());
         }
     }
 
     @Test
-    public void testCompleteOnAnAlreadyClosedStreamSendsNothing() {
+    public void testEndMessageOnAnAlreadyClosedStreamSendsNothing() {
         Env e = h2();
         e.stream.streamClose();
-        e.stream.complete();
+        e.stream.endMessage();
         assertTrue(e.conn.statuses.isEmpty());
         assertTrue(e.conn.bodyEndStreams.isEmpty());
-        e.stream.complete();
+        e.stream.endMessage();
         assertTrue(e.conn.statuses.isEmpty());
     }
 
     @Test
-    public void testCompleteWithoutHeadersSendsEmptyEndOfStreamData() {
+    public void testEndMessageWithNothingSetSendsA200HeaderSectionThatEndsTheStream() {
         Env e = h2();
-        e.stream.complete();
-        assertEquals(1, e.conn.bodyEndStreams.size());
-        assertTrue(e.conn.bodyEndStreams.get(0).booleanValue());
-    }
-
-    @Test
-    public void testMissingStatusDefaultsTo200AndBadStatusTo500() {
-        Env e = h2();
-        Headers h = new Headers();
-        h.add("x-a", "b");
-        e.stream.headers(h);
-        e.stream.complete();
+        e.stream.endMessage();
+        assertEquals(1, e.conn.statuses.size());
         assertEquals(Integer.valueOf(200), e.conn.statuses.get(0));
-        Env f = h2();
-        f.stream.headers(status("teapot"));
-        f.stream.complete();
-        assertEquals(Integer.valueOf(500), f.conn.statuses.get(0));
+        assertTrue(e.conn.headerEndStreams.get(0).booleanValue());
     }
 
     @Test
-    public void testUnstartedBodyAfterWriteFailureReportsIllegalState() {
+    public void testFieldsWithoutAStatusDefaultTo200() {
         Env e = h2();
-        e.stream.headers(status("200"));
-        e.stream.startResponseBody();
-        e.stream.endResponseBody();
+        e.stream.header("x-a", "b");
+        e.stream.endMessage();
+        assertEquals(Integer.valueOf(200), e.conn.statuses.get(0));
+        assertEquals("b", e.conn.sentHeaders.get(0).getValue("x-a"));
+    }
+
+    @Test
+    public void testBodyAfterEndMessageReportsIllegalState() {
+        Env e = h2();
+        e.stream.status(200);
+        e.stream.endHeaders();
+        e.stream.endMessage();
         try {
-            e.stream.responseBodyContent(ByteBuffer.wrap(new byte[] {1}));
+            e.stream.bodyContent(ByteBuffer.wrap(new byte[] {1}));
             fail("body after end");
         } catch (IllegalStateException expected) {
             assertEquals(1, e.conn.statuses.size());
@@ -289,15 +398,15 @@ public class StreamResponseApiTest {
         assertFalse(e.stream.sendDatagram(null));
         assertFalse(e.stream.sendDatagram(ByteBuffer.wrap(new byte[] {1})));
         assertFalse(e.stream.sendCapsule(7L, null));
-        e.stream.headers(status("200"));
-        e.stream.complete();
+        e.stream.status(200);
+        e.stream.endMessage();
         assertFalse(e.stream.sendCapsule(7L, ByteBuffer.wrap(new byte[] {1})));
     }
 
     @Test
     public void testCapsuleOpensTheBodyImplicitlyAndIsSent() {
         Env e = h2();
-        e.stream.headers(status("200"));
+        e.stream.status(200);
         boolean sent = e.stream.sendCapsule(7L, ByteBuffer.wrap(new byte[] {1, 2}));
         assertTrue(sent);
         assertEquals(1, e.conn.statuses.size());
@@ -312,7 +421,7 @@ public class StreamResponseApiTest {
         Env e = h2();
         e.stream.cancel();
         assertEquals(Integer.valueOf(8), e.conn.rstCodes.get(0));
-        e.stream.complete();
+        e.stream.endMessage();
         assertTrue(e.conn.statuses.isEmpty());
     }
 
@@ -325,45 +434,79 @@ public class StreamResponseApiTest {
         assertTrue(e.conn.rstCodes.isEmpty());
     }
 
-    private static Headers pushHeaders(boolean withPath) {
-        Headers h = new Headers();
-        h.add(":method", "GET");
-        h.add(":scheme", "https");
-        h.add(":authority", "h.test");
-        if (withPath) {
-            h.add(":path", "/pushed");
-        }
-        return h;
+    /** Makes one promised request, GET /pushed with an extra field. */
+    private static boolean push(Env e) {
+        e.stream.startPushPromise(HttpMethod.GET, "/pushed");
+        e.stream.header("accept", "text/css");
+        return e.stream.endPushPromise();
     }
 
     @Test
     public void testPushIsRefusedWhenNotPossible() {
         Env http1 = h1();
-        assertFalse(http1.stream.pushPromise(pushHeaders(true)));
+        assertFalse(push(http1));
         Env off = h2();
         off.conn.enablePush = false;
-        assertFalse(off.stream.pushPromise(pushHeaders(true)));
-        Env noPath = h2();
-        assertFalse(noPath.stream.pushPromise(pushHeaders(false)));
-        assertEquals(0, noPath.conn.pushPromises);
+        assertFalse(push(off));
+        assertEquals(0, off.conn.pushPromises);
         Env noStream = h2();
         noStream.conn.pushedStreamCreated = false;
-        assertFalse(noStream.stream.pushPromise(pushHeaders(true)));
+        assertFalse(push(noStream));
         Env failing = h2();
         failing.conn.failSendPush = true;
-        assertFalse(failing.stream.pushPromise(pushHeaders(true)));
+        assertFalse(push(failing));
         Env encoding = h2();
         encoding.conn.failEncodeHeaders = true;
-        assertFalse(encoding.stream.pushPromise(pushHeaders(true)));
+        assertFalse(push(encoding));
     }
 
     @Test
     public void testPushPromiseCreatesAReservedStream() {
         Env e = h2();
-        assertTrue(e.stream.pushPromise(pushHeaders(true)));
+        assertTrue(push(e));
         assertEquals(1, e.conn.pushPromises);
         assertEquals(1, e.conn.pushedStreams.size());
         assertFalse(e.conn.pushedStreams.get(0).isActive());
+    }
+
+    @Test
+    public void testPushPromiseCarriesThePromisedRequestFields() {
+        Env e = h2();
+        assertTrue(push(e));
+        assertEquals(1, e.conn.encodedHeaders.size());
+        Headers promised = e.conn.encodedHeaders.get(0);
+        assertEquals("GET", promised.getValue(":method"));
+        assertEquals("https", promised.getValue(":scheme"));
+        assertEquals("h.test", promised.getValue(":authority"));
+        assertEquals("/pushed", promised.getValue(":path"));
+        assertEquals("text/css", promised.getValue("accept"));
+    }
+
+    @Test
+    public void testPushPromiseDoesNotDisturbTheResponse() {
+        Env e = h2();
+        e.stream.status(200);
+        e.stream.startPushPromise(HttpMethod.GET, "/pushed");
+        try {
+            e.stream.bodyContent(ByteBuffer.wrap(new byte[] {1}));
+            fail("nothing else may be called while a push promise is open");
+        } catch (IllegalStateException expected) {
+            assertTrue(e.conn.statuses.isEmpty());
+        }
+        assertTrue(e.stream.endPushPromise());
+        e.stream.endMessage();
+        assertEquals(Integer.valueOf(200), e.conn.statuses.get(0));
+    }
+
+    @Test
+    public void testEndPushPromiseWithoutStartIsIllegal() {
+        Env e = h2();
+        try {
+            e.stream.endPushPromise();
+            fail("expected IllegalStateException");
+        } catch (IllegalStateException expected) {
+            assertEquals(0, e.conn.pushPromises);
+        }
     }
 
     // ------------------------------------------------------------------
@@ -488,8 +631,8 @@ public class StreamResponseApiTest {
         }
         e.stream.streamEndHeaders();
         if (status != null) {
-            e.stream.headers(status(status));
-            e.stream.complete();
+            e.stream.status(Integer.parseInt(status));
+            e.stream.endMessage();
         }
         return e;
     }
@@ -544,8 +687,8 @@ public class StreamResponseApiTest {
         Env e = new Env(HttpVersion.HTTP_2_0);
         e.conn.metrics = new HttpServerMetrics(tracing());
         e.get();
-        e.stream.headers(status("200"));
-        e.stream.complete();
+        e.stream.status(200);
+        e.stream.endMessage();
         assertEquals(Integer.valueOf(200), e.conn.statuses.get(0));
     }
 }

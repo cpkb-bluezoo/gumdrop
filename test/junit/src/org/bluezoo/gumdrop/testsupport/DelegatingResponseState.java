@@ -29,7 +29,7 @@ import java.util.List;
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.TimerHandle;
-import org.bluezoo.gumdrop.http.Headers;
+import org.bluezoo.gumdrop.http.HttpMethod;
 import org.bluezoo.gumdrop.http.HttpVersion;
 import org.bluezoo.gumdrop.http.server.HttpResponse;
 import org.bluezoo.gumdrop.telemetry.Trace;
@@ -67,20 +67,20 @@ public final class DelegatingResponseState implements HttpResponse {
     }
     @Override public Trace getTrace() { return target.getTrace(); }
     @Override public Principal getPrincipal() { return target.getPrincipal(); }
-    @Override public void headers(Headers headers) { target.headers(headers); }
-    @Override public void startResponseBody() { target.startResponseBody(); }
-    @Override public void responseBodyContent(ByteBuffer data) { target.responseBodyContent(data); }
-    @Override public void endResponseBody() { target.endResponseBody(); }
-    @Override public void complete() { target.complete(); }
+    @Override public void status(int code) { target.status(code); }
+    @Override public void header(String name, String value) { target.header(name, value); }
+    @Override public void endHeaders() { target.endHeaders(); }
+    @Override public void bodyContent(ByteBuffer data) { target.bodyContent(data); }
+    @Override public void endMessage() { target.endMessage(); }
     @Override public void execute(Runnable task) { target.execute(task); }
     @Override public void onWritable(Runnable callback) { target.onWritable(callback); }
     @Override public int pendingResponseBytes() { return target.pendingResponseBytes(); }
     @Override public void pauseRequestBody() { target.pauseRequestBody(); }
     @Override public void resumeRequestBody() { target.resumeRequestBody(); }
-    @Override public void sendInformational(int statusCode, Headers headers) {
-        target.sendInformational(statusCode, headers);
+    @Override public void startPushPromise(HttpMethod method, String requestTarget) {
+        target.startPushPromise(method, requestTarget);
     }
-    @Override public boolean pushPromise(Headers headers) { return target.pushPromise(headers); }
+    @Override public boolean endPushPromise() { return target.endPushPromise(); }
     @Override public boolean sendDatagram(ByteBuffer data) { return target.sendDatagram(data); }
     @Override public boolean sendDatagram(long contextId, ByteBuffer payload) {
         return target.sendDatagram(contextId, payload);

@@ -39,6 +39,7 @@ import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.auth.BasicRealm;
 import org.bluezoo.gumdrop.auth.Realm;
 import org.bluezoo.gumdrop.http.Headers;
+import org.bluezoo.gumdrop.testsupport.ResponseRecorder;
 import org.bluezoo.gumdrop.http.HttpStatus;
 import org.bluezoo.gumdrop.http.HttpVersion;
 import org.bluezoo.gumdrop.http.server.HttpResponse;
@@ -335,8 +336,7 @@ public class FileHandlerAclTest {
         private final Object lock = new Object();
         private final ByteArrayOutputStream bodyOut = new ByteArrayOutputStream();
         private final CountDownLatch done = new CountDownLatch(1);
-        private Headers responseHeaders;
-        private int statusCode = -1;
+        private final ResponseRecorder recorder = new ResponseRecorder();
 
         RecordingState(Principal principal) {
             this.principal = principal;
@@ -348,13 +348,13 @@ public class FileHandlerAclTest {
 
         int status() {
             synchronized (lock) {
-                return statusCode;
+                return recorder.isStarted() ? recorder.getStatus() : -1;
             }
         }
 
         String header(String name) {
             synchronized (lock) {
-                return responseHeaders == null ? null : responseHeaders.getValue(name);
+                return recorder.getValue(name);
             }
         }
 
@@ -365,26 +365,30 @@ public class FileHandlerAclTest {
         }
 
         @Override
-        public void headers(Headers headers) {
+        public void status(int code) {
             synchronized (lock) {
-                this.responseHeaders = headers;
-                String s = headers.getValue(":status");
-                if (s != null) {
-                    try {
-                        statusCode = Integer.parseInt(s);
-                    } catch (NumberFormatException ignore) {
-                    }
-                }
+                recorder.status(code);
             }
         }
 
         @Override
-        public void startResponseBody() {
+        public void header(String name, String value) {
+            synchronized (lock) {
+                recorder.header(name, value);
+            }
         }
 
         @Override
-        public void responseBodyContent(ByteBuffer data) {
+        public void endHeaders() {
             synchronized (lock) {
+                recorder.endHeaders();
+            }
+        }
+
+        @Override
+        public void bodyContent(ByteBuffer data) {
+            synchronized (lock) {
+                recorder.bodyContent();
                 byte[] b = new byte[data.remaining()];
                 data.get(b);
                 bodyOut.write(b, 0, b.length);
@@ -392,11 +396,10 @@ public class FileHandlerAclTest {
         }
 
         @Override
-        public void endResponseBody() {
-        }
-
-        @Override
-        public void complete() {
+        public void endMessage() {
+            synchronized (lock) {
+                recorder.endMessage();
+            }
             done.countDown();
         }
 
@@ -421,7 +424,11 @@ public class FileHandlerAclTest {
         }
 
         @Override
-        public boolean pushPromise(Headers headers) {
+        public void startPushPromise(org.bluezoo.gumdrop.http.HttpMethod method, String target) {
+        }
+
+        @Override
+        public boolean endPushPromise() {
             return false;
         }
 

@@ -27,7 +27,6 @@ import org.bluezoo.gumdrop.ListenerBindCheck;
 import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.GumdropConfig;
 import org.bluezoo.gumdrop.TestCertificateManager;
-import org.bluezoo.gumdrop.http.Header;
 import org.bluezoo.gumdrop.http.Headers;
 import org.bluezoo.gumdrop.http.server.HttpRequestHandler;
 import org.bluezoo.gumdrop.http.server.HttpStreamHandler;
@@ -459,20 +458,16 @@ public class MockOTLPCollector {
         }
 
         private void sendSuccess() {
-            Headers responseHeaders = new Headers();
-            responseHeaders.status(HttpStatus.OK);
-            responseHeaders.add(new Header("Content-Type", "application/x-protobuf"));
-            responseHeaders.add(new Header("Content-Length", "0"));
-            state.headers(responseHeaders);
-            state.complete();
+            state.status(HttpStatus.OK.code);
+            state.header("Content-Type", "application/x-protobuf");
+            state.longHeader("Content-Length", 0L);
+            state.endMessage();
         }
 
         private void sendError(int statusCode) {
-            Headers responseHeaders = new Headers();
-            responseHeaders.status(HttpStatus.fromCode(statusCode));
-            responseHeaders.add(new Header("Content-Length", "0"));
-            state.headers(responseHeaders);
-            state.complete();
+            state.status(HttpStatus.fromCode(statusCode).code);
+            state.longHeader("Content-Length", 0L);
+            state.endMessage();
         }
     }
 }

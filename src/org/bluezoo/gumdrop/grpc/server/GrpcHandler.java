@@ -37,7 +37,6 @@ import org.bluezoo.gumdrop.grpc.proto.ProtoModelSerializer;
 import org.bluezoo.gumdrop.grpc.proto.ProtoParseException;
 import org.bluezoo.gumdrop.grpc.proto.RpcDescriptor;
 import org.bluezoo.gumdrop.http.server.DefaultHttpRequestHandler;
-import org.bluezoo.gumdrop.http.Headers;
 import org.bluezoo.gumdrop.http.server.HttpResponse;
 import org.bluezoo.gumdrop.http.HttpStatus;
 import org.bluezoo.protobuf.ByteBufferChannel;
@@ -189,14 +188,10 @@ public class GrpcHandler extends DefaultHttpRequestHandler {
     }
 
     private void sendError(HttpResponse response, HttpStatus status, String message) {
-        Headers fields = new Headers();
-        fields.status(status);
-        fields.add("content-type", "text/plain");
-        response.headers(fields);
-        response.startResponseBody();
-        response.responseBodyContent(ByteBuffer.wrap(message.getBytes()));
-        response.endResponseBody();
-        response.complete();
+        response.status(status.code);
+        response.header("content-type", "text/plain");
+        response.bodyContent(ByteBuffer.wrap(message.getBytes()));
+        response.endMessage();
     }
 
     private final class GrpcResponseSenderImpl implements GrpcResponseSender {
@@ -227,13 +222,11 @@ public class GrpcHandler extends DefaultHttpRequestHandler {
             }
             sent = true;
 
-            Headers fields = new Headers();
-            fields.status(HttpStatus.OK);
-            fields.add("content-type", CONTENT_TYPE_GRPC);
-            fields.add("grpc-status", String.valueOf(status));
-            fields.add("grpc-message", message != null ? message : "");
-            responseState.headers(fields);
-            responseState.complete();
+            responseState.status(HttpStatus.OK.code);
+            responseState.header("content-type", CONTENT_TYPE_GRPC);
+            responseState.header("grpc-status", String.valueOf(status));
+            responseState.header("grpc-message", message != null ? message : "");
+            responseState.endMessage();
         }
 
         @Override
@@ -253,14 +246,10 @@ public class GrpcHandler extends DefaultHttpRequestHandler {
             }
             sent = true;
 
-            Headers fields = new Headers();
-            fields.status(HttpStatus.OK);
-            fields.add("content-type", CONTENT_TYPE_GRPC);
-            responseState.headers(fields);
-            responseState.startResponseBody();
-            responseState.responseBodyContent(framed);
-            responseState.endResponseBody();
-            responseState.complete();
+            responseState.status(HttpStatus.OK.code);
+            responseState.header("content-type", CONTENT_TYPE_GRPC);
+            responseState.bodyContent(framed);
+            responseState.endMessage();
         }
 
         private final class GrpcResponseMessageImpl implements GrpcResponseMessage {

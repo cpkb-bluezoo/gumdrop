@@ -6,7 +6,6 @@
 import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.SecurityInfo;
-import org.bluezoo.gumdrop.http.Headers;
 import org.bluezoo.gumdrop.http.HttpClient;
 import org.bluezoo.gumdrop.http.HttpServer;
 import org.bluezoo.gumdrop.http.client.DefaultHttpResponseHandler;
@@ -16,6 +15,7 @@ import org.bluezoo.gumdrop.http.server.DefaultHttpRequestHandler;
 import org.bluezoo.gumdrop.http.server.HttpRequestHandler;
 import org.bluezoo.gumdrop.http.server.HttpResponse;
 import org.bluezoo.gumdrop.http.server.HttpStreamHandler;
+import org.bluezoo.gumdrop.mime.ContentType;
 
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
@@ -147,15 +147,11 @@ public final class Peer {
 
         @Override
         public void endHeaders() {
-            Headers fields = new Headers();
-            fields.add(":status", "200");
-            fields.add("content-type", "text/plain");
-            response.headers(fields);
-            response.startResponseBody();
-            response.responseBodyContent(ByteBuffer.wrap(
+            response.status(200);
+            response.contentType(new ContentType("text", "plain", null));
+            response.bodyContent(ByteBuffer.wrap(
                     ("hello from " + name + "\n").getBytes(StandardCharsets.UTF_8)));
-            response.endResponseBody();
-            response.complete();
+            response.endMessage();
         }
     }
 

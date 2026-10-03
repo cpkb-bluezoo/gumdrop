@@ -168,15 +168,11 @@ public class HTTP3ProductionEndToEndTest {
                     return new CollectingRequestHandler(state) {
                         @Override
                         public void headers(HttpResponse state, Headers headers) {
-                            Headers response = new Headers();
-                            response.add(":status", "200");
-                            response.add("content-type", "text/plain");
-                            state.headers(response);
-                            state.startResponseBody();
-                            state.responseBodyContent(
+                            state.status(200);
+                            state.header("content-type", "text/plain");
+                            state.bodyContent(
                                     ByteBuffer.wrap("hello h3".getBytes(StandardCharsets.US_ASCII)));
-                            state.endResponseBody();
-                            state.complete();
+                            state.endMessage();
                         }
 
                         @Override
@@ -342,12 +338,10 @@ public class HTTP3ProductionEndToEndTest {
 
                         @Override
                         public void headers(HttpResponse state, Headers headers) {
-                            Headers response = new Headers();
-                            response.add(":status", "200");
-                            state.headers(response);
+                            state.status(200);
                             // Flush HEADERS without FIN so the stream
                             // remains registered for HTTP Datagram demux.
-                            state.startResponseBody();
+                            state.endHeaders();
                         }
 
                         @Override
@@ -543,15 +537,11 @@ public class HTTP3ProductionEndToEndTest {
                             if ("/too-big".equals(headers.getPath())) {
                                 sawTooBig.set(true);
                             }
-                            Headers response = new Headers();
-                            response.add(":status", "200");
-                            response.add("content-type", "text/plain");
-                            state.headers(response);
-                            state.startResponseBody();
-                            state.responseBodyContent(
+                            state.status(200);
+                            state.header("content-type", "text/plain");
+                            state.bodyContent(
                                     ByteBuffer.wrap("ok".getBytes(StandardCharsets.US_ASCII)));
-                            state.endResponseBody();
-                            state.complete();
+                            state.endMessage();
                         }
 
                         @Override
@@ -781,10 +771,8 @@ public class HTTP3ProductionEndToEndTest {
                     return new CollectingRequestHandler(state) {
                         @Override
                         public void headers(HttpResponse state, Headers headers) {
-                            Headers response = new Headers();
-                            response.add(":status", "200");
-                            state.headers(response);
-                            state.complete();
+                            state.status(200);
+                            state.endMessage();
                         }
                     };
                 }
@@ -1173,10 +1161,8 @@ public class HTTP3ProductionEndToEndTest {
                     return new CollectingRequestHandler(state) {
                         @Override
                         public void headers(HttpResponse state, Headers headers) {
-                            Headers response = new Headers();
-                            response.add(":status", "200");
-                            state.headers(response);
-                            state.complete();
+                            state.status(200);
+                            state.endMessage();
                         }
                     };
                 }
@@ -2148,15 +2134,11 @@ public class HTTP3ProductionEndToEndTest {
                     return new CollectingRequestHandler(state) {
                         @Override
                         public void headers(HttpResponse state, Headers headers) {
-                            Headers response = new Headers();
-                            response.add(":status", "200");
-                            response.add("content-type", "text/plain");
-                            state.headers(response);
-                            state.startResponseBody();
-                            state.responseBodyContent(
+                            state.status(200);
+                            state.header("content-type", "text/plain");
+                            state.bodyContent(
                                     ByteBuffer.wrap("ok".getBytes(StandardCharsets.US_ASCII)));
-                            state.endResponseBody();
-                            state.complete();
+                            state.endMessage();
                         }
 
                         @Override

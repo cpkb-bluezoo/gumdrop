@@ -25,6 +25,7 @@ package org.bluezoo.gumdrop.http.server;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
 import java.io.ByteArrayOutputStream;
@@ -36,7 +37,10 @@ import java.util.List;
 
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.http.Header;
+import org.bluezoo.gumdrop.http.HeaderFieldHandler;
 import org.bluezoo.gumdrop.http.Headers;
+import org.bluezoo.gumdrop.http.HttpMethod;
+import org.bluezoo.gumdrop.http.hpack.Decoder;
 import org.bluezoo.gumdrop.http.hpack.Encoder;
 import org.bluezoo.gumdrop.testsupport.BinaryRecordingEndpoint;
 import org.bluezoo.gumdrop.testsupport.CollectingRequestHandler;
@@ -80,6 +84,33 @@ public class HttpProtocolHandlerH2WireTest {
         @Override public boolean isSessionResumed() { return false; }
     }
 
+    /** An application response written by a test, instead of the default one. */
+    private interface Script {
+        void run(HttpResponse response);
+    }
+
+    /** One HEADERS or PUSH_PROMISE frame of the server, HPACK-decoded. */
+    private static class Decoded {
+        int type;
+        int flags;
+        int streamId;
+        int promisedStreamId;
+        final List<String[]> fields = new ArrayList<String[]>();
+
+        String get(String name) {
+            for (int i = 0; i < fields.size(); i++) {
+                if (fields.get(i)[0].equals(name)) {
+                    return fields.get(i)[1];
+                }
+            }
+            return null;
+        }
+
+        boolean endStream() {
+            return (flags & 1) != 0;
+        }
+    }
+
     /** What the application handler saw and how it should answer. */
     private static class App {
         final List<String> events = new ArrayList<String>();
@@ -91,6 +122,8 @@ public class HttpProtocolHandlerH2WireTest {
         boolean push;
         boolean informational;
         boolean failedSeen;
+        boolean pushResult;
+        Script script;
         HttpResponse lastState;
         Headers lastHeaders;
         Runnable writable;
@@ -155,41 +188,37 @@ public class HttpProtocolHandlerH2WireTest {
                         }
 
                         private void respond(HttpResponse s) {
+                            if (a.script != null) {
+                                a.script.run(s);
+                                return;
+                            }
                             if (a.informational) {
-                                Headers early = new Headers();
-                                early.add("Link", "</style.css>; rel=preload");
-                                s.sendInformational(103, early);
+                                s.status(103);
+                                s.header("Link", "</style.css>; rel=preload");
+                                s.endHeaders();
                             }
                             if (a.push) {
-                                Headers ph = new Headers();
-                                ph.add(":method", "GET");
-                                ph.add(":scheme", "https");
-                                ph.add(":authority", "h.test");
-                                ph.add(":path", "/pushed");
-                                s.pushPromise(ph);
+                                s.startPushPromise(HttpMethod.GET, "/pushed");
+                                a.pushResult = s.endPushPromise();
                             }
-                            Headers resp = new Headers();
-                            resp.add(":status", Integer.toString(a.status));
+                            s.status(a.status);
                             if (a.extraHeaderBytes > 0) {
                                 StringBuilder big = new StringBuilder();
                                 for (int i = 0; i < a.extraHeaderBytes; i++) {
                                     big.append((char) ('a' + (i * 7 + i / 13) % 26));
                                 }
-                                resp.add("x-big", big.toString());
+                                s.header("x-big", big.toString());
                             }
-                            s.headers(resp);
                             if (a.status == 204 || a.status == 304) {
-                                s.complete();
+                                s.endMessage();
                                 return;
                             }
-                            s.startResponseBody();
                             byte[] data = new byte[a.responseBodyLength];
                             for (int i = 0; i < data.length; i++) {
                                 data[i] = (byte) ('a' + (i % 26));
                             }
-                            s.responseBodyContent(ByteBuffer.wrap(data));
-                            s.endResponseBody();
-                            s.complete();
+                            s.bodyContent(ByteBuffer.wrap(data));
+                            s.endMessage();
                         }
                     };
                 }
@@ -265,6 +294,67 @@ public class HttpProtocolHandlerH2WireTest {
 
         List<Frame> frames() {
             return parse(endpoint.getAllBytes());
+        }
+
+        /**
+         * HPACK-decodes, in wire order and with a fresh client decoder, every
+         * HEADERS and PUSH_PROMISE frame the server has sent so far.
+         */
+        List<Decoded> decodedHeaderFrames() {
+            Decoder decoder = new Decoder(4096, 65536);
+            List<Decoded> out = new ArrayList<Decoded>();
+            List<Frame> frames = frames();
+            for (int i = 0; i < frames.size(); i++) {
+                Frame f = frames.get(i);
+                if (f.type != 1 && f.type != 5) {
+                    continue;
+                }
+                int pos = 0;
+                int end = f.payload.length;
+                if ((f.flags & 0x8) != 0) {
+                    end -= (f.payload[0] & 0xff);
+                    pos = 1;
+                }
+                Decoded d = new Decoded();
+                d.type = f.type;
+                d.flags = f.flags;
+                d.streamId = f.streamId;
+                if (f.type == 5) {
+                    d.promisedStreamId = ((f.payload[pos] & 0x7f) << 24)
+                            | ((f.payload[pos + 1] & 0xff) << 16)
+                            | ((f.payload[pos + 2] & 0xff) << 8) | (f.payload[pos + 3] & 0xff);
+                    pos += 4;
+                } else if ((f.flags & 0x20) != 0) {
+                    pos += 5;
+                }
+                final Decoded target = d;
+                try {
+                    decoder.decode(ByteBuffer.wrap(f.payload, pos, end - pos), new HeaderFieldHandler() {
+                        @Override
+                        public void field(ByteBuffer name, ByteBuffer value) {
+                            target.fields.add(new String[] {
+                                    StandardCharsets.ISO_8859_1.decode(name.duplicate()).toString(),
+                                    StandardCharsets.ISO_8859_1.decode(value.duplicate()).toString() });
+                        }
+                    });
+                } catch (java.io.IOException e) {
+                    throw new IllegalStateException(e);
+                }
+                out.add(d);
+            }
+            return out;
+        }
+
+        /** The decoded HEADERS frames (not PUSH_PROMISE) of one stream. */
+        List<Decoded> responseHeaderFrames(int streamId) {
+            List<Decoded> out = new ArrayList<Decoded>();
+            List<Decoded> all = decodedHeaderFrames();
+            for (int i = 0; i < all.size(); i++) {
+                if (all.get(i).type == 1 && all.get(i).streamId == streamId) {
+                    out.add(all.get(i));
+                }
+            }
+            return out;
         }
     }
 
@@ -1302,5 +1392,236 @@ public class HttpProtocolHandlerH2WireTest {
         static void check(HttpProtocolHandler h) {
             assertNotNull(h.h2PriorityOf(1));
         }
+    }
+
+    // ------------------------------------------------------------------
+    // the response events as HEADERS, DATA and PUSH_PROMISE frames
+
+    private static Conn scripted(Script script) {
+        Conn c = new Conn();
+        c.app.script = script;
+        c.handshake();
+        c.request(1, "GET", "/r", true);
+        return c;
+    }
+
+    @Test
+    public void testResponseStatusDefaultsTo200() {
+        Conn c = scripted(new Script() {
+            @Override
+            public void run(HttpResponse r) {
+                r.header("x-a", "b");
+                r.endMessage();
+            }
+        });
+        List<Decoded> headers = c.responseHeaderFrames(1);
+        assertEquals(1, headers.size());
+        assertEquals("200", headers.get(0).get(":status"));
+        assertEquals("b", headers.get(0).get("x-a"));
+        assertTrue("a response with no body ends with its header section",
+                headers.get(0).endStream());
+        assertEquals(0, count(c.frames(), 0));
+    }
+
+    @Test
+    public void testTypedFieldsAreFormattedAsFieldValues() {
+        Conn c = scripted(new Script() {
+            @Override
+            public void run(HttpResponse r) {
+                r.status(200);
+                r.longHeader("content-length", 2L);
+                r.dateHeader("last-modified", java.time.Instant.ofEpochSecond(0L));
+                r.contentType(new org.bluezoo.gumdrop.mime.ContentType("text", "plain", null));
+                r.bodyContent(ByteBuffer.wrap(new byte[] {'o', 'k'}));
+                r.endMessage();
+            }
+        });
+        Decoded h = c.responseHeaderFrames(1).get(0);
+        // the HTTP/1 framing fields are stripped from HTTP/2 responses (HttpVersion)
+        assertNull(h.get("content-length"));
+        assertEquals("Thu, 01 Jan 1970 00:00:00 GMT", h.get("last-modified"));
+        assertTrue(h.get("content-type"), h.get("content-type").startsWith("text/plain"));
+        assertFalse(h.endStream());
+        assertEquals(2, dataBytes(c.frames(), 1));
+    }
+
+    @Test
+    public void testEndHeadersSendsTheHeaderSectionBeforeAnyBody() {
+        Conn c = scripted(new Script() {
+            @Override
+            public void run(HttpResponse r) {
+                r.status(200);
+                r.header("content-type", "text/event-stream");
+                r.endHeaders();
+                // the body and the end of the message have not been given
+            }
+        });
+        List<Decoded> headers = c.responseHeaderFrames(1);
+        assertEquals(1, headers.size());
+        assertEquals("200", headers.get(0).get(":status"));
+        assertEquals("text/event-stream", headers.get(0).get("content-type"));
+        assertFalse("the stream stays open for the body", headers.get(0).endStream());
+        assertEquals(0, count(c.frames(), 0));
+    }
+
+    @Test
+    public void testStatusOnlyResponseEndsTheStreamWithTheHeaderSection() {
+        Conn c = scripted(new Script() {
+            @Override
+            public void run(HttpResponse r) {
+                r.status(204);
+                r.endMessage();
+            }
+        });
+        List<Decoded> headers = c.responseHeaderFrames(1);
+        assertEquals(1, headers.size());
+        assertEquals("204", headers.get(0).get(":status"));
+        assertTrue(headers.get(0).endStream());
+        assertEquals(0, count(c.frames(), 0));
+    }
+
+    @Test
+    public void testInterimResponseIsFollowedByTheFinalResponse() {
+        Conn c = scripted(new Script() {
+            @Override
+            public void run(HttpResponse r) {
+                r.status(103);
+                r.header("link", "</style.css>; rel=preload");
+                r.endHeaders();
+                r.status(200);
+                r.bodyContent(ByteBuffer.wrap(new byte[] {'o', 'k'}));
+                r.endMessage();
+            }
+        });
+        List<Decoded> headers = c.responseHeaderFrames(1);
+        assertEquals(2, headers.size());
+        assertEquals("103", headers.get(0).get(":status"));
+        assertEquals("</style.css>; rel=preload", headers.get(0).get("link"));
+        assertFalse(headers.get(0).endStream());
+        assertEquals("200", headers.get(1).get(":status"));
+        assertNull("interim fields must not leak into the final response",
+                headers.get(1).get("link"));
+        assertEquals(2, dataBytes(c.frames(), 1));
+    }
+
+    @Test
+    public void testFieldAfterTheBodyIsAFinalHeadersFrameThatEndsTheStream() {
+        Conn c = scripted(new Script() {
+            @Override
+            public void run(HttpResponse r) {
+                r.status(200);
+                r.bodyContent(ByteBuffer.wrap(new byte[] {'o', 'k'}));
+                r.header("x-checksum", "42");
+                r.endMessage();
+            }
+        });
+        List<Decoded> headers = c.responseHeaderFrames(1);
+        assertEquals(2, headers.size());
+        assertFalse(headers.get(0).endStream());
+        Decoded trailers = headers.get(1);
+        assertTrue("the trailer section ends the stream", trailers.endStream());
+        assertEquals("42", trailers.get("x-checksum"));
+        assertNull("RFC 9113 section 8.1: no pseudo-header field in trailers",
+                trailers.get(":status"));
+        for (int i = 0; i < c.frames().size(); i++) {
+            Frame f = c.frames().get(i);
+            if (f.type == 0 && f.streamId == 1) {
+                assertEquals("DATA must not carry END_STREAM before the trailers", 0, f.flags & 1);
+            }
+        }
+    }
+
+    @Test
+    public void testMisuseOfTheResponseEventsIsRejected() {
+        final RuntimeException[] thrown = new RuntimeException[4];
+        Conn c = scripted(new Script() {
+            @Override
+            public void run(HttpResponse r) {
+                r.status(200);
+                try {
+                    r.header("x-custom", "caf\u00e9");
+                } catch (IllegalArgumentException e) {
+                    thrown[0] = e;
+                }
+                r.bodyContent(ByteBuffer.wrap(new byte[] {'o', 'k'}));
+                try {
+                    r.header("content-length", "2");
+                } catch (IllegalArgumentException e) {
+                    thrown[1] = e;
+                }
+                r.header("x-checksum", "42");
+                try {
+                    r.bodyContent(ByteBuffer.wrap(new byte[] {'!'}));
+                } catch (IllegalStateException e) {
+                    thrown[2] = e;
+                }
+                r.endMessage();
+                r.endMessage();
+                try {
+                    r.header("x-late", "1");
+                } catch (IllegalStateException e) {
+                    thrown[3] = e;
+                }
+            }
+        });
+        assertNotNull("non-ASCII value", thrown[0]);
+        assertNotNull("forbidden trailer name", thrown[1]);
+        assertNotNull("body after a trailer", thrown[2]);
+        assertNotNull("field after endMessage", thrown[3]);
+        // the second endMessage sent nothing more: one response, one trailer section
+        assertEquals(2, c.responseHeaderFrames(1).size());
+    }
+
+    @Test
+    public void testPushPromiseCarriesThePromisedRequest() {
+        Conn c = scripted(new Script() {
+            @Override
+            public void run(HttpResponse r) {
+                r.startPushPromise(HttpMethod.GET, "/pushed");
+                r.header("accept", "text/css");
+                boolean ok = r.endPushPromise();
+                if (!ok) {
+                    throw new IllegalStateException("push refused");
+                }
+                r.status(200);
+                r.endMessage();
+            }
+        });
+        Decoded promise = null;
+        List<Decoded> all = c.decodedHeaderFrames();
+        for (int i = 0; i < all.size(); i++) {
+            if (all.get(i).type == 5) {
+                promise = all.get(i);
+            }
+        }
+        assertNotNull("expected a PUSH_PROMISE frame", promise);
+        assertEquals(1, promise.streamId);
+        assertTrue(promise.promisedStreamId > 0 && promise.promisedStreamId % 2 == 0);
+        assertEquals("GET", promise.get(":method"));
+        assertEquals("https", promise.get(":scheme"));
+        assertEquals("h.test", promise.get(":authority"));
+        assertEquals("/pushed", promise.get(":path"));
+        assertEquals("text/css", promise.get("accept"));
+    }
+
+    @Test
+    public void testPushPromiseReturnsFalseWhenThePeerDisabledPush() {
+        final boolean[] result = new boolean[] {true};
+        Conn c = new Conn();
+        c.app.script = new Script() {
+            @Override
+            public void run(HttpResponse r) {
+                r.startPushPromise(HttpMethod.GET, "/pushed");
+                result[0] = r.endPushPromise();
+                r.status(204);
+                r.endMessage();
+            }
+        };
+        c.open();
+        c.send(PREFACE);
+        c.send(frame(4, 0, 0, setting(2, 0)));
+        c.request(1, "GET", "/r", true);
+        assertFalse(result[0]);
+        assertEquals(0, count(c.frames(), 5));
     }
 }

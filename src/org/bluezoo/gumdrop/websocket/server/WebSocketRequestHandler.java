@@ -347,10 +347,8 @@ public final class WebSocketRequestHandler implements HttpStreamHandler {
         }
 
         private void sendError(HttpStatus status) {
-            Headers fields = new Headers();
-            fields.status(status);
-            response.headers(fields);
-            response.complete();
+            response.status(status.code);
+            response.endMessage();
         }
     }
 

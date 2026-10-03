@@ -21,15 +21,16 @@
 
 package org.bluezoo.gumdrop.servlet;
 
-import org.bluezoo.gumdrop.http.Headers;
-
 import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpSession;
 import jakarta.servlet.http.PushBuilder;
 
+import java.util.ArrayList;
 import java.util.Enumeration;
 import java.util.HashSet;
+import java.util.Iterator;
+import java.util.List;
 import java.util.Set;
 
 /**
@@ -66,7 +67,8 @@ class ServletPushBuilder implements PushBuilder {
 
     private final ServletHandler handler;
     private final Request request;
-    private final Headers headers;
+    // Push request fields as {name, value} pairs, in insertion order
+    private final List<String[]> headers;
 
     private String method = "GET";
     private String path;
@@ -82,7 +84,7 @@ class ServletPushBuilder implements PushBuilder {
     ServletPushBuilder(ServletHandler handler, Request request) {
         this.handler = handler;
         this.request = request;
-        this.headers = new Headers();
+        this.headers = new ArrayList<String[]>();
 
         // Copy headers from original request (excluding certain headers per spec)
         Enumeration<String> headerNames = request.getHeaderNames();
@@ -92,7 +94,7 @@ class ServletPushBuilder implements PushBuilder {
             if (!EXCLUDED_HEADERS.contains(lowerName)) {
                 Enumeration<String> values = request.getHeaders(name);
                 while (values.hasMoreElements()) {
-                    headers.add(name, values.nextElement());
+                    headers.add(new String[] { name, values.nextElement() });
                 }
             }
         }
@@ -104,7 +106,7 @@ class ServletPushBuilder implements PushBuilder {
             requestUrl.append('?');
             requestUrl.append(qs);
         }
-        headers.set("Referer", requestUrl.toString());
+        setField("Referer", requestUrl.toString());
 
         // Copy session ID if using URL rewriting
         HttpSession session = request.getSession(false);
@@ -144,7 +146,7 @@ class ServletPushBuilder implements PushBuilder {
         if (name == null) {
             throw new NullPointerException("header name must not be null");
         }
-        headers.set(name, value);
+        setField(name, value);
         return this;
     }
 
@@ -153,14 +155,14 @@ class ServletPushBuilder implements PushBuilder {
         if (name == null) {
             throw new NullPointerException("header name must not be null");
         }
-        headers.add(name, value);
+        headers.add(new String[] { name, value });
         return this;
     }
 
     @Override
     public PushBuilder removeHeader(String name) {
         if (name != null) {
-            headers.remove(name);
+            removeField(name);
         }
         return this;
     }
@@ -220,15 +222,20 @@ class ServletPushBuilder implements PushBuilder {
     @Override
     public Set<String> getHeaderNames() {
         Set<String> names = new HashSet<String>();
-        for (int i = 0; i < headers.size(); i++) {
-            names.add(headers.get(i).getName());
+        for (String[] field : headers) {
+            names.add(field[0]);
         }
         return names;
     }
 
     @Override
     public String getHeader(String name) {
-        return headers.getValue(name);
+        for (String[] field : headers) {
+            if (field[0].equalsIgnoreCase(name)) {
+                return field[1];
+            }
+        }
+        return null;
     }
 
     @Override
@@ -236,5 +243,18 @@ class ServletPushBuilder implements PushBuilder {
         return path;
     }
 
-}
+    private void removeField(String name) {
+        Iterator<String[]> it = headers.iterator();
+        while (it.hasNext()) {
+            if (it.next()[0].equalsIgnoreCase(name)) {
+                it.remove();
+            }
+        }
+    }
 
+    private void setField(String name, String value) {
+        removeField(name);
+        headers.add(new String[] { name, value });
+    }
+
+}

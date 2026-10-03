@@ -98,10 +98,12 @@ public class RequestApiTest {
     private static final class StubState implements HttpResponse {
         boolean secure;
         boolean push = true;
-        final List<Headers> pushed = new ArrayList<Headers>();
-        Headers sent;
+        final List<String> pushed = new ArrayList<String>();
+        final List<String[]> sentFields = new ArrayList<String[]>();
+        boolean sent;
         boolean completed;
         int status;
+        String pending;
 
         @Override public SocketAddress getRemoteAddress() {
             return new java.net.InetSocketAddress("127.0.0.1", 40000);
@@ -115,23 +117,33 @@ public class RequestApiTest {
         @Override public String getScheme() { return secure ? "https" : "http"; }
         @Override public SelectorLoop getSelectorLoop() { return null; }
         @Override public java.security.Principal getPrincipal() { return null; }
-        @Override public void headers(Headers headers) {
-            if (sent == null) {
-                sent = headers;
-                String s = headers.getValue(":status");
-                status = s == null ? 0 : Integer.parseInt(s);
+        @Override public void status(int code) {
+            if (code >= 200 && !sent) {
+                sent = true;
+                status = code;
             }
         }
-        @Override public void startResponseBody() { }
-        @Override public void responseBodyContent(ByteBuffer data) { }
-        @Override public void endResponseBody() { }
-        @Override public void complete() { completed = true; }
+        @Override public void header(String name, String value) {
+            sentFields.add(new String[] { name, value });
+        }
+        @Override public void endHeaders() { }
+        @Override public void bodyContent(ByteBuffer data) { }
+        @Override public void endMessage() {
+            if (!sent) {
+                sent = true;
+                status = 200;
+            }
+            completed = true;
+        }
         @Override public void execute(Runnable task) { task.run(); }
         @Override public void onWritable(Runnable callback) { }
         @Override public void pauseRequestBody() { }
         @Override public void resumeRequestBody() { }
-        @Override public boolean pushPromise(Headers headers) {
-            pushed.add(headers);
+        @Override public void startPushPromise(org.bluezoo.gumdrop.http.HttpMethod method, String target) {
+            pending = target;
+        }
+        @Override public boolean endPushPromise() {
+            pushed.add(pending);
             return push;
         }
         @Override public void upgradeToWebSocket(String protocol, WebSocketEventHandler handler) { }

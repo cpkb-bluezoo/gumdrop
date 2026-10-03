@@ -134,6 +134,7 @@ when the body is complete:
 <pre>
 import org.bluezoo.gonzalez.Parser;
 import org.bluezoo.gumdrop.http.*;
+import org.bluezoo.gumdrop.mime.ContentType;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -218,25 +219,17 @@ class XmlEchoHandler extends DefaultHttpRequestHandler {
         xml.writeEndElement();
         xml.close();
 
-        Headers headers = new Headers();
-        headers.status(HttpStatus.OK);
-        headers.add("content-type", "application/xml");
-        response.headers(headers);
-        response.startResponseBody();
-        response.responseBodyContent(ByteBuffer.wrap(baos.toByteArray()));
-        response.endResponseBody();
-        response.complete();
+        response.status(200);
+        response.contentType(new ContentType("application", "xml", null));
+        response.bodyContent(ByteBuffer.wrap(baos.toByteArray()));
+        response.endMessage();
     }
 
     private void sendError(int code, String message) {
-        Headers headers = new Headers();
-        headers.status(HttpStatus.fromCode(code));
-        headers.add("content-type", "text/plain");
-        response.headers(headers);
-        response.startResponseBody();
-        response.responseBodyContent(ByteBuffer.wrap(message.getBytes(UTF_8)));
-        response.endResponseBody();
-        response.complete();
+        response.status(code);
+        response.contentType(new ContentType("text", "plain", null));
+        response.bodyContent(ByteBuffer.wrap(message.getBytes(UTF_8)));
+        response.endMessage();
     }
 }
 </pre>
@@ -381,6 +374,7 @@ import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.http.*;
 import org.bluezoo.gumdrop.http.client.*;
+import org.bluezoo.gumdrop.mime.ContentType;
 import org.bluezoo.json.*;
 
 import java.nio.ByteBuffer;
@@ -528,25 +522,17 @@ class LookupHandler extends DefaultHttpRequestHandler {
 
     private void sendJsonResponse(String result) {
         String json = "{\"result\":\"" + escapeJson(result != null ? result : "") + "\"}";
-        Headers responseHeaders = new Headers();
-        responseHeaders.status(HttpStatus.OK);
-        responseHeaders.add("content-type", "application/json");
-        response.headers(responseHeaders);
-        response.startResponseBody();
-        response.responseBodyContent(ByteBuffer.wrap(json.getBytes(UTF_8)));
-        response.endResponseBody();
-        response.complete();
+        response.status(200);
+        response.contentType(new ContentType("application", "json", null));
+        response.bodyContent(ByteBuffer.wrap(json.getBytes(UTF_8)));
+        response.endMessage();
     }
 
     private void sendError(int code, String message) {
-        Headers responseHeaders = new Headers();
-        responseHeaders.status(HttpStatus.fromCode(code));
-        responseHeaders.add("content-type", "text/plain");
-        response.headers(responseHeaders);
-        response.startResponseBody();
-        response.responseBodyContent(ByteBuffer.wrap(message.getBytes(UTF_8)));
-        response.endResponseBody();
-        response.complete();
+        response.status(code);
+        response.contentType(new ContentType("text", "plain", null));
+        response.bodyContent(ByteBuffer.wrap(message.getBytes(UTF_8)));
+        response.endMessage();
     }
 
     private static String escapeJson(String s) {
@@ -673,8 +659,8 @@ HttpServer lookup = HttpServer.compose()
 <li>Call <code>client.setTrace(response.getTrace())</code> before
     <code>connect()</code> to propagate the distributed trace to downstream
     services (traceparent header is added automatically)</li>
-<li>Stream response bodies with <code>response.responseBodyContent(ByteBuffer)</code>
-    and always call <code>response.complete()</code></li>
+<li>Stream response bodies with <code>response.bodyContent(ByteBuffer)</code>
+    and always call <code>response.endMessage()</code></li>
 <li>Call <code>gumdrop.join()</code> after <code>start()</code> so the main
     thread blocks until shutdown (Ctrl+C)</li>
 </ul>

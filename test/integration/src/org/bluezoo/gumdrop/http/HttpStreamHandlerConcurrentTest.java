@@ -214,16 +214,13 @@ public class HttpStreamHandlerConcurrentTest {
 
         @Override
         public void endRequestBody(HttpResponse state) {
-            Headers response = new Headers();
-            response.add(":status", "200");
-            response.add("content-type", "text/plain");
-            state.headers(response);
-            state.startResponseBody();
+            state.status(200);
+            state.header("content-type", "text/plain");
+            state.endHeaders();
             String payload = path + ":" + body;
-            state.responseBodyContent(
+            state.bodyContent(
                     ByteBuffer.wrap(payload.getBytes(StandardCharsets.UTF_8)));
-            state.endResponseBody();
-            state.complete();
+            state.endMessage();
         }
     }
 

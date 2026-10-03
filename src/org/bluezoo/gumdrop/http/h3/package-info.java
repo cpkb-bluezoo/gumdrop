@@ -40,8 +40,9 @@
  *
  * <h2>103 Early Hints (RFC 8297)</h2>
  *
- * <p>{@link org.bluezoo.gumdrop.http.h3.H3Stream#sendInformational} sends
- * 1xx informational responses before the final response, exactly as the
+ * <p>A 1xx {@link org.bluezoo.gumdrop.http.h3.H3Stream#status}
+ * followed by {@link org.bluezoo.gumdrop.http.h3.H3Stream#endHeaders} sends
+ * an informational response before the final response, exactly as the
  * HTTP/1.1 and HTTP/2 implementations do.
  *
  * <h2>Extended CONNECT (RFC 9220)</h2>

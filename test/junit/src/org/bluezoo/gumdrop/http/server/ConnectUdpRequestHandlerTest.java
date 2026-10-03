@@ -37,6 +37,7 @@ import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.http.ConnectUdpTarget;
 import org.bluezoo.gumdrop.http.Header;
 import org.bluezoo.gumdrop.http.Headers;
+import org.bluezoo.gumdrop.testsupport.ResponseRecorder;
 import org.bluezoo.gumdrop.http.HttpVersion;
 import org.bluezoo.gumdrop.websocket.WebSocketEventHandler;
 import org.bluezoo.gumdrop.testsupport.MessageEvents;
@@ -51,7 +52,7 @@ import org.junit.Test;
 public class ConnectUdpRequestHandlerTest {
 
     private static final class State implements HttpResponse {
-        Headers sent;
+        final ResponseRecorder sent = new ResponseRecorder();
         boolean completed;
         HttpVersion version = HttpVersion.HTTP_3;
 
@@ -63,16 +64,17 @@ public class ConnectUdpRequestHandlerTest {
         @Override public String getScheme() { return "https"; }
         @Override public SelectorLoop getSelectorLoop() { return null; }
         @Override public Principal getPrincipal() { return null; }
-        @Override public void headers(Headers headers) { sent = headers; }
-        @Override public void startResponseBody() { }
-        @Override public void responseBodyContent(ByteBuffer data) { }
-        @Override public void endResponseBody() { }
-        @Override public void complete() { completed = true; }
+        @Override public void status(int code) { sent.status(code); }
+        @Override public void header(String name, String value) { sent.header(name, value); }
+        @Override public void endHeaders() { sent.endHeaders(); }
+        @Override public void bodyContent(ByteBuffer data) { sent.bodyContent(); }
+        @Override public void endMessage() { sent.endMessage(); completed = true; }
         @Override public void execute(Runnable task) { task.run(); }
         @Override public void onWritable(Runnable callback) { }
         @Override public void pauseRequestBody() { }
         @Override public void resumeRequestBody() { }
-        @Override public boolean pushPromise(Headers headers) { return false; }
+        @Override public void startPushPromise(org.bluezoo.gumdrop.http.HttpMethod method, String target) { }
+        @Override public boolean endPushPromise() { return false; }
         @Override public void upgradeToWebSocket(String subprotocol, WebSocketEventHandler handler) { }
         @Override public void cancel() { }
     }

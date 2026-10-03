@@ -90,6 +90,6 @@ public final class ConnectIpSession {
      * Closes this tunnel.
      */
     public void close() {
-        response.complete();
+        response.endMessage();
     }
 }

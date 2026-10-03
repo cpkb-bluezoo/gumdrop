@@ -112,6 +112,18 @@ public interface HttpRequest {
     void header(String name, String value);
 
     /**
+     * Adds a field whose value is raw octets (ISO-8859-1).
+     *
+     * @param name the field name
+     * @param value the field value
+     */
+    default void header(String name, ByteBuffer value) {
+        byte[] b = new byte[value.remaining()];
+        value.duplicate().get(b);
+        header(name, new String(b, java.nio.charset.StandardCharsets.ISO_8859_1));
+    }
+
+    /**
      * Adds a field whose value is a number, such as {@code Content-Length}.
      *
      * @param name the field name

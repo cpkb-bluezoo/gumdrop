@@ -683,48 +683,39 @@ class FileHandler extends DefaultHttpRequestHandler {
         }
 
         if (plan.listingHtml != null) {
-            Headers fields = new Headers();
-            fields.status(HttpStatus.OK);
-            fields.add("Content-Type", "text/html; charset=utf-8");
-            fields.add("Content-Length",
-                    String.valueOf(plan.listingHtml.length));
-            response.headers(fields);
-            response.startResponseBody();
-            response.responseBodyContent(ByteBuffer.wrap(plan.listingHtml));
-            response.endResponseBody();
-            response.complete();
+            response.status(HttpStatus.OK.code);
+            response.header("Content-Type", "text/html; charset=utf-8");
+            response.longHeader("Content-Length", plan.listingHtml.length);
+            response.bodyContent(ByteBuffer.wrap(plan.listingHtml));
+            response.endMessage();
             return;
         }
 
         if (plan.notModified) {
-            Headers fields = new Headers();
-            fields.status(HttpStatus.NOT_MODIFIED);
-            fields.add("Last-Modified", dateFormat.format(plan.lastModified));
+            response.status(HttpStatus.NOT_MODIFIED.code);
+            response.header("Last-Modified", dateFormat.format(plan.lastModified));
             if (plan.entityTag != null) {
-                fields.add("ETag", plan.entityTag);
+                response.header("ETag", plan.entityTag);
             }
-            response.headers(fields);
-            response.complete();
+            response.endMessage();
             return;
         }
 
-        Headers fields = new Headers();
-        fields.status(HttpStatus.OK);
-        fields.add("Last-Modified", dateFormat.format(plan.lastModified));
+        response.status(HttpStatus.OK.code);
+        response.header("Last-Modified", dateFormat.format(plan.lastModified));
         if (plan.entityTag != null) {
-            fields.add("ETag", plan.entityTag);
+            response.header("ETag", plan.entityTag);
         }
-        fields.add("Content-Type", plan.contentType);
-        fields.add("Content-Length", Long.toString(plan.size));
-        response.headers(fields);
+        response.header("Content-Type", plan.contentType);
+        response.longHeader("Content-Length", plan.size);
 
         if ("GET".equals(method)) {
             if (plan.size > 0 && plan.channel != null) {
                 asyncReadChannel = plan.channel;
                 readPosition = 0;
-                response.startResponseBody();
+                response.endHeaders();
                 readNextChunk(response);
-                // endResponseBody()/complete() invoked from readNextChunk
+                // endMessage() invoked from readNextChunk
             } else {
                 if (plan.channel != null) {
                     try {
@@ -733,7 +724,7 @@ class FileHandler extends DefaultHttpRequestHandler {
                         // ignore
                     }
                 }
-                response.complete();
+                response.endMessage();
             }
         } else {
             if (plan.channel != null) {
@@ -743,7 +734,7 @@ class FileHandler extends DefaultHttpRequestHandler {
                     // ignore
                 }
             }
-            response.complete();
+            response.endMessage();
         }
     }
 
@@ -761,8 +752,7 @@ class FileHandler extends DefaultHttpRequestHandler {
                     response.execute(new Runnable() {
                         @Override
                         public void run() {
-                            response.endResponseBody();
-                            response.complete();
+                            response.endMessage();
                         }
                     });
                     return;
@@ -773,7 +763,7 @@ class FileHandler extends DefaultHttpRequestHandler {
                     public void run() {
                         attachment.flip();
                         if (attachment.hasRemaining()) {
-                            response.responseBodyContent(attachment);
+                            response.bodyContent(attachment);
                         }
                         ByteBufferPool.release(attachment);
                         response.onWritable(new Runnable() {
@@ -814,16 +804,14 @@ class FileHandler extends DefaultHttpRequestHandler {
 
     /** RFC 9110 §9.3.7 (OPTIONS); RFC 4918 §18 (DAV header, compliance classes 1,2). */
     private void handleOptions(HttpResponse response) {
-        Headers fields = new Headers();
-        fields.status(HttpStatus.OK);
-        fields.add("Allow", allowedOptions);
+        response.status(HttpStatus.OK.code);
+        response.header("Allow", allowedOptions);
         if (webdavEnabled) {
             // RFC 3744 §2: servers supporting the ACL extension MUST
             // include "access-control" as a field in this header.
-            fields.add(DavConstants.HEADER_DAV, aclEnabled ? "1,2,access-control" : "1,2");
+            response.header(DavConstants.HEADER_DAV, aclEnabled ? "1,2,access-control" : "1,2");
         }
-        response.headers(fields);
-        response.complete();
+        response.endMessage();
     }
 
     /**
@@ -940,10 +928,8 @@ class FileHandler extends DefaultHttpRequestHandler {
             return;
         }
         if (plan.status == HttpStatus.NO_CONTENT) {
-            Headers fields = new Headers();
-            fields.status(HttpStatus.NO_CONTENT);
-            response.headers(fields);
-            response.complete();
+            response.status(HttpStatus.NO_CONTENT.code);
+            response.endMessage();
         } else {
             sendError(response, plan.status);
         }
@@ -1031,15 +1017,11 @@ class FileHandler extends DefaultHttpRequestHandler {
         xml.close();
 
         byte[] body = baos.toByteArray();
-        Headers fields = new Headers();
-        fields.status(HttpStatus.MULTI_STATUS);
-        fields.add("Content-Type", DavConstants.CONTENT_TYPE_XML);
-        fields.add("Content-Length", String.valueOf(body.length));
-        response.headers(fields);
-        response.startResponseBody();
-        response.responseBodyContent(ByteBuffer.wrap(body));
-        response.endResponseBody();
-        response.complete();
+        response.status(HttpStatus.MULTI_STATUS.code);
+        response.header("Content-Type", DavConstants.CONTENT_TYPE_XML);
+        response.longHeader("Content-Length", body.length);
+        response.bodyContent(ByteBuffer.wrap(body));
+        response.endMessage();
     }
 
     /**
@@ -1174,11 +1156,9 @@ class FileHandler extends DefaultHttpRequestHandler {
 
         HttpStatus status = fileExistedBeforePut ? HttpStatus.NO_CONTENT : HttpStatus.CREATED;
 
-        Headers fields = new Headers();
-        fields.status(status);
-        fields.add("Content-Length", "0");
-        response.headers(fields);
-        response.complete();
+        response.status(status.code);
+        response.longHeader("Content-Length", 0);
+        response.endMessage();
 
         LOGGER.info(MessageFormat.format(L10N.getString("info.put_completed"), path));
     }
@@ -1306,10 +1286,8 @@ class FileHandler extends DefaultHttpRequestHandler {
     private void emitWriteResult(HttpResponse response, HttpStatus status) {
         if (status == HttpStatus.CREATED || status == HttpStatus.NO_CONTENT
                 || status == HttpStatus.OK) {
-            Headers fields = new Headers();
-            fields.status(status);
-            response.headers(fields);
-            response.complete();
+            response.status(status.code);
+            response.endMessage();
         } else {
             sendError(response, status);
         }
@@ -1627,10 +1605,8 @@ class FileHandler extends DefaultHttpRequestHandler {
             @Override
             public void completed(Boolean unlocked) {
                 if (unlocked.booleanValue()) {
-                    Headers fields = new Headers();
-                    fields.status(HttpStatus.NO_CONTENT);
-                    response.headers(fields);
-                    response.complete();
+                    response.status(HttpStatus.NO_CONTENT.code);
+                    response.endMessage();
                     LOGGER.info(MessageFormat.format(L10N.getString("info.unlocked"), path));
                 } else {
                     sendError(response, HttpStatus.CONFLICT);
@@ -1844,17 +1820,12 @@ class FileHandler extends DefaultHttpRequestHandler {
             xml.close();
 
             byte[] body = baos.toByteArray();
-            Headers fields = new Headers();
-            fields.status(HttpStatus.MULTI_STATUS);
-            fields.add("Content-Type",
+            response.status(HttpStatus.MULTI_STATUS.code);
+            response.header("Content-Type",
                     DavConstants.CONTENT_TYPE_XML);
-            fields.add("Content-Length",
-                    String.valueOf(body.length));
-            response.headers(fields);
-            response.startResponseBody();
-            response.responseBodyContent(ByteBuffer.wrap(body));
-            response.endResponseBody();
-            response.complete();
+            response.longHeader("Content-Length", body.length);
+            response.bodyContent(ByteBuffer.wrap(body));
+            response.endMessage();
         } catch (IOException e) {
             LOGGER.log(Level.SEVERE, L10N.getString("severe.propfind_response_error"), e);
         }
@@ -2341,17 +2312,12 @@ class FileHandler extends DefaultHttpRequestHandler {
             xml.close();
 
             byte[] body = baos.toByteArray();
-            Headers fields = new Headers();
-            fields.status(HttpStatus.MULTI_STATUS);
-            fields.add("Content-Type",
+            response.status(HttpStatus.MULTI_STATUS.code);
+            response.header("Content-Type",
                     DavConstants.CONTENT_TYPE_XML);
-            fields.add("Content-Length",
-                    String.valueOf(body.length));
-            response.headers(fields);
-            response.startResponseBody();
-            response.responseBodyContent(ByteBuffer.wrap(body));
-            response.endResponseBody();
-            response.complete();
+            response.longHeader("Content-Length", body.length);
+            response.bodyContent(ByteBuffer.wrap(body));
+            response.endMessage();
         } catch (IOException e) {
             LOGGER.log(Level.SEVERE, L10N.getString("severe.proppatch_response_error"), e);
         }
@@ -2404,15 +2370,11 @@ class FileHandler extends DefaultHttpRequestHandler {
         xml.close();
 
         byte[] body = baos.toByteArray();
-        Headers fields = new Headers();
-        fields.status(HttpStatus.MULTI_STATUS);
-        fields.add("Content-Type", DavConstants.CONTENT_TYPE_XML);
-        fields.add("Content-Length", String.valueOf(body.length));
-        response.headers(fields);
-        response.startResponseBody();
-        response.responseBodyContent(ByteBuffer.wrap(body));
-        response.endResponseBody();
-        response.complete();
+        response.status(HttpStatus.MULTI_STATUS.code);
+        response.header("Content-Type", DavConstants.CONTENT_TYPE_XML);
+        response.longHeader("Content-Length", body.length);
+        response.bodyContent(ByteBuffer.wrap(body));
+        response.endMessage();
     }
 
     /**
@@ -2539,16 +2501,12 @@ class FileHandler extends DefaultHttpRequestHandler {
         xml.close();
         
         byte[] body = baos.toByteArray();
-        Headers fields = new Headers();
-        fields.status(created ? HttpStatus.CREATED : HttpStatus.OK);
-        fields.add("Content-Type", DavConstants.CONTENT_TYPE_XML);
-        fields.add("Content-Length", String.valueOf(body.length));
-        fields.add(DavConstants.HEADER_LOCK_TOKEN, "<" + lock.getToken() + ">");
-        response.headers(fields);
-        response.startResponseBody();
-        response.responseBodyContent(ByteBuffer.wrap(body));
-        response.endResponseBody();
-        response.complete();
+        response.status((created ? HttpStatus.CREATED : HttpStatus.OK).code);
+        response.header("Content-Type", DavConstants.CONTENT_TYPE_XML);
+        response.longHeader("Content-Length", body.length);
+        response.header(DavConstants.HEADER_LOCK_TOKEN, "<" + lock.getToken() + ">");
+        response.bodyContent(ByteBuffer.wrap(body));
+        response.endMessage();
         LOGGER.info(MessageFormat.format(L10N.getString("info.locked"), path, lock.getToken()));
     }
 
@@ -3147,11 +3105,9 @@ class FileHandler extends DefaultHttpRequestHandler {
     }
 
     private void sendError(HttpResponse response, HttpStatus status) {
-        Headers fields = new Headers();
-        fields.status(status);
-        fields.add("Content-Length", "0");
-        response.headers(fields);
-        response.complete();
+        response.status(status.code);
+        response.longHeader("Content-Length", 0);
+        response.endMessage();
     }
 
     // ─────────────────────────────────────────────────────────────────────────

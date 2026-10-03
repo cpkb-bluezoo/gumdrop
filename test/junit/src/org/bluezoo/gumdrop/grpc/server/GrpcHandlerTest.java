@@ -37,7 +37,7 @@ import org.bluezoo.gumdrop.grpc.proto.ProtoMessageHandler;
 import org.bluezoo.gumdrop.grpc.proto.ProtoModelSerializer;
 import org.bluezoo.gumdrop.grpc.proto.ProtoParseException;
 import org.bluezoo.gumdrop.grpc.proto.RpcDescriptor;
-import org.bluezoo.gumdrop.http.Headers;
+import org.bluezoo.gumdrop.testsupport.ResponseRecorder;
 import org.bluezoo.gumdrop.http.HttpStatus;
 import org.bluezoo.gumdrop.http.HttpVersion;
 import org.bluezoo.gumdrop.http.server.HttpResponse;
@@ -144,9 +144,8 @@ public class GrpcHandlerTest {
         assertEquals(HttpStatus.BAD_REQUEST, statusOf(state.headers));
     }
 
-    private static HttpStatus statusOf(Headers headers) {
-        String code = headers.getValue(":status");
-        return code != null ? HttpStatus.fromCode(Integer.parseInt(code)) : null;
+    private static HttpStatus statusOf(ResponseRecorder headers) {
+        return headers.isStarted() ? HttpStatus.fromCode(headers.getStatus()) : null;
     }
 
     private static ByteBuffer encodeEchoRequest(String message, int repeatCount) throws Exception {
@@ -191,21 +190,28 @@ public class GrpcHandlerTest {
     };
 
     private static final class CapturingState implements HttpResponse {
-        Headers headers;
+        final ResponseRecorder headers = new ResponseRecorder();
         final ByteArrayOutputStream body = new ByteArrayOutputStream();
         int completeCount;
 
         @Override
-        public void headers(Headers headers) {
-            this.headers = headers;
+        public void status(int code) {
+            headers.status(code);
         }
 
         @Override
-        public void startResponseBody() {
+        public void header(String name, String value) {
+            headers.header(name, value);
         }
 
         @Override
-        public void responseBodyContent(ByteBuffer data) {
+        public void endHeaders() {
+            headers.endHeaders();
+        }
+
+        @Override
+        public void bodyContent(ByteBuffer data) {
+            headers.bodyContent();
             if (data.hasRemaining()) {
                 byte[] chunk = new byte[data.remaining()];
                 data.get(chunk);
@@ -214,11 +220,8 @@ public class GrpcHandlerTest {
         }
 
         @Override
-        public void endResponseBody() {
-        }
-
-        @Override
-        public void complete() {
+        public void endMessage() {
+            headers.endMessage();
             completeCount++;
         }
 
@@ -234,7 +237,8 @@ public class GrpcHandlerTest {
         @Override public void onWritable(Runnable callback) { }
         @Override public void pauseRequestBody() { }
         @Override public void resumeRequestBody() { }
-        @Override public boolean pushPromise(Headers headers) { return false; }
+        @Override public void startPushPromise(org.bluezoo.gumdrop.http.HttpMethod method, String target) { }
+        @Override public boolean endPushPromise() { return false; }
         @Override public void upgradeToWebSocket(String subprotocol, WebSocketEventHandler handler) { }
         @Override public void cancel() { }
         @Override public boolean sendDatagram(ByteBuffer data) { return false; }

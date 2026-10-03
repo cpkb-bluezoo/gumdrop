@@ -28,7 +28,6 @@ import org.bluezoo.gumdrop.http.ConnectIpTarget;
 import org.bluezoo.gumdrop.http.Headers;
 import org.bluezoo.gumdrop.http.HttpDatagramContext;
 import org.bluezoo.gumdrop.http.HttpMethod;
-import org.bluezoo.gumdrop.http.HttpStatus;
 
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
@@ -193,10 +192,8 @@ public class ConnectIpRequestHandler extends DefaultHttpRequestHandler {
     }
 
     private void rejectRequest(int statusCode) {
-        Headers fields = new Headers();
-        fields.status(HttpStatus.fromCode(statusCode));
-        response.headers(fields);
-        response.complete();
+        response.status(statusCode);
+        response.endMessage();
     }
 
     @Override

@@ -42,6 +42,7 @@ import org.bluezoo.gumdrop.ProtocolHandler;
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.http.Header;
 import org.bluezoo.gumdrop.http.Headers;
+import org.bluezoo.gumdrop.http.HttpMethod;
 import org.bluezoo.gumdrop.http.HttpStatus;
 import org.bluezoo.gumdrop.http.qpack.SimpleEncoder;
 import org.bluezoo.gumdrop.http.server.HttpAuthenticationProvider;
@@ -232,21 +233,19 @@ public class H3ServerFlowTest {
         stream.readFinished();
         assertTrue(f.rec.events.toString(), f.rec.events.contains("complete"));
         assertEquals(HttpResponseStateCheck.version(f.rec.state), "HTTP_3");
-        Headers h = new Headers();
-        h.status(HttpStatus.OK);
-        h.add("content-type", "text/plain");
-        f.rec.state.headers(h);
-        f.rec.state.startResponseBody();
-        f.rec.state.responseBodyContent(ByteBuffer.wrap(new byte[] {1, 2, 3}));
-        f.rec.state.endResponseBody();
-        f.rec.state.complete();
+        f.rec.state.status(HttpStatus.OK.code);
+        f.rec.state.header("content-type", "text/plain");
+        f.rec.state.bodyContent(ByteBuffer.wrap(new byte[] {1, 2, 3}));
+        f.rec.state.endMessage();
         assertEquals("https", stream.getScheme());
         assertTrue(stream.isSecure());
         assertNotNull(stream.getRemoteAddress());
         assertNotNull(stream.getLocalAddress());
         assertNull(stream.getPrincipal());
         assertEquals(1L, stream.getStreamId());
-        assertFalse(stream.pushPromise(new Headers()));
+        stream.startPushPromise(HttpMethod.GET, "/pushed");
+        stream.header("accept", "text/css");
+        assertFalse(stream.endPushPromise());
     }
 
     static final class HttpResponseStateCheck {
@@ -290,12 +289,9 @@ public class H3ServerFlowTest {
         feed(stream, headersFrame(":method", "HEAD", ":scheme", "https", ":path", "/",
                 ":authority", "x"));
         stream.readFinished();
-        Headers h = new Headers();
-        h.status(HttpStatus.OK);
-        f.rec.state.headers(h);
-        f.rec.state.startResponseBody();
-        f.rec.state.responseBodyContent(ByteBuffer.wrap(new byte[] {1, 2, 3}));
-        f.rec.state.complete();
+        f.rec.state.status(HttpStatus.OK.code);
+        f.rec.state.bodyContent(ByteBuffer.wrap(new byte[] {1, 2, 3}));
+        f.rec.state.endMessage();
     }
 
     @Test
@@ -304,10 +300,8 @@ public class H3ServerFlowTest {
         H3Stream stream = f.open();
         feed(stream, get("/"));
         stream.readFinished();
-        Headers h = new Headers();
-        h.status(HttpStatus.NO_CONTENT);
-        f.rec.state.headers(h);
-        f.rec.state.complete();
+        f.rec.state.status(HttpStatus.NO_CONTENT.code);
+        f.rec.state.endMessage();
     }
 
     @Test
@@ -316,11 +310,9 @@ public class H3ServerFlowTest {
         H3Stream stream = f.open();
         feed(stream, get("/"));
         stream.readFinished();
-        Headers h = new Headers();
-        h.status(HttpStatus.OK);
-        f.rec.state.headers(h);
-        f.rec.state.responseBodyContent(ByteBuffer.wrap(new byte[] {1}));
-        f.rec.state.complete();
+        f.rec.state.status(HttpStatus.OK.code);
+        f.rec.state.bodyContent(ByteBuffer.wrap(new byte[] {1}));
+        f.rec.state.endMessage();
     }
 
     @Test
@@ -329,27 +321,25 @@ public class H3ServerFlowTest {
         H3Stream stream = f.open();
         feed(stream, get("/"));
         stream.readFinished();
-        Headers info = new Headers();
-        info.add("link", "</x>; rel=preload");
-        info.add("connection", "close");
-        f.rec.state.sendInformational(103, info);
+        f.rec.state.status(103);
+        f.rec.state.header("link", "</x>; rel=preload");
+        f.rec.state.header("connection", "close");
+        f.rec.state.endHeaders();
         try {
-            f.rec.state.sendInformational(200, info);
+            f.rec.state.status(99);
             fail("expected IllegalArgumentException");
         } catch (IllegalArgumentException expected) {
             assertNotNull(expected.getMessage());
         }
-        Headers h = new Headers();
-        h.status(HttpStatus.OK);
-        f.rec.state.headers(h);
-        f.rec.state.startResponseBody();
+        f.rec.state.status(HttpStatus.OK.code);
+        f.rec.state.endHeaders();
         try {
-            f.rec.state.sendInformational(103, info);
+            f.rec.state.status(103);
             fail("expected IllegalStateException");
         } catch (IllegalStateException expected) {
             assertNotNull(expected.getMessage());
         }
-        f.rec.state.complete();
+        f.rec.state.endMessage();
     }
 
     @Test
@@ -358,12 +348,9 @@ public class H3ServerFlowTest {
         H3Stream stream = f.open();
         feed(stream, get("/"));
         stream.readFinished();
-        Headers h = new Headers();
-        h.status(HttpStatus.OK);
-        f.rec.state.headers(h);
-        f.rec.state.startResponseBody();
-        f.rec.state.responseBodyContent(ByteBuffer.wrap(new byte[] {1}));
-        f.rec.state.complete();
+        f.rec.state.status(HttpStatus.OK.code);
+        f.rec.state.bodyContent(ByteBuffer.wrap(new byte[] {1}));
+        f.rec.state.endMessage();
         assertTrue(f.server.getAddSecurityHeaders());
         assertEquals("max-age=1", f.server.getStrictTransportSecurityHeaderValue());
     }
@@ -376,15 +363,11 @@ public class H3ServerFlowTest {
         feed(stream, headersFrame(":method", "GET", ":scheme", "https", ":path", "/",
                 ":authority", "x", "accept-encoding", "gzip"));
         stream.readFinished();
-        Headers h = new Headers();
-        h.status(HttpStatus.OK);
-        h.add("content-type", "text/plain");
-        f.rec.state.headers(h);
-        f.rec.state.startResponseBody();
+        f.rec.state.status(HttpStatus.OK.code);
+        f.rec.state.header("content-type", "text/plain");
         byte[] big = new byte[2000];
-        f.rec.state.responseBodyContent(ByteBuffer.wrap(big));
-        f.rec.state.endResponseBody();
-        f.rec.state.complete();
+        f.rec.state.bodyContent(ByteBuffer.wrap(big));
+        f.rec.state.endMessage();
         assertTrue(f.server.getCompressResponses());
     }
 
@@ -629,12 +612,9 @@ public class H3ServerFlowTest {
                 ":authority", "x", "user-agent", "ua",
                 "traceparent", "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01"));
         stream.readFinished();
-        Headers h = new Headers();
-        h.status(HttpStatus.NOT_FOUND);
-        f.rec.state.headers(h);
-        f.rec.state.startResponseBody();
-        f.rec.state.responseBodyContent(ByteBuffer.wrap(new byte[] {1}));
-        f.rec.state.complete();
+        f.rec.state.status(HttpStatus.NOT_FOUND.code);
+        f.rec.state.bodyContent(ByteBuffer.wrap(new byte[] {1}));
+        f.rec.state.endMessage();
         assertTrue(f.server.isTelemetryEnabled());
         assertNotNull(f.server.getTelemetryConfig());
         assertNotNull(f.server.getMetrics());
@@ -644,10 +624,8 @@ public class H3ServerFlowTest {
         s2.error(new IOException("lost"));
         H3Stream s3 = f.open();
         feed(s3, get("/third"));
-        Headers ok = new Headers();
-        ok.status(HttpStatus.OK);
-        f.rec.state.headers(ok);
-        f.rec.state.complete();
+        f.rec.state.status(HttpStatus.OK.code);
+        f.rec.state.endMessage();
     }
 
     @Test
@@ -800,12 +778,9 @@ public class H3ServerFlowTest {
             feed(stream, headersFrame(":method", "GET", ":scheme", "https", ":path", "/",
                     ":authority", "x", "priority", (i % 2 == 0) ? "u=1, i" : "u=5"));
             stream.readFinished();
-            Headers h = new Headers();
-            h.status(HttpStatus.OK);
-            f.rec.state.headers(h);
-            f.rec.state.startResponseBody();
-            f.rec.state.responseBodyContent(ByteBuffer.wrap(new byte[] {(byte) i}));
-            f.rec.state.complete();
+            f.rec.state.status(HttpStatus.OK.code);
+            f.rec.state.bodyContent(ByteBuffer.wrap(new byte[] {(byte) i}));
+            f.rec.state.endMessage();
         }
     }
 
@@ -839,5 +814,178 @@ public class H3ServerFlowTest {
         assertEquals(23, f.rec.bodyBytes);
         assertEquals(1, Collections.frequency(f.rec.events, "end"));
         assertTrue(f.rec.events.toString(), f.rec.events.contains("complete"));
+    }
+
+    // ------------------------------------------------------------------
+    // the response events as HEADERS and DATA frames (RFC 9114 section 4.1)
+
+    /** A stream whose request has been read, ready for the handler to respond. */
+    private static H3Stream openAndRead(Fixture f) {
+        H3Stream stream = f.open();
+        feed(stream, get("/"));
+        stream.readFinished();
+        assertNotNull(f.rec.state);
+        return stream;
+    }
+
+    @Test
+    public void testResponseStatusDefaultsTo200() throws Exception {
+        Fixture f = new Fixture();
+        H3Stream stream = openAndRead(f);
+        f.rec.state.header("x-a", "b");
+        f.rec.state.endMessage();
+        H3ResponseWire wire = new H3ResponseWire(f.conn, stream.getStreamId());
+        assertEquals(1, wire.headerFrames().size());
+        assertEquals("200", wire.headerFrames().get(0).get(":status"));
+        assertEquals("b", wire.headerFrames().get(0).get("x-a"));
+        assertEquals(0, wire.dataBytes());
+        assertTrue("a response with no body closes the stream", wire.fin);
+    }
+
+    @Test
+    public void testTypedFieldsAreFormattedAsFieldValues() throws Exception {
+        Fixture f = new Fixture();
+        H3Stream stream = openAndRead(f);
+        f.rec.state.status(200);
+        f.rec.state.longHeader("content-length", 3L);
+        f.rec.state.dateHeader("last-modified", java.time.Instant.ofEpochSecond(0L));
+        f.rec.state.contentType(new org.bluezoo.gumdrop.mime.ContentType("text", "plain", null));
+        f.rec.state.bodyContent(ByteBuffer.wrap(new byte[] {1, 2, 3}));
+        f.rec.state.endMessage();
+        H3ResponseWire.Frame h = new H3ResponseWire(f.conn, stream.getStreamId()).headerFrames().get(0);
+        // the HTTP/1 framing fields are stripped from HTTP/3 responses (HttpVersion)
+        assertNull(h.get("content-length"));
+        assertEquals("Thu, 01 Jan 1970 00:00:00 GMT", h.get("last-modified"));
+        assertTrue(h.get("content-type"), h.get("content-type").startsWith("text/plain"));
+    }
+
+    @Test
+    public void testEndHeadersSendsTheHeaderSectionBeforeAnyBody() throws Exception {
+        Fixture f = new Fixture();
+        H3Stream stream = openAndRead(f);
+        f.rec.state.status(200);
+        f.rec.state.header("content-type", "text/event-stream");
+        f.rec.state.endHeaders();
+        H3ResponseWire before = new H3ResponseWire(f.conn, stream.getStreamId());
+        assertEquals(1, before.headerFrames().size());
+        assertEquals("text/event-stream", before.headerFrames().get(0).get("content-type"));
+        assertEquals(0, before.dataBytes());
+        assertFalse("the stream stays open for the body", before.fin);
+        f.rec.state.bodyContent(ByteBuffer.wrap(new byte[] {1, 2}));
+        H3ResponseWire after = new H3ResponseWire(f.conn, stream.getStreamId());
+        assertEquals(1, after.headerFrames().size());
+        assertEquals(2, after.dataBytes());
+        assertTrue(after.indexOf(H3ResponseWire.TYPE_HEADERS) < after.indexOf(H3ResponseWire.TYPE_DATA));
+    }
+
+    @Test
+    public void testStatusOnlyResponseEndsTheStreamWithTheHeaderSection() throws Exception {
+        Fixture f = new Fixture();
+        H3Stream stream = openAndRead(f);
+        f.rec.state.status(204);
+        f.rec.state.endMessage();
+        H3ResponseWire wire = new H3ResponseWire(f.conn, stream.getStreamId());
+        assertEquals(1, wire.frames.size());
+        assertEquals("204", wire.headerFrames().get(0).get(":status"));
+        assertTrue(wire.fin);
+    }
+
+    @Test
+    public void testInterimResponseIsFollowedByTheFinalResponse() throws Exception {
+        Fixture f = new Fixture();
+        H3Stream stream = openAndRead(f);
+        f.rec.state.status(103);
+        f.rec.state.header("link", "</s.css>; rel=preload");
+        f.rec.state.endHeaders();
+        f.rec.state.status(200);
+        f.rec.state.bodyContent(ByteBuffer.wrap(new byte[] {1, 2}));
+        f.rec.state.endMessage();
+        H3ResponseWire wire = new H3ResponseWire(f.conn, stream.getStreamId());
+        assertEquals(2, wire.headerFrames().size());
+        assertEquals("103", wire.headerFrames().get(0).get(":status"));
+        assertEquals("</s.css>; rel=preload", wire.headerFrames().get(0).get("link"));
+        assertEquals("200", wire.headerFrames().get(1).get(":status"));
+        assertNull("interim fields must not leak into the final response",
+                wire.headerFrames().get(1).get("link"));
+        assertEquals(2, wire.dataBytes());
+        assertTrue(wire.fin);
+    }
+
+    @Test
+    public void testFieldAfterTheBodyIsAFinalHeadersFrameBeforeTheClose() throws Exception {
+        Fixture f = new Fixture();
+        H3Stream stream = openAndRead(f);
+        f.rec.state.status(200);
+        f.rec.state.bodyContent(ByteBuffer.wrap(new byte[] {1, 2}));
+        f.rec.state.header("x-checksum", "42");
+        f.rec.state.endMessage();
+        H3ResponseWire wire = new H3ResponseWire(f.conn, stream.getStreamId());
+        assertEquals(3, wire.frames.size());
+        assertEquals(H3ResponseWire.TYPE_HEADERS, wire.frames.get(0).type);
+        assertEquals(H3ResponseWire.TYPE_DATA, wire.frames.get(1).type);
+        H3ResponseWire.Frame trailers = wire.frames.get(2);
+        assertEquals(H3ResponseWire.TYPE_HEADERS, trailers.type);
+        assertEquals("42", trailers.get("x-checksum"));
+        assertNull("RFC 9114 section 4.1: no pseudo-header field in trailers",
+                trailers.get(":status"));
+        assertTrue("the stream closes after the trailer section", wire.fin);
+    }
+
+    @Test
+    public void testMisuseOfTheResponseEventsIsRejected() throws Exception {
+        Fixture f = new Fixture();
+        H3Stream stream = openAndRead(f);
+        f.rec.state.status(200);
+        try {
+            f.rec.state.header("x-custom", "caf\u00e9");
+            fail("non-ASCII value");
+        } catch (IllegalArgumentException expected) {
+            assertTrue(expected.getMessage(), expected.getMessage().contains("x-custom"));
+        }
+        f.rec.state.bodyContent(ByteBuffer.wrap(new byte[] {1}));
+        try {
+            f.rec.state.header("content-length", "1");
+            fail("forbidden trailer name");
+        } catch (IllegalArgumentException expected) {
+            assertNotNull(expected.getMessage());
+        }
+        f.rec.state.header("x-checksum", "42");
+        try {
+            f.rec.state.bodyContent(ByteBuffer.wrap(new byte[] {2}));
+            fail("body after a trailer");
+        } catch (IllegalStateException expected) {
+            assertNotNull(expected.getMessage());
+        }
+        f.rec.state.endMessage();
+        int frames = new H3ResponseWire(f.conn, stream.getStreamId()).frames.size();
+        f.rec.state.endMessage();
+        assertEquals("a second endMessage is a no-op", frames,
+                new H3ResponseWire(f.conn, stream.getStreamId()).frames.size());
+        try {
+            f.rec.state.header("x-late", "1");
+            fail("field after endMessage");
+        } catch (IllegalStateException expected) {
+            assertNotNull(expected.getMessage());
+        }
+    }
+
+    @Test
+    public void testPushPromiseIsDeclined() throws Exception {
+        Fixture f = new Fixture();
+        H3Stream stream = openAndRead(f);
+        f.rec.state.startPushPromise(HttpMethod.GET, "/pushed");
+        f.rec.state.header("accept", "text/css");
+        assertFalse(f.rec.state.endPushPromise());
+        try {
+            f.rec.state.endPushPromise();
+            fail("expected IllegalStateException");
+        } catch (IllegalStateException expected) {
+            assertNotNull(expected.getMessage());
+        }
+        f.rec.state.status(204);
+        f.rec.state.endMessage();
+        H3ResponseWire wire = new H3ResponseWire(f.conn, stream.getStreamId());
+        assertNull("the promised request's fields are not part of the response",
+                wire.headerFrames().get(0).get("accept"));
     }
 }

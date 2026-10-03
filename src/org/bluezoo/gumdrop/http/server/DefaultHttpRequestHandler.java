@@ -46,14 +46,10 @@ import java.nio.ByteBuffer;
  *
  *     @Override
  *     public void endHeaders() {
- *         Headers response = new Headers();
- *         response.status(HttpStatus.OK);
- *         response.add("content-type", "text/plain");
- *         response.headers(response);
- *         response.startResponseBody();
- *         response.responseBodyContent(ByteBuffer.wrap("Hello, World!".getBytes()));
- *         response.endResponseBody();
- *         response.complete();
+ *         response.status(200);
+ *         response.header("content-type", "text/plain");
+ *         response.bodyContent(ByteBuffer.wrap("Hello, World!".getBytes()));
+ *         response.endMessage();
  *     }
  * }
  * }</pre>

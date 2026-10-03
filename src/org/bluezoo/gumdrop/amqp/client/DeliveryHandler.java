@@ -39,7 +39,7 @@ import org.bluezoo.gumdrop.amqp.BasicProperties;
  * content-body frames arrive off the wire — a message's body is
  * <strong>never</strong> buffered whole by this client; each chunk is
  * handed to the application as it arrives, exactly like
- * {@code responseBodyContent} on the HTTP server side), then
+ * {@code bodyContent} on the HTTP server side), then
  * {@link #onDeliveryComplete} once. Only after {@code onDeliveryComplete}
  * is it valid to ack/nack/reject the delivery tag.
  *

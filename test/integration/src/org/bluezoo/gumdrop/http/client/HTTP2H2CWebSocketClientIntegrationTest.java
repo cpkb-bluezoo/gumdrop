@@ -221,10 +221,8 @@ public class HTTP2H2CWebSocketClientIntegrationTest {
                             }
                         });
                     } else {
-                        Headers responseHeaders = new Headers();
-                        responseHeaders.status(HttpStatus.OK);
-                        state.headers(responseHeaders);
-                        state.complete();
+                        state.status(HttpStatus.OK.code);
+                        state.endMessage();
                     }
                 }
             };

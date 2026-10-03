@@ -64,14 +64,10 @@ public class HTTPProtocolHandlerH2FlushCoalescingTest {
         @Override
         public void headers(HttpResponse state, Headers headers) {
             if ("GET".equals(headers.getMethod())) {
-                Headers response = new Headers();
-                response.status(HttpStatus.OK);
-                response.add("content-type", "text/plain");
-                state.headers(response);
-                state.startResponseBody();
-                state.responseBodyContent(ByteBuffer.wrap("Hello, World!".getBytes()));
-                state.endResponseBody();
-                state.complete();
+                state.status(HttpStatus.OK.code);
+                state.header("content-type", "text/plain");
+                state.bodyContent(ByteBuffer.wrap("Hello, World!".getBytes()));
+                state.endMessage();
             }
         }
     }

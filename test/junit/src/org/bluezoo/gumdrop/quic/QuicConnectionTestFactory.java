@@ -83,4 +83,65 @@ public final class QuicConnectionTestFactory {
         conn.seedRememberedTransportParameters(peer);
         return conn;
     }
+
+    /**
+     * Returns the bytes queued for sending on a stream and not yet put into
+     * packets, in stream order. The connections built here have no 1-RTT
+     * keys, so nothing is ever sent and a test can read what the protocol
+     * layer above wrote.
+     *
+     * @param conn a connection from {@link #create}
+     * @param streamId the stream
+     * @return the queued bytes, empty if none
+     */
+    public static byte[] queuedStreamBytes(QuicConnection conn, long streamId) {
+        java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+        try {
+            java.util.List<?> chunks = queuedChunks(conn, streamId);
+            if (chunks != null) {
+                for (Object chunk : chunks) {
+                    java.lang.reflect.Field data = chunk.getClass().getDeclaredField("data");
+                    data.setAccessible(true);
+                    byte[] bytes = (byte[]) data.get(chunk);
+                    out.write(bytes, 0, bytes.length);
+                }
+            }
+        } catch (ReflectiveOperationException e) {
+            throw new IllegalStateException(e);
+        }
+        return out.toByteArray();
+    }
+
+    /**
+     * Returns whether the stream's queued data ends with a FIN.
+     *
+     * @param conn a connection from {@link #create}
+     * @param streamId the stream
+     * @return true if a FIN is queued
+     */
+    public static boolean queuedStreamFin(QuicConnection conn, long streamId) {
+        try {
+            java.util.List<?> chunks = queuedChunks(conn, streamId);
+            if (chunks != null) {
+                for (Object chunk : chunks) {
+                    java.lang.reflect.Field fin = chunk.getClass().getDeclaredField("fin");
+                    fin.setAccessible(true);
+                    if (fin.getBoolean(chunk)) {
+                        return true;
+                    }
+                }
+            }
+        } catch (ReflectiveOperationException e) {
+            throw new IllegalStateException(e);
+        }
+        return false;
+    }
+
+    private static java.util.List<?> queuedChunks(QuicConnection conn, long streamId)
+            throws ReflectiveOperationException {
+        java.lang.reflect.Field pending = QuicConnection.class.getDeclaredField("pendingStream");
+        pending.setAccessible(true);
+        java.util.Map<?, ?> map = (java.util.Map<?, ?>) pending.get(conn);
+        return (java.util.List<?>) map.get(Long.valueOf(streamId));
+    }
 }

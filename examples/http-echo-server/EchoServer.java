@@ -4,12 +4,12 @@
  */
 
 import org.bluezoo.gumdrop.Gumdrop;
-import org.bluezoo.gumdrop.http.Headers;
 import org.bluezoo.gumdrop.http.HttpServer;
 import org.bluezoo.gumdrop.http.server.DefaultHttpRequestHandler;
 import org.bluezoo.gumdrop.http.server.HttpRequestHandler;
 import org.bluezoo.gumdrop.http.server.HttpResponse;
 import org.bluezoo.gumdrop.http.server.HttpStreamHandler;
+import org.bluezoo.gumdrop.mime.ContentType;
 import org.bluezoo.gumdrop.tls.TlsConfig;
 
 import java.nio.ByteBuffer;
@@ -77,15 +77,11 @@ public final class EchoServer {
 
         @Override
         public void endHeaders() {
-            Headers fields = new Headers();
-            fields.add(":status", "200");
-            fields.add("content-type", "text/plain");
-            response.headers(fields);
-            response.startResponseBody();
-            response.responseBodyContent(
+            response.status(200);
+            response.contentType(new ContentType("text", "plain", null));
+            response.bodyContent(
                     ByteBuffer.wrap("ok\n".getBytes(StandardCharsets.UTF_8)));
-            response.endResponseBody();
-            response.complete();
+            response.endMessage();
         }
     }
 

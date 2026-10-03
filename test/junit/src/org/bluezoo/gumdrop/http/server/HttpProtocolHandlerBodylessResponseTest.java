@@ -48,14 +48,12 @@ public class HttpProtocolHandlerBodylessResponseTest {
                 return new CollectingRequestHandler(state) {
                     @Override
                     public void headers(HttpResponse s, Headers headers) {
-                        Headers response = new Headers();
-                        response.add(":status", status);
-                        s.headers(response);
+                        s.status(Integer.parseInt(status));
                         if (startBody) {
-                            s.startResponseBody();
-                            s.endResponseBody();
+                            // header section sent now, body then ends empty
+                            s.endHeaders();
                         }
-                        s.complete();
+                        s.endMessage();
                     }
                 };
             }
@@ -106,10 +104,8 @@ public class HttpProtocolHandlerBodylessResponseTest {
                 return new CollectingRequestHandler(state) {
                     @Override
                     public void headers(HttpResponse s, Headers headers) {
-                        Headers response = new Headers();
-                        response.add(":status", "200");
-                        s.headers(response);
-                        s.complete();
+                        s.status(200);
+                        s.endMessage();
                     }
                 };
             }

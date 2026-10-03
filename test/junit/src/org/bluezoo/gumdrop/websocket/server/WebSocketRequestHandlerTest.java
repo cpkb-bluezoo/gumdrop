@@ -37,6 +37,7 @@ import java.util.List;
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.http.Headers;
+import org.bluezoo.gumdrop.testsupport.ResponseRecorder;
 import org.bluezoo.gumdrop.http.HttpVersion;
 import org.bluezoo.gumdrop.http.server.HttpRequestHandler;
 import org.bluezoo.gumdrop.http.server.HttpResponse;
@@ -58,7 +59,7 @@ import org.junit.Test;
 public class WebSocketRequestHandlerTest {
 
     private static final class StubState implements HttpResponse {
-        Headers responseHeaders;
+        final ResponseRecorder recorder = new ResponseRecorder();
         boolean completed;
         String subprotocol;
         List<WebSocketExtension> extensions;
@@ -75,18 +76,20 @@ public class WebSocketRequestHandlerTest {
         @Override public String getScheme() { return "http"; }
         @Override public SelectorLoop getSelectorLoop() { return null; }
         @Override public Principal getPrincipal() { return null; }
-        @Override public void headers(Headers headers) {
-            responseHeaders = headers;
+        @Override public void status(int code) { recorder.status(code); }
+        @Override public void header(String name, String value) { recorder.header(name, value); }
+        @Override public void endHeaders() { recorder.endHeaders(); }
+        @Override public void bodyContent(ByteBuffer data) { recorder.bodyContent(); }
+        @Override public void endMessage() {
+            recorder.endMessage();
+            completed = true;
         }
-        @Override public void startResponseBody() { }
-        @Override public void responseBodyContent(ByteBuffer data) { }
-        @Override public void endResponseBody() { }
-        @Override public void complete() { completed = true; }
         @Override public void execute(Runnable task) { task.run(); }
         @Override public void onWritable(Runnable callback) { }
         @Override public void pauseRequestBody() { }
         @Override public void resumeRequestBody() { }
-        @Override public boolean pushPromise(Headers headers) {
+        @Override public void startPushPromise(org.bluezoo.gumdrop.http.HttpMethod method, String target) { }
+        @Override public boolean endPushPromise() {
             return false;
         }
         @Override public void upgradeToWebSocket(String subprotocol,
@@ -106,8 +109,7 @@ public class WebSocketRequestHandlerTest {
         @Override public void cancel() { }
 
         String status() {
-            return responseHeaders == null ? null
-                    : responseHeaders.getValue(":status");
+            return recorder.getValue(":status");
         }
     }
 
@@ -158,7 +160,7 @@ public class WebSocketRequestHandlerTest {
         assertEquals("/chat", seenPath);
         assertSame(appHandler, state.handler);
         assertNull(state.subprotocol);
-        assertNull(state.responseHeaders);
+        assertFalse(state.recorder.isStarted());
     }
 
     @Test

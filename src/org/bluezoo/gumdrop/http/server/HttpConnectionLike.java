@@ -52,6 +52,13 @@ public interface HttpConnectionLike {
 
     void sendResponseHeaders(int streamId, int statusCode, Headers headers, boolean endStream);
     void sendResponseBody(int streamId, ByteBuffer buf, boolean endStream);
+
+    /**
+     * Sends trailer fields as the final HEADERS frame of an HTTP/2 response,
+     * ending the stream, after any data still queued for it. HTTP/1.x
+     * trailers are part of the chunked body and are written by the stream.
+     */
+    void sendResponseTrailers(int streamId, Headers trailers);
     void send(ByteBuffer buf);
     void sendRstStream(int streamId, int errorCode);
     void sendGoaway(int errorCode);

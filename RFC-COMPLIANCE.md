@@ -705,7 +705,7 @@ practices.
 |-------------|---------|--------|-------|
 | All standard status codes defined | 15 | Compliant | `HttpStatus` enum covers all RFC 9110 codes |
 | Reason phrases match RFC 9110 | 15 | Compliant | `HttpConstants` updated (413, 414, 416, 422 reason phrases corrected) |
-| 103 Early Hints (RFC 8297) | 15.2 | Compliant | `HttpResponse.sendInformational()` sends 1xx responses before the final response; implemented for HTTP/1.1, HTTP/2, and HTTP/3; 1xx headers skip Server/Date/Connection per RFC 9110 section 15.2; HTTP/1.0 silently no-ops |
+| 103 Early Hints (RFC 8297) | 15.2 | Compliant | `HttpResponse.status()` with a 1xx code followed by `endHeaders()` sends an interim response before the final response; implemented for HTTP/1.1, HTTP/2, and HTTP/3; 1xx headers skip Server/Date/Connection per RFC 9110 section 15.2; HTTP/1.0 silently no-ops |
 | 418 I'm a Teapot | 15.5.19 | Compliant | |
 
 ---
@@ -805,7 +805,7 @@ practices.
 | Connection-specific headers MUST NOT appear | 8.2.2 | Compliant | Stripped in `sendResponseHeaders()`; rejected in `validateH2Headers()` |
 | Transfer-Encoding MUST NOT appear | 8.2.2 | Compliant | Rejected in `validateH2Headers()` |
 | TE only with "trailers" value | 8.2.2 | Compliant | Validated in `validateH2Headers()` |
-| Server push via PUSH_PROMISE | 8.4 | Compliant | `Stream.pushPromise()` + `sendPushPromise()` both gated by `isEnablePush()` |
+| Server push via PUSH_PROMISE | 8.4 | Compliant | `Stream.startPushPromise()` / `endPushPromise()` + `sendPushPromise()` both gated by `isEnablePush()` |
 
 #### Section 9 — Connection Management and TLS
 
@@ -974,14 +974,14 @@ with TLS 1.3 handled by the in-tree `org.bluezoo.gumdrop.tls` engine via
 |-------------|---------|--------|-------|
 | Response HEADERS with :status pseudo-header | 4.3.2 | Compliant | `H3Stream.flushHeaders()` |
 | Response DATA frames | 4.1 | Compliant | `H3Stream.sendBody()` |
-| FIN to complete response | 4.1 | Compliant | `H3Stream.complete()` sends empty buffer with fin=true |
+| FIN to complete response | 4.1 | Compliant | `H3Stream.endMessage()` sends empty buffer with fin=true |
 | Flow control buffering | RFC 9000 4 | Compliant | `H3Stream` buffers when QUIC send window is exhausted; `resumeWrite()` drains on ACK |
 
 ### HTTP/3 Server Push, GOAWAY, Error Handling
 
 | Requirement | Section | Status | Notes |
 |-------------|---------|--------|-------|
-| Server push (PUSH_PROMISE) | 4.6 | Not implemented | `H3Stream.pushPromise()` returns false |
+| Server push (PUSH_PROMISE) | 4.6 | Not implemented | `H3Stream.endPushPromise()` returns false |
 | GOAWAY reception (from client) | 5.2 | Compliant | Records the ID, rejects a later GOAWAY with a greater identifier (`H3_ID_ERROR`), rejects new streams beyond the announced ID, sends a server GOAWAY in response |
 | GOAWAY sending (graceful shutdown) | 5.2 | Compliant | `Http3ServerHandler.close()` sends GOAWAY with highest client-initiated stream ID before resetting streams |
 | Stream reset handling | 8 | Compliant | `onReset()` ends span and cleans up stream |
@@ -994,7 +994,7 @@ with TLS 1.3 handled by the in-tree `org.bluezoo.gumdrop.tls` engine via
 | Requirement | Section | Status | Notes |
 |-------------|---------|--------|-------|
 | WebSocket over HTTP/3 | RFC 9220 | Implemented | Extended CONNECT with `:protocol = "websocket"`, `SETTINGS_ENABLE_CONNECT_PROTOCOL = 1`, `H3Stream.upgradeToWebSocket()` bridges to `WebSocketConnection`, `WebSocketRequestHandler` for application-level integration |
-| 103 Early Hints (RFC 8297) | RFC 9114 s4 | Implemented | `H3Stream.sendInformational()` sends 1xx HEADERS; state tracked by `responseStarted`; `flushHeaders()` sends the final response after 1xx |
+| 103 Early Hints (RFC 8297) | RFC 9114 s4 | Implemented | `H3Stream.endHeaders()` after a 1xx `status()` sends 1xx HEADERS; state tracked by `responseStarted`; `flushHeaders()` sends the final response after 1xx |
 | Extensible priorities (server) | RFC 9218 4 | Compliant | `Priority` header passed through to handler in request headers |
 | QUIC transport parameter tuning | RFC 9000 18 | Compliant | `Http3Listener` exposes `setQuicMax*()` setters that delegate to `QuicTransportFactory` |
 | Authentication | RFC 9110 11 | Compliant | `H3Stream.onHeaders()` checks Authorization header via `HttpAuthenticationProvider` |

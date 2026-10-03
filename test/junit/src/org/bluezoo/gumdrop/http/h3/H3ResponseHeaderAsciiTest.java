@@ -25,7 +25,6 @@ package org.bluezoo.gumdrop.http.h3;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
-import org.bluezoo.gumdrop.http.Headers;
 import org.junit.Test;
 
 /**
@@ -49,11 +48,9 @@ public class H3ResponseHeaderAsciiTest {
     @Test
     public void nonAsciiResponseHeaderIsRejected() {
         H3ServerFlowTest.Fixture f = fixtureWithRequest();
-        Headers h = new Headers();
-        h.add(":status", "200");
-        h.add("x-custom", "café");
+        f.rec.state.status(200);
         try {
-            f.rec.state.headers(h);
+            f.rec.state.header("x-custom", "caf\u00e9");
             fail("expected IllegalArgumentException");
         } catch (IllegalArgumentException e) {
             assertTrue(e.getMessage(), e.getMessage().contains("x-custom"));
@@ -63,10 +60,9 @@ public class H3ResponseHeaderAsciiTest {
     @Test
     public void nonAsciiInformationalHeaderIsRejected() {
         H3ServerFlowTest.Fixture f = fixtureWithRequest();
-        Headers h = new Headers();
-        h.add("x-custom", "café");
+        f.rec.state.status(103);
         try {
-            f.rec.state.sendInformational(103, h);
+            f.rec.state.header("x-custom", "caf\u00e9");
             fail("expected IllegalArgumentException");
         } catch (IllegalArgumentException e) {
             assertTrue(e.getMessage(), e.getMessage().contains("x-custom"));
@@ -76,9 +72,8 @@ public class H3ResponseHeaderAsciiTest {
     @Test
     public void asciiResponseHeaderIsAccepted() {
         H3ServerFlowTest.Fixture f = fixtureWithRequest();
-        Headers h = new Headers();
-        h.add(":status", "200");
-        h.add("x-custom", "plain");
-        f.rec.state.headers(h);
+        f.rec.state.status(200);
+        f.rec.state.header("x-custom", "plain");
+        f.rec.state.endHeaders();
     }
 }

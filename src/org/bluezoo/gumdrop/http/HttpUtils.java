@@ -477,6 +477,54 @@ public final class HttpUtils {
 
 
     /**
+     * Checks that one outbound field value is US-ASCII (RFC 9110 section 5.5).
+     *
+     * @param name the field name
+     * @param value the field value
+     * @throws IllegalArgumentException if the value contains a character that
+     *     is not US-ASCII, or a line break or NUL
+     */
+    public static void requireAsciiFieldValue(String name, String value) {
+        if (value == null) {
+            return;
+        }
+        for (int i = 0; i < value.length(); i++) {
+            char c = value.charAt(i);
+            if (c > 0x7F) {
+                throw new IllegalArgumentException("Response header '"
+                        + name + "' has a value with non-ASCII "
+                        + "characters; HTTP field values must be US-ASCII "
+                        + "(RFC 9110 section 5.5). Encode the value before "
+                        + "setting it, for example with RFC 8187.");
+            }
+            if (c == '\r' || c == '\n' || c == 0) {
+                throw new IllegalArgumentException("Header '" + name
+                        + "' has a value containing a line break or NUL");
+            }
+        }
+    }
+
+    /**
+     * Whether a field must not be sent as a trailer: it needs to be known
+     * before the content (framing, routing, request modifiers,
+     * authentication; RFC 9110 section 6.5.1), or it is a pseudo-header field.
+     *
+     * @param name the field name, in any case
+     * @return true if the field is not allowed in a trailer section
+     */
+    public static boolean isForbiddenInTrailers(String name) {
+        String n = name.toLowerCase(java.util.Locale.ROOT);
+        return n.startsWith(":") || n.equals("content-length") || n.equals("transfer-encoding")
+                || n.equals("host") || n.equals("trailer") || n.equals("te")
+                || n.equals("max-forwards") || n.equals("cache-control")
+                || n.equals("authorization") || n.equals("proxy-authorization")
+                || n.equals("www-authenticate") || n.equals("proxy-authenticate")
+                || n.equals("cookie") || n.equals("set-cookie")
+                || n.startsWith("if-") || n.equals("expect")
+                || n.equals("range") || n.equals("connection");
+    }
+
+    /**
      * Rejects a header set that holds a value with a character above 0x7F.
      *
      * <p>RFC 9110 section 5.5 allows such octets in a field value only as

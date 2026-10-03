@@ -37,7 +37,6 @@ import jakarta.servlet.http.WebConnection;
 
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.SelectorLoop;
-import org.bluezoo.gumdrop.http.Headers;
 import org.bluezoo.gumdrop.http.HttpVersion;
 import org.bluezoo.gumdrop.http.server.HttpResponse;
 import org.bluezoo.gumdrop.websocket.WebSocketEventHandler;
@@ -142,23 +141,23 @@ public class WebSocketServletStreamsTest {
         }
 
         @Override
-        public void headers(Headers headers) {
+        public void status(int code) {
         }
 
         @Override
-        public void startResponseBody() {
+        public void header(String name, String value) {
         }
 
         @Override
-        public void responseBodyContent(ByteBuffer data) {
+        public void endHeaders() {
         }
 
         @Override
-        public void endResponseBody() {
+        public void bodyContent(ByteBuffer data) {
         }
 
         @Override
-        public void complete() {
+        public void endMessage() {
         }
 
         @Override
@@ -182,7 +181,11 @@ public class WebSocketServletStreamsTest {
         }
 
         @Override
-        public boolean pushPromise(Headers headers) {
+        public void startPushPromise(org.bluezoo.gumdrop.http.HttpMethod method, String target) {
+        }
+
+        @Override
+        public boolean endPushPromise() {
             return false;
         }
 

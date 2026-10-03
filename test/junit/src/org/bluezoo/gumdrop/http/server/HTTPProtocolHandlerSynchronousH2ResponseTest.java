@@ -83,14 +83,10 @@ public class HTTPProtocolHandlerSynchronousH2ResponseTest {
         @Override
         public void headers(HttpResponse state, Headers headers) {
             if ("GET".equals(headers.getMethod())) {
-                Headers response = new Headers();
-                response.status(HttpStatus.OK);
-                response.add("content-type", "text/plain");
-                state.headers(response);
-                state.startResponseBody();
-                state.responseBodyContent(ByteBuffer.wrap("Hello, World!".getBytes()));
-                state.endResponseBody();
-                state.complete();
+                state.status(HttpStatus.OK.code);
+                state.header("content-type", "text/plain");
+                state.bodyContent(ByteBuffer.wrap("Hello, World!".getBytes()));
+                state.endMessage();
             }
         }
     }
@@ -136,11 +132,9 @@ public class HTTPProtocolHandlerSynchronousH2ResponseTest {
 
         @Override
         public void headers(HttpResponse state, Headers headers) {
-            Headers response = new Headers();
-            response.add(":status", "200");
-            response.add("x-custom", "caf\u00e9");
+            state.status(200);
             try {
-                state.headers(response);
+                state.header("x-custom", "caf\u00e9");
             } catch (RuntimeException e) {
                 thrown = e;
             }
@@ -227,7 +221,7 @@ public class HTTPProtocolHandlerSynchronousH2ResponseTest {
 
         c.headersFrameReceived(3, true, true, 0, false, 16, encodeGetHeaders("/"));
 
-        assertTrue("headers() should have thrown IllegalArgumentException, was: "
+        assertTrue("header() should have thrown IllegalArgumentException, was: "
                 + NonAsciiHeaderHandler.thrown,
                 NonAsciiHeaderHandler.thrown instanceof IllegalArgumentException);
         assertTrue(NonAsciiHeaderHandler.thrown.getMessage().contains("x-custom"));

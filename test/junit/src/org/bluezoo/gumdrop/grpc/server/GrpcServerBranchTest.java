@@ -37,8 +37,7 @@ import org.bluezoo.gumdrop.grpc.proto.ProtoFileParser;
 import org.bluezoo.gumdrop.grpc.proto.ProtoMessageHandler;
 import org.bluezoo.gumdrop.grpc.proto.ProtoModelSerializer;
 import org.bluezoo.gumdrop.grpc.proto.RpcDescriptor;
-import org.bluezoo.gumdrop.http.Header;
-import org.bluezoo.gumdrop.http.Headers;
+import org.bluezoo.gumdrop.testsupport.ResponseRecorder;
 import org.bluezoo.gumdrop.http.HttpStatus;
 import org.bluezoo.gumdrop.http.HttpVersion;
 import org.bluezoo.gumdrop.http.server.HttpRequestHandler;
@@ -170,7 +169,7 @@ public class GrpcServerBranchTest {
         handler.endHeaders();
         handler.bodyContent(null);
         handler.bodyContent(ByteBuffer.allocate(0));
-        assertNull(state.headers);
+        assertFalse(state.headers.isStarted());
     }
 
     @Test
@@ -313,40 +312,43 @@ public class GrpcServerBranchTest {
     }
 
     private static final class CapturingState implements HttpResponse {
-        Headers headers;
+        final ResponseRecorder headers = new ResponseRecorder();
         final ByteArrayOutputStream body = new ByteArrayOutputStream();
         int completeCount;
 
         HttpStatus status() {
-            if (headers == null) {
+            if (!headers.isStarted()) {
                 return null;
             }
-            String code = headers.getValue(":status");
-            return code != null ? HttpStatus.fromCode(Integer.parseInt(code)) : null;
+            return HttpStatus.fromCode(headers.getStatus());
         }
 
         @Override
-        public void headers(Headers headers) {
-            this.headers = headers;
+        public void status(int code) {
+            headers.status(code);
         }
 
         @Override
-        public void startResponseBody() {
+        public void header(String name, String value) {
+            headers.header(name, value);
         }
 
         @Override
-        public void responseBodyContent(ByteBuffer data) {
+        public void endHeaders() {
+            headers.endHeaders();
+        }
+
+        @Override
+        public void bodyContent(ByteBuffer data) {
+            headers.bodyContent();
             while (data.hasRemaining()) {
                 body.write(data.get());
             }
         }
 
         @Override
-        public void endResponseBody() {
-        }
-
-        @Override
-        public void complete() {
+        public void endMessage() {
+            headers.endMessage();
             completeCount++;
         }
 
@@ -362,7 +364,8 @@ public class GrpcServerBranchTest {
         @Override public void onWritable(Runnable callback) { }
         @Override public void pauseRequestBody() { }
         @Override public void resumeRequestBody() { }
-        @Override public boolean pushPromise(Headers headers) { return false; }
+        @Override public void startPushPromise(org.bluezoo.gumdrop.http.HttpMethod method, String target) { }
+        @Override public boolean endPushPromise() { return false; }
         @Override public void upgradeToWebSocket(String subprotocol, WebSocketEventHandler handler) { }
         @Override public void cancel() { }
         @Override public boolean sendDatagram(ByteBuffer data) { return false; }

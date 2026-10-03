@@ -26,7 +26,6 @@ import org.bluezoo.gumdrop.http.Capsule;
 import org.bluezoo.gumdrop.http.ConnectUdpTarget;
 import org.bluezoo.gumdrop.http.Headers;
 import org.bluezoo.gumdrop.http.HttpMethod;
-import org.bluezoo.gumdrop.http.HttpStatus;
 
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
@@ -232,10 +231,8 @@ public class ConnectUdpRequestHandler extends DefaultHttpRequestHandler {
     }
 
     private void rejectRequest(int statusCode) {
-        Headers fields = new Headers();
-        fields.status(HttpStatus.fromCode(statusCode));
-        response.headers(fields);
-        response.complete();
+        response.status(statusCode);
+        response.endMessage();
     }
 
     @Override

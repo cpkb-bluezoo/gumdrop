@@ -189,7 +189,7 @@ public class ServletNonBlockingIOTest {
         final AtomicReference<ByteBuffer> received = new AtomicReference<ByteBuffer>();
         StubHTTPResponseState state = new StubHTTPResponseState() {
             @Override
-            public void responseBodyContent(ByteBuffer data) {
+            public void bodyContent(ByteBuffer data) {
                 received.set(data);
             }
         };
@@ -332,11 +332,11 @@ public class ServletNonBlockingIOTest {
         @Override public String getScheme() { return "http"; }
         @Override public org.bluezoo.gumdrop.SelectorLoop getSelectorLoop() { return null; }
         @Override public java.security.Principal getPrincipal() { return null; }
-        @Override public void headers(Headers headers) { }
-        @Override public void startResponseBody() { }
-        @Override public void responseBodyContent(ByteBuffer data) { }
-        @Override public void endResponseBody() { }
-        @Override public void complete() { }
+        @Override public void status(int code) { }
+        @Override public void header(String name, String value) { }
+        @Override public void endHeaders() { }
+        @Override public void bodyContent(ByteBuffer data) { }
+        @Override public void endMessage() { }
         @Override public void execute(Runnable task) { task.run(); }
         @Override public void onWritable(Runnable callback) {
             if (callback != null) {
@@ -345,7 +345,8 @@ public class ServletNonBlockingIOTest {
         }
         @Override public void pauseRequestBody() { }
         @Override public void resumeRequestBody() { }
-        @Override public boolean pushPromise(Headers headers) { return false; }
+        @Override public void startPushPromise(org.bluezoo.gumdrop.http.HttpMethod method, String target) { }
+        @Override public boolean endPushPromise() { return false; }
         @Override public void upgradeToWebSocket(String protocol,
                 org.bluezoo.gumdrop.websocket.WebSocketEventHandler handler) { }
         @Override public void cancel() { }

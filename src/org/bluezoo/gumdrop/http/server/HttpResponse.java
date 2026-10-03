@@ -32,82 +32,77 @@ import org.bluezoo.gumdrop.telemetry.Trace;
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.TimerHandle;
 import org.bluezoo.gumdrop.websocket.WebSocketEventHandler;
-import org.bluezoo.gumdrop.http.Headers;
+import org.bluezoo.gumdrop.http.HttpMethod;
 import org.bluezoo.gumdrop.http.HttpDatagramContext;
 import org.bluezoo.gumdrop.http.HttpVersion;
 import org.bluezoo.gumdrop.websocket.WebSocketExtension;
 
 /**
- * State interface for sending an HTTP response.
+ * Interface for sending an HTTP response.
  *
- * <p>This interface is provided to {@link HttpRequestHandler} callbacks and
- * allows the handler to send the response. Methods should be called in order:
+ * <p>This interface is provided to the {@link HttpRequestHandler} when the
+ * stream is opened and allows the handler to send the response. It mirrors
+ * the events a received response is made of ({@link
+ * org.bluezoo.gumdrop.http.HttpMessageHandler}), and the client's
+ * {@link org.bluezoo.gumdrop.http.client.HttpRequest}: the same events, in
+ * the same order, go the other way.
  *
  * <pre>
- * sendInformational()    // optional, 1xx (e.g. 103 Early Hints)
- * headers()              // required, includes :status
- * headers()              // continuation headers (if needed)
- * startResponseBody()    // if response has a body
- * responseBodyContent()  // zero or more times
- * endResponseBody()      // if body was started
- * headers()              // trailer headers (optional)
- * complete()             // required
+ * status()               // 1xx, then endHeaders(), any number of times (optional)
+ * status()               // the final status
+ * header() ...           // any number of fields: header, longHeader,
+ *                        // dateHeader, contentType, contentDisposition
+ * endHeaders()           // optional; the header section is otherwise ended by
+ *                        // the first bodyContent() or by endMessage()
+ * bodyContent()          // zero or more times
+ * header() ...           // trailer fields, after the body began (optional)
+ * endMessage()           // required
  * </pre>
+ *
+ * <p>Nothing is sent until the header section is ended, so a response with no
+ * body goes out as a single header section that also ends the stream.
  *
  * <h2>Response Patterns</h2>
  *
  * <p><b>Simple response with body:</b>
  * <pre>{@code
- * Headers headers = new Headers();
- * headers.add(":status", "200");
- * headers.add("content-type", "application/json");
- * response.headers(headers);
- * response.startResponseBody();
- * response.responseBodyContent(ByteBuffer.wrap(jsonBytes));
- * response.endResponseBody();
- * response.complete();
+ * response.status(200);
+ * response.contentType(new ContentType("application", "json", null));
+ * response.bodyContent(ByteBuffer.wrap(jsonBytes));
+ * response.endMessage();
  * }</pre>
  *
  * <p><b>Response without body (204, 304, redirects):</b>
  * <pre>{@code
- * Headers headers = new Headers();
- * headers.add(":status", "204");
- * response.headers(headers);
- * response.complete();
+ * response.status(204);
+ * response.endMessage();
  * }</pre>
  *
  * <p><b>Streaming response:</b>
  * <pre>{@code
- * Headers headers = new Headers();
- * headers.add(":status", "200");
- * headers.add("content-type", "text/event-stream");
- * response.headers(headers);
- * response.startResponseBody();
+ * response.status(200);
+ * response.header("content-type", "text/event-stream");
+ * response.endHeaders();   // send the header section now, not with the first chunk
  * // Send chunks as data becomes available
- * response.responseBodyContent(chunk1);
- * response.responseBodyContent(chunk2);
- * // ... more chunks ...
- * response.endResponseBody();
- * response.complete();
+ * response.bodyContent(chunk1);
+ * response.bodyContent(chunk2);
+ * response.endMessage();
  * }</pre>
  *
- * <p><b>Response with trailer headers:</b>
+ * <p><b>Response with trailer fields:</b>
  * <pre>{@code
- * Headers headers = new Headers();
- * headers.add(":status", "200");
- * response.headers(headers);
- * response.startResponseBody();
- * response.responseBodyContent(data);
- * response.endResponseBody();
- * Headers trailers = new Headers();
- * trailers.add("x-checksum", checksum);
- * response.headers(trailers);  // trailers (after endResponseBody)
- * response.complete();
+ * response.status(200);
+ * response.bodyContent(data);
+ * response.header("x-checksum", checksum);  // after the body began: a trailer
+ * response.endMessage();
  * }</pre>
+ *
+ * <p>Fields that must be known before the content (framing, routing,
+ * authentication; RFC 9110 section 6.5.1) cannot be trailers.
  *
  * <h2>HTTP/2 Server Push</h2>
  *
- * <p>For HTTP/2 connections, {@link #pushPromise} can be used to initiate
+ * <p>For HTTP/2 connections, {@link #startPushPromise} can be used to initiate
  * server push. The pushed request will be processed through the normal
  * factory/handler mechanism.
  *
@@ -239,65 +234,110 @@ public interface HttpResponse {
     // ─────────────────────────────────────────────────────────────────────────
 
     /**
-     * Sends response headers.
+     * Sets the status of the response, starting a response message. A 1xx
+     * status starts an interim response, which is sent by the next
+     * {@link #endHeaders()}; the final status follows it. If no final status
+     * is given, 200 is used.
      *
-     * <p>For the initial response headers, must include the {@code :status}
-     * pseudo-header with the HTTP status code. Can be called multiple times:
-     * <ul>
-     *   <li>Before {@code startResponseBody()} - response headers</li>
-     *   <li>After {@code endResponseBody()} - trailer headers</li>
-     * </ul>
-     *
-     * <p>Headers are buffered until the next event determines how to send them:
-     * <ul>
-     *   <li>{@code startResponseBody()} - flush as HEADERS frame</li>
-     *   <li>{@code complete()} - flush as HEADERS frame with END_STREAM</li>
-     * </ul>
-     *
-     * @param headers the headers to send
+     * @param code the status code
+     * @throws IllegalStateException if the response has been completed, or
+     *     its header section has been sent
      */
-    void headers(Headers headers);
+    void status(int code);
 
     /**
-     * Signals the start of the response body.
+     * Adds a field to the response. May be called more than once for a field
+     * name; names are case-insensitive. After the body has begun, a field is a
+     * trailer field.
      *
-     * <p>Must be called before {@link #responseBodyContent} if the response
-     * has a body. Triggers flushing of buffered headers.
+     * @param name the field name
+     * @param value the field value; ASCII only
+     * @throws IllegalStateException if the response has been completed
+     * @throws IllegalArgumentException if the value is not ASCII, or this
+     *     would be a trailer that may not be one
      */
-    void startResponseBody();
+    void header(String name, String value);
+
+    /**
+     * Adds a field whose value is raw octets (ISO-8859-1).
+     *
+     * @param name the field name
+     * @param value the field value
+     */
+    default void header(String name, ByteBuffer value) {
+        byte[] b = new byte[value.remaining()];
+        value.duplicate().get(b);
+        header(name, new String(b, java.nio.charset.StandardCharsets.ISO_8859_1));
+    }
+
+    /**
+     * Adds a field whose value is an integer, such as {@code Content-Length}.
+     *
+     * @param name the field name
+     * @param value the value
+     */
+    default void longHeader(String name, long value) {
+        header(name, Long.toString(value));
+    }
+
+    /**
+     * Adds a field whose value is an HTTP-date, such as {@code Last-Modified}.
+     *
+     * @param name the field name
+     * @param value the instant (HTTP-dates are always GMT)
+     */
+    default void dateHeader(String name, java.time.Instant value) {
+        header(name, new org.bluezoo.gumdrop.http.HttpDateFormat().format(value.toEpochMilli()));
+    }
+
+    /**
+     * Adds a {@code Content-Type} field.
+     *
+     * @param contentType the content type
+     */
+    default void contentType(org.bluezoo.gumdrop.mime.ContentType contentType) {
+        header("Content-Type", contentType.toHeaderValue());
+    }
+
+    /**
+     * Adds a {@code Content-Disposition} field.
+     *
+     * @param contentDisposition the disposition
+     */
+    default void contentDisposition(org.bluezoo.gumdrop.mime.ContentDisposition contentDisposition) {
+        header("Content-Disposition", contentDisposition.toHeaderValue());
+    }
+
+    /**
+     * Ends the header section. For an interim (1xx) response this sends it
+     * and allows the next {@link #status(int)}; otherwise it sends the header
+     * section now rather than with the first body chunk or the end of the
+     * message, which a streaming response may want. Optional: the first
+     * {@link #bodyContent} or {@link #endMessage} ends the section itself.
+     *
+     * @throws IllegalStateException if the response has been completed
+     */
+    void endHeaders();
 
     /**
      * Sends response body data.
      *
      * <p>Can be called multiple times for streaming responses. The buffer
      * contents are sent; the buffer itself is not retained after this call.
+     * The first call ends the header section if that has not been done.
      *
      * @param data the body data to send
+     * @throws IllegalStateException if the response has been completed
      */
-    void responseBodyContent(ByteBuffer data);
+    void bodyContent(ByteBuffer data);
 
     /**
-     * Signals the end of the response body.
-     *
-     * <p>Must be called after all {@link #responseBodyContent} calls.
-     * After this, {@link #headers} calls are interpreted as trailer headers.
+     * Ends the response. Sends the header section if nothing has been sent
+     * yet, then any trailer fields, and ends the stream: END_STREAM for HTTP/2
+     * and HTTP/3, the final chunk for chunked HTTP/1.1. Calling it again is
+     * a no-op.
      */
-    void endResponseBody();
-
-    /**
-     * Completes the response.
-     *
-     * <p>This must be called to signal the end of the response. For HTTP/2,
-     * this sends the END_STREAM flag. For HTTP/1.1 with chunked encoding,
-     * this sends the final chunk marker.
-     *
-     * <p>Behaviour depends on buffered state:
-     * <ul>
-     *   <li>If headers buffered (no body or trailers pending): flush with END_STREAM</li>
-     *   <li>If no headers buffered: send empty frame with END_STREAM</li>
-     * </ul>
-     */
-    void complete();
+    void endMessage();
 
     // ─────────────────────────────────────────────────────────────────────────
     // Thread Dispatch
@@ -327,7 +367,7 @@ public interface HttpResponse {
      *
      * <p>The callback runs on the SelectorLoop thread, so it is safe to
      * perform further I/O operations (e.g. call
-     * {@link #responseBodyContent(ByteBuffer)} again) from within it.
+     * {@link #bodyContent(ByteBuffer)} again) from within it.
      *
      * <p>Only one callback may be pending at a time.  Calling this method
      * replaces any previously registered callback.  Pass {@code null} to
@@ -390,73 +430,35 @@ public interface HttpResponse {
     void resumeRequestBody();
 
     // ─────────────────────────────────────────────────────────────────────────
-    // Informational Responses (1xx)
-    // ─────────────────────────────────────────────────────────────────────────
-
-    /**
-     * Sends an informational (1xx) response before the final response.
-     *
-     * <p>RFC 9110 section 15.2 allows a server to send one or more
-     * intermediate 1xx responses before the final response. The primary
-     * use case is 103 Early Hints (RFC 8297), which allows the server to
-     * send {@code Link} headers so the client can begin preloading
-     * resources while the final response is being prepared.
-     *
-     * <p>This method may be called zero or more times before
-     * {@link #headers(Headers)}. The response state is not transitioned
-     * -- the handler must still send the final response via
-     * {@code headers()} and {@code complete()}.
-     *
-     * <p>Example:
-     * <pre>{@code
-     * Headers hints = new Headers();
-     * hints.add("Link", "</style.css>; rel=preload; as=style");
-     * hints.add("Link", "</app.js>; rel=preload; as=script");
-     * response.sendInformational(103, hints);
-     *
-     * Headers headers = new Headers();
-     * headers.status(HttpStatus.OK);
-     * headers.add("content-type", "text/html");
-     * response.headers(headers);
-     * // ... body and complete() ...
-     * }</pre>
-     *
-     * <p>For HTTP/1.0 connections, this method is a no-op (1xx responses
-     * are not defined for HTTP/1.0). For HTTP/1.1, HTTP/2, and HTTP/3,
-     * the informational response is sent immediately on the wire.
-     *
-     * @param statusCode the informational status code (100-199)
-     * @param headers the headers to include (e.g. Link headers)
-     * @throws IllegalArgumentException if statusCode is not 1xx
-     * @throws IllegalStateException if the final response has already started
-     * @see <a href="https://www.rfc-editor.org/rfc/rfc8297">RFC 8297: Early Hints</a>
-     * @see <a href="https://www.rfc-editor.org/rfc/rfc9110#section-15.2">RFC 9110 Section 15.2</a>
-     */
-    default void sendInformational(int statusCode, Headers headers) {
-        // Default: no-op for implementations that do not support 1xx
-    }
-
-    // ─────────────────────────────────────────────────────────────────────────
     // Server Push
     // ─────────────────────────────────────────────────────────────────────────
 
     /**
-     * Initiates an HTTP/2 server push.
-     *
-     * <p>The headers must include the pseudo-headers for the promised request:
-     * {@code :method}, {@code :path}, {@code :scheme}, {@code :authority}.
+     * Starts an HTTP/2 server push: the promised request. Follow it with
+     * {@link #header} events (and the other field events) for the promised
+     * request's fields, then {@link #endPushPromise()}. The scheme and
+     * authority are those of the current request. Nothing else may be called
+     * on this response in between.
      *
      * <p>The pushed request will be processed through the normal
-     * {@link HttpStreamHandler} mechanism, creating a new handler
-     * for the pushed stream.
+     * factory/handler mechanism, creating a new handler for the pushed stream.
      *
-     * <p>For HTTP/1.x connections, this method returns false and has no effect.
+     * @param method the promised request method (typically GET or HEAD)
+     * @param target the promised request target (path and query)
+     */
+    void startPushPromise(HttpMethod method, String target);
+
+    /**
+     * Ends the promised request and sends the push promise.
      *
-     * @param headers the headers for the promised request
+     * <p>For HTTP/1.x connections, and where the client has disabled push,
+     * nothing is sent and this returns false.
+     *
      * @return true if the push was initiated, false if not supported or
      *         disabled by the client
+     * @throws IllegalStateException if {@link #startPushPromise} was not called
      */
-    boolean pushPromise(Headers headers);
+    boolean endPushPromise();
 
     // ─────────────────────────────────────────────────────────────────────────
     // HTTP Datagrams (RFC 9297)

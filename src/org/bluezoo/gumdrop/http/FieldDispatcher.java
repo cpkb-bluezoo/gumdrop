@@ -184,7 +184,7 @@ public final class FieldDispatcher {
      * @param value the value octets
      */
     public void trailerField(String name, ByteBuffer value) {
-        if (isForbiddenInTrailers(name)) {
+        if (HttpUtils.isForbiddenInTrailers(name)) {
             return;
         }
         if (name.equals("retry-after")) {
@@ -203,17 +203,6 @@ public final class FieldDispatcher {
             }
         }
         handler.header(name, value);
-    }
-
-    private static boolean isForbiddenInTrailers(String name) {
-        return name.equals("content-length") || name.equals("transfer-encoding")
-                || name.equals("host") || name.equals("trailer") || name.equals("te")
-                || name.equals("max-forwards") || name.equals("cache-control")
-                || name.equals("authorization") || name.equals("proxy-authorization")
-                || name.equals("www-authenticate") || name.equals("proxy-authenticate")
-                || name.equals("cookie") || name.equals("set-cookie")
-                || name.startsWith("if-") || name.equals("expect")
-                || name.equals("range") || name.equals("connection");
     }
 
     /** The fields whose whole value is an HTTP-date (RFC 9110 section 5.6.7). */

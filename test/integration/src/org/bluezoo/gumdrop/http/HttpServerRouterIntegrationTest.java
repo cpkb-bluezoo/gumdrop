@@ -34,7 +34,6 @@ import org.bluezoo.gumdrop.http.server.HttpRequestHandler;
 import org.bluezoo.gumdrop.http.server.HttpResponse;
 import org.bluezoo.gumdrop.http.server.HttpStreamHandler;
 import org.bluezoo.gumdrop.http.server.NotFoundHttpRequestHandler;
-import org.bluezoo.gumdrop.http.Headers;
 import org.bluezoo.gumdrop.testsupport.CollectingResponseHandler;
 import org.junit.After;
 import org.junit.Before;
@@ -191,10 +190,8 @@ public class HttpServerRouterIntegrationTest {
         @Override
         public void endHeaders() {
             if ("/api".equals(path)) {
-                Headers response = new Headers();
-                response.add(":status", "200");
-                state.headers(response);
-                state.complete();
+                state.status(200);
+                state.endMessage();
                 return;
             }
             new NotFoundHttpRequestHandler(state).endHeaders();

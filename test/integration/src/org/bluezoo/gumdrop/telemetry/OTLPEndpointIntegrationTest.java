@@ -30,7 +30,6 @@ import org.junit.Test;
 import org.bluezoo.gumdrop.ListenerBindCheck;
 import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.GumdropConfig;
-import org.bluezoo.gumdrop.http.Header;
 import org.bluezoo.gumdrop.http.Headers;
 import org.bluezoo.gumdrop.http.server.HttpRequestHandler;
 import org.bluezoo.gumdrop.http.server.HttpStreamHandler;
@@ -297,11 +296,9 @@ public class OTLPEndpointIntegrationTest {
         }
 
         private void sendOk() {
-            Headers response = new Headers();
-            response.status(HttpStatus.OK);
-            response.add(new Header("Content-Length", "0"));
-            state.headers(response);
-            state.complete();
+            state.status(HttpStatus.OK.code);
+            state.longHeader("Content-Length", 0L);
+            state.endMessage();
         }
 
         String getReceivedBody() {

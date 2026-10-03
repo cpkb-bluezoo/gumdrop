@@ -248,25 +248,19 @@ public class DoHClientLoopbackIntegrationTest extends AbstractServerIntegrationT
                 byte[] wire = new byte[response.serialize().remaining()];
                 response.serialize().get(wire);
 
-                Headers responseHeaders = new Headers();
-                responseHeaders.status(HttpStatus.OK);
-                responseHeaders.add("content-type", "application/dns-message");
-                responseHeaders.add("content-length", String.valueOf(wire.length));
-                state.headers(responseHeaders);
-                state.startResponseBody();
-                state.responseBodyContent(ByteBuffer.wrap(wire));
-                state.endResponseBody();
-                state.complete();
+                state.status(HttpStatus.OK.code);
+                state.header("content-type", "application/dns-message");
+                state.longHeader("content-length", wire.length);
+                state.bodyContent(ByteBuffer.wrap(wire));
+                state.endMessage();
             } catch (Exception e) {
                 reject(state, HttpStatus.BAD_REQUEST);
             }
         }
 
         private static void reject(HttpResponse state, HttpStatus status) {
-            Headers responseHeaders = new Headers();
-            responseHeaders.status(status);
-            state.headers(responseHeaders);
-            state.complete();
+            state.status(status.code);
+            state.endMessage();
         }
     }
 }

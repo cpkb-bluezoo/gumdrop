@@ -33,6 +33,7 @@ import java.util.List;
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.http.Headers;
+import org.bluezoo.gumdrop.http.HttpMethod;
 import org.bluezoo.gumdrop.http.HttpVersion;
 import org.bluezoo.gumdrop.http.server.HttpResponse;
 import org.bluezoo.gumdrop.websocket.WebSocketEventHandler;
@@ -65,7 +66,7 @@ public class ServletHandlerLoopAffinityTest {
         MessageEvents.headers(handler, h);
         state.queued.clear();
 
-        Headers pushHeaders = new Headers();
+        List<String[]> pushHeaders = new ArrayList<String[]>();
         handler.executePush("GET", "/style.css", pushHeaders);
 
         assertEquals("no I/O may happen on the calling (worker) thread",
@@ -73,14 +74,14 @@ public class ServletHandlerLoopAffinityTest {
         assertEquals("the push must be queued for the loop", 1, state.queued.size());
         state.queued.get(0).run();
         assertEquals(1, state.pushes);
-        assertEquals("/style.css", state.lastPush.getValue(":path"));
+        assertEquals("/style.css", state.lastPushTarget);
     }
 
     /** Response state whose loop only runs tasks when the test says so. */
     private static final class DeferringState implements HttpResponse {
         final List<Runnable> queued = new ArrayList<Runnable>();
         int pushes;
-        Headers lastPush;
+        String lastPushTarget;
 
         @Override public SocketAddress getRemoteAddress() {
             return new InetSocketAddress("127.0.0.1", 54321);
@@ -94,18 +95,20 @@ public class ServletHandlerLoopAffinityTest {
         @Override public String getScheme() { return "http"; }
         @Override public SelectorLoop getSelectorLoop() { return null; }
         @Override public Principal getPrincipal() { return null; }
-        @Override public void headers(Headers headers) { }
-        @Override public void startResponseBody() { }
-        @Override public void responseBodyContent(ByteBuffer data) { }
-        @Override public void endResponseBody() { }
-        @Override public void complete() { }
+        @Override public void status(int code) { }
+        @Override public void header(String name, String value) { }
+        @Override public void endHeaders() { }
+        @Override public void bodyContent(ByteBuffer data) { }
+        @Override public void endMessage() { }
         @Override public void execute(Runnable task) { queued.add(task); }
         @Override public void onWritable(Runnable callback) { }
         @Override public void pauseRequestBody() { }
         @Override public void resumeRequestBody() { }
-        @Override public boolean pushPromise(Headers headers) {
+        @Override public void startPushPromise(HttpMethod method, String target) {
+            lastPushTarget = target;
+        }
+        @Override public boolean endPushPromise() {
             pushes++;
-            lastPush = headers;
             return true;
         }
         @Override public void upgradeToWebSocket(String protocol, WebSocketEventHandler handler) { }

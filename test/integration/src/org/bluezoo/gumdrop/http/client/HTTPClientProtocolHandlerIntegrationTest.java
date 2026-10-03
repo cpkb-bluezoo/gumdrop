@@ -29,7 +29,6 @@ import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.Server;
 import org.bluezoo.gumdrop.TcpTransportFactory;
 import org.bluezoo.gumdrop.TestTlsFiles;
-import org.bluezoo.gumdrop.http.Header;
 import org.bluezoo.gumdrop.http.Headers;
 import org.bluezoo.gumdrop.http.HttpServer;
 import org.bluezoo.gumdrop.http.HttpStatus;
@@ -352,23 +351,19 @@ public class HTTPClientProtocolHandlerIntegrationTest extends AbstractServerInte
         public void requestComplete(HttpResponse state) {
             if ("/protected".equals(path)) {
                 if (!sawAuth) {
-                    Headers h = new Headers();
-                    h.status(HttpStatus.UNAUTHORIZED);
-                    h.add(new Header("WWW-Authenticate", "Basic realm=\"integration\""));
-                    state.headers(h);
-                    state.complete();
+                    state.status(HttpStatus.UNAUTHORIZED.code);
+                    state.header("WWW-Authenticate", "Basic realm=\"integration\"");
+                    state.endMessage();
                     return;
                 }
                 writeTextResponse(state, HttpStatus.OK, "authorized:" + AUTH_USER);
                 return;
             }
             if ("/alt-svc".equals(path)) {
-                Headers h = new Headers();
-                h.status(HttpStatus.OK);
-                h.add(new Header("Alt-Svc", "h3=\":443\"; ma=3600"));
-                h.add(new Header("Content-Length", "0"));
-                state.headers(h);
-                state.complete();
+                state.status(HttpStatus.OK.code);
+                state.header("Alt-Svc", "h3=\":443\"; ma=3600");
+                state.longHeader("Content-Length", 0L);
+                state.endMessage();
                 return;
             }
             String payload = "Method: " + method;
@@ -381,15 +376,11 @@ public class HTTPClientProtocolHandlerIntegrationTest extends AbstractServerInte
 
         private static void writeTextResponse(HttpResponse state, HttpStatus status, String text) {
             byte[] bytes = text.getBytes(StandardCharsets.UTF_8);
-            Headers h = new Headers();
-            h.status(status);
-            h.add(new Header("Content-Type", "text/plain; charset=UTF-8"));
-            h.add(new Header("Content-Length", String.valueOf(bytes.length)));
-            state.headers(h);
-            state.startResponseBody();
-            state.responseBodyContent(ByteBuffer.wrap(bytes));
-            state.endResponseBody();
-            state.complete();
+            state.status(status.code);
+            state.header("Content-Type", "text/plain; charset=UTF-8");
+            state.longHeader("Content-Length", bytes.length);
+            state.bodyContent(ByteBuffer.wrap(bytes));
+            state.endMessage();
         }
     }
 }

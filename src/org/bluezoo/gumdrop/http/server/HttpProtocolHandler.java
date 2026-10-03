@@ -612,59 +612,7 @@ public  class HttpProtocolHandler
                 HttpVersion.stripHttp1FramingHeaders(headers);
                 // RFC 9113 section 8.3.2: :status is the only response pseudo-header
                 headers.add(0, new Header(":status", Integer.toString(statusCode)));
-                int streamDependency = 0;
-                boolean streamDependencyExclusive = false;
-                int weight = 0;
-                int padLength = framePadding;
-                buf = ByteBufferPool.acquire(headerTableSize);
-                while (!success) {
-                    try {
-                        hpackEncoder.encode(buf, headers);
-                        success = true;
-                    } catch (BufferOverflowException e) {
-                        ByteBuffer oldBuf = buf;
-                        buf = ByteBufferPool.acquire(buf.capacity() + headerTableSize);
-                        ByteBufferPool.release(oldBuf);
-                    } catch (ProtocolException e) {
-                        ByteBufferPool.release(buf);
-                        sendGoaway(H2FrameHandler.ERROR_COMPRESSION_ERROR);
-                        return;
-                    }
-                }
-                buf.flip();
-                int length = buf.remaining();
-                // RFC 9113 section 4.3: header blocks that exceed
-                // SETTINGS_MAX_FRAME_SIZE are split across HEADERS +
-                // CONTINUATION frames with no intervening frames
-                try {
-                    if (length <= maxFrameSize) {
-                        h2Writer.writeHeaders(streamId, buf, endStream, true,
-                                padLength, streamDependency, weight, streamDependencyExclusive);
-                    } else {
-                        int savedLimit = buf.limit();
-                        buf.limit(buf.position() + maxFrameSize);
-                        ByteBuffer fragment = buf.slice();
-                        buf.limit(savedLimit);
-                        buf.position(buf.position() + maxFrameSize);
-                        h2Writer.writeHeaders(streamId, fragment, endStream, false,
-                                padLength, streamDependency, weight, streamDependencyExclusive);
-                        length -= maxFrameSize;
-                        while (length > maxFrameSize) {
-                            buf.limit(buf.position() + maxFrameSize);
-                            fragment = buf.slice();
-                            buf.limit(savedLimit);
-                            buf.position(buf.position() + maxFrameSize);
-                            h2Writer.writeContinuation(streamId, fragment, false);
-                            length -= maxFrameSize;
-                        }
-                        h2Writer.writeContinuation(streamId, buf, true);
-                    }
-                    requestH2Flush();
-                } catch (IOException e) {
-                    LOGGER.log(Level.WARNING, L10N.getString("warn.error_sending_headers"), e);
-                } finally {
-                    ByteBufferPool.release(buf);
-                }
+                writeH2Headers(streamId, headers, endStream);
                 break;
             default:
                 buf = ByteBufferPool.acquire(headerTableSize);
@@ -737,6 +685,84 @@ public  class HttpProtocolHandler
             h2Writer.flush();
         } catch (IOException e) {
             LOGGER.log(Level.WARNING, L10N.getString("warn.error_flushing_h2_frames"), e);
+        }
+    }
+
+    /**
+     * Encodes a header block as HEADERS (and CONTINUATION) frames. The block
+     * holds the fields as given: the caller has added any pseudo-header.
+     */
+    private void writeH2Headers(int streamId, Headers headers, boolean endStream) {
+        ByteBuffer buf;
+        boolean success = false;
+        int streamDependency = 0;
+        boolean streamDependencyExclusive = false;
+        int weight = 0;
+        int padLength = framePadding;
+        buf = ByteBufferPool.acquire(headerTableSize);
+        while (!success) {
+            try {
+                hpackEncoder.encode(buf, headers);
+                success = true;
+            } catch (BufferOverflowException e) {
+                ByteBuffer oldBuf = buf;
+                buf = ByteBufferPool.acquire(buf.capacity() + headerTableSize);
+                ByteBufferPool.release(oldBuf);
+            } catch (ProtocolException e) {
+                ByteBufferPool.release(buf);
+                sendGoaway(H2FrameHandler.ERROR_COMPRESSION_ERROR);
+                return;
+            }
+        }
+        buf.flip();
+        int length = buf.remaining();
+        // RFC 9113 section 4.3: header blocks that exceed
+        // SETTINGS_MAX_FRAME_SIZE are split across HEADERS +
+        // CONTINUATION frames with no intervening frames
+        try {
+            if (length <= maxFrameSize) {
+                h2Writer.writeHeaders(streamId, buf, endStream, true,
+                        padLength, streamDependency, weight, streamDependencyExclusive);
+            } else {
+                int savedLimit = buf.limit();
+                buf.limit(buf.position() + maxFrameSize);
+                ByteBuffer fragment = buf.slice();
+                buf.limit(savedLimit);
+                buf.position(buf.position() + maxFrameSize);
+                h2Writer.writeHeaders(streamId, fragment, endStream, false,
+                        padLength, streamDependency, weight, streamDependencyExclusive);
+                length -= maxFrameSize;
+                while (length > maxFrameSize) {
+                    buf.limit(buf.position() + maxFrameSize);
+                    fragment = buf.slice();
+                    buf.limit(savedLimit);
+                    buf.position(buf.position() + maxFrameSize);
+                    h2Writer.writeContinuation(streamId, fragment, false);
+                    length -= maxFrameSize;
+                }
+                h2Writer.writeContinuation(streamId, buf, true);
+            }
+            requestH2Flush();
+        } catch (IOException e) {
+            LOGGER.log(Level.WARNING, L10N.getString("warn.error_sending_headers"), e);
+        } finally {
+            ByteBufferPool.release(buf);
+        }
+    }
+
+    @Override
+    public void sendResponseTrailers(int streamId, Headers trailers) {
+        if (state != State.HTTP2) {
+            return;
+        }
+        PendingData pending = h2PendingData.get(streamId);
+        if (pending != null) {
+            // DATA is still queued behind the flow-control window: the
+            // trailer section goes out after it, ending the stream
+            pending.trailers = trailers;
+        } else {
+            writeH2Headers(streamId, trailers, true);
+            requestH2Flush();
         }
     }
 
@@ -873,7 +899,7 @@ public  class HttpProtocolHandler
                 if (counter != null) {
                     counter.addAndGet(-headRemaining);
                 }
-                boolean fin = pending.endStream && pending.isEmpty();
+                boolean fin = pending.endStream && pending.isEmpty() && pending.trailers == null;
                 try {
                     sendH2DataDirect(streamId, head, fin);
                 } finally {
@@ -898,6 +924,10 @@ public  class HttpProtocolHandler
         // multi-chunk drain (e.g. several queued DATA frames released by
         // one WINDOW_UPDATE) reaches the peer as a single channel write
         // instead of one per chunk.
+        if (pending.isEmpty() && pending.trailers != null) {
+            writeH2Headers(streamId, pending.trailers, true);
+            pending.trailers = null;
+        }
         requestH2Flush();
 
         if (pending.isEmpty()) {
@@ -2817,6 +2847,8 @@ public  class HttpProtocolHandler
     private static class PendingData {
         final ArrayDeque<ByteBuffer> buffers = new ArrayDeque<ByteBuffer>();
         boolean endStream;
+        /** Trailer fields to send, as the final HEADERS, once the data is out. */
+        Headers trailers;
 
         void enqueue(ByteBuffer data, boolean fin) {
             if (data.hasRemaining()) {
@@ -2848,6 +2880,7 @@ public  class HttpProtocolHandler
             }
             buffers.clear();
             endStream = false;
+            trailers = null;
         }
     }
 

@@ -704,15 +704,11 @@ public class MyHandler extends DefaultHttpRequestHandler {
             response.upgradeToWebSocket(protocol, new EchoWebSocketHandler());
         } else {
             // Handle as regular HTTP request
-            Headers responseHeaders = new Headers();
-            responseHeaders.status(HttpStatus.OK);
-            responseHeaders.add("content-type", "text/plain");
-            response.headers(responseHeaders);
-            response.startResponseBody();
-            response.responseBodyContent(
+            response.status(200);
+            response.contentType(new ContentType("text", "plain", null));
+            response.bodyContent(
                 ByteBuffer.wrap("Hello!".getBytes()));
-            response.endResponseBody();
-            response.complete();
+            response.endMessage();
         }
     }
 }

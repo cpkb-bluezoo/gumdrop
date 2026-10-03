@@ -25,6 +25,7 @@ import org.bluezoo.gumdrop.http.Capsule;
 import org.bluezoo.gumdrop.http.CapsuleParser;
 import org.bluezoo.gumdrop.http.Header;
 import org.bluezoo.gumdrop.http.Headers;
+import org.bluezoo.gumdrop.http.HttpMethod;
 import org.bluezoo.gumdrop.http.ContentEncoding;
 import org.bluezoo.gumdrop.http.HttpDateCache;
 import org.bluezoo.gumdrop.http.HttpUtils;
@@ -199,6 +200,11 @@ class Stream implements HttpResponse {
 
     private ResponseState responseState = ResponseState.INITIAL;
     private Headers bufferedResponseHeaders;
+    private boolean trailersStarted;
+    // a push promise being built: the promised request line and fields
+    private Headers pushHeaders;
+    private HttpMethod pushMethod;
+    private String pushTarget;
     private HttpRequestHandler handler;
     private boolean applicationHandlerOpened;
     private boolean requestHeadersDispatched;
@@ -284,6 +290,15 @@ class Stream implements HttpResponse {
      */
     public String getScheme() {
         return connection.getScheme();
+    }
+
+    /** The authority of the request being answered, or null. */
+    private String requestAuthority() {
+        if (headers == null) {
+            return null;
+        }
+        String authority = headers.getValue(":authority");
+        return authority != null ? authority : headers.getValue("host");
     }
 
     @Override
@@ -1769,6 +1784,8 @@ class Stream implements HttpResponse {
                 // RFC 9298 section 3 / RFC 9484 section 4: a 2xx response
                 // accepts the tunnel, the same shape RFC 8441 WebSocket uses.
                 sendResponseHeaders(200, new Headers(), false);
+                // the header section is out: capsules are body from here
+                responseState = ResponseState.IN_BODY;
             } else {
                 // RFC 9110 section 7.8: HTTP/1.1 accepts via 101
                 // Switching Protocols instead.
@@ -2038,22 +2055,96 @@ class Stream implements HttpResponse {
     }
 
     @Override
-    public void sendInformational(int statusCode, Headers headers) {
-        if (statusCode < 100 || statusCode > 199) {
-            throw new IllegalArgumentException(
-                    "Status code must be 1xx: " + statusCode);
+    public void status(int code) {
+        if (code < 100 || code > 599) {
+            throw new IllegalArgumentException("Invalid status code: " + code);
         }
         if (responseState != ResponseState.INITIAL) {
-            throw new IllegalStateException(
-                    "Cannot send informational response in state: " + responseState);
+            throw new IllegalStateException(MessageFormat.format(
+                    L10N.getString("err.response_status_late"), responseState));
         }
-        HttpUtils.requireAsciiFieldValues(headers);
+        if (bufferedResponseHeaders == null) {
+            bufferedResponseHeaders = new Headers();
+        }
+        bufferedResponseHeaders.removeAll(":status");
+        bufferedResponseHeaders.add(":status", Integer.toString(code));
+    }
+
+    @Override
+    public void header(String name, String value) {
+        if (pushHeaders != null) {
+            HttpUtils.requireAsciiFieldValue(name, value);
+            pushHeaders.add(name, value);
+            return;
+        }
+        if (responseState == ResponseState.COMPLETE) {
+            throw new IllegalStateException(L10N.getString("err.response_complete"));
+        }
+        HttpUtils.requireAsciiFieldValue(name, value);
+        if (responseState == ResponseState.IN_BODY) {
+            // after the body began this is a trailer field (RFC 9110 section 6.5)
+            if (HttpUtils.isForbiddenInTrailers(name)) {
+                throw new IllegalArgumentException(MessageFormat.format(
+                        L10N.getString("err.trailer_not_allowed"), name));
+            }
+            if (!trailersStarted) {
+                trailersStarted = true;
+                bufferedResponseHeaders = new Headers();
+            }
+            bufferedResponseHeaders.add(name, value);
+            return;
+        }
+        if (responseState != ResponseState.INITIAL) {
+            throw new IllegalStateException(MessageFormat.format(
+                    L10N.getString("err.response_status_late"), responseState));
+        }
+        if (bufferedResponseHeaders == null) {
+            bufferedResponseHeaders = new Headers();
+        }
+        bufferedResponseHeaders.add(name, value);
+    }
+
+    @Override
+    public void endHeaders() {
+        if (pushHeaders != null) {
+            throw new IllegalStateException(L10N.getString("err.push_promise_open"));
+        }
+        if (responseState != ResponseState.INITIAL) {
+            return; // the header section is already out
+        }
+        String statusStr = bufferedResponseHeaders == null
+                ? null : bufferedResponseHeaders.getValue(":status");
+        if (statusStr != null && statusStr.startsWith("1")) {
+            sendInterimResponse(Integer.parseInt(statusStr));
+            return;
+        }
+        ensureStatus();
+        // Flush buffered headers
+        flushResponseHeaders(false);
+        responseState = ResponseState.IN_BODY;
+    }
+
+    /** A response with no status is a 200. */
+    private void ensureStatus() {
+        if (bufferedResponseHeaders == null) {
+            bufferedResponseHeaders = new Headers();
+        }
+        if (bufferedResponseHeaders.getValue(":status") == null) {
+            bufferedResponseHeaders.add(":status", "200");
+        }
+    }
+
+    /** Sends a 1xx response from the buffered fields and starts over. */
+    private void sendInterimResponse(int statusCode) {
+        Headers fields = bufferedResponseHeaders;
+        fields.removeAll(":status");
+        bufferedResponseHeaders = null;
         // RFC 9110 section 15.2: 1xx not defined for HTTP/1.0
         if (connection.getVersion() == HttpVersion.HTTP_1_0) {
             return;
         }
         try {
-            sendResponseHeaders(statusCode, headers, false);
+            sendResponseHeaders(statusCode, fields, false);
         } catch (ProtocolException e) {
             throw new IllegalStateException(
                     "Failed to send informational response", e);
@@ -2061,35 +2152,16 @@ class Stream implements HttpResponse {
     }
 
     @Override
-    public void headers(Headers headers) {
-        if (responseState == ResponseState.COMPLETE) {
-            throw new IllegalStateException(L10N.getString("err.response_complete"));
+    public void bodyContent(ByteBuffer data) {
+        if (pushHeaders != null) {
+            throw new IllegalStateException(L10N.getString("err.push_promise_open"));
         }
-        HttpUtils.requireAsciiFieldValues(headers);
-        // Buffer headers - they will be flushed on startResponseBody() or complete()
-        if (bufferedResponseHeaders == null) {
-            bufferedResponseHeaders = new Headers();
+        if (responseState == ResponseState.INITIAL) {
+            endHeaders();
         }
-        // Merge incoming headers into buffer
-        for (Header header : headers) {
-            bufferedResponseHeaders.add(header);
-        }
-    }
-
-    @Override
-    public void startResponseBody() {
-        if (responseState != ResponseState.INITIAL) {
-            throw new IllegalStateException("startResponseBody() called in invalid state: " + responseState);
-        }
-        // Flush buffered headers
-        flushResponseHeaders(false);
-        responseState = ResponseState.IN_BODY;
-    }
-
-    @Override
-    public void responseBodyContent(ByteBuffer data) {
-        if (responseState != ResponseState.IN_BODY) {
-            throw new IllegalStateException("responseBodyContent() called in invalid state: " + responseState);
+        if (responseState != ResponseState.IN_BODY || trailersStarted) {
+            throw new IllegalStateException(MessageFormat.format(
+                    L10N.getString("err.response_body_late"), responseState));
         }
         try {
             // Send DATA frame without END_STREAM
@@ -2097,16 +2169,6 @@ class Stream implements HttpResponse {
         } catch (ProtocolException e) {
             throw new IllegalStateException("Failed to send response body", e);
         }
-    }
-
-    @Override
-    public void endResponseBody() {
-        if (responseState != ResponseState.IN_BODY) {
-            throw new IllegalStateException("endResponseBody() called in invalid state: " + responseState);
-        }
-        responseState = ResponseState.BODY_COMPLETE;
-        // Clear buffered headers for potential trailers
-        bufferedResponseHeaders = null;
     }
 
     @Override
@@ -2132,7 +2194,7 @@ class Stream implements HttpResponse {
         byte[] encoded = new Capsule(type, copy).encode();
         try {
             if (responseState == ResponseState.INITIAL) {
-                startResponseBody();
+                endHeaders();
             }
             if (responseState != ResponseState.IN_BODY) {
                 return false;
@@ -2198,7 +2260,10 @@ class Stream implements HttpResponse {
     }
 
     @Override
-    public void complete() {
+    public void endMessage() {
+        if (pushHeaders != null) {
+            throw new IllegalStateException(L10N.getString("err.push_promise_open"));
+        }
         if (responseState == ResponseState.COMPLETE) {
             return; // Already complete, ignore
         }
@@ -2213,9 +2278,24 @@ class Stream implements HttpResponse {
             return;
         }
 
+        if (responseState == ResponseState.IN_BODY && trailersStarted) {
+            try {
+                sendTrailers();
+            } catch (ProtocolException e) {
+                throw new IllegalStateException("Failed to complete response", e);
+            }
+            responseState = ResponseState.COMPLETE;
+            return;
+        }
+        if (responseState == ResponseState.IN_BODY) {
+            // the header section went out with the body: nothing is pending
+            bufferedResponseHeaders = null;
+        } else if (responseState == ResponseState.INITIAL) {
+            ensureStatus();
+        }
         try {
             if (bufferedResponseHeaders != null && bufferedResponseHeaders.size() > 0) {
-                // Has buffered headers (either initial headers for no-body response, or trailers)
+                // Has buffered headers (the header section of a response with no body)
                 flushResponseHeaders(true); // END_STREAM
             } else {
                 // No buffered headers - send empty DATA with END_STREAM
@@ -2228,9 +2308,66 @@ class Stream implements HttpResponse {
         responseState = ResponseState.COMPLETE;
     }
 
+    /**
+     * Ends the response with the trailer fields. HTTP/2 sends them as a final
+     * HEADERS frame; chunked HTTP/1.1 as the fields after the last chunk.
+     * Where the framing leaves no room (a declared Content-Length, HTTP/1.0)
+     * they are dropped, as a recipient may ignore trailer fields.
+     */
+    private void sendTrailers() throws ProtocolException {
+        Headers trailers = bufferedResponseHeaders;
+        bufferedResponseHeaders = null;
+        if (responseContentEncoder != null) {
+            // the coding covers the content only, which ends here
+            try {
+                responseContentEncoder.write(EMPTY_BUFFER.duplicate(), true);
+            } catch (ContentEncoding.ContentEncodingException e) {
+                throw new ProtocolException(e.getMessage());
+            }
+            ByteBuffer encoded;
+            while ((encoded = responseContentEncoder.readEncoded()) != null) {
+                sendResponseBodyWire(encoded, false);
+            }
+            responseContentEncoder.close();
+            responseContentEncoder = null;
+        }
+        if (connection.getVersion() == HttpVersion.HTTP_2_0) {
+            connection.sendResponseTrailers(streamId, trailers);
+        } else if (responseChunked) {
+            StringBuilder out = new StringBuilder("0\r\n");
+            for (Header header : trailers) {
+                out.append(header.getName()).append(": ").append(header.getValue()).append("\r\n");
+            }
+            out.append("\r\n");
+            connection.sendResponseBody(streamId, ByteBuffer.wrap(
+                    out.toString().getBytes(java.nio.charset.StandardCharsets.ISO_8859_1)), true);
+        } else {
+            connection.sendResponseBody(streamId, EMPTY_BUFFER.duplicate(), true);
+        }
+    }
+
     // RFC 9113 section 8.4: server push
     @Override
-    public boolean pushPromise(Headers headers) {
+    public void startPushPromise(HttpMethod method, String target) {
+        if (pushHeaders != null) {
+            throw new IllegalStateException(L10N.getString("err.push_promise_open"));
+        }
+        pushMethod = method;
+        pushTarget = target;
+        pushHeaders = new Headers();
+    }
+
+    @Override
+    public boolean endPushPromise() {
+        if (pushHeaders == null) {
+            throw new IllegalStateException(L10N.getString("err.push_promise_not_open"));
+        }
+        Headers promised = pushHeaders;
+        String method = pushMethod.toString();
+        String path = pushTarget;
+        pushHeaders = null;
+        pushMethod = null;
+        pushTarget = null;
         if (connection.getVersion() != HttpVersion.HTTP_2_0) {
             return false;
         }
@@ -2239,16 +2376,20 @@ class Stream implements HttpResponse {
         if (!connection.isEnablePush()) {
             return false;
         }
-        
-        // Extract method and path from headers
-        String method = headers.getValue(":method");
-        String path = headers.getValue(":path");
-        if (method == null || path == null) {
-            return false; // Required pseudo-headers missing
+        // the promised request's pseudo-header fields (RFC 9113 section 8.4.1)
+        Headers fields = new Headers();
+        fields.add(":method", method);
+        fields.add(":scheme", getScheme());
+        String authority = requestAuthority();
+        if (authority != null) {
+            fields.add(":authority", authority);
         }
-        
+        fields.add(":path", path);
+        for (Header header : promised) {
+            fields.add(header);
+        }
         try {
-            return sendServerPush(method, path, headers);
+            return sendServerPush(method, path, fields);
         } catch (Exception e) {
             return false;
         }

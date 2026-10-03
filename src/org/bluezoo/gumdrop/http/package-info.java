@@ -42,8 +42,9 @@
  * ({@link org.bluezoo.gumdrop.http.qpack}, RFC 9204) instead.
  *
  * <p>Handlers can send 1xx informational responses (e.g. 103 Early
- * Hints, RFC 8297) before the final response via {@link
- * org.bluezoo.gumdrop.http.server.HttpResponse#sendInformational}, across
+ * Hints, RFC 8297) before the final response by setting a 1xx
+ * status and ending the header section with {@link
+ * org.bluezoo.gumdrop.http.server.HttpResponse#endHeaders}, across
  * all three HTTP versions.
  *
  * <p>Origin-server caching semantics (validators, conditional GET,

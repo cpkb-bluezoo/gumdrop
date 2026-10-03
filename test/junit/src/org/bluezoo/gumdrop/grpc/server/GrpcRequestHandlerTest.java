@@ -36,8 +36,7 @@ import org.bluezoo.gumdrop.grpc.GrpcFraming;
 import org.bluezoo.gumdrop.grpc.proto.ProtoFile;
 import org.bluezoo.gumdrop.grpc.proto.ProtoFileParser;
 import org.bluezoo.gumdrop.grpc.proto.ProtoMessageHandler;
-import org.bluezoo.gumdrop.http.Header;
-import org.bluezoo.gumdrop.http.Headers;
+import org.bluezoo.gumdrop.testsupport.ResponseRecorder;
 import org.bluezoo.gumdrop.http.HttpStatus;
 import org.bluezoo.gumdrop.http.HttpVersion;
 import org.bluezoo.gumdrop.http.server.HttpRequestHandler;
@@ -100,7 +99,7 @@ public class GrpcRequestHandlerTest {
         stream.target(ascii("/gumdroptest.Echo/SayEcho"));
         stream.contentType(new ContentType("application", "json", null));
         stream.endHeaders();
-        assertEquals(HttpStatus.NOT_FOUND, state.responseStatus);
+        assertEquals(HttpStatus.NOT_FOUND, state.responseStatus());
     }
 
     @Test
@@ -109,7 +108,7 @@ public class GrpcRequestHandlerTest {
         CapturingState state = new CapturingState();
         HttpRequestHandler stream = handler.openStream(state);
         grpcHeaders(stream, "/not-a-grpc-path");
-        assertEquals(HttpStatus.NOT_FOUND, state.responseStatus);
+        assertEquals(HttpStatus.NOT_FOUND, state.responseStatus());
     }
 
     @Test
@@ -118,8 +117,8 @@ public class GrpcRequestHandlerTest {
         CapturingState state = new CapturingState();
         HttpRequestHandler stream = handler.openStream(state);
         grpcHeaders(stream, "/gumdroptest.Echo/SayEcho");
-        assertEquals(HttpStatus.OK, state.responseStatus);
-        assertEquals("12", state.responseHeaders.getValue("grpc-status"));
+        assertEquals(HttpStatus.OK, state.responseStatus());
+        assertEquals("12", state.recorder.getValue("grpc-status"));
     }
 
     private static ByteBuffer ascii(String s) {
@@ -134,21 +133,17 @@ public class GrpcRequestHandlerTest {
     }
 
     private static final class CapturingState implements HttpResponse {
-        Headers responseHeaders;
-        HttpStatus responseStatus;
+        final ResponseRecorder recorder = new ResponseRecorder();
 
-        @Override
-        public void headers(Headers headers) {
-            this.responseHeaders = headers;
-            String code = headers.getValue(":status");
-            this.responseStatus = code != null
-                    ? HttpStatus.fromCode(Integer.parseInt(code)) : null;
+        HttpStatus responseStatus() {
+            return recorder.isStarted() ? HttpStatus.fromCode(recorder.getStatus()) : null;
         }
 
-        @Override public void startResponseBody() { }
-        @Override public void responseBodyContent(ByteBuffer data) { }
-        @Override public void endResponseBody() { }
-        @Override public void complete() { }
+        @Override public void status(int code) { recorder.status(code); }
+        @Override public void header(String name, String value) { recorder.header(name, value); }
+        @Override public void endHeaders() { recorder.endHeaders(); }
+        @Override public void bodyContent(ByteBuffer data) { recorder.bodyContent(); }
+        @Override public void endMessage() { recorder.endMessage(); }
         @Override public SocketAddress getRemoteAddress() { return null; }
         @Override public SocketAddress getLocalAddress() { return null; }
         @Override public boolean isSecure() { return false; }
@@ -161,7 +156,8 @@ public class GrpcRequestHandlerTest {
         @Override public void onWritable(Runnable callback) { }
         @Override public void pauseRequestBody() { }
         @Override public void resumeRequestBody() { }
-        @Override public boolean pushPromise(Headers headers) { return false; }
+        @Override public void startPushPromise(org.bluezoo.gumdrop.http.HttpMethod method, String target) { }
+        @Override public boolean endPushPromise() { return false; }
         @Override public void upgradeToWebSocket(String subprotocol, WebSocketEventHandler handler) { }
         @Override public void cancel() { }
         @Override public boolean sendDatagram(ByteBuffer data) { return false; }

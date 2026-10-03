@@ -457,12 +457,48 @@ responses:
 </p>
 
 <pre>
-headers()              // response headers (includes :status)
-startResponseBody()    // if response has a body
-responseBodyContent()  // one or more body chunks
-endResponseBody()      // body complete
-headers()              // trailer headers (optional)
-complete()             // finish the response
+status(code)           // 1xx, then endHeaders(), any number of times (optional)
+status(code)           // the final status (200 if omitted)
+header(name, value)    // one call per field
+longHeader(name, n)    // a field with an integer value, e.g. content-length
+dateHeader(name, instant) // a field with an HTTP-date, e.g. last-modified
+contentType(type)      // a ContentType
+contentDisposition(d)  // a ContentDisposition
+endHeaders()           // send the header section now (optional)
+bodyContent(buf)       // zero or more body chunks; the first one ends the
+                       // header section if endHeaders() has not been called
+header(name, value)    // trailer fields, after the body began (optional)
+endMessage()           // finish the response (required)
+</pre>
+
+<p>
+The events mirror those a received message is made of, in the same order.
+Nothing is sent until the header section ends, so a response with no body
+(a status, any fields and <code>endMessage()</code>) goes out as a single
+header section that also ends the stream. A field given after the body has
+begun is a trailer field; fields that must be known before the content
+(framing, routing and authentication fields) are rejected with
+<code>IllegalArgumentException</code>.
+</p>
+
+<p>
+Call <code>endHeaders()</code> explicitly only when the header section must
+go out immediately, as for a streaming response. An interim (1xx) response
+is sent by giving a 1xx <code>status()</code>, any fields, then
+<code>endHeaders()</code>, before the final <code>status()</code>:
+</p>
+
+<pre>
+response.status(103);                 // 103 Early Hints
+response.header("link", "&lt;/styles/main.css&gt;; rel=preload; as=style");
+response.endHeaders();                // sends the interim response
+
+response.status(200);                 // the final response follows
+response.contentType(new ContentType("text", "html", null));
+response.longHeader("content-length", body.remaining());
+response.bodyContent(body);
+response.header("x-checksum", checksum);  // a trailer field
+response.endMessage();
 </pre>
 
 <h4>Example: Hello World Handler</h4>
@@ -484,15 +520,11 @@ public class HelloHandler extends DefaultHttpRequestHandler {
     @Override
     public void endHeaders() {
         if (method == HttpMethod.GET) {
-            Headers headers = new Headers();
-            headers.status(HttpStatus.OK);
-            headers.add("content-type", "text/plain");
-            response.headers(headers);
-            response.startResponseBody();
-            response.responseBodyContent(
+            response.status(200);
+            response.contentType(new ContentType("text", "plain", null));
+            response.bodyContent(
                 ByteBuffer.wrap("Hello, World!".getBytes()));
-            response.endResponseBody();
-            response.complete();
+            response.endMessage();
         }
     }
 }
@@ -609,11 +641,9 @@ public class AuthHandler extends DefaultHttpRequestHandler {
     @Override
     public void endHeaders() {
         if (!isValidAuth(auth)) {
-            Headers headers = new Headers();
-            headers.status(HttpStatus.UNAUTHORIZED);
-            headers.add("www-authenticate", "Bearer");
-            response.headers(headers);
-            response.complete();
+            response.status(HttpStatus.UNAUTHORIZED.code);
+            response.header("www-authenticate", "Bearer");
+            response.endMessage();
             return;
         }
         // continue with the normal handling...
@@ -638,13 +668,11 @@ public void authority(ByteBuffer authority) {
 @Override
 public void endHeaders() {
     // Push a stylesheet that we know the client will need
-    Headers pushHeaders = new Headers();
-    pushHeaders.add(":method", "GET");
-    pushHeaders.add(":path", "/styles/main.css");
-    pushHeaders.add(":scheme", response.getScheme());
-    pushHeaders.add(":authority", authority);
-    
-    if (response.pushPromise(pushHeaders)) {
+    // The server adds :scheme and :authority of the current request
+    response.startPushPromise(HttpMethod.GET, "/styles/main.css");
+    response.header("accept", "text/css");
+    boolean pushed = response.endPushPromise();
+    if (pushed) {
         // Push was accepted; the pushed stream will be processed
         // through the factory like any other request
     }
@@ -688,16 +716,14 @@ public class StreamHandler extends DefaultHttpRequestHandler {
     
     @Override
     public void endHeaders() {
-        Headers headers = new Headers();
-        headers.status(HttpStatus.OK);
-        headers.add("content-type", "text/event-stream");
-        response.headers(headers);
-        response.startResponseBody();
+        response.status(200);
+        response.header("content-type", "text/event-stream");
+        response.endHeaders();  // send the header section now
         
         // The response field stays valid for async sends
         eventEmitter.subscribe(new EventListener() {
             public void onEvent(Event event) {
-                response.responseBodyContent(
+                response.bodyContent(
                     ByteBuffer.wrap(event.toSSE().getBytes()));
             }
         });
@@ -729,7 +755,8 @@ pause. Any data that arrived while paused is delivered promptly.</li>
 
 <pre>
 // Streaming a large file with write-side backpressure
-response.startResponseBody();
+response.status(200);
+response.endHeaders();
 sendNextChunk(response, channel);
 
 void sendNextChunk(final HttpResponse response, final ReadableByteChannel src) {
@@ -737,15 +764,14 @@ void sendNextChunk(final HttpResponse response, final ReadableByteChannel src) {
     int n = src.read(buf);
     if (n > 0) {
         buf.flip();
-        response.responseBodyContent(buf);
+        response.bodyContent(buf);
         response.onWritable(new Runnable() {
             public void run() {
                 sendNextChunk(response, src);
             }
         });
     } else {
-        response.endResponseBody();
-        response.complete();
+        response.endMessage();
     }
 }
 </pre>
@@ -755,7 +781,11 @@ void sendNextChunk(final HttpResponse response, final ReadableByteChannel src) {
 public void bodyContent(ByteBuffer data) {
     if (!processor.ready()) {
         response.pauseRequestBody();
-        processor.onReady(() -&gt; response.resumeRequestBody());
+        processor.onReady(new Runnable() {
+            public void run() {
+                response.resumeRequestBody();
+            }
+        });
         return;
     }
     processor.consume(data);
@@ -778,10 +808,8 @@ Use <code>cancel()</code> to abort a stream on error:
 @Override
 public void bodyContent(ByteBuffer data) {
     if (data.remaining() > MAX_BODY_SIZE) {
-        Headers headers = new Headers();
-        headers.status(HttpStatus.REQUEST_ENTITY_TOO_LARGE);
-        response.headers(headers);
-        response.complete();
+        response.status(HttpStatus.PAYLOAD_TOO_LARGE.code);
+        response.endMessage();
         response.cancel();  // abort the stream
     }
 }

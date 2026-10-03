@@ -241,10 +241,8 @@ public class HTTP3WebSocketClientIntegrationTest {
                 }
 
                 private void sendNotFound(HttpResponse state) {
-                    Headers responseHeaders = new Headers();
-                    responseHeaders.status(org.bluezoo.gumdrop.http.HttpStatus.NOT_FOUND);
-                    state.headers(responseHeaders);
-                    state.complete();
+                    state.status(org.bluezoo.gumdrop.http.HttpStatus.NOT_FOUND.code);
+                    state.endMessage();
                 }
             };
         }

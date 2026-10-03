@@ -90,6 +90,8 @@ class MockHttpConnection implements HttpConnectionLike {
     int pendingBytes;
     final Map<Integer, Runnable> writable = new HashMap<Integer, Runnable>();
     final List<Stream> pushedStreams = new ArrayList<Stream>();
+    /** Header sets given to encodeHeaders (the promised request of each push). */
+    final List<Headers> encodedHeaders = new ArrayList<Headers>();
 
     @Override public String getScheme() { return secure ? "https" : "http"; }
     @Override public HttpVersion getVersion() { return version; }
@@ -124,6 +126,14 @@ class MockHttpConnection implements HttpConnectionLike {
             body.write(b, 0, b.length);
         }
         bodyEndStreams.add(Boolean.valueOf(endStream));
+    }
+
+    /** The trailer sections sent, one per call. */
+    final List<Headers> sentTrailers = new ArrayList<Headers>();
+
+    @Override
+    public void sendResponseTrailers(int streamId, Headers trailers) {
+        sentTrailers.add(trailers);
     }
 
     @Override
@@ -169,6 +179,7 @@ class MockHttpConnection implements HttpConnectionLike {
         if (failEncodeHeaders) {
             throw new IllegalStateException("mock encode failure");
         }
+        encodedHeaders.add(headers);
         return new byte[] { (byte) 0x82 };
     }
 

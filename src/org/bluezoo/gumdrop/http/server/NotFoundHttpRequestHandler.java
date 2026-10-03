@@ -21,7 +21,6 @@
 
 package org.bluezoo.gumdrop.http.server;
 
-import org.bluezoo.gumdrop.http.Headers;
 import org.bluezoo.gumdrop.http.HttpStatus;
 
 /**
@@ -48,10 +47,8 @@ public final class NotFoundHttpRequestHandler extends DefaultHttpRequestHandler 
 
     @Override
     public void endHeaders() {
-        Headers headers = new Headers();
-        headers.status(HttpStatus.NOT_FOUND);
-        response.headers(headers);
-        response.complete();
+        response.status(HttpStatus.NOT_FOUND.code);
+        response.endMessage();
     }
 
 }

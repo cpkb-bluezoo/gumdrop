@@ -117,10 +117,8 @@ public class EchoHandlerFactory implements HttpStreamHandler {
 
             // RFC 9110 section 9.3.2: HEAD responses have no message body
             if ("HEAD".equals(method)) {
-                Headers responseHeaders = new Headers();
-                responseHeaders.status(status);
-                state.headers(responseHeaders);
-                state.complete();
+                state.status(status.code);
+                state.endMessage();
                 return;
             }
 
@@ -138,16 +136,12 @@ public class EchoHandlerFactory implements HttpStreamHandler {
             byte[] responseBytes = responseBody.toString().getBytes(StandardCharsets.UTF_8);
 
             // Send response headers
-            Headers responseHeaders = new Headers();
-            responseHeaders.status(status);
-            responseHeaders.add("content-type", "text/plain; charset=UTF-8");
-            responseHeaders.add("content-length", String.valueOf(responseBytes.length));
+            state.status(status.code);
+            state.header("content-type", "text/plain; charset=UTF-8");
+            state.longHeader("content-length", responseBytes.length);
 
-            state.headers(responseHeaders);
-            state.startResponseBody();
-            state.responseBodyContent(ByteBuffer.wrap(responseBytes));
-            state.endResponseBody();
-            state.complete();
+            state.bodyContent(ByteBuffer.wrap(responseBytes));
+            state.endMessage();
         }
     }
 }

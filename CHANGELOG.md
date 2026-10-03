@@ -287,6 +287,22 @@ user-visible themes since 2.2.x.
   (framing, routing, request modifiers, authentication; RFC 9110 section
   6.5.1) are dropped, and a pseudo-header in an HTTP/2 or HTTP/3 trailer
   section is still malformed.
+- **The server `HttpResponse` writes the same events.** `headers(Headers)`,
+  `startResponseBody`, `endResponseBody`, `responseBodyContent`, `complete`,
+  `sendInformational` and `pushPromise(Headers)` are gone. A response is
+  `status(int)`, any number of `header`, `longHeader`, `dateHeader`,
+  `contentType` and `contentDisposition` calls, an optional `endHeaders()`,
+  `bodyContent(ByteBuffer)`, and `endMessage()`. The header section goes out
+  with the first body chunk, or with the end of the message for a response
+  with no body, so a status-only response is one header section that ends the
+  stream; `endHeaders()` sends it at once, for streaming. With no status the
+  response is a 200. A 1xx `status` followed by `endHeaders()` sends an
+  interim response. A field added after the body began is a trailer field:
+  an HTTP/2 or HTTP/3 final HEADERS frame, or the fields after the last chunk
+  in chunked HTTP/1.1 (HTTP/3 trailers were previously dropped). Server push is
+  `startPushPromise(HttpMethod, target)`, `header` calls for the promised
+  request, `endPushPromise()`; the server supplies `:scheme` and
+  `:authority`. `HttpRequest.header(String, ByteBuffer)` is added to match.
 - **`FieldSectionAdapter`.**
   Receives the fields the HPACK and QPACK decoders push and turns an HTTP/2 or
   HTTP/3 field section into the same `HttpMessageHandler` events (the

@@ -25,6 +25,7 @@ import org.bluezoo.gumdrop.http.ConnectIpAddress;
 import org.bluezoo.gumdrop.http.ConnectIpTarget;
 import org.bluezoo.gumdrop.http.Header;
 import org.bluezoo.gumdrop.http.Headers;
+import org.bluezoo.gumdrop.testsupport.ResponseRecorder;
 import org.bluezoo.gumdrop.http.HttpDatagramContext;
 import org.bluezoo.gumdrop.http.server.HttpResponse;
 import org.bluezoo.gumdrop.http.HttpVersion;
@@ -295,7 +296,7 @@ public class ConnectIpRequestHandlerTest {
         final List<byte[]> sentDatagrams = new ArrayList<byte[]>();
         final List<SentCapsule> sentCapsules = new ArrayList<SentCapsule>();
         volatile boolean accepted;
-        Headers completedHeaders;
+        final ResponseRecorder completedHeaders = new ResponseRecorder();
 
         @Override
         public boolean sendDatagram(ByteBuffer data) {
@@ -327,16 +328,17 @@ public class ConnectIpRequestHandlerTest {
         @Override public String getScheme() { return "https"; }
         @Override public SelectorLoop getSelectorLoop() { return null; }
         @Override public Principal getPrincipal() { return null; }
-        @Override public void headers(Headers headers) { completedHeaders = headers; }
-        @Override public void startResponseBody() { }
-        @Override public void responseBodyContent(ByteBuffer data) { }
-        @Override public void endResponseBody() { }
-        @Override public void complete() { }
+        @Override public void status(int code) { completedHeaders.status(code); }
+        @Override public void header(String name, String value) { completedHeaders.header(name, value); }
+        @Override public void endHeaders() { completedHeaders.endHeaders(); }
+        @Override public void bodyContent(ByteBuffer data) { completedHeaders.bodyContent(); }
+        @Override public void endMessage() { completedHeaders.endMessage(); }
         @Override public void execute(Runnable task) { task.run(); }
         @Override public void onWritable(Runnable callback) { }
         @Override public void pauseRequestBody() { }
         @Override public void resumeRequestBody() { }
-        @Override public boolean pushPromise(Headers headers) { return false; }
+        @Override public void startPushPromise(org.bluezoo.gumdrop.http.HttpMethod method, String target) { }
+        @Override public boolean endPushPromise() { return false; }
         @Override public void upgradeToWebSocket(String subprotocol, WebSocketEventHandler handler) { }
         @Override public void cancel() { }
     }

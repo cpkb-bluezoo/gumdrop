@@ -183,15 +183,11 @@ public class HttpServerCompositionTest {
     private static final class HelloHandler extends CollectingRequestHandler {
         @Override
         public void headers(HttpResponse state, Headers headers) {
-            Headers response = new Headers();
-            response.add(":status", "200");
-            response.add("content-type", "text/plain");
-            state.headers(response);
-            state.startResponseBody();
-            state.responseBodyContent(
+            state.status(200);
+            state.header("content-type", "text/plain");
+            state.bodyContent(
                     ByteBuffer.wrap("Hello, World!".getBytes(StandardCharsets.UTF_8)));
-            state.endResponseBody();
-            state.complete();
+            state.endMessage();
         }
     }
 

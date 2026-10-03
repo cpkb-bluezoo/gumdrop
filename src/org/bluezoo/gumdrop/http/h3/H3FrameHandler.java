@@ -36,7 +36,7 @@ import java.nio.ByteBuffer;
  * {@code org.bluezoo.gumdrop.http.hpack} and {@code http.h2} are kept
  * separate.
  *
- * <p>Server push is declined ({@code H3Stream#pushPromise} returns
+ * <p>Server push is declined ({@code H3Stream#endPushPromise} returns
  * false; no {@code MAX_PUSH_ID} is sent). Unpermitted
  * {@link #TYPE_PUSH_PROMISE}, {@link #TYPE_CANCEL_PUSH}, and
  * {@link #TYPE_MAX_PUSH_ID} frames are connection errors as RFC 9114

@@ -39,7 +39,6 @@ import java.util.Map;
 import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.ProtocolHandler;
 import org.bluezoo.gumdrop.http.Header;
-import org.bluezoo.gumdrop.http.Headers;
 import org.bluezoo.gumdrop.http.HttpStatus;
 import org.bluezoo.gumdrop.http.qpack.SimpleEncoder;
 import org.bluezoo.gumdrop.http.server.HttpResponse;
@@ -86,12 +85,9 @@ public class H3ServerEdgeTest {
         H3ServerFlowTest.feed(stream, H3ServerFlowTest.get("/"));
         stream.readFinished();
         HttpResponse state = f.rec.state;
-        Headers h = new Headers();
-        h.status(HttpStatus.OK);
-        state.headers(h);
+        state.status(HttpStatus.OK.code);
         if (body) {
-            state.startResponseBody();
-            state.responseBodyContent(ByteBuffer.wrap(new byte[] {1, 2, 3}));
+            state.bodyContent(ByteBuffer.wrap(new byte[] {1, 2, 3}));
         }
         return state;
     }
@@ -159,9 +155,7 @@ public class H3ServerEdgeTest {
         HttpResponse stateB = respondOk(f, b, true);
         assertFalse(a.hasHeldBody());
         assertTrue(b.hasHeldBody());
-        stateB.endResponseBody();
-        stateA.endResponseBody();
-        stateA.complete();
+        stateA.endMessage();
         a.error(new IOException("done with a"));
         assertFalse(b.hasHeldBody());
     }
@@ -174,21 +168,15 @@ public class H3ServerEdgeTest {
                 ":path", "/", ":authority", "x", "priority", "u=1"));
         a.readFinished();
         HttpResponse stateA = f.rec.state;
-        Headers ha = new Headers();
-        ha.status(HttpStatus.OK);
-        stateA.headers(ha);
-        stateA.startResponseBody();
-        stateA.responseBodyContent(ByteBuffer.wrap(new byte[] {1}));
+        stateA.status(HttpStatus.OK.code);
+        stateA.bodyContent(ByteBuffer.wrap(new byte[] {1}));
         H3Stream b = f.open();
         H3ServerFlowTest.feed(b, H3ServerFlowTest.headersFrame(":method", "GET", ":scheme", "https",
                 ":path", "/", ":authority", "x", "priority", "u=5"));
         b.readFinished();
         HttpResponse stateB = f.rec.state;
-        Headers hb = new Headers();
-        hb.status(HttpStatus.OK);
-        stateB.headers(hb);
-        stateB.startResponseBody();
-        stateB.responseBodyContent(ByteBuffer.wrap(new byte[] {2}));
+        stateB.status(HttpStatus.OK.code);
+        stateB.bodyContent(ByteBuffer.wrap(new byte[] {2}));
         assertFalse(a.hasHeldBody());
         assertFalse(b.hasHeldBody());
         a.error(new IOException("a gone"));
@@ -206,8 +194,7 @@ public class H3ServerEdgeTest {
         respondOk(f, c, true);
         assertTrue(b.hasHeldBody());
         assertTrue(c.hasHeldBody());
-        stateA.endResponseBody();
-        stateA.complete();
+        stateA.endMessage();
         a.error(new IOException("a gone"));
         assertFalse(b.hasHeldBody());
         assertTrue(c.hasHeldBody());
@@ -276,10 +263,8 @@ public class H3ServerEdgeTest {
                 ":scheme", "https", ":path", path, ":authority", "x",
                 "user-agent", "probe/1"));
         stream.readFinished();
-        Headers h = new Headers();
-        h.status(status);
-        f.rec.state.headers(h);
-        f.rec.state.complete();
+        f.rec.state.status(status.code);
+        f.rec.state.endMessage();
     }
 
     @Test

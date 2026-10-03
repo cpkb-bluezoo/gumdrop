@@ -126,21 +126,19 @@ public class HttpProtocolHandlerHttp1Test {
                             if (r.hook != null) {
                                 return;
                             }
-                            Headers resp = new Headers();
-                            resp.add(":status", Integer.toString(r.status));
+                            s.status(r.status);
                             if (r.withLength) {
-                                resp.add("Content-Length", Integer.toString(2 * r.chunks));
+                                s.longHeader("Content-Length", 2L * r.chunks);
                             }
                             if (r.extraName != null) {
-                                resp.add(r.extraName, r.extraValue);
+                                s.header(r.extraName, r.extraValue);
                             }
-                            s.headers(resp);
-                            s.startResponseBody();
+                            // the header section goes out before the body
+                            s.endHeaders();
                             for (int i = 0; i < r.chunks; i++) {
-                                s.responseBodyContent(ByteBuffer.wrap(new byte[] {'o', 'k'}));
+                                s.bodyContent(ByteBuffer.wrap(new byte[] {'o', 'k'}));
                             }
-                            s.endResponseBody();
-                            s.complete();
+                            s.endMessage();
                         }
                     };
                 }
@@ -644,18 +642,14 @@ public class HttpProtocolHandlerHttp1Test {
         f.rec.hook = new HeadersHook() {
             @Override
             public void run(HttpResponse state, Headers headers) {
-                Headers resp = new Headers();
-                resp.add(":status", Integer.toString(status));
+                state.status(status);
                 for (int i = 0; extra != null && i + 1 < extra.length; i += 2) {
-                    resp.add(extra[i], extra[i + 1]);
+                    state.header(extra[i], extra[i + 1]);
                 }
-                state.headers(resp);
                 if (withBody) {
-                    state.startResponseBody();
-                    state.responseBodyContent(ByteBuffer.wrap(new byte[] {'o', 'k'}));
-                    state.endResponseBody();
+                    state.bodyContent(ByteBuffer.wrap(new byte[] {'o', 'k'}));
                 }
-                state.complete();
+                state.endMessage();
             }
         };
         f.open();
@@ -708,13 +702,11 @@ public class HttpProtocolHandlerHttp1Test {
         f.rec.hook = new HeadersHook() {
             @Override
             public void run(HttpResponse state, Headers headers) {
-                Headers early = new Headers();
-                early.add("Link", "</s.css>; rel=preload");
-                state.sendInformational(103, early);
-                Headers resp = new Headers();
-                resp.add(":status", "200");
-                state.headers(resp);
-                state.complete();
+                state.status(103);
+                state.header("Link", "</s.css>; rel=preload");
+                state.endHeaders();
+                state.status(200);
+                state.endMessage();
             }
         };
         f.open();
@@ -1002,11 +994,9 @@ public class HttpProtocolHandlerHttp1Test {
                     state.upgradeToWebSocket(null, ws);
                 } catch (IllegalStateException e) {
                     threw[0] = true;
-                    Headers resp = new Headers();
-                    resp.add(":status", "400");
-                    resp.add("Content-Length", "0");
-                    state.headers(resp);
-                    state.complete();
+                    state.status(400);
+                    state.longHeader("Content-Length", 0L);
+                    state.endMessage();
                 }
             }
         };
@@ -1044,11 +1034,9 @@ public class HttpProtocolHandlerHttp1Test {
             @Override
             public void run(HttpResponse state, Headers headers) {
                 accepted[0] = state.acceptConnectIp();
-                Headers resp = new Headers();
-                resp.add(":status", "400");
-                resp.add("Content-Length", "0");
-                state.headers(resp);
-                state.complete();
+                state.status(400);
+                state.longHeader("Content-Length", 0L);
+                state.endMessage();
             }
         };
         f.open();
@@ -1062,11 +1050,9 @@ public class HttpProtocolHandlerHttp1Test {
             @Override
             public void run(HttpResponse state, Headers headers) {
                 seen.add(headers.getValue(headerName));
-                Headers resp = new Headers();
-                resp.add(":status", "200");
-                resp.add("Content-Length", "0");
-                state.headers(resp);
-                state.complete();
+                state.status(200);
+                state.longHeader("Content-Length", 0L);
+                state.endMessage();
             }
         };
         return headerName;
@@ -1197,19 +1183,206 @@ public class HttpProtocolHandlerHttp1Test {
         f.rec.hook = new HeadersHook() {
             @Override
             public void run(HttpResponse state, Headers headers) {
-                Headers early = new Headers();
-                early.add("Link", "</a>; rel=preload");
-                state.sendInformational(103, early);
-                Headers resp = new Headers();
-                resp.add(":status", "200");
-                resp.add("Content-Length", "0");
-                state.headers(resp);
-                state.complete();
+                state.status(103);
+                state.header("Link", "</a>; rel=preload");
+                state.endHeaders();
+                state.status(200);
+                state.longHeader("Content-Length", 0L);
+                state.endMessage();
             }
         };
         f.open();
         f.feed("GET /x HTTP/1.0\r\nHost: h\r\n\r\n", 100);
         assertFalse(f.wire(), f.wire().contains("103"));
         assertTrue(f.wire(), f.wire().startsWith("HTTP/1.0 200"));
+    }
+
+    // ------------------------------------------------------------------
+    // the response events as they appear on the wire
+
+    private static final String GET_Z = "GET /z HTTP/1.1\r\nHost: h\r\n\r\n";
+
+    private static Fixture respondWith(String request, HeadersHook hook) {
+        Fixture f = new Fixture();
+        f.rec.hook = hook;
+        f.open();
+        f.feed(request, 100);
+        return f;
+    }
+
+    @Test
+    public void testResponseStatusDefaultsTo200() {
+        Fixture f = respondWith(GET_Z, new HeadersHook() {
+            @Override
+            public void run(HttpResponse state, Headers headers) {
+                state.header("x-a", "b");
+                state.endMessage();
+            }
+        });
+        String w = f.wire();
+        assertTrue(w, w.startsWith("HTTP/1.1 200"));
+        assertTrue(w, w.toLowerCase().contains("x-a: b"));
+    }
+
+    @Test
+    public void testTypedFieldsAreFormattedOnTheWire() {
+        Fixture f = respondWith(GET_Z, new HeadersHook() {
+            @Override
+            public void run(HttpResponse state, Headers headers) {
+                state.status(200);
+                state.longHeader("Content-Length", 2L);
+                state.dateHeader("Last-Modified", java.time.Instant.ofEpochSecond(0L));
+                state.contentType(new org.bluezoo.gumdrop.mime.ContentType("text", "plain", null));
+                state.bodyContent(ByteBuffer.wrap(new byte[] {'o', 'k'}));
+                state.endMessage();
+            }
+        });
+        String w = f.wire().toLowerCase();
+        assertTrue(w, w.contains("content-length: 2\r\n"));
+        assertTrue(w, w.contains("last-modified: thu, 01 jan 1970 00:00:00 gmt\r\n"));
+        assertTrue(w, w.contains("content-type: text/plain"));
+        assertTrue(w, w.endsWith("ok"));
+    }
+
+    @Test
+    public void testEndHeadersSendsTheHeaderSectionBeforeAnyBody() {
+        final Fixture f = new Fixture();
+        final String[] snapshot = new String[1];
+        f.rec.hook = new HeadersHook() {
+            @Override
+            public void run(HttpResponse state, Headers headers) {
+                state.status(200);
+                state.header("Content-Type", "text/event-stream");
+                state.endHeaders();
+                snapshot[0] = f.wire();
+                state.bodyContent(ByteBuffer.wrap(new byte[] {'o', 'k'}));
+                state.endMessage();
+            }
+        };
+        f.open();
+        f.feed(GET_Z, 100);
+        assertTrue(snapshot[0], snapshot[0].startsWith("HTTP/1.1 200"));
+        assertTrue(snapshot[0], snapshot[0].endsWith("\r\n\r\n"));
+        assertFalse(snapshot[0], snapshot[0].contains("ok"));
+    }
+
+    @Test
+    public void testStatusOnlyResponseEndsWithItsHeaderSection() {
+        Fixture f = respondWith(GET_Z, new HeadersHook() {
+            @Override
+            public void run(HttpResponse state, Headers headers) {
+                state.status(204);
+                state.endMessage();
+            }
+        });
+        String w = f.wire();
+        assertTrue(w, w.startsWith("HTTP/1.1 204"));
+        assertTrue(w, w.endsWith("\r\n\r\n"));
+        assertFalse(w, w.toLowerCase().contains("transfer-encoding"));
+    }
+
+    @Test
+    public void testInterimResponseIsFollowedByTheFinalResponse() {
+        Fixture f = respondWith(GET_Z, new HeadersHook() {
+            @Override
+            public void run(HttpResponse state, Headers headers) {
+                state.status(103);
+                state.header("Link", "</s.css>; rel=preload");
+                state.endHeaders();
+                state.status(200);
+                state.longHeader("Content-Length", 2L);
+                state.bodyContent(ByteBuffer.wrap(new byte[] {'o', 'k'}));
+                state.endMessage();
+            }
+        });
+        String w = f.wire();
+        int interim = w.indexOf("HTTP/1.1 103");
+        int fin = w.indexOf("HTTP/1.1 200");
+        assertTrue(w, interim == 0);
+        assertTrue(w, fin > interim);
+        assertTrue(w, w.substring(0, fin).toLowerCase().contains("link: </s.css>; rel=preload"));
+        assertFalse("interim fields must not leak into the final response",
+                w.substring(fin).toLowerCase().contains("link:"));
+        assertTrue(w, w.endsWith("ok"));
+    }
+
+    @Test
+    public void testFieldAfterTheBodyIsAChunkedTrailer() {
+        Fixture f = respondWith(GET_Z, new HeadersHook() {
+            @Override
+            public void run(HttpResponse state, Headers headers) {
+                state.status(200);
+                state.bodyContent(ByteBuffer.wrap(new byte[] {'o', 'k'}));
+                state.header("X-Checksum", "42");
+                state.endMessage();
+            }
+        });
+        String w = f.wire();
+        assertTrue(w, w.toLowerCase().contains("transfer-encoding: chunked"));
+        int last = w.indexOf("\r\n0\r\n");
+        assertTrue(w, last > 0);
+        String tail = w.substring(last + 5).toLowerCase();
+        assertTrue(w, tail.startsWith("x-checksum: 42\r\n"));
+        assertTrue(w, tail.endsWith("\r\n\r\n"));
+        assertFalse("the trailer section must not carry a second status line: " + w,
+                tail.contains("http/1.1"));
+    }
+
+    @Test
+    public void testForbiddenTrailerAndLateBodyAreRejected() {
+        final IllegalArgumentException[] forbidden = new IllegalArgumentException[1];
+        final IllegalStateException[] lateBody = new IllegalStateException[1];
+        final IllegalArgumentException[] nonAscii = new IllegalArgumentException[1];
+        final IllegalStateException[] afterEnd = new IllegalStateException[1];
+        respondWith(GET_Z, new HeadersHook() {
+            @Override
+            public void run(HttpResponse state, Headers headers) {
+                state.status(200);
+                try {
+                    state.header("x-custom", "caf\u00e9");
+                } catch (IllegalArgumentException e) {
+                    nonAscii[0] = e;
+                }
+                state.bodyContent(ByteBuffer.wrap(new byte[] {'o', 'k'}));
+                try {
+                    state.header("Content-Length", "2");
+                } catch (IllegalArgumentException e) {
+                    forbidden[0] = e;
+                }
+                state.header("X-Checksum", "42");
+                try {
+                    state.bodyContent(ByteBuffer.wrap(new byte[] {'!'}));
+                } catch (IllegalStateException e) {
+                    lateBody[0] = e;
+                }
+                state.endMessage();
+                state.endMessage();
+                try {
+                    state.header("x-late", "1");
+                } catch (IllegalStateException e) {
+                    afterEnd[0] = e;
+                }
+            }
+        });
+        assertNotNull("non-ASCII value", nonAscii[0]);
+        assertNotNull("forbidden trailer name", forbidden[0]);
+        assertNotNull("body after a trailer", lateBody[0]);
+        assertNotNull("field after endMessage", afterEnd[0]);
+    }
+
+    @Test
+    public void testPushPromiseIsRefusedOnHttp1() {
+        final boolean[] result = new boolean[] {true};
+        respondWith(GET_Z, new HeadersHook() {
+            @Override
+            public void run(HttpResponse state, Headers headers) {
+                state.startPushPromise(org.bluezoo.gumdrop.http.HttpMethod.GET, "/pushed");
+                state.header("accept", "text/css");
+                result[0] = state.endPushPromise();
+                state.status(204);
+                state.endMessage();
+            }
+        });
+        assertFalse(result[0]);
     }
 }
