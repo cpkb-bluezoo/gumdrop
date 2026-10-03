@@ -107,8 +107,8 @@ import org.bluezoo.gumdrop.websocket.WebSocketExtension;
  * client.setSecure(true);
  * client.connect(new HttpClientHandler() {
  *     public void onConnected(Endpoint endpoint) {
- *         HttpRequest req = client.get("/users");
- *         req.send(responseHandler);
+ *         HttpRequest req = client.get("/users", responseHandler);
+ *         req.endMessage();
  *     }
  *     public void onSecurityEstablished(SecurityInfo info) { }
  *     public void onError(Exception cause) { cause.printStackTrace(); }

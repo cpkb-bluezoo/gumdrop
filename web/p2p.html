@@ -204,25 +204,25 @@ public final class Peer {
     }
 
     private static final class HelloHandler extends DefaultHttpRequestHandler {
-        private final HttpResponse state;
+        private final HttpResponse response;
         private final String name;
 
-        HelloHandler(HttpResponse state, String name) {
-            this.state = state;
+        HelloHandler(HttpResponse response, String name) {
+            this.response = response;
             this.name = name;
         }
 
         @Override
         public void endHeaders() {
-            Headers response = new Headers();
-            response.add(":status", "200");
-            response.add("content-type", "text/plain");
-            state.headers(response);
-            state.startResponseBody();
-            state.responseBodyContent(ByteBuffer.wrap(
+            Headers responseHeaders = new Headers();
+            responseHeaders.add(":status", "200");
+            responseHeaders.add("content-type", "text/plain");
+            response.headers(responseHeaders);
+            response.startResponseBody();
+            response.responseBodyContent(ByteBuffer.wrap(
                     ("hello from " + name + "\n").getBytes(StandardCharsets.UTF_8)));
-            state.endResponseBody();
-            state.complete();
+            response.endResponseBody();
+            response.complete();
         }
     }
 

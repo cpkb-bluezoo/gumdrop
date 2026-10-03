@@ -9,8 +9,8 @@ import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.http.client.DefaultHttpResponseHandler;
 import org.bluezoo.gumdrop.http.client.HttpClientHandler;
 import org.bluezoo.gumdrop.http.HttpClient;
+import org.bluezoo.gumdrop.http.HttpError;
 import org.bluezoo.gumdrop.http.client.HttpRequest;
-import org.bluezoo.gumdrop.http.client.HttpResponse;
 
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
@@ -110,25 +110,28 @@ public class AuthenticationTest {
         client.connect(gumdrop, new WhenConnected("AuthenticationTest", latch) {
             @Override
             void ready() {
-                HttpRequest request = client.get("/basic-auth/user/passwd");
-                request.header("User-Agent", "Gumdrop-HTTP-Client/1.0");
-
-                request.send(new DefaultHttpResponseHandler() {
+                HttpRequest request = client.get("/basic-auth/user/passwd", new DefaultHttpResponseHandler() {
                     @Override
-                    public void ok(HttpResponse response) {
-                        System.out.println("Response: " + response.getStatus());
-                        System.out.println("  Basic authentication successful!");
+                    public void status(int code) {
+                        if (code >= 200 && code < 300) {
+                            System.out.println("Response: " + code);
+                            System.out.println("  Basic authentication successful!");
+                        } else {
+                            System.out.println("Error: " + code);
+                            System.out.println("  Basic authentication failed");
+                        }
                     }
 
                     @Override
-                    public void error(HttpResponse response) {
-                        System.out.println("Error: " + response.getStatus());
-                        System.out.println("  Basic authentication failed");
-                    }
-
-                    @Override
-                    public void close() {
+                    public void endMessage() {
                         System.out.println("Response complete");
+                        client.close();
+                        latch.countDown();
+                    }
+
+                    @Override
+                    public void error(HttpError error, String detail) {
+                        System.err.println("Request error: " + error + " " + detail);
                         client.close();
                         latch.countDown();
                     }
@@ -140,6 +143,8 @@ public class AuthenticationTest {
                         latch.countDown();
                     }
                 });
+                request.header("User-Agent", "Gumdrop-HTTP-Client/1.0");
+                request.endMessage();
 
                 System.out.println("Sent: GET /basic-auth/user/passwd");
             }
@@ -172,21 +177,14 @@ public class AuthenticationTest {
         client.connect(gumdrop, new WhenConnected("AuthenticationTest", latch) {
             @Override
             void ready() {
-                HttpRequest request = client.get("/headers");
-                request.header("User-Agent", "Gumdrop-HTTP-Client/1.0");
-                request.header("Accept", "application/json");
-
-                // Add Bearer token manually
-                request.header("Authorization", "Bearer fake-token-12345");
-
-                request.send(new DefaultHttpResponseHandler() {
+                HttpRequest request = client.get("/headers", new DefaultHttpResponseHandler() {
                     @Override
-                    public void ok(HttpResponse response) {
-                        System.out.println("Response: " + response.getStatus());
+                    public void status(int code) {
+                        System.out.println("Response: " + code);
                     }
 
                     @Override
-                    public void responseBodyContent(ByteBuffer data) {
+                    public void bodyContent(ByteBuffer data) {
                         String chunk = StandardCharsets.UTF_8.decode(data).toString();
                         responseBody.append(chunk);
 
@@ -197,8 +195,15 @@ public class AuthenticationTest {
                     }
 
                     @Override
-                    public void close() {
+                    public void endMessage() {
                         System.out.println("Response complete");
+                        client.close();
+                        latch.countDown();
+                    }
+
+                    @Override
+                    public void error(HttpError error, String detail) {
+                        System.err.println("Request error: " + error + " " + detail);
                         client.close();
                         latch.countDown();
                     }
@@ -210,6 +215,12 @@ public class AuthenticationTest {
                         latch.countDown();
                     }
                 });
+                request.header("User-Agent", "Gumdrop-HTTP-Client/1.0");
+                request.header("Accept", "application/json");
+
+                // Add Bearer token manually
+                request.header("Authorization", "Bearer fake-token-12345");
+                request.endMessage();
 
                 System.out.println("Sent: GET /headers with Bearer token");
             }
@@ -245,25 +256,28 @@ public class AuthenticationTest {
         client.connect(gumdrop, new WhenConnected("AuthenticationTest", latch) {
             @Override
             void ready() {
-                HttpRequest request = client.get("/digest-auth/auth/user/passwd");
-                request.header("User-Agent", "Gumdrop-HTTP-Client/1.0");
-
-                request.send(new DefaultHttpResponseHandler() {
+                HttpRequest request = client.get("/digest-auth/auth/user/passwd", new DefaultHttpResponseHandler() {
                     @Override
-                    public void ok(HttpResponse response) {
-                        System.out.println("Response: " + response.getStatus());
-                        System.out.println("  Digest authentication successful after challenge!");
+                    public void status(int code) {
+                        if (code >= 200 && code < 300) {
+                            System.out.println("Response: " + code);
+                            System.out.println("  Digest authentication successful after challenge!");
+                        } else {
+                            System.out.println("Error: " + code);
+                            System.out.println("  Digest authentication failed");
+                        }
                     }
 
                     @Override
-                    public void error(HttpResponse response) {
-                        System.out.println("Error: " + response.getStatus());
-                        System.out.println("  Digest authentication failed");
-                    }
-
-                    @Override
-                    public void close() {
+                    public void endMessage() {
                         System.out.println("Response complete");
+                        client.close();
+                        latch.countDown();
+                    }
+
+                    @Override
+                    public void error(HttpError error, String detail) {
+                        System.err.println("Request error: " + error + " " + detail);
                         client.close();
                         latch.countDown();
                     }
@@ -275,6 +289,8 @@ public class AuthenticationTest {
                         latch.countDown();
                     }
                 });
+                request.header("User-Agent", "Gumdrop-HTTP-Client/1.0");
+                request.endMessage();
 
                 System.out.println("Sent: GET /digest-auth/auth/user/passwd (challenge expected)");
             }

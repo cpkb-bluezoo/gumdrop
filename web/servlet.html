@@ -201,7 +201,7 @@ local <code>ResponseOutputStream</code> buffer and transport backpressure
 (<code>pendingResponseBytes()</code> on the connection). Flushed response
 buffers are transferred to the transport without an extra copy; WebSocket
 <code>flush()</code> hands off its buffer the same way. Chunks and
-WebSocket outbound messages are sent via <code>state.execute()</code> on
+WebSocket outbound messages are sent via <code>response.execute()</code> on
 the SelectorLoop thread.</li>
 </ul>
 
@@ -384,11 +384,13 @@ public class UploadServlet extends HttpServlet {
         MessageDigest digest = MessageDigest.getInstance("SHA-256");
         
         // Declare which trailers will be sent
-        resp.setTrailerFields(() -> {
-            Map&lt;String, String&gt; trailers = new HashMap&lt;&gt;();
-            trailers.put("X-Content-SHA256", Base64.getEncoder()
-                .encodeToString(digest.digest()));
-            return trailers;
+        resp.setTrailerFields(new Supplier&lt;Map&lt;String, String&gt;&gt;() {
+            public Map&lt;String, String&gt; get() {
+                Map&lt;String, String&gt; trailers = new HashMap&lt;&gt;();
+                trailers.put("X-Content-SHA256", Base64.getEncoder()
+                    .encodeToString(digest.digest()));
+                return trailers;
+            }
         });
         
         // Stream response while computing checksum
@@ -424,7 +426,7 @@ pool so handler setup never blocks the SelectorLoop. The same pool runs
 has started (so a handler may use <code>destroy()</code> to unblock an
 <code>init()</code> read loop). Outbound data written
 to the <code>WebConnection</code> output stream is marshalled onto the I/O
-thread via <code>state.execute()</code>, with write backpressure matching
+thread via <code>response.execute()</code>, with write backpressure matching
 the HTTP response path.
 </p>
 

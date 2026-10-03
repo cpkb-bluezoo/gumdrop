@@ -58,51 +58,51 @@ import org.bluezoo.gumdrop.websocket.WebSocketExtension;
  *
  * <p><b>Simple response with body:</b>
  * <pre>{@code
- * Headers response = new Headers();
- * response.add(":status", "200");
- * response.add("content-type", "application/json");
- * state.headers(response);
- * state.startResponseBody();
- * state.responseBodyContent(ByteBuffer.wrap(jsonBytes));
- * state.endResponseBody();
- * state.complete();
+ * Headers headers = new Headers();
+ * headers.add(":status", "200");
+ * headers.add("content-type", "application/json");
+ * response.headers(headers);
+ * response.startResponseBody();
+ * response.responseBodyContent(ByteBuffer.wrap(jsonBytes));
+ * response.endResponseBody();
+ * response.complete();
  * }</pre>
  *
  * <p><b>Response without body (204, 304, redirects):</b>
  * <pre>{@code
- * Headers response = new Headers();
- * response.add(":status", "204");
- * state.headers(response);
- * state.complete();
+ * Headers headers = new Headers();
+ * headers.add(":status", "204");
+ * response.headers(headers);
+ * response.complete();
  * }</pre>
  *
  * <p><b>Streaming response:</b>
  * <pre>{@code
- * Headers response = new Headers();
- * response.add(":status", "200");
- * response.add("content-type", "text/event-stream");
- * state.headers(response);
- * state.startResponseBody();
+ * Headers headers = new Headers();
+ * headers.add(":status", "200");
+ * headers.add("content-type", "text/event-stream");
+ * response.headers(headers);
+ * response.startResponseBody();
  * // Send chunks as data becomes available
- * state.responseBodyContent(chunk1);
- * state.responseBodyContent(chunk2);
+ * response.responseBodyContent(chunk1);
+ * response.responseBodyContent(chunk2);
  * // ... more chunks ...
- * state.endResponseBody();
- * state.complete();
+ * response.endResponseBody();
+ * response.complete();
  * }</pre>
  *
  * <p><b>Response with trailer headers:</b>
  * <pre>{@code
- * Headers response = new Headers();
- * response.add(":status", "200");
- * state.headers(response);
- * state.startResponseBody();
- * state.responseBodyContent(data);
- * state.endResponseBody();
+ * Headers headers = new Headers();
+ * headers.add(":status", "200");
+ * response.headers(headers);
+ * response.startResponseBody();
+ * response.responseBodyContent(data);
+ * response.endResponseBody();
  * Headers trailers = new Headers();
  * trailers.add("x-checksum", checksum);
- * state.headers(trailers);  // trailers (after endResponseBody)
- * state.complete();
+ * response.headers(trailers);  // trailers (after endResponseBody)
+ * response.complete();
  * }</pre>
  *
  * <h2>HTTP/2 Server Push</h2>
@@ -412,12 +412,12 @@ public interface HttpResponse {
      * Headers hints = new Headers();
      * hints.add("Link", "</style.css>; rel=preload; as=style");
      * hints.add("Link", "</app.js>; rel=preload; as=script");
-     * state.sendInformational(103, hints);
+     * response.sendInformational(103, hints);
      *
-     * Headers response = new Headers();
-     * response.status(HttpStatus.OK);
-     * response.add("content-type", "text/html");
-     * state.headers(response);
+     * Headers headers = new Headers();
+     * headers.status(HttpStatus.OK);
+     * headers.add("content-type", "text/html");
+     * response.headers(headers);
      * // ... body and complete() ...
      * }</pre>
      *

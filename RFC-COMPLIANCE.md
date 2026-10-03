@@ -961,11 +961,11 @@ with TLS 1.3 handled by the in-tree `org.bluezoo.gumdrop.tls` engine via
 |-------------|---------|--------|-------|
 | HEADERS frame initiates request | 4.1 | Compliant | `Http3ServerHandler.onHeaders()` creates `H3Stream` |
 | DATA frame carries body | 4.1 | Compliant | `Http3ServerHandler.onData()` dispatches to `H3Stream` |
-| FIN completes message | 4.1 | Compliant | `Http3ServerHandler.onFinished()` calls `handler.requestComplete()` |
+| FIN completes message | 4.1 | Compliant | `H3Stream.onFinished()` calls `handler.endMessage()` |
 | Request pseudo-headers (:method, :scheme, :path) | 4.3.1 | Compliant | `H3Stream.onHeaders()` validates mandatory pseudo-headers; CONNECT exempted from :scheme/:path |
-| Malformed request detection | 4.1.2 | Compliant | Missing pseudo-headers return 400 and close the stream |
+| Malformed request detection | 4.1.2 | Compliant | A missing mandatory pseudo-header resets the stream with `H3_MESSAGE_ERROR` (`FieldSectionAdapter`) |
 | Connection-specific header stripping | 4.2 | Compliant | `H3Stream.flushHeaders()` strips Connection, Keep-Alive, Proxy-Connection, Transfer-Encoding, Upgrade |
-| Trailer headers (subsequent HEADERS) | 4.1 | Compliant | `H3Stream.onHeaders()` dispatches post-body HEADERS to handler |
+| Trailer headers (subsequent HEADERS) | 4.1 | Compliant | `H3Stream.headersFrameReceived()` delivers post-body HEADERS as `header` events (typed like header fields; framing, routing and authentication fields dropped; a pseudo-header is malformed) |
 | Request body backpressure | 4.1 | Compliant | `H3Stream.pauseRequestBody()` / `resumeRequestBody()` with deferred read set |
 
 ### HTTP/3 Server Response Sending — RFC 9114 section 4
@@ -1024,7 +1024,7 @@ with TLS 1.3 handled by the in-tree `org.bluezoo.gumdrop.tls` engine via
 | Request pseudo-headers (:method, :scheme, :authority, :path) | 4.3.1 | Compliant | `H3Request.buildHeaders()` emits all four pseudo-headers in order |
 | HEADERS frame sent on new stream | 4.1 | Compliant | `Http3ClientHandler.sendRequest()` |
 | DATA frames for request body | 4.1 | Compliant | `sendRequestBody()` via `H3Stream.sendBody()`; buffers in `PendingWrite` when send window is exhausted and drains in `resumePendingWrites()` |
-| FIN to complete request | 4.1 | Compliant | `H3Request.endRequestBody()` sends empty buffer with fin=true |
+| FIN to complete request | 4.1 | Compliant | `H3Request.endMessage()` sends the last body piece (or an empty buffer) with fin=true, after any trailer HEADERS |
 | GOAWAY rejection of new requests | 5.2 | Compliant | `sendRequest()` returns -1 with IOException when goaway is set |
 | Priority (RFC 9218) | RFC 9218 4, 5, 7, 10 | Compliant | `Priority` header and `PRIORITY_UPDATE` frames; HTTP/2 advertises `SETTINGS_NO_RFC7540_PRIORITIES`; response DATA scheduled by urgency with non-incremental serialization |
 
@@ -1037,7 +1037,7 @@ with TLS 1.3 handled by the in-tree `org.bluezoo.gumdrop.tls` engine via
 | Informational responses (1xx) | 4.1 | Compliant | 1xx HEADERS dispatch headers to handler, return to OPEN for final response |
 | Response headers dispatched | 4.1 | Compliant | `H3ClientStream.onHeaders()` dispatches non-pseudo headers to handler |
 | Response body data | 4.1 | Compliant | `H3ClientStream.onData()` dispatches body content to handler |
-| Response completion (FIN) | 4.1 | Compliant | `H3ClientStream.onFinished()` calls `endResponseBody()` and `close()` |
+| Response completion (FIN) | 4.1 | Compliant | `H3ClientStream.onFinished()` calls `responseHandler.endMessage()` |
 | Stream reset handling | 8 | Compliant | `H3ClientStream.onReset()` calls `handler.failed()` with IOException |
 
 ### HTTP/3 Client GOAWAY and Connection Management

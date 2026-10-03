@@ -51,8 +51,8 @@ import org.bluezoo.gumdrop.telemetry.Trace;
  * {@code :method}, {@code :scheme}, {@code :authority}, {@code :path}.
  *
  * <p>{@code HttpRequest} carries no thread-affinity contract of its own --
- * an application may call {@link #startRequestBody}/{@link #requestBodyContent}/
- * {@link #endRequestBody} from whatever thread it likes, in separate calls
+ * an application may call {@link #header}/{@link #bodyContent}/
+ * {@link #endMessage} from whatever thread it likes, in separate calls
  * with real time between them. The underlying {@link org.bluezoo.gumdrop.quic.QuicConnection}
  * has the opposite contract (touched only from its own {@code SelectorLoop}
  * thread), so every method here that actually sends anything does its
@@ -82,9 +82,9 @@ public class H3Request implements HttpRequest {
     // the QuicConnection's own SelectorLoop thread), so ordinary field
     // access is safe between them -- see the class documentation.
     private long streamId = -1;
-    // True from the moment send()/startRequestBody() itself gets deferred
+    // True from the moment the request itself gets deferred
     // (h3Handler.isSafeToSendNow(method) was false) until the deferred send
-    // actually runs. requestBodyContent()/endRequestBody() consult this to
+    // actually runs. bodyContent()/endMessage() consult this to
     // avoid racing ahead of a send that hasn't happened yet: without it,
     // streamId would still read -1 and body data would be silently dropped
     // rather than queued behind the deferred send. Same thread-safety
@@ -98,7 +98,7 @@ public class H3Request implements HttpRequest {
     // different thread (e.g. a timeout watchdog).
     private volatile HttpResponseHandler responseHandler;
     // Unlike streamId, checked from whatever thread the application calls
-    // send/startRequestBody/requestBodyContent/endRequestBody/cancel from,
+    // header/bodyContent/endMessage/cancel from,
     // so this one does need cross-thread visibility.
     private volatile boolean cancelled;
 

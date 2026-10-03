@@ -259,7 +259,7 @@ import org.bluezoo.gumdrop.http.server.*;
 public class XmlEchoStreamHandler implements HttpStreamHandler {
 
     @Override
-    public HttpRequestHandler openStream(HttpResponse state) {
+    public HttpRequestHandler openStream(HttpResponse response) {
         return new DefaultHttpRequestHandler() {
             private HttpMethod method;
             private String path;
@@ -278,9 +278,9 @@ public class XmlEchoStreamHandler implements HttpStreamHandler {
             @Override
             public void endHeaders() {
                 if ("/echo".equals(path) &amp;&amp; method == HttpMethod.POST) {
-                    delegate = new XmlEchoHandler(state);
+                    delegate = new XmlEchoHandler(response);
                 } else {
-                    delegate = new NotFoundHttpRequestHandler(state);
+                    delegate = new NotFoundHttpRequestHandler(response);
                 }
                 // replay method and target to `delegate`, then call
                 // delegate.endHeaders()
@@ -370,9 +370,9 @@ class LookupRequestHandler extends JSONDefaultHandler {
 <h4>Step 2: HTTP Handler That Calls Downstream</h4>
 
 <p>
-The handler parses the JSON request in <code>responseBodyContent</code>, then
+The handler parses the JSON request in <code>bodyContent</code>, then
 in <code>endMessage</code> initiates an outbound HTTP call. Use
-<code>state.getSelectorLoop()</code> for SelectorLoop affinity so the client
+<code>response.getSelectorLoop()</code> for SelectorLoop affinity so the client
 connection shares the same I/O thread as the server connection:
 </p>
 
@@ -392,12 +392,12 @@ class LookupHandler extends DefaultHttpRequestHandler {
     private final int downstreamPort;
     private final JSONParser jsonParser = new JSONParser();
     private final LookupRequestHandler requestHandler = new LookupRequestHandler();
-    private final HttpResponse state;
+    private final HttpResponse response;
     private HttpMethod method;
     private boolean accepted;
 
-    LookupHandler(HttpResponse state, String host, int port) {
-        this.state = state;
+    LookupHandler(HttpResponse response, String host, int port) {
+        this.response = response;
         this.downstreamHost = host;
         this.downstreamPort = port;
     }
@@ -453,13 +453,13 @@ class LookupHandler extends DefaultHttpRequestHandler {
     }
 
     private void callDownstream(String query) {
-        SelectorLoop loop = state.getSelectorLoop();
+        SelectorLoop loop = response.getSelectorLoop();
         HttpClient client = (loop != null)
             ? new HttpClient(loop, downstreamHost, downstreamPort)
             : new HttpClient(downstreamHost, downstreamPort);
 
         // Propagate trace context so the distributed trace remains connected
-        client.setTrace(state.getTrace());
+        client.setTrace(response.getTrace());
 
         client.connect(gumdrop, new HttpClientHandler() {
             @Override
@@ -528,25 +528,25 @@ class LookupHandler extends DefaultHttpRequestHandler {
 
     private void sendJsonResponse(String result) {
         String json = "{\"result\":\"" + escapeJson(result != null ? result : "") + "\"}";
-        Headers response = new Headers();
-        response.status(HttpStatus.OK);
-        response.add("content-type", "application/json");
-        state.headers(response);
-        state.startResponseBody();
-        state.responseBodyContent(ByteBuffer.wrap(json.getBytes(UTF_8)));
-        state.endResponseBody();
-        state.complete();
+        Headers responseHeaders = new Headers();
+        responseHeaders.status(HttpStatus.OK);
+        responseHeaders.add("content-type", "application/json");
+        response.headers(responseHeaders);
+        response.startResponseBody();
+        response.responseBodyContent(ByteBuffer.wrap(json.getBytes(UTF_8)));
+        response.endResponseBody();
+        response.complete();
     }
 
     private void sendError(int code, String message) {
-        Headers response = new Headers();
-        response.status(HttpStatus.fromCode(code));
-        response.add("content-type", "text/plain");
-        state.headers(response);
-        state.startResponseBody();
-        state.responseBodyContent(ByteBuffer.wrap(message.getBytes(UTF_8)));
-        state.endResponseBody();
-        state.complete();
+        Headers responseHeaders = new Headers();
+        responseHeaders.status(HttpStatus.fromCode(code));
+        responseHeaders.add("content-type", "text/plain");
+        response.headers(responseHeaders);
+        response.startResponseBody();
+        response.responseBodyContent(ByteBuffer.wrap(message.getBytes(UTF_8)));
+        response.endResponseBody();
+        response.complete();
     }
 
     private static String escapeJson(String s) {
@@ -596,7 +596,7 @@ public class LookupStreamHandler implements HttpStreamHandler {
     }
 
     @Override
-    public HttpRequestHandler openStream(HttpResponse state) {
+    public HttpRequestHandler openStream(HttpResponse response) {
         return new DefaultHttpRequestHandler() {
             private String path;
 
@@ -609,9 +609,9 @@ public class LookupStreamHandler implements HttpStreamHandler {
             public void endHeaders() {
                 HttpRequestHandler delegate;
                 if ("/lookup".equals(path)) {
-                    delegate = new LookupHandler(state, downstreamHost, downstreamPort);
+                    delegate = new LookupHandler(response, downstreamHost, downstreamPort);
                 } else {
-                    delegate = new NotFoundHttpRequestHandler(state);
+                    delegate = new NotFoundHttpRequestHandler(response);
                 }
                 // replay the remembered events to `delegate`, then forward
                 // bodyContent/endMessage/error/failed to it
@@ -624,7 +624,7 @@ public class LookupStreamHandler implements HttpStreamHandler {
 <h4>SelectorLoop Affinity</h4>
 
 <p>
-When creating the <code>HttpClient</code>, pass <code>state.getSelectorLoop()</code>
+When creating the <code>HttpClient</code>, pass <code>response.getSelectorLoop()</code>
 so the outbound connection uses the same worker thread as the inbound request.
 This avoids context switches and keeps I/O on a single thread. If
 <code>getSelectorLoop()</code> returns null (e.g. in tests), the client falls
@@ -668,13 +668,13 @@ HttpServer lookup = HttpServer.compose()
     (jsonparser) &mdash; never buffer the entire body</li>
 <li>Call <code>parser.close()</code> in <code>endMessage()</code> to
     finalise parsing</li>
-<li>Use <code>state.getSelectorLoop()</code> when creating HTTP clients for
+<li>Use <code>response.getSelectorLoop()</code> when creating HTTP clients for
     SelectorLoop affinity</li>
-<li>Call <code>client.setTrace(state.getTrace())</code> before
+<li>Call <code>client.setTrace(response.getTrace())</code> before
     <code>connect()</code> to propagate the distributed trace to downstream
     services (traceparent header is added automatically)</li>
-<li>Stream response bodies with <code>state.responseBodyContent(ByteBuffer)</code>
-    and always call <code>state.complete()</code></li>
+<li>Stream response bodies with <code>response.responseBodyContent(ByteBuffer)</code>
+    and always call <code>response.complete()</code></li>
 <li>Call <code>gumdrop.join()</code> after <code>start()</code> so the main
     thread blocks until shutdown (Ctrl+C)</li>
 </ul>

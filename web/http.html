@@ -431,6 +431,24 @@ copy them if you keep them. A response uses the same events, with
 <code>method()</code> and <code>target()</code>.
 </p>
 
+<h4>Trailer Fields</h4>
+
+<p>
+Trailer fields (RFC 9110 section 6.5) are not a separate event. They arrive as
+<code>header(name, value)</code> events after <code>bodyContent()</code>
+(a handler tells a trailer from a header by whether <code>endHeaders()</code>
+has been seen), and the body ends at the first such event or at
+<code>endMessage()</code>. They are typed like header fields where that makes
+sense: <code>Date</code>, <code>Expires</code> and <code>Last-Modified</code>
+arrive as <code>dateHeader</code>, and <code>Retry-After</code> as
+<code>longHeader</code> (seconds) or <code>dateHeader</code> (HTTP-date).
+Fields that must be known before the content (framing, routing, request
+modifiers and authentication; RFC 9110 section 6.5.1) are dropped, and a
+pseudo-header in an HTTP/2 or HTTP/3 trailer section is malformed (reported as
+<code>error</code>). A client's <code>HttpResponseHandler</code> receives
+response trailers the same way.
+</p>
+
 <h4>Sending Responses</h4>
 
 <p>
@@ -552,8 +570,8 @@ HttpServer server = HttpServer.compose()
         .listener(new Http2Listener().port(8080))
         .streamHandler(new HttpStreamHandler() {
             @Override
-            public HttpRequestHandler openStream(HttpResponse state) {
-                return new RoutingHandler(state);
+            public HttpRequestHandler openStream(HttpResponse response) {
+                return new RoutingHandler(response);
             }
         })
         .server();
@@ -677,9 +695,11 @@ public class StreamHandler extends DefaultHttpRequestHandler {
         response.startResponseBody();
         
         // The response field stays valid for async sends
-        eventEmitter.subscribe(event -> {
-            response.responseBodyContent(
-                ByteBuffer.wrap(event.toSSE().getBytes()));
+        eventEmitter.subscribe(new EventListener() {
+            public void onEvent(Event event) {
+                response.responseBodyContent(
+                    ByteBuffer.wrap(event.toSSE().getBytes()));
+            }
         });
     }
 }
@@ -709,19 +729,23 @@ pause. Any data that arrived while paused is delivered promptly.</li>
 
 <pre>
 // Streaming a large file with write-side backpressure
-state.startResponseBody();
-sendNextChunk(state, channel);
+response.startResponseBody();
+sendNextChunk(response, channel);
 
-void sendNextChunk(HttpResponse state, ReadableByteChannel src) {
+void sendNextChunk(final HttpResponse response, final ReadableByteChannel src) {
     ByteBuffer buf = ByteBuffer.allocate(8192);
     int n = src.read(buf);
     if (n > 0) {
         buf.flip();
-        state.responseBodyContent(buf);
-        state.onWritable(() -&gt; sendNextChunk(state, src));
+        response.responseBodyContent(buf);
+        response.onWritable(new Runnable() {
+            public void run() {
+                sendNextChunk(response, src);
+            }
+        });
     } else {
-        state.endResponseBody();
-        state.complete();
+        response.endResponseBody();
+        response.complete();
     }
 }
 </pre>
@@ -1156,6 +1180,21 @@ client.connect(gumdrop, new HttpClientHandler() {
     public void onDisconnected() { }
 });
 </pre>
+
+<h4>Request Bodies and Trailers</h4>
+
+<p>
+A request is built with the same calls and types as the events a server
+receives: <code>header</code>, <code>longHeader</code>,
+<code>dateHeader</code>, <code>contentType</code> and
+<code>contentDisposition</code>, then <code>bodyContent(ByteBuffer)</code> any
+number of times and <code>endMessage()</code>. Nothing is written until it is
+needed; the header section goes out with the first piece of body, or with
+<code>endMessage()</code> if there is none. A field given with
+<code>request.header(...)</code> after the body has begun is a trailer: it is
+sent after the last chunk on HTTP/1.1 (so the body is chunked) and as a final
+HEADERS frame on HTTP/2 and HTTP/3.
+</p>
 
 <p>
 The request and response APIs are identical regardless of the underlying

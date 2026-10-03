@@ -361,7 +361,7 @@ public final class GrpcOrHttpStreamHandler implements HttpStreamHandler {
     }
 
     @Override
-    public HttpRequestHandler openStream(HttpResponse state) {
+    public HttpRequestHandler openStream(HttpResponse response) {
         return new DefaultHttpRequestHandler() {
             private HttpRequestHandler delegate;
 
@@ -371,7 +371,7 @@ public final class GrpcOrHttpStreamHandler implements HttpStreamHandler {
             @Override
             public void contentType(ContentType type) {
                 boolean grpc = type.isMimeType("application/grpc");
-                delegate = grpc ? grpcHandler.openStream(state) : fallback.openStream(state);
+                delegate = grpc ? grpcHandler.openStream(response) : fallback.openStream(response);
                 // replay the remembered events to `delegate`, then forward
                 // header/endHeaders/bodyContent/endMessage/error/failed
                 // to it the same way

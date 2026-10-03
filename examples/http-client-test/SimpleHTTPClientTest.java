@@ -9,8 +9,9 @@ import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.http.client.DefaultHttpResponseHandler;
 import org.bluezoo.gumdrop.http.client.HttpClientHandler;
 import org.bluezoo.gumdrop.http.HttpClient;
+import org.bluezoo.gumdrop.http.HttpError;
 import org.bluezoo.gumdrop.http.client.HttpRequest;
-import org.bluezoo.gumdrop.http.client.HttpResponse;
+import org.bluezoo.gumdrop.mime.ContentType;
 
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
@@ -24,7 +25,8 @@ import java.util.concurrent.TimeUnit;
  * basic HTTP requests and handle responses in an event-driven manner.
  *
  * <p>The client is connected with {@code connect(gumdrop, handler)}; requests
- * are created and sent once the handler reports {@code onConnected}.
+ * are created, with their response handler, once the handler reports
+ * {@code onConnected}.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
@@ -107,29 +109,24 @@ public class SimpleHTTPClientTest {
         client.connect(gumdrop, new WhenConnected("SimpleHTTPClientTest", latch) {
             @Override
             void ready() {
-                HttpRequest request = client.get("/get");
-                request.header("User-Agent", "Gumdrop-HTTP-Client/1.0");
-                request.header("Accept", "application/json");
-
-                request.send(new DefaultHttpResponseHandler() {
+                HttpRequest request = client.get("/get", new DefaultHttpResponseHandler() {
                     @Override
-                    public void ok(HttpResponse response) {
-                        System.out.println("Response: " + response.getStatus());
+                    public void status(int code) {
+                        if (code >= 200 && code < 300) {
+                            System.out.println("Response: " + code);
+                        } else {
+                            System.out.println("Error response: " + code);
+                        }
                     }
 
                     @Override
-                    public void error(HttpResponse response) {
-                        System.out.println("Error response: " + response.getStatus());
-                    }
-
-                    @Override
-                    public void responseBodyContent(ByteBuffer data) {
+                    public void bodyContent(ByteBuffer data) {
                         String chunk = StandardCharsets.UTF_8.decode(data).toString();
                         responseBody.append(chunk);
                     }
 
                     @Override
-                    public void close() {
+                    public void endMessage() {
                         System.out.println("Response complete");
                         System.out.println("  Body length: " + responseBody.length() + " characters");
 
@@ -145,12 +142,22 @@ public class SimpleHTTPClientTest {
                     }
 
                     @Override
+                    public void error(HttpError error, String detail) {
+                        System.err.println("Request error: " + error + " " + detail);
+                        client.close();
+                        latch.countDown();
+                    }
+
+                    @Override
                     public void failed(Exception ex) {
                         System.err.println("Request failed: " + ex.getMessage());
                         client.close();
                         latch.countDown();
                     }
                 });
+                request.header("User-Agent", "Gumdrop-HTTP-Client/1.0");
+                request.header("Accept", "application/json");
+                request.endMessage();
 
                 System.out.println("Sent: GET /get");
             }
@@ -185,33 +192,33 @@ public class SimpleHTTPClientTest {
         client.connect(gumdrop, new WhenConnected("SimpleHTTPClientTest", latch) {
             @Override
             void ready() {
-                HttpRequest request = client.post("/post");
-                request.header("User-Agent", "Gumdrop-HTTP-Client/1.0");
-                request.header("Content-Type", "application/json");
-                request.header("Content-Length", String.valueOf(bodyBytes.length));
-
-                // Start request body, send data, then end
-                request.startRequestBody(new DefaultHttpResponseHandler() {
+                HttpRequest request = client.post("/post", new DefaultHttpResponseHandler() {
                     @Override
-                    public void ok(HttpResponse response) {
-                        System.out.println("Response: " + response.getStatus());
+                    public void status(int code) {
+                        if (code >= 200 && code < 300) {
+                            System.out.println("Response: " + code);
+                        } else {
+                            System.out.println("Error response: " + code);
+                        }
                     }
 
                     @Override
-                    public void error(HttpResponse response) {
-                        System.out.println("Error response: " + response.getStatus());
-                    }
-
-                    @Override
-                    public void responseBodyContent(ByteBuffer data) {
+                    public void bodyContent(ByteBuffer data) {
                         String chunk = StandardCharsets.UTF_8.decode(data).toString();
                         responseBody.append(chunk);
                     }
 
                     @Override
-                    public void close() {
+                    public void endMessage() {
                         System.out.println("Response complete");
                         System.out.println("  Body length: " + responseBody.length() + " characters");
+                        client.close();
+                        latch.countDown();
+                    }
+
+                    @Override
+                    public void error(HttpError error, String detail) {
+                        System.err.println("Request error: " + error + " " + detail);
                         client.close();
                         latch.countDown();
                     }
@@ -224,8 +231,10 @@ public class SimpleHTTPClientTest {
                     }
                 });
 
-                request.requestBodyContent(ByteBuffer.wrap(bodyBytes));
-                request.endRequestBody();
+                request.header("User-Agent", "Gumdrop-HTTP-Client/1.0");
+                request.contentType(new ContentType("application", "json", null));
+                request.bodyContent(ByteBuffer.wrap(bodyBytes));
+                request.endMessage();
 
                 System.out.println("Sent: POST /post (" + bodyBytes.length + " bytes)");
             }
