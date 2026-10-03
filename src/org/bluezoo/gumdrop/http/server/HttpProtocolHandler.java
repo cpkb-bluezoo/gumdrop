@@ -22,6 +22,8 @@
 package org.bluezoo.gumdrop.http.server;
 
 
+import org.bluezoo.gumdrop.http.HeaderFields;
+import java.util.ArrayList;
 import org.bluezoo.gumdrop.http.Capsule;
 import org.bluezoo.gumdrop.mime.ContentDisposition;
 import org.bluezoo.gumdrop.mime.ContentType;
@@ -32,7 +34,6 @@ import org.bluezoo.gumdrop.http.HttpMessageHandler;
 import org.bluezoo.gumdrop.http.HttpMessageRecorder;
 import org.bluezoo.gumdrop.http.HttpMethod;
 import org.bluezoo.gumdrop.http.h1.Http1Parser;
-import org.bluezoo.gumdrop.http.Headers;
 import org.bluezoo.gumdrop.http.HttpConstants;
 import org.bluezoo.gumdrop.http.HttpDateCache;
 import org.bluezoo.gumdrop.http.HttpUtils;
@@ -598,7 +599,7 @@ public  class HttpProtocolHandler
     }
 
     @Override
-    public void sendResponseHeaders(int streamId, int statusCode, Headers headers, boolean endStream) {
+    public void sendResponseHeaders(int streamId, int statusCode, List<Header> headers, boolean endStream) {
         String altSvc = server.getAltSvc();
         if (altSvc != null) {
             headers.add(new Header("Alt-Svc", altSvc));
@@ -692,7 +693,7 @@ public  class HttpProtocolHandler
      * Encodes a header block as HEADERS (and CONTINUATION) frames. The block
      * holds the fields as given: the caller has added any pseudo-header.
      */
-    private void writeH2Headers(int streamId, Headers headers, boolean endStream) {
+    private void writeH2Headers(int streamId, List<Header> headers, boolean endStream) {
         ByteBuffer buf;
         boolean success = false;
         int streamDependency = 0;
@@ -751,7 +752,7 @@ public  class HttpProtocolHandler
     }
 
     @Override
-    public void sendResponseTrailers(int streamId, Headers trailers) {
+    public void sendResponseTrailers(int streamId, List<Header> trailers) {
         if (state != State.HTTP2) {
             return;
         }
@@ -1254,7 +1255,7 @@ public  class HttpProtocolHandler
     }
 
     @Override
-    public byte[] encodeHeaders(Headers headers) {
+    public byte[] encodeHeaders(List<Header> headers) {
         try {
             if (hpackEncoder == null) {
                 hpackEncoder = new Encoder(headerTableSize, maxHeaderListSize);
@@ -1295,7 +1296,7 @@ public  class HttpProtocolHandler
     }
 
     @Override
-    public Stream createPushedStream(int streamId, String method, String uri, Headers headers) {
+    public Stream createPushedStream(int streamId, String method, String uri, List<Header> headers) {
         try {
             Stream pushedStream = newStream(this, streamId);
             pushedStream.setPushPromise();
@@ -1464,9 +1465,9 @@ public  class HttpProtocolHandler
         // over the client's Connection: close intent before committing.
         markInternalRequestReceived(stream);
         try {
-            Headers headers = new Headers();
-            headers.add("Allow", getAllowedMethods());
-            headers.add("Content-Length", "0");
+            List<Header> headers = new ArrayList<Header>();
+            HeaderFields.add(headers, "Allow", getAllowedMethods());
+            HeaderFields.add(headers, "Content-Length", "0");
             stream.sendResponseHeaders(200, headers, true);
         } catch (ProtocolException e) {
             LOGGER.log(Level.WARNING, L10N.getString("warn.error_options_star_response"), e);
@@ -1477,7 +1478,7 @@ public  class HttpProtocolHandler
     // TRACE) that bypasses the normal streamEndHeaders()/streamEndRequest() path.
     // RFC 9112 section 9.6: a request with Connection: close ends the connection.
     private void markInternalRequestReceived(Stream stream) {
-        String conn = stream.getHeaders().getValue("Connection");
+        String conn = HeaderFields.getValue(stream.getHeaders(), "Connection");
         if (conn != null && conn.toLowerCase().contains("close")) {
             stream.closeConnection = true;
         }
@@ -1497,7 +1498,7 @@ public  class HttpProtocolHandler
         try {
             // Echo the request message as message/http
             StringBuilder echo = new StringBuilder();
-            echo.append("TRACE ").append(stream.getHeaders().getValue(":path"))
+            echo.append("TRACE ").append(HeaderFields.getValue(stream.getHeaders(), ":path"))
                     .append(' ').append(version).append("\r\n");
             for (Header h : stream.getHeaders()) {
                 if (!h.getName().startsWith(":")) {
@@ -1506,9 +1507,9 @@ public  class HttpProtocolHandler
             }
             echo.append("\r\n");
             byte[] body = echo.toString().getBytes(java.nio.charset.StandardCharsets.US_ASCII);
-            Headers headers = new Headers();
-            headers.add("Content-Type", "message/http");
-            headers.add("Content-Length", Integer.toString(body.length));
+            List<Header> headers = new ArrayList<Header>();
+            HeaderFields.add(headers, "Content-Type", "message/http");
+            HeaderFields.add(headers, "Content-Length", Integer.toString(body.length));
             stream.sendResponseHeaders(200, headers, false);
             stream.sendResponseBody(ByteBuffer.wrap(body), true);
         } catch (ProtocolException e) {
@@ -1755,13 +1756,13 @@ public  class HttpProtocolHandler
     /**
      * Receives the events of the HTTP/1.x request being parsed and carries
      * out the server's part: it checks the request is one this server will
-     * take (method, target, {@code Host}), builds the {@code Headers} the
+     * take (method, target, {@code Host}), builds the header list the
      * stream works from, and keeps the events so they can be replayed to the
      * application handler once the server has decided what to do with the
      * request (see {@link Stream}).
      *
      * <p>It is also the parser's field tap, which supplies the fields as sent,
-     * original case and exact text, for those {@code Headers}.
+     * original case and exact text, for that list.
      */
     private final class RequestEvents implements HttpMessageHandler, HeaderFieldHandler {
 
@@ -1974,9 +1975,9 @@ public  class HttpProtocolHandler
                 requestEvents.refuse(400);
                 return;
             }
-            String hostValue = stream.getHeaders().getValue("host");
+            String hostValue = HeaderFields.getValue(stream.getHeaders(), "host");
             if (hostValue == null) {
-                hostValue = stream.getHeaders().getValue(":authority");
+                hostValue = HeaderFields.getValue(stream.getHeaders(), ":authority");
             }
             if (!HttpUtils.isValidHost(hostValue)) {
                 requestEvents.refuse(400);
@@ -1984,8 +1985,8 @@ public  class HttpProtocolHandler
             }
         }
         // RFC 9110 section 9.3.7: OPTIONS * targets the server itself
-        String method = stream.getHeaders().getValue(":method");
-        String target = stream.getHeaders().getValue(":path");
+        String method = HeaderFields.getValue(stream.getHeaders(), ":method");
+        String target = HeaderFields.getValue(stream.getHeaders(), ":path");
         if ("OPTIONS".equals(method) && "*".equals(target)) {
             requestAnsweredInternally = true;
             handleOptionsAsterisk(stream);
@@ -2153,9 +2154,9 @@ public  class HttpProtocolHandler
 
     private void completeH2cUpgrade() {
         h2cUpgradePending = false;
-        Headers responseHeaders = new Headers();
-        responseHeaders.add("Connection", "Upgrade");
-        responseHeaders.add("Upgrade", "h2c");
+        List<Header> responseHeaders = new ArrayList<Header>();
+        HeaderFields.add(responseHeaders, "Connection", "Upgrade");
+        HeaderFields.add(responseHeaders, "Upgrade", "h2c");
         sendResponseHeaders(clientStreamId, 101, responseHeaders, true);
         h2cPrefacePos = 0;
         state = State.H2C_PREFACE;
@@ -2239,7 +2240,7 @@ public  class HttpProtocolHandler
 
     // RFC 9112 section 4: status-line = HTTP-version SP status-code SP [ reason-phrase ] CRLF
     // RFC 9112 section 5: field-line = field-name ":" OWS field-value OWS
-    private void writeStatusLineAndHeaders(ByteBuffer buf, int statusCode, Headers headers) {
+    private void writeStatusLineAndHeaders(ByteBuffer buf, int statusCode, List<Header> headers) {
         // RFC 9110 section 15.6.6: a request whose version is unknown
         // (505) or is HTTP/2.0 on an HTTP/1.x connection (e.g. a bad
         // preface) is still answered with a valid HTTP/1.x status line
@@ -2540,7 +2541,7 @@ public  class HttpProtocolHandler
     }
 
     @Override
-    public void applyRfc9218Priority(int streamId, Headers headers) {
+    public void applyRfc9218Priority(int streamId, List<Header> headers) {
         applyRfc9218Priority(streamId, PriorityParams.fromHeaders(headers), false);
     }
 
@@ -2848,7 +2849,7 @@ public  class HttpProtocolHandler
         final ArrayDeque<ByteBuffer> buffers = new ArrayDeque<ByteBuffer>();
         boolean endStream;
         /** Trailer fields to send, as the final HEADERS, once the data is out. */
-        Headers trailers;
+        List<Header> trailers;
 
         void enqueue(ByteBuffer data, boolean fin) {
             if (data.hasRemaining()) {

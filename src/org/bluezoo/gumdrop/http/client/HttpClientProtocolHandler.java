@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.http.client;
 
+import org.bluezoo.gumdrop.http.HeaderFields;
 import org.bluezoo.gumdrop.dns.client.HostsFile;
 import org.bluezoo.util.ByteArrays;
 
@@ -53,7 +54,6 @@ import org.bluezoo.gumdrop.ProtocolHandler;
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.TimerHandle;
 import org.bluezoo.gumdrop.http.Header;
-import org.bluezoo.gumdrop.http.Headers;
 import org.bluezoo.gumdrop.http.ContentEncoding;
 import org.bluezoo.gumdrop.http.HttpStatus;
 import org.bluezoo.gumdrop.http.HttpVersion;
@@ -206,7 +206,7 @@ public class HttpClientProtocolHandler
     protected HttpStream currentStream;
     protected ParseState parseState = ParseState.IDLE;
     private HttpStatus responseStatus;
-    private Headers responseHeaders;
+    private List<Header> responseHeaders;
     private boolean discardingBody;
     private String pendingAuthChallenge;
     private boolean pendingProxyAuth;
@@ -567,7 +567,7 @@ public class HttpClientProtocolHandler
      * @param headers the response headers
      * @return true if the switch was handled, false to log a warning
      */
-    protected boolean handleProtocolSwitch(HttpStatus status, Headers headers) {
+    protected boolean handleProtocolSwitch(HttpStatus status, List<Header> headers) {
         return false;
     }
 
@@ -1043,7 +1043,7 @@ public class HttpClientProtocolHandler
     }
 
     @Override
-    public void endRequestWithTrailers(HttpStream request, Headers trailers) {
+    public void endRequestWithTrailers(HttpStream request, List<Header> trailers) {
         if (runOnSelectorLoop(new Runnable() {
             @Override
             public void run() {
@@ -1233,7 +1233,7 @@ public class HttpClientProtocolHandler
         sb.append(hostHeader);
         sb.append("\r\n");
 
-        if (traceContext != null && !request.getHeaders().containsName("traceparent")) {
+        if (traceContext != null && !HeaderFields.containsName(request.getHeaders(), "traceparent")) {
             String traceparent = traceContext.getTraceparent();
             if (traceparent != null) {
                 sb.append("traceparent: ");
@@ -1244,7 +1244,7 @@ public class HttpClientProtocolHandler
 
         applyDefaultAcceptEncoding(request);
 
-        Headers headers = request.getHeaders();
+        List<Header> headers = request.getHeaders();
         for (Header header : headers) {
             sb.append(header.getName());
             sb.append(": ");
@@ -1264,15 +1264,15 @@ public class HttpClientProtocolHandler
             h2cUpgradeAttempted = true;
             h2cUpgradeRequest = request;
             attemptingH2cUpgrade = true;
-        } else if (!headers.containsName("Connection")) {
+        } else if (!HeaderFields.containsName(headers, "Connection")) {
             // RFC 9112 section 9.6: persistent connections via Connection header
             sb.append("Connection: keep-alive\r\n");
         }
 
         // RFC 9112 section 7.1: chunked transfer coding for request body
-        if (hasBody && !headers.containsName("Content-Length") && !headers.containsName("Transfer-Encoding")) {
+        if (hasBody && !HeaderFields.containsName(headers, "Content-Length") && !HeaderFields.containsName(headers, "Transfer-Encoding")) {
             sb.append("Transfer-Encoding: chunked\r\n");
-            request.getHeaders().add("Transfer-Encoding", "chunked");
+            HeaderFields.add(request.getHeaders(), "Transfer-Encoding", "chunked");
         }
 
         sb.append("\r\n");
@@ -1282,7 +1282,7 @@ public class HttpClientProtocolHandler
 
         parseState = ParseState.STATUS_LINE;
         responseStatus = null;
-        responseHeaders = new Headers();
+        responseHeaders = new ArrayList<Header>();
         h1Events.clear();
         // RFC 9112 section 6.3: a response to HEAD, or to a successful
         // CONNECT, is read accordingly
@@ -1319,7 +1319,7 @@ public class HttpClientProtocolHandler
             return 0;
         }
 
-        if (request.getHeaders().containsName("Transfer-Encoding")) {
+        if (HeaderFields.containsName(request.getHeaders(), "Transfer-Encoding")) {
             String chunkHeader = Integer.toHexString(bytes) + "\r\n";
             endpoint.send(ByteBuffer.wrap(chunkHeader.getBytes(StandardCharsets.US_ASCII)));
             endpoint.send(data);
@@ -1333,13 +1333,13 @@ public class HttpClientProtocolHandler
 
     // RFC 9112 section 7.1: final zero-length chunk terminates body
     private void endHTTP11Data(HttpStream request) {
-        if (request.getHeaders().containsName("Transfer-Encoding")) {
+        if (HeaderFields.containsName(request.getHeaders(), "Transfer-Encoding")) {
             endpoint.send(ByteBuffer.wrap("0\r\n\r\n".getBytes(StandardCharsets.US_ASCII)));
         }
     }
 
     // RFC 9112 section 7.1.2: the last chunk is followed by trailer fields
-    private void sendHTTP11Trailers(Headers trailers) {
+    private void sendHTTP11Trailers(List<Header> trailers) {
         StringBuilder sb = new StringBuilder("0\r\n");
         for (Header trailer : trailers) {
             sb.append(trailer.getName()).append(": ").append(trailer.getValue()).append("\r\n");
@@ -1400,7 +1400,7 @@ public class HttpClientProtocolHandler
     // RFC 9113 section 8.1: trailers are a final HEADERS frame ending the
     // stream. They are encoded where they are written, so the HPACK table
     // sees header blocks in the order they go out.
-    private void sendHTTP2Trailers(HttpStream request, Headers trailers) {
+    private void sendHTTP2Trailers(HttpStream request, List<Header> trailers) {
         int streamId = findStreamId(request);
         if (streamId < 0) {
             return;
@@ -1436,8 +1436,8 @@ public class HttpClientProtocolHandler
         headerList.add(new Header(":path", request.getPath()));
 
         if (traceContext != null) {
-            Headers reqHeaders = request.getHeaders();
-            if (reqHeaders == null || !reqHeaders.containsName("traceparent")) {
+            List<Header> reqHeaders = request.getHeaders();
+            if (reqHeaders == null || !HeaderFields.containsName(reqHeaders, "traceparent")) {
                 String traceparent = traceContext.getTraceparent();
                 if (traceparent != null) {
                     headerList.add(new Header("traceparent", traceparent));
@@ -1445,7 +1445,7 @@ public class HttpClientProtocolHandler
             }
         }
 
-        Headers headers = request.getHeaders();
+        List<Header> headers = request.getHeaders();
         if (headers != null) {
             for (Header header : headers) {
                 String name = header.getName().toLowerCase();
@@ -1561,7 +1561,7 @@ public class HttpClientProtocolHandler
      * response handler, as the message events and as the older callbacks.
      *
      * <p>It is also the parser's field tap, which supplies the fields as sent,
-     * original case and exact text, for the {@code Headers} the client works
+     * original case and exact text, for the header list the client works
      * from.
      */
     private final class ResponseEvents implements HttpMessageHandler, HeaderFieldHandler {
@@ -1649,7 +1649,7 @@ public class HttpClientProtocolHandler
             // RFC 9110 section 15.2.2: 101 Switching Protocols
             if (status == HttpStatus.SWITCHING_PROTOCOLS) {
                 if (h2cUpgradeInFlight) {
-                    String upgrade = responseHeaders.getValue("upgrade");
+                    String upgrade = HeaderFields.getValue(responseHeaders, "upgrade");
                     if (upgrade != null && upgrade.equalsIgnoreCase("h2c")) {
                         LOGGER.fine(L10N.getString("debug.h2c_upgrade_accepted"));
                         responseParser.handOff();
@@ -1687,7 +1687,7 @@ public class HttpClientProtocolHandler
 
             if (status == HttpStatus.UNAUTHORIZED
                     && username != null && password != null && !authRetryPending) {
-                String wwwAuth = responseHeaders.getValue("www-authenticate");
+                String wwwAuth = HeaderFields.getValue(responseHeaders, "www-authenticate");
                 if (wwwAuth != null && canAnswerChallenge(wwwAuth)) {
                     pendingAuthChallenge = wwwAuth;
                     pendingProxyAuth = false;
@@ -1700,7 +1700,7 @@ public class HttpClientProtocolHandler
             // RFC 9110 section 11.7.1: 407 Proxy Authentication Required
             if (status == HttpStatus.PROXY_AUTHENTICATION_REQUIRED
                     && username != null && password != null && !authRetryPending) {
-                String proxyAuth = responseHeaders.getValue("proxy-authenticate");
+                String proxyAuth = HeaderFields.getValue(responseHeaders, "proxy-authenticate");
                 if (proxyAuth != null && canAnswerChallenge(proxyAuth)) {
                     pendingAuthChallenge = proxyAuth;
                     pendingProxyAuth = true;
@@ -1724,7 +1724,7 @@ public class HttpClientProtocolHandler
             h1Events.clear();
 
             if (!altSvcNotified && altSvcListener != null) {
-                String altSvc = responseHeaders.getValue("alt-svc");
+                String altSvc = HeaderFields.getValue(responseHeaders, "alt-svc");
                 if (altSvc != null) {
                     altSvcNotified = true;
                     altSvcListener.altSvcReceived(altSvc);
@@ -1761,7 +1761,7 @@ public class HttpClientProtocolHandler
             if (interim) {
                 interim = false;
                 // the final response follows
-                responseHeaders = new Headers();
+                responseHeaders = new ArrayList<Header>();
                 responseStatus = null;
                 return;
             }
@@ -1796,7 +1796,7 @@ public class HttpClientProtocolHandler
         // RFC 9112 section 9.6: Connection: close means the server
         // will close after this response — do not reuse
         boolean serverClose = responseHeaders != null
-                && "close".equalsIgnoreCase(responseHeaders.getValue("connection"));
+                && "close".equalsIgnoreCase(HeaderFields.getValue(responseHeaders, "connection"));
 
         boolean currentStreamWasMessageEvents = currentStream != null && currentStream.isMessageEvents();
         Integer streamId = currentStream != null ? streamIdByRequest.remove(currentStream) : null;
@@ -1908,24 +1908,24 @@ public class HttpClientProtocolHandler
      * client can answer, or null if the response is to be delivered as is.
      * Requests that carried a body are not retried: the body is not kept.
      */
-    private String h2AuthorizationFor(HttpStream stream, HttpStatus status, Headers headers) {
+    private String h2AuthorizationFor(HttpStream stream, HttpStatus status, List<Header> headers) {
         if (username == null || password == null || stream.isAuthRetry()) {
             return null;
         }
         String challenge;
         if (status == HttpStatus.UNAUTHORIZED) {
-            challenge = headers.getValue("www-authenticate");
+            challenge = HeaderFields.getValue(headers, "www-authenticate");
         } else if (status == HttpStatus.PROXY_AUTHENTICATION_REQUIRED) {
-            challenge = headers.getValue("proxy-authenticate");
+            challenge = HeaderFields.getValue(headers, "proxy-authenticate");
         } else {
             return null;
         }
         if (challenge == null) {
             return null;
         }
-        Headers requestHeaders = stream.getHeaders();
-        if (requestHeaders.containsName("Content-Length")
-                || requestHeaders.containsName("Transfer-Encoding")) {
+        List<Header> requestHeaders = stream.getHeaders();
+        if (HeaderFields.containsName(requestHeaders, "Content-Length")
+                || HeaderFields.containsName(requestHeaders, "Transfer-Encoding")) {
             return null;
         }
         return computeAuthorization(challenge, stream.getMethod(), stream.getPath());
@@ -2360,9 +2360,13 @@ public class HttpClientProtocolHandler
         }
 
         headerBlockBuffer.flip();
-        final HeaderCollector promised = new HeaderCollector();
+        // the promised request as message events, held until the block is
+        // known to be well formed
+        final HttpMessageRecorder promised = new HttpMessageRecorder();
+        final FieldSectionAdapter adapter = new FieldSectionAdapter(promised,
+                HttpVersion.HTTP_2_0, FieldSectionAdapter.Kind.REQUEST);
         try {
-            hpackDecoder.decode(headerBlockBuffer, promised);
+            hpackDecoder.decode(headerBlockBuffer, adapter);
         } catch (IOException e) {
             LOGGER.log(Level.WARNING, L10N.getString("warn.hpack_decode_push_promise"), e);
             sendGoaway(H2FrameHandler.ERROR_COMPRESSION_ERROR,
@@ -2371,84 +2375,58 @@ public class HttpClientProtocolHandler
         } finally {
             headerBlockBuffer = null;
         }
-        if (promised.isMalformed()) {
+        if (!adapter.finish()) {
             // RFC 9113 section 8.1.1: a malformed message is a stream error.
             // The block was decoded in full, so the HPACK state is intact.
             sendRstStream(promisedStreamId, H2FrameHandler.ERROR_PROTOCOL_ERROR);
             return;
         }
-        final Headers promisedHeaders = promised.headers();
 
         HttpStream associatedStream = activeStreams.get(associatedStreamId);
         HttpResponseHandler responseHandler = (associatedStream != null)
                 ? associatedStream.getHandler() : null;
-
         if (responseHandler == null) {
             sendRstStream(promisedStreamId, H2FrameHandler.ERROR_REFUSED_STREAM);
             return;
         }
 
-        PushPromiseImpl promise = new PushPromiseImpl(
-                promisedStreamId, promisedHeaders);
+        HttpResponseHandler pushed = null;
+        final String[] requestLine = new String[2];
         try {
-            responseHandler.pushPromise(promise);
+            PushPromiseHandler promiseHandler = responseHandler.pushPromise();
+            if (promiseHandler != null) {
+                promised.replay(promiseHandler);
+                promiseHandler.endMessage();
+                pushed = promiseHandler.pushedResponse();
+            }
         } catch (Exception e) {
             LOGGER.log(Level.WARNING, L10N.getString("warn.error_push_promise_callback"), e);
         }
-
-        if (!promise.handled) {
+        if (pushed == null) {
             sendRstStream(promisedStreamId, H2FrameHandler.ERROR_REFUSED_STREAM);
-        }
-    }
-
-    /**
-     * PushPromise implementation delivered to handlers.
-     */
-    private class PushPromiseImpl implements PushPromise {
-        private final int promisedStreamId;
-        private final Headers headers;
-        volatile boolean handled;
-
-        PushPromiseImpl(int promisedStreamId, Headers headers) {
-            this.promisedStreamId = promisedStreamId;
-            this.headers = headers;
+            return;
         }
 
-        @Override public String getMethod() {
-            return headers.getValue(":method");
-        }
-        @Override public String getPath() {
-            return headers.getValue(":path");
-        }
-        @Override public String getAuthority() {
-            return headers.getValue(":authority");
-        }
-        @Override public String getScheme() {
-            return headers.getValue(":scheme");
-        }
-        @Override public Headers getHeaders() {
-            return headers;
-        }
-
-        @Override
-        public void accept(HttpResponseHandler handler) {
-            handled = true;
-            HttpStream promisedStream = new HttpStream(
-                    HttpClientProtocolHandler.this,
-                    getMethod() != null ? getMethod() : "GET",
-                    getPath() != null ? getPath() : "/");
-            promisedStream.attachPushedResponseHandler(handler);
-            activeStreams.put(promisedStreamId, promisedStream);
-            streamIdByRequest.put(promisedStream, promisedStreamId);
-            if (h2FlowControl != null) {
-                h2FlowControl.openStream(promisedStreamId);
+        // the request line, for the stream that will carry the response
+        promised.replay(new PushPromiseHandler() {
+            @Override public void method(HttpMethod method) {
+                requestLine[0] = method.toString();
             }
-        }
-
-        @Override
-        public void reject() {
-            handled = true;
-            sendRstStream(promisedStreamId, H2FrameHandler.ERROR_REFUSED_STREAM);
+            @Override public void target(ByteBuffer target) {
+                requestLine[1] = StandardCharsets.ISO_8859_1.decode(target).toString();
+            }
+            @Override public HttpResponseHandler pushedResponse() {
+                return null;
+            }
+        });
+        HttpStream promisedStream = new HttpStream(HttpClientProtocolHandler.this,
+                requestLine[0] != null ? requestLine[0] : "GET",
+                requestLine[1] != null ? requestLine[1] : "/");
+        promisedStream.attachPushedResponseHandler(pushed);
+        activeStreams.put(promisedStreamId, promisedStream);
+        streamIdByRequest.put(promisedStream, promisedStreamId);
+        if (h2FlowControl != null) {
+            h2FlowControl.openStream(promisedStreamId);
         }
     }
 
@@ -2613,7 +2591,7 @@ public class HttpClientProtocolHandler
             failMalformedResponse(stream, streamId);
             return;
         }
-        final Headers headers = collected.headers();
+        final List<Header> headers = collected.headers();
         if (trailers) {
             // fields after the body: given to the handler as further fields
             HttpResponseHandler trailerHandler = stream.getHandler();
@@ -2631,7 +2609,7 @@ public class HttpClientProtocolHandler
             return;
         }
 
-        String statusStr = headers.getValue(":status");
+        String statusStr = HeaderFields.getValue(headers, ":status");
         if (statusStr != null) {
             int statusCode;
             try {
@@ -2680,7 +2658,7 @@ public class HttpClientProtocolHandler
             }
 
             if (!altSvcNotified && altSvcListener != null) {
-                String altSvc = headers.getValue("alt-svc");
+                String altSvc = HeaderFields.getValue(headers, "alt-svc");
                 if (altSvc != null) {
                     altSvcNotified = true;
                     altSvcListener.altSvcReceived(altSvc);
@@ -2768,18 +2746,18 @@ public class HttpClientProtocolHandler
         if (!sendAcceptEncodingHeader) {
             return;
         }
-        Headers headers = request.getHeaders();
-        if (headers != null && !headers.containsName("Accept-Encoding")) {
-            headers.add("Accept-Encoding", "br, gzip, deflate");
+        List<Header> headers = request.getHeaders();
+        if (headers != null && !HeaderFields.containsName(headers, "Accept-Encoding")) {
+            HeaderFields.add(headers, "Accept-Encoding", "br, gzip, deflate");
         }
     }
 
-    private void prepareInboundResponseDecoding(HttpStream stream, Headers headers) {
+    private void prepareInboundResponseDecoding(HttpStream stream, List<Header> headers) {
         if (!decodeResponseContentCoding || stream == null || headers == null) {
             return;
         }
         ContentEncoding.Coding coding = ContentEncoding.parseContentEncoding(
-                headers.getValue("content-encoding"));
+                HeaderFields.getValue(headers, "content-encoding"));
         if (coding != null) {
             stream.setInboundResponseDecoder(coding);
         }
@@ -2935,7 +2913,7 @@ public class HttpClientProtocolHandler
         final ArrayDeque<ByteBuffer> buffers = new ArrayDeque<ByteBuffer>();
         boolean endStream;
         // trailer fields to send once the queued DATA has gone
-        Headers trailers;
+        List<Header> trailers;
         HttpStream trailersRequest;
 
         void enqueue(ByteBuffer data, boolean fin) {
@@ -3112,10 +3090,10 @@ public class HttpClientProtocolHandler
     // queues excess data for later drain on WINDOW_UPDATE
     private class SendTrailersTask implements Runnable {
         private final int streamId;
-        private final Headers trailers;
+        private final List<Header> trailers;
         private final HttpStream request;
 
-        SendTrailersTask(int streamId, Headers trailers, HttpStream request) {
+        SendTrailersTask(int streamId, List<Header> trailers, HttpStream request) {
             this.streamId = streamId;
             this.trailers = trailers;
             this.request = request;
@@ -3135,7 +3113,7 @@ public class HttpClientProtocolHandler
         }
     }
 
-    private void writeTrailers(int streamId, Headers trailers, HttpStream request) {
+    private void writeTrailers(int streamId, List<Header> trailers, HttpStream request) {
         try {
             List<Header> list = new ArrayList<Header>();
             for (Header trailer : trailers) {

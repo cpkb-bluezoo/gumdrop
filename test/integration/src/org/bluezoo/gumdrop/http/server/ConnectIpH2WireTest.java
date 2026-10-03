@@ -21,11 +21,12 @@
 
 package org.bluezoo.gumdrop.http.server;
 
+import java.util.ArrayList;
+import java.util.List;
 import org.bluezoo.gumdrop.http.Capsule;
 import org.bluezoo.gumdrop.http.ConnectIpAddress;
 import org.bluezoo.gumdrop.http.ConnectIpTarget;
 import org.bluezoo.gumdrop.http.Header;
-import org.bluezoo.gumdrop.http.Headers;
 
 import java.net.SocketAddress;
 import java.nio.ByteBuffer;
@@ -159,7 +160,7 @@ public class ConnectIpH2WireTest {
 
     private ByteBuffer encodeConnectIpHeaders(String target, String ipProto) throws Exception {
         Encoder encoder = new Encoder(4096, Http2Listener.DEFAULT_MAX_HEADER_LIST_SIZE);
-        Headers request = new Headers();
+        List<Header> request = new ArrayList<Header>();
         request.add(new Header(":method", "CONNECT"));
         request.add(new Header(":protocol", "connect-ip"));
         request.add(new Header(":scheme", "https"));

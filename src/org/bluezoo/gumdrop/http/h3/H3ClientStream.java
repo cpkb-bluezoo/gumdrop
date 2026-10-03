@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.http.h3;
 
+import org.bluezoo.gumdrop.http.HeaderFields;
 import java.io.IOException;
 import java.net.ProtocolException;
 import java.nio.ByteBuffer;
@@ -40,7 +41,6 @@ import org.bluezoo.gumdrop.http.Header;
 import org.bluezoo.gumdrop.http.FieldSectionAdapter;
 import org.bluezoo.gumdrop.http.HeaderCollector;
 import org.bluezoo.gumdrop.http.HttpMessageRecorder;
-import org.bluezoo.gumdrop.http.Headers;
 import org.bluezoo.gumdrop.http.ContentEncoding;
 import org.bluezoo.gumdrop.http.HttpStatus;
 import org.bluezoo.gumdrop.http.HttpUtils;
@@ -173,7 +173,7 @@ class H3ClientStream implements ProtocolHandler, H3FrameHandler {
     // openStream, then flushed from connected() once a stream ID is
     // granted -- including when the open was queued behind MAX_STREAMS
     // credit (RFC 9000 section 4.6).
-    private Headers pendingRequestHeaders;
+    private List<Header> pendingRequestHeaders;
     private boolean pendingRequestFin;
     private final List<byte[]> pendingBody = new ArrayList<byte[]>();
     private boolean pendingBodyFin;
@@ -254,23 +254,23 @@ class H3ClientStream implements ProtocolHandler, H3FrameHandler {
         }
     }
 
-    void prepareRequest(Headers headers, boolean fin) {
+    void prepareRequest(List<Header> headers, boolean fin) {
         this.pendingRequestHeaders = headers;
         this.pendingRequestFin = fin;
-        this.requestMethod = headers.getValue(":method");
+        this.requestMethod = HeaderFields.getValue(headers, ":method");
         if (connection != null && connection.isEncodeRequestBodyContentCoding()) {
             requestOutboundContentCoding = ContentEncoding.parseContentEncoding(
-                    headers.getCombinedValue("Content-Encoding"));
+                    HeaderFields.getCombinedValue(headers, "Content-Encoding"));
         } else {
             requestOutboundContentCoding = null;
         }
         // RFC 9114 section 4.4 / RFC 8441 section 4: Extended CONNECT is
         // exactly CONNECT with a :protocol pseudo-header.
-        this.extendedConnect = "CONNECT".equals(requestMethod) && headers.getValue(":protocol") != null;
+        this.extendedConnect = "CONNECT".equals(requestMethod) && HeaderFields.getValue(headers, ":protocol") != null;
     }
 
-    Headers takePendingRequestHeaders() {
-        Headers headers = pendingRequestHeaders;
+    List<Header> takePendingRequestHeaders() {
+        List<Header> headers = pendingRequestHeaders;
         pendingRequestHeaders = null;
         return headers;
     }
@@ -287,14 +287,14 @@ class H3ClientStream implements ProtocolHandler, H3FrameHandler {
     }
 
     // Trailer fields waiting for the QUIC stream, to follow the queued body
-    private Headers pendingTrailers;
+    private List<Header> pendingTrailers;
 
-    void queueRequestTrailers(Headers trailers) {
+    void queueRequestTrailers(List<Header> trailers) {
         pendingTrailers = trailers;
     }
 
-    Headers takePendingTrailers() {
-        Headers trailers = pendingTrailers;
+    List<Header> takePendingTrailers() {
+        List<Header> trailers = pendingTrailers;
         pendingTrailers = null;
         return trailers;
     }
@@ -515,7 +515,7 @@ class H3ClientStream implements ProtocolHandler, H3FrameHandler {
             }
             responseEvents.replay(responseHandler);
             responseEvents.clear();
-            Headers hdrs = toHeaders(fields);
+            List<Header> hdrs = toHeaders(fields);
             if (connection != null) {
                 connection.prepareInboundResponseDecoding(this, hdrs);
             }
@@ -551,8 +551,8 @@ class H3ClientStream implements ProtocolHandler, H3FrameHandler {
         responseEvents.clear();
     }
 
-    private static Headers toHeaders(List<Header> fields) {
-        Headers hdrs = new Headers();
+    private static List<Header> toHeaders(List<Header> fields) {
+        List<Header> hdrs = new ArrayList<Header>();
         for (int i = 0; i < fields.size(); i++) {
             hdrs.add(fields.get(i));
         }
@@ -664,8 +664,8 @@ class H3ClientStream implements ProtocolHandler, H3FrameHandler {
      *
      * @return false if the field was present but malformed (stream aborted)
      */
-    private boolean captureContentLength(Headers headers) {
-        String value = headers.getCombinedValue("content-length");
+    private boolean captureContentLength(List<Header> headers) {
+        String value = HeaderFields.getCombinedValue(headers, "content-length");
         if (value == null) {
             return true;
         }

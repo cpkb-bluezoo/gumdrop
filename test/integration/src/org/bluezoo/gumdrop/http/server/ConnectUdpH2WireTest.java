@@ -21,10 +21,11 @@
 
 package org.bluezoo.gumdrop.http.server;
 
+import java.util.ArrayList;
+import java.util.List;
 import org.bluezoo.gumdrop.http.Capsule;
 import org.bluezoo.gumdrop.http.ConnectUdpTarget;
 import org.bluezoo.gumdrop.http.Header;
-import org.bluezoo.gumdrop.http.Headers;
 
 import java.net.InetAddress;
 import java.net.SocketAddress;
@@ -158,7 +159,7 @@ public class ConnectUdpH2WireTest {
 
     private ByteBuffer encodeConnectUdpHeaders(String targetHost, int targetPort) throws Exception {
         Encoder encoder = new Encoder(4096, Http2Listener.DEFAULT_MAX_HEADER_LIST_SIZE);
-        Headers request = new Headers();
+        List<Header> request = new ArrayList<Header>();
         request.add(new Header(":method", "CONNECT"));
         request.add(new Header(":protocol", "connect-udp"));
         request.add(new Header(":scheme", "https"));

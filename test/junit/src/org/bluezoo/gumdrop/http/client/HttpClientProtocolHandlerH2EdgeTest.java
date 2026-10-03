@@ -43,7 +43,6 @@ import org.junit.Test;
 import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.http.Header;
-import org.bluezoo.gumdrop.http.Headers;
 import org.bluezoo.gumdrop.http.HttpStatus;
 import org.bluezoo.gumdrop.http.h2.H2FrameHandler;
 import org.bluezoo.gumdrop.http.h2.H2Writer;
@@ -158,13 +157,14 @@ public class HttpClientProtocolHandlerH2EdgeTest {
         }
 
         @Override
-        public void pushPromise(PushPromise promise) {
+        public PushPromiseHandler pushPromise() {
             promises++;
-            if (acceptPush) {
-                promise.accept(pushTarget);
-            } else {
-                promise.reject();
-            }
+            return new PushPromiseHandler() {
+                @Override
+                public HttpResponseHandler pushedResponse() {
+                    return acceptPush ? pushTarget : null;
+                }
+            };
         }
     }
 
@@ -245,7 +245,7 @@ public class HttpClientProtocolHandlerH2EdgeTest {
     }
 
     private byte[] blockBytes(String... nameValue) throws Exception {
-        Headers h = new Headers();
+        List<Header> h = new ArrayList<Header>();
         for (int i = 0; i < nameValue.length; i += 2) {
             h.add(new Header(nameValue[i], nameValue[i + 1]));
         }
@@ -399,7 +399,7 @@ public class HttpClientProtocolHandlerH2EdgeTest {
     public void handlerlessPushPromiseIsRefusedAndHandlerlessCloseWorks() throws Exception {
         ready();
         handler.get("/a", null).endMessage();
-        pushPromise(1, 2, true, ":method", "GET", ":path", "/pushed");
+        pushPromise(1, 2, true, ":method", "GET", ":path", "/pushed", ":scheme", "https", ":authority", "h.test");
         List<Frame> rst = framesOfType(RST_STREAM);
         assertEquals(1, rst.size());
         assertEquals(H2FrameHandler.ERROR_REFUSED_STREAM, rst.get(0).intAt(0));
@@ -638,12 +638,13 @@ public class HttpClientProtocolHandlerH2EdgeTest {
     // ── push promise variants ──
 
     @Test
-    public void pushPromiseWithContinuationAndMissingPseudoHeadersIsAccepted() throws Exception {
+    public void pushPromiseWithContinuationIsAccepted() throws Exception {
         ready();
         Recorder r = sendGet("/");
         r.acceptPush = true;
         r.pushTarget = new Recorder();
-        final byte[] all = blockBytes("x-promised", "yes");
+        final byte[] all = blockBytes(":method", "GET", ":path", "/pushed", ":scheme", "https",
+            ":authority", "h.test", "x-promised", "yes");
         final int half = all.length / 2;
         server(new FrameWriter() {
             @Override
@@ -663,11 +664,23 @@ public class HttpClientProtocolHandlerH2EdgeTest {
     }
 
     @Test
+    public void pushPromiseMissingPathIsAStreamErrorAndTheHandlerIsNotAsked() throws Exception {
+        ready();
+        Recorder r = sendGet("/");
+        pushPromise(1, 2, true, ":method", "GET", "x-promised", "yes");
+        assertEquals(0, r.promises);
+        List<Frame> rst = framesOfType(RST_STREAM);
+        assertEquals(1, rst.size());
+        assertEquals(2, rst.get(0).streamId);
+        assertEquals(H2FrameHandler.ERROR_PROTOCOL_ERROR, rst.get(0).intAt(0));
+    }
+
+    @Test
     public void lowerPromisedStreamIdDoesNotLowerTheGoawayWatermark() throws Exception {
         ready();
         Recorder r = sendGet("/");
-        pushPromise(1, 6, true, ":method", "GET", ":path", "/a");
-        pushPromise(1, 4, true, ":method", "GET", ":path", "/b");
+        pushPromise(1, 6, true, ":method", "GET", ":path", "/a", ":scheme", "https", ":authority", "h.test");
+        pushPromise(1, 4, true, ":method", "GET", ":path", "/b", ":scheme", "https", ":authority", "h.test");
         assertEquals(2, r.promises);
         handler.close();
         List<Frame> go = framesOfType(GOAWAY);
@@ -679,7 +692,7 @@ public class HttpClientProtocolHandlerH2EdgeTest {
     public void pushIsEnabledWhenTheSettingSaysSo() throws Exception {
         settings(H2FrameHandler.SETTINGS_ENABLE_PUSH, 1);
         Recorder r = sendGet("/");
-        pushPromise(1, 2, true, ":method", "GET", ":path", "/a");
+        pushPromise(1, 2, true, ":method", "GET", ":path", "/a", ":scheme", "https", ":authority", "h.test");
         assertEquals(1, r.promises);
     }
 

@@ -26,6 +26,7 @@ import java.nio.ByteBuffer;
 import org.junit.Test;
 
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNull;
 
 /**
  * Exercises {@link HttpResponseHandler} interface default methods.
@@ -37,10 +38,10 @@ public class HttpResponseHandlerTest {
     @Test
     public void defaultDatagramAndCapsuleMethodsAreNoOps() {
         HttpResponseHandler handler = new HttpResponseHandler() {
-            @Override public void pushPromise(PushPromise promise) { }
             @Override public void failed(Exception ex) { }
         };
 
+        assertNull(handler.pushPromise());
         assertFalse(handler.wantsDatagrams());
         handler.datagramReceived(ByteBuffer.wrap(new byte[] { 1 }));
         handler.capsuleReceived(42L, ByteBuffer.allocate(0));

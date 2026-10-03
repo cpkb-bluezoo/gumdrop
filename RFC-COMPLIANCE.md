@@ -596,7 +596,7 @@ practices.
 | 431 Request Header Fields Too Large | 5 | Compliant | `MAX_LINE_LENGTH` check |
 | Host header MUST be present in HTTP/1.1 | 3.2 | Compliant | `endHeaders()` validates |
 | Duplicate Host header MUST be rejected (400) | 3.2 | Compliant | `endHeaders()` checks `hostCount != 1` |
-| Case-insensitive header name lookup | 5.1 | Compliant | `Headers.getValue()` uses `equalsIgnoreCase()` |
+| Case-insensitive header name lookup | 5.1 | Compliant | `HeaderFields.getValue()` uses `equalsIgnoreCase()` |
 | Token character validation | 5.6.2 | Compliant | `HttpUtils.TOKEN_CHARS` lookup table (updated to RFC 9110) |
 
 #### Section 6-7 — Message Body and Transfer Coding
@@ -639,7 +639,7 @@ practices.
 
 | Requirement | Section | Status | Notes |
 |-------------|---------|--------|-------|
-| field-name is case-insensitive | 5.1 | Compliant | `Headers` class uses `equalsIgnoreCase()` |
+| field-name is case-insensitive | 5.1 | Compliant | `HeaderFields` lookups use `equalsIgnoreCase()` |
 | token = 1*tchar | 5.6.2 | Compliant | `HttpUtils.TOKEN_CHARS` (updated reference from RFC 7230) |
 | field-value validation | 5.5 | Compliant | `HttpUtils.HEADER_VALUE_CHARS` |
 

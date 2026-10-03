@@ -197,27 +197,7 @@ public enum HttpVersion {
 
     /**
      * Strips {@link #isHttp1FramingHeader HTTP/1 framing headers} from a
-     * multiplexed-protocol header block before dispatch to handlers.
-     */
-    public static void stripHttp1FramingHeaders(Headers headers) {
-        if (headers == null) {
-            return;
-        }
-        Iterator<Header> it = headers.iterator();
-        while (it.hasNext()) {
-            Header header = it.next();
-            if (header.getName().startsWith(":")) {
-                continue;
-            }
-            if (isHttp1FramingHeader(header.getName(), header.getValue())) {
-                it.remove();
-            }
-        }
-    }
-
-    /**
-     * Strips {@link #isHttp1FramingHeader HTTP/1 framing headers} from a
-     * multiplexed-protocol header list before sending.
+     * multiplexed-protocol header list before dispatch or sending.
      */
     public static void stripHttp1FramingHeaders(List<Header> headers) {
         if (headers == null) {

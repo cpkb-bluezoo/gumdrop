@@ -22,6 +22,7 @@
 
 package org.bluezoo.gumdrop.http.h3;
 
+import org.bluezoo.gumdrop.http.HeaderFields;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
@@ -32,7 +33,7 @@ import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.List;
 
-import org.bluezoo.gumdrop.http.Headers;
+import org.bluezoo.gumdrop.http.Header;
 import org.bluezoo.gumdrop.http.qpack.Decoder;
 import org.bluezoo.gumdrop.quic.QuicConnection;
 import org.bluezoo.gumdrop.quic.QuicConnectionTestFactory;
@@ -90,18 +91,18 @@ public class H3ClientEdgeTest {
     public void testAcceptEncodingIsAddedOnlyWhenTheRequestHasNone() throws Exception {
         Http3ClientHandler h = H3ClientFlowTest.client();
         h.setSendAcceptEncodingHeader(true);
-        Headers without = new Headers();
+        List<Header> without = new ArrayList<Header>();
         h.applyDefaultAcceptEncoding(without);
-        assertEquals("br, gzip, deflate", without.getValue("accept-encoding"));
-        Headers with = new Headers();
-        with.add("accept-encoding", "identity");
+        assertEquals("br, gzip, deflate", HeaderFields.getValue(without, "accept-encoding"));
+        List<Header> with = new ArrayList<Header>();
+        HeaderFields.add(with, "accept-encoding", "identity");
         h.applyDefaultAcceptEncoding(with);
-        assertEquals("identity", with.getValue("accept-encoding"));
+        assertEquals("identity", HeaderFields.getValue(with, "accept-encoding"));
         h.applyDefaultAcceptEncoding(null);
         h.setSendAcceptEncodingHeader(false);
-        Headers off = new Headers();
+        List<Header> off = new ArrayList<Header>();
         h.applyDefaultAcceptEncoding(off);
-        assertNull(off.getValue("accept-encoding"));
+        assertNull(HeaderFields.getValue(off, "accept-encoding"));
     }
 
     @Test
@@ -124,7 +125,7 @@ public class H3ClientEdgeTest {
     public void testDecoderHelpersTolerateMissingStreamsAndHeaders() throws Exception {
         Http3ClientHandler h = H3ClientFlowTest.client();
         h.setDecodeResponseContentCoding(true);
-        h.prepareInboundResponseDecoding(null, new Headers());
+        h.prepareInboundResponseDecoding(null, new ArrayList<Header>());
         h.feedResponseBody(null, ByteBuffer.wrap(new byte[] {1}));
         h.finishResponseBody(null);
         H3ClientFlowTest.Rec rec = new H3ClientFlowTest.Rec();

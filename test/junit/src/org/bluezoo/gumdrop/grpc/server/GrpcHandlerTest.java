@@ -200,7 +200,8 @@ public class GrpcHandlerTest {
         }
 
         @Override
-        public void header(String name, String value) {
+        public void header(String name, ByteBuffer rawValue) {
+            String value = java.nio.charset.StandardCharsets.ISO_8859_1.decode(rawValue.duplicate()).toString();
             headers.header(name, value);
         }
 

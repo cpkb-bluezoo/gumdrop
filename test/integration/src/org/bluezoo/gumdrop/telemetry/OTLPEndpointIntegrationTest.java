@@ -21,6 +21,9 @@
 
 package org.bluezoo.gumdrop.telemetry;
 
+import java.util.List;
+import org.bluezoo.gumdrop.http.HeaderFields;
+import org.bluezoo.gumdrop.http.Header;
 import org.bluezoo.gumdrop.testsupport.CollectingRequestHandler;
 import org.bluezoo.gumdrop.testsupport.CollectingResponseHandler;
 import org.junit.After;
@@ -30,7 +33,6 @@ import org.junit.Test;
 import org.bluezoo.gumdrop.ListenerBindCheck;
 import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.GumdropConfig;
-import org.bluezoo.gumdrop.http.Headers;
 import org.bluezoo.gumdrop.http.server.HttpRequestHandler;
 import org.bluezoo.gumdrop.http.server.HttpStreamHandler;
 import org.bluezoo.gumdrop.http.server.HttpResponse;
@@ -252,18 +254,18 @@ public class OTLPEndpointIntegrationTest {
      */
     static class TestHandler extends CollectingRequestHandler {
         private ByteArrayOutputStream bodyBuffer = new ByteArrayOutputStream();
-        private Headers requestHeaders;
+        private List<Header> requestHeaders;
         private HttpResponse state;
         private String path;
         private boolean hasBody;
 
         @Override
-        public void headers(HttpResponse state, Headers headers) {
+        public void headers(HttpResponse state, List<Header> headers) {
             this.state = state;
             this.requestHeaders = headers;
-            this.path = headers.getPath();
+            this.path = HeaderFields.getValue(headers, ":path");
             
-            LOGGER.info("Server received: " + headers.getMethod() + " " + path);
+            LOGGER.info("Server received: " + HeaderFields.getValue(headers, ":method") + " " + path);
             // Don't respond here - wait for requestComplete() or endRequestBody()
         }
 

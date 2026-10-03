@@ -100,27 +100,29 @@ public interface HttpRequest {
 
     /**
      * Adds a field. May be called more than once for a field name; names are
-     * case-insensitive.
+     * case-insensitive. The value is the raw octets of the field value, as
+     * {@link org.bluezoo.gumdrop.http.HttpMessageHandler#header} delivers
+     * them.
      *
      * @param name the field name
-     * @param value the field value
+     * @param value the field value; ASCII only
      * @throws IllegalStateException if the message has ended, or this would be
      *     a trailer on a request that declared its length
      * @throws IllegalArgumentException if this would be a trailer that may not
      *     be one, or a trailer value contains a line break
      */
-    void header(String name, String value);
+    void header(String name, ByteBuffer value);
 
     /**
-     * Adds a field whose value is raw octets (ISO-8859-1).
+     * Adds a field with a text value; a convenience for
+     * {@link #header(String, ByteBuffer)}.
      *
      * @param name the field name
-     * @param value the field value
+     * @param value the field value; ASCII only
      */
-    default void header(String name, ByteBuffer value) {
-        byte[] b = new byte[value.remaining()];
-        value.duplicate().get(b);
-        header(name, new String(b, java.nio.charset.StandardCharsets.ISO_8859_1));
+    default void header(String name, String value) {
+        org.bluezoo.gumdrop.http.HttpUtils.requireAsciiFieldValue(name, value);
+        header(name, ByteBuffer.wrap(value.getBytes(java.nio.charset.StandardCharsets.ISO_8859_1)));
     }
 
     /**

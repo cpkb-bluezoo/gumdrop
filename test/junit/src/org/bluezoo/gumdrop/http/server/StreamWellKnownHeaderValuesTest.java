@@ -21,8 +21,10 @@
 
 package org.bluezoo.gumdrop.http.server;
 
+import java.util.List;
+import org.bluezoo.gumdrop.http.HeaderFields;
+import java.util.ArrayList;
 import org.bluezoo.gumdrop.http.Header;
-import org.bluezoo.gumdrop.http.Headers;
 import org.bluezoo.gumdrop.http.HttpDateCache;
 import org.bluezoo.gumdrop.http.HttpStatus;
 import org.bluezoo.gumdrop.http.HttpVersion;
@@ -73,28 +75,28 @@ public class StreamWellKnownHeaderValuesTest {
         // follows) Transfer-Encoding: chunked - all five in one exchange.
         stream.closeConnection = true;
 
-        Headers responseHeaders = new Headers();
-        responseHeaders.status(HttpStatus.OK);
+        List<Header> responseHeaders = new ArrayList<Header>();
+        responseHeaders.add(new Header(":status", "200"));
         stream.sendResponseHeaders(200, responseHeaders, false);
 
         assertSame("Server header value must be the shared constant "
                 + "writeWellKnownLine matches against, not just an equal string",
                 HttpProtocolHandler.SERVER_HEADER_VALUE,
-                responseHeaders.getValue("Server"));
+                HeaderFields.getValue(responseHeaders, "Server"));
         assertSame("Connection header value must be the shared constant",
                 HttpProtocolHandler.CONNECTION_CLOSE_VALUE,
-                responseHeaders.getValue("Connection"));
+                HeaderFields.getValue(responseHeaders, "Connection"));
         assertSame("X-Frame-Options header value must be the shared constant",
                 HttpProtocolHandler.X_FRAME_OPTIONS_VALUE,
-                responseHeaders.getValue("X-Frame-Options"));
+                HeaderFields.getValue(responseHeaders, "X-Frame-Options"));
         assertSame("X-Content-Type-Options header value must be the shared constant",
                 HttpProtocolHandler.X_CONTENT_TYPE_OPTIONS_VALUE,
-                responseHeaders.getValue("X-Content-Type-Options"));
+                HeaderFields.getValue(responseHeaders, "X-Content-Type-Options"));
         assertSame("Transfer-Encoding header value must be the shared constant",
                 HttpProtocolHandler.TRANSFER_ENCODING_CHUNKED_VALUE,
-                responseHeaders.getValue("Transfer-Encoding"));
+                HeaderFields.getValue(responseHeaders, "Transfer-Encoding"));
         assertSame("Date header value must be HttpDateCache's cached instance",
                 HttpDateCache.get(),
-                responseHeaders.getValue("Date"));
+                HeaderFields.getValue(responseHeaders, "Date"));
     }
 }

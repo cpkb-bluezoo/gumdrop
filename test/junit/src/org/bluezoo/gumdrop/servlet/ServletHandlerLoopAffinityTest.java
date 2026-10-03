@@ -32,7 +32,6 @@ import java.util.List;
 
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.SelectorLoop;
-import org.bluezoo.gumdrop.http.Headers;
 import org.bluezoo.gumdrop.http.HttpMethod;
 import org.bluezoo.gumdrop.http.HttpVersion;
 import org.bluezoo.gumdrop.http.server.HttpResponse;
@@ -60,7 +59,7 @@ public class ServletHandlerLoopAffinityTest {
         };
         DeferringState state = new DeferringState();
         ServletHandler handler = new ServletHandler(container, state, 8192);
-        Headers h = new Headers();
+        ServletHeaders h = new ServletHeaders();
         h.add(":method", "GET");
         h.add(":path", "/index.html");
         MessageEvents.headers(handler, h);
@@ -96,7 +95,7 @@ public class ServletHandlerLoopAffinityTest {
         @Override public SelectorLoop getSelectorLoop() { return null; }
         @Override public Principal getPrincipal() { return null; }
         @Override public void status(int code) { }
-        @Override public void header(String name, String value) { }
+        @Override public void header(String name, ByteBuffer rawValue) { }
         @Override public void endHeaders() { }
         @Override public void bodyContent(ByteBuffer data) { }
         @Override public void endMessage() { }

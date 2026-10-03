@@ -21,6 +21,8 @@
 
 package org.bluezoo.gumdrop.http.client;
 
+import org.bluezoo.gumdrop.http.HeaderFields;
+import org.bluezoo.gumdrop.http.Header;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.List;
@@ -28,7 +30,6 @@ import java.util.List;
 import org.bluezoo.gumdrop.http.Capsule;
 import org.bluezoo.gumdrop.http.CapsuleParser;
 import org.bluezoo.gumdrop.http.HttpStatus;
-import org.bluezoo.gumdrop.http.Headers;
 import org.bluezoo.gumdrop.http.HttpDatagramContext;
 
 /**
@@ -104,8 +105,8 @@ class ConnectUdpClientProtocolHandler extends HttpClientProtocolHandler {
 
     /** RFC 9298 section 3: validates and switches to CONNECT-UDP tunnel mode. */
     @Override
-    protected boolean handleProtocolSwitch(HttpStatus status, Headers headers) {
-        if (!"connect-udp".equalsIgnoreCase(headers.getValue("upgrade"))) {
+    protected boolean handleProtocolSwitch(HttpStatus status, List<Header> headers) {
+        if (!"connect-udp".equalsIgnoreCase(HeaderFields.getValue(headers, "upgrade"))) {
             return false;
         }
 

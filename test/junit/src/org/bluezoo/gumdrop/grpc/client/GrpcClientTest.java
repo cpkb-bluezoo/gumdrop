@@ -72,7 +72,8 @@ public class GrpcClientTest {
         HttpResponseHandler handler;
         boolean ended;
 
-        @Override public void header(String name, String value) {
+        @Override public void header(String name, ByteBuffer rawValue) {
+            String value = java.nio.charset.StandardCharsets.ISO_8859_1.decode(rawValue.duplicate()).toString();
             headers.add(name + ": " + value);
         }
         @Override public void priority(int weight) { }

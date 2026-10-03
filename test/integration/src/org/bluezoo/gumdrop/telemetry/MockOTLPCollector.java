@@ -21,13 +21,14 @@
 
 package org.bluezoo.gumdrop.telemetry;
 
+import org.bluezoo.gumdrop.http.HeaderFields;
+import org.bluezoo.gumdrop.http.Header;
 import org.bluezoo.gumdrop.testsupport.CollectingRequestHandler;
 import java.nio.file.Path;
 import org.bluezoo.gumdrop.ListenerBindCheck;
 import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.GumdropConfig;
 import org.bluezoo.gumdrop.TestCertificateManager;
-import org.bluezoo.gumdrop.http.Headers;
 import org.bluezoo.gumdrop.http.server.HttpRequestHandler;
 import org.bluezoo.gumdrop.http.server.HttpStreamHandler;
 import org.bluezoo.gumdrop.http.server.HttpResponse;
@@ -382,11 +383,11 @@ public class MockOTLPCollector {
         }
 
         @Override
-        public void headers(HttpResponse state, Headers headers) {
+        public void headers(HttpResponse state, List<Header> headers) {
             this.state = state;
-            this.currentPath = headers.getPath();
+            this.currentPath = HeaderFields.getValue(headers, ":path");
             
-            LOGGER.fine("MockOTLPCollector received: " + headers.getMethod() + " " + currentPath);
+            LOGGER.fine("MockOTLPCollector received: " + HeaderFields.getValue(headers, ":method") + " " + currentPath);
             // Don't respond here - wait for requestComplete()
         }
 

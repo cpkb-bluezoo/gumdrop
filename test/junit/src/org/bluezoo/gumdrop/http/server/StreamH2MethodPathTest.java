@@ -22,7 +22,6 @@
 package org.bluezoo.gumdrop.http.server;
 
 import org.bluezoo.gumdrop.http.Header;
-import org.bluezoo.gumdrop.http.Headers;
 import org.bluezoo.gumdrop.http.server.HttpResponse;
 import org.bluezoo.gumdrop.http.server.HttpStreamHandler;
 import org.bluezoo.gumdrop.http.HttpVersion;
@@ -154,6 +153,7 @@ public class StreamH2MethodPathTest {
     }
 
     private static class StubH2Connection implements HttpConnectionLike {
+        @Override public void sendResponseTrailers(int streamId, List<Header> trailers) { }
         final Decoder hpackDecoder = new Decoder(4096, 8192);
         HttpAuthenticationProvider authProvider;
         int lastStatusCode = -1;
@@ -181,7 +181,7 @@ public class StreamH2MethodPathTest {
             };
         }
         @Override public void sendResponseHeaders(int streamId, int statusCode,
-                Headers headers, boolean endStream) {
+                List<Header> headers, boolean endStream) {
             lastStatusCode = statusCode;
         }
         @Override public void sendResponseBody(int streamId, ByteBuffer buf, boolean endStream) {
@@ -208,11 +208,11 @@ public class StreamH2MethodPathTest {
             return new Stream(connection, streamId);
         }
         @Override public int getNextServerStreamId() { return 2; }
-        @Override public byte[] encodeHeaders(Headers headers) { return new byte[0]; }
+        @Override public byte[] encodeHeaders(List<Header> headers) { return new byte[0]; }
         @Override public void sendPushPromise(int streamId, int promisedStreamId,
                 ByteBuffer headerBlock, boolean endHeaders) { }
         @Override public Stream createPushedStream(int streamId, String method,
-                String uri, Headers headers) { return null; }
+                String uri, List<Header> headers) { return null; }
         @Override public SelectorLoop getSelectorLoop() { return null; }
         @Override public int getMaxHeaderListSize() { return 8192; }
         @Override public long getMaxRequestBodySize() { return 0; }
@@ -299,7 +299,7 @@ public class StreamH2MethodPathTest {
                 new Header(":authority", "example.com"),
                 new Header(":path", "/"));
 
-        stream.sendResponseHeaders(200, new Headers(), false);
+        stream.sendResponseHeaders(200, new ArrayList<Header>(), false);
         stream.sendResponseBody(ByteBuffer.wrap("should not be sent".getBytes()), true);
 
         assertTrue("RFC 9110 section 9.3.2: a HEAD response over HTTP/2 must "
@@ -317,7 +317,7 @@ public class StreamH2MethodPathTest {
                 new Header(":authority", "example.com"),
                 new Header(":path", "/"));
 
-        stream.sendResponseHeaders(200, new Headers(), false);
+        stream.sendResponseHeaders(200, new ArrayList<Header>(), false);
         stream.sendResponseBody(ByteBuffer.wrap("hello".getBytes()), true);
 
         assertTrue("a GET response body must still be sent",

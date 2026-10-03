@@ -21,8 +21,8 @@
 
 package org.bluezoo.gumdrop.websocket;
 
+import org.bluezoo.gumdrop.http.HeaderFields;
 import org.bluezoo.gumdrop.http.Header;
-import org.bluezoo.gumdrop.http.Headers;
 
 import java.io.UnsupportedEncodingException;
 import java.security.MessageDigest;
@@ -101,21 +101,21 @@ public class WebSocketHandshake {
      * @param headers the HTTP request headers
      * @return true if this is a valid WebSocket upgrade request
      */
-    public static boolean isValidWebSocketUpgrade(Headers headers) {
+    public static boolean isValidWebSocketUpgrade(List<Header> headers) {
         // Check Upgrade header contains "websocket"
-        String upgradeValue = headers.getCombinedValue("Upgrade");
+        String upgradeValue = HeaderFields.getCombinedValue(headers, "Upgrade");
         boolean hasUpgradeWebSocket = containsIgnoreCase(upgradeValue, "websocket");
 
         // Check Connection header contains "Upgrade"
-        String connectionValue = headers.getCombinedValue("Connection");
+        String connectionValue = HeaderFields.getCombinedValue(headers, "Connection");
         boolean hasConnectionUpgrade = containsIgnoreCase(connectionValue, "Upgrade");
 
         // Check Sec-WebSocket-Key is present and non-empty
-        String key = headers.getValue("Sec-WebSocket-Key");
+        String key = HeaderFields.getValue(headers, "Sec-WebSocket-Key");
         boolean hasWebSocketKey = (key != null && !key.trim().isEmpty());
 
         // Check Sec-WebSocket-Version is "13"
-        String version = headers.getValue("Sec-WebSocket-Version");
+        String version = HeaderFields.getValue(headers, "Sec-WebSocket-Version");
         boolean hasValidVersion = (version != null && WEBSOCKET_VERSION.equals(version.trim()));
 
         boolean isValid = hasUpgradeWebSocket && hasConnectionUpgrade && hasWebSocketKey && hasValidVersion;
@@ -161,7 +161,7 @@ public class WebSocketHandshake {
      * @return headers for the WebSocket upgrade response
      * @throws IllegalArgumentException if the key is invalid
      */
-    public static Headers createWebSocketResponse(String key, String protocol) {
+    public static List<Header> createWebSocketResponse(String key, String protocol) {
         return createWebSocketResponse(key, protocol, null);
     }
 
@@ -174,20 +174,20 @@ public class WebSocketHandshake {
      * @param extensions the negotiated extensions header value (may be null)
      * @return headers for the WebSocket upgrade response
      */
-    public static Headers createWebSocketResponse(String key, String protocol,
+    public static List<Header> createWebSocketResponse(String key, String protocol,
                                                   String extensions) {
-        Headers responseHeaders = new Headers();
-        responseHeaders.add("Upgrade", "websocket");
-        responseHeaders.add("Connection", "Upgrade");
+        List<Header> responseHeaders = new ArrayList<Header>();
+        HeaderFields.add(responseHeaders, "Upgrade", "websocket");
+        HeaderFields.add(responseHeaders, "Connection", "Upgrade");
 
         String accept = calculateAccept(key);
-        responseHeaders.add("Sec-WebSocket-Accept", accept);
+        HeaderFields.add(responseHeaders, "Sec-WebSocket-Accept", accept);
 
         if (protocol != null && !protocol.trim().isEmpty()) {
-            responseHeaders.add("Sec-WebSocket-Protocol", protocol.trim());
+            HeaderFields.add(responseHeaders, "Sec-WebSocket-Protocol", protocol.trim());
         }
         if (extensions != null && !extensions.trim().isEmpty()) {
-            responseHeaders.add("Sec-WebSocket-Extensions", extensions.trim());
+            HeaderFields.add(responseHeaders, "Sec-WebSocket-Extensions", extensions.trim());
         }
 
         return responseHeaders;
@@ -238,7 +238,7 @@ public class WebSocketHandshake {
      * @param subprotocol the requested subprotocol (may be null)
      * @return headers for the WebSocket upgrade request
      */
-    public static Headers createUpgradeRequest(String key, String subprotocol) {
+    public static List<Header> createUpgradeRequest(String key, String subprotocol) {
         return createUpgradeRequest(key, subprotocol, null);
     }
 
@@ -251,18 +251,18 @@ public class WebSocketHandshake {
      * @param extensions the extension offer header value (may be null)
      * @return headers for the WebSocket upgrade request
      */
-    public static Headers createUpgradeRequest(String key, String subprotocol,
+    public static List<Header> createUpgradeRequest(String key, String subprotocol,
                                                String extensions) {
-        Headers headers = new Headers();
-        headers.add("Upgrade", "websocket");
-        headers.add("Connection", "Upgrade");
-        headers.add("Sec-WebSocket-Version", WEBSOCKET_VERSION);
-        headers.add("Sec-WebSocket-Key", key);
+        List<Header> headers = new ArrayList<Header>();
+        HeaderFields.add(headers, "Upgrade", "websocket");
+        HeaderFields.add(headers, "Connection", "Upgrade");
+        HeaderFields.add(headers, "Sec-WebSocket-Version", WEBSOCKET_VERSION);
+        HeaderFields.add(headers, "Sec-WebSocket-Key", key);
         if (subprotocol != null && !subprotocol.trim().isEmpty()) {
-            headers.add("Sec-WebSocket-Protocol", subprotocol.trim());
+            HeaderFields.add(headers, "Sec-WebSocket-Protocol", subprotocol.trim());
         }
         if (extensions != null && !extensions.trim().isEmpty()) {
-            headers.add("Sec-WebSocket-Extensions", extensions.trim());
+            HeaderFields.add(headers, "Sec-WebSocket-Extensions", extensions.trim());
         }
         return headers;
     }
@@ -276,20 +276,20 @@ public class WebSocketHandshake {
      * @return true if the response is a valid WebSocket upgrade
      */
     public static boolean validateUpgradeResponse(String sentKey,
-                                                  Headers responseHeaders) {
-        String upgradeValue = responseHeaders.getCombinedValue("Upgrade");
+                                                  List<Header> responseHeaders) {
+        String upgradeValue = HeaderFields.getCombinedValue(responseHeaders, "Upgrade");
         if (!containsIgnoreCase(upgradeValue, "websocket")) {
             LOGGER.fine(L10N.getString("fine.upgrade_missing_upgrade"));
             return false;
         }
 
-        String connectionValue = responseHeaders.getCombinedValue("Connection");
+        String connectionValue = HeaderFields.getCombinedValue(responseHeaders, "Connection");
         if (!containsIgnoreCase(connectionValue, "Upgrade")) {
             LOGGER.fine(L10N.getString("fine.upgrade_missing_connection"));
             return false;
         }
 
-        String accept = responseHeaders.getValue("Sec-WebSocket-Accept");
+        String accept = HeaderFields.getValue(responseHeaders, "Sec-WebSocket-Accept");
         if (accept == null) {
             LOGGER.fine(L10N.getString("fine.upgrade_missing_accept"));
             return false;

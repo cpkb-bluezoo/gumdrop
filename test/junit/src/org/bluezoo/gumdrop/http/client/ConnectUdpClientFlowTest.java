@@ -39,7 +39,6 @@ import org.junit.Test;
 
 import org.bluezoo.gumdrop.http.Capsule;
 import org.bluezoo.gumdrop.http.Header;
-import org.bluezoo.gumdrop.http.Headers;
 import org.bluezoo.gumdrop.http.HttpDatagramContext;
 import org.bluezoo.gumdrop.http.h2.H2FrameHandler;
 import org.bluezoo.gumdrop.http.h2.H2Writer;
@@ -161,7 +160,7 @@ public class ConnectUdpClientFlowTest {
 
     private static ByteBuffer statusHeaders(int status) throws Exception {
         Encoder encoder = new Encoder(4096, Integer.MAX_VALUE);
-        Headers headers = new Headers();
+        List<Header> headers = new ArrayList<Header>();
         headers.add(new Header(":status", Integer.toString(status)));
         ByteBuffer buf = ByteBuffer.allocate(128);
         encoder.encode(buf, headers);

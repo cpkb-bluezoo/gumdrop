@@ -41,8 +41,9 @@ import org.junit.Test;
 import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.http.Header;
-import org.bluezoo.gumdrop.http.Headers;
+import org.bluezoo.gumdrop.http.HttpMethod;
 import org.bluezoo.gumdrop.http.HttpStatus;
+import org.bluezoo.gumdrop.mime.ContentType;
 import org.bluezoo.gumdrop.http.HttpVersion;
 import org.bluezoo.gumdrop.http.h2.H2FrameHandler;
 import org.bluezoo.gumdrop.http.h2.H2Writer;
@@ -113,7 +114,8 @@ public class HttpClientH2BehaviourTest {
         final List<Exception> failures = new ArrayList<Exception>();
         final List<String> headers = new ArrayList<String>();
         final ByteArrayOutputStream body = new ByteArrayOutputStream();
-        final List<PushPromise> promises = new ArrayList<PushPromise>();
+        final List<PromiseRecorder> promises = new ArrayList<PromiseRecorder>();
+        boolean refusePromise;
         boolean acceptPush;
         Recorder pushTarget;
 
@@ -162,13 +164,82 @@ public class HttpClientH2BehaviourTest {
         }
 
         @Override
-        public void pushPromise(PushPromise promise) {
-            promises.add(promise);
-            if (acceptPush) {
-                promise.accept(pushTarget);
-            } else {
-                promise.reject();
+        public PushPromiseHandler pushPromise() {
+            if (refusePromise) {
+                return null;
             }
+            PromiseRecorder p = new PromiseRecorder(acceptPush ? pushTarget : null);
+            promises.add(p);
+            return p;
+        }
+    }
+
+    /** Records the events of a promised request, in order. */
+    private static final class PromiseRecorder implements PushPromiseHandler {
+        final List<String> events = new ArrayList<String>();
+        final HttpResponseHandler response;
+        int pushedResponseCalls;
+
+        PromiseRecorder(HttpResponseHandler response) {
+            this.response = response;
+        }
+
+        private static String text(ByteBuffer b) {
+            byte[] o = new byte[b.remaining()];
+            b.duplicate().get(o);
+            return new String(o, StandardCharsets.ISO_8859_1);
+        }
+
+        @Override
+        public void method(HttpMethod method) {
+            events.add("method:" + method);
+        }
+
+        @Override
+        public void target(ByteBuffer target) {
+            events.add("target:" + text(target));
+        }
+
+        @Override
+        public void scheme(ByteBuffer scheme) {
+            events.add("scheme:" + text(scheme));
+        }
+
+        @Override
+        public void authority(ByteBuffer authority) {
+            events.add("authority:" + text(authority));
+        }
+
+        @Override
+        public void contentType(ContentType contentType) {
+            events.add("contentType:" + contentType.toHeaderValue());
+        }
+
+        @Override
+        public void longHeader(String name, long value) {
+            events.add("long:" + name + "=" + value);
+        }
+
+        @Override
+        public void header(String name, ByteBuffer value) {
+            events.add("header:" + name + "=" + text(value));
+        }
+
+        @Override
+        public void endHeaders() {
+            events.add("endHeaders");
+        }
+
+        @Override
+        public void endMessage() {
+            events.add("endMessage");
+        }
+
+        @Override
+        public HttpResponseHandler pushedResponse() {
+            pushedResponseCalls++;
+            events.add("pushedResponse");
+            return response;
         }
     }
 
@@ -243,7 +314,7 @@ public class HttpClientH2BehaviourTest {
     }
 
     private ByteBuffer block(String... nameValue) throws Exception {
-        Headers h = new Headers();
+        List<Header> h = new ArrayList<Header>();
         for (int i = 0; i < nameValue.length; i += 2) {
             h.add(new Header(nameValue[i], nameValue[i + 1]));
         }
@@ -722,21 +793,83 @@ public class HttpClientH2BehaviourTest {
         });
     }
 
-    @Test
-    public void rejectedPushPromiseIsReset() throws Exception {
-        ready();
-        Recorder r = sendGet("/");
-        pushPromise(1, 2, ":method", "GET", ":path", "/pushed", ":scheme", "http", ":authority", "h");
-        assertEquals(1, r.promises.size());
-        PushPromise p = r.promises.get(0);
-        assertEquals("GET", p.getMethod());
-        assertEquals("/pushed", p.getPath());
-        assertEquals("h", p.getAuthority());
-        assertEquals("http", p.getScheme());
-        assertNotNull(p.getHeaders());
+    private static final String[] PUSHED = {":method", "GET", ":path", "/pushed",
+        ":scheme", "http", ":authority", "h"};
+
+    private void assertRst(int stream, int error) {
         List<Frame> rst = framesOfType(RST_STREAM);
         assertEquals(1, rst.size());
-        assertEquals(2, rst.get(0).streamId);
+        assertEquals(stream, rst.get(0).streamId);
+        assertEquals(error, rst.get(0).intAt(0));
+    }
+
+    @Test
+    public void promisedRequestArrivesAsEventsInOrderThenTheResponseIsAsked() throws Exception {
+        ready();
+        Recorder r = sendGet("/");
+        pushPromise(1, 2, ":method", "GET", ":path", "/pushed", ":scheme", "http",
+                ":authority", "h", "accept", "text/css", "content-length", "7",
+                "x-extra", "yes");
+        assertEquals(1, r.promises.size());
+        List<String> ev = r.promises.get(0).events;
+        assertEquals("method:GET", ev.get(0));
+        assertEquals("target:/pushed", ev.get(1));
+        assertEquals("scheme:http", ev.get(2));
+        assertEquals("authority:h", ev.get(3));
+        assertTrue(ev.toString(), ev.contains("header:accept=text/css"));
+        assertTrue(ev.toString(), ev.contains("long:content-length=7"));
+        assertTrue(ev.toString(), ev.contains("header:x-extra=yes"));
+        int n = ev.size();
+        assertEquals("endHeaders", ev.get(n - 3));
+        assertEquals("endMessage", ev.get(n - 2));
+        assertEquals("pushedResponse", ev.get(n - 1));
+        assertEquals(1, r.promises.get(0).pushedResponseCalls);
+    }
+
+    @Test
+    public void nullPushedResponseRefusesThePush() throws Exception {
+        ready();
+        Recorder r = sendGet("/");
+        pushPromise(1, 2, PUSHED);
+        assertEquals(1, r.promises.size());
+        assertRst(2, H2FrameHandler.ERROR_REFUSED_STREAM);
+    }
+
+    @Test
+    public void nullPushPromiseHandlerRefusesThePush() throws Exception {
+        ready();
+        Recorder r = sendGet("/");
+        r.refusePromise = true;
+        pushPromise(1, 2, PUSHED);
+        assertTrue(r.promises.isEmpty());
+        assertRst(2, H2FrameHandler.ERROR_REFUSED_STREAM);
+    }
+
+    @Test
+    public void malformedPromisedRequestIsAProtocolErrorAndTheHandlerIsNotAsked() throws Exception {
+        ready();
+        Recorder r = sendGet("/");
+        r.acceptPush = true;
+        r.pushTarget = new Recorder();
+        pushPromise(1, 2, ":method", "GET", ":scheme", "http", ":authority", "h");
+        assertTrue(r.promises.isEmpty());
+        assertRst(2, H2FrameHandler.ERROR_PROTOCOL_ERROR);
+    }
+
+    @Test
+    public void hpackStateStaysInSyncAfterARefusedPush() throws Exception {
+        ready();
+        Recorder r = sendGet("/");
+        pushPromise(1, 2, ":method", "GET", ":path", "/pushed", ":scheme", "http",
+                ":authority", "h", "x-dynamic-field", "v1");
+        assertRst(2, H2FrameHandler.ERROR_REFUSED_STREAM);
+        headers(1, false, ":status", "200", "x-dynamic-field", "v1", "content-type", "text/plain");
+        data(1, "ok".getBytes(StandardCharsets.US_ASCII), true);
+        assertEquals(1, r.okCalls);
+        assertTrue(r.headers.toString(), r.headers.contains("x-dynamic-field: v1"));
+        assertEquals("ok", new String(r.body.toByteArray(), StandardCharsets.US_ASCII));
+        assertTrue(r.failures.isEmpty());
+        assertTrue(framesOfType(GOAWAY).isEmpty());
     }
 
     @Test
@@ -745,18 +878,23 @@ public class HttpClientH2BehaviourTest {
         Recorder r = sendGet("/");
         r.acceptPush = true;
         r.pushTarget = new Recorder();
-        pushPromise(1, 2, ":method", "GET", ":path", "/pushed", ":scheme", "http", ":authority", "h");
+        pushPromise(1, 2, PUSHED);
         assertEquals(1, r.promises.size());
-        headers(2, false, ":status", "200");
+        headers(2, false, ":status", "200", "content-type", "text/css", "x-pushed", "1");
         data(2, "pushed".getBytes(StandardCharsets.US_ASCII), true);
+        assertEquals(1, r.pushTarget.okCalls);
+        assertEquals(HttpStatus.OK, r.pushTarget.status);
+        assertTrue(r.pushTarget.headers.toString(), r.pushTarget.headers.contains("x-pushed: 1"));
         assertEquals("pushed", new String(r.pushTarget.body.toByteArray(), StandardCharsets.US_ASCII));
+        assertTrue(r.pushTarget.endBody);
+        assertEquals(1, r.pushTarget.closeCalls);
         assertTrue(framesOfType(RST_STREAM).isEmpty());
     }
 
     @Test
     public void pushPromiseOnAStreamWithoutHandlerIsRefused() throws Exception {
         ready();
-        pushPromise(9, 2, ":method", "GET", ":path", "/x");
+        pushPromise(9, 2, ":method", "GET", ":path", "/x", ":scheme", "https", ":authority", "h.test");
         List<Frame> rst = framesOfType(RST_STREAM);
         assertEquals(1, rst.size());
         assertEquals(H2FrameHandler.ERROR_REFUSED_STREAM, rst.get(0).intAt(0));

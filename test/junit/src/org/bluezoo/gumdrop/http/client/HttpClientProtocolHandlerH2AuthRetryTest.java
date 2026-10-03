@@ -21,6 +21,8 @@
 
 package org.bluezoo.gumdrop.http.client;
 
+import java.util.List;
+import java.util.ArrayList;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.nio.ByteBuffer;
@@ -31,7 +33,6 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 import org.bluezoo.gumdrop.http.Header;
-import org.bluezoo.gumdrop.http.Headers;
 import org.bluezoo.gumdrop.http.HttpStatus;
 import org.bluezoo.gumdrop.http.h2.H2FrameHandler;
 import org.bluezoo.gumdrop.http.h2.H2Writer;
@@ -85,7 +86,7 @@ public class HttpClientProtocolHandlerH2AuthRetryTest {
 
     private static ByteBuffer encodeHeaders(Encoder encoder, String status, String challenge)
             throws Exception {
-        Headers headers = new Headers();
+        List<Header> headers = new ArrayList<Header>();
         headers.add(new Header(":status", status));
         if (challenge != null) {
             headers.add(new Header("www-authenticate", challenge));

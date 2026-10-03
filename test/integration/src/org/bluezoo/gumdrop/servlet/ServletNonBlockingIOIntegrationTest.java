@@ -21,7 +21,6 @@
 
 package org.bluezoo.gumdrop.servlet;
 
-import org.bluezoo.gumdrop.http.Headers;
 import org.bluezoo.gumdrop.http.server.HttpResponse;
 import org.bluezoo.gumdrop.http.HttpVersion;
 
@@ -87,7 +86,7 @@ public class ServletNonBlockingIOIntegrationTest {
             throws Exception {
         Container service = new Container();
         StubServletHandler handler = new StubServletHandler(service, state);
-        return new Request(handler, 8192, "GET", "/test", new Headers(), body);
+        return new Request(handler, 8192, "GET", "/test", new ServletHeaders(), body);
     }
 
     private static final class StubServletHandler extends ServletHandler {
@@ -118,7 +117,7 @@ public class ServletNonBlockingIOIntegrationTest {
         @Override public org.bluezoo.gumdrop.SelectorLoop getSelectorLoop() { return null; }
         @Override public java.security.Principal getPrincipal() { return null; }
         @Override public void status(int code) { }
-        @Override public void header(String name, String value) { }
+        @Override public void header(String name, ByteBuffer rawValue) { }
         @Override public void endHeaders() { }
         @Override public void bodyContent(ByteBuffer data) { }
         @Override public void endMessage() { }

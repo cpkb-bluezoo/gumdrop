@@ -1209,6 +1209,62 @@ client.connect(gumdrop, new HttpClientHandler() {
 });
 </pre>
 
+<h4>Receiving Server Push (HTTP/2)</h4>
+
+<p>
+A server may promise to push a resource (RFC 9113 section 8.4). The promised
+request reaches the client as the same events a server handler receives:
+<code>method</code>, <code>target</code>, <code>scheme</code>,
+<code>authority</code>, the fields, <code>endHeaders</code> and
+<code>endMessage</code>. To take part, override
+<code>HttpResponseHandler.pushPromise()</code> and return a
+<code>PushPromiseHandler</code>. Once the promised request has been delivered,
+its <code>pushedResponse()</code> returns the <code>HttpResponseHandler</code>
+for the pushed response, or <code>null</code> to refuse the push. The default
+<code>pushPromise()</code> returns <code>null</code>, which refuses every push
+with RST_STREAM (REFUSED_STREAM). A promised request that is malformed, for
+example one with no <code>:path</code>, is reset with PROTOCOL_ERROR and the
+handler is not called.
+</p>
+
+<pre>
+HttpRequest request = client.get("/index.html", new DefaultHttpResponseHandler() {
+    // ... the events of the main response ...
+
+    @Override
+    public PushPromiseHandler pushPromise() {
+        return new PushPromiseHandler() {
+            private boolean stylesheet;
+
+            @Override
+            public void target(ByteBuffer target) {
+                String path = StandardCharsets.ISO_8859_1.decode(target).toString();
+                stylesheet = path.endsWith(".css");
+            }
+
+            @Override
+            public HttpResponseHandler pushedResponse() {
+                if (!stylesheet) {
+                    return null; // refuse
+                }
+                return new DefaultHttpResponseHandler() {
+                    @Override
+                    public void status(int code) {
+                        System.out.println("pushed: " + code);
+                    }
+
+                    @Override
+                    public void bodyContent(ByteBuffer data) {
+                        // consume the pushed body
+                    }
+                };
+            }
+        };
+    }
+});
+request.endMessage();
+</pre>
+
 <h4>Request Bodies and Trailers</h4>
 
 <p>

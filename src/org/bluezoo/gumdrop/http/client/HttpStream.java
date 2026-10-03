@@ -21,12 +21,15 @@
 
 package org.bluezoo.gumdrop.http.client;
 
+import org.bluezoo.gumdrop.http.HeaderFields;
+import java.util.List;
+import java.util.ArrayList;
+import org.bluezoo.gumdrop.http.Header;
 import java.nio.ByteBuffer;
 import java.text.MessageFormat;
 import java.time.Instant;
 import java.util.ResourceBundle;
 
-import org.bluezoo.gumdrop.http.Headers;
 import org.bluezoo.gumdrop.http.ContentEncoding;
 import org.bluezoo.gumdrop.http.HttpDateFormat;
 import org.bluezoo.gumdrop.mime.ContentDisposition;
@@ -56,7 +59,7 @@ class HttpStream implements HttpRequest {
     private final HttpClientConnectionOps connection;
     private final String method;
     private final String path;
-    private final Headers headers;
+    private final List<Header> headers;
     
     // HTTP/2 stream ID (assigned when sent)
     int streamId;
@@ -74,7 +77,7 @@ class HttpStream implements HttpRequest {
     // only one
     private ByteBuffer firstChunk;
     // Trailer fields: fields given once the body has begun
-    private Headers trailers;
+    private List<Header> trailers;
     private boolean bodyStarted;
     private boolean cancelled;
 
@@ -100,7 +103,7 @@ class HttpStream implements HttpRequest {
         this.connection = connection;
         this.method = method;
         this.path = path;
-        this.headers = new Headers();
+        this.headers = new ArrayList<Header>();
     }
 
     HttpStream(HttpClientConnectionOps connection, String method, String path,
@@ -132,7 +135,7 @@ class HttpStream implements HttpRequest {
      *
      * @return the headers
      */
-    Headers getHeaders() {
+    List<Header> getHeaders() {
         return headers;
     }
 
@@ -177,14 +180,14 @@ class HttpStream implements HttpRequest {
             return null;
         }
         return ContentEncoding.parseContentEncoding(
-                headers.getCombinedValue("Content-Encoding"));
+                HeaderFields.getCombinedValue(headers, "Content-Encoding"));
     }
 
     ContentEncoding.Encoder getOrCreateRequestContentEncoder()
             throws ContentEncoding.ContentEncodingException {
         ContentEncoding.Coding coding = getRequestContentCoding();
         if (coding == null) {
-            String raw = headers.getCombinedValue("Content-Encoding");
+            String raw = HeaderFields.getCombinedValue(headers, "Content-Encoding");
             if (connection.isEncodeRequestBodyContentCoding()
                     && raw != null && !raw.trim().isEmpty()) {
                 throw new ContentEncoding.ContentEncodingException(
@@ -291,7 +294,13 @@ class HttpStream implements HttpRequest {
     }
 
     @Override
-    public void header(String name, String value) {
+    public void header(String name, ByteBuffer value) {
+        byte[] octets = new byte[value.remaining()];
+        value.duplicate().get(octets);
+        addField(name, new String(octets, java.nio.charset.StandardCharsets.ISO_8859_1));
+    }
+
+    private void addField(String name, String value) {
         if (bodySent) {
             throw new IllegalStateException(L10N.getString("err.headers_already_sent"));
         }
@@ -301,7 +310,7 @@ class HttpStream implements HttpRequest {
             addTrailer(name, value);
             return;
         }
-        headers.add(name, value);
+        HeaderFields.add(headers, name, value);
     }
 
     private void addTrailer(String name, String value) {
@@ -318,42 +327,42 @@ class HttpStream implements HttpRequest {
                 throw new IllegalArgumentException(L10N.getString("err.invalid_trailer_value"));
             }
         }
-        if (headers.containsName("Content-Length") && !headers.containsName("Transfer-Encoding")) {
+        if (HeaderFields.containsName(headers, "Content-Length") && !HeaderFields.containsName(headers, "Transfer-Encoding")) {
             // a body with a declared length has no room for trailers on
             // HTTP/1.x, and the framing was already chosen
             throw new IllegalStateException(L10N.getString("err.trailers_need_chunked"));
         }
         if (trailers == null) {
-            trailers = new Headers();
+            trailers = new ArrayList<Header>();
         }
-        trailers.add(name, value);
+        HeaderFields.add(trailers, name, value);
     }
 
     @Override
     public void longHeader(String name, long value) {
-        header(name, Long.toString(value));
+        addField(name, Long.toString(value));
     }
 
     @Override
     public void dateHeader(String name, Instant value) {
-        header(name, new HttpDateFormat().format(value.toEpochMilli()));
+        addField(name, new HttpDateFormat().format(value.toEpochMilli()));
     }
 
     @Override
     public void contentType(ContentType contentType) {
-        header("Content-Type", contentType.toHeaderValue());
+        addField("Content-Type", contentType.toHeaderValue());
     }
 
     @Override
     public void contentDisposition(ContentDisposition contentDisposition) {
-        header("Content-Disposition", contentDisposition.toHeaderValue());
+        addField("Content-Disposition", contentDisposition.toHeaderValue());
     }
 
     @Override
     public void priority(int weight) {
         this.priority = weight;
         int urgency = PriorityParams.urgencyFromWeight(weight);
-        headers.add(PriorityParams.PRIORITY_HEADER, "u=" + urgency);
+        HeaderFields.add(headers, PriorityParams.PRIORITY_HEADER, "u=" + urgency);
     }
 
     @Override
@@ -505,11 +514,11 @@ class HttpStream implements HttpRequest {
             return;
         }
         if (getRequestContentCoding() == null
-                && !headers.containsName("Content-Length")
-                && !headers.containsName("Transfer-Encoding")) {
+                && !HeaderFields.containsName(headers, "Content-Length")
+                && !HeaderFields.containsName(headers, "Transfer-Encoding")) {
             // The one piece of body is the whole body: say how long it is
             // rather than chunking it.
-            headers.add("Content-Length", Integer.toString(only.remaining()));
+            HeaderFields.add(headers, "Content-Length", Integer.toString(only.remaining()));
         }
         connection.sendRequest(this, true);
         connection.sendLastRequestBody(this, only);

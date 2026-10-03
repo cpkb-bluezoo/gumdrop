@@ -21,6 +21,8 @@
 
 package org.bluezoo.gumdrop.http.client;
 
+import java.util.List;
+import org.bluezoo.gumdrop.http.Header;
 import java.nio.ByteBuffer;
 
 /**
@@ -83,7 +85,7 @@ interface HttpClientConnectionOps {
      * @param request the request
      * @param trailers the trailer fields
      */
-    void endRequestWithTrailers(HttpStream request, org.bluezoo.gumdrop.http.Headers trailers);
+    void endRequestWithTrailers(HttpStream request, List<Header> trailers);
 
     /**
      * Cancels a request.

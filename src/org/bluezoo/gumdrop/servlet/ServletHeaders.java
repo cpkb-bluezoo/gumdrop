@@ -1,5 +1,5 @@
 /*
- * Headers.java
+ * ServletHeaders.java
  * Copyright (C) 2025 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -19,7 +19,7 @@
  * along with gumdrop.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-package org.bluezoo.gumdrop.http;
+package org.bluezoo.gumdrop.servlet;
 
 import java.util.ArrayList;
 import java.util.Collection;
@@ -30,8 +30,12 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 
+import org.bluezoo.gumdrop.http.Header;
+import org.bluezoo.gumdrop.http.HttpStatus;
+
 /**
- * A collection of HTTP headers with convenience methods for header access.
+ * The servlet layer's own header store: a collection of HTTP headers with
+ * convenience methods for header access.
  * Headers are stored in order and support case-insensitive name lookup.
  *
  * <p>RFC 9110 section 5.1: "Each field name ... is case-insensitive."
@@ -39,7 +43,7 @@ import java.util.Map;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-public class Headers extends ArrayList<Header> {
+class ServletHeaders extends ArrayList<Header> {
 
     private static final long serialVersionUID = 1L;
 
@@ -65,10 +69,9 @@ public class Headers extends ArrayList<Header> {
      * documented as test-only, like {@code CryptoExecutor}/{@code
      * StorageExecutor}'s {@code workThreadObserver} hooks) so tests
      * outside this package -- e.g. {@code org.bluezoo.gumdrop.servlet},
-     * whose {@code Request}/{@code Response} wrap a {@code Headers}
+     * whose {@code Request}/{@code Response} wrap a {@code ServletHeaders}
      * instance -- can verify the same thing (see issue #278) about their
-     * own callers: that doing several lookups in a row - e.g. {@code
-     * Stream.sendResponseHeaders}'s {@code containsName} checks - doesn't
+     * own callers: that doing several lookups in a row doesn't
      * interleave a mutation between each pair and so force a rebuild
      * before every single one. Production code must not read this.
      */
@@ -101,7 +104,7 @@ public class Headers extends ArrayList<Header> {
     /**
      * Creates an empty headers collection.
      */
-    public Headers() {
+    public ServletHeaders() {
         super();
     }
 
@@ -110,7 +113,7 @@ public class Headers extends ArrayList<Header> {
      *
      * @param initialCapacity the initial capacity
      */
-    public Headers(int initialCapacity) {
+    public ServletHeaders(int initialCapacity) {
         super(initialCapacity);
     }
 
@@ -119,7 +122,7 @@ public class Headers extends ArrayList<Header> {
      *
      * @param headers the collection of headers to copy
      */
-    public Headers(Collection<? extends Header> headers) {
+    public ServletHeaders(Collection<? extends Header> headers) {
         super(headers);
     }
 

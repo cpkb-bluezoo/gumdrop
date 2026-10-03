@@ -21,9 +21,10 @@
 
 package org.bluezoo.gumdrop.http.server;
 
+import java.util.ArrayList;
+import java.util.List;
 import org.bluezoo.gumdrop.http.ConnectUdpTarget;
 import org.bluezoo.gumdrop.http.Header;
-import org.bluezoo.gumdrop.http.Headers;
 import org.bluezoo.gumdrop.http.HttpDatagramContext;
 import org.bluezoo.gumdrop.http.server.HttpResponse;
 import org.bluezoo.gumdrop.http.HttpVersion;
@@ -161,7 +162,7 @@ public class ConnectUdpRelayEndToEndTest {
         @Override public SelectorLoop getSelectorLoop() { return loop; }
         @Override public Principal getPrincipal() { return null; }
         @Override public void status(int code) { }
-        @Override public void header(String name, String value) { }
+        @Override public void header(String name, ByteBuffer rawValue) { }
         @Override public void endHeaders() { }
         @Override public void bodyContent(ByteBuffer data) { }
         @Override public void endMessage() { completeLatch.countDown(); }
@@ -175,8 +176,8 @@ public class ConnectUdpRelayEndToEndTest {
         @Override public void cancel() { }
     }
 
-    private static Headers connectUdpRequestHeaders(String targetHost, int targetPort) {
-        Headers headers = new Headers();
+    private static List<Header> connectUdpRequestHeaders(String targetHost, int targetPort) {
+        List<Header> headers = new ArrayList<Header>();
         headers.add(new Header(":method", "CONNECT"));
         headers.add(new Header(":protocol", "connect-udp"));
         headers.add(new Header(":scheme", "https"));

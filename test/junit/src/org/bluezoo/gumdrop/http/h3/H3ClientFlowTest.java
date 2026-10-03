@@ -34,7 +34,6 @@ import java.util.List;
 import java.util.Map;
 
 import org.bluezoo.gumdrop.http.Header;
-import org.bluezoo.gumdrop.http.Headers;
 import org.bluezoo.gumdrop.http.client.ConnectIpClientSession;
 import org.bluezoo.gumdrop.http.client.ConnectIpEventHandler;
 import org.bluezoo.gumdrop.http.client.ConnectUdpEventHandler;
@@ -120,8 +119,8 @@ public class H3ClientFlowTest {
         }
     }
 
-    static Headers request(String method, String... extra) {
-        Headers h = new Headers();
+    static List<Header> request(String method, String... extra) {
+        List<Header> h = new ArrayList<Header>();
         h.add(new Header(":method", method));
         h.add(new Header(":scheme", "https"));
         h.add(new Header(":authority", "example.com"));
@@ -448,7 +447,7 @@ public class H3ClientFlowTest {
         assertTrue(h.isSafeToSendNow("GET"));
         h.runDeferredRequests();
         assertEquals(1, ran[0]);
-        h.applyDefaultAcceptEncoding(new Headers());
+        h.applyDefaultAcceptEncoding(new ArrayList<Header>());
         assertFalse(h.omitContentEncodingHeader(null));
     }
 

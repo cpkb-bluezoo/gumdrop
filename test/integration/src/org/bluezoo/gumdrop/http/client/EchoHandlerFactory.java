@@ -21,7 +21,9 @@
 
 package org.bluezoo.gumdrop.http.client;
 
-import org.bluezoo.gumdrop.http.Headers;
+import java.util.List;
+import org.bluezoo.gumdrop.http.HeaderFields;
+import org.bluezoo.gumdrop.http.Header;
 import org.bluezoo.gumdrop.http.server.HttpRequestHandler;
 import org.bluezoo.gumdrop.http.server.HttpResponse;
 import org.bluezoo.gumdrop.http.server.HttpStreamHandler;
@@ -73,12 +75,12 @@ public class EchoHandlerFactory implements HttpStreamHandler {
         private ByteArrayOutputStream bodyBuffer = new ByteArrayOutputStream();
 
         @Override
-        public void headers(HttpResponse state, Headers headers) {
-            this.method = headers.getMethod();
-            this.path = headers.getPath();
-            this.contentType = headers.getValue("content-type");
+        public void headers(HttpResponse state, List<Header> headers) {
+            this.method = HeaderFields.getValue(headers, ":method");
+            this.path = HeaderFields.getValue(headers, ":path");
+            this.contentType = HeaderFields.getValue(headers, "content-type");
 
-            String contentLengthStr = headers.getValue("content-length");
+            String contentLengthStr = HeaderFields.getValue(headers, "content-length");
             if (contentLengthStr != null) {
                 try {
                     this.contentLength = Integer.parseInt(contentLengthStr);

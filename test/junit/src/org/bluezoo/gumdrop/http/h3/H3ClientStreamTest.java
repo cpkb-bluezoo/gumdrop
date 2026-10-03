@@ -29,7 +29,6 @@ import java.util.List;
 
 import org.bluezoo.gumdrop.http.Header;
 import org.bluezoo.gumdrop.http.client.HttpResponseHandler;
-import org.bluezoo.gumdrop.http.client.PushPromise;
 import org.bluezoo.gumdrop.http.qpack.Decoder;
 import org.bluezoo.gumdrop.http.qpack.SimpleEncoder;
 
@@ -307,7 +306,6 @@ public class H3ClientStreamTest {
             lastHeaderValue = value;
             headerNames.add(name);
         }
-        @Override public void pushPromise(PushPromise promise) {}
         @Override public void failed(Exception ex) { failedException = ex; }
     }
 }

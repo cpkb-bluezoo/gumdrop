@@ -21,6 +21,8 @@
 
 package org.bluezoo.gumdrop.http.server;
 
+import org.bluezoo.gumdrop.http.HeaderFields;
+import org.bluezoo.gumdrop.http.Header;
 import java.net.SocketAddress;
 import java.nio.ByteBuffer;
 import java.security.Principal;
@@ -33,6 +35,7 @@ import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.TimerHandle;
 import org.bluezoo.gumdrop.websocket.WebSocketEventHandler;
 import org.bluezoo.gumdrop.http.HttpMethod;
+import org.bluezoo.gumdrop.http.HttpUtils;
 import org.bluezoo.gumdrop.http.HttpDatagramContext;
 import org.bluezoo.gumdrop.http.HttpVersion;
 import org.bluezoo.gumdrop.websocket.WebSocketExtension;
@@ -247,8 +250,9 @@ public interface HttpResponse {
 
     /**
      * Adds a field to the response. May be called more than once for a field
-     * name; names are case-insensitive. After the body has begun, a field is a
-     * trailer field.
+     * name; names are case-insensitive. The value is the raw octets of the
+     * field value, as {@link org.bluezoo.gumdrop.http.HttpMessageHandler#header}
+     * delivers them. After the body has begun, a field is a trailer field.
      *
      * @param name the field name
      * @param value the field value; ASCII only
@@ -256,18 +260,18 @@ public interface HttpResponse {
      * @throws IllegalArgumentException if the value is not ASCII, or this
      *     would be a trailer that may not be one
      */
-    void header(String name, String value);
+    void header(String name, ByteBuffer value);
 
     /**
-     * Adds a field whose value is raw octets (ISO-8859-1).
+     * Adds a field with a text value; a convenience for
+     * {@link #header(String, ByteBuffer)}.
      *
      * @param name the field name
-     * @param value the field value
+     * @param value the field value; ASCII only
      */
-    default void header(String name, ByteBuffer value) {
-        byte[] b = new byte[value.remaining()];
-        value.duplicate().get(b);
-        header(name, new String(b, java.nio.charset.StandardCharsets.ISO_8859_1));
+    default void header(String name, String value) {
+        HttpUtils.requireAsciiFieldValue(name, value);
+        header(name, ByteBuffer.wrap(value.getBytes(java.nio.charset.StandardCharsets.ISO_8859_1)));
     }
 
     /**
@@ -568,9 +572,9 @@ public interface HttpResponse {
      *
      * <p>Example usage:
      * <pre>{@code
-     * public void headers(HttpResponse state, Headers headers) {
+     * public void headers(HttpResponse state, List<Header> headers) {
      *     if (WebSocketHandshake.isValidWebSocketUpgrade(headers)) {
-     *         String protocol = headers.getValue("Sec-WebSocket-Protocol");
+     *         String protocol = HeaderFields.getValue(headers, "Sec-WebSocket-Protocol");
      *         state.upgradeToWebSocket(protocol, new DefaultWebSocketEventHandler() {
      *             
      *             public void textMessageReceived(WebSocketSession session,

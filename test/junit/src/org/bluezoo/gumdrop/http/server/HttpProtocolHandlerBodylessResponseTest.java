@@ -21,12 +21,13 @@
 
 package org.bluezoo.gumdrop.http.server;
 
+import java.util.List;
 import static org.junit.Assert.assertTrue;
 
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 
-import org.bluezoo.gumdrop.http.Headers;
+import org.bluezoo.gumdrop.http.Header;
 import org.bluezoo.gumdrop.testsupport.BinaryRecordingEndpoint;
 import org.bluezoo.gumdrop.testsupport.CollectingRequestHandler;
 import org.junit.Test;
@@ -47,7 +48,7 @@ public class HttpProtocolHandlerBodylessResponseTest {
             public HttpRequestHandler openStream(HttpResponse state) {
                 return new CollectingRequestHandler(state) {
                     @Override
-                    public void headers(HttpResponse s, Headers headers) {
+                    public void headers(HttpResponse s, List<Header> headers) {
                         s.status(Integer.parseInt(status));
                         if (startBody) {
                             // header section sent now, body then ends empty
@@ -103,7 +104,7 @@ public class HttpProtocolHandlerBodylessResponseTest {
             public HttpRequestHandler openStream(HttpResponse state) {
                 return new CollectingRequestHandler(state) {
                     @Override
-                    public void headers(HttpResponse s, Headers headers) {
+                    public void headers(HttpResponse s, List<Header> headers) {
                         s.status(200);
                         s.endMessage();
                     }

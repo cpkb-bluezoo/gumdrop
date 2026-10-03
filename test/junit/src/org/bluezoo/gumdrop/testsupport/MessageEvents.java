@@ -23,10 +23,11 @@ package org.bluezoo.gumdrop.testsupport;
 
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
+import java.util.List;
 
 import org.bluezoo.gumdrop.http.FieldSectionAdapter;
 import org.bluezoo.gumdrop.http.Header;
-import org.bluezoo.gumdrop.http.Headers;
+import org.bluezoo.gumdrop.http.HeaderFields;
 import org.bluezoo.gumdrop.http.HttpError;
 import org.bluezoo.gumdrop.http.HttpMessageHandler;
 import org.bluezoo.gumdrop.http.HttpMethod;
@@ -36,7 +37,7 @@ import org.bluezoo.gumdrop.mime.ContentType;
 import org.bluezoo.gumdrop.http.HttpVersion;
 
 /**
- * Delivers a request, given as {@link Headers} with pseudo-headers, to an
+ * Delivers a request, given as a {@code List<Header>} with pseudo-headers, to an
  * {@link HttpMessageHandler} as the events the server sends: the same path
  * HTTP/2 and HTTP/3 requests take.
  *
@@ -52,35 +53,35 @@ public final class MessageEvents {
      * A request that names {@code :scheme} or {@code :protocol} arrives as
      * HTTP/3 would send it; any other is sent as an HTTP/1.1 request.
      */
-    public static void headers(HttpMessageHandler handler, Headers headers) {
-        if (headers.getValue(":scheme") != null || headers.getValue(":protocol") != null) {
+    public static void headers(HttpMessageHandler handler, List<Header> headers) {
+        if (HeaderFields.getValue(headers, ":scheme") != null || HeaderFields.getValue(headers, ":protocol") != null) {
             headers(handler, HttpVersion.HTTP_3, headers);
         } else {
             http1(handler, headers);
         }
     }
 
-    /** As {@link #headers(HttpMessageHandler, Headers)} over HTTP/2 or HTTP/3. */
-    public static void headers(HttpMessageHandler handler, HttpVersion version, Headers headers) {
+    /** As {@link #headers(HttpMessageHandler, List)} over HTTP/2 or HTTP/3. */
+    public static void headers(HttpMessageHandler handler, HttpVersion version, List<Header> headers) {
         FieldSectionAdapter adapter = new FieldSectionAdapter(handler, version,
                 FieldSectionAdapter.Kind.REQUEST);
         // a test request need not spell out every pseudo-header a real one
         // carries: supply the ones the protocol requires and it left out
-        boolean extendedOrOrdinary = !"CONNECT".equals(headers.getValue(":method"))
-                || headers.getValue(":protocol") != null;
+        boolean extendedOrOrdinary = !"CONNECT".equals(HeaderFields.getValue(headers, ":method"))
+                || HeaderFields.getValue(headers, ":protocol") != null;
         if (extendedOrOrdinary) {
             for (Header header : headers) {
                 if (header.getName().startsWith(":")) {
                     adapter.field(octets(header.getName()), octets(header.getValue()));
                 }
             }
-            if (headers.getValue(":scheme") == null) {
+            if (HeaderFields.getValue(headers, ":scheme") == null) {
                 adapter.field(octets(":scheme"), octets("https"));
             }
-            if (headers.getValue(":path") == null) {
+            if (HeaderFields.getValue(headers, ":path") == null) {
                 adapter.field(octets(":path"), octets("/"));
             }
-            if (headers.getValue(":authority") == null) {
+            if (HeaderFields.getValue(headers, ":authority") == null) {
                 adapter.field(octets(":authority"), octets("test.invalid"));
             }
             for (Header header : headers) {
@@ -97,14 +98,14 @@ public final class MessageEvents {
     }
 
     /** Delivers the request as the bytes of an HTTP/1.x request, up to its header section. */
-    private static void http1(HttpMessageHandler handler, Headers headers) {
-        String method = headers.getValue(":method");
-        String path = headers.getValue(":path");
+    private static void http1(HttpMessageHandler handler, List<Header> headers) {
+        String method = HeaderFields.getValue(headers, ":method");
+        String path = HeaderFields.getValue(headers, ":path");
         StringBuilder sb = new StringBuilder();
         sb.append(method == null ? "GET" : method).append(' ')
           .append(path == null ? "/" : path);
-        String authority = headers.getValue(":authority");
-        boolean hasHost = headers.getValue("host") != null;
+        String authority = HeaderFields.getValue(headers, ":authority");
+        boolean hasHost = HeaderFields.getValue(headers, "host") != null;
         // HTTP/1.1 requires a Host field; a request that names no host is
         // sent as HTTP/1.0, which does not
         if (authority == null && !hasHost) {
@@ -150,7 +151,7 @@ public final class MessageEvents {
     }
 
     /** Delivers a whole request: header section, the body if any, and the end. */
-    public static void request(HttpMessageHandler handler, Headers headers, byte[] body) {
+    public static void request(HttpMessageHandler handler, List<Header> headers, byte[] body) {
         headers(handler, headers);
         if (body != null && body.length > 0) {
             handler.bodyContent(ByteBuffer.wrap(body));

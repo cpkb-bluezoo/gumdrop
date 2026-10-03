@@ -147,7 +147,7 @@ public class H2ConnectUdpResponseHandlerTest {
         final List<byte[]> sentChunks = new ArrayList<byte[]>();
         boolean bodyEnded;
 
-        @Override public void header(String name, String value) { }
+        @Override public void header(String name, ByteBuffer rawValue) { }
         @Override public void priority(int weight) { }
         @Override public void dependency(HttpRequest parent) { }
         @Override public void exclusive(boolean exclusive) { }

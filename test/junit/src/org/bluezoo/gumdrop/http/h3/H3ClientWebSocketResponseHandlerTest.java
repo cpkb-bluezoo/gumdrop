@@ -21,6 +21,8 @@
 
 package org.bluezoo.gumdrop.http.h3;
 
+import java.util.List;
+import java.util.ArrayList;
 import java.lang.reflect.Field;
 import java.net.SocketAddress;
 import java.nio.ByteBuffer;
@@ -31,7 +33,6 @@ import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
 import org.bluezoo.gumdrop.telemetry.Trace;
 import org.bluezoo.gumdrop.http.Header;
-import org.bluezoo.gumdrop.http.Headers;
 import org.bluezoo.gumdrop.http.qpack.Decoder;
 import org.bluezoo.gumdrop.http.qpack.SimpleEncoder;
 import org.bluezoo.gumdrop.quic.QuicConnectionCloseException;
@@ -178,7 +179,7 @@ public class H3ClientWebSocketResponseHandlerTest {
         // this isolated unit test (see H3ClientStreamTest's own comment).
         setField(stream, "endpoint", new StubEndpoint());
 
-        Headers requestHeaders = new Headers();
+        List<Header> requestHeaders = new ArrayList<Header>();
         requestHeaders.add(new Header(":method", "CONNECT"));
         requestHeaders.add(new Header(":protocol", "websocket"));
         stream.prepareRequest(requestHeaders, false);

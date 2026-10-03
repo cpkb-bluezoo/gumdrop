@@ -23,7 +23,6 @@ package org.bluezoo.gumdrop.servlet;
 
 import org.bluezoo.gumdrop.NullSecurityInfo;
 import org.bluezoo.gumdrop.SecurityInfo;
-import org.bluezoo.gumdrop.http.Headers;
 import org.bluezoo.gumdrop.http.server.HttpResponse;
 import org.bluezoo.gumdrop.http.HttpVersion;
 
@@ -115,7 +114,7 @@ public class Servlet61ApiTest {
             String target) throws Exception {
         StubServletHandler handler = new StubServletHandler(state);
         RequestBodyStream bodyStream = new RequestBodyStream();
-        return new Request(handler, 8192, method, target, new Headers(), bodyStream);
+        return new Request(handler, 8192, method, target, new ServletHeaders(), bodyStream);
     }
 
     private static final class StubServletHandler extends ServletHandler {
@@ -153,7 +152,7 @@ public class Servlet61ApiTest {
         @Override public org.bluezoo.gumdrop.SelectorLoop getSelectorLoop() { return null; }
         @Override public java.security.Principal getPrincipal() { return null; }
         @Override public void status(int code) { }
-        @Override public void header(String name, String value) { }
+        @Override public void header(String name, ByteBuffer rawValue) { }
         @Override public void endHeaders() { }
         @Override public void bodyContent(ByteBuffer data) { }
         @Override public void endMessage() { }

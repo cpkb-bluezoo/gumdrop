@@ -64,9 +64,10 @@ import org.bluezoo.gumdrop.mime.ContentType;
  *
  * <h3>HTTP/2 Server Push</h3>
  *
- * <p>When an HTTP/2 server sends a PUSH_PROMISE, the {@link #pushPromise(PushPromise)}
- * callback is invoked. The handler can accept or reject the push. If accepted,
- * a separate handler receives the pushed response.
+ * <p>When an HTTP/2 server sends a PUSH_PROMISE, {@link #pushPromise()} is
+ * called. It returns a {@link PushPromiseHandler} that receives the promised
+ * request as the events of a request and then supplies the handler that
+ * receives the pushed response, or refuses the push.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see HttpRequest
@@ -97,17 +98,18 @@ public interface HttpResponseHandler extends HttpMessageHandler {
     @Override default void error(HttpError error, String detail) { }
 
     /**
-     * Called when an HTTP/2 server push promise is received.
+     * Called when an HTTP/2 server sends a push promise (PUSH_PROMISE, RFC 9113
+     * section 8.4). Returns the handler to receive the promised request as the
+     * events of a request, or {@code null} to refuse the push, which is what
+     * the default does. See {@link PushPromiseHandler}.
      *
-     * <p>The handler must either call {@link PushPromise#accept(HttpResponseHandler)}
-     * to receive the pushed response, or {@link PushPromise#reject()} to cancel it.
-     * If neither is called, the push is rejected by default.
+     * <p>This is only called for HTTP/2 connections.
      *
-     * <p>This callback is only invoked for HTTP/2 connections.
-     *
-     * @param promise the push promise
+     * @return the handler for the promised request, or null to refuse
      */
-    void pushPromise(PushPromise promise);
+    default PushPromiseHandler pushPromise() {
+        return null;
+    }
 
     /**
      * Called when the request fails due to a connection error, protocol error,

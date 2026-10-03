@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.http;
 
+import java.util.List;
 import org.bluezoo.gumdrop.dns.client.HostsFile;
 
 /**
@@ -543,7 +544,7 @@ public final class HttpUtils {
      * @throws IllegalArgumentException naming the first header whose value is
      *     not US-ASCII
      */
-    public static void requireAsciiFieldValues(Headers headers) {
+    public static void requireAsciiFieldValues(List<Header> headers) {
         for (Header header : headers) {
             String value = header.getValue();
             if (value == null) {

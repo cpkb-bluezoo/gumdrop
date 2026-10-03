@@ -36,11 +36,9 @@ import java.nio.file.Path;
 import java.security.PublicKey;
 import java.security.cert.Certificate;
 import java.security.cert.X509Certificate;
-import java.util.ArrayList;
 import java.util.Base64;
 import java.util.Collections;
 import java.util.Enumeration;
-import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.TreeMap;
@@ -74,7 +72,6 @@ import jakarta.servlet.http.WebConnection;
 
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.auth.Realm;
-import org.bluezoo.gumdrop.http.Headers;
 import org.bluezoo.gumdrop.servlet.ServletEndToEndTest.Result;
 import org.bluezoo.gumdrop.servlet.ServletEndToEndTest.StubState;
 import org.bluezoo.gumdrop.servlet.ServletEndToEndTest.TestContainer;
@@ -1019,7 +1016,7 @@ public class ServletEndToEndMoreTest {
     private static Result send(StubState state, String method, String target, byte[] body,
             String... headerPairs) throws Exception {
         ServletHandler handler = new ServletHandler(container, state, 8192);
-        Headers h = new Headers();
+        ServletHeaders h = new ServletHeaders();
         h.add(":method", method);
         h.add(":path", target);
         for (int i = 0; i + 1 < headerPairs.length; i += 2) {

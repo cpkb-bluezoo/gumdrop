@@ -29,7 +29,7 @@
  * org.bluezoo.gumdrop.http.client.HttpRequest} represents one request,
  * {@link org.bluezoo.gumdrop.http.client.HttpResponseHandler} the
  * callback interface for response events (status, headers including
- * trailers, streamed body, completion). {@link org.bluezoo.gumdrop.http.client.PushPromise}
+ * trailers, streamed body, completion). {@link org.bluezoo.gumdrop.http.client.PushPromiseHandler}
  * exposes HTTP/2 server push. Request and response bodies are streamed
  * rather than buffered, with backpressure support for large uploads.
  *

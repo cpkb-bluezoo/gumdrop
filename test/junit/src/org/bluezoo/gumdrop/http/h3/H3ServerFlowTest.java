@@ -41,7 +41,6 @@ import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.ProtocolHandler;
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.http.Header;
-import org.bluezoo.gumdrop.http.Headers;
 import org.bluezoo.gumdrop.http.HttpMethod;
 import org.bluezoo.gumdrop.http.HttpStatus;
 import org.bluezoo.gumdrop.http.qpack.SimpleEncoder;
@@ -76,7 +75,7 @@ public class H3ServerFlowTest {
         int datagramCount;
 
         @Override
-        public void headers(HttpResponse s, Headers headers) {
+        public void headers(HttpResponse s, List<Header> headers) {
             state = s;
             events.add("headers");
         }

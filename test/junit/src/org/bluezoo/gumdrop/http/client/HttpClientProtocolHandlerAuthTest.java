@@ -192,9 +192,5 @@ public class HttpClientProtocolHandlerAuthTest {
             }
         }
 
-        @Override
-        public void pushPromise(PushPromise promise) {
-            promise.reject();
-        }
     }
 }

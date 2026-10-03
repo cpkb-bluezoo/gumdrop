@@ -259,10 +259,6 @@ public class GrpcClient {
             return new String(raw, 0, len, java.nio.charset.StandardCharsets.UTF_8);
         }
 
-        @Override
-        public void pushPromise(org.bluezoo.gumdrop.http.client.PushPromise promise) {
-        }
-
         private void fail(Exception e) {
             if (!failed) {
                 failed = true;

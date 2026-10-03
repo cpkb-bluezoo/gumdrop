@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.http.h3;
 
+import java.util.ArrayList;
 import java.lang.reflect.Field;
 import java.net.InetAddress;
 import java.net.SocketAddress;
@@ -39,7 +40,6 @@ import org.bluezoo.gumdrop.http.CapsuleParser;
 import org.bluezoo.gumdrop.http.ConnectIpAddress;
 import org.bluezoo.gumdrop.http.ConnectIpRoute;
 import org.bluezoo.gumdrop.http.Header;
-import org.bluezoo.gumdrop.http.Headers;
 import org.bluezoo.gumdrop.http.HttpDatagramContext;
 import org.bluezoo.gumdrop.http.client.ConnectIpClientSession;
 import org.bluezoo.gumdrop.http.client.ConnectIpEventHandler;
@@ -288,7 +288,7 @@ public class H3ClientConnectIpResponseHandlerTest {
         responseHandler.bindStream(stream);
         setField(stream, "streamId", 1L);
 
-        Headers requestHeaders = new Headers();
+        List<Header> requestHeaders = new ArrayList<Header>();
         requestHeaders.add(new Header(":method", "CONNECT"));
         requestHeaders.add(new Header(":protocol", "connect-ip"));
         requestHeaders.add(new Header("capsule-protocol", "?1"));

@@ -21,6 +21,9 @@
 
 package org.bluezoo.gumdrop.websocket.server;
 
+import java.util.ArrayList;
+import org.bluezoo.gumdrop.http.HeaderFields;
+import org.bluezoo.gumdrop.http.Header;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
@@ -36,7 +39,6 @@ import java.util.List;
 
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.SelectorLoop;
-import org.bluezoo.gumdrop.http.Headers;
 import org.bluezoo.gumdrop.testsupport.ResponseRecorder;
 import org.bluezoo.gumdrop.http.HttpVersion;
 import org.bluezoo.gumdrop.http.server.HttpRequestHandler;
@@ -77,7 +79,7 @@ public class WebSocketRequestHandlerTest {
         @Override public SelectorLoop getSelectorLoop() { return null; }
         @Override public Principal getPrincipal() { return null; }
         @Override public void status(int code) { recorder.status(code); }
-        @Override public void header(String name, String value) { recorder.header(name, value); }
+        @Override public void header(String name, ByteBuffer rawValue) { String value = java.nio.charset.StandardCharsets.ISO_8859_1.decode(rawValue.duplicate()).toString(); recorder.header(name, value); }
         @Override public void endHeaders() { recorder.endHeaders(); }
         @Override public void bodyContent(ByteBuffer data) { recorder.bodyContent(); }
         @Override public void endMessage() {
@@ -131,25 +133,25 @@ public class WebSocketRequestHandlerTest {
                 new WebSocketRequestHandler.ConnectionHandlerFactory() {
                     @Override
                     public WebSocketEventHandler create(String requestPath,
-                            Headers upgradeHeaders) {
+                            List<Header> upgradeHeaders) {
                         seenPath = requestPath;
                         return result;
                     }
                 });
     }
 
-    private static Headers upgradeRequest() {
-        Headers h = new Headers();
-        h.add(":method", "GET");
-        h.add(":path", "/chat");
-        h.add("Upgrade", "websocket");
-        h.add("Connection", "Upgrade");
-        h.add("Sec-WebSocket-Key", WebSocketHandshake.generateKey());
-        h.add("Sec-WebSocket-Version", "13");
+    private static List<Header> upgradeRequest() {
+        List<Header> h = new ArrayList<Header>();
+        HeaderFields.add(h, ":method", "GET");
+        HeaderFields.add(h, ":path", "/chat");
+        HeaderFields.add(h, "Upgrade", "websocket");
+        HeaderFields.add(h, "Connection", "Upgrade");
+        HeaderFields.add(h, "Sec-WebSocket-Key", WebSocketHandshake.generateKey());
+        HeaderFields.add(h, "Sec-WebSocket-Version", "13");
         return h;
     }
 
-    private void open(WebSocketRequestHandler h, Headers headers) {
+    private void open(WebSocketRequestHandler h, List<Header> headers) {
         HttpRequestHandler rh = h.openStream(state);
         MessageEvents.headers(rh, headers);
     }
@@ -165,8 +167,8 @@ public class WebSocketRequestHandlerTest {
 
     @Test
     public void invalidUpgradeGets400() {
-        Headers h = upgradeRequest();
-        h.removeAll("Sec-WebSocket-Key");
+        List<Header> h = upgradeRequest();
+        HeaderFields.removeAll(h, "Sec-WebSocket-Key");
         open(builder(appHandler).build(), h);
         assertEquals("400", state.status());
         assertTrue(state.completed);
@@ -187,7 +189,7 @@ public class WebSocketRequestHandlerTest {
                 .subprotocolSelector(
                         new WebSocketRequestHandler.SubprotocolSelector() {
                             @Override
-                            public String select(Headers upgradeHeaders) {
+                            public String select(List<Header> upgradeHeaders) {
                                 return "mqtt";
                             }
                         }).build();
@@ -197,8 +199,8 @@ public class WebSocketRequestHandlerTest {
 
     @Test
     public void deflateNegotiatedWhenOffered() {
-        Headers h = upgradeRequest();
-        h.add("Sec-WebSocket-Extensions", "permessage-deflate");
+        List<Header> h = upgradeRequest();
+        HeaderFields.add(h, "Sec-WebSocket-Extensions", "permessage-deflate");
         open(builder(appHandler).build(), h);
         assertNotNull(state.extensions);
         assertEquals(1, state.extensions.size());
@@ -206,8 +208,8 @@ public class WebSocketRequestHandlerTest {
 
     @Test
     public void deflateNotNegotiatedWhenDisabled() {
-        Headers h = upgradeRequest();
-        h.add("Sec-WebSocket-Extensions", "permessage-deflate");
+        List<Header> h = upgradeRequest();
+        HeaderFields.add(h, "Sec-WebSocket-Extensions", "permessage-deflate");
         open(builder(appHandler).deflateEnabled(false).build(), h);
         assertTrue(state.extensions == null || state.extensions.isEmpty());
     }
@@ -222,11 +224,11 @@ public class WebSocketRequestHandlerTest {
 
     @Test
     public void extendedConnectUsesPathAndExtensionsHeader() {
-        Headers h = new Headers();
-        h.add(":method", "CONNECT");
-        h.add(":protocol", "websocket");
-        h.add(":path", "/h2ws");
-        h.add("sec-websocket-extensions", "permessage-deflate");
+        List<Header> h = new ArrayList<Header>();
+        HeaderFields.add(h, ":method", "CONNECT");
+        HeaderFields.add(h, ":protocol", "websocket");
+        HeaderFields.add(h, ":path", "/h2ws");
+        HeaderFields.add(h, "sec-websocket-extensions", "permessage-deflate");
         open(builder(appHandler).build(), h);
         assertEquals("/h2ws", seenPath);
         assertSame(appHandler, state.handler);
@@ -235,8 +237,8 @@ public class WebSocketRequestHandlerTest {
 
     @Test
     public void plainConnectWithoutProtocolIsRejected() {
-        Headers h = new Headers();
-        h.add(":method", "CONNECT");
+        List<Header> h = new ArrayList<Header>();
+        HeaderFields.add(h, ":method", "CONNECT");
         open(builder(appHandler).build(), h);
         assertEquals("400", state.status());
     }

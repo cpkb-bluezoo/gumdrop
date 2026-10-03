@@ -22,7 +22,6 @@
 package org.bluezoo.gumdrop.http.server;
 
 import org.bluezoo.gumdrop.http.Capsule;
-import org.bluezoo.gumdrop.http.Headers;
 import org.bluezoo.gumdrop.http.HttpError;
 import org.bluezoo.gumdrop.http.HttpMessageHandler;
 import org.bluezoo.gumdrop.http.HttpMethod;

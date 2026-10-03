@@ -162,7 +162,7 @@ public class HttpDatagramContextTest {
         @Override public SelectorLoop getSelectorLoop() { return null; }
         @Override public Principal getPrincipal() { return null; }
         @Override public void status(int code) { }
-        @Override public void header(String name, String value) { }
+        @Override public void header(String name, ByteBuffer rawValue) { }
         @Override public void endHeaders() { }
         @Override public void bodyContent(ByteBuffer data) { }
         @Override public void endMessage() { }

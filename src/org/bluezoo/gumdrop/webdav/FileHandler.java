@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.webdav;
 
+import org.bluezoo.gumdrop.http.HeaderFields;
 import org.bluezoo.gonzalez.XMLWriter;
 import org.bluezoo.util.ByteArrays;
 import org.bluezoo.gumdrop.Gumdrop;
@@ -35,7 +36,6 @@ import org.bluezoo.gumdrop.http.HttpDateFormat;
 import org.bluezoo.gumdrop.http.server.HttpResponse;
 import org.bluezoo.gumdrop.http.HttpStatus;
 import org.bluezoo.gumdrop.http.Header;
-import org.bluezoo.gumdrop.http.Headers;
 import org.bluezoo.gumdrop.http.HttpMethod;
 import org.bluezoo.gumdrop.mime.ContentDisposition;
 import org.bluezoo.gumdrop.mime.ContentType;
@@ -176,7 +176,7 @@ class FileHandler extends DefaultHttpRequestHandler {
     // WebDAV request body accumulation
     private ByteBuffer requestBodyBuffer;
     private WebDAVRequestParser webdavParser;
-    private Headers requestHeaders;
+    private List<Header> requestHeaders;
 
     /** The response of the stream carrying the request. */
     private final HttpResponse response;
@@ -240,7 +240,7 @@ class FileHandler extends DefaultHttpRequestHandler {
 
     // The request, assembled from the message events; processing starts when
     // its header section ends.
-    private final Headers headers = new Headers();
+    private final List<Header> headers = new ArrayList<Header>();
 
     private static String text(ByteBuffer b) {
         byte[] octets = new byte[b.remaining()];
@@ -311,8 +311,8 @@ class FileHandler extends DefaultHttpRequestHandler {
         }
         // Extract request info from headers
         this.requestHeaders = headers;
-        method = headers.getMethod();
-        requestPath = headers.getPath();
+        method = HeaderFields.getValue(headers, ":method");
+        requestPath = HeaderFields.getValue(headers, ":path");
         
         if ("*".equals(requestPath)) {
             path = null;
@@ -322,7 +322,7 @@ class FileHandler extends DefaultHttpRequestHandler {
             path = resolvePathLexical(requestPath);
         }
         
-        String contentLengthHeader = headers.getValue("content-length");
+        String contentLengthHeader = HeaderFields.getValue(headers, "content-length");
         if (contentLengthHeader != null) {
             try {
                 requestContentLength = Long.parseLong(contentLengthHeader);
@@ -333,7 +333,7 @@ class FileHandler extends DefaultHttpRequestHandler {
         
         // Parse WebDAV headers
         if (webdavEnabled) {
-            String depthHeader = headers.getValue(DavConstants.HEADER_DEPTH);
+            String depthHeader = HeaderFields.getValue(headers, DavConstants.HEADER_DEPTH);
             if (depthHeader != null) {
                 if ("0".equals(depthHeader)) {
                     depth = DavConstants.DEPTH_0;
@@ -343,11 +343,11 @@ class FileHandler extends DefaultHttpRequestHandler {
                     depth = DavConstants.DEPTH_INFINITY;
                 }
             }
-            destination = headers.getValue(DavConstants.HEADER_DESTINATION);
-            String overwriteHeader = headers.getValue(DavConstants.HEADER_OVERWRITE);
+            destination = HeaderFields.getValue(headers, DavConstants.HEADER_DESTINATION);
+            String overwriteHeader = HeaderFields.getValue(headers, DavConstants.HEADER_OVERWRITE);
             overwrite = overwriteHeader == null || !"F".equalsIgnoreCase(overwriteHeader);
-            lockToken = headers.getValue(DavConstants.HEADER_LOCK_TOKEN);
-            ifHeader = headers.getValue(DavConstants.HEADER_IF);
+            lockToken = HeaderFields.getValue(headers, DavConstants.HEADER_LOCK_TOKEN);
+            ifHeader = HeaderFields.getValue(headers, DavConstants.HEADER_IF);
         }
         
         // Process the request
@@ -658,9 +658,9 @@ class FileHandler extends DefaultHttpRequestHandler {
         plan.contentType = getContentType(target);
         plan.entityTag = "\"" + generateETag(target, attrs) + "\"";
         String ifNoneMatch = requestHeaders != null
-                ? requestHeaders.getValue("if-none-match") : null;
+                ? HeaderFields.getValue(requestHeaders, "if-none-match") : null;
         String ifModifiedSince = requestHeaders != null
-                ? requestHeaders.getValue("if-modified-since") : null;
+                ? HeaderFields.getValue(requestHeaders, "if-modified-since") : null;
         if (HttpConditionalRequests.shouldReturnNotModified(
                 ifNoneMatch, ifModifiedSince, plan.lastModified,
                 plan.entityTag)) {
@@ -1546,7 +1546,7 @@ class FileHandler extends DefaultHttpRequestHandler {
             sendError(response, HttpStatus.PRECONDITION_FAILED);
             return;
         }
-        final long timeout = parseTimeout(requestHeaders.getValue(DavConstants.HEADER_TIMEOUT));
+        final long timeout = parseTimeout(HeaderFields.getValue(requestHeaders, DavConstants.HEADER_TIMEOUT));
         // With a shared lock root this reads and rewrites the lock's record
         offload(response, new Callable<WebDAVLock>() {
             @Override
@@ -2391,7 +2391,7 @@ class FileHandler extends DefaultHttpRequestHandler {
     private void createLock(HttpResponse response, WebDAVLock.Scope scope,
             WebDAVLock.Type type, String owner) {
         final long timeout = parseTimeout(
-                requestHeaders.getValue(DavConstants.HEADER_TIMEOUT));
+                HeaderFields.getValue(requestHeaders, DavConstants.HEADER_TIMEOUT));
         final WebDAVLock.Scope lockScope = scope;
         final WebDAVLock.Type lockType = type;
         final String lockOwner = owner;

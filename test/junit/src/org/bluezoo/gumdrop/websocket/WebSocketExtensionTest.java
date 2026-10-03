@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.websocket;
 
+import org.bluezoo.gumdrop.http.Header;
 import org.junit.Test;
 import static org.junit.Assert.*;
 
@@ -287,35 +288,35 @@ public class WebSocketExtensionTest {
 
     @Test
     public void testCreateWebSocketResponseWithExtensions() {
-        org.bluezoo.gumdrop.http.Headers headers =
+        List<org.bluezoo.gumdrop.http.Header> headers =
                 WebSocketHandshake.createWebSocketResponse(
                         WebSocketHandshake.generateKey(), null, "permessage-deflate");
-        String extHeader = headers.getValue("Sec-WebSocket-Extensions");
+        String extHeader = org.bluezoo.gumdrop.http.HeaderFields.getValue(headers, "Sec-WebSocket-Extensions");
         assertEquals("permessage-deflate", extHeader);
     }
 
     @Test
     public void testCreateWebSocketResponseWithoutExtensions() {
-        org.bluezoo.gumdrop.http.Headers headers =
+        List<org.bluezoo.gumdrop.http.Header> headers =
                 WebSocketHandshake.createWebSocketResponse(
                         WebSocketHandshake.generateKey(), null, null);
-        assertNull(headers.getValue("Sec-WebSocket-Extensions"));
+        assertNull(org.bluezoo.gumdrop.http.HeaderFields.getValue(headers, "Sec-WebSocket-Extensions"));
     }
 
     @Test
     public void testCreateUpgradeRequestWithExtensions() {
-        org.bluezoo.gumdrop.http.Headers headers =
+        List<org.bluezoo.gumdrop.http.Header> headers =
                 WebSocketHandshake.createUpgradeRequest(
                         WebSocketHandshake.generateKey(), null, "permessage-deflate");
-        String extHeader = headers.getValue("Sec-WebSocket-Extensions");
+        String extHeader = org.bluezoo.gumdrop.http.HeaderFields.getValue(headers, "Sec-WebSocket-Extensions");
         assertEquals("permessage-deflate", extHeader);
     }
 
     @Test
     public void testCreateUpgradeRequestWithoutExtensions() {
-        org.bluezoo.gumdrop.http.Headers headers =
+        List<org.bluezoo.gumdrop.http.Header> headers =
                 WebSocketHandshake.createUpgradeRequest(
                         WebSocketHandshake.generateKey(), null, null);
-        assertNull(headers.getValue("Sec-WebSocket-Extensions"));
+        assertNull(org.bluezoo.gumdrop.http.HeaderFields.getValue(headers, "Sec-WebSocket-Extensions"));
     }
 }

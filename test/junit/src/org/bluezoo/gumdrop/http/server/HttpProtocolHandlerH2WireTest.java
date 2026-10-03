@@ -38,7 +38,6 @@ import java.util.List;
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.http.Header;
 import org.bluezoo.gumdrop.http.HeaderFieldHandler;
-import org.bluezoo.gumdrop.http.Headers;
 import org.bluezoo.gumdrop.http.HttpMethod;
 import org.bluezoo.gumdrop.http.hpack.Decoder;
 import org.bluezoo.gumdrop.http.hpack.Encoder;
@@ -125,7 +124,7 @@ public class HttpProtocolHandlerH2WireTest {
         boolean pushResult;
         Script script;
         HttpResponse lastState;
-        Headers lastHeaders;
+        List<Header> lastHeaders;
         Runnable writable;
     }
 
@@ -146,7 +145,7 @@ public class HttpProtocolHandlerH2WireTest {
                 public HttpRequestHandler openStream(HttpResponse state) {
                     return new CollectingRequestHandler(state) {
                         @Override
-                        public void headers(HttpResponse s, Headers headers) {
+                        public void headers(HttpResponse s, List<Header> headers) {
                             a.events.add("headers");
                             a.lastState = s;
                             a.lastHeaders = headers;
@@ -259,7 +258,7 @@ public class HttpProtocolHandlerH2WireTest {
         }
 
         byte[] headerBlock(String method, String path, String[] extra) {
-            Headers h = new Headers();
+            List<Header> h = new ArrayList<Header>();
             h.add(new Header(":method", method));
             h.add(new Header(":scheme", "https"));
             h.add(new Header(":authority", "h.test"));
@@ -272,7 +271,7 @@ public class HttpProtocolHandlerH2WireTest {
             return encode(h);
         }
 
-        byte[] encode(Headers h) {
+        byte[] encode(List<Header> h) {
             ByteBuffer buf = ByteBuffer.allocate(8192);
             try {
                 encoder.encode(buf, h);
@@ -1010,7 +1009,7 @@ public class HttpProtocolHandlerH2WireTest {
     public void testMissingPathPseudoHeaderResetsStream() {
         Conn c = new Conn();
         c.handshake();
-        Headers h = new Headers();
+        List<Header> h = new ArrayList<Header>();
         h.add(new Header(":method", "GET"));
         h.add(new Header(":scheme", "https"));
         byte[] block = c.encode(h);
@@ -1026,7 +1025,7 @@ public class HttpProtocolHandlerH2WireTest {
     public void testPseudoHeaderAfterRegularHeaderResetsStream() {
         Conn c = new Conn();
         c.handshake();
-        Headers h = new Headers();
+        List<Header> h = new ArrayList<Header>();
         h.add(new Header(":method", "GET"));
         h.add(new Header("x-a", "b"));
         h.add(new Header(":scheme", "https"));
@@ -1041,7 +1040,7 @@ public class HttpProtocolHandlerH2WireTest {
     public void testDuplicatePseudoHeaderResetsStream() {
         Conn c = new Conn();
         c.handshake();
-        Headers h = new Headers();
+        List<Header> h = new ArrayList<Header>();
         h.add(new Header(":method", "GET"));
         h.add(new Header(":method", "POST"));
         h.add(new Header(":scheme", "https"));
@@ -1158,7 +1157,7 @@ public class HttpProtocolHandlerH2WireTest {
     public void testFrameworkRejectedStreamIsNeverFailed() {
         Conn c = new Conn();
         c.handshake();
-        Headers h = new Headers();
+        List<Header> h = new ArrayList<Header>();
         h.add(new Header(":method", "GET"));
         byte[] block = c.encode(h);
         byte[] f = frame(1, 4, 1, block);
@@ -1171,7 +1170,7 @@ public class HttpProtocolHandlerH2WireTest {
     public void testClassicConnectNeedsOnlyMethod() {
         Conn c = new Conn();
         c.handshake();
-        Headers h = new Headers();
+        List<Header> h = new ArrayList<Header>();
         h.add(new Header(":method", "CONNECT"));
         h.add(new Header(":authority", "example.test:443"));
         byte[] block = c.encode(h);
@@ -1303,7 +1302,7 @@ public class HttpProtocolHandlerH2WireTest {
         assertNotNull(c.handler.getLocalSocketAddress());
         c.handler.pauseRead(1);
         c.handler.resumeRead(1);
-        byte[] enc = c.handler.encodeHeaders(new Headers());
+        byte[] enc = c.handler.encodeHeaders(new ArrayList<Header>());
         assertNotNull(enc);
     }
 

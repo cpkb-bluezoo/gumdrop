@@ -106,10 +106,6 @@ public class HttpClientProtocolHandlerHttp1ResponseTest {
             failure = ex;
         }
 
-        @Override
-        public void pushPromise(PushPromise promise) {
-            promise.reject();
-        }
     }
 
     private HttpClientProtocolHandler handler;

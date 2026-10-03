@@ -21,6 +21,8 @@
 
 package org.bluezoo.gumdrop.http;
 
+import java.util.List;
+import java.util.ArrayList;
 import org.junit.Test;
 
 import static org.junit.Assert.*;
@@ -148,15 +150,15 @@ public class HTTPVersionTest {
 
     @Test
     public void testStripHttp1FramingHeaders() {
-        Headers headers = new Headers();
-        headers.add("Content-Length", "42");
-        headers.add("Transfer-Encoding", "chunked");
-        headers.add("Content-Type", "text/plain");
-        headers.add(":method", "GET");
+        List<Header> headers = new ArrayList<Header>();
+        HeaderFields.add(headers, "Content-Length", "42");
+        HeaderFields.add(headers, "Transfer-Encoding", "chunked");
+        HeaderFields.add(headers, "Content-Type", "text/plain");
+        HeaderFields.add(headers, ":method", "GET");
         HttpVersion.stripHttp1FramingHeaders(headers);
-        assertNull(headers.getValue("Content-Length"));
-        assertNull(headers.getValue("Transfer-Encoding"));
-        assertEquals("text/plain", headers.getValue("Content-Type"));
-        assertEquals("GET", headers.getValue(":method"));
+        assertNull(HeaderFields.getValue(headers, "Content-Length"));
+        assertNull(HeaderFields.getValue(headers, "Transfer-Encoding"));
+        assertEquals("text/plain", HeaderFields.getValue(headers, "Content-Type"));
+        assertEquals("GET", HeaderFields.getValue(headers, ":method"));
     }
 }

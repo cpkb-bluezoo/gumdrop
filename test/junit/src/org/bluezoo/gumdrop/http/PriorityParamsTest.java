@@ -21,6 +21,8 @@
 
 package org.bluezoo.gumdrop.http;
 
+import java.util.List;
+import java.util.ArrayList;
 import org.junit.Test;
 
 import static org.junit.Assert.assertEquals;
@@ -72,8 +74,8 @@ public class PriorityParamsTest {
 
     @Test
     public void testFromHeaders() {
-        Headers headers = new Headers();
-        headers.add("Priority", "u=1, i");
+        List<Header> headers = new ArrayList<Header>();
+        HeaderFields.add(headers, "Priority", "u=1, i");
         assertEquals(new PriorityParams(1, true), PriorityParams.fromHeaders(headers));
     }
 

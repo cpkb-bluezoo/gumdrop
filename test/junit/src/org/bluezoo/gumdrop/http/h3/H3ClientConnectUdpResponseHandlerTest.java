@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.http.h3;
 
+import java.util.ArrayList;
 import java.lang.reflect.Field;
 import java.net.SocketAddress;
 import java.nio.ByteBuffer;
@@ -35,7 +36,6 @@ import org.bluezoo.gumdrop.telemetry.Trace;
 import org.bluezoo.gumdrop.http.Capsule;
 import org.bluezoo.gumdrop.http.CapsuleParser;
 import org.bluezoo.gumdrop.http.Header;
-import org.bluezoo.gumdrop.http.Headers;
 import org.bluezoo.gumdrop.http.HttpDatagramContext;
 import org.bluezoo.gumdrop.http.client.ConnectUdpEventHandler;
 import org.bluezoo.gumdrop.http.client.ConnectUdpSession;
@@ -210,7 +210,7 @@ public class H3ClientConnectUdpResponseHandlerTest {
         responseHandler.bindStream(stream);
         setField(stream, "streamId", 1L);
 
-        Headers requestHeaders = new Headers();
+        List<Header> requestHeaders = new ArrayList<Header>();
         requestHeaders.add(new Header(":method", "CONNECT"));
         requestHeaders.add(new Header(":protocol", "connect-udp"));
         requestHeaders.add(new Header("capsule-protocol", "?1"));

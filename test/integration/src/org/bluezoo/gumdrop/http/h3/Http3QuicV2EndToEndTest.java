@@ -21,6 +21,10 @@
 
 package org.bluezoo.gumdrop.http.h3;
 
+import java.util.ArrayList;
+import java.util.List;
+import org.bluezoo.gumdrop.http.HeaderFields;
+import org.bluezoo.gumdrop.http.Header;
 import org.bluezoo.gumdrop.IntegrationLoop;
 import org.bluezoo.gumdrop.testsupport.CollectingRequestHandler;
 import java.io.IOException;
@@ -38,10 +42,8 @@ import org.junit.Test;
 
 import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.TestTlsFiles;
-import org.bluezoo.gumdrop.http.Headers;
 import org.bluezoo.gumdrop.http.HttpStatus;
 import org.bluezoo.gumdrop.http.client.HttpResponseHandler;
-import org.bluezoo.gumdrop.http.client.PushPromise;
 import org.bluezoo.gumdrop.http.server.HttpRequestHandler;
 import org.bluezoo.gumdrop.http.server.HttpResponse;
 import org.bluezoo.gumdrop.http.server.HttpStreamHandler;
@@ -102,7 +104,7 @@ public class Http3QuicV2EndToEndTest {
                 public HttpRequestHandler openStream(HttpResponse state) {
                     return new CollectingRequestHandler(state) {
                         @Override
-                        public void headers(HttpResponse state, Headers headers) {
+                        public void headers(HttpResponse state, List<Header> headers) {
                             state.status(200);
                             state.header("content-type", "text/plain");
                             state.endHeaders();
@@ -159,11 +161,11 @@ public class Http3QuicV2EndToEndTest {
                         public void connectionAccepted(QuicConnection connection) {
                             version.set(connection.getVersion());
                             Http3ClientHandler h3 = new Http3ClientHandler(connection);
-                            Headers requestHeaders = new Headers();
-                            requestHeaders.add(":method", "GET");
-                            requestHeaders.add(":scheme", "https");
-                            requestHeaders.add(":authority", TestTlsFiles.SERVER_NAME);
-                            requestHeaders.add(":path", "/");
+                            List<Header> requestHeaders = new ArrayList<Header>();
+                            HeaderFields.add(requestHeaders, ":method", "GET");
+                            HeaderFields.add(requestHeaders, ":scheme", "https");
+                            HeaderFields.add(requestHeaders, ":authority", TestTlsFiles.SERVER_NAME);
+                            HeaderFields.add(requestHeaders, ":path", "/");
                             h3.sendRequest(requestHeaders, new CollectingResponseHandler() {
                                 private final StringBuilder buf = new StringBuilder();
 
@@ -197,9 +199,6 @@ public class Http3QuicV2EndToEndTest {
                                 public void endResponseBody() {
                                 }
 
-                                @Override
-                                public void pushPromise(PushPromise promise) {
-                                }
 
                                 @Override
                                 public void close() {

@@ -21,6 +21,8 @@
 
 package org.bluezoo.gumdrop.http.client;
 
+import java.util.List;
+import java.util.ArrayList;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.nio.ByteBuffer;
@@ -31,7 +33,6 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 import org.bluezoo.gumdrop.http.Header;
-import org.bluezoo.gumdrop.http.Headers;
 import org.bluezoo.gumdrop.http.HttpStatus;
 import org.bluezoo.gumdrop.http.HttpVersion;
 import org.bluezoo.gumdrop.http.h2.H2FrameHandler;
@@ -85,7 +86,7 @@ public class HttpClientProtocolHandlerH2LoopbackTest {
 
     private static ByteBuffer encodeStatus200Headers() throws Exception {
         Encoder encoder = new Encoder(4096, Integer.MAX_VALUE);
-        Headers headers = new Headers();
+        List<Header> headers = new ArrayList<Header>();
         headers.add(new Header(":status", "200"));
         headers.add(new Header("content-type", "text/plain"));
         ByteBuffer buf = ByteBuffer.allocate(128);
@@ -245,9 +246,5 @@ public class HttpClientProtocolHandlerH2LoopbackTest {
             closed = true;
         }
 
-        @Override
-        public void pushPromise(PushPromise promise) {
-            promise.reject();
-        }
     }
 }

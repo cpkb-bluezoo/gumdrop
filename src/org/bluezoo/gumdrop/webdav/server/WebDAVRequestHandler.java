@@ -22,7 +22,6 @@
 package org.bluezoo.gumdrop.webdav.server;
 
 import org.bluezoo.gumdrop.auth.Realm;
-import org.bluezoo.gumdrop.http.Headers;
 import org.bluezoo.gumdrop.http.server.HttpRequestHandler;
 import org.bluezoo.gumdrop.http.server.HttpResponse;
 import org.bluezoo.gumdrop.http.server.HttpStreamHandler;

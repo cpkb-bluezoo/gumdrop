@@ -35,7 +35,7 @@ import java.util.Map;
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.TimerHandle;
-import org.bluezoo.gumdrop.http.Headers;
+import org.bluezoo.gumdrop.http.Header;
 import org.bluezoo.gumdrop.http.HttpVersion;
 import org.bluezoo.gumdrop.http.hpack.Decoder;
 import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
@@ -74,7 +74,7 @@ class MockHttpConnection implements HttpConnectionLike {
     boolean failSendResponseBody;
 
     final List<Integer> statuses = new ArrayList<Integer>();
-    final List<Headers> sentHeaders = new ArrayList<Headers>();
+    final List<List<Header>> sentHeaders = new ArrayList<List<Header>>();
     final List<Boolean> headerEndStreams = new ArrayList<Boolean>();
     final ByteArrayOutputStream body = new ByteArrayOutputStream();
     final List<Boolean> bodyEndStreams = new ArrayList<Boolean>();
@@ -91,7 +91,7 @@ class MockHttpConnection implements HttpConnectionLike {
     final Map<Integer, Runnable> writable = new HashMap<Integer, Runnable>();
     final List<Stream> pushedStreams = new ArrayList<Stream>();
     /** Header sets given to encodeHeaders (the promised request of each push). */
-    final List<Headers> encodedHeaders = new ArrayList<Headers>();
+    final List<List<Header>> encodedHeaders = new ArrayList<List<Header>>();
 
     @Override public String getScheme() { return secure ? "https" : "http"; }
     @Override public HttpVersion getVersion() { return version; }
@@ -105,7 +105,7 @@ class MockHttpConnection implements HttpConnectionLike {
     @Override public HttpStreamHandler getStreamHandler() { return streamHandler; }
 
     @Override
-    public void sendResponseHeaders(int streamId, int statusCode, Headers headers,
+    public void sendResponseHeaders(int streamId, int statusCode, List<Header> headers,
             boolean endStream) {
         if (failSendResponseHeaders) {
             throw new IllegalStateException("mock header failure");
@@ -129,10 +129,10 @@ class MockHttpConnection implements HttpConnectionLike {
     }
 
     /** The trailer sections sent, one per call. */
-    final List<Headers> sentTrailers = new ArrayList<Headers>();
+    final List<List<Header>> sentTrailers = new ArrayList<List<Header>>();
 
     @Override
-    public void sendResponseTrailers(int streamId, Headers trailers) {
+    public void sendResponseTrailers(int streamId, List<Header> trailers) {
         sentTrailers.add(trailers);
     }
 
@@ -175,7 +175,7 @@ class MockHttpConnection implements HttpConnectionLike {
     }
 
     @Override
-    public byte[] encodeHeaders(Headers headers) {
+    public byte[] encodeHeaders(List<Header> headers) {
         if (failEncodeHeaders) {
             throw new IllegalStateException("mock encode failure");
         }
@@ -194,7 +194,7 @@ class MockHttpConnection implements HttpConnectionLike {
 
     @Override
     public Stream createPushedStream(int streamId, String method, String uri,
-            Headers headers) {
+            List<Header> headers) {
         if (!pushedStreamCreated) {
             return null;
         }

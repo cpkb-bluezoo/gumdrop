@@ -21,8 +21,8 @@
 
 package org.bluezoo.gumdrop.websocket.server;
 
+import org.bluezoo.gumdrop.http.HeaderFields;
 import org.bluezoo.gumdrop.http.Header;
-import org.bluezoo.gumdrop.http.Headers;
 import org.bluezoo.gumdrop.http.HttpMethod;
 import org.bluezoo.gumdrop.http.HttpStatus;
 import org.bluezoo.gumdrop.http.server.DefaultHttpRequestHandler;
@@ -64,7 +64,7 @@ import java.util.logging.Logger;
  *         .listener(new Http3Listener().port(8443).tls(tls))
  *         .streamHandler(WebSocketRequestHandler.builder()
  *                 .onConnect(new WebSocketRequestHandler.ConnectionHandlerFactory() {
- *                     public WebSocketEventHandler create(String path, Headers headers) {
+ *                     public WebSocketEventHandler create(String path, List<Header> headers) {
  *                         return new EchoHandler();
  *                     }
  *                 })
@@ -126,7 +126,7 @@ public final class WebSocketRequestHandler implements HttpStreamHandler {
          * @return a handler for this connection, or null to reject (a 403
          *         Forbidden response is sent)
          */
-        WebSocketEventHandler create(String requestPath, Headers upgradeHeaders);
+        WebSocketEventHandler create(String requestPath, List<Header> upgradeHeaders);
 
     }
 
@@ -141,7 +141,7 @@ public final class WebSocketRequestHandler implements HttpStreamHandler {
          * @return the selected subprotocol, or null for no subprotocol
          *         negotiation
          */
-        String select(Headers upgradeHeaders);
+        String select(List<Header> upgradeHeaders);
 
     }
 
@@ -220,7 +220,7 @@ public final class WebSocketRequestHandler implements HttpStreamHandler {
         private static final SubprotocolSelector NO_SUBPROTOCOL =
                 new SubprotocolSelector() {
                     @Override
-                    public String select(Headers upgradeHeaders) {
+                    public String select(List<Header> upgradeHeaders) {
                         return null;
                     }
                 };
@@ -239,7 +239,7 @@ public final class WebSocketRequestHandler implements HttpStreamHandler {
         private final HttpResponse response;
         // The request as the connection factory and the subprotocol
         // selector are given it, assembled from the events.
-        private final Headers headers = new Headers();
+        private final List<Header> headers = new ArrayList<Header>();
 
         UpgradeHandler(HttpResponse response) {
             this.response = response;
@@ -303,19 +303,19 @@ public final class WebSocketRequestHandler implements HttpStreamHandler {
 
         @Override
         public void endHeaders() {
-            boolean extendedConnect = "CONNECT".equals(headers.getValue(":method"))
-                    && "websocket".equalsIgnoreCase(headers.getValue(":protocol"));
+            boolean extendedConnect = "CONNECT".equals(HeaderFields.getValue(headers, ":method"))
+                    && "websocket".equalsIgnoreCase(HeaderFields.getValue(headers, ":protocol"));
             String offeredExtensions;
             String path;
             if (extendedConnect) {
                 // RFC 8441 section 4 / RFC 9220 section 3 -- HTTP/2 and
                 // HTTP/3 forbid the RFC 6455 Upgrade: header exchange as
                 // connection-specific, so both use Extended CONNECT instead.
-                path = headers.getValue(":path");
-                offeredExtensions = headers.getValue("sec-websocket-extensions");
+                path = HeaderFields.getValue(headers, ":path");
+                offeredExtensions = HeaderFields.getValue(headers, "sec-websocket-extensions");
             } else if (WebSocketHandshake.isValidWebSocketUpgrade(headers)) {
-                path = headers.getValue(":path");
-                offeredExtensions = headers.getValue("Sec-WebSocket-Extensions");
+                path = HeaderFields.getValue(headers, ":path");
+                offeredExtensions = HeaderFields.getValue(headers, "Sec-WebSocket-Extensions");
             } else {
                 sendError(HttpStatus.BAD_REQUEST);
                 return;

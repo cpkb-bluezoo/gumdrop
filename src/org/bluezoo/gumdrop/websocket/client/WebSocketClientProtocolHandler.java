@@ -21,6 +21,8 @@
 
 package org.bluezoo.gumdrop.websocket.client;
 
+import org.bluezoo.gumdrop.http.HeaderFields;
+import org.bluezoo.gumdrop.http.Header;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.Collections;
@@ -32,7 +34,6 @@ import java.util.logging.Logger;
 
 import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.http.HttpStatus;
-import org.bluezoo.gumdrop.http.Headers;
 import org.bluezoo.gumdrop.http.client.AltSvcListener;
 import org.bluezoo.gumdrop.http.client.HttpClientHandler;
 import org.bluezoo.gumdrop.http.client.HttpClientProtocolHandler;
@@ -136,7 +137,7 @@ class WebSocketClientProtocolHandler extends HttpClientProtocolHandler {
 
     /** RFC 6455 §4.1 — validates the server's 101 response and switches to WebSocket mode. */
     @Override
-    protected boolean handleProtocolSwitch(HttpStatus status, Headers headers) {
+    protected boolean handleProtocolSwitch(HttpStatus status, List<Header> headers) {
         if (websocketKey == null) {
             return false;
         }
@@ -213,9 +214,9 @@ class WebSocketClientProtocolHandler extends HttpClientProtocolHandler {
      * RFC 6455 §9.1 — processes the server's Sec-WebSocket-Extensions
      * response and activates matching extensions from our offer list.
      */
-    private List<WebSocketExtension> negotiateResponseExtensions(Headers headers) {
+    private List<WebSocketExtension> negotiateResponseExtensions(List<Header> headers) {
         return WebSocketHandshake.reconcileExtensions(
-                headers.getValue("Sec-WebSocket-Extensions"), requestedExtensions);
+                HeaderFields.getValue(headers, "Sec-WebSocket-Extensions"), requestedExtensions);
     }
 
     // ─────────────────────────────────────────────────────────────────────────

@@ -21,12 +21,15 @@
 
 package org.bluezoo.gumdrop.webdav;
 
+import java.util.ArrayList;
+import java.util.List;
+import org.bluezoo.gumdrop.http.HeaderFields;
+import org.bluezoo.gumdrop.http.Header;
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.http.server.HttpResponse;
 import org.bluezoo.gumdrop.http.HttpStatus;
 import org.bluezoo.gumdrop.http.HttpVersion;
-import org.bluezoo.gumdrop.http.Headers;
 import org.bluezoo.gumdrop.testsupport.ResponseRecorder;
 import org.bluezoo.gumdrop.websocket.WebSocketEventHandler;
 
@@ -120,12 +123,12 @@ public class FileHandlerTest {
 
     private RecordingState dispatch(FileHandler h, String method, String path,
             Map<String, String> extraHeaders) throws Exception {
-        Headers req = new Headers();
-        req.add(":method", method);
-        req.add(":path", path);
+        List<Header> req = new ArrayList<Header>();
+        HeaderFields.add(req, ":method", method);
+        HeaderFields.add(req, ":path", path);
         if (extraHeaders != null) {
             for (Map.Entry<String, String> e : extraHeaders.entrySet()) {
-                req.add(e.getKey(), e.getValue());
+                HeaderFields.add(req, e.getKey(), e.getValue());
             }
         }
         RecordingState st = new RecordingState();
@@ -334,12 +337,12 @@ public class FileHandlerTest {
     /** Sends headers + a real body via startRequestBody/requestBodyContent/endRequestBody, deliberately setting no Content-Length. */
     private RecordingState dispatchWithChunkedBody(FileHandler h, String method, String path,
             Map<String, String> extraHeaders, String body) throws Exception {
-        Headers req = new Headers();
-        req.add(":method", method);
-        req.add(":path", path);
+        List<Header> req = new ArrayList<Header>();
+        HeaderFields.add(req, ":method", method);
+        HeaderFields.add(req, ":path", path);
         if (extraHeaders != null) {
             for (Map.Entry<String, String> e : extraHeaders.entrySet()) {
-                req.add(e.getKey(), e.getValue());
+                HeaderFields.add(req, e.getKey(), e.getValue());
             }
         }
         RecordingState st = new RecordingState();
@@ -677,7 +680,8 @@ public class FileHandlerTest {
         }
 
         @Override
-        public void header(String name, String value) {
+        public void header(String name, ByteBuffer rawValue) {
+            String value = java.nio.charset.StandardCharsets.ISO_8859_1.decode(rawValue.duplicate()).toString();
             synchronized (lock) {
                 recorder.header(name, value);
             }

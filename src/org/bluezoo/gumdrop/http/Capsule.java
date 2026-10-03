@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.http;
 
+import java.util.List;
 import java.nio.ByteBuffer;
 
 import org.bluezoo.gumdrop.quic.packet.VarInt;
@@ -105,11 +106,11 @@ public final class Capsule {
      * @param headers the request or response headers
      * @return true if the Capsule Protocol is enabled
      */
-    public static boolean capsuleProtocolEnabled(Headers headers) {
+    public static boolean capsuleProtocolEnabled(List<Header> headers) {
         if (headers == null) {
             return false;
         }
-        String raw = headers.getValue(PROTOCOL_HEADER);
+        String raw = HeaderFields.getValue(headers, PROTOCOL_HEADER);
         if (raw == null) {
             return false;
         }
@@ -119,7 +120,7 @@ public final class Capsule {
 
     /**
      * Returns a {@code Capsule-Protocol: ?1} header value suitable for
-     * {@link Headers#add(String, String)}.
+     * {@link HeaderFields#add(java.util.List, String, String)}.
      *
      * @return {@code ?1}
      */

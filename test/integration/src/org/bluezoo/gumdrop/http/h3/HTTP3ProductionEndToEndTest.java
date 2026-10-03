@@ -21,6 +21,10 @@
 
 package org.bluezoo.gumdrop.http.h3;
 
+import java.util.ArrayList;
+import java.util.List;
+import org.bluezoo.gumdrop.http.HeaderFields;
+import org.bluezoo.gumdrop.http.Header;
 import org.bluezoo.gumdrop.IntegrationLoop;
 import org.bluezoo.gumdrop.testsupport.CollectingRequestHandler;
 import java.io.IOException;
@@ -55,9 +59,7 @@ import org.bluezoo.gumdrop.http.server.HttpRequestHandler;
 import org.bluezoo.gumdrop.http.server.HttpResponse;
 import org.bluezoo.gumdrop.http.server.HttpStreamHandler;
 import org.bluezoo.gumdrop.http.HttpStatus;
-import org.bluezoo.gumdrop.http.Headers;
 import org.bluezoo.gumdrop.http.client.HttpResponseHandler;
-import org.bluezoo.gumdrop.http.client.PushPromise;
 import org.bluezoo.gumdrop.http.qpack.Decoder;
 import org.bluezoo.gumdrop.quic.QuicConnection;
 import org.bluezoo.gumdrop.quic.QuicConnectionCloseException;
@@ -167,7 +169,7 @@ public class HTTP3ProductionEndToEndTest {
                 public HttpRequestHandler openStream(HttpResponse state) {
                     return new CollectingRequestHandler(state) {
                         @Override
-                        public void headers(HttpResponse state, Headers headers) {
+                        public void headers(HttpResponse state, List<Header> headers) {
                             state.status(200);
                             state.header("content-type", "text/plain");
                             state.bodyContent(
@@ -222,11 +224,11 @@ public class HTTP3ProductionEndToEndTest {
                         public void connectionAccepted(QuicConnection connection) {
                             Http3ClientHandler h3 = new Http3ClientHandler(connection);
 
-                            Headers requestHeaders = new Headers();
-                            requestHeaders.add(":method", "GET");
-                            requestHeaders.add(":scheme", "https");
-                            requestHeaders.add(":authority", SERVER_NAME);
-                            requestHeaders.add(":path", "/");
+                            List<Header> requestHeaders = new ArrayList<Header>();
+                            HeaderFields.add(requestHeaders, ":method", "GET");
+                            HeaderFields.add(requestHeaders, ":scheme", "https");
+                            HeaderFields.add(requestHeaders, ":authority", SERVER_NAME);
+                            HeaderFields.add(requestHeaders, ":path", "/");
 
                             h3.sendRequest(requestHeaders, new CollectingResponseHandler() {
                                 private final StringBuilder buf = new StringBuilder();
@@ -261,9 +263,6 @@ public class HTTP3ProductionEndToEndTest {
                                 public void endResponseBody() {
                                 }
 
-                                @Override
-                                public void pushPromise(PushPromise promise) {
-                                }
 
                                 @Override
                                 public void close() {
@@ -337,7 +336,7 @@ public class HTTP3ProductionEndToEndTest {
                         }
 
                         @Override
-                        public void headers(HttpResponse state, Headers headers) {
+                        public void headers(HttpResponse state, List<Header> headers) {
                             state.status(200);
                             // Flush HEADERS without FIN so the stream
                             // remains registered for HTTP Datagram demux.
@@ -397,11 +396,11 @@ public class HTTP3ProductionEndToEndTest {
                             h3.whenConnectProtocolKnown(new Runnable() {
                                 @Override
                                 public void run() {
-                                    Headers requestHeaders = new Headers();
-                                    requestHeaders.add(":method", "GET");
-                                    requestHeaders.add(":scheme", "https");
-                                    requestHeaders.add(":authority", SERVER_NAME);
-                                    requestHeaders.add(":path", "/dgram");
+                                    List<Header> requestHeaders = new ArrayList<Header>();
+                                    HeaderFields.add(requestHeaders, ":method", "GET");
+                                    HeaderFields.add(requestHeaders, ":scheme", "https");
+                                    HeaderFields.add(requestHeaders, ":authority", SERVER_NAME);
+                                    HeaderFields.add(requestHeaders, ":path", "/dgram");
                                     long streamId = h3.sendRequest(requestHeaders,
                                             new CollectingResponseHandler() {
                                                 @Override
@@ -446,9 +445,6 @@ public class HTTP3ProductionEndToEndTest {
                                                 public void endResponseBody() {
                                                 }
 
-                                                @Override
-                                                public void pushPromise(PushPromise promise) {
-                                                }
 
                                                 @Override
                                                 public void close() {
@@ -533,8 +529,8 @@ public class HTTP3ProductionEndToEndTest {
                 public HttpRequestHandler openStream(HttpResponse state) {
                     return new CollectingRequestHandler(state) {
                         @Override
-                        public void headers(HttpResponse state, Headers headers) {
-                            if ("/too-big".equals(headers.getPath())) {
+                        public void headers(HttpResponse state, List<Header> headers) {
+                            if ("/too-big".equals(HeaderFields.getValue(headers, ":path"))) {
                                 sawTooBig.set(true);
                             }
                             state.status(200);
@@ -601,12 +597,12 @@ public class HTTP3ProductionEndToEndTest {
                                     for (int i = 0; i < (int) H3FrameHandler.DEFAULT_MAX_FIELD_SECTION_SIZE; i++) {
                                         pad.append('x');
                                     }
-                                    Headers oversized = new Headers();
-                                    oversized.add(":method", "GET");
-                                    oversized.add(":scheme", "https");
-                                    oversized.add(":authority", SERVER_NAME);
-                                    oversized.add(":path", "/too-big");
-                                    oversized.add("x-pad", pad.toString());
+                                    List<Header> oversized = new ArrayList<Header>();
+                                    HeaderFields.add(oversized, ":method", "GET");
+                                    HeaderFields.add(oversized, ":scheme", "https");
+                                    HeaderFields.add(oversized, ":authority", SERVER_NAME);
+                                    HeaderFields.add(oversized, ":path", "/too-big");
+                                    HeaderFields.add(oversized, "x-pad", pad.toString());
                                     h3.sendRequest(oversized, new CollectingResponseHandler() {
                                         @Override
                                         public void ok(HttpStatus response) {
@@ -632,9 +628,6 @@ public class HTTP3ProductionEndToEndTest {
                                         public void endResponseBody() {
                                         }
 
-                                        @Override
-                                        public void pushPromise(PushPromise promise) {
-                                        }
 
                                         @Override
                                         public void close() {
@@ -660,11 +653,11 @@ public class HTTP3ProductionEndToEndTest {
             h3Ref.get().execute(new Runnable() {
                 @Override
                 public void run() {
-                    Headers okHeaders = new Headers();
-                    okHeaders.add(":method", "GET");
-                    okHeaders.add(":scheme", "https");
-                    okHeaders.add(":authority", SERVER_NAME);
-                    okHeaders.add(":path", "/");
+                    List<Header> okHeaders = new ArrayList<Header>();
+                    HeaderFields.add(okHeaders, ":method", "GET");
+                    HeaderFields.add(okHeaders, ":scheme", "https");
+                    HeaderFields.add(okHeaders, ":authority", SERVER_NAME);
+                    HeaderFields.add(okHeaders, ":path", "/");
                     h3Ref.get().sendRequest(okHeaders, new CollectingResponseHandler() {
                         @Override
                         public void ok(HttpStatus response) {
@@ -694,9 +687,6 @@ public class HTTP3ProductionEndToEndTest {
                         public void endResponseBody() {
                         }
 
-                        @Override
-                        public void pushPromise(PushPromise promise) {
-                        }
 
                         @Override
                         public void close() {
@@ -770,7 +760,7 @@ public class HTTP3ProductionEndToEndTest {
                 public HttpRequestHandler openStream(HttpResponse state) {
                     return new CollectingRequestHandler(state) {
                         @Override
-                        public void headers(HttpResponse state, Headers headers) {
+                        public void headers(HttpResponse state, List<Header> headers) {
                             state.status(200);
                             state.endMessage();
                         }
@@ -851,13 +841,13 @@ public class HTTP3ProductionEndToEndTest {
 
     private static void sendGetAndAwait(Http3ClientHandler h3, String path,
             String extraHeaderName, String extraHeaderValue) throws Exception {
-        Headers requestHeaders = new Headers();
-        requestHeaders.add(":method", "GET");
-        requestHeaders.add(":scheme", "https");
-        requestHeaders.add(":authority", SERVER_NAME);
-        requestHeaders.add(":path", path);
+        List<Header> requestHeaders = new ArrayList<Header>();
+        HeaderFields.add(requestHeaders, ":method", "GET");
+        HeaderFields.add(requestHeaders, ":scheme", "https");
+        HeaderFields.add(requestHeaders, ":authority", SERVER_NAME);
+        HeaderFields.add(requestHeaders, ":path", path);
         if (extraHeaderName != null) {
-            requestHeaders.add(extraHeaderName, extraHeaderValue);
+            HeaderFields.add(requestHeaders, extraHeaderName, extraHeaderValue);
         }
 
         final CountDownLatch latch = new CountDownLatch(1);
@@ -1160,7 +1150,7 @@ public class HTTP3ProductionEndToEndTest {
                 public HttpRequestHandler openStream(HttpResponse state) {
                     return new CollectingRequestHandler(state) {
                         @Override
-                        public void headers(HttpResponse state, Headers headers) {
+                        public void headers(HttpResponse state, List<Header> headers) {
                             state.status(200);
                             state.endMessage();
                         }
@@ -2133,7 +2123,7 @@ public class HTTP3ProductionEndToEndTest {
                 public HttpRequestHandler openStream(HttpResponse state) {
                     return new CollectingRequestHandler(state) {
                         @Override
-                        public void headers(HttpResponse state, Headers headers) {
+                        public void headers(HttpResponse state, List<Header> headers) {
                             state.status(200);
                             state.header("content-type", "text/plain");
                             state.bodyContent(
@@ -2186,11 +2176,11 @@ public class HTTP3ProductionEndToEndTest {
                         @Override
                         public void connectionAccepted(QuicConnection connection) {
                             Http3ClientHandler h3 = new Http3ClientHandler(connection);
-                            Headers requestHeaders = new Headers();
-                            requestHeaders.add(":method", "GET");
-                            requestHeaders.add(":scheme", "https");
-                            requestHeaders.add(":authority", SERVER_NAME);
-                            requestHeaders.add(":path", "/warmup");
+                            List<Header> requestHeaders = new ArrayList<Header>();
+                            HeaderFields.add(requestHeaders, ":method", "GET");
+                            HeaderFields.add(requestHeaders, ":scheme", "https");
+                            HeaderFields.add(requestHeaders, ":authority", SERVER_NAME);
+                            HeaderFields.add(requestHeaders, ":path", "/warmup");
                             h3.sendRequest(requestHeaders,
                                     new LatchResponseHandler(warmupLatch, warmupFailure), true);
                         }
@@ -2341,9 +2331,9 @@ public class HTTP3ProductionEndToEndTest {
                 public HttpRequestHandler openStream(HttpResponse state) {
                     return new CollectingRequestHandler(state) {
                         @Override
-                        public void headers(HttpResponse state, Headers headers) {
-                            if ("CONNECT".equals(headers.getValue(":method"))
-                                    && "websocket".equalsIgnoreCase(headers.getValue(":protocol"))) {
+                        public void headers(HttpResponse state, List<Header> headers) {
+                            if ("CONNECT".equals(HeaderFields.getValue(headers, ":method"))
+                                    && "websocket".equalsIgnoreCase(HeaderFields.getValue(headers, ":protocol"))) {
                                 state.upgradeToWebSocket(null, new org.bluezoo.gumdrop.websocket.DefaultWebSocketEventHandler() {
                                     @Override
                                     public void opened(org.bluezoo.gumdrop.websocket.WebSocketSession session) {
@@ -2506,9 +2496,6 @@ public class HTTP3ProductionEndToEndTest {
         public void endResponseBody() {
         }
 
-        @Override
-        public void pushPromise(PushPromise promise) {
-        }
 
         @Override
         public void close() {

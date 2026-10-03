@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.http.h3;
 
+import org.bluezoo.gumdrop.http.HeaderFields;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.net.ProtocolException;
@@ -61,7 +62,6 @@ import org.bluezoo.gumdrop.http.Header;
 import org.bluezoo.gumdrop.http.FieldSectionAdapter;
 import org.bluezoo.gumdrop.http.HeaderCollector;
 import org.bluezoo.gumdrop.http.HttpMessageRecorder;
-import org.bluezoo.gumdrop.http.Headers;
 import org.bluezoo.gumdrop.http.HttpMethod;
 import org.bluezoo.gumdrop.http.Capsule;
 import org.bluezoo.gumdrop.http.CapsuleParser;
@@ -142,7 +142,7 @@ class H3Stream implements ProtocolHandler, H3FrameHandler, HttpResponse {
     private State state;
     private HttpRequestHandler handler;
     private boolean applicationHandlerOpened;
-    private Headers requestHeaders;
+    private List<Header> requestHeaders;
     private String method;
     private String requestTarget;
     private String protocol;
@@ -376,7 +376,7 @@ class H3Stream implements ProtocolHandler, H3FrameHandler, HttpResponse {
             }
             return;
         }
-        Headers headers = collected.headers();
+        List<Header> headers = collected.headers();
         if (H3Writer.fieldSectionSize(headers) > localMaxFieldSectionSize()) {
             // RFC 9114 section 4.2.2 / 10.5.1: refuse oversized field
             // sections with a stream error rather than hanging the peer.
@@ -396,19 +396,19 @@ class H3Stream implements ProtocolHandler, H3FrameHandler, HttpResponse {
         }
     }
 
-    private void onHeaders(Headers headers) {
+    private void onHeaders(List<Header> headers) {
         if (state == State.IDLE) {
             state = State.OPEN;
             requestHeaders = headers;
-            method = headers.getValue(":method");
-            requestTarget = headers.getValue(":path");
-            protocol = headers.getValue(":protocol");
+            method = HeaderFields.getValue(headers, ":method");
+            requestTarget = HeaderFields.getValue(headers, ":path");
+            protocol = HeaderFields.getValue(headers, ":protocol");
 
             // RFC 9114 section 4.1.2 / 4.3.1: validate mandatory
             // pseudo-headers. CONNECT omits :scheme and :path.
             if (method == null
                     || (!"CONNECT".equals(method)
-                        && (headers.getValue(":scheme") == null
+                        && (HeaderFields.getValue(headers, ":scheme") == null
                             || requestTarget == null))) {
                 LOGGER.warning(MessageFormat.format(
                         L10N.getString("warn.malformed_request_missing_pseudo_headers"), connection.getRemoteAddress()));
@@ -441,7 +441,7 @@ class H3Stream implements ProtocolHandler, H3FrameHandler, HttpResponse {
 
             HttpAuthenticationProvider authProvider = connection.getAuthenticationProvider();
             if (authProvider != null) {
-                String authHeader = headers.getValue("authorization");
+                String authHeader = HeaderFields.getValue(headers, "authorization");
                 HttpAuthenticationProvider.AuthenticationResult result =
                         authProvider.authenticate(authHeader, method, requestTarget);
                 if (result.success) {
@@ -586,8 +586,8 @@ class H3Stream implements ProtocolHandler, H3FrameHandler, HttpResponse {
      *
      * @return false if the field was present but malformed (stream aborted)
      */
-    private boolean captureContentLength(Headers headers) {
-        String value = headers.getCombinedValue("content-length");
+    private boolean captureContentLength(List<Header> headers) {
+        String value = HeaderFields.getCombinedValue(headers, "content-length");
         if (value == null) {
             return true;
         }
@@ -751,7 +751,13 @@ class H3Stream implements ProtocolHandler, H3FrameHandler, HttpResponse {
     }
 
     @Override
-    public void header(String name, String value) {
+    public void header(String name, ByteBuffer value) {
+        byte[] octets = new byte[value.remaining()];
+        value.duplicate().get(octets);
+        addField(name, new String(octets, java.nio.charset.StandardCharsets.ISO_8859_1));
+    }
+
+    private void addField(String name, String value) {
         HttpUtils.requireAsciiFieldValue(name, value);
         if (pushOpen) {
             return; // push is declined: the promised request is discarded
@@ -1306,7 +1312,7 @@ class H3Stream implements ProtocolHandler, H3FrameHandler, HttpResponse {
         TelemetryConfig telemetryConfig = connection.getTelemetryConfig();
         Trace trace = connection.getTrace();
 
-        String traceparent = requestHeaders != null ? requestHeaders.getValue("traceparent") : null;
+        String traceparent = requestHeaders != null ? HeaderFields.getValue(requestHeaders, "traceparent") : null;
 
         String methodName = method != null ? method : "UNKNOWN";
         String spanName = MessageFormat.format(
@@ -1334,11 +1340,11 @@ class H3Stream implements ProtocolHandler, H3FrameHandler, HttpResponse {
             span.addAttribute("net.transport", "quic");
             span.addAttribute("net.peer.ip", connection.getRemoteAddress().toString());
 
-            String host = requestHeaders != null ? requestHeaders.getValue(":authority") : null;
+            String host = requestHeaders != null ? HeaderFields.getValue(requestHeaders, ":authority") : null;
             if (host != null) {
                 span.addAttribute("http.host", host);
             }
-            String userAgent = requestHeaders != null ? requestHeaders.getValue("user-agent") : null;
+            String userAgent = requestHeaders != null ? HeaderFields.getValue(requestHeaders, "user-agent") : null;
             if (userAgent != null) {
                 span.addAttribute("http.user_agent", userAgent);
             }
@@ -1447,7 +1453,7 @@ class H3Stream implements ProtocolHandler, H3FrameHandler, HttpResponse {
 
         if (shouldCompressResponse(fin)) {
             String acceptEncoding = requestHeaders != null
-                    ? requestHeaders.getCombinedValue("Accept-Encoding") : null;
+                    ? HeaderFields.getCombinedValue(requestHeaders, "Accept-Encoding") : null;
             ContentEncoding.Coding coding =
                     ContentEncoding.selectFromAcceptEncoding(acceptEncoding);
             if (coding != null) {
@@ -1577,11 +1583,11 @@ class H3Stream implements ProtocolHandler, H3FrameHandler, HttpResponse {
         return connection.getCompressResponses();
     }
 
-    private boolean prepareRequestContentDecoding(Headers headers) {
+    private boolean prepareRequestContentDecoding(List<Header> headers) {
         if (!decodeRequestContentCoding || headers == null) {
             return true;
         }
-        String encoding = headers.getCombinedValue("Content-Encoding");
+        String encoding = HeaderFields.getCombinedValue(headers, "Content-Encoding");
         if (encoding == null || encoding.isEmpty()) {
             return true;
         }
@@ -1591,7 +1597,7 @@ class H3Stream implements ProtocolHandler, H3FrameHandler, HttpResponse {
             return false;
         }
         requestInboundCoding = coding;
-        headers.removeAll("Content-Encoding");
+        HeaderFields.removeAll(headers, "Content-Encoding");
         return true;
     }
 

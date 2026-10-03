@@ -29,9 +29,7 @@ import java.nio.ByteBuffer;
 
 import org.bluezoo.gumdrop.dns.client.DnsClientTransportHandler;
 import org.bluezoo.gumdrop.http.HttpStatus;
-import org.bluezoo.gumdrop.http.Headers;
 import org.bluezoo.gumdrop.http.client.HttpResponseHandler;
-import org.bluezoo.gumdrop.http.client.PushPromise;
 import org.bluezoo.gumdrop.testsupport.MessageEvents;
 import org.junit.Test;
 
@@ -59,44 +57,6 @@ public class DoHResponseHandlerTest {
         @Override
         public void onError(Exception cause) {
             error = cause;
-        }
-    }
-
-    private static class Promise implements PushPromise {
-        boolean rejected;
-
-        @Override
-        public String getMethod() {
-            return "GET";
-        }
-
-        @Override
-        public String getPath() {
-            return "/";
-        }
-
-        @Override
-        public String getAuthority() {
-            return "h";
-        }
-
-        @Override
-        public String getScheme() {
-            return "https";
-        }
-
-        @Override
-        public Headers getHeaders() {
-            return null;
-        }
-
-        @Override
-        public void accept(HttpResponseHandler handler) {
-        }
-
-        @Override
-        public void reject() {
-            rejected = true;
         }
     }
 
@@ -164,9 +124,7 @@ public class DoHResponseHandlerTest {
     public void testPushPromiseRejected() throws Exception {
         Rec rec = new Rec();
         HttpResponseHandler h = make(rec);
-        Promise p = new Promise();
-        h.pushPromise(p);
-        assertTrue(p.rejected);
+        assertNull(h.pushPromise());
     }
 
     @Test

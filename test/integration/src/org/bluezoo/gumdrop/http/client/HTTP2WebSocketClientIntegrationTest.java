@@ -21,6 +21,9 @@
 
 package org.bluezoo.gumdrop.http.client;
 
+import java.util.List;
+import org.bluezoo.gumdrop.http.HeaderFields;
+import org.bluezoo.gumdrop.http.Header;
 import org.bluezoo.gumdrop.http.HttpMethod;
 import org.bluezoo.gumdrop.testsupport.CollectingRequestHandler;
 import java.nio.file.Path;
@@ -34,7 +37,6 @@ import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.ListenerBindCheck;
 import org.bluezoo.gumdrop.GumdropConfig;
 import org.bluezoo.gumdrop.TestCertificateManager;
-import org.bluezoo.gumdrop.http.Headers;
 import org.bluezoo.gumdrop.http.server.Http2Listener;
 import org.bluezoo.gumdrop.http.server.HttpRequestHandler;
 import org.bluezoo.gumdrop.http.server.HttpStreamHandler;
@@ -343,9 +345,9 @@ public class HTTP2WebSocketClientIntegrationTest {
         public HttpRequestHandler openStream(HttpResponse state) {
             return new CollectingRequestHandler(state) {
                 @Override
-                public void headers(HttpResponse state, Headers headers) {
-                    if ("CONNECT".equals(headers.getValue(":method"))
-                            && "websocket".equalsIgnoreCase(headers.getValue(":protocol"))) {
+                public void headers(HttpResponse state, List<Header> headers) {
+                    if ("CONNECT".equals(HeaderFields.getValue(headers, ":method"))
+                            && "websocket".equalsIgnoreCase(HeaderFields.getValue(headers, ":protocol"))) {
                         state.upgradeToWebSocket(null, new DefaultWebSocketEventHandler() {
                             @Override
                             public void textMessageReceived(WebSocketSession session, String message) {

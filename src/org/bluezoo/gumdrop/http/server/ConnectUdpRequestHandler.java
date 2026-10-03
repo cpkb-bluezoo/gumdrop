@@ -22,9 +22,11 @@
 package org.bluezoo.gumdrop.http.server;
 
 
+import org.bluezoo.gumdrop.http.HeaderFields;
+import java.util.ArrayList;
+import org.bluezoo.gumdrop.http.Header;
 import org.bluezoo.gumdrop.http.Capsule;
 import org.bluezoo.gumdrop.http.ConnectUdpTarget;
-import org.bluezoo.gumdrop.http.Headers;
 import org.bluezoo.gumdrop.http.HttpMethod;
 
 import java.net.InetAddress;
@@ -142,10 +144,10 @@ public class ConnectUdpRequestHandler extends DefaultHttpRequestHandler {
     }
 
     /** The request's Capsule-Protocol field, as a field for {@link Capsule#capsuleProtocolEnabled}. */
-    private Headers capsuleHeaders() {
-        Headers headers = new Headers();
+    private List<Header> capsuleHeaders() {
+        List<Header> headers = new ArrayList<Header>();
         if (capsuleProtocol != null) {
-            headers.add("capsule-protocol", capsuleProtocol);
+            HeaderFields.add(headers, "capsule-protocol", capsuleProtocol);
         }
         return headers;
     }

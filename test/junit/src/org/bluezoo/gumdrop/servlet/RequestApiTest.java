@@ -67,7 +67,6 @@ import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.auth.Realm;
 import org.bluezoo.gumdrop.auth.SaslMechanism;
-import org.bluezoo.gumdrop.http.Headers;
 import org.bluezoo.gumdrop.http.HttpVersion;
 import org.bluezoo.gumdrop.http.server.HttpResponse;
 import org.bluezoo.gumdrop.websocket.WebSocketEventHandler;
@@ -123,7 +122,8 @@ public class RequestApiTest {
                 status = code;
             }
         }
-        @Override public void header(String name, String value) {
+        @Override public void header(String name, ByteBuffer rawValue) {
+            String value = java.nio.charset.StandardCharsets.ISO_8859_1.decode(rawValue.duplicate()).toString();
             sentFields.add(new String[] { name, value });
         }
         @Override public void endHeaders() { }
@@ -212,7 +212,7 @@ public class RequestApiTest {
     private static Request requestWithBody(Context ctx, StubState state, String method, String target,
             byte[] body, String... headerPairs) throws Exception {
         ServletHandler handler = new ServletHandler(container, state, 8192);
-        Headers h = new Headers();
+        ServletHeaders h = new ServletHeaders();
         h.add(":method", method);
         h.add(":path", target);
         for (int i = 0; i + 1 < headerPairs.length; i += 2) {

@@ -24,7 +24,7 @@
  * authentication, and metrics. Application facades {@link org.bluezoo.gumdrop.http.HttpServer}
  * and {@link org.bluezoo.gumdrop.http.HttpClient} live in the protocol root package.
  *
- * <p>Shared codec types ({@link org.bluezoo.gumdrop.http.Headers},
+ * <p>Shared codec types ({@link org.bluezoo.gumdrop.http.Header},
  * {@link org.bluezoo.gumdrop.http.HttpStatus}, {@link org.bluezoo.gumdrop.http.HttpVersion})
  * remain in {@link org.bluezoo.gumdrop.http}.
  */

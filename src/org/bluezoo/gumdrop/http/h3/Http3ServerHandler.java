@@ -41,7 +41,6 @@ import org.bluezoo.gumdrop.http.server.HttpRequestHandler;
 import org.bluezoo.gumdrop.http.server.HttpStreamHandler;
 import org.bluezoo.gumdrop.http.server.HttpServerMetrics;
 import org.bluezoo.gumdrop.http.Header;
-import org.bluezoo.gumdrop.http.Headers;
 import org.bluezoo.gumdrop.http.PriorityParams;
 import org.bluezoo.gumdrop.http.Rfc9218NonIncrementalSlots;
 import org.bluezoo.gumdrop.http.qpack.Decoder;
@@ -620,7 +619,7 @@ public final class Http3ServerHandler implements StreamAcceptHandler, H3ControlS
      * @deprecated routing belongs in {@link org.bluezoo.gumdrop.http.server.HttpRequestHandler}.
      */
     @Deprecated
-    HttpRequestHandler createHandler(H3Stream stream, Headers headers) {
+    HttpRequestHandler createHandler(H3Stream stream, List<Header> headers) {
         stream.openApplicationHandler();
         return stream.getHandler();
     }

@@ -21,10 +21,11 @@
 
 package org.bluezoo.gumdrop.http.server;
 
+import java.util.List;
+import org.bluezoo.gumdrop.http.Header;
 import java.net.SocketAddress;
 import java.nio.ByteBuffer;
 
-import org.bluezoo.gumdrop.http.Headers;
 import org.bluezoo.gumdrop.http.HttpVersion;
 import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.SecurityInfo;
@@ -50,7 +51,7 @@ public interface HttpConnectionLike {
     SecurityInfo getSecurityInfoForStream();
     HttpStreamHandler getStreamHandler();
 
-    void sendResponseHeaders(int streamId, int statusCode, Headers headers, boolean endStream);
+    void sendResponseHeaders(int streamId, int statusCode, List<Header> headers, boolean endStream);
     void sendResponseBody(int streamId, ByteBuffer buf, boolean endStream);
 
     /**
@@ -58,7 +59,7 @@ public interface HttpConnectionLike {
      * ending the stream, after any data still queued for it. HTTP/1.x
      * trailers are part of the chunked body and are written by the stream.
      */
-    void sendResponseTrailers(int streamId, Headers trailers);
+    void sendResponseTrailers(int streamId, List<Header> trailers);
     void send(ByteBuffer buf);
     void sendRstStream(int streamId, int errorCode);
     void sendGoaway(int errorCode);
@@ -74,9 +75,9 @@ public interface HttpConnectionLike {
     boolean isEnablePush();
     Stream newStream(HttpConnectionLike connection, int streamId);
     int getNextServerStreamId();
-    byte[] encodeHeaders(Headers headers);
+    byte[] encodeHeaders(List<Header> headers);
     void sendPushPromise(int streamId, int promisedStreamId, ByteBuffer headerBlock, boolean endHeaders);
-    Stream createPushedStream(int streamId, String method, String uri, Headers headers);
+    Stream createPushedStream(int streamId, String method, String uri, List<Header> headers);
     SelectorLoop getSelectorLoop();
     TimerHandle scheduleTimer(long delayMs, Runnable callback);
     int getMaxHeaderListSize();
@@ -166,6 +167,6 @@ public interface HttpConnectionLike {
      * @param streamId the HTTP/2 stream identifier
      * @param headers the decoded request headers
      */
-    default void applyRfc9218Priority(int streamId, Headers headers) {
+    default void applyRfc9218Priority(int streamId, List<Header> headers) {
     }
 }

@@ -22,6 +22,7 @@
 
 package org.bluezoo.gumdrop.http.server;
 
+import org.bluezoo.gumdrop.http.HeaderFields;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
@@ -40,7 +41,6 @@ import java.util.List;
 
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.http.Header;
-import org.bluezoo.gumdrop.http.Headers;
 import org.bluezoo.gumdrop.http.HttpMethod;
 import org.bluezoo.gumdrop.http.HttpVersion;
 import org.bluezoo.gumdrop.mime.ContentType;
@@ -66,7 +66,7 @@ public class StreamResponseApiTest {
         final List<String> log = new ArrayList<String>();
 
         @Override
-        public void headers(HttpResponse state, Headers headers) {
+        public void headers(HttpResponse state, List<Header> headers) {
             log.add("headers");
         }
 
@@ -149,16 +149,16 @@ public class StreamResponseApiTest {
         e.stream.endHeaders();
         assertEquals(Integer.valueOf(103), e.conn.statuses.get(0));
         assertFalse(e.conn.headerEndStreams.get(0).booleanValue());
-        assertEquals("</style.css>; rel=preload", e.conn.sentHeaders.get(0).getValue("link"));
+        assertEquals("</style.css>; rel=preload", HeaderFields.getValue(e.conn.sentHeaders.get(0), "link"));
         // the final response still works after the interim one
         e.stream.status(200);
         e.stream.header("x-final", "yes");
         e.stream.bodyContent(ByteBuffer.wrap("ok".getBytes(StandardCharsets.ISO_8859_1)));
         e.stream.endMessage();
         assertEquals(Integer.valueOf(200), e.conn.statuses.get(1));
-        assertEquals("yes", e.conn.sentHeaders.get(1).getValue("x-final"));
+        assertEquals("yes", HeaderFields.getValue(e.conn.sentHeaders.get(1), "x-final"));
         assertNull("interim fields must not leak into the final response",
-                e.conn.sentHeaders.get(1).getValue("link"));
+                HeaderFields.getValue(e.conn.sentHeaders.get(1), "link"));
         assertEquals("ok", e.conn.bodyString());
         assertTrue(e.conn.bodyEndStreams.get(e.conn.bodyEndStreams.size() - 1).booleanValue());
     }
@@ -221,10 +221,10 @@ public class StreamResponseApiTest {
         e.stream.dateHeader("last-modified", Instant.ofEpochSecond(0L));
         e.stream.contentType(new ContentType("text", "plain", null));
         e.stream.endHeaders();
-        Headers sent = e.conn.sentHeaders.get(0);
-        assertEquals("1234", sent.getValue("content-length"));
-        assertEquals("Thu, 01 Jan 1970 00:00:00 GMT", sent.getValue("last-modified"));
-        String type = sent.getValue("content-type");
+        List<Header> sent = e.conn.sentHeaders.get(0);
+        assertEquals("1234", HeaderFields.getValue(sent, "content-length"));
+        assertEquals("Thu, 01 Jan 1970 00:00:00 GMT", HeaderFields.getValue(sent, "last-modified"));
+        String type = HeaderFields.getValue(sent, "content-type");
         assertNotNull(type);
         assertTrue(type, type.startsWith("text/plain"));
     }
@@ -238,7 +238,7 @@ public class StreamResponseApiTest {
         assertEquals(1, e.conn.statuses.size());
         assertFalse(e.conn.headerEndStreams.get(0).booleanValue());
         assertTrue(e.conn.bodyEndStreams.isEmpty());
-        assertEquals("text/event-stream", e.conn.sentHeaders.get(0).getValue("content-type"));
+        assertEquals("text/event-stream", HeaderFields.getValue(e.conn.sentHeaders.get(0), "content-type"));
         // a second endHeaders is a no-op
         e.stream.endHeaders();
         assertEquals(1, e.conn.statuses.size());
@@ -255,7 +255,7 @@ public class StreamResponseApiTest {
         assertTrue("nothing is sent until the section is ended", e.conn.statuses.isEmpty());
         e.stream.bodyContent(ByteBuffer.wrap(new byte[] {1}));
         assertEquals(Integer.valueOf(201), e.conn.statuses.get(0));
-        assertEquals("/new", e.conn.sentHeaders.get(0).getValue("location"));
+        assertEquals("/new", HeaderFields.getValue(e.conn.sentHeaders.get(0), "location"));
         assertFalse(e.conn.headerEndStreams.get(0).booleanValue());
     }
 
@@ -280,8 +280,8 @@ public class StreamResponseApiTest {
         e.stream.endMessage();
         assertEquals("the response header section only", 1, e.conn.sentHeaders.size());
         assertEquals("one trailer section", 1, e.conn.sentTrailers.size());
-        assertEquals("42", e.conn.sentTrailers.get(0).getValue("x-checksum"));
-        assertNull("no pseudo-header in a trailer section", e.conn.sentTrailers.get(0).getValue(":status"));
+        assertEquals("42", HeaderFields.getValue(e.conn.sentTrailers.get(0), "x-checksum"));
+        assertNull("no pseudo-header in a trailer section", HeaderFields.getValue(e.conn.sentTrailers.get(0), ":status"));
         assertEquals("abc", e.conn.bodyString());
     }
 
@@ -326,7 +326,7 @@ public class StreamResponseApiTest {
             assertTrue(expected.getMessage(), expected.getMessage().contains("x-custom"));
         }
         e.stream.endMessage();
-        assertNull(e.conn.sentHeaders.get(0).getValue("x-custom"));
+        assertNull(HeaderFields.getValue(e.conn.sentHeaders.get(0), "x-custom"));
     }
 
     @Test
@@ -372,7 +372,7 @@ public class StreamResponseApiTest {
         e.stream.header("x-a", "b");
         e.stream.endMessage();
         assertEquals(Integer.valueOf(200), e.conn.statuses.get(0));
-        assertEquals("b", e.conn.sentHeaders.get(0).getValue("x-a"));
+        assertEquals("b", HeaderFields.getValue(e.conn.sentHeaders.get(0), "x-a"));
     }
 
     @Test
@@ -474,12 +474,12 @@ public class StreamResponseApiTest {
         Env e = h2();
         assertTrue(push(e));
         assertEquals(1, e.conn.encodedHeaders.size());
-        Headers promised = e.conn.encodedHeaders.get(0);
-        assertEquals("GET", promised.getValue(":method"));
-        assertEquals("https", promised.getValue(":scheme"));
-        assertEquals("h.test", promised.getValue(":authority"));
-        assertEquals("/pushed", promised.getValue(":path"));
-        assertEquals("text/css", promised.getValue("accept"));
+        List<Header> promised = e.conn.encodedHeaders.get(0);
+        assertEquals("GET", HeaderFields.getValue(promised, ":method"));
+        assertEquals("https", HeaderFields.getValue(promised, ":scheme"));
+        assertEquals("h.test", HeaderFields.getValue(promised, ":authority"));
+        assertEquals("/pushed", HeaderFields.getValue(promised, ":path"));
+        assertEquals("text/css", HeaderFields.getValue(promised, "accept"));
     }
 
     @Test
@@ -641,14 +641,14 @@ public class StreamResponseApiTest {
     public void testSpanIsStartedAndEndedWithOkStatus() {
         Env e = traced(null, false, "200");
         assertNotNull(e.conn.trace);
-        String tp = e.conn.sentHeaders.get(0).getValue("traceparent");
+        String tp = HeaderFields.getValue(e.conn.sentHeaders.get(0), "traceparent");
         assertNotNull(tp);
     }
 
     @Test
     public void testSpanContinuesAnIncomingTraceparent() {
         Env e = traced("00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01", false, "200");
-        String tp = e.conn.sentHeaders.get(0).getValue("traceparent");
+        String tp = HeaderFields.getValue(e.conn.sentHeaders.get(0), "traceparent");
         assertTrue(tp, tp.startsWith("00-4bf92f3577b34da6a3ce929d0e0e4736-"));
     }
 
@@ -657,7 +657,7 @@ public class StreamResponseApiTest {
         Env e = traced(null, true, "200");
         Trace t = e.conn.trace;
         assertNotNull(t);
-        String tp = e.conn.sentHeaders.get(0).getValue("traceparent");
+        String tp = HeaderFields.getValue(e.conn.sentHeaders.get(0), "traceparent");
         assertNotNull(tp);
     }
 

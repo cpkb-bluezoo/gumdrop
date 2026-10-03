@@ -21,8 +21,10 @@
 
 package org.bluezoo.gumdrop.http.server;
 
+import java.util.List;
+import org.bluezoo.gumdrop.http.HeaderFields;
+import java.util.ArrayList;
 import org.bluezoo.gumdrop.http.Header;
-import org.bluezoo.gumdrop.http.Headers;
 import org.bluezoo.gumdrop.http.HttpStatus;
 import org.bluezoo.gumdrop.http.HttpVersion;
 import org.junit.Test;
@@ -54,12 +56,12 @@ public class HstsResponseHeadersTest {
         stream.addHeader(new Header(":method", "GET"));
         stream.streamEndHeaders();
 
-        Headers responseHeaders = new Headers();
-        responseHeaders.status(HttpStatus.OK);
+        List<Header> responseHeaders = new ArrayList<Header>();
+        responseHeaders.add(new Header(":status", "200"));
         stream.sendResponseHeaders(200, responseHeaders, true);
 
         assertEquals("max-age=3600; includeSubDomains",
-                responseHeaders.getValue("Strict-Transport-Security"));
+                HeaderFields.getValue(responseHeaders, "Strict-Transport-Security"));
     }
 
     @Test
@@ -81,10 +83,10 @@ public class HstsResponseHeadersTest {
         stream.addHeader(new Header(":method", "GET"));
         stream.streamEndHeaders();
 
-        Headers responseHeaders = new Headers();
-        responseHeaders.status(HttpStatus.OK);
+        List<Header> responseHeaders = new ArrayList<Header>();
+        responseHeaders.add(new Header(":status", "200"));
         stream.sendResponseHeaders(200, responseHeaders, true);
 
-        assertNull(responseHeaders.getValue("Strict-Transport-Security"));
+        assertNull(HeaderFields.getValue(responseHeaders, "Strict-Transport-Security"));
     }
 }

@@ -22,6 +22,7 @@
 
 package org.bluezoo.gumdrop.http.server;
 
+import org.bluezoo.gumdrop.http.HeaderFields;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
@@ -36,7 +37,6 @@ import java.util.List;
 import org.bluezoo.gumdrop.auth.Realm;
 import org.bluezoo.gumdrop.http.Capsule;
 import org.bluezoo.gumdrop.http.Header;
-import org.bluezoo.gumdrop.http.Headers;
 import org.bluezoo.gumdrop.http.HttpVersion;
 import org.bluezoo.gumdrop.http.hpack.Encoder;
 import org.bluezoo.gumdrop.testsupport.CollectingRequestHandler;
@@ -61,7 +61,7 @@ public class StreamRequestHeadersTest {
         boolean datagrams;
 
         @Override
-        public void headers(HttpResponse state, Headers headers) {
+        public void headers(HttpResponse state, List<Header> headers) {
             log.add("headers");
         }
 
@@ -118,7 +118,7 @@ public class StreamRequestHeadersTest {
 
         Env http1(String... nameValues) {
             stream = new Stream(conn, 1);
-            Headers section = new Headers();
+            List<Header> section = new ArrayList<Header>();
             section.add(new Header(":method", "POST"));
             section.add(new Header(":path", "/r"));
             for (int i = 0; i + 1 < nameValues.length; i += 2) {
@@ -216,14 +216,14 @@ public class StreamRequestHeadersTest {
         e.http1();
         assertEquals(Integer.valueOf(401), e.conn.statuses.get(0));
         assertFalse(e.events.log.contains("headers"));
-        assertNotNull(e.conn.sentHeaders.get(0).getValue("www-authenticate"));
+        assertNotNull(HeaderFields.getValue(e.conn.sentHeaders.get(0), "www-authenticate"));
     }
 
     // ------------------------------------------------------------------
     // HTTP/2 header blocks
 
     private static byte[] encoded(Encoder encoder, String... nameValues) throws IOException {
-        Headers h = new Headers();
+        List<Header> h = new ArrayList<Header>();
         for (int i = 0; i + 1 < nameValues.length; i += 2) {
             h.add(new Header(nameValues[i], nameValues[i + 1]));
         }
@@ -258,8 +258,8 @@ public class StreamRequestHeadersTest {
         }
         e.stream.streamEndHeaders();
         assertTrue(e.conn.goawayCodes.isEmpty());
-        assertEquals("GET", e.stream.getHeaders().getValue(":method"));
-        assertEquals(20000, e.stream.getHeaders().getValue("x-big").length());
+        assertEquals("GET", HeaderFields.getValue(e.stream.getHeaders(), ":method"));
+        assertEquals(20000, HeaderFields.getValue(e.stream.getHeaders(), "x-big").length());
         assertTrue(e.events.log.contains("headers"));
     }
 

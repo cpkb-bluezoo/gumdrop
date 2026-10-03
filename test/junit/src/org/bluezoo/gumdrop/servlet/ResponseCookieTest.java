@@ -23,7 +23,6 @@ package org.bluezoo.gumdrop.servlet;
 
 import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.SecurityInfo;
-import org.bluezoo.gumdrop.http.Headers;
 import org.bluezoo.gumdrop.http.server.HttpResponse;
 import org.bluezoo.gumdrop.http.HttpVersion;
 import org.bluezoo.gumdrop.websocket.WebSocketEventHandler;
@@ -49,7 +48,7 @@ public class ResponseCookieTest {
     public void testAddCookieHttpOnlyAndSameSite() throws Exception {
         StubHTTPResponseState state = new StubHTTPResponseState();
         StubServletHandler handler = new StubServletHandler(state);
-        Request request = new Request(handler, 8192, "GET", "/test", new Headers(), new RequestBodyStream());
+        Request request = new Request(handler, 8192, "GET", "/test", new ServletHeaders(), new RequestBodyStream());
         Response response = new Response(handler, request, 8192);
 
         Cookie cookie = new Cookie("sid", "abc");
@@ -96,7 +95,7 @@ public class ResponseCookieTest {
         @Override public SelectorLoop getSelectorLoop() { return null; }
         @Override public Principal getPrincipal() { return null; }
         @Override public void status(int code) { }
-        @Override public void header(String name, String value) { }
+        @Override public void header(String name, ByteBuffer rawValue) { }
         @Override public void endHeaders() { }
         @Override public void bodyContent(ByteBuffer data) { }
         @Override public void endMessage() { }

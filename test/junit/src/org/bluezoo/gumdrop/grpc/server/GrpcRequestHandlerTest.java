@@ -140,7 +140,7 @@ public class GrpcRequestHandlerTest {
         }
 
         @Override public void status(int code) { recorder.status(code); }
-        @Override public void header(String name, String value) { recorder.header(name, value); }
+        @Override public void header(String name, ByteBuffer rawValue) { String value = java.nio.charset.StandardCharsets.ISO_8859_1.decode(rawValue.duplicate()).toString(); recorder.header(name, value); }
         @Override public void endHeaders() { recorder.endHeaders(); }
         @Override public void bodyContent(ByteBuffer data) { recorder.bodyContent(); }
         @Override public void endMessage() { recorder.endMessage(); }

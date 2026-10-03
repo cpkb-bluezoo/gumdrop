@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.http.h3;
 
+import org.bluezoo.gumdrop.http.HeaderFields;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.text.MessageFormat;
@@ -43,7 +44,6 @@ import org.bluezoo.gumdrop.http.Capsule;
 import org.bluezoo.gumdrop.http.ConnectIpTarget;
 import org.bluezoo.gumdrop.http.ConnectUdpTarget;
 import org.bluezoo.gumdrop.http.Header;
-import org.bluezoo.gumdrop.http.Headers;
 import org.bluezoo.gumdrop.http.HttpVersion;
 import org.bluezoo.gumdrop.http.ContentEncoding;
 import org.bluezoo.gumdrop.http.client.ConnectIpEventHandler;
@@ -68,7 +68,7 @@ import org.bluezoo.gumdrop.websocket.WebSocketHandshake;
  * {@link H3ControlStream} to receive the peer's control stream events.
  *
  * <p>This class provides
- * {@link #sendRequest(Headers, HttpResponseHandler)} to initiate
+ * {@link #sendRequest(List, HttpResponseHandler)} to initiate
  * HTTP/3 requests: each request opens a new bidirectional stream
  * handled by its own {@link H3ClientStream}, which owns its own
  * {@link H3Parser} and translates response frames into
@@ -463,7 +463,7 @@ public final class Http3ClientHandler implements H3ControlStream.Listener {
      * @param handler the handler to receive response events
      * @return the stream ID, or -1 on failure
      */
-    public long sendRequest(Headers headers, HttpResponseHandler handler) {
+    public long sendRequest(List<Header> headers, HttpResponseHandler handler) {
         return sendRequest(headers, handler, true);
     }
 
@@ -491,7 +491,7 @@ public final class Http3ClientHandler implements H3ControlStream.Listener {
      * @return the stream ID, or -1 on failure or if the open is still
      *         queued behind peer MAX_STREAMS credit
      */
-    public long sendRequest(final Headers headers, final HttpResponseHandler handler,
+    public long sendRequest(final List<Header> headers, final HttpResponseHandler handler,
             final boolean fin) {
         final long[] streamId = new long[] { -1L };
         final CountDownLatch done = new CountDownLatch(1);
@@ -532,7 +532,7 @@ public final class Http3ClientHandler implements H3ControlStream.Listener {
      * @return the stream object; {@link H3ClientStream#getStreamId} is
      *         {@code -1} until the open completes
      */
-    H3ClientStream startRequest(Headers headers, HttpResponseHandler handler, boolean fin) {
+    H3ClientStream startRequest(List<Header> headers, HttpResponseHandler handler, boolean fin) {
         H3ClientStream clientStream = new H3ClientStream(this, qpackDecoder, handler);
         if (goaway) {
             handler.failed(new IOException("Connection received GOAWAY"));
@@ -554,7 +554,7 @@ public final class Http3ClientHandler implements H3ControlStream.Listener {
     void completePreparedRequest(H3ClientStream clientStream) {
         long streamId = clientStream.getStreamId();
         streams.put(Long.valueOf(streamId), clientStream);
-        Headers headers = clientStream.takePendingRequestHeaders();
+        List<Header> headers = clientStream.takePendingRequestHeaders();
         boolean fin = clientStream.takePendingRequestFin();
         Endpoint endpoint = clientStream.getEndpoint();
         if (headers == null || endpoint == null) {
@@ -592,7 +592,7 @@ public final class Http3ClientHandler implements H3ControlStream.Listener {
                 sendRequestBodyOnLoop(streamId, body.get(i), false);
             }
         }
-        Headers trailers = clientStream.takePendingTrailers();
+        List<Header> trailers = clientStream.takePendingTrailers();
         if (trailers != null) {
             sendTrailersOnLoop(clientStream, trailers);
         } else if (fin || bodyFin) {
@@ -614,7 +614,7 @@ public final class Http3ClientHandler implements H3ControlStream.Listener {
      * (see {@link #execute}).
      *
      * @param streamId the stream ID returned by
-     *                 {@link #sendRequest(Headers, HttpResponseHandler, boolean)}
+     *                 {@link #sendRequest(List, HttpResponseHandler, boolean)}
      * @param data the body data
      * @param fin true if this is the last body data
      */
@@ -665,7 +665,7 @@ public final class Http3ClientHandler implements H3ControlStream.Listener {
      * @param clientStream the request stream
      * @param trailers the trailer fields
      */
-    void sendRequestTrailers(H3ClientStream clientStream, Headers trailers) {
+    void sendRequestTrailers(H3ClientStream clientStream, List<Header> trailers) {
         if (clientStream.getEndpoint() == null) {
             clientStream.queueRequestTrailers(trailers);
             return;
@@ -673,7 +673,7 @@ public final class Http3ClientHandler implements H3ControlStream.Listener {
         sendTrailersOnLoop(clientStream, trailers);
     }
 
-    private void sendTrailersOnLoop(H3ClientStream clientStream, Headers trailers) {
+    private void sendTrailersOnLoop(H3ClientStream clientStream, List<Header> trailers) {
         if (clientStream.getRequestOutboundContentCoding() != null) {
             // finish the content coding without ending the stream
             sendRequestBodyEncodedOnLoop(clientStream, new byte[0], true, false);
@@ -808,7 +808,7 @@ public final class Http3ClientHandler implements H3ControlStream.Listener {
                 new H3ClientWebSocketResponseHandler(extensions, wsHandler);
         H3ClientStream clientStream = new H3ClientStream(this, qpackDecoder, wsResponseHandler);
         wsResponseHandler.bindStream(clientStream);
-        Headers headers = new Headers();
+        List<Header> headers = new ArrayList<Header>();
         headers.add(new Header(":method", "CONNECT"));
         headers.add(new Header(":protocol", "websocket"));
         headers.add(new Header(":scheme", "https"));
@@ -871,7 +871,7 @@ public final class Http3ClientHandler implements H3ControlStream.Listener {
                 new H3ClientConnectUdpResponseHandler(handler);
         H3ClientStream clientStream = new H3ClientStream(this, qpackDecoder, connectUdpResponseHandler);
         connectUdpResponseHandler.bindStream(clientStream);
-        Headers headers = new Headers();
+        List<Header> headers = new ArrayList<Header>();
         headers.add(new Header(":method", "CONNECT"));
         headers.add(new Header(":protocol", "connect-udp"));
         headers.add(new Header(":scheme", "https"));
@@ -933,7 +933,7 @@ public final class Http3ClientHandler implements H3ControlStream.Listener {
                 new H3ClientConnectIpResponseHandler(handler);
         H3ClientStream clientStream = new H3ClientStream(this, qpackDecoder, connectIpResponseHandler);
         connectIpResponseHandler.bindStream(clientStream);
-        Headers headers = new Headers();
+        List<Header> headers = new ArrayList<Header>();
         headers.add(new Header(":method", "CONNECT"));
         headers.add(new Header(":protocol", "connect-ip"));
         headers.add(new Header(":scheme", "https"));
@@ -1147,21 +1147,21 @@ public final class Http3ClientHandler implements H3ControlStream.Listener {
         return encodeRequestBodyContentCoding;
     }
 
-    void applyDefaultAcceptEncoding(Headers headers) {
+    void applyDefaultAcceptEncoding(List<Header> headers) {
         if (!sendAcceptEncodingHeader) {
             return;
         }
-        if (headers != null && !headers.containsName("Accept-Encoding")) {
-            headers.add("Accept-Encoding", "br, gzip, deflate");
+        if (headers != null && !HeaderFields.containsName(headers, "Accept-Encoding")) {
+            HeaderFields.add(headers, "Accept-Encoding", "br, gzip, deflate");
         }
     }
 
-    void prepareInboundResponseDecoding(H3ClientStream stream, Headers headers) {
+    void prepareInboundResponseDecoding(H3ClientStream stream, List<Header> headers) {
         if (!decodeResponseContentCoding || stream == null || headers == null) {
             return;
         }
         ContentEncoding.Coding coding = ContentEncoding.parseContentEncoding(
-                headers.getValue("content-encoding"));
+                HeaderFields.getValue(headers, "content-encoding"));
         if (coding != null) {
             stream.setInboundResponseDecoder(coding);
         }

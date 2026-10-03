@@ -21,6 +21,9 @@
 
 package org.bluezoo.gumdrop.http.h3;
 
+import java.util.List;
+import org.bluezoo.gumdrop.http.HeaderFields;
+import java.util.ArrayList;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
@@ -35,7 +38,6 @@ import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.TimerHandle;
 import org.bluezoo.gumdrop.http.Header;
-import org.bluezoo.gumdrop.http.Headers;
 import org.bluezoo.gumdrop.http.qpack.Decoder;
 import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
 import org.bluezoo.gumdrop.telemetry.Trace;
@@ -92,7 +94,7 @@ public class H3TrailersWireTest {
         set(stream, "endpoint", wire);
         set(stream, "streamId", Long.valueOf(0L));
 
-        Headers trailers = new Headers();
+        List<Header> trailers = new ArrayList<Header>();
         trailers.add(new Header("X-Checksum", "99"));
         trailers.add(new Header("connection", "close"));   // not allowed in HTTP/3: dropped
         h.sendRequestTrailers(stream, trailers);
@@ -108,10 +110,10 @@ public class H3TrailersWireTest {
     public void trailersWaitForTheStreamAndAreSentWhenItIsReady() throws Exception {
         Http3ClientHandler h = H3ClientFlowTest.client();
         H3ClientStream stream = new H3ClientStream(h, new Decoder(4096), new H3ClientFlowTest.Rec());
-        Headers trailers = new Headers();
+        List<Header> trailers = new ArrayList<Header>();
         trailers.add(new Header("x-checksum", "99"));
         h.sendRequestTrailers(stream, trailers);   // no endpoint yet: queued
-        Headers queued = stream.takePendingTrailers();
-        assertEquals("99", queued.getValue("x-checksum"));
+        List<Header> queued = stream.takePendingTrailers();
+        assertEquals("99", HeaderFields.getValue(queued, "x-checksum"));
     }
 }

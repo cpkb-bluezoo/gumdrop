@@ -24,7 +24,6 @@ package org.bluezoo.gumdrop.servlet;
 import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.http.server.DefaultHttpRequestHandler;
 import org.bluezoo.gumdrop.http.Header;
-import org.bluezoo.gumdrop.http.Headers;
 import org.bluezoo.gumdrop.http.HttpMethod;
 import org.bluezoo.gumdrop.http.HttpUtils;
 import org.bluezoo.gumdrop.mime.ContentDisposition;
@@ -87,7 +86,7 @@ public class ServletHandler extends DefaultHttpRequestHandler {
     // Response state
     private boolean closeConnection;
     private int statusCode;
-    private Headers responseHeaders;
+    private ServletHeaders responseHeaders;
     private long contentLength;
     private boolean responseComplete;
     private Supplier<Map<String, String>> trailerFieldsSupplier;
@@ -104,7 +103,7 @@ public class ServletHandler extends DefaultHttpRequestHandler {
     private HttpMethod requestMethod;
     private boolean headersEnded;
     private String requestTarget;
-    private Headers requestHeaders = new Headers();
+    private ServletHeaders requestHeaders = new ServletHeaders();
 
     public ServletHandler(Container container, HttpResponse response, int bufferSize) {
         this.container = container;
@@ -178,7 +177,7 @@ public class ServletHandler extends DefaultHttpRequestHandler {
     public void endHeaders() {
         headersEnded = true;
         String method = requestMethod == null ? null : requestMethod.name();
-        Headers requestHeaders = this.requestHeaders;
+        ServletHeaders requestHeaders = this.requestHeaders;
         try {
             // Non-blocking bridge for request body delivery. write() (via
             // offer()) never blocks the SelectorLoop thread; it applies
@@ -322,7 +321,7 @@ public class ServletHandler extends DefaultHttpRequestHandler {
         return response != null && response.committed;
     }
 
-    void commit(int statusCode, Headers headers) {
+    void commit(int statusCode, ServletHeaders headers) {
         this.statusCode = statusCode;
         this.responseHeaders = headers;
 
@@ -465,7 +464,7 @@ public class ServletHandler extends DefaultHttpRequestHandler {
         }
         headersSent = true;
         final int status = statusCode;
-        final Headers fields = responseHeaders;
+        final ServletHeaders fields = responseHeaders;
         state.execute(new Runnable() {
             @Override
             public void run() {

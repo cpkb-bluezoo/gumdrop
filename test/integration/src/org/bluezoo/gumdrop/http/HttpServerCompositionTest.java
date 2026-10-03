@@ -21,6 +21,8 @@
 
 package org.bluezoo.gumdrop.http;
 
+import java.util.List;
+import org.bluezoo.gumdrop.http.Header;
 import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.GumdropConfig;
@@ -32,7 +34,6 @@ import org.bluezoo.gumdrop.http.server.Http2Listener;
 import org.bluezoo.gumdrop.http.server.HttpRequestHandler;
 import org.bluezoo.gumdrop.http.server.HttpResponse;
 import org.bluezoo.gumdrop.http.server.HttpStreamHandler;
-import org.bluezoo.gumdrop.http.Headers;
 import org.bluezoo.gumdrop.testsupport.CollectingRequestHandler;
 import org.bluezoo.gumdrop.testsupport.CollectingResponseHandler;
 import org.junit.After;
@@ -182,7 +183,7 @@ public class HttpServerCompositionTest {
 
     private static final class HelloHandler extends CollectingRequestHandler {
         @Override
-        public void headers(HttpResponse state, Headers headers) {
+        public void headers(HttpResponse state, List<Header> headers) {
             state.status(200);
             state.header("content-type", "text/plain");
             state.bodyContent(

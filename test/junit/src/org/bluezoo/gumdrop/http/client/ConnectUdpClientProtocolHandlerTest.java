@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.http.client;
 
+import java.util.ArrayList;
 import java.net.SocketAddress;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
@@ -34,7 +35,6 @@ import org.bluezoo.gumdrop.telemetry.Trace;
 import org.bluezoo.gumdrop.http.Capsule;
 import org.bluezoo.gumdrop.http.CapsuleParser;
 import org.bluezoo.gumdrop.http.Header;
-import org.bluezoo.gumdrop.http.Headers;
 import org.bluezoo.gumdrop.http.HttpStatus;
 import org.bluezoo.gumdrop.http.HttpDatagramContext;
 
@@ -79,7 +79,7 @@ public class ConnectUdpClientProtocolHandlerTest {
         ConnectUdpClientProtocolHandler handler =
                 new ConnectUdpClientProtocolHandler(null, eventHandler, "localhost", 8080, false);
 
-        Headers headers = new Headers();
+        List<Header> headers = new ArrayList<Header>();
         headers.add(new Header("connection", "upgrade"));
         headers.add(new Header("upgrade", "websocket"));
 
@@ -151,8 +151,8 @@ public class ConnectUdpClientProtocolHandlerTest {
         assertTrue("closed() should have been called", eventHandler.closed);
     }
 
-    private static Headers upgradeHeaders() {
-        Headers headers = new Headers();
+    private static List<Header> upgradeHeaders() {
+        List<Header> headers = new ArrayList<Header>();
         headers.add(new Header("connection", "upgrade"));
         headers.add(new Header("upgrade", "connect-udp"));
         return headers;

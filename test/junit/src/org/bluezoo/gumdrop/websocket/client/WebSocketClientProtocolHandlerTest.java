@@ -21,6 +21,8 @@
 
 package org.bluezoo.gumdrop.websocket.client;
 
+import org.bluezoo.gumdrop.http.HeaderFields;
+import org.bluezoo.gumdrop.http.Header;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
@@ -39,7 +41,6 @@ import java.util.List;
 
 import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.SecurityInfo;
-import org.bluezoo.gumdrop.http.Headers;
 import org.bluezoo.gumdrop.http.HttpStatus;
 import org.bluezoo.gumdrop.http.client.HttpClientHandler;
 import org.bluezoo.gumdrop.testsupport.BinaryRecordingEndpoint;
@@ -103,11 +104,11 @@ public class WebSocketClientProtocolHandlerTest {
         handler.connected(endpoint);
     }
 
-    private Headers validResponse() {
-        Headers h = new Headers();
-        h.add("Upgrade", "websocket");
-        h.add("Connection", "Upgrade");
-        h.add("Sec-WebSocket-Accept", WebSocketHandshake.calculateAccept(key));
+    private List<Header> validResponse() {
+        List<Header> h = new ArrayList<Header>();
+        HeaderFields.add(h, "Upgrade", "websocket");
+        HeaderFields.add(h, "Connection", "Upgrade");
+        HeaderFields.add(h, "Sec-WebSocket-Accept", WebSocketHandshake.calculateAccept(key));
         return h;
     }
 
@@ -134,8 +135,8 @@ public class WebSocketClientProtocolHandlerTest {
 
     @Test
     public void switchWithBadAcceptReportsError() {
-        Headers h = validResponse();
-        h.set("Sec-WebSocket-Accept", "bogus");
+        List<Header> h = validResponse();
+        HeaderFields.set(h, "Sec-WebSocket-Accept", "bogus");
         assertFalse(handler.handleProtocolSwitch(
                 HttpStatus.SWITCHING_PROTOCOLS, h));
         assertEquals(1, ws.errors.size());
@@ -265,8 +266,8 @@ public class WebSocketClientProtocolHandlerTest {
                 new ArrayList<WebSocketExtension>();
         requested.add(new PerMessageDeflateExtension());
         handler.setRequestedExtensions(requested);
-        Headers h = validResponse();
-        h.add("Sec-WebSocket-Extensions", "permessage-deflate");
+        List<Header> h = validResponse();
+        HeaderFields.add(h, "Sec-WebSocket-Extensions", "permessage-deflate");
         assertTrue(handler.handleProtocolSwitch(
                 HttpStatus.SWITCHING_PROTOCOLS, h));
         assertEquals(1, ws.openedCount);

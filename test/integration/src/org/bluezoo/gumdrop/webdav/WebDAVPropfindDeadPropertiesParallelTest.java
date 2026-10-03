@@ -21,6 +21,8 @@
 
 package org.bluezoo.gumdrop.webdav;
 
+import org.bluezoo.gumdrop.http.HeaderFields;
+import org.bluezoo.gumdrop.http.Header;
 import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.GumdropConfig;
 import org.bluezoo.gumdrop.SecurityInfo;
@@ -29,7 +31,6 @@ import org.bluezoo.gumdrop.StorageExecutor;
 import org.bluezoo.gumdrop.http.server.HttpResponse;
 import org.bluezoo.gumdrop.http.HttpStatus;
 import org.bluezoo.gumdrop.http.HttpVersion;
-import org.bluezoo.gumdrop.http.Headers;
 import org.bluezoo.gumdrop.testsupport.ResponseRecorder;
 import org.bluezoo.gumdrop.websocket.WebSocketEventHandler;
 
@@ -140,10 +141,10 @@ public class WebDAVPropfindDeadPropertiesParallelTest {
             }
         };
 
-        Headers req = new Headers();
-        req.add(":method", "PROPFIND");
-        req.add(":path", "/tree");
-        req.add(DavConstants.HEADER_DEPTH, "infinity");
+        List<Header> req = new ArrayList<Header>();
+        HeaderFields.add(req, ":method", "PROPFIND");
+        HeaderFields.add(req, ":path", "/tree");
+        HeaderFields.add(req, DavConstants.HEADER_DEPTH, "infinity");
 
         MessageEvents.headers(handler, req);
         // No body sent -- a genuinely bodyless request has no bodyContent
@@ -250,7 +251,8 @@ public class WebDAVPropfindDeadPropertiesParallelTest {
         }
 
         @Override
-        public void header(String name, String value) {
+        public void header(String name, ByteBuffer rawValue) {
+            String value = java.nio.charset.StandardCharsets.ISO_8859_1.decode(rawValue.duplicate()).toString();
             synchronized (lock) {
                 recorder.header(name, value);
             }

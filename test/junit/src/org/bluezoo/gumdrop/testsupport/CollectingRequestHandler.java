@@ -23,9 +23,10 @@ package org.bluezoo.gumdrop.testsupport;
 
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.List;
 
 import org.bluezoo.gumdrop.http.Header;
-import org.bluezoo.gumdrop.http.Headers;
 import org.bluezoo.gumdrop.http.HttpMethod;
 import org.bluezoo.gumdrop.http.server.DefaultHttpRequestHandler;
 import org.bluezoo.gumdrop.http.server.HttpResponse;
@@ -33,9 +34,9 @@ import org.bluezoo.gumdrop.mime.ContentDisposition;
 import org.bluezoo.gumdrop.mime.ContentType;
 
 /**
- * A request handler for tests that want the request as a {@link Headers}
+ * A request handler for tests that want the request as a {@code List<Header>}
  * and a few coarse callbacks rather than field-by-field events. It gathers
- * the events into a {@code Headers} (with {@code :method}, {@code :path},
+ * the events into a {@code List<Header>} (with {@code :method}, {@code :path},
  * {@code :scheme} and {@code :authority}) and calls {@link #headers} when the
  * header section ends, {@link #requestBodyContent} for each piece of the body,
  * and {@link #requestComplete} at the end of the message. Fields after the
@@ -48,7 +49,7 @@ public class CollectingRequestHandler extends DefaultHttpRequestHandler {
     /** The response of the stream carrying the request. */
     public HttpResponse response;
 
-    private Headers collected = new Headers();
+    private List<Header> collected = new ArrayList<Header>();
     private boolean headersEnded;
     private boolean bodyStarted;
     private boolean bodyEnded;
@@ -68,7 +69,7 @@ public class CollectingRequestHandler extends DefaultHttpRequestHandler {
     }
 
     /** The header section, and then any trailers. */
-    public void headers(HttpResponse state, Headers headers) {
+    public void headers(HttpResponse state, List<Header> headers) {
     }
 
     /** The first piece of the body is about to arrive. */
@@ -150,8 +151,8 @@ public class CollectingRequestHandler extends DefaultHttpRequestHandler {
     @Override
     public void endHeaders() {
         headersEnded = true;
-        Headers section = collected;
-        collected = new Headers();
+        List<Header> section = collected;
+        collected = new ArrayList<Header>();
         headers(response, section);
     }
 
@@ -174,9 +175,9 @@ public class CollectingRequestHandler extends DefaultHttpRequestHandler {
     @Override
     public void endMessage() {
         endBody();
-        if (headersEnded && collected.size() > 0) {
+        if (headersEnded && !collected.isEmpty()) {
             headers(response, collected);
-            collected = new Headers();
+            collected = new ArrayList<Header>();
         }
         requestComplete(response);
     }

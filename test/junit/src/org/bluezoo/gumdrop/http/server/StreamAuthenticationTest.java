@@ -21,8 +21,9 @@
 
 package org.bluezoo.gumdrop.http.server;
 
+import java.util.List;
+import org.bluezoo.gumdrop.http.HeaderFields;
 import org.bluezoo.gumdrop.http.Header;
-import org.bluezoo.gumdrop.http.Headers;
 import org.bluezoo.gumdrop.http.HttpVersion;
 
 import org.bluezoo.gumdrop.http.server.HttpStreamHandler;
@@ -86,11 +87,12 @@ public class StreamAuthenticationTest {
     }
 
     private static class StubConnection implements HttpConnectionLike {
+        @Override public void sendResponseTrailers(int streamId, List<Header> trailers) { }
         long maxRequestBodySize = 0; // unlimited
         HttpVersion version = HttpVersion.HTTP_1_1;
         HttpAuthenticationProvider authProvider;
         int lastStatusCode = -1;
-        Headers lastResponseHeaders;
+        List<Header> lastResponseHeaders;
 
         @Override public String getScheme() { return "http"; }
         @Override public HttpVersion getVersion() { return version; }
@@ -103,7 +105,7 @@ public class StreamAuthenticationTest {
         @Override public SecurityInfo getSecurityInfoForStream() { return null; }
         @Override public HttpStreamHandler getStreamHandler() { return null; }
         @Override public void sendResponseHeaders(int streamId, int statusCode,
-                Headers headers, boolean endStream) {
+                List<Header> headers, boolean endStream) {
             lastStatusCode = statusCode;
             lastResponseHeaders = headers;
         }
@@ -126,11 +128,11 @@ public class StreamAuthenticationTest {
             return new Stream(connection, streamId);
         }
         @Override public int getNextServerStreamId() { return 2; }
-        @Override public byte[] encodeHeaders(Headers headers) { return new byte[0]; }
+        @Override public byte[] encodeHeaders(List<Header> headers) { return new byte[0]; }
         @Override public void sendPushPromise(int streamId, int promisedStreamId,
                 ByteBuffer headerBlock, boolean endHeaders) { }
         @Override public Stream createPushedStream(int streamId, String method,
-                String uri, Headers headers) { return null; }
+                String uri, List<Header> headers) { return null; }
         @Override public SelectorLoop getSelectorLoop() { return null; }
         @Override public int getMaxHeaderListSize() { return 8192; }
         @Override public long getMaxRequestBodySize() { return maxRequestBodySize; }
@@ -160,7 +162,7 @@ public class StreamAuthenticationTest {
         stream.streamEndHeaders();
         assertEquals(401, conn.lastStatusCode);
         assertNotNull("a 401 must carry a WWW-Authenticate challenge",
-                conn.lastResponseHeaders.getValue("WWW-Authenticate"));
+                HeaderFields.getValue(conn.lastResponseHeaders, "WWW-Authenticate"));
         assertNull("no principal should be attached to a rejected request",
                 stream.getPrincipal());
     }

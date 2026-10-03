@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.http.client;
 
+import org.bluezoo.gumdrop.http.HeaderFields;
 import java.io.ByteArrayOutputStream;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
@@ -63,7 +64,7 @@ public class HttpStreamTest {
         HttpStream stream = new HttpStream(connection, "GET", "/");
         stream.priority(32);
         assertEquals("u=" + PriorityParams.urgencyFromWeight(32),
-                stream.getHeaders().getValue(PriorityParams.PRIORITY_HEADER));
+                HeaderFields.getValue(stream.getHeaders(), PriorityParams.PRIORITY_HEADER));
     }
 
     @Test
@@ -189,7 +190,7 @@ public class HttpStreamTest {
         assertEquals(2, ops.events.size());
         assertEquals("send:true", ops.events.get(0));
         assertEquals("last:3", ops.events.get(1));
-        assertEquals("3", stream.getHeaders().getValue("Content-Length"));
+        assertEquals("3", HeaderFields.getValue(stream.getHeaders(), "Content-Length"));
     }
 
     @Test
@@ -199,7 +200,7 @@ public class HttpStreamTest {
         stream.header("Transfer-Encoding", "chunked");
         stream.bodyContent(ByteBuffer.wrap(new byte[] { 1, 2, 3 }));
         stream.endMessage();
-        assertNull(stream.getHeaders().getValue("Content-Length"));
+        assertNull(HeaderFields.getValue(stream.getHeaders(), "Content-Length"));
     }
 
     @Test
@@ -326,18 +327,10 @@ public class HttpStreamTest {
                 }
             }
 
-            @Override
-            public void pushPromise(PushPromise promise) {
-                promise.reject();
-            }
         });
         assertArrayEquals(plain, seen.toByteArray());
 
         stream.finishInboundResponseDecoded(new DefaultHttpResponseHandler() {
-            @Override
-            public void pushPromise(PushPromise promise) {
-                promise.reject();
-            }
         });
         assertNull(stream.getInboundResponseDecoder());
     }
@@ -393,7 +386,7 @@ public class HttpStreamTest {
         }
 
         @Override
-        public void endRequestWithTrailers(HttpStream request, org.bluezoo.gumdrop.http.Headers trailers) {
+        public void endRequestWithTrailers(HttpStream request, java.util.List<org.bluezoo.gumdrop.http.Header> trailers) {
             StringBuilder sb = new StringBuilder("trailers:");
             for (org.bluezoo.gumdrop.http.Header h : trailers) {
                 sb.append(h.getName().toLowerCase()).append('=').append(h.getValue());

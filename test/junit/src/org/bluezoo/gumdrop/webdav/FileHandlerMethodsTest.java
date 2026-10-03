@@ -21,6 +21,10 @@
 
 package org.bluezoo.gumdrop.webdav;
 
+import java.util.ArrayList;
+import java.util.List;
+import org.bluezoo.gumdrop.http.HeaderFields;
+import org.bluezoo.gumdrop.http.Header;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
@@ -35,7 +39,6 @@ import org.bluezoo.gumdrop.testsupport.DelegatingResponseState;
 import org.bluezoo.gumdrop.testsupport.MessageEvents;
 import org.junit.Test;
 
-import org.bluezoo.gumdrop.http.Headers;
 import org.bluezoo.gumdrop.http.HttpStatus;
 import org.bluezoo.gumdrop.testsupport.memfs.MemoryFileSystem;
 import org.bluezoo.gumdrop.webdav.FileHandlerTest.RecordingState;
@@ -104,12 +107,12 @@ public class FileHandlerMethodsTest {
         return handler(true, true, false);
     }
 
-    private static Headers request(String method, String path, String... kv) {
-        Headers req = new Headers();
-        req.add(":method", method);
-        req.add(":path", path);
+    private static List<Header> request(String method, String path, String... kv) {
+        List<Header> req = new ArrayList<Header>();
+        HeaderFields.add(req, ":method", method);
+        HeaderFields.add(req, ":path", path);
         for (int i = 0; i + 1 < kv.length; i += 2) {
-            req.add(kv[i], kv[i + 1]);
+            HeaderFields.add(req, kv[i], kv[i + 1]);
         }
         return req;
     }

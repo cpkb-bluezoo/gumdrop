@@ -25,7 +25,6 @@ import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.http.HttpConstants;
 import org.bluezoo.gumdrop.http.HttpDateFormat;
 import org.bluezoo.gumdrop.http.Header;
-import org.bluezoo.gumdrop.http.Headers;
 
 import java.io.*;
 import java.net.URI;
@@ -86,7 +85,7 @@ private static final Logger LOGGER = Logger.getLogger(Response.class.getName());
     final ServletHandler handler;
     Request request;
     int bufferSize;
-    final Headers headers;
+    final ServletHeaders headers;
 
     Context context;
     int statusCode;
@@ -108,7 +107,7 @@ private static final Logger LOGGER = Logger.getLogger(Response.class.getName());
         this.request = request;
         this.bufferSize = bufferSize;
         this.statusCode = 200; // Default status is 200 OK
-        headers = new Headers();
+        headers = new ServletHeaders();
         locale = request.getLocale();
         if (locale == null) {
             locale = Locale.getDefault();
@@ -469,7 +468,7 @@ private static final Logger LOGGER = Logger.getLogger(Response.class.getName());
         handler.setCloseConnection(close);
     }
 
-    private void doCommit(int statusCode, Headers headers) {
+    private void doCommit(int statusCode, ServletHeaders headers) {
         // Ensure status code is valid HTTP status (100-599)
         if (statusCode < 100 || statusCode > 599) {
             statusCode = 500; // Internal Server Error as fallback

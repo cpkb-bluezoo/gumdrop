@@ -41,7 +41,7 @@ import org.junit.Test;
 
 import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.SecurityInfo;
-import org.bluezoo.gumdrop.http.Headers;
+import org.bluezoo.gumdrop.http.Header;
 import org.bluezoo.gumdrop.http.HttpStatus;
 import org.bluezoo.gumdrop.http.HttpVersion;
 import org.bluezoo.gumdrop.testsupport.BinaryRecordingEndpoint;
@@ -151,7 +151,7 @@ public class HttpClientProtocolHandlerEdgeTest {
         }
 
         @Override
-        protected boolean handleProtocolSwitch(HttpStatus status, Headers headers) {
+        protected boolean handleProtocolSwitch(HttpStatus status, List<Header> headers) {
             switchCalls++;
             if (accept) {
                 switched = true;

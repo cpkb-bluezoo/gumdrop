@@ -22,6 +22,7 @@
 
 package org.bluezoo.gumdrop.http.server;
 
+import org.bluezoo.gumdrop.http.HeaderFields;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
@@ -34,7 +35,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 
-import org.bluezoo.gumdrop.http.Headers;
+import org.bluezoo.gumdrop.http.Header;
 import org.bluezoo.gumdrop.testsupport.BinaryRecordingEndpoint;
 import org.bluezoo.gumdrop.testsupport.InlineSelectorLoop;
 import org.bluezoo.gumdrop.testsupport.RecordingWebSocketEventHandler;
@@ -68,7 +69,7 @@ public class HttpProtocolHandlerHttp1Test {
     }
 
     private interface HeadersHook {
-        void run(HttpResponse state, Headers headers);
+        void run(HttpResponse state, List<Header> headers);
     }
 
     private static class Fixture {
@@ -94,9 +95,9 @@ public class HttpProtocolHandlerHttp1Test {
                         }
 
                         @Override
-                        public void headers(HttpResponse s, Headers headers) {
-                            r.methods.add(headers.getValue(":method"));
-                            r.paths.add(headers.getValue(":path"));
+                        public void headers(HttpResponse s, List<Header> headers) {
+                            r.methods.add(HeaderFields.getValue(headers, ":method"));
+                            r.paths.add(HeaderFields.getValue(headers, ":path"));
                             if (r.hook != null) {
                                 r.hook.run(s, headers);
                             }
@@ -641,7 +642,7 @@ public class HttpProtocolHandlerHttp1Test {
         Fixture f = new Fixture();
         f.rec.hook = new HeadersHook() {
             @Override
-            public void run(HttpResponse state, Headers headers) {
+            public void run(HttpResponse state, List<Header> headers) {
                 state.status(status);
                 for (int i = 0; extra != null && i + 1 < extra.length; i += 2) {
                     state.header(extra[i], extra[i + 1]);
@@ -701,7 +702,7 @@ public class HttpProtocolHandlerHttp1Test {
         Fixture f = new Fixture();
         f.rec.hook = new HeadersHook() {
             @Override
-            public void run(HttpResponse state, Headers headers) {
+            public void run(HttpResponse state, List<Header> headers) {
                 state.status(103);
                 state.header("Link", "</s.css>; rel=preload");
                 state.endHeaders();
@@ -953,7 +954,7 @@ public class HttpProtocolHandlerHttp1Test {
         final RecordingWebSocketEventHandler ws = new RecordingWebSocketEventHandler();
         f.rec.hook = new HeadersHook() {
             @Override
-            public void run(HttpResponse state, Headers headers) {
+            public void run(HttpResponse state, List<Header> headers) {
                 state.upgradeToWebSocket(null, ws);
             }
         };
@@ -989,7 +990,7 @@ public class HttpProtocolHandlerHttp1Test {
         final boolean[] threw = new boolean[1];
         f.rec.hook = new HeadersHook() {
             @Override
-            public void run(HttpResponse state, Headers headers) {
+            public void run(HttpResponse state, List<Header> headers) {
                 try {
                     state.upgradeToWebSocket(null, ws);
                 } catch (IllegalStateException e) {
@@ -1012,7 +1013,7 @@ public class HttpProtocolHandlerHttp1Test {
         final boolean[] accepted = new boolean[1];
         f.rec.hook = new HeadersHook() {
             @Override
-            public void run(HttpResponse state, Headers headers) {
+            public void run(HttpResponse state, List<Header> headers) {
                 accepted[0] = state.acceptConnectUdp();
             }
         };
@@ -1032,7 +1033,7 @@ public class HttpProtocolHandlerHttp1Test {
         final boolean[] accepted = new boolean[] {true};
         f.rec.hook = new HeadersHook() {
             @Override
-            public void run(HttpResponse state, Headers headers) {
+            public void run(HttpResponse state, List<Header> headers) {
                 accepted[0] = state.acceptConnectIp();
                 state.status(400);
                 state.longHeader("Content-Length", 0L);
@@ -1048,8 +1049,8 @@ public class HttpProtocolHandlerHttp1Test {
             final List<String> seen) {
         f.rec.hook = new HeadersHook() {
             @Override
-            public void run(HttpResponse state, Headers headers) {
-                seen.add(headers.getValue(headerName));
+            public void run(HttpResponse state, List<Header> headers) {
+                seen.add(HeaderFields.getValue(headers, headerName));
                 state.status(200);
                 state.longHeader("Content-Length", 0L);
                 state.endMessage();
@@ -1182,7 +1183,7 @@ public class HttpProtocolHandlerHttp1Test {
         Fixture f = new Fixture();
         f.rec.hook = new HeadersHook() {
             @Override
-            public void run(HttpResponse state, Headers headers) {
+            public void run(HttpResponse state, List<Header> headers) {
                 state.status(103);
                 state.header("Link", "</a>; rel=preload");
                 state.endHeaders();
@@ -1214,7 +1215,7 @@ public class HttpProtocolHandlerHttp1Test {
     public void testResponseStatusDefaultsTo200() {
         Fixture f = respondWith(GET_Z, new HeadersHook() {
             @Override
-            public void run(HttpResponse state, Headers headers) {
+            public void run(HttpResponse state, List<Header> headers) {
                 state.header("x-a", "b");
                 state.endMessage();
             }
@@ -1228,7 +1229,7 @@ public class HttpProtocolHandlerHttp1Test {
     public void testTypedFieldsAreFormattedOnTheWire() {
         Fixture f = respondWith(GET_Z, new HeadersHook() {
             @Override
-            public void run(HttpResponse state, Headers headers) {
+            public void run(HttpResponse state, List<Header> headers) {
                 state.status(200);
                 state.longHeader("Content-Length", 2L);
                 state.dateHeader("Last-Modified", java.time.Instant.ofEpochSecond(0L));
@@ -1250,7 +1251,7 @@ public class HttpProtocolHandlerHttp1Test {
         final String[] snapshot = new String[1];
         f.rec.hook = new HeadersHook() {
             @Override
-            public void run(HttpResponse state, Headers headers) {
+            public void run(HttpResponse state, List<Header> headers) {
                 state.status(200);
                 state.header("Content-Type", "text/event-stream");
                 state.endHeaders();
@@ -1270,7 +1271,7 @@ public class HttpProtocolHandlerHttp1Test {
     public void testStatusOnlyResponseEndsWithItsHeaderSection() {
         Fixture f = respondWith(GET_Z, new HeadersHook() {
             @Override
-            public void run(HttpResponse state, Headers headers) {
+            public void run(HttpResponse state, List<Header> headers) {
                 state.status(204);
                 state.endMessage();
             }
@@ -1285,7 +1286,7 @@ public class HttpProtocolHandlerHttp1Test {
     public void testInterimResponseIsFollowedByTheFinalResponse() {
         Fixture f = respondWith(GET_Z, new HeadersHook() {
             @Override
-            public void run(HttpResponse state, Headers headers) {
+            public void run(HttpResponse state, List<Header> headers) {
                 state.status(103);
                 state.header("Link", "</s.css>; rel=preload");
                 state.endHeaders();
@@ -1310,7 +1311,7 @@ public class HttpProtocolHandlerHttp1Test {
     public void testFieldAfterTheBodyIsAChunkedTrailer() {
         Fixture f = respondWith(GET_Z, new HeadersHook() {
             @Override
-            public void run(HttpResponse state, Headers headers) {
+            public void run(HttpResponse state, List<Header> headers) {
                 state.status(200);
                 state.bodyContent(ByteBuffer.wrap(new byte[] {'o', 'k'}));
                 state.header("X-Checksum", "42");
@@ -1336,7 +1337,7 @@ public class HttpProtocolHandlerHttp1Test {
         final IllegalStateException[] afterEnd = new IllegalStateException[1];
         respondWith(GET_Z, new HeadersHook() {
             @Override
-            public void run(HttpResponse state, Headers headers) {
+            public void run(HttpResponse state, List<Header> headers) {
                 state.status(200);
                 try {
                     state.header("x-custom", "caf\u00e9");
@@ -1375,7 +1376,7 @@ public class HttpProtocolHandlerHttp1Test {
         final boolean[] result = new boolean[] {true};
         respondWith(GET_Z, new HeadersHook() {
             @Override
-            public void run(HttpResponse state, Headers headers) {
+            public void run(HttpResponse state, List<Header> headers) {
                 state.startPushPromise(org.bluezoo.gumdrop.http.HttpMethod.GET, "/pushed");
                 state.header("accept", "text/css");
                 result[0] = state.endPushPromise();

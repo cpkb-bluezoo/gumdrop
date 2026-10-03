@@ -21,10 +21,10 @@
 
 package org.bluezoo.gumdrop.http.server;
 
+import org.bluezoo.gumdrop.http.HeaderFields;
 import org.bluezoo.gumdrop.http.ConnectIpAddress;
 import org.bluezoo.gumdrop.http.ConnectIpTarget;
 import org.bluezoo.gumdrop.http.Header;
-import org.bluezoo.gumdrop.http.Headers;
 import org.bluezoo.gumdrop.testsupport.ResponseRecorder;
 import org.bluezoo.gumdrop.http.HttpDatagramContext;
 import org.bluezoo.gumdrop.http.server.HttpResponse;
@@ -66,8 +66,8 @@ import static org.junit.Assert.assertTrue;
  */
 public class ConnectIpRequestHandlerTest {
 
-    private static Headers connectIpRequestHeaders(String target, String ipProto) {
-        Headers headers = new Headers();
+    private static List<Header> connectIpRequestHeaders(String target, String ipProto) {
+        List<Header> headers = new ArrayList<Header>();
         headers.add(new Header(":method", "CONNECT"));
         headers.add(new Header(":protocol", "connect-ip"));
         headers.add(new Header(":scheme", "https"));
@@ -168,8 +168,8 @@ public class ConnectIpRequestHandlerTest {
         };
         ConnectIpRequestHandler handler = new ConnectIpRequestHandler(state, permissive, packetHandler);
 
-        Headers headers = connectIpRequestHeaders(ConnectIpTarget.WILDCARD, ConnectIpTarget.WILDCARD);
-        headers.removeAll("capsule-protocol");
+        List<Header> headers = connectIpRequestHeaders(ConnectIpTarget.WILDCARD, ConnectIpTarget.WILDCARD);
+        HeaderFields.removeAll(headers, "capsule-protocol");
         MessageEvents.headers(handler, HttpVersion.HTTP_3, headers);
 
         assertFalse(state.accepted);
@@ -329,7 +329,7 @@ public class ConnectIpRequestHandlerTest {
         @Override public SelectorLoop getSelectorLoop() { return null; }
         @Override public Principal getPrincipal() { return null; }
         @Override public void status(int code) { completedHeaders.status(code); }
-        @Override public void header(String name, String value) { completedHeaders.header(name, value); }
+        @Override public void header(String name, ByteBuffer rawValue) { String value = java.nio.charset.StandardCharsets.ISO_8859_1.decode(rawValue.duplicate()).toString(); completedHeaders.header(name, value); }
         @Override public void endHeaders() { completedHeaders.endHeaders(); }
         @Override public void bodyContent(ByteBuffer data) { completedHeaders.bodyContent(); }
         @Override public void endMessage() { completedHeaders.endMessage(); }

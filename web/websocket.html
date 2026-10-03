@@ -111,7 +111,7 @@ HttpServer server = HttpServer.compose()
                 .onConnect(new WebSocketRequestHandler.ConnectionHandlerFactory() {
                     @Override
                     public WebSocketEventHandler create(
-                            String requestPath, Headers upgradeHeaders) {
+                            String requestPath, List&lt;Header&gt; upgradeHeaders) {
                         return new DefaultWebSocketEventHandler() {
                             @Override
                             public void textMessageReceived(WebSocketSession session,
@@ -135,7 +135,7 @@ for routing or authentication decisions:
 </p>
 
 <pre>
-public WebSocketEventHandler create(String requestPath, Headers upgradeHeaders) {
+public WebSocketEventHandler create(String requestPath, List&lt;Header&gt; upgradeHeaders) {
     // Route based on path
     if ("/chat".equals(requestPath)) {
         return new ChatHandler();
@@ -218,8 +218,8 @@ WebSocketRequestHandler.builder()
         .onConnect(connectionHandlerFactory)
         .subprotocolSelector(new WebSocketRequestHandler.SubprotocolSelector() {
             @Override
-            public String select(Headers upgradeHeaders) {
-                String requested = upgradeHeaders.getValue("Sec-WebSocket-Protocol");
+            public String select(List&lt;Header&gt; upgradeHeaders) {
+                String requested = HeaderFields.getValue(upgradeHeaders, "Sec-WebSocket-Protocol");
                 if (requested != null) {
                     // Client may request multiple protocols, comma-separated
                     if (requested.contains("graphql-ws")) {
@@ -452,7 +452,7 @@ public class NostrRelayService
 
     @Override
     public WebSocketEventHandler create(
-            String requestPath, Headers upgradeHeaders) {
+            String requestPath, List&lt;Header&gt; upgradeHeaders) {
         return new DefaultWebSocketEventHandler() {
             private WebSocketSession session;
 
@@ -518,7 +518,7 @@ public class DashboardService
 
     @Override
     public WebSocketEventHandler create(
-            String requestPath, Headers upgradeHeaders) {
+            String requestPath, List&lt;Header&gt; upgradeHeaders) {
         return new DefaultWebSocketEventHandler() {
             private WebSocketSession session;
 
@@ -685,7 +685,7 @@ manually using <code>HttpResponse.upgradeToWebSocket()</code>:
 <pre>
 public class MyHandler extends DefaultHttpRequestHandler {
     private final HttpResponse response;
-    private final Headers headers = new Headers();
+    private final List&lt;Header&gt; headers = new ArrayList&lt;Header&gt;();
 
     public MyHandler(HttpResponse response) {
         this.response = response;
@@ -694,13 +694,13 @@ public class MyHandler extends DefaultHttpRequestHandler {
     @Override
     public void header(String name, ByteBuffer value) {
         // the value is only valid during this call: copy it
-        headers.add(name, StandardCharsets.UTF_8.decode(value).toString());
+        headers.add(new Header(name, StandardCharsets.UTF_8.decode(value).toString()));
     }
 
     @Override
     public void endHeaders() {
         if (WebSocketHandshake.isValidWebSocketUpgrade(headers)) {
-            String protocol = headers.getValue("Sec-WebSocket-Protocol");
+            String protocol = HeaderFields.getValue(headers, "Sec-WebSocket-Protocol");
             response.upgradeToWebSocket(protocol, new EchoWebSocketHandler());
         } else {
             // Handle as regular HTTP request

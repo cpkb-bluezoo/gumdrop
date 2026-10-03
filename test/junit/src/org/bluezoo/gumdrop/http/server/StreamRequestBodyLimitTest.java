@@ -21,8 +21,8 @@
 
 package org.bluezoo.gumdrop.http.server;
 
+import java.util.List;
 import org.bluezoo.gumdrop.http.Header;
-import org.bluezoo.gumdrop.http.Headers;
 import org.bluezoo.gumdrop.http.HttpVersion;
 
 import org.bluezoo.gumdrop.http.server.HttpStreamHandler;
@@ -47,6 +47,7 @@ import static org.junit.Assert.*;
 public class StreamRequestBodyLimitTest {
 
     private static class StubConnection implements HttpConnectionLike {
+        @Override public void sendResponseTrailers(int streamId, List<Header> trailers) { }
         long maxRequestBodySize = 10;
         HttpVersion version = HttpVersion.HTTP_1_1;
         int lastStatusCode = -1;
@@ -62,7 +63,7 @@ public class StreamRequestBodyLimitTest {
         @Override public SecurityInfo getSecurityInfoForStream() { return null; }
         @Override public HttpStreamHandler getStreamHandler() { return null; }
         @Override public void sendResponseHeaders(int streamId, int statusCode,
-                Headers headers, boolean endStream) {
+                List<Header> headers, boolean endStream) {
             lastStatusCode = statusCode;
         }
         @Override public void sendResponseBody(int streamId, ByteBuffer buf, boolean endStream) { }
@@ -84,11 +85,11 @@ public class StreamRequestBodyLimitTest {
             return new Stream(connection, streamId);
         }
         @Override public int getNextServerStreamId() { return 2; }
-        @Override public byte[] encodeHeaders(Headers headers) { return new byte[0]; }
+        @Override public byte[] encodeHeaders(List<Header> headers) { return new byte[0]; }
         @Override public void sendPushPromise(int streamId, int promisedStreamId,
                 ByteBuffer headerBlock, boolean endHeaders) { }
         @Override public Stream createPushedStream(int streamId, String method,
-                String uri, Headers headers) { return null; }
+                String uri, List<Header> headers) { return null; }
         @Override public SelectorLoop getSelectorLoop() { return null; }
         @Override public int getMaxHeaderListSize() { return 8192; }
         @Override public long getMaxRequestBodySize() { return maxRequestBodySize; }

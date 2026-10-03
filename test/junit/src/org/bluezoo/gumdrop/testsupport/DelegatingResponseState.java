@@ -68,7 +68,7 @@ public final class DelegatingResponseState implements HttpResponse {
     @Override public Trace getTrace() { return target.getTrace(); }
     @Override public Principal getPrincipal() { return target.getPrincipal(); }
     @Override public void status(int code) { target.status(code); }
-    @Override public void header(String name, String value) { target.header(name, value); }
+    @Override public void header(String name, java.nio.ByteBuffer value) { target.header(name, value); }
     @Override public void endHeaders() { target.endHeaders(); }
     @Override public void bodyContent(ByteBuffer data) { target.bodyContent(data); }
     @Override public void endMessage() { target.endMessage(); }

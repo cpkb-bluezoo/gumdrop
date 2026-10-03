@@ -21,11 +21,13 @@
 
 package org.bluezoo.gumdrop.http;
 
+import java.util.List;
+import java.util.ArrayList;
 import java.nio.ByteBuffer;
 
 /**
  * A {@link HeaderFieldHandler} that gathers the fields of one message into a
- * {@link Headers}, the form the rest of the stack still consumes.
+ * list of {@link Header}s, the form the rest of the stack still consumes.
  *
  * <p>A field that is not valid HTTP field syntax is not added, and sets
  * {@link #isMalformed()}. Collection carries on regardless, so the parser
@@ -42,7 +44,7 @@ import java.nio.ByteBuffer;
  */
 public final class HeaderCollector implements HeaderFieldHandler {
 
-    private final Headers headers = new Headers();
+    private final List<Header> headers = new ArrayList<Header>();
     private boolean malformed;
 
     @Override
@@ -59,7 +61,7 @@ public final class HeaderCollector implements HeaderFieldHandler {
      *
      * @return the headers
      */
-    public Headers headers() {
+    public List<Header> headers() {
         return headers;
     }
 

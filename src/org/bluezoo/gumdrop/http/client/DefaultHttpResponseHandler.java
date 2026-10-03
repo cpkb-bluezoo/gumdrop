@@ -65,18 +65,6 @@ public class DefaultHttpResponseHandler implements HttpResponseHandler {
     }
 
     /**
-     * Called when an HTTP/2 server push promise is received.
-     *
-     * <p>Default implementation rejects the push.
-     *
-     * @param promise the push promise
-     */
-    @Override
-    public void pushPromise(PushPromise promise) {
-        promise.reject();
-    }
-
-    /**
      * Called when the request fails.
      *
      * <p>Default implementation logs the failure at WARNING level.

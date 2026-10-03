@@ -57,7 +57,7 @@ public class H2WebSocketResponseHandlerTest {
         final List<byte[]> body = new ArrayList<byte[]>();
         boolean ended;
 
-        @Override public void header(String name, String value) { }
+        @Override public void header(String name, ByteBuffer rawValue) { }
         @Override public void priority(int weight) { }
         @Override public void dependency(HttpRequest parent) { }
         @Override public void exclusive(boolean exclusive) { }

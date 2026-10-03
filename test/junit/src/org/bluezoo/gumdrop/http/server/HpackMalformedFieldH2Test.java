@@ -22,6 +22,7 @@
 
 package org.bluezoo.gumdrop.http.server;
 
+import org.bluezoo.gumdrop.http.HeaderFields;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
@@ -38,7 +39,7 @@ import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.TimerHandle;
-import org.bluezoo.gumdrop.http.Headers;
+import org.bluezoo.gumdrop.http.Header;
 import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
 import org.bluezoo.gumdrop.telemetry.Trace;
 import org.bluezoo.gumdrop.testsupport.CollectingRequestHandler;
@@ -145,9 +146,9 @@ public class HpackMalformedFieldH2Test {
         static final List<String> requests = new ArrayList<String>();
 
         @Override
-        public void headers(HttpResponse state, Headers headers) {
-            requests.add(headers.getValue(":path") + "|" + headers.getValue("x-raw")
-                    + "|" + headers.getValue("x-good"));
+        public void headers(HttpResponse state, List<Header> headers) {
+            requests.add(HeaderFields.getValue(headers, ":path") + "|" + HeaderFields.getValue(headers, "x-raw")
+                    + "|" + HeaderFields.getValue(headers, "x-good"));
         }
     }
 

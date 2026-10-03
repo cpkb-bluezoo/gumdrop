@@ -21,8 +21,10 @@
 
 package org.bluezoo.gumdrop.http.server;
 
+import java.util.List;
+import org.bluezoo.gumdrop.http.HeaderFields;
+import java.util.ArrayList;
 import org.bluezoo.gumdrop.http.Header;
-import org.bluezoo.gumdrop.http.Headers;
 import org.bluezoo.gumdrop.http.server.HttpResponse;
 import org.bluezoo.gumdrop.http.HttpStatus;
 
@@ -62,8 +64,8 @@ public class HTTPProtocolHandlerH2FlushCoalescingTest {
     /** Answers entirely within headers(), like the DefaultHttpRequestHandler javadoc example. */
     private static final class SynchronousGetHandler extends CollectingRequestHandler {
         @Override
-        public void headers(HttpResponse state, Headers headers) {
-            if ("GET".equals(headers.getMethod())) {
+        public void headers(HttpResponse state, List<Header> headers) {
+            if ("GET".equals(HeaderFields.getValue(headers, ":method"))) {
                 state.status(HttpStatus.OK.code);
                 state.header("content-type", "text/plain");
                 state.bodyContent(ByteBuffer.wrap("Hello, World!".getBytes()));
@@ -133,7 +135,7 @@ public class HTTPProtocolHandlerH2FlushCoalescingTest {
 
     private ByteBuffer encodeGetHeaders(String path) throws Exception {
         Encoder encoder = new Encoder(4096, Http2Listener.DEFAULT_MAX_HEADER_LIST_SIZE);
-        Headers request = new Headers();
+        List<Header> request = new ArrayList<Header>();
         request.add(new Header(":method", "GET"));
         request.add(new Header(":scheme", "https"));
         request.add(new Header(":authority", "example.test"));

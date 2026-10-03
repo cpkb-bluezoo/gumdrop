@@ -22,14 +22,12 @@
 package org.bluezoo.gumdrop.http.client;
 
 import java.nio.ByteBuffer;
-import java.util.concurrent.atomic.AtomicBoolean;
 
-import org.bluezoo.gumdrop.http.Headers;
 import org.bluezoo.gumdrop.http.HttpStatus;
 import org.bluezoo.gumdrop.testsupport.MessageEvents;
 import org.junit.Test;
 
-import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.assertNull;
 
 /**
  * Unit tests for {@link DefaultHttpResponseHandler} defaults.
@@ -39,46 +37,8 @@ import static org.junit.Assert.assertTrue;
 public class DefaultHttpResponseHandlerTest {
 
     @Test
-    public void pushPromiseIsRejectedByDefault() {
-        final AtomicBoolean rejected = new AtomicBoolean(false);
-        PushPromise promise = new PushPromise() {
-            @Override
-            public String getMethod() {
-                return "GET";
-            }
-
-            @Override
-            public String getPath() {
-                return "/style.css";
-            }
-
-            @Override
-            public String getAuthority() {
-                return "example.com:443";
-            }
-
-            @Override
-            public String getScheme() {
-                return "https";
-            }
-
-            @Override
-            public Headers getHeaders() {
-                return new Headers();
-            }
-
-            @Override
-            public void accept(HttpResponseHandler handler) {
-            }
-
-            @Override
-            public void reject() {
-                rejected.set(true);
-            }
-        };
-
-        new DefaultHttpResponseHandler().pushPromise(promise);
-        assertTrue(rejected.get());
+    public void pushPromiseIsRefusedByDefault() {
+        assertNull(new DefaultHttpResponseHandler().pushPromise());
     }
 
     @Test

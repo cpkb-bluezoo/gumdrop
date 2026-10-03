@@ -22,6 +22,8 @@
 
 package org.bluezoo.gumdrop.http.server;
 
+import java.util.List;
+import java.util.ArrayList;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
@@ -36,7 +38,6 @@ import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.http.ConnectUdpTarget;
 import org.bluezoo.gumdrop.http.Header;
-import org.bluezoo.gumdrop.http.Headers;
 import org.bluezoo.gumdrop.testsupport.ResponseRecorder;
 import org.bluezoo.gumdrop.http.HttpVersion;
 import org.bluezoo.gumdrop.websocket.WebSocketEventHandler;
@@ -65,7 +66,7 @@ public class ConnectUdpRequestHandlerTest {
         @Override public SelectorLoop getSelectorLoop() { return null; }
         @Override public Principal getPrincipal() { return null; }
         @Override public void status(int code) { sent.status(code); }
-        @Override public void header(String name, String value) { sent.header(name, value); }
+        @Override public void header(String name, ByteBuffer rawValue) { String value = java.nio.charset.StandardCharsets.ISO_8859_1.decode(rawValue.duplicate()).toString(); sent.header(name, value); }
         @Override public void endHeaders() { sent.endHeaders(); }
         @Override public void bodyContent(ByteBuffer data) { sent.bodyContent(); }
         @Override public void endMessage() { sent.endMessage(); completed = true; }
@@ -86,8 +87,8 @@ public class ConnectUdpRequestHandlerTest {
         }
     };
 
-    private static Headers request(String protocol, String path, String capsule) {
-        Headers h = new Headers();
+    private static List<Header> request(String protocol, String path, String capsule) {
+        List<Header> h = new ArrayList<Header>();
         h.add(new Header(":method", protocol == null ? "GET" : "CONNECT"));
         if (protocol != null) {
             h.add(new Header(":protocol", protocol));

@@ -51,7 +51,6 @@ import org.bluezoo.gumdrop.dns.DnsType;
 import org.bluezoo.gumdrop.dns.client.DnsResolver;
 import org.bluezoo.gumdrop.http.HttpStatus;
 import org.bluezoo.gumdrop.http.Header;
-import org.bluezoo.gumdrop.http.Headers;
 import org.bluezoo.gumdrop.http.HttpVersion;
 import org.bluezoo.gumdrop.http.client.AltSvcCache;
 import org.bluezoo.gumdrop.http.client.AltSvcListener;
@@ -636,7 +635,7 @@ public class WebSocketClient implements AltSvcListener {
         final List<WebSocketExtension> allExtensions = buildExtensionOffers();
         String extOffer = WebSocketHandshake.formatOffers(allExtensions);
 
-        final Headers upgradeHeaders =
+        final List<Header> upgradeHeaders =
                 WebSocketHandshake.createUpgradeRequest(key, subprotocol, extOffer);
 
         transportFactory = new TcpTransportFactory();

@@ -21,6 +21,10 @@
 
 package org.bluezoo.gumdrop.webdav;
 
+import java.util.ArrayList;
+import java.util.List;
+import org.bluezoo.gumdrop.http.HeaderFields;
+import org.bluezoo.gumdrop.http.Header;
 import java.io.ByteArrayOutputStream;
 import java.net.SocketAddress;
 import java.nio.ByteBuffer;
@@ -38,7 +42,6 @@ import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.auth.BasicRealm;
 import org.bluezoo.gumdrop.auth.Realm;
-import org.bluezoo.gumdrop.http.Headers;
 import org.bluezoo.gumdrop.testsupport.ResponseRecorder;
 import org.bluezoo.gumdrop.http.HttpStatus;
 import org.bluezoo.gumdrop.http.HttpVersion;
@@ -127,9 +130,9 @@ public class FileHandlerAclTest {
      */
     private RecordingState dispatch(FileHandler h, String method, String path, Principal principal)
             throws Exception {
-        Headers req = new Headers();
-        req.add(":method", method);
-        req.add(":path", path);
+        List<Header> req = new ArrayList<Header>();
+        HeaderFields.add(req, ":method", method);
+        HeaderFields.add(req, ":path", path);
         RecordingState st = new RecordingState(principal);
         respondTo(h, st);
         MessageEvents.headers(h, req);
@@ -156,10 +159,10 @@ public class FileHandlerAclTest {
         body.append("</D:prop></D:propfind>");
         byte[] bodyBytes = body.toString().getBytes(StandardCharsets.UTF_8);
 
-        Headers req = new Headers();
-        req.add(":method", "PROPFIND");
-        req.add(":path", path);
-        req.add(DavConstants.HEADER_DEPTH, "0");
+        List<Header> req = new ArrayList<Header>();
+        HeaderFields.add(req, ":method", "PROPFIND");
+        HeaderFields.add(req, ":path", path);
+        HeaderFields.add(req, DavConstants.HEADER_DEPTH, "0");
         RecordingState st = new RecordingState(principal);
         respondTo(h, st);
         MessageEvents.headers(h, req);
@@ -372,7 +375,8 @@ public class FileHandlerAclTest {
         }
 
         @Override
-        public void header(String name, String value) {
+        public void header(String name, ByteBuffer rawValue) {
+            String value = java.nio.charset.StandardCharsets.ISO_8859_1.decode(rawValue.duplicate()).toString();
             synchronized (lock) {
                 recorder.header(name, value);
             }

@@ -302,7 +302,18 @@ user-visible themes since 2.2.x.
   in chunked HTTP/1.1 (HTTP/3 trailers were previously dropped). Server push is
   `startPushPromise(HttpMethod, target)`, `header` calls for the promised
   request, `endPushPromise()`; the server supplies `:scheme` and
-  `:authority`. `HttpRequest.header(String, ByteBuffer)` is added to match.
+  `:authority`. `header(String, ByteBuffer)` is the primary field method on
+  `HttpResponse` and `HttpRequest`, as on `HttpMessageHandler`;
+  `header(String, String)` is a convenience that calls it.
+- **Client push mirrors server push.** `PushPromise` is gone. A server's push
+  promise reaches `HttpResponseHandler.pushPromise()`, which returns a
+  `PushPromiseHandler` (or null to refuse): it receives the promised request as
+  the events of a request, then `pushedResponse()` returns the handler for the
+  pushed response, or null to refuse it. A malformed promised request is reset
+  with PROTOCOL_ERROR before any handler is asked.
+- **`org.bluezoo.gumdrop.http.Headers` is removed.** Nothing in the public HTTP
+  API mentions it. Internal field lists are `List<Header>`, with lookups in the
+  new `HeaderFields` utility; the servlet module keeps its own header store.
 - **`FieldSectionAdapter`.**
   Receives the fields the HPACK and QPACK decoders push and turns an HTTP/2 or
   HTTP/3 field section into the same `HttpMessageHandler` events (the

@@ -21,8 +21,9 @@
 
 package org.bluezoo.gumdrop.http.server;
 
+import java.util.List;
+import java.util.ArrayList;
 import org.bluezoo.gumdrop.http.Header;
-import org.bluezoo.gumdrop.http.Headers;
 import org.bluezoo.gumdrop.http.PriorityParams;
 
 import org.junit.Test;
@@ -53,7 +54,7 @@ public class HTTPProtocolHandlerH2PriorityStorageTest {
     @Test
     public void testPriorityHeaderIsStoredAndRetrievable() {
         HttpProtocolHandler connection = new HttpProtocolHandler(new Http2Listener());
-        Headers headers = new Headers();
+        List<Header> headers = new ArrayList<Header>();
         headers.add(new Header(PriorityParams.PRIORITY_HEADER, "u=1"));
 
         connection.applyRfc9218Priority(1, headers);
@@ -65,9 +66,9 @@ public class HTTPProtocolHandlerH2PriorityStorageTest {
     @Test
     public void testDifferentStreamsTrackIndependentPriorities() {
         HttpProtocolHandler connection = new HttpProtocolHandler(new Http2Listener());
-        Headers urgent = new Headers();
+        List<Header> urgent = new ArrayList<Header>();
         urgent.add(new Header(PriorityParams.PRIORITY_HEADER, "u=0"));
-        Headers background = new Headers();
+        List<Header> background = new ArrayList<Header>();
         background.add(new Header(PriorityParams.PRIORITY_HEADER, "u=7"));
 
         connection.applyRfc9218Priority(1, urgent);
@@ -84,9 +85,9 @@ public class HTTPProtocolHandlerH2PriorityStorageTest {
         // false) sets the stream's initial priority only; it must not
         // override a value already recorded for that stream.
         HttpProtocolHandler connection = new HttpProtocolHandler(new Http2Listener());
-        Headers first = new Headers();
+        List<Header> first = new ArrayList<Header>();
         first.add(new Header(PriorityParams.PRIORITY_HEADER, "u=2"));
-        Headers second = new Headers();
+        List<Header> second = new ArrayList<Header>();
         second.add(new Header(PriorityParams.PRIORITY_HEADER, "u=6"));
 
         connection.applyRfc9218Priority(1, first);
@@ -101,7 +102,7 @@ public class HTTPProtocolHandlerH2PriorityStorageTest {
         // RFC 9218 section 7.1: a PRIORITY_UPDATE frame (fromUpdate =
         // true) always takes effect, unlike a Priority header.
         HttpProtocolHandler connection = new HttpProtocolHandler(new Http2Listener());
-        Headers initial = new Headers();
+        List<Header> initial = new ArrayList<Header>();
         initial.add(new Header(PriorityParams.PRIORITY_HEADER, "u=2"));
         connection.applyRfc9218Priority(1, initial);
         assertEquals(2, connection.h2PriorityOf(1).getUrgency());

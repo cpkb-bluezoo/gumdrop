@@ -23,7 +23,6 @@ package org.bluezoo.gumdrop.servlet;
 
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.http.Header;
-import org.bluezoo.gumdrop.http.Headers;
 import org.bluezoo.gumdrop.http.server.HttpAuthenticationProvider;
 import org.bluezoo.gumdrop.http.HttpDateFormat;
 import org.bluezoo.gumdrop.http.server.HttpResponse;
@@ -87,7 +86,7 @@ class Request implements HttpServletRequest {
     URI uri;
 
     boolean secure;
-    Headers headers;
+    ServletHeaders headers;
     final RequestInputStream in;
     final Map<String,Object> attributes = new HashMap<String,Object>();
     Map<String,String[]> parameters = new LinkedHashMap<>();
@@ -116,7 +115,7 @@ class Request implements HttpServletRequest {
     final String protocolRequestId;
     private transient ServletConnection servletConnection;
 
-    Request(ServletHandler handler, int bufferSize, String method, String requestTarget, Headers headers,
+    Request(ServletHandler handler, int bufferSize, String method, String requestTarget, ServletHeaders headers,
             RequestBodyStream bodyStream) throws IOException {
         this.handler = handler;
         in = new RequestInputStream(this, bodyStream);
@@ -727,7 +726,7 @@ class Request implements HttpServletRequest {
      */
     private boolean isWebSocketUpgrade() {
         // Use the request headers from this Request object
-        Headers requestHeaders = new Headers();
+        ServletHeaders requestHeaders = new ServletHeaders();
         
         // Convert servlet headers to HTTP headers
         Enumeration<String> headerNames = getHeaderNames();

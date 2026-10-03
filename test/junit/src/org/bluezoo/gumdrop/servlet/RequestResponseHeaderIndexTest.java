@@ -24,7 +24,6 @@ package org.bluezoo.gumdrop.servlet;
 import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.http.Header;
-import org.bluezoo.gumdrop.http.Headers;
 import org.bluezoo.gumdrop.http.server.HttpResponse;
 import org.bluezoo.gumdrop.http.HttpVersion;
 import org.bluezoo.gumdrop.websocket.WebSocketEventHandler;
@@ -43,15 +42,13 @@ import static org.junit.Assert.*;
  * Regression coverage for issue #303: {@code Request.getHeader}/{@code
  * getHeaders} and {@code Response.setHeader}/{@code getHeader}/{@code
  * getHeaders} looped the backing header list by hand instead of using
- * {@link Headers}' own indexed accessors ({@code getValue}/{@code
+ * {@link ServletHeaders}' own indexed accessors ({@code getValue}/{@code
  * getValues}/{@code removeAll}, already O(1)-per-lookup since issues
  * #141/#142) -- so every single header access paid an O(request header
  * count) scan, and a response setting several headers paid O(n squared)
  * overall.
  *
- * <p>Proves delegation the same way {@code
- * org.bluezoo.gumdrop.http.StreamResponseHeadersIndexTest} proves it for
- * issue #278 -- via {@link Headers#indexBuildCountForTesting}, since a
+ * <p>Proves delegation via {@link ServletHeaders#indexBuildCountForTesting}, since a
  * fix that still produces the same header values either way is otherwise
  * unobservable from outside; a hand-rolled scan and an indexed lookup
  * both return identical results, only their cost differs.
@@ -60,7 +57,7 @@ import static org.junit.Assert.*;
  */
 public class RequestResponseHeaderIndexTest {
 
-    private static Request newRequest(Headers requestHeaders) throws Exception {
+    private static Request newRequest(ServletHeaders requestHeaders) throws Exception {
         StubHTTPResponseState state = new StubHTTPResponseState();
         StubServletHandler handler = new StubServletHandler(state);
         RequestBodyStream bodyStream = new RequestBodyStream();
@@ -69,7 +66,7 @@ public class RequestResponseHeaderIndexTest {
 
     @Test
     public void testGetHeaderDoesNotRescanPerCall() throws Exception {
-        Headers requestHeaders = manyHeaders(5000);
+        ServletHeaders requestHeaders = manyHeaders(5000);
         Request request = newRequest(requestHeaders);
 
         // Force the index to build once, then hammer getHeader() for a
@@ -88,13 +85,13 @@ public class RequestResponseHeaderIndexTest {
 
         assertEquals("getHeader() must not rebuild the index on every call -- "
                 + "that would mean it is still scanning the backing list by "
-                + "hand rather than delegating to Headers' indexed accessor",
+                + "hand rather than delegating to ServletHeaders' indexed accessor",
                 buildsAfterFirstCall, requestHeaders.indexBuildCountForTesting);
     }
 
     @Test
     public void testGetHeaderCaseInsensitiveAndCorrectAtScale() throws Exception {
-        Headers requestHeaders = manyHeaders(2000);
+        ServletHeaders requestHeaders = manyHeaders(2000);
         Request request = newRequest(requestHeaders);
 
         assertEquals("v-1999", request.getHeader("X-HEADER-1999"));
@@ -104,7 +101,7 @@ public class RequestResponseHeaderIndexTest {
 
     @Test
     public void testGetHeadersReturnsAllValuesForRepeatedName() throws Exception {
-        Headers requestHeaders = new Headers();
+        ServletHeaders requestHeaders = new ServletHeaders();
         requestHeaders.add(new Header("Accept", "text/html"));
         requestHeaders.add(new Header("Accept", "application/json"));
         requestHeaders.add(new Header("X-Other", "irrelevant"));
@@ -125,7 +122,7 @@ public class RequestResponseHeaderIndexTest {
     private static Response newResponse() throws Exception {
         StubHTTPResponseState state = new StubHTTPResponseState();
         StubServletHandler handler = new StubServletHandler(state);
-        Request request = newRequest(new Headers());
+        Request request = newRequest(new ServletHeaders());
         return new Response(handler, request, 8192);
     }
 
@@ -176,8 +173,8 @@ public class RequestResponseHeaderIndexTest {
 
     // ── helpers ──
 
-    private static Headers manyHeaders(int count) {
-        Headers headers = new Headers(count);
+    private static ServletHeaders manyHeaders(int count) {
+        ServletHeaders headers = new ServletHeaders(count);
         for (int i = 0; i < count; i++) {
             headers.add(new Header("x-header-" + i, "v-" + i));
         }
@@ -214,7 +211,7 @@ public class RequestResponseHeaderIndexTest {
         @Override public SelectorLoop getSelectorLoop() { return null; }
         @Override public Principal getPrincipal() { return null; }
         @Override public void status(int code) { }
-        @Override public void header(String name, String value) { }
+        @Override public void header(String name, ByteBuffer rawValue) { }
         @Override public void endHeaders() { }
         @Override public void bodyContent(ByteBuffer data) { }
         @Override public void endMessage() { }

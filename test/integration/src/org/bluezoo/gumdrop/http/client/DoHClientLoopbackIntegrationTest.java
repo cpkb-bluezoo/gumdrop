@@ -21,6 +21,9 @@
 
 package org.bluezoo.gumdrop.http.client;
 
+import java.util.List;
+import org.bluezoo.gumdrop.http.HeaderFields;
+import org.bluezoo.gumdrop.http.Header;
 import org.bluezoo.gumdrop.AbstractServerIntegrationTest;
 import org.bluezoo.gumdrop.Server;
 import org.bluezoo.gumdrop.TestTlsFiles;
@@ -31,7 +34,6 @@ import org.bluezoo.gumdrop.dns.DnsResourceRecord;
 import org.bluezoo.gumdrop.dns.DnsType;
 import org.bluezoo.gumdrop.dns.client.DnsClientTransportHandler;
 import org.bluezoo.gumdrop.dns.client.DnsResolver;
-import org.bluezoo.gumdrop.http.Headers;
 import org.bluezoo.gumdrop.http.HttpServer;
 import org.bluezoo.gumdrop.http.HttpStatus;
 import org.bluezoo.gumdrop.http.doh.DoHClientTransport;
@@ -218,9 +220,9 @@ public class DoHClientLoopbackIntegrationTest extends AbstractServerIntegrationT
         private final ByteArrayOutputStream body = new ByteArrayOutputStream();
 
         @Override
-        public void headers(HttpResponse state, Headers headers) {
-            method = headers.getMethod();
-            path = headers.getPath();
+        public void headers(HttpResponse state, List<Header> headers) {
+            method = HeaderFields.getValue(headers, ":method");
+            path = HeaderFields.getValue(headers, ":path");
         }
 
         @Override

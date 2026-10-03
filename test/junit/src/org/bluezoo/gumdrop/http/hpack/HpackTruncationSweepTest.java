@@ -22,6 +22,8 @@
 
 package org.bluezoo.gumdrop.http.hpack;
 
+import java.util.List;
+import java.util.ArrayList;
 import org.bluezoo.gumdrop.http.HeaderFieldHandler;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
@@ -30,7 +32,6 @@ import java.io.IOException;
 import java.nio.ByteBuffer;
 
 import org.bluezoo.gumdrop.http.Header;
-import org.bluezoo.gumdrop.http.Headers;
 import org.junit.Test;
 
 /**
@@ -56,7 +57,7 @@ public class HpackTruncationSweepTest {
     @Test
     public void testEveryPrefixOfAHeaderBlockIsDecodedOrAnIoError() throws Exception {
         Encoder encoder = new Encoder(4096, 65536);
-        Headers headers = new Headers();
+        List<Header> headers = new ArrayList<Header>();
         headers.add(new Header(":method", "GET"));
         headers.add(new Header(":path", "/a/long/path/for/literal/coding"));
         headers.add(new Header("x-custom", "value-that-needs-a-literal-representation"));

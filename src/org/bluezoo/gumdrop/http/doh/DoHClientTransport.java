@@ -39,7 +39,6 @@ import org.bluezoo.gumdrop.http.client.HttpClientHandler;
 import org.bluezoo.gumdrop.http.client.HttpRequest;
 import org.bluezoo.gumdrop.http.HttpStatus;
 import org.bluezoo.gumdrop.http.client.HttpResponseHandler;
-import org.bluezoo.gumdrop.http.client.PushPromise;
 import org.bluezoo.gumdrop.tls.ServerCredentials;
 import javax.net.ssl.X509TrustManager;
 
@@ -280,11 +279,6 @@ public class DoHClientTransport implements DnsClientTransport {
                 handler.onReceive(
                         ByteBuffer.wrap(accumulator.toByteArray()));
             }
-        }
-
-        @Override
-        public void pushPromise(PushPromise promise) {
-            promise.reject();
         }
 
         @Override

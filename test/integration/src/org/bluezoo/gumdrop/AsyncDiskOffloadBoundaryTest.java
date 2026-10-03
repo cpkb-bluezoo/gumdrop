@@ -21,6 +21,10 @@
 
 package org.bluezoo.gumdrop;
 
+import java.util.ArrayList;
+import java.util.List;
+import org.bluezoo.gumdrop.http.HeaderFields;
+import org.bluezoo.gumdrop.http.Header;
 import org.bluezoo.gumdrop.ftp.FtpListener;
 import org.bluezoo.gumdrop.ftp.FtpProtocolHandler;
 import org.bluezoo.gumdrop.ftp.file.BasicFTPFileSystem;
@@ -29,7 +33,6 @@ import org.bluezoo.gumdrop.http.server.HttpRequestHandler;
 import org.bluezoo.gumdrop.http.server.HttpResponse;
 import org.bluezoo.gumdrop.http.HttpStatus;
 import org.bluezoo.gumdrop.http.HttpVersion;
-import org.bluezoo.gumdrop.http.Headers;
 import org.bluezoo.gumdrop.testsupport.ResponseRecorder;
 import org.bluezoo.gumdrop.imap.ImapListener;
 import org.bluezoo.gumdrop.imap.ImapProtocolHandler;
@@ -128,9 +131,9 @@ public class AsyncDiskOffloadBoundaryTest {
 
         RecordingState st = new RecordingState(gumdrop.nextWorkerLoop());
         HttpRequestHandler handler = newFileHandler(st, tempRoot, true);
-        Headers req = new Headers();
-        req.add(":method", "GET");
-        req.add(":path", "/hello.txt");
+        List<Header> req = new ArrayList<Header>();
+        HeaderFields.add(req, ":method", "GET");
+        HeaderFields.add(req, ":path", "/hello.txt");
         MessageEvents.headers(handler, req);
         handler.endMessage();
 
@@ -373,9 +376,9 @@ public class AsyncDiskOffloadBoundaryTest {
 
             RecordingState st = new RecordingState(gumdrop.nextWorkerLoop());
             HttpRequestHandler handler = newFileHandler(st, tempRoot, true);
-            Headers req = new Headers();
-            req.add(":method", "GET");
-            req.add(":path", "/sat.txt");
+            List<Header> req = new ArrayList<Header>();
+            HeaderFields.add(req, ":method", "GET");
+            HeaderFields.add(req, ":path", "/sat.txt");
             MessageEvents.headers(handler, req);
         handler.endMessage();
 
@@ -664,7 +667,8 @@ public class AsyncDiskOffloadBoundaryTest {
         }
 
         @Override
-        public void header(String name, String value) {
+        public void header(String name, ByteBuffer rawValue) {
+            String value = java.nio.charset.StandardCharsets.ISO_8859_1.decode(rawValue.duplicate()).toString();
             synchronized (lock) {
                 recorder.header(name, value);
             }

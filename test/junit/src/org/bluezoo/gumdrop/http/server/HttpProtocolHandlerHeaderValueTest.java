@@ -21,13 +21,15 @@
 
 package org.bluezoo.gumdrop.http.server;
 
+import java.util.List;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 
-import org.bluezoo.gumdrop.http.Headers;
+import org.bluezoo.gumdrop.http.HeaderFields;
+import org.bluezoo.gumdrop.http.Header;
 import org.bluezoo.gumdrop.testsupport.BinaryRecordingEndpoint;
 import org.bluezoo.gumdrop.testsupport.CollectingRequestHandler;
 import org.junit.Before;
@@ -44,7 +46,7 @@ import org.junit.Test;
  */
 public class HttpProtocolHandlerHeaderValueTest {
 
-    private Headers received;
+    private List<Header> received;
     private HttpProtocolHandler connection;
 
     @Before
@@ -56,7 +58,7 @@ public class HttpProtocolHandlerHeaderValueTest {
             public HttpRequestHandler openStream(HttpResponse state) {
                 return new CollectingRequestHandler(state) {
                     @Override
-                    public void headers(HttpResponse s, Headers headers) {
+                    public void headers(HttpResponse s, List<Header> headers) {
                         received = headers;
                     }
                 };
@@ -66,7 +68,7 @@ public class HttpProtocolHandlerHeaderValueTest {
         connection.connected(new BinaryRecordingEndpoint());
     }
 
-    private Headers requestWith(String headerLine) {
+    private List<Header> requestWith(String headerLine) {
         String request = "GET / HTTP/1.1\r\n"
                 + "Host: example.test\r\n"
                 + headerLine + "\r\n"
@@ -80,44 +82,42 @@ public class HttpProtocolHandlerHeaderValueTest {
     @Test
     public void entityTagKeepsItsQuotes() {
         assertEquals("\"0-1ab\"",
-                requestWith("If-None-Match: \"0-1ab\"").getValue("If-None-Match"));
+                HeaderFields.getValue(requestWith("If-None-Match: \"0-1ab\""), "If-None-Match"));
     }
 
     @Test
     public void weakEntityTagKeepsItsQuotes() {
         assertEquals("W/\"v1\"",
-                requestWith("If-None-Match: W/\"v1\"").getValue("If-None-Match"));
+                HeaderFields.getValue(requestWith("If-None-Match: W/\"v1\""), "If-None-Match"));
     }
 
     @Test
     public void entityTagListKeepsQuotesAndSeparators() {
         assertEquals("\"a\", \"b\"",
-                requestWith("If-Match: \"a\", \"b\"").getValue("If-Match"));
+                HeaderFields.getValue(requestWith("If-Match: \"a\", \"b\""), "If-Match"));
     }
 
     @Test
     public void quotedParameterKeepsQuotesAndInnerSpaces() {
         assertEquals("attachment; filename=\"my  file.txt\"",
-                requestWith("Content-Disposition: attachment; filename=\"my  file.txt\"")
-                        .getValue("Content-Disposition"));
+                HeaderFields.getValue(requestWith("Content-Disposition: attachment; filename=\"my  file.txt\""), "Content-Disposition"));
     }
 
     @Test
     public void escapedQuoteInsideQuotedStringDoesNotEndIt() {
         assertEquals("form-data; name=\"a\\\"b c\"",
-                requestWith("Content-Disposition: form-data; name=\"a\\\"b c\"")
-                        .getValue("Content-Disposition"));
+                HeaderFields.getValue(requestWith("Content-Disposition: form-data; name=\"a\\\"b c\""), "Content-Disposition"));
     }
 
     @Test
     public void unquotedValueIsUnchanged() {
         assertEquals("text/html; charset=utf-8",
-                requestWith("Accept: text/html; charset=utf-8").getValue("Accept"));
+                HeaderFields.getValue(requestWith("Accept: text/html; charset=utf-8"), "Accept"));
     }
 
     @Test
     public void surroundingWhitespaceIsTrimmed() {
         assertEquals("\"x\"",
-                requestWith("If-Match:   \"x\"  ").getValue("If-Match"));
+                HeaderFields.getValue(requestWith("If-Match:   \"x\"  "), "If-Match"));
     }
 }

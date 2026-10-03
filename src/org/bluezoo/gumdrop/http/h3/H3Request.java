@@ -31,7 +31,6 @@ import java.util.concurrent.CancellationException;
 import org.bluezoo.gumdrop.http.Header;
 import org.bluezoo.gumdrop.http.HttpDateFormat;
 import org.bluezoo.gumdrop.http.HttpVersion;
-import org.bluezoo.gumdrop.http.Headers;
 import org.bluezoo.gumdrop.http.PriorityParams;
 import org.bluezoo.gumdrop.http.client.HttpRequest;
 import org.bluezoo.gumdrop.http.client.HttpResponseHandler;
@@ -109,7 +108,7 @@ public class H3Request implements HttpRequest {
     private byte[] firstChunk;
     private boolean ended;
     // Trailer fields: fields given once the body has begun
-    private Headers trailers;
+    private List<Header> trailers;
     private boolean bodyStarted;
 
     public H3Request(Http3ClientHandler h3Handler, String method,
@@ -125,7 +124,13 @@ public class H3Request implements HttpRequest {
     }
 
     @Override
-    public void header(String name, String value) {
+    public void header(String name, ByteBuffer value) {
+        byte[] octets = new byte[value.remaining()];
+        value.duplicate().get(octets);
+        addField(name, new String(octets, java.nio.charset.StandardCharsets.ISO_8859_1));
+    }
+
+    private void addField(String name, String value) {
         if (ended) {
             throw new IllegalStateException(L10N.getString("err.headers_already_sent"));
         }
@@ -153,29 +158,29 @@ public class H3Request implements HttpRequest {
             }
         }
         if (trailers == null) {
-            trailers = new Headers();
+            trailers = new ArrayList<Header>();
         }
         trailers.add(new Header(name, value));
     }
 
     @Override
     public void longHeader(String name, long value) {
-        header(name, Long.toString(value));
+        addField(name, Long.toString(value));
     }
 
     @Override
     public void dateHeader(String name, Instant value) {
-        header(name, new HttpDateFormat().format(value.toEpochMilli()));
+        addField(name, new HttpDateFormat().format(value.toEpochMilli()));
     }
 
     @Override
     public void contentType(ContentType contentType) {
-        header("content-type", contentType.toHeaderValue());
+        addField("content-type", contentType.toHeaderValue());
     }
 
     @Override
     public void contentDisposition(ContentDisposition contentDisposition) {
-        header("content-disposition", contentDisposition.toHeaderValue());
+        addField("content-disposition", contentDisposition.toHeaderValue());
     }
 
     /**
@@ -209,7 +214,7 @@ public class H3Request implements HttpRequest {
     private void startRequest(final boolean endStream) {
         final HttpResponseHandler handler = responseHandler;
         requestStarted = true;
-        final Headers h3Headers = buildHeaders();
+        final List<Header> h3Headers = buildHeaders();
         h3Handler.execute(new Runnable() {
             @Override
             public void run() {
@@ -354,7 +359,7 @@ public class H3Request implements HttpRequest {
 
     /** Ends the request with its trailer fields, on the connection's thread. */
     private void sendTrailers() {
-        final Headers fields = trailers;
+        final List<Header> fields = trailers;
         h3Handler.execute(new Runnable() {
             @Override
             public void run() {
@@ -396,8 +401,8 @@ public class H3Request implements HttpRequest {
      * the order :method, :scheme, :authority, :path, followed by
      * regular headers.
      */
-    private Headers buildHeaders() {
-        Headers result = new Headers();
+    private List<Header> buildHeaders() {
+        List<Header> result = new ArrayList<Header>();
         result.add(new Header(":method", method));
         result.add(new Header(":scheme", scheme));
         result.add(new Header(":authority", authority));

@@ -21,6 +21,9 @@
 
 package org.bluezoo.gumdrop.http;
 
+import java.util.List;
+import org.bluezoo.gumdrop.http.HeaderFields;
+import org.bluezoo.gumdrop.http.Header;
 import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.GumdropConfig;
@@ -32,7 +35,6 @@ import org.bluezoo.gumdrop.http.server.Http2Listener;
 import org.bluezoo.gumdrop.http.server.HttpRequestHandler;
 import org.bluezoo.gumdrop.http.server.HttpResponse;
 import org.bluezoo.gumdrop.http.server.HttpStreamHandler;
-import org.bluezoo.gumdrop.http.Headers;
 import org.bluezoo.gumdrop.http.HttpVersion;
 import org.bluezoo.gumdrop.testsupport.CollectingRequestHandler;
 import org.bluezoo.gumdrop.testsupport.CollectingResponseHandler;
@@ -201,8 +203,8 @@ public class HttpStreamHandlerConcurrentTest {
         private String path;
 
         @Override
-        public void headers(HttpResponse state, Headers headers) {
-            path = headers.getPath();
+        public void headers(HttpResponse state, List<Header> headers) {
+            path = HeaderFields.getValue(headers, ":path");
         }
 
         @Override

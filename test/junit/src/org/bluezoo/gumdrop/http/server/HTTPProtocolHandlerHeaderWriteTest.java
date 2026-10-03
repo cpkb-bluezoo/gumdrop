@@ -21,8 +21,10 @@
 
 package org.bluezoo.gumdrop.http.server;
 
+import java.util.List;
+import org.bluezoo.gumdrop.http.HeaderFields;
+import java.util.ArrayList;
 import org.bluezoo.gumdrop.http.Header;
-import org.bluezoo.gumdrop.http.Headers;
 import org.bluezoo.gumdrop.http.HttpDateCache;
 import org.bluezoo.gumdrop.http.HttpVersion;
 
@@ -104,8 +106,8 @@ public class HTTPProtocolHandlerHeaderWriteTest {
 
     @Test
     public void testSingleAsciiHeaderWrittenExactly() {
-        Headers headers = new Headers();
-        headers.add("content-type", "text/plain");
+        List<Header> headers = new ArrayList<Header>();
+        HeaderFields.add(headers, "content-type", "text/plain");
 
         connection.sendResponseHeaders(1, 200, headers, false);
 
@@ -124,7 +126,7 @@ public class HTTPProtocolHandlerHeaderWriteTest {
      */
     @Test
     public void testDateHeaderFromCacheIsWrittenExactly() {
-        Headers headers = new Headers();
+        List<Header> headers = new ArrayList<Header>();
         headers.add(new Header("Date", HttpDateCache.get()));
 
         connection.sendResponseHeaders(1, 200, headers, false);
@@ -147,7 +149,7 @@ public class HTTPProtocolHandlerHeaderWriteTest {
      */
     @Test
     public void testServerHeaderIsWrittenExactly() {
-        Headers headers = new Headers();
+        List<Header> headers = new ArrayList<Header>();
         headers.add(new Header("Server", HttpProtocolHandler.SERVER_HEADER_VALUE));
 
         connection.sendResponseHeaders(1, 200, headers, false);
@@ -160,7 +162,7 @@ public class HTTPProtocolHandlerHeaderWriteTest {
 
     @Test
     public void testConnectionCloseHeaderIsWrittenExactly() {
-        Headers headers = new Headers();
+        List<Header> headers = new ArrayList<Header>();
         headers.add(new Header("Connection", HttpProtocolHandler.CONNECTION_CLOSE_VALUE));
 
         connection.sendResponseHeaders(1, 200, headers, false);
@@ -173,7 +175,7 @@ public class HTTPProtocolHandlerHeaderWriteTest {
 
     @Test
     public void testSecurityHeadersAreWrittenExactly() {
-        Headers headers = new Headers();
+        List<Header> headers = new ArrayList<Header>();
         headers.add(new Header("X-Frame-Options", HttpProtocolHandler.X_FRAME_OPTIONS_VALUE));
         headers.add(new Header("X-Content-Type-Options", HttpProtocolHandler.X_CONTENT_TYPE_OPTIONS_VALUE));
 
@@ -188,7 +190,7 @@ public class HTTPProtocolHandlerHeaderWriteTest {
 
     @Test
     public void testTransferEncodingChunkedIsWrittenExactly() {
-        Headers headers = new Headers();
+        List<Header> headers = new ArrayList<Header>();
         headers.add(new Header("Transfer-Encoding", HttpProtocolHandler.TRANSFER_ENCODING_CHUNKED_VALUE));
 
         connection.sendResponseHeaders(1, 200, headers, false);
@@ -208,7 +210,7 @@ public class HTTPProtocolHandlerHeaderWriteTest {
      */
     @Test
     public void testEqualButNotSameConnectionValueUsesGenericPath() {
-        Headers headers = new Headers();
+        List<Header> headers = new ArrayList<Header>();
         // new String(...) deliberately defeats literal interning.
         headers.add(new Header("Connection", new String("close".toCharArray())));
 
@@ -229,7 +231,7 @@ public class HTTPProtocolHandlerHeaderWriteTest {
      */
     @Test
     public void testDateHeaderWithUncachedValueIsNotReplacedByCacheBytes() {
-        Headers headers = new Headers();
+        List<Header> headers = new ArrayList<Header>();
         headers.add(new Header("Date", "Not, 00 Xxx 0000 00:00:00 GMT"));
 
         connection.sendResponseHeaders(1, 200, headers, false);
@@ -242,9 +244,9 @@ public class HTTPProtocolHandlerHeaderWriteTest {
 
     @Test
     public void testMultipleHeadersAndNonDefaultStatus() {
-        Headers headers = new Headers();
-        headers.add("content-type", "application/json");
-        headers.add("cache-control", "no-store");
+        List<Header> headers = new ArrayList<Header>();
+        HeaderFields.add(headers, "content-type", "application/json");
+        HeaderFields.add(headers, "cache-control", "no-store");
 
         connection.sendResponseHeaders(1, 404, headers, false);
 
@@ -257,9 +259,9 @@ public class HTTPProtocolHandlerHeaderWriteTest {
 
     @Test
     public void testPseudoHeaderSkipped() {
-        Headers headers = new Headers();
+        List<Header> headers = new ArrayList<Header>();
         headers.add(new Header(":status", "200"));
-        headers.add("content-type", "text/plain");
+        HeaderFields.add(headers, "content-type", "text/plain");
 
         connection.sendResponseHeaders(1, 200, headers, false);
 
@@ -271,9 +273,9 @@ public class HTTPProtocolHandlerHeaderWriteTest {
 
     @Test
     public void testNullValueHeaderSkipped() {
-        Headers headers = new Headers();
+        List<Header> headers = new ArrayList<Header>();
         headers.add(new Header("X-Null", null));
-        headers.add("content-type", "text/plain");
+        HeaderFields.add(headers, "content-type", "text/plain");
 
         connection.sendResponseHeaders(1, 200, headers, false);
 
@@ -288,8 +290,8 @@ public class HTTPProtocolHandlerHeaderWriteTest {
         // recipient must treat as opaque. The writer refuses it rather than
         // encode it (RFC 2047 is not part of HTTP), so a caller's mistake is
         // not turned into something the peer may or may not decode.
-        Headers headers = new Headers();
-        headers.add("x-custom", "plain text with one accent: caf\u00e9");
+        List<Header> headers = new ArrayList<Header>();
+        HeaderFields.add(headers, "x-custom", "plain text with one accent: caf\u00e9");
 
         try {
             connection.sendResponseHeaders(1, 200, headers, false);
@@ -301,9 +303,9 @@ public class HTTPProtocolHandlerHeaderWriteTest {
 
     @Test
     public void testNonAsciiRejectionHappensBeforeAnyBytesAreWritten() throws Exception {
-        Headers headers = new Headers();
-        headers.add("x-first", "ok");
-        headers.add("x-second", "\u00e9\u00e8\u00ea");
+        List<Header> headers = new ArrayList<Header>();
+        HeaderFields.add(headers, "x-first", "ok");
+        HeaderFields.add(headers, "x-second", "\u00e9\u00e8\u00ea");
 
         try {
             connection.sendResponseHeaders(1, 200, headers, false);

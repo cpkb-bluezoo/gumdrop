@@ -22,6 +22,8 @@
 
 package org.bluezoo.gumdrop.http;
 
+import java.util.List;
+import java.util.ArrayList;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
@@ -41,28 +43,28 @@ public class HttpUtilsAsciiValuesTest {
 
     @Test
     public void asciiValuesAreAccepted() {
-        Headers h = new Headers();
-        h.add("content-type", "text/plain; charset=utf-8");
-        h.add("x-tab", "a\tb");
+        List<Header> h = new ArrayList<Header>();
+        HeaderFields.add(h, "content-type", "text/plain; charset=utf-8");
+        HeaderFields.add(h, "x-tab", "a\tb");
         HttpUtils.requireAsciiFieldValues(h);
     }
 
     @Test
     public void emptyHeadersAreAccepted() {
-        HttpUtils.requireAsciiFieldValues(new Headers());
+        HttpUtils.requireAsciiFieldValues(new ArrayList<Header>());
     }
 
     @Test
     public void nullValuesAreIgnored() {
-        Headers h = new Headers();
+        List<Header> h = new ArrayList<Header>();
         h.add(new Header("x-null", null));
         HttpUtils.requireAsciiFieldValues(h);
     }
 
     @Test
     public void nonAsciiValueIsRejectedNamingTheHeader() {
-        Headers h = new Headers();
-        h.add("x-custom", "café");
+        List<Header> h = new ArrayList<Header>();
+        HeaderFields.add(h, "x-custom", "café");
         try {
             HttpUtils.requireAsciiFieldValues(h);
             fail("expected IllegalArgumentException");
@@ -74,8 +76,8 @@ public class HttpUtilsAsciiValuesTest {
 
     @Test
     public void latin1RangeCharacterIsRejectedToo() {
-        Headers h = new Headers();
-        h.add("x-custom", "\u0080");
+        List<Header> h = new ArrayList<Header>();
+        HeaderFields.add(h, "x-custom", "\u0080");
         try {
             HttpUtils.requireAsciiFieldValues(h);
             fail("expected IllegalArgumentException");
@@ -86,8 +88,8 @@ public class HttpUtilsAsciiValuesTest {
 
     @Test
     public void theValueItselfIsNotEchoedInTheMessage() {
-        Headers h = new Headers();
-        h.add("x-secret", "s3crét");
+        List<Header> h = new ArrayList<Header>();
+        HeaderFields.add(h, "x-secret", "s3crét");
         try {
             HttpUtils.requireAsciiFieldValues(h);
             fail("expected IllegalArgumentException");

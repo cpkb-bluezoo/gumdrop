@@ -21,10 +21,11 @@
 
 package org.bluezoo.gumdrop.http.server;
 
+import org.bluezoo.gumdrop.http.HeaderFields;
+import java.util.ArrayList;
 import org.bluezoo.gumdrop.http.Capsule;
 import org.bluezoo.gumdrop.http.CapsuleParser;
 import org.bluezoo.gumdrop.http.Header;
-import org.bluezoo.gumdrop.http.Headers;
 import org.bluezoo.gumdrop.http.HttpMethod;
 import org.bluezoo.gumdrop.http.ContentEncoding;
 import org.bluezoo.gumdrop.http.HttpDateCache;
@@ -147,8 +148,8 @@ class Stream implements HttpResponse {
     }
 
     private State state = State.IDLE;
-    private Headers headers; // NB these are the *request* headers
-    private Headers trailerHeaders; // Trailer headers in chunked request
+    private List<Header> headers; // NB these are the *request* headers
+    private List<Header> trailerHeaders; // Trailer headers in chunked request
     private ByteBuffer headerBlock; // raw HPACK-encoded header block
     private boolean pushPromise;
     private String method;
@@ -192,17 +193,17 @@ class Stream implements HttpResponse {
      */
     private enum ResponseState {
         INITIAL,        // Before any response headers sent
-        HEADERS_SENT,   // Headers sent, may send body or complete
+        HEADERS_SENT,   // List<Header> sent, may send body or complete
         IN_BODY,        // After startResponseBody, sending body chunks
         BODY_COMPLETE,  // After endResponseBody, may send trailers
         COMPLETE        // After complete(), response finished
     }
 
     private ResponseState responseState = ResponseState.INITIAL;
-    private Headers bufferedResponseHeaders;
+    private List<Header> bufferedResponseHeaders;
     private boolean trailersStarted;
     // a push promise being built: the promised request line and fields
-    private Headers pushHeaders;
+    private List<Header> pushHeaders;
     private HttpMethod pushMethod;
     private String pushTarget;
     private HttpRequestHandler handler;
@@ -297,8 +298,8 @@ class Stream implements HttpResponse {
         if (headers == null) {
             return null;
         }
-        String authority = headers.getValue(":authority");
-        return authority != null ? authority : headers.getValue("host");
+        String authority = HeaderFields.getValue(headers, ":authority");
+        return authority != null ? authority : HeaderFields.getValue(headers, "host");
     }
 
     @Override
@@ -355,7 +356,7 @@ class Stream implements HttpResponse {
      * @param headers the headers for the push request
      * @return true if push was initiated successfully, false otherwise
      */
-    private boolean sendServerPush(String method, String uri, Headers headers) {
+    private boolean sendServerPush(String method, String uri, List<Header> headers) {
         // Only HTTP/2 connections support server push
         if (connection.getVersion() != HttpVersion.HTTP_2_0) {
             return false;
@@ -432,7 +433,7 @@ class Stream implements HttpResponse {
      */
     void addTrailerHeader(Header header) {
         if (trailerHeaders == null) {
-            trailerHeaders = new Headers();
+            trailerHeaders = new ArrayList<Header>();
         }
         trailerHeaders.add(header);
     }
@@ -457,13 +458,13 @@ class Stream implements HttpResponse {
         return requestBodyBytesReceived;
     }
 
-    Headers getHeaders() {
+    List<Header> getHeaders() {
         return headers;
     }
 
     void addHeader(Header header) {
         if (headers == null) {
-            headers = new Headers();
+            headers = new ArrayList<Header>();
         }
         headers.add(header);
         if (":method".equals(header.getName())) {
@@ -536,7 +537,7 @@ class Stream implements HttpResponse {
                     requestHeadersDispatched ? FieldSectionAdapter.Kind.TRAILERS
                                              : FieldSectionAdapter.Kind.REQUEST,
                     collected);
-            headers = new Headers();
+            headers = new ArrayList<Header>();
             try {
                 connection.getHpackDecoder().decode(headerBlock, adapter);
             } catch (IOException e) {
@@ -722,7 +723,7 @@ class Stream implements HttpResponse {
         long maxBody = connection.getMaxRequestBodySize();
         if (maxBody > 0 && connection.getVersion() == HttpVersion.HTTP_2_0 && headers != null) {
             // Check Content-Length before stripHttp1FramingHeaders removes it.
-            String cl = headers.getValue("content-length");
+            String cl = HeaderFields.getValue(headers, "content-length");
             if (cl != null) {
                 try {
                     long clValue = Long.parseLong(cl.trim());
@@ -747,7 +748,7 @@ class Stream implements HttpResponse {
         // RFC 9110 section 10.1.1: Expect: 100-continue
         if (connection.getVersion() != HttpVersion.HTTP_2_0
                 && headers != null && contentLength != 0) {
-            String expect = headers.getValue("expect");
+            String expect = HeaderFields.getValue(headers, "expect");
             if (expect != null && "100-continue".equalsIgnoreCase(expect.trim())) {
                 connection.send(ByteBuffer.wrap(
                         "HTTP/1.1 100 Continue\r\n\r\n".getBytes(
@@ -759,7 +760,7 @@ class Stream implements HttpResponse {
         if (!requestHeadersDispatched) {
             HttpAuthenticationProvider authProvider = connection.getAuthenticationProvider();
             if (authProvider != null) {
-                String authHeader = headers != null ? headers.getValue("authorization") : null;
+                String authHeader = headers != null ? HeaderFields.getValue(headers, "authorization") : null;
                 HttpAuthenticationProvider.AuthenticationResult result =
                         authProvider.authenticate(authHeader, method, requestTarget);
                 if (result.success) {
@@ -840,7 +841,7 @@ class Stream implements HttpResponse {
         Trace trace = connection.getTrace();
 
         // Check for incoming traceparent header (distributed tracing)
-        String traceparent = headers != null ? headers.getValue("traceparent") : null;
+        String traceparent = headers != null ? HeaderFields.getValue(headers, "traceparent") : null;
 
         // Build span name following OpenTelemetry semantic conventions: "HTTP {method}"
         String methodName = method != null ? method : "UNKNOWN";
@@ -875,13 +876,13 @@ class Stream implements HttpResponse {
             span.addAttribute("net.peer.ip", connection.getRemoteSocketAddress().toString());
 
             // Add Host header if present
-            String host = headers != null ? headers.getValue("host") : null;
+            String host = headers != null ? HeaderFields.getValue(headers, "host") : null;
             if (host != null) {
                 span.addAttribute("http.host", host);
             }
 
             // Add User-Agent if present
-            String userAgent = headers != null ? headers.getValue("user-agent") : null;
+            String userAgent = headers != null ? HeaderFields.getValue(headers, "user-agent") : null;
             if (userAgent != null) {
                 span.addAttribute("http.user_agent", userAgent);
             }
@@ -1140,7 +1141,7 @@ class Stream implements HttpResponse {
      * @param endStream if no response data will be sent and this is a
      * complete response
      */
-    final void sendResponseHeaders(int statusCode, Headers headers, boolean endStream) throws ProtocolException {
+    final void sendResponseHeaders(int statusCode, List<Header> headers, boolean endStream) throws ProtocolException {
         if (state != State.HALF_CLOSED_REMOTE && state != State.OPEN) {
             throw new ProtocolException("Invalid state: " + state);
         }
@@ -1154,22 +1155,26 @@ class Stream implements HttpResponse {
 
         // Snapshot which framework-managed headers the application already
         // set, in one pass over headers as they stand before this method
-        // adds anything of its own. Headers.index() lazily builds and
-        // caches a lookup map, invalidated by the next add() after it was
-        // built (see its javadoc) - doing all four checks up front, before
-        // any add() below, lets that cache build once and serve all of
-        // them, instead of each add() forcing a full rebuild before the
-        // next check needs it (issue #278).
-        // Already-lower-case literals: Headers.containsName() re-lowercases
-        // whatever it's given on every call (it caches the *header names
-        // already in the list*, not the query string), so a mixed-case
-        // literal here would pay a real toLowerCase() transform+allocation
-        // - not just the cheap already-lower-case scan - on every response.
-        boolean hasXFrameOptions = headers.containsName("x-frame-options");
-        boolean hasXContentTypeOptions = headers.containsName("x-content-type-options");
-        boolean hasContentLength = headers.containsName("content-length");
-        boolean hasTransferEncoding = headers.containsName("transfer-encoding");
-        boolean hasContentEncoding = headers.containsName("content-encoding");
+        // adds anything of its own (issue #278).
+        boolean hasXFrameOptions = false;
+        boolean hasXContentTypeOptions = false;
+        boolean hasContentLength = false;
+        boolean hasTransferEncoding = false;
+        boolean hasContentEncoding = false;
+        for (Header existing : headers) {
+            String existingName = existing.getName();
+            if ("x-frame-options".equalsIgnoreCase(existingName)) {
+                hasXFrameOptions = true;
+            } else if ("x-content-type-options".equalsIgnoreCase(existingName)) {
+                hasXContentTypeOptions = true;
+            } else if ("content-length".equalsIgnoreCase(existingName)) {
+                hasContentLength = true;
+            } else if ("transfer-encoding".equalsIgnoreCase(existingName)) {
+                hasTransferEncoding = true;
+            } else if ("content-encoding".equalsIgnoreCase(existingName)) {
+                hasContentEncoding = true;
+            }
+        }
 
         // RFC 9110 section 10.2.4: Server header field
         //
@@ -1201,7 +1206,7 @@ class Stream implements HttpResponse {
             if (listener != null) {
                 String hsts = listener.getStrictTransportSecurityHeaderValue();
                 if (hsts != null
-                        && !headers.containsName("Strict-Transport-Security")) {
+                        && !HeaderFields.containsName(headers, "Strict-Transport-Security")) {
                     headers.add(new Header("Strict-Transport-Security", hsts));
                 }
             }
@@ -1209,19 +1214,19 @@ class Stream implements HttpResponse {
 
         // Add traceparent header to response if telemetry is enabled
         if (span != null) {
-            headers.add("traceparent", span.getSpanContext().toTraceparent());
+            HeaderFields.add(headers, "traceparent", span.getSpanContext().toTraceparent());
         }
 
         if (shouldCompressResponse(statusCode, endStream, hasContentLength,
                 hasTransferEncoding, hasContentEncoding)) {
             String acceptEncoding = this.headers != null
-                    ? this.headers.getCombinedValue("Accept-Encoding") : null;
+                    ? HeaderFields.getCombinedValue(this.headers, "Accept-Encoding") : null;
             ContentEncoding.Coding coding =
                     ContentEncoding.selectFromAcceptEncoding(acceptEncoding);
             if (coding != null) {
                 responseContentEncoder = ContentEncoding.createEncoder(coding);
-                headers.add("Content-Encoding", coding.token());
-                headers.removeAll("Content-Length");
+                HeaderFields.add(headers, "Content-Encoding", coding.token());
+                HeaderFields.removeAll(headers, "Content-Length");
                 hasContentLength = false;
             }
         }
@@ -1238,9 +1243,9 @@ class Stream implements HttpResponse {
                 // so no last-chunk will ever follow. Chunked framing here
                 // would leave the client waiting for a terminator that
                 // never comes, so delimit the (empty) body explicitly.
-                headers.add("Content-Length", "0");
+                HeaderFields.add(headers, "Content-Length", "0");
             } else {
-                headers.add("Transfer-Encoding", HttpProtocolHandler.TRANSFER_ENCODING_CHUNKED_VALUE);
+                HeaderFields.add(headers, "Transfer-Encoding", HttpProtocolHandler.TRANSFER_ENCODING_CHUNKED_VALUE);
                 responseChunked = true;
             }
         }
@@ -1400,11 +1405,11 @@ class Stream implements HttpResponse {
      *
      * @return false if a response was sent and dispatch must stop
      */
-    private boolean prepareRequestContentDecoding(Headers headers) {
+    private boolean prepareRequestContentDecoding(List<Header> headers) {
         if (!decodeRequestContentCoding || headers == null) {
             return true;
         }
-        String encoding = headers.getCombinedValue("Content-Encoding");
+        String encoding = HeaderFields.getCombinedValue(headers, "Content-Encoding");
         if (encoding == null || encoding.isEmpty()) {
             return true;
         }
@@ -1419,7 +1424,7 @@ class Stream implements HttpResponse {
             return false;
         }
         requestInboundCoding = coding;
-        headers.removeAll("Content-Encoding");
+        HeaderFields.removeAll(headers, "Content-Encoding");
         return true;
     }
 
@@ -1623,8 +1628,8 @@ class Stream implements HttpResponse {
         // Upgrade: handshake, which HTTP/2 forbids as a connection-specific
         // header field.
         if (connection.getVersion() == HttpVersion.HTTP_2_0) {
-            return "CONNECT".equals(headers.getValue(":method"))
-                    && "websocket".equalsIgnoreCase(headers.getValue(":protocol"));
+            return "CONNECT".equals(HeaderFields.getValue(headers, ":method"))
+                    && "websocket".equalsIgnoreCase(HeaderFields.getValue(headers, ":protocol"));
         }
         return WebSocketHandshake.isValidWebSocketUpgrade(headers);
     }
@@ -1674,19 +1679,19 @@ class Stream implements HttpResponse {
                 // Server/Date/security headers a normal 200 would -- H3's
                 // equivalent 200 does not, since it builds its headers by
                 // hand; harmless, just a minor cross-transport divergence.
-                Headers responseHeaders = new Headers();
+                List<Header> responseHeaders = new ArrayList<Header>();
                 if (subprotocol != null && !subprotocol.isEmpty()) {
-                    responseHeaders.add("sec-websocket-protocol", subprotocol);
+                    HeaderFields.add(responseHeaders, "sec-websocket-protocol", subprotocol);
                 }
                 String extHeader = WebSocketHandshake.formatExtensions(extensions);
                 if (extHeader != null && !extHeader.isEmpty()) {
-                    responseHeaders.add("sec-websocket-extensions", extHeader);
+                    HeaderFields.add(responseHeaders, "sec-websocket-extensions", extHeader);
                 }
                 sendResponseHeaders(200, responseHeaders, false);
             } else {
-                String key = headers.getValue("sec-websocket-key");
+                String key = HeaderFields.getValue(headers, "sec-websocket-key");
                 String extHeader = WebSocketHandshake.formatExtensions(extensions);
-                Headers responseHeaders = WebSocketHandshake.createWebSocketResponse(
+                List<Header> responseHeaders = WebSocketHandshake.createWebSocketResponse(
                         key, subprotocol, extHeader);
                 sendResponseHeaders(101, responseHeaders, false);
             }
@@ -1757,10 +1762,10 @@ class Stream implements HttpResponse {
             return false;
         }
         if (connection.getVersion() == HttpVersion.HTTP_2_0) {
-            return "CONNECT".equals(headers.getValue(":method"))
-                    && protocolToken.equalsIgnoreCase(headers.getValue(":protocol"));
+            return "CONNECT".equals(HeaderFields.getValue(headers, ":method"))
+                    && protocolToken.equalsIgnoreCase(HeaderFields.getValue(headers, ":protocol"));
         }
-        return protocolToken.equalsIgnoreCase(headers.getValue("upgrade"));
+        return protocolToken.equalsIgnoreCase(HeaderFields.getValue(headers, "upgrade"));
     }
 
     /**
@@ -1783,15 +1788,15 @@ class Stream implements HttpResponse {
             if (connection.getVersion() == HttpVersion.HTTP_2_0) {
                 // RFC 9298 section 3 / RFC 9484 section 4: a 2xx response
                 // accepts the tunnel, the same shape RFC 8441 WebSocket uses.
-                sendResponseHeaders(200, new Headers(), false);
+                sendResponseHeaders(200, new ArrayList<Header>(), false);
                 // the header section is out: capsules are body from here
                 responseState = ResponseState.IN_BODY;
             } else {
                 // RFC 9110 section 7.8: HTTP/1.1 accepts via 101
                 // Switching Protocols instead.
-                Headers responseHeaders = new Headers();
-                responseHeaders.add("connection", "upgrade");
-                responseHeaders.add("upgrade", protocolToken);
+                List<Header> responseHeaders = new ArrayList<Header>();
+                HeaderFields.add(responseHeaders, "connection", "upgrade");
+                HeaderFields.add(responseHeaders, "upgrade", protocolToken);
                 sendResponseHeaders(101, responseHeaders, false);
                 // Hand this connection's remaining raw bytes to this
                 // stream -- see switchToStreamTunnelMode's own
@@ -1936,11 +1941,11 @@ class Stream implements HttpResponse {
             state = State.OPEN;
         }
         rejectedByFramework = true;
-        Headers headers = new Headers();
+        List<Header> headers = new ArrayList<Header>();
         // For HTTP/1.x, add Content-Length: 0 so clients know there's no body
         // Also close connection on error to prevent keep-alive issues
         if (connection.getVersion() != HttpVersion.HTTP_2_0) {
-            headers.add("Content-Length", "0");
+            HeaderFields.add(headers, "Content-Length", "0");
             closeConnection = true; // Close connection after error
         }
         sendResponseHeaders(statusCode, headers, true);
@@ -1958,13 +1963,13 @@ class Stream implements HttpResponse {
             state = State.OPEN;
         }
         rejectedByFramework = true;
-        Headers headers = new Headers();
+        List<Header> headers = new ArrayList<Header>();
         String challenge = authProvider.generateChallenge();
         if (challenge != null) {
-            headers.add("WWW-Authenticate", challenge);
+            HeaderFields.add(headers, "WWW-Authenticate", challenge);
         }
         if (connection.getVersion() != HttpVersion.HTTP_2_0) {
-            headers.add("Content-Length", "0");
+            HeaderFields.add(headers, "Content-Length", "0");
         }
         sendResponseHeaders(401, headers, true);
     }
@@ -2064,17 +2069,23 @@ class Stream implements HttpResponse {
                     L10N.getString("err.response_status_late"), responseState));
         }
         if (bufferedResponseHeaders == null) {
-            bufferedResponseHeaders = new Headers();
+            bufferedResponseHeaders = new ArrayList<Header>();
         }
-        bufferedResponseHeaders.removeAll(":status");
-        bufferedResponseHeaders.add(":status", Integer.toString(code));
+        HeaderFields.removeAll(bufferedResponseHeaders, ":status");
+        HeaderFields.add(bufferedResponseHeaders, ":status", Integer.toString(code));
     }
 
     @Override
-    public void header(String name, String value) {
+    public void header(String name, ByteBuffer value) {
+        byte[] octets = new byte[value.remaining()];
+        value.duplicate().get(octets);
+        addField(name, new String(octets, java.nio.charset.StandardCharsets.ISO_8859_1));
+    }
+
+    private void addField(String name, String value) {
         if (pushHeaders != null) {
             HttpUtils.requireAsciiFieldValue(name, value);
-            pushHeaders.add(name, value);
+            HeaderFields.add(pushHeaders, name, value);
             return;
         }
         if (responseState == ResponseState.COMPLETE) {
@@ -2089,9 +2100,9 @@ class Stream implements HttpResponse {
             }
             if (!trailersStarted) {
                 trailersStarted = true;
-                bufferedResponseHeaders = new Headers();
+                bufferedResponseHeaders = new ArrayList<Header>();
             }
-            bufferedResponseHeaders.add(name, value);
+            HeaderFields.add(bufferedResponseHeaders, name, value);
             return;
         }
         if (responseState != ResponseState.INITIAL) {
@@ -2099,9 +2110,9 @@ class Stream implements HttpResponse {
                     L10N.getString("err.response_status_late"), responseState));
         }
         if (bufferedResponseHeaders == null) {
-            bufferedResponseHeaders = new Headers();
+            bufferedResponseHeaders = new ArrayList<Header>();
         }
-        bufferedResponseHeaders.add(name, value);
+        HeaderFields.add(bufferedResponseHeaders, name, value);
     }
 
     @Override
@@ -2113,7 +2124,7 @@ class Stream implements HttpResponse {
             return; // the header section is already out
         }
         String statusStr = bufferedResponseHeaders == null
-                ? null : bufferedResponseHeaders.getValue(":status");
+                ? null : HeaderFields.getValue(bufferedResponseHeaders, ":status");
         if (statusStr != null && statusStr.startsWith("1")) {
             sendInterimResponse(Integer.parseInt(statusStr));
             return;
@@ -2127,17 +2138,17 @@ class Stream implements HttpResponse {
     /** A response with no status is a 200. */
     private void ensureStatus() {
         if (bufferedResponseHeaders == null) {
-            bufferedResponseHeaders = new Headers();
+            bufferedResponseHeaders = new ArrayList<Header>();
         }
-        if (bufferedResponseHeaders.getValue(":status") == null) {
-            bufferedResponseHeaders.add(":status", "200");
+        if (HeaderFields.getValue(bufferedResponseHeaders, ":status") == null) {
+            HeaderFields.add(bufferedResponseHeaders, ":status", "200");
         }
     }
 
     /** Sends a 1xx response from the buffered fields and starts over. */
     private void sendInterimResponse(int statusCode) {
-        Headers fields = bufferedResponseHeaders;
-        fields.removeAll(":status");
+        List<Header> fields = bufferedResponseHeaders;
+        HeaderFields.removeAll(fields, ":status");
         bufferedResponseHeaders = null;
         // RFC 9110 section 15.2: 1xx not defined for HTTP/1.0
         if (connection.getVersion() == HttpVersion.HTTP_1_0) {
@@ -2315,7 +2326,7 @@ class Stream implements HttpResponse {
      * they are dropped, as a recipient may ignore trailer fields.
      */
     private void sendTrailers() throws ProtocolException {
-        Headers trailers = bufferedResponseHeaders;
+        List<Header> trailers = bufferedResponseHeaders;
         bufferedResponseHeaders = null;
         if (responseContentEncoder != null) {
             // the coding covers the content only, which ends here
@@ -2354,7 +2365,7 @@ class Stream implements HttpResponse {
         }
         pushMethod = method;
         pushTarget = target;
-        pushHeaders = new Headers();
+        pushHeaders = new ArrayList<Header>();
     }
 
     @Override
@@ -2362,7 +2373,7 @@ class Stream implements HttpResponse {
         if (pushHeaders == null) {
             throw new IllegalStateException(L10N.getString("err.push_promise_not_open"));
         }
-        Headers promised = pushHeaders;
+        List<Header> promised = pushHeaders;
         String method = pushMethod.toString();
         String path = pushTarget;
         pushHeaders = null;
@@ -2377,14 +2388,14 @@ class Stream implements HttpResponse {
             return false;
         }
         // the promised request's pseudo-header fields (RFC 9113 section 8.4.1)
-        Headers fields = new Headers();
-        fields.add(":method", method);
-        fields.add(":scheme", getScheme());
+        List<Header> fields = new ArrayList<Header>();
+        HeaderFields.add(fields, ":method", method);
+        HeaderFields.add(fields, ":scheme", getScheme());
         String authority = requestAuthority();
         if (authority != null) {
-            fields.add(":authority", authority);
+            HeaderFields.add(fields, ":authority", authority);
         }
-        fields.add(":path", path);
+        HeaderFields.add(fields, ":path", path);
         for (Header header : promised) {
             fields.add(header);
         }
@@ -2423,7 +2434,7 @@ class Stream implements HttpResponse {
         }
 
         // Extract status code from :status pseudo-header
-        String statusStr = bufferedResponseHeaders.getValue(":status");
+        String statusStr = HeaderFields.getValue(bufferedResponseHeaders, ":status");
         int statusCode = 200; // Default if no :status header
         if (statusStr != null) {
             try {
@@ -2433,7 +2444,7 @@ class Stream implements HttpResponse {
                 statusCode = 500;
             }
             // Remove :status from headers - it's handled separately
-            bufferedResponseHeaders.removeAll(":status");
+            HeaderFields.removeAll(bufferedResponseHeaders, ":status");
         }
 
         try {

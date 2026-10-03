@@ -21,7 +21,6 @@
 
 package org.bluezoo.gumdrop.servlet;
 
-import org.bluezoo.gumdrop.http.Headers;
 import org.bluezoo.gumdrop.http.server.HttpResponse;
 import org.bluezoo.gumdrop.http.HttpVersion;
 
@@ -161,7 +160,7 @@ public class ServletNonBlockingIOTest {
         StubHTTPResponseState state = new StubHTTPResponseState();
         Container service = new Container();
         ServletHandler handler = new ServletHandler(service, state, 8192);
-        Headers h = new Headers();
+        ServletHeaders h = new ServletHeaders();
         h.add(":method", "POST");
         h.add(":path", "/upload");
         MessageEvents.headers(handler, h);
@@ -195,7 +194,7 @@ public class ServletNonBlockingIOTest {
         };
         Container service = new Container();
         StubServletHandler handler = new StubServletHandler(service, state);
-        Request request = new Request(handler, 128, "GET", "/t", new Headers(),
+        Request request = new Request(handler, 128, "GET", "/t", new ServletHeaders(),
                 new RequestBodyStream());
         Response response = new Response(handler, request, 128);
         bindHandlerState(handler, state, request, response);
@@ -220,7 +219,7 @@ public class ServletNonBlockingIOTest {
         StubHTTPResponseState state = new StubHTTPResponseState();
         Container service = new Container();
         StubServletHandler handler = new StubServletHandler(service, state);
-        Request request = new Request(handler, 8192, "GET", "/t", new Headers(),
+        Request request = new Request(handler, 8192, "GET", "/t", new ServletHeaders(),
                 new RequestBodyStream());
         Response response = new Response(handler, request, 8192);
         ServletOutputStreamWrapper wrapper =
@@ -241,7 +240,7 @@ public class ServletNonBlockingIOTest {
         BackpressureState state = new BackpressureState(5 * 1024 * 1024);
         Container service = new Container();
         StubServletHandler handler = new StubServletHandler(service, state);
-        Request request = new Request(handler, 8192, "GET", "/t", new Headers(),
+        Request request = new Request(handler, 8192, "GET", "/t", new ServletHeaders(),
                 new RequestBodyStream());
         Response response = new Response(handler, request, 8192);
         bindHandlerState(handler, state, request, response);
@@ -276,7 +275,7 @@ public class ServletNonBlockingIOTest {
             throws Exception {
         Container service = new Container();
         StubServletHandler handler = new StubServletHandler(service, state);
-        return new Request(handler, 8192, "GET", "/test", new Headers(), body);
+        return new Request(handler, 8192, "GET", "/test", new ServletHeaders(), body);
     }
 
     private static void bindHandlerState(ServletHandler handler, HttpResponse state,
@@ -333,7 +332,7 @@ public class ServletNonBlockingIOTest {
         @Override public org.bluezoo.gumdrop.SelectorLoop getSelectorLoop() { return null; }
         @Override public java.security.Principal getPrincipal() { return null; }
         @Override public void status(int code) { }
-        @Override public void header(String name, String value) { }
+        @Override public void header(String name, ByteBuffer rawValue) { }
         @Override public void endHeaders() { }
         @Override public void bodyContent(ByteBuffer data) { }
         @Override public void endMessage() { }
