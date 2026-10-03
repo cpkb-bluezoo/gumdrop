@@ -78,7 +78,8 @@ uses W3C Trace Context and familiar span kinds and attributes</li>
 <li><b>Native integration</b> - uses Gumdrop's HTTP client for non-blocking
 export with SelectorLoop affinity and endpoint pooling</li>
 <li><b>Zero-dependency</b> - self-contained protobuf serialization; no
-OpenTelemetry Java SDK or agent on the application classpath</li>
+OpenTelemetry Java SDK or agent on the application classpath (see
+<a href="#api-design">why Gumdrop does not use the OpenTelemetry SDK</a>)</li>
 </ul>
 
 <h4>Core Concepts</h4>
@@ -161,6 +162,42 @@ multiplexed SelectorLoop servers. Gumdrop 3 standardises on the native
 <code>org.bluezoo.gumdrop.telemetry</code> types for custom spans and
 metrics; they are consistent with built-in protocol instrumentation and safe
 when used with explicit trace and client wiring as documented below.
+</p>
+
+<h4>Could we use the OpenTelemetry API classes alone?</h4>
+
+<p>
+We evaluated using just the API types (<code>io.opentelemetry.api</code>)
+without the SDK, to give developers who already know OpenTelemetry a familiar
+vocabulary. We concluded the benefit did not justify the cost:
+</p>
+
+<ul>
+<li><b>The context model is in the API itself</b> - <code>Context</code>,
+<code>Scope</code> and <code>Span.current()</code> are part of the API, and
+their default implementation is thread-local. Adopting the types means
+adopting the implicit-context idioms that every OpenTelemetry tutorial and
+instrumentation library teaches, which is precisely what is unsafe on a
+multiplexed SelectorLoop.</li>
+<li><b>Familiarity would be misleading</b> - code that looks like standard
+OpenTelemetry but must follow different rules (explicit trace, no ambient
+context) is more likely to be misused than an API that is visibly different.
+The Gumdrop concepts (trace, span, span kind, attributes, events, metric
+instruments) map directly onto the OpenTelemetry ones, so the learning cost
+for an OpenTelemetry user is small.</li>
+<li><b>Extra dependency and security surface</b> - Gumdrop keeps its runtime
+dependencies minimal. Each additional library must be tracked for
+vulnerabilities and kept up to date, and the API would be a compile-time
+dependency of every module that creates spans, with its own release
+cadence.</li>
+<li><b>Nothing is lost on the wire</b> - interoperability is defined by OTLP
+and W3C Trace Context, not by Java classes. Gumdrop implements both directly,
+so any OpenTelemetry Collector or compatible backend works unchanged.</li>
+</ul>
+
+<p>
+This is a considered engineering decision rather than a permanent one, and
+it can be revisited if the trade-offs change.
 </p>
 
 <h4>What this means for you</h4>
