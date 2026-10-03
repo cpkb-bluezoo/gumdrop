@@ -596,4 +596,93 @@ public class Http1ParserTest {
                 "version HTTP/1.1", "status 200", "reason OK", "header host x", "long content-length 0",
                 "endHeaders", "endMessage");
     }
+
+    // ---- raw tap and handing over the connection ----
+
+    @Test
+    public void aTapSeesEveryHeaderSectionFieldAsSentWithTheOriginalCase() {
+        final List<String> tapped = new ArrayList<String>();
+        Setup tap = new Setup() {
+            @Override public void apply(Http1Parser p) {
+                p.setFieldTap(new org.bluezoo.gumdrop.http.HeaderFieldHandler() {
+                    @Override
+                    public void field(ByteBuffer name, ByteBuffer value) {
+                        tapped.add(RecordingMessageHandler.text(name) + "=" + RecordingMessageHandler.text(value));
+                    }
+                });
+            }
+        };
+        for (int i = 0; i < CHUNK_SIZES.length; i++) {
+            tapped.clear();
+            run(true, "POST / HTTP/1.1\r\nHost: example.test\r\nContent-Type: text/plain;charset=utf-8\r\n"
+                    + "Content-Length: 007\r\nX-Folded: a\r\n b\r\nTransfer-Encoding-X: y\r\n\r\n"
+                    + "0000000", CHUNK_SIZES[i], tap, false, false);
+            // names as sent; the typed events lose the exact text ("007" is the number 7), the tap keeps it
+            assertEquals("chunk size " + CHUNK_SIZES[i], Arrays.asList("Host=example.test",
+                    "Content-Type=text/plain;charset=utf-8", "Content-Length=007",
+                    "X-Folded=a b", "Transfer-Encoding-X=y"), tapped);
+        }
+    }
+
+    @Test
+    public void theTapIsNotGivenTrailers() {
+        final List<String> tapped = new ArrayList<String>();
+        Setup tap = new Setup() {
+            @Override public void apply(Http1Parser p) {
+                p.setFieldTap(new org.bluezoo.gumdrop.http.HeaderFieldHandler() {
+                    @Override
+                    public void field(ByteBuffer name, ByteBuffer value) {
+                        tapped.add(RecordingMessageHandler.text(name));
+                    }
+                });
+            }
+        };
+        run(true, "POST / HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n0\r\nX-Trail: v\r\n\r\n", 100000, tap, false, false);
+        assertEquals(Arrays.asList("Transfer-Encoding"), tapped);
+    }
+
+    @Test
+    public void handingOffAfterEndHeadersLeavesTheRestOfTheInputAlone() {
+        for (int i = 0; i < CHUNK_SIZES.length; i++) {
+            final Http1Parser[] parser = new Http1Parser[1];
+            RecordingMessageHandler r = new RecordingMessageHandler() {
+                @Override public void endHeaders() {
+                    super.endHeaders();
+                    parser[0].handOff();        // e.g. a WebSocket upgrade took the connection
+                }
+            };
+            parser[0] = Http1Parser.forRequests(r);
+            byte[] all = "GET /chat HTTP/1.1\r\nHost: h\r\nUpgrade: websocket\r\n\r\nFRAMEBYTES".getBytes(StandardCharsets.ISO_8859_1);
+            ByteBuffer buf = ByteBuffer.allocate(all.length + 8);
+            for (int pos = 0; pos < all.length && !parser[0].isTunnel(); pos += CHUNK_SIZES[i]) {
+                buf.put(all, pos, Math.min(CHUNK_SIZES[i], all.length - pos));
+                buf.flip();
+                parser[0].receive(buf);
+                buf.compact();
+            }
+            assertTrue(parser[0].isTunnel());
+            // what follows the blank line is not HTTP and is left for the new owner
+            buf.flip();
+            String rest = RecordingMessageHandler.text(buf);
+            assertTrue("chunk size " + CHUNK_SIZES[i] + ": " + rest, "FRAMEBYTES".startsWith(rest) || rest.isEmpty());
+            assertEquals(Arrays.asList("method GET", "target /chat", "version HTTP/1.1", "authority h",
+                    "header upgrade websocket", "endHeaders"), r.events);
+        }
+    }
+
+    @Test
+    public void handingOffAfterEndMessageStopsBeforeTheNextPipelinedRequest() {
+        final Http1Parser[] parser = new Http1Parser[1];
+        RecordingMessageHandler r = new RecordingMessageHandler() {
+            @Override public void endMessage() {
+                super.endMessage();
+                parser[0].handOff();
+            }
+        };
+        parser[0] = Http1Parser.forRequests(r);
+        ByteBuffer buf = ByteBuffer.wrap("GET /a HTTP/1.1\r\n\r\nGET /b HTTP/1.1\r\n\r\n".getBytes(StandardCharsets.ISO_8859_1));
+        parser[0].receive(buf);
+        assertEquals(Arrays.asList("method GET", "target /a", "version HTTP/1.1", "endHeaders", "endMessage"), r.events);
+        assertEquals("GET /b HTTP/1.1\r\n\r\n", RecordingMessageHandler.text(buf));
+    }
 }

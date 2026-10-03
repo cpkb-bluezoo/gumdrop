@@ -426,6 +426,11 @@ class Stream implements HttpResponseState {
         return contentLength - requestBodyBytesReceived;
     }
 
+    /** The recorder the HTTP/1.x server feeds the request's message events to. */
+    HttpMessageRecorder eventRecorder() {
+        return recordedEvents;
+    }
+
     long getRequestBodyBytesReceived() {
         return requestBodyBytesReceived;
     }

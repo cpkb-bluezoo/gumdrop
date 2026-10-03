@@ -46,7 +46,7 @@ import org.bluezoo.gumdrop.mime.ContentType;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-public final class RecordingMessageHandler implements HttpMessageHandler {
+public class RecordingMessageHandler implements HttpMessageHandler {
 
     /** The events, in order, as text such as {@code "method GET"} or {@code "header host example.test"}. */
     public final List<String> events = new ArrayList<String>();

@@ -24,6 +24,7 @@ package org.bluezoo.gumdrop.http.h1;
 import java.nio.ByteBuffer;
 
 import org.bluezoo.gumdrop.http.FieldDispatcher;
+import org.bluezoo.gumdrop.http.HeaderFieldHandler;
 import org.bluezoo.gumdrop.http.HttpError;
 import org.bluezoo.gumdrop.http.HttpMessageHandler;
 import org.bluezoo.gumdrop.http.HttpMethod;
@@ -106,6 +107,9 @@ public final class Http1Parser {
     private State state = State.START_LINE;
     private boolean underflow;
     private ByteBuffer view;
+    private ByteBuffer nameView;
+    private HeaderFieldHandler tap;
+    private boolean handOff;
 
     private int maxStartLineLength = DEFAULT_MAX_START_LINE_LENGTH;
     private int maxFieldLineLength = DEFAULT_MAX_FIELD_LINE_LENGTH;
@@ -179,6 +183,32 @@ public final class Http1Parser {
     }
 
     /**
+     * Sets a tap that is given every field of every header section, as the
+     * octets that were sent: the name in its original case and the value as it
+     * was (folds replaced, white space trimmed). The typed events do not
+     * always keep the exact text of a field ({@code Content-Length: 007} is
+     * the number 7), so a receiver that needs the field as sent, as a server
+     * does for its own bookkeeping, takes it from here. The tap is called
+     * before the field's own events. Trailers are not tapped.
+     *
+     * @param tap the receiver of the fields, or null for none
+     */
+    public void setFieldTap(HeaderFieldHandler tap) {
+        this.tap = tap;
+    }
+
+    /**
+     * Stops parsing after the event being delivered, leaving everything not
+     * yet parsed in the buffer for a new owner, as for {@link #isTunnel()}.
+     * It is for the protocol layer to call from an event handler when it takes
+     * the connection over: a WebSocket upgrade after {@code endHeaders}, or a
+     * switch to HTTP/2 after {@code endMessage}.
+     */
+    public void handOff() {
+        handOff = true;
+    }
+
+    /**
      * Tells a response parser which method the next final response answers.
      * A response to {@code HEAD} has no body whatever its fields say, and a
      * successful response to {@code CONNECT} turns the connection into a
@@ -203,14 +233,14 @@ public final class Http1Parser {
 
     /**
      * Returns whether the connection has stopped being HTTP/1.x, after a
-     * {@code 101} response or a successful response to {@code CONNECT}. The
-     * parser leaves the bytes that follow untouched in the buffer; they belong
-     * to the other protocol.
+     * {@code 101} response, a successful response to {@code CONNECT}, or a call
+     * to {@link #handOff()}. The parser leaves the bytes that follow untouched
+     * in the buffer; they belong to the other protocol.
      *
-     * @return true after a protocol switch or tunnel
+     * @return true after a protocol switch, tunnel or hand-off
      */
     public boolean isTunnel() {
-        return state == State.TUNNEL;
+        return state == State.TUNNEL || handOff;
     }
 
     /**
@@ -222,7 +252,12 @@ public final class Http1Parser {
     public void receive(ByteBuffer data) {
         underflow = false;
         view = data.asReadOnlyBuffer();
+        nameView = data.asReadOnlyBuffer();
         while (data.hasRemaining()) {
+            if (handOff) {
+                state = State.TUNNEL;
+                return;
+            }
             boolean progressed;
             switch (state) {
                 case START_LINE:
@@ -258,6 +293,10 @@ public final class Http1Parser {
                     // framing is lost; take the input so a caller does not loop
                     data.position(data.limit());
                     return;
+            }
+            if (handOff) {
+                state = State.TUNNEL;
+                return;
             }
             if (!progressed) {
                 underflow = true;
@@ -604,6 +643,14 @@ public final class Http1Parser {
                 return;
             }
         }
+        if (!trailer && tap != null) {
+            nameView.clear();
+            nameView.position(start);
+            nameView.limit(colon);
+            int valuePosition = value.position();
+            tap.field(nameView, value);
+            value.position(valuePosition);
+        }
         if (trailer) {
             handler.trailer(name, value);
         } else if (request && name.equals("host")) {
@@ -715,6 +762,10 @@ public final class Http1Parser {
             responseTo = null;
         }
         handler.endHeaders();
+        if (handOff) {
+            // the protocol layer took the connection over; receive() stops
+            return;
+        }
         if (none) {
             finishMessage();
             if (tunnel) {
@@ -798,6 +849,9 @@ public final class Http1Parser {
             byte b = d.get(i);
             if (b == '\r') {
                 break;
+            }
+            if (i - start > maxFieldLineLength) {
+                return fail(HttpError.MALFORMED, "chunk size line too long");
             }
             if (b == '\n' || (b >= 0 && b < 0x20 && b != '\t') || b == 0x7F
                     || (i == start + digits && b != ';')) {

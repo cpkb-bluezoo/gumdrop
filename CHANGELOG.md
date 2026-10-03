@@ -172,13 +172,25 @@ user-visible themes since 2.2.x.
   it (`HttpMessageRecorder`). The older `headers`, `startRequestBody`,
   `requestBodyContent`, `endRequestBody` and `requestComplete` methods are still
   called, so existing handlers keep working while they move over; they will be
-  removed. The new events are not yet sent for HTTP/1.x requests. The
-  `state` parameter of the handler methods is now named `response`.
+  removed. The `state` parameter of the handler methods is now named `response`.
   Consequences of the stricter rules now being applied in one place
   (`FieldSectionAdapter`): a plain `CONNECT` over HTTP/2 or HTTP/3 must have
   `:authority` and no `:scheme` or `:path` (RFC 9113 section 8.5); a pseudo-header in
   trailers is refused; and an HTTP/3 request missing a mandatory pseudo-header
   is reset with `H3_MESSAGE_ERROR` instead of being answered with a 400.
+- **The server reads HTTP/1.x requests with `Http1Parser`.** A request over
+  HTTP/1.0 or HTTP/1.1 now reaches a handler through the same message events
+  as HTTP/2 and HTTP/3. The lexer-based request parser in
+  `HttpProtocolHandler` is gone. Behaviour that changes with it: a request
+  without `Content-Length` or `Transfer-Encoding` has no body, so an HTTP/1.0
+  `POST` that relied on "body until close" is answered `411` (RFC 9112 section
+  6.3); a request line naming `HTTP/2.0` other than the connection preface is
+  answered `505` rather than `400`; a quoted-string chunk extension is
+  accepted (RFC 9112 section 7.1.1); chunk data is streamed, so a chunk is no
+  longer limited to 10 MB and a body over the size limit is refused once its
+  data arrives rather than when the chunk size is read; field values are
+  passed as sent, with the whitespace inside a value kept; and a field line
+  may be at most 8192 octets, folded lines included.
 - **`FieldSectionAdapter`.**
   Receives the fields the HPACK and QPACK decoders push and turns an HTTP/2 or
   HTTP/3 field section into the same `HttpMessageHandler` events (the
