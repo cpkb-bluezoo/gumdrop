@@ -56,7 +56,7 @@ import org.bluezoo.gumdrop.NullSecurityInfo;
 import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.TimerHandle;
 import org.bluezoo.gumdrop.SecurityInfo;
-import org.bluezoo.gumdrop.http.hpack.HeaderHandler;
+import org.bluezoo.gumdrop.http.HeaderFieldHandler;
 import org.bluezoo.gumdrop.util.ByteBufferPool;
 import org.bluezoo.gumdrop.websocket.WebSocketConnection;
 import org.bluezoo.gumdrop.websocket.WebSocketEventHandler;
@@ -254,11 +254,31 @@ class Stream implements HttpResponseState {
      * authentication (RFC 7616 H(A2)) and HEAD response body suppression
      * (RFC 9110 section 9.3.2) silently misbehave for HTTP/2.
      */
-    private final HeaderHandler hpackHandler = new HeaderHandler() {
-        @Override public void header(Header header) {
-            addHeader(header);
+    private final HeaderFieldHandler hpackHandler = new HeaderFieldHandler() {
+        @Override public void field(ByteBuffer name, ByteBuffer value) {
+            acceptField(name, value);
         }
     };
+
+    /**
+     * Set while decoding a header block if any field in it was not valid HTTP
+     * field syntax. The decoder always consumes the whole block, so its
+     * dynamic table stays in step with the peer's; the stream is then rejected
+     * as malformed (RFC 9113 section 8.1.1), not the connection torn down.
+     */
+    private boolean malformedField;
+
+    /**
+     * Takes one decoded field: adds it to the headers, or notes that the
+     * block held a malformed one.
+     */
+    private void acceptField(ByteBuffer name, ByteBuffer value) {
+        try {
+            addHeader(Header.ofOctets(name, value));
+        } catch (IllegalArgumentException e) {
+            malformedField = true;
+        }
+    }
 
     /**
      * Returns the URI scheme of the connection.
@@ -478,6 +498,7 @@ class Stream implements HttpResponseState {
         if (headerBlock != null) {
             headerBlock.flip();
             headers = new Headers();
+            malformedField = false;
             try {
                 // RFC 7541: HPACK decompression of the header block
                 connection.getHpackDecoder().decode(headerBlock, hpackHandler);
@@ -495,9 +516,11 @@ class Stream implements HttpResponseState {
             headerBlock = null;
         }
         // RFC 9113 section 8.2: validate pseudo-headers and
-        // connection-specific header constraints
+        // connection-specific header constraints. A field that was not valid
+        // field syntax makes the request malformed (section 8.1.1): a stream
+        // error, decided only now that the whole block has been decoded.
         if (connection.getVersion() == HttpVersion.HTTP_2_0
-                && headers != null && !validateH2Headers()) {
+                && headers != null && (malformedField || !validateH2Headers())) {
             rejectedByFramework = true;
             connection.sendRstStream(streamId, H2FrameHandler.ERROR_PROTOCOL_ERROR);
             state = State.CLOSED;

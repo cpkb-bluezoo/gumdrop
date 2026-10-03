@@ -75,7 +75,7 @@ public class QpackTruncationSweepTest {
         for (int cut = 0; cut <= whole.length; cut++) {
             Decoder decoder = new Decoder(4096);
             try {
-                decoder.decode(0L, ByteBuffer.wrap(prefix(whole, cut)));
+                QpackTestSupport.decode(decoder, 0L, ByteBuffer.wrap(prefix(whole, cut)));
             } catch (ProtocolException expected) {
                 assertTrue("cut " + cut, cut < whole.length);
             }
@@ -114,7 +114,7 @@ public class QpackTruncationSweepTest {
             encoder.takeLastInstructionError();
             Decoder blockDecoder = new Decoder(4096);
             try {
-                blockDecoder.decode(0L, ByteBuffer.wrap(new byte[] {(byte) value}));
+                QpackTestSupport.decode(blockDecoder, 0L, ByteBuffer.wrap(new byte[] {(byte) value}));
             } catch (ProtocolException expected) {
                 assertEquals(ProtocolException.class, expected.getClass());
             }

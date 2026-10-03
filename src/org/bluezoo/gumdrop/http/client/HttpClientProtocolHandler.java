@@ -64,7 +64,7 @@ import org.bluezoo.gumdrop.http.h2.H2Parser;
 import org.bluezoo.gumdrop.http.h2.H2Writer;
 import org.bluezoo.gumdrop.http.hpack.Decoder;
 import org.bluezoo.gumdrop.http.hpack.Encoder;
-import org.bluezoo.gumdrop.http.hpack.HeaderHandler;
+import org.bluezoo.gumdrop.http.HeaderCollector;
 import org.bluezoo.gumdrop.telemetry.Trace;
 import org.bluezoo.gumdrop.util.ByteBufferPool;
 
@@ -2660,14 +2660,9 @@ public class HttpClientProtocolHandler
         }
 
         headerBlockBuffer.flip();
-        final Headers promisedHeaders = new Headers();
+        final HeaderCollector promised = new HeaderCollector();
         try {
-            hpackDecoder.decode(headerBlockBuffer, new HeaderHandler() {
-                @Override
-                public void header(Header header) {
-                    promisedHeaders.add(header);
-                }
-            });
+            hpackDecoder.decode(headerBlockBuffer, promised);
         } catch (IOException e) {
             LOGGER.log(Level.WARNING, L10N.getString("warn.hpack_decode_push_promise"), e);
             sendGoaway(H2FrameHandler.ERROR_COMPRESSION_ERROR,
@@ -2676,6 +2671,13 @@ public class HttpClientProtocolHandler
         } finally {
             headerBlockBuffer = null;
         }
+        if (promised.isMalformed()) {
+            // RFC 9113 section 8.1.1: a malformed message is a stream error.
+            // The block was decoded in full, so the HPACK state is intact.
+            sendRstStream(promisedStreamId, H2FrameHandler.ERROR_PROTOCOL_ERROR);
+            return;
+        }
+        final Headers promisedHeaders = promised.headers();
 
         HttpStream associatedStream = activeStreams.get(associatedStreamId);
         HttpResponseHandler responseHandler = (associatedStream != null)
@@ -2882,15 +2884,10 @@ public class HttpClientProtocolHandler
         }
 
         headerBlockBuffer.flip();
-        final Headers headers = new Headers();
+        final HeaderCollector collected = new HeaderCollector();
 
         try {
-            hpackDecoder.decode(headerBlockBuffer, new HeaderHandler() {
-                @Override
-                public void header(Header header) {
-                    headers.add(header);
-                }
-            });
+            hpackDecoder.decode(headerBlockBuffer, collected);
         } catch (IOException e) {
             LOGGER.log(Level.WARNING, L10N.getString("warn.hpack_decode_error"), e);
             sendGoaway(H2FrameHandler.ERROR_COMPRESSION_ERROR,
@@ -2899,6 +2896,14 @@ public class HttpClientProtocolHandler
         } finally {
             headerBlockBuffer = null;
         }
+        if (collected.isMalformed()) {
+            // RFC 9113 section 8.1.1: a field that is not valid field syntax
+            // makes the response malformed, a stream error. The block was
+            // decoded in full, so the HPACK state is intact.
+            failMalformedResponse(stream, streamId);
+            return;
+        }
+        final Headers headers = collected.headers();
 
         String statusStr = headers.getValue(":status");
         if (statusStr != null) {

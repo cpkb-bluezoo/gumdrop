@@ -28,11 +28,15 @@ import java.net.ProtocolException;
 import java.nio.ByteBuffer;
 
 /**
- * Regression tests for issue #256 — malformed QPACK input found by JQF/Zest
- * fuzzing that threw an unchecked exception instead of the documented
- * {@link ProtocolException}. Same root cause as HPACK issue #255: both
- * decoders share {@link org.bluezoo.gumdrop.http.Header}, whose constructor
- * validates the name/value and throws unchecked on failure.
+ * Malformed QPACK input (issue #256: fuzzing once found input that threw an
+ * unchecked exception instead of the documented {@link ProtocolException}).
+ *
+ * <p>The decoder used to build a validating {@code Header} per field and so
+ * turned a bad field into a decode error. It now delivers fields as octets and
+ * the receiver checks them, so a field with an invalid value is a rejected
+ * message, not a decode error; the section is still decoded and acknowledged
+ * in full (RFC 9204 section 4.4.1).
+ *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 public class DecoderMalformedInputTest {
@@ -46,7 +50,7 @@ public class DecoderMalformedInputTest {
      * already check remaining bytes and throw ProtocolException cleanly.)
      */
     @Test
-    public void testInvalidValueCharacterThrowsProtocolException() {
+    public void testInvalidValueCharacterIsDeliveredAndRejectedByTheReceiver() throws ProtocolException {
         byte[] data = new byte[] {
             0x00, // Required Insert Count byte: encoded RIC = 0
             0x00, // Base: sign=0, delta=0
@@ -56,11 +60,13 @@ public class DecoderMalformedInputTest {
             0x0D, // value: bare CR, invalid in a header value
         };
         Decoder decoder = new Decoder(4096);
-        try {
-            decoder.decode(1L, ByteBuffer.wrap(data));
-            fail("expected a ProtocolException for an invalid header value");
-        } catch (ProtocolException expected) {
-            // expected: a clean decode error, not an unchecked exception
-        }
+        // The decoder does not judge the field: it consumes and acknowledges
+        // the whole section (RFC 9204 section 4.4.1) and the receiver decides.
+        // Here the receiver's field check refuses the bare CR.
+        org.bluezoo.gumdrop.http.HeaderCollector collector =
+                new org.bluezoo.gumdrop.http.HeaderCollector();
+        decoder.decode(1L, ByteBuffer.wrap(data), collector);
+        org.junit.Assert.assertTrue("the field was refused by the receiver", collector.isMalformed());
+        org.junit.Assert.assertTrue("and nothing invalid got through", collector.headers().isEmpty());
     }
 }

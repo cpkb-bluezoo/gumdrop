@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.http.server;
 
+import org.bluezoo.gumdrop.http.HeaderFieldHandler;
 import org.bluezoo.gumdrop.http.Header;
 import org.bluezoo.gumdrop.http.Headers;
 import org.bluezoo.gumdrop.http.server.HttpResponseState;

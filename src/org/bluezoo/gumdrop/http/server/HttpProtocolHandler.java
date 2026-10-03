@@ -2000,11 +2000,7 @@ public  class HttpProtocolHandler
                 String h = lineStr.substring(0, ci);
                 if (headerName != null) {
                     headerValue.flip();
-                    String v = headerValue.toString();
-                    try {
-                        stream.addHeader(new Header(headerName, v));
-                    } catch (IllegalArgumentException e) {
-                        sendStreamError(stream, 400);
+                    if (!acceptRequestField(stream, headerName, headerValue.toString())) {
                         return;
                     }
                 }
@@ -2015,13 +2011,34 @@ public  class HttpProtocolHandler
         }
     }
 
+    /**
+     * Adds one request header field, or answers 400 and returns false if the
+     * name or value is not valid field syntax (RFC 9112 section 5). Every
+     * field line, including the last one before the blank line, goes through
+     * here, so they are all refused the same way.
+     */
+    private boolean acceptRequestField(Stream stream, String name, String value) {
+        Header header;
+        try {
+            header = new Header(name, value);
+        } catch (IllegalArgumentException e) {
+            sendStreamError(stream, 400);
+            return false;
+        }
+        stream.addHeader(header);
+        return true;
+    }
+
     private void endHeaders(Stream stream) {
         if (headerName != null) {
             headerValue.flip();
             String v = headerValue.toString();
-            stream.addHeader(new Header(headerName, v));
+            String n = headerName;
             headerName = null;
             headerValue = null;
+            if (!acceptRequestField(stream, n, v)) {
+                return;
+            }
         }
         // RFC 9112 section 3.2: A server MUST respond with 400 to any
         // HTTP/1.1 request that lacks a Host header field and to any request

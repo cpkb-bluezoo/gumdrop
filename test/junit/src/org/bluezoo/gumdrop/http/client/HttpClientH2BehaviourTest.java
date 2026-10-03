@@ -47,7 +47,7 @@ import org.bluezoo.gumdrop.http.h2.H2FrameHandler;
 import org.bluezoo.gumdrop.http.h2.H2Writer;
 import org.bluezoo.gumdrop.http.hpack.Decoder;
 import org.bluezoo.gumdrop.http.hpack.Encoder;
-import org.bluezoo.gumdrop.http.hpack.HeaderHandler;
+import org.bluezoo.gumdrop.http.HeaderFieldHandler;
 import org.bluezoo.gumdrop.testsupport.BinaryRecordingEndpoint;
 import org.bluezoo.gumdrop.testsupport.InlineSelectorLoop;
 
@@ -310,9 +310,10 @@ public class HttpClientH2BehaviourTest {
 
     private static Map<String, String> decode(byte[] block) throws Exception {
         final Map<String, String> out = new LinkedHashMap<String, String>();
-        new Decoder(4096).decode(ByteBuffer.wrap(block), new HeaderHandler() {
+        new Decoder(4096).decode(ByteBuffer.wrap(block), new HeaderFieldHandler() {
             @Override
-            public void header(Header header) {
+            public void field(java.nio.ByteBuffer name, java.nio.ByteBuffer value) {
+                Header header = Header.ofOctets(name, value);
                 out.put(header.getName(), header.getValue());
             }
         });

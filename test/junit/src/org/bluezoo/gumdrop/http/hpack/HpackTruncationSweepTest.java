@@ -22,6 +22,7 @@
 
 package org.bluezoo.gumdrop.http.hpack;
 
+import org.bluezoo.gumdrop.http.HeaderFieldHandler;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
@@ -42,11 +43,12 @@ import org.junit.Test;
  */
 public class HpackTruncationSweepTest {
 
-    private static class Collect implements HeaderHandler {
+    private static class Collect implements HeaderFieldHandler {
         int count;
 
         @Override
-        public void header(Header header) {
+        public void field(java.nio.ByteBuffer name, java.nio.ByteBuffer value) {
+                Header header = Header.ofOctets(name, value);
             count++;
         }
     }

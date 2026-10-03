@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.http.hpack;
 
+import org.bluezoo.gumdrop.http.HeaderFieldHandler;
 import org.bluezoo.gumdrop.http.Header;
 
 import org.junit.Test;
@@ -92,9 +93,10 @@ public class EncoderAutoHuffmanTest {
 
         final List<Header> decodedHeaders = new ArrayList<>();
         Decoder decoder = new Decoder(4096);
-        decoder.decode(buf, new HeaderHandler() {
+        decoder.decode(buf, new HeaderFieldHandler() {
             @Override
-            public void header(Header header) {
+            public void field(java.nio.ByteBuffer name, java.nio.ByteBuffer value) {
+                Header header = Header.ofOctets(name, value);
                 decodedHeaders.add(header);
             }
         });

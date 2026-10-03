@@ -84,6 +84,32 @@ public class Header {
         this.value = value;
     }
 
+    /**
+     * Builds a header from field octets handed over by a protocol parser.
+     *
+     * <p>A {@link String} cannot say which encoding it came from, so this is
+     * the one place that fixes it: each octet becomes the character with the
+     * same value (ISO-8859-1). Nothing is lost or guessed at, and RFC 9110
+     * section 5.5 asks no more of a recipient, which must treat octets above
+     * 0x7F as opaque. A caller that knows the field's real encoding converts
+     * the characters back with the same mapping and decodes the octets itself.
+     *
+     * @param name the field name octets
+     * @param value the field value octets
+     * @return the header
+     * @throws IllegalArgumentException if the name or value is not valid HTTP
+     *     field syntax
+     */
+    public static Header ofOctets(java.nio.ByteBuffer name, java.nio.ByteBuffer value) {
+        return new Header(octetsToString(name), octetsToString(value));
+    }
+
+    private static String octetsToString(java.nio.ByteBuffer octets) {
+        byte[] bytes = new byte[octets.remaining()];
+        octets.duplicate().get(bytes);
+        return new String(bytes, java.nio.charset.StandardCharsets.ISO_8859_1);
+    }
+
     public String getName() {
         return name;
     }

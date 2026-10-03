@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.http.hpack;
 
+import org.bluezoo.gumdrop.http.HeaderFieldHandler;
 import org.junit.Before;
 import org.junit.Test;
 import static org.junit.Assert.*;
@@ -60,8 +61,9 @@ public class HPACKEdgeCaseTest {
         ByteBuffer buf = ByteBuffer.wrap(encoded);
         final List<Header> headers = new ArrayList<Header>();
         
-        decoder.decode(buf, new HeaderHandler() {
-            public void header(Header header) {
+        decoder.decode(buf, new HeaderFieldHandler() {
+            public void field(java.nio.ByteBuffer name, java.nio.ByteBuffer value) {
+                Header header = Header.ofOctets(name, value);
                 headers.add(header);
             }
         });
@@ -84,8 +86,9 @@ public class HPACKEdgeCaseTest {
         ByteBuffer buf = ByteBuffer.wrap(encoded);
         final List<Header> headers = new ArrayList<Header>();
         
-        decoder.decode(buf, new HeaderHandler() {
-            public void header(Header header) {
+        decoder.decode(buf, new HeaderFieldHandler() {
+            public void field(java.nio.ByteBuffer name, java.nio.ByteBuffer value) {
+                Header header = Header.ofOctets(name, value);
                 headers.add(header);
             }
         });
@@ -106,8 +109,9 @@ public class HPACKEdgeCaseTest {
         ByteBuffer buf = ByteBuffer.wrap(encoded);
         final List<Header> headers = new ArrayList<Header>();
         
-        decoder.decode(buf, new HeaderHandler() {
-            public void header(Header header) {
+        decoder.decode(buf, new HeaderFieldHandler() {
+            public void field(java.nio.ByteBuffer name, java.nio.ByteBuffer value) {
+                Header header = Header.ofOctets(name, value);
                 headers.add(header);
             }
         });
@@ -138,8 +142,9 @@ public class HPACKEdgeCaseTest {
         ByteBuffer buf = ByteBuffer.wrap(encoded);
         final List<Header> headers = new ArrayList<Header>();
         
-        decoder.decode(buf, new HeaderHandler() {
-            public void header(Header header) {
+        decoder.decode(buf, new HeaderFieldHandler() {
+            public void field(java.nio.ByteBuffer name, java.nio.ByteBuffer value) {
+                Header header = Header.ofOctets(name, value);
                 headers.add(header);
             }
         });
@@ -153,8 +158,9 @@ public class HPACKEdgeCaseTest {
         buf = ByteBuffer.wrap(encoded2);
         headers.clear();
         
-        decoder.decode(buf, new HeaderHandler() {
-            public void header(Header header) {
+        decoder.decode(buf, new HeaderFieldHandler() {
+            public void field(java.nio.ByteBuffer name, java.nio.ByteBuffer value) {
+                Header header = Header.ofOctets(name, value);
                 headers.add(header);
             }
         });
@@ -166,8 +172,9 @@ public class HPACKEdgeCaseTest {
     
     private static List<Header> decodeAll(Decoder decoder, byte[] encoded) throws IOException {
         final List<Header> headers = new ArrayList<Header>();
-        decoder.decode(ByteBuffer.wrap(encoded), new HeaderHandler() {
-            public void header(Header header) {
+        decoder.decode(ByteBuffer.wrap(encoded), new HeaderFieldHandler() {
+            public void field(java.nio.ByteBuffer name, java.nio.ByteBuffer value) {
+                Header header = Header.ofOctets(name, value);
                 headers.add(header);
             }
         });
@@ -257,8 +264,9 @@ public class HPACKEdgeCaseTest {
         ByteBuffer buf = ByteBuffer.wrap(encoded1);
         final List<Header> headers = new ArrayList<Header>();
         
-        smallDecoder.decode(buf, new HeaderHandler() {
-            public void header(Header header) {
+        smallDecoder.decode(buf, new HeaderFieldHandler() {
+            public void field(java.nio.ByteBuffer name, java.nio.ByteBuffer value) {
+                Header header = Header.ofOctets(name, value);
                 headers.add(header);
             }
         });
@@ -280,8 +288,9 @@ public class HPACKEdgeCaseTest {
         ByteBuffer buf = ByteBuffer.wrap(encoded);
         final List<Header> headers = new ArrayList<Header>();
         
-        decoder.decode(buf, new HeaderHandler() {
-            public void header(Header header) {
+        decoder.decode(buf, new HeaderFieldHandler() {
+            public void field(java.nio.ByteBuffer name, java.nio.ByteBuffer value) {
+                Header header = Header.ofOctets(name, value);
                 headers.add(header);
             }
         });
@@ -303,8 +312,9 @@ public class HPACKEdgeCaseTest {
         ByteBuffer buf = ByteBuffer.wrap(encoded);
         final List<Header> headers = new ArrayList<Header>();
         
-        decoder.decode(buf, new HeaderHandler() {
-            public void header(Header header) {
+        decoder.decode(buf, new HeaderFieldHandler() {
+            public void field(java.nio.ByteBuffer name, java.nio.ByteBuffer value) {
+                Header header = Header.ofOctets(name, value);
                 headers.add(header);
             }
         });
@@ -333,8 +343,9 @@ public class HPACKEdgeCaseTest {
         ByteBuffer buf = ByteBuffer.wrap(encoded2);
         final List<Header> headers = new ArrayList<Header>();
         
-        decoder.decode(buf, new HeaderHandler() {
-            public void header(Header header) {
+        decoder.decode(buf, new HeaderFieldHandler() {
+            public void field(java.nio.ByteBuffer name, java.nio.ByteBuffer value) {
+                Header header = Header.ofOctets(name, value);
                 headers.add(header);
             }
         });
@@ -361,8 +372,9 @@ public class HPACKEdgeCaseTest {
         
         final List<Header> headers = new ArrayList<Header>();
         
-        decoder.decode(encoded, new HeaderHandler() {
-            public void header(Header header) {
+        decoder.decode(encoded, new HeaderFieldHandler() {
+            public void field(java.nio.ByteBuffer name, java.nio.ByteBuffer value) {
+                Header header = Header.ofOctets(name, value);
                 headers.add(header);
             }
         });
@@ -386,8 +398,9 @@ public class HPACKEdgeCaseTest {
         
         final List<Header> headers = new ArrayList<Header>();
         
-        decoder.decode(encoded, new HeaderHandler() {
-            public void header(Header header) {
+        decoder.decode(encoded, new HeaderFieldHandler() {
+            public void field(java.nio.ByteBuffer name, java.nio.ByteBuffer value) {
+                Header header = Header.ofOctets(name, value);
                 headers.add(header);
             }
         });
@@ -407,8 +420,9 @@ public class HPACKEdgeCaseTest {
         ByteBuffer buf = ByteBuffer.wrap(encoded);
         final List<Header> headers = new ArrayList<Header>();
         
-        decoder.decode(buf, new HeaderHandler() {
-            public void header(Header header) {
+        decoder.decode(buf, new HeaderFieldHandler() {
+            public void field(java.nio.ByteBuffer name, java.nio.ByteBuffer value) {
+                Header header = Header.ofOctets(name, value);
                 headers.add(header);
             }
         });
@@ -437,8 +451,9 @@ public class HPACKEdgeCaseTest {
         
         // Decode to populate decoder's dynamic table
         final List<Header> decoded = new ArrayList<Header>();
-        bigDecoder.decode(encodeBuf, new HeaderHandler() {
-            public void header(Header header) {
+        bigDecoder.decode(encodeBuf, new HeaderFieldHandler() {
+            public void field(java.nio.ByteBuffer name, java.nio.ByteBuffer value) {
+                Header header = Header.ofOctets(name, value);
                 decoded.add(header);
             }
         });
@@ -463,8 +478,9 @@ public class HPACKEdgeCaseTest {
         buf.flip();
         
         final List<Header> decoded = new ArrayList<Header>();
-        decoder.decode(buf, new HeaderHandler() {
-            public void header(Header header) {
+        decoder.decode(buf, new HeaderFieldHandler() {
+            public void field(java.nio.ByteBuffer name, java.nio.ByteBuffer value) {
+                Header header = Header.ofOctets(name, value);
                 decoded.add(header);
             }
         });
@@ -492,8 +508,9 @@ public class HPACKEdgeCaseTest {
         
         // Decode first request
         final List<Header> decoded1 = new ArrayList<Header>();
-        decoder.decode(buf1, new HeaderHandler() {
-            public void header(Header header) {
+        decoder.decode(buf1, new HeaderFieldHandler() {
+            public void field(java.nio.ByteBuffer name, java.nio.ByteBuffer value) {
+                Header header = Header.ofOctets(name, value);
                 decoded1.add(header);
             }
         });
@@ -512,8 +529,9 @@ public class HPACKEdgeCaseTest {
         // (This is a weak assertion, but directionally correct)
         
         final List<Header> decoded2 = new ArrayList<Header>();
-        decoder.decode(buf2, new HeaderHandler() {
-            public void header(Header header) {
+        decoder.decode(buf2, new HeaderFieldHandler() {
+            public void field(java.nio.ByteBuffer name, java.nio.ByteBuffer value) {
+                Header header = Header.ofOctets(name, value);
                 decoded2.add(header);
             }
         });
@@ -530,8 +548,9 @@ public class HPACKEdgeCaseTest {
         ByteBuffer buf = ByteBuffer.wrap(encoded);
         final List<Header> headers = new ArrayList<Header>();
         
-        decoder.decode(buf, new HeaderHandler() {
-            public void header(Header header) {
+        decoder.decode(buf, new HeaderFieldHandler() {
+            public void field(java.nio.ByteBuffer name, java.nio.ByteBuffer value) {
+                Header header = Header.ofOctets(name, value);
                 headers.add(header);
             }
         });
@@ -551,8 +570,9 @@ public class HPACKEdgeCaseTest {
         ByteBuffer buf = ByteBuffer.wrap(encoded);
         final List<Header> headers = new ArrayList<Header>();
         
-        decoder.decode(buf, new HeaderHandler() {
-            public void header(Header header) {
+        decoder.decode(buf, new HeaderFieldHandler() {
+            public void field(java.nio.ByteBuffer name, java.nio.ByteBuffer value) {
+                Header header = Header.ofOctets(name, value);
                 headers.add(header);
             }
         });
@@ -577,8 +597,9 @@ public class HPACKEdgeCaseTest {
         buf.flip();
         
         final List<Header> decoded = new ArrayList<Header>();
-        decoder.decode(buf, new HeaderHandler() {
-            public void header(Header header) {
+        decoder.decode(buf, new HeaderFieldHandler() {
+            public void field(java.nio.ByteBuffer name, java.nio.ByteBuffer value) {
+                Header header = Header.ofOctets(name, value);
                 decoded.add(header);
             }
         });
@@ -602,8 +623,9 @@ public class HPACKEdgeCaseTest {
         ByteBuffer buf = ByteBuffer.wrap(encoded);
         final List<Header> headers = new ArrayList<Header>();
         
-        decoder.decode(buf, new HeaderHandler() {
-            public void header(Header header) {
+        decoder.decode(buf, new HeaderFieldHandler() {
+            public void field(java.nio.ByteBuffer name, java.nio.ByteBuffer value) {
+                Header header = Header.ofOctets(name, value);
                 headers.add(header);
             }
         });
@@ -624,8 +646,9 @@ public class HPACKEdgeCaseTest {
         ByteBuffer buf = ByteBuffer.wrap(encoded);
         final List<Header> headers = new ArrayList<Header>();
         
-        decoder.decode(buf, new HeaderHandler() {
-            public void header(Header header) {
+        decoder.decode(buf, new HeaderFieldHandler() {
+            public void field(java.nio.ByteBuffer name, java.nio.ByteBuffer value) {
+                Header header = Header.ofOctets(name, value);
                 headers.add(header);
             }
         });

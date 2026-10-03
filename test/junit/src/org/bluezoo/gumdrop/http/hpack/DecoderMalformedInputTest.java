@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.http.hpack;
 
+import org.bluezoo.gumdrop.http.HeaderFieldHandler;
 import org.junit.Test;
 import static org.junit.Assert.fail;
 
@@ -37,8 +38,9 @@ import org.bluezoo.gumdrop.http.Header;
  */
 public class DecoderMalformedInputTest {
 
-    private static final HeaderHandler NOOP_HANDLER = new HeaderHandler() {
-        @Override public void header(Header header) { }
+    private static final HeaderFieldHandler NOOP_HANDLER = new HeaderFieldHandler() {
+        @Override public void field(java.nio.ByteBuffer name, java.nio.ByteBuffer value) {
+                Header header = Header.ofOctets(name, value); }
     };
 
     /**
@@ -64,11 +66,16 @@ public class DecoderMalformedInputTest {
 
     /**
      * Literal header field without indexing, new name "x", value containing
-     * a bare CR (0x0D) — not a syntactically valid HTTP header value.
-     * RFC 7541 section 6.2.2; RFC 7230 section 3.2 (field-value grammar).
+     * a bare CR (0x0D), which is not valid in an HTTP field value
+     * (RFC 9110 section 5.5). RFC 7541 section 6.2.2.
+     *
+     * <p>The decoder does not judge it: it must consume the whole block to keep
+     * its dynamic table in step with the peer's (RFC 9113 section 4.3), so it
+     * delivers the field. The receiver's field check then rejects it, as a
+     * stream error (RFC 9113 section 8.1.1).
      */
     @Test
-    public void testInvalidValueCharacterThrowsIOException() {
+    public void testInvalidValueCharacterIsDeliveredAndRejectedByTheReceiver() throws IOException {
         byte[] data = new byte[] {
             0x00, // literal without indexing, index=0 (new name)
             0x01, // name length=1, no Huffman
@@ -76,12 +83,19 @@ public class DecoderMalformedInputTest {
             0x01, // value length=1, no Huffman
             0x0D, // value: bare CR, invalid in a header value
         };
-        Decoder decoder = new Decoder(4096);
-        try {
-            decoder.decode(ByteBuffer.wrap(data), NOOP_HANDLER);
-            fail("expected an IOException for an invalid header value");
-        } catch (IOException expected) {
-            // expected: a clean decode error, not an unchecked exception
-        }
+        final java.util.List<Header> seen = new java.util.ArrayList<Header>();
+        final boolean[] rejected = new boolean[1];
+        new Decoder(4096).decode(ByteBuffer.wrap(data), new HeaderFieldHandler() {
+            @Override
+            public void field(ByteBuffer name, ByteBuffer value) {
+                try {
+                    seen.add(Header.ofOctets(name, value));
+                } catch (IllegalArgumentException e) {
+                    rejected[0] = true;
+                }
+            }
+        });
+        org.junit.Assert.assertTrue("the receiver's check refuses the field", rejected[0]);
+        org.junit.Assert.assertTrue("and nothing invalid got through", seen.isEmpty());
     }
 }

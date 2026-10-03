@@ -29,9 +29,10 @@
  * org.bluezoo.gumdrop.http.hpack.Huffman}), and both indexed and literal
  * header field representations, including never-indexed fields for
  * sensitive values (cookies, authorization tokens) as a mitigation
- * against compression-oracle attacks (CRIME/BREACH). {@link
- * org.bluezoo.gumdrop.http.hpack.HeaderHandler} is the callback
- * interface the decoder delivers headers through; {@link
+ * against compression-oracle attacks (CRIME/BREACH). The decoder
+ * delivers each field as octets to a {@link
+ * org.bluezoo.gumdrop.http.HeaderFieldHandler}, leaving the receiver to judge
+ * whether the field is acceptable; {@link
  * org.bluezoo.gumdrop.http.hpack.HpackConstants} holds the static table
  * and other protocol constants.
  *

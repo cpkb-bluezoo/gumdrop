@@ -1,5 +1,5 @@
 /*
- * DecoderSecurityTest.java
+ * QpackTestSupport.java
  * Copyright (C) 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -19,34 +19,33 @@
  * along with gumdrop.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-package org.bluezoo.gumdrop.http.hpack;
 
-import org.bluezoo.gumdrop.http.HeaderFieldHandler;
-import org.bluezoo.gumdrop.http.Header;
-import org.junit.Test;
+package org.bluezoo.gumdrop.http.qpack;
 
-import java.nio.ByteBuffer;
 import java.net.ProtocolException;
+import java.nio.ByteBuffer;
+import java.util.List;
 
-import static org.junit.Assert.fail;
+import org.bluezoo.gumdrop.http.Header;
+import org.bluezoo.gumdrop.http.HeaderCollector;
 
 /**
+ * Lets tests that just want the decoded fields of a section get them as a
+ * list, now that {@link Decoder#decode(long, ByteBuffer,
+ * org.bluezoo.gumdrop.http.HeaderFieldHandler)} pushes them to a handler.
+ *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-public class DecoderSecurityTest {
+final class QpackTestSupport {
 
-    @Test(expected = ProtocolException.class)
-    public void testOversizedLiteralRejected() throws Exception {
-        Decoder decoder = new Decoder(4096, 8192);
-        // Literal without indexing, new name, length prefix claims huge string
-        ByteBuffer buf = ByteBuffer.wrap(new byte[] {
-                0x00, (byte) 0x7f, (byte) 0xff, (byte) 0xff, (byte) 0x03
-        });
-        decoder.decode(buf, new HeaderFieldHandler() {
-            @Override
-            public void field(java.nio.ByteBuffer name, java.nio.ByteBuffer value) {
-                Header header = Header.ofOctets(name, value);
-            }
-        });
+    private QpackTestSupport() {
+    }
+
+    /** Decodes a section and returns its valid fields in wire order. */
+    static List<Header> decode(Decoder decoder, long streamId, ByteBuffer block)
+            throws ProtocolException {
+        HeaderCollector collector = new HeaderCollector();
+        decoder.decode(streamId, block, collector);
+        return collector.headers();
     }
 }

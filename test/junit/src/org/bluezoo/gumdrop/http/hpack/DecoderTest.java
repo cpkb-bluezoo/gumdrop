@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.http.hpack;
 
+import org.bluezoo.gumdrop.http.HeaderFieldHandler;
 import org.junit.Test;
 import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
@@ -116,8 +117,9 @@ public class DecoderTest implements StoryTestInterface {
 
         ByteBuffer buf = ByteBuffer.wrap(encodedSequence);
         final List<Header> testHeaders = new ArrayList<>();
-        HeaderHandler handler = new HeaderHandler() {
-            public void header(Header header) {
+        HeaderFieldHandler handler = new HeaderFieldHandler() {
+            public void field(java.nio.ByteBuffer name, java.nio.ByteBuffer value) {
+                Header header = Header.ofOctets(name, value);
                 testHeaders.add(header);
             }
         };

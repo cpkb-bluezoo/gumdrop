@@ -37,6 +37,7 @@ import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.http.Capsule;
 import org.bluezoo.gumdrop.http.CapsuleParser;
 import org.bluezoo.gumdrop.http.Header;
+import org.bluezoo.gumdrop.http.HeaderCollector;
 import org.bluezoo.gumdrop.http.Headers;
 import org.bluezoo.gumdrop.http.ContentEncoding;
 import org.bluezoo.gumdrop.http.HttpStatus;
@@ -412,9 +413,9 @@ class H3ClientStream implements ProtocolHandler, H3FrameHandler {
 
     @Override
     public void headersFrameReceived(ByteBuffer encodedFieldSection) {
-        List<Header> fields;
+        HeaderCollector collected = new HeaderCollector();
         try {
-            fields = qpackDecoder.decode(streamId, encodedFieldSection);
+            qpackDecoder.decode(streamId, encodedFieldSection, collected);
         } catch (ProtocolException e) {
             LOGGER.log(Level.WARNING, L10N.getString("warn.qpack_decode_failed"), e);
             state = State.CLOSED;
@@ -422,6 +423,17 @@ class H3ClientStream implements ProtocolHandler, H3FrameHandler {
             return;
         }
         headersDecoded = true;
+        if (collected.isMalformed()) {
+            // RFC 9114 section 4.1.2: a field that is not valid field syntax
+            // makes the response malformed, a stream error. The section was
+            // decoded and acknowledged in full, so the QPACK state is intact.
+            abortMessageError("malformed header field");
+            if (connection != null) {
+                connection.flushQpackDecoderInstructions();
+            }
+            return;
+        }
+        List<Header> fields = collected.headers();
         if (connection != null
                 && H3Writer.fieldSectionSize(fields) > connection.getLocalMaxFieldSectionSize()) {
             abortExcessiveLoad("response field section exceeds SETTINGS_MAX_FIELD_SECTION_SIZE");

@@ -58,6 +58,7 @@ import org.bluezoo.gumdrop.http.ContentEncoding;
 import org.bluezoo.gumdrop.http.HttpUtils;
 import org.bluezoo.gumdrop.http.HttpVersion;
 import org.bluezoo.gumdrop.http.Header;
+import org.bluezoo.gumdrop.http.HeaderCollector;
 import org.bluezoo.gumdrop.http.Headers;
 import org.bluezoo.gumdrop.http.Capsule;
 import org.bluezoo.gumdrop.http.CapsuleParser;
@@ -309,9 +310,9 @@ class H3Stream implements ProtocolHandler, H3FrameHandler, HttpResponseState {
      */
     @Override
     public void headersFrameReceived(ByteBuffer encodedFieldSection) {
-        List<Header> fields;
+        HeaderCollector collected = new HeaderCollector();
         try {
-            fields = qpackDecoder.decode(streamId, encodedFieldSection);
+            qpackDecoder.decode(streamId, encodedFieldSection, collected);
         } catch (ProtocolException e) {
             // Treated as this stream's own malformed HEADERS -- cancelling
             // just this stream, rather than tearing down the whole
@@ -325,7 +326,18 @@ class H3Stream implements ProtocolHandler, H3FrameHandler, HttpResponseState {
             return;
         }
         headersDecoded = true;
-        if (H3Writer.fieldSectionSize(fields) > localMaxFieldSectionSize()) {
+        if (collected.isMalformed()) {
+            // RFC 9114 section 4.1.2: a field that is not valid field syntax
+            // makes the request malformed, a stream error. The section was
+            // decoded and acknowledged in full, so the QPACK state is intact.
+            abortMessageError("malformed header field");
+            if (connection != null) {
+                connection.flushQpackDecoderInstructions();
+            }
+            return;
+        }
+        Headers headers = collected.headers();
+        if (H3Writer.fieldSectionSize(headers) > localMaxFieldSectionSize()) {
             // RFC 9114 section 4.2.2 / 10.5.1: refuse oversized field
             // sections with a stream error rather than hanging the peer.
             abortExcessiveLoad();
@@ -333,10 +345,6 @@ class H3Stream implements ProtocolHandler, H3FrameHandler, HttpResponseState {
                 connection.flushQpackDecoderInstructions();
             }
             return;
-        }
-        Headers headers = new Headers();
-        for (Header field : fields) {
-            headers.add(field);
         }
         onHeaders(headers);
         // connection is only ever null in a test that constructs this

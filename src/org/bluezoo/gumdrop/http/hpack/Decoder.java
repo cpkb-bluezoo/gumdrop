@@ -25,16 +25,19 @@ import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.net.ProtocolException;
-import java.util.ArrayList;
-import java.util.List;
 
 import org.bluezoo.gumdrop.http.Header;
-import org.bluezoo.util.ByteArrays;
+import org.bluezoo.gumdrop.http.HeaderFieldHandler;
 
 /**
  * HPACK header block decoder (RFC 7541).
  *
- * <p>Decodes a compressed field block into HTTP/2 header fields using:
+ * <p>Decodes a compressed field block into header fields, delivered to a
+ * {@link HeaderFieldHandler} as the octets that were on the wire (RFC 7541
+ * section 5.2 gives them no meaning). The decoder does not judge whether a
+ * field is acceptable HTTP: it must consume the whole block to keep its
+ * dynamic table in step with the peer's (RFC 9113 section 4.3), and the
+ * receiver decides about a field afterwards. It uses:
  * <ul>
  * <li>Indexed header field representation (RFC 7541 section 6.1)</li>
  * <li>Literal header field with incremental indexing (section 6.2.1)</li>
@@ -53,7 +56,30 @@ public class Decoder extends HpackConstants {
     /**
      * The dynamic table.
      */
-    private final DynamicTable dynamicTable = new DynamicTable();
+    private final DecoderTable dynamicTable = new DecoderTable();
+
+    /**
+     * The static table as octets, built once from {@link #STATIC_TABLE}. A
+     * name-only entry has an empty value.
+     */
+    private static final byte[][] STATIC_NAMES = new byte[STATIC_TABLE_SIZE][];
+    private static final byte[][] STATIC_VALUES = new byte[STATIC_TABLE_SIZE][];
+
+    static {
+        for (int i = 0; i < STATIC_TABLE_SIZE; i++) {
+            Header h = STATIC_TABLE.get(i);
+            if (h == null) {
+                // index 0 is not a valid HPACK index (RFC 7541 section 2.3.3)
+                STATIC_NAMES[i] = new byte[0];
+                STATIC_VALUES[i] = new byte[0];
+                continue;
+            }
+            STATIC_NAMES[i] = h.getName().getBytes(StandardCharsets.ISO_8859_1);
+            String v = h.getValue();
+            STATIC_VALUES[i] = v == null
+                    ? new byte[0] : v.getBytes(StandardCharsets.ISO_8859_1);
+        }
+    }
 
     /**
      * The negotiated maximum size of the dynamic table.
@@ -63,10 +89,11 @@ public class Decoder extends HpackConstants {
     private int headerTableSize;
 
     /**
-     * The current maximum size of the dynamic table. This can be lower but
-     * not higher than the negotiated maximum size.
+     * The current maximum size of the dynamic table. It starts at the
+     * negotiated maximum (RFC 7541 section 4.2) and the encoder can lower it,
+     * but never raise it above that, with a dynamic table size update.
      */
-    private int maxSize = Integer.MAX_VALUE;
+    private int maxSize;
 
     /** RFC 9113 SETTINGS_MAX_HEADER_LIST_SIZE. */
     private int maxHeaderListSize = Integer.MAX_VALUE;
@@ -90,6 +117,7 @@ public class Decoder extends HpackConstants {
      */
     public Decoder(int headerTableSize, int maxHeaderListSize) {
         this.headerTableSize = headerTableSize;
+        this.maxSize = headerTableSize;
         this.maxHeaderListSize = maxHeaderListSize;
     }
 
@@ -106,9 +134,16 @@ public class Decoder extends HpackConstants {
 
     /**
      * Decode an HPACK-encoded sequence of bytes aka header block.
+     *
+     * <p>Every field in the block is delivered to {@code handler} as octets;
+     * none is refused for what it contains. An {@code IOException} means the
+     * block itself is malformed or breaks a limit, which RFC 9113 section 4.3
+     * makes a connection error.
+     *
      * @param buf the header block
+     * @param handler receives each decoded field
      */
-    public void decode(ByteBuffer buf, HeaderHandler handler) throws IOException {
+    public void decode(ByteBuffer buf, HeaderFieldHandler handler) throws IOException {
         try {
             decodeUnchecked(buf, handler);
         } catch (java.nio.BufferUnderflowException e) {
@@ -120,59 +155,55 @@ public class Decoder extends HpackConstants {
         }
     }
 
-    private void decodeUnchecked(ByteBuffer buf, HeaderHandler handler) throws IOException {
+    private void decodeUnchecked(ByteBuffer buf, HeaderFieldHandler handler) throws IOException {
         decodedHeaderListSize = 0;
         while (buf.hasRemaining()) {
             byte b = buf.get();
-            Header header;
-            //System.err.println("decoding header, opcode is "+String.format("%02x",b));
+            byte[] name;
+            byte[] value;
             if ((b & 0x80) != 0) { // RFC 7541 section 6.1: indexed header field
                 int index = decodeInteger(buf, b, 7);
-                //System.err.println(" indexed header field, index is "+index);
-                //dumpDynamicTable(dynamicTable);
                 if (index == 0) {
                     // see section 6.1
                     throw new ProtocolException("HPACK indexed header field with index 0");
                 } else if (index < STATIC_TABLE_SIZE) {
-                    header = STATIC_TABLE.get(index);
-                    if (header.getValue() == null) {
-                        header = new Header(header.getName(), "");
-                        //throw new ProtocolException("HPACK indexed header field does not reference name+value");
-                    }
+                    name = STATIC_NAMES[index];
+                    value = STATIC_VALUES[index];
                 } else if ((index - STATIC_TABLE_SIZE) < dynamicTable.size()) {
-                    header = dynamicTable.get(index - STATIC_TABLE_SIZE);
+                    TableEntry entry = dynamicTable.get(index - STATIC_TABLE_SIZE);
+                    name = entry.name;
+                    value = entry.value;
                 } else {
                     throw new ProtocolException("HPACK indexed header field index out of range: "+index);
                 }
                 // RFC 7541 section 4.1: each emitted header counts against the
                 // header list size regardless of representation type.
-                addToHeaderListSize(header.getName().length()
-                        + (header.getValue() != null ? header.getValue().length() : 0)
-                        + 32);
+                addToHeaderListSize(name.length + value.length + TableEntry.OVERHEAD);
             } else if ((b & 0x40) != 0) { // RFC 7541 section 6.2.1: literal with incremental indexing
-                //System.err.println(" literal header field");
-                header = getLiteralHeaderField(buf, b, 6, dynamicTable, this);
+                TableEntry entry = getLiteralHeaderField(buf, b, 6);
+                name = entry.name;
+                value = entry.value;
                 // Evict older entries as needed and prepend (RFC 7541 sections
-                // 4.4, 3.2, 2.3.2). DynamicTable tracks its own running size, so
+                // 4.4, 3.2, 2.3.2). The table tracks its own running size, so
                 // this is O(entries-evicted) rather than O(entries^2).
-                dynamicTable.insert(header, maxSize);
+                dynamicTable.insert(entry, maxSize);
             } else if ((b & 0x20) != 0) { // RFC 7541 section 6.3: dynamic table size update
-                int maxSize = decodeInteger(buf, b, 5);
-                //System.err.println(" dynamic table size update, maxSize="+maxSize);
-                if (maxSize > headerTableSize) {
-                    throw new ProtocolException("dynamic table size update "+ maxSize + " larger than SETTINGS_HEADER_TABLE_SIZE "+headerTableSize);
+                int newMax = decodeInteger(buf, b, 5);
+                if (newMax > headerTableSize) {
+                    throw new ProtocolException("dynamic table size update "+ newMax + " larger than SETTINGS_HEADER_TABLE_SIZE "+headerTableSize);
                 }
                 // evict entries: RFC 7541 section 4.3
-                dynamicTable.evictToFit(maxSize);
-                this.maxSize = maxSize;
+                dynamicTable.evictToFit(newMax);
+                this.maxSize = newMax;
                 continue;
             } else { // RFC 7541 section 6.2.2/6.2.3: literal without indexing / never indexed
-                //System.err.println(" literal header field without indexing");
-                header = getLiteralHeaderField(buf, b, 4, dynamicTable, this);
-                // do not add to dynamicTable
+                TableEntry entry = getLiteralHeaderField(buf, b, 4);
+                name = entry.name;
+                value = entry.value;
+                // do not add to the dynamic table
             }
-            //System.err.println("  header="+header);
-            handler.header(header);
+            handler.field(ByteBuffer.wrap(name).asReadOnlyBuffer(),
+                    ByteBuffer.wrap(value).asReadOnlyBuffer());
         }
     }
 
@@ -182,62 +213,45 @@ public class Decoder extends HpackConstants {
         }
     }
 
-    private static Header getLiteralHeaderField(ByteBuffer buf, byte opcode, int nbits,
-            DynamicTable dynamicTable, Decoder decoder) throws IOException {
-        //System.err.println("  getLiteralHeaderField opcode="+String.format("%02x",opcode)+" nbits="+nbits);
+    /**
+     * Reads a string literal (RFC 7541 section 5.2) and returns its octets,
+     * Huffman-decoded if the representation says so.
+     */
+    private static byte[] readString(ByteBuffer buf) throws IOException {
+        byte b = buf.get();
+        boolean huffman = (b & 0x80) != 0;
+        int length = decodeInteger(buf, b, 7);
+        checkFieldLength(length, buf.remaining());
+        byte[] s = new byte[length];
+        buf.get(s);
+        return huffman ? Huffman.decode(s) : s;
+    }
+
+    /**
+     * Reads a literal header field representation: a name (new, or by index
+     * into either table) and a value, as octets. Nothing about the content
+     * is checked; that is for the receiver.
+     */
+    private TableEntry getLiteralHeaderField(ByteBuffer buf, byte opcode, int nbits) throws IOException {
         int index = decodeInteger(buf, opcode, nbits);
-        //System.err.println("   index="+index);
-        String name, value;
-        byte b;
+        byte[] name;
         if (index < 1) { // new name
-            b = buf.get();
-            boolean huffman = (b & 0x80) != 0;
-            int nameLength = decodeInteger(buf, b, 7);
-            //System.err.println("   new name nameLength="+nameLength+" huffman="+huffman);
-            checkFieldLength(nameLength, buf.remaining());
-            byte[] s = new byte[nameLength];
-            buf.get(s);
-            if (huffman) {
-                s = Huffman.decode(s);
-            }
-            name = new String(s, StandardCharsets.US_ASCII);
-            //System.err.println("   name="+name);
+            name = readString(buf);
         } else { // indexed name
             if (index < STATIC_TABLE_SIZE) {
-                name = STATIC_TABLE.get(index).getName();
+                name = STATIC_NAMES[index];
             } else {
                 int dynamicIndex = index - STATIC_TABLE_SIZE;
                 if (dynamicIndex < dynamicTable.size()) {
-                    name = dynamicTable.get(dynamicIndex).getName();
+                    name = dynamicTable.get(dynamicIndex).name;
                 } else {
                     throw new IOException("Literal header index not in dynamic table: " + index);
                 }
             }
-            //System.err.println("   indexed name="+name);
         }
-        // value
-        b = buf.get();
-        boolean huffman = (b & 0x80) != 0;
-        int valueLength = decodeInteger(buf, b, 7);
-        //System.err.println("   valueLength="+valueLength+" huffman="+huffman);
-        checkFieldLength(valueLength, buf.remaining());
-        byte[] s = new byte[valueLength];
-        buf.get(s);
-        if (huffman) {
-            s = Huffman.decode(s);
-        }
-        value = new String(s, StandardCharsets.US_ASCII);
-        //System.err.println("   value="+value);
-        decoder.addToHeaderListSize(name.length() + value.length() + 32);
-        try {
-            return new Header(name, value);
-        } catch (IllegalArgumentException e) {
-            // Decoded bytes (possibly Huffman-decoded, fully attacker
-            // controlled) do not form a syntactically valid HTTP header
-            // name/value. Header() validates this and throws unchecked;
-            // convert it to a proper decode error here.
-            throw new IOException("HPACK: " + e.getMessage(), e);
-        }
+        byte[] value = readString(buf);
+        addToHeaderListSize(name.length + value.length + TableEntry.OVERHEAD);
+        return new TableEntry(name, value);
     }
 
     private void addToHeaderListSize(int added) throws ProtocolException {
@@ -280,78 +294,5 @@ public class Decoder extends HpackConstants {
             return value;
         }
     }
-
-    // Testing
-    public static void main(String[] args) throws Exception {
-        ByteBuffer buf = ByteBuffer.allocate(4096);
-        Decoder decoder;
-        List<Header> decoded = new ArrayList<>();
-        HeaderHandler handler = new HeaderHandler() {
-            public void header(Header header) {
-                decoded.add(header);
-            }
-        };
-
-        /*// C.2.1 Literal Header Field with Indexing
-        Header header = new Header("custom-key", "custom-header");
-        byte[] encoded = new byte[] {
-            (byte) 0x40, (byte) 0x0a, (byte) 0x63, (byte) 0x75, (byte) 0x73, (byte) 0x74,
-            (byte) 0x6f, (byte) 0x6d, (byte) 0x2d, (byte) 0x6b, (byte) 0x65, (byte) 0x79,
-            (byte) 0x0d, (byte) 0x63, (byte) 0x75, (byte) 0x73, (byte) 0x74, (byte) 0x6f,
-            (byte) 0x6d, (byte) 0x2d, (byte) 0x68, (byte) 0x65, (byte) 0x61, (byte) 0x64,
-            (byte) 0x65, (byte) 0x72
-        };
-        buf.clear();
-        buf.put(encoded);
-        buf.flip();
-        decoder = new Decoder(4096);
-        decoder.decode(buf, handler);
-        System.err.println(header + " should be "+decoded.get(0));
-        decoded.clear();
-
-        // C.2.2 Literal Header Field without Indexing
-        header = new Header(":path", "/sample/path");
-        encoded = new byte[] {
-            (byte) 0x04, (byte) 0x0c, (byte) 0x2f, (byte) 0x73, (byte) 0x61, (byte) 0x6d,
-            (byte) 0x70, (byte) 0x6c, (byte) 0x65, (byte) 0x2f, (byte) 0x70, (byte) 0x61,
-            (byte) 0x74, (byte) 0x68
-        };
-        buf.clear();
-        buf.put(encoded);
-        buf.flip();
-        decoder = new Decoder(4096);
-        decoder.decode(buf, handler);
-        System.err.println(header + " should be "+decoded.get(0));
-        decoded.clear();
-
-        // C.2.3 Literal Header Field Never Indexed
-        header = new Header("password", "secret");
-        encoded = new byte[] {
-            (byte) 0x10, (byte) 0x08, (byte) 0x70, (byte) 0x61, (byte) 0x73, (byte) 0x73,
-            (byte) 0x77, (byte) 0x6f, (byte) 0x72, (byte) 0x64, (byte) 0x06, (byte) 0x73,
-            (byte) 0x65, (byte) 0x63, (byte) 0x72, (byte) 0x65, (byte) 0x74
-        };
-        buf.clear();
-        buf.put(encoded);
-        buf.flip();
-        decoder = new Decoder(4096);
-        decoder.decode(buf, handler);
-        System.err.println(header + " should be "+decoded.get(0));
-        decoded.clear();*/
-
-        // Process arg
-        handler = new HeaderHandler() {
-            public void header(Header header) {
-                System.out.println(header.toString());
-            }
-        };
-        byte[] encoded = ByteArrays.toByteArray(args[0]);
-        buf.clear();
-        buf.put(encoded);
-        buf.flip();
-        decoder = new Decoder(4096);
-        decoder.decode(buf, handler);
-    }
-
 
 }

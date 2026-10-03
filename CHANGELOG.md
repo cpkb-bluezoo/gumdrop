@@ -148,6 +148,23 @@ user-visible themes since 2.2.x.
 - **`gumdrop-http` no longer depends on the servlet API or JavaMail.**
   `HttpAuthenticationMethods` has its own `BASIC`/`DIGEST`/`FORM`/`CLIENT_CERT`
   constants (same values), and it no longer needs `gumdrop-mime`.
+- **Header fields reach the receiver as octets, and are checked there (breaking).**
+  The HPACK and QPACK decoders now deliver each field to a
+  `HeaderFieldHandler` as the octets that were on the wire, replacing
+  `hpack.HeaderHandler` and the list QPACK returned. They no longer judge what a
+  field contains: the whole block is decoded and acknowledged, and the receiver
+  then refuses an invalid field with a stream error (`RST_STREAM` /
+  `H3_MESSAGE_ERROR`, RFC 9113 section 8.1.1, RFC 9114 section 4.1.2) instead of
+  the decoder failing the connection with `COMPRESSION_ERROR`. HTTP/1.x, HTTP/2
+  and HTTP/3 now agree on octets above 0x7F (one character per octet), where
+  HTTP/2 and HTTP/3 used to reject them. This is the first step of replacing
+  `Headers` in the handler SPI with typed field events.
+- **Fixed: the HPACK decoder's dynamic table was unbounded** until the peer sent
+  a table-size update (RFC 7541 section 4.2 starts it at the negotiated
+  `SETTINGS_HEADER_TABLE_SIZE`), so a peer could grow a connection's memory
+  without limit.
+- **Fixed: an invalid value in the last header line of an HTTP/1.x request**
+  escaped as an unhandled exception instead of a 400.
 - **Request header values are no longer RFC 2047-decoded (breaking).** The HTTP/1.x
   server used to turn a field value such as `=?UTF-8?Q?caf=C3=A9?=` into the
   decoded text before handing it to the application. HTTP does not define that

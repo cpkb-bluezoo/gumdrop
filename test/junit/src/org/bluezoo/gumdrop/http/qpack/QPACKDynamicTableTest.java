@@ -128,7 +128,7 @@ public class QPACKDynamicTableTest {
 
         // Stream 4: Required Insert Count=2, Base=0, then two Indexed
         // Field Lines With Post-Base Index (absolute 0 and 1).
-        List<Header> fields = decoder.decode(4, ByteBuffer.wrap(ByteArrays.toByteArray("03811011")));
+        List<Header> fields = QpackTestSupport.decode(decoder, 4, ByteBuffer.wrap(ByteArrays.toByteArray("03811011")));
         List<Header> expected = new ArrayList<Header>();
         expected.add(new Header(":authority", "www.example.com"));
         expected.add(new Header(":path", "/sample/path"));
@@ -175,7 +175,7 @@ public class QPACKDynamicTableTest {
         //   80 -> Indexed Field Line, dynamic, absolute = Base(4)-0-1 = 3 (the duplicate)
         //   c1 -> Indexed Field Line, static index 1 (:path=/)
         //   81 -> Indexed Field Line, dynamic, absolute = Base(4)-1-1 = 2 (custom-key)
-        List<Header> fields = decoder.decode(8, ByteBuffer.wrap(ByteArrays.toByteArray("050080c181")));
+        List<Header> fields = QpackTestSupport.decode(decoder, 8, ByteBuffer.wrap(ByteArrays.toByteArray("050080c181")));
         List<Header> expected = new ArrayList<Header>();
         expected.add(new Header(":authority", "www.example.com"));
         expected.add(new Header(":path", "/"));
@@ -225,7 +225,7 @@ public class QPACKDynamicTableTest {
         decoder.feedEncoderStream(encoderInstructions1);
 
         fieldSection1.flip();
-        List<Header> decoded1 = decoder.decode(0, fieldSection1);
+        List<Header> decoded1 = QpackTestSupport.decode(decoder, 0, fieldSection1);
         assertEquals(headers1, decoded1);
 
         byte[] decoderOut1 = decoder.takePendingInstructions();
@@ -243,7 +243,7 @@ public class QPACKDynamicTableTest {
         assertFalse("expected a dynamic-table hit, no new insert", encoderInstructions2.hasRemaining());
 
         fieldSection2.flip();
-        List<Header> decoded2 = decoder.decode(1, fieldSection2);
+        List<Header> decoded2 = QpackTestSupport.decode(decoder, 1, fieldSection2);
         assertEquals(headers2, decoded2);
     }
 

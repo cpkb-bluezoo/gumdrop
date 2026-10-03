@@ -1161,6 +1161,26 @@ public class HttpProtocolHandlerHttp1Test {
     }
 
     @Test
+    public void testInvalidValueInTheFinalHeaderLineIsA400NotAnException() {
+        // The last header line is added when the blank line arrives, a separate
+        // path from the lines before it. A control character in its value must
+        // be refused the same way (RFC 9112 section 5.5: a recipient may reject
+        // a message with an invalid field value with 400).
+        Fixture f = new Fixture();
+        f.open();
+        f.feed("GET /x HTTP/1.1\r\nHost: h\r\nX-Bad: a\u0001b\r\n\r\n", 100);
+        assertTrue(f.wire(), f.wire().contains(" 400 "));
+    }
+
+    @Test
+    public void testInvalidValueInAnEarlierHeaderLineIsA400() {
+        Fixture f = new Fixture();
+        f.open();
+        f.feed("GET /x HTTP/1.1\r\nHost: h\r\nX-Bad: a\u0001b\r\nX-Ok: fine\r\n\r\n", 100);
+        assertTrue(f.wire(), f.wire().contains(" 400 "));
+    }
+
+    @Test
     public void testPriContinuationMustMatchAtEveryPosition() {
         String tail = "\r\nSM\r\n\r\n";
         for (int i = 0; i < tail.length(); i++) {

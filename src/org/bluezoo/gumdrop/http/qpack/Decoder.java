@@ -25,10 +25,9 @@ import java.io.ByteArrayOutputStream;
 import java.net.ProtocolException;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
-import java.util.ArrayList;
-import java.util.List;
 
 import org.bluezoo.gumdrop.http.Header;
+import org.bluezoo.gumdrop.http.HeaderFieldHandler;
 
 /**
  * Stateful QPACK field-section decoder (RFC 9204 section 4.5), backed
@@ -55,6 +54,21 @@ import org.bluezoo.gumdrop.http.Header;
 public final class Decoder extends QpackConstants implements EncoderStreamHandler {
 
     private final DynamicTable table;
+
+    /**
+     * The static table as octets, built once from {@link #STATIC_TABLE}: a
+     * name-only entry has an empty value.
+     */
+    private static final byte[][] STATIC_NAMES = new byte[STATIC_TABLE_SIZE][];
+    private static final byte[][] STATIC_VALUES = new byte[STATIC_TABLE_SIZE][];
+
+    static {
+        for (int i = 0; i < STATIC_TABLE_SIZE; i++) {
+            Header h = STATIC_TABLE.get(i);
+            STATIC_NAMES[i] = octets(h.getName());
+            STATIC_VALUES[i] = h.getValue() == null ? new byte[0] : octets(h.getValue());
+        }
+    }
 
     /**
      * The capacity ceiling this decoder declared via
@@ -149,29 +163,23 @@ public final class Decoder extends QpackConstants implements EncoderStreamHandle
     }
 
     /**
-     * Decodes one field section received on {@code streamId}.
+     * Decodes one field section received on {@code streamId}, delivering each
+     * field to {@code handler} as the octets that were on the wire.
+     *
+     * <p>No field is refused for what it contains: the whole section is
+     * decoded and acknowledged, and the receiver then decides about a field
+     * (RFC 9204 section 4.4.1). An exception means the section itself is
+     * malformed.
      *
      * @param streamId the stream this field section was received on
      * @param block the encoded field section
-     * @return the decoded headers, in wire order
+     * @param handler receives each decoded field, in wire order
      * @throws ProtocolException if the field section is malformed, or
      *         has a Required Insert Count this decoder cannot already
      *         satisfy (see the class documentation)
      */
-    public List<Header> decode(long streamId, ByteBuffer block) throws ProtocolException {
-        try {
-            return decodeUnchecked(streamId, block);
-        } catch (IllegalArgumentException e) {
-            // Decoded bytes do not form a syntactically valid HTTP header
-            // name/value. Header() validates this and throws unchecked;
-            // convert it to a proper decode error here.
-            ProtocolException pe = new ProtocolException("QPACK: " + e.getMessage());
-            pe.initCause(e);
-            throw pe;
-        }
-    }
-
-    private List<Header> decodeUnchecked(long streamId, ByteBuffer block) throws ProtocolException {
+    public void decode(long streamId, ByteBuffer block, HeaderFieldHandler handler)
+            throws ProtocolException {
         if (!block.hasRemaining()) {
             throw new ProtocolException("QPACK field section underflow reading prefix");
         }
@@ -205,19 +213,18 @@ public final class Decoder extends QpackConstants implements EncoderStreamHandle
             base = ric + deltaBase;
         }
 
-        List<Header> fields = new ArrayList<Header>();
         while (block.hasRemaining()) {
             int first = block.get(block.position()) & 0xff;
             if ((first & 0x80) != 0) {
-                fields.add(decodeIndexedFieldLine(block, base));
+                decodeIndexedFieldLine(block, base, handler);
             } else if ((first & 0xc0) == 0x40) {
-                fields.add(decodeLiteralFieldLineWithNameReference(block, base));
+                decodeLiteralFieldLineWithNameReference(block, base, handler);
             } else if ((first & 0xe0) == 0x20) {
-                fields.add(decodeLiteralFieldLineWithLiteralName(block));
+                decodeLiteralFieldLineWithLiteralName(block, handler);
             } else if ((first & 0xf0) == 0x10) {
-                fields.add(decodePostBaseIndexedFieldLine(block, base));
+                decodePostBaseIndexedFieldLine(block, base, handler);
             } else if ((first & 0xf0) == 0x00) {
-                fields.add(decodeLiteralFieldLineWithPostBaseNameReference(block, base));
+                decodeLiteralFieldLineWithPostBaseNameReference(block, base, handler);
             } else {
                 throw new ProtocolException("QPACK unsupported field line representation");
             }
@@ -227,11 +234,17 @@ public final class Decoder extends QpackConstants implements EncoderStreamHandle
             DecoderStreamWriter.writeSectionAcknowledgment(pendingBuffer(), streamId);
             flushPendingBuffer();
         }
-        return fields;
+    }
+
+    /** Hands one field to the receiver as read-only views of its octets. */
+    private static void emit(HeaderFieldHandler handler, byte[] name, byte[] value) {
+        handler.field(ByteBuffer.wrap(name).asReadOnlyBuffer(),
+                ByteBuffer.wrap(value).asReadOnlyBuffer());
     }
 
     // RFC 9204 section 4.5.2: '1|T|Index(6+)'
-    private Header decodeIndexedFieldLine(ByteBuffer block, long base) throws ProtocolException {
+    private void decodeIndexedFieldLine(ByteBuffer block, long base, HeaderFieldHandler handler)
+            throws ProtocolException {
         int firstByte = block.get() & 0xff;
         boolean isStatic = (firstByte & 0x40) != 0;
         long index = PrefixedInteger.decode(block, firstByte, 6);
@@ -239,70 +252,74 @@ public final class Decoder extends QpackConstants implements EncoderStreamHandle
             if (index < 0 || index >= STATIC_TABLE_SIZE) {
                 throw new ProtocolException("QPACK static table index out of range: " + index);
             }
-            return STATIC_TABLE.get((int) index);
+            emit(handler, STATIC_NAMES[(int) index], STATIC_VALUES[(int) index]);
+            return;
         }
         long absoluteIndex = resolveDynamicIndex(base, index);
-        Header header = table.get(absoluteIndex);
-        if (header == null) {
+        DynamicTable.Entry entry = table.get(absoluteIndex);
+        if (entry == null) {
             throw new ProtocolException("QPACK dynamic table index not live: " + absoluteIndex);
         }
-        return header;
+        emit(handler, octets(entry.name), octets(entry.value));
     }
 
     // RFC 9204 section 4.5.4: '01|N|T|NameIndex(4+)' + value string literal
-    private Header decodeLiteralFieldLineWithNameReference(ByteBuffer block, long base) throws ProtocolException {
+    private void decodeLiteralFieldLineWithNameReference(ByteBuffer block, long base,
+            HeaderFieldHandler handler) throws ProtocolException {
         int firstByte = block.get() & 0xff;
         boolean isStatic = (firstByte & 0x10) != 0;
         long nameIndex = PrefixedInteger.decode(block, firstByte, 4);
         byte[] valueBytes = QpackStrings.read(block, 7);
-        String name;
+        byte[] name;
         if (isStatic) {
             if (nameIndex < 0 || nameIndex >= STATIC_TABLE_SIZE) {
                 throw new ProtocolException("QPACK static table index out of range: " + nameIndex);
             }
-            name = STATIC_TABLE.get((int) nameIndex).getName();
+            name = STATIC_NAMES[(int) nameIndex];
         } else {
             long absoluteIndex = resolveDynamicIndex(base, nameIndex);
-            Header entry = table.get(absoluteIndex);
+            DynamicTable.Entry entry = table.get(absoluteIndex);
             if (entry == null) {
                 throw new ProtocolException("QPACK dynamic table index not live: " + absoluteIndex);
             }
-            name = entry.getName();
+            name = octets(entry.name);
         }
-        return new Header(name, decodeText(valueBytes));
+        emit(handler, name, valueBytes);
     }
 
     // RFC 9204 section 4.5.6: '001|N|H|NameLen(3+)' + name bytes + value string literal
-    private Header decodeLiteralFieldLineWithLiteralName(ByteBuffer block) throws ProtocolException {
+    private void decodeLiteralFieldLineWithLiteralName(ByteBuffer block, HeaderFieldHandler handler)
+            throws ProtocolException {
         byte[] nameBytes = QpackStrings.read(block, 3);
         byte[] valueBytes = QpackStrings.read(block, 7);
-        return new Header(decodeText(nameBytes), decodeText(valueBytes));
+        emit(handler, nameBytes, valueBytes);
     }
 
     // RFC 9204 section 4.5.3: '0001|Index(4+)'
-    private Header decodePostBaseIndexedFieldLine(ByteBuffer block, long base) throws ProtocolException {
+    private void decodePostBaseIndexedFieldLine(ByteBuffer block, long base, HeaderFieldHandler handler)
+            throws ProtocolException {
         int firstByte = block.get() & 0xff;
         long index = PrefixedInteger.decode(block, firstByte, 4);
         long absoluteIndex = base + index;
-        Header header = table.get(absoluteIndex);
-        if (header == null) {
+        DynamicTable.Entry entry = table.get(absoluteIndex);
+        if (entry == null) {
             throw new ProtocolException("QPACK dynamic table index not live: " + absoluteIndex);
         }
-        return header;
+        emit(handler, octets(entry.name), octets(entry.value));
     }
 
     // RFC 9204 section 4.5.5: '0000|N|NameIdx(3+)' + value string literal
-    private Header decodeLiteralFieldLineWithPostBaseNameReference(ByteBuffer block, long base)
-            throws ProtocolException {
+    private void decodeLiteralFieldLineWithPostBaseNameReference(ByteBuffer block, long base,
+            HeaderFieldHandler handler) throws ProtocolException {
         int firstByte = block.get() & 0xff;
         long nameIndex = PrefixedInteger.decode(block, firstByte, 3);
         byte[] valueBytes = QpackStrings.read(block, 7);
         long absoluteIndex = base + nameIndex;
-        Header entry = table.get(absoluteIndex);
+        DynamicTable.Entry entry = table.get(absoluteIndex);
         if (entry == null) {
             throw new ProtocolException("QPACK dynamic table index not live: " + absoluteIndex);
         }
-        return new Header(entry.getName(), decodeText(valueBytes));
+        emit(handler, octets(entry.name), valueBytes);
     }
 
     // RFC 9204 section 3.2.6: a name/index reference's relative index counts
@@ -316,8 +333,18 @@ public final class Decoder extends QpackConstants implements EncoderStreamHandle
         return absoluteIndex;
     }
 
+    /**
+     * The table keeps names and values as strings in which each character is
+     * the one octet of the same value (ISO-8859-1), so what the peer's encoder
+     * inserted is what is delivered whenever the entry is referenced, whatever
+     * those octets turn out to mean.
+     */
     private static String decodeText(byte[] bytes) {
-        return new String(bytes, StandardCharsets.US_ASCII);
+        return new String(bytes, StandardCharsets.ISO_8859_1);
+    }
+
+    private static byte[] octets(String text) {
+        return text.getBytes(StandardCharsets.ISO_8859_1);
     }
 
     private ByteBuffer pendingBuffer() {
@@ -362,12 +389,12 @@ public final class Decoder extends QpackConstants implements EncoderStreamHandle
             name = STATIC_TABLE.get((int) nameIndex).getName();
         } else {
             long absoluteIndex = table.getInsertCount() - 1 - nameIndex;
-            Header entry = table.get(absoluteIndex);
+            DynamicTable.Entry entry = table.get(absoluteIndex);
             if (entry == null) {
                 lastInstructionError = "QPACK Insert With Name Reference: dynamic table index not live: " + absoluteIndex;
                 return;
             }
-            name = entry.getName();
+            name = entry.name;
         }
         table.insertMirrored(name, decodeText(value));
         queueInsertCountIncrement();
@@ -382,12 +409,12 @@ public final class Decoder extends QpackConstants implements EncoderStreamHandle
     @Override
     public void duplicate(long relativeIndex) {
         long absoluteIndex = table.getInsertCount() - 1 - relativeIndex;
-        Header entry = table.get(absoluteIndex);
+        DynamicTable.Entry entry = table.get(absoluteIndex);
         if (entry == null) {
             lastInstructionError = "QPACK Duplicate: dynamic table index not live: " + absoluteIndex;
             return;
         }
-        table.insertMirrored(entry.getName(), entry.getValue());
+        table.insertMirrored(entry.name, entry.value);
         queueInsertCountIncrement();
     }
 

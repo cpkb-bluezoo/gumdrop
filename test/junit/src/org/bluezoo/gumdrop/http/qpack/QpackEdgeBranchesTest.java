@@ -60,7 +60,7 @@ public class QpackEdgeBranchesTest {
 
     private static void assertDecodeFails(Decoder d, String block, String fragment) {
         try {
-            d.decode(1, hex(block));
+            QpackTestSupport.decode(d, 1, hex(block));
             fail("expected ProtocolException for " + block);
         } catch (ProtocolException e) {
             String m = e.getMessage();
@@ -104,7 +104,7 @@ public class QpackEdgeBranchesTest {
             t.insertMirrored("n" + i, "v");
         }
         assertEquals(20, t.getInsertCount());
-        assertEquals("n19", t.get(19).getName());
+        assertEquals("n19", t.get(19).name);
         t.setCapacity(DynamicTable.entrySize("n19", "v"));
         assertNull(t.get(18));
         assertNotNull(t.get(19));
@@ -170,26 +170,33 @@ public class QpackEdgeBranchesTest {
     }
 
     @Test
-    public void decoderRejectsInvalidHeaderName() {
+    public void decoderLeavesAnInvalidHeaderNameToTheReceiver() throws ProtocolException {
+        // "a b" is not a valid field name. The decoder still consumes and
+        // acknowledges the whole section; the receiver's field check refuses
+        // the field (RFC 9114 section 4.1.2: a stream error).
         Decoder d = decoderWithEntry();
-        assertDecodeFails(d, "00002361206201" + "76", "QPACK");
+        org.bluezoo.gumdrop.http.HeaderCollector collector =
+                new org.bluezoo.gumdrop.http.HeaderCollector();
+        d.decode(1, hex("00002361206201" + "76"), collector);
+        assertTrue(collector.isMalformed());
+        assertTrue(collector.headers().isEmpty());
     }
 
     @Test
     public void decoderResolvesDynamicReferences() throws ProtocolException {
         Decoder d = decoderWithEntry();
-        List<Header> fields = d.decode(4, hex("0200" + "80" + "40017a"));
+        List<Header> fields = QpackTestSupport.decode(d, 4, hex("0200" + "80" + "40017a"));
         assertEquals(2, fields.size());
         assertEquals(new Header("x-a", "1"), fields.get(0));
         assertEquals(new Header("x-a", "z"), fields.get(1));
         byte[] pending = d.takePendingInstructions();
         assertTrue(pending.length > 0);
 
-        List<Header> post = d.decode(8, hex("02801000" + "01" + "7a"));
+        List<Header> post = QpackTestSupport.decode(d, 8, hex("02801000" + "01" + "7a"));
         assertEquals(new Header("x-a", "1"), post.get(0));
         assertEquals(new Header("x-a", "z"), post.get(1));
 
-        List<Header> lit = d.decode(12, hex("000023616263" + "0176"));
+        List<Header> lit = QpackTestSupport.decode(d, 12, hex("000023616263" + "0176"));
         assertEquals(new Header("abc", "v"), lit.get(0));
     }
 
@@ -274,7 +281,7 @@ public class QpackEdgeBranchesTest {
         fs.flip();
         ins.flip();
         decoder.feedEncoderStream(ins);
-        List<Header> out = decoder.decode(1, fs);
+        List<Header> out = QpackTestSupport.decode(decoder, 1, fs);
         assertEquals(second, out);
     }
 

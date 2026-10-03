@@ -21,7 +21,6 @@
 
 package org.bluezoo.gumdrop.http.qpack;
 
-import org.bluezoo.gumdrop.http.Header;
 
 /**
  * QPACK dynamic table (RFC 9204 section 3.2), absolute indexing.
@@ -54,7 +53,13 @@ final class DynamicTable {
 
     private static final int MIN_CAPACITY = 8;
 
-    private static final class Entry {
+    /**
+     * One table entry: a field's name and value, each character standing for
+     * the one octet of the same value (ISO-8859-1), exactly as the peer sent
+     * them. Nothing is checked on the way in or out; whether a field is
+     * acceptable HTTP is for the receiver.
+     */
+    static final class Entry {
         final String name;
         final String value;
         int refCount;
@@ -138,7 +143,7 @@ final class DynamicTable {
      * @param absoluteIndex the absolute index
      * @return the entry, or null if not live (evicted, or never inserted)
      */
-    Header get(long absoluteIndex) {
+    Entry get(long absoluteIndex) {
         if (absoluteIndex < baseIndex) {
             return null;
         }
@@ -147,7 +152,7 @@ final class DynamicTable {
             return null;
         }
         Entry entry = entries[(head + (int) pos) % entries.length];
-        return new Header(entry.name, entry.value);
+        return entry;
     }
 
     /**
