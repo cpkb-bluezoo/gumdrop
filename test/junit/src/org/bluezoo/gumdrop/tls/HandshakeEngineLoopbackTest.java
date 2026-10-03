@@ -1076,7 +1076,7 @@ public class HandshakeEngineLoopbackTest {
             if ((message[0] & 0xff) == HandshakeMessages.HANDSHAKE_TYPE_ENCRYPTED_EXTENSIONS) {
                 HandshakeMessages.EncryptedExtensions original = HandshakeMessages.parseEncryptedExtensions(message);
                 delivered = HandshakeMessages.buildEncryptedExtensions(original.selectedAlpn,
-                        original.quicTransportParameters, false, false, 0, null,
+                        original.quicTransportParameters, false, false, 0,
                         EchConfig.encodeList(new EchConfig[] { hostile }));
             }
             client.processMessage(delivered, clientSink);
@@ -1268,6 +1268,211 @@ public class HandshakeEngineLoopbackTest {
         assertTrue("client should fail", client.isFailed());
         assertTrue("client error mentions limit: " + clientSink.error,
                 String.valueOf(clientSink.error).contains("limit"));
+    }
+
+    /**
+     * RFC 8879 section 3: a server signals that it compressed its certificate
+     * by sending CompressedCertificate, never by echoing the
+     * compress_certificate extension; RFC 8446 section 4.2 does not list that
+     * extension for EncryptedExtensions, and OpenSSL aborts the handshake
+     * with illegal_parameter when it sees it there.
+     */
+    @Test
+    public void encryptedExtensionsOmitCompressCertificate() throws Exception {
+        HandshakeConfig sc = serverConfig(ecChain, ecKey);
+        sc.setCertificateCompressionEnabled(true);
+        HandshakeConfig cc = clientConfig(ecChain, SERVER_NAME);
+        cc.setCertificateCompressionEnabled(true);
+        HandshakeEngine client = new HandshakeEngine(cc);
+        HandshakeEngine server = new HandshakeEngine(sc);
+        RecordingSink clientSink = new RecordingSink();
+        RecordingSink serverSink = new RecordingSink();
+
+        runHandshake(client, clientSink, server, serverSink);
+
+        byte[] encryptedExtensions = null;
+        for (int i = 0; i < serverSink.allOutbound.size(); i++) {
+            byte[] message = serverSink.allOutbound.get(i);
+            if ((message[0] & 0xff) == HandshakeMessages.HANDSHAKE_TYPE_ENCRYPTED_EXTENSIONS) {
+                encryptedExtensions = message;
+            }
+        }
+        assertNotNull("server sent EncryptedExtensions", encryptedExtensions);
+        // handshake header (4), then the extensions vector length (2)
+        int pos = 6;
+        while (pos < encryptedExtensions.length) {
+            int type = ((encryptedExtensions[pos] & 0xff) << 8) | (encryptedExtensions[pos + 1] & 0xff);
+            int length = ((encryptedExtensions[pos + 2] & 0xff) << 8) | (encryptedExtensions[pos + 3] & 0xff);
+            assertTrue("compress_certificate (27) must not appear in EncryptedExtensions", type != 0x001b);
+            pos += 4 + length;
+        }
+        assertNull("client error", clientSink.error);
+        assertTrue("client complete", client.isComplete());
+        assertTrue("server still compresses its certificate",
+                containsHandshakeType(serverSink.allOutbound, 25));
+    }
+
+    /**
+     * RFC 8879 section 4: the algorithm of a CompressedCertificate must be
+     * one the receiver offered.
+     */
+    @Test
+    public void compressedCertificateWithUnofferedAlgorithmRejected() throws Exception {
+        List<CertificateCompressionAlgorithm> offered = new ArrayList<CertificateCompressionAlgorithm>();
+        offered.add(CertificateCompressionAlgorithm.ZLIB);
+        CompressedCertificateReceiver receiver = new CompressedCertificateReceiver(offered, 1 << 16, 12);
+        byte[] prefix = new byte[] { 0, (byte) CertificateCompressionAlgorithm.BROTLI.getId(), 0, 0, 9, 0, 0, 4 };
+        try {
+            receiver.write(prefix);
+            fail("an algorithm that was not offered must be rejected");
+        } catch (HandshakeFormatException expected) {
+            assertTrue(receiver.isAlgorithmMismatch());
+        }
+    }
+
+    /** RFC 8879 section 4: uint16 algorithm, uint24 uncompressed_length, then the compressed message. */
+    @Test
+    public void compressedCertificateUsesRfc8879Layout() {
+        byte[] wire = HandshakeMessages.buildCompressedCertificate(
+                CertificateCompressionAlgorithm.BROTLI, 300, new byte[] { 1, 2, 3 });
+        assertArrayEquals(new byte[] {
+                25, 0, 0, 11,       // CompressedCertificate, body length
+                0, 2,               // algorithm: brotli
+                0, 1, 44,           // uncompressed_length: 300
+                0, 0, 3, 1, 2, 3    // compressed_certificate_message
+        }, wire);
+    }
+
+    /**
+     * RFC 8879 section 4: what is compressed is the Certificate message
+     * itself, the body that follows the handshake header, and
+     * uncompressed_length is the length of that. (OpenSSL reports a length
+     * mismatch if the four-octet handshake header is compressed along with
+     * it.)
+     */
+    @Test
+    public void compressedCertificateCarriesTheCertificateMessageBody() throws Exception {
+        HandshakeConfig sc = serverConfig(ecChain, ecKey);
+        sc.setCertificateCompressionEnabled(true);
+        sc.setCertificateCompressionAlgorithms(
+                Collections.singletonList(CertificateCompressionAlgorithm.ZLIB));
+        HandshakeConfig cc = clientConfig(ecChain, SERVER_NAME);
+        cc.setCertificateCompressionEnabled(true);
+        HandshakeEngine client = new HandshakeEngine(cc);
+        HandshakeEngine server = new HandshakeEngine(sc);
+        RecordingSink clientSink = new RecordingSink();
+        RecordingSink serverSink = new RecordingSink();
+
+        runHandshake(client, clientSink, server, serverSink);
+
+        assertNull("client error", clientSink.error);
+        byte[] wire = null;
+        for (int i = 0; i < serverSink.allOutbound.size(); i++) {
+            byte[] message = serverSink.allOutbound.get(i);
+            if ((message[0] & 0xff) == 25) {
+                wire = message;
+            }
+        }
+        assertNotNull("server sent CompressedCertificate", wire);
+        int uncompressedLength = ((wire[6] & 0xff) << 16) | ((wire[7] & 0xff) << 8) | (wire[8] & 0xff);
+        java.util.zip.Inflater inflater = new java.util.zip.Inflater();
+        inflater.setInput(wire, 12, wire.length - 12);
+        byte[] body = new byte[uncompressedLength + 16];
+        int n = inflater.inflate(body);
+        assertTrue("all of the compressed message was read", inflater.finished());
+        inflater.end();
+        assertEquals("uncompressed_length is the length of what was compressed", uncompressedLength, n);
+        // a server's Certificate message starts with an empty
+        // certificate_request_context and then the certificate_list length,
+        // which accounts for the rest of the message
+        assertEquals("certificate_request_context length", 0, body[0]);
+        int listLength = ((body[1] & 0xff) << 16) | ((body[2] & 0xff) << 8) | (body[3] & 0xff);
+        assertEquals("certificate_list fills the message", n - 4, listLength);
+    }
+
+    /** RFC 8879 section 3: the offer is a one-octet-length vector of uint16 ids. */
+    @Test
+    public void clientHelloOffersCompressCertificateInRfc8879Layout() throws Exception {
+        HandshakeConfig cc = clientConfig(ecChain, SERVER_NAME);
+        cc.setCertificateCompressionEnabled(true);
+        HandshakeEngine client = new HandshakeEngine(cc);
+        RecordingSink clientSink = new RecordingSink();
+        client.start(clientSink);
+        byte[] clientHello = clientSink.drain().get(0);
+        // extension 27, length 5: vector length 4, brotli (2), zlib (1)
+        byte[] expected = new byte[] { 0, 0x1b, 0, 5, 4, 0, 2, 0, 1 };
+        boolean found = false;
+        for (int i = 0; i + expected.length <= clientHello.length && !found; i++) {
+            found = Arrays.equals(expected, Arrays.copyOfRange(clientHello, i, i + expected.length));
+        }
+        assertTrue("ClientHello carries compress_certificate as a uint16 vector", found);
+        assertArrayEquals(new int[] { 2, 1 },
+                HandshakeMessages.parseClientHello(clientHello).certificateCompressionAlgorithms);
+    }
+
+    /** The offer OpenSSL sends: brotli, zlib, zstd. An id this server does not know is skipped. */
+    @Test
+    public void compressCertificateOfferWithUnknownAlgorithmIsParsed() throws Exception {
+        int[] ids = HandshakeMessages.parseCertificateCompressionAlgorithms(
+                new byte[] { 6, 0, 2, 0, 1, 0, 3 });
+        assertArrayEquals(new int[] { 2, 1, 3 }, ids);
+        assertEquals(CertificateCompressionAlgorithm.BROTLI, CertificateCompressor.selectAlgorithm(
+                CertificateCompressor.defaultEnabledAlgorithms(), ids));
+        assertEquals(CertificateCompressionAlgorithm.ZLIB, CertificateCompressor.selectAlgorithm(
+                CertificateCompressor.defaultEnabledAlgorithms(), new int[] { 3, 1 }));
+    }
+
+    @Test
+    public void malformedCompressCertificateOfferRejected() {
+        byte[][] malformed = new byte[][] {
+                { 3, 0, 2, 0 },         // odd vector length
+                { 0 },                  // empty vector
+                { 2, 0, 2, 0, 1 },      // octets after the vector
+                { 4, 0, 2 }             // vector longer than the body
+        };
+        for (int i = 0; i < malformed.length; i++) {
+            try {
+                HandshakeMessages.parseCertificateCompressionAlgorithms(malformed[i]);
+                fail("malformed offer " + i + " must be rejected");
+            } catch (HandshakeFormatException expected) {
+                // rejected
+            }
+        }
+    }
+
+    /** RFC 8879 section 4: the decompressed message must be exactly uncompressed_length long. */
+    @Test
+    public void compressedCertificateWithWrongUncompressedLengthRejected() throws Exception {
+        List<byte[]> der = new ArrayList<byte[]>();
+        for (int i = 0; i < ecChain.size(); i++) {
+            der.add(ecChain.get(i).getEncoded());
+        }
+        byte[] message = HandshakeMessages.buildCertificate(new byte[0], der);
+        byte[] certificate = Arrays.copyOfRange(message, 4, message.length);
+        byte[] compressed = CertificateCompressor.compress(CertificateCompressionAlgorithm.ZLIB, certificate);
+        int[] declared = new int[] { certificate.length - 1, certificate.length + 1 };
+        for (int i = 0; i < declared.length; i++) {
+            byte[] wire = HandshakeMessages.buildCompressedCertificate(
+                    CertificateCompressionAlgorithm.ZLIB, declared[i], compressed);
+            CompressedCertificateReceiver receiver = new CompressedCertificateReceiver(
+                    CertificateCompressor.defaultEnabledAlgorithms(), 1 << 20, wire.length - 4);
+            try {
+                receiver.write(Arrays.copyOfRange(wire, 4, wire.length));
+                receiver.finish();
+                fail("declared length " + declared[i] + " for a " + certificate.length + " octet message");
+            } catch (HandshakeFormatException expected) {
+                assertTrue(expected.isBadCertificate());
+            }
+        }
+        byte[] wire = HandshakeMessages.buildCompressedCertificate(
+                CertificateCompressionAlgorithm.ZLIB, certificate.length, compressed);
+        try {
+            new CompressedCertificateReceiver(CertificateCompressor.defaultEnabledAlgorithms(),
+                    certificate.length - 1, wire.length - 4).write(Arrays.copyOfRange(wire, 4, wire.length));
+            fail("a declared length over the limit must be rejected");
+        } catch (HandshakeFormatException expected) {
+            assertTrue(expected.getMessage().contains("limit"));
+        }
     }
 
     private static boolean containsHandshakeType(List<byte[]> messages, int type) {

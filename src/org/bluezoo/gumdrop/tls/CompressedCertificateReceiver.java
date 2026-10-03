@@ -30,34 +30,41 @@ import java.util.List;
  * {@code CompressedCertificate} message: reads the algorithm and length
  * prefix, streams the compressed bytes through a
  * {@link CertificateCompressor.Decompressor} and feeds the output straight
- * into a {@link CertificateMessageParser}. Nothing proportional to the
+ * into a {@link CertificateMessageParser}. What is compressed is the
+ * Certificate message itself, without a handshake header (RFC 8879
+ * section 4). Nothing proportional to the
  * message size is retained other than the parsed certificates.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 final class CompressedCertificateReceiver {
 
-    private final CertificateCompressionAlgorithm expected;
+    private final List<CertificateCompressionAlgorithm> offered;
     private final int maxDecompressedSize;
-    private final CertificateMessageParser parser;
-    private final byte[] prefix = new byte[4];
+    private CertificateMessageParser parser;
+    /** algorithm (2), uncompressed_length (3), compressed message length (3) */
+    private static final int PREFIX_LENGTH = 8;
+
+    private final byte[] prefix = new byte[PREFIX_LENGTH];
     private int prefixLen;
     private int bodyRemaining;
     private int compressedRemaining;
+    private int uncompressedLength;
+    private int decodedLength;
     private CertificateCompressor.Decompressor decompressor;
     private boolean algorithmMismatch;
 
     /**
-     * @param expected the negotiated algorithm, or null to accept any known one
+     * @param offered the algorithms this endpoint offered; the message must
+     *        use one of them (RFC 8879 section 4)
      * @param maxDecompressedSize limit on the decompressed Certificate message
      * @param bodyLength the CompressedCertificate body length from its handshake header
      */
-    CompressedCertificateReceiver(CertificateCompressionAlgorithm expected, int maxDecompressedSize,
+    CompressedCertificateReceiver(List<CertificateCompressionAlgorithm> offered, int maxDecompressedSize,
             int bodyLength) {
-        this.expected = expected;
+        this.offered = offered;
         this.maxDecompressedSize = maxDecompressedSize;
         this.bodyRemaining = bodyLength;
-        this.parser = new CertificateMessageParser(maxDecompressedSize);
     }
 
     /**
@@ -73,11 +80,11 @@ final class CompressedCertificateReceiver {
         }
         bodyRemaining -= data.length;
         while (decompressor == null && pos < data.length) {
-            int n = Math.min(4 - prefixLen, data.length - pos);
+            int n = Math.min(PREFIX_LENGTH - prefixLen, data.length - pos);
             System.arraycopy(data, pos, prefix, prefixLen, n);
             prefixLen += n;
             pos += n;
-            if (prefixLen == 4) {
+            if (prefixLen == PREFIX_LENGTH) {
                 startDecompressor(data.length - pos);
             }
         }
@@ -89,15 +96,20 @@ final class CompressedCertificateReceiver {
     }
 
     private void startDecompressor(int inThisChunk) throws HandshakeFormatException {
-        CertificateCompressionAlgorithm alg = CertificateCompressionAlgorithm.fromId(prefix[0] & 0xff);
-        if (alg == null) {
-            throw new HandshakeFormatException("unknown certificate compression algorithm");
-        }
-        if (expected != null && alg != expected) {
+        CertificateCompressionAlgorithm alg = CertificateCompressionAlgorithm.fromId(
+                ((prefix[0] & 0xff) << 8) | (prefix[1] & 0xff));
+        if (alg == null || !offered.contains(alg)) {
             algorithmMismatch = true;
             throw new HandshakeFormatException("certificate compression algorithm mismatch");
         }
-        compressedRemaining = ((prefix[1] & 0xff) << 16) | ((prefix[2] & 0xff) << 8) | (prefix[3] & 0xff);
+        // RFC 8879 section 4: uncompressed_length bounds the output before
+        // any of it is produced, and must then be met exactly
+        uncompressedLength = ((prefix[2] & 0xff) << 16) | ((prefix[3] & 0xff) << 8) | (prefix[4] & 0xff);
+        if (uncompressedLength > maxDecompressedSize) {
+            throw new HandshakeFormatException("decompressed certificate exceeds limit");
+        }
+        parser = new CertificateMessageParser(uncompressedLength);
+        compressedRemaining = ((prefix[5] & 0xff) << 16) | ((prefix[6] & 0xff) << 8) | (prefix[7] & 0xff);
         if (compressedRemaining != bodyRemaining + inThisChunk) {
             throw new HandshakeFormatException("inconsistent compressed certificate length");
         }
@@ -105,13 +117,27 @@ final class CompressedCertificateReceiver {
                 new CertificateCompressor.Sink() {
                     @Override
                     public void decoded(ByteBuffer out) throws HandshakeFormatException {
-                        if (out.hasArray()) {
-                            parser.write(out.array(), out.arrayOffset() + out.position(), out.remaining());
-                            out.position(out.limit());
-                        } else {
-                            byte[] copy = new byte[out.remaining()];
-                            out.get(copy);
-                            parser.write(copy, 0, copy.length);
+                        decodedLength += out.remaining();
+                        if (decodedLength > uncompressedLength) {
+                            throw new HandshakeFormatException(
+                                    "certificate longer than its uncompressed_length", true);
+                        }
+                        // RFC 8879 section 4: a message that does not decompress
+                        // to the Certificate it declared is a bad certificate
+                        try {
+                            if (out.hasArray()) {
+                                parser.write(out.array(), out.arrayOffset() + out.position(), out.remaining());
+                                out.position(out.limit());
+                            } else {
+                                byte[] copy = new byte[out.remaining()];
+                                out.get(copy);
+                                parser.write(copy, 0, copy.length);
+                            }
+                        } catch (HandshakeFormatException e) {
+                            if (e.isBadCertificate()) {
+                                throw e;
+                            }
+                            throw new HandshakeFormatException(e.getMessage(), true);
                         }
                     }
                 });
@@ -126,6 +152,9 @@ final class CompressedCertificateReceiver {
     void finish() throws HandshakeFormatException {
         if (decompressor == null || compressedRemaining != 0 || bodyRemaining != 0) {
             throw new HandshakeFormatException("truncated CompressedCertificate");
+        }
+        if (decodedLength != uncompressedLength) {
+            throw new HandshakeFormatException("certificate shorter than its uncompressed_length", true);
         }
         parser.finish();
     }

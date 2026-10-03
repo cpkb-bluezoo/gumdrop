@@ -550,7 +550,6 @@ public final class HandshakeEngine {
         if (ee.recordSizeLimitPresent) {
             peerRecordSizeLimit = ee.recordSizeLimit;
         }
-        negotiatedCertCompression = ee.certificateCompression;
         negotiatedAlpn = ee.selectedAlpn;
         if (ee.quicTransportParameters != null) {
             sink.peerTransportParameters(ee.quicTransportParameters);
@@ -629,13 +628,17 @@ public final class HandshakeEngine {
         }
         boolean client = config.getRole() == HandshakeRole.CLIENT;
         State expected = client ? State.WAIT_CERTIFICATE : State.WAIT_CLIENT_CERTIFICATE;
-        if (header.length != 4 || !isStreamedMessageType(header[0] & 0xff) || state != expected) {
+        // RFC 8879 section 4: only an endpoint that offered compress_certificate
+        // may be sent a CompressedCertificate, in an algorithm it offered
+        if (header.length != 4 || !isStreamedMessageType(header[0] & 0xff) || state != expected
+                || !config.isCertificateCompressionEnabled()) {
             fail(sink, AlertDescription.UNEXPECTED_MESSAGE, "Unexpected CompressedCertificate");
             return;
         }
         transcript.update(header);
         int bodyLength = ((header[1] & 0xff) << 16) | ((header[2] & 0xff) << 8) | (header[3] & 0xff);
-        compressedCertificateReceiver = new CompressedCertificateReceiver(negotiatedCertCompression,
+        compressedCertificateReceiver = new CompressedCertificateReceiver(
+                config.getCertificateCompressionAlgorithms(),
                 config.getMaxDecompressedCertificateSize(), bodyLength);
     }
 
@@ -1041,8 +1044,7 @@ public final class HandshakeEngine {
         boolean advertiseRecordSizeLimit = ch.recordSizeLimitPresent && config.isRecordSizeLimitEnabled();
         byte[] encryptedExtensions = HandshakeMessages.buildEncryptedExtensions(
                 negotiatedAlpn, serverLocalTransportParameters, earlyDataAccepted,
-                advertiseRecordSizeLimit, localRecordSizeLimit, negotiatedCertCompression,
-                echRetryList);
+                advertiseRecordSizeLimit, localRecordSizeLimit, echRetryList);
         transcript.update(encryptedExtensions);
         sink.handshakeDataReady(encryptedExtensions);
 
@@ -1687,8 +1689,12 @@ public final class HandshakeEngine {
             throws HandshakeFormatException {
         byte[] certificate = HandshakeMessages.buildCertificate(context, der);
         if (negotiatedCertCompression != null && config.isCertificateCompressionEnabled()) {
-            byte[] compressed = CertificateCompressor.compress(negotiatedCertCompression, certificate);
-            byte[] wire = HandshakeMessages.buildCompressedCertificate(negotiatedCertCompression, compressed);
+            // RFC 8879 section 4: the Certificate message is compressed
+            // without its handshake header, which CompressedCertificate replaces
+            byte[] body = Arrays.copyOfRange(certificate, 4, certificate.length);
+            byte[] compressed = CertificateCompressor.compress(negotiatedCertCompression, body);
+            byte[] wire = HandshakeMessages.buildCompressedCertificate(negotiatedCertCompression,
+                    body.length, compressed);
             transcript.update(wire);
             sink.handshakeDataReady(wire);
         } else {

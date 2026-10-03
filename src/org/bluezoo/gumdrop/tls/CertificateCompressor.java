@@ -58,7 +58,7 @@ public final class CertificateCompressor {
      * @return the chosen algorithm, or null if none match
      */
     public static CertificateCompressionAlgorithm selectAlgorithm(
-            List<CertificateCompressionAlgorithm> localEnabled, byte[] peerOfferIds) {
+            List<CertificateCompressionAlgorithm> localEnabled, int[] peerOfferIds) {
         if (localEnabled == null || localEnabled.isEmpty() || peerOfferIds == null
                 || peerOfferIds.length == 0) {
             return null;
@@ -66,8 +66,7 @@ public final class CertificateCompressor {
         boolean peerBrotli = false;
         boolean peerZlib = false;
         for (int i = 0; i < peerOfferIds.length; i++) {
-            CertificateCompressionAlgorithm alg = CertificateCompressionAlgorithm.fromId(
-                    peerOfferIds[i] & 0xff);
+            CertificateCompressionAlgorithm alg = CertificateCompressionAlgorithm.fromId(peerOfferIds[i]);
             if (alg == CertificateCompressionAlgorithm.BROTLI) {
                 peerBrotli = true;
             } else if (alg == CertificateCompressionAlgorithm.ZLIB) {

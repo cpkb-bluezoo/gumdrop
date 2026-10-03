@@ -45,9 +45,9 @@ public class CertificateCompressorTest {
     public void selectAlgorithmPrefersBrotliWhenBothSupportIt() {
         List<CertificateCompressionAlgorithm> local =
                 CertificateCompressor.defaultEnabledAlgorithms();
-        byte[] offer = new byte[] {
-                (byte) CertificateCompressionAlgorithm.ZLIB.getId(),
-                (byte) CertificateCompressionAlgorithm.BROTLI.getId()
+        int[] offer = new int[] {
+                CertificateCompressionAlgorithm.ZLIB.getId(),
+                CertificateCompressionAlgorithm.BROTLI.getId()
         };
         assertEquals(CertificateCompressionAlgorithm.BROTLI,
                 CertificateCompressor.selectAlgorithm(local, offer));
@@ -57,7 +57,7 @@ public class CertificateCompressorTest {
     public void selectAlgorithmFallsBackToZlib() {
         List<CertificateCompressionAlgorithm> local =
                 CertificateCompressor.defaultEnabledAlgorithms();
-        byte[] offer = new byte[] { (byte) CertificateCompressionAlgorithm.ZLIB.getId() };
+        int[] offer = new int[] { CertificateCompressionAlgorithm.ZLIB.getId() };
         assertEquals(CertificateCompressionAlgorithm.ZLIB,
                 CertificateCompressor.selectAlgorithm(local, offer));
     }
@@ -66,7 +66,7 @@ public class CertificateCompressorTest {
     public void selectAlgorithmReturnsNullWhenNoOverlap() {
         List<CertificateCompressionAlgorithm> local = Collections.singletonList(
                 CertificateCompressionAlgorithm.BROTLI);
-        byte[] offer = new byte[] { (byte) CertificateCompressionAlgorithm.ZLIB.getId() };
+        int[] offer = new int[] { CertificateCompressionAlgorithm.ZLIB.getId() };
         assertNull(CertificateCompressor.selectAlgorithm(local, offer));
     }
 

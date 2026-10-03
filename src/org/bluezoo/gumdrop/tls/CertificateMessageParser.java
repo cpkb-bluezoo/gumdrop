@@ -30,8 +30,9 @@ import java.util.List;
 import org.bluezoo.gumdrop.crypto.CertificateVerifier;
 
 /**
- * Push parser for a framed TLS 1.3 {@code Certificate} message
- * (RFC 8446 section 4.4.2) whose bytes arrive in arbitrary chunks.
+ * Push parser for the body of a TLS 1.3 {@code Certificate} message
+ * (RFC 8446 section 4.4.2), the part after the handshake header, whose
+ * bytes arrive in arbitrary chunks.
  * Each certificate is parsed as soon as its DER is complete and the DER
  * discarded, so working memory is a single certificate plus the parsed
  * chain, never the whole message.
@@ -40,7 +41,6 @@ import org.bluezoo.gumdrop.crypto.CertificateVerifier;
  */
 final class CertificateMessageParser {
 
-    private static final int HEADER = 0;
     private static final int CONTEXT_LENGTH = 1;
     private static final int CONTEXT = 2;
     private static final int LIST_LENGTH = 3;
@@ -50,11 +50,10 @@ final class CertificateMessageParser {
     private static final int EXT_DATA = 7;
     private static final int DONE = 8;
 
-    private final int maxMessageSize;
     private final List<X509Certificate> chain = new ArrayList<X509Certificate>();
     private final byte[] small = new byte[4];
     private int smallLen;
-    private int state = HEADER;
+    private int state = CONTEXT_LENGTH;
     private int messageRemaining;
     private int listRemaining;
     private int fieldRemaining;
@@ -62,8 +61,11 @@ final class CertificateMessageParser {
     private int fieldPos;
     private byte[] context = new byte[0];
 
-    CertificateMessageParser(int maxMessageSize) {
-        this.maxMessageSize = maxMessageSize;
+    /**
+     * @param messageLength the length of the message body to be parsed
+     */
+    CertificateMessageParser(int messageLength) {
+        this.messageRemaining = messageLength;
     }
 
     /**
@@ -80,21 +82,6 @@ final class CertificateMessageParser {
                 throw new HandshakeFormatException("trailing data after Certificate message");
             }
             switch (state) {
-                case HEADER:
-                    pos = fill(data, pos, end, 4);
-                    if (smallLen == 4) {
-                        if ((small[0] & 0xff) != HandshakeMessages.HANDSHAKE_TYPE_CERTIFICATE) {
-                            throw new HandshakeFormatException("decompressed certificate message is invalid", true);
-                        }
-                        messageRemaining = ((small[1] & 0xff) << 16) | ((small[2] & 0xff) << 8)
-                                | (small[3] & 0xff);
-                        smallLen = 0;
-                        if (messageRemaining > maxMessageSize - 4) {
-                            throw new HandshakeFormatException("decompressed certificate exceeds limit");
-                        }
-                        state = CONTEXT_LENGTH;
-                    }
-                    break;
                 case CONTEXT_LENGTH:
                     pos = consume(data, pos, end, 1);
                     if (smallLen == 1) {

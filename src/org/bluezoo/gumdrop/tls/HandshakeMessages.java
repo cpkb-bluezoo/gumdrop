@@ -257,7 +257,16 @@ final class HandshakeMessages {
         }
         if (params.certificateCompressionAlgorithms != null
                 && params.certificateCompressionAlgorithms.length > 0) {
-            writeExtension(ext, EXT_COMPRESS_CERTIFICATE, params.certificateCompressionAlgorithms);
+            // RFC 8879 section 3: CertificateCompressionAlgorithm algorithms<2..2^8-2>,
+            // each a uint16
+            byte[] ids = params.certificateCompressionAlgorithms;
+            WireWriter algorithms = new WireWriter();
+            for (int i = 0; i < ids.length; i++) {
+                algorithms.u16(ids[i] & 0xff);
+            }
+            WireWriter vector = new WireWriter();
+            vector.opaque8(algorithms.toByteArray());
+            writeExtension(ext, EXT_COMPRESS_CERTIFICATE, vector.toByteArray());
         }
         if (params.quicTransportParameters != null) {
             writeExtension(ext, EXT_QUIC_TRANSPORT_PARAMETERS, params.quicTransportParameters);
@@ -357,8 +366,8 @@ final class HandshakeMessages {
         /** True when ClientHello carried {@code record_size_limit}. */
         boolean recordSizeLimitPresent;
         int recordSizeLimit;
-        /** Raw algorithm ids from {@code compress_certificate}, or null if absent. */
-        byte[] certificateCompressionAlgorithms;
+        /** The algorithm ids offered in {@code compress_certificate}, or null if absent. */
+        int[] certificateCompressionAlgorithms;
         /** Set when {@code encrypted_client_hello} uses the inner variant. */
         boolean encryptedClientHelloInner;
         /** Outer {@code encrypted_client_hello}, or null if absent or inner only. */
@@ -486,7 +495,7 @@ final class HandshakeMessages {
                 ch.recordSizeLimit = RecordSizeLimit.decodeExtensionValue(extBody);
                 break;
             case EXT_COMPRESS_CERTIFICATE:
-                ch.certificateCompressionAlgorithms = extBody;
+                ch.certificateCompressionAlgorithms = parseCertificateCompressionAlgorithms(extBody);
                 break;
             case EXT_ENCRYPTED_CLIENT_HELLO: {
                 EncryptedClientHello.Parsed ech = EncryptedClientHello.parseClientHelloPayload(extBody);
@@ -755,11 +764,10 @@ final class HandshakeMessages {
     // ---- EncryptedExtensions (RFC 8446 section 4.3.1) ----
 
     static byte[] buildEncryptedExtensions(String selectedAlpn, byte[] quicTransportParameters,
-            boolean earlyDataAccepted, boolean advertiseRecordSizeLimit, int recordSizeLimit,
-            CertificateCompressionAlgorithm certificateCompression) {
+            boolean earlyDataAccepted, boolean advertiseRecordSizeLimit, int recordSizeLimit) {
         try {
             return buildEncryptedExtensions(selectedAlpn, quicTransportParameters, earlyDataAccepted,
-                    advertiseRecordSizeLimit, recordSizeLimit, certificateCompression, null);
+                    advertiseRecordSizeLimit, recordSizeLimit, null);
         } catch (HandshakeFormatException e) {
             throw new IllegalStateException(e);
         }
@@ -767,7 +775,7 @@ final class HandshakeMessages {
 
     static byte[] buildEncryptedExtensions(String selectedAlpn, byte[] quicTransportParameters,
             boolean earlyDataAccepted, boolean advertiseRecordSizeLimit, int recordSizeLimit,
-            CertificateCompressionAlgorithm certificateCompression, byte[] echRetryConfigList)
+            byte[] echRetryConfigList)
             throws HandshakeFormatException {
         WireWriter ext = new WireWriter();
         if (selectedAlpn != null) {
@@ -784,10 +792,9 @@ final class HandshakeMessages {
         if (advertiseRecordSizeLimit) {
             writeRecordSizeLimitExtension(ext, recordSizeLimit);
         }
-        if (certificateCompression != null) {
-            writeExtension(ext, EXT_COMPRESS_CERTIFICATE,
-                    new byte[] { (byte) certificateCompression.getId() });
-        }
+        // compress_certificate is never sent here: RFC 8879 section 3 has the
+        // server answer a client's offer with CompressedCertificate itself, and
+        // RFC 8446 section 4.2 does not allow the extension in this message.
         if (echRetryConfigList != null) {
             writeEncryptedClientHelloRetryExtension(ext, echRetryConfigList);
         }
@@ -802,7 +809,6 @@ final class HandshakeMessages {
         boolean earlyDataAccepted;
         boolean recordSizeLimitPresent;
         int recordSizeLimit;
-        CertificateCompressionAlgorithm certificateCompression;
         /** RFC 9849 retry configurations, or null if absent. */
         EchConfig[] echRetryConfigs;
     }
@@ -829,10 +835,6 @@ final class HandshakeMessages {
             } else if (extType == EXT_RECORD_SIZE_LIMIT) {
                 ee.recordSizeLimitPresent = true;
                 ee.recordSizeLimit = RecordSizeLimit.decodeExtensionValue(extBody);
-            } else if (extType == EXT_COMPRESS_CERTIFICATE) {
-                if (extBody.length == 1) {
-                    ee.certificateCompression = CertificateCompressionAlgorithm.fromId(extBody[0] & 0xff);
-                }
             } else if (extType == EXT_ENCRYPTED_CLIENT_HELLO) {
                 ee.echRetryConfigs = EncryptedClientHello.parseEncryptedExtensions(extBody);
             }
@@ -842,9 +844,43 @@ final class HandshakeMessages {
 
     // ---- CompressedCertificate (RFC 8879) ----
 
-    static byte[] buildCompressedCertificate(CertificateCompressionAlgorithm algorithm, byte[] compressed) {
+    /**
+     * Decodes the body of a {@code compress_certificate} extension (RFC 8879
+     * section 3): a vector, with a one-octet length, of two-octet algorithm
+     * ids.
+     *
+     * @param extBody the extension body
+     * @return the ids in the order offered
+     * @throws HandshakeFormatException if the vector is malformed
+     */
+    static int[] parseCertificateCompressionAlgorithms(byte[] extBody) throws HandshakeFormatException {
+        WireReader r = new WireReader(extBody);
+        byte[] vector = r.opaque8();
+        if (r.hasRemaining() || vector.length < 2 || (vector.length & 1) != 0) {
+            throw new HandshakeFormatException("malformed compress_certificate extension");
+        }
+        int[] ids = new int[vector.length / 2];
+        for (int i = 0; i < ids.length; i++) {
+            ids[i] = ((vector[i * 2] & 0xff) << 8) | (vector[i * 2 + 1] & 0xff);
+        }
+        return ids;
+    }
+
+    /**
+     * Builds a CompressedCertificate (RFC 8879 section 4): the algorithm, the
+     * length of the Certificate message before compression, and the
+     * compressed message.
+     *
+     * @param algorithm the algorithm the message was compressed with
+     * @param uncompressedLength the length of the Certificate message
+     * @param compressed the compressed Certificate message
+     * @return the complete framed message
+     */
+    static byte[] buildCompressedCertificate(CertificateCompressionAlgorithm algorithm, int uncompressedLength,
+            byte[] compressed) {
         WireWriter body = new WireWriter();
-        body.u8(algorithm.getId());
+        body.u16(algorithm.getId());
+        body.u24(uncompressedLength);
         body.opaque24(compressed);
         return WireWriter.frameHandshakeMessage(HANDSHAKE_TYPE_COMPRESSED_CERTIFICATE, body.toByteArray());
     }

@@ -307,11 +307,12 @@ public class Dtls13RecordEngineTest {
         for (int i = 0; i < chain.size(); i++) {
             der.add(chain.get(i).getEncoded());
         }
-        byte[] certificate = HandshakeMessages.buildCertificate(new byte[0], der);
+        byte[] message = HandshakeMessages.buildCertificate(new byte[0], der);
+        byte[] certificate = java.util.Arrays.copyOfRange(message, 4, message.length);
         byte[] compressed = CertificateCompressor.compress(
                 CertificateCompressionAlgorithm.BROTLI, certificate);
         byte[] wire = HandshakeMessages.buildCompressedCertificate(
-                CertificateCompressionAlgorithm.BROTLI, compressed);
+                CertificateCompressionAlgorithm.BROTLI, certificate.length, compressed);
         return wire.length - 4;
     }
 
