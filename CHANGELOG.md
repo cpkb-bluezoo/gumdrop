@@ -260,11 +260,23 @@ user-visible themes since 2.2.x.
   frame (HTTP/2, HTTP/3) or as a `Content-Length` body instead of a chunked
   one (HTTP/1.x); later pieces are sent as they are given. `bodyContent` still
   returns the number of bytes taken, for backpressure.
+  A field given after the body has begun is a trailer: it is sent after the
+  last chunk on HTTP/1.x (so the body is chunked, even if it is a single
+  piece), and as a final HEADERS frame on HTTP/2 and HTTP/3, queued behind any
+  body still waiting for flow control.
 - **`HttpResponseState` is now `HttpResponse` (breaking).** The server-side
   type a handler answers a request with is renamed to match the `response`
   parameter of `HttpStreamHandler.openStream(response)`; the client's own
   `HttpResponse` class is gone, so the name is free. It is still in
   `org.bluezoo.gumdrop.http.server`.
+- **Date fields are `dateHeader` events.** `HttpMessageHandler` has a
+  `dateHeader(String name, Instant value)` event, the counterpart of
+  `HttpRequest.dateHeader`. `Date`, `Expires`, `Last-Modified`,
+  `If-Modified-Since`, `If-Unmodified-Since`, `If-Range` and the date form of
+  `Retry-After` arrive as one when the value is a valid HTTP-date (always GMT,
+  hence an `Instant`), and as an ordinary `header` event when it is not; the
+  seconds form of `Retry-After` is a `longHeader`. A handler that collects
+  fields must now handle `dateHeader` too.
 - **Trailer fields are `header` events.** `HttpMessageHandler` has no `trailer`
   event: `bodyContent` is called any number of times, and the body ends at the
   first field event after it (a trailer) or at `endMessage`. A handler tells a

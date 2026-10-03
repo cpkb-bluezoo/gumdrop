@@ -104,6 +104,37 @@ public class H3RequestFlowTest {
     }
 
     @Test
+    public void testPostWithTrailers() throws Exception {
+        Http3ClientHandler h = H3ClientFlowTest.client();
+        H3Request r = newRequest(h, "POST", null, new H3ClientFlowTest.Rec());
+        r.bodyContent(ByteBuffer.wrap(new byte[] {1, 2}));
+        r.bodyContent(ByteBuffer.wrap(new byte[] {3}));
+        r.header("x-sum", "6");
+        r.endMessage();
+        h.runDeferredRequests();
+        assertEquals(1, H3ClientFlowTest.streams(h).size());
+        try {
+            r.header("x-late", "1");
+            fail("expected IllegalStateException");
+        } catch (IllegalStateException expected) {
+            assertTrue(expected.getMessage() != null);
+        }
+    }
+
+    @Test
+    public void testTrailerFieldsThatFrameTheMessageAreRefused() throws Exception {
+        Http3ClientHandler h = H3ClientFlowTest.client();
+        H3Request r = newRequest(h, "POST", null, new H3ClientFlowTest.Rec());
+        r.bodyContent(ByteBuffer.wrap(new byte[] {1}));
+        try {
+            r.header("content-length", "1");
+            fail("expected IllegalArgumentException");
+        } catch (IllegalArgumentException expected) {
+            assertTrue(expected.getMessage() != null);
+        }
+    }
+
+    @Test
     public void testDeferredUntilEstablished() throws Exception {
         Http3ClientHandler h = H3ClientFlowTest.client();
         H3Request r = newRequest(h, "POST", null, new H3ClientFlowTest.Rec());

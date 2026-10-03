@@ -314,6 +314,59 @@ public class HttpClientHttp1BehaviourTest {
     }
 
     @Test
+    public void trailersFollowTheLastChunk() {
+        HttpRequest r = handler.post("/up", new Recorder());
+        r.bodyContent(ByteBuffer.wrap("abc".getBytes(StandardCharsets.US_ASCII)));
+        r.bodyContent(ByteBuffer.wrap("def".getBytes(StandardCharsets.US_ASCII)));
+        r.header("X-Checksum", "99");
+        r.longHeader("X-Count", 2);
+        r.endMessage();
+        assertTrue(sent(), sent().endsWith("\r\n\r\n3\r\nabc\r\n3\r\ndef\r\n0\r\n"
+                + "X-Checksum: 99\r\nX-Count: 2\r\n\r\n"));
+    }
+
+    @Test
+    public void trailersAfterASinglePieceAreChunkedNotGivenALength() {
+        HttpRequest r = handler.post("/up", new Recorder());
+        r.bodyContent(ByteBuffer.wrap("abc".getBytes(StandardCharsets.US_ASCII)));
+        r.header("X-Checksum", "99");
+        r.endMessage();
+        assertFalse(sent(), sent().contains("Content-Length"));
+        assertTrue(sent(), sent().endsWith("\r\n\r\n3\r\nabc\r\n0\r\nX-Checksum: 99\r\n\r\n"));
+    }
+
+    @Test
+    public void trailersNeedAChunkedBody() {
+        HttpRequest r = handler.post("/up", new Recorder());
+        r.longHeader("Content-Length", 3);
+        r.bodyContent(ByteBuffer.wrap("abc".getBytes(StandardCharsets.US_ASCII)));
+        try {
+            r.header("X-Checksum", "99");
+            fail("a declared length leaves no room for trailers");
+        } catch (IllegalStateException expected) {
+            // expected
+        }
+    }
+
+    @Test
+    public void framingFieldsAreNotTrailers() {
+        HttpRequest r = handler.post("/up", new Recorder());
+        r.bodyContent(ByteBuffer.wrap("abc".getBytes(StandardCharsets.US_ASCII)));
+        try {
+            r.header("Content-Length", "3");
+            fail();
+        } catch (IllegalArgumentException expected) {
+            // expected
+        }
+        try {
+            r.header("X-Bad", "a\r\nInjected: yes");
+            fail();
+        } catch (IllegalArgumentException expected) {
+            // expected
+        }
+    }
+
+    @Test
     public void singleBodyPieceIsSentWithContentLengthNotChunked() {
         HttpRequest r = handler.post("/up", new Recorder());
         r.bodyContent(ByteBuffer.wrap("abc".getBytes(StandardCharsets.US_ASCII)));
@@ -400,14 +453,7 @@ public class HttpClientHttp1BehaviourTest {
         HttpRequest r = handler.post("/p", new Recorder());
         r.header("X", "before");
         r.bodyContent(ByteBuffer.wrap(new byte[] {1}));
-        r.header("X", "still before");
         r.bodyContent(ByteBuffer.wrap(new byte[] {2}));
-        try {
-            r.header("X", "y");
-            fail("header after send");
-        } catch (IllegalStateException expected) {
-            assertEquals("Headers already sent", expected.getMessage());
-        }
         try {
             r.endHeaders();
             fail("endHeaders after send");
@@ -415,6 +461,12 @@ public class HttpClientHttp1BehaviourTest {
             assertEquals("Headers already sent", expected.getMessage());
         }
         r.endMessage();
+        try {
+            r.header("X", "y");
+            fail("header after the end of the message");
+        } catch (IllegalStateException expected) {
+            assertEquals("Headers already sent", expected.getMessage());
+        }
         try {
             r.bodyContent(ByteBuffer.allocate(1));
             fail("body after end");

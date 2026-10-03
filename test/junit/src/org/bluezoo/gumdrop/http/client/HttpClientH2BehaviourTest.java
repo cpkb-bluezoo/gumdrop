@@ -782,6 +782,36 @@ public class HttpClientH2BehaviourTest {
     }
 
     @Test
+    public void trailersAreAFinalHeadersFrameThatEndsTheStream() throws Exception {
+        ready();
+        HttpRequest r = handler.post("/up", new Recorder());
+        r.bodyContent(ByteBuffer.wrap("abc".getBytes(StandardCharsets.US_ASCII)));
+        r.bodyContent(ByteBuffer.wrap("def".getBytes(StandardCharsets.US_ASCII)));
+        r.header("x-checksum", "99");
+        r.endMessage();
+        List<Frame> headers = framesOfType(HEADERS);
+        assertEquals("the request headers and the trailers", 2, headers.size());
+        assertFalse(headers.get(0).endStream());
+        assertTrue("the trailers end the stream", headers.get(1).endStream());
+        for (Frame f : framesOfType(DATA)) {
+            assertFalse("no DATA frame ends the stream", f.endStream());
+        }
+    }
+
+    @Test
+    public void trailersAfterASinglePieceBodyDoNotUseAContentLength() throws Exception {
+        ready();
+        HttpRequest r = handler.post("/up", new Recorder());
+        r.bodyContent(ByteBuffer.wrap("abc".getBytes(StandardCharsets.US_ASCII)));
+        r.header("x-checksum", "99");
+        r.endMessage();
+        assertEquals(2, framesOfType(HEADERS).size());
+        assertTrue(framesOfType(HEADERS).get(1).endStream());
+        assertEquals(1, framesOfType(DATA).size());
+        assertFalse(framesOfType(DATA).get(0).endStream());
+    }
+
+    @Test
     public void requestBodyIsSentAsDataFramesAndEnded() throws Exception {
         ready();
         HttpRequest r = handler.post("/up", new Recorder());

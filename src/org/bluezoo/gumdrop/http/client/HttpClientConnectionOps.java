@@ -78,6 +78,14 @@ interface HttpClientConnectionOps {
     void endRequestBody(HttpStream request);
 
     /**
+     * Ends the request body with trailer fields after it.
+     *
+     * @param request the request
+     * @param trailers the trailer fields
+     */
+    void endRequestWithTrailers(HttpStream request, org.bluezoo.gumdrop.http.Headers trailers);
+
+    /**
      * Cancels a request.
      *
      * @param request the request to cancel

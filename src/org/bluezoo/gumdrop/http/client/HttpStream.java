@@ -73,6 +73,9 @@ class HttpStream implements HttpRequest {
     // The first piece of body, held back until it is known whether it is the
     // only one
     private ByteBuffer firstChunk;
+    // Trailer fields: fields given once the body has begun
+    private Headers trailers;
+    private boolean bodyStarted;
     private boolean cancelled;
 
     private ContentEncoding.Encoder requestContentEncoder;
@@ -289,10 +292,41 @@ class HttpStream implements HttpRequest {
 
     @Override
     public void header(String name, String value) {
-        if (headersSent) {
+        if (bodySent) {
             throw new IllegalStateException(L10N.getString("err.headers_already_sent"));
         }
+        if (headersSent || bodyStarted) {
+            // the header section is sent, or the body has begun, so this is
+            // a trailer field (RFC 9110 section 6.5)
+            addTrailer(name, value);
+            return;
+        }
         headers.add(name, value);
+    }
+
+    private void addTrailer(String name, String value) {
+        String lower = name.toLowerCase();
+        if (lower.startsWith(":") || lower.equals("content-length")
+                || lower.equals("transfer-encoding") || lower.equals("host")
+                || lower.equals("trailer")) {
+            throw new IllegalArgumentException(MessageFormat.format(
+                    L10N.getString("err.trailer_not_allowed"), name));
+        }
+        for (int i = 0; i < value.length(); i++) {
+            char c = value.charAt(i);
+            if (c == '\r' || c == '\n' || c == 0) {
+                throw new IllegalArgumentException(L10N.getString("err.invalid_trailer_value"));
+            }
+        }
+        if (headers.containsName("Content-Length") && !headers.containsName("Transfer-Encoding")) {
+            // a body with a declared length has no room for trailers on
+            // HTTP/1.x, and the framing was already chosen
+            throw new IllegalStateException(L10N.getString("err.trailers_need_chunked"));
+        }
+        if (trailers == null) {
+            trailers = new Headers();
+        }
+        trailers.add(name, value);
     }
 
     @Override
@@ -410,6 +444,7 @@ class HttpStream implements HttpRequest {
         if (length == 0) {
             return 0;
         }
+        bodyStarted = true;
         if (!headersSent && firstChunk == null) {
             // Held back until it is known whether it is also the last piece
             // (see the class description of HttpRequest).
@@ -448,7 +483,11 @@ class HttpStream implements HttpRequest {
             return;
         }
         if (headersSent) {
-            connection.endRequestBody(this);
+            if (trailers != null) {
+                connection.endRequestWithTrailers(this, trailers);
+            } else {
+                connection.endRequestBody(this);
+            }
             return;
         }
         headersSent = true;
@@ -458,6 +497,13 @@ class HttpStream implements HttpRequest {
         }
         ByteBuffer only = firstChunk;
         firstChunk = null;
+        if (trailers != null) {
+            // trailers need a chunked body: the length is not declared
+            connection.sendRequest(this, true);
+            sendBody(only);
+            connection.endRequestWithTrailers(this, trailers);
+            return;
+        }
         if (getRequestContentCoding() == null
                 && !headers.containsName("Content-Length")
                 && !headers.containsName("Transfer-Encoding")) {

@@ -106,6 +106,7 @@ public class RecordingMessageHandler implements HttpMessageHandler {
                 + " filename=" + d.getParameter("filename"));
     }
     @Override public void longHeader(String name, long value) { flushBody(); events.add("long " + name + " " + value); }
+    @Override public void dateHeader(String name, java.time.Instant value) { flushBody(); events.add("date " + name + " " + value); }
     @Override public void header(String name, ByteBuffer value) { flushBody(); view(value); events.add("header " + name + " " + text(value)); }
     @Override public void endHeaders() { flushBody(); events.add("endHeaders"); }
     @Override public void bodyContent(ByteBuffer data) { view(data); body.append(text(data)); }

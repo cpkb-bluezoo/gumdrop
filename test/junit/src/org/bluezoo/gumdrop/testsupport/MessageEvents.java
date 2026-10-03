@@ -140,6 +140,7 @@ public final class MessageEvents {
         @Override public void contentType(ContentType v) { h.contentType(v); }
         @Override public void contentDisposition(ContentDisposition v) { h.contentDisposition(v); }
         @Override public void longHeader(String n, long v) { h.longHeader(n, v); }
+        @Override public void dateHeader(String n, java.time.Instant v) { h.dateHeader(n, v); }
         @Override public void header(String n, ByteBuffer v) { h.header(n, v); }
         @Override public void endHeaders() { h.endHeaders(); }
         @Override public void bodyContent(ByteBuffer d) { h.bodyContent(d); }

@@ -463,6 +463,7 @@ public class HttpClientProtocolHandlerH2EdgeTest {
         @Override public void status(int code) { seen.status(code); }
         @Override public void header(String n, ByteBuffer v) { seen.header(n, v); }
         @Override public void longHeader(String n, long v) { seen.longHeader(n, v); }
+        @Override public void dateHeader(String n, java.time.Instant v) { seen.dateHeader(n, v); }
         @Override public void contentType(org.bluezoo.gumdrop.mime.ContentType c) { seen.contentType(c); }
         @Override public void endHeaders() { seen.endHeaders(); }
         @Override public void bodyContent(ByteBuffer d) { seen.bodyContent(d); }

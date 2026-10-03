@@ -133,6 +133,39 @@ public class Http1ParserTest {
     }
 
     @Test
+    public void dateFieldsAreReportedAsInstants() {
+        expectRequest("GET /p HTTP/1.1\r\nHost: h\r\n"
+                + "If-Modified-Since: Sun, 06 Nov 1994 08:49:37 GMT\r\n"
+                + "If-Unmodified-Since: Sun Nov  6 08:49:37 1994\r\n\r\n",
+                "method GET", "target /p", "version HTTP/1.1", "authority h",
+                "date if-modified-since 1994-11-06T08:49:37Z",
+                "date if-unmodified-since 1994-11-06T08:49:37Z",
+                "endHeaders", "endMessage");
+    }
+
+    @Test
+    public void aDateFieldThatIsNotADateIsReportedAsAnOrdinaryField() {
+        expectRequest("GET /p HTTP/1.1\r\nHost: h\r\n"
+                + "If-Modified-Since: yesterday-ish\r\n"
+                + "If-Range: \"etag-1\"\r\n\r\n",
+                "method GET", "target /p", "version HTTP/1.1", "authority h",
+                "header if-modified-since yesterday-ish",
+                "header if-range \"etag-1\"",
+                "endHeaders", "endMessage");
+    }
+
+    @Test
+    public void retryAfterIsSecondsOrADate() {
+        expectResponse("HTTP/1.1 503 Busy\r\nRetry-After: 120\r\nContent-Length: 0\r\n\r\n",
+                "version HTTP/1.1", "status 503", "reason Busy",
+                "long retry-after 120", "long content-length 0", "endHeaders", "endMessage");
+        expectResponse("HTTP/1.1 503 Busy\r\nRetry-After: Sun, 06 Nov 1994 08:49:37 GMT\r\n"
+                + "Content-Length: 0\r\n\r\n",
+                "version HTTP/1.1", "status 503", "reason Busy",
+                "date retry-after 1994-11-06T08:49:37Z", "long content-length 0", "endHeaders", "endMessage");
+    }
+
+    @Test
     public void requestWithChunkedBodyAndTrailers() {
         expectRequest("PUT /p HTTP/1.1\r\nHost: h\r\nTransfer-Encoding: chunked\r\n\r\n"
                 + "4;ext=1\r\nWiki\r\n5\r\npedia\r\n0\r\nX-Trail: v\r\n\r\n",

@@ -116,6 +116,7 @@ public interface HttpRequestHandler extends HttpMessageHandler {
     @Override default void contentType(ContentType contentType) { }
     @Override default void contentDisposition(ContentDisposition contentDisposition) { }
     @Override default void longHeader(String name, long value) { }
+    @Override default void dateHeader(String name, java.time.Instant value) { }
     @Override default void header(String name, ByteBuffer value) { }
     @Override default void endHeaders() { }
     @Override default void bodyContent(ByteBuffer data) { }

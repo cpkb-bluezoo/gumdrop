@@ -100,16 +100,11 @@ public class HttpStreamTest {
     }
 
     @Test
-    public void headerAfterEndHeadersIsIllegal() {
+    public void secondEndHeadersIsIllegal() {
         RecordingOps ops = new RecordingOps();
         HttpStream stream = new HttpStream(ops, "POST", "/");
         stream.endHeaders();
         assertEquals("send:true", ops.events.get(0));
-        try {
-            stream.header("X-After", "nope");
-            assertTrue("expected IllegalStateException", false);
-        } catch (IllegalStateException expected) {
-        }
         try {
             stream.endHeaders();
             assertTrue("expected IllegalStateException", false);
@@ -118,17 +113,31 @@ public class HttpStreamTest {
     }
 
     @Test
-    public void headerAfterSecondBodyPieceIsIllegal() {
+    public void headerAfterEndHeadersIsATrailer() {
+        RecordingOps ops = new RecordingOps();
+        HttpStream stream = new HttpStream(ops, "POST", "/");
+        stream.endHeaders();
+        stream.bodyContent(ByteBuffer.wrap(new byte[] { 1 }));
+        stream.header("X-Sum", "9");
+        stream.endMessage();
+        assertEquals("send:true", ops.events.get(0));
+        assertEquals("body:1", ops.events.get(1));
+        assertEquals("trailers:x-sum=9", ops.events.get(2));
+    }
+
+    @Test
+    public void headerAfterTheBodyBeganIsATrailerEvenWhileTheFirstPieceIsHeld() {
         RecordingOps ops = new RecordingOps();
         HttpStream stream = new HttpStream(ops, "POST", "/");
         stream.bodyContent(ByteBuffer.wrap(new byte[] { 1 }));
-        stream.header("X-Still", "ok");
-        stream.bodyContent(ByteBuffer.wrap(new byte[] { 2 }));
-        try {
-            stream.header("X-After", "nope");
-            assertTrue("expected IllegalStateException", false);
-        } catch (IllegalStateException expected) {
-        }
+        stream.header("X-Sum", "9");
+        assertEquals("nothing is sent yet", 0, ops.events.size());
+        stream.endMessage();
+        // headers (no declared length: trailers need a chunked body), the
+        // one piece, then the trailers
+        assertEquals("send:true", ops.events.get(0));
+        assertEquals("body:1", ops.events.get(1));
+        assertEquals("trailers:x-sum=9", ops.events.get(2));
     }
 
     @Test
@@ -381,6 +390,15 @@ public class HttpStreamTest {
         @Override
         public void endRequestBody(HttpStream request) {
             events.add("end");
+        }
+
+        @Override
+        public void endRequestWithTrailers(HttpStream request, org.bluezoo.gumdrop.http.Headers trailers) {
+            StringBuilder sb = new StringBuilder("trailers:");
+            for (org.bluezoo.gumdrop.http.Header h : trailers) {
+                sb.append(h.getName().toLowerCase()).append('=').append(h.getValue());
+            }
+            events.add(sb.toString());
         }
 
         @Override

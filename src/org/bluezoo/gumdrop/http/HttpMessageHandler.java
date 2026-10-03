@@ -161,6 +161,19 @@ public interface HttpMessageHandler {
     void longHeader(String name, long value);
 
     /**
+     * A field whose value is a date, such as {@code Date}, {@code Expires},
+     * {@code Last-Modified}, {@code If-Modified-Since},
+     * {@code If-Unmodified-Since}, {@code If-Range} or the date form of
+     * {@code Retry-After} (RFC 9110 section 5.6.7). HTTP dates are always
+     * GMT, so the value is an instant. A value that is not a valid date is
+     * reported as {@code header} instead.
+     *
+     * @param name the lower-case field name
+     * @param value the instant the date names
+     */
+    void dateHeader(String name, java.time.Instant value);
+
+    /**
      * Any other field, and any typed field whose value did not parse.
      *
      * @param name the lower-case field name

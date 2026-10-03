@@ -108,6 +108,9 @@ public class H3Request implements HttpRequest {
     // only one; and whether endMessage() has been called
     private byte[] firstChunk;
     private boolean ended;
+    // Trailer fields: fields given once the body has begun
+    private Headers trailers;
+    private boolean bodyStarted;
 
     public H3Request(Http3ClientHandler h3Handler, String method,
                      String path, String authority, String scheme,
@@ -123,10 +126,36 @@ public class H3Request implements HttpRequest {
 
     @Override
     public void header(String name, String value) {
-        if (requestStarted) {
+        if (ended) {
             throw new IllegalStateException(L10N.getString("err.headers_already_sent"));
         }
+        if (requestStarted || bodyStarted) {
+            // the header section is sent, or the body has begun, so this is
+            // a trailer field (RFC 9110 section 6.5)
+            addTrailer(name, value);
+            return;
+        }
         headers.add(new Header(name, value));
+    }
+
+    private void addTrailer(String name, String value) {
+        String lower = name.toLowerCase();
+        if (lower.startsWith(":") || lower.equals("content-length")
+                || lower.equals("transfer-encoding") || lower.equals("host")
+                || lower.equals("trailer")) {
+            throw new IllegalArgumentException(java.text.MessageFormat.format(
+                    L10N.getString("err.trailer_not_allowed"), name));
+        }
+        for (int i = 0; i < value.length(); i++) {
+            char c = value.charAt(i);
+            if (c == '\r' || c == '\n' || c == 0) {
+                throw new IllegalArgumentException(L10N.getString("err.invalid_trailer_value"));
+            }
+        }
+        if (trailers == null) {
+            trailers = new Headers();
+        }
+        trailers.add(new Header(name, value));
     }
 
     @Override
@@ -239,6 +268,7 @@ public class H3Request implements HttpRequest {
         }
         final byte[] snapshot = new byte[remaining];
         data.get(snapshot);
+        bodyStarted = true;
         if (!requestStarted && firstChunk == null) {
             // Held back until it is known whether it is also the last piece
             firstChunk = snapshot;
@@ -296,10 +326,17 @@ public class H3Request implements HttpRequest {
                 startRequest(true);
                 return;
             }
-            // The one piece of body is the whole body: say how long it is,
-            // and send it with the end of the stream
             byte[] only = firstChunk;
             firstChunk = null;
+            if (trailers != null) {
+                // trailers follow the body: it does not end the stream
+                startRequest(false);
+                sendBody(only, false);
+                sendTrailers();
+                return;
+            }
+            // The one piece of body is the whole body: say how long it is,
+            // and send it with the end of the stream
             if (!containsHeader(headers, "content-length")
                     && !containsHeader(headers, "content-encoding")) {
                 headers.add(new Header("content-length", Integer.toString(only.length)));
@@ -308,7 +345,35 @@ public class H3Request implements HttpRequest {
             sendBody(only, true);
             return;
         }
+        if (trailers != null) {
+            sendTrailers();
+            return;
+        }
         sendBody(new byte[0], true);
+    }
+
+    /** Ends the request with its trailer fields, on the connection's thread. */
+    private void sendTrailers() {
+        final Headers fields = trailers;
+        h3Handler.execute(new Runnable() {
+            @Override
+            public void run() {
+                Runnable trailerTask = new Runnable() {
+                    @Override
+                    public void run() {
+                        if (h3Stream == null) {
+                            return;
+                        }
+                        h3Handler.sendRequestTrailers(h3Stream, fields);
+                    }
+                };
+                if (sendDeferred) {
+                    h3Handler.deferUntilEstablished(trailerTask);
+                } else {
+                    trailerTask.run();
+                }
+            }
+        });
     }
 
     @Override

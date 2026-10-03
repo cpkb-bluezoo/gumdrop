@@ -286,6 +286,19 @@ class H3ClientStream implements ProtocolHandler, H3FrameHandler {
         }
     }
 
+    // Trailer fields waiting for the QUIC stream, to follow the queued body
+    private Headers pendingTrailers;
+
+    void queueRequestTrailers(Headers trailers) {
+        pendingTrailers = trailers;
+    }
+
+    Headers takePendingTrailers() {
+        Headers trailers = pendingTrailers;
+        pendingTrailers = null;
+        return trailers;
+    }
+
     List<byte[]> takePendingBody() {
         List<byte[]> body = new ArrayList<byte[]>(pendingBody);
         pendingBody.clear();

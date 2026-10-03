@@ -2008,6 +2008,13 @@ public class HttpClient implements AltSvcListener {
             }
 
             @Override
+            public void dateHeader(String name, java.time.Instant value) {
+                if (verbose || headersOnly) {
+                    System.err.println(name + ": " + new HttpDateFormat().format(value.toEpochMilli()));
+                }
+            }
+
+            @Override
             public void header(String name, ByteBuffer value) {
                 if (verbose || headersOnly) {
                     byte[] octets = new byte[value.remaining()];

@@ -72,6 +72,7 @@ public class Http1MessageEventsTest {
         @Override public void contentType(ContentType c) { seen.contentType(c); }
         @Override public void contentDisposition(ContentDisposition d) { seen.contentDisposition(d); }
         @Override public void longHeader(String n, long v) { seen.longHeader(n, v); }
+        @Override public void dateHeader(String n, java.time.Instant v) { seen.dateHeader(n, v); }
         @Override public void header(String n, ByteBuffer v) { seen.header(n, v); }
         @Override public void endHeaders() { seen.endHeaders(); }
         @Override public void bodyContent(ByteBuffer d) { seen.bodyContent(d); }

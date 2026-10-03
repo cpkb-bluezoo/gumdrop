@@ -47,6 +47,13 @@ import org.bluezoo.gumdrop.mime.ContentType;
  * and HTTP/3) or one write (HTTP/1.x); every later piece is sent as it is
  * given.
  *
+ * <p>A field given once the body has begun is a trailer field (RFC 9110
+ * section 6.5), sent after the body: as chunked trailers on HTTP/1.x, or a
+ * final HEADERS frame on HTTP/2 and HTTP/3. A request that declares its
+ * {@code Content-Length} has no room for trailers, and framing fields
+ * ({@code Content-Length}, {@code Transfer-Encoding}, {@code Host},
+ * {@code Trailer}) cannot be trailers.
+ *
  * <h3>Simple Request (No Body)</h3>
  * <pre>
  * HttpRequest request = client.get("/api/users", new DefaultHttpResponseHandler() {
@@ -97,7 +104,10 @@ public interface HttpRequest {
      *
      * @param name the field name
      * @param value the field value
-     * @throws IllegalStateException if the header section has already been sent
+     * @throws IllegalStateException if the message has ended, or this would be
+     *     a trailer on a request that declared its length
+     * @throws IllegalArgumentException if this would be a trailer that may not
+     *     be one, or a trailer value contains a line break
      */
     void header(String name, String value);
 

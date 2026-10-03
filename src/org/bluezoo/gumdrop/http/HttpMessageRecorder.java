@@ -51,7 +51,7 @@ public final class HttpMessageRecorder implements HttpMessageHandler {
 
     private enum Kind {
         METHOD, TARGET, SCHEME, AUTHORITY, PROTOCOL, VERSION, STATUS, REASON,
-        CONTENT_TYPE, CONTENT_DISPOSITION, LONG, HEADER, END_HEADERS, BODY,
+        CONTENT_TYPE, CONTENT_DISPOSITION, LONG, DATE, HEADER, END_HEADERS, BODY,
         END_MESSAGE, ERROR, FAILED
     }
 
@@ -108,6 +108,7 @@ public final class HttpMessageRecorder implements HttpMessageHandler {
                 case CONTENT_TYPE: target.contentType((ContentType) e.object); break;
                 case CONTENT_DISPOSITION: target.contentDisposition((ContentDisposition) e.object); break;
                 case LONG: target.longHeader(e.name, e.number); break;
+                case DATE: target.dateHeader(e.name, (java.time.Instant) e.object); break;
                 case HEADER: target.header(e.name, view(e)); break;
                 case END_HEADERS: target.endHeaders(); break;
                 case BODY: target.bodyContent(view(e)); break;
@@ -128,7 +129,7 @@ public final class HttpMessageRecorder implements HttpMessageHandler {
     public void removeFields(String name) {
         for (java.util.Iterator<Event> i = events.iterator(); i.hasNext(); ) {
             Event e = i.next();
-            boolean field = e.kind == Kind.HEADER || e.kind == Kind.LONG;
+            boolean field = e.kind == Kind.HEADER || e.kind == Kind.LONG || e.kind == Kind.DATE;
             if (field && name.equals(e.name)) {
                 i.remove();
             } else if (e.kind == Kind.CONTENT_TYPE && name.equals("content-type")) {
@@ -164,6 +165,7 @@ public final class HttpMessageRecorder implements HttpMessageHandler {
     @Override public void contentType(ContentType c) { add(Kind.CONTENT_TYPE, null, null, c, 0); }
     @Override public void contentDisposition(ContentDisposition d) { add(Kind.CONTENT_DISPOSITION, null, null, d, 0); }
     @Override public void longHeader(String name, long value) { add(Kind.LONG, name, null, null, value); }
+    @Override public void dateHeader(String name, java.time.Instant value) { add(Kind.DATE, name, null, value, 0); }
     @Override public void header(String name, ByteBuffer value) { add(Kind.HEADER, name, copy(value), null, 0); }
     @Override public void endHeaders() { add(Kind.END_HEADERS, null, null, null, 0); }
     @Override public void bodyContent(ByteBuffer data) { add(Kind.BODY, null, copy(data), null, 0); }

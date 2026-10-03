@@ -44,6 +44,7 @@ import org.bluezoo.gumdrop.http.ConnectIpTarget;
 import org.bluezoo.gumdrop.http.ConnectUdpTarget;
 import org.bluezoo.gumdrop.http.Header;
 import org.bluezoo.gumdrop.http.Headers;
+import org.bluezoo.gumdrop.http.HttpVersion;
 import org.bluezoo.gumdrop.http.ContentEncoding;
 import org.bluezoo.gumdrop.http.client.ConnectIpEventHandler;
 import org.bluezoo.gumdrop.http.client.ConnectUdpEventHandler;
@@ -591,7 +592,10 @@ public final class Http3ClientHandler implements H3ControlStream.Listener {
                 sendRequestBodyOnLoop(streamId, body.get(i), false);
             }
         }
-        if (fin || bodyFin) {
+        Headers trailers = clientStream.takePendingTrailers();
+        if (trailers != null) {
+            sendTrailersOnLoop(clientStream, trailers);
+        } else if (fin || bodyFin) {
             if (contentCoding) {
                 sendRequestBodyEncodedOnLoop(clientStream, new byte[0], true);
             } else {
@@ -650,7 +654,61 @@ public final class Http3ClientHandler implements H3ControlStream.Listener {
         sendRequestBodyOnLoop(clientStream.getStreamId(), snapshot, fin);
     }
 
+    /**
+     * Ends the request with trailer fields (RFC 9114 section 4.1): the
+     * stream carries a final HEADERS frame, then closes. Queued on
+     * {@code clientStream} if the QUIC stream has not been granted yet.
+     *
+     * <p>Must be called from the connection's own {@code SelectorLoop}
+     * thread.
+     *
+     * @param clientStream the request stream
+     * @param trailers the trailer fields
+     */
+    void sendRequestTrailers(H3ClientStream clientStream, Headers trailers) {
+        if (clientStream.getEndpoint() == null) {
+            clientStream.queueRequestTrailers(trailers);
+            return;
+        }
+        sendTrailersOnLoop(clientStream, trailers);
+    }
+
+    private void sendTrailersOnLoop(H3ClientStream clientStream, Headers trailers) {
+        if (clientStream.getRequestOutboundContentCoding() != null) {
+            // finish the content coding without ending the stream
+            sendRequestBodyEncodedOnLoop(clientStream, new byte[0], true, false);
+        }
+        Endpoint endpoint = clientStream.getEndpoint();
+        long streamId = clientStream.getStreamId();
+        List<Header> fields = new ArrayList<Header>();
+        for (Header trailer : trailers) {
+            String name = trailer.getName().toLowerCase();
+            if (HttpVersion.isHttp1FramingHeader(name, trailer.getValue())) {
+                continue;
+            }
+            fields.add(new Header(name, trailer.getValue()));
+        }
+        ByteBuffer fieldSection = ByteBuffer.allocate(estimateFieldSectionCapacity(fields));
+        ByteBuffer encoderInstructions = ByteBuffer.allocate(estimateFieldSectionCapacity(fields));
+        qpackEncoder.encode(fieldSection, encoderInstructions, streamId, fields);
+        fieldSection.flip();
+        byte[] encoded = new byte[fieldSection.remaining()];
+        fieldSection.get(encoded);
+        encoderInstructions.flip();
+        flushQpackEncoderInstructions(encoderInstructions);
+        ByteBuffer out = ByteBuffer.allocate(H3Writer.headersLength(encoded.length));
+        H3Writer.writeHeaders(out, encoded);
+        out.flip();
+        endpoint.send(out);
+        endpoint.close();
+    }
+
     private void sendRequestBodyEncodedOnLoop(H3ClientStream clientStream, byte[] plain, boolean fin) {
+        sendRequestBodyEncodedOnLoop(clientStream, plain, fin, true);
+    }
+
+    private void sendRequestBodyEncodedOnLoop(H3ClientStream clientStream, byte[] plain, boolean fin,
+            boolean closeStream) {
         try {
             ContentEncoding.Encoder encoder = clientStream.getOrCreateRequestContentEncoder();
             if (encoder == null) {
@@ -666,7 +724,7 @@ public final class Http3ClientHandler implements H3ControlStream.Listener {
             if (fin) {
                 clientStream.closeRequestContentEncoder();
                 Endpoint endpoint = clientStream.getEndpoint();
-                if (endpoint != null) {
+                if (endpoint != null && closeStream) {
                     endpoint.close();
                 }
             }

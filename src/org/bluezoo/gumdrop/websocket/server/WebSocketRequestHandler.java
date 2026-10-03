@@ -292,6 +292,11 @@ public final class WebSocketRequestHandler implements HttpStreamHandler {
         }
 
         @Override
+        public void dateHeader(String name, java.time.Instant value) {
+            headers.add(new Header(name, new org.bluezoo.gumdrop.http.HttpDateFormat().format(value.toEpochMilli())));
+        }
+
+        @Override
         public void header(String name, ByteBuffer value) {
             headers.add(new Header(name, text(value)));
         }

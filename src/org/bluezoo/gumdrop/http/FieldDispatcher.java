@@ -56,6 +56,7 @@ public final class FieldDispatcher {
 
     private final HttpMessageHandler handler;
     private CharsetDecoder latin1;
+    private HttpDateFormat dates;
 
     private boolean haveContentLength;
     private long contentLength;
@@ -142,6 +143,24 @@ public final class FieldDispatcher {
                 handler.contentType(type);
                 return true;
             }
+        } else if (isDateField(name)) {
+            java.time.Instant when = date(value);
+            if (when != null) {
+                handler.dateHeader(name, when);
+                return true;
+            }
+        } else if (name.equals("retry-after")) {
+            // delay-seconds, or an HTTP-date (RFC 9110 section 10.2.3)
+            long seconds = digits(value);
+            if (seconds >= 0) {
+                handler.longHeader(name, seconds);
+                return true;
+            }
+            java.time.Instant when = date(value);
+            if (when != null) {
+                handler.dateHeader(name, when);
+                return true;
+            }
         } else if (name.equals("content-disposition")) {
             ContentDisposition disposition = ContentDispositionParser.parse(value.duplicate(), decoder());
             if (disposition != null) {
@@ -151,6 +170,56 @@ public final class FieldDispatcher {
         }
         handler.header(name, value);
         return true;
+    }
+
+    /** The fields whose whole value is an HTTP-date (RFC 9110 section 5.6.7). */
+    private static boolean isDateField(String name) {
+        return name.equals("date") || name.equals("expires") || name.equals("last-modified")
+                || name.equals("if-modified-since") || name.equals("if-unmodified-since")
+                || name.equals("if-range");
+    }
+
+    /** The instant an HTTP-date value names, or null if it is not one. */
+    private java.time.Instant date(ByteBuffer value) {
+        int n = value.remaining();
+        if (n < 20 || n > 40) {
+            return null;
+        }
+        byte[] octets = new byte[n];
+        value.duplicate().get(octets);
+        for (int i = 0; i < n; i++) {
+            if (octets[i] < 0x20 || octets[i] > 0x7E) {
+                return null;
+            }
+        }
+        if (dates == null) {
+            dates = new HttpDateFormat();
+        }
+        try {
+            java.util.Date parsed = dates.parse(new String(octets, java.nio.charset.StandardCharsets.US_ASCII),
+                    new java.text.ParsePosition(0));
+            return parsed == null ? null : parsed.toInstant();
+        } catch (RuntimeException e) {
+            return null;
+        }
+    }
+
+    /** The number a value consists wholly of digits for, or -1. */
+    private static long digits(ByteBuffer value) {
+        int from = value.position();
+        int to = value.limit();
+        if (from == to || to - from > 18) {
+            return -1;
+        }
+        long n = 0;
+        for (int i = from; i < to; i++) {
+            byte b = value.get(i);
+            if (b < '0' || b > '9') {
+                return -1;
+            }
+            n = n * 10 + (b - '0');
+        }
+        return n;
     }
 
     private boolean fail(HttpError error, String detail) {

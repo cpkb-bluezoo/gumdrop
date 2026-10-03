@@ -1841,6 +1841,9 @@ public  class HttpProtocolHandler
         @Override public void longHeader(String name, long value) {
             if (!ignoring) { recorder().longHeader(name, value); }
         }
+        @Override public void dateHeader(String name, java.time.Instant value) {
+            if (!ignoring) { recorder().dateHeader(name, value); }
+        }
         @Override public void header(String name, ByteBuffer value) {
             if (ignoring) {
                 return;

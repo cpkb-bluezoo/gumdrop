@@ -155,6 +155,11 @@ public class ServletHandler extends DefaultHttpRequestHandler {
     }
 
     @Override
+    public void dateHeader(String name, java.time.Instant value) {
+        requestHeaders.add(new Header(name, new org.bluezoo.gumdrop.http.HttpDateFormat().format(value.toEpochMilli())));
+    }
+
+    @Override
     public void header(String name, ByteBuffer value) {
         if (headersEnded) {
             // a trailer field, after the body

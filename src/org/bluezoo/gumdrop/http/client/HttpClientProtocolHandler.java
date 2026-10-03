@@ -1043,6 +1043,27 @@ public class HttpClientProtocolHandler
     }
 
     @Override
+    public void endRequestWithTrailers(HttpStream request, Headers trailers) {
+        if (runOnSelectorLoop(new Runnable() {
+            @Override
+            public void run() {
+                endRequestWithTrailers(request, trailers);
+            }
+        })) {
+            return;
+        }
+        if (request.getRequestContentCoding() != null) {
+            // finish the content coding; the trailers end the stream
+            sendRequestBodyEncoded(request, ByteBuffer.allocate(0), true);
+        }
+        if (negotiatedVersion == HttpVersion.HTTP_2_0) {
+            sendHTTP2Trailers(request, trailers);
+        } else {
+            sendHTTP11Trailers(trailers);
+        }
+    }
+
+    @Override
     public void sendLastRequestBody(HttpStream request, ByteBuffer data) {
         if (runOnSelectorLoop(new Runnable() {
             @Override
@@ -1317,6 +1338,16 @@ public class HttpClientProtocolHandler
         }
     }
 
+    // RFC 9112 section 7.1.2: the last chunk is followed by trailer fields
+    private void sendHTTP11Trailers(Headers trailers) {
+        StringBuilder sb = new StringBuilder("0\r\n");
+        for (Header trailer : trailers) {
+            sb.append(trailer.getName()).append(": ").append(trailer.getValue()).append("\r\n");
+        }
+        sb.append("\r\n");
+        endpoint.send(ByteBuffer.wrap(sb.toString().getBytes(StandardCharsets.ISO_8859_1)));
+    }
+
     // ─────────────────────────────────────────────────────────────────────────
     // HTTP/2 Request Sending
     // ─────────────────────────────────────────────────────────────────────────
@@ -1364,6 +1395,17 @@ public class HttpClientProtocolHandler
         endpoint.getSelectorLoop().invokeLater(new SendDataTask(fStreamId, copy, false));
 
         return written;
+    }
+
+    // RFC 9113 section 8.1: trailers are a final HEADERS frame ending the
+    // stream. They are encoded where they are written, so the HPACK table
+    // sees header blocks in the order they go out.
+    private void sendHTTP2Trailers(HttpStream request, Headers trailers) {
+        int streamId = findStreamId(request);
+        if (streamId < 0) {
+            return;
+        }
+        endpoint.getSelectorLoop().invokeLater(new SendTrailersTask(streamId, trailers, request));
     }
 
     private void endHTTP2Data(HttpStream request) {
@@ -1581,6 +1623,7 @@ public class HttpClientProtocolHandler
         @Override public void contentType(ContentType c) { h1Events.contentType(c); }
         @Override public void contentDisposition(ContentDisposition d) { h1Events.contentDisposition(d); }
         @Override public void longHeader(String name, long value) { h1Events.longHeader(name, value); }
+        @Override public void dateHeader(String name, java.time.Instant value) { h1Events.dateHeader(name, value); }
 
         @Override
         public void header(String name, ByteBuffer value) {
@@ -2891,6 +2934,9 @@ public class HttpClientProtocolHandler
     private static class PendingData {
         final ArrayDeque<ByteBuffer> buffers = new ArrayDeque<ByteBuffer>();
         boolean endStream;
+        // trailer fields to send once the queued DATA has gone
+        Headers trailers;
+        HttpStream trailersRequest;
 
         void enqueue(ByteBuffer data, boolean fin) {
             if (data.hasRemaining()) {
@@ -2913,6 +2959,8 @@ public class HttpClientProtocolHandler
                 ByteBufferPool.release(buffers.poll());
             }
             endStream = false;
+            trailers = null;
+            trailersRequest = null;
         }
     }
 
@@ -2987,6 +3035,9 @@ public class HttpClientProtocolHandler
         }
         if (pending.isEmpty()) {
             h2PendingData.remove(streamId);
+            if (pending.trailers != null) {
+                writeTrailers(streamId, pending.trailers, pending.trailersRequest);
+            }
             releasePendingData(pending);
         }
     }
@@ -3059,6 +3110,89 @@ public class HttpClientProtocolHandler
     // RFC 9113 section 6.9: sends DATA frame, respecting both
     // SETTINGS_MAX_FRAME_SIZE (section 4.2) and flow control windows;
     // queues excess data for later drain on WINDOW_UPDATE
+    private class SendTrailersTask implements Runnable {
+        private final int streamId;
+        private final Headers trailers;
+        private final HttpStream request;
+
+        SendTrailersTask(int streamId, Headers trailers, HttpStream request) {
+            this.streamId = streamId;
+            this.trailers = trailers;
+            this.request = request;
+        }
+
+        @Override
+        public void run() {
+            // Trailers go after any DATA still waiting for flow-control
+            // window; they are written when that has drained
+            PendingData pending = h2PendingData.get(streamId);
+            if (pending != null) {
+                pending.trailers = trailers;
+                pending.trailersRequest = request;
+                return;
+            }
+            writeTrailers(streamId, trailers, request);
+        }
+    }
+
+    private void writeTrailers(int streamId, Headers trailers, HttpStream request) {
+        try {
+            List<Header> list = new ArrayList<Header>();
+            for (Header trailer : trailers) {
+                String name = trailer.getName().toLowerCase();
+                if (HttpVersion.isHttp1FramingHeader(name, trailer.getValue())) {
+                    continue;
+                }
+                list.add(new Header(name, trailer.getValue()));
+            }
+            ByteBuffer block = ByteBufferPool.acquire(headerTableSize);
+            boolean success = false;
+            while (!success) {
+                try {
+                    hpackEncoder.encode(block, list);
+                    success = true;
+                } catch (BufferOverflowException e) {
+                    ByteBuffer old = block;
+                    block = ByteBufferPool.acquire(block.capacity() * 2);
+                    ByteBufferPool.release(old);
+                }
+            }
+            block.flip();
+            int length = block.remaining();
+            if (length <= maxFrameSize) {
+                h2Writer.writeHeaders(streamId, block, true, true, 0, 0, 0, false);
+            } else {
+                int savedLimit = block.limit();
+                block.limit(block.position() + maxFrameSize);
+                ByteBuffer fragment = block.slice();
+                block.limit(savedLimit);
+                block.position(block.position() + maxFrameSize);
+                h2Writer.writeHeaders(streamId, fragment, true, false, 0, 0, 0, false);
+                length -= maxFrameSize;
+                while (length > maxFrameSize) {
+                    block.limit(block.position() + maxFrameSize);
+                    fragment = block.slice();
+                    block.limit(savedLimit);
+                    block.position(block.position() + maxFrameSize);
+                    h2Writer.writeContinuation(streamId, fragment, false);
+                    length -= maxFrameSize;
+                }
+                h2Writer.writeContinuation(streamId, block, true);
+            }
+            h2Writer.flush();
+        } catch (IOException e) {
+            LOGGER.log(Level.WARNING, L10N.getString("warn.error_sending_h2_request"), e);
+            HttpResponseHandler responseHandler = request.getHandler();
+            if (responseHandler != null) {
+                try {
+                    responseHandler.failed(e);
+                } catch (Exception ex) {
+                    LOGGER.log(Level.WARNING, L10N.getString("warn.error_in_response_handler"), ex);
+                }
+            }
+        }
+    }
+
     private class SendDataTask implements Runnable {
         private final int streamId;
         private final ByteBuffer data;
