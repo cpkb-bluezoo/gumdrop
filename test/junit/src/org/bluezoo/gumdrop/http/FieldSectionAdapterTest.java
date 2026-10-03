@@ -314,6 +314,15 @@ public class FieldSectionAdapterTest {
     }
 
     @Test
+    public void trailerFieldsAreTypedAndForbiddenOnesDropped() {
+        RecordingMessageHandler r = run(FieldSectionAdapter.Kind.TRAILERS, null,
+                "last-modified", "Sun, 06 Nov 1994 08:49:37 GMT", "retry-after", "120",
+                "content-length", "5", "host", "h", "x-a", "b", "date", "garbage");
+        assertEvents(r, "date last-modified 1994-11-06T08:49:37Z", "long retry-after 120",
+                "header x-a b", "header date garbage");
+    }
+
+    @Test
     public void pseudoHeaderInTrailersIsMalformed() {
         RecordingMessageHandler r = run(FieldSectionAdapter.Kind.TRAILERS, null, ":status", "200");
         assertEvents(r, "error MALFORMED");

@@ -172,6 +172,50 @@ public final class FieldDispatcher {
         return true;
     }
 
+    /**
+     * Dispatches one field of a trailer section. Trailers carry no framing
+     * state, and a field that must be known before the content (framing,
+     * routing, request modifiers, authentication; RFC 9110 section 6.5.1) is
+     * dropped, since a recipient may ignore trailer fields. Date-valued fields
+     * and {@code retry-after} are typed; the rest are plain {@code header}
+     * events. Content coding does not apply: the content has already been read.
+     *
+     * @param name the lower-case field name
+     * @param value the value octets
+     */
+    public void trailerField(String name, ByteBuffer value) {
+        if (isForbiddenInTrailers(name)) {
+            return;
+        }
+        if (name.equals("retry-after")) {
+            long seconds = digits(value);
+            if (seconds >= 0) {
+                handler.longHeader(name, seconds);
+                return;
+            }
+        }
+        if (name.equals("date") || name.equals("expires") || name.equals("last-modified")
+                || name.equals("retry-after")) {
+            java.time.Instant when = date(value);
+            if (when != null) {
+                handler.dateHeader(name, when);
+                return;
+            }
+        }
+        handler.header(name, value);
+    }
+
+    private static boolean isForbiddenInTrailers(String name) {
+        return name.equals("content-length") || name.equals("transfer-encoding")
+                || name.equals("host") || name.equals("trailer") || name.equals("te")
+                || name.equals("max-forwards") || name.equals("cache-control")
+                || name.equals("authorization") || name.equals("proxy-authorization")
+                || name.equals("www-authenticate") || name.equals("proxy-authenticate")
+                || name.equals("cookie") || name.equals("set-cookie")
+                || name.startsWith("if-") || name.equals("expect")
+                || name.equals("range") || name.equals("connection");
+    }
+
     /** The fields whose whole value is an HTTP-date (RFC 9110 section 5.6.7). */
     private static boolean isDateField(String name) {
         return name.equals("date") || name.equals("expires") || name.equals("last-modified")

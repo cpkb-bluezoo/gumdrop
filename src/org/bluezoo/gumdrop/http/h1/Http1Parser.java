@@ -652,7 +652,7 @@ public final class Http1Parser {
             value.position(valuePosition);
         }
         if (trailer) {
-            handler.header(name, value);
+            fields.trailerField(name, value);
         } else if (request && name.equals("host")) {
             // The authority, as :authority is in HTTP/2 and HTTP/3. Whether the
             // request has exactly one is for the protocol layer (RFC 9112 section 3.2).

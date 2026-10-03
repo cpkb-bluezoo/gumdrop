@@ -281,6 +281,12 @@ user-visible themes since 2.2.x.
   event: `bodyContent` is called any number of times, and the body ends at the
   first field event after it (a trailer) or at `endMessage`. A handler tells a
   trailer from a header by whether `endHeaders` has been seen.
+  Trailer fields are typed like header fields where that makes sense
+  (`Date`, `Expires`, `Last-Modified` and `Retry-After` arrive as
+  `dateHeader` or `longHeader`). Fields that must be known before the content
+  (framing, routing, request modifiers, authentication; RFC 9110 section
+  6.5.1) are dropped, and a pseudo-header in an HTTP/2 or HTTP/3 trailer
+  section is still malformed.
 - **`FieldSectionAdapter`.**
   Receives the fields the HPACK and QPACK decoders push and turns an HTTP/2 or
   HTTP/3 field section into the same `HttpMessageHandler` events (the

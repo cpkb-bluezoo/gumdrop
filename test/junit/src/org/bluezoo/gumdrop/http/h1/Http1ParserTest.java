@@ -186,6 +186,14 @@ public class Http1ParserTest {
     }
 
     @Test
+    public void trailerFieldsAreTypedAndForbiddenOnesDropped() {
+        expectRequest("POST / HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n1\r\nx\r\n0\r\n"
+                + "Expires: Sun, 06 Nov 1994 08:49:37 GMT\r\nContent-Length: 9\r\nX-A: b\r\n\r\n",
+                "method POST", "target /", "version HTTP/1.1", "header transfer-encoding chunked",
+                "endHeaders", "body x", "date expires 1994-11-06T08:49:37Z", "header x-a b", "endMessage");
+    }
+
+    @Test
     public void emptyLinesBeforeTheRequestLineAreIgnored() {
         // RFC 9112 section 2.2
         expectRequest("\r\n\r\nGET / HTTP/1.0\r\n\r\n",
