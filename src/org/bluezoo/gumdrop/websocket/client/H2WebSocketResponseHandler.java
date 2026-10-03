@@ -65,13 +65,29 @@ class H2WebSocketResponseHandler extends DefaultHttpResponseHandler {
     private static final ResourceBundle L10N =
             ResourceBundle.getBundle("org.bluezoo.gumdrop.websocket.L10N");
 
-    private final HttpRequest request;
+    private HttpRequest request;
     private final List<WebSocketExtension> requestedExtensions;
     private final WebSocketEventHandler wsHandler;
 
     private String extensionsHeader;
     private boolean failed;
     private H2ClientWebSocketConnectionAdapter webSocketAdapter;
+
+    /**
+     * For a handler created before its request is: the request, which the
+     * handler writes the WebSocket frames to, is supplied with
+     * {@link #bindRequest}.
+     */
+    H2WebSocketResponseHandler(List<WebSocketExtension> requestedExtensions,
+                               WebSocketEventHandler wsHandler) {
+        this.requestedExtensions = requestedExtensions;
+        this.wsHandler = wsHandler;
+    }
+
+    /** Supplies the request this handler is receiving the response to. */
+    void bindRequest(HttpRequest request) {
+        this.request = request;
+    }
 
     H2WebSocketResponseHandler(HttpRequest request,
                                List<WebSocketExtension> requestedExtensions,
@@ -223,12 +239,12 @@ class H2WebSocketResponseHandler extends DefaultHttpResponseHandler {
 
         @Override
         public void sendFrame(ByteBuffer frameData) throws IOException {
-            request.requestBodyContent(frameData);
+            request.bodyContent(frameData);
         }
 
         @Override
         public void close(boolean normalClose) throws IOException {
-            request.endRequestBody();
+            request.endMessage();
         }
     }
 }

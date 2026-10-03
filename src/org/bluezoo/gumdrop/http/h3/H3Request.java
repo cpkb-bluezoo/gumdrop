@@ -22,17 +22,21 @@
 package org.bluezoo.gumdrop.http.h3;
 
 import java.nio.ByteBuffer;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.ResourceBundle;
 import java.util.concurrent.CancellationException;
 
 import org.bluezoo.gumdrop.http.Header;
+import org.bluezoo.gumdrop.http.HttpDateFormat;
 import org.bluezoo.gumdrop.http.HttpVersion;
 import org.bluezoo.gumdrop.http.Headers;
 import org.bluezoo.gumdrop.http.PriorityParams;
 import org.bluezoo.gumdrop.http.client.HttpRequest;
 import org.bluezoo.gumdrop.http.client.HttpResponseHandler;
+import org.bluezoo.gumdrop.mime.ContentDisposition;
+import org.bluezoo.gumdrop.mime.ContentType;
 import org.bluezoo.gumdrop.telemetry.Trace;
 
 /**
@@ -100,9 +104,15 @@ public class H3Request implements HttpRequest {
 
     private volatile boolean requestStarted;
 
+    // The first piece of body, held back until it is known whether it is the
+    // only one; and whether endMessage() has been called
+    private byte[] firstChunk;
+    private boolean ended;
+
     public H3Request(Http3ClientHandler h3Handler, String method,
                      String path, String authority, String scheme,
-                     Trace traceContext) {
+                     Trace traceContext, HttpResponseHandler responseHandler) {
+        this.responseHandler = responseHandler;
         this.h3Handler = h3Handler;
         this.method = method;
         this.path = path;
@@ -117,6 +127,26 @@ public class H3Request implements HttpRequest {
             throw new IllegalStateException(L10N.getString("err.headers_already_sent"));
         }
         headers.add(new Header(name, value));
+    }
+
+    @Override
+    public void longHeader(String name, long value) {
+        header(name, Long.toString(value));
+    }
+
+    @Override
+    public void dateHeader(String name, Instant value) {
+        header(name, new HttpDateFormat().format(value.toEpochMilli()));
+    }
+
+    @Override
+    public void contentType(ContentType contentType) {
+        header("content-type", contentType.toHeaderValue());
+    }
+
+    @Override
+    public void contentDisposition(ContentDisposition contentDisposition) {
+        header("content-disposition", contentDisposition.toHeaderValue());
     }
 
     /**
@@ -140,14 +170,15 @@ public class H3Request implements HttpRequest {
         // Not applicable to HTTP/3
     }
 
-    @Override
-    public void send(final HttpResponseHandler handler) {
-        if (cancelled) {
-            handler.failed(new CancellationException("Request cancelled"));
-            return;
-        }
-
-        responseHandler = handler;
+    /**
+     * Starts the request on the connection's own thread: the header section
+     * is sent now, or once the connection can carry the request (see
+     * {@link Http3ClientHandler#isSafeToSendNow}).
+     *
+     * @param endStream whether the request ends with its header section
+     */
+    private void startRequest(final boolean endStream) {
+        final HttpResponseHandler handler = responseHandler;
         requestStarted = true;
         final Headers h3Headers = buildHeaders();
         h3Handler.execute(new Runnable() {
@@ -157,7 +188,7 @@ public class H3Request implements HttpRequest {
                     @Override
                     public void run() {
                         sendDeferred = false;
-                        h3Stream = h3Handler.startRequest(h3Headers, handler, true);
+                        h3Stream = h3Handler.startRequest(h3Headers, handler, endStream);
                         streamId = h3Stream.getStreamId();
                     }
                 };
@@ -172,38 +203,29 @@ public class H3Request implements HttpRequest {
     }
 
     @Override
-    public void startRequestBody(final HttpResponseHandler handler) {
+    public void endHeaders() {
+        if (requestStarted) {
+            throw new IllegalStateException(L10N.getString("err.headers_already_sent"));
+        }
         if (cancelled) {
-            handler.failed(new CancellationException("Request cancelled"));
             return;
         }
-
-        responseHandler = handler;
-        requestStarted = true;
-        final Headers h3Headers = buildHeaders();
-        h3Handler.execute(new Runnable() {
-            @Override
-            public void run() {
-                Runnable sendTask = new Runnable() {
-                    @Override
-                    public void run() {
-                        sendDeferred = false;
-                        h3Stream = h3Handler.startRequest(h3Headers, handler, false);
-                        streamId = h3Stream.getStreamId();
-                    }
-                };
-                if (h3Handler.isSafeToSendNow(method)) {
-                    sendTask.run();
-                } else {
-                    sendDeferred = true;
-                    h3Handler.deferUntilEstablished(sendTask);
-                }
-            }
-        });
+        startRequest(false);
+        if (firstChunk != null) {
+            byte[] held = firstChunk;
+            firstChunk = null;
+            sendBody(held, false);
+        }
     }
 
     @Override
-    public int requestBodyContent(ByteBuffer data) {
+    public int bodyContent(ByteBuffer data) {
+        if (data == null) {
+            return 0;
+        }
+        if (ended) {
+            throw new IllegalStateException(L10N.getString("err.body_already_complete"));
+        }
         if (cancelled) {
             return 0;
         }
@@ -212,8 +234,30 @@ public class H3Request implements HttpRequest {
         // connection's own thread (see the class documentation), and the
         // caller is free to reuse/refill data the moment this call returns.
         int remaining = data.remaining();
+        if (remaining == 0) {
+            return 0;
+        }
         final byte[] snapshot = new byte[remaining];
         data.get(snapshot);
+        if (!requestStarted && firstChunk == null) {
+            // Held back until it is known whether it is also the last piece
+            firstChunk = snapshot;
+            return remaining;
+        }
+        if (!requestStarted) {
+            startRequest(false);
+        }
+        if (firstChunk != null) {
+            byte[] held = firstChunk;
+            firstChunk = null;
+            sendBody(held, false);
+        }
+        sendBody(snapshot, false);
+        return remaining;
+    }
+
+    /** Sends a piece of body (and, with {@code fin}, ends the stream) on the connection's thread. */
+    private void sendBody(final byte[] bytes, final boolean fin) {
         h3Handler.execute(new Runnable() {
             @Override
             public void run() {
@@ -223,7 +267,7 @@ public class H3Request implements HttpRequest {
                         if (h3Stream == null) {
                             return;
                         }
-                        h3Handler.sendRequestBody(h3Stream, ByteBuffer.wrap(snapshot), false);
+                        h3Handler.sendRequestBody(h3Stream, ByteBuffer.wrap(bytes), fin);
                     }
                 };
                 if (sendDeferred) {
@@ -236,33 +280,35 @@ public class H3Request implements HttpRequest {
                 }
             }
         });
-        return remaining;
     }
 
     @Override
-    public void endRequestBody() {
+    public void endMessage() {
+        if (ended) {
+            throw new IllegalStateException(L10N.getString("err.body_already_complete"));
+        }
+        ended = true;
         if (cancelled) {
             return;
         }
-        h3Handler.execute(new Runnable() {
-            @Override
-            public void run() {
-                Runnable endTask = new Runnable() {
-                    @Override
-                    public void run() {
-                        if (h3Stream == null) {
-                            return;
-                        }
-                        h3Handler.sendRequestBody(h3Stream, ByteBuffer.allocate(0), true);
-                    }
-                };
-                if (sendDeferred) {
-                    h3Handler.deferUntilEstablished(endTask);
-                } else {
-                    endTask.run();
-                }
+        if (!requestStarted) {
+            if (firstChunk == null) {
+                startRequest(true);
+                return;
             }
-        });
+            // The one piece of body is the whole body: say how long it is,
+            // and send it with the end of the stream
+            byte[] only = firstChunk;
+            firstChunk = null;
+            if (!containsHeader(headers, "content-length")
+                    && !containsHeader(headers, "content-encoding")) {
+                headers.add(new Header("content-length", Integer.toString(only.length)));
+            }
+            startRequest(false);
+            sendBody(only, true);
+            return;
+        }
+        sendBody(new byte[0], true);
     }
 
     @Override

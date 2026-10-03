@@ -200,9 +200,9 @@ public class HttpClientFacadeTest {
         assertTrue(events.calls.contains("connected"));
         assertTrue(client.isOpen());
         client.setTrace(null);
-        HttpRequest request = client.get("/hello");
+        HttpRequest request = client.get("/hello", new DefaultHttpResponseHandler());
         assertNotNull(request);
-        request.send(new DefaultHttpResponseHandler());
+        request.endMessage();
         String wire = new String(client.endpoint.getAllBytes(), StandardCharsets.ISO_8859_1);
         assertTrue(wire, wire.startsWith("GET /hello HTTP/1.1"));
         client.close();
@@ -214,13 +214,13 @@ public class HttpClientFacadeTest {
         TestClient client = new TestClient("example.test", 80);
         client.setDnsHttpsRecordEnabled(false);
         client.connect(null, new Events());
-        assertNotNull(client.post("/p"));
-        assertNotNull(client.put("/p"));
-        assertNotNull(client.delete("/p"));
-        assertNotNull(client.head("/p"));
-        assertNotNull(client.options("/p"));
-        assertNotNull(client.patch("/p"));
-        assertNotNull(client.request("PROPFIND", "/p"));
+        assertNotNull(client.post("/p", null));
+        assertNotNull(client.put("/p", null));
+        assertNotNull(client.delete("/p", null));
+        assertNotNull(client.head("/p", null));
+        assertNotNull(client.options("/p", null));
+        assertNotNull(client.patch("/p", null));
+        assertNotNull(client.request(HttpMethod.of("PROPFIND"), "/p", null));
     }
 
     @Test

@@ -78,17 +78,18 @@ public class GrpcClientTest {
         @Override public void priority(int weight) { }
         @Override public void dependency(HttpRequest parent) { }
         @Override public void exclusive(boolean exclusive) { }
-        @Override public void send(HttpResponseHandler h) { }
-        @Override public void startRequestBody(HttpResponseHandler h) {
-            handler = h;
-        }
-        @Override public int requestBodyContent(ByteBuffer data) {
+        @Override public void longHeader(String name, long value) { header(name, Long.toString(value)); }
+        @Override public void dateHeader(String name, java.time.Instant value) { header(name, value.toString()); }
+        @Override public void contentType(org.bluezoo.gumdrop.mime.ContentType contentType) { header("Content-Type", contentType.toHeaderValue()); }
+        @Override public void contentDisposition(org.bluezoo.gumdrop.mime.ContentDisposition contentDisposition) { header("Content-Disposition", contentDisposition.toHeaderValue()); }
+        @Override public void endHeaders() { }
+        @Override public int bodyContent(ByteBuffer data) {
             byte[] b = new byte[data.remaining()];
             data.get(b);
             body.add(b);
             return b.length;
         }
-        @Override public void endRequestBody() { ended = true; }
+        @Override public void endMessage() { ended = true; }
         @Override public void cancel() { }
     }
 
@@ -97,8 +98,9 @@ public class GrpcClientTest {
         String postedPath;
 
         @Override
-        public HttpRequest post(String path) {
+        public HttpRequest post(String path, HttpResponseHandler handler) {
             postedPath = path;
+            request.handler = handler;
             return request;
         }
     }

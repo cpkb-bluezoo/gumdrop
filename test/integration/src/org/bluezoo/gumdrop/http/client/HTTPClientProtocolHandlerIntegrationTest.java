@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.http.client;
 
+import org.bluezoo.gumdrop.http.HttpMethod;
 import org.bluezoo.gumdrop.AbstractServerIntegrationTest;
 import org.bluezoo.gumdrop.ClientEndpoint;
 import org.bluezoo.gumdrop.Endpoint;
@@ -230,16 +231,15 @@ public class HTTPClientProtocolHandlerIntegrationTest extends AbstractServerInte
             }
         };
 
-        HttpRequest request = client.request(method, path);
+        HttpRequest request = client.request(HttpMethod.of(method), path, handler);
         if (body != null) {
             byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
             request.header("Content-Type", "application/json");
             request.header("Content-Length", String.valueOf(bytes.length));
-            request.startRequestBody(handler);
-            request.requestBodyContent(ByteBuffer.wrap(bytes));
-            request.endRequestBody();
+            request.bodyContent(ByteBuffer.wrap(bytes));
+            request.endMessage();
         } else {
-            request.send(handler);
+            request.endMessage();
         }
 
         assertTrue(method + " " + path + " timed out", latch.await(TIMEOUT_SECONDS, TimeUnit.SECONDS));

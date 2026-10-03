@@ -36,14 +36,13 @@ import java.nio.channels.WritableByteChannel;
  *
  * <p>Usage:
  * <pre>
- * HttpRequest request = client.post("/v1/traces");
+ * HttpRequest request = client.post("/v1/traces", handler);
  * request.header("Content-Type", "application/x-protobuf");
  * request.header("Transfer-Encoding", "chunked");
- * request.startRequestBody(handler);
  *
  * HttpRequestChannel channel = new HttpRequestChannel(request);
  * traceSerializer.serialize(trace, channel);
- * channel.close();  // Calls endRequestBody()
+ * channel.close();  // Calls endMessage()
  * </pre>
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
@@ -56,7 +55,7 @@ class HttpRequestChannel implements WritableByteChannel {
     /**
      * Creates a channel that writes to the given HTTP request.
      *
-     * <p>The request must have already had {@code startRequestBody()} called on it.
+     * <p>The request's fields must already have been set.
      *
      * @param request the HTTP request
      */
@@ -79,7 +78,7 @@ class HttpRequestChannel implements WritableByteChannel {
         // Write to the request body, handling backpressure
         int totalWritten = 0;
         while (src.hasRemaining()) {
-            int written = request.requestBodyContent(src);
+            int written = request.bodyContent(src);
             if (written > 0) {
                 totalWritten += written;
             } else {
@@ -100,7 +99,7 @@ class HttpRequestChannel implements WritableByteChannel {
     public void close() throws IOException {
         if (open) {
             open = false;
-            request.endRequestBody();
+            request.endMessage();
         }
     }
 }

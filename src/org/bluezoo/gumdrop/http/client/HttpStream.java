@@ -23,10 +23,14 @@ package org.bluezoo.gumdrop.http.client;
 
 import java.nio.ByteBuffer;
 import java.text.MessageFormat;
+import java.time.Instant;
 import java.util.ResourceBundle;
 
 import org.bluezoo.gumdrop.http.Headers;
 import org.bluezoo.gumdrop.http.ContentEncoding;
+import org.bluezoo.gumdrop.http.HttpDateFormat;
+import org.bluezoo.gumdrop.mime.ContentDisposition;
+import org.bluezoo.gumdrop.mime.ContentType;
 import org.bluezoo.gumdrop.http.HttpMessageRecorder;
 import org.bluezoo.gumdrop.http.PriorityParams;
 
@@ -66,6 +70,9 @@ class HttpStream implements HttpRequest {
     private HttpResponseHandler handler;
     private boolean headersSent;
     private boolean bodySent;
+    // The first piece of body, held back until it is known whether it is the
+    // only one
+    private ByteBuffer firstChunk;
     private boolean cancelled;
 
     private ContentEncoding.Encoder requestContentEncoder;
@@ -91,6 +98,12 @@ class HttpStream implements HttpRequest {
         this.method = method;
         this.path = path;
         this.headers = new Headers();
+    }
+
+    HttpStream(HttpClientConnectionOps connection, String method, String path,
+            HttpResponseHandler handler) {
+        this(connection, method, path);
+        this.handler = handler;
     }
 
     /**
@@ -283,6 +296,26 @@ class HttpStream implements HttpRequest {
     }
 
     @Override
+    public void longHeader(String name, long value) {
+        header(name, Long.toString(value));
+    }
+
+    @Override
+    public void dateHeader(String name, Instant value) {
+        header(name, new HttpDateFormat().format(value.toEpochMilli()));
+    }
+
+    @Override
+    public void contentType(ContentType contentType) {
+        header("Content-Type", contentType.toHeaderValue());
+    }
+
+    @Override
+    public void contentDisposition(ContentDisposition contentDisposition) {
+        header("Content-Disposition", contentDisposition.toHeaderValue());
+    }
+
+    @Override
     public void priority(int weight) {
         this.priority = weight;
         int urgency = PriorityParams.urgencyFromWeight(weight);
@@ -335,37 +368,37 @@ class HttpStream implements HttpRequest {
         this.bodySent = true;
     }
 
-    @Override
-    public void send(HttpResponseHandler handler) {
-        if (this.handler != null) {
-            throw new IllegalStateException(L10N.getString("err.request_already_sent"));
-        }
-        if (cancelled) {
-            throw new IllegalStateException(L10N.getString("err.request_cancelled"));
-        }
-        this.handler = handler;
-        this.headersSent = true;
-        this.bodySent = true;
+    /**
+     * Sends a request that has no body: used for retries, which are built
+     * from a request that was already sent.
+     */
+    void sendWithoutBody() {
+        headersSent = true;
+        bodySent = true;
         connection.sendRequest(this, false);
     }
 
     @Override
-    public void startRequestBody(HttpResponseHandler handler) {
-        if (this.handler != null) {
-            throw new IllegalStateException(L10N.getString("err.request_already_sent"));
+    public void endHeaders() {
+        if (headersSent) {
+            throw new IllegalStateException(L10N.getString("err.headers_already_sent"));
         }
         if (cancelled) {
-            throw new IllegalStateException(L10N.getString("err.request_cancelled"));
+            return;
         }
-        this.handler = handler;
-        this.headersSent = true;
+        headersSent = true;
         connection.sendRequest(this, true);
+        if (firstChunk != null) {
+            ByteBuffer held = firstChunk;
+            firstChunk = null;
+            sendBody(held);
+        }
     }
 
     @Override
-    public int requestBodyContent(ByteBuffer data) {
-        if (!headersSent) {
-            throw new IllegalStateException(L10N.getString("err.must_start_body"));
+    public int bodyContent(ByteBuffer data) {
+        if (data == null) {
+            return 0;
         }
         if (bodySent) {
             throw new IllegalStateException(L10N.getString("err.body_already_complete"));
@@ -373,6 +406,32 @@ class HttpStream implements HttpRequest {
         if (cancelled) {
             return 0;
         }
+        int length = data.remaining();
+        if (length == 0) {
+            return 0;
+        }
+        if (!headersSent && firstChunk == null) {
+            // Held back until it is known whether it is also the last piece
+            // (see the class description of HttpRequest).
+            ByteBuffer copy = ByteBuffer.allocate(length);
+            copy.put(data);
+            copy.flip();
+            firstChunk = copy;
+            return length;
+        }
+        if (!headersSent) {
+            headersSent = true;
+            connection.sendRequest(this, true);
+        }
+        if (firstChunk != null) {
+            ByteBuffer held = firstChunk;
+            firstChunk = null;
+            sendBody(held);
+        }
+        return sendBody(data);
+    }
+
+    private int sendBody(ByteBuffer data) {
         if (getRequestContentCoding() != null) {
             return connection.sendRequestBodyEncoded(this, data, false);
         }
@@ -380,15 +439,34 @@ class HttpStream implements HttpRequest {
     }
 
     @Override
-    public void endRequestBody() {
-        if (!headersSent) {
-            throw new IllegalStateException(L10N.getString("err.must_start_body"));
-        }
+    public void endMessage() {
         if (bodySent) {
             throw new IllegalStateException(L10N.getString("err.body_already_complete"));
         }
-        this.bodySent = true;
-        connection.endRequestBody(this);
+        bodySent = true;
+        if (cancelled) {
+            return;
+        }
+        if (headersSent) {
+            connection.endRequestBody(this);
+            return;
+        }
+        headersSent = true;
+        if (firstChunk == null) {
+            connection.sendRequest(this, false);
+            return;
+        }
+        ByteBuffer only = firstChunk;
+        firstChunk = null;
+        if (getRequestContentCoding() == null
+                && !headers.containsName("Content-Length")
+                && !headers.containsName("Transfer-Encoding")) {
+            // The one piece of body is the whole body: say how long it is
+            // rather than chunking it.
+            headers.add("Content-Length", Integer.toString(only.remaining()));
+        }
+        connection.sendRequest(this, true);
+        connection.sendLastRequestBody(this, only);
     }
 
     @Override

@@ -66,7 +66,7 @@ public class HttpClientProtocolHandlerAuthTest {
     public void basic401RetriesWithAuthorizationHeader() {
         handler.credentials("user", "pass");
         RecordingHandler rh = new RecordingHandler();
-        handler.get("/protected").send(rh);
+        handler.get("/protected", rh).endMessage();
 
         feed("HTTP/1.1 401 Unauthorized\r\n"
                 + "WWW-Authenticate: Basic realm=\"test\"\r\n"
@@ -89,7 +89,7 @@ public class HttpClientProtocolHandlerAuthTest {
     public void digest401RetriesWithDigestAuthorization() throws Exception {
         handler.credentials("alice", "secret");
         RecordingHandler rh = new RecordingHandler();
-        handler.get("/resource").send(rh);
+        handler.get("/resource", rh).endMessage();
 
         feed("HTTP/1.1 401 Unauthorized\r\n"
                 + "WWW-Authenticate: Digest realm=\"example\", nonce=\"deadbeef\", qop=\"auth\"\r\n"

@@ -33,6 +33,7 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 import java.util.zip.GZIPInputStream;
 
+import org.bluezoo.gumdrop.http.HttpMethod;
 import org.bluezoo.gumdrop.testsupport.CollectingResponseHandler;
 import org.junit.After;
 import org.junit.Before;
@@ -212,7 +213,7 @@ public class HttpClientProtocolHandlerEdgeTest {
 
     private Recorder get() {
         Recorder r = new Recorder();
-        handler.get("/p").send(r);
+        handler.get("/p", r).endMessage();
         return r;
     }
 
@@ -358,7 +359,7 @@ public class HttpClientProtocolHandlerEdgeTest {
         String[] methods = {null, "", "GE T", "GéT", "G:T", "G/T", "G\u007fT"};
         for (int i = 0; i < methods.length; i++) {
             try {
-                handler.request(methods[i], "/p");
+                handler.request(HttpMethod.of(methods[i]), "/p", null);
                 org.junit.Assert.fail("method accepted: " + methods[i]);
             } catch (IllegalArgumentException expected) {
                 assertNotNull(expected.getMessage());
@@ -367,13 +368,13 @@ public class HttpClientProtocolHandlerEdgeTest {
         String[] paths = {null, "", "/a b", "/a\r\nX: y", "/a\u007fb", "/a\u0000"};
         for (int i = 0; i < paths.length; i++) {
             try {
-                handler.get(paths[i]);
+                handler.get(paths[i], null);
                 org.junit.Assert.fail("path accepted: " + paths[i]);
             } catch (IllegalArgumentException expected) {
                 assertNotNull(expected.getMessage());
             }
         }
-        HttpRequest ok = handler.request("M-SEARCH", "/*");
+        HttpRequest ok = handler.request(HttpMethod.of("M-SEARCH"), "/*", null);
         assertNotNull(ok);
     }
 
@@ -381,13 +382,13 @@ public class HttpClientProtocolHandlerEdgeTest {
 
     @Test
     public void handlerlessRequestsConsumeEveryResponseShape() {
-        handler.get("/a").send(null);
+        handler.get("/a", null).endMessage();
         feed("HTTP/1.1 200 OK\r\nContent-Length: 3\r\n\r\nabc");
-        handler.get("/b").send(null);
+        handler.get("/b", null).endMessage();
         feed("HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n3\r\nabc\r\n0\r\nX-T: v\r\n\r\n");
-        handler.head("/c").send(null);
+        handler.head("/c", null).endMessage();
         feed("HTTP/1.1 200 OK\r\nContent-Length: 9\r\n\r\n");
-        handler.get("/f").send(null);
+        handler.get("/f", null).endMessage();
         feed("HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n");
         Recorder last = get();
         feed("HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok");
@@ -398,7 +399,7 @@ public class HttpClientProtocolHandlerEdgeTest {
 
     @Test
     public void handlerlessChunkedBodyIsConsumed() {
-        handler.get("/b").send(null);
+        handler.get("/b", null).endMessage();
         feed("HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n2\r\nab\r\n0\r\n\r\n");
         Recorder r = get();
         feed("HTTP/1.1 204 No Content\r\n\r\n");
@@ -587,7 +588,7 @@ public class HttpClientProtocolHandlerEdgeTest {
     @Test
     public void challengedBodyIsDiscardedWithAndWithoutAHandler() {
         handler.credentials("user", "pass");
-        handler.get("/a").send(null);
+        handler.get("/a", null).endMessage();
         feed("HTTP/1.1 401 Unauthorized\r\nWWW-Authenticate: Basic realm=\"r\"\r\n"
                 + "Transfer-Encoding: chunked\r\n\r\n4\r\nfull\r\n0\r\nX-Trailer: t\r\n\r\n");
         assertEquals(1, count(sent(), "Authorization: Basic"));
@@ -618,7 +619,7 @@ public class HttpClientProtocolHandlerEdgeTest {
         sw.connected(ep);
         sw.setH2cUpgradeEnabled(false);
         Recorder r = new Recorder();
-        sw.get("/ws").send(r);
+        sw.get("/ws", r).endMessage();
         String raw = "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\n\r\nFRAME";
         sw.receive(ByteBuffer.wrap(raw.getBytes(StandardCharsets.UTF_8)));
         assertEquals(1, sw.switchCalls);
@@ -633,7 +634,7 @@ public class HttpClientProtocolHandlerEdgeTest {
         sw.connected(ep);
         sw.setH2cUpgradeEnabled(false);
         Recorder r = new Recorder();
-        sw.get("/ws").send(r);
+        sw.get("/ws", r).endMessage();
         String raw = "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\n\r\n"
                 + "HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n";
         sw.receive(ByteBuffer.wrap(raw.getBytes(StandardCharsets.UTF_8)));
@@ -650,7 +651,7 @@ public class HttpClientProtocolHandlerEdgeTest {
         sw.connected(ep);
         sw.setH2cUpgradeEnabled(true);
         Recorder r = new Recorder();
-        sw.get("/p").send(r);
+        sw.get("/p", r).endMessage();
         assertTrue(new String(ep.getAllBytes(), StandardCharsets.US_ASCII).contains("Upgrade: h2c"));
         String raw = "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\n\r\n";
         sw.receive(ByteBuffer.wrap(raw.getBytes(StandardCharsets.UTF_8)));
@@ -665,7 +666,7 @@ public class HttpClientProtocolHandlerEdgeTest {
         sw.connected(ep);
         sw.setH2cUpgradeEnabled(true);
         Recorder r = new Recorder();
-        sw.get("/p").send(r);
+        sw.get("/p", r).endMessage();
         String raw = "HTTP/1.1 101 Switching Protocols\r\n\r\n"
                 + "HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n";
         sw.receive(ByteBuffer.wrap(raw.getBytes(StandardCharsets.UTF_8)));
@@ -692,7 +693,7 @@ public class HttpClientProtocolHandlerEdgeTest {
         BinaryRecordingEndpoint ep = new BinaryRecordingEndpoint();
         h.connected(ep);
         h.securityEstablished(info("TLSv1.3", "TLS_AES_128_GCM_SHA256", null));
-        h.get("/p").send(new Recorder());
+        h.get("/p", new Recorder()).endMessage();
         String wire = new String(ep.getAllBytes(), StandardCharsets.US_ASCII);
         assertFalse(wire, wire.contains("Upgrade: h2c"));
         assertTrue(wire, wire.contains("Connection: keep-alive"));
@@ -723,11 +724,11 @@ public class HttpClientProtocolHandlerEdgeTest {
     public void nullRequestBodyChunkIsIgnored() {
         newHandler(true);
         Recorder r = new Recorder();
-        HttpRequest req = handler.post("/up");
-        req.startRequestBody(r);
+        HttpStream req = (HttpStream) handler.post("/up", r);
+        req.endHeaders();
         int before = endpoint.getAllBytes().length;
-        int written = req.requestBodyContent(null);
-        assertEquals(0, written);
+        assertEquals(0, req.bodyContent(null));
+        assertEquals(0, handler.sendRequestBody(req, null));
         assertEquals(before, endpoint.getAllBytes().length);
     }
 
@@ -763,13 +764,12 @@ public class HttpClientProtocolHandlerEdgeTest {
     public void gzipRequestBodyIsEncodedAndChunked() throws Exception {
         handler.setEncodeRequestBodyContentCoding(true);
         Recorder r = new Recorder();
-        HttpRequest req = handler.post("/up");
+        HttpRequest req = handler.post("/up", r);
         req.header("Content-Encoding", "gzip");
-        req.startRequestBody(r);
         byte[] plain = "hello hello hello hello".getBytes(StandardCharsets.US_ASCII);
-        int n = req.requestBodyContent(ByteBuffer.wrap(plain));
+        int n = req.bodyContent(ByteBuffer.wrap(plain));
         assertEquals(plain.length, n);
-        req.endRequestBody();
+        req.endMessage();
         String wire = new String(endpoint.getAllBytes(), StandardCharsets.ISO_8859_1);
         assertTrue(wire, wire.endsWith("0\r\n\r\n"));
         byte[] decoded = gunzip(dechunk(wire));
@@ -780,9 +780,9 @@ public class HttpClientProtocolHandlerEdgeTest {
     public void unsupportedRequestContentCodingFailsTheHandler() {
         handler.setEncodeRequestBodyContentCoding(true);
         Recorder r = new Recorder();
-        HttpStream stream = new HttpStream(handler, "POST", "/up");
+        HttpStream stream = new HttpStream(handler, "POST", "/up", r);
         stream.header("Content-Encoding", "rot13");
-        stream.startRequestBody(r);
+        stream.endHeaders();
         int n = handler.sendRequestBodyEncoded(stream, ByteBuffer.wrap(new byte[] {1, 2, 3}), false);
         assertEquals(0, n);
         assertEquals(1, r.failures.size());
@@ -792,9 +792,9 @@ public class HttpClientProtocolHandlerEdgeTest {
     public void nullEncodedChunkIsTreatedAsEmptyAndEndFinishesTheStream() throws Exception {
         handler.setEncodeRequestBodyContentCoding(true);
         Recorder r = new Recorder();
-        HttpStream stream = new HttpStream(handler, "POST", "/up");
+        HttpStream stream = new HttpStream(handler, "POST", "/up", r);
         stream.header("Content-Encoding", "gzip");
-        stream.startRequestBody(r);
+        stream.endHeaders();
         int n = handler.sendRequestBodyEncoded(stream, null, false);
         assertEquals(0, n);
         n = handler.sendRequestBodyEncoded(stream, null, true);
@@ -824,7 +824,7 @@ public class HttpClientProtocolHandlerEdgeTest {
         feed("HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n3\r\nxyz\r\n0\r\n\r\n");
         assertEquals("xyz", new String(chunked.body.toByteArray(), StandardCharsets.US_ASCII));
         Recorder none = new Recorder();
-        handler.head("/h").send(none);
+        handler.head("/h", none).endMessage();
         feed("HTTP/1.1 200 OK\r\n\r\n");
         assertEquals(1, none.closeCalls);
         handler.credentials("user", "pass");

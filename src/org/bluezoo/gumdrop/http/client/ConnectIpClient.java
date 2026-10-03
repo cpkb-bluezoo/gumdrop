@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.http.client;
 
+import org.bluezoo.gumdrop.http.HttpMethod;
 import org.bluezoo.gumdrop.tls.KeystoreFormat;
 import java.io.IOException;
 import java.net.InetAddress;
@@ -569,11 +570,11 @@ public class ConnectIpClient implements AltSvcListener {
                     return;
                 }
                 // RFC 9110 section 7.8 -- HTTP/1.1 Upgrade handshake
-                HttpRequest request = protocolHandler.get(path);
+                HttpRequest request = protocolHandler.get(path, new UpgradeResponseHandler(handler));
                 request.header("connection", "upgrade");
                 request.header("upgrade", "connect-ip");
                 request.header(Capsule.PROTOCOL_HEADER, "?1");
-                request.send(new UpgradeResponseHandler(handler));
+                request.endMessage();
             }
 
             @Override
@@ -701,11 +702,13 @@ public class ConnectIpClient implements AltSvcListener {
      * ConnectUdpClient#connectExtendedConnect} (private, but the same shape).
      */
     private void connectExtendedConnect(String path, final ConnectIpEventHandler handler) {
-        HttpRequest request = protocolHandler.request("CONNECT", path);
+        H2ConnectIpResponseHandler responseHandler = new H2ConnectIpResponseHandler(
+                new H2ConnectIpEventHandlerBridge(handler));
+        HttpRequest request = protocolHandler.request(HttpMethod.CONNECT, path, responseHandler);
+        responseHandler.bindRequest(request);
         request.header(":protocol", "connect-ip");
         request.header(Capsule.PROTOCOL_HEADER, "?1");
-        request.startRequestBody(new H2ConnectIpResponseHandler(
-                request, new H2ConnectIpEventHandlerBridge(handler)));
+        request.endHeaders();
     }
 
     /**

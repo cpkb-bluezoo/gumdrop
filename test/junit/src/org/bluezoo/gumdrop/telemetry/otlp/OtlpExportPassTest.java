@@ -29,6 +29,7 @@ import static org.junit.Assert.assertTrue;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.nio.ByteBuffer;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -41,6 +42,8 @@ import java.util.logging.Logger;
 
 import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.http.client.HttpRequest;
+import org.bluezoo.gumdrop.mime.ContentDisposition;
+import org.bluezoo.gumdrop.mime.ContentType;
 import org.bluezoo.gumdrop.http.client.HttpResponseHandler;
 import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
 import org.bluezoo.gumdrop.telemetry.TelemetryTestData;
@@ -77,6 +80,26 @@ public class OtlpExportPassTest {
         }
 
         @Override
+        public void longHeader(String name, long value) {
+        }
+
+        @Override
+        public void dateHeader(String name, Instant value) {
+        }
+
+        @Override
+        public void contentType(ContentType contentType) {
+        }
+
+        @Override
+        public void contentDisposition(ContentDisposition contentDisposition) {
+        }
+
+        @Override
+        public void endHeaders() {
+        }
+
+        @Override
         public void priority(int weight) {
         }
 
@@ -89,15 +112,7 @@ public class OtlpExportPassTest {
         }
 
         @Override
-        public void send(HttpResponseHandler h) {
-        }
-
-        @Override
-        public void startRequestBody(HttpResponseHandler h) {
-        }
-
-        @Override
-        public int requestBodyContent(ByteBuffer data) {
+        public int bodyContent(ByteBuffer data) {
             int n = data.remaining();
             while (data.hasRemaining()) {
                 body.write(data.get());
@@ -106,7 +121,7 @@ public class OtlpExportPassTest {
         }
 
         @Override
-        public void endRequestBody() {
+        public void endMessage() {
             ended = true;
             handler.endMessage();
         }

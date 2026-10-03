@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.websocket.client;
 
+import org.bluezoo.gumdrop.http.HttpMethod;
 import org.bluezoo.gumdrop.tls.KeystoreFormat;
 import java.io.IOException;
 import java.net.InetAddress;
@@ -675,11 +676,11 @@ public class WebSocketClient implements AltSvcListener {
                     return;
                 }
                 // RFC 6455 §4.1 -- classic HTTP/1.1 upgrade handshake
-                HttpRequest request = protocolHandler.get(path);
+                HttpRequest request = protocolHandler.get(path, new UpgradeResponseHandler(handler));
                 for (Header h : upgradeHeaders) {
                     request.header(h.getName(), h.getValue());
                 }
-                request.send(new UpgradeResponseHandler(handler));
+                request.endMessage();
             }
 
             @Override
@@ -833,7 +834,10 @@ public class WebSocketClient implements AltSvcListener {
      */
     private void connectExtendedConnect(String path,
             List<WebSocketExtension> allExtensions, final WebSocketEventHandler handler) {
-        HttpRequest request = protocolHandler.request("CONNECT", path);
+        H2WebSocketResponseHandler responseHandler = new H2WebSocketResponseHandler(
+                allExtensions, new H2WebSocketEventHandlerBridge(handler));
+        HttpRequest request = protocolHandler.request(HttpMethod.CONNECT, path, responseHandler);
+        responseHandler.bindRequest(request);
         request.header(":protocol", "websocket");
         if (subprotocol != null && !subprotocol.isEmpty()) {
             request.header("sec-websocket-protocol", subprotocol);
@@ -842,8 +846,7 @@ public class WebSocketClient implements AltSvcListener {
         if (extOffer != null && !extOffer.isEmpty()) {
             request.header("sec-websocket-extensions", extOffer);
         }
-        request.startRequestBody(new H2WebSocketResponseHandler(
-                request, allExtensions, new H2WebSocketEventHandlerBridge(handler)));
+        request.endHeaders();
     }
 
     /**

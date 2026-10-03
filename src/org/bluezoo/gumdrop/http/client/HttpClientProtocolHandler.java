@@ -578,82 +578,54 @@ public class HttpClientProtocolHandler
     /**
      * Creates a GET request for the specified path.
      *
-     * @param path the request path (e.g., "/api/users")
-     * @return a new request
+     * @param path the request path
+     * @param handler receives the response
+     * @return the request
      */
-    public HttpRequest get(String path) {
-        return createRequest("GET", path);
+    public HttpRequest get(String path, HttpResponseHandler handler) {
+        return createRequest(HttpMethod.GET, path, handler);
+    }
+
+    /** Creates a POST request; see {@link #get(String, HttpResponseHandler)}. */
+    public HttpRequest post(String path, HttpResponseHandler handler) {
+        return createRequest(HttpMethod.POST, path, handler);
+    }
+
+    /** Creates a PUT request; see {@link #get(String, HttpResponseHandler)}. */
+    public HttpRequest put(String path, HttpResponseHandler handler) {
+        return createRequest(HttpMethod.PUT, path, handler);
+    }
+
+    /** Creates a DELETE request; see {@link #get(String, HttpResponseHandler)}. */
+    public HttpRequest delete(String path, HttpResponseHandler handler) {
+        return createRequest(HttpMethod.DELETE, path, handler);
+    }
+
+    /** Creates a HEAD request; see {@link #get(String, HttpResponseHandler)}. */
+    public HttpRequest head(String path, HttpResponseHandler handler) {
+        return createRequest(HttpMethod.HEAD, path, handler);
+    }
+
+    /** Creates an OPTIONS request; see {@link #get(String, HttpResponseHandler)}. */
+    public HttpRequest options(String path, HttpResponseHandler handler) {
+        return createRequest(HttpMethod.OPTIONS, path, handler);
+    }
+
+    /** Creates a PATCH request; see {@link #get(String, HttpResponseHandler)}. */
+    public HttpRequest patch(String path, HttpResponseHandler handler) {
+        return createRequest(HttpMethod.PATCH, path, handler);
     }
 
     /**
-     * Creates a POST request for the specified path.
+     * Creates a request with the given method.
      *
+     * @param method the request method
      * @param path the request path
-     * @return a new request
+     * @param handler receives the response
+     * @return the request
      */
-    public HttpRequest post(String path) {
-        return createRequest("POST", path);
-    }
-
-    /**
-     * Creates a PUT request for the specified path.
-     *
-     * @param path the request path
-     * @return a new request
-     */
-    public HttpRequest put(String path) {
-        return createRequest("PUT", path);
-    }
-
-    /**
-     * Creates a DELETE request for the specified path.
-     *
-     * @param path the request path
-     * @return a new request
-     */
-    public HttpRequest delete(String path) {
-        return createRequest("DELETE", path);
-    }
-
-    /**
-     * Creates a HEAD request for the specified path.
-     *
-     * @param path the request path
-     * @return a new request
-     */
-    public HttpRequest head(String path) {
-        return createRequest("HEAD", path);
-    }
-
-    /**
-     * Creates an OPTIONS request for the specified path.
-     *
-     * @param path the request path
-     * @return a new request
-     */
-    public HttpRequest options(String path) {
-        return createRequest("OPTIONS", path);
-    }
-
-    /**
-     * Creates a PATCH request for the specified path.
-     *
-     * @param path the request path
-     * @return a new request
-     */
-    public HttpRequest patch(String path) {
-        return createRequest("PATCH", path);
-    }
-
-    /**
-     * Creates a request with a custom HTTP method.
-     *
-     * @param method the HTTP method
-     * @param path the request path
-     * @return a new request
-     */
-    public HttpRequest request(String method, String path) {
-        return createRequest(method, path);
+    public HttpRequest request(HttpMethod method, String path, HttpResponseHandler handler) {
+        return createRequest(method, path, handler);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -969,12 +941,15 @@ public class HttpClientProtocolHandler
     // Request creation and sending
     // ─────────────────────────────────────────────────────────────────────────
 
-    private HttpRequest createRequest(String method, String path) {
+    private HttpRequest createRequest(HttpMethod method, String path, HttpResponseHandler handler) {
         if (!isOpen()) {
             throw new IllegalStateException(L10N.getString("err.connection_not_open"));
         }
-        validateRequestLine(method, path);
-        return new HttpStream(this, method, path);
+        if (method == null) {
+            throw new IllegalArgumentException(L10N.getString("err.invalid_request_method"));
+        }
+        validateRequestLine(method.name(), path);
+        return new HttpStream(this, method.name(), path, handler);
     }
 
     // RFC 9112 section 3: the request line is written verbatim, so a method
@@ -1065,6 +1040,42 @@ public class HttpClientProtocolHandler
             return remaining;
         }
         return sendHTTP11Data(request, data);
+    }
+
+    @Override
+    public void sendLastRequestBody(HttpStream request, ByteBuffer data) {
+        if (runOnSelectorLoop(new Runnable() {
+            @Override
+            public void run() {
+                sendLastRequestBody(request, data);
+            }
+        })) {
+            return;
+        }
+        if (request.getRequestContentCoding() != null) {
+            sendRequestBodyEncoded(request, data, true);
+            if (negotiatedVersion == HttpVersion.HTTP_2_0) {
+                endHTTP2Data(request);
+            } else {
+                endHTTP11Data(request);
+            }
+            return;
+        }
+        if (negotiatedVersion == HttpVersion.HTTP_2_0) {
+            // the last DATA frame carries END_STREAM
+            int streamId = findStreamId(request);
+            if (streamId < 0) {
+                LOGGER.warning(L10N.getString("warn.unknown_stream_data"));
+                return;
+            }
+            ByteBuffer copy = ByteBufferPool.acquire(data.remaining());
+            copy.put(data);
+            copy.flip();
+            endpoint.getSelectorLoop().invokeLater(new SendDataTask(streamId, copy, true));
+            return;
+        }
+        sendHTTP11Data(request, data);
+        endHTTP11Data(request);
     }
 
     @Override
@@ -1808,7 +1819,8 @@ public class HttpClientProtocolHandler
         if (authHeader != null) {
             authRetryPending = true;
 
-            HttpStream retryStream = new HttpStream(this, currentStream.getMethod(), currentStream.getPath());
+            HttpStream retryStream = new HttpStream(this, currentStream.getMethod(), currentStream.getPath(),
+                    currentStream.getHandler());
 
             for (Header h : currentStream.getHeaders()) {
                 retryStream.header(h.getName(), h.getValue());
@@ -1827,7 +1839,7 @@ public class HttpClientProtocolHandler
 
             currentStream = null;
 
-            retryStream.send(responseHandler);
+            retryStream.sendWithoutBody();
 
             LOGGER.fine(MessageFormat.format(L10N.getString("debug.auth_retry_scheme"), scheme));
             return true;
@@ -1878,7 +1890,8 @@ public class HttpClientProtocolHandler
 
     // Re-sends a challenged HTTP/2 request on a new stream with credentials
     private void retryH2WithAuthorization(HttpStream stream) {
-        HttpStream retry = new HttpStream(this, stream.getMethod(), stream.getPath());
+        HttpStream retry = new HttpStream(this, stream.getMethod(), stream.getPath(),
+                stream.getHandler());
         for (Header h : stream.getHeaders()) {
             retry.header(h.getName(), h.getValue());
         }
@@ -1886,7 +1899,7 @@ public class HttpClientProtocolHandler
                 ? "Proxy-Authorization" : "Authorization";
         retry.header(headerName, stream.getPendingAuthorization());
         retry.markAuthRetry();
-        retry.send(stream.getHandler());
+        retry.sendWithoutBody();
     }
 
     private String parseAuthScheme(String wwwAuthenticate) {

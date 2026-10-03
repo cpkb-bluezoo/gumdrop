@@ -67,30 +67,31 @@ public class HttpStreamTest {
     }
 
     @Test
-    public void sendTwiceIsIllegal() {
+    public void endMessageTwiceIsIllegal() {
         HttpStream stream = new HttpStream(connection, "GET", "/");
-        stream.send(new DefaultHttpResponseHandler());
+        stream.endMessage();
         try {
-            stream.send(new DefaultHttpResponseHandler());
+            stream.endMessage();
             assertTrue("expected IllegalStateException", false);
         } catch (IllegalStateException expected) {
         }
     }
 
     @Test
-    public void bodyBeforeStartIsIllegal() {
-        HttpStream stream = new HttpStream(connection, "POST", "/");
-        try {
-            stream.requestBodyContent(ByteBuffer.wrap(new byte[] { 1 }));
-            assertTrue("expected IllegalStateException", false);
-        } catch (IllegalStateException expected) {
-        }
+    public void nothingIsSentUntilTheMessageEnds() {
+        RecordingOps ops = new RecordingOps();
+        HttpStream stream = new HttpStream(ops, "GET", "/");
+        stream.header("X-A", "b");
+        assertTrue(ops.events.isEmpty());
+        stream.endMessage();
+        assertEquals(1, ops.events.size());
+        assertEquals("send:false", ops.events.get(0));
     }
 
     @Test
-    public void headerAfterSendIsIllegal() {
+    public void headerAfterEndMessageIsIllegal() {
         HttpStream stream = new HttpStream(connection, "GET", "/");
-        stream.send(new DefaultHttpResponseHandler());
+        stream.endMessage();
         try {
             stream.header("X-After", "nope");
             assertTrue("expected IllegalStateException", false);
@@ -99,11 +100,119 @@ public class HttpStreamTest {
     }
 
     @Test
+    public void headerAfterEndHeadersIsIllegal() {
+        RecordingOps ops = new RecordingOps();
+        HttpStream stream = new HttpStream(ops, "POST", "/");
+        stream.endHeaders();
+        assertEquals("send:true", ops.events.get(0));
+        try {
+            stream.header("X-After", "nope");
+            assertTrue("expected IllegalStateException", false);
+        } catch (IllegalStateException expected) {
+        }
+        try {
+            stream.endHeaders();
+            assertTrue("expected IllegalStateException", false);
+        } catch (IllegalStateException expected) {
+        }
+    }
+
+    @Test
+    public void headerAfterSecondBodyPieceIsIllegal() {
+        RecordingOps ops = new RecordingOps();
+        HttpStream stream = new HttpStream(ops, "POST", "/");
+        stream.bodyContent(ByteBuffer.wrap(new byte[] { 1 }));
+        stream.header("X-Still", "ok");
+        stream.bodyContent(ByteBuffer.wrap(new byte[] { 2 }));
+        try {
+            stream.header("X-After", "nope");
+            assertTrue("expected IllegalStateException", false);
+        } catch (IllegalStateException expected) {
+        }
+    }
+
+    @Test
+    public void emptyBodyBufferSendsNothing() {
+        RecordingOps ops = new RecordingOps();
+        HttpStream stream = new HttpStream(ops, "POST", "/");
+        assertEquals(0, stream.bodyContent(ByteBuffer.allocate(0)));
+        assertTrue(ops.events.isEmpty());
+    }
+
+    @Test
     public void cancelStopsFurtherBodyWrites() {
         HttpStream stream = new HttpStream(connection, "POST", "/");
-        stream.startRequestBody(new DefaultHttpResponseHandler());
         stream.cancel();
-        assertEquals(0, stream.requestBodyContent(ByteBuffer.wrap(new byte[] { 1 })));
+        assertEquals(0, stream.bodyContent(ByteBuffer.wrap(new byte[] { 1 })));
+    }
+
+    @Test
+    public void endMessageAfterCancelIsANoOp() {
+        RecordingOps ops = new RecordingOps();
+        HttpStream stream = new HttpStream(ops, "GET", "/");
+        stream.cancel();
+        stream.endMessage();
+        assertEquals(1, ops.events.size());
+        assertEquals("cancel", ops.events.get(0));
+    }
+
+    @Test
+    public void firstBodyPieceIsHeldThenFlushedWhenASecondArrives() {
+        RecordingOps ops = new RecordingOps();
+        HttpStream stream = new HttpStream(ops, "POST", "/");
+        assertEquals(3, stream.bodyContent(ByteBuffer.wrap(new byte[] { 1, 2, 3 })));
+        assertTrue("the first piece is held back", ops.events.isEmpty());
+        assertEquals(2, stream.bodyContent(ByteBuffer.wrap(new byte[] { 4, 5 })));
+        assertEquals(3, ops.events.size());
+        assertEquals("send:true", ops.events.get(0));
+        assertEquals("body:3", ops.events.get(1));
+        assertEquals("body:2", ops.events.get(2));
+        stream.endMessage();
+        assertEquals("end", ops.events.get(3));
+    }
+
+    @Test
+    public void singleBodyPieceIsSentWithTheEndOfTheMessage() {
+        RecordingOps ops = new RecordingOps();
+        HttpStream stream = new HttpStream(ops, "POST", "/");
+        assertEquals(3, stream.bodyContent(ByteBuffer.wrap(new byte[] { 1, 2, 3 })));
+        stream.endMessage();
+        assertEquals(2, ops.events.size());
+        assertEquals("send:true", ops.events.get(0));
+        assertEquals("last:3", ops.events.get(1));
+        assertEquals("3", stream.getHeaders().getValue("Content-Length"));
+    }
+
+    @Test
+    public void singleBodyPieceKeepsAnExplicitLength() {
+        RecordingOps ops = new RecordingOps();
+        HttpStream stream = new HttpStream(ops, "POST", "/");
+        stream.header("Transfer-Encoding", "chunked");
+        stream.bodyContent(ByteBuffer.wrap(new byte[] { 1, 2, 3 }));
+        stream.endMessage();
+        assertNull(stream.getHeaders().getValue("Content-Length"));
+    }
+
+    @Test
+    public void singleBodyPieceOnAWireConnectionIsSentWithContentLength() {
+        HttpStream stream = (HttpStream) connection.post("/up", null);
+        stream.bodyContent(ByteBuffer.wrap("abc".getBytes(StandardCharsets.US_ASCII)));
+        stream.endMessage();
+        String wire = new String(endpoint.getAllBytes(), StandardCharsets.ISO_8859_1);
+        assertTrue(wire, wire.contains("Content-Length: 3\r\n"));
+        assertTrue(wire, !wire.contains("chunked"));
+        assertTrue(wire, wire.endsWith("\r\n\r\nabc"));
+    }
+
+    @Test
+    public void twoBodyPiecesOnAWireConnectionAreChunked() {
+        HttpStream stream = (HttpStream) connection.post("/up", null);
+        stream.bodyContent(ByteBuffer.wrap("abc".getBytes(StandardCharsets.US_ASCII)));
+        stream.bodyContent(ByteBuffer.wrap("de".getBytes(StandardCharsets.US_ASCII)));
+        stream.endMessage();
+        String wire = new String(endpoint.getAllBytes(), StandardCharsets.ISO_8859_1);
+        assertTrue(wire, wire.contains("Transfer-Encoding: chunked\r\n"));
+        assertTrue(wire, wire.endsWith("\r\n\r\n3\r\nabc\r\n2\r\nde\r\n0\r\n\r\n"));
     }
 
     @Test
@@ -123,46 +232,11 @@ public class HttpStreamTest {
     }
 
     @Test
-    public void sendAfterCancelThrows() {
-        HttpStream stream = new HttpStream(connection, "GET", "/");
-        stream.cancel();
-        try {
-            stream.send(new DefaultHttpResponseHandler());
-            assertTrue("expected IllegalStateException", false);
-        } catch (IllegalStateException expected) {
-        }
-    }
-
-    @Test
-    public void startRequestBodyAfterSendThrows() {
-        HttpStream stream = new HttpStream(connection, "GET", "/");
-        stream.send(new DefaultHttpResponseHandler());
-        try {
-            stream.startRequestBody(new DefaultHttpResponseHandler());
-            assertTrue("expected IllegalStateException", false);
-        } catch (IllegalStateException expected) {
-        }
-    }
-
-    @Test
-    public void endRequestBodyTwiceThrows() {
+    public void bodyAfterEndMessageIsIllegal() {
         HttpStream stream = new HttpStream(connection, "POST", "/");
-        stream.startRequestBody(new DefaultHttpResponseHandler());
-        stream.endRequestBody();
+        stream.endMessage();
         try {
-            stream.endRequestBody();
-            assertTrue("expected IllegalStateException", false);
-        } catch (IllegalStateException expected) {
-        }
-    }
-
-    @Test
-    public void requestBodyContentAfterEndThrows() {
-        HttpStream stream = new HttpStream(connection, "POST", "/");
-        stream.startRequestBody(new DefaultHttpResponseHandler());
-        stream.endRequestBody();
-        try {
-            stream.requestBodyContent(ByteBuffer.wrap(new byte[] { 1 }));
+            stream.bodyContent(ByteBuffer.wrap(new byte[] { 1 }));
             assertTrue("expected IllegalStateException", false);
         } catch (IllegalStateException expected) {
         }
@@ -172,11 +246,12 @@ public class HttpStreamTest {
     public void postBodyDelegatesToConnectionOps() {
         RecordingOps ops = new RecordingOps();
         HttpStream stream = new HttpStream(ops, "POST", "/upload");
-        stream.startRequestBody(new DefaultHttpResponseHandler());
-        assertEquals(3, stream.requestBodyContent(ByteBuffer.wrap(new byte[] { 1, 2, 3 })));
-        stream.endRequestBody();
+        assertEquals(3, stream.bodyContent(ByteBuffer.wrap(new byte[] { 1, 2, 3 })));
+        assertEquals(1, stream.bodyContent(ByteBuffer.wrap(new byte[] { 4 })));
+        stream.endMessage();
         assertTrue(ops.events.contains("send:true"));
         assertTrue(ops.events.contains("body:3"));
+        assertTrue(ops.events.contains("body:1"));
         assertTrue(ops.events.contains("end"));
     }
 
@@ -185,12 +260,12 @@ public class HttpStreamTest {
         RecordingOps ops = new RecordingOps();
         HttpStream stream = new HttpStream(ops, "POST", "/");
         stream.header("Content-Encoding", "gzip");
-        stream.startRequestBody(new DefaultHttpResponseHandler());
         byte[] plain = "payload".getBytes(StandardCharsets.UTF_8);
         assertNotNull(stream.getOrCreateRequestContentEncoder());
-        int consumed = stream.requestBodyContent(ByteBuffer.wrap(plain));
+        int consumed = stream.bodyContent(ByteBuffer.wrap(plain));
         assertEquals(plain.length, consumed);
-        stream.endRequestBody();
+        stream.bodyContent(ByteBuffer.wrap(plain));
+        stream.endMessage();
         assertTrue(eventsContainPrefix(ops.events, "encoded:"));
         stream.closeRequestContentEncoder();
     }
@@ -296,6 +371,11 @@ public class HttpStreamTest {
         public int sendRequestBodyEncoded(HttpStream request, ByteBuffer data, boolean end) {
             events.add("encoded:" + data.remaining() + ":" + end);
             return data.remaining();
+        }
+
+        @Override
+        public void sendLastRequestBody(HttpStream request, ByteBuffer data) {
+            events.add("last:" + data.remaining());
         }
 
         @Override

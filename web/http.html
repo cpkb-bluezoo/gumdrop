@@ -1109,9 +1109,7 @@ client.setSecure(true);
 
 client.connect(gumdrop, new HttpClientHandler() {
     public void onConnected(Endpoint endpoint) {
-        HttpRequest request = client.get("/api/data");
-        request.header("Accept", "application/json");
-        request.send(new DefaultHttpResponseHandler() {
+        HttpRequest request = client.get("/api/data", new DefaultHttpResponseHandler() {
             public void status(int code) {
                 System.out.println("Status: " + code);
             }
@@ -1126,6 +1124,8 @@ client.connect(gumdrop, new HttpClientHandler() {
                 ex.printStackTrace();
             }
         });
+        request.header("Accept", "application/json");
+        request.endMessage();
     }
     public void onSecurityEstablished(SecurityInfo info) { }
     public void onError(Exception cause) { cause.printStackTrace(); }
@@ -1146,9 +1146,9 @@ client.setH3Enabled(true);
 
 client.connect(gumdrop, new HttpClientHandler() {
     public void onConnected(Endpoint endpoint) {
-        HttpRequest request = client.get("/api/data");
+        HttpRequest request = client.get("/api/data", responseHandler);
         request.header("Accept", "application/json");
-        request.send(responseHandler);
+        request.endMessage();
     }
     public void onSecurityEstablished(SecurityInfo info) { }
     public void onError(Exception cause) { cause.printStackTrace(); }

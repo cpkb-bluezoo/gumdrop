@@ -22,6 +22,7 @@
 package org.bluezoo.gumdrop.http.client;
 
 import java.nio.file.Path;
+import org.bluezoo.gumdrop.http.HttpMethod;
 import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.GumdropConfig;
@@ -212,16 +213,15 @@ public class HTTP3ClientIntegrationTest {
                 }
             };
 
-            HttpRequest request = client.request(method, path);
+            HttpRequest request = client.request(HttpMethod.of(method), path, handler);
             if (payload != null) {
                 byte[] payloadBytes = payload.getBytes(StandardCharsets.UTF_8);
                 request.header("Content-Type", "text/plain; charset=UTF-8");
                 request.header("Content-Length", String.valueOf(payloadBytes.length));
-                request.startRequestBody(handler);
-                request.requestBodyContent(ByteBuffer.wrap(payloadBytes));
-                request.endRequestBody();
+                request.bodyContent(ByteBuffer.wrap(payloadBytes));
+                request.endMessage();
             } else {
-                request.send(handler);
+                request.endMessage();
             }
 
             assertTrue(method + " " + path + " did not complete in time",
@@ -267,7 +267,7 @@ public class HTTP3ClientIntegrationTest {
             }
         };
 
-        client.request(method, path).send(handler);
+        client.request(HttpMethod.of(method), path, handler).endMessage();
 
         assertTrue(method + " " + path + " did not complete in time",
                 latch.await(ASYNC_TIMEOUT_SECONDS, TimeUnit.SECONDS));

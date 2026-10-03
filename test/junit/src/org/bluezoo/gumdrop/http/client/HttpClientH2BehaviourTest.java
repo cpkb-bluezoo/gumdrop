@@ -323,7 +323,7 @@ public class HttpClientH2BehaviourTest {
 
     private Recorder sendGet(String path) {
         Recorder r = new Recorder();
-        handler.get(path).send(r);
+        handler.get(path, r).endMessage();
         return r;
     }
 
@@ -352,11 +352,11 @@ public class HttpClientH2BehaviourTest {
     @Test
     public void requestHeadersAreEncodedWithoutHttp1FramingHeaders() throws Exception {
         ready();
-        HttpRequest r = handler.get("/res?q=1");
+        HttpRequest r = handler.get("/res?q=1", new Recorder());
         r.header("X-Custom", "v");
         r.header("Connection", "keep-alive");
         r.header("Host", "ignored.example");
-        r.send(new Recorder());
+        r.endMessage();
         Frame f = framesOfType(HEADERS).get(0);
         assertEquals(1, f.streamId);
         assertTrue(f.endStream());
@@ -393,11 +393,11 @@ public class HttpClientH2BehaviourTest {
     @Test
     public void priorityHeaderIsSentForPriorityRequests() throws Exception {
         ready();
-        HttpRequest r = handler.get("/p");
+        HttpRequest r = handler.get("/p", new Recorder());
         r.priority(256);
         r.dependency(null);
         r.exclusive(true);
-        r.send(new Recorder());
+        r.endMessage();
         Map<String, String> h = decode(framesOfType(HEADERS).get(0).payload);
         assertNotNull(h.toString(), h.get("priority"));
     }
@@ -765,30 +765,49 @@ public class HttpClientH2BehaviourTest {
     // ── request bodies and flow control ──
 
     @Test
+    public void singlePieceBodyIsSentWithHeadersAndEndStreamTogether() throws Exception {
+        ready();
+        HttpRequest r = handler.post("/up", new Recorder());
+        assertEquals(0, framesOfType(HEADERS).size());
+        assertEquals(3, r.bodyContent(ByteBuffer.wrap("abc".getBytes(StandardCharsets.US_ASCII))));
+        assertEquals(0, r.bodyContent(ByteBuffer.allocate(0)));
+        assertEquals("the first piece is held back", 0, framesOfType(HEADERS).size());
+        r.endMessage();
+        assertEquals(1, framesOfType(HEADERS).size());
+        assertFalse("the headers do not end the stream", framesOfType(HEADERS).get(0).endStream());
+        List<Frame> data = framesOfType(DATA);
+        assertEquals(1, data.size());
+        assertEquals("abc", new String(data.get(0).payload, StandardCharsets.US_ASCII));
+        assertTrue(data.get(0).endStream());
+    }
+
+    @Test
     public void requestBodyIsSentAsDataFramesAndEnded() throws Exception {
         ready();
-        HttpRequest r = handler.post("/up");
-        r.startRequestBody(new Recorder());
+        HttpRequest r = handler.post("/up", new Recorder());
+        assertEquals(3, r.bodyContent(ByteBuffer.wrap("abc".getBytes(StandardCharsets.US_ASCII))));
+        assertEquals(0, framesOfType(HEADERS).size());
+        assertEquals(3, r.bodyContent(ByteBuffer.wrap("def".getBytes(StandardCharsets.US_ASCII))));
+        assertEquals("the second piece releases the headers", 1, framesOfType(HEADERS).size());
         assertFalse("the headers do not end the stream", framesOfType(HEADERS).get(0).endStream());
-        assertEquals(3, r.requestBodyContent(ByteBuffer.wrap("abc".getBytes(StandardCharsets.US_ASCII))));
-        assertEquals(0, r.requestBodyContent(ByteBuffer.allocate(0)));
-        r.endRequestBody();
+        r.endMessage();
         List<Frame> data = framesOfType(DATA);
-        assertEquals(2, data.size());
+        assertEquals(3, data.size());
         assertEquals("abc", new String(data.get(0).payload, StandardCharsets.US_ASCII));
         assertFalse(data.get(0).endStream());
-        assertTrue(data.get(1).endStream());
-        assertEquals(0, data.get(1).payload.length);
+        assertEquals("def", new String(data.get(1).payload, StandardCharsets.US_ASCII));
+        assertFalse(data.get(1).endStream());
+        assertTrue(data.get(2).endStream());
+        assertEquals(0, data.get(2).payload.length);
     }
 
     @Test
     public void largeRequestBodyIsSplitAtTheMaximumFrameSize() throws Exception {
         settings(H2FrameHandler.SETTINGS_MAX_FRAME_SIZE, 16384,
                 H2FrameHandler.SETTINGS_INITIAL_WINDOW_SIZE, 1000000);
-        HttpRequest r = handler.post("/up");
-        r.startRequestBody(new Recorder());
-        r.requestBodyContent(ByteBuffer.wrap(new byte[40000]));
-        r.endRequestBody();
+        HttpRequest r = handler.post("/up", new Recorder());
+        r.bodyContent(ByteBuffer.wrap(new byte[40000]));
+        r.endMessage();
         List<Frame> data = framesOfType(DATA);
         int total = 0;
         for (Frame f : data) {
@@ -802,10 +821,9 @@ public class HttpClientH2BehaviourTest {
     @Test
     public void flowControlQueuesDataAndEndOfStreamUntilTheWindowOpens() throws Exception {
         settings(H2FrameHandler.SETTINGS_INITIAL_WINDOW_SIZE, 10);
-        HttpRequest r = handler.post("/up");
-        r.startRequestBody(new Recorder());
-        r.requestBodyContent(ByteBuffer.wrap("0123456789abcdefghij0123456789".getBytes(StandardCharsets.US_ASCII)));
-        r.endRequestBody();
+        HttpRequest r = handler.post("/up", new Recorder());
+        r.bodyContent(ByteBuffer.wrap("0123456789abcdefghij0123456789".getBytes(StandardCharsets.US_ASCII)));
+        r.endMessage();
         List<Frame> data = framesOfType(DATA);
         assertEquals(1, data.size());
         assertEquals(10, data.get(0).payload.length);
@@ -862,9 +880,9 @@ public class HttpClientH2BehaviourTest {
     @Test
     public void cancelSendsRstStreamAndPromotesQueuedRequests() throws Exception {
         settings(H2FrameHandler.SETTINGS_MAX_CONCURRENT_STREAMS, 1);
-        HttpRequest first = handler.get("/a");
         Recorder a = new Recorder();
-        first.send(a);
+        HttpRequest first = handler.get("/a", a);
+        first.endMessage();
         Recorder b = sendGet("/b");
         first.cancel();
         assertEquals(1, a.failures.size());
@@ -880,9 +898,9 @@ public class HttpClientH2BehaviourTest {
     public void cancellingAQueuedRequestRemovesItFromTheQueue() throws Exception {
         settings(H2FrameHandler.SETTINGS_MAX_CONCURRENT_STREAMS, 1);
         sendGet("/a");
-        HttpRequest queued = handler.get("/b");
         Recorder q = new Recorder();
-        queued.send(q);
+        HttpRequest queued = handler.get("/b", q);
+        queued.endMessage();
         queued.cancel();
         respond200(1, "A");
         assertEquals("the cancelled request is never sent", 1, framesOfType(HEADERS).size());

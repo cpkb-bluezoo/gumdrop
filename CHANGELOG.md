@@ -243,6 +243,23 @@ user-visible themes since 2.2.x.
   response all fail the response instead of being tolerated; an unsolicited
   `101` fails it too. A response with neither length nor chunking runs until
   the connection closes (RFC 9112 section 6.3) rather than failing.
+- **The HTTP client's request API mirrors the events a server receives
+  (breaking).** The response handler is given when the request is made:
+  `client.get(path, handler)`, `post`, `put`, `delete`, `head`, `options`,
+  `patch`, and `client.request(HttpMethod, path, handler)`. A request is then
+  built with the same calls and types as the incoming events: `header`,
+  `longHeader`, `dateHeader(String, Instant)`, `contentType(ContentType)` and
+  `contentDisposition(ContentDisposition)`, then `bodyContent(ByteBuffer)` any
+  number of times and `endMessage()`. `send`, `startRequestBody`,
+  `requestBodyContent` and `endRequestBody` are removed. Nothing is written
+  until it is needed: the header section goes out with the first piece of body,
+  or with `endMessage()` if there is none; `endHeaders()` sends it at once for a
+  request whose body flows for the life of the exchange (an Extended CONNECT
+  tunnel). The first piece of body is held back until it is known whether it is
+  also the last, so a one-piece body is sent with its end flag in the same
+  frame (HTTP/2, HTTP/3) or as a `Content-Length` body instead of a chunked
+  one (HTTP/1.x); later pieces are sent as they are given. `bodyContent` still
+  returns the number of bytes taken, for backpressure.
 - **`HttpResponseState` is now `HttpResponse` (breaking).** The server-side
   type a handler answers a request with is renamed to match the `response`
   parameter of `HttpStreamHandler.openStream(response)`; the client's own

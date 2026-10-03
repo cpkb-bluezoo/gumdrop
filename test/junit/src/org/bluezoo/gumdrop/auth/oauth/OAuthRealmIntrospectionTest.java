@@ -90,18 +90,14 @@ public class OAuthRealmIntrospectionTest {
         public void exclusive(boolean exclusive) {
         }
 
-        @Override
-        public void send(HttpResponseHandler handler) {
-            this.handler = handler;
-        }
+        @Override public void longHeader(String name, long value) { header(name, Long.toString(value)); }
+        @Override public void dateHeader(String name, java.time.Instant value) { header(name, value.toString()); }
+        @Override public void contentType(org.bluezoo.gumdrop.mime.ContentType contentType) { header("Content-Type", contentType.toHeaderValue()); }
+        @Override public void contentDisposition(org.bluezoo.gumdrop.mime.ContentDisposition contentDisposition) { header("Content-Disposition", contentDisposition.toHeaderValue()); }
+        @Override public void endHeaders() { }
 
         @Override
-        public void startRequestBody(HttpResponseHandler handler) {
-            this.handler = handler;
-        }
-
-        @Override
-        public int requestBodyContent(ByteBuffer data) {
+        public int bodyContent(ByteBuffer data) {
             int n = data.remaining();
             byte[] b = new byte[n];
             data.get(b);
@@ -110,7 +106,7 @@ public class OAuthRealmIntrospectionTest {
         }
 
         @Override
-        public void endRequestBody() {
+        public void endMessage() {
             owner.reply(handler);
         }
 
@@ -196,9 +192,10 @@ public class OAuthRealmIntrospectionTest {
         }
 
         @Override
-        public HttpRequest post(HttpClient client, String path) {
+        public HttpRequest post(HttpClient client, String path, HttpResponseHandler responseHandler) {
             paths.add(path);
             MockRequest r = new MockRequest(this);
+            r.handler = responseHandler;
             requests.add(r);
             return r;
         }

@@ -464,10 +464,6 @@ class LookupHandler extends DefaultHttpRequestHandler {
         client.connect(gumdrop, new HttpClientHandler() {
             @Override
             public void onConnected(Endpoint endpoint) {
-                HttpRequest request = client.post("/lookup");
-                request.header("Content-Type", "application/json");
-                request.header("Accept", "application/json");
-
                 DefaultHttpResponseHandler responseHandler =
                     new DefaultHttpResponseHandler() {
                     private final JSONParser responseParser = new JSONParser();
@@ -508,10 +504,13 @@ class LookupHandler extends DefaultHttpRequestHandler {
                     }
                 };
 
+                HttpRequest request = client.post("/lookup", responseHandler);
+                request.header("Content-Type", "application/json");
+                request.header("Accept", "application/json");
+
                 String body = "{\"query\":\"" + escapeJson(query) + "\"}";
-                request.startRequestBody(responseHandler);
-                request.requestBodyContent(ByteBuffer.wrap(body.getBytes(UTF_8)));
-                request.endRequestBody();
+                request.bodyContent(ByteBuffer.wrap(body.getBytes(UTF_8)));
+                request.endMessage();
             }
 
             @Override

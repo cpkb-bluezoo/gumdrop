@@ -35,7 +35,7 @@ import java.util.logging.Logger;
  *
  * <p><strong>Example:</strong>
  * <pre>
- * request.send(new DefaultHttpResponseHandler() {
+ * HttpRequest request = client.get("/", new DefaultHttpResponseHandler() {
  *     &#64;Override
  *     public void status(int code) {
  *         System.out.println("Status: " + code);
@@ -46,6 +46,7 @@ import java.util.logging.Logger;
  *         // use the body
  *     }
  * });
+ * request.endMessage();
  * </pre>
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>

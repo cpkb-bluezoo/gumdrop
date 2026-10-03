@@ -113,7 +113,7 @@ public class HttpClientProtocolHandlerH2AuthRetryTest {
         BinaryRecordingEndpoint endpoint = new BinaryRecordingEndpoint();
         HttpClientProtocolHandler handler = newClient(endpoint);
         RecordingHandler rh = new RecordingHandler();
-        handler.get("/protected").send(rh);
+        handler.get("/protected", rh).endMessage();
 
         Encoder encoder = new Encoder(4096, Integer.MAX_VALUE);
         final ByteBuffer challenge = encodeHeaders(encoder, "401", "Basic realm=\"r\"");

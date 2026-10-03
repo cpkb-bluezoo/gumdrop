@@ -28,12 +28,15 @@ import static org.junit.Assert.assertTrue;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 
 import org.bluezoo.gumdrop.http.HttpStatus;
 import org.bluezoo.gumdrop.http.client.HttpRequest;
+import org.bluezoo.gumdrop.mime.ContentDisposition;
+import org.bluezoo.gumdrop.mime.ContentType;
 import org.bluezoo.gumdrop.http.client.HttpResponseHandler;
 import org.bluezoo.gumdrop.testsupport.RecordingWebSocketEventHandler;
 import org.bluezoo.gumdrop.websocket.PerMessageDeflateExtension;
@@ -58,15 +61,18 @@ public class H2WebSocketResponseHandlerTest {
         @Override public void priority(int weight) { }
         @Override public void dependency(HttpRequest parent) { }
         @Override public void exclusive(boolean exclusive) { }
-        @Override public void send(HttpResponseHandler handler) { }
-        @Override public void startRequestBody(HttpResponseHandler handler) { }
-        @Override public int requestBodyContent(ByteBuffer data) {
+        @Override public void longHeader(String name, long value) { }
+        @Override public void dateHeader(String name, Instant value) { }
+        @Override public void contentType(ContentType contentType) { }
+        @Override public void contentDisposition(ContentDisposition contentDisposition) { }
+        @Override public void endHeaders() { }
+        @Override public int bodyContent(ByteBuffer data) {
             byte[] b = new byte[data.remaining()];
             data.get(b);
             body.add(b);
             return b.length;
         }
-        @Override public void endRequestBody() { ended = true; }
+        @Override public void endMessage() { ended = true; }
         @Override public void cancel() { }
     }
 

@@ -22,80 +22,120 @@
 package org.bluezoo.gumdrop.http.client;
 
 import java.nio.ByteBuffer;
+import java.time.Instant;
+
+import org.bluezoo.gumdrop.mime.ContentDisposition;
+import org.bluezoo.gumdrop.mime.ContentType;
 
 /**
- * Represents an HTTP request to be sent by an HTTP client.
+ * An HTTP request being sent by an HTTP client.
  *
- * <p>Instances are obtained from an {@link HttpClientProtocolHandler} via factory methods
- * like {@link HttpClientProtocolHandler#get(String)}, {@link HttpClientProtocolHandler#post(String)}, etc.
- * The request is configured by calling setter methods, then sent via {@link #send(HttpResponseHandler)}
- * or {@link #startRequestBody(HttpResponseHandler)}.
+ * <p>A request is made by the client factory methods, which take the method,
+ * the target and the {@link HttpResponseHandler} that is to receive the
+ * response: {@code client.get(path, handler)}, {@code client.post(path,
+ * handler)} or {@code client.request(method, path, handler)}. The method and
+ * the target belong to the request from the start, so there are no methods for
+ * them here. What follows is the other half of a message, in the same order
+ * and with the same types as the events a server handler receives for a
+ * request: the field methods, then {@link #bodyContent} any number of times,
+ * then {@link #endMessage}.
+ *
+ * <p>Nothing is written until it has to be. The header section goes out with
+ * the first piece of body, or with {@link #endMessage} if there is none. The
+ * first piece of body is held back until it is known whether it is also the
+ * last, so that a short body is sent with its final flag in one frame (HTTP/2
+ * and HTTP/3) or one write (HTTP/1.x); every later piece is sent as it is
+ * given.
  *
  * <h3>Simple Request (No Body)</h3>
  * <pre>
- * HttpRequest request = session.get("/api/users");
- * request.header("Accept", "application/json");
- * request.send(new DefaultHttpResponseHandler() {
+ * HttpRequest request = client.get("/api/users", new DefaultHttpResponseHandler() {
  *     &#64;Override
  *     public void status(int code) {
  *         // Handle the status
  *     }
  * });
+ * request.header("Accept", "application/json");
+ * request.endMessage();
  * </pre>
  *
  * <h3>Request with Body</h3>
  * <pre>
- * HttpRequest request = session.post("/api/users");
- * request.header("Content-Type", "application/json");
+ * HttpRequest request = client.post("/api/users", handler);
+ * request.contentType(new ContentType("application", "json", null));
  * request.header("Content-Encoding", "gzip");  // optional; client compresses plaintext
- * request.startRequestBody(handler);
- * request.requestBodyContent(ByteBuffer.wrap(jsonData));
- * request.endRequestBody();
+ * request.bodyContent(ByteBuffer.wrap(jsonData));
+ * request.endMessage();
  * </pre>
  *
  * <h3>Streaming Upload with Backpressure</h3>
  * <pre>
- * request.startRequestBody(handler);
  * while (hasMoreData()) {
  *     ByteBuffer chunk = getNextChunk();
- *     int consumed = request.requestBodyContent(chunk);
- *     if (consumed &lt; chunk.remaining()) {
- *         // Buffer not fully consumed, retry later
- *         scheduleRetry(chunk);
- *         break;
+ *     while (chunk.hasRemaining()) {
+ *         int sent = request.bodyContent(chunk);
+ *         if (sent == 0) {
+ *             // wait for the transport to drain, then retry
+ *         }
  *     }
  * }
- * request.endRequestBody();
- * </pre>
- *
- * <h3>HTTP/2 Priority (Optional)</h3>
- * <pre>
- * HttpRequest request = session.get("/style.css");
- * request.setPriority(200);  // Higher priority (1-256)
- * request.setDependency(htmlRequest);  // Depends on HTML request
- * request.send(handler);
+ * request.endMessage();
  * </pre>
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see HttpClientProtocolHandler
  * @see HttpResponseHandler
  */
 public interface HttpRequest {
 
     // ─────────────────────────────────────────────────────────────────────────
-    // Request Configuration
+    // Fields
     // ─────────────────────────────────────────────────────────────────────────
 
     /**
-     * Sets a request header.
+     * Adds a field. May be called more than once for a field name; names are
+     * case-insensitive.
      *
-     * <p>Can be called multiple times for multi-value headers. Header names
-     * are case-insensitive per HTTP specification.
-     *
-     * @param name the header name
-     * @param value the header value
+     * @param name the field name
+     * @param value the field value
+     * @throws IllegalStateException if the header section has already been sent
      */
     void header(String name, String value);
+
+    /**
+     * Adds a field whose value is a number, such as {@code Content-Length}.
+     *
+     * @param name the field name
+     * @param value the value
+     * @throws IllegalStateException if the header section has already been sent
+     */
+    void longHeader(String name, long value);
+
+    /**
+     * Adds a field whose value is a date, such as {@code If-Modified-Since}.
+     * It is written in the form HTTP defines (RFC 9110 section 5.6.7), which
+     * is always GMT.
+     *
+     * @param name the field name
+     * @param value the instant
+     * @throws IllegalStateException if the header section has already been sent
+     */
+    void dateHeader(String name, Instant value);
+
+    /**
+     * Sets the {@code Content-Type} of the request body.
+     *
+     * @param contentType the media type
+     * @throws IllegalStateException if the header section has already been sent
+     */
+    void contentType(ContentType contentType);
+
+    /**
+     * Sets the {@code Content-Disposition} of the request body.
+     *
+     * @param contentDisposition the disposition
+     * @throws IllegalStateException if the header section has already been sent
+     */
+    void contentDisposition(ContentDisposition contentDisposition);
 
     // ─────────────────────────────────────────────────────────────────────────
     // HTTP/2 Priority (Optional)
@@ -133,63 +173,46 @@ public interface HttpRequest {
     void exclusive(boolean exclusive);
 
     // ─────────────────────────────────────────────────────────────────────────
-    // Sending (No Body)
+    // Body
     // ─────────────────────────────────────────────────────────────────────────
 
     /**
-     * Sends the request without a body.
+     * Ends the header section and sends it now, leaving the message open for
+     * body that follows. It is for a request whose body flows for as long as
+     * the exchange lasts, such as an Extended CONNECT tunnel; any other
+     * request can leave it out, and the header section is sent with the first
+     * piece of body or with {@link #endMessage}.
      *
-     * <p>Use this for GET, HEAD, DELETE, and other methods that don't have
-     * a request body. The response will be delivered to the provided handler.
-     *
-     * <p>This method must not be called if {@link #startRequestBody(HttpResponseHandler)}
-     * has already been called.
-     *
-     * @param handler the handler to receive response events
+     * @throws IllegalStateException if the header section has already been sent
      */
-    void send(HttpResponseHandler handler);
-
-    // ─────────────────────────────────────────────────────────────────────────
-    // Sending (With Body)
-    // ─────────────────────────────────────────────────────────────────────────
-
-    /**
-     * Begins sending a request with a body.
-     *
-     * <p>After calling this method, use {@link #requestBodyContent(ByteBuffer)}
-     * to send body data, then {@link #endRequestBody()} to complete the request.
-     *
-     * <p>This method must not be called if {@link #send(HttpResponseHandler)}
-     * has already been called.
-     *
-     * @param handler the handler to receive response events
-     */
-    void startRequestBody(HttpResponseHandler handler);
+    void endHeaders();
 
     /**
      * Sends request body data.
      *
-     * <p>This method may be called multiple times to stream large bodies.
-     * The buffer's position and limit define the data to send.
+     * <p>May be called any number of times. The buffer's position and limit
+     * define the data to send. The header section is sent before the first
+     * piece of body that is not held back (see the class description).
      *
-     * <p><strong>Backpressure:</strong> This method returns the number of bytes
+     * <p><strong>Backpressure:</strong> this method returns the number of bytes
      * consumed from the buffer. If fewer bytes are consumed than available
-     * (i.e., return value &lt; buffer.remaining()), the caller should wait and
-     * retry with the remaining data. This can occur when the send buffer is full.
+     * (the return value is less than {@code data.remaining()}), the caller
+     * should wait and retry with the remaining data. This can occur when the
+     * send buffer is full.
      *
      * @param data the body data to send
      * @return the number of bytes consumed from the buffer
+     * @throws IllegalStateException if the message has already ended
      */
-    int requestBodyContent(ByteBuffer data);
+    int bodyContent(ByteBuffer data);
 
     /**
-     * Signals the end of the request body.
+     * Ends the request: the header section is sent if it has not been, and
+     * the body, if there was one, is complete. No more can be sent.
      *
-     * <p>This must be called after all body data has been sent via
-     * {@link #requestBodyContent(ByteBuffer)}. After calling this method,
-     * no more body data can be sent.
+     * @throws IllegalStateException if the message has already ended
      */
-    void endRequestBody();
+    void endMessage();
 
     // ─────────────────────────────────────────────────────────────────────────
     // Cancellation

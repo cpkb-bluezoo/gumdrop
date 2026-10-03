@@ -896,9 +896,9 @@ HttpClient client = new HttpClient(loop, downstreamHost, downstreamPort);
 client.setTrace(state.getTrace());  // Propagates traceparent automatically
 client.connect(gumdrop, new HttpClientHandler() {
     public void onConnected(Endpoint endpoint) {
-        HttpRequest request = client.post("/api");
+        HttpRequest request = client.post("/api", responseHandler);
         request.header("Content-Type", "application/json");
-        request.send(responseHandler);
+        request.endMessage();
     }
     // ...
 });

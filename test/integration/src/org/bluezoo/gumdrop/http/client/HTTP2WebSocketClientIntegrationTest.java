@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.http.client;
 
+import org.bluezoo.gumdrop.http.HttpMethod;
 import org.bluezoo.gumdrop.testsupport.CollectingRequestHandler;
 import java.nio.file.Path;
 import java.io.File;
@@ -276,8 +277,7 @@ public class HTTP2WebSocketClientIntegrationTest {
 
                 @Override
                 public void onSecurityEstablished(org.bluezoo.gumdrop.SecurityInfo info) {
-                    HttpRequest request = httpClient.request("GET", "/test");
-                    request.send(new CollectingResponseHandler() {
+                    HttpRequest request = httpClient.request(HttpMethod.GET, "/test", new CollectingResponseHandler() {
                         @Override
                         public void ok(HttpStatus response) {
                             httpStatus.set(response);
@@ -299,6 +299,7 @@ public class HTTP2WebSocketClientIntegrationTest {
                             httpDone.countDown();
                         }
                     });
+                    request.endMessage();
                 }
 
                 @Override

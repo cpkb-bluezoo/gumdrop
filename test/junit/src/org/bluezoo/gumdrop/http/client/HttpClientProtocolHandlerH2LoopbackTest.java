@@ -126,7 +126,7 @@ public class HttpClientProtocolHandlerH2LoopbackTest {
         completeServerSettings(handler);
 
         RecordingHandler rh = new RecordingHandler();
-        handler.get("/resource").send(rh);
+        handler.get("/resource", rh).endMessage();
 
         final ByteBuffer responseHeaders = encodeStatus200Headers();
         byte[] response = writeFrames(
@@ -159,7 +159,7 @@ public class HttpClientProtocolHandlerH2LoopbackTest {
         HttpClientProtocolHandler handler = newH2cUpgradeClient(endpoint);
 
         RecordingHandler rh = new RecordingHandler();
-        handler.get("/upgraded").send(rh);
+        handler.get("/upgraded", rh).endMessage();
 
         String firstRequest = new String(endpoint.getAllBytes(), StandardCharsets.US_ASCII);
         assertTrue(firstRequest.contains("Upgrade: h2c"));

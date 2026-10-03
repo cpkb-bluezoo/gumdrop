@@ -227,11 +227,14 @@ public class H2ConnectIpResponseHandlerTest {
         @Override public void priority(int weight) { }
         @Override public void dependency(HttpRequest parent) { }
         @Override public void exclusive(boolean exclusive) { }
-        @Override public void send(HttpResponseHandler handler) { }
-        @Override public void startRequestBody(HttpResponseHandler handler) { }
+        @Override public void longHeader(String name, long value) { }
+        @Override public void dateHeader(String name, java.time.Instant value) { }
+        @Override public void contentType(org.bluezoo.gumdrop.mime.ContentType contentType) { }
+        @Override public void contentDisposition(org.bluezoo.gumdrop.mime.ContentDisposition contentDisposition) { }
+        @Override public void endHeaders() { }
 
         @Override
-        public int requestBodyContent(ByteBuffer data) {
+        public int bodyContent(ByteBuffer data) {
             int remaining = data.remaining();
             byte[] bytes = new byte[remaining];
             data.get(bytes);
@@ -240,7 +243,7 @@ public class H2ConnectIpResponseHandlerTest {
         }
 
         @Override
-        public void endRequestBody() {
+        public void endMessage() {
             bodyEnded = true;
         }
 

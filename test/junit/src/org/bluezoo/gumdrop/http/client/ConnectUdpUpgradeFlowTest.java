@@ -87,10 +87,10 @@ public class ConnectUdpUpgradeFlowTest {
                 null, new Events(), "proxy.example", 80, false);
         h.setH2cUpgradeEnabled(false);
         h.connected(new BinaryRecordingEndpoint());
-        HttpRequest r = h.get("/.well-known/masque/udp/h/1/");
+        HttpRequest r = h.get("/.well-known/masque/udp/h/1/", new DefaultHttpResponseHandler());
         r.header("connection", "upgrade");
         r.header("upgrade", "connect-udp");
-        r.send(new DefaultHttpResponseHandler());
+        r.endMessage();
         return h;
     }
 

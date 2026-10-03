@@ -350,7 +350,7 @@ public class HttpClientProtocolHandlerH2EdgeTest {
 
     private Recorder sendGet(String path) {
         Recorder r = new Recorder();
-        handler.get(path).send(r);
+        handler.get(path, r).endMessage();
         return r;
     }
 
@@ -369,22 +369,22 @@ public class HttpClientProtocolHandlerH2EdgeTest {
     @Test
     public void handlerlessStreamsConsumeResponsesAndResets() throws Exception {
         ready();
-        handler.get("/a").send(null);
+        handler.get("/a", null).endMessage();
         headers(1, false, ":status", "200", "x-a", "1");
         data(1, new byte[10], false);
         headers(1, true, "x-trailer", "t");
-        handler.get("/b").send(null);
+        handler.get("/b", null).endMessage();
         server(new FrameWriter() {
             @Override
             public void write(H2Writer w) throws IOException {
                 w.writeRstStream(3, H2FrameHandler.ERROR_CANCEL);
             }
         });
-        handler.get("/c").send(null);
+        handler.get("/c", null).endMessage();
         headers(5, true, ":status", "204");
-        handler.get("/d").send(null);
+        handler.get("/d", null).endMessage();
         headers(7, true, ":status", "abc");
-        handler.get("/e").send(null);
+        handler.get("/e", null).endMessage();
         server(new FrameWriter() {
             @Override
             public void write(H2Writer w) throws IOException {
@@ -398,12 +398,12 @@ public class HttpClientProtocolHandlerH2EdgeTest {
     @Test
     public void handlerlessPushPromiseIsRefusedAndHandlerlessCloseWorks() throws Exception {
         ready();
-        handler.get("/a").send(null);
+        handler.get("/a", null).endMessage();
         pushPromise(1, 2, true, ":method", "GET", ":path", "/pushed");
         List<Frame> rst = framesOfType(RST_STREAM);
         assertEquals(1, rst.size());
         assertEquals(H2FrameHandler.ERROR_REFUSED_STREAM, rst.get(0).intAt(0));
-        handler.get("/b").send(null);
+        handler.get("/b", null).endMessage();
         handler.close();
         assertEquals(1, framesOfType(GOAWAY).size());
     }
@@ -473,7 +473,7 @@ public class HttpClientProtocolHandlerH2EdgeTest {
     public void aResponseArrivesAsMessageEventsWithTrailersAfterTheBody() throws Exception {
         ready();
         EventsOnly r = new EventsOnly();
-        handler.get("/e").send(r);
+        handler.get("/e", r).endMessage();
         headers(1, false, ":status", "200", "content-type", "text/plain");
         data(1, "abc".getBytes(java.nio.charset.StandardCharsets.US_ASCII), false);
         headers(1, true, "x-sum", "7");
@@ -495,7 +495,7 @@ public class HttpClientProtocolHandlerH2EdgeTest {
     @Test
     public void gzipResponseOverHttp2IsDecodedWithoutAHandlerToo() throws Exception {
         ready();
-        handler.get("/h").send(null);
+        handler.get("/h", null).endMessage();
         headers(1, false, ":status", "200", "content-encoding", "gzip");
         data(1, new byte[] {1, 2, 3}, true);
         Recorder after = sendGet("/next");
@@ -620,18 +620,16 @@ public class HttpClientProtocolHandlerH2EdgeTest {
         handler.credentials("user", "pass");
         ready();
         Recorder r = new Recorder();
-        HttpRequest post = handler.post("/up");
+        HttpRequest post = handler.post("/up", r);
         post.header("Content-Length", "3");
-        post.startRequestBody(r);
-        post.requestBodyContent(ByteBuffer.wrap(new byte[3]));
-        post.endRequestBody();
+        post.bodyContent(ByteBuffer.wrap(new byte[3]));
+        post.endMessage();
         headers(1, true, ":status", "401", "www-authenticate", "Basic realm=\"r\"");
         assertEquals(1, r.errorCalls);
         Recorder chunked = new Recorder();
-        HttpRequest put = handler.put("/up2");
+        HttpRequest put = handler.put("/up2", chunked);
         put.header("Transfer-Encoding", "chunked");
-        put.startRequestBody(chunked);
-        put.endRequestBody();
+        put.endMessage();
         headers(3, true, ":status", "401", "www-authenticate", "Basic realm=\"r\"");
         assertEquals(1, chunked.errorCalls);
     }
@@ -707,9 +705,9 @@ public class HttpClientProtocolHandlerH2EdgeTest {
         handler.setTraceContext(new Trace("client"));
         ready();
         sendGet("/a");
-        HttpRequest own = handler.get("/b");
+        HttpRequest own = handler.get("/b", new Recorder());
         own.header("traceparent", "00-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-bbbbbbbbbbbbbbbb-01");
-        own.send(new Recorder());
+        own.endMessage();
         List<Frame> hs = framesOfType(HEADERS);
         assertEquals(2, hs.size());
         List<Map<String, String>> decoded = decodeAll(hs);
@@ -722,11 +720,11 @@ public class HttpClientProtocolHandlerH2EdgeTest {
     @Test
     public void hugeHeaderBlocksAreSplitIntoContinuationFrames() throws Exception {
         settings(H2FrameHandler.SETTINGS_MAX_HEADER_LIST_SIZE, 1000000);
-        HttpRequest r = handler.get("/big");
+        HttpRequest r = handler.get("/big", new Recorder());
         r.header("x-a", junk(20000));
         r.header("x-b", junk(20000));
         r.header("x-c", junk(20000));
-        r.send(new Recorder());
+        r.endMessage();
         List<Frame> hs = framesOfType(HEADERS);
         List<Frame> cs = framesOfType(CONTINUATION);
         assertEquals(1, hs.size());
@@ -738,15 +736,15 @@ public class HttpClientProtocolHandlerH2EdgeTest {
     @Test
     public void headerListBeyondThePeerLimitFailsTheRequest() throws Exception {
         ready();
-        HttpRequest r = handler.get("/big");
-        r.header("x-a", junk(9000));
         Recorder rec = new Recorder();
-        r.send(rec);
+        HttpRequest r = handler.get("/big", rec);
+        r.header("x-a", junk(9000));
+        r.endMessage();
         assertEquals(1, rec.failures.size());
         assertTrue(framesOfType(HEADERS).isEmpty());
-        HttpRequest silent = handler.get("/big2");
+        HttpRequest silent = handler.get("/big2", null);
         silent.header("x-a", junk(9000));
-        silent.send(null);
+        silent.endMessage();
         assertTrue(framesOfType(HEADERS).isEmpty());
         handler.closeWhenIdle();
         assertEquals(1, framesOfType(GOAWAY).size());
@@ -766,12 +764,11 @@ public class HttpClientProtocolHandlerH2EdgeTest {
     public void gzipRequestBodyOverHttp2IsEncoded() throws Exception {
         handler.setEncodeRequestBodyContentCoding(true);
         ready();
-        HttpRequest r = handler.post("/up");
+        HttpRequest r = handler.post("/up", new Recorder());
         r.header("Content-Encoding", "gzip");
-        r.startRequestBody(new Recorder());
         byte[] plain = "squash squash squash squash".getBytes(StandardCharsets.US_ASCII);
-        assertEquals(plain.length, r.requestBodyContent(ByteBuffer.wrap(plain)));
-        r.endRequestBody();
+        assertEquals(plain.length, r.bodyContent(ByteBuffer.wrap(plain)));
+        r.endMessage();
         ByteArrayOutputStream all = new ByteArrayOutputStream();
         List<Frame> data = framesOfType(DATA);
         for (Frame f : data) {
@@ -792,9 +789,9 @@ public class HttpClientProtocolHandlerH2EdgeTest {
     public void streamCompletionDropsQueuedFlowControlledData() throws Exception {
         settings(H2FrameHandler.SETTINGS_INITIAL_WINDOW_SIZE, 4);
         Recorder r = new Recorder();
-        HttpRequest post = handler.post("/up");
-        post.startRequestBody(r);
-        post.requestBodyContent(ByteBuffer.wrap(new byte[20]));
+        HttpRequest post = handler.post("/up", r);
+        post.bodyContent(ByteBuffer.wrap(new byte[20]));
+        post.bodyContent(ByteBuffer.wrap(new byte[1]));
         assertEquals(1, framesOfType(DATA).size());
         headers(1, true, ":status", "413");
         assertEquals(1, r.errorCalls);
@@ -811,11 +808,10 @@ public class HttpClientProtocolHandlerH2EdgeTest {
     public void endMarkerQueuesBehindPendingDataAndDrainsInFrames() throws Exception {
         settings(H2FrameHandler.SETTINGS_INITIAL_WINDOW_SIZE, 6,
                 H2FrameHandler.SETTINGS_MAX_FRAME_SIZE, 16384);
-        HttpRequest post = handler.post("/up");
-        post.startRequestBody(new Recorder());
-        post.requestBodyContent(ByteBuffer.wrap(new byte[10]));
-        post.requestBodyContent(ByteBuffer.wrap(new byte[10]));
-        post.endRequestBody();
+        HttpRequest post = handler.post("/up", new Recorder());
+        post.bodyContent(ByteBuffer.wrap(new byte[10]));
+        post.bodyContent(ByteBuffer.wrap(new byte[10]));
+        post.endMessage();
         server(new FrameWriter() {
             @Override
             public void write(H2Writer w) throws IOException {
@@ -892,7 +888,7 @@ public class HttpClientProtocolHandlerH2EdgeTest {
         settings(H2FrameHandler.SETTINGS_MAX_CONCURRENT_STREAMS, 1);
         Recorder a = sendGet("/a");
         Recorder queued = sendGet("/b");
-        handler.get("/c").send(null);
+        handler.get("/c", null).endMessage();
         handler.disconnected();
         assertEquals(1, a.failures.size());
         assertEquals(1, queued.failures.size());
@@ -929,9 +925,9 @@ public class HttpClientProtocolHandlerH2EdgeTest {
                 H2FrameHandler.SETTINGS_INITIAL_WINDOW_SIZE, 1000000,
                 H2FrameHandler.SETTINGS_HEADER_TABLE_SIZE, 2048,
                 H2FrameHandler.SETTINGS_MAX_HEADER_LIST_SIZE, 100000);
-        HttpRequest r = handler.post("/up");
-        r.startRequestBody(new Recorder());
-        r.requestBodyContent(ByteBuffer.wrap(new byte[50000]));
+        HttpRequest r = handler.post("/up", new Recorder());
+        r.bodyContent(ByteBuffer.wrap(new byte[50000]));
+        r.endMessage();
         List<Frame> data = framesOfType(DATA);
         assertTrue(data.size() >= 4);
     }
@@ -947,7 +943,7 @@ public class HttpClientProtocolHandlerH2EdgeTest {
     @Test
     public void streamResetWithoutHandlerIsConsumed() throws Exception {
         ready();
-        handler.get("/a").send(null);
+        handler.get("/a", null).endMessage();
         server(new FrameWriter() {
             @Override
             public void write(H2Writer w) throws IOException {

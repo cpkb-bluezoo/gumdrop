@@ -90,11 +90,11 @@ public class HttpServerRouterIntegrationTest {
     @Test
     public void testPathDispatchInRequestHandler() throws Exception {
         HttpClient client = connect(gumdrop, testPort);
-        assertStatus(client.get("/api"), 200);
-        assertStatus(client.get("/missing"), 404);
+        assertStatus(client, "/api", 200);
+        assertStatus(client, "/missing", 404);
     }
 
-    private static void assertStatus(HttpRequest request, int expectedStatus)
+    private static void assertStatus(HttpClient client, String path, int expectedStatus)
             throws Exception {
         CountDownLatch latch = new CountDownLatch(1);
         AtomicReference<Integer> statusRef = new AtomicReference<Integer>();
@@ -103,7 +103,7 @@ public class HttpServerRouterIntegrationTest {
         // Complete on close(), not ok(): ok() only means the response
         // headers have arrived, and the next request on this connection
         // must not be issued while this response is still being parsed.
-        request.send(new CollectingResponseHandler() {
+        client.get(path, new CollectingResponseHandler() {
             @Override
             public void ok(HttpStatus response) {
                 statusRef.set(Integer.valueOf(response.code));
@@ -124,7 +124,7 @@ public class HttpServerRouterIntegrationTest {
                 errorRef.set(cause);
                 latch.countDown();
             }
-        });
+        }).endMessage();
 
         assertTrue(latch.await(5, TimeUnit.SECONDS));
         assertNull(errorRef.get());

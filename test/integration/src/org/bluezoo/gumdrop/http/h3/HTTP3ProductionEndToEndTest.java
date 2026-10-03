@@ -2258,13 +2258,15 @@ public class HTTP3ProductionEndToEndTest {
                             Http3ClientHandler h3 = new Http3ClientHandler(connection);
                             h3HandlerRef.set(h3);
 
-                            H3Request getRequest = new H3Request(h3, "GET", "/get", SERVER_NAME, "https", null);
+                            H3Request getRequest = new H3Request(h3, "GET", "/get", SERVER_NAME, "https", null,
+                                    new LatchResponseHandler(getLatch, getFailure));
                             getRequestRef.set(getRequest);
-                            getRequest.send(new LatchResponseHandler(getLatch, getFailure));
+                            getRequest.endMessage();
 
-                            H3Request postRequest = new H3Request(h3, "POST", "/post", SERVER_NAME, "https", null);
+                            H3Request postRequest = new H3Request(h3, "POST", "/post", SERVER_NAME, "https", null,
+                                    new LatchResponseHandler(postLatch, postFailure));
                             postRequestRef.set(postRequest);
-                            postRequest.send(new LatchResponseHandler(postLatch, postFailure));
+                            postRequest.endMessage();
                         }
                     },
                     loop, SERVER_NAME);

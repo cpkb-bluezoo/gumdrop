@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.http.client;
 
+import org.bluezoo.gumdrop.http.HttpMethod;
 import org.bluezoo.gumdrop.AbstractServerIntegrationTest;
 import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.SecurityInfo;
@@ -327,16 +328,15 @@ public class HTTPClientVersionIntegrationTest extends AbstractServerIntegrationT
             }
         };
 
-        HttpRequest request = client.request(method, path);
+        HttpRequest request = client.request(HttpMethod.of(method), path, handler);
         if (payload != null) {
             byte[] payloadBytes = payload.getBytes(StandardCharsets.UTF_8);
             request.header("Content-Type", "text/plain; charset=UTF-8");
             request.header("Content-Length", String.valueOf(payloadBytes.length));
-            request.startRequestBody(handler);
-            request.requestBodyContent(ByteBuffer.wrap(payloadBytes));
-            request.endRequestBody();
+            request.bodyContent(ByteBuffer.wrap(payloadBytes));
+            request.endMessage();
         } else {
-            request.send(handler);
+            request.endMessage();
         }
 
         assertTrue(method + " " + path + " did not complete in time",

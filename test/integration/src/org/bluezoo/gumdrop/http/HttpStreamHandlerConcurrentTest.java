@@ -156,9 +156,7 @@ public class HttpStreamHandlerConcurrentTest {
                              AtomicReference<String> bodyOut,
                              AtomicReference<Exception> error,
                              CountDownLatch done) {
-        HttpRequest request = client.post(path);
-        request.header("Content-Length", String.valueOf(payload.length()));
-        request.startRequestBody(new CollectingResponseHandler() {
+        HttpRequest request = client.post(path, new CollectingResponseHandler() {
             private final StringBuilder buffer = new StringBuilder();
 
             @Override
@@ -184,9 +182,10 @@ public class HttpStreamHandlerConcurrentTest {
                 done.countDown();
             }
         });
-        request.requestBodyContent(
+        request.header("Content-Length", String.valueOf(payload.length()));
+        request.bodyContent(
                 ByteBuffer.wrap(payload.getBytes(StandardCharsets.UTF_8)));
-        request.endRequestBody();
+        request.endMessage();
     }
 
     private static final class AccumulatingStreamHandler implements HttpStreamHandler {

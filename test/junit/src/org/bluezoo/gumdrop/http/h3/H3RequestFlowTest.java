@@ -27,6 +27,7 @@ import static org.junit.Assert.fail;
 
 import java.nio.ByteBuffer;
 
+import org.bluezoo.gumdrop.http.client.HttpResponseHandler;
 import org.bluezoo.gumdrop.telemetry.Trace;
 import org.junit.Test;
 
@@ -38,20 +39,21 @@ import org.junit.Test;
  */
 public class H3RequestFlowTest {
 
-    private static H3Request newRequest(Http3ClientHandler h, String method, Trace trace) {
-        return new H3Request(h, method, "/p", "example.com", "https", trace);
+    private static H3Request newRequest(Http3ClientHandler h, String method, Trace trace,
+                                         HttpResponseHandler handler) {
+        return new H3Request(h, method, "/p", "example.com", "https", trace, handler);
     }
 
     @Test
     public void testSendGet() throws Exception {
         Http3ClientHandler h = H3ClientFlowTest.client();
-        H3Request r = newRequest(h, "GET", new Trace("client-op"));
+        H3ClientFlowTest.Rec rec = new H3ClientFlowTest.Rec();
+        H3Request r = newRequest(h, "GET", new Trace("client-op"), rec);
         r.header("x-a", "b");
         r.priority(100);
         r.dependency(null);
         r.exclusive(true);
-        H3ClientFlowTest.Rec rec = new H3ClientFlowTest.Rec();
-        r.send(rec);
+        r.endMessage();
         try {
             r.header("late", "x");
             fail("expected IllegalStateException");
@@ -67,60 +69,69 @@ public class H3RequestFlowTest {
     @Test
     public void testSendWithTraceparentHeaderPresent() throws Exception {
         Http3ClientHandler h = H3ClientFlowTest.client();
-        H3Request r = newRequest(h, "GET", new Trace("client-op"));
+        H3Request r = newRequest(h, "GET", new Trace("client-op"), new H3ClientFlowTest.Rec());
         r.header("Traceparent", "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01");
-        r.send(new H3ClientFlowTest.Rec());
+        r.endMessage();
         assertEquals(1, H3ClientFlowTest.streams(h).size());
     }
 
     @Test
     public void testPostWithBody() throws Exception {
         Http3ClientHandler h = H3ClientFlowTest.client();
-        H3Request r = newRequest(h, "POST", null);
-        H3ClientFlowTest.Rec rec = new H3ClientFlowTest.Rec();
-        r.startRequestBody(rec);
-        int n = r.requestBodyContent(ByteBuffer.wrap(new byte[] {1, 2, 3}));
+        H3Request r = newRequest(h, "POST", null, new H3ClientFlowTest.Rec());
+        int n = r.bodyContent(ByteBuffer.wrap(new byte[] {1, 2, 3}));
         assertEquals(3, n);
-        r.endRequestBody();
+        r.endMessage();
         h.runDeferredRequests();
         assertEquals(1, H3ClientFlowTest.streams(h).size());
     }
 
     @Test
+    public void testPostWithTwoPieces() throws Exception {
+        Http3ClientHandler h = H3ClientFlowTest.client();
+        H3Request r = newRequest(h, "POST", null, new H3ClientFlowTest.Rec());
+        assertEquals(2, r.bodyContent(ByteBuffer.wrap(new byte[] {1, 2})));
+        assertEquals(1, r.bodyContent(ByteBuffer.wrap(new byte[] {3})));
+        r.endMessage();
+        h.runDeferredRequests();
+        assertEquals(1, H3ClientFlowTest.streams(h).size());
+        try {
+            r.bodyContent(ByteBuffer.wrap(new byte[] {4}));
+            fail("expected IllegalStateException");
+        } catch (IllegalStateException expected) {
+            assertTrue(expected.getMessage() != null);
+        }
+    }
+
+    @Test
     public void testDeferredUntilEstablished() throws Exception {
         Http3ClientHandler h = H3ClientFlowTest.client();
-        H3Request r = newRequest(h, "POST", null);
-        H3ClientFlowTest.Rec rec = new H3ClientFlowTest.Rec();
-        r.startRequestBody(rec);
-        r.requestBodyContent(ByteBuffer.wrap(new byte[] {1}));
-        r.endRequestBody();
+        H3Request r = newRequest(h, "POST", null, new H3ClientFlowTest.Rec());
+        r.bodyContent(ByteBuffer.wrap(new byte[] {1}));
+        r.endMessage();
         assertEquals(0, H3ClientFlowTest.streams(h).size());
         h.runDeferredRequests();
         assertEquals(1, H3ClientFlowTest.streams(h).size());
 
-        H3Request r2 = newRequest(h, "POST", null);
-        H3ClientFlowTest.Rec rec2 = new H3ClientFlowTest.Rec();
-        r2.send(rec2);
+        H3Request r2 = newRequest(h, "POST", null, new H3ClientFlowTest.Rec());
+        r2.endMessage();
         h.runDeferredRequests();
     }
 
     @Test
     public void testCancel() throws Exception {
         Http3ClientHandler h = H3ClientFlowTest.client();
-        H3Request r = newRequest(h, "GET", null);
-        r.cancel();
         H3ClientFlowTest.Rec rec = new H3ClientFlowTest.Rec();
-        r.send(rec);
+        H3Request r = newRequest(h, "GET", null, rec);
+        r.cancel();
         assertTrue(rec.events.contains("failed"));
-        H3ClientFlowTest.Rec rec2 = new H3ClientFlowTest.Rec();
-        r.startRequestBody(rec2);
-        assertTrue(rec2.events.contains("failed"));
-        assertEquals(0, r.requestBodyContent(ByteBuffer.wrap(new byte[] {1})));
-        r.endRequestBody();
+        assertEquals(0, r.bodyContent(ByteBuffer.wrap(new byte[] {1})));
+        r.endMessage();
+        assertEquals(0, H3ClientFlowTest.streams(h).size());
 
-        H3Request r2 = newRequest(h, "GET", null);
         H3ClientFlowTest.Rec rec3 = new H3ClientFlowTest.Rec();
-        r2.send(rec3);
+        H3Request r2 = newRequest(h, "GET", null, rec3);
+        r2.endMessage();
         r2.cancel();
         assertTrue(rec3.events.contains("failed"));
     }

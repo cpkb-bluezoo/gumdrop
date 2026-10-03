@@ -143,14 +143,7 @@ public class OTLPEndpointIntegrationTest {
         final AtomicReference<Exception> errorRef = new AtomicReference<>();
 
         // Create POST request with Transfer-Encoding: chunked
-        HttpRequest request = endpointHandler.post("/v1/traces");
-        request.header("Content-Type", "application/x-protobuf");
-        request.header("Transfer-Encoding", "chunked");
-
-        LOGGER.info("Starting request body");
-        
-        // Start body with response handler
-        request.startRequestBody(new CollectingResponseHandler() {
+        HttpRequest request = endpointHandler.post("/v1/traces", new CollectingResponseHandler() {
             @Override
             public void ok(HttpStatus response) {
                 LOGGER.info("Response 2xx received: " + response);
@@ -168,17 +161,23 @@ public class OTLPEndpointIntegrationTest {
                 responseLatch.countDown();
             }
         });
+        request.header("Content-Type", "application/x-protobuf");
+        request.header("Transfer-Encoding", "chunked");
+
+        LOGGER.info("Starting request body");
+        
+        // Start body with response handler
 
         // Send body data
         String testData = "Hello, World!";
         ByteBuffer data = ByteBuffer.wrap(testData.getBytes(StandardCharsets.UTF_8));
         LOGGER.info("Sending body data: " + data.remaining() + " bytes");
-        int written = request.requestBodyContent(data);
+        int written = request.bodyContent(data);
         LOGGER.info("Written: " + written + " bytes");
 
         // End body
         LOGGER.info("Ending request body");
-        request.endRequestBody();
+        request.endMessage();
 
         // Wait for response
         assertTrue("Should get response", responseLatch.await(5, TimeUnit.SECONDS));
@@ -223,8 +222,7 @@ public class OTLPEndpointIntegrationTest {
         final CountDownLatch responseLatch = new CountDownLatch(1);
         final AtomicReference<HttpStatus> responseRef = new AtomicReference<>();
 
-        HttpRequest request = endpointHandler.get("/test");
-        request.send(new CollectingResponseHandler() {
+        HttpRequest request = endpointHandler.get("/test", new CollectingResponseHandler() {
             @Override
             public void ok(HttpStatus response) {
                 responseRef.set(response);
@@ -238,6 +236,7 @@ public class OTLPEndpointIntegrationTest {
                 responseLatch.countDown();
             }
         });
+        request.endMessage();
 
         assertTrue("Should get response", responseLatch.await(5, TimeUnit.SECONDS));
         assertNotNull("Should have response", responseRef.get());

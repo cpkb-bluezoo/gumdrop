@@ -79,14 +79,13 @@ public class GrpcClient {
                            String responseTypeName) {
         ByteBuffer framed = GrpcFraming.frame(requestMessage);
 
-        HttpRequest request = httpClient.post(path);
+        HttpRequest request = httpClient.post(path,
+                new StreamingResponseHandler(handler, protoFile, responseTypeName));
         request.header("Content-Type", CONTENT_TYPE_GRPC);
         request.header("Te", "trailers");
 
-        request.startRequestBody(
-                new StreamingResponseHandler(handler, protoFile, responseTypeName));
-        request.requestBodyContent(framed);
-        request.endRequestBody();
+        request.bodyContent(framed);
+        request.endMessage();
     }
 
     /**

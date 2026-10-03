@@ -85,8 +85,7 @@ public final class Peer {
         client.connect(gumdrop, new HttpClientHandler() {
             @Override
             public void onConnected(Endpoint endpoint) {
-                HttpRequest request = client.get("/hello");
-                request.send(new DefaultHttpResponseHandler() {
+                HttpRequest request = client.get("/hello", new DefaultHttpResponseHandler() {
                     private final StringBuilder body = new StringBuilder();
 
                     @Override
@@ -106,6 +105,7 @@ public final class Peer {
                         client.close();
                     }
                 });
+                request.endMessage();
             }
 
             @Override

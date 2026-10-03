@@ -39,7 +39,7 @@ public class H3RequestTest {
      */
     @Test
     public void testPriorityZeroMapsToUrgency7() throws Exception {
-        H3Request request = new H3Request(null, "GET", "/", "example.com", "https", null);
+        H3Request request = new H3Request(null, "GET", "/", "example.com", "https", null, null);
         request.priority(0);
 
         String value = findHeader(request, "priority");
@@ -52,7 +52,7 @@ public class H3RequestTest {
      */
     @Test
     public void testPriority255MapsToUrgency0() throws Exception {
-        H3Request request = new H3Request(null, "GET", "/", "example.com", "https", null);
+        H3Request request = new H3Request(null, "GET", "/", "example.com", "https", null, null);
         request.priority(255);
 
         String value = findHeader(request, "priority");
@@ -65,7 +65,7 @@ public class H3RequestTest {
      */
     @Test
     public void testPriorityMidRange() throws Exception {
-        H3Request request = new H3Request(null, "GET", "/", "example.com", "https", null);
+        H3Request request = new H3Request(null, "GET", "/", "example.com", "https", null, null);
         request.priority(128);
 
         String value = findHeader(request, "priority");
@@ -81,7 +81,7 @@ public class H3RequestTest {
      */
     @Test
     public void testNoPriorityByDefault() throws Exception {
-        H3Request request = new H3Request(null, "GET", "/", "example.com", "https", null);
+        H3Request request = new H3Request(null, "GET", "/", "example.com", "https", null, null);
         assertNull(findHeader(request, "priority"));
     }
 

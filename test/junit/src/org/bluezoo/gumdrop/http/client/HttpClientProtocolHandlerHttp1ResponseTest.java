@@ -124,13 +124,13 @@ public class HttpClientProtocolHandlerHttp1ResponseTest {
 
     private RecordingHandler sendGet() {
         RecordingHandler rh = new RecordingHandler();
-        handler.get("/path").send(rh);
+        handler.get("/path", rh).endMessage();
         return rh;
     }
 
     private RecordingHandler sendHead() {
         RecordingHandler rh = new RecordingHandler();
-        handler.head("/path").send(rh);
+        handler.head("/path", rh).endMessage();
         return rh;
     }
 
@@ -267,7 +267,7 @@ public class HttpClientProtocolHandlerHttp1ResponseTest {
                 new HttpClientProtocolHandler(null, "::1", 8080, false);
         BinaryRecordingEndpoint ep = new BinaryRecordingEndpoint();
         v6.connected(ep);
-        v6.get("/").send(new DefaultHttpResponseHandler());
+        v6.get("/", new DefaultHttpResponseHandler()).endMessage();
 
         String request = new String(ep.getAllBytes(), StandardCharsets.US_ASCII);
         assertTrue(request.contains("Host: [::1]:8080"));

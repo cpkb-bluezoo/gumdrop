@@ -1380,78 +1380,35 @@ public class HttpClient implements AltSvcListener {
      * @param path the request path
      * @return the HTTP request
      */
-    public HttpRequest get(String path) {
-        return request("GET", path);
+    public HttpRequest get(String path, HttpResponseHandler handler) {
+        return request(HttpMethod.GET, path, handler);
     }
 
-    /**
-     * Creates a POST request.
-     *
-     * @param path the request path
-     * @return the HTTP request
-     */
-    public HttpRequest post(String path) {
-        return request("POST", path);
+    public HttpRequest post(String path, HttpResponseHandler handler) {
+        return request(HttpMethod.POST, path, handler);
     }
 
-    /**
-     * Creates a PUT request.
-     *
-     * @param path the request path
-     * @return the HTTP request
-     */
-    public HttpRequest put(String path) {
-        return request("PUT", path);
+    public HttpRequest put(String path, HttpResponseHandler handler) {
+        return request(HttpMethod.PUT, path, handler);
     }
 
-    /**
-     * Creates a DELETE request.
-     *
-     * @param path the request path
-     * @return the HTTP request
-     */
-    public HttpRequest delete(String path) {
-        return request("DELETE", path);
+    public HttpRequest delete(String path, HttpResponseHandler handler) {
+        return request(HttpMethod.DELETE, path, handler);
     }
 
-    /**
-     * Creates a HEAD request.
-     *
-     * @param path the request path
-     * @return the HTTP request
-     */
-    public HttpRequest head(String path) {
-        return request("HEAD", path);
+    public HttpRequest head(String path, HttpResponseHandler handler) {
+        return request(HttpMethod.HEAD, path, handler);
     }
 
-    /**
-     * Creates an OPTIONS request.
-     *
-     * @param path the request path
-     * @return the HTTP request
-     */
-    public HttpRequest options(String path) {
-        return request("OPTIONS", path);
+    public HttpRequest options(String path, HttpResponseHandler handler) {
+        return request(HttpMethod.OPTIONS, path, handler);
     }
 
-    /**
-     * Creates a PATCH request.
-     *
-     * @param path the request path
-     * @return the HTTP request
-     */
-    public HttpRequest patch(String path) {
-        return request("PATCH", path);
+    public HttpRequest patch(String path, HttpResponseHandler handler) {
+        return request(HttpMethod.PATCH, path, handler);
     }
 
-    /**
-     * Creates a request with the given HTTP method.
-     *
-     * @param method the HTTP method
-     * @param path the request path
-     * @return the HTTP request
-     */
-    public HttpRequest request(String method, String path) {
+    public HttpRequest request(HttpMethod method, String path, HttpResponseHandler handler) {
         if (h3Handler != null) {
             String scheme = "https";
             String authority = host;
@@ -1459,9 +1416,9 @@ public class HttpClient implements AltSvcListener {
                 authority = host + ":" + port;
             }
             return new org.bluezoo.gumdrop.http.h3.H3Request(
-                    h3Handler, method, path, authority, scheme, traceContext);
+                    h3Handler, method.name(), path, authority, scheme, traceContext, handler);
         }
-        return endpointHandler.request(method, path);
+        return endpointHandler.request(method, path, handler);
     }
 
     /**
@@ -1960,7 +1917,9 @@ public class HttpClient implements AltSvcListener {
         final AtomicReference<Exception> responseError = new AtomicReference<Exception>();
         final CountDownLatch responseLatch = new CountDownLatch(1);
 
-        HttpRequest req = client.request(method, path);
+        HttpRequest req = client.request(HttpMethod.of(method), path, createResponseHandler(
+                out, outputToStdout, verbose, headersOnly, responseLatch,
+                responseError, client));
 
         for (int i = 0; i < requestHeaders.size(); i++) {
             String hdr = requestHeaders.get(i);
@@ -1977,27 +1936,20 @@ public class HttpClient implements AltSvcListener {
             ReadableByteChannel bodyIn = bodyFromStdin
                     ? Channels.newChannel(System.in)
                     : FileChannel.open(Path.of(bodyFile), StandardOpenOption.READ);
-            req.startRequestBody(createResponseHandler(
-                    out, outputToStdout, verbose, headersOnly, responseLatch,
-                    responseError, client));
             ByteBuffer buf = ByteBuffer.allocate(8192);
             int n;
             while ((n = bodyIn.read(buf)) >= 0) {
                 if (n > 0) {
                     buf.flip();
-                    req.requestBodyContent(buf);
+                    req.bodyContent(buf);
                     buf.clear();
                 }
             }
-            req.endRequestBody();
             if (!bodyFromStdin) {
                 bodyIn.close();
             }
-        } else {
-            req.send(createResponseHandler(
-                    out, outputToStdout, verbose, headersOnly, responseLatch,
-                    responseError, client));
         }
+        req.endMessage();
 
         responseLatch.await();
 

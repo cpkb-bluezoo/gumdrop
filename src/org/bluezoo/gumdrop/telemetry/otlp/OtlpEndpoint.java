@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.telemetry.otlp;
 
+import org.bluezoo.gumdrop.mime.ContentType;
 import org.bluezoo.gumdrop.tls.KeystoreFormat;
 import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.Gumdrop;
@@ -409,11 +410,11 @@ class OtlpEndpoint {
             return;
         }
 
-        HttpRequest request = httpClient.post(path);
+        HttpRequest request = httpClient.post(path, handler);
 
         // Set standard headers
-        request.header("Content-Type", "application/x-protobuf");
-        request.header("Content-Length", String.valueOf(data.remaining()));
+        request.contentType(new ContentType("application", "x-protobuf", null));
+        request.longHeader("Content-Length", data.remaining());
 
         // Set custom headers from config
         if (headers != null) {
@@ -423,9 +424,8 @@ class OtlpEndpoint {
         }
 
         // Send with body
-        request.startRequestBody(handler);
-        request.requestBodyContent(data);
-        request.endRequestBody();
+        request.bodyContent(data);
+        request.endMessage();
 
         if (logger.isLoggable(Level.FINEST)) {
             logger.finest(MessageFormat.format(L10N.getString("finest.otlp_sent_bytes"), data.limit(), name));
@@ -448,10 +448,10 @@ class OtlpEndpoint {
             return null;
         }
 
-        HttpRequest request = httpClient.post(path);
+        HttpRequest request = httpClient.post(path, handler);
 
         // Set standard headers - use chunked encoding for streaming
-        request.header("Content-Type", "application/x-protobuf");
+        request.contentType(new ContentType("application", "x-protobuf", null));
         request.header("Transfer-Encoding", "chunked");
 
         // Set custom headers from config
@@ -460,9 +460,6 @@ class OtlpEndpoint {
                 request.header(entry.getKey(), entry.getValue());
             }
         }
-
-        // Start the request body
-        request.startRequestBody(handler);
 
         if (logger.isLoggable(Level.FINEST)) {
             logger.finest(MessageFormat.format(L10N.getString("finest.otlp_streaming_opened"), name));

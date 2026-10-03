@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.http.client;
 
+import org.bluezoo.gumdrop.http.HttpMethod;
 import org.bluezoo.gumdrop.AbstractServerIntegrationTest;
 import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.SecurityInfo;
@@ -91,7 +92,7 @@ public class HTTPClientFacadeIntegrationTest extends AbstractServerIntegrationTe
             AtomicReference<HttpStatus> status = new AtomicReference<HttpStatus>();
             AtomicReference<Exception> error = new AtomicReference<Exception>();
 
-            client.request("TRACE", "/trace-me").send(new CollectingResponseHandler() {
+            client.request(HttpMethod.of("TRACE"), "/trace-me", new CollectingResponseHandler() {
                 @Override
                 public void ok(HttpStatus response) {
                     status.set(response);
@@ -107,7 +108,7 @@ public class HTTPClientFacadeIntegrationTest extends AbstractServerIntegrationTe
                     error.set(ex);
                     latch.countDown();
                 }
-            });
+            }).endMessage();
 
             assertTrue(latch.await(TIMEOUT_SECONDS, TimeUnit.SECONDS));
             assertNull(error.get());

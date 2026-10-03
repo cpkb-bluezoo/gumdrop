@@ -36,6 +36,7 @@ import org.junit.Test;
 
 import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.SecurityInfo;
+import org.bluezoo.gumdrop.http.HttpMethod;
 import org.bluezoo.gumdrop.http.HttpStatus;
 import org.bluezoo.gumdrop.http.HttpVersion;
 import org.bluezoo.gumdrop.telemetry.Trace;
@@ -169,7 +170,7 @@ public class HttpClientHttp1BehaviourTest {
 
     private Recorder get() {
         Recorder r = new Recorder();
-        handler.get("/p").send(r);
+        handler.get("/p", r).endMessage();
         return r;
     }
 
@@ -213,38 +214,31 @@ public class HttpClientHttp1BehaviourTest {
     @Test
     public void allRequestFactoriesUseTheirMethod() {
         String[] expected = {"POST", "PUT", "DELETE", "HEAD", "OPTIONS", "PATCH", "PROPFIND"};
-        HttpRequest[] reqs = {
-            handler.post("/a"), handler.put("/a"), handler.delete("/a"), handler.head("/a"),
-            handler.options("/a"), handler.patch("/a"), handler.request("PROPFIND", "/a")
-        };
-        for (int i = 0; i < reqs.length; i++) {
+        for (int i = 0; i < expected.length; i++) {
+            newHandler("example.com", 80, false);
+            Recorder r = new Recorder();
+            HttpRequest req;
+            switch (i) {
+                case 0: req = handler.post("/a", r); break;
+                case 1: req = handler.put("/a", r); break;
+                case 2: req = handler.delete("/a", r); break;
+                case 3: req = handler.head("/a", r); break;
+                case 4: req = handler.options("/a", r); break;
+                case 5: req = handler.patch("/a", r); break;
+                default: req = handler.request(HttpMethod.of("PROPFIND"), "/a", r); break;
+            }
             endpoint.clearWrites();
-            reqs[i].send(new Recorder());
+            req.endMessage();
             assertTrue(expected[i] + ": " + sent(), sent().startsWith(expected[i] + " /a HTTP/1.1\r\n"));
             handler.disconnected();
-            newHandler("example.com", 80, false);
-            reqs = rebuild(reqs, i);
         }
-    }
-
-    /** After each exchange the connection is replaced; rebuild the remaining requests on the new one. */
-    private HttpRequest[] rebuild(HttpRequest[] old, int done) {
-        HttpRequest[] fresh = new HttpRequest[old.length];
-        for (int i = 0; i < old.length; i++) {
-            fresh[i] = old[i];
-        }
-        String[] methods = {"POST", "PUT", "DELETE", "HEAD", "OPTIONS", "PATCH", "PROPFIND"};
-        for (int i = done + 1; i < old.length; i++) {
-            fresh[i] = handler.request(methods[i], "/a");
-        }
-        return fresh;
     }
 
     @Test
     public void callerSuppliedConnectionHeaderSuppressesKeepAlive() {
-        HttpRequest r = handler.get("/p");
+        HttpRequest r = handler.get("/p", new Recorder());
         r.header("Connection", "close");
-        r.send(new Recorder());
+        r.endMessage();
         assertFalse(sent(), sent().contains("keep-alive"));
         assertTrue(sent(), sent().contains("Connection: close\r\n"));
     }
@@ -258,9 +252,9 @@ public class HttpClientHttp1BehaviourTest {
         handler.disconnected();
         newHandler("example.com", 80, false);
         handler.setSendAcceptEncodingHeader(true);
-        HttpRequest r = handler.get("/p");
+        HttpRequest r = handler.get("/p", new Recorder());
         r.header("Accept-Encoding", "identity");
-        r.send(new Recorder());
+        r.endMessage();
         assertTrue(sent(), sent().contains("Accept-Encoding: identity\r\n"));
         assertFalse(sent(), sent().contains("br, gzip"));
     }
@@ -286,9 +280,9 @@ public class HttpClientHttp1BehaviourTest {
     @Test
     public void callerTraceparentIsKept() {
         handler.setTraceContext(new Trace("client"));
-        HttpRequest r = handler.get("/p");
+        HttpRequest r = handler.get("/p", new Recorder());
         r.header("traceparent", "00-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-bbbbbbbbbbbbbbbb-01");
-        r.send(new Recorder());
+        r.endMessage();
         String wire = sent();
         int first = wire.indexOf("traceparent: ");
         assertEquals(wire.lastIndexOf("traceparent: "), first);
@@ -298,55 +292,96 @@ public class HttpClientHttp1BehaviourTest {
     // ── request bodies ──
 
     @Test
+    public void nothingIsWrittenUntilTheBodyOrTheEnd() {
+        HttpRequest r = handler.post("/up", new Recorder());
+        r.header("X-A", "b");
+        assertEquals("", sent());
+        r.bodyContent(ByteBuffer.wrap("abc".getBytes(StandardCharsets.US_ASCII)));
+        assertEquals("the first piece is held back", "", sent());
+    }
+
+    @Test
     public void chunkedRequestBodyWithoutLength() {
-        HttpRequest r = handler.post("/up");
-        r.startRequestBody(new Recorder());
-        assertTrue(sent(), sent().contains("Transfer-Encoding: chunked\r\n"));
-        endpoint.clearWrites();
-        int n = r.requestBodyContent(ByteBuffer.wrap("abc".getBytes(StandardCharsets.US_ASCII)));
+        HttpRequest r = handler.post("/up", new Recorder());
+        int n = r.bodyContent(ByteBuffer.wrap("abc".getBytes(StandardCharsets.US_ASCII)));
         assertEquals(3, n);
-        r.requestBodyContent(ByteBuffer.wrap("0123456789abcdef".getBytes(StandardCharsets.US_ASCII)));
-        r.endRequestBody();
-        assertEquals("3\r\nabc\r\n10\r\n0123456789abcdef\r\n0\r\n\r\n", sent());
+        assertEquals("", sent());
+        r.bodyContent(ByteBuffer.wrap("0123456789abcdef".getBytes(StandardCharsets.US_ASCII)));
+        assertTrue(sent(), sent().contains("Transfer-Encoding: chunked\r\n"));
+        assertFalse(sent(), sent().contains("Content-Length"));
+        r.endMessage();
+        assertTrue(sent(), sent().endsWith("\r\n\r\n3\r\nabc\r\n10\r\n0123456789abcdef\r\n0\r\n\r\n"));
+    }
+
+    @Test
+    public void singleBodyPieceIsSentWithContentLengthNotChunked() {
+        HttpRequest r = handler.post("/up", new Recorder());
+        r.bodyContent(ByteBuffer.wrap("abc".getBytes(StandardCharsets.US_ASCII)));
+        r.endMessage();
+        assertTrue(sent(), sent().contains("Content-Length: 3\r\n"));
+        assertFalse(sent(), sent().contains("Transfer-Encoding"));
+        assertTrue(sent(), sent().endsWith("\r\n\r\nabc"));
     }
 
     @Test
     public void emptyBodyWriteMustNotTerminateTheChunkedBody() {
-        HttpRequest r = handler.post("/up");
-        r.startRequestBody(new Recorder());
-        endpoint.clearWrites();
-        int n = r.requestBodyContent(ByteBuffer.allocate(0));
+        HttpRequest r = handler.post("/up", new Recorder());
+        int n = r.bodyContent(ByteBuffer.allocate(0));
         assertEquals(0, n);
-        assertFalse("an empty write must not emit the terminating chunk: " + sent(),
-                sent().contains("0\r\n\r\n"));
-        r.requestBodyContent(ByteBuffer.wrap("x".getBytes(StandardCharsets.US_ASCII)));
-        r.endRequestBody();
-        assertEquals("1\r\nx\r\n0\r\n\r\n", sent());
+        assertEquals("an empty write sends nothing", "", sent());
+        r.bodyContent(ByteBuffer.wrap("x".getBytes(StandardCharsets.US_ASCII)));
+        r.bodyContent(ByteBuffer.allocate(0));
+        assertEquals("", sent());
+        r.bodyContent(ByteBuffer.wrap("y".getBytes(StandardCharsets.US_ASCII)));
+        endpoint.clearWrites();
+        r.endMessage();
+        assertEquals("0\r\n\r\n", sent());
+    }
+
+    @Test
+    public void emptyBodyWriteThenOnePieceIsSentWithContentLength() {
+        HttpRequest r = handler.post("/up", new Recorder());
+        r.bodyContent(ByteBuffer.allocate(0));
+        r.bodyContent(ByteBuffer.wrap("x".getBytes(StandardCharsets.US_ASCII)));
+        r.endMessage();
+        assertTrue(sent(), sent().contains("Content-Length: 1\r\n"));
+        assertTrue(sent(), sent().endsWith("\r\n\r\nx"));
+        assertFalse(sent(), sent().contains("0\r\n\r\n"));
     }
 
     @Test
     public void contentLengthRequestBodyIsSentRaw() {
-        HttpRequest r = handler.put("/up");
+        HttpRequest r = handler.put("/up", new Recorder());
         r.header("Content-Length", "5");
-        r.startRequestBody(new Recorder());
+        r.bodyContent(ByteBuffer.wrap("hel".getBytes(StandardCharsets.US_ASCII)));
+        r.bodyContent(ByteBuffer.wrap("lo".getBytes(StandardCharsets.US_ASCII)));
+        r.endMessage();
         assertFalse(sent(), sent().contains("Transfer-Encoding"));
-        endpoint.clearWrites();
-        r.requestBodyContent(ByteBuffer.wrap("hello".getBytes(StandardCharsets.US_ASCII)));
-        r.endRequestBody();
-        assertEquals("hello", sent());
+        assertTrue(sent(), sent().endsWith("\r\n\r\nhello"));
+    }
+
+    @Test
+    public void contentLengthSinglePieceIsNotGivenASecondLength() {
+        HttpRequest r = handler.put("/up", new Recorder());
+        r.header("Content-Length", "5");
+        r.bodyContent(ByteBuffer.wrap("hello".getBytes(StandardCharsets.US_ASCII)));
+        r.endMessage();
+        String wire = sent();
+        assertEquals(wire.indexOf("Content-Length"), wire.lastIndexOf("Content-Length"));
+        assertTrue(wire, wire.endsWith("\r\n\r\nhello"));
     }
 
     @Test
     public void unknownRequestContentEncodingIsSentThroughUntouched() {
         handler.setEncodeRequestBodyContentCoding(true);
-        HttpRequest r = handler.post("/up");
-        r.header("Content-Encoding", "x-weird");
         Recorder rec = new Recorder();
-        r.startRequestBody(rec);
-        endpoint.clearWrites();
-        int n = r.requestBodyContent(ByteBuffer.wrap("data".getBytes(StandardCharsets.US_ASCII)));
-        assertEquals(4, n);
-        assertEquals("4\r\ndata\r\n", sent());
+        HttpRequest r = handler.post("/up", rec);
+        r.header("Content-Encoding", "x-weird");
+        int n = r.bodyContent(ByteBuffer.wrap("da".getBytes(StandardCharsets.US_ASCII)));
+        assertEquals(2, n);
+        n = r.bodyContent(ByteBuffer.wrap("ta".getBytes(StandardCharsets.US_ASCII)));
+        assertEquals(2, n);
+        assertTrue(sent(), sent().endsWith("\r\n\r\n2\r\nda\r\n2\r\nta\r\n"));
         assertTrue(rec.failures.isEmpty());
     }
 
@@ -362,20 +397,11 @@ public class HttpClientHttp1BehaviourTest {
 
     @Test
     public void requestStateMachineRejectsMisuse() {
-        HttpRequest r = handler.post("/p");
-        try {
-            r.requestBodyContent(ByteBuffer.allocate(1));
-            fail("body before start");
-        } catch (IllegalStateException expected) {
-            assertEquals("Must call startRequestBody first", expected.getMessage());
-        }
-        try {
-            r.endRequestBody();
-            fail("end before start");
-        } catch (IllegalStateException expected) {
-            assertEquals("Must call startRequestBody first", expected.getMessage());
-        }
-        r.startRequestBody(new Recorder());
+        HttpRequest r = handler.post("/p", new Recorder());
+        r.header("X", "before");
+        r.bodyContent(ByteBuffer.wrap(new byte[] {1}));
+        r.header("X", "still before");
+        r.bodyContent(ByteBuffer.wrap(new byte[] {2}));
         try {
             r.header("X", "y");
             fail("header after send");
@@ -383,26 +409,20 @@ public class HttpClientHttp1BehaviourTest {
             assertEquals("Headers already sent", expected.getMessage());
         }
         try {
-            r.send(new Recorder());
-            fail("second send");
+            r.endHeaders();
+            fail("endHeaders after send");
         } catch (IllegalStateException expected) {
-            assertEquals("Request already sent", expected.getMessage());
+            assertEquals("Headers already sent", expected.getMessage());
         }
+        r.endMessage();
         try {
-            r.startRequestBody(new Recorder());
-            fail("second start");
-        } catch (IllegalStateException expected) {
-            assertEquals("Request already sent", expected.getMessage());
-        }
-        r.endRequestBody();
-        try {
-            r.requestBodyContent(ByteBuffer.allocate(1));
+            r.bodyContent(ByteBuffer.allocate(1));
             fail("body after end");
         } catch (IllegalStateException expected) {
             assertEquals("Request body already complete", expected.getMessage());
         }
         try {
-            r.endRequestBody();
+            r.endMessage();
             fail("second end");
         } catch (IllegalStateException expected) {
             assertEquals("Request body already complete", expected.getMessage());
@@ -410,34 +430,34 @@ public class HttpClientHttp1BehaviourTest {
     }
 
     @Test
+    public void endHeadersSendsTheHeaderSectionAndLeavesTheMessageOpen() {
+        HttpRequest r = handler.request(HttpMethod.of("CONNECT"), "/p", new Recorder());
+        r.endHeaders();
+        assertTrue(sent(), sent().startsWith("CONNECT /p HTTP/1.1\r\n"));
+        r.bodyContent(ByteBuffer.wrap(new byte[] {1}));
+        r.endMessage();
+    }
+
+    @Test
     public void cancelBeforeSendBlocksSendingAndNotifiesNoOne() {
-        HttpRequest r = handler.get("/p");
+        HttpRequest r = handler.get("/p", new Recorder());
         r.cancel();
         r.cancel();
-        try {
-            r.send(new Recorder());
-            fail("send after cancel");
-        } catch (IllegalStateException expected) {
-            assertEquals("Request was cancelled", expected.getMessage());
-        }
-        try {
-            r.startRequestBody(new Recorder());
-            fail("start after cancel");
-        } catch (IllegalStateException expected) {
-            assertEquals("Request was cancelled", expected.getMessage());
-        }
+        assertEquals(0, r.bodyContent(ByteBuffer.wrap(new byte[] {1})));
+        r.endMessage();
+        assertFalse(sent(), sent().contains("GET /p"));
     }
 
     @Test
     public void cancelInFlightFailsTheHandlerAndIgnoresLaterBodyWrites() {
-        HttpRequest r = handler.post("/p");
         Recorder rec = new Recorder();
-        r.startRequestBody(rec);
+        HttpRequest r = handler.post("/p", rec);
+        r.endHeaders();
         r.cancel();
         assertEquals(1, rec.failures.size());
         assertTrue(rec.failures.get(0) instanceof CancellationException);
         endpoint.clearWrites();
-        assertEquals(0, r.requestBodyContent(ByteBuffer.wrap(new byte[] {1})));
+        assertEquals(0, r.bodyContent(ByteBuffer.wrap(new byte[] {1})));
         assertEquals(0, endpoint.getAllBytes().length);
     }
 
@@ -445,7 +465,7 @@ public class HttpClientHttp1BehaviourTest {
     public void requestsCannotBeCreatedOnAClosedConnection() {
         handler.close();
         try {
-            handler.get("/p");
+            handler.get("/p", null);
             fail("expected IllegalStateException");
         } catch (IllegalStateException expected) {
             assertEquals("Connection is not open", expected.getMessage());
@@ -455,7 +475,7 @@ public class HttpClientHttp1BehaviourTest {
 
     @Test
     public void requestInjectionIsRejected() {
-        HttpRequest r = handler.get("/p");
+        HttpRequest r = handler.get("/p", null);
         try {
             r.header("X-Test", "a\r\nInjected: yes");
             fail("CRLF in a header value must be rejected");
@@ -481,13 +501,13 @@ public class HttpClientHttp1BehaviourTest {
             assertNotNull(expected.getMessage());
         }
         try {
-            handler.get("/p HTTP/1.1\r\nHost: evil\r\n\r\nGET /x");
+            handler.get("/p HTTP/1.1\r\nHost: evil\r\n\r\nGET /x", null);
             fail("CRLF in the request target must be rejected");
         } catch (IllegalArgumentException expected) {
             assertNotNull(expected.getMessage());
         }
         try {
-            handler.request("GET /x HTTP/1.1\r\n", "/p");
+            handler.request(HttpMethod.of("GET /x HTTP/1.1\r\n"), "/p", null);
             fail("a bad method must be rejected");
         } catch (IllegalArgumentException expected) {
             assertNotNull(expected.getMessage());
@@ -509,15 +529,15 @@ public class HttpClientHttp1BehaviourTest {
     @Test
     public void bodilessResponsesCompleteAtTheHeaders() {
         Recorder r = new Recorder();
-        handler.get("/p").send(r);
+        handler.get("/p", r).endMessage();
         feed("HTTP/1.1 204 No Content\r\n\r\n");
         assertEquals(1, r.closeCalls);
         Recorder r2 = new Recorder();
-        handler.get("/p").send(r2);
+        handler.get("/p", r2).endMessage();
         feed("HTTP/1.1 304 Not Modified\r\nContent-Length: 10\r\n\r\n");
         assertEquals(1, r2.closeCalls);
         Recorder r3 = new Recorder();
-        handler.head("/p").send(r3);
+        handler.head("/p", r3).endMessage();
         feed("HTTP/1.1 200 OK\r\nContent-Length: 10\r\n\r\n");
         assertEquals(1, r3.closeCalls);
         assertTrue(r3.ok);
@@ -558,7 +578,7 @@ public class HttpClientHttp1BehaviourTest {
         // a list of equal values is refused too: the parser takes only digits
         Recorder r2 = new Recorder();
         newHandler("example.com", 80, false);
-        handler.get("/p").send(r2);
+        handler.get("/p", r2).endMessage();
         feed("HTTP/1.1 200 OK\r\nContent-Length: 2, 2\r\n\r\nhi");
         assertEquals(1, r2.failures.size());
     }
@@ -649,13 +669,13 @@ public class HttpClientHttp1BehaviourTest {
         assertEquals(1, r.failures.size());
         Recorder r2 = new Recorder();
         newHandler("example.com", 80, false);
-        handler.get("/p").send(r2);
+        handler.get("/p", r2).endMessage();
         feed("HTTP/1.1 abc Weird\r\nContent-Length: 0\r\n\r\n");
         assertEquals(1, r2.failures.size());
         // the reason phrase is optional (RFC 9112 section 4)
         Recorder r3 = new Recorder();
         newHandler("example.com", 80, false);
-        handler.get("/p").send(r3);
+        handler.get("/p", r3).endMessage();
         feed("HTTP/1.1 200\r\nContent-Length: 0\r\n\r\n");
         assertEquals(HttpStatus.OK, r3.status);
     }

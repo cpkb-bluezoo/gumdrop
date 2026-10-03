@@ -348,7 +348,7 @@ class OtlpGrpcEndpoint {
 
         ByteBuffer framed = frame(data);
 
-        HttpRequest request = httpClient.post(path);
+        HttpRequest request = httpClient.post(path, handler);
         request.header("Content-Type", CONTENT_TYPE_GRPC);
         request.header("Te", "trailers");
 
@@ -358,9 +358,8 @@ class OtlpGrpcEndpoint {
             }
         }
 
-        request.startRequestBody(handler);
-        request.requestBodyContent(framed);
-        request.endRequestBody();
+        request.bodyContent(framed);
+        request.endMessage();
 
         if (logger.isLoggable(Level.FINEST)) {
             logger.finest(MessageFormat.format(L10N.getString("finest.grpc_sent_bytes"), framed.remaining(), name));

@@ -29,6 +29,7 @@ import static org.junit.Assert.fail;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.nio.ByteBuffer;
+import java.time.Instant;
 import java.nio.channels.Channels;
 import java.nio.channels.ClosedChannelException;
 import java.nio.channels.WritableByteChannel;
@@ -41,6 +42,8 @@ import java.util.logging.Logger;
 
 import org.bluezoo.gumdrop.http.HttpStatus;
 import org.bluezoo.gumdrop.http.client.HttpRequest;
+import org.bluezoo.gumdrop.mime.ContentDisposition;
+import org.bluezoo.gumdrop.mime.ContentType;
 import org.bluezoo.gumdrop.http.client.HttpResponseHandler;
 import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
 import org.bluezoo.gumdrop.telemetry.metrics.AggregationTemporality;
@@ -71,6 +74,26 @@ public class OtlpChannelAndLoggingTest {
         }
 
         @Override
+        public void longHeader(String name, long value) {
+        }
+
+        @Override
+        public void dateHeader(String name, Instant value) {
+        }
+
+        @Override
+        public void contentType(ContentType contentType) {
+        }
+
+        @Override
+        public void contentDisposition(ContentDisposition contentDisposition) {
+        }
+
+        @Override
+        public void endHeaders() {
+        }
+
+        @Override
         public void priority(int weight) {
         }
 
@@ -83,15 +106,7 @@ public class OtlpChannelAndLoggingTest {
         }
 
         @Override
-        public void send(HttpResponseHandler h) {
-        }
-
-        @Override
-        public void startRequestBody(HttpResponseHandler h) {
-        }
-
-        @Override
-        public int requestBodyContent(ByteBuffer data) {
+        public int bodyContent(ByteBuffer data) {
             calls++;
             if (calls == 1) {
                 return 0;
@@ -104,7 +119,7 @@ public class OtlpChannelAndLoggingTest {
         }
 
         @Override
-        public void endRequestBody() {
+        public void endMessage() {
             ended = true;
         }
 

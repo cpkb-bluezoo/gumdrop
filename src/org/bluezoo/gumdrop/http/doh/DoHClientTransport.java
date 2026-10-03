@@ -212,16 +212,15 @@ public class DoHClientTransport implements DnsClientTransport {
         byte[] queryBytes = new byte[data.remaining()];
         data.get(queryBytes);
 
-        HttpRequest request = httpClient.post(path);
+        DoHResponseHandler responseHandler =
+                new DoHResponseHandler(handler);
+        HttpRequest request = httpClient.post(path, responseHandler);
         // RFC 8484 section 4.1
         request.header("Content-Type", DNS_MESSAGE_CONTENT_TYPE);
         request.header("Accept", DNS_MESSAGE_CONTENT_TYPE);
 
-        DoHResponseHandler responseHandler =
-                new DoHResponseHandler(handler);
-        request.startRequestBody(responseHandler);
-        request.requestBodyContent(ByteBuffer.wrap(queryBytes));
-        request.endRequestBody();
+        request.bodyContent(ByteBuffer.wrap(queryBytes));
+        request.endMessage();
     }
 
     @Override

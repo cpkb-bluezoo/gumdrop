@@ -62,6 +62,15 @@ interface HttpClientConnectionOps {
     int sendRequestBodyEncoded(HttpStream request, ByteBuffer data, boolean end);
 
     /**
+     * Sends the last (here, the only) piece of the request body and ends the
+     * body, in one frame or one write where the protocol allows it.
+     *
+     * @param request the request
+     * @param data the body data
+     */
+    void sendLastRequestBody(HttpStream request, ByteBuffer data);
+
+    /**
      * Ends the request body.
      *
      * @param request the request

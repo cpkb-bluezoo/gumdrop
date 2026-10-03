@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.auth.oauth;
 
+import org.bluezoo.gumdrop.http.client.HttpResponseHandler;
 import org.bluezoo.gumdrop.auth.Realm;
 import org.bluezoo.gumdrop.auth.SaslMechanism;
 import org.bluezoo.gumdrop.Endpoint;
@@ -208,7 +209,7 @@ public class OAuthRealm implements Realm {
          * @param path the request path
          * @return the request
          */
-        HttpRequest post(HttpClient client, String path);
+        HttpRequest post(HttpClient client, String path, HttpResponseHandler handler);
     }
 
     /** The real exchange: an actual HTTP client connection. */
@@ -219,8 +220,8 @@ public class OAuthRealm implements Realm {
         }
 
         @Override
-        public HttpRequest post(HttpClient client, String path) {
-            return client.post(path);
+        public HttpRequest post(HttpClient client, String path, HttpResponseHandler handler) {
+            return client.post(path, handler);
         }
     };
 
@@ -761,15 +762,14 @@ public class OAuthRealm implements Realm {
                 LOGGER.fine(L10N.getString("debug.oauth_connected"));
                 
                 // Create and send the POST request
-                HttpRequest request = exchange.post(client, introspectionEndpoint);
+                HttpRequest request = exchange.post(client, introspectionEndpoint, responseHandler);
                 request.header("Content-Type", "application/x-www-form-urlencoded");
                 request.header("Accept", "application/json");
                 request.header("Authorization", basicAuthHeader);
                 
                 // Send request with body
-                request.startRequestBody(responseHandler);
-                request.requestBodyContent(ByteBuffer.wrap(bodyBytes));
-                request.endRequestBody();
+                request.bodyContent(ByteBuffer.wrap(bodyBytes));
+                request.endMessage();
             }
             
             @Override

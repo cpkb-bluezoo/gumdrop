@@ -109,14 +109,12 @@ public class WebDAVRequestHandlerCompositionTest {
     public void testServesStaticFileViaComposedHttpServer() throws Exception {
         HttpClient client = connect(gumdrop, testPort);
         try {
-        HttpRequest request = client.get("/hello.txt");
-
         CountDownLatch latch = new CountDownLatch(1);
         AtomicReference<HttpStatus> responseRef = new AtomicReference<HttpStatus>();
         ByteArrayOutputStream bodyBuffer = new ByteArrayOutputStream();
         AtomicReference<Exception> errorRef = new AtomicReference<Exception>();
 
-        request.send(new CollectingResponseHandler() {
+        HttpRequest request = client.get("/hello.txt", new CollectingResponseHandler() {
             @Override
             public void ok(HttpStatus response) {
                 responseRef.set(response);
@@ -144,6 +142,8 @@ public class WebDAVRequestHandlerCompositionTest {
                 latch.countDown();
             }
         });
+
+        request.endMessage();
 
         assertTrue("response not received", latch.await(5, TimeUnit.SECONDS));
         assertNull(errorRef.get());

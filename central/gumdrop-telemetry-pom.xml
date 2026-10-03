@@ -29,6 +29,11 @@
         </dependency>
         <dependency>
             <groupId>org.bluezoo</groupId>
+            <artifactId>gumdrop-mime</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.bluezoo</groupId>
             <artifactId>gumdrop-http</artifactId>
             <version>${project.version}</version>
         </dependency>

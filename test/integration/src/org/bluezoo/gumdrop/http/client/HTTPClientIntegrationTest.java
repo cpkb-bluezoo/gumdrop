@@ -280,8 +280,7 @@ public class HTTPClientIntegrationTest extends AbstractServerIntegrationTest {
         AtomicReference<HttpStatus> status = new AtomicReference<>();
         AtomicReference<Exception> error = new AtomicReference<>();
 
-        HttpRequest request = client.get("/test");
-        request.send(new CollectingResponseHandler() {
+        HttpRequest request = client.get("/test", new CollectingResponseHandler() {
             @Override
             public void ok(HttpStatus response) {
                 status.set(response);
@@ -303,6 +302,7 @@ public class HTTPClientIntegrationTest extends AbstractServerIntegrationTest {
                 latch.countDown();
             }
         });
+        request.endMessage();
 
         boolean completed = latch.await(ASYNC_TIMEOUT_SECONDS, TimeUnit.SECONDS);
         
@@ -329,8 +329,7 @@ public class HTTPClientIntegrationTest extends AbstractServerIntegrationTest {
         AtomicReference<HttpStatus> status = new AtomicReference<>();
         AtomicReference<Exception> error = new AtomicReference<>();
 
-        HttpRequest request = client.head("/test");
-        request.send(new CollectingResponseHandler() {
+        HttpRequest request = client.head("/test", new CollectingResponseHandler() {
             @Override
             public void ok(HttpStatus response) {
                 status.set(response);
@@ -352,6 +351,7 @@ public class HTTPClientIntegrationTest extends AbstractServerIntegrationTest {
                 latch.countDown();
             }
         });
+        request.endMessage();
 
         boolean completed = latch.await(ASYNC_TIMEOUT_SECONDS, TimeUnit.SECONDS);
         
@@ -375,8 +375,7 @@ public class HTTPClientIntegrationTest extends AbstractServerIntegrationTest {
         AtomicReference<HttpStatus> status = new AtomicReference<>();
         AtomicReference<Exception> error = new AtomicReference<>();
 
-        HttpRequest request = client.delete("/test");
-        request.send(new CollectingResponseHandler() {
+        HttpRequest request = client.delete("/test", new CollectingResponseHandler() {
             @Override
             public void ok(HttpStatus response) {
                 status.set(response);
@@ -398,6 +397,7 @@ public class HTTPClientIntegrationTest extends AbstractServerIntegrationTest {
                 latch.countDown();
             }
         });
+        request.endMessage();
 
         boolean completed = latch.await(ASYNC_TIMEOUT_SECONDS, TimeUnit.SECONDS);
         
@@ -422,8 +422,7 @@ public class HTTPClientIntegrationTest extends AbstractServerIntegrationTest {
         AtomicReference<HttpStatus> status = new AtomicReference<>();
         AtomicReference<Exception> error = new AtomicReference<>();
 
-        HttpRequest request = client.options("*");
-        request.send(new CollectingResponseHandler() {
+        HttpRequest request = client.options("*", new CollectingResponseHandler() {
             @Override
             public void ok(HttpStatus response) {
                 status.set(response);
@@ -445,6 +444,7 @@ public class HTTPClientIntegrationTest extends AbstractServerIntegrationTest {
                 latch.countDown();
             }
         });
+        request.endMessage();
 
         boolean completed = latch.await(ASYNC_TIMEOUT_SECONDS, TimeUnit.SECONDS);
         
@@ -472,11 +472,7 @@ public class HTTPClientIntegrationTest extends AbstractServerIntegrationTest {
         AtomicReference<Exception> error = new AtomicReference<>();
         ByteArrayOutputStream bodyBuffer = new ByteArrayOutputStream();
 
-        HttpRequest request = client.post("/echo");
-        request.header("Content-Type", "text/plain");
-        request.header("Content-Length", String.valueOf(contentBytes.length));
-
-        request.startRequestBody(new CollectingResponseHandler() {
+        HttpRequest request = client.post("/echo", new CollectingResponseHandler() {
             @Override
             public void ok(HttpStatus response) {
                 status.set(response);
@@ -510,9 +506,12 @@ public class HTTPClientIntegrationTest extends AbstractServerIntegrationTest {
                 latch.countDown();
             }
         });
+        request.header("Content-Type", "text/plain");
+        request.header("Content-Length", String.valueOf(contentBytes.length));
 
-        request.requestBodyContent(ByteBuffer.wrap(contentBytes));
-        request.endRequestBody();
+
+        request.bodyContent(ByteBuffer.wrap(contentBytes));
+        request.endMessage();
 
         boolean completed = latch.await(ASYNC_TIMEOUT_SECONDS, TimeUnit.SECONDS);
         client.close();
@@ -581,11 +580,7 @@ public class HTTPClientIntegrationTest extends AbstractServerIntegrationTest {
         AtomicReference<Exception> error = new AtomicReference<>();
         ByteArrayOutputStream bodyBuffer = new ByteArrayOutputStream();
 
-        HttpRequest request = client.post("/echo");
-        request.header("Content-Type", "text/plain");
-        request.header("Transfer-Encoding", "chunked");
-
-        request.startRequestBody(new CollectingResponseHandler() {
+        HttpRequest request = client.post("/echo", new CollectingResponseHandler() {
             @Override
             public void ok(HttpStatus response) {
                 status.set(response);
@@ -619,12 +614,15 @@ public class HTTPClientIntegrationTest extends AbstractServerIntegrationTest {
                 latch.countDown();
             }
         });
+        request.header("Content-Type", "text/plain");
+        request.header("Transfer-Encoding", "chunked");
+
 
         // Send chunks
-        request.requestBodyContent(ByteBuffer.wrap(chunk1.getBytes(StandardCharsets.UTF_8)));
-        request.requestBodyContent(ByteBuffer.wrap(chunk2.getBytes(StandardCharsets.UTF_8)));
-        request.requestBodyContent(ByteBuffer.wrap(chunk3.getBytes(StandardCharsets.UTF_8)));
-        request.endRequestBody();
+        request.bodyContent(ByteBuffer.wrap(chunk1.getBytes(StandardCharsets.UTF_8)));
+        request.bodyContent(ByteBuffer.wrap(chunk2.getBytes(StandardCharsets.UTF_8)));
+        request.bodyContent(ByteBuffer.wrap(chunk3.getBytes(StandardCharsets.UTF_8)));
+        request.endMessage();
 
         boolean completed = latch.await(ASYNC_TIMEOUT_SECONDS, TimeUnit.SECONDS);
         client.close();
@@ -654,11 +652,7 @@ public class HTTPClientIntegrationTest extends AbstractServerIntegrationTest {
         AtomicReference<Exception> error = new AtomicReference<>();
         ByteArrayOutputStream bodyBuffer = new ByteArrayOutputStream();
 
-        HttpRequest request = client.post("/echo");
-        request.header("Content-Type", "application/octet-stream");
-        request.header("Transfer-Encoding", "chunked");
-
-        request.startRequestBody(new CollectingResponseHandler() {
+        HttpRequest request = client.post("/echo", new CollectingResponseHandler() {
             @Override
             public void ok(HttpStatus response) {
                 status.set(response);
@@ -691,15 +685,18 @@ public class HTTPClientIntegrationTest extends AbstractServerIntegrationTest {
                 latch.countDown();
             }
         });
+        request.header("Content-Type", "application/octet-stream");
+        request.header("Transfer-Encoding", "chunked");
+
 
         // Send in 8KB chunks
         int chunkSize = 8192;
         for (int offset = 0; offset < largeContent.length; offset += chunkSize) {
             int length = Math.min(chunkSize, largeContent.length - offset);
             ByteBuffer chunk = ByteBuffer.wrap(largeContent, offset, length);
-            request.requestBodyContent(chunk);
+            request.bodyContent(chunk);
         }
-        request.endRequestBody();
+        request.endMessage();
 
         boolean completed = latch.await(ASYNC_TIMEOUT_SECONDS, TimeUnit.SECONDS);
         client.close();
@@ -743,8 +740,7 @@ public class HTTPClientIntegrationTest extends AbstractServerIntegrationTest {
         AtomicReference<HttpStatus> optionsStatus = new AtomicReference<>();
         AtomicReference<Exception> optionsError = new AtomicReference<>();
 
-        HttpRequest optionsRequest = client.options("*");
-        optionsRequest.send(new CollectingResponseHandler() {
+        HttpRequest optionsRequest = client.options("*", new CollectingResponseHandler() {
             @Override
             public void ok(HttpStatus response) {
                 optionsStatus.set(response);
@@ -769,6 +765,7 @@ public class HTTPClientIntegrationTest extends AbstractServerIntegrationTest {
                 optionsLatch.countDown();
             }
         });
+        optionsRequest.endMessage();
 
         boolean optionsCompleted = optionsLatch.await(ASYNC_TIMEOUT_SECONDS, TimeUnit.SECONDS);
 
@@ -815,11 +812,7 @@ public class HTTPClientIntegrationTest extends AbstractServerIntegrationTest {
         AtomicReference<Exception> error = new AtomicReference<>();
         ByteArrayOutputStream bodyBuffer = new ByteArrayOutputStream();
 
-        HttpRequest request = client.post("/echo");
-        request.header("Content-Type", "text/plain");
-        request.header("Content-Length", String.valueOf(contentBytes.length));
-
-        request.startRequestBody(new CollectingResponseHandler() {
+        HttpRequest request = client.post("/echo", new CollectingResponseHandler() {
             @Override
             public void ok(HttpStatus response) {
                 status.set(response);
@@ -853,9 +846,12 @@ public class HTTPClientIntegrationTest extends AbstractServerIntegrationTest {
                 latch.countDown();
             }
         });
+        request.header("Content-Type", "text/plain");
+        request.header("Content-Length", String.valueOf(contentBytes.length));
 
-        request.requestBodyContent(ByteBuffer.wrap(contentBytes));
-        request.endRequestBody();
+
+        request.bodyContent(ByteBuffer.wrap(contentBytes));
+        request.endMessage();
 
         boolean completed = latch.await(ASYNC_TIMEOUT_SECONDS, TimeUnit.SECONDS);
         
@@ -898,11 +894,7 @@ public class HTTPClientIntegrationTest extends AbstractServerIntegrationTest {
         AtomicReference<Exception> error = new AtomicReference<>();
         ByteArrayOutputStream bodyBuffer = new ByteArrayOutputStream();
 
-        HttpRequest request = client.post("/echo");
-        request.header("Content-Type", "text/plain");
-        // No Content-Length - will be sent as DATA frames
-
-        request.startRequestBody(new CollectingResponseHandler() {
+        HttpRequest request = client.post("/echo", new CollectingResponseHandler() {
             @Override
             public void ok(HttpStatus response) {
                 status.set(response);
@@ -936,12 +928,15 @@ public class HTTPClientIntegrationTest extends AbstractServerIntegrationTest {
                 latch.countDown();
             }
         });
+        request.header("Content-Type", "text/plain");
+        // No Content-Length - will be sent as DATA frames
+
 
         // Send chunks as DATA frames
-        request.requestBodyContent(ByteBuffer.wrap(chunk1.getBytes(StandardCharsets.UTF_8)));
-        request.requestBodyContent(ByteBuffer.wrap(chunk2.getBytes(StandardCharsets.UTF_8)));
-        request.requestBodyContent(ByteBuffer.wrap(chunk3.getBytes(StandardCharsets.UTF_8)));
-        request.endRequestBody();
+        request.bodyContent(ByteBuffer.wrap(chunk1.getBytes(StandardCharsets.UTF_8)));
+        request.bodyContent(ByteBuffer.wrap(chunk2.getBytes(StandardCharsets.UTF_8)));
+        request.bodyContent(ByteBuffer.wrap(chunk3.getBytes(StandardCharsets.UTF_8)));
+        request.endMessage();
 
         boolean completed = latch.await(ASYNC_TIMEOUT_SECONDS, TimeUnit.SECONDS);
         client.close();
@@ -972,8 +967,7 @@ public class HTTPClientIntegrationTest extends AbstractServerIntegrationTest {
         AtomicReference<HttpStatus> status = new AtomicReference<>();
         AtomicReference<Exception> error = new AtomicReference<>();
 
-        HttpRequest request = client.get("/test");
-        request.send(new CollectingResponseHandler() {
+        HttpRequest request = client.get("/test", new CollectingResponseHandler() {
             @Override
             public void ok(HttpStatus response) {
                 status.set(response);
@@ -995,6 +989,7 @@ public class HTTPClientIntegrationTest extends AbstractServerIntegrationTest {
                 latch.countDown();
             }
         });
+        request.endMessage();
 
         boolean completed = latch.await(ASYNC_TIMEOUT_SECONDS, TimeUnit.SECONDS);
 
@@ -1026,11 +1021,7 @@ public class HTTPClientIntegrationTest extends AbstractServerIntegrationTest {
         AtomicReference<Exception> error = new AtomicReference<>();
         ByteArrayOutputStream bodyBuffer = new ByteArrayOutputStream();
 
-        HttpRequest request = client.post("/echo");
-        request.header("Content-Type", "text/plain");
-        request.header("Content-Length", String.valueOf(contentBytes.length));
-
-        request.startRequestBody(new CollectingResponseHandler() {
+        HttpRequest request = client.post("/echo", new CollectingResponseHandler() {
             @Override
             public void ok(HttpStatus response) {
                 status.set(response);
@@ -1064,9 +1055,12 @@ public class HTTPClientIntegrationTest extends AbstractServerIntegrationTest {
                 latch.countDown();
             }
         });
+        request.header("Content-Type", "text/plain");
+        request.header("Content-Length", String.valueOf(contentBytes.length));
 
-        request.requestBodyContent(ByteBuffer.wrap(contentBytes));
-        request.endRequestBody();
+
+        request.bodyContent(ByteBuffer.wrap(contentBytes));
+        request.endMessage();
 
         boolean completed = latch.await(ASYNC_TIMEOUT_SECONDS, TimeUnit.SECONDS);
 
@@ -1096,8 +1090,7 @@ public class HTTPClientIntegrationTest extends AbstractServerIntegrationTest {
         AtomicReference<HttpStatus> status = new AtomicReference<>();
         AtomicReference<Exception> error = new AtomicReference<>();
 
-        HttpRequest request = client.get("/test");
-        request.send(new CollectingResponseHandler() {
+        HttpRequest request = client.get("/test", new CollectingResponseHandler() {
             @Override
             public void ok(HttpStatus response) {
                 status.set(response);
@@ -1119,6 +1112,7 @@ public class HTTPClientIntegrationTest extends AbstractServerIntegrationTest {
                 latch.countDown();
             }
         });
+        request.endMessage();
 
         boolean completed = latch.await(ASYNC_TIMEOUT_SECONDS, TimeUnit.SECONDS);
         client.close();
@@ -1142,11 +1136,7 @@ public class HTTPClientIntegrationTest extends AbstractServerIntegrationTest {
         AtomicReference<Exception> error = new AtomicReference<>();
         ByteArrayOutputStream bodyBuffer = new ByteArrayOutputStream();
 
-        HttpRequest request = client.post("/echo");
-        request.header("Content-Type", "text/plain");
-        request.header("Content-Length", String.valueOf(contentBytes.length));
-
-        request.startRequestBody(new CollectingResponseHandler() {
+        HttpRequest request = client.post("/echo", new CollectingResponseHandler() {
             @Override
             public void ok(HttpStatus response) {
                 status.set(response);
@@ -1180,9 +1170,12 @@ public class HTTPClientIntegrationTest extends AbstractServerIntegrationTest {
                 latch.countDown();
             }
         });
+        request.header("Content-Type", "text/plain");
+        request.header("Content-Length", String.valueOf(contentBytes.length));
 
-        request.requestBodyContent(ByteBuffer.wrap(contentBytes));
-        request.endRequestBody();
+
+        request.bodyContent(ByteBuffer.wrap(contentBytes));
+        request.endMessage();
 
         boolean completed = latch.await(ASYNC_TIMEOUT_SECONDS, TimeUnit.SECONDS);
         client.close();
@@ -1212,15 +1205,7 @@ public class HTTPClientIntegrationTest extends AbstractServerIntegrationTest {
         AtomicReference<Exception> error = new AtomicReference<>();
         ByteArrayOutputStream bodyBuffer = new ByteArrayOutputStream();
 
-        HttpRequest request = client.post("/echo");
-        request.header("Content-Type", "text/plain");
-        // For HTTP/1.1, we need Transfer-Encoding: chunked for streaming without Content-Length
-        // For HTTP/2, DATA frames handle this automatically
-        if (client.getVersion() == HttpVersion.HTTP_1_1) {
-            request.header("Transfer-Encoding", "chunked");
-        }
-
-        request.startRequestBody(new CollectingResponseHandler() {
+        HttpRequest request = client.post("/echo", new CollectingResponseHandler() {
             @Override
             public void ok(HttpStatus response) {
                 status.set(response);
@@ -1254,11 +1239,18 @@ public class HTTPClientIntegrationTest extends AbstractServerIntegrationTest {
                 latch.countDown();
             }
         });
+        request.header("Content-Type", "text/plain");
+        // For HTTP/1.1, we need Transfer-Encoding: chunked for streaming without Content-Length
+        // For HTTP/2, DATA frames handle this automatically
+        if (client.getVersion() == HttpVersion.HTTP_1_1) {
+            request.header("Transfer-Encoding", "chunked");
+        }
 
-        request.requestBodyContent(ByteBuffer.wrap(chunk1.getBytes(StandardCharsets.UTF_8)));
-        request.requestBodyContent(ByteBuffer.wrap(chunk2.getBytes(StandardCharsets.UTF_8)));
-        request.requestBodyContent(ByteBuffer.wrap(chunk3.getBytes(StandardCharsets.UTF_8)));
-        request.endRequestBody();
+
+        request.bodyContent(ByteBuffer.wrap(chunk1.getBytes(StandardCharsets.UTF_8)));
+        request.bodyContent(ByteBuffer.wrap(chunk2.getBytes(StandardCharsets.UTF_8)));
+        request.bodyContent(ByteBuffer.wrap(chunk3.getBytes(StandardCharsets.UTF_8)));
+        request.endMessage();
 
         boolean completed = latch.await(ASYNC_TIMEOUT_SECONDS, TimeUnit.SECONDS);
         client.close();
@@ -1296,11 +1288,7 @@ public class HTTPClientIntegrationTest extends AbstractServerIntegrationTest {
         AtomicReference<Exception> error = new AtomicReference<>();
         ByteArrayOutputStream bodyBuffer = new ByteArrayOutputStream();
 
-        HttpRequest request = client.post("/echo");
-        request.header("Content-Type", "text/plain; charset=UTF-8");
-        request.header("Content-Length", String.valueOf(contentBytes.length));
-
-        request.startRequestBody(new CollectingResponseHandler() {
+        HttpRequest request = client.post("/echo", new CollectingResponseHandler() {
             @Override
             public void ok(HttpStatus response) {
                 status.set(response);
@@ -1333,9 +1321,12 @@ public class HTTPClientIntegrationTest extends AbstractServerIntegrationTest {
                 latch.countDown();
             }
         });
+        request.header("Content-Type", "text/plain; charset=UTF-8");
+        request.header("Content-Length", String.valueOf(contentBytes.length));
 
-        request.requestBodyContent(ByteBuffer.wrap(contentBytes));
-        request.endRequestBody();
+
+        request.bodyContent(ByteBuffer.wrap(contentBytes));
+        request.endMessage();
 
         boolean completed = latch.await(ASYNC_TIMEOUT_SECONDS, TimeUnit.SECONDS);
         client.close();

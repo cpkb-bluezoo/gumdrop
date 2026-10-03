@@ -124,8 +124,7 @@ public class DNSResolutionIntegrationTest {
         assertNull("Connection should not error: " + error.get(),
                 error.get());
 
-        HttpRequest request = client.get("/get");
-        request.send(new CollectingResponseHandler() {
+        HttpRequest request = client.get("/get", new CollectingResponseHandler() {
             @Override
             public void ok(HttpStatus response) {
                 status.set(response);
@@ -154,6 +153,7 @@ public class DNSResolutionIntegrationTest {
                 responseLatch.countDown();
             }
         });
+        request.endMessage();
 
         boolean completed = responseLatch.await(TIMEOUT_SECONDS,
                 TimeUnit.SECONDS);

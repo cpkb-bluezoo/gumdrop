@@ -54,12 +54,25 @@ import org.bluezoo.gumdrop.http.HttpDatagramContext;
  */
 class H2ConnectIpResponseHandler extends DefaultHttpResponseHandler {
 
-    private final HttpRequest request;
+    private HttpRequest request;
     private final ConnectIpEventHandler eventHandler;
     private final CapsuleParser capsuleParser = new CapsuleParser();
 
     private boolean opened;
     private boolean failed;
+
+    /**
+     * For a handler created before its request is: the request, which the
+     * handler writes the tunnel to, is supplied with {@link #bindRequest}.
+     */
+    H2ConnectIpResponseHandler(ConnectIpEventHandler eventHandler) {
+        this.eventHandler = eventHandler;
+    }
+
+    /** Supplies the request this handler is receiving the response to. */
+    void bindRequest(HttpRequest request) {
+        this.request = request;
+    }
 
     H2ConnectIpResponseHandler(HttpRequest request, ConnectIpEventHandler eventHandler) {
         this.request = request;
@@ -157,7 +170,7 @@ class H2ConnectIpResponseHandler extends DefaultHttpResponseHandler {
             byte[] contextBytes = new byte[contextEncoded.remaining()];
             contextEncoded.get(contextBytes);
             byte[] capsuleBytes = Capsule.datagram(contextBytes).encode();
-            request.requestBodyContent(ByteBuffer.wrap(capsuleBytes));
+            request.bodyContent(ByteBuffer.wrap(capsuleBytes));
         }
 
         @Override
@@ -166,12 +179,12 @@ class H2ConnectIpResponseHandler extends DefaultHttpResponseHandler {
             byte[] valueBytes = new byte[capsuleValue.remaining()];
             capsuleValue.get(valueBytes);
             byte[] capsuleBytes = new Capsule(ConnectIpAddress.TYPE_ADDRESS_REQUEST, valueBytes).encode();
-            request.requestBodyContent(ByteBuffer.wrap(capsuleBytes));
+            request.bodyContent(ByteBuffer.wrap(capsuleBytes));
         }
 
         @Override
         public void close() {
-            request.endRequestBody();
+            request.endMessage();
         }
     }
 }
