@@ -59,8 +59,8 @@ import java.nio.file.StandardOpenOption;
  * sidecar files. No thread blocks on file I/O or on the parse itself.
  *
  * <p>This is deliberately narrow: it is not a general property-reflection
- * config system like Gumdrop 2.x's {@code gumdroprc} (removed in workstream
- * C.5, see {@code docs/GUMDROP-3-PLAN.md}). It exists only so the stock
+ * config system like Gumdrop 2.x's {@code gumdroprc} (removed in Gumdrop 3; see
+ * {@code docs/MIGRATING-TO-3.md}). It exists only so the stock
  * servlet container distribution ({@code bin/gumdrop.sh} via {@link
  * org.bluezoo.gumdrop.Bootstrap}) can deploy webapps without a hand-written
  * {@code main()} — every other protocol, and any more elaborate servlet

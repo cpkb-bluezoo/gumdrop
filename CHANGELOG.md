@@ -98,9 +98,8 @@ user-visible themes since 2.2.x.
   SPI live under `{protocol}.server` and `{protocol}.client` (for example
   `http.server.HttpRequestHandler`, `http.client.HttpClient`). Mail and
   network servers are `{Protocol}Server` in `{protocol}.server` with
-  root re-exports. See [CONTRIBUTING.md](CONTRIBUTING.md) and
-  [docs/GUMDROP-3-PLAN.md](docs/GUMDROP-3-PLAN.md); the old-to-new mapping
-  is in [docs/MIGRATING-TO-3.md](docs/MIGRATING-TO-3.md).
+  root re-exports. See [CONTRIBUTING.md](CONTRIBUTING.md); the old-to-new mapping is in
+  [docs/MIGRATING-TO-3.md](docs/MIGRATING-TO-3.md).
 - **Modularised build**: Gumdrop is split into smaller interlinked internal
   jars (core, servlet stack, and per-protocol modules) with JPMS descriptors;
   `dist/gumdrop.jar` remains the all-in-one library artifact. Several types
