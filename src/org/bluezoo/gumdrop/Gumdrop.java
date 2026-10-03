@@ -80,7 +80,7 @@ import org.bluezoo.gumdrop.mailbox.spi.MailboxLifecycle;
  */
 public class Gumdrop {
 
-    public static final String VERSION = "2.0";
+    public static final String VERSION = "3.0";
 
     /**
      * Default graceful-drain timeout in milliseconds. On shutdown, the server
