@@ -109,10 +109,14 @@ session.get("key1", getHandler);
 Connect to Redis and execute commands using callback handlers:
 </p>
 
+<p>
+In the client examples on this page, <code>gumdrop</code> is the runtime returned by <code>Gumdrop.boot()</code>; a client is given it when it connects.
+</p>
+
 <pre>
 RedisClient client = new RedisClient(selectorLoop, "localhost", 6379);
 
-client.connect(new RedisConnectionReady() {
+client.connect(gumdrop, new RedisConnectionReady() {
     @Override
     public void handleReady(RedisSession session) {
         // Connection established, start using Redis
@@ -294,7 +298,7 @@ public class RedisPool {
         
         // Create new connection for this SelectorLoop
         RedisClient client = new RedisClient(loop, host, port);
-        client.connect(new RedisConnectionReady() {
+        client.connect(gumdrop, new RedisConnectionReady() {
             @Override
             public void handleReady(RedisSession session) {
                 sessions.put(loop, session);
@@ -862,7 +866,7 @@ RedisClient client = new RedisClient(selectorLoop, "redis.example.com", 6379);
 client.setSecure(true);
 client.setKeystoreFile(Path.of("/path/to/truststore.p12"));
 client.setKeystorePass("password");
-client.connect(handler);
+client.connect(gumdrop, handler);
 </pre>
 
 <p>
@@ -884,7 +888,7 @@ client.setTrustManager(new PinnedCertTrustManager(fingerprints));
 <h4>Password Authentication (Redis 5 and earlier)</h4>
 
 <pre>
-client.connect(new RedisConnectionReady() {
+client.connect(gumdrop, new RedisConnectionReady() {
     @Override
     public void handleReady(RedisSession session) {
         session.auth("your-password", new StringResultHandler() {

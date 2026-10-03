@@ -130,13 +130,17 @@ Connect to a broker and declare a queue, then start consuming from it, using
 <code>AmqpClientRecovery</code>:
 </p>
 
+<p>
+In the client examples on this page, <code>gumdrop</code> is the runtime returned by <code>Gumdrop.boot()</code>; a client is given it when it connects.
+</p>
+
 <pre>
 AmqpClientRecovery client = new AmqpClientRecovery("broker.example.com", 5672)
         .credentials("guest", "guest")
         .virtualHost("/")
         .recoveryListener(myListener); // optional
 
-client.connect(new RecoveryHandler() {
+client.connect(gumdrop, new RecoveryHandler() {
     public void onFirstConnect(ClientConnection connection) {
         connection.channelOpen(1, new ChannelOpenHandler() {
             public void handleChannelOpenOk(ClientChannel channel) {
@@ -463,7 +467,7 @@ public class OrderServlet extends HttpServlet {
         amqp = new AmqpClientRecovery("broker.example.com", 5672)
                 .credentials("app", "secret")
                 .virtualHost("/orders");
-        amqp.connect(new RecoveryHandler() {
+        amqp.connect(gumdrop, new RecoveryHandler() {
             @Override
             public void onFirstConnect(ClientConnection connection) {
                 connection.channelOpen(1, new ChannelOpenHandler() {
@@ -508,7 +512,7 @@ public class OrderWorker {
                 .credentials("worker", "secret")
                 .virtualHost("/orders");
 
-        amqp.connect(new RecoveryHandler() {
+        amqp.connect(gumdrop, new RecoveryHandler() {
             @Override
             public void onFirstConnect(ClientConnection connection) {
                 connection.channelOpen(1, new ChannelOpenHandler() {

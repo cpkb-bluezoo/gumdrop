@@ -427,7 +427,7 @@ class LookupHandler extends DefaultHttpRequestHandler {
         // Propagate trace context so the distributed trace remains connected
         client.setTrace(state.getTrace());
 
-        client.connect(new HttpClientHandler() {
+        client.connect(gumdrop, new HttpClientHandler() {
             @Override
             public void onConnected(Endpoint endpoint) {
                 HttpRequest request = client.post("/lookup");

@@ -277,16 +277,20 @@ handshake then delegates to your inner protocol handler (for example SMTP or
 HTTP client handlers).
 </p>
 
+<p>
+In the client examples on this page, <code>gumdrop</code> is the runtime returned by <code>Gumdrop.boot()</code>; a client is given it when it connects.
+</p>
+
 <pre>
 // Connect to smtp.example.com:587 via SOCKS proxy at proxy:1080
 ClientEndpoint client = new ClientEndpoint(factory, "proxy", 1080);
-client.connect(new SocksClientHandler(
+client.connect(gumdrop, new SocksClientHandler(
     "smtp.example.com", 587,
     new SmtpClientProtocolHandler(callback)));
 
 // With SOCKS5 username/password
 SocksClientConfig config = new SocksClientConfig("user", "pass");
-client.connect(new SocksClientHandler(
+client.connect(gumdrop, new SocksClientHandler(
     "smtp.example.com", 587, config,
     new SmtpClientProtocolHandler(callback)));
 </pre>

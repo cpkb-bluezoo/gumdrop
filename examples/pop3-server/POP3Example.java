@@ -88,7 +88,7 @@ public class POP3Example {
             key = args[tlsIndex + 1];
         }
         if (cert != null && key != null) {
-            TlsConfig tls = TlsConfig.pem(cert, key);
+            TlsConfig tls = TlsConfig.pem(Path.of(cert), Path.of(key));
             composer.listener(new Pop3Listener()
                     .port(POP3S_PORT)
                     .secure(true)

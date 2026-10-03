@@ -3,6 +3,10 @@
 Living document for Gumdrop 3 planning. Update this file as goals are refined,
 workstreams complete, or open questions are resolved.
 
+**Status (2026-10-03):** workstreams A, B, C (except a few documentation items) and E are substantially complete. What remains is
+listed under "Remaining work" at the end; once those items are filed as GitHub
+issues this document can be retired.
+
 **Related:** [CHANGELOG](../CHANGELOG.md) (3.0.0 release notes), sister project
 [hopf](https://github.com/cpkb-bluezoo/hopf) (Rust reference architecture),
 [FRAMEWORK-COMPARISON.md](FRAMEWORK-COMPARISON.md).
@@ -30,8 +34,8 @@ Design goals:
 - **Composition over reflection** — explicit builder/composition APIs in Java;
   **no `gumdroprc` XML** in Gumdrop 3.0, removed entirely in C.5
   (see [web/configuration.html](../web/configuration.html)).
-- **Explicit runtime** — no process-wide singleton; a `Runtime` (name TBD)
-  owns reactor loops, timers, executors, and listener registration.
+- **Explicit runtime** — no process-wide singleton; `Gumdrop` (not `Runtime`, which
+  would clash with `java.lang.Runtime`) owns reactor loops, timers, executors, and listener registration.
 
 ---
 
@@ -48,7 +52,7 @@ overlap in time but have dependencies noted below.
 | D | **Issues / RFC backlog** | Incremental (cert compression #445, ECH #446, etc.) | A for TLS features |
 | E | **Telemetry architecture** | Modularisation + API strategy | Modular build (3.0); protobuf spin-off early |
 
-**Suggested sequencing:** finish **A** enough for production parity → parallel
+**Suggested sequencing (historical):** finish **A** enough for production parity → parallel
 **B** (servlet) and early **C** (Runtime + naming policy, no mass rename yet) →
 spin out **protobuf codec (E.1)** early (unblocks grpc/session/telemetry deps) →
 **C** mass migration in coordinated slices → **D** ongoing → **E.2** OTel API
@@ -61,7 +65,11 @@ decision can land in 3.0 or 3.1 depending on appetite.
 Already tracked in CHANGELOG `[Unreleased]` and GitHub issues (#445 cert
 compression, #446 ECH, #447 `record_size_limit`, etc.).
 
-Key remaining themes:
+**Status:** certificate compression (#445), ECH (#446) and `record_size_limit`
+(#447) are closed. The themes below are retained for context; any new TLS work
+should be tracked as GitHub issues.
+
+Original themes:
 
 - Certificate compression (RFC 8879): Brotli via [micula](https://github.com/cpkb-bluezoo/micula), zlib via JDK; see [#445](https://github.com/cpkb-bluezoo/gumdrop/issues/445).
 - Encrypted Client Hello (RFC 9849): [#446](https://github.com/cpkb-bluezoo/gumdrop/issues/446).
@@ -71,6 +79,9 @@ Key remaining themes:
 ---
 
 ## Workstream B — Servlet 6.1
+
+**Status: implemented** (see CHANGELOG 3.0.0 and `servlet/package-info.java`).
+The gap-analysis and TCK checklist items below are historical.
 
 **Scope:** implement Jakarta Servlet **6.1** in the servlet container module.
 
@@ -386,6 +397,9 @@ Track on GitHub; link issues here as they are filed or closed.
 
 ## Workstream E — Telemetry architecture
 
+**Status: done.** E.1 (jprotobuf extracted) is complete and E.2 was decided as
+native-only (see below). E.3 and E.4 have small residual items.
+
 Gumdrop already implements **OTLP-compatible export** (HTTP/protobuf, gRPC,
 JSONL) and **OTel-aligned semantics** (`SpanKind`, resource attributes, W3C
 Trace Context) using **native types** (`Trace`, `Span`, `Meter`, …) — not the
@@ -394,6 +408,11 @@ Trace Context) using **native types** (`Trace`, `Span`, `Meter`, …) — not th
 replication, OTLP serializers).
 
 ### E.1 Spin off the protobuf codec (like hopf `rprotobuf`)
+
+**Done.** The codec is the separate `org.bluezoo:jprotobuf` library (package
+`org.bluezoo.protobuf`), consumed by gRPC, servlet session replication and
+telemetry. Open questions 8 and E.4.1 are resolved: separate repository. The
+text below is the original proposal.
 
 **Problem:** `ProtobufWriter` / `ProtobufParser` are general-purpose,
 zero-dependency, push-based wire codecs — the same role as [rprotobuf](https://crates.io/crates/rprotobuf)
@@ -423,6 +442,14 @@ undesirable. Decide in Phase 1.
 `web/grpc.html` examples.
 
 ### E.2 OpenTelemetry Java API — adopt interfaces or stay native?
+
+**Decision: Option A, native API only.** Nothing in `src` depends on
+`io.opentelemetry`. The rationale (thread-local `Context` is part of the API
+and unsafe on multiplexed SelectorLoops; misleading familiarity; extra
+dependency and security surface; interoperability is by OTLP and W3C Trace
+Context) is published in [web/telemetry.html](../web/telemetry.html#api-design).
+It can be revisited if the trade-offs change. The analysis and the Option B
+draft recommendation below are retained as history only.
 
 **Current state:** Gumdrop is an **OTel-style implementation** (wire formats +
 semantics) without depending on `opentelemetry-api`. Exporters and async
@@ -477,6 +504,11 @@ SelectorLoop, JSONL file exporter, JMX bridge — all remain Gumdrop-owned.
 
 ### E.3 Telemetry module boundaries (3.0 target)
 
+**Residual:** jprotobuf is extracted, but the `gumdrop-telemetry` module-info
+still has `requires org.bluezoo.gumdrop.grpc`. Check whether that is still
+needed (e.g. by the gRPC exporter) or can be dropped. The `gumdrop-telemetry-otel-api`
+module is not planned (E.2 decision).
+
 ```
 jprotobuf.jar              — wire codec only (E.1)
 gumdrop-core               — Trace, Span, W3C propagation, TelemetryConfig hooks
@@ -489,6 +521,10 @@ only because protobuf lived in telemetry — **grpc should depend on jprotobuf,
 not telemetry**.
 
 ### E.4 Open questions (telemetry)
+
+**All resolved:** (1) separate repo; (2) Option A; (3) no `GlobalOpenTelemetry`
+support, explicit composition only; (4) not tracked here - decide if and when
+semantic-convention constants are needed.
 
 1. **Separate repo** for jprotobuf vs `org.bluezoo:jprotobuf` published from
    gumdrop monorepo?
@@ -509,26 +545,24 @@ consistent” public API:
 
 - [ ] Restructure **web docs** so every protocol page has **Server** and
   **Client** sections of equal prominence (today many pages are server-first).
-- [ ] Add **P2P / mesh** guide: one `Runtime`, two endpoints, same handler
-  patterns — target audience for “new protocol in Gumdrop”.
+- [x] Add **P2P / mesh** guide: one `Gumdrop`, two endpoints, same handler
+  patterns ([web/p2p.html](../web/p2p.html), `examples/p2p-mesh/`).
 - [ ] Pair examples: `examples/*-server` and `examples/*-client` for each
   major protocol; **Java composition** entry points (see [web/configuration.html](../web/configuration.html)).
-- [ ] **FRAMEWORK-COMPARISON.md** — update hopf ↔ gumdrop mapping as 3.0
-  lands.
+- [x] **FRAMEWORK-COMPARISON.md** — not a hopf mapping; already reflects 3.0.
 
 ### Public API hygiene
 
 - [ ] Audit **`public`** types per JPMS module; shrink surface to facades +
   handler SPIs + config builders.
-- [ ] **`@Deprecated` migration table** in CHANGELOG for every renamed type
-  (even if 3.0 breaks binary compat — helps source migration).
+- [x] **Migration table** for renamed types ([MIGRATING-TO-3.md](MIGRATING-TO-3.md)).
 - [ ] Metrics types: rename `*ServerMetrics` → neutral or
   `server.ServerMetrics` in role subpackages.
 
 ### Testing during migration
 
 - [x] Rename guard via package scan (`Gumdrop3NamingConventionTest`).
-- [ ] Integration tests: wire servers via Java composition builders (proves API
+- [x] Integration tests: wire servers via Java composition builders (proves API
   before further doc churn).
 - [ ] Keep **NoThreadSleepGuard** and async test rules (CONTRIBUTING) during
   refactors.
@@ -560,36 +594,36 @@ consistent” public API:
 
 ### Phase 1 — Foundation (3.0 alpha)
 
-- [ ] TLS stack production-ready (workstream A).
-- [ ] Introduce `Runtime` parallel to singleton (both work briefly).
+- [x] TLS stack production-ready (workstream A).
+- [x] Introduce `Gumdrop.boot()` replacing the server-mode singleton; `Gumdrop.getInstance()` has no remaining call sites.
 - [x] Define naming convention RFC (camelCase acronyms) in CONTRIBUTING +
   [CONTRIBUTING.md](../CONTRIBUTING.md#gumdrop-3-naming-conventions); guard test
   (`Gumdrop3NamingConventionTest`).
-- [ ] Introduce `HttpServer.compose()` + handler composition ([web/configuration.html](../web/configuration.html)).
-- [ ] Extract **jprotobuf** codec jar; fix grpc/telemetry dependency direction (§E.1).
+- [x] Introduce `HttpServer.compose()` + handler composition ([web/configuration.html](../web/configuration.html)).
+- [x] Extract **jprotobuf** codec jar (§E.1). Telemetry still requires grpc; see §E.3 residual.
 
 ### Phase 2 — Servlet + modular container (3.0 beta)
 
-- [ ] Servlet 6.1 implementation (workstream B).
-- [ ] Container zip as primary distribution.
-- [ ] JPMS modules stable.
+- [x] Servlet 6.1 implementation (workstream B).
+- [x] Container zip as primary distribution (see `docs/CONTAINER-DEPLOYMENT.md`).
+- [x] JPMS modules stable.
 
 ### Phase 3 — Role-agnostic migration (3.0 RC)
 
-- [ ] Rename `*Service` → `*Server` (application tier) — see
+- [x] Rename `*Service` → `*Server` (application tier) — see
   [CONTRIBUTING.md](../CONTRIBUTING.md#gumdrop-3-naming-conventions) slices C.1.1–C.1.6.
-- [ ] Protocol package moves (`server/`, `client/`).
-- [ ] Mass type renames (`HttpServer`, `AmqpClient`, …).
+- [x] Protocol package moves (`server/`, `client/`).
+- [x] Mass type renames (`HttpServer`, `AmqpClient`, …).
 - [x] Handler-first HTTP: `ServletRequestHandler`, `WebDAVRequestHandler`,
   `WebSocketRequestHandler`; `ServletServer` / `WebdavServer` / `WebSocketServer`
   removed from public API.
 - [x] Remove reflection DI and XML configuration code paths (§C.5, done).
-- [ ] Remove `Gumdrop.getInstance()` (or hard-deprecate with runtime-only path) — client-only singleton still in use; `boot()` covers server mode (§C.4).
+- [x] Remove `Gumdrop.getInstance()` - no call sites remain (§C.4).
 
 ### Phase 4 — Polish (3.0 GA)
 
 - [ ] Documentation and examples fully migrated.
-- [ ] P2P guide and mesh-first policy published.
+- [x] P2P guide and mesh-first policy published.
 - [ ] Issues backlog triaged for 3.0 vs 3.1.
 
 ---
@@ -597,7 +631,8 @@ consistent” public API:
 ## Open questions (discussion)
 
 1. ~~**Top-level facade re-exports** — Option 1 vs 2 in §C.2?~~ **Resolved: Option 2.**
-2. **`Runtime` naming** — `Runtime`, `GumdropRuntime`, or `EventRuntime`?
+2. ~~**`Runtime` naming**~~ — **Resolved:** the runtime is `Gumdrop`
+   (`Gumdrop.boot()`); `Runtime` would clash with `java.lang.Runtime`.
 3. **3.0 breaking change budget** — single rename flag day vs phased deprecations
    across 3.0 alphas?
 4. ~~**`gumdroprc` in 3.0**~~ — **Resolved: removed.** Java composition only;
@@ -610,9 +645,10 @@ consistent” public API:
    servlet jar entirely (already directionally true with modular build).
 7. **Legacy protocol tier** — which listeners remain in 3.0 default build vs
    `optional` modules (e.g. FTP, Telnet-era patterns)?
-8. **jprotobuf repo** — separate repository vs published jar from monorepo (§E.1)?
-9. **OTel API strategy** — native-only vs optional bridge vs OTel-primary (§E.2)?
-10. **`GlobalOpenTelemetry`** — support global static registration or Runtime-only?
+8. ~~**jprotobuf repo**~~ — **Resolved:** separate repository.
+9. ~~**OTel API strategy**~~ — **Resolved:** native-only (§E.2,
+   [web/telemetry.html](../web/telemetry.html#api-design)).
+10. ~~**`GlobalOpenTelemetry`**~~ — **Resolved:** not supported.
 
 ---
 
@@ -620,15 +656,39 @@ consistent” public API:
 
 | Item | Status |
 |------|--------|
-| This plan | Draft |
-| CHANGELOG 3.0.0 section | Draft (TLS/modularity) |
-| TLS cert compression #445 | Spec refined |
-| Role-agnostic refactor | C.1–C.3, C.5 done *(branch `v3-taxonomy`)* |
-| Servlet 6.1 | Not started |
-| Runtime introduction | In progress — `Gumdrop.boot()` replaces the server-mode singleton (§C.4); rename to `Runtime` still open |
+| This plan | Refreshed 2026-10-03; retire once remaining work is filed as issues |
+| CHANGELOG 3.0.0 section | Draft |
+| TLS #445, #446, #447 | Closed |
+| Role-agnostic refactor | C.1–C.3, C.5 done |
+| Servlet 6.1 | Implemented |
+| Runtime introduction | Done - the runtime is `Gumdrop` (`Gumdrop.boot()`); named to avoid clashing with `java.lang.Runtime` (§C.4) |
 | XML configuration removal (§C.5) | Done |
-| Telemetry / jprotobuf spin-off | Not started |
-| OTel API strategy decision | Open (§E.2) |
+| Telemetry / jprotobuf spin-off | Done (residual: §E.3 grpc dependency) |
+| OTel API strategy decision | Decided: native only (§E.2) |
 | Facade re-exports (§C.2) | Option 2 decided |
 
-*Last updated: 2026-09-16*
+## Remaining work
+
+Resolved at the 2026-10-03 refresh:
+
+- Telemetry's `requires grpc` is legitimate (`OtlpGrpcEndpoint` uses `GrpcFraming`).
+- TLS 1.2 is narrowed to ECDHE + AEAD (see `web/tls.html`).
+- Dual-stack wildcard listeners: `Listener.bindWildcard()`.
+- Address fallback in client dial paths: `ClientEndpoint` / `ConnectCandidates`
+  (RFC 8305 ordering and sequential fallback; no parallel racing).
+- Client `connect(gumdrop, ...)` examples in `web/*.html`, the SMTP client
+  handler docs, and the stale `examples/` (`http-client-test`, `http-echo-server`,
+  `pop3-server`, `jsp-code-generation`) brought in line with the 3.0 API.
+- Rename migration guide: [MIGRATING-TO-3.md](MIGRATING-TO-3.md).
+- P2P / mesh guide: [web/p2p.html](../web/p2p.html) and `examples/p2p-mesh/`.
+- `FRAMEWORK-COMPARISON.md` is a size/dependency comparison and needs no
+  hopf mapping; the `*ServerMetrics` names are accurate (server-only types).
+
+Still open:
+
+- Legacy protocol tier (open question 7): which listeners stay in the default build.
+- Public API audit per module (ongoing; applies the "minimise API surface" rule).
+- Optional: parallel connection racing (RFC 8305 section 5) if the sequential
+  fallback proves too slow for blackholed addresses.
+
+*Last updated: 2026-10-03*

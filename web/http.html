@@ -1018,11 +1018,15 @@ advertises QUIC availability.
 
 <h4>Usage (HTTP/2 and HTTP/1.1)</h4>
 
+<p>
+In the client examples on this page, <code>gumdrop</code> is the runtime returned by <code>Gumdrop.boot()</code>; a client is given it when it connects.
+</p>
+
 <pre>
 HttpClient client = new HttpClient("example.com", 443);
 client.setSecure(true);
 
-client.connect(new HttpClientHandler() {
+client.connect(gumdrop, new HttpClientHandler() {
     public void onConnected(Endpoint endpoint) {
         HttpRequest request = client.get("/api/data");
         request.header("Accept", "application/json");
@@ -1059,7 +1063,7 @@ QUIC with ALPN &ldquo;h3&rdquo; instead of TCP:
 HttpClient client = new HttpClient("example.com", 443);
 client.setH3Enabled(true);
 
-client.connect(new HttpClientHandler() {
+client.connect(gumdrop, new HttpClientHandler() {
     public void onConnected(Endpoint endpoint) {
         HttpRequest request = client.get("/api/data");
         request.header("Accept", "application/json");

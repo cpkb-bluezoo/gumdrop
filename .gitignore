@@ -35,3 +35,7 @@ test/guard/classes/
 test/guard/results/
 build/
 dist/
+
+# Generated class files (ant clean removes these)
+web/WEB-INF/classes/
+examples/**/*.class

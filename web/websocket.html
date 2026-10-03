@@ -359,11 +359,15 @@ connecting to WebSocket servers. It uses the same
 be reused in both roles.
 </p>
 
+<p>
+In the client examples on this page, <code>gumdrop</code> is the runtime returned by <code>Gumdrop.boot()</code>; a client is given it when it connects.
+</p>
+
 <pre>
 WebSocketClient client = new WebSocketClient("echo.example.com", 443);
 client.setSecure(true);
 
-client.connect("/ws", new DefaultWebSocketEventHandler() {
+client.connect(gumdrop, "/ws", new DefaultWebSocketEventHandler() {
 
     @Override
     public void opened(WebSocketSession session) {
@@ -414,7 +418,7 @@ with server-side code:
 WebSocketClient client = new WebSocketClient(selectorLoop,
         "upstream.example.com", 443);
 client.setSecure(true);
-client.connect("/events", handler);
+client.connect(gumdrop, "/events", handler);
 </pre>
 
 <p>

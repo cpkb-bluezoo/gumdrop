@@ -224,6 +224,10 @@ an <code>HttpClient</code>, connect, then use <code>GrpcClient</code> for
 unary calls:
 </p>
 
+<p>
+In the client examples on this page, <code>gumdrop</code> is the runtime returned by <code>Gumdrop.boot()</code>; a client is given it when it connects.
+</p>
+
 <pre>
 import org.bluezoo.gumdrop.grpc.client.*;
 import org.bluezoo.gumdrop.http.client.*;
@@ -234,7 +238,7 @@ httpClient.setSecure(true);  // TLS for production
 ProtoFile protoFile = ProtoFileParser.parse(protoSource);
 GrpcClient grpcClient = new GrpcClient(protoFile);
 
-httpClient.connect(new HttpClientHandler() {
+httpClient.connect(gumdrop, new HttpClientHandler() {
     public void onConnected(Endpoint endpoint) {
         // Serialize request (see Serialization below)
         ByteBuffer requestMessage = ...;

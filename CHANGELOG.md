@@ -99,7 +99,8 @@ user-visible themes since 2.2.x.
   `http.server.HttpRequestHandler`, `http.client.HttpClient`). Mail and
   network servers are `{Protocol}Server` in `{protocol}.server` with
   root re-exports. See [CONTRIBUTING.md](CONTRIBUTING.md) and
-  [docs/GUMDROP-3-PLAN.md](docs/GUMDROP-3-PLAN.md).
+  [docs/GUMDROP-3-PLAN.md](docs/GUMDROP-3-PLAN.md); the old-to-new mapping
+  is in [docs/MIGRATING-TO-3.md](docs/MIGRATING-TO-3.md).
 - **Modularised build**: Gumdrop is split into smaller interlinked internal
   jars (core, servlet stack, and per-protocol modules) with JPMS descriptors;
   `dist/gumdrop.jar` remains the all-in-one library artifact. Several types
@@ -119,6 +120,11 @@ user-visible themes since 2.2.x.
 
 ### Fixed
 
+- **Client connections now fall back across resolved addresses** (RFC 8305):
+  `ClientEndpoint` previously used only the first address a host name
+  resolved to, so an unreachable IPv6 address failed the connection even when
+  IPv4 worked. Address families now alternate and a failed attempt moves on to
+  the next address; the handler sees an error only when all have failed.
 - **HTTP/3 conformance**: SETTINGS must be first and sent once; enforce
   `SETTINGS_MAX_FIELD_SECTION_SIZE`; reject bad GOAWAY and unpermitted push
   frames; treat premature control/QPACK stream closure as

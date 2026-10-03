@@ -54,21 +54,21 @@ import org.bluezoo.gumdrop.tls.ServerCredentials;
  * {@link ClientEndpoint}, and {@link SmtpClientProtocolHandler}, wiring
  * them together and forwarding lifecycle events to the caller's
  * {@link RemoteGreeting} handler, supplied directly to {@link
- * #connect(RemoteGreeting)}.
+ * #connect(Gumdrop, RemoteGreeting)}.
  *
  * <h4>Composition (recommended)</h4>
  * <pre>{@code
  * SmtpClient client = new SmtpClient()
  *         .host("smtp.example.com")
  *         .port(587);
- * client.connect(new MyRemoteGreeting());
+ * client.connect(gumdrop, new MyRemoteGreeting());
  * }</pre>
  *
  * <h4>Plaintext with STARTTLS (submission)</h4>
  * <pre>{@code
  * SmtpClient client = new SmtpClient(selectorLoop, "smtp.example.com", 587);
  * client.setClientCredentials(clientCredentials);
- * client.connect(new RemoteGreeting() {
+ * client.connect(gumdrop, new RemoteGreeting() {
  *     public void handleGreeting(ClientHelloState hello,
  *                                String message, boolean esmtp) {
  *         hello.ehlo("myhostname", ehloHandler);
@@ -82,14 +82,14 @@ import org.bluezoo.gumdrop.tls.ServerCredentials;
  * SmtpClient client = new SmtpClient("smtp.example.com", 465);
  * client.setSecure(true);
  * client.setClientCredentials(clientCredentials);
- * client.connect(greetingHandler);
+ * client.connect(gumdrop, greetingHandler);
  * }</pre>
  *
  * <h4>Opportunistic DANE (RFC 7672)</h4>
  * <pre>{@code
  * SmtpClient client = new SmtpClient("mail.example.com", 25);
  * client.setDaneResolver(myResolver); // a DNSSEC-enabled DnsResolver
- * client.connect(greetingHandler);
+ * client.connect(gumdrop, greetingHandler);
  * }</pre>
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
@@ -643,7 +643,7 @@ public class SmtpClient {
 
         /**
          * Builds the client. A host (or socket path) is required; call
-         * {@link SmtpClient#connect(RemoteGreeting)} on the result to
+         * {@link SmtpClient#connect(Gumdrop, RemoteGreeting)} on the result to
          * connect.
          */
         public SmtpClient build() {

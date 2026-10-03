@@ -1229,62 +1229,121 @@ MT-PRIORITY, HOLDFOR/HOLDUNTIL, BY via <code>MailFromParams</code></li>
 <h4>Client Handler Interface</h4>
 
 <p>
-The client is driven by an <code>SMTPClientHandler</code> that receives
-protocol events:
+The client is driven by a staged handler pipeline. You pass a
+<code>RemoteGreeting</code> to <code>SmtpClient.connect(gumdrop, handler)</code>;
+each protocol stage then hands you an interface that offers only the commands
+legal at that point, together with the reply handler for the answer. The flow
+is greeting, EHLO (or HELO), optionally STARTTLS and AUTH, then
+MAIL FROM, RCPT TO, DATA and the message body.
 </p>
 
 <pre>
+Gumdrop gumdrop = Gumdrop.boot();
 SmtpClient client = new SmtpClient("mail.example.com", 25);
-client.connect(new SMTPClientHandler() {
-    @Override
-    public void onConnected() {
-        // TCP connection established, awaiting greeting
-    }
-    
-    @Override
-    public void onGreeting(SmtpResponse greeting, SmtpClientProtocolHandler handler) {
-        handler.ehlo("myhost.example.com");
-    }
-    
-    @Override
-    public void onReply(SmtpResponse response, SmtpClientProtocolHandler handler) {
-        // Handle command responses
-        if (response.isSuccess()) {
-            // Proceed with next command
-        }
-    }
-    
-    @Override
-    public void onTLSStarted() {
-        // TLS negotiation complete, re-issue EHLO
-    }
-    
-    @Override
-    public void onError(SmtpException error) {
-        // Handle protocol or connection errors
-    }
-    
-    @Override
-    public void onDisconnected() {
-        // Connection closed
-    }
-});
+client.connect(gumdrop, new MyMailHandler());
 </pre>
+
+<p>
+A minimal handler that sends one message. Each reply handler implements only
+the outcomes it cares about plus the ones the interface requires:
+</p>
+
+<pre>
+public class MyMailHandler implements RemoteGreeting {
+
+    // Stage 1: the server's greeting
+    public void handleGreeting(ClientHelloState hello, String message, boolean esmtp) {
+        hello.ehlo("myhost.example.com", new EhloReplyHandler() {
+            public void handleEhlo(ClientSession session, boolean starttls,
+                                   long maxSize, List&lt;String&gt; authMethods,
+                                   boolean pipelining) {
+                // Stage 2: session established; start a transaction
+                session.mailFrom(new EmailAddress(null, "alice", "example.com", true),
+                        new MailFromReplyHandler() {
+                    public void handleMailFromOk(ClientEnvelope envelope) {
+                        envelope.rcptTo(new EmailAddress(null, "bob", "example.org", true),
+                                new RcptToReplyHandler() {
+                            public void handleRcptToOk(ClientEnvelopeReady ready) {
+                                ready.data(new DataReplyHandler() {
+                                    public void handleReadyForData(ClientMessageData data) {
+                                        data.writeContent(ByteBuffer.wrap(rfc5322Message));  // dot-stuffed for you
+                                        data.endMessage(new MessageReplyHandler() {
+                                            public void handleMessageAccepted(String queueId,
+                                                    ClientSession session) {
+                                                session.quit();
+                                            }
+                                            public void handleTemporaryFailure(ClientSession s) {
+                                                s.quit();
+                                            }
+                                            public void handlePermanentFailure(String m,
+                                                    ClientSession s) {
+                                                s.quit();
+                                            }
+                                            public void handleServiceClosing(String m) { }
+                                        });
+                                    }
+                                    public void handleTemporaryFailure(ClientEnvelopeReady e) {
+                                        e.quit();
+                                    }
+                                    public void handlePermanentFailure(String m) { }
+                                    public void handleServiceClosing(String m) { }
+                                });
+                            }
+                            public void handleTemporaryFailure(ClientEnvelopeState st) {
+                                st.quit();
+                            }
+                            public void handleRecipientRejected(ClientEnvelopeState st) {
+                                st.quit();
+                            }
+                            public void handleServiceClosing(String m) { }
+                        });
+                    }
+                    public void handleTemporaryFailure(ClientSession s) { s.quit(); }
+                    public void handlePermanentFailure(String m) { }
+                    public void handleServiceClosing(String m) { }
+                });
+            }
+            public void handleEhloNotSupported(ClientHelloState h) { h.quit(); }
+            public void handlePermanentFailure(String m) { }
+            public void handleServiceClosing(String m) { }
+        });
+    }
+
+    public void handleServiceUnavailable(String message) { }
+
+    // ClientHandler lifecycle
+    public void onConnected(Endpoint endpoint) { }
+    public void onSecurityEstablished(SecurityInfo info) { }
+    public void onError(Exception cause) { cause.printStackTrace(); }
+    public void onDisconnected() { }
+}
+</pre>
+
+<p>
+In real code you would implement the reply handlers as named classes or a
+single class with a field per stage rather than nesting them. The nesting
+here shows the order of the stages. After a successful STARTTLS the client
+must issue EHLO again (RFC 5321 section 4.1.1.1) and receives a fresh state
+(<code>ClientPostTls</code>) to do so.
+</p>
 
 <h4>Message Transmission</h4>
 
 <p>
-Message content is sent as a stream with automatic dot-stuffing:
+Message content is streamed through <code>ClientMessageData</code>.
+Dot-stuffing is applied automatically, or BDAT (CHUNKING) is used instead of
+DATA when the server advertises it:
 </p>
 
 <pre>
-// After MAIL FROM and RCPT TO accepted, DATA command sent
-conn.data();  // Sends DATA command
-
-// In onReply(), when 354 received:
-ByteBuffer content = getMessageContent();
-conn.messageContent(content);  // Dot-stuffed automatically
-conn.endData();  // Sends CRLF.CRLF terminator
+// In handleReadyForData(ClientMessageData data):
+data.writeContent(firstChunk);          // may be called repeatedly
+data.onWriteReady(new Runnable() {      // resume when the transport can take more
+    public void run() {
+        data.writeContent(nextChunk);
+        data.endMessage(messageReplyHandler);   // terminates the message
+    }
+});
 </pre>
 
 <h3 id="telemetry">Telemetry</h3>

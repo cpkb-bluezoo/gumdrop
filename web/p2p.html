@@ -1,0 +1,297 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.1//EN" "xhtml11.dtd">
+<!--
+  This file is part of gumdrop.
+
+  gumdrop is free software; you can redistribute it and/or modify
+  it under the terms of the GNU Lesser General Public License as published by
+  the Free Software Foundation; either version 2 of the License, or
+  (at your option) any later version.
+
+  gumdrop is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+  GNU Lesser General Public License for more details.
+
+  You should have received a copy of the GNU Lesser General Public License
+  along with gumdrop; if not, write to the Free Software
+  Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
+-->
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8"/>
+<link href="main.css" rel="stylesheet" type="text/css"/>
+<link rel="icon" href="favicon.ico"/>
+<link rel="SHORTCUT ICON" href="favicon.ico"/>
+<title>Peer-to-Peer and Mesh Applications - Gumdrop</title>
+</head>
+<body>
+
+<header>
+<img src="gumdrop.png" alt="Gumdrop" />
+<h1>Peer-to-Peer and Mesh Applications</h1>
+</header>
+
+<p class="back-link"><a href="index.html">&larr; Back to Main Page</a></p>
+
+<p>
+Gumdrop is not a &ldquo;server library&rdquo; with a client bolted on. A
+node in a mesh is an ordinary Gumdrop application that listens on some
+endpoints and dials others, using the same runtime, the same handler
+patterns and the same SelectorLoops for both. This page shows how to build
+one.
+</p>
+
+<h3>Contents</h3>
+<ul>
+<li><a href="#model">The model</a></li>
+<li><a href="#example">Worked example: two peers</a></li>
+<li><a href="#dialling">How a node dials</a></li>
+<li><a href="#listening">How a node listens</a></li>
+<li><a href="#security">Security defaults</a></li>
+</ul>
+
+<h3 id="model">The model</h3>
+
+<ul>
+<li><b>One runtime per process.</b> <code>Gumdrop.boot()</code> returns the
+runtime that owns the worker loops, timers and executors. There is no
+process-wide singleton, so a process (or a test) may hold several
+independent runtimes.</li>
+<li><b>Servers are composed, not subclassed.</b> A server is a set of
+listeners plus handlers, built with
+<code>HttpServer.compose()</code> and registered with
+<code>gumdrop.addServer(server)</code>. See
+<a href="configuration.html">Configuration</a>.</li>
+<li><b>Clients are dialled on the same runtime.</b> A client is given the
+runtime when it connects: <code>client.connect(gumdrop, handler)</code>.
+Its I/O runs on the runtime&rsquo;s SelectorLoops, the same threads that
+serve inbound connections.</li>
+<li><b>Handlers are symmetric.</b> The server side implements request
+handlers and the client side implements response handlers, but both are
+event callbacks run on a SelectorLoop, so the same rules apply to both:
+never block, and keep per-connection state on the connection.</li>
+</ul>
+
+<h3 id="example">Worked example: two peers</h3>
+
+<p>
+The example below is <code>examples/p2p-mesh/Peer.java</code>. Each node
+answers <code>GET /hello</code> with its own name and, after a short delay
+to let the other node start, calls the other node&rsquo;s
+<code>/hello</code>. Start two nodes, each pointing at the other&rsquo;s
+port:
+</p>
+
+<pre>
+java -cp "build/*:lib/*" Peer alice 9001 localhost 9002
+java -cp "build/*:lib/*" Peer bob   9002 localhost 9001
+</pre>
+
+<p>Each prints the other&rsquo;s greeting (for example
+<code>alice heard: hello from bob</code>).</p>
+
+<pre>
+import org.bluezoo.gumdrop.Endpoint;
+import org.bluezoo.gumdrop.Gumdrop;
+import org.bluezoo.gumdrop.SecurityInfo;
+import org.bluezoo.gumdrop.http.Headers;
+import org.bluezoo.gumdrop.http.HttpClient;
+import org.bluezoo.gumdrop.http.HttpServer;
+import org.bluezoo.gumdrop.http.client.DefaultHttpResponseHandler;
+import org.bluezoo.gumdrop.http.client.HttpClientHandler;
+import org.bluezoo.gumdrop.http.client.HttpRequest;
+import org.bluezoo.gumdrop.http.client.HttpResponse;
+import org.bluezoo.gumdrop.http.server.DefaultHttpRequestHandler;
+import org.bluezoo.gumdrop.http.server.HttpRequestHandler;
+import org.bluezoo.gumdrop.http.server.HttpResponseState;
+import org.bluezoo.gumdrop.http.server.HttpStreamHandler;
+
+import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
+
+public final class Peer {
+
+    private static final long DIAL_DELAY_MS = 2000L;
+
+    public static void main(String[] args) throws Exception {
+        if (args.length != 4) {
+            System.err.println(
+                    "usage: Peer &lt;name&gt; &lt;listen-port&gt; &lt;peer-host&gt; &lt;peer-port&gt;");
+            System.exit(2);
+        }
+        final String name = args[0];
+        int listenPort = Integer.parseInt(args[1]);
+        String peerHost = args[2];
+        int peerPort = Integer.parseInt(args[3]);
+
+        Gumdrop gumdrop = Gumdrop.boot();
+
+        // Server role: one handler per request stream.
+        HttpServer server = HttpServer.compose()
+                .plaintextListener(listenPort)
+                .streamHandler(new HelloStreamHandler(name))
+                .server();
+        gumdrop.addServer(server);
+        System.out.println(name + " listening on port " + listenPort);
+
+        // Client role: dial the peer on the same runtime, once the peer has
+        // had time to start listening.
+        final HttpClient client = new HttpClient(peerHost, peerPort);
+        final Gumdrop runtime = gumdrop;
+        gumdrop.scheduleTimer(null, DIAL_DELAY_MS, new Runnable() {
+            @Override
+            public void run() {
+                dial(runtime, client, name);
+            }
+        });
+
+        gumdrop.join();
+    }
+
+    private static void dial(Gumdrop gumdrop, final HttpClient client,
+                             final String name) {
+        client.connect(gumdrop, new HttpClientHandler() {
+            @Override
+            public void onConnected(Endpoint endpoint) {
+                HttpRequest request = client.get("/hello");
+                request.send(new DefaultHttpResponseHandler() {
+                    private final StringBuilder body = new StringBuilder();
+
+                    @Override
+                    public void responseBodyContent(ByteBuffer data) {
+                        body.append(StandardCharsets.UTF_8.decode(data));
+                    }
+
+                    @Override
+                    public void close() {
+                        System.out.println(name + " heard: " + body.toString().trim());
+                        client.close();
+                    }
+
+                    @Override
+                    public void failed(Exception ex) {
+                        System.err.println(name + " request failed: " + ex);
+                        client.close();
+                    }
+                });
+            }
+
+            @Override
+            public void onSecurityEstablished(SecurityInfo info) {
+            }
+
+            @Override
+            public void onError(Exception cause) {
+                System.err.println(name + " could not reach the peer: " + cause);
+            }
+
+            @Override
+            public void onDisconnected() {
+            }
+        });
+    }
+
+    private static final class HelloStreamHandler implements HttpStreamHandler {
+        private final String name;
+
+        HelloStreamHandler(String name) {
+            this.name = name;
+        }
+
+        @Override
+        public HttpRequestHandler openStream(HttpResponseState stream) {
+            return new HelloHandler(name);
+        }
+    }
+
+    private static final class HelloHandler extends DefaultHttpRequestHandler {
+        private final String name;
+
+        HelloHandler(String name) {
+            this.name = name;
+        }
+
+        @Override
+        public void headers(HttpResponseState state, Headers headers) {
+            Headers response = new Headers();
+            response.add(":status", "200");
+            response.add("content-type", "text/plain");
+            state.headers(response);
+            state.startResponseBody();
+            state.responseBodyContent(ByteBuffer.wrap(
+                    ("hello from " + name + "\n").getBytes(StandardCharsets.UTF_8)));
+            state.endResponseBody();
+            state.complete();
+        }
+    }
+
+    private Peer() {
+    }
+
+}
+</pre>
+
+<p>
+The example uses cleartext HTTP to stay short. For a real mesh use
+<code>secureEndpoint(port, TlsConfig.pem(cert, key))</code> on the server
+and <code>client.setSecure(true)</code> on the client; see
+<a href="tls.html">TLS</a>.
+</p>
+
+<h3 id="dialling">How a node dials</h3>
+
+<p>
+When a client is given a host name, Gumdrop resolves it with its own
+non-blocking DNS resolver (A and AAAA queries in parallel) and connects as
+follows, following the approach of RFC 8305 (Happy Eyeballs):
+</p>
+
+<ul>
+<li>IPv6 addresses are preferred, and the address list is interleaved so
+that families alternate (RFC 8305 section 4).</li>
+<li>If a connection attempt fails, the next address is tried. The
+handler&rsquo;s error callback fires only once every address has failed, so
+a host with a broken IPv6 route and a working IPv4 route still connects.</li>
+<li>Attempts are sequential. An address that silently drops packets delays
+the fallback until that attempt fails; Gumdrop does not race attempts in
+parallel.</li>
+<li>The behaviour lives in one place, <code>ClientEndpoint</code>, so every
+protocol client gets it; protocol clients do not carry their own copies.</li>
+</ul>
+
+<h3 id="listening">How a node listens</h3>
+
+<p>
+<code>Listener.bindWildcard()</code> binds the wildcard address as a single
+dual-stack socket where the platform allows, so one listener accepts both
+IPv6 and IPv4. Bind explicit addresses with the listener&rsquo;s address
+setters when a node should only be reachable on a particular interface.
+</p>
+
+<h3 id="security">Security defaults</h3>
+
+<ul>
+<li>TLS 1.3 is the primary protocol. TLS 1.2 is retained only where a peer
+requires it, restricted to ECDHE key exchange with AEAD ciphers (AES-GCM and
+ChaCha20-Poly1305); CBC and other legacy suites are not offered. See
+<a href="tls.html">TLS</a>.</li>
+<li>HTTP/3 (QUIC) is available on the same port as HTTPS when a server uses
+<code>secureEndpoint</code>, and a client can use it with
+<code>setH3Enabled(true)</code>.</li>
+<li>Mutual TLS is supported for peer authentication; see
+<a href="tls.html#mtls">client certificates (mTLS)</a>.</li>
+</ul>
+
+<hr/>
+
+<p>
+<a href="index.html">&larr; Back to Main Page</a> |
+<a href="configuration.html">Configuration</a> |
+<a href="http.html">HTTP Server &amp; Client</a> |
+<a href="tls.html">TLS</a>
+</p>
+
+<p class='server-info'>Gumdrop Peer-to-Peer</p>
+
+</body>
+</html>

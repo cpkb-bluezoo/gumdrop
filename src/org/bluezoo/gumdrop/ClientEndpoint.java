@@ -89,6 +89,10 @@ public class ClientEndpoint {
     private SelectorLoop selectorLoop;
     private Gumdrop gumdrop;
     private DnsResolver dnsResolver;
+    /** Remaining addresses to try if the current attempt fails to connect (RFC 8305). */
+    private ConnectCandidates candidates;
+    /** Set once an attempt has connected; later errors are not retried. */
+    private boolean established;
 
     // ── Constructors with explicit SelectorLoop (server integration) ──
 
@@ -343,6 +347,14 @@ public class ClientEndpoint {
      * <p>If no SelectorLoop was provided at construction time, one is
      * obtained from {@code gumdrop} automatically.
      *
+     * <p>When the host name resolves to several addresses they are tried in
+     * turn (RFC 8305 section 4: families alternate, starting with the first
+     * address's family) and a connection failure moves on to the next
+     * address; the handler's {@code error} is called only once every
+     * address has failed. Attempts are sequential, so an unreachable
+     * address that silently drops packets delays the fallback until the
+     * attempt fails; there is no parallel connection racing.
+     *
      * <p>This method registers the client with Gumdrop for lifecycle
      * tracking. The client is automatically deregistered when the
      * connection terminates (disconnect or error), or when
@@ -402,16 +414,8 @@ public class ClientEndpoint {
                                 Gumdrop.L10N.getString("info.client_endpoint_resolved"),
                                 addresses.get(0)));
                     }
-                    host = addresses.get(0);
-                    try {
-                        doConnect(wrapped);
-                    } catch (IOException e) {
-                        if (Boolean.getBoolean("gumdrop.dns.debug")) {
-                            LOGGER.info(MessageFormat.format(
-                                    Gumdrop.L10N.getString("info.client_endpoint_connect_failed"), e));
-                        }
-                        wrapped.error(e);
-                    }
+                    candidates = new ConnectCandidates(addresses);
+                    connectNextCandidate(wrapped);
                 }
 
                 @Override
@@ -491,6 +495,7 @@ public class ClientEndpoint {
 
             @Override
             public void connected(Endpoint endpoint) {
+                established = true;
                 handler.connected(endpoint);
             }
 
@@ -507,10 +512,49 @@ public class ClientEndpoint {
 
             @Override
             public void error(Exception cause) {
+                if (!established && candidates != null && candidates.hasNext()) {
+                    // The attempt failed before connecting and the host has
+                    // another address: try it instead of failing (RFC 8305).
+                    logFallback(cause);
+                    connectNextCandidate(this);
+                    return;
+                }
                 handler.error(cause);
                 deregister();
             }
         };
+    }
+
+    /**
+     * Connects to the next resolved address. Addresses that fail
+     * synchronously are skipped; failure of an asynchronous attempt reaches
+     * the wrapped handler's {@code error}, which calls this again. The error
+     * is surfaced to the handler only when no address remains.
+     */
+    private void connectNextCandidate(ProtocolHandler wrapped) {
+        IOException last = null;
+        while (candidates.hasNext()) {
+            host = candidates.next();
+            if (Boolean.getBoolean("gumdrop.dns.debug")) {
+                LOGGER.info(MessageFormat.format(
+                        Gumdrop.L10N.getString("info.client_endpoint_resolved"), host));
+            }
+            try {
+                doConnect(wrapped);
+                return;
+            } catch (IOException e) {
+                logFallback(e);
+                last = e;
+            }
+        }
+        wrapped.error(last);
+    }
+
+    private void logFallback(Exception cause) {
+        if (Boolean.getBoolean("gumdrop.dns.debug")) {
+            LOGGER.info(MessageFormat.format(
+                    Gumdrop.L10N.getString("info.client_endpoint_connect_failed"), cause));
+        }
     }
 
     private void deregister() {

@@ -14,6 +14,7 @@ import org.bluezoo.gumdrop.tls.TlsConfig;
 
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Path;
 
 /**
  * Echoes {@code ok} for every GET request.
@@ -49,7 +50,7 @@ public final class EchoServer {
             String cert = args.length > 0 ? args[0] : "etc/tls/cert.pem";
             String key = args.length > 1 ? args[1] : "etc/tls/key.pem";
             int port = args.length > 2 ? Integer.parseInt(args[2]) : 443;
-            composer.secureEndpoint(port, TlsConfig.pem(cert, key));
+            composer.secureEndpoint(port, TlsConfig.pem(Path.of(cert), Path.of(key)));
             gumdrop.addServer(composer.server());
             System.out.println("Echo server (HTTPS + HTTP/3) on port " + port);
         }

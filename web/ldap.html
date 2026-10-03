@@ -124,10 +124,14 @@ Create an <code>LdapClient</code>, configure it, then call
 <code>connect()</code> with a handler:
 </p>
 
+<p>
+In the client examples on this page, <code>gumdrop</code> is the runtime returned by <code>Gumdrop.boot()</code>; a client is given it when it connects.
+</p>
+
 <pre>
 LdapClient client = new LdapClient(selectorLoop, "ldap.example.com", 389);
 
-client.connect(new LdapConnectionReady() {
+client.connect(gumdrop, new LdapConnectionReady() {
     @Override
     public void handleReady(LdapConnected connection) {
         connection.bind("cn=admin,dc=example,dc=com", "secret",
@@ -449,7 +453,7 @@ LdapClient client = new LdapClient(selectorLoop, "ldap.example.com", 389);
 client.setKeystoreFile(Path.of("/path/to/truststore.p12"));
 client.setKeystorePass("changeit");
 
-client.connect(new LdapConnectionReady() {
+client.connect(gumdrop, new LdapConnectionReady() {
     @Override
     public void handleReady(LdapConnected connection) {
         connection.startTLS(new StartTLSResultHandler() {
@@ -484,7 +488,7 @@ LdapClient client = new LdapClient(selectorLoop, "ldap.example.com", 636);
 client.setSecure(true);
 client.setKeystoreFile(Path.of("/path/to/truststore.p12"));
 client.setKeystorePass("changeit");
-client.connect(handler);
+client.connect(gumdrop, handler);
 </pre>
 
 <h4>Client Configuration Options</h4>
@@ -799,7 +803,7 @@ listener.
 <pre>
 LdapClient client = new LdapClient(selectorLoop, "ldap.example.com", 389);
 
-client.connect(new LdapConnectionReady() {
+client.connect(gumdrop, new LdapConnectionReady() {
     @Override
     public void handleReady(LdapConnected connection) {
         connection.bind("cn=admin,dc=example,dc=com", "secret",

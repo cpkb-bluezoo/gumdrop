@@ -47,7 +47,7 @@ public class JSPCodeGeneratorExample {
         
         // Step 1: Parse the JSP file
         try (InputStream jspInput = new FileInputStream(jspFilePath)) {
-            JspPage jspPage = JspParserFactory.parseJSP(jspInput, encoding, jspFilePath);
+            JspPage jspPage = new JspParserFactory().parseJSP(jspInput, encoding, jspFilePath);
             
             // Step 2: Generate Java servlet source code
             try (FileOutputStream javaOutput = new FileOutputStream(javaFilePath)) {
@@ -76,7 +76,7 @@ public class JSPCodeGeneratorExample {
             throws IOException, JspParseException {
         
         try (InputStream jspInput = new FileInputStream(jspFilePath)) {
-            JspPage jspPage = JspParserFactory.parseJSP(jspInput, encoding, jspFilePath);
+            JspPage jspPage = new JspParserFactory().parseJSP(jspInput, encoding, jspFilePath);
             
             ByteArrayOutputStream byteOutput = new ByteArrayOutputStream();
             // For this example, we use null for TaglibRegistry to keep it simple

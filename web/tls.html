@@ -430,6 +430,10 @@ examples.
 
 <h3>Programmatic client (factory)</h3>
 
+<p>
+In the client examples on this page, <code>gumdrop</code> is the runtime returned by <code>Gumdrop.boot()</code>; a client is given it when it connects.
+</p>
+
 <pre>
 TcpTransportFactory factory = new TcpTransportFactory();
 factory.setSecure(true);
@@ -444,7 +448,7 @@ factory.setNamedGroups("X25519");
 factory.start();
 
 ClientEndpoint endpoint = new ClientEndpoint(factory, "example.com", 443);
-endpoint.connect(new MyProtocolHandler());
+endpoint.connect(gumdrop, new MyProtocolHandler());
 </pre>
 
 <p>

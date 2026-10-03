@@ -685,6 +685,10 @@ it supports SelectorLoop affinity for use within server implementations.
 
 <h4>Connecting</h4>
 
+<p>
+In the client examples on this page, <code>gumdrop</code> is the runtime returned by <code>Gumdrop.boot()</code>; a client is given it when it connects.
+</p>
+
 <pre>
 MqttClient client = new MqttClient("broker.example.com", 1883);
 client.setClientId("sensor-001");
@@ -692,7 +696,7 @@ client.setCleanSession(true);
 client.setKeepAlive(30);
 client.setCredentials("user", "password");
 
-client.connect(new MqttClientCallback() {
+client.connect(gumdrop, new MqttClientCallback() {
     @Override
     public void connected() {
         System.out.println("Connected to broker");
@@ -781,7 +785,7 @@ MqttClient client = new MqttClient("broker.example.com", 8883);
 client.setSecure(true);
 client.setKeystoreFile(Path.of("truststore.p12"));
 client.setKeystorePass("password");
-client.connect(callback, listener);
+client.connect(gumdrop, callback, listener);
 </pre>
 
 <h4>Last Will and Testament</h4>
@@ -789,7 +793,7 @@ client.connect(callback, listener);
 <pre>
 client.setWill("devices/sensor-001/status", "offline".getBytes(UTF_8),
                QoS.AT_LEAST_ONCE, true);
-client.connect(callback, listener);
+client.connect(gumdrop, callback, listener);
 </pre>
 
 <h4>SelectorLoop Affinity</h4>
@@ -804,14 +808,14 @@ synchronisation overhead:
 <pre>
 SelectorLoop loop = endpoint.getSelectorLoop();
 MqttClient mqtt = new MqttClient(loop, "broker.internal", 1883);
-mqtt.connect(callback, listener);
+mqtt.connect(gumdrop, callback, listener);
 </pre>
 
 <h4>MQTT 5.0 Client</h4>
 
 <pre>
 client.setVersion(MqttVersion.V5_0);
-client.connect(callback, listener);
+client.connect(gumdrop, callback, listener);
 </pre>
 
 <h3 id="telemetry">Telemetry</h3>

@@ -3,7 +3,11 @@
  * Test demonstrating HTTP client authentication capabilities.
  */
 
+import org.bluezoo.gumdrop.Endpoint;
+import org.bluezoo.gumdrop.Gumdrop;
+import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.http.client.DefaultHttpResponseHandler;
+import org.bluezoo.gumdrop.http.client.HttpClientHandler;
 import org.bluezoo.gumdrop.http.HttpClient;
 import org.bluezoo.gumdrop.http.client.HttpRequest;
 import org.bluezoo.gumdrop.http.client.HttpResponse;
@@ -24,27 +28,66 @@ import java.util.concurrent.TimeUnit;
  */
 public class AuthenticationTest {
 
+    /**
+     * Client handler that runs {@link #ready()} once the connection is
+     * established. In Gumdrop 3 a request can only be created after
+     * {@code connect(gumdrop, handler)} has reported {@code onConnected}.
+     */
+    private abstract static class WhenConnected implements HttpClientHandler {
+        private final String label;
+        private final CountDownLatch latch;
+
+        WhenConnected(String label, CountDownLatch latch) {
+            this.label = label;
+            this.latch = latch;
+        }
+
+        abstract void ready();
+
+        @Override
+        public void onConnected(Endpoint endpoint) {
+            ready();
+        }
+
+        @Override
+        public void onSecurityEstablished(SecurityInfo info) {
+        }
+
+        @Override
+        public void onError(Exception cause) {
+            System.err.println(label + ": connection failed: " + cause.getMessage());
+            latch.countDown();
+        }
+
+        @Override
+        public void onDisconnected() {
+        }
+    }
+
     private static final String TEST_HOST = "httpbin.org";
     private static final int TEST_PORT = 80;
 
     public static void main(String[] args) {
         System.out.println("Starting HTTP Authentication Test");
 
+        Gumdrop gumdrop = Gumdrop.boot();
         try {
             // Test 1: Basic Authentication with automatic challenge handling
-            testBasicAuthentication();
+            testBasicAuthentication(gumdrop);
 
             // Test 2: Bearer Token Authentication (manual header)
-            testBearerAuthentication();
+            testBearerAuthentication(gumdrop);
 
             // Test 3: Digest Authentication (requires challenge)
-            testDigestAuthentication();
+            testDigestAuthentication(gumdrop);
 
             System.out.println("\nAll authentication tests completed successfully!");
 
         } catch (Exception e) {
             System.err.println("Authentication test failed: " + e.getMessage());
             e.printStackTrace();
+        } finally {
+            gumdrop.shutdown();
         }
     }
 
@@ -54,7 +97,7 @@ public class AuthenticationTest {
      * <p>The client handles 401 challenges automatically when credentials
      * are configured via {@link HttpClient#credentials(String, String)}.
      */
-    private static void testBasicAuthentication() throws Exception {
+    private static void testBasicAuthentication(final Gumdrop gumdrop) throws Exception {
         System.out.println("\n=== Testing Basic Authentication ===");
 
         final CountDownLatch latch = new CountDownLatch(1);
@@ -64,39 +107,43 @@ public class AuthenticationTest {
         // Set credentials for automatic Basic/Digest authentication
         client.credentials("user", "passwd");
 
-        // Request protected resource - connection established automatically
-        HttpRequest request = client.get("/basic-auth/user/passwd");
-        request.header("User-Agent", "Gumdrop-HTTP-Client/1.0");
-
-        request.send(new DefaultHttpResponseHandler() {
+        client.connect(gumdrop, new WhenConnected("AuthenticationTest", latch) {
             @Override
-            public void ok(HttpResponse response) {
-                System.out.println("Response: " + response.getStatus());
-                System.out.println("  Basic authentication successful!");
-            }
+            void ready() {
+                HttpRequest request = client.get("/basic-auth/user/passwd");
+                request.header("User-Agent", "Gumdrop-HTTP-Client/1.0");
 
-            @Override
-            public void error(HttpResponse response) {
-                System.out.println("Error: " + response.getStatus());
-                System.out.println("  Basic authentication failed");
-            }
+                request.send(new DefaultHttpResponseHandler() {
+                    @Override
+                    public void ok(HttpResponse response) {
+                        System.out.println("Response: " + response.getStatus());
+                        System.out.println("  Basic authentication successful!");
+                    }
 
-            @Override
-            public void close() {
-                System.out.println("Response complete");
-                client.close();
-                latch.countDown();
-            }
+                    @Override
+                    public void error(HttpResponse response) {
+                        System.out.println("Error: " + response.getStatus());
+                        System.out.println("  Basic authentication failed");
+                    }
 
-            @Override
-            public void failed(Exception ex) {
-                System.err.println("Request failed: " + ex.getMessage());
-                client.close();
-                latch.countDown();
+                    @Override
+                    public void close() {
+                        System.out.println("Response complete");
+                        client.close();
+                        latch.countDown();
+                    }
+
+                    @Override
+                    public void failed(Exception ex) {
+                        System.err.println("Request failed: " + ex.getMessage());
+                        client.close();
+                        latch.countDown();
+                    }
+                });
+
+                System.out.println("Sent: GET /basic-auth/user/passwd");
             }
         });
-
-        System.out.println("Sent: GET /basic-auth/user/passwd");
 
         boolean completed = latch.await(30, TimeUnit.SECONDS);
         if (!completed) {
@@ -113,7 +160,7 @@ public class AuthenticationTest {
      * <p>Bearer tokens are added manually via the Authorization header.
      * This is commonly used for OAuth 2.0 and API key authentication.
      */
-    private static void testBearerAuthentication() throws Exception {
+    private static void testBearerAuthentication(final Gumdrop gumdrop) throws Exception {
         System.out.println("\n=== Testing Bearer Authentication ===");
 
         final CountDownLatch latch = new CountDownLatch(1);
@@ -122,46 +169,51 @@ public class AuthenticationTest {
         final HttpClient client = new HttpClient(TEST_HOST, TEST_PORT);
 
         // Request endpoint that shows headers (to verify Bearer token was sent)
-        HttpRequest request = client.get("/headers");
-        request.header("User-Agent", "Gumdrop-HTTP-Client/1.0");
-        request.header("Accept", "application/json");
-
-        // Add Bearer token manually
-        request.header("Authorization", "Bearer fake-token-12345");
-
-        request.send(new DefaultHttpResponseHandler() {
+        client.connect(gumdrop, new WhenConnected("AuthenticationTest", latch) {
             @Override
-            public void ok(HttpResponse response) {
-                System.out.println("Response: " + response.getStatus());
-            }
+            void ready() {
+                HttpRequest request = client.get("/headers");
+                request.header("User-Agent", "Gumdrop-HTTP-Client/1.0");
+                request.header("Accept", "application/json");
 
-            @Override
-            public void responseBodyContent(ByteBuffer data) {
-                String chunk = StandardCharsets.UTF_8.decode(data).toString();
-                responseBody.append(chunk);
+                // Add Bearer token manually
+                request.header("Authorization", "Bearer fake-token-12345");
 
-                // Check if the Bearer token appears in the response
-                if (chunk.contains("Bearer fake-token-12345")) {
-                    System.out.println("  Bearer token found in request headers!");
-                }
-            }
+                request.send(new DefaultHttpResponseHandler() {
+                    @Override
+                    public void ok(HttpResponse response) {
+                        System.out.println("Response: " + response.getStatus());
+                    }
 
-            @Override
-            public void close() {
-                System.out.println("Response complete");
-                client.close();
-                latch.countDown();
-            }
+                    @Override
+                    public void responseBodyContent(ByteBuffer data) {
+                        String chunk = StandardCharsets.UTF_8.decode(data).toString();
+                        responseBody.append(chunk);
 
-            @Override
-            public void failed(Exception ex) {
-                System.err.println("Request failed: " + ex.getMessage());
-                client.close();
-                latch.countDown();
+                        // Check if the Bearer token appears in the response
+                        if (chunk.contains("Bearer fake-token-12345")) {
+                            System.out.println("  Bearer token found in request headers!");
+                        }
+                    }
+
+                    @Override
+                    public void close() {
+                        System.out.println("Response complete");
+                        client.close();
+                        latch.countDown();
+                    }
+
+                    @Override
+                    public void failed(Exception ex) {
+                        System.err.println("Request failed: " + ex.getMessage());
+                        client.close();
+                        latch.countDown();
+                    }
+                });
+
+                System.out.println("Sent: GET /headers with Bearer token");
             }
         });
-
-        System.out.println("Sent: GET /headers with Bearer token");
 
         boolean completed = latch.await(30, TimeUnit.SECONDS);
         if (!completed) {
@@ -178,7 +230,7 @@ public class AuthenticationTest {
      * <p>When the server responds with 401 and a WWW-Authenticate: Digest header,
      * the client automatically computes the digest response and retries the request.
      */
-    private static void testDigestAuthentication() throws Exception {
+    private static void testDigestAuthentication(final Gumdrop gumdrop) throws Exception {
         System.out.println("\n=== Testing Digest Authentication ===");
 
         final CountDownLatch latch = new CountDownLatch(1);
@@ -190,38 +242,43 @@ public class AuthenticationTest {
 
         // Request protected resource that requires digest auth
         // This will trigger a 401 challenge that should be handled automatically
-        HttpRequest request = client.get("/digest-auth/auth/user/passwd");
-        request.header("User-Agent", "Gumdrop-HTTP-Client/1.0");
-
-        request.send(new DefaultHttpResponseHandler() {
+        client.connect(gumdrop, new WhenConnected("AuthenticationTest", latch) {
             @Override
-            public void ok(HttpResponse response) {
-                System.out.println("Response: " + response.getStatus());
-                System.out.println("  Digest authentication successful after challenge!");
-            }
+            void ready() {
+                HttpRequest request = client.get("/digest-auth/auth/user/passwd");
+                request.header("User-Agent", "Gumdrop-HTTP-Client/1.0");
 
-            @Override
-            public void error(HttpResponse response) {
-                System.out.println("Error: " + response.getStatus());
-                System.out.println("  Digest authentication failed");
-            }
+                request.send(new DefaultHttpResponseHandler() {
+                    @Override
+                    public void ok(HttpResponse response) {
+                        System.out.println("Response: " + response.getStatus());
+                        System.out.println("  Digest authentication successful after challenge!");
+                    }
 
-            @Override
-            public void close() {
-                System.out.println("Response complete");
-                client.close();
-                latch.countDown();
-            }
+                    @Override
+                    public void error(HttpResponse response) {
+                        System.out.println("Error: " + response.getStatus());
+                        System.out.println("  Digest authentication failed");
+                    }
 
-            @Override
-            public void failed(Exception ex) {
-                System.err.println("Request failed: " + ex.getMessage());
-                client.close();
-                latch.countDown();
+                    @Override
+                    public void close() {
+                        System.out.println("Response complete");
+                        client.close();
+                        latch.countDown();
+                    }
+
+                    @Override
+                    public void failed(Exception ex) {
+                        System.err.println("Request failed: " + ex.getMessage());
+                        client.close();
+                        latch.countDown();
+                    }
+                });
+
+                System.out.println("Sent: GET /digest-auth/auth/user/passwd (challenge expected)");
             }
         });
-
-        System.out.println("Sent: GET /digest-auth/auth/user/passwd (challenge expected)");
 
         boolean completed = latch.await(30, TimeUnit.SECONDS);
         if (!completed) {

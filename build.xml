@@ -173,6 +173,13 @@
     <delete dir='${dist}'/>
     <delete dir='${manager}/WEB-INF/classes'/>
     <delete dir='${testdir}/cluster/WEB-INF/classes'/>
+    <!-- Sample ROOT webapp classes, built by web-root-classes -->
+    <delete dir='web/WEB-INF/classes'/>
+    <!-- Stray class files from compiling examples by hand; the build
+         itself compiles them into ${build.dir}/examples -->
+    <delete>
+      <fileset dir='examples' includes='**/*.class'/>
+    </delete>
   </target>
 
   <target name='clean-junit'>
