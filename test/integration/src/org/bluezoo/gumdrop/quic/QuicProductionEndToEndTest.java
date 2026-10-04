@@ -35,6 +35,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeSet;
@@ -4011,13 +4012,16 @@ public class QuicProductionEndToEndTest {
      * Agent15 handshake -- production {@link QuicEngine}/{@link
      * QuicConnection} on the receiving end can't tell the difference from
      * a real client) at a real production server over a real raw socket,
-     * then counts how many separate UDP datagrams arrive back within a
-     * short quiet period. Before packet coalescing, the server's first
-     * flight (an Initial ACK+CRYPTO packet and a Handshake CRYPTO packet)
-     * went out as two separate datagrams; it must now be exactly one.
+     * then looks at the UDP datagrams that arrive back within a short
+     * quiet period. The server's first flight (Initial ACK+CRYPTO and
+     * Handshake CRYPTO) is larger than one datagram may be (RFC 9000
+     * section 14: 1200 bytes until the path is known to carry more), so
+     * it spans several -- but packed: packets of both levels share a
+     * datagram wherever there is room, so every datagram but the last is
+     * full, rather than each packet going out in a datagram of its own.
      */
     @Test
-    public void testServerFirstFlightIsCoalescedIntoOneDatagram() throws Exception {
+    public void testServerFirstFlightIsPackedIntoFullDatagrams() throws Exception {
         SelectorLoop loop = new SelectorLoop(0);
         loop.start();
         QuicEngine serverEngine = null;
@@ -4050,10 +4054,18 @@ public class QuicProductionEndToEndTest {
             clientChannel = DatagramChannel.open();
             clientChannel.send(ByteBuffer.wrap(clientInitialDatagram), serverAddress);
 
-            int datagramCount = countDatagramsWithinQuietPeriod(clientChannel, 500);
-            assertEquals("The server's Initial-ACK+CRYPTO and Handshake-CRYPTO packets "
-                    + "should now be coalesced into a single UDP datagram (RFC 9000 section 12.2)",
-                    1, datagramCount);
+            List<Integer> sizes = datagramSizesWithinQuietPeriod(clientChannel, 500);
+            assertFalse("The server should answer the client's Initial", sizes.isEmpty());
+            for (int i = 0; i < sizes.size(); i++) {
+                int size = sizes.get(i).intValue();
+                assertTrue("Datagram " + i + " of " + sizes + " exceeds 1200 bytes (RFC 9000 section 14)",
+                        size <= 1200);
+                if (i < sizes.size() - 1) {
+                    assertTrue("Datagram " + i + " of " + sizes + " should be full: the flight's packets "
+                            + "are coalesced (RFC 9000 section 12.2), not sent one per datagram",
+                            size >= 1150);
+                }
+            }
         } finally {
             if (clientChannel != null) {
                 clientChannel.close();
@@ -4066,12 +4078,13 @@ public class QuicProductionEndToEndTest {
         }
     }
 
-    private static int countDatagramsWithinQuietPeriod(DatagramChannel channel, long quietPeriodMs) throws IOException {
+    private static List<Integer> datagramSizesWithinQuietPeriod(DatagramChannel channel, long quietPeriodMs)
+            throws IOException {
         channel.configureBlocking(false);
         Selector selector = Selector.open();
         try {
             channel.register(selector, SelectionKey.OP_READ);
-            int count = 0;
+            List<Integer> sizes = new ArrayList<Integer>();
             ByteBuffer buf = ByteBuffer.allocate(4096);
             while (true) {
                 int ready = selector.select(quietPeriodMs);
@@ -4081,10 +4094,10 @@ public class QuicProductionEndToEndTest {
                 selector.selectedKeys().clear();
                 buf.clear();
                 if (channel.receive(buf) != null) {
-                    count++;
+                    sizes.add(Integer.valueOf(buf.position()));
                 }
             }
-            return count;
+            return sizes;
         } finally {
             selector.close();
         }

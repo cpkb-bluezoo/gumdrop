@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.quic;
 
+import org.bluezoo.gumdrop.testsupport.TestCertificates;
 import org.bluezoo.gumdrop.testsupport.memfs.MemoryFileSystem;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
@@ -372,6 +373,33 @@ public class QuicMiscUnitTest {
         lb.pump();
         assertEquals("secp256r1", client.conn.getSecurityInfo().getNamedGroup());
         assertEquals("secp256r1", server.conn.getSecurityInfo().getNamedGroup());
+    }
+
+    @Test
+    public void handshakeFlightsAreSplitAcrossDatagramsOfAtMostTheMinimumMtu() throws Exception {
+        // RFC 9000 section 14: no datagram larger than 1200 bytes before
+        // the path is known to carry more. A ClientHello with a hybrid
+        // key share, and a ServerHello plus an RSA-4096 certificate, are
+        // each bigger than that and must span several packets.
+        QuicLoopback lb = new QuicLoopback();
+        lb.serverFactory.setServerCredentials(TestCertificates.rsa4096().credentials());
+        lb.startFactories();
+        ConnCapture server = new ConnCapture();
+        lb.startServer(server);
+        ConnCapture client = new ConnCapture();
+        lb.startClient(null, client);
+        lb.pump();
+        assertNotNull("handshake did not complete", client.conn);
+        assertEquals("X25519MLKEM768", client.conn.getSecurityInfo().getNamedGroup());
+        assertTrue("ClientHello should not fit one datagram", lb.toServerLog.size() > 1);
+        for (int i = 0; i < lb.toServerLog.size(); i++) {
+            assertTrue("client datagram " + i + " is " + lb.toServerLog.get(i).length + " bytes",
+                    lb.toServerLog.get(i).length <= 1200);
+        }
+        for (int i = 0; i < lb.toClientLog.size(); i++) {
+            assertTrue("server datagram " + i + " is " + lb.toClientLog.get(i).length + " bytes",
+                    lb.toClientLog.get(i).length <= 1200);
+        }
     }
 
     @Test

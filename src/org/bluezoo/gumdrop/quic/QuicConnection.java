@@ -70,6 +70,7 @@ import org.bluezoo.gumdrop.quic.packet.ShortHeaderCodec;
 import org.bluezoo.gumdrop.quic.packet.StatelessResetPacket;
 import org.bluezoo.gumdrop.quic.packet.TransportParameters;
 import org.bluezoo.gumdrop.quic.packet.QuicVersion;
+import org.bluezoo.gumdrop.quic.packet.VarInt;
 import org.bluezoo.gumdrop.quic.packet.VersionNegotiationPacket;
 import org.bluezoo.gumdrop.quic.recovery.LossDetector;
 import org.bluezoo.gumdrop.quic.recovery.RttEstimator;
@@ -2420,21 +2421,30 @@ public final class QuicConnection implements QuicTlsEngineListener {
         if (closed) {
             return false;
         }
-        byte[] zeroRttBytes = buildZeroRttPacketOrNull();
-        byte[] handshakeBytes = buildLevelPacketOrNull(EncryptionLevel.HANDSHAKE, 0);
+        // RFC 9000 section 14: the datagram as a whole is bounded, and
+        // the Initial packet, though built last (see flush), is the
+        // oldest data and goes first: the other levels get only what it
+        // will leave them, and nothing at all if that is too little for
+        // a packet.
+        int initialReserve = initialPacketReserve();
+        boolean roomBesideInitial = MAX_DATAGRAM_SIZE - initialReserve >= MIN_COALESCED_PACKET_ROOM;
+        coalescedBytes = initialReserve;
+        byte[] zeroRttBytes = roomBesideInitial ? buildZeroRttPacketOrNull() : null;
+        coalescedBytes = initialReserve + (zeroRttBytes != null ? zeroRttBytes.length : 0);
+        byte[] handshakeBytes = roomBesideInitial ? buildLevelPacketOrNull(EncryptionLevel.HANDSHAKE, 0) : null;
         if (handshakeBytes != null) {
             sentHandshakePacket = true;
         }
-        coalescedBytes = (zeroRttBytes != null ? zeroRttBytes.length : 0)
-                + (handshakeBytes != null ? handshakeBytes.length : 0);
-        byte[] oneRttBytes = buildLevelPacketOrNull(EncryptionLevel.ONE_RTT, 0);
-        coalescedBytes = 0;
+        coalescedBytes += (handshakeBytes != null ? handshakeBytes.length : 0);
+        byte[] oneRttBytes = roomBesideInitial ? buildLevelPacketOrNull(EncryptionLevel.ONE_RTT, 0) : null;
 
         int zeroRttHandshakeAndOneRttBytes = (zeroRttBytes != null ? zeroRttBytes.length : 0)
                 + (handshakeBytes != null ? handshakeBytes.length : 0)
                 + (oneRttBytes != null ? oneRttBytes.length : 0);
         int initialMinDatagramSize = !isServer ? Math.max(0, MIN_DATAGRAM_SIZE - zeroRttHandshakeAndOneRttBytes) : 0;
+        coalescedBytes = zeroRttHandshakeAndOneRttBytes;
         byte[] initialBytes = buildLevelPacketOrNull(EncryptionLevel.INITIAL, initialMinDatagramSize);
+        coalescedBytes = 0;
 
         // RFC 9001 section 4.9: attempted on every flush (not just one
         // that happens to build something new at these levels), since
@@ -2519,7 +2529,112 @@ public final class QuicConnection implements QuicTlsEngineListener {
         }
 
         scheduleLossDetectionTimer();
-        return sent && !closed && oneRttBytes != null && !pendingStream.isEmpty();
+        if (!sent || closed) {
+            return false;
+        }
+        return (oneRttBytes != null && !pendingStream.isEmpty()) || hasPendingCrypto();
+    }
+
+    // Too little of a datagram to be worth starting another packet in.
+    private static final int MIN_COALESCED_PACKET_ROOM = 64;
+
+    // Whether handshake data is still queued at a level that can send it:
+    // a flight larger than one datagram takes several (see flush).
+    private boolean hasPendingCrypto() {
+        EncryptionLevel[] levels = EncryptionLevel.values();
+        for (int i = 0; i < levels.length; i++) {
+            EncryptionLevel level = levels[i];
+            if (!discarded[level.ordinal()] && sendKeys.get(level) != null
+                    && !pendingCrypto.get(level).isEmpty()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    // An upper estimate of the Initial packet the datagram being built
+    // will carry, capped at a whole datagram; 0 if there will be none.
+    private int initialPacketReserve() {
+        EncryptionLevel level = EncryptionLevel.INITIAL;
+        if (discarded[level.ordinal()] || sendKeys.get(level) == null) {
+            return 0;
+        }
+        List<PendingChunk> chunks = pendingCrypto.get(level);
+        boolean ack = ackOwed[level.ordinal()];
+        boolean ping = pendingPing[level.ordinal()];
+        if (chunks.isEmpty() && !ack && !ping) {
+            return 0;
+        }
+        int size = packetOverhead(level);
+        for (int i = 0; i < chunks.size() && size < MAX_DATAGRAM_SIZE; i++) {
+            PendingChunk chunk = chunks.get(i);
+            size += QuicFrameWriter.cryptoLength(chunk.offset, chunk.data.length);
+        }
+        if (ack) {
+            size += QuicFrameWriter.ackLength(computeAckRanges(level), computeAckDelay(level));
+        }
+        if (ping) {
+            size += QuicFrameWriter.pingLength();
+        }
+        return Math.min(size, MAX_DATAGRAM_SIZE);
+    }
+
+    // The most a packet's header and AEAD tag can take at a level, with a
+    // four-byte packet number and, for a long header, a two-byte Length.
+    private int packetOverhead(EncryptionLevel level) {
+        if (level == EncryptionLevel.ONE_RTT) {
+            return 1 + peerConnectionId.length + 4 + QuicAeadAlgorithm.TAG_LENGTH;
+        }
+        int size = 1 + 4 + 1 + peerConnectionId.length + 1 + ourConnectionId.length + 2 + 4
+                + QuicAeadAlgorithm.TAG_LENGTH;
+        if (level == EncryptionLevel.INITIAL) {
+            int tokenLength = (retryToken != null) ? retryToken.length : 0;
+            size += VarInt.encodedLength(tokenLength) + tokenLength;
+        }
+        return size;
+    }
+
+    // Takes from the head of `pending` the CRYPTO chunks whose frames fit
+    // in `budget` bytes, splitting the first that does not: the part that
+    // fits is sent and the rest stays queued, at its own offset, for the
+    // next packet (RFC 9000 section 14, as drainEligibleStreamChunks does
+    // for stream data).
+    private static List<PendingChunk> drainCryptoChunks(List<PendingChunk> pending, int budget) {
+        List<PendingChunk> toSend = new ArrayList<PendingChunk>();
+        while (!pending.isEmpty() && budget > 0) {
+            PendingChunk chunk = pending.get(0);
+            int frameLength = QuicFrameWriter.cryptoLength(chunk.offset, chunk.data.length);
+            if (frameLength > budget) {
+                int fit = cryptoDataThatFits(chunk.offset, chunk.data.length, budget);
+                if (fit <= 0) {
+                    break;
+                }
+                PendingChunk head = new PendingChunk(chunk.offset, Arrays.copyOfRange(chunk.data, 0, fit));
+                PendingChunk tail = new PendingChunk(chunk.offset + fit,
+                        Arrays.copyOfRange(chunk.data, fit, chunk.data.length));
+                pending.set(0, tail);
+                toSend.add(head);
+                break;
+            }
+            pending.remove(0);
+            toSend.add(chunk);
+            budget -= frameLength;
+        }
+        return toSend;
+    }
+
+    // The most of `available` data bytes of a chunk starting at `offset`
+    // whose CRYPTO frame fits in `budget` bytes, or 0 if not even one does.
+    private static int cryptoDataThatFits(long offset, int available, int budget) {
+        int n = Math.min(available, budget);
+        while (n > 0) {
+            int over = QuicFrameWriter.cryptoLength(offset, n) - budget;
+            if (over <= 0) {
+                return n;
+            }
+            n -= over;
+        }
+        return 0;
     }
 
     private byte[] buildLevelPacketOrNull(EncryptionLevel level, int minDatagramSize) {
@@ -3182,8 +3297,9 @@ public final class QuicConnection implements QuicTlsEngineListener {
         return 0;
     }
 
-    // Bytes of earlier packets already in the datagram the 1-RTT packet
-    // being built will share (RFC 9000 section 12.2); see flushOneDatagram.
+    // Bytes of the datagram already taken by, or reserved for, the other
+    // packets the one being built will share it with (RFC 9000 section
+    // 12.2); see flushOneDatagram.
     private int coalescedBytes;
 
     // The bytes of STREAM frames the next packet may carry: what is left
@@ -3269,7 +3385,6 @@ public final class QuicConnection implements QuicTlsEngineListener {
 
     private byte[] buildProtectedPacket(EncryptionLevel level, int minDatagramSize) throws PacketProtectionException {
         boolean oneRtt = level == EncryptionLevel.ONE_RTT;
-        List<PendingChunk> cryptoChunks = pendingCrypto.get(level);
 
         long[][] ackRangesForLevel = ackOwed[level.ordinal()] ? computeAckRanges(level) : null;
         boolean includeAck = ackRangesForLevel != null;
@@ -3300,9 +3415,6 @@ public final class QuicConnection implements QuicTlsEngineListener {
                 ? eligibleDatagrams() : Collections.<byte[]>emptyList();
 
         int frameBytes = 0;
-        for (PendingChunk chunk : cryptoChunks) {
-            frameBytes += QuicFrameWriter.cryptoLength(chunk.offset, chunk.data.length);
-        }
         long[][] ackRanges = ackRangesForLevel;
         if (includeAck) {
             frameBytes += QuicFrameWriter.ackLength(ackRanges, ackDelay);
@@ -3351,6 +3463,15 @@ public final class QuicConnection implements QuicTlsEngineListener {
             frameBytes += QuicFrameWriter.datagramLength(datagram.length);
         }
 
+        // RFC 9000 section 14: handshake data too is bounded by what the
+        // other frames leave of one datagram; the rest stays queued for
+        // the next packet.
+        List<PendingChunk> cryptoToSend = drainCryptoChunks(pendingCrypto.get(level),
+                MAX_DATAGRAM_SIZE - coalescedBytes - packetOverhead(level) - frameBytes);
+        for (PendingChunk chunk : cryptoToSend) {
+            frameBytes += QuicFrameWriter.cryptoLength(chunk.offset, chunk.data.length);
+        }
+
         // RFC 9000 section 14: whatever the other frames leave of one
         // datagram is all the stream data this packet may carry; the rest
         // stays queued for the next packet. Nothing is sent beyond the
@@ -3364,7 +3485,7 @@ public final class QuicConnection implements QuicTlsEngineListener {
             }
         }
 
-        boolean nothingToSend = cryptoChunks.isEmpty() && streamChunksToSend.isEmpty() && !includeAck
+        boolean nothingToSend = cryptoToSend.isEmpty() && streamChunksToSend.isEmpty() && !includeAck
                 && !includeHandshakeDone && !includePing && resetsToSend.isEmpty() && newCidsToSend.isEmpty()
                 && retiresToSend.length == 0 && !includeMaxData && maxStreamDataToSend.isEmpty()
                 && !includeDataBlocked && streamDataBlockedToSend.isEmpty()
@@ -3407,12 +3528,10 @@ public final class QuicConnection implements QuicTlsEngineListener {
         int totalFrameBytes = frameBytes + paddingBytes;
 
         ByteBuffer payload = ByteBuffer.allocate(totalFrameBytes);
-        List<PendingChunk> sentCryptoThisPacket = new ArrayList<PendingChunk>();
-        for (PendingChunk chunk : cryptoChunks) {
+        List<PendingChunk> sentCryptoThisPacket = cryptoToSend;
+        for (PendingChunk chunk : cryptoToSend) {
             QuicFrameWriter.writeCrypto(payload, chunk.offset, chunk.data);
-            sentCryptoThisPacket.add(chunk);
         }
-        cryptoChunks.clear();
         if (!sentCryptoThisPacket.isEmpty()) {
             sentCrypto.get(level).put(Long.valueOf(packetNumber), sentCryptoThisPacket);
         }

@@ -295,6 +295,20 @@ public class QuicLoopbackEngineTest {
         assertTrue(client.conn.isEstablished());
     }
 
+    /** Whether two long-header packets carry the same Destination Connection ID. */
+    private static boolean sameDestination(byte[] a, byte[] b) {
+        int length = a[5] & 0xff;
+        if ((b[5] & 0xff) != length) {
+            return false;
+        }
+        for (int i = 0; i < length; i++) {
+            if (a[6 + i] != b[6 + i]) {
+                return false;
+            }
+        }
+        return true;
+    }
+
     /**
      * A late client Initial addressed to the server-chosen connection ID of
      * a connection the server has since forgotten must not create a new
@@ -322,12 +336,14 @@ public class QuicLoopbackEngineTest {
             byte[] d = lb.toServerLog.get(i);
             boolean longHeader = (d[0] & 0x80) != 0;
             boolean initial = (d[0] & 0x30) == 0;
-            if (longHeader && initial && d.length >= 1200) {
+            // The ClientHello itself may span several Initials, all still
+            // addressed to the client's own first choice of connection ID.
+            if (longHeader && initial && d.length >= 1200 && !sameDestination(d, lb.toServerLog.get(0))) {
                 late = d;
                 break;
             }
         }
-        assertNotNull("client sent a padded Initial after the first", late);
+        assertNotNull("client sent a padded Initial to the server-chosen connection ID", late);
         QuicForger.invoke(accepted.get(0), "dropLocalState");
         lb.injectToServer(late);
         assertEquals("no phantom connection", 1, accepted.size());
