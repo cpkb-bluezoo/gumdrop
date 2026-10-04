@@ -121,9 +121,14 @@ private static final Logger LOGGER = Logger.getLogger(ContextRequestDispatcher.c
                 HttpServletMapping hsm = hq.getHttpServletMapping();
                 match = new ServletMatch();
                 match.servletDef = this.match.servletDef;
-                match.mappingMatch = this.match.mappingMatch;
-                match.servletPath = hsm.getPattern();
+                // A named dispatcher has no path of its own: the request
+                // keeps the path and the mapping it arrived with
+                // (Servlet spec section 9.4.2)
+                match.mappingMatch = hsm.getMappingMatch();
+                match.pattern = hsm.getPattern();
                 match.matchValue = hsm.getMatchValue();
+                match.servletPath = hq.getServletPath();
+                match.pathInfo = hq.getPathInfo();
             }
 
             // SRV.8.4.1, SRV.8.4.2
@@ -159,9 +164,14 @@ private static final Logger LOGGER = Logger.getLogger(ContextRequestDispatcher.c
                 HttpServletMapping hsm = hq.getHttpServletMapping();
                 match = new ServletMatch();
                 match.servletDef = this.match.servletDef;
-                match.mappingMatch = this.match.mappingMatch;
-                match.servletPath = hsm.getPattern();
+                // A named dispatcher has no path of its own: the request
+                // keeps the path and the mapping it arrived with
+                // (Servlet spec section 9.4.2)
+                match.mappingMatch = hsm.getMappingMatch();
+                match.pattern = hsm.getPattern();
                 match.matchValue = hsm.getMatchValue();
+                match.servletPath = hq.getServletPath();
+                match.pathInfo = hq.getPathInfo();
             }
 
             // SRV.8.3.1

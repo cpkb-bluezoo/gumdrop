@@ -36,14 +36,24 @@ final class ServletMatch implements HttpServletMapping {
     String servletPath;
     String pathInfo;
     MappingMatch mappingMatch;
+
+    /**
+     * The part of the request path that the pattern left open: what the
+     * {@code *} of a path or extension pattern stood for, the whole path
+     * without its leading slash for an exact match, and the empty string
+     * for the context root and the default servlet.
+     */
     String matchValue;
 
+    /** The URL pattern that matched, as it was declared. */
+    String pattern;
+
     @Override public String getMatchValue() {
-        return matchValue.startsWith("/") ? matchValue.substring(1) : matchValue;
+        return matchValue;
     }
 
     @Override public String getPattern() {
-        return servletPath.startsWith("/") ? servletPath.substring(1) : servletPath;
+        return pattern;
     }
 
     @Override public String getServletName() {
