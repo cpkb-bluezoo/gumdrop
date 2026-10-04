@@ -25,15 +25,20 @@ import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
+import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.FileVisitResult;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.SimpleFileVisitor;
 import java.nio.file.attribute.BasicFileAttributes;
+import java.util.ArrayList;
+import java.util.Enumeration;
 import java.util.List;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
+
+import org.bluezoo.gumdrop.ContainerClassLoader;
 
 import org.junit.After;
 import org.junit.Before;
@@ -175,6 +180,64 @@ public class ContextArchiveIntegrationTest extends ContextArchiveTest {
             assertEquals("alpha", read(owned));
         } finally {
             archive.close();
+        }
+    }
+
+    private static void writeJar(Path jar, String entryName, String content) throws IOException {
+        ZipOutputStream out = new ZipOutputStream(Files.newOutputStream(jar));
+        try {
+            out.putNextEntry(new ZipEntry(entryName));
+            out.write(content.getBytes(StandardCharsets.UTF_8));
+            out.closeEntry();
+        } finally {
+            out.close();
+        }
+    }
+
+    /**
+     * With the container's own class loader as parent, as in a running
+     * server, a resource that only some of the container's dependency jars
+     * have must not put a null in the enumeration for each jar that lacks
+     * it: {@code ServiceLoader} fails on the first one.
+     */
+    @Test
+    public void testResourcesFromContainerParentAreNeverNull() throws Exception {
+        Path containerJar = scratch.resolve("container.jar");
+        writeJar(containerJar, "container.txt", "container");
+        Path withJar = scratch.resolve("with.jar");
+        writeJar(withJar, "dep/only.txt", "dep");
+        Path withoutJar = scratch.resolve("without.jar");
+        writeJar(withoutJar, "unrelated.txt", "unrelated");
+        List<URL> deps = new ArrayList<URL>();
+        deps.add(withoutJar.toUri().toURL());
+        deps.add(withJar.toUri().toURL());
+        ContainerClassLoader parent = new ContainerClassLoader(containerJar.toUri().toURL(), deps,
+                ContextArchiveIntegrationTest.class.getClassLoader());
+        try {
+            Context c = load("/r3dir", buildExploded());
+            ContextClassLoader loader = new ContextClassLoader(parent, c, false);
+
+            Enumeration<URL> dep = loader.getResources("dep/only.txt");
+            int count = 0;
+            while (dep.hasMoreElements()) {
+                assertNotNull(dep.nextElement());
+                count++;
+            }
+            assertEquals(1, count);
+
+            Enumeration<URL> lib = loader.getResources("libdata/lib.txt");
+            count = 0;
+            while (lib.hasMoreElements()) {
+                assertNotNull(lib.nextElement());
+                count++;
+            }
+            assertEquals(1, count);
+
+            Enumeration<URL> none = loader.getResources("nothing-here.txt");
+            assertFalse(none.hasMoreElements());
+            c.destroy();
+        } finally {
+            parent.close();
         }
     }
 }

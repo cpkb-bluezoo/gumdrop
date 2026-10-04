@@ -2194,6 +2194,26 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
     }
 
     /**
+     * Separates the resource path of a library jar from the name of an
+     * entry inside it, in the path of a {@code resource:} URL.
+     */
+    static final String LIB_ENTRY_SEPARATOR = "!/";
+
+    /**
+     * Returns the URL of an entry of a jar in WEB-INF/lib. Such a URL is
+     * for the web application's class loader to hand out: it is resolved
+     * by {@link ResourceURLConnection}, not by {@link #getResource}.
+     *
+     * @param jarPath the resource path of the jar, with leading '/'
+     * @param entryName the name of the entry in the jar
+     */
+    URL libEntryUrl(String jarPath, String entryName) throws MalformedURLException {
+        // URL host cannot have leading slash
+        String host = contextPath.startsWith("/") ? contextPath.substring(1) : contextPath;
+        return new URL("resource", host, jarPath + LIB_ENTRY_SEPARATOR + entryName);
+    }
+
+    /**
      * Returns an InputStream from which the given resource's contents can
      * be read, or null if the resource is not valid in this context.
      * @param path the path to the resource within this context

@@ -34,7 +34,11 @@ import java.net.URLConnection;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.Enumeration;
+import java.util.Iterator;
+import java.util.List;
+import java.util.ServiceLoader;
 import java.util.Set;
 import java.util.jar.JarOutputStream;
 import java.util.zip.ZipEntry;
@@ -185,6 +189,17 @@ public class ContextArchiveTest {
         entry(out, PKG + "ContextArchiveTest$LibServlet.class", classBytes(LibServlet.class));
         entry(out, PKG + "ContextArchiveTest$LibMarker.class", classBytes(LibMarker.class));
         entry(out, PKG + "ContextArchiveTest$LibInitializer.class", classBytes(LibInitializer.class));
+        entry(out, "META-INF/services/java.lang.Runnable", text(LibMarker.class.getName() + "\n"));
+        entry(out, "libdata/lib.txt", text("lib-data"));
+        out.close();
+        return bout.toByteArray();
+    }
+
+    /** A second library jar, declaring the same service as the first. */
+    private static byte[] buildOtherJar() throws IOException {
+        ByteArrayOutputStream bout = new ByteArrayOutputStream();
+        JarOutputStream out = new JarOutputStream(bout);
+        entry(out, "META-INF/services/java.lang.Runnable", text("# none\n"));
         out.close();
         return bout.toByteArray();
     }
@@ -199,25 +214,29 @@ public class ContextArchiveTest {
         entry(out, "../outside.txt", text("bad"));
         entry(out, "WEB-INF/classes/" + PKG + "ContextArchiveTest$WarServlet.class",
                 classBytes(WarServlet.class));
+        entry(out, "WEB-INF/classes/classes.txt", text("classes-data"));
         entry(out, "WEB-INF/lib/frag.jar", libJar);
+        entry(out, "WEB-INF/lib/other.jar", buildOtherJar());
         entry(out, "WEB-INF/lib/readme.txt", text("not a jar"));
         out.close();
         return war;
     }
 
-    private Path buildExploded() throws IOException {
+    protected Path buildExploded() throws IOException {
         Path dir = newFolder("exploded");
         MemoryFolder.write(dir, "WEB-INF/web.xml", text(WEB_XML));
         MemoryFolder.write(dir, "index.html", text("<html>dir</html>"));
         MemoryFolder.write(dir, "page.hi", text("hi"));
         MemoryFolder.write(dir, "WEB-INF/classes/" + PKG + "ContextArchiveTest$WarServlet.class",
                 classBytes(WarServlet.class));
+        MemoryFolder.write(dir, "WEB-INF/classes/classes.txt", text("classes-data"));
         MemoryFolder.write(dir, "WEB-INF/lib/frag.jar", libJar);
+        MemoryFolder.write(dir, "WEB-INF/lib/other.jar", buildOtherJar());
         MemoryFolder.write(dir, "WEB-INF/lib/readme.txt", text("not a jar"));
         return dir;
     }
 
-    private Context load(String path, Path root) throws Exception {
+    protected Context load(String path, Path root) throws Exception {
         Context c = new Context(container, path, root);
         container.addContext(c);
         c.load();
@@ -365,6 +384,81 @@ public class ContextArchiveTest {
         assertTrue(all.hasMoreElements());
         Enumeration<URL> none = loader.getResources("nothing-here.txt");
         assertFalse(none.hasMoreElements());
+        c.destroy();
+    }
+
+    // ===== class path resources =====
+
+    /**
+     * The class path of a web application is WEB-INF/classes and the jars
+     * in WEB-INF/lib: its class loader has to find what they contain as
+     * resources, not only as classes.
+     */
+    private void assertClassPathResources(Context c) throws Exception {
+        ClassLoader loader = c.getContextClassLoader();
+
+        URL classes = loader.getResource("classes.txt");
+        assertNotNull(classes);
+        assertEquals("classes-data", read(classes.openStream()));
+        InputStream classesIn = loader.getResourceAsStream("classes.txt");
+        assertNotNull(classesIn);
+        assertEquals("classes-data", read(classesIn));
+
+        URL lib = loader.getResource("libdata/lib.txt");
+        assertNotNull(lib);
+        assertEquals("lib-data", read(lib.openStream()));
+        URLConnection libConn = lib.openConnection();
+        libConn.connect();
+        assertEquals(8L, libConn.getContentLengthLong());
+        assertTrue(libConn.getDate() != -1L);
+        InputStream libIn = loader.getResourceAsStream("/libdata/lib.txt");
+        assertNotNull(libIn);
+        assertEquals("lib-data", read(libIn));
+
+        assertNull(loader.getResource("libdata/missing.txt"));
+        assertNull(loader.getResourceAsStream("libdata/missing.txt"));
+        URL missing = new URL(lib, "missing.txt");
+        try {
+            missing.openConnection().connect();
+            fail("expected FileNotFoundException");
+        } catch (FileNotFoundException expected) {
+            assertNotNull(expected.getMessage());
+        }
+
+        // one URL for each jar that has the entry, in jar name order
+        String service = "META-INF/services/java.lang.Runnable";
+        Enumeration<URL> services = loader.getResources(service);
+        List<String> declared = new ArrayList<String>();
+        while (services.hasMoreElements()) {
+            URL url = services.nextElement();
+            assertNotNull(url);
+            if ("resource".equals(url.getProtocol())) {
+                declared.add(read(url.openStream()));
+            }
+        }
+        assertEquals(2, declared.size());
+        assertEquals(LibMarker.class.getName() + "\n", declared.get(0));
+        assertEquals("# none\n", declared.get(1));
+
+        ServiceLoader<Runnable> providers = ServiceLoader.load(Runnable.class, loader);
+        Iterator<Runnable> i = providers.iterator();
+        assertTrue(i.hasNext());
+        Runnable provider = i.next();
+        assertSame(loader, provider.getClass().getClassLoader());
+        assertEquals(LibMarker.class.getName(), provider.getClass().getName());
+    }
+
+    @Test
+    public void testWarClassPathResources() throws Exception {
+        Context c = load("/r3war", buildWar());
+        assertClassPathResources(c);
+        c.destroy();
+    }
+
+    @Test
+    public void testExplodedClassPathResources() throws Exception {
+        Context c = load("/r3dir", buildExploded());
+        assertClassPathResources(c);
         c.destroy();
     }
 
