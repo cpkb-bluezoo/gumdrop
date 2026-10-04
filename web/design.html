@@ -1,0 +1,318 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.1//EN" "xhtml11.dtd">
+<!--
+  This file is part of gumdrop.
+
+  gumdrop is free software; you can redistribute it and/or modify
+  it under the terms of the GNU Lesser General Public License as published by
+  the Free Software Foundation; either version 2 of the License, or
+  (at your option) any later version.
+
+  gumdrop is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+  GNU Lesser General Public License for more details.
+
+  You should have received a copy of the GNU Lesser General Public License
+  along with gumdrop; if not, write to the Free Software
+  Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
+-->
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8"/>
+<link href="main.css" rel="stylesheet" type="text/css"/>
+<link rel="icon" href="favicon.ico"/>
+<link rel="SHORTCUT ICON" href="favicon.ico"/>
+<title>Design &amp; Architecture - Gumdrop</title>
+</head>
+<body>
+
+<header>
+<img src="gumdrop.png" alt="Gumdrop" />
+<h1>Design &amp; Architecture</h1>
+</header>
+
+<p class="back-link"><a href="index.html">&larr; Back to Main Page</a></p>
+
+<h3>Contents</h3>
+<ul>
+<li><a href="#history">History</a></li>
+<li><a href="#reactor">Reactor callbacks, not futures</a></li>
+<li><a href="#buffers">Standard NIO buffers</a></li>
+<li><a href="#crypto">In-tree TLS, DTLS, and QUIC</a></li>
+<li><a href="#parsing">Push parsing and streaming codecs</a></li>
+<li><a href="#breadth">Protocols, DNS, telemetry, servlets</a></li>
+<li><a href="#performance">Performance and deployment size</a></li>
+<li><a href="#comparison">Framework comparison</a></li>
+</ul>
+
+<h3 id="history">History</h3>
+
+<p>
+Gumdrop began in <strong>2005</strong>, the year Java published the NIO
+<code>Selector</code> API. Mainstream servers and servlet containers still used
+thread-per-connection blocking sockets: scalability was bounded by how many
+threads the JVM and operating system could sustain, not by how many idle
+connections you needed to hold open.
+</p>
+
+<p>
+Gumdrop's first goal was a servlet container built on non-blocking I/O. It was,
+at that time, the <strong>first servlet container to fully decouple incoming
+connections from servlet worker threads</strong>: accept and socket I/O ran on
+a small selector pool, while application work could use a separate bounded
+executor. That separation later became the norm; Jetty and Tomcat incorporated
+similar models as async servlet support matured. The pattern is taken for
+granted today, but in 2005 it was the central trick that made large numbers of
+concurrent HTTP clients practical on a single JVM.
+</p>
+
+<p>
+Once that architecture existed, the next step was to expose the framework
+underneath the HTTP stack and reuse it for other wire protocols including FTP
+and SMTP. Over the years the same reactor, endpoints, and staged
+handlers grew into the multi-protocol networking framework Gumdrop is now,
+still carrying a full servlet container on the same core.
+</p>
+
+<p>
+Gumdrop fills a similar role to <a href="https://netty.io/">Netty</a>: an
+extensible, asynchronous, non-blocking foundation for custom network services.
+The goals overlap, but the architecture and scope differ in ways that matter
+when you choose a stack or extend one. The sections below describe that design
+after two decades of refinement on the same event-driven foundation.
+</p>
+
+<h3 id="reactor">Reactor callbacks, not futures</h3>
+
+<p>
+Netty's programming model is built around channels, pipelines, and
+<code>Future</code>/<code>Promise</code> completion. Gumdrop is
+<strong>reactor-based</strong>: a small pool of <code>SelectorLoop</code>
+threads multiplex I/O with <code>java.nio.channels.Selector</code>, and
+application code implements <code>ProtocolHandler</code> (or protocol-specific
+handler interfaces) that receive synchronous callbacks on that thread:
+<code>connected</code>, <code>receive(ByteBuffer)</code>,
+<code>securityEstablished</code>, <code>disconnected</code>, and so on.
+</p>
+
+<p>
+There is no second style of concurrency to learn for the hot path: you do not
+compose <code>ChannelFuture</code> chains or hop executor pools for each read.
+The model is closer to <strong>nginx</strong> or classic C event loops than to
+Netty's async/await ergonomics. That keeps relay and proxy code straightforward
+(server and client endpoints on the same selector thread, with
+<a href="index.html#clients">SelectorLoop affinity</a>) and makes backpressure
+explicit via <code>Endpoint</code> primitives such as
+<code>pauseRead()</code> and <code>onWriteReady(Runnable)</code>.
+</p>
+
+<p>
+Stateful wire protocols (SMTP, IMAP, POP3) use a
+<a href="index.html#staged">staged handler pattern</a> on top of the same
+reactor: typed stages instead of a single giant switch, still entirely
+callback-driven.
+</p>
+
+<h3 id="buffers">Standard NIO buffers</h3>
+
+<p>
+Gumdrop uses <code>java.nio.ByteBuffer</code> from the socket through TLS,
+QUIC, HTTP/2 framing, and application handlers. There is no proprietary
+<code>ByteBuf</code> type, no separate allocator API, and no reference-counting
+discipline to master before you can safely pass data into your own code.
+</p>
+
+<p>
+If you already work with Java NIO, or you integrate with libraries that consume
+<code>ByteBuffer</code>, the boundary stays thin. Parsing components
+(Gonzalez, jsonparser, jprotobuf, line parsers, HPACK/QPACK) all accept
+incremental <code>receive(ByteBuffer)</code> feeds.
+</p>
+
+<h3 id="crypto">In-tree TLS, DTLS, and QUIC</h3>
+
+<p>
+Gumdrop ships a <strong>pure Java</strong> TLS 1.2/1.3 and DTLS stack, plus a
+QUIC implementation used for HTTP/3. Cipher suites and protocol versions are
+curated for <strong>secure defaults</strong> rather than mirroring JSSE's
+permissive "support everything" posture. Details are on the
+<a href="tls.html">TLS &amp; DTLS</a> page.
+</p>
+
+<p>
+Netty typically relies on the JDK's JSSE for TCP TLS. For QUIC and HTTP/3,
+Netty's incubator transport uses <strong>native code</strong> (Cloudflare
+quiche with BoringSSL behind JNI), which adds platform-specific artifacts and
+deployment constraints. Gumdrop's QUIC/TLS path stays in the same JVM bytecode
+as the rest of the framework, with no native library build step.
+</p>
+
+<h4>Java 25 baseline and post-quantum TLS</h4>
+
+<p>
+<strong>Gumdrop 3 requires Java 25 (LTS) or newer.</strong> That bar is
+intentional: modern JDK cryptography exposes ML-KEM and ML-DSA through the
+standard JCA, which Gumdrop's in-tree TLS engine uses for hybrid post-quantum
+key exchange (RFC&nbsp;10024) and for PKIX validation of post-quantum
+certificates. Hybrid groups are offered by default in TLS&nbsp;1.3, DTLS, and
+QUIC; signature schemes include ML-DSA alongside classical algorithms. See
+<a href="tls.html">TLS &amp; DTLS</a> for cipher profiles, named groups, and
+how to confirm what negotiated on a live connection.
+</p>
+
+<p>
+Staying on a current LTS with first-class post-quantum primitives is part of
+Gumdrop's broader security posture: curated protocol versions and ciphers
+rather than JSSE's permissive defaults, plus TLS, IAM, and rate limiting
+applied consistently across protocols (<a href="security.html">Security</a>).
+</p>
+
+<h3 id="parsing">Push parsing and streaming codecs</h3>
+
+<p>
+From the bottom up, Gumdrop favors <strong>push parsers</strong>: data arrives
+in <code>ByteBuffer</code> chunks and codecs emit events as they go. The goal
+is <strong>constant memory</strong> and full streaming for large payloads, not
+buffer-then-parse workflows.
+</p>
+
+<ul>
+<li><b>Line-oriented protocols</b> (SMTP, IMAP, POP3, FTP control) via
+<code>LineParser</code> and staged handlers</li>
+<li><b>HTTP</b> request/response events, chunked bodies, HTTP/2 frame
+decoding, HPACK/QPACK</li>
+<li><b>XML and JSON</b> microservices via Gonzalez and jsonparser (see
+<a href="microservices.html">Building Microservices</a>)</li>
+<li><b>Protobuf</b> via jprotobuf for gRPC and other binary APIs (see
+<a href="grpc.html">gRPC</a>)</li>
+<li><b>DNS</b> message parsing for the resolver and server stack (see
+<a href="dns.html">DNS</a>)</li>
+</ul>
+
+<p>
+Application handlers are expected to stream: pass each
+<code>bodyContent(ByteBuffer)</code> chunk straight into a parser instead of
+materialising the full body first.
+</p>
+
+<h3 id="breadth">Protocols, DNS, telemetry, servlets</h3>
+
+<p>
+Netty's ecosystem is centred on HTTP; other protocols usually mean additional
+libraries or your own codecs. Gumdrop ships a coherent set of
+<strong>first-party implementations</strong> on the same reactor, sharing
+authentication (<a href="security.html">Security</a>), transport configuration,
+and the built-in asynchronous DNS client that outbound connections use.
+</p>
+
+<p>
+That includes HTTP/1.x, HTTP/2, and HTTP/3, mail (SMTP, IMAP, POP3), FTP,
+DNS (forwarding, authoritative zones, mDNS), MQTT, SOCKS, WebSocket, gRPC,
+LDAP, AMQP, and Redis clients, plus a <strong>full servlet container</strong>
+that scales on the same event-driven core (see
+<a href="servlet.html">Servlet Container</a>). OpenTelemetry tracing and
+metrics are integrated in-tree with OTLP export (see
+<a href="telemetry.html">Telemetry</a>), without requiring a separate Java
+agent.
+</p>
+
+<h3 id="performance">Performance and deployment size</h3>
+
+<p>
+Gumdrop's core is intentionally smaller than a typical Netty HTTP stack: fewer
+pipeline layers and no parallel buffer abstraction. The main
+<code>gumdrop.jar</code> artifact is on the order of 2.5&nbsp;MB; a
+self-contained servlet fat JAR is about 5.2&nbsp;MB (see
+<code>docs/FRAMEWORK-COMPARISON.md</code> in the source tree for measured
+sizes versus Netty, Jetty, Tomcat, and Spring Boot).
+</p>
+
+<p>
+<strong>Throughput and CPU</strong> are in the same class as Netty for raw HTTP
+servers, and Gumdrop is ahead on several scenarios in the project's repeatable
+harness. The scripts live under <code>test/benchmark</code>: paired Gumdrop and
+Netty servers, same load client, back-to-back runs on loopback. Scenarios
+include plaintext and TLS HTTP/1.1, JSON POST, HTTP/2, and HTTP/3 (pure Java
+QUIC on Gumdrop versus Netty's native quiche transport). Treat absolute
+numbers as directional on a shared machine; the README in the repository
+records representative results and methodology.
+</p>
+
+<h3 id="comparison">Framework comparison</h3>
+
+<p>
+The table below summarises how Gumdrop compares to Netty and traditional
+servlet containers for capability, not for every workload.
+</p>
+
+<table>
+<thead>
+<tr>
+<th>Capability</th>
+<th>Gumdrop</th>
+<th>Netty</th>
+<th>Jetty / Tomcat</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Extensible async I/O framework</td>
+<td>Yes</td>
+<td>Yes</td>
+<td>Internal only</td>
+</tr>
+<tr>
+<td>Servlet container</td>
+<td>Yes</td>
+<td>No</td>
+<td>Yes</td>
+</tr>
+<tr>
+<td>Standard <code>ByteBuffer</code></td>
+<td>Yes</td>
+<td><code>ByteBuf</code></td>
+<td>Yes</td>
+</tr>
+<tr>
+<td>HTTP/3 &amp; QUIC, pure Java</td>
+<td>Yes</td>
+<td>Native QUIC (JNI)</td>
+<td>No</td>
+</tr>
+<tr>
+<td>SMTP, IMAP, POP3, FTP, MQTT broker, SOCKS</td>
+<td>Yes</td>
+<td>Mostly roll-your-own</td>
+<td>No</td>
+</tr>
+<tr>
+<td>Built-in async DNS for clients</td>
+<td>Yes</td>
+<td>Optional add-on</td>
+<td>No</td>
+</tr>
+<tr>
+<td>Built-in OpenTelemetry</td>
+<td>Yes</td>
+<td>No</td>
+<td>No</td>
+</tr>
+<tr>
+<td>Unified auth realm across protocols</td>
+<td>Yes</td>
+<td>No</td>
+<td>No</td>
+</tr>
+</tbody>
+</table>
+
+<p>
+For selector loops, services, listeners, endpoints, and staged protocols, continue
+with the <a href="index.html#architecture">architecture sections on the main
+page</a> and the protocol guides linked from there.
+</p>
+
+<p class="server-info">Gumdrop</p>
+
+</body>
+</html>

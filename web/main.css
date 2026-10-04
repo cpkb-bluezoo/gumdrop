@@ -1,5 +1,5 @@
 /*
- * This file is part of GNU gumdrop, a multipurpose Java server.
+ * This file is part of GNU gumdrop, a multipurpose Java networking framework.
  * 
  * GNU gumdrop is free software; you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License as published by
@@ -16,13 +16,62 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301  USA
  */
 
+/* ── Theme ── */
+
+:root {
+    color-scheme: light dark;
+    --text: #1a1a1a;
+    --bg: #fcfcfc;
+    --heading: #2a5438;
+    --heading-muted: #3d6b4a;
+    --border: #dde4dd;
+    --border-strong: #2a5438;
+    --link: #2a5438;
+    --link-visited: #3d6b4a;
+    --link-hover: #4caf50;
+    --link-active: #1f4029;
+    --code-bg: #f0f4f0;
+    --pre-bg: #f5f7f5;
+    --pre-border: #dde4dd;
+    --pre-accent: #3d6b4a;
+    --table-border: #c8d0c8;
+    --table-head-bg: #e8f0e8;
+    --table-row-alt: #f8faf8;
+    --muted: #6a7a6a;
+    --heading-bg: #e8f0e8;
+}
+
+@media (prefers-color-scheme: dark) {
+    :root {
+        --text: #e4e6e4;
+        --bg: #141614;
+        --heading: #8fc995;
+        --heading-muted: #a8d4ae;
+        --border: #2e3830;
+        --border-strong: #5a9a62;
+        --link: #8fc995;
+        --link-visited: #7ab880;
+        --link-hover: #b8e8bc;
+        --link-active: #c8f0cc;
+        --code-bg: #1e2420;
+        --pre-bg: #1a201c;
+        --pre-border: #2e3830;
+        --pre-accent: #6aab72;
+        --table-border: #3a4440;
+        --table-head-bg: #222a24;
+        --table-row-alt: #1a201c;
+        --muted: #8a968a;
+        --heading-bg: #222a24;
+    }
+}
+
 /* ── Base ── */
 
 body {
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
                  "Helvetica Neue", Arial, sans-serif;
-    color: #1a1a1a;
-    background-color: #fcfcfc;
+    color: var(--text);
+    background-color: var(--bg);
     text-align: justify;
     line-height: 1.6;
     max-width: 52em;
@@ -33,24 +82,24 @@ body {
 /* ── Typography ── */
 
 h1, h2, h3, h4 {
-    color: #2a5438;
+    color: var(--heading);
     font-weight: 600;
     text-align: left;
 }
 
 h1 { font-size: 1.8em; margin: 0; }
 h2 { font-size: 1.5em; margin-top: 1.8em; }
-h3 { font-size: 1.25em; margin-top: 1.6em; border-bottom: 1px solid #dde4dd; padding-bottom: 0.3em; }
-h4 { font-size: 1.05em; margin-top: 1.4em; color: #3d6b4a; }
+h3 { font-size: 1.25em; margin-top: 1.6em; border-bottom: 1px solid var(--border); padding-bottom: 0.3em; }
+h4 { font-size: 1.05em; margin-top: 1.4em; color: var(--heading-muted); }
 
 p { margin: 0.8em 0; }
 
 /* ── Links ── */
 
-a:link    { color: #2a5438; }
-a:visited { color: #3d6b4a; }
-a:hover   { color: #4caf50; }
-a:active  { color: #1f4029; }
+a:link    { color: var(--link); }
+a:visited { color: var(--link-visited); }
+a:hover   { color: var(--link-hover); }
+a:active  { color: var(--link-active); }
 
 /* ── Header ── */
 
@@ -60,7 +109,7 @@ header {
     gap: 0.8em;
     padding-bottom: 0.8em;
     margin-bottom: 0.4em;
-    border-bottom: 3px solid #2a5438;
+    border-bottom: 3px solid var(--border-strong);
 }
 
 header img {
@@ -87,7 +136,7 @@ header h1 {
 code {
     font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
     font-size: 0.9em;
-    background: #f0f4f0;
+    background: var(--code-bg);
     padding: 0.15em 0.35em;
     border-radius: 3px;
 }
@@ -96,9 +145,9 @@ pre {
     font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
     font-size: 0.85em;
     line-height: 1.5;
-    background: #f5f7f5;
-    border: 1px solid #dde4dd;
-    border-left: 3px solid #3d6b4a;
+    background: var(--pre-bg);
+    border: 1px solid var(--pre-border);
+    border-left: 3px solid var(--pre-accent);
     border-radius: 4px;
     padding: 1em 1.2em;
     overflow-x: auto;
@@ -122,17 +171,17 @@ table {
 th, td {
     padding: 0.5em 0.8em;
     text-align: left;
-    border: 1px solid #c8d0c8;
+    border: 1px solid var(--table-border);
 }
 
 th {
-    background: #e8f0e8;
-    color: #2a5438;
+    background: var(--table-head-bg);
+    color: var(--heading);
     font-weight: 600;
 }
 
 tr:nth-child(even) td {
-    background: #f8faf8;
+    background: var(--table-row-alt);
 }
 
 /* ── Lists ── */
@@ -159,9 +208,9 @@ img {
 .server-info {
     margin-top: 3em;
     padding-top: 0.8em;
-    border-top: 1px solid #dde4dd;
+    border-top: 1px solid var(--border);
     font-size: 0.85em;
-    color: #6a7a6a;
+    color: var(--muted);
     text-align: center;
 }
 
@@ -170,7 +219,7 @@ img {
 .center { text-align: center; }
 
 .heading {
-    background: #e8f0e8;
+    background: var(--heading-bg);
     margin-top: 0.5em;
     margin-bottom: 1em;
     padding: 0.3em 0.6em;

@@ -22,7 +22,7 @@
 <link href="main.css" rel="stylesheet" type="text/css"/>
 <link rel="icon" href="favicon.ico"/>
 <link rel="SHORTCUT ICON" href="favicon.ico"/>
-<title>gumdrop</title>
+<title>Gumdrop documentation</title>
 </head>
 <body>
 
@@ -32,19 +32,44 @@
 </header>
 
 <p>
-Congratulations, you've installed Gumdrop!
+Gumdrop is a multipurpose Java networking framework built on a
+<strong>reactor</strong> model: a small pool of <code>SelectorLoop</code>
+threads multiplex many connections with nginx-like, callback-driven handlers
+rather than thread-per-connection blocking I/O or future pipelines. Whether you
+are building a <strong>server</strong>, an outbound <strong>client</strong>, or a
+<strong>peer</strong> that listens and dials on the same
+<code>Runtime</code>, you use the same endpoints, handlers, TLS stack, and
+parsing style so each role is equally natural to develop. Transparent TLS is
+built in, with implementations for HTTP, SMTP, IMAP, POP3, FTP, DNS, MQTT,
+SOCKS, and more. Gumdrop 3 requires <strong>Java 25 (LTS)</strong> or newer so
+its in-tree TLS can rely on the JDK's post-quantum cryptography: hybrid ML-KEM
+key exchange and ML-DSA certificate validation are supported throughout (see
+<a href="design.html#crypto">design</a> and <a href="tls.html">TLS &amp; DTLS</a>).
 </p>
 
 <p>
-Gumdrop is a multipurpose Java server framework using asynchronous,
-non-blocking, event-driven I/O. It provides a generic, extensible server
-architecture with transparent TLS support, and includes implementations for
-HTTP, SMTP, IMAP, POP3, FTP, DNS, MQTT, and SOCKS proxy protocols.
+If you know Netty, Gumdrop solves a similar problem (extensible networking for
+custom protocols) with a different programming model:
+<code>ProtocolHandler</code> and protocol-specific staged handlers run as
+synchronous callbacks on selector threads, familiar to nginx or C event-loop
+programmers, rather than channel pipelines and <code>Future</code> completion.
+It uses standard <code>ByteBuffer</code> throughout, pure Java in-tree TLS and
+QUIC with secure defaults, push parsers and streaming codecs for constant
+memory, many wire protocols plus OpenTelemetry on one stack, and a scalable
+servlet container when you need it. Throughput is comparable to Netty's; see
+<a href="design.html#performance">benchmarks and design rationale</a>.
 </p>
 
-<h3>Documentation</h3>
+<p>
+This page is the Gumdrop documentation home. The sections below explain the
+reactor architecture in depth and link to detailed guides for every major feature.
+</p>
+
+<h3>Feature documentation</h3>
 
 <ul>
+<li><a href="design.html"><strong>Design &amp; architecture</strong></a> -
+reactor model, comparison with Netty, push parsing, TLS/QUIC, performance</li>
 <li><a href="servlet.html"><strong>Servlet Container</strong></a> - features,
 architecture, configuration, clustering, and deployment</li>
 <li><a href="http.html"><strong>HTTP Server &amp; Client</strong></a> - HTTP/3,
@@ -93,15 +118,15 @@ Java <code>Runtime</code>, listeners, and handlers (canonical Gumdrop 3 setup;
 no XML <code>gumdroprc</code>)</li>
 </ul>
 
-<h3>Architecture</h3>
+<h3 id="architecture">Architecture</h3>
 
 <p>
-Gumdrop uses an event-driven, non-blocking I/O architecture first developed in
-2005 based on the then-new Java NIO Selector API. This architecture was the
-original motivator for the project at a time when mainstream enterprise servlet
-containers still used blocking <code>java.net.Socket</code> implementations
-that directly tied the number of incoming connections to JVM threads,
-preventing scalability.
+Gumdrop uses a reactor architecture first developed in 2005 around the then-new
+Java NIO <code>Selector</code> API. A fixed set of loops runs the hot path:
+accept, read, write, and handler callbacks without blocking. That design was the
+original motivator for the project at a time when mainstream servlet containers
+still tied every connection to a blocking <code>java.net.Socket</code> thread,
+which capped scalability long before application logic became the bottleneck.
 </p>
 
 <p style="text-align:center">
@@ -127,8 +152,9 @@ not doing useful work</li>
 </ul>
 
 <p>
-Gumdrop's asynchronous architecture inverts this model. A small, fixed pool of
-worker threads (default: 2× CPU cores) handles I/O for all connections:
+Gumdrop's reactor inverts this model. A small, fixed pool of worker threads
+(default: 2× CPU cores) runs the event loop for every connection, inbound or
+outbound:
 </p>
 
 <ul>
@@ -141,14 +167,16 @@ workers when connections are ready</li>
 connection count</li>
 </ul>
 
-<h4>Event-Driven Model</h4>
+<h4>Reactor model</h4>
 
 <p>
-The event-driven model is particularly suited to modern distributed enterprise
-systems where services communicate over HTTP, message queues, and databases.
-These systems are inherently I/O-bound: services spend most time waiting for
-network responses. An event-driven server maximises throughput by never
-waiting—when one connection is idle, the worker immediately serves another.
+The reactor pattern fits any network role. Servers accept many idle connections;
+clients and relays wait on upstream responses; peer nodes do both at once. In each
+case the worker thread never blocks on the socket: when one endpoint has no data,
+the loop services the next ready connection or datagram. That is why Gumdrop uses
+one architectural style for SMTP relays, HTTP microservices, MQTT brokers, and
+<a href="p2p.html">mesh peers</a> instead of one stack for servers and another
+for clients.
 </p>
 
 <h4>SelectorLoop Architecture</h4>
@@ -166,65 +194,60 @@ state management.
 <img src="classes.svg" alt="Gumdrop Class Hierarchy" style="max-width:100%"/>
 </p>
 
-<h3>Servers: Services and Listeners</h3>
+<h3>Servers and listeners</h3>
 
 <p>
-Gumdrop separates <em>what</em> a server does from <em>where</em> it listens.
-The <code>Service</code> interface represents a transport-agnostic unit of
-application logic — the overall service being provided, such as HTTP, FTP, or
-SMTP. A service owns one or more <code>Listener</code>s, which are the
-transport endpoints that bind to ports (or UNIX sockets) and accept connections.
+Gumdrop separates <em>what</em> a protocol server does from <em>where</em> it
+listens. A <code>Server</code> (such as <code>HttpServer</code>,
+<code>SmtpServer</code>, or <code>FtpServer</code>) owns application wiring:
+request or stream handlers, session providers, authentication, and lifecycle.
+Each server holds one or more <code>Listener</code>s that bind to ports, UNIX
+sockets, or UDP/QUIC endpoints and accept or receive traffic.
 </p>
 
 <p>
-Services define protocol behaviour, authentication, and routing. Listeners
-define the transport binding: port, address, TLS configuration, and which
-transport layer to use (TCP, UDP, or QUIC via <code>createTransportFactory()</code>).
-A single service may have multiple listeners — for example, an SMTP service
-might listen on port 25 (cleartext) and port 465 (implicit TLS), or on both
-TCP and a UNIX domain socket for local delivery.
+Listeners carry transport configuration: address, TLS or DTLS, ALPN, CIDR
+filtering, rate limits, and timeouts. Subclasses choose TCP, UDP, or QUIC via
+<code>createTransportFactory()</code>. One server often has several listeners
+(for example SMTP on port 25 and 465, or HTTP on TCP and a UNIX socket).
 </p>
 
 <p>
-Listeners can be <em>static</em> (declared in configuration) or
-<em>dynamic</em> (created at runtime). FTP illustrates dynamic listeners:
-when a client issues PASV or EPSV, the protocol handler creates a new
-listener for the data connection, registers it with the service via
-<code>addDynamicListener()</code>, and unregisters it when the transfer
-completes. The service lifecycle ensures all listeners — static and
-dynamic — are stopped on shutdown.
+Listeners can be <em>static</em> (declared when you compose the server) or
+<em>dynamic</em> (created at runtime). FTP data channels are the classic
+example: PASV/EPSV opens a short-lived listener registered on the
+<code>FtpServer</code> via <code>addDynamicListener()</code> and removed when
+the transfer ends. <code>Server</code> lifecycle stops static and dynamic
+listeners together on shutdown.
 </p>
 
 <p>
-When the <code>AcceptSelectorLoop</code> accepts an incoming connection on
-a listener, it calls the listener's <code>createHandler()</code> factory to
-obtain a <code>ProtocolHandler</code>. Protocol-specific listeners (e.g.,
-<code>SmtpListener</code>, <code>FtpListener</code>) typically delegate to
-their owning service's <code>createHandler(Listener)</code> so that handler
-selection can vary by listener (e.g., different policies for submission
-vs. relay ports).
+When <code>AcceptSelectorLoop</code> accepts a connection, the listener's
+<code>createHandler()</code> builds a <code>ProtocolHandler</code> (or a
+protocol-specific staged handler). Composition APIs attach session providers or
+handlers per listener so submission and relay ports can differ without
+duplicate server instances. See
+<a href="configuration.html">Application composition</a>.
+</p>
+
+<h3 id="clients">Clients, servers, and peers</h3>
+
+<p>
+Outbound work uses the same reactor as inbound work. <code>ClientEndpoint</code>
+dials peers; <code>ClientHandler</code> receives the same style of lifecycle
+callbacks as server-side handlers (connected, data, security established,
+disconnected). <code>ClientEndpointPool</code> reuses connections with
+<code>SelectorLoop</code> affinity. Nothing about the API treats clients as a
+secondary concern: protocol client libraries (HTTP, SMTP, DNS, MQTT, and others)
+are built on these primitives alongside the server implementations.
 </p>
 
 <p>
-TLS configuration (keystore, password, format, client authentication, ALPN),
-CIDR filtering, and rate limiting are set as properties on
-<code>Listener</code> and delegated to the <code>TransportFactory</code>.
-</p>
-
-<h3>Clients</h3>
-
-<p>
-<code>ClientEndpoint</code> launches outbound connections using the same
-event-driven infrastructure as servers. A <code>ClientHandler</code>
-receives lifecycle callbacks (connected, received data, security established,
-disconnected). <code>ClientEndpointPool</code> manages pooled outbound
-endpoints with <code>SelectorLoop</code> affinity.
-</p>
-
-<p>
-When a client endpoint is created within a server context (e.g., an SMTP relay
-forwarding mail), it can be assigned to the same <code>SelectorLoop</code> as
-the originating server endpoint. This <i>SelectorLoop affinity</i> provides:
+<a href="p2p.html">Peer-to-peer</a> nodes register listeners and create client
+endpoints on one <code>Runtime</code>, which is the intended way to build mesh
+or symmetric protocols. When a client is opened from an existing server
+connection (for example an SMTP relay), it can share the server's
+<code>SelectorLoop</code>. That <i>SelectorLoop affinity</i> provides:
 </p>
 
 <ul>
@@ -237,10 +260,10 @@ their worker thread</li>
 </ul>
 
 <p>
-Performing all your hot path operations on the selector thread is highly efficient
-and scalable but very sensitive to blocking operations. It is for this reason that 
-Gumdrop provides asynchronous, non-blocking clients and parsing components for all 
-the operations you are likely to need within your service implementation.
+Performing hot-path work on the selector thread is efficient but requires
+non-blocking code. Gumdrop supplies reactor-safe clients and push parsers for
+DNS, databases, message buses, and bodies of arbitrary size so server, client,
+and peer handlers can stay on the loop without ad hoc thread pools.
 </p>
 
 <h3>Endpoints and Handlers</h3>
@@ -269,10 +292,11 @@ drained</li>
 
 <ul>
 <li><code>connected(Endpoint)</code> - called when the endpoint is ready</li>
-<li><code>receive(Endpoint, ByteBuffer)</code> - called when data arrives</li>
+<li><code>receive(ByteBuffer)</code> - called when data arrives</li>
 <li><code>securityEstablished(SecurityInfo)</code> - called after TLS
 handshake</li>
-<li><code>disconnected(Endpoint)</code> - called on close</li>
+<li><code>disconnected()</code> - called when the connection or stream is closed</li>
+<li><code>error(Exception)</code> - called on unrecoverable I/O or TLS failures</li>
 </ul>
 
 <p>
@@ -311,7 +335,7 @@ to feed data in chunks without unbounded memory growth. All TCP-based protocols
 large transfers such as message retrieval, uploads, and file downloads.
 </p>
 
-<h3>Staged Handler Pattern</h3>
+<h3 id="staged">Staged Handler Pattern</h3>
 
 <p>
 Stateful protocols such as SMTP, IMAP, and POP3 present a particular challenge:
@@ -349,24 +373,34 @@ At each stage, the handler receives protocol events (EHLO, MAIL FROM, RCPT TO)
 and uses the provided state interface to accept, reject, or make policy
 decisions. The protocol handler manages all protocol mechanics &mdash; SASL
 authentication challenges, TLS negotiation, command parsing &mdash; leaving
-the service to focus on business logic. Services need not be aware of the
-underlying transport.
+your session provider or handler to focus on business logic without managing
+sockets or framing.
 </p>
 
-<h4>Services and Clients</h4>
+<h4>Inbound and outbound handlers</h4>
 
 <p>
-The same pattern works for both services (server side) and clients. An SMTP
-client handler receives events from the server (greeting, EHLO response,
+The same staged pattern applies on the client side. An SMTP client handler
+receives events from the remote server (greeting, EHLO response,
 authentication challenges) and uses state interfaces to drive the conversation
-forward. This symmetry simplifies relay implementations where a server
-connection drives a client connection.
+forward. That symmetry is deliberate: relays, gateways, and P2P nodes pair an
+inbound staged handler with an outbound one on the same reactor thread.
 </p>
 
-<h4>Default Services</h4>
+<h4>Built-in servers</h4>
 
 <p>
-Gumdrop provides ready-to-use service implementations for common use cases:
+Gumdrop ships ready-to-use <code>Server</code> compositions as
+<strong>embeddable, plug-in services</strong> from the start: register them on the
+same <code>Runtime</code> as your own handlers to stand up real protocol
+behaviour in integration tests, local development, or production (for example a
+DNS forwarder, MQTT broker, or mail sink beside your application). They are not
+separate products to install; they are part of the framework you already depend
+on.
+</p>
+
+<p>
+The built-in options for common deployments include:
 </p>
 
 <ul>
@@ -399,9 +433,14 @@ optional Realm for SOCKS5 authentication</li>
 </ul>
 
 <p>
-These services handle the common case while serving as examples for custom
-implementations. In many deployments, the default services with appropriate
-configuration are sufficient.
+Each implementation doubles as a reference for custom handlers. When you build
+your own <a href="microservices.html">HTTP microservices</a>, outbound calls to
+other Gumdrop clients (or third-party services via Gumdrop protocol clients) can
+use <strong>SelectorLoop affinity</strong> so the forward request runs on the
+same worker thread as the inbound request. That keeps gateway and BFF-style
+chains on the reactor without thread handoffs or extra buffering. In many
+deployments, composing a built-in server with the right session provider or
+request handler is enough without writing low-level protocol code.
 </p>
 
 <h3>Datagram Facilities</h3>
@@ -555,22 +594,17 @@ resemble the letter G. Images were created using POV-Ray and/or GIMP and
 are copyright 2005 Chris Burdess.
 </p>
 
-<h3>Where to go from here</h3>
+<h3>Getting started</h3>
 
 <p>
-Explore the protocol-specific documentation linked above, or examine the
-example configurations and test applications. If the speed, simplicity, and
-ease of configuration appeals to you, please consider getting involved and
-developing a new feature.
+Pick a protocol or topic from the list above, or browse the example
+applications and tests in the source tree. Contributions and new features are
+welcome.
 </p>
 
 <p>
-If you have any questions about Gumdrop, please direct them to
+Questions about Gumdrop can be sent to
 <a href='mailto:dog@gnu.org'>Chris Burdess</a>.
-</p>
-
-<p>
-Thanks for trying out Gumdrop.
 </p>
 
 <p class='server-info'>Gumdrop</p>
