@@ -23,6 +23,9 @@ package org.bluezoo.gumdrop.servlet;
 
 import java.io.InputStream;
 import java.util.function.Function;
+import java.util.logging.Handler;
+import java.util.logging.Level;
+import java.util.logging.LogRecord;
 
 import jakarta.servlet.annotation.WebServlet;
 import jakarta.servlet.http.HttpServlet;
@@ -75,9 +78,41 @@ public class ContextScanOptionalApiProbe implements Function<String, String> {
         }
     }
 
+    /** A class the scanning class loader is made unable to find. */
+    public static class Absent {
+    }
+
+    /**
+     * A class that cannot be linked for want of another, as a class of a
+     * library is when it is written against an optional dependency.
+     */
+    public static class NeedsAbsent extends Absent {
+    }
+
+    /** Counts the log records that report a problem. */
+    private static final class ProblemCounter extends Handler {
+        int problems;
+
+        @Override
+        public void publish(LogRecord record) {
+            if (record.getLevel().intValue() >= Level.WARNING.intValue()) {
+                problems++;
+            }
+        }
+
+        @Override
+        public void flush() {
+        }
+
+        @Override
+        public void close() {
+        }
+    }
+
     /**
      * @param fixture the simple name of the fixture class to scan
-     * @return the servlets, scanned classes and lifecycle methods found
+     * @return the servlets, scanned classes and lifecycle methods found,
+     *      and the number of problems logged
      */
     @Override
     public String apply(String fixture) {
@@ -89,14 +124,18 @@ public class ContextScanOptionalApiProbe implements Function<String, String> {
             String resource = name.replace('.', '/') + ".class";
             ClassLoader loader = ContextScanOptionalApiProbe.class.getClassLoader();
             InputStream in = loader.getResourceAsStream(resource);
+            ProblemCounter counter = new ProblemCounter();
+            Context.LOGGER.addHandler(counter);
             try {
                 context.scanClass(descriptor, name, in);
             } finally {
+                Context.LOGGER.removeHandler(counter);
                 in.close();
             }
             return "servlets=" + descriptor.servletDefs.size()
                     + " scanned=" + context.scannedApplicationClasses.size()
-                    + " postConstructs=" + context.postConstructs.size();
+                    + " postConstructs=" + context.postConstructs.size()
+                    + " problems=" + counter.problems;
         } catch (Exception e) {
             return e.toString();
         }

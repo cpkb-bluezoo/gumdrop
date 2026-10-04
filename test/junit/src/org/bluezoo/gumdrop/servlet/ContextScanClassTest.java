@@ -293,6 +293,25 @@ public class ContextScanClassTest {
         assertTrue(mapping.urlPatterns.contains("/fv/*"));
     }
 
+    /**
+     * Not every .class entry of a jar is a class of the application: a
+     * module descriptor is not a class at all, and the entries under
+     * META-INF/versions of a multi-release jar are alternative versions
+     * of classes that are scanned under their own names.
+     */
+    @Test
+    public void testOnlyClassEntriesAreScanned() {
+        assertTrue(Context.isScannableClassEntry("com/example/Foo.class"));
+        assertTrue(Context.isScannableClassEntry("Foo.class"));
+        assertTrue(Context.isScannableClassEntry("com/example/Foo$Bar.class"));
+        assertFalse(Context.isScannableClassEntry("module-info.class"));
+        assertFalse(Context.isScannableClassEntry("com/example/module-info.class"));
+        assertFalse(Context.isScannableClassEntry("META-INF/versions/21/com/example/Foo.class"));
+        assertFalse(Context.isScannableClassEntry("META-INF/versions/9/module-info.class"));
+        assertFalse(Context.isScannableClassEntry("com/example/notes.txt"));
+        assertFalse(Context.isScannableClassEntry("com/example/"));
+    }
+
     @Test
     public void testFilterMappingsFromAnnotation() throws Exception {
         scan(BothFilter.class);

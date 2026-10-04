@@ -46,7 +46,7 @@ import static org.junit.Assert.assertEquals;
  */
 public class ContextScanOptionalApiTest {
 
-    private static final String EXPECTED = "servlets=1 scanned=1 postConstructs=1";
+    private static final String EXPECTED = "servlets=1 scanned=1 postConstructs=1 problems=0";
 
     /** Loads everything itself, and cannot find one package tree. */
     private static final class HidingClassLoader extends URLClassLoader {
@@ -121,5 +121,17 @@ public class ContextScanOptionalApiTest {
     @Test
     public void testScanWithoutJakartaAnnotation() throws Exception {
         assertEquals(EXPECTED, scanWithout("jakarta.annotation.", "JavaxLifecycle"));
+    }
+
+    /**
+     * A class that cannot be linked because one it refers to is absent is
+     * routine in a library jar: support for an optional dependency. It is
+     * left out of the scan, and is not a problem to report.
+     */
+    @Test
+    public void testClassWithAbsentDependencyIsNotAProblem() throws Exception {
+        String absent = ContextScanOptionalApiProbe.class.getName() + "$Absent";
+        assertEquals("servlets=0 scanned=0 postConstructs=0 problems=0",
+                scanWithout(absent, "NeedsAbsent"));
     }
 }
