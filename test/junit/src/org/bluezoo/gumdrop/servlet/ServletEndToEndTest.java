@@ -119,6 +119,8 @@ public class ServletEndToEndTest {
             w.println("dispatch=" + req.getDispatcherType());
             w.println("ct=" + req.getContentType() + "/" + req.getCharacterEncoding());
             w.println("mapping=" + req.getHttpServletMapping().getMappingMatch());
+            w.println("pattern=" + req.getHttpServletMapping().getPattern()
+                    + " value=[" + req.getHttpServletMapping().getMatchValue() + "]");
             Enumeration<String> names = req.getParameterNames();
             int count = 0;
             while (names.hasMoreElements()) {
@@ -745,6 +747,36 @@ public class ServletEndToEndTest {
         assertTrue(t, t.contains("scheme=https"));
         assertTrue(t, t.contains("secure=true"));
         assertTrue(t, t.contains("mapping=EXTENSION"));
+    }
+
+    /**
+     * HttpServletMapping gives the URL pattern that matched, as it was
+     * declared, and the part of the path that the pattern left open.
+     */
+    @Test
+    public void testServletMappingPatternAndMatchValue() throws Exception {
+        Result path = send("GET", "/app/echo/extra/x");
+        assertTrue(path.text(), path.text().contains("mapping=PATH"));
+        assertTrue(path.text(), path.text().contains("pattern=/echo/* value=[extra/x]"));
+        assertTrue(path.text(), path.text().contains("servletPath=/echo"));
+        assertTrue(path.text(), path.text().contains("pathInfo=/extra/x"));
+
+        Result bare = send("GET", "/app/echo");
+        assertTrue(bare.text(), bare.text().contains("pattern=/echo/* value=[]"));
+
+        Result extension = send("GET", "/app/dir/thing.ext");
+        assertTrue(extension.text(), extension.text().contains("mapping=EXTENSION"));
+        assertTrue(extension.text(), extension.text().contains("pattern=*.ext value=[dir/thing]"));
+
+        Result exact = send("GET", "/app/blockedx");
+        assertEquals(404, exact.status);
+
+        // a named dispatcher has no path of its own: the request keeps
+        // the path and the mapping it arrived with
+        Result named = send("GET", "/app/dispatch?kind=named&to=echo");
+        assertTrue(named.text(), named.text().contains("servletPath=/dispatch"));
+        assertTrue(named.text(), named.text().contains("uri=/app/dispatch"));
+        assertTrue(named.text(), named.text().contains("pattern=/dispatch value=[dispatch]"));
     }
 
     @Test

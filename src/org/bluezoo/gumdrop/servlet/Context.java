@@ -2441,7 +2441,8 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
         if (match.servletDef == null) {
             match.servletDef = defaultServletDef;
             match.mappingMatch = MappingMatch.DEFAULT;
-            match.matchValue = path;
+            match.matchValue = "";
+            match.pattern = "/";
             match.servletPath = "/";
             match.pathInfo = "/".equals(path) ? null : path;
             // DefaultServlet will just look for resources via getResource.
@@ -2459,7 +2460,7 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
                         String welcomePath = pathDir + welcomeFile;
                         resource = getResource(welcomePath);
                         if (resource != null) {
-                            path = match.matchValue = welcomePath;
+                            path = welcomePath;
                             match.pathInfo = path;
                             break;
                         }
@@ -2593,8 +2594,15 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
             match.servletDef = exactDef;
             match.servletPath = path;
             match.pathInfo = null;
-            match.mappingMatch = "/".equals(path) ? MappingMatch.CONTEXT_ROOT : MappingMatch.EXACT;
-            match.matchValue = path;
+            if ("/".equals(path)) {
+                match.mappingMatch = MappingMatch.CONTEXT_ROOT;
+                match.matchValue = "";
+                match.pattern = "";
+            } else {
+                match.mappingMatch = MappingMatch.EXACT;
+                match.matchValue = path.substring(1);
+                match.pattern = path;
+            }
             return;
         }
 
@@ -2607,7 +2615,8 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
                 match.pathInfo = null;
             }
             match.mappingMatch = MappingMatch.PATH;
-            match.matchValue = path;
+            match.matchValue = (match.pathInfo == null) ? "" : match.pathInfo.substring(1);
+            match.pattern = prefixMatch.getKey() + "/*";
             return;
         }
 
@@ -2618,7 +2627,11 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
                 match.servletPath = path;
                 match.pathInfo = null;
                 match.mappingMatch = MappingMatch.EXTENSION;
-                match.matchValue = path;
+                // the pattern is "*" and the extension: the value is the
+                // path up to the extension, without its leading slash
+                int extensionStart = path.length() - (pattern.length() - 1);
+                match.matchValue = path.substring(1, extensionStart);
+                match.pattern = pattern;
                 return;
             }
         }
