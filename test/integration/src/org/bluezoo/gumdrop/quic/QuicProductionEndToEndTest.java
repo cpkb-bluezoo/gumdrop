@@ -1534,11 +1534,16 @@ public class QuicProductionEndToEndTest {
                                 + "from the peer, not the act of writing the frame, is what should retire it",
                                 getReceivedUnackedOneRtt(serverConnection)
                                         .contains(Long.valueOf(firstPeerPacketNumber)));
-                        assertArrayEquals("The ACK-carrying packet's recorded coverage should be exactly what "
+                        // (the connection's own handshake has left other packet
+                        // numbers pending too: every packet received is
+                        // acknowledged, ack-eliciting or not)
+                        long[] firstCoverage = getSentAckCoverageOneRtt(serverConnection)
+                                .get(Long.valueOf(firstAckCarryingPacketNumber));
+                        java.util.Arrays.sort(firstCoverage);
+                        assertTrue("The ACK-carrying packet's recorded coverage should include what "
                                 + "was pending at the moment it was built",
-                                new long[] { firstPeerPacketNumber },
-                                getSentAckCoverageOneRtt(serverConnection)
-                                        .get(Long.valueOf(firstAckCarryingPacketNumber)));
+                                java.util.Arrays.binarySearch(firstCoverage, firstPeerPacketNumber) >= 0);
+                        assertFalse(java.util.Arrays.binarySearch(firstCoverage, 1000L) >= 0);
 
                         // --- Step 2: without confirming the first ACK, seed a second
                         // packet and flush again -- the first packet's coverage must
@@ -1551,10 +1556,11 @@ public class QuicProductionEndToEndTest {
                         long[] secondCoverage = getSentAckCoverageOneRtt(serverConnection)
                                 .get(Long.valueOf(secondAckCarryingPacketNumber));
                         java.util.Arrays.sort(secondCoverage);
-                        assertArrayEquals("An unconfirmed first ACK's coverage must survive into a second, "
+                        assertTrue("An unconfirmed first ACK's coverage must survive into a second, "
                                 + "later flush -- exactly what protects against the first ACK datagram "
                                 + "never reaching the peer",
-                                new long[] { firstPeerPacketNumber, secondPeerPacketNumber }, secondCoverage);
+                                java.util.Arrays.binarySearch(secondCoverage, firstPeerPacketNumber) >= 0
+                                        && java.util.Arrays.binarySearch(secondCoverage, secondPeerPacketNumber) >= 0);
 
                         // --- Step 3: simulate the peer confirming only the *first*
                         // ACK-carrying packet -- only its specific coverage retires. ---

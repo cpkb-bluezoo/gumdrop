@@ -33,6 +33,7 @@ import java.util.Collections;
 import java.util.Comparator;
 import java.util.EnumMap;
 import java.util.HashMap;
+import java.util.Iterator;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -1864,13 +1865,22 @@ public final class QuicConnection implements QuicTlsEngineListener {
             // to each other keep acking one another's ACKs forever.
             if (dispatcher.ackEliciting) {
                 ackOwed[level.ordinal()] = true;
-                TreeSet<Long> unacked = receivedUnacked.get(level);
-                if (unacked == null) {
-                    unacked = new TreeSet<Long>();
-                    receivedUnacked.put(level, unacked);
-                }
-                unacked.add(Long.valueOf(fullPacketNumber));
             }
+            // Every packet received is named in the next ACK frame this
+            // endpoint sends, whether or not it is one that makes an ACK
+            // owed (RFC 9000 section 13.2.1: packets that are not
+            // ack-eliciting are acknowledged when an ACK frame is sent for
+            // other reasons). The peer learns from that which of its
+            // ACK-only packets arrived, and so which of this endpoint's
+            // packets it may stop acknowledging; if they were left out, a
+            // packet the peer had acknowledged only in such a packet would
+            // be acknowledged by it for the rest of the connection.
+            TreeSet<Long> unacked = receivedUnacked.get(level);
+            if (unacked == null) {
+                unacked = new TreeSet<Long>();
+                receivedUnacked.put(level, unacked);
+            }
+            unacked.add(Long.valueOf(fullPacketNumber));
         } catch (PacketProtectionException e) {
             LOGGER.log(Level.FINE, MessageFormat.format(
                     L10N.getString("fine.packet_protection_failure"), level), e);
@@ -2273,11 +2283,26 @@ public final class QuicConnection implements QuicTlsEngineListener {
             return;
         }
         TreeSet<Long> unacked = receivedUnacked.get(level);
+        long newestRetired = -1L;
         for (SentPacket acked : newlyAcked) {
             long[] covered = coverage.remove(Long.valueOf(acked.getPacketNumber()));
             if (covered != null && unacked != null) {
                 for (long pn : covered) {
                     unacked.remove(Long.valueOf(pn));
+                }
+                newestRetired = Math.max(newestRetired, acked.getPacketNumber());
+            }
+        }
+        if (newestRetired >= 0 && !coverage.isEmpty()) {
+            // An ACK frame names everything then waiting to be
+            // acknowledged, so what an earlier packet's ACK covered has
+            // either been retired already or was covered again by the one
+            // just retired: the earlier entries have nothing left to
+            // retire, and one for a packet the peer never acknowledges
+            // would otherwise be kept for good.
+            for (Iterator<Long> i = coverage.keySet().iterator(); i.hasNext(); ) {
+                if (i.next().longValue() < newestRetired) {
+                    i.remove();
                 }
             }
         }

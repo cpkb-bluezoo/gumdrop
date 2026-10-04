@@ -178,6 +178,65 @@ public class QuicLoopbackScenariosTest {
         assertFalse(e1.isOpen());
     }
 
+    /**
+     * A long-lived connection carrying one request and response after
+     * another keeps sending small packets. Each side acknowledges what it
+     * receives and stops doing so once the other has seen the
+     * acknowledgement (RFC 9000 section 13.2.4). When a packet had only ever
+     * been acknowledged in a packet carrying nothing but the ACK frame, which
+     * the peer never acknowledged, it was never retired: every later ACK
+     * frame named it again, one more range for each exchange, and both ends
+     * spent their time writing and reading ACK ranges.
+     */
+    @Test
+    public void acknowledgementsDoNotGrowOverManyExchanges() throws Exception {
+        QuicLoopback lb = new QuicLoopback();
+        lb.serverFactory.setMaxStreamsBidi(100);
+        lb.startFactories();
+        ConnCapture server = new ConnCapture();
+        lb.startServer(server);
+        ConnCapture client = new ConnCapture();
+        lb.startClient(null, client);
+        lb.pump();
+        assertTrue(client.conn.isEstablished());
+
+        int exchanges = 400;
+        int earlyLargest = 0;
+        int lateLargest = 0;
+        for (int i = 0; i < exchanges; i++) {
+            int toServerBefore = lb.toServerLog.size();
+            int toClientBefore = lb.toClientLog.size();
+            Rec request = new Rec();
+            Endpoint stream = client.conn.openStream(request);
+            assertNotNull("stream " + i, stream);
+            stream.send(ByteBuffer.wrap(bytes(40)));
+            stream.close();
+            lb.pump();
+            Rec accepted = server.bidi.recs.get(i);
+            assertEquals(40, accepted.bytes);
+            accepted.endpoint.send(ByteBuffer.wrap(bytes(60)));
+            accepted.endpoint.close();
+            // the stream is done: let the client open another in its place
+            server.conn.releaseStreamCredit(true);
+            lb.pump();
+            assertEquals(60, request.bytes);
+            int largest = 0;
+            for (int d = toServerBefore; d < lb.toServerLog.size(); d++) {
+                largest = Math.max(largest, lb.toServerLog.get(d).length);
+            }
+            for (int d = toClientBefore; d < lb.toClientLog.size(); d++) {
+                largest = Math.max(largest, lb.toClientLog.get(d).length);
+            }
+            if (i >= 10 && i < 20) {
+                earlyLargest = Math.max(earlyLargest, largest);
+            } else if (i >= exchanges - 10) {
+                lateLargest = Math.max(lateLargest, largest);
+            }
+        }
+        assertTrue("datagrams grew from " + earlyLargest + " to " + lateLargest + " octets over "
+                + exchanges + " exchanges", lateLargest <= earlyLargest + 16);
+    }
+
     @Test
     public void largeTransferExercisesFlowControl() throws Exception {
         QuicLoopback lb = new QuicLoopback();
