@@ -85,7 +85,6 @@ public class ServletHandler extends DefaultHttpRequestHandler {
     private Map<String, String> requestTrailerFields;
 
     // Response state
-    private boolean closeConnection;
     private int statusCode;
     private ServletHeaders responseHeaders;
     private long contentLength;
@@ -316,14 +315,6 @@ public class ServletHandler extends DefaultHttpRequestHandler {
     // ─────────────────────────────────────────────────────────────────────────
     // Response operations (called by Response on worker thread)
     // ─────────────────────────────────────────────────────────────────────────
-
-    boolean isCloseConnection() {
-        return closeConnection;
-    }
-
-    void setCloseConnection(boolean close) {
-        this.closeConnection = close;
-    }
 
     boolean isResponseStarted() {
         return response != null && response.committed;

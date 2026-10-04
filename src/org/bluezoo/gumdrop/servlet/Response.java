@@ -417,13 +417,6 @@ private static final Logger LOGGER = Logger.getLogger(Response.class.getName());
             // Make the explicit character encoding visible in Content-Type
             getContentType();
         }
-        // If the servlet did not set the Content-Length, close the connection
-        if (getContentLength() == -1) {
-            setCloseConnection(true);
-        }
-        if (isCloseConnection()) {
-            setHeader("Connection", "close");
-        }
         // Session management
         if (request.sessionId != null) {
             HttpSession session = context.getSessionManager().getSession(request.sessionId);
@@ -464,14 +457,6 @@ private static final Logger LOGGER = Logger.getLogger(Response.class.getName());
         if (outputStream instanceof ServletOutputStreamWrapper) {
             ((ServletOutputStreamWrapper) outputStream).notifyWritePossible();
         }
-    }
-
-    private boolean isCloseConnection() {
-        return handler.isCloseConnection();
-    }
-
-    private void setCloseConnection(boolean close) {
-        handler.setCloseConnection(close);
     }
 
     private void doCommit(int statusCode, ServletHeaders headers) {
@@ -819,10 +804,6 @@ private static final Logger LOGGER = Logger.getLogger(Response.class.getName());
         locale = Locale.getDefault();
         if (writer == null) {
             charset = null;
-        }
-
-        if (isCloseConnection()) {
-            setHeader("Connection", "close");
         }
     }
 
