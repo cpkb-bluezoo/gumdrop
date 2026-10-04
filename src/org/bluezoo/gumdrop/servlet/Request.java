@@ -219,7 +219,12 @@ class Request implements HttpServletRequest {
      * This is called by the RequestHandlerThread during path resolution.
      */
     void initSession() {
-        sessionId = getParameter("jsessionid");
+        // From the query string only. Asking for it as a parameter would
+        // parse the body of a form POST before the servlet has run, when
+        // the body is the servlet's to read or to name the encoding of
+        // (Servlet spec section 3.1.1); nor is the body a place a session
+        // id may come from.
+        sessionId = queryParameter("jsessionid");
         if (sessionId == null) {
             getCookies();
             if (cookies != null) {
@@ -234,6 +239,23 @@ class Request implements HttpServletRequest {
             sessionType = Boolean.FALSE;
         }
         // Session last accessed time is updated by SessionManager.getSession()
+    }
+
+    /**
+     * Returns the first value of a parameter given in the query string,
+     * or null if it is not there. Does not parse the request parameters.
+     */
+    private String queryParameter(String name) {
+        if (queryString == null || queryString.indexOf(name) == -1) {
+            return null;
+        }
+        Map<String,List<String>> accum = new LinkedHashMap<>();
+        addEncodedParameters(accum, queryString, "UTF-8");
+        List<String> values = accum.get(name);
+        if (values == null || values.isEmpty()) {
+            return null;
+        }
+        return values.get(0);
     }
 
     URI getURI() {

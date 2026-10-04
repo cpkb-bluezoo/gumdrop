@@ -146,6 +146,12 @@ public class ServletEndToEndTest {
 
         @Override
         protected void doPost(HttpServletRequest req, HttpServletResponse resp) throws IOException {
+            if ("charset".equals(req.getQueryString())) {
+                req.setCharacterEncoding("UTF-8");
+                resp.setContentType("text/plain; charset=UTF-8");
+                resp.getWriter().print("p=" + req.getParameter("p"));
+                return;
+            }
             byte[] buf = new byte[1024];
             int total = 0;
             java.io.InputStream in = req.getInputStream();
@@ -191,6 +197,11 @@ public class ServletEndToEndTest {
             resp.getWriter().print("count=" + next + ",fromCookie=" + req.isRequestedSessionIdFromCookie()
                     + ",fromUrl=" + req.isRequestedSessionIdFromURL()
                     + ",valid=" + req.isRequestedSessionIdValid());
+        }
+
+        @Override
+        protected void doPost(HttpServletRequest req, HttpServletResponse resp) throws IOException {
+            doGet(req, resp);
         }
     }
 
@@ -755,6 +766,45 @@ public class ServletEndToEndTest {
         assertEquals("read=10", r.text());
         Result r2 = sendBody("PUT", "/app/body", "line1\nline2".getBytes(StandardCharsets.US_ASCII));
         assertEquals("lines=line1line2", r2.text());
+    }
+
+    /**
+     * The body of a form POST belongs to the servlet until it asks for a
+     * parameter (Servlet 6.1 section 3.1.1): it can read the body itself,
+     * or say what encoding the parameters are in before they are parsed.
+     */
+    @Test
+    public void testFormBodyIsNotReadBeforeTheServletRuns() throws Exception {
+        byte[] body = "a=posted&c=d".getBytes(StandardCharsets.US_ASCII);
+        Result raw = sendBody("POST", "/app/body", body,
+                "content-type", "application/x-www-form-urlencoded",
+                "content-length", "12");
+        assertEquals("read=12", raw.text());
+
+        byte[] encoded = "p=%C3%A9".getBytes(StandardCharsets.US_ASCII);
+        Result decoded = sendBody("POST", "/app/body?charset", encoded,
+                "content-type", "application/x-www-form-urlencoded",
+                "content-length", "8");
+        assertEquals("p=\u00e9", decoded.text());
+    }
+
+    /** A session id is taken from the URL or a cookie, never the body. */
+    @Test
+    public void testSessionIdIsNotTakenFromAFormBody() throws Exception {
+        Result r1 = send("GET", "/app/session");
+        String setCookie = r1.header("set-cookie");
+        assertNotNull(setCookie);
+        int end = setCookie.indexOf(';');
+        String id = setCookie.substring("JSESSIONID=".length(), end > 0 ? end : setCookie.length());
+        Result viaUrl = send("GET", "/app/session?x=1&jsessionid=" + id);
+        assertTrue(viaUrl.text(), viaUrl.text().contains("count=2"));
+        assertTrue(viaUrl.text(), viaUrl.text().contains("fromUrl=true"));
+        byte[] body = ("jsessionid=" + id).getBytes(StandardCharsets.US_ASCII);
+        Result viaBody = sendBody("POST", "/app/session", body,
+                "content-type", "application/x-www-form-urlencoded",
+                "content-length", Integer.toString(body.length));
+        assertTrue(viaBody.text(), viaBody.text().contains("count=1"));
+        assertTrue(viaBody.text(), viaBody.text().contains("fromUrl=false"));
     }
 
     @Test
