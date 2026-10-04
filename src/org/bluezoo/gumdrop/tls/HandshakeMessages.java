@@ -178,25 +178,31 @@ final class HandshakeMessages {
      *
      * <p>Implemented as the full message built with an all-zero
      * placeholder binder, then truncated -- every length field in a
-     * ClientHello with a PSK offer is fixed by the binder's length (32
-     * bytes), never its content, so a placeholder produces byte-identical
-     * framing to the eventual real message; slicing off exactly the last
-     * 33 bytes (a 1-byte binder-entry length plus the 32-byte binder)
-     * recovers the truncated form. Server-side binder verification
+     * ClientHello with a PSK offer is fixed by the binder's length (the
+     * hash length of the PSK's cipher suite), never its content, so a
+     * placeholder produces byte-identical framing to the eventual real
+     * message; slicing off the binders list (RFC 8446 section 4.2.11.2:
+     * the list's two-octet length, then the binder with its one-octet
+     * length) recovers the truncated form. Server-side binder verification
      * reuses this same fact directly on the raw received bytes rather
      * than rebuilding anything -- see {@link HandshakeEngine}.
      *
      * @param params the ClientHello to build, with {@code pskIdentity} set
+     * @param binderLength the length of the binder, the hash length of the
+     *        PSK's cipher suite
      * @return the truncated framed message
      */
-    static byte[] buildClientHelloTruncatedForBinder(ClientHelloParams params) throws HandshakeFormatException {
-        byte[] full = frameClientHello(buildClientHelloContent(params, new byte[32]));
-        return Arrays.copyOfRange(full, 0, full.length - 33);
+    static byte[] buildClientHelloTruncatedForBinder(ClientHelloParams params, int binderLength)
+            throws HandshakeFormatException {
+        byte[] full = frameClientHello(buildClientHelloContent(params, new byte[binderLength]));
+        // the binders list: its two-octet length, then the one binder
+        // with its one-octet length
+        return Arrays.copyOfRange(full, 0, full.length - (2 + 1 + binderLength));
     }
 
     /**
      * Builds a complete, framed ClientHello. When {@code params.pskIdentity}
-     * is set, {@code binder} must be the real 32-byte PSK binder computed
+     * is set, {@code binder} must be the real PSK binder computed
      * over {@link #buildClientHelloTruncatedForBinder}'s output (via
      * {@link KeySchedule#computePskBinder}); when {@code params.pskIdentity}
      * is null, {@code binder} is ignored (pass null) and no
@@ -360,6 +366,8 @@ final class HandshakeMessages {
         int obfuscatedTicketAge;
         /** The single binder entry corresponding to {@link #pskIdentity}, or null. */
         byte[] pskBinder;
+        /** The length of the binders list at the end of the message, its two-octet length included. */
+        int pskBindersLength;
         boolean earlyDataRequested;
         /** Echoed from a prior HelloRetryRequest, or null. */
         byte[] cookie;
@@ -515,7 +523,9 @@ final class HandshakeMessages {
                     ch.pskIdentity = idr.opaque16();
                     ch.obfuscatedTicketAge = idr.u32();
                 }
-                WireReader br = new WireReader(outer.opaque16());
+                byte[] binders = outer.opaque16();
+                ch.pskBindersLength = 2 + binders.length;
+                WireReader br = new WireReader(binders);
                 if (br.hasRemaining()) {
                     ch.pskBinder = br.opaque8();
                 }

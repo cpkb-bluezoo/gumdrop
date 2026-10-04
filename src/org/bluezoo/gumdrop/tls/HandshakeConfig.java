@@ -876,9 +876,13 @@ public final class HandshakeConfig {
 
     private static List<CipherSuite> defaultCipherSuites() {
         List<CipherSuite> suites = new ArrayList<CipherSuite>();
-        suites.add(CipherSuite.TLS_CHACHA20_POLY1305_SHA256);
-        suites.add(CipherSuite.TLS_AES_128_GCM_SHA256);
+        // AES-GCM first: hardware-accelerated and constant-time on the
+        // processors servers run on, and cheaper for both ends than
+        // ChaCha20-Poly1305, which stays available for a peer that prefers
+        // or only offers it. The same order as the JDK.
         suites.add(CipherSuite.TLS_AES_256_GCM_SHA384);
+        suites.add(CipherSuite.TLS_AES_128_GCM_SHA256);
+        suites.add(CipherSuite.TLS_CHACHA20_POLY1305_SHA256);
         return suites;
     }
 

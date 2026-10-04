@@ -285,7 +285,8 @@ public final class HandshakeEngine {
                 params.earlyDataRequested = wantEarly;
 
                 KeySchedule pskSchedule = new KeySchedule(ticket.getCipherSuite());
-                byte[] truncated = HandshakeMessages.buildClientHelloTruncatedForBinder(params);
+                byte[] truncated = HandshakeMessages.buildClientHelloTruncatedForBinder(params,
+                        ticket.getCipherSuite().getHashLength());
                 byte[] truncatedHash = truncatedClientHelloHash(ticket.getCipherSuite(), truncated);
                 realPskBinder = pskSchedule.computePskBinder(ticket.getPsk(), truncatedHash);
             }
@@ -1183,9 +1184,9 @@ public final class HandshakeEngine {
      * Attempts PSK resumption against a parsed ClientHello's
      * {@code pre_shared_key} extension: opens the ticket identity against
      * every {@link HandshakeConfig#getTicketKeys} candidate key, verifies
-     * the binder over the raw message's truncated bytes (the last 33
-     * bytes -- a 1-byte binder-entry length plus the 32-byte binder --
-     * sliced off directly, per {@link HandshakeMessages#buildClientHelloTruncatedForBinder}'s
+     * the binder over the raw message's truncated bytes (the binders
+     * list that ends the message sliced off directly, per
+     * {@link HandshakeMessages#buildClientHelloTruncatedForBinder}'s
      * documentation), and checks the ticket has not exceeded its
      * lifetime. Falls through to a full handshake (returns null, no
      * alert) on any failure -- an unrecognised, expired, or
@@ -1205,7 +1206,7 @@ public final class HandshakeEngine {
                 break;
             }
         }
-        if (payload == null || message.length <= 33) {
+        if (payload == null || message.length <= ch.pskBindersLength) {
             return null;
         }
         if (!config.getTransportParameterConsistencyChecker().acceptsTicketFrom(
@@ -1217,7 +1218,12 @@ public final class HandshakeEngine {
         if (!payload.cipherSuite.getHashAlgorithm().equals(negotiatedSuite.getHashAlgorithm())) {
             return null;
         }
-        byte[] truncated = Arrays.copyOfRange(message, 0, message.length - 33);
+        if (ch.pskBinder.length != payload.cipherSuite.getHashLength()) {
+            return null;
+        }
+        // RFC 8446 section 4.2.11.2: the binder covers the ClientHello up
+        // to the binders list, which ends the message
+        byte[] truncated = Arrays.copyOfRange(message, 0, message.length - ch.pskBindersLength);
         Transcript truncatedTranscript = Transcript.create(payload.cipherSuite);
         truncatedTranscript.update(truncated);
         KeySchedule pskSchedule = new KeySchedule(payload.cipherSuite);

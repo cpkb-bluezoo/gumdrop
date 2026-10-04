@@ -1271,6 +1271,92 @@ public class HandshakeEngineLoopbackTest {
     }
 
     /**
+     * The default preference is AES-GCM before ChaCha20-Poly1305, AES-256
+     * first: on the processors servers run on, AES is hardware-accelerated
+     * and constant-time, and costs both ends less than ChaCha20. It is the
+     * order the JDK and OpenSSL use. ChaCha20 stays available for a client
+     * that prefers or only offers it.
+     */
+    @Test
+    public void defaultCipherSuitesPreferAesGcm() {
+        List<CipherSuite> tls13 = new HandshakeConfig(HandshakeRole.SERVER).getCipherSuites();
+        assertEquals(Arrays.asList(
+                CipherSuite.TLS_AES_256_GCM_SHA384,
+                CipherSuite.TLS_AES_128_GCM_SHA256,
+                CipherSuite.TLS_CHACHA20_POLY1305_SHA256), tls13);
+        List<Tls12CipherSuite> tls12 = new Tls12HandshakeConfig(HandshakeRole.SERVER).getCipherSuites();
+        assertEquals(Arrays.asList(
+                Tls12CipherSuite.TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
+                Tls12CipherSuite.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
+                Tls12CipherSuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
+                Tls12CipherSuite.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
+                Tls12CipherSuite.TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256,
+                Tls12CipherSuite.TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256), tls12);
+    }
+
+    /**
+     * RFC 8446 section 4.2.11.2: the binder is computed over the ClientHello
+     * up to and including the identities, so without the binders list and
+     * without that list's own two-octet length; and a binder is as long as
+     * the hash of the PSK's cipher suite, 48 octets for SHA-384.
+     */
+    @Test
+    public void clientHelloIsTruncatedBeforeTheBindersListForEitherHash() throws Exception {
+        int[] binderLengths = { 32, 48 };
+        for (int i = 0; i < binderLengths.length; i++) {
+            int n = binderLengths[i];
+            HandshakeMessages.ClientHelloParams params = new HandshakeMessages.ClientHelloParams();
+            params.random = new byte[32];
+            params.cipherSuites = new HandshakeConfig(HandshakeRole.CLIENT).getCipherSuites();
+            params.groups = Collections.singletonList(NamedGroup.X25519);
+            params.keyShares = new LinkedHashMap<NamedGroup, byte[]>();
+            params.signatureAlgorithms = Collections.singletonList(SignatureScheme.ECDSA_SECP256R1_SHA256);
+            params.applicationProtocols = Collections.<String>emptyList();
+            params.pskIdentity = new byte[] { 9, 9, 9, 9, 9, 9, 9 };
+            params.obfuscatedTicketAge = 0x01020304;
+            byte[] binder = new byte[n];
+            Arrays.fill(binder, (byte) 0x5a);
+            byte[] full = HandshakeMessages.buildClientHelloWithBinder(params, binder);
+            byte[] truncated = HandshakeMessages.buildClientHelloTruncatedForBinder(params, n);
+            // binders list: two-octet length, one-octet binder length, binder
+            assertEquals(full.length - (2 + 1 + n), truncated.length);
+            assertArrayEquals(Arrays.copyOfRange(full, 0, truncated.length), truncated);
+            // the identities end with the obfuscated ticket age
+            assertArrayEquals(new byte[] { 1, 2, 3, 4 },
+                    Arrays.copyOfRange(truncated, truncated.length - 4, truncated.length));
+            HandshakeMessages.ClientHello parsed = HandshakeMessages.parseClientHello(full);
+            assertEquals(2 + 1 + n, parsed.pskBindersLength);
+            assertArrayEquals(binder, parsed.pskBinder);
+        }
+    }
+
+    @Test
+    public void defaultConfigurationsNegotiateAes256Gcm() throws Exception {
+        HandshakeEngine client = new HandshakeEngine(clientConfig(ecChain, SERVER_NAME));
+        HandshakeEngine server = new HandshakeEngine(serverConfig(ecChain, ecKey));
+        RecordingSink clientSink = new RecordingSink();
+        RecordingSink serverSink = new RecordingSink();
+        runHandshake(client, clientSink, server, serverSink);
+        assertTrue(server.isComplete());
+        assertEquals(CipherSuite.TLS_AES_256_GCM_SHA384, server.getNegotiatedCipherSuite());
+        assertEquals(CipherSuite.TLS_AES_256_GCM_SHA384, client.getNegotiatedCipherSuite());
+    }
+
+    /** A client that offers only ChaCha20-Poly1305 still gets it. */
+    @Test
+    public void clientOfferingOnlyChaCha20IsServed() throws Exception {
+        HandshakeConfig cc = clientConfig(ecChain, SERVER_NAME);
+        cc.setCipherSuites(Collections.singletonList(CipherSuite.TLS_CHACHA20_POLY1305_SHA256));
+        HandshakeEngine client = new HandshakeEngine(cc);
+        HandshakeEngine server = new HandshakeEngine(serverConfig(ecChain, ecKey));
+        RecordingSink clientSink = new RecordingSink();
+        RecordingSink serverSink = new RecordingSink();
+        runHandshake(client, clientSink, server, serverSink);
+        assertTrue(server.isComplete());
+        assertEquals(CipherSuite.TLS_CHACHA20_POLY1305_SHA256, server.getNegotiatedCipherSuite());
+    }
+
+    /**
      * RFC 8879 section 3: a server signals that it compressed its certificate
      * by sending CompressedCertificate, never by echoing the
      * compress_certificate extension; RFC 8446 section 4.2 does not list that

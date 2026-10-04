@@ -233,12 +233,13 @@ driven by <code>TlsEventSink</code> callbacks &mdash; no blocking
 
 <p>
 Default TLS&nbsp;1.3 cipher suites (preference order):
-<code>TLS_CHACHA20_POLY1305_SHA256</code>,
+<code>TLS_AES_256_GCM_SHA384</code>,
 <code>TLS_AES_128_GCM_SHA256</code>,
-<code>TLS_AES_256_GCM_SHA384</code>.
-ChaCha20-Poly1305 is listed first for constant-time AEAD on diverse clients;
-AES-128-GCM follows for AES-NI hardware; AES-256-GCM last for policy-driven
-preference only.
+<code>TLS_CHACHA20_POLY1305_SHA256</code>.
+AES-GCM is listed first: it is hardware-accelerated and constant-time on the
+processors servers run on, and costs both ends less than ChaCha20-Poly1305.
+ChaCha20-Poly1305 remains available for a client that prefers or only offers
+it, such as one without AES hardware. This is the order the JDK uses.
 </p>
 
 <p>
@@ -296,13 +297,13 @@ deliberately narrow profile.
 
 <p>
 Default TLS&nbsp;1.2 cipher suites (preference order):
-<code>TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256</code>,
-<code>TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256</code>,
+<code>TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384</code>,
+<code>TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384</code>,
 <code>TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256</code>,
 <code>TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256</code>,
-<code>TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384</code>,
-<code>TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384</code>.
-Same ChaCha-first ordering as TLS&nbsp;1.3; suite choice must still match server
+<code>TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256</code>,
+<code>TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256</code>.
+Same AES-GCM-first ordering as TLS&nbsp;1.3; suite choice must still match server
 certificate key type (EC vs RSA).
 </p>
 
