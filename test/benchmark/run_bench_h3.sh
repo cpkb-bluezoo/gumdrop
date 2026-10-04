@@ -62,8 +62,11 @@ for fw in $FRAMEWORKS; do
         sampler=$!
 
         echo ">>> $LABEL / $fw / rep $rep" >&2
+        # the client's log goes to a file: mixed into its output, a log
+        # line can land in the middle of the CSV line
         out=$(java -cp "$CLIENT_CP" H3LoadClient --host=localhost --port=$port \
-            --concurrency=$CONCURRENCY --duration=$DURATION --warmup=$WARMUP --label=$LABEL 2>&1)
+            --concurrency=$CONCURRENCY --duration=$DURATION --warmup=$WARMUP --label=$LABEL \
+            2> "results/client-$LABEL-$fw-$rep.log")
         echo "$out" | grep -E '^===|^url=|^requests=|^throughput|^latency|failed' >&2
         wait "$sampler" 2>/dev/null
 

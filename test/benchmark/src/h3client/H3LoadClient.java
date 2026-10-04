@@ -52,25 +52,38 @@ public class H3LoadClient {
         final CountDownLatch startLatch = new CountDownLatch(1);
         final CountDownLatch doneLatch = new CountDownLatch(concurrency);
 
+        final long connectIntervalMs = Long.parseLong(opt.getOrDefault("connect-interval-ms", "0"));
         for (int i = 0; i < concurrency; i++) {
+            final int index = i;
             Thread t = new Thread(new Runnable() {
                 @Override
                 public void run() {
                     HttpClient client = null;
                     try {
                         startLatch.await();
+                        if (connectIntervalMs > 0) {
+                            Thread.sleep(connectIntervalMs * index);
+                        }
                         client = connect(gumdrop, host, port);
                         if (client == null) {
                             errCount.incrementAndGet();
                             return;
                         }
                         negotiatedVersion.compareAndSet(null, String.valueOf(client.getVersion()));
+                        long answered = 0;
                         while (!stop.value) {
                             long start = System.nanoTime();
                             Exchange exchange = new Exchange();
                             client.request(HttpMethod.GET, path, exchange).endMessage();
                             boolean completed = exchange.done.await(10, TimeUnit.SECONDS);
                             long elapsed = System.nanoTime() - start;
+                            if (completed && exchange.status >= 200 && exchange.status < 300) {
+                                answered++;
+                            } else if (!stop.value && FAILURES_REPORTED.incrementAndGet() <= 5) {
+                                System.err.println("request not answered: completed=" + completed
+                                        + " status=" + exchange.status + " after " + (elapsed / 1000000L)
+                                        + " ms, following " + answered + " answered on this connection");
+                            }
                             if (!warmupDone.value) {
                                 continue;
                             }
@@ -123,6 +136,8 @@ public class H3LoadClient {
         System.exit(0);
     }
 
+    static final AtomicLong FAILURES_REPORTED = new AtomicLong();
+
     /** One request and its response. */
     static final class Exchange extends DefaultHttpResponseHandler {
         final CountDownLatch done = new CountDownLatch(1);
@@ -147,6 +162,9 @@ public class H3LoadClient {
         @Override
         public void failed(Exception ex) {
             status = 0;
+            if (FAILURES_REPORTED.incrementAndGet() <= 5) {
+                System.err.println("request failed: " + ex);
+            }
             done.countDown();
         }
     }

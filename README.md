@@ -92,21 +92,40 @@ Gumdrop uniquely combines a servlet container with a complete low-level networki
 
 ### Benchmarks
 
-Raw-API HTTP servers (no servlet container) built directly on Gumdrop and on Netty, driven by the same closed-loop load generator (JDK `HttpClient`, one virtual thread per concurrent client, requests issued back-to-back), on the same machine, over loopback. Each scenario ran a 5s warmup (discarded) followed by two 12s measurement windows; the figures below are the average of both. Absolute throughput varies somewhat run-to-run on a shared development machine, so treat these as directional rather than exact - the two servers in a given row were always measured back-to-back in the same run, which is what makes the comparison between them meaningful.
+Raw-API HTTP servers (no servlet container) built directly on Gumdrop and on Netty, driven by the same closed-loop load client, on the same machine, over loopback. Each scenario ran a 5s warmup (discarded) followed by two 12s measurement windows; the figures are the average of both. The two servers in a row were always measured back-to-back in the same run, which is what makes the comparison between them meaningful: absolute throughput varies from run to run on a shared development machine, so treat these as directional. "CPU" is the CPU time the server process used per request, in microseconds, the steadier figure when client and server share the same cores. The harness is in [test/benchmark](test/benchmark), which explains how to run it.
 
-| Scenario | Concurrency | Req/s (Gumdrop) | Req/s (Netty) | p50 ms (Gumdrop) | p50 ms (Netty) | p99 ms (Gumdrop) | p99 ms (Netty) |
-|---|---:|---:|---:|---:|---:|---:|---:|
-| Plaintext HTTP/1.1, keep-alive | 50 | 60,303 | 59,077 | 0.75 | 0.77 | 1.62 | 1.69 |
-| Plaintext HTTP/1.1, keep-alive | 200 | 55,122 | 55,903 | 3.44 | 3.44 | 7.08 | 6.88 |
-| Plaintext HTTP/1.1, keep-alive | 500 | 51,919 | 51,072 | 5.77 | 6.69 | 28.31 | 24.12 |
-| JSON POST/response, HTTP/1.1 | 100 | 54,190 | 52,417 | 1.69 | 1.79 | 3.67 | 3.74 |
-| TLS 1.3, HTTP/1.1 keep-alive | 50 | 96,693 | 100,164 | 0.48 | 0.48 | 1.02 | 1.08 |
-| TLS 1.3, new handshake per request | 20 | 6,319 | 4,133* | 2.43 | 3.51 | 14.02 | 37.22 |
-| TLS 1.3, HTTP/2 (ALPN), keep-alive | 50 | 93,629 | 132,166 | 0.48 | 0.36 | 0.85 | 0.65 |
+With the JDK `HttpClient` as the load client (one virtual thread per concurrent client). On HTTP/1.1 this client, not the server, limits throughput, so these rows mostly show that neither server holds it back:
 
-\* Netty saw ~3% request errors in this scenario (short-lived TLS-handshake churn at concurrency 20); Gumdrop saw none. Every other scenario ran error-free on both servers.
+| Scenario | Concurrency | Req/s (Gumdrop) | Req/s (Netty) | p50 ms (Gumdrop) | p50 ms (Netty) | p99 ms (Gumdrop) | p99 ms (Netty) | CPU µs (Gumdrop) | CPU µs (Netty) |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| Plaintext HTTP/1.1, keep-alive | 50 | 56,418 | 56,973 | 0.79 | 0.79 | 1.83 | 1.77 | 14.8 | 17.2 |
+| Plaintext HTTP/1.1, keep-alive | 200 | 54,677 | 51,565 | 3.47 | 3.74 | 7.01 | 7.47 | 11.6 | 16.7 |
+| Plaintext HTTP/1.1, keep-alive | 500 | 52,790 | 49,569 | 5.50 | 6.23 | 29.36 | 28.05 | 11.6 | 16.7 |
+| JSON POST/response, HTTP/1.1 | 100 | 49,520 | 48,065 | 1.87 | 1.93 | 4.06 | 4.16 | 19.1 | 20.4 |
+| TLS 1.3, HTTP/1.1 keep-alive | 50 | 93,351 | 91,790 | 0.50 | 0.51 | 1.13 | 1.16 | 20.0 | 22.1 |
+| TLS 1.3, new connection per request | 20 | 4,960 | 3,262* | 2.82 | 4.29 | 23.33 | 48.23 | 816 | 1,344 |
+| TLS 1.3, HTTP/2 (ALPN), keep-alive | 50 | 121,484 | 125,245 | 0.39 | 0.38 | 0.75 | 0.77 | 5.9 | 6.8 |
 
-Gumdrop is essentially at parity with Netty on plaintext HTTP/1.1 and JSON, ahead on per-request TLS handshake throughput, and behind on sustained keep-alive TLS and HTTP/2. Compression performance was not measured.
+With a lean load client on blocking sockets (HTTP/1.1 only), which loads the servers properly:
+
+| Scenario | Concurrency | Req/s (Gumdrop) | Req/s (Netty) | p50 ms (Gumdrop) | p50 ms (Netty) | p99 ms (Gumdrop) | p99 ms (Netty) | CPU µs (Gumdrop) | CPU µs (Netty) |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| Plaintext HTTP/1.1, keep-alive | 50 | 149,255 | 141,437 | 0.32 | 0.34 | 0.54 | 0.51 | 13.7 | 15.6 |
+| Plaintext HTTP/1.1, keep-alive | 200 | 157,326 | 140,859 | 1.23 | 1.34 | 2.28 | 1.87 | 10.8 | 15.4 |
+| Plaintext HTTP/1.1, keep-alive | 500 | 136,981 | 132,163 | 3.54 | 3.74 | 4.39 | 4.52 | 13.3 | 14.4 |
+| JSON POST/response, HTTP/1.1 | 100 | 150,957 | 137,653 | 0.63 | 0.69 | 1.56 | 1.00 | 13.3 | 18.0 |
+| TLS 1.3, HTTP/1.1 keep-alive | 50 | 128,976 | 130,153 | 0.36 | 0.37 | 0.79 | 0.54 | 19.7 | 21.0 |
+| TLS 1.3, new connection per request | 20 | 7,198 | 3,162* | 1.92 | 1.52 | 17.04 | 91.75 | 565 | 791 |
+
+HTTP/3, with Gumdrop's own HTTP/3 client as the load client for both servers (the JDK client does not speak HTTP/3). Netty's QUIC transport here is native code, Cloudflare's quiche with BoringSSL behind JNI; Gumdrop's is Java throughout:
+
+| Scenario | Concurrency | Req/s (Gumdrop) | Req/s (Netty) | p50 ms (Gumdrop) | p50 ms (Netty) | p99 ms (Gumdrop) | p99 ms (Netty) | CPU µs (Gumdrop) | CPU µs (Netty) |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| HTTP/3, one request at a time per connection | 50 | 30,619 | 37,922 | 1.48 | 1.21 | 2.59 | 1.90 | 36.4 | 25.4 |
+
+\* Netty failed requests in this scenario: about 3% of them with the JDK client and about a quarter with the blocking-socket client, so its figures in these rows are not reliable. Gumdrop failed none. Every other scenario ran error-free on both servers.
+
+Gumdrop is level with or ahead of Netty on plaintext HTTP/1.1, JSON and TLS keep-alive, and uses less CPU per request in each; it resumes TLS sessions, so a client that reconnects pays far less than a full handshake; it is within a few percent on HTTP/2; and on HTTP/3 its Java QUIC stack reaches about 80% of the throughput of Netty's native one. Compression performance was not measured. Measured October 2026 on an Apple M4 with Java 25 and Netty 4.1.121.
 
 ## Full feature list
 
