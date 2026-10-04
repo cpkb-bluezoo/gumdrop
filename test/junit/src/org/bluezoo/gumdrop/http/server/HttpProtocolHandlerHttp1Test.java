@@ -447,6 +447,20 @@ public class HttpProtocolHandlerHttp1Test {
         assertTrue(f.wire(), f.wire().startsWith("HTTP/1.1 411"));
     }
 
+    /**
+     * A request that is refused is answered by the server itself. The
+     * application must not be given it as well: it would act on a request
+     * whose sender has already been told it failed.
+     */
+    @Test
+    public void testPostWithoutLengthDoesNotReachTheHandler() {
+        Fixture f = run("POST /x HTTP/1.1\r\nHost: h\r\n\r\n");
+        assertTrue(f.wire(), f.wire().startsWith("HTTP/1.1 411"));
+        assertTrue(f.rec.methods.toString(), f.rec.methods.isEmpty());
+        assertEquals(0, f.rec.completed);
+        assertEquals(0, f.rec.bodyEnds);
+    }
+
     @Test
     public void testHttp10GetClosesConnection() {
         Fixture f = run("GET /x HTTP/1.0\r\n\r\n");
