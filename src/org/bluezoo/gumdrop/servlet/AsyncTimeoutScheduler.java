@@ -133,6 +133,17 @@ private static final Logger LOGGER = Logger.getLogger(AsyncTimeoutScheduler.clas
      */
     AsyncTimeoutHandle schedule(long delayMs, AsyncTimeoutCallback callback) {
         long fireTime = System.currentTimeMillis() + delayMs;
+        return scheduleAt(fireTime, callback);
+    }
+
+    /**
+     * Schedules a timeout callback for an absolute time.
+     *
+     * @param fireTime when to fire, in milliseconds since the epoch
+     * @param callback the callback to execute on timeout
+     * @return a handle that can be used to cancel the timeout
+     */
+    AsyncTimeoutHandle scheduleAt(long fireTime, AsyncTimeoutCallback callback) {
         TimeoutEntry entry = new TimeoutEntry(
                 TIMER_ID_GENERATOR.incrementAndGet(),
                 fireTime,
