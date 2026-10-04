@@ -98,7 +98,17 @@ waiting for it.
 client, a pre-encoded request and the least response parsing that finds the
 end of each response. It roughly doubles HTTP/1.1 throughput against the same
 server and makes the server a real share of the cost. It speaks HTTP/1.1
-only, so `h2-c50` is skipped.
+only; for `h2-c50` the run script uses its HTTP/2 counterpart,
+`H2LoadClient`: one TLS connection, a request header block encoded once, and
+a new stream opened whenever a response ends. It can also be run by hand
+with `--connections=N` to spread the streams over several connections, and
+`H2_DEBUG_FRAMES=n` in the environment prints the first `n` frames it
+receives.
+
+These are the harness's own programs rather than `wrk` or `h2load`, which
+would do the same job and make a good independent check where they are
+installed. `curl` is not a substitute: it has no closed loop of concurrent
+clients and reports no latency distribution.
 
 ## Reading the results
 

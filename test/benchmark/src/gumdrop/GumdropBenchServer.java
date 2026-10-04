@@ -54,6 +54,10 @@ public class GumdropBenchServer {
                     Path.of(req(opt, "cert")), Path.of(req(opt, "key")))));
         } else {
             Http2Listener listener = new Http2Listener().port(port);
+            if (opt.containsKey("max-streams")) {
+                // SETTINGS_MAX_CONCURRENT_STREAMS, default 100
+                listener.setMaxConcurrentStreams(Integer.parseInt(opt.get("max-streams")));
+            }
             if ("tls".equals(mode)) {
                 listener.secure(true).tls(TlsConfig.keystore(
                         Path.of(req(opt, "keystore")), req(opt, "keystore-pass")));

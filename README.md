@@ -106,7 +106,7 @@ With the JDK `HttpClient` as the load client (one virtual thread per concurrent 
 | TLS 1.3, new connection per request | 20 | 4,960 | 3,262* | 2.82 | 4.29 | 23.33 | 48.23 | 816 | 1,344 |
 | TLS 1.3, HTTP/2 (ALPN), keep-alive | 50 | 121,484 | 125,245 | 0.39 | 0.38 | 0.75 | 0.77 | 5.9 | 6.8 |
 
-With a lean load client on blocking sockets (HTTP/1.1 only), which loads the servers properly:
+With lean load clients on blocking sockets (a pre-encoded request and only enough parsing to find the end of each response), which load the servers properly:
 
 | Scenario | Concurrency | Req/s (Gumdrop) | Req/s (Netty) | p50 ms (Gumdrop) | p50 ms (Netty) | p99 ms (Gumdrop) | p99 ms (Netty) | CPU µs (Gumdrop) | CPU µs (Netty) |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
@@ -116,6 +116,7 @@ With a lean load client on blocking sockets (HTTP/1.1 only), which loads the ser
 | JSON POST/response, HTTP/1.1 | 100 | 150,957 | 137,653 | 0.63 | 0.69 | 1.56 | 1.00 | 13.3 | 18.0 |
 | TLS 1.3, HTTP/1.1 keep-alive | 50 | 128,976 | 130,153 | 0.36 | 0.37 | 0.79 | 0.54 | 19.7 | 21.0 |
 | TLS 1.3, new connection per request | 20 | 7,198 | 3,162* | 1.92 | 1.52 | 17.04 | 91.75 | 565 | 791 |
+| TLS 1.3, HTTP/2 (ALPN), 50 streams on one connection | 50 | 633,219 | 413,193 | 0.08 | 0.12 | 0.12 | 0.17 | 1.3 | 2.4 |
 
 HTTP/3, with Gumdrop's own HTTP/3 client as the load client for both servers (the JDK client does not speak HTTP/3). Netty's QUIC transport here is native code, Cloudflare's quiche with BoringSSL behind JNI; Gumdrop's is Java throughout:
 
@@ -125,7 +126,7 @@ HTTP/3, with Gumdrop's own HTTP/3 client as the load client for both servers (th
 
 \* Netty failed requests in this scenario: about 3% of them with the JDK client and about a quarter with the blocking-socket client, so its figures in these rows are not reliable. Gumdrop failed none. Every other scenario ran error-free on both servers.
 
-Gumdrop is level with or ahead of Netty on plaintext HTTP/1.1, JSON and TLS keep-alive, and uses less CPU per request in each; it resumes TLS sessions, so a client that reconnects pays far less than a full handshake; it is within a few percent on HTTP/2; and on HTTP/3 its Java QUIC stack is level with Netty's native one in CPU per request and somewhat ahead in throughput (the HTTP/3 row is the average of four windows). Compression performance was not measured. Measured October 2026 on an Apple M4 with Java 25 and Netty 4.1.121.
+Gumdrop is level with or ahead of Netty on plaintext HTTP/1.1, JSON and TLS keep-alive, and uses less CPU per request in each; it resumes TLS sessions, so a client that reconnects pays far less than a full handshake; on HTTP/2 it is within a few percent when the JDK client sets the pace and about half as fast again as Netty, at half the CPU per request, when the client is out of the way; and on HTTP/3 its Java QUIC stack is level with Netty's native one in CPU per request and somewhat ahead in throughput (the HTTP/3 row is the average of four windows). Compression performance was not measured. Measured October 2026 on an Apple M4 with Java 25 and Netty 4.1.121.
 
 ## Full feature list
 

@@ -7,8 +7,8 @@
 # Environment:
 #   FRAMEWORKS  servers to run, default "gumdrop netty"
 #   CLIENT      LoadClient (JDK HttpClient, the method behind the README
-#               figures) or RawLoadClient (lean blocking sockets, HTTP/1.1
-#               only); default LoadClient
+#               figures) or RawLoadClient (lean blocking sockets; the
+#               HTTP/2 scenario then uses H2LoadClient); default LoadClient
 #   SCENARIOS   space-separated scenario labels to run, default all
 #   REPEATS     default 2
 #   RESULTS     default results/results.csv
@@ -148,14 +148,16 @@ for fw in $FRAMEWORKS; do
     run_scenario "tls-c20-handshake" "$fw" 18105 tls "https://localhost:18105/" 20 12 5 "$insecure --close-per-request"
 done
 
-# HTTP/2 over the same TLS+ALPN listener. RawLoadClient speaks HTTP/1.1
-# only, so this scenario always uses the JDK HttpClient.
-if [ "$CLIENT" = "LoadClient" ]; then
-    for fw in $FRAMEWORKS; do
-        CLIENT_JVM_ARGS=""
-        run_scenario "h2-c50" "$fw" 18106 tls "https://localhost:18106/" 50 12 5 "$http2_args"
-    done
+# HTTP/2 over the same TLS+ALPN listener, 50 streams on one connection.
+# RawLoadClient speaks HTTP/1.1 only; its HTTP/2 counterpart is H2LoadClient.
+if [ "$CLIENT" = "RawLoadClient" ]; then
+    CLIENT=H2LoadClient
+    http2_args=""
 fi
+for fw in $FRAMEWORKS; do
+    CLIENT_JVM_ARGS=""
+    run_scenario "h2-c50" "$fw" 18106 tls "https://localhost:18106/" 50 12 5 "$http2_args"
+done
 
 echo "Done. Results in $RESULTS" >&2
 cat "$RESULTS"
