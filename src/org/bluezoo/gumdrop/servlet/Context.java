@@ -2842,7 +2842,18 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
         if (initialized) {
             throw new IllegalStateException();
         }
-        ServletDef servletDef = new ServletDef();
+        ServletDef servletDef = servletDefs.get(servletName);
+        if (servletDef != null) {
+            if (servletDef.className != null || servletDef.jspFile != null) {
+                // already completely registered: the first one stands
+                return null;
+            }
+            // declared without a class: this completes it
+            servletDef.context = this;
+            servletDef.className = className;
+            return servletDef;
+        }
+        servletDef = new ServletDef();
         servletDef.context = this;
         servletDef.name = servletName;
         servletDef.className = className;
@@ -2852,8 +2863,10 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
 
     public ServletRegistration.Dynamic addServlet(String servletName, Servlet servlet) {
         ServletRegistration.Dynamic registration = addServlet(servletName, servlet.getClass());
-        ServletDef servletDef = (ServletDef) registration;
-        servletDef.instance = servlet;
+        if (registration != null) {
+            ServletDef servletDef = (ServletDef) registration;
+            servletDef.instance = servlet;
+        }
         return registration;
     }
 
@@ -2915,7 +2928,18 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
         if (initialized) {
             throw new IllegalStateException();
         }
-        FilterDef filterDef = new FilterDef();
+        FilterDef filterDef = filterDefs.get(filterName);
+        if (filterDef != null) {
+            if (filterDef.className != null) {
+                // already completely registered: the first one stands
+                return null;
+            }
+            // declared without a class: this completes it
+            filterDef.context = this;
+            filterDef.className = className;
+            return filterDef;
+        }
+        filterDef = new FilterDef();
         filterDef.context = this;
         filterDef.name = filterName;
         filterDef.className = className;
@@ -2925,8 +2949,10 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
 
     public FilterRegistration.Dynamic addFilter(String filterName, Filter filter) {
         FilterRegistration.Dynamic registration = addFilter(filterName, filter.getClass());
-        FilterDef filterDef = (FilterDef) registration;
-        filterDef.instance = filter;
+        if (registration != null) {
+            FilterDef filterDef = (FilterDef) registration;
+            filterDef.instance = filter;
+        }
         return registration;
     }
 

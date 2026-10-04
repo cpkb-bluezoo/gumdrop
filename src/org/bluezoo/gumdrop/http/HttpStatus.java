@@ -354,16 +354,30 @@ public enum HttpStatus {
     /**
      * Returns the HttpStatus for the given numeric status code.
      *
+     * <p>A code that is not recognised but is in one of the five classes
+     * is treated as the x00 code of its class, as RFC 9110 section 15
+     * requires of a recipient: 299 is {@link #OK}, 499 is
+     * {@link #BAD_REQUEST}. The result is then not the code that was
+     * given, so a caller that has to pass a status code on must keep the
+     * number rather than take it from the result.
+     *
      * @param statusCode the numeric HTTP status code
-     * @return the corresponding HttpStatus, or {@link #INTERNAL_SERVER_ERROR} if not recognized
+     * @return the corresponding HttpStatus, the x00 status of its class
+     *      if it is not recognized, or {@link #INTERNAL_SERVER_ERROR} if
+     *      it is not a status code at all
      */
     public static HttpStatus fromCode(int statusCode) {
         HttpStatus status = BY_CODE.get(statusCode);
         if (status != null) {
             return status;
         }
-        // For unrecognized codes, return 500 Internal Server Error rather than UNKNOWN
-        // This ensures we always send a valid HTTP status code
+        if (statusCode >= 100 && statusCode <= 599) {
+            int classCode = (statusCode / 100) * 100;
+            status = BY_CODE.get(classCode);
+            if (status != null) {
+                return status;
+            }
+        }
         return INTERNAL_SERVER_ERROR;
     }
 }

@@ -119,32 +119,6 @@ class Stream implements HttpResponse {
                "TRACE".equals(method);
     }
 
-    /**
-     * Returns whether this HTTP/1 request is to have a body and declares
-     * no length for it: neither a Content-Length nor a chunked
-     * Transfer-Encoding, on a method that is not bodiless (RFC 9112
-     * section 6.3). Such a request is refused with 411, and must be
-     * recognised before its headers are dispatched to the application.
-     */
-    boolean lacksBodyLength() {
-        if (headers == null) {
-            return false;
-        }
-        boolean noBody = false;
-        for (Header header : headers) {
-            String name = header.getName();
-            if (":method".equals(name)) {
-                noBody = isNoBodyMethod(header.getValue());
-            } else if ("Content-Length".equalsIgnoreCase(name)
-                    || "Transfer-Encoding".equalsIgnoreCase(name)) {
-                // either declares the length, or is invalid and refused
-                // with 400 when the headers are processed
-                return false;
-            }
-        }
-        return !noBody;
-    }
-
     // RFC 9113 section 5.1: stream states
     enum State {
         IDLE,                // RFC 9113 section 5.1: initial state
@@ -757,6 +731,14 @@ class Stream implements HttpResponse {
             if (isUpgrade && upgradeProtocols != null) {
                 this.upgrade = upgradeProtocols;
                 this.h2cSettings = http2Settings;
+            }
+            if (connection.getVersion() != HttpVersion.HTTP_2_0
+                    && !chunked && !hasExplicitContentLength) {
+                // RFC 9112 section 6.3: an HTTP/1 request with neither a
+                // Content-Length nor a chunked Transfer-Encoding has no
+                // body, whatever its method. (An HTTP/2 request body is
+                // delimited by its frames and needs no length.)
+                contentLength = 0;
             }
         }
         long maxBody = connection.getMaxRequestBodySize();

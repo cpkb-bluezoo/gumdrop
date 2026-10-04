@@ -137,6 +137,21 @@ public class HTTPStatusTest {
         assertEquals(HttpStatus.IM_A_TEAPOT, HttpStatus.fromCode(418));
     }
 
+    /**
+     * RFC 9110 section 15: a status code that is not recognised is to be
+     * treated as the x00 code of its class. An extension code in the 2xx
+     * range is still a success, not a server error.
+     */
+    @Test
+    public void testFromCodeUnrecognizedInAKnownClass() {
+        assertEquals(HttpStatus.CONTINUE, HttpStatus.fromCode(199));
+        assertEquals(HttpStatus.OK, HttpStatus.fromCode(299));
+        assertTrue(HttpStatus.fromCode(250).isSuccess());
+        assertEquals(HttpStatus.MULTIPLE_CHOICES, HttpStatus.fromCode(399));
+        assertEquals(HttpStatus.BAD_REQUEST, HttpStatus.fromCode(499));
+        assertEquals(HttpStatus.INTERNAL_SERVER_ERROR, HttpStatus.fromCode(599));
+    }
+
     @Test
     public void testFromCodeUnrecognized() {
         assertEquals(HttpStatus.INTERNAL_SERVER_ERROR, HttpStatus.fromCode(999));

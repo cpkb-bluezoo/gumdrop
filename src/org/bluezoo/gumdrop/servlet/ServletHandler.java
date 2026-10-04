@@ -523,7 +523,9 @@ public class ServletHandler extends DefaultHttpRequestHandler {
         state.execute(new Runnable() {
             @Override
             public void run() {
-                state.status(HttpStatus.fromCode(status).code);
+                // the code the servlet set, whether or not it has a
+                // name here (Response keeps it within 100 to 599)
+                state.status(status);
                 if (fields != null) {
                     for (Header header : fields) {
                         state.header(header.getName(), header.getValue());

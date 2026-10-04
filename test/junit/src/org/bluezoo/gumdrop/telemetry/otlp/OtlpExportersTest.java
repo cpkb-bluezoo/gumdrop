@@ -63,6 +63,42 @@ public class OtlpExportersTest {
         return config;
     }
 
+    /** A configuration under which the export thread waits a long time. */
+    private static TelemetryConfig idleConfig() {
+        TelemetryConfig config = new TelemetryConfig();
+        config.setServiceName("svc");
+        config.setTimeoutMs(2000);
+        config.setFlushIntervalMs(600000L);
+        return config;
+    }
+
+    /**
+     * Shutdown has to reach an export thread that is waiting for work. It
+     * is woken through its monitor, not interrupted: an interrupt arriving
+     * while it is exporting would abort whatever wait the export is in.
+     */
+    @Test
+    public void testHttpExportThreadIsWokenToShutDown() throws Exception {
+        OtlpExporter e = new OtlpExporter(idleConfig(), false);
+        Thread thread = e.exportThreadForTesting();
+        thread.start();
+        e.flush();
+        e.shutdown();
+        thread.join(2000L);
+        assertFalse(thread.isAlive());
+    }
+
+    @Test
+    public void testGrpcExportThreadIsWokenToShutDown() throws Exception {
+        OtlpGrpcExporter e = new OtlpGrpcExporter(idleConfig(), false);
+        Thread thread = e.exportThreadForTesting();
+        thread.start();
+        e.flush();
+        e.shutdown();
+        thread.join(2000L);
+        assertFalse(thread.isAlive());
+    }
+
     @Test
     public void testHttpResponseHandler() {
         OtlpExporter e = new OtlpExporter(config(), false);

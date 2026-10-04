@@ -165,10 +165,10 @@ public class RequestResponseHeaderIndexTest {
         assertTrue(values.contains("a=1"));
         assertTrue(values.contains("b=2"));
 
-        assertNull("getHeaders for a name with no headers must return null "
-                + "(this implementation's existing contract, unchanged by "
-                + "routing through the index)",
-                response.getHeaders("x-absent"));
+        java.util.Collection<String> absent = response.getHeaders("x-absent");
+        assertNotNull("getHeaders for a name with no headers is an empty "
+                + "collection (HttpServletResponse.getHeaders), not null", absent);
+        assertTrue(absent.isEmpty());
     }
 
     // ── helpers ──
