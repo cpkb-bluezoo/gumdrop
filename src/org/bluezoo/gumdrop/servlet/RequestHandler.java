@@ -32,6 +32,7 @@ import java.util.logging.Level;
 
 import jakarta.servlet.ServletRequestEvent;
 import jakarta.servlet.ServletRequestListener;
+import jakarta.servlet.http.HttpServletResponse;
 import jakarta.servlet.http.HttpSession;
 
 /**
@@ -213,6 +214,12 @@ public class RequestHandler implements Runnable {
         Context context = container.getContextByPath(path);
         // Lookup request dispatcher
         if (context == null) {
+            return null;
+        }
+        if (context.loadFailed) {
+            // The web application could not be loaded. It may be there
+            // again once it has been corrected and redeployed.
+            response.sendError(HttpServletResponse.SC_SERVICE_UNAVAILABLE);
             return null;
         }
         Thread.currentThread().setContextClassLoader(context.getContextClassLoader());
