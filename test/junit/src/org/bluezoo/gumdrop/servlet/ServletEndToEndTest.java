@@ -879,6 +879,28 @@ public class ServletEndToEndTest {
         assertTrue(bare.text(), bare.text().contains("errorpage:404"));
     }
 
+    /**
+     * A response with no Content-Length is an ordinary response: the
+     * transport delimits it (chunked on HTTP/1.1, the end of the stream on
+     * HTTP/2 and HTTP/3). It is no reason to ask for the connection to be
+     * closed.
+     */
+    @Test
+    public void testResponseWithoutContentLengthDoesNotCloseTheConnection() throws Exception {
+        Result body = send("GET", "/app/echo");
+        assertEquals(200, body.status);
+        assertNull(body.header("content-length"));
+        assertNull(body.header("connection"));
+
+        Result empty = send("GET", "/app/err?mode=204");
+        assertEquals(204, empty.status);
+        assertNull(empty.header("connection"));
+
+        Result own = send("GET", "/app/err?mode=statusbody");
+        assertEquals(404, own.status);
+        assertNull(own.header("connection"));
+    }
+
     @Test
     public void testRedirectsAndStatuses() throws Exception {
         Result r1 = send("GET", "/app/err?mode=redirect");
