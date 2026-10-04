@@ -469,7 +469,17 @@ public  class HttpProtocolHandler
                 case PRI_SETTINGS:
                 case HTTP2:
                 case HTTP2_CONTINUATION:
-                    receiveFrameData(buf);
+                    // One flush for everything this read produces: the
+                    // responses to all the requests in it reach the peer as
+                    // one write and, over TLS, one record.
+                    h2DispatchDepth++;
+                    try {
+                        receiveFrameData(buf);
+                    } finally {
+                        if (--h2DispatchDepth == 0) {
+                            flushH2Writer();
+                        }
+                    }
                     break;
                 case WEBSOCKET:
                     receiveWebSocket(buf);
@@ -664,12 +674,25 @@ public  class HttpProtocolHandler
             body.run();
         } finally {
             if (--h2DispatchDepth == 0) {
-                try {
-                    h2Writer.flush();
-                } catch (IOException e) {
-                    LOGGER.log(Level.WARNING, L10N.getString("warn.error_flushing_h2_frames"), e);
-                }
+                flushH2Writer();
             }
+        }
+    }
+
+    /**
+     * Writes out whatever {@link #h2Writer} holds. Frames that do not go
+     * through the writer (RST_STREAM, GOAWAY, SETTINGS, PING) and closing
+     * the connection call this first, so that frames reach the peer in the
+     * order they were produced.
+     */
+    private void flushH2Writer() {
+        if (h2Writer == null) {
+            return;
+        }
+        try {
+            h2Writer.flush();
+        } catch (IOException e) {
+            LOGGER.log(Level.WARNING, L10N.getString("warn.error_flushing_h2_frames"), e);
         }
     }
 
@@ -682,11 +705,7 @@ public  class HttpProtocolHandler
         if (h2DispatchDepth > 0) {
             return;
         }
-        try {
-            h2Writer.flush();
-        } catch (IOException e) {
-            LOGGER.log(Level.WARNING, L10N.getString("warn.error_flushing_h2_frames"), e);
-        }
+        flushH2Writer();
     }
 
     /**
@@ -743,6 +762,9 @@ public  class HttpProtocolHandler
                 }
                 h2Writer.writeContinuation(streamId, buf, true);
             }
+            if (endStream) {
+                responseEndWritten(streamId);
+            }
             requestH2Flush();
         } catch (IOException e) {
             LOGGER.log(Level.WARNING, L10N.getString("warn.error_sending_headers"), e);
@@ -764,6 +786,7 @@ public  class HttpProtocolHandler
         } else {
             writeH2Headers(streamId, trailers, true);
             requestH2Flush();
+            releaseStreamIfFinished(streamId);
         }
     }
 
@@ -812,6 +835,9 @@ public  class HttpProtocolHandler
                 // starving every other non-incremental stream at the same
                 // urgency from ever sending DATA again.
                 releaseH2BodySlot(streamId);
+                if (endStream) {
+                    releaseStreamIfFinished(streamId);
+                }
                 drainRfc9218Pending();
             } else if (window > 0) {
                 h2FlowControl.consumeSendWindow(streamId, window);
@@ -865,6 +891,12 @@ public  class HttpProtocolHandler
     private void sendH2DataDirect(int streamId, ByteBuffer buf, boolean endStream) {
         int maxPayload = framePadding > 0 ? maxFrameSize - framePadding - 1 : maxFrameSize;
         try {
+            if (endStream && !buf.hasRemaining() && h2Writer.endStreamOnLastData(streamId)) {
+                // the stream's last DATA frame is still in the writer: it
+                // ends the stream itself, with no empty frame after it
+                responseEndWritten(streamId);
+                return;
+            }
             while (buf.remaining() > maxPayload) {
                 int savedLimit = buf.limit();
                 buf.limit(buf.position() + maxPayload);
@@ -874,6 +906,9 @@ public  class HttpProtocolHandler
                 h2Writer.writeData(streamId, slice, false, framePadding);
             }
             h2Writer.writeData(streamId, buf, endStream, framePadding);
+            if (endStream) {
+                responseEndWritten(streamId);
+            }
         } catch (IOException e) {
             LOGGER.log(Level.WARNING, L10N.getString("warn.error_sending_data_frame"), e);
         }
@@ -940,6 +975,7 @@ public  class HttpProtocolHandler
                 cb.run();
             }
             releaseH2BodySlot(streamId);
+            releaseStreamIfFinished(streamId);
             drainRfc9218Pending();
         }
     }
@@ -993,6 +1029,7 @@ public  class HttpProtocolHandler
         if (endpoint == null) {
             return;
         }
+        flushH2Writer();
         if (buf == null) {
             endpoint.close();
             return;
@@ -1376,6 +1413,7 @@ public  class HttpProtocolHandler
     private void closeEndpoint() {
         cancelIdleTimeout();
         cancelPingKeepAlive();
+        flushH2Writer();
         if (endpoint != null) {
             endpoint.close();
         }
@@ -1600,6 +1638,58 @@ public  class HttpProtocolHandler
     // so that rapid-reset attacks cannot bypass SETTINGS_MAX_CONCURRENT_STREAMS.
     void streamResponseCompleted(int streamId) {
         activeStreams.remove(streamId);
+        releaseStreamIfFinished(streamId);
+    }
+
+    /** Notes that the frame carrying END_STREAM for this stream's response has been written. */
+    private void responseEndWritten(int streamId) {
+        Stream stream = streams.get(streamId);
+        if (stream != null) {
+            stream.responseEndWritten = true;
+        }
+    }
+
+    /**
+     * Releases an HTTP/2 stream, and everything held for it, once both its
+     * request and its response have ended and the last frame of the response
+     * has been written. A busy connection finishes streams as fast as it
+     * starts them; leaving each one for the periodic sweep made the memory
+     * held by a connection grow with its request rate.
+     *
+     * <p>A stream that was reset rather than finished is not released here.
+     * It keeps its concurrency slot until {@link #maybeCleanupClosedStreams}
+     * sweeps it (CVE-2023-44487).
+     */
+    private void releaseStreamIfFinished(int streamId) {
+        if (h2FlowControl == null) {
+            return;
+        }
+        Stream stream = streams.get(streamId);
+        if (stream == null || !stream.isClosed() || !stream.responseEndWritten
+                || activeStreams.contains(streamId) || h2PendingData.containsKey(streamId)) {
+            return;
+        }
+        streams.remove(streamId);
+        h2FlowControl.closeStream(streamId);
+        h2WriteCallbacks.remove(streamId);
+        h2PendingBytes.remove(streamId);
+        h2Priority.remove(streamId);
+    }
+
+    /**
+     * Whether this stream identifier belongs to a stream that has been and
+     * gone: one the peer or this server opened earlier that is no longer
+     * tracked. RFC 9113 section 5.1.1: identifiers only increase, so an
+     * identifier at or below the highest one used cannot be a new stream.
+     */
+    private boolean isReleasedStream(int streamId) {
+        if (streamId == 0 || streams.containsKey(streamId)) {
+            return false;
+        }
+        if ((streamId & 1) == 1) {
+            return streamId <= lastClientStreamId;
+        }
+        return streamId < serverStreamId;
     }
 
     private void maybeCleanupClosedStreams() {
@@ -2437,6 +2527,24 @@ public  class HttpProtocolHandler
             @Override
             public void run() {
             int dataLength = data.remaining();
+            if (isReleasedStream(streamId)) {
+                // RFC 9113 section 5.1: DATA for a closed stream is a
+                // stream error; section 6.9: it still counts against the
+                // connection flow-control window
+                if (h2FlowControl != null && dataLength > 0) {
+                    h2FlowControl.onDataReceived(streamId, dataLength, h2DataResult);
+                    if (h2DataResult.connectionIncrement > 0) {
+                        try {
+                            h2Writer.writeWindowUpdate(0, h2DataResult.connectionIncrement);
+                        } catch (IOException e) {
+                            LOGGER.log(Level.WARNING, L10N.getString("warn.error_sending_window_update"), e);
+                        }
+                    }
+                }
+                data.position(data.limit());
+                sendRstStream(streamId, H2FrameHandler.ERROR_STREAM_CLOSED);
+                return;
+            }
             Stream stream = getStream(streamId);
             stream.appendRequestBody(data);
 
@@ -2537,6 +2645,9 @@ public  class HttpProtocolHandler
         if (expectingInitialSettings()) {
             return;
         }
+        if (isReleasedStream(prioritizedStreamId)) {
+            return;
+        }
         applyRfc9218Priority(prioritizedStreamId, PriorityParams.parse(fieldValue), true);
     }
 
@@ -2561,6 +2672,10 @@ public  class HttpProtocolHandler
         checkRstStreamRate();
         if (LOGGER.isLoggable(Level.FINE)) {
             LOGGER.fine(MessageFormat.format(L10N.getString("debug.rst_stream_received"), streamId, H2FrameHandler.errorToString(errorCode)));
+        }
+        if (isReleasedStream(streamId)) {
+            // RFC 9113 section 5.1: the stream finished before the reset arrived
+            return;
         }
         Stream stream = getStream(streamId);
         stream.streamAbort(new IOException("Stream reset by peer: "
@@ -2917,16 +3032,13 @@ public  class HttpProtocolHandler
                 return 0;
             }
             int written = src.remaining();
-            if (written > 0) {
-                ByteBuffer copy = ByteBufferPool.acquire(written);
-                copy.put(src);
-                copy.flip();
-                try {
-                    send(copy);
-                } finally {
-                    ByteBufferPool.release(copy);
-                }
+            if (written > 0 && endpoint != null) {
+                // the endpoint takes what it is given before it returns
+                // (copied to its output buffer, or sealed into a TLS
+                // record), so the writer's own buffer can be handed over
+                endpoint.send(src);
             }
+            src.position(src.limit());
             return written;
         }
 

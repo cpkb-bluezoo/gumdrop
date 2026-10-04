@@ -99,6 +99,14 @@ public class H2Writer {
     private final int sendThreshold;
 
     /**
+     * Where in {@link #buffer} the flags octet of the last frame written
+     * lies, if that frame is a DATA frame without END_STREAM that is still
+     * in the buffer; otherwise -1. See {@link #endStreamOnLastData}.
+     */
+    private int lastDataFlagsPosition = -1;
+    private int lastDataStreamId;
+
+    /**
      * Creates a new HTTP/2 frame writer with default buffer capacity.
      *
      * @param channel the channel to write to
@@ -163,6 +171,7 @@ public class H2Writer {
         }
 
         writeFrameHeader(payloadLength, H2FrameHandler.TYPE_DATA, flags, streamId);
+        int flagsPosition = buffer.position() - FRAME_HEADER_LENGTH + 4;
 
         if (padLength > 0) {
             ensureCapacity(1);
@@ -178,8 +187,32 @@ public class H2Writer {
             }
         }
 
+        if (!endStream) {
+            lastDataFlagsPosition = flagsPosition;
+            lastDataStreamId = streamId;
+        }
         sendIfNeeded();
         logFrame("DATA", streamId, payloadLength, flags);
+    }
+
+    /**
+     * Ends a stream by setting END_STREAM on its DATA frame, if that frame
+     * was the last frame written and has not yet been sent. This saves the
+     * empty DATA frame that would otherwise be needed to end a stream whose
+     * last data was written before the writer knew it was the last.
+     *
+     * @param streamId the stream to end
+     * @return true if the stream was ended this way; false if the caller
+     *         must write a frame to end it
+     */
+    public boolean endStreamOnLastData(int streamId) {
+        if (lastDataFlagsPosition < 0 || lastDataStreamId != streamId) {
+            return false;
+        }
+        int flags = buffer.get(lastDataFlagsPosition) | H2FrameHandler.FLAG_END_STREAM;
+        buffer.put(lastDataFlagsPosition, (byte) flags);
+        lastDataFlagsPosition = -1;
+        return true;
     }
 
     /**
@@ -598,6 +631,7 @@ public class H2Writer {
 
     // RFC 9113 section 4.1: frame header layout: Length(24) Type(8) Flags(8) R StreamId(31)
     private void writeFrameHeader(int length, int type, int flags, int streamId) {
+        lastDataFlagsPosition = -1;
         ensureCapacity(FRAME_HEADER_LENGTH);
         buffer.put((byte) ((length >> 16) & 0xff));
         buffer.put((byte) ((length >> 8) & 0xff));
@@ -642,6 +676,7 @@ public class H2Writer {
             channel.write(buffer);
         }
         buffer.clear();
+        lastDataFlagsPosition = -1;
     }
 
     private void logFrame(String type, int streamId, int length, int flags) {

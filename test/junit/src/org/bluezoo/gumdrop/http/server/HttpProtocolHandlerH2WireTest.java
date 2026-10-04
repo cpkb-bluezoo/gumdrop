@@ -1360,12 +1360,184 @@ public class HttpProtocolHandlerH2WireTest {
         assertTrue(c.handler.isEnablePush());
     }
 
+    /**
+     * A handler that writes its body and then ends the message gets one DATA
+     * frame carrying END_STREAM, not the body followed by an empty frame to
+     * end the stream: one frame fewer for the peer to handle per response.
+     */
     @Test
-    public void testClosedStreamIsSweptOnceRetentionExpires() {
+    public void testEndOfMessageIsCarriedByTheLastDataFrame() {
         Conn c = new Conn();
         c.handshake();
         c.request(1, "GET", "/a", true);
+        List<Frame> frames = c.frames();
+        int dataFrames = 0;
+        Frame last = null;
+        for (int i = 0; i < frames.size(); i++) {
+            Frame f = frames.get(i);
+            if (f.type == 0 && f.streamId == 1) {
+                dataFrames++;
+                last = f;
+            }
+        }
+        assertEquals(1, dataFrames);
+        assertEquals(2, last.payload.length);
+        assertTrue("END_STREAM", (last.flags & 1) != 0);
+        assertEquals(0, c.handler.streamCountForTesting());
+    }
+
+    /**
+     * The responses to requests that arrive in one read go out as one write,
+     * which over TLS is one record. A write per response costs a record
+     * seal and a pass through the socket for each.
+     */
+    @Test
+    public void testResponsesToRequestsInOneReadGoOutAsOneWrite() {
+        Conn c = new Conn();
+        c.handshake();
+        c.endpoint.clearWrites();
+        byte[][] requests = new byte[10][];
+        for (int i = 0; i < requests.length; i++) {
+            requests[i] = frame(1, 5, 1 + 2 * i, c.headerBlock("GET", "/a", null));
+        }
+        c.send(concat(requests));
+        assertEquals(1, c.endpoint.getWrites().size());
+        assertEquals(10, count(parse(c.endpoint.getAllBytes()), 1));
+    }
+
+    /**
+     * Frames keep their order when responses are held for the end of the
+     * read: a GOAWAY raised by a later frame of the same read follows the
+     * responses already produced, and those are not lost when the connection
+     * then closes.
+     */
+    @Test
+    public void testGoawayFollowsResponsesProducedEarlierInTheSameRead() {
+        Conn c = new Conn();
+        c.handshake();
+        c.endpoint.clearWrites();
+        byte[] good = frame(1, 5, 1, c.headerBlock("GET", "/a", null));
+        // RFC 9113 section 5.1.1: a client must not open an even-numbered stream
+        byte[] bad = frame(1, 5, 2, c.headerBlock("GET", "/b", null));
+        c.send(concat(good, bad));
+        List<Frame> frames = parse(c.endpoint.getAllBytes());
+        int response = -1;
+        int goaway = -1;
+        for (int i = 0; i < frames.size(); i++) {
+            Frame f = frames.get(i);
+            if (f.type == 1 && f.streamId == 1) {
+                response = i;
+            } else if (f.type == 7) {
+                goaway = i;
+            }
+        }
+        assertTrue("response to stream 1 was sent", response >= 0);
+        assertTrue("GOAWAY was sent", goaway >= 0);
+        assertTrue("response precedes GOAWAY", response < goaway);
+    }
+
+    /**
+     * A stream whose request and response have both ended is released at
+     * once. Holding every finished stream until a periodic sweep made the
+     * memory of a busy connection grow with its request rate: 1.7 million
+     * streams after twenty seconds at 90,000 requests a second.
+     */
+    @Test
+    public void testCompletedStreamIsReleasedAtOnce() {
+        Conn c = new Conn();
+        c.handshake();
+        for (int id = 1; id < 200; id += 2) {
+            c.request(id, "GET", "/a", true);
+        }
+        assertEquals(100, count(c.frames(), 1));
+        assertEquals(0, c.handler.streamCountForTesting());
+        assertEquals(0, c.handler.activeStreamCountForTesting());
+    }
+
+    /** A response answered from the header callback, before the request ends, is released when the request does. */
+    @Test
+    public void testStreamAnsweredBeforeRequestEndsIsReleasedWhenItEnds() {
+        Conn c = new Conn();
+        c.app.respondInHeaders = true;
+        c.handshake();
+        c.request(1, "POST", "/a", false);
+        assertEquals("request body still expected", 1, c.handler.streamCountForTesting());
+        c.send(frame(0, 1, 1, new byte[] { 1, 2, 3 }));
+        assertEquals(0, c.handler.streamCountForTesting());
+    }
+
+    /** A response held back by flow control keeps its stream until the last DATA frame has gone. */
+    @Test
+    public void testStreamWithQueuedDataIsKeptUntilItDrains() {
+        Conn c = new Conn();
+        c.app.responseBodyLength = 100000;
+        c.handshake();
+        c.request(1, "GET", "/a", true);
+        assertEquals("response waits on the 65535 octet window", 1, c.handler.streamCountForTesting());
+        c.send(frame(8, 0, 0, new byte[] { 0, 1, 0, 0 }));
+        c.send(frame(8, 0, 1, new byte[] { 0, 1, 0, 0 }));
+        int received = 0;
+        boolean ended = false;
+        List<Frame> frames = c.frames();
+        for (int i = 0; i < frames.size(); i++) {
+            Frame f = frames.get(i);
+            if (f.type == 0 && f.streamId == 1) {
+                received += f.payload.length;
+                ended = ended || (f.flags & 1) != 0;
+            }
+        }
+        assertEquals(100000, received);
+        assertTrue(ended);
+        assertEquals(0, c.handler.streamCountForTesting());
+    }
+
+    /**
+     * RFC 9113 section 5.1: DATA for a stream that has closed is a stream
+     * error of type STREAM_CLOSED. It must not start a new request.
+     */
+    @Test
+    public void testDataOnCompletedStreamIsRefusedWithoutReopeningIt() {
+        Conn c = new Conn();
+        c.handshake();
+        c.request(1, "GET", "/a", true);
+        int events = c.app.events.size();
+        c.send(frame(0, 0, 1, new byte[] { 1, 2, 3 }));
+        assertEquals("STREAM_CLOSED", 5, rstError(c.frames(), 1));
+        assertEquals("no handler was opened for it", events, c.app.events.size());
+        assertEquals(0, c.handler.streamCountForTesting());
+        assertEquals(0, c.endpoint.getCloseCount());
+    }
+
+    /** RFC 9113 section 5.1: RST_STREAM and WINDOW_UPDATE may arrive for a closed stream and are ignored. */
+    @Test
+    public void testResetAndWindowUpdateOnCompletedStreamAreIgnored() {
+        Conn c = new Conn();
+        c.handshake();
+        c.request(1, "GET", "/a", true);
+        int events = c.app.events.size();
+        c.send(frame(3, 0, 1, new byte[] { 0, 0, 0, 8 }));
+        c.send(frame(8, 0, 1, new byte[] { 0, 0, 1, 0 }));
+        assertEquals(events, c.app.events.size());
+        assertEquals(0, failedCount(c));
+        assertEquals(-1, rstError(c.frames(), 1));
+        assertEquals(0, c.handler.streamCountForTesting());
+        assertEquals(0, c.endpoint.getCloseCount());
+        c.request(3, "GET", "/b", true);
+        assertEquals("the connection carries on", 2, count(c.frames(), 1));
+    }
+
+    /**
+     * A stream the peer reset is not released at once: it holds its
+     * concurrency slot until the sweep, so resetting streams is no way round
+     * SETTINGS_MAX_CONCURRENT_STREAMS (CVE-2023-44487).
+     */
+    @Test
+    public void testResetStreamIsSweptOnceRetentionExpires() {
+        Conn c = new Conn();
+        c.handshake();
+        c.request(1, "POST", "/a", false);
         Stream s = c.handler.getStream(1);
+        c.send(frame(3, 0, 1, new byte[] { 0, 0, 0, 8 }));
         assertTrue(s.isClosed());
         c.handler.lastStreamCleanup = 0L;
         c.handler.getStream(0);

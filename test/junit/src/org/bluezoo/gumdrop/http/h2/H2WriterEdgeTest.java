@@ -91,6 +91,46 @@ public class H2WriterEdgeTest {
     }
 
     @Test
+    public void testEndStreamSetOnLastBufferedDataFrame() throws IOException {
+        TrickleChannel ch = new TrickleChannel();
+        H2Writer w = new H2Writer(ch);
+        w.writeData(1, bytes("hello"), false, 4);
+        assertTrue(w.endStreamOnLastData(1));
+        assertTrue("only once", !w.endStreamOnLastData(1));
+        w.flush();
+        H2ParserWriterTest.RecordingHandler h = parse(ch);
+        assertEquals(0, h.errors.size());
+        assertEquals(1, h.dataFrames.size());
+        assertEquals(5, h.dataFrames.get(0).data.remaining());
+        assertTrue(h.dataFrames.get(0).endStream);
+    }
+
+    @Test
+    public void testEndStreamNotSetOnAnythingButTheLastBufferedDataFrame() throws IOException {
+        TrickleChannel ch = new TrickleChannel();
+        H2Writer w = new H2Writer(ch);
+        w.writeData(1, bytes("one"), false);
+        assertTrue("another stream", !w.endStreamOnLastData(3));
+        w.writeData(3, bytes("two"), false);
+        assertTrue("a later frame was written", !w.endStreamOnLastData(1));
+        w.writeWindowUpdate(0, 10);
+        assertTrue("a later frame was written", !w.endStreamOnLastData(3));
+        w.writeData(5, bytes("three"), false);
+        w.flush();
+        assertTrue("the frame has been sent", !w.endStreamOnLastData(5));
+        w.writeData(7, bytes("four"), true);
+        assertTrue("already ended", !w.endStreamOnLastData(7));
+        w.flush();
+        H2ParserWriterTest.RecordingHandler h = parse(ch);
+        assertEquals(0, h.errors.size());
+        assertEquals(4, h.dataFrames.size());
+        for (int i = 0; i < 3; i++) {
+            assertTrue(!h.dataFrames.get(i).endStream);
+        }
+        assertTrue(h.dataFrames.get(3).endStream);
+    }
+
+    @Test
     public void testPaddedPrioritisedHeadersRoundTrip() throws IOException {
         TrickleChannel ch = new TrickleChannel();
         H2Writer w = new H2Writer(ch);

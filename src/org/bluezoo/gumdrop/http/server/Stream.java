@@ -165,6 +165,12 @@ class Stream implements HttpResponse {
     Map<Integer, Integer> h2cSettings;
     long timestampCompleted = 0L;
 
+    /**
+     * Set by the HTTP/2 connection once the frame that ends this stream's
+     * response has been written, which is when the stream can be let go.
+     */
+    boolean responseEndWritten;
+
     // Telemetry span for this request/response (null if telemetry disabled)
     private Span span;
     private int responseStatusCode; // Saved for telemetry when body completes
