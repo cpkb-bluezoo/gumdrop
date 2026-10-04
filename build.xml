@@ -502,6 +502,7 @@
         <include name='${angus.mail.jar}'/>
         <include name='${angus.activation.jar}'/>
         <include name='${jakarta.annotation.jar}'/>
+        <include name='${jakarta.persistence.jar}'/>
         <include name='${annotation.jar}'/>
         <include name='${ejb.jar}'/>
         <include name='${persistence.jar}'/>
@@ -517,7 +518,7 @@
       <manifest>
         <attribute name='Main-Class' value='org.bluezoo.gumdrop.Bootstrap'/>
         <attribute name='Container-Jar' value='gumdrop.jar'/>
-        <attribute name='Container-Dependencies' value='${servlet.jar} ${jakarta.mail.jar} ${jakarta.activation.jar} ${angus.mail.jar} ${angus.activation.jar} ${jakarta.annotation.jar} ${annotation.jar} ${ejb.jar} ${persistence.jar} ${jaxws.jar} ${gonzalez.jar} ${jsonparser.jar} ${jprotobuf.jar} ${micula.jar}'/>
+        <attribute name='Container-Dependencies' value='${servlet.jar} ${jakarta.mail.jar} ${jakarta.activation.jar} ${angus.mail.jar} ${angus.activation.jar} ${jakarta.annotation.jar} ${jakarta.persistence.jar} ${annotation.jar} ${ejb.jar} ${persistence.jar} ${jaxws.jar} ${gonzalez.jar} ${jsonparser.jar} ${jprotobuf.jar} ${micula.jar}'/>
       </manifest>
     </jar>
   </target>
@@ -583,6 +584,7 @@
         <include name='${angus.mail.jar}'/>
         <include name='${angus.activation.jar}'/>
         <include name='${jakarta.annotation.jar}'/>
+        <include name='${jakarta.persistence.jar}'/>
         <include name='${annotation.jar}'/>
         <include name='${ejb.jar}'/>
         <include name='${persistence.jar}'/>
