@@ -46,7 +46,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.BlockingQueue;
-import java.util.concurrent.TimeUnit;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import java.text.MessageFormat;
@@ -228,7 +227,9 @@ private static final Logger logger = Logger.getLogger(OtlpFileExporter.class.get
         if (!running || trace == null) {
             return;
         }
-        if (!traceQueue.offer(trace)) {
+        if (traceQueue.offer(trace)) {
+            exportThread.wake();
+        } else {
             if (logger.isLoggable(Level.FINE)) {
                 logger.fine(MessageFormat.format(L10N.getString("fine.trace_queue_full_dropping"), trace.getTraceIdHex()));
             }
@@ -268,7 +269,6 @@ private static final Logger logger = Logger.getLogger(OtlpFileExporter.class.get
     public void shutdown() {
         running = false;
         exportThread.requestFlush();
-        exportThread.interrupt();
 
         try {
             exportThread.join(config.getTimeoutMs());
@@ -306,14 +306,41 @@ private static final Logger logger = Logger.getLogger(OtlpFileExporter.class.get
 
         private volatile boolean flushRequested;
 
+        // The thread waits on this for a trace to arrive or a flush to be
+        // requested. It must not be woken by interrupting it: an interrupt
+        // that finds it writing closes the file channel it is writing to,
+        // and everything written afterwards is lost.
+        private final Object wakeLock = new Object();
+
         ExportThread() {
             super("OtlpFileExporter");
             setDaemon(true);
         }
 
         void requestFlush() {
-            flushRequested = true;
-            interrupt();
+            synchronized (wakeLock) {
+                flushRequested = true;
+                wakeLock.notifyAll();
+            }
+        }
+
+        /** Wakes the thread because a trace has been queued. */
+        void wake() {
+            synchronized (wakeLock) {
+                wakeLock.notifyAll();
+            }
+        }
+
+        /**
+         * Waits until a trace is queued, a flush or shutdown is requested,
+         * or the time is up.
+         */
+        private void awaitWork(long waitTime) throws InterruptedException {
+            synchronized (wakeLock) {
+                if (running && !flushRequested && traceQueue.isEmpty()) {
+                    wakeLock.wait(waitTime);
+                }
+            }
         }
 
         @Override
@@ -333,11 +360,8 @@ private static final Logger logger = Logger.getLogger(OtlpFileExporter.class.get
                             : flushWait;
                     long waitTime = Math.min(flushWait, metricsWait);
 
-                    if (waitTime > 0 && !flushRequested) {
-                        Trace polled = traceQueue.poll(waitTime, TimeUnit.MILLISECONDS);
-                        if (polled != null) {
-                            traceBatch.add(polled);
-                        }
+                    if (waitTime > 0) {
+                        awaitWork(waitTime);
                     }
 
                     drainQueue(traceQueue, traceBatch);

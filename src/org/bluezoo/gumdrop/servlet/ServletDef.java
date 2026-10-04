@@ -136,7 +136,14 @@ final class ServletDef implements ServletConfig, Comparable<ServletDef>, Servlet
     }
 
     /**
-     * Create a new servlet instance.
+     * The servlet itself, when it was registered as an instance
+     * ({@code ServletContext.addServlet(String, Servlet)}) rather than as
+     * a class for the container to construct.
+     */
+    Servlet instance;
+
+    /**
+     * Create a new servlet instance, or initialise the registered one.
      */
     Servlet newInstance() throws ServletException {
         if (jspFile != null) {
@@ -149,8 +156,11 @@ final class ServletDef implements ServletConfig, Comparable<ServletDef>, Servlet
         ClassLoader contextLoader = context.getContextClassLoader();
         try {
             thread.setContextClassLoader(contextLoader);
-            Class<?> t = contextLoader.loadClass(className);
-            Servlet servlet = (Servlet) t.getDeclaredConstructor().newInstance();
+            Servlet servlet = instance;
+            if (servlet == null) {
+                Class<?> t = contextLoader.loadClass(className);
+                servlet = (Servlet) t.getDeclaredConstructor().newInstance();
+            }
             servlet.init(this);
             return servlet;
         } catch (UnavailableException e) {

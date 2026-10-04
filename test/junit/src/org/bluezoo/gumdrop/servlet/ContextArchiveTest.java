@@ -43,9 +43,14 @@ import java.util.Set;
 import java.util.jar.JarOutputStream;
 import java.util.zip.ZipEntry;
 
+import jakarta.servlet.Filter;
+import jakarta.servlet.FilterChain;
+import jakarta.servlet.Servlet;
 import jakarta.servlet.ServletContainerInitializer;
 import jakarta.servlet.ServletContext;
 import jakarta.servlet.ServletException;
+import jakarta.servlet.ServletRequest;
+import jakarta.servlet.ServletResponse;
 import jakarta.servlet.annotation.HandlesTypes;
 import jakarta.servlet.annotation.WebServlet;
 import jakarta.servlet.http.HttpServlet;
@@ -89,12 +94,43 @@ public class ContextArchiveTest {
         }
     }
 
+    /** Servlet that only its creator can construct. */
+    public static class LibInstanceServlet extends HttpServlet {
+        private static final long serialVersionUID = 1L;
+        final String how;
+
+        public LibInstanceServlet(String how) {
+            this.how = how;
+        }
+    }
+
+    /** Filter that only its creator can construct. */
+    public static class LibInstanceFilter implements Filter {
+        final String how;
+
+        public LibInstanceFilter(String how) {
+            this.how = how;
+        }
+
+        @Override
+        public void doFilter(ServletRequest request, ServletResponse response, FilterChain chain)
+                throws IOException, ServletException {
+            chain.doFilter(request, response);
+        }
+    }
+
     /** Initializer registered through META-INF/services in the library jar. */
     @HandlesTypes(HttpServlet.class)
     public static class LibInitializer implements ServletContainerInitializer {
         public void onStartup(Set<Class<?>> types, ServletContext ctx) throws ServletException {
             ctx.setAttribute("r3.sci", "ran");
             ctx.setAttribute("r3.types", Integer.valueOf(types.size()));
+            LibInstanceServlet servlet = new LibInstanceServlet("configured");
+            ctx.addServlet("instanceServlet", servlet);
+            ctx.setAttribute("r3.servlet", servlet);
+            LibInstanceFilter filter = new LibInstanceFilter("configured");
+            ctx.addFilter("instanceFilter", filter);
+            ctx.setAttribute("r3.filter", filter);
         }
     }
 
@@ -189,6 +225,8 @@ public class ContextArchiveTest {
         entry(out, PKG + "ContextArchiveTest$LibServlet.class", classBytes(LibServlet.class));
         entry(out, PKG + "ContextArchiveTest$LibMarker.class", classBytes(LibMarker.class));
         entry(out, PKG + "ContextArchiveTest$LibInitializer.class", classBytes(LibInitializer.class));
+        entry(out, PKG + "ContextArchiveTest$LibInstanceServlet.class", classBytes(LibInstanceServlet.class));
+        entry(out, PKG + "ContextArchiveTest$LibInstanceFilter.class", classBytes(LibInstanceFilter.class));
         entry(out, "META-INF/services/java.lang.Runnable", text(LibMarker.class.getName() + "\n"));
         entry(out, "libdata/lib.txt", text("lib-data"));
         out.close();
@@ -384,6 +422,33 @@ public class ContextArchiveTest {
         assertTrue(all.hasMoreElements());
         Enumeration<URL> none = loader.getResources("nothing-here.txt");
         assertFalse(none.hasMoreElements());
+        c.destroy();
+    }
+
+    // ===== registration of instances =====
+
+    /**
+     * A servlet or filter registered as an instance is the one that
+     * serves: an initializer has usually configured it, and the container
+     * may not even be able to construct another.
+     */
+    @Test
+    public void testRegisteredInstancesAreTheOnesUsed() throws Exception {
+        Context c = load("/r3dir", buildExploded());
+        Object servlet = c.getAttribute("r3.servlet");
+        assertNotNull(servlet);
+        ServletDef servletDef = c.servletDefs.get("instanceServlet");
+        assertNotNull(servletDef);
+        assertEquals(servlet.getClass().getName(), servletDef.getClassName());
+        Servlet loaded = c.loadServlet(servletDef);
+        assertSame(servlet, loaded);
+        assertSame(servletDef, loaded.getServletConfig());
+
+        Object filter = c.getAttribute("r3.filter");
+        assertNotNull(filter);
+        FilterDef filterDef = c.filterDefs.get("instanceFilter");
+        assertNotNull(filterDef);
+        assertSame(filter, c.loadFilter(filterDef));
         c.destroy();
     }
 

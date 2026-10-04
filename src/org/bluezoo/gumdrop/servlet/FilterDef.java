@@ -89,14 +89,27 @@ final class FilterDef implements FilterConfig, FilterReg {
         asyncSupported = config.asyncSupported();
     }
 
+    /**
+     * The filter itself, when it was registered as an instance
+     * ({@code ServletContext.addFilter(String, Filter)}) rather than as a
+     * class for the container to construct.
+     */
+    Filter instance;
+
+    /**
+     * Create a new filter instance, or initialise the registered one.
+     */
     Filter newInstance() throws ServletException {
         Thread thread = Thread.currentThread();
         ClassLoader loader = thread.getContextClassLoader();
         ClassLoader contextLoader = context.getContextClassLoader();
         try {
             thread.setContextClassLoader(contextLoader);
-            Class<?> t = contextLoader.loadClass(className);
-            Filter filter = (Filter) t.getDeclaredConstructor().newInstance();
+            Filter filter = instance;
+            if (filter == null) {
+                Class<?> t = contextLoader.loadClass(className);
+                filter = (Filter) t.getDeclaredConstructor().newInstance();
+            }
             filter.init(this);
             return filter;
         } catch (UnavailableException e) {
