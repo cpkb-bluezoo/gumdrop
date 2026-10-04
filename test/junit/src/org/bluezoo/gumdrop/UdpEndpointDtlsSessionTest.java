@@ -217,6 +217,9 @@ public class UdpEndpointDtlsSessionTest {
             assertTrue(label, link.serverPeer.secure);
             SecurityInfo info = link.client.getSecurityInfo();
             assertNotNull(label, info.getProtocol());
+            assertEquals(label, "DTLSv1.2".equals(info.getProtocol()) ? "secp256r1" : "X25519MLKEM768",
+                    info.getNamedGroup());
+            assertEquals(label, info.getNamedGroup(), link.server.getSecurityInfo().getNamedGroup());
             info.getCipherSuite();
             info.getPeerCertificates();
             info.getLocalCertificates();

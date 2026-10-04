@@ -369,6 +369,8 @@ public class QuicMiscUnitTest {
         SecurityInfo s = server.conn.getSecurityInfo();
         assertEquals("QUICv1", c.getProtocol());
         assertNotNull(c.getCipherSuite());
+        assertEquals("X25519MLKEM768", c.getNamedGroup());
+        assertEquals("X25519MLKEM768", s.getNamedGroup());
         assertTrue(c.getKeySize() == 128 || c.getKeySize() == 256);
         assertNotNull(c.getPeerCertificates());
         assertNull(s.getPeerCertificates());

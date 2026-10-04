@@ -28,6 +28,7 @@ import java.util.Arrays;
 import java.util.Deque;
 import java.util.List;
 
+import org.bluezoo.gumdrop.crypto.NamedGroup;
 import org.bluezoo.gumdrop.tls.HandshakeAsyncOffload;
 import org.bluezoo.gumdrop.tls.HandshakeAsyncScheduler;
 import org.bluezoo.gumdrop.quic.packet.PacketProtection;
@@ -294,6 +295,10 @@ public final class Dtls13RecordEngine {
 
     public CipherSuite getNegotiatedCipherSuite() {
         return engine.getNegotiatedCipherSuite();
+    }
+
+    public NamedGroup getNegotiatedGroup() {
+        return engine.getNegotiatedGroup();
     }
 
     public String getNegotiatedApplicationProtocol() {

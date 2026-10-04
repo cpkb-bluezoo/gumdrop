@@ -103,6 +103,7 @@ public final class HandshakeEngine {
     private State state = State.INITIAL;
     private Transcript transcript;
     private CipherSuite negotiatedSuite;
+    private NamedGroup negotiatedGroup;
     private KeySchedule keySchedule;
     private String negotiatedAlpn;
     private byte[] hashThroughServerFinished;
@@ -483,6 +484,7 @@ public final class HandshakeEngine {
         resumed = sh.pskSelected;
 
         negotiatedSuite = sh.cipherSuite;
+        negotiatedGroup = sh.keyShareGroup;
         if (transcript == null) {
             transcript = Transcript.create(negotiatedSuite);
             transcript.update(savedClientHelloBytes);
@@ -996,6 +998,7 @@ public final class HandshakeEngine {
             return;
         }
         serverRetryRequestedGroup = null;
+        negotiatedGroup = group;
 
         serverLocalTransportParameters = config.getTransportParameterConsistencyChecker()
                 .localParametersFor(config.getLocalTransportParameters(), ch.quicTransportParameters);
@@ -1587,6 +1590,17 @@ public final class HandshakeEngine {
      */
     public CipherSuite getNegotiatedCipherSuite() {
         return negotiatedSuite;
+    }
+
+    /**
+     * Returns the group the key exchange is performed over, once known
+     * (after ServerHello on the client side, after the ClientHello that
+     * carries a share for it on the server side).
+     *
+     * @return the negotiated group, or null if not yet negotiated
+     */
+    public NamedGroup getNegotiatedGroup() {
+        return negotiatedGroup;
     }
 
     /**

@@ -30,6 +30,7 @@ import java.util.List;
 
 import javax.net.ssl.X509TrustManager;
 
+import org.bluezoo.gumdrop.crypto.NamedGroup;
 import org.bluezoo.gumdrop.quic.packet.QuicVersion;
 import org.bluezoo.gumdrop.quic.packet.TransportParameters;
 import org.bluezoo.gumdrop.tls.AlertDescription;
@@ -453,6 +454,16 @@ public final class QuicTlsServerEngine implements QuicTlsEngine {
      */
     public CipherSuite getSelectedCipher() {
         return engine.getNegotiatedCipherSuite();
+    }
+
+    /**
+     * Returns the group the key exchange is performed over, valid once
+     * the ClientHello has been processed.
+     *
+     * @return the negotiated group
+     */
+    public NamedGroup getSelectedGroup() {
+        return engine.getNegotiatedGroup();
     }
 
     @Override

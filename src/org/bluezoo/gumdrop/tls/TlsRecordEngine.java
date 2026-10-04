@@ -28,6 +28,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 
+import org.bluezoo.gumdrop.crypto.NamedGroup;
 import org.bluezoo.gumdrop.tls.HandshakeAsyncOffload;
 import org.bluezoo.gumdrop.tls.HandshakeAsyncScheduler;
 
@@ -434,6 +435,15 @@ public final class TlsRecordEngine {
      */
     public CipherSuite getNegotiatedCipherSuite() {
         return engine.getNegotiatedCipherSuite();
+    }
+
+    /**
+     * Returns the group the key exchange is performed over, once known.
+     *
+     * @return the negotiated group, or null if not yet negotiated
+     */
+    public NamedGroup getNegotiatedGroup() {
+        return engine.getNegotiatedGroup();
     }
 
     /**

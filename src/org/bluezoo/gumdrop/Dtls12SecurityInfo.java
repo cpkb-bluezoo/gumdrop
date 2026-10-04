@@ -25,6 +25,7 @@ import java.security.cert.Certificate;
 import java.security.cert.X509Certificate;
 import java.util.List;
 
+import org.bluezoo.gumdrop.crypto.NamedGroup;
 import org.bluezoo.gumdrop.tls.Dtls12HandshakeConfig;
 import org.bluezoo.gumdrop.tls.Dtls12RecordEngine;
 import org.bluezoo.gumdrop.tls.HandshakeRole;
@@ -59,6 +60,12 @@ final class Dtls12SecurityInfo implements SecurityInfo {
     public String getCipherSuite() {
         Tls12CipherSuite suite = engine.getNegotiatedCipherSuite();
         return (suite != null) ? suite.name() : null;
+    }
+
+    @Override
+    public String getNamedGroup() {
+        // The TLS 1.2 engine's ECDHE is fixed to this curve.
+        return NamedGroup.SECP256R1.getName();
     }
 
     @Override

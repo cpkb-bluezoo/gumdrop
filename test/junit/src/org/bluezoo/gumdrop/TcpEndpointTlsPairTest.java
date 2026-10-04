@@ -33,6 +33,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 
+import org.bluezoo.gumdrop.crypto.NamedGroup;
 import org.bluezoo.gumdrop.testsupport.InlineSelectorLoop;
 import org.bluezoo.gumdrop.testsupport.TestCertificates;
 import org.bluezoo.gumdrop.tls.CipherSuite;
@@ -806,10 +807,26 @@ public class TcpEndpointTlsPairTest {
             assertTrue(label, info.toString().contains("ALPN=h2"));
             assertNotNull(label, info.getLocalCertificates());
             SecurityInfo serverInfo = server.getSecurityInfo();
+            // Default group order: both sides prefer the hybrid PQ group.
+            assertEquals(label, "X25519MLKEM768", info.getNamedGroup());
+            assertEquals(label, "X25519MLKEM768", serverInfo.getNamedGroup());
             assertNotNull(label, serverInfo.getPeerCertificates());
             assertTrue(label, serverInfo.getHandshakeDurationMs() >= -1L);
             assertFalse(label, serverInfo.isSessionResumed());
         }
+    }
+
+    @Test
+    public void tls13SecurityInfoReportsTheGroupActuallyNegotiated() throws Exception {
+        // A client that offers only a classical group gets that group, and
+        // both ends report it -- not the server's preferred hybrid.
+        HandshakeConfig cc = client13();
+        cc.setNamedGroups(Arrays.asList(NamedGroup.X25519));
+        TcpEndpoint client = endpoint(new Peer(), cc, null, TlsVersion.TLS_1_3, true);
+        TcpEndpoint server = endpoint(new Peer(), server13(), null, TlsVersion.TLS_1_3, false);
+        handshake(client, server);
+        assertEquals("x25519", client.getSecurityInfo().getNamedGroup());
+        assertEquals("x25519", server.getSecurityInfo().getNamedGroup());
     }
 
     @Test
@@ -846,6 +863,9 @@ public class TcpEndpointTlsPairTest {
             assertTrue(label, info.toString().contains("ALPN=h2"));
             assertNotNull(label, info.getLocalCertificates());
             SecurityInfo serverInfo = server.getSecurityInfo();
+            // The TLS 1.2 engine's ECDHE is fixed to secp256r1.
+            assertEquals(label, "secp256r1", info.getNamedGroup());
+            assertEquals(label, "secp256r1", serverInfo.getNamedGroup());
             assertNotNull(label, serverInfo.getPeerCertificates());
             assertFalse(label, serverInfo.isSessionResumed());
         }

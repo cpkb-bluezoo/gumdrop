@@ -62,6 +62,20 @@ public interface SecurityInfo {
     String getCipherSuite();
 
     /**
+     * Returns the group the key exchange was performed over.
+     *
+     * <p>Uses the name in the IANA TLS Supported Groups registry, e.g.
+     * "x25519" or, for a hybrid post-quantum exchange, "X25519MLKEM768".
+     *
+     * <p>Default implementation returns null.
+     *
+     * @return the group name, or null if not secure or not known
+     */
+    default String getNamedGroup() {
+        return null;
+    }
+
+    /**
      * Returns the key size of the negotiated cipher in bits.
      *
      * @return the key size, or -1 if not available

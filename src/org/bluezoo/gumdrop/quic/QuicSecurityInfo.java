@@ -26,6 +26,7 @@ import java.security.cert.X509Certificate;
 import java.util.List;
 
 import org.bluezoo.gumdrop.SecurityInfo;
+import org.bluezoo.gumdrop.crypto.NamedGroup;
 import org.bluezoo.gumdrop.quic.tls.QuicTlsClientEngine;
 import org.bluezoo.gumdrop.quic.tls.QuicTlsEngine;
 import org.bluezoo.gumdrop.quic.tls.QuicTlsServerEngine;
@@ -48,6 +49,7 @@ import org.bluezoo.gumdrop.tls.CipherSuite;
 final class QuicSecurityInfo implements SecurityInfo {
 
     private final String cipherSuite;
+    private final String namedGroup;
     private final Certificate[] peerCertificates;
     private final long handshakeDurationMs;
     private final boolean earlyDataAccepted;
@@ -68,6 +70,10 @@ final class QuicSecurityInfo implements SecurityInfo {
                 ? ((QuicTlsServerEngine) tlsEngine).getSelectedCipher()
                 : ((QuicTlsClientEngine) tlsEngine).getSelectedCipher();
         this.cipherSuite = selected != null ? selected.toString() : null;
+        NamedGroup group = isServer
+                ? ((QuicTlsServerEngine) tlsEngine).getSelectedGroup()
+                : ((QuicTlsClientEngine) tlsEngine).getSelectedGroup();
+        this.namedGroup = group != null ? group.getName() : null;
         this.peerCertificates = isServer ? null : parsePeerCerts((QuicTlsClientEngine) tlsEngine);
         this.handshakeDurationMs = System.currentTimeMillis() - handshakeStartTime;
         this.earlyDataAccepted = earlyDataAccepted;
@@ -82,6 +88,11 @@ final class QuicSecurityInfo implements SecurityInfo {
     @Override
     public String getCipherSuite() {
         return cipherSuite;
+    }
+
+    @Override
+    public String getNamedGroup() {
+        return namedGroup;
     }
 
     @Override

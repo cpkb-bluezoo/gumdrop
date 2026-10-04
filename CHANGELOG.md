@@ -62,7 +62,8 @@ user-visible themes since 2.2.x.
   hybrid post-quantum key exchange (RFC 10024) via JCA ML-KEM/ML-DSA on Java
   25+. Named groups are configured by their IANA registry names
   (`X25519MLKEM768`, `SecP256r1MLKEM768`, `SecP384r1MLKEM1024`, `x25519`,
-  `secp256r1`, `secp384r1`).
+  `secp256r1`, `secp384r1`), and `SecurityInfo.getNamedGroup()` reports the
+  group a connection negotiated.
 - **DTLS 1.3** on UDP listeners (`Dtls13Session`, unified record format,
   cookie-based HelloRetryRequest) alongside existing DTLS 1.2 support.
 - **Jakarta Servlet 6.1 container** on HTTP/1.1, HTTP/2, and HTTP/3, including

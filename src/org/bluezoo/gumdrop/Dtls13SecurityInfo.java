@@ -25,6 +25,7 @@ import java.security.cert.Certificate;
 import java.security.cert.X509Certificate;
 import java.util.List;
 
+import org.bluezoo.gumdrop.crypto.NamedGroup;
 import org.bluezoo.gumdrop.tls.CipherSuite;
 import org.bluezoo.gumdrop.tls.Dtls13HandshakeConfig;
 import org.bluezoo.gumdrop.tls.Dtls13RecordEngine;
@@ -57,6 +58,12 @@ final class Dtls13SecurityInfo implements SecurityInfo {
     public String getCipherSuite() {
         CipherSuite suite = engine.getNegotiatedCipherSuite();
         return (suite != null) ? suite.name() : null;
+    }
+
+    @Override
+    public String getNamedGroup() {
+        NamedGroup group = engine.getNegotiatedGroup();
+        return (group != null) ? group.getName() : null;
     }
 
     @Override

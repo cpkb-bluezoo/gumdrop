@@ -452,6 +452,16 @@ public final class QuicTlsClientEngine implements QuicTlsEngine {
         return engine.getNegotiatedCipherSuite();
     }
 
+    /**
+     * Returns the group the key exchange is performed over, valid once
+     * the ServerHello has been processed.
+     *
+     * @return the negotiated group
+     */
+    public NamedGroup getSelectedGroup() {
+        return engine.getNegotiatedGroup();
+    }
+
     @Override
     public boolean isResumed() {
         return engine.isResumed();
