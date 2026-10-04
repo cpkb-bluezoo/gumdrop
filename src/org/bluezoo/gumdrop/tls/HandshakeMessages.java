@@ -961,10 +961,10 @@ final class HandshakeMessages {
 
     /**
      * Builds a {@code CertificateRequest}, offering every
-     * {@link SignatureScheme} -- this engine's mTLS support, unlike a real
-     * peer's, never needs to consult what it offers here (it always signs
-     * with whatever scheme its own key type maps to), only to send a
-     * spec-conforming message. The context is always empty; it exists on
+     * {@link SignatureScheme}: the client picks its
+     * {@code CertificateVerify} scheme from this list, and the server
+     * checks the one it used against the client's key. The context is
+     * always empty; it exists on
      * the wire purely so the client's {@code Certificate} response can
      * echo it back (RFC 8446 section 4.3.2), which this engine's own
      * client does even though it never receives more than one
@@ -987,22 +987,44 @@ final class HandshakeMessages {
         return WireWriter.frameHandshakeMessage(HANDSHAKE_TYPE_CERTIFICATE_REQUEST, body.toByteArray());
     }
 
+    /** A parsed {@code CertificateRequest}. */
+    static final class CertificateRequest {
+        /** The context to echo back in the client's {@code Certificate} response. */
+        byte[] context;
+        /** The schemes the server accepts a {@code CertificateVerify} under. */
+        List<SignatureScheme> signatureAlgorithms = new ArrayList<SignatureScheme>();
+    }
+
     /**
-     * Parses a {@code CertificateRequest}, returning only its context --
-     * the client's own signature algorithm selection is driven by its own
-     * key type, not by what the server's {@code signature_algorithms}
-     * extension lists, so there is nothing else in this message this
-     * engine's client needs.
+     * Parses a {@code CertificateRequest}: its context, and the
+     * {@code signature_algorithms} the client must pick its
+     * {@code CertificateVerify} scheme from (RFC 8446 section 4.3.2).
+     * Schemes this engine does not know are skipped.
      *
      * @param fullMessage the complete framed message
-     * @return the certificate request context, to echo back in the
-     *         client's {@code Certificate} response
+     * @return the parsed request
      */
-    static byte[] parseCertificateRequest(byte[] fullMessage) throws HandshakeFormatException {
+    static CertificateRequest parseCertificateRequest(byte[] fullMessage) throws HandshakeFormatException {
         WireReader r = new WireReader(fullMessage);
         requireType(r, HANDSHAKE_TYPE_CERTIFICATE_REQUEST);
         WireReader body = r.slice(r.u24());
-        return body.opaque8();
+        CertificateRequest request = new CertificateRequest();
+        request.context = body.opaque8();
+        WireReader er = new WireReader(body.opaque16());
+        while (er.hasRemaining()) {
+            int extType = er.u16();
+            byte[] extBody = er.opaque16();
+            if (extType == EXT_SIGNATURE_ALGORITHMS) {
+                WireReader sr = new WireReader(new WireReader(extBody).opaque16());
+                while (sr.hasRemaining()) {
+                    SignatureScheme s = SignatureScheme.fromCode(sr.u16());
+                    if (s != null) {
+                        request.signatureAlgorithms.add(s);
+                    }
+                }
+            }
+        }
+        return request;
     }
 
     // ---- Certificate (RFC 8446 section 4.4.2) ----
@@ -1011,7 +1033,7 @@ final class HandshakeMessages {
      * Builds a {@code Certificate} message. {@code context} is the
      * {@code certificate_request_context} (RFC 8446 section 4.4.2) --
      * always empty for the server's own unsolicited {@code Certificate},
-     * or the exact bytes {@link #parseCertificateRequest} returned when
+     * or the exact context {@link #parseCertificateRequest} returned when
      * this is a client's response to one (in practice also always empty,
      * since {@link #buildCertificateRequest} never sends anything else --
      * threaded through explicitly anyway, rather than hardcoded, for

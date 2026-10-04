@@ -21,13 +21,16 @@
 
 package org.bluezoo.gumdrop.crypto;
 
+import java.security.GeneralSecurityException;
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;
 import java.security.spec.ECGenParameterSpec;
 import java.nio.charset.StandardCharsets;
 
 import org.junit.Test;
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 
 /**
@@ -74,6 +77,69 @@ public class SignatureSchemeTest {
     public void ed25519RoundTrips() throws Exception {
         KeyPairGenerator kpg = KeyPairGenerator.getInstance("Ed25519");
         checkRoundTrip(SignatureScheme.ED25519, kpg.generateKeyPair());
+    }
+
+    @Test
+    public void mlDsaSchemesRoundTripWithIanaCodepoints() throws Exception {
+        assertEquals(0x0904, SignatureScheme.MLDSA44.getCode());
+        assertEquals(0x0905, SignatureScheme.MLDSA65.getCode());
+        assertEquals(0x0906, SignatureScheme.MLDSA87.getCode());
+        assertSame(SignatureScheme.MLDSA65, SignatureScheme.fromCode(0x0905));
+        checkRoundTrip(SignatureScheme.MLDSA44, KeyPairGenerator.getInstance("ML-DSA-44").generateKeyPair());
+        checkRoundTrip(SignatureScheme.MLDSA65, KeyPairGenerator.getInstance("ML-DSA-65").generateKeyPair());
+        checkRoundTrip(SignatureScheme.MLDSA87, KeyPairGenerator.getInstance("ML-DSA-87").generateKeyPair());
+    }
+
+    @Test
+    public void mlDsaSchemeIsBoundToItsParameterSet() throws Exception {
+        KeyPair kp44 = KeyPairGenerator.getInstance("ML-DSA-44").generateKeyPair();
+        assertTrue(SignatureScheme.MLDSA44.isCompatible(kp44.getPublic()));
+        assertTrue(SignatureScheme.MLDSA44.isCompatible(kp44.getPrivate()));
+        assertFalse(SignatureScheme.MLDSA65.isCompatible(kp44.getPublic()));
+        assertFalse(SignatureScheme.MLDSA87.isCompatible(kp44.getPublic()));
+        // Not merely a policy check: the verifier itself refuses the key.
+        byte[] signature = SignatureScheme.MLDSA44.sign(kp44.getPrivate(), MESSAGE);
+        try {
+            assertFalse(SignatureScheme.MLDSA65.verify(kp44.getPublic(), MESSAGE, signature));
+        } catch (GeneralSecurityException expected) {
+            // refusing the key outright is equally acceptable
+        }
+    }
+
+    @Test
+    public void schemesMatchOnlyTheirOwnKeyType() throws Exception {
+        KeyPairGenerator rsaGen = KeyPairGenerator.getInstance("RSA");
+        rsaGen.initialize(2048);
+        KeyPair rsa = rsaGen.generateKeyPair();
+        KeyPairGenerator ecGen = KeyPairGenerator.getInstance("EC");
+        ecGen.initialize(new ECGenParameterSpec("secp256r1"));
+        KeyPair p256 = ecGen.generateKeyPair();
+        ecGen.initialize(new ECGenParameterSpec("secp384r1"));
+        KeyPair p384 = ecGen.generateKeyPair();
+        KeyPair ed25519 = KeyPairGenerator.getInstance("Ed25519").generateKeyPair();
+        KeyPair ed448 = KeyPairGenerator.getInstance("Ed448").generateKeyPair();
+        KeyPair mldsa65 = KeyPairGenerator.getInstance("ML-DSA-65").generateKeyPair();
+
+        assertTrue(SignatureScheme.RSA_PSS_RSAE_SHA256.isCompatible(rsa.getPublic()));
+        assertTrue(SignatureScheme.RSA_PKCS1_SHA256.isCompatible(rsa.getPrivate()));
+        assertFalse(SignatureScheme.RSA_PSS_RSAE_SHA256.isCompatible(p256.getPublic()));
+        assertTrue(SignatureScheme.ECDSA_SECP256R1_SHA256.isCompatible(p256.getPublic()));
+        assertFalse(SignatureScheme.ECDSA_SECP256R1_SHA256.isCompatible(p384.getPublic()));
+        assertTrue(SignatureScheme.ECDSA_SECP384R1_SHA384.isCompatible(p384.getPrivate()));
+        assertFalse(SignatureScheme.ECDSA_SECP384R1_SHA384.isCompatible(p256.getPublic()));
+        assertTrue(SignatureScheme.ED25519.isCompatible(ed25519.getPublic()));
+        assertFalse(SignatureScheme.ED25519.isCompatible(ed448.getPublic()));
+        assertFalse(SignatureScheme.ED25519.isCompatible(mldsa65.getPublic()));
+        assertTrue(SignatureScheme.MLDSA65.isCompatible(mldsa65.getPublic()));
+        assertFalse(SignatureScheme.MLDSA65.isCompatible(rsa.getPublic()));
+    }
+
+    @Test
+    public void pkcs1SchemesAreNotHandshakeSignatures() {
+        for (SignatureScheme scheme : SignatureScheme.values()) {
+            boolean pkcs1 = scheme.name().startsWith("RSA_PKCS1_");
+            assertEquals(scheme.toString(), !pkcs1, scheme.isHandshakeSignature());
+        }
     }
 
     private void checkRoundTrip(SignatureScheme scheme, KeyPair kp) throws Exception {

@@ -80,9 +80,9 @@ The stack splits cleanly into cryptography and protocol state:
 
 <ul>
 <li><b><code>org.bluezoo.gumdrop.crypto</code></b> &mdash; HKDF, TLS 1.2 PRF,
-    ECDHE key exchange, named groups (including RFC 10024 hybrid post-quantum
-    groups on Java&nbsp;25+), signature schemes, and PKIX certificate
-    verification helpers.</li>
+    ECDHE key exchange, named groups (including the RFC 10024 hybrid
+    post-quantum groups), signature schemes (including ML-DSA), and PKIX
+    certificate verification helpers.</li>
 <li><b><code>org.bluezoo.gumdrop.tls</code></b> &mdash; handshake state machines
     (<code>HandshakeEngine</code> for TLS&nbsp;1.3,
     <code>Tls12HandshakeEngine</code> for TLS&nbsp;1.2), record layers for TCP
@@ -174,9 +174,10 @@ driven by <code>TlsEventSink</code> callbacks &mdash; no blocking
 <li>Post-handshake <code>NewSessionTicket</code></li>
 <li><code>KeyUpdate</code> on TCP record-layer mode only (RFC&nbsp;8446
     &sect;4.6.3); forbidden over QUIC per RFC&nbsp;9001</li>
-<li>Named group selection including hybrid post-quantum groups (RFC&nbsp;10024)
-    when running on Java&nbsp;25+ with ML-KEM/ML-DSA available in the JCA
-    provider</li>
+<li>Named group selection including hybrid post-quantum groups (RFC&nbsp;10024);
+    <code>X25519MLKEM768</code> is preferred by default</li>
+<li>Post-quantum authentication with ML-DSA: see
+    <a href="#signatures">Signature schemes and certificate keys</a></li>
 <li><code>record_size_limit</code> (RFC&nbsp;8449) &mdash;
     <code>HandshakeConfig.setRecordSizeLimit()</code> /
     <code>setRecordSizeLimitEnabled()</code>; enforced on TCP and DTLS record
@@ -390,7 +391,9 @@ identity uses the same keystore or PEM properties as TCP/TLS and DTLS listeners
     records themselves</li>
 <li>Trust material comes from configured truststores, JVM default trust, or
     explicit trust managers &mdash; no implicit trust-all in production paths</li>
-<li>Java&nbsp;25+ recommended when hybrid PQC named groups are required</li>
+<li><code>SecurityInfo.getNamedGroup()</code> reports the key exchange group
+    actually negotiated, which is how to confirm a connection used a hybrid
+    post-quantum group</li>
 </ul>
 
 <h2 id="configuration">Configuration for implementers</h2>
@@ -522,9 +525,44 @@ Colon-separated group names, as registered in the IANA TLS Supported Groups
 registry (matched case-insensitively): <code>x25519</code>,
 <code>secp256r1</code>, <code>secp384r1</code>, <code>X25519MLKEM768</code>,
 <code>SecP256r1MLKEM768</code>, <code>SecP384r1MLKEM1024</code>. An
-unrecognised name is logged and skipped. Hybrid groups
-require Java&nbsp;25+ JCA support for ML-KEM/ML-DSA.
+unrecognised name is logged and skipped. The list is what a client offers
+and what a server accepts, each in its own preference order; a server
+negotiates the first group in its list that the client also supports, on
+QUIC as on TCP and DTLS.
 </p>
+
+<h3 id="signatures">Signature schemes and certificate keys (TLS 1.3 / DTLS 1.3 / QUIC)</h3>
+
+<p>
+There is nothing to configure: the scheme follows from the type of the
+private key. Supported keys, for a server certificate or a client (mTLS)
+certificate, are RSA (signed with RSASSA-PSS), ECDSA on P-256 or P-384,
+Ed25519, and the post-quantum ML-DSA-44, ML-DSA-65 and ML-DSA-87 (FIPS&nbsp;204;
+<code>mldsa44</code>, <code>mldsa65</code>, <code>mldsa87</code> on the wire).
+</p>
+
+<ul>
+<li>A signature is only ever made with a scheme the peer listed in its
+    <code>signature_algorithms</code>. If a client lists none that the
+    server&rsquo;s key can use &mdash; an ML-DSA server and a client without
+    ML-DSA, say &mdash; the handshake fails with <code>handshake_failure</code>.
+    One listener presents one certificate (per SNI name); there is no
+    automatic fallback from an ML-DSA certificate to a classical one.</li>
+<li>A peer&rsquo;s <code>CertificateVerify</code> is rejected with
+    <code>illegal_parameter</code> unless its scheme matches the certificate&rsquo;s
+    key: the right curve for ECDSA, the right parameter set for ML-DSA, and
+    never RSASSA-PKCS1-v1_5.</li>
+<li>Certificate chains are validated by the JDK&rsquo;s PKIX implementation,
+    which verifies ML-DSA signatures on certificates: a classical leaf issued
+    by an ML-DSA CA, or an all-ML-DSA chain, both validate.</li>
+<li>ML-DSA is TLS&nbsp;1.3 only. The TLS&nbsp;1.2 and DTLS&nbsp;1.2 engines
+    neither offer nor accept it, nor Ed25519; a listener that must also serve
+    TLS&nbsp;1.2 clients needs an RSA or ECDSA certificate.</li>
+<li>ML-DSA certificates and signatures are several kilobytes. Over QUIC the
+    handshake then spans several datagrams, and until the client&rsquo;s address
+    is validated the server may send only three times what it has received
+    (RFC&nbsp;9000 &sect;8.1), so the handshake can take an extra round trip.</li>
+</ul>
 
 <h2 id="handlers">Protocol handlers and SecurityInfo</h2>
 
@@ -560,7 +598,8 @@ itself.
 <tr><td>RFC 8446 &sect;4.6.3</td><td>KeyUpdate</td><td>TCP TLS 1.3 only</td></tr>
 <tr><td>RFC 9001</td><td>QUIC-TLS</td><td>QUIC and DTLS 1.3 record crypto profile</td></tr>
 <tr><td>RFC 9147</td><td>DTLS 1.3</td><td>Implemented</td></tr>
-<tr><td>RFC 10024</td><td>Hybrid PQ key exchange</td><td>Named groups on Java 25+</td></tr>
+<tr><td>RFC 10024</td><td>Hybrid PQ key exchange</td><td>Implemented (TLS 1.3, DTLS 1.3, QUIC); default</td></tr>
+<tr><td>draft-ietf-tls-mldsa</td><td>ML-DSA signatures</td><td>Implemented (TLS 1.3, DTLS 1.3, QUIC)</td></tr>
 <tr><td>RFC 4217</td><td>STARTTLS (FTP, SMTP, IMAP, &hellip;)</td><td>Application-layer; TLS stack unchanged</td></tr>
 <tr><td>RFC 7858 / RFC 9250</td><td>DoT / DoQ</td><td>ALPN <code>dot</code> / <code>doq</code> over configured TLS/DTLS</td></tr>
 </table>

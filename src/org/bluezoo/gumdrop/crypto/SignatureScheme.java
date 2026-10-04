@@ -21,16 +21,24 @@
 
 package org.bluezoo.gumdrop.crypto;
 
+import java.security.AsymmetricKey;
 import java.security.GeneralSecurityException;
+import java.security.Key;
 import java.security.PrivateKey;
 import java.security.PublicKey;
 import java.security.Signature;
+import java.security.interfaces.ECKey;
+import java.security.interfaces.EdECKey;
+import java.security.spec.AlgorithmParameterSpec;
 import java.security.spec.MGF1ParameterSpec;
+import java.security.spec.NamedParameterSpec;
 import java.security.spec.PSSParameterSpec;
 
 /**
  * TLS 1.3 {@code SignatureScheme} values (RFC 8446 section 4.2.3) used for
- * {@code CertificateVerify}, over JCA {@link Signature}. Certificate chain
+ * {@code CertificateVerify}, over JCA {@link Signature}, extended with
+ * the post-quantum ML-DSA schemes of draft-ietf-tls-mldsa (TLS 1.3 only).
+ * Certificate chain
  * <em>signature</em> verification (checking that an issuer signed a
  * subject certificate) is a separate concern handled by
  * {@link CertificateVerifier} via JCA's PKIX path validator, not by this
@@ -38,6 +46,7 @@ import java.security.spec.PSSParameterSpec;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see <a href="https://www.rfc-editor.org/rfc/rfc8446#section-4.2.3">RFC 8446 section 4.2.3</a>
+ * @see <a href="https://datatracker.ietf.org/doc/draft-ietf-tls-mldsa/">draft-ietf-tls-mldsa</a>
  */
 public enum SignatureScheme {
 
@@ -49,7 +58,15 @@ public enum SignatureScheme {
     RSA_PSS_RSAE_SHA512(0x0806, "RSASSA-PSS", "SHA-512", 64),
     ECDSA_SECP256R1_SHA256(0x0403, "SHA256withECDSA", null, 0),
     ECDSA_SECP384R1_SHA384(0x0503, "SHA384withECDSA", null, 0),
-    ED25519(0x0807, "Ed25519", null, 0);
+    ED25519(0x0807, "Ed25519", null, 0),
+
+    // Pure ML-DSA (FIPS 204) with an empty context string, which is what
+    // JCA's ML-DSA Signature computes by default. The parameter-set
+    // specific JCA names are used, not the generic "ML-DSA": these refuse
+    // a key of another parameter set, where the generic one accepts any.
+    MLDSA44(0x0904, "ML-DSA-44", null, 0),
+    MLDSA65(0x0905, "ML-DSA-65", null, 0),
+    MLDSA87(0x0906, "ML-DSA-87", null, 0);
 
     private final int code;
     private final String jcaAlgorithm;
@@ -75,11 +92,65 @@ public enum SignatureScheme {
     }
 
     /**
+     * Returns whether this scheme may sign a TLS 1.3 handshake
+     * ({@code CertificateVerify}). RFC 8446 section 4.4.3 excludes the
+     * RSASSA-PKCS1-v1_5 schemes, which exist in TLS 1.3 only to describe
+     * signatures inside certificates.
+     *
+     * @return false for the {@code rsa_pkcs1_*} schemes
+     */
+    public boolean isHandshakeSignature() {
+        return this != RSA_PKCS1_SHA256 && this != RSA_PKCS1_SHA384 && this != RSA_PKCS1_SHA512;
+    }
+
+    /**
+     * Returns whether a key is of the kind this scheme signs with, as
+     * TLS 1.3 defines it: an RSA key for the {@code rsa_*} schemes, an EC
+     * key <em>on the named curve</em> for the {@code ecdsa_*} schemes, an
+     * Ed25519 key for {@link #ED25519}, and an ML-DSA key of the matching
+     * parameter set for the {@code mldsa*} schemes.
+     *
+     * @param key a public or private key
+     * @return true if the key matches this scheme
+     */
+    public boolean isCompatible(Key key) {
+        String algorithm = key.getAlgorithm();
+        switch (this) {
+            case ECDSA_SECP256R1_SHA256:
+                return ecFieldSize(key) == 256;
+            case ECDSA_SECP384R1_SHA384:
+                return ecFieldSize(key) == 384;
+            case ED25519:
+                return key instanceof EdECKey
+                        && "Ed25519".equalsIgnoreCase(((EdECKey) key).getParams().getName());
+            case MLDSA44:
+            case MLDSA65:
+            case MLDSA87:
+                if (!"ML-DSA".equals(algorithm) || !(key instanceof AsymmetricKey)) {
+                    return false;
+                }
+                AlgorithmParameterSpec params = ((AsymmetricKey) key).getParams();
+                return params instanceof NamedParameterSpec
+                        && jcaAlgorithm.equalsIgnoreCase(((NamedParameterSpec) params).getName());
+            default:
+                return "RSA".equals(algorithm);
+        }
+    }
+
+    private static int ecFieldSize(Key key) {
+        if (!"EC".equals(key.getAlgorithm()) || !(key instanceof ECKey)) {
+            return -1;
+        }
+        return ((ECKey) key).getParams().getCurve().getField().getFieldSize();
+    }
+
+    /**
      * Signs a message under this scheme.
      *
      * @param key the private key; must match this scheme's key type
      *            (RSA for the {@code rsa_*} schemes, EC for the
-     *            {@code ecdsa_*} schemes, Ed25519 for {@link #ED25519})
+     *            {@code ecdsa_*} schemes, Ed25519 for {@link #ED25519},
+     *            ML-DSA for the {@code mldsa*} schemes)
      * @param message the exact bytes to sign (the caller builds the
      *                TLS 1.3 {@code CertificateVerify} signature content,
      *                including its 64-space padding and context string)

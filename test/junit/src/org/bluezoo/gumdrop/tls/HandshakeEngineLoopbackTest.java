@@ -714,6 +714,170 @@ public class HandshakeEngineLoopbackTest {
         assertEquals(rsaChain.get(0), server.getPeerCertificateChain().get(0));
     }
 
+    // ---- post-quantum and scheme-checked authentication ----
+
+    @Test
+    public void handshakeCompletesWithMlDsaServerCredentials() throws Exception {
+        TestCertificates.KeyKind[] kinds = new TestCertificates.KeyKind[] {
+            TestCertificates.KeyKind.ML_DSA_44, TestCertificates.KeyKind.ML_DSA_65,
+            TestCertificates.KeyKind.ML_DSA_87
+        };
+        for (int i = 0; i < kinds.length; i++) {
+            TestCertificates.Identity id = TestCertificates.newSelfSigned(kinds[i], SERVER_NAME);
+            HandshakeEngine client = new HandshakeEngine(clientConfig(id.getChain(), SERVER_NAME));
+            HandshakeEngine server = new HandshakeEngine(serverConfig(id.getChain(), id.getPrivateKey()));
+            RecordingSink clientSink = new RecordingSink();
+            RecordingSink serverSink = new RecordingSink();
+            runHandshake(client, clientSink, server, serverSink);
+
+            String label = kinds[i].toString();
+            assertNull(label + " server error: " + serverSink.error, serverSink.error);
+            assertNull(label + " client error: " + clientSink.error, clientSink.error);
+            assertTrue(label, client.isComplete());
+            assertTrue(label, server.isComplete());
+            assertEquals(label, "ML-DSA", client.getPeerCertificateChain().get(0).getPublicKey().getAlgorithm());
+        }
+    }
+
+    @Test
+    public void handshakeCompletesWithEd25519ServerCredentials() throws Exception {
+        TestCertificates.Identity id =
+                TestCertificates.newSelfSigned(TestCertificates.KeyKind.ED25519, SERVER_NAME);
+        HandshakeEngine client = new HandshakeEngine(clientConfig(id.getChain(), SERVER_NAME));
+        HandshakeEngine server = new HandshakeEngine(serverConfig(id.getChain(), id.getPrivateKey()));
+        RecordingSink clientSink = new RecordingSink();
+        RecordingSink serverSink = new RecordingSink();
+        runHandshake(client, clientSink, server, serverSink);
+        assertNull("server error: " + serverSink.error, serverSink.error);
+        assertNull("client error: " + clientSink.error, clientSink.error);
+        assertTrue(client.isComplete());
+    }
+
+    @Test
+    public void handshakeCompletesWithEcLeafIssuedByMlDsaCa() throws Exception {
+        TestCertificates.Identity ca =
+                TestCertificates.newCa(TestCertificates.KeyKind.ML_DSA_65, "PQ Test CA");
+        TestCertificates.Identity leaf =
+                TestCertificates.newIssued(ca, TestCertificates.KeyKind.EC_P256, SERVER_NAME);
+        HandshakeEngine client = new HandshakeEngine(clientConfig(ca.getChain(), SERVER_NAME));
+        HandshakeEngine server = new HandshakeEngine(serverConfig(leaf.getChain(), leaf.getPrivateKey()));
+        RecordingSink clientSink = new RecordingSink();
+        RecordingSink serverSink = new RecordingSink();
+        runHandshake(client, clientSink, server, serverSink);
+        assertNull("client error: " + clientSink.error, clientSink.error);
+        assertTrue(client.isComplete());
+
+        // The same leaf, offered to a client trusting a different ML-DSA
+        // CA of the same name, must not validate.
+        TestCertificates.Identity impostor =
+                TestCertificates.newCa(TestCertificates.KeyKind.ML_DSA_65, "PQ Test CA");
+        HandshakeEngine client2 = new HandshakeEngine(clientConfig(impostor.getChain(), SERVER_NAME));
+        HandshakeEngine server2 = new HandshakeEngine(serverConfig(leaf.getChain(), leaf.getPrivateKey()));
+        RecordingSink clientSink2 = new RecordingSink();
+        runHandshake(client2, clientSink2, server2, new RecordingSink());
+        assertNotNull(clientSink2.error);
+        assertEquals(AlertDescription.BAD_CERTIFICATE, clientSink2.error.getAlert());
+    }
+
+    @Test
+    public void mlDsaClientCertificateCompletes() throws Exception {
+        TestCertificates.Identity id =
+                TestCertificates.newSelfSigned(TestCertificates.KeyKind.ML_DSA_65, "pq-client");
+        HandshakeConfig sc = serverConfig(ecChain, ecKey);
+        sc.setClientAuthPolicy(ClientAuthPolicy.REQUIRE);
+        sc.setClientTrustManager(CertificateVerifier.trustManagerFromCertificates(id.getChain()));
+        HandshakeConfig cc = clientConfig(ecChain, SERVER_NAME);
+        cc.setClientCredentials(new ServerCredentials(id.getChain(), id.getPrivateKey()));
+
+        HandshakeEngine client = new HandshakeEngine(cc);
+        HandshakeEngine server = new HandshakeEngine(sc);
+        RecordingSink clientSink = new RecordingSink();
+        RecordingSink serverSink = new RecordingSink();
+        runHandshake(client, clientSink, server, serverSink);
+        assertNull("client error: " + clientSink.error, clientSink.error);
+        assertNull("server error: " + serverSink.error, serverSink.error);
+        assertTrue(server.isComplete());
+        assertEquals(id.getChain().get(0), server.getPeerCertificateChain().get(0));
+    }
+
+    @Test
+    public void serverFailsWhenClientOffersNoSchemeItsKeyCanSignWith() throws Exception {
+        // RFC 8446 section 4.4.3: the CertificateVerify algorithm must be
+        // one the client offered. An RSA server has nothing to offer a
+        // client that only accepts ECDSA.
+        HandshakeEngine server = new HandshakeEngine(serverConfig(rsaChain, rsaKey));
+        RecordingSink serverSink = new RecordingSink();
+        byte[] random = new byte[32];
+        new SecureRandom().nextBytes(random);
+        KeyExchange kx = KeyExchange.generate(NamedGroup.X25519);
+        HandshakeMessages.ClientHelloParams params = new HandshakeMessages.ClientHelloParams();
+        params.random = random;
+        params.cipherSuites = Collections.singletonList(CipherSuite.TLS_AES_128_GCM_SHA256);
+        params.groups = Collections.singletonList(NamedGroup.X25519);
+        params.keyShares = new LinkedHashMap<NamedGroup, byte[]>();
+        params.keyShares.put(NamedGroup.X25519, kx.getShareBytes());
+        params.signatureAlgorithms = Collections.singletonList(SignatureScheme.ECDSA_SECP256R1_SHA256);
+        params.applicationProtocols = Collections.singletonList("h3");
+        params.serverName = SERVER_NAME;
+        server.processMessage(HandshakeMessages.buildClientHelloWithBinder(params, null), serverSink);
+        assertNotNull("server must not sign with a scheme the client did not offer", serverSink.error);
+        assertEquals(AlertDescription.HANDSHAKE_FAILURE, serverSink.error.getAlert());
+    }
+
+    @Test
+    public void clientRejectsCertificateVerifyUnderRsaPkcs1() throws Exception {
+        // RFC 8446 section 4.4.3: RSASSA-PKCS1-v1_5 is never valid in a
+        // TLS 1.3 CertificateVerify, however correct the signature.
+        TlsProtocolError error = forgedCertificateVerify(rsaChain, rsaKey, SignatureScheme.RSA_PKCS1_SHA256);
+        assertNotNull("a PKCS#1 v1.5 CertificateVerify was accepted", error);
+        assertEquals(AlertDescription.ILLEGAL_PARAMETER, error.getAlert());
+    }
+
+    @Test
+    public void clientRejectsCertificateVerifyUnderSchemeForAnotherCurve() throws Exception {
+        // ecdsa_secp384r1_sha384 names the curve as well as the hash: a
+        // P-256 key cannot sign under it in TLS 1.3.
+        TlsProtocolError error = forgedCertificateVerify(ecChain, ecKey, SignatureScheme.ECDSA_SECP384R1_SHA384);
+        assertNotNull("a CertificateVerify under the wrong curve's scheme was accepted", error);
+        assertEquals(AlertDescription.ILLEGAL_PARAMETER, error.getAlert());
+    }
+
+    /**
+     * Runs a handshake up to the server's Certificate, then hands the
+     * client a CertificateVerify that is correctly signed by the server's
+     * own key but under {@code scheme}. Returns the client's error, or
+     * null if it accepted the message.
+     */
+    private TlsProtocolError forgedCertificateVerify(List<X509Certificate> chain, PrivateKey key,
+            SignatureScheme scheme) throws Exception {
+        HandshakeConfig cc = clientConfig(chain, SERVER_NAME);
+        cc.setCipherSuites(Collections.singletonList(CipherSuite.TLS_AES_128_GCM_SHA256));
+        HandshakeConfig sc = serverConfig(chain, key);
+        sc.setCipherSuites(Collections.singletonList(CipherSuite.TLS_AES_128_GCM_SHA256));
+        HandshakeEngine client = new HandshakeEngine(cc);
+        HandshakeEngine server = new HandshakeEngine(sc);
+        RecordingSink clientSink = new RecordingSink();
+        RecordingSink serverSink = new RecordingSink();
+        client.start(clientSink);
+        byte[] clientHello = clientSink.drain().get(0);
+        server.processMessage(clientHello, serverSink);
+        // ServerHello, EncryptedExtensions, Certificate, CertificateVerify, Finished
+        List<byte[]> flight = serverSink.drain();
+        assertEquals(5, flight.size());
+
+        Transcript transcript = Transcript.create(CipherSuite.TLS_AES_128_GCM_SHA256);
+        transcript.update(clientHello);
+        for (int i = 0; i < 3; i++) {
+            transcript.update(flight.get(i));
+            client.processMessage(flight.get(i), clientSink);
+            assertNull(clientSink.error);
+        }
+        byte[] content = HandshakeMessages.certificateVerifySignedContent(true, transcript.hash());
+        byte[] forged = HandshakeMessages.buildCertificateVerify(scheme, scheme.sign(key, content));
+        client.processMessage(forged, clientSink);
+        return clientSink.error;
+    }
+
     @Test
     public void clientCertificateRequiredButUntrustedFailsHandshake() throws Exception {
         HandshakeConfig sc = serverConfig(ecChain, ecKey);

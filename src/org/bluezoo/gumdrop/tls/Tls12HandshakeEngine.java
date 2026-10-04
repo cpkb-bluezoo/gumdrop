@@ -977,6 +977,12 @@ final class Tls12HandshakeEngine {
     }
 
     private boolean verifySignature(X509Certificate leaf, SignatureScheme scheme, byte[] message, byte[] signature) {
+        // RFC 5246 section 7.4.3/7.4.8: only an algorithm this side
+        // offered. That also keeps the TLS 1.3-only schemes (Ed25519,
+        // ML-DSA) out of a TLS 1.2 handshake.
+        if (!offeredSignatureAlgorithms().contains(scheme)) {
+            return false;
+        }
         try {
             return scheme.verify(leaf.getPublicKey(), message, signature);
         } catch (GeneralSecurityException e) {

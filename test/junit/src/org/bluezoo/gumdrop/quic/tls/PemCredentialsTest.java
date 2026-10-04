@@ -95,6 +95,22 @@ public class PemCredentialsTest {
     }
 
     @Test
+    public void testLoadsEd25519AndMlDsaCredentials() throws Exception {
+        TestCertificates.KeyKind[] kinds = new TestCertificates.KeyKind[] {
+            TestCertificates.KeyKind.ED25519, TestCertificates.KeyKind.ML_DSA_44,
+            TestCertificates.KeyKind.ML_DSA_65, TestCertificates.KeyKind.ML_DSA_87
+        };
+        for (int i = 0; i < kinds.length; i++) {
+            ServerCredentials creds = TestCertificates.newSelfSigned(kinds[i], "localhost").credentials();
+            Path cert = writeCert(kinds[i] + ".crt", creds, 1);
+            PrivateKey key = creds.getPrivateKey();
+            Path keyFile = write(kinds[i] + ".key", pem("PRIVATE KEY", key.getEncoded()));
+            ServerCredentials loaded = PemCredentials.loadServerCredentials(cert, keyFile);
+            assertEquals(kinds[i].toString(), key, loaded.getPrivateKey());
+        }
+    }
+
+    @Test
     public void testLoadsRsaPrivateKey() throws Exception {
         KeyPairGenerator generator = KeyPairGenerator.getInstance("RSA");
         generator.initialize(2048);
@@ -106,14 +122,16 @@ public class PemCredentialsTest {
 
     @Test
     public void testUnsupportedKeyAlgorithmRejected() throws Exception {
-        KeyPairGenerator generator = KeyPairGenerator.getInstance("Ed25519");
+        // A key-agreement key: well-formed PKCS8, but nothing a TLS
+        // endpoint can sign a handshake with.
+        KeyPairGenerator generator = KeyPairGenerator.getInstance("X25519");
         KeyPair pair = generator.generateKeyPair();
-        Path keyFile = write("ed.key", pem("PRIVATE KEY", pair.getPrivate().getEncoded()));
+        Path keyFile = write("xdh.key", pem("PRIVATE KEY", pair.getPrivate().getEncoded()));
         try {
             PemCredentials.loadPrivateKey(keyFile);
             fail("expected InvalidKeyException");
         } catch (InvalidKeyException expected) {
-            assertTrue(expected.getMessage().contains("ed.key"));
+            assertTrue(expected.getMessage().contains("xdh.key"));
         }
     }
 

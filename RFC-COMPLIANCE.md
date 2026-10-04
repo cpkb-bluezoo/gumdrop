@@ -313,7 +313,8 @@ practices.
 | RFC 5289 / RFC 7905 | AES-GCM / ChaCha20-Poly1305 TLS 1.2 cipher suites | Implemented (ECDHE only) |
 | RFC 4492 / RFC 8422 | ECDHE key exchange | Implemented (TLS 1.2: secp256r1 only) |
 | RFC 9001 | Using TLS to Secure QUIC | Implemented (QUIC + DTLS 1.3 record crypto) |
-| RFC 10024 | Hybrid post-quantum key exchange | Implemented (TLS 1.3 / DTLS 1.3 named groups, Java 25+) |
+| RFC 10024 | Hybrid post-quantum key exchange | Implemented (TLS 1.3 / DTLS 1.3 / QUIC named groups; X25519MLKEM768 is the default) |
+| draft-ietf-tls-mldsa | ML-DSA signatures in TLS 1.3 | Implemented (`mldsa44`, `mldsa65`, `mldsa87` in `CertificateVerify`, server and client certificates; not in TLS 1.2) |
 | RFC 9180 | Hybrid Public Key Encryption (HPKE) | Implemented (base mode for ECH: DHKEM(X25519, HKDF-SHA256) + HKDF-SHA256 with AES-128-GCM, AES-256-GCM or ChaCha20Poly1305) |
 | RFC 9849 | TLS Encrypted Client Hello (ECH) | Partial |
 
@@ -333,7 +334,8 @@ practices.
 | Post-handshake NewSessionTicket | 4.6.1 | Compliant | Server emission after handshake |
 | KeyUpdate (TCP record layer) | 4.6.3 | Compliant | `TlsRecordEngine`; not over QUIC (RFC 9001 §4.6) |
 | Downgrade protection (SCSV / version checks) | 4.1.3 | Compliant | Legacy version fields handled in engine |
-| Named groups (X25519, P-256, P-384, hybrid PQ) | 4.2.7 | Compliant | `NamedGroup`; hybrid requires Java 25+ JCA |
+| Named groups (X25519, P-256, P-384, hybrid PQ) | 4.2.7 | Compliant | `NamedGroup`; configured by IANA registry name; server preference order |
+| Signature algorithms / CertificateVerify | 4.2.3, 4.4.3 | Compliant | `SignatureScheme`; RSA-PSS, ECDSA (curve-bound), Ed25519, ML-DSA; signs only with a scheme the peer offered; rejects PKCS#1 v1.5 and a scheme that does not match the certificate key |
 | Record size limit | RFC 8449 | Compliant | `record_size_limit` extension; enforced in TCP/DTLS record layers; QUIC negotiates but uses QUIC frame sizing |
 | Certificate compression | RFC 8879 | Compliant | `compress_certificate` extension; Brotli (micula) and zlib (`Deflater`/`Inflater`); `CompressedCertificate` handshake message; TLS 1.3+ only (RFC 8879 section 3) |
 | Encrypted Client Hello (ECH) | RFC 9849 | Partial | `HandshakeEngine` client offer and server decrypt (X25519 + HKDF-SHA256 with AES-128-GCM, AES-256-GCM or ChaCha20Poly1305, selected from `ECHConfig.cipher_suites` by `EchConfig.selectHpkeCipherSuite`; other KEMs/KDFs unsupported); acceptance confirmations; HelloRetryRequest follow-up; multiple configs and keys (opened by `config_id`, `ech-private-key-file` may list several keys for rotation); rejection via `retry_configs` (full published list with GREASE list prefix) and `ech_required` alert; client `TlsConfig.clientEchRequired` aborts with `ech_required` after authenticating the offered `public_name`, trusts `retry_configs` only after that and never retries automatically; client GREASE ECH; QUIC/TCP listener `ech-config-list-file` / `ech-private-key-file` in `server.xml`; DTLS 1.3 UDP listeners load the same server keys and `ech-required` (`UdpTransportFactory`); outbound clients apply DNS HTTPS `ech` (HTTP-family clients always; SMTP/IMAP/POP3/FTP/Redis/LDAP/MQTT when `TlsConfig.clientEchDnsDiscovery` is set, via `ClientConnect.discoverEch`) and optional `TlsConfig.clientEchConfigListFile` (fallback when DNS supplies none) on HTTP/3 and TCP |

@@ -208,6 +208,27 @@ public class UdpEndpointDtlsSessionTest {
     }
 
     @Test
+    public void dtls13HandshakeAndEchoWithMlDsaServerCertificate() throws Exception {
+        // A certificate and signature of several kilobytes: the flight is
+        // fragmented across many records and reassembled.
+        TestCertificates.Identity id =
+                TestCertificates.newSelfSigned(TestCertificates.KeyKind.ML_DSA_65, TestCertificates.SERVER_NAME);
+        UdpTransportFactory f = new UdpTransportFactory();
+        f.setSecure(true);
+        f.setServerCredentials(id.credentials());
+        Link link = new Link(DtlsVersion.DTLS_1_3, f, id.trustManager(), CLIENT_ADDR);
+        link.handshake();
+        assertTrue(link.clientPeer.secure);
+        assertTrue(link.serverPeer.secure);
+        SecurityInfo info = link.client.getSecurityInfo();
+        assertEquals("DTLSv1.3", info.getProtocol());
+        assertEquals("ML-DSA", info.getPeerCertificates()[0].getPublicKey().getAlgorithm());
+        link.client.send(ByteBuffer.wrap("hello".getBytes(StandardCharsets.UTF_8)));
+        link.pump();
+        assertEquals("hello", link.serverPeer.received.get(0));
+    }
+
+    @Test
     public void plainHandshakeAndEchoForEveryVersion() throws Exception {
         for (int v = 0; v < VERSIONS.length; v++) {
             Link link = new Link(VERSIONS[v], serverFactory(), TestCertificates.trustAll(), CLIENT_ADDR);

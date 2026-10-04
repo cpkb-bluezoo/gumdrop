@@ -138,7 +138,8 @@ Gumdrop is level with or ahead of Netty on plaintext HTTP/1.1, JSON and TLS keep
     - UDP servers with DTLS 1.3 and 1.2 support
     - QUIC support, pure Java implementation (TLS 1.3 always-on)
     - uses standard Java crypto primitives and X.509 cert trust/validation
-    - named group selection (PQC hybrid key exchange and cert validation)
+    - post-quantum TLS 1.3: hybrid ML-KEM key exchange (the default), and
+      ML-DSA certificates and handshake signatures
     - SNI
     - configurable pool of worker threads shared across all servers,
       completely independent of the number of client connections

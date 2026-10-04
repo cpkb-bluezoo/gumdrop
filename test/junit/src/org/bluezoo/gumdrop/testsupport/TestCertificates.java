@@ -60,7 +60,8 @@ import org.bluezoo.gumdrop.tls.ServerCredentials;
  * checked-in key material.
  *
  * <p>Supports EC P-256 (SHA256withECDSA), EC P-384 (SHA384withECDSA) and RSA
- * 2048/4096 (SHA256withRSA), self-signed or issued by a CA created here. The
+ * 2048/4096 (SHA256withRSA), Ed25519 and ML-DSA-44/65/87, self-signed or
+ * issued by a CA created here. The
  * shared per-JVM instances ({@link #ec256()}, {@link #ec384()},
  * {@link #rsa2048()}, {@link #rsa4096()}) are generated lazily because RSA key
  * generation is slow. Helpers produce PEM text and files, PKCS12 key stores,
@@ -78,6 +79,10 @@ public final class TestCertificates {
     private static final String OID_EC_SHA256 = "1.2.840.10045.4.3.2";
     private static final String OID_EC_SHA384 = "1.2.840.10045.4.3.3";
     private static final String OID_RSA_SHA256 = "1.2.840.113549.1.1.11";
+    private static final String OID_ED25519 = "1.3.101.112";
+    private static final String OID_ML_DSA_44 = "2.16.840.1.101.3.4.3.17";
+    private static final String OID_ML_DSA_65 = "2.16.840.1.101.3.4.3.18";
+    private static final String OID_ML_DSA_87 = "2.16.840.1.101.3.4.3.19";
     private static final String OID_CN = "2.5.4.3";
     private static final String OID_SKI = "2.5.29.14";
     private static final String OID_KEY_USAGE = "2.5.29.15";
@@ -93,7 +98,11 @@ public final class TestCertificates {
         EC_P256("EC", "secp256r1", 0, "SHA256withECDSA", OID_EC_SHA256, false),
         EC_P384("EC", "secp384r1", 0, "SHA384withECDSA", OID_EC_SHA384, false),
         RSA_2048("RSA", null, 2048, "SHA256withRSA", OID_RSA_SHA256, true),
-        RSA_4096("RSA", null, 4096, "SHA256withRSA", OID_RSA_SHA256, true);
+        RSA_4096("RSA", null, 4096, "SHA256withRSA", OID_RSA_SHA256, true),
+        ED25519("Ed25519", null, 0, "Ed25519", OID_ED25519, false),
+        ML_DSA_44("ML-DSA-44", null, 0, "ML-DSA", OID_ML_DSA_44, false),
+        ML_DSA_65("ML-DSA-65", null, 0, "ML-DSA", OID_ML_DSA_65, false),
+        ML_DSA_87("ML-DSA-87", null, 0, "ML-DSA", OID_ML_DSA_87, false);
 
         final String algorithm;
         final String curve;
@@ -126,7 +135,7 @@ public final class TestCertificates {
             if (curve != null) {
                 ECGenParameterSpec spec = new ECGenParameterSpec(curve);
                 generator.initialize(spec);
-            } else {
+            } else if (bits > 0) {
                 generator.initialize(bits);
             }
             return generator.generateKeyPair();

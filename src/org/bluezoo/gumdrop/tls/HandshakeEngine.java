@@ -26,11 +26,11 @@ import org.bluezoo.gumdrop.crypto.Hpke;
 import java.security.GeneralSecurityException;
 import java.security.MessageDigest;
 import java.security.PrivateKey;
+import java.security.PublicKey;
 import java.security.SecureRandom;
 import java.security.cert.CertificateEncodingException;
 import java.security.cert.CertificateException;
 import java.security.cert.X509Certificate;
-import java.security.interfaces.ECKey;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -123,6 +123,7 @@ public final class HandshakeEngine {
     private boolean clientRetried;
     private byte[] clientRetryCookie;
     private byte[] clientCertRequestContext;
+    private List<SignatureScheme> clientCertRequestSchemes;
     /** Framed ClientHelloInner when ECH was offered; used after server acceptance. */
     private byte[] echClientHelloInnerFramed;
     private Hpke.SenderContext echHpkeSender;
@@ -580,7 +581,9 @@ public final class HandshakeEngine {
      * is still to come.
      */
     private void onCertificateRequest(byte[] message, TlsEventSink sink) throws HandshakeFormatException {
-        clientCertRequestContext = HandshakeMessages.parseCertificateRequest(message);
+        HandshakeMessages.CertificateRequest request = HandshakeMessages.parseCertificateRequest(message);
+        clientCertRequestContext = request.context;
+        clientCertRequestSchemes = request.signatureAlgorithms;
         transcript.update(message);
     }
 
@@ -813,8 +816,18 @@ public final class HandshakeEngine {
     private boolean sendClientCertificateResponse(TlsEventSink sink)
             throws GeneralSecurityException, HandshakeFormatException {
         ServerCredentials creds = config.getClientCredentials();
-        List<byte[]> der;
+        SignatureScheme scheme = null;
         if (creds != null) {
+            if (signingPreference(creds.getPrivateKey()).isEmpty()) {
+                fail(sink, AlertDescription.INTERNAL_ERROR, "Unsupported client private key type");
+                return false;
+            }
+            // RFC 8446 section 4.4.2: a client with no certificate the
+            // server's signature_algorithms can accept sends none.
+            scheme = selectSignatureScheme(creds.getPrivateKey(), clientCertRequestSchemes);
+        }
+        List<byte[]> der;
+        if (scheme != null) {
             List<X509Certificate> chain = creds.getCertificateChain();
             der = new ArrayList<byte[]>(chain.size());
             for (int i = 0; i < chain.size(); i++) {
@@ -831,11 +844,6 @@ public final class HandshakeEngine {
         emitCertificateMessage(clientCertRequestContext, der, sink);
 
         if (!der.isEmpty()) {
-            SignatureScheme scheme = selectSignatureScheme(creds.getPrivateKey());
-            if (scheme == null) {
-                fail(sink, AlertDescription.INTERNAL_ERROR, "Unsupported client private key type");
-                return false;
-            }
             byte[] signedContent = HandshakeMessages.certificateVerifySignedContent(false, transcript.hash());
             byte[] signature = scheme.sign(creds.getPrivateKey(), signedContent);
             byte[] clientCertificateVerify = HandshakeMessages.buildCertificateVerify(scheme, signature);
@@ -1006,6 +1014,23 @@ public final class HandshakeEngine {
         resumed = (resumedPayload != null);
         byte[] presentedPsk = resumed ? resumedPayload.psk : null;
 
+        // A full handshake is authenticated by a signature the client
+        // must be able to verify; settle that before answering at all.
+        SignatureScheme serverSignatureScheme = null;
+        if (!resumed) {
+            PrivateKey serverKey = resolvedCredentials.getPrivateKey();
+            if (signingPreference(serverKey).isEmpty()) {
+                fail(sink, AlertDescription.INTERNAL_ERROR, "Unsupported server private key type");
+                return;
+            }
+            serverSignatureScheme = selectSignatureScheme(serverKey, ch.signatureAlgorithms);
+            if (serverSignatureScheme == null) {
+                fail(sink, AlertDescription.HANDSHAKE_FAILURE,
+                        "No mutually acceptable signature scheme for the server's key");
+                return;
+            }
+        }
+
         if (transcript == null) {
             transcript = Transcript.create(negotiatedSuite);
         }
@@ -1075,11 +1100,7 @@ public final class HandshakeEngine {
             }
             emitCertificateMessage(new byte[0], der, sink);
 
-            SignatureScheme scheme = selectSignatureScheme(resolvedCredentials.getPrivateKey());
-            if (scheme == null) {
-                fail(sink, AlertDescription.INTERNAL_ERROR, "Unsupported server private key type");
-                return;
-            }
+            SignatureScheme scheme = serverSignatureScheme;
             byte[] signedContent = HandshakeMessages.certificateVerifySignedContent(true, transcript.hash());
             byte[] signature = scheme.sign(resolvedCredentials.getPrivateKey(), signedContent);
             byte[] certificateVerify = HandshakeMessages.buildCertificateVerify(scheme, signature);
@@ -1473,7 +1494,17 @@ public final class HandshakeEngine {
         byte[] hashBeforeThisMessage = transcript.hash();
         HandshakeMessages.CertificateVerify cv = HandshakeMessages.parseCertificateVerify(message);
         byte[] signedContent = HandshakeMessages.certificateVerifySignedContent(verifyingServer, hashBeforeThisMessage);
-        boolean ok = cv.scheme.verify(peerCertificateChain.get(0).getPublicKey(), signedContent, cv.signature);
+        // RFC 8446 section 4.4.3: the scheme must be one we offered that
+        // is valid for a handshake signature (never RSASSA-PKCS1-v1_5)
+        // and that belongs to the certificate's key. Everything this
+        // engine knows is offered, so the offer itself needs no check.
+        PublicKey peerKey = peerCertificateChain.get(0).getPublicKey();
+        if (!cv.scheme.isHandshakeSignature() || !cv.scheme.isCompatible(peerKey)) {
+            fail(sink, AlertDescription.ILLEGAL_PARAMETER,
+                    "CertificateVerify scheme " + cv.scheme + " is not valid for the peer's key");
+            return;
+        }
+        boolean ok = cv.scheme.verify(peerKey, signedContent, cv.signature);
         if (!ok) {
             fail(sink, AlertDescription.DECRYPT_ERROR, "CertificateVerify signature did not verify");
             return;
@@ -1482,19 +1513,32 @@ public final class HandshakeEngine {
         state = verifyingServer ? State.WAIT_SERVER_FINISHED : State.WAIT_CLIENT_FINISHED;
     }
 
-    private static SignatureScheme selectSignatureScheme(PrivateKey key) {
-        String algorithm = key.getAlgorithm();
-        if ("RSA".equals(algorithm)) {
-            return SignatureScheme.RSA_PSS_RSAE_SHA256;
+    /**
+     * The schemes a key can sign a {@code CertificateVerify} with, most
+     * preferred first: one for every key type but RSA, which may use
+     * RSASSA-PSS with any of the three hashes.
+     */
+    private static List<SignatureScheme> signingPreference(PrivateKey key) {
+        List<SignatureScheme> schemes = new ArrayList<SignatureScheme>();
+        for (int i = 0; i < ALL_SIGNATURE_SCHEMES.size(); i++) {
+            SignatureScheme scheme = ALL_SIGNATURE_SCHEMES.get(i);
+            if (scheme.isHandshakeSignature() && scheme.isCompatible(key)) {
+                schemes.add(scheme);
+            }
         }
-        if ("EC".equals(algorithm) && key instanceof ECKey) {
-            int fieldBits = ((ECKey) key).getParams().getCurve().getField().getFieldSize();
-            return (fieldBits > 256) ? SignatureScheme.ECDSA_SECP384R1_SHA384 : SignatureScheme.ECDSA_SECP256R1_SHA256;
-        }
-        if ("Ed25519".equals(algorithm) || "EdDSA".equals(algorithm)) {
-            return SignatureScheme.ED25519;
-        }
-        return null;
+        return schemes;
+    }
+
+    /**
+     * Selects the scheme to sign a {@code CertificateVerify} with: the
+     * first one {@code key} can use that the peer listed in its
+     * {@code signature_algorithms} (RFC 8446 section 4.4.3).
+     *
+     * @return the scheme, or null if the peer offered none this key can use
+     */
+    private static SignatureScheme selectSignatureScheme(PrivateKey key, List<SignatureScheme> offered) {
+        List<SignatureScheme> preference = signingPreference(key);
+        return (offered != null) ? selectFirst(preference, offered) : null;
     }
 
     // Package-private (not private): a genuinely generic overlap-preference

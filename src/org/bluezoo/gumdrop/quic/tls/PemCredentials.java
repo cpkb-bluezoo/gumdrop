@@ -62,6 +62,10 @@ import org.bluezoo.gumdrop.tls.ServerCredentials;
  */
 public final class PemCredentials {
 
+    // The key types the handshake engine can sign with, tried in turn:
+    // a PKCS8 key names its own algorithm, but KeyFactory wants it first.
+    private static final String[] KEY_ALGORITHMS = new String[] { "RSA", "EC", "Ed25519", "ML-DSA" };
+
     private PemCredentials() {
     }
 
@@ -144,22 +148,24 @@ public final class PemCredentials {
      * @throws IOException if the file cannot be read or does not contain
      *                     a PKCS8 private key block
      * @throws GeneralSecurityException if the key bytes cannot be parsed
-     *                                  as an RSA or EC private key
+     *                                  as an RSA, EC, Ed25519 or ML-DSA
+     *                                  private key
      */
     public static PrivateKey loadPrivateKey(Path keyFile) throws IOException, GeneralSecurityException {
         String pem = new String(Files.readAllBytes(keyFile), StandardCharsets.US_ASCII);
         byte[] der = decodePemBlock(pem, "PRIVATE KEY", keyFile);
         PKCS8EncodedKeySpec spec = new PKCS8EncodedKeySpec(der);
-        try {
-            return KeyFactory.getInstance("RSA").generatePrivate(spec);
-        } catch (InvalidKeySpecException rsaFailure) {
+        InvalidKeySpecException failure = null;
+        for (int i = 0; i < KEY_ALGORITHMS.length; i++) {
             try {
-                return KeyFactory.getInstance("EC").generatePrivate(spec);
-            } catch (InvalidKeySpecException ecFailure) {
-                throw new InvalidKeyException(
-                        "Unsupported private key format (expected PKCS8 RSA or EC): " + keyFile, ecFailure);
+                return KeyFactory.getInstance(KEY_ALGORITHMS[i]).generatePrivate(spec);
+            } catch (InvalidKeySpecException e) {
+                failure = e;
             }
         }
+        throw new InvalidKeyException(
+                "Unsupported private key format (expected PKCS8 RSA, EC, Ed25519 or ML-DSA): " + keyFile,
+                failure);
     }
 
     private static byte[] decodePemBlock(String pem, String label, Path source) throws IOException {

@@ -120,8 +120,7 @@ public abstract class TransportFactory {
      * "X25519MLKEM768:x25519:secp256r1". Hybrid post-quantum groups
      * ({@code X25519MLKEM768}, {@code SecP256r1MLKEM768},
      * {@code SecP384r1MLKEM1024}) are supported by the in-tree
-     * {@link org.bluezoo.gumdrop.tls.HandshakeEngine} on Java&nbsp;25+ when
-     * the JCA provider exposes ML-KEM/ML-DSA. A client offers these
+     * {@link org.bluezoo.gumdrop.tls.HandshakeEngine}. A client offers these
      * groups; a server negotiates the first of them that the client
      * also supports.
      */
@@ -288,8 +287,7 @@ public abstract class TransportFactory {
      * registry names (case-insensitive), in preference order; an
      * unrecognised name is logged and skipped. Honoured by the in-tree
      * {@link org.bluezoo.gumdrop.tls.HandshakeEngine} on TCP, DTLS, and
-     * QUIC, client and server. Hybrid post-quantum groups require Java&nbsp;25+
-     * JCA support.
+     * QUIC, client and server.
      *
      * @param namedGroups the named group list
      */

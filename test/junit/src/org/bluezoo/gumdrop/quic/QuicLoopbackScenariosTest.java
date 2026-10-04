@@ -35,6 +35,7 @@ import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.ProtocolHandler;
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.StreamAcceptHandler;
+import org.bluezoo.gumdrop.testsupport.TestCertificates;
 import org.junit.Before;
 import org.junit.Test;
 
@@ -134,6 +135,29 @@ public class QuicLoopbackScenariosTest {
             b[i] = (byte) ('a' + (i % 26));
         }
         return b;
+    }
+
+    @Test
+    public void handshakeCompletesWithMlDsaServerCertificate() throws Exception {
+        // An ML-DSA-65 certificate and signature make a server flight of
+        // several kilobytes, well past the anti-amplification limit of a
+        // single Initial: it has to span round trips and still complete.
+        TestCertificates.Identity id =
+                TestCertificates.newSelfSigned(TestCertificates.KeyKind.ML_DSA_65, TestCertificates.SERVER_NAME);
+        QuicLoopback lb = new QuicLoopback();
+        lb.serverFactory.setServerCredentials(id.credentials());
+        lb.clientFactory.setVerifyPeer(true);
+        lb.clientFactory.setTrustManager(id.trustManager());
+        lb.startFactories();
+        ConnCapture server = new ConnCapture();
+        lb.startServer(server);
+        ConnCapture client = new ConnCapture();
+        lb.startClient(null, client);
+        lb.pump();
+        SecurityInfo c = client.conn.getSecurityInfo();
+        assertNotNull(c.getPeerCertificates());
+        assertEquals("ML-DSA", c.getPeerCertificates()[0].getPublicKey().getAlgorithm());
+        assertEquals("X25519MLKEM768", c.getNamedGroup());
     }
 
     @Test

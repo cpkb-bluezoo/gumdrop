@@ -59,8 +59,10 @@ user-visible themes since 2.2.x.
 - **In-tree TLS 1.3 engine** (`org.bluezoo.gumdrop.tls`): pure-Java handshake,
   record layer, and key schedule for TCP/TLS, DTLS, and QUIC, replacing JVM
   JSSE (`SSLEngine`) and [Agent15](https://github.com/ptrd/agent15). Includes
-  hybrid post-quantum key exchange (RFC 10024) via JCA ML-KEM/ML-DSA on Java
-  25+. Named groups are configured by their IANA registry names
+  hybrid post-quantum key exchange (RFC 10024) via the JDK's ML-KEM, and
+  post-quantum authentication with ML-DSA-44/65/87 certificates and
+  `CertificateVerify` signatures (draft-ietf-tls-mldsa; TLS 1.3, DTLS 1.3 and
+  QUIC only). Named groups are configured by their IANA registry names
   (`X25519MLKEM768`, `SecP256r1MLKEM768`, `SecP384r1MLKEM1024`, `x25519`,
   `secp256r1`, `secp384r1`), and `SecurityInfo.getNamedGroup()` reports the
   group a connection negotiated.

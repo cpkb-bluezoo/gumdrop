@@ -869,6 +869,46 @@ public class TcpEndpointTlsPairTest {
     }
 
     @Test
+    public void tls13HandshakeAndExchangeWithMlDsaServerCertificate() throws Exception {
+        TestCertificates.Identity id =
+                TestCertificates.newSelfSigned(TestCertificates.KeyKind.ML_DSA_65, TestCertificates.SERVER_NAME);
+        HandshakeConfig sc = new HandshakeConfig(HandshakeRole.SERVER);
+        sc.setServerCredentials(id.credentials());
+        HandshakeConfig cc = client13();
+        cc.setTrustManager(id.trustManager());
+        Peer cp = new Peer();
+        Peer sp = new Peer();
+        TcpEndpoint client = endpoint(cp, cc, null, TlsVersion.TLS_1_3, true);
+        TcpEndpoint server = endpoint(sp, sc, null, TlsVersion.TLS_1_3, false);
+        handshake(client, server);
+        assertTrue(cp.errors.toString(), cp.errors.isEmpty());
+        assertTrue(sp.errors.toString(), sp.errors.isEmpty());
+        assertTrue(cp.events.contains("secure"));
+        assertEquals("ML-DSA", client.getSecurityInfo().getPeerCertificates()[0].getPublicKey().getAlgorithm());
+        exchange(cp, client, sp, server);
+    }
+
+    @Test
+    public void tls12ServerCannotAuthenticateWithAnMlDsaKey() throws Exception {
+        // ML-DSA is defined for TLS 1.3 only: a TLS 1.2 handshake with
+        // such a server fails rather than signing under it.
+        TestCertificates.Identity id =
+                TestCertificates.newSelfSigned(TestCertificates.KeyKind.ML_DSA_65, TestCertificates.SERVER_NAME);
+        Tls12HandshakeConfig sc = new Tls12HandshakeConfig(HandshakeRole.SERVER);
+        sc.setServerCredentials(id.credentials());
+        Tls12HandshakeConfig cc = client12();
+        cc.setTrustManager(id.trustManager());
+        Peer cp = new Peer();
+        Peer sp = new Peer();
+        TcpEndpoint client = endpoint(cp, null, cc, TlsVersion.TLS_1_2, true);
+        TcpEndpoint server = endpoint(sp, null, sc, TlsVersion.TLS_1_2, false);
+        handshake(client, server);
+        assertFalse(sp.errors.isEmpty());
+        assertFalse(cp.events.contains("secure"));
+        assertFalse(sp.events.contains("secure"));
+    }
+
+    @Test
     public void tls13SecurityInfoReportsTheGroupActuallyNegotiated() throws Exception {
         // A client that offers only a classical group gets that group, and
         // both ends report it -- not the server's preferred hybrid.
