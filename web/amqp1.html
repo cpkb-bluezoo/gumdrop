@@ -1,0 +1,333 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.1//EN" "xhtml11.dtd">
+<!--
+  This file is part of gumdrop.
+
+  gumdrop is free software; you can redistribute it and/or modify
+  it under the terms of the GNU Lesser General Public License as published by
+  the Free Software Foundation; either version 2 of the License, or
+  (at your option) any later version.
+
+  gumdrop is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+  GNU Lesser General Public License for more details.
+
+  You should have received a copy of the GNU Lesser General Public License
+  along with gumdrop; if not, write to the Free Software
+  Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
+-->
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8"/>
+<link href="main.css" rel="stylesheet" type="text/css"/>
+<link rel="icon" href="favicon.ico"/>
+<link rel="SHORTCUT ICON" href="favicon.ico"/>
+<title>AMQP 1.0 Client - Gumdrop</title>
+</head>
+<body>
+
+<header>
+<img src="gumdrop.png" alt="Gumdrop" />
+<h1>Gumdrop AMQP 1.0 Client</h1>
+</header>
+
+<p class="back-link"><a href="index.html">&larr; Back to Main Page</a></p>
+
+<p>
+<strong>This page describes the AMQP 1.0 client</strong> in package
+<code>org.bluezoo.gumdrop.amqp1.client</code>. AMQP 1.0 is a different protocol
+from AMQP 0-9-1; the two clients share only the four-octet <code>AMQP</code>
+protocol header prefix. Use this client for brokers that speak AMQP 1.0 natively,
+such as RabbitMQ&nbsp;4's AMQP 1.0 listener or ActiveMQ Artemis's
+<code>amqp://</code> acceptor. For RabbitMQ's classic 0-9-1 port, see the
+<a href="amqp.html">AMQP 0-9-1 client</a>.
+</p>
+
+<p>
+Gumdrop provides a fully asynchronous AMQP 1.0 client built on the same
+reactor model as HTTP, SMTP, and the other protocol clients: non-blocking I/O,
+<code>ProtocolHandler</code> callbacks on a <code>SelectorLoop</code>, and
+push framing via <code>Amqp1FrameParser</code> so partial reads never assume a
+full frame is available. Messaging uses AMQP 1.0 <em>links</em> (sender and
+receiver) with link credit, session flow control, and explicit settlement rather
+than 0-9-1 channels and <code>basic.publish</code>.
+</p>
+
+<h3>Contents</h3>
+<ul>
+<li><a href="#architecture">Architecture</a></li>
+<li><a href="#basic-usage">Basic Usage</a></li>
+<li><a href="#threading">Threading</a></li>
+<li><a href="#selector-affinity">SelectorLoop Affinity</a></li>
+<li><a href="#addressing">Node Addresses</a></li>
+<li><a href="#sending">Sending</a></li>
+<li><a href="#receiving">Receiving</a></li>
+<li><a href="#tls">TLS Connections</a></li>
+<li><a href="#authentication">Authentication</a></li>
+<li><a href="#recovery">Automatic Connection Recovery</a></li>
+</ul>
+
+<h3 id="architecture">Architecture</h3>
+
+<p>
+The recommended entry point is
+<code>org.bluezoo.gumdrop.amqp1.client.Amqp1ClientRecovery</code>: it dials the
+broker, runs the SASL security layer and connection handshake, opens a session,
+and reconnects with exponential backoff if the connection is lost, re-attaching
+recorded links on each new session. Lower-level control is available through
+<code>Amqp1ClientProtocolHandler</code> and a <code>ClientEndpoint</code>.
+</p>
+
+<h4>Key Components</h4>
+
+<ul>
+<li><code>Amqp1ClientRecovery</code> - connection facade with recovery and a
+single recoverable session</li>
+<li><code>Amqp1RecoverableSession</code> - stable across reconnects;
+<code>attachSender</code> / <code>attachReceiver</code> record links for replay</li>
+<li><code>Amqp1Sender</code> / <code>Amqp1Receiver</code> - link handles;
+stable references that move to each new attachment after reconnect</li>
+<li><code>Amqp1SenderHandler</code> / <code>Amqp1ReceiverHandler</code> - link
+lifecycle, credit, and message events</li>
+<li><code>Amqp1OutgoingDelivery</code> / <code>Amqp1IncomingDelivery</code> -
+streaming send and receive with settlement</li>
+<li><code>Amqp1RecoveryHandler</code> - <code>onFirstConnect</code> fires once;
+attach links there</li>
+<li><code>Amqp1RecoveryListener</code> - optional connection-lost / reconnecting /
+recovered / recovery-failed callbacks</li>
+<li><code>Amqp1RecoveryPolicy</code> - backoff timing and attempt limits</li>
+<li><code>org.bluezoo.gumdrop.amqp1.codec</code> - AMQP 1.0 type system,
+performatives, and message encoding (usable without the client package)</li>
+</ul>
+
+<p>
+The connection handshake is expressed as typed states (SASL, open, begin) so
+illegal call ordering is rejected at compile time. Wire encoding uses push
+parsers and incremental <code>ByteBuffer</code> feeds throughout.
+</p>
+
+<h3 id="basic-usage">Basic Usage</h3>
+
+<p>
+In the examples below, <code>gumdrop</code> is the runtime from
+<code>Gumdrop.boot()</code>, passed to <code>connect</code>.
+</p>
+
+<pre>
+Amqp1ClientRecovery client = new Amqp1ClientRecovery("broker.example.com", 5672)
+        .credentials("guest", "guest")
+        .containerId("my-app");
+
+client.connect(gumdrop, new Amqp1RecoveryHandler() {
+    public void onFirstConnect(Amqp1RecoverableSession session) {
+        session.attachReceiver("in", "/queues/orders", receiverHandler);
+        session.attachSender("out", "/queues/orders", senderHandler);
+    }
+});
+</pre>
+
+<p>
+Attach links from <code>onFirstConnect</code> (or from a link handler's
+<code>handleAttached</code>). The sender must wait for
+<code>Amqp1SenderHandler.handleCredit</code> before calling
+<code>send</code>; the receiver must call
+<code>Amqp1Receiver.addCredit</code> in <code>handleAttached</code> (and again
+after every reconnect) to receive messages.
+</p>
+
+<h3 id="threading">Threading</h3>
+
+<p>
+The API is <strong>single-threaded</strong> with respect to each connection:
+handler callbacks and link operations run on the connection's event loop. Call
+links only from those callbacks, or submit work with
+<code>client.execute(Runnable)</code> from any other thread (for example a
+servlet worker that must publish to the broker).
+</p>
+
+<h3 id="selector-affinity">SelectorLoop Affinity</h3>
+
+<p>
+Like other Gumdrop clients, <code>Amqp1ClientRecovery</code> can be bound to a
+specific worker <code>SelectorLoop</code> so broker I/O shares the reactor
+thread with an HTTP request handler or upstream client:
+</p>
+
+<pre>
+SelectorLoop loop = endpoint.getSelectorLoop();
+Amqp1ClientRecovery client = new Amqp1ClientRecovery(loop, "broker.example.com", 5672)
+        .credentials("guest", "guest");
+</pre>
+
+<p>
+If no loop is supplied, the client uses Gumdrop's default selector pool. As with
+the <a href="amqp.html#selector-affinity">0-9-1 client</a>, reconnect backoff
+uses a small dedicated timer thread (<code>gumdrop-amqp1-recovery</code>) so
+delays still fire when no connections are active and worker loops may be idle;
+the reconnect dial itself uses the configured <code>SelectorLoop</code>.
+</p>
+
+<h3 id="addressing">Node Addresses</h3>
+
+<p>
+AMQP 1.0 addresses are broker-specific strings passed to
+<code>attachSender</code> and <code>attachReceiver</code>. The queue must
+typically exist before a link attaches.
+</p>
+
+<ul>
+<li><b>RabbitMQ 4</b> - v2 addresses such as <code>/queues/&lt;name&gt;</code>
+(URL-encoded queue name). Integration tests declare queues via the management
+HTTP API before attaching links.</li>
+<li><b>ActiveMQ Artemis</b> - commonly <code>queue://&lt;name&gt;</code> or
+broker-specific paths (see Artemis documentation for the acceptor you use).</li>
+<li><b>Tests / mocks</b> - the in-repo <code>MockAmqp1Broker</code> uses
+<code>queue://&lt;name&gt;</code> addresses.</li>
+</ul>
+
+<p>
+For full control of source, target, settle modes, and capabilities, pass a
+copied <code>Attach</code> performative to
+<code>attachSender(Attach, …)</code> or <code>attachReceiver(Attach, …)</code>.
+</p>
+
+<h3 id="sending">Sending</h3>
+
+<p>
+Small messages fit in one call; large bodies stream without assembling the
+payload in memory:
+</p>
+
+<pre>
+// After handleCredit:
+byte[] tag = "msg-1".getBytes(StandardCharsets.UTF_8);
+MessageProperties props = new MessageProperties();
+props.setSubject("greeting");
+sender.send(tag, props, null, ByteBuffer.wrap(body));
+
+// Large payload:
+Amqp1OutgoingDelivery d = sender.startDelivery(tag, null, props, null, false);
+for (int off = 0; off &lt; body.length; off += 65536) {
+    int len = Math.min(65536, body.length - off);
+    d.write(ByteBuffer.wrap(body, off, len));
+}
+d.finish();
+</pre>
+
+<p>
+If <code>write</code> returns <code>false</code>, the session transfer window
+is full; continue when <code>handleWritable</code> fires. Unsettled deliveries
+report outcomes through <code>handleOutcome</code> when the receiver settles
+them.
+</p>
+
+<h3 id="receiving">Receiving</h3>
+
+<p>
+<code>Amqp1ReceiverHandler</code> extends <code>MessageHandler</code>: a
+delivery begins with <code>startDelivery</code>, message sections arrive as
+events (<code>properties</code>, <code>dataChunk</code>, and so on), and
+<code>endMessage</code> marks completion. <code>data</code> bodies stream in
+chunks; <code>amqp-value</code> / <code>amqp-sequence</code> sections are
+decoded whole with a size cap (see <code>MessageParser.DEFAULT_MAX_SECTION_SIZE</code>).
+Dispose of each delivery with <code>accept()</code>, <code>release()</code>,
+<code>reject(...)</code>, or <code>dispose(state, settled)</code>.
+</p>
+
+<pre>
+public void handleAttached(Amqp1Receiver receiver, Attach peerAttach) {
+    receiver.addCredit(10);
+}
+
+public void startDelivery(Amqp1IncomingDelivery delivery) {
+    current = delivery;
+}
+
+public void dataChunk(ByteBuffer chunk) {
+    // append to application buffer
+}
+
+public void endMessage() {
+    process();
+    current.accept();
+    current = null;
+}
+</pre>
+
+<h3 id="tls">TLS Connections</h3>
+
+<p>
+Implicit TLS (AMQPS, typically port 5671) is enabled with <code>setSecure(true)</code>
+before connecting:
+</p>
+
+<pre>
+Amqp1ClientRecovery client = new Amqp1ClientRecovery("broker.example.com", 5671)
+        .credentials("guest", "guest")
+        .setSecure(true)
+        .setKeystoreFile(Path.of("/path/to/keystore.p12"))
+        .setKeystorePass("changeit")
+        .setKeystoreFormat(KeystoreFormat.PKCS12);
+</pre>
+
+<p>
+Optional <code>setTrustManager</code>, <code>setClientCredentials</code>, and
+UNIX domain socket constructors (<code>new Amqp1ClientRecovery("/var/run/broker.sock")</code>)
+follow the same patterns as other Gumdrop clients. TLS is negotiated at connect
+time; there is no STARTTLS upgrade on the AMQP 1.0 port.
+</p>
+
+<h3 id="authentication">Authentication</h3>
+
+<p>
+<code>credentials(username, password)</code> selects SASL <code>PLAIN</code>.
+With no credentials, the client uses <code>ANONYMOUS</code> when the broker
+offers it. Override the mechanism name with <code>mechanism("PLAIN")</code> or
+supply a custom <code>SaslClientMechanism</code> through the lower-level
+<code>Amqp1ClientProtocolHandler</code> handshake states if needed.
+</p>
+
+<p>
+Rejected credentials stop recovery permanently (retrying cannot succeed). For
+TLS client authentication, configure the keystore on a secure connection and use
+the mechanism your broker expects for certificate-based SASL.
+</p>
+
+<h3 id="recovery">Automatic Connection Recovery</h3>
+
+<p>
+<code>Amqp1ClientRecovery</code> reconnects after transport failures or broker
+closes, using <code>Amqp1RecoveryPolicy</code> (defaults: 1&nbsp;s initial
+delay, doubling multiplier, 30&nbsp;s cap, unlimited attempts unless
+<code>withMaxAttempts</code> is set).
+</p>
+
+<ul>
+<li><code>onFirstConnect</code> runs only once; on later reconnects the client
+re-attaches every link recorded on the <code>Amqp1RecoverableSession</code></li>
+<li>Link handlers receive <code>handleDetached</code> on loss and
+<code>handleAttached</code> again when the link is restored; receivers must
+re-grant credit on each attachment</li>
+<li>Deliveries in flight are <em>not</em> resumed: senders may need to resend for
+at-least-once semantics; receivers may see duplicates after reconnect</li>
+<li>Links the broker closed deliberately (detach with <code>closed</code> true)
+are not re-attached</li>
+<li><code>Amqp1RecoveryListener</code> reports lost, reconnecting, recovered, and
+failed recovery events</li>
+<li><code>close()</code> stops further attempts and shuts down the connection</li>
+</ul>
+
+<pre>
+Amqp1ClientRecovery client = new Amqp1ClientRecovery("broker.example.com", 5672)
+        .credentials("guest", "guest")
+        .recoveryPolicy(new Amqp1RecoveryPolicy()
+                .withInitialDelayMs(500)
+                .withMaxDelayMs(15000)
+                .withMaxAttempts(20))
+        .recoveryListener(myListener);
+</pre>
+
+<p class="server-info">Gumdrop</p>
+
+</body>
+</html>
