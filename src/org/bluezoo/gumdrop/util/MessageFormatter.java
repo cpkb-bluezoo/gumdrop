@@ -34,7 +34,12 @@ public class MessageFormatter extends Formatter {
     static final String EOL = System.getProperty("line.separator");
 
     public String format(LogRecord record) {
-        return record.getMessage() + EOL;
+        String message = record.getMessage();
+        if (message != null) {
+            // the message with its parameters, if it came with any, put in
+            message = formatMessage(record);
+        }
+        return message + EOL;
     }
 
 }
