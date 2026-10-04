@@ -183,12 +183,12 @@ public class DnsResolver {
         r.setSelectorLoop(loop);
         r.setDnssecEnabled(defaultDnssecEnabled);
         r.useSystemResolvers();
-        try {
-            r.open();
-        } catch (IOException e) {
-            LOGGER.log(Level.WARNING, L10N.getString("warn.resolver_open_failed"), e);
-            return r;
-        }
+        // Not opened here: connecting to the nameservers waits until a name
+        // needs one. Most names a loop resolves may never do so (address
+        // literals, the hosts file, localhost), and a connection to each
+        // nameserver for every loop, made whether or not it is ever used,
+        // is traffic to them that says a process started.
+        r.openOnFirstQuery();
         DnsResolver race = resolvers.putIfAbsent(loop, r);
         if (race != null) {
             r.close();
@@ -252,6 +252,9 @@ public class DnsResolver {
     private DnsClientTransport transportPrototype;
     private long timeoutMs;
     private boolean opened;
+    // When set, the first query that needs a nameserver opens the resolver
+    // rather than failing because it is not open (see forLoop).
+    private boolean openOnFirstQuery;
     private SelectorLoop selectorLoop;
 
     /** RFC 7873: DNS cookie manager for source address verification. */
@@ -795,6 +798,15 @@ public class DnsResolver {
     // -- Lifecycle --
 
     /**
+     * Has the first query that needs a nameserver open this resolver, so
+     * that nothing is connected until then. For the resolvers
+     * {@link #forLoop} hands out.
+     */
+    void openOnFirstQuery() {
+        this.openOnFirstQuery = true;
+    }
+
+    /**
      * Opens the resolver by creating transport connections to all
      * configured servers.
      *
@@ -1150,8 +1162,17 @@ public class DnsResolver {
     private void query(String name, DnsType type, List<DnsType> additionalTypes,
                        final DnsQueryCallback callback, int cnameDepth) {
         if (!opened) {
-            callback.onError(L10N.getString("err.resolver_not_opened"));
-            return;
+            if (!openOnFirstQuery) {
+                callback.onError(L10N.getString("err.resolver_not_opened"));
+                return;
+            }
+            try {
+                open();
+            } catch (IOException e) {
+                LOGGER.log(Level.WARNING, L10N.getString("warn.resolver_open_failed"), e);
+                callback.onError(String.valueOf(e.getMessage()));
+                return;
+            }
         }
         if (transports.isEmpty() && localQueryHandler == null) {
             callback.onError(L10N.getString("err.no_dns_servers"));
