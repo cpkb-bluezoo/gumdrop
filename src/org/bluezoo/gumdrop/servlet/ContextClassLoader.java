@@ -218,21 +218,70 @@ final class ContextClassLoader extends ClassLoader {
     }
 
     @Override protected URL findResource(String name) {
+        List<URL> found = new ArrayList<>();
+        findContextResources(name, found, true);
+        return found.isEmpty() ? null : found.get(0);
+    }
+
+    /**
+     * Finds a resource on the class path of the web application: in
+     * WEB-INF/classes, then in each jar in WEB-INF/lib in name order, as
+     * classes are found. Last comes the context's own resource space (the
+     * document root and META-INF/resources of the library jars), which
+     * this class loader has always exposed too.
+     *
+     * @param name the resource name, without leading '/'
+     * @param acc receives the URL of each place the resource is found
+     * @param firstOnly whether to stop at the first place
+     */
+    private void findContextResources(String name, List<URL> acc, boolean firstOnly) {
         try {
-            // First check WEB-INF/classes
             URL url = context.getResource("/WEB-INF/classes/" + name);
             if (url != null) {
-                return url;
+                acc.add(url);
+                if (firstOnly) {
+                    return;
+                }
             }
-            // Check META-INF/resources inside JARs in WEB-INF/lib
-            // This is handled by context.getResource() which searches JAR resources
-            return context.getResource("/" + name);
-        } catch (MalformedURLException e) {
+            for (String jar : libJars()) {
+                Archive jarFile = context.getLibArchive(jar);
+                if (jarFile.isFile(name)) {
+                    url = context.libEntryUrl(jar, name);
+                    acc.add(url);
+                    if (firstOnly) {
+                        return;
+                    }
+                }
+            }
+            url = context.getResource("/" + name);
+            if (url != null) {
+                acc.add(url);
+            }
+        } catch (IOException e) {
             String message = Context.L10N.getString("err.load_resource");
             message = MessageFormat.format(message, name);
-            Context.LOGGER.warning(message);
-            return null;
+            Context.LOGGER.log(Level.WARNING, message, e);
         }
+    }
+
+    /**
+     * Returns the resource paths of the jars in WEB-INF/lib, in the order
+     * they are searched.
+     */
+    private List<String> libJars() {
+        List<String> sorted = new ArrayList<>();
+        Collection<String> paths = context.getResourcePaths("/WEB-INF/lib", false);
+        if (paths != null) {
+            for (String path : paths) {
+                // WEB-INF/lib may also hold non-archive files (readme etc.)
+                if (path.toLowerCase().endsWith(".jar")) {
+                    sorted.add(path);
+                }
+            }
+            // Sort in alphabetical order: important!
+            Collections.sort(sorted);
+        }
+        return sorted;
     }
 
     @Override public InputStream getResourceAsStream(String name) {
@@ -260,6 +309,24 @@ final class ContextClassLoader extends ClassLoader {
     }
 
     private InputStream findResourceAsStream(String name) {
+        InputStream in = context.getResourceAsStream("/WEB-INF/classes/" + name);
+        if (in != null) {
+            return in;
+        }
+        try {
+            for (String jar : libJars()) {
+                Archive jarFile = context.getLibArchive(jar);
+                if (jarFile.isFile(name)) {
+                    // NB we cannot auto-close it, the stream owns its handle
+                    return jarFile.streamOwned(name);
+                }
+            }
+        } catch (IOException e) {
+            String message = Context.L10N.getString("err.load_resource");
+            message = MessageFormat.format(message, name);
+            Context.LOGGER.log(Level.WARNING, message, e);
+            return null;
+        }
         return context.getResourceAsStream("/" + name);
     }
 
@@ -267,13 +334,13 @@ final class ContextClassLoader extends ClassLoader {
         // In classloader, names should always be absolute
         name = (name.charAt(0) == '/') ? name.substring(1) : name;
         List<URL> acc = new ArrayList<>();
-        URL contextResource = findResource(name);
-        if (contextResource != null) {
-            acc.add(contextResource);
-        }
+        findContextResources(name, acc, false);
         if (parent != null) {
             for (URL url : parent.getURLs()) { // This is only the dependency jars, not the container jar
-                acc.add(parent.findResource(url, name));
+                URL dependencyResource = parent.findResource(url, name);
+                if (dependencyResource != null) {
+                    acc.add(dependencyResource);
+                }
             }
             ClassLoader bootstrapClassLoader = parent.getParent();
             addResources(acc, bootstrapClassLoader.getResources(name));
@@ -290,15 +357,8 @@ final class ContextClassLoader extends ClassLoader {
     }
 
     @Override protected Enumeration<URL> findResources(String name) throws IOException {
-        String targetName = "/" + name;
         List<URL> acc = new ArrayList<>();
-        // Note that this is only an exact name match
-        // ServletContext may be referring to multiple resources under the
-        // hood with this, but doesn't provide different URLs for them.
-        URL resourceUrl = context.getResource(targetName);
-        if (resourceUrl != null) {
-            acc.add(resourceUrl);
-        }
+        findContextResources(name, acc, false);
         return new IteratorEnumeration<URL>(acc.iterator());
     }
 

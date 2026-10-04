@@ -36,7 +36,8 @@ import org.bluezoo.gumdrop.http.ContentTypes;
 /**
  * URLConnection for a <code>resource:</code> URL identifying a resource in a context.
  * Supports resources in the context root, WAR file, or META-INF/resources inside
- * JARs in WEB-INF/lib (Servlet 3.0 spec section 4.6).
+ * JARs in WEB-INF/lib (Servlet 3.0 spec section 4.6), and any entry of such a
+ * JAR named as {@code /WEB-INF/lib/name.jar!/entry}.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
@@ -69,6 +70,25 @@ public class ResourceURLConnection extends URLConnection {
             path = path.substring(1);
         }
         
+        int separator = path.indexOf(Context.LIB_ENTRY_SEPARATOR);
+        if (separator != -1 && path.startsWith("WEB-INF/lib/")) {
+            // Entry of a library jar, as the context's class loader
+            // names the resources on its class path
+            String jarPath = "/" + path.substring(0, separator);
+            String entryName = path.substring(separator + Context.LIB_ENTRY_SEPARATOR.length());
+            Collection<String> jars = context.getResourcePaths("/WEB-INF/lib", false);
+            if (jars != null && jars.contains(jarPath)) {
+                Archive jar = context.getLibArchive(jarPath);
+                if (jar.isFile(entryName)) {
+                    libJarFile = jarPath;
+                    libJarEntryName = entryName;
+                    connected = true;
+                    return;
+                }
+            }
+            throw new FileNotFoundException(url.toString());
+        }
+
         if (Files.isDirectory(context.root)) {
             // Exploded context - check direct file first
             Path directFile = context.root.resolve(path);
@@ -204,6 +224,11 @@ public class ResourceURLConnection extends URLConnection {
     @Override
     public InputStream getInputStream() throws IOException {
         connect();
+        if (libJarFile != null) {
+            Archive jar = context.getLibArchive(libJarFile);
+            // NB we cannot auto-close it, the stream owns its handle
+            return jar.streamOwned(libJarEntryName);
+        }
         return context.getResourceAsStream(resourcePath);
     }
 
