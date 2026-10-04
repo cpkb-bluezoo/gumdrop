@@ -2157,6 +2157,13 @@ public class HttpProtocolHandler extends HttpConnectionLike
             handleTrace(stream);
             return;
         }
+        if (stream.lacksBodyLength()) {
+            // RFC 9110 section 15.5.12: 411 Length Required. Refused
+            // here, before the application is given the request: it must
+            // not act on one whose sender is told it failed.
+            requestEvents.refuse(411);
+            return;
+        }
         stream.streamEndHeaders();
         // RFC 6455 section 4.1: an application's headers() callback may
         // synchronously switch this connection into WEBSOCKET mode (via
@@ -2189,7 +2196,9 @@ public class HttpProtocolHandler extends HttpConnectionLike
         }
         // RFC 9112 section 6.3: the body length is Transfer-Encoding, else
         // Content-Length, else (for a request) none. A request that needs a
-        // body but declares no length is refused with 411.
+        // body but declares no length is refused with 411. That is done
+        // before the headers are dispatched, above; this catches a length
+        // left unresolved for any other reason.
         if (contentLength < 0L && !chunked) {
             // RFC 9110 section 15.5.12: 411 Length Required
             requestEvents.refuse(411);
