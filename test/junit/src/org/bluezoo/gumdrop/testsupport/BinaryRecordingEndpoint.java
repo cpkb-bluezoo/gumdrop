@@ -197,4 +197,19 @@ public final class BinaryRecordingEndpoint implements Endpoint {
             callback.run();
         }
     }
+
+    private volatile int pendingWriteBytes;
+
+    /**
+     * Sets the number of unsent bytes this endpoint reports holding.
+     *
+     * @param pendingWriteBytes the value {@link #pendingWriteBytes()} returns
+     */
+    public void setPendingWriteBytes(int pendingWriteBytes) {
+        this.pendingWriteBytes = pendingWriteBytes;
+    }
+
+    @Override public int pendingWriteBytes() {
+        return pendingWriteBytes;
+    }
 }

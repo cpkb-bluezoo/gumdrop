@@ -890,6 +890,12 @@ public class HttpProtocolHandler extends HttpConnectionLike
 
     @Override
     public int pendingResponseBytes(int streamId) {
+        if (h2FlowControl == null) {
+            // HTTP/1.1 has no flow control window to hold body data back:
+            // whatever is unsent is in the connection's outbound buffer.
+            Endpoint ep = endpoint;
+            return ep == null ? 0 : ep.pendingWriteBytes();
+        }
         AtomicInteger counter = h2PendingBytes.get(streamId);
         return counter == null ? 0 : counter.get();
     }

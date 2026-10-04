@@ -84,22 +84,29 @@ public class AsyncTimeoutSchedulerTest {
         assertEquals("last", fired.get(2));
     }
 
+    /**
+     * The fire times are given outright: taking each from the clock, as
+     * {@code schedule} does, makes them equal only when the clock happens
+     * not to tick between one call and the next.
+     */
     @Test
     public void testEqualFireTimesFireInSchedulingOrder() {
         final AsyncTimeoutScheduler scheduler = new AsyncTimeoutScheduler();
         final List<String> fired = new ArrayList<String>();
-        long delay = -60000L;
-        scheduler.schedule(delay, new Recording(fired, "a"));
-        scheduler.schedule(delay, new Recording(fired, "b"));
-        scheduler.schedule(delay - 1L, new Recording(fired, "earlier"));
-        scheduler.schedule(delay, new AsyncTimeoutCallback() {
+        long fireTime = System.currentTimeMillis() - 60000L;
+        scheduler.scheduleAt(fireTime, new Recording(fired, "a"));
+        scheduler.scheduleAt(fireTime, new Recording(fired, "b"));
+        scheduler.scheduleAt(fireTime - 1L, new Recording(fired, "earlier"));
+        scheduler.scheduleAt(fireTime, new AsyncTimeoutCallback() {
             @Override
             public void onTimeout() {
                 scheduler.shutdown();
             }
         });
         scheduler.run();
-        assertEquals("earlier", fired.get(0));
         assertEquals(3, fired.size());
+        assertEquals("earlier", fired.get(0));
+        assertEquals("a", fired.get(1));
+        assertEquals("b", fired.get(2));
     }
 }
