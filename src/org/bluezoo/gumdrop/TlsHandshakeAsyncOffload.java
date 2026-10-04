@@ -107,6 +107,9 @@ public final class TlsHandshakeAsyncOffload implements HandshakeAsyncOffload {
         this.loopExecutor = loopExecutor;
         this.gumdrop = gumdrop;
         this.endpoint = endpoint;
+        if (endpoint != null) {
+            endpoint.addTlsHandshakeOffload(this);
+        }
     }
 
     @Override
@@ -254,6 +257,11 @@ public final class TlsHandshakeAsyncOffload implements HandshakeAsyncOffload {
         Runnable listener = idleListener;
         if (listener != null) {
             listener.run();
+        }
+        if (endpoint != null) {
+            // the records held back while the batch ran have now been
+            // processed: an end of stream that arrived meanwhile can go ahead
+            endpoint.tlsHandshakeWorkIdle();
         }
     }
 }

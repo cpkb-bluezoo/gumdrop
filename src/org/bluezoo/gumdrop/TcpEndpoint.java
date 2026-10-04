@@ -38,6 +38,8 @@ import java.nio.channels.CancelledKeyException;
 import java.nio.channels.SelectionKey;
 import java.nio.channels.SocketChannel;
 import java.text.MessageFormat;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Locale;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -877,7 +879,53 @@ public class TcpEndpoint implements Endpoint, ChannelHandler, TlsRecordState.Cal
         close();
     }
 
+    // The handshake offloads of this endpoint's TLS states (at most one for
+    // each TLS version that may be negotiated), and an end of stream that
+    // is waiting for them: see handleEOF.
+    private final List<TlsHandshakeAsyncOffload> tlsHandshakeOffloads =
+            new ArrayList<TlsHandshakeAsyncOffload>(2);
+    private boolean eofPending;
+
+    void addTlsHandshakeOffload(TlsHandshakeAsyncOffload offload) {
+        tlsHandshakeOffloads.add(offload);
+    }
+
+    private boolean tlsHandshakeWorkInFlight() {
+        for (int i = 0; i < tlsHandshakeOffloads.size(); i++) {
+            if (tlsHandshakeOffloads.get(i).isBusy()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** Called on the loop thread when a batch of offloaded handshake work has finished. */
+    void tlsHandshakeWorkIdle() {
+        if (eofPending && !tlsHandshakeWorkInFlight()) {
+            eofPending = false;
+            handleEOF();
+        }
+    }
+
     void handleEOF() {
+        if (tlsHandshakeWorkInFlight()) {
+            // While a handshake message is being processed on a crypto
+            // thread, the records that followed it wait to be parsed. The
+            // peer may already have sent everything and closed: tearing the
+            // connection down now would lose what it sent. Stop reading (the
+            // socket would otherwise report end of stream continuously) and
+            // finish when those records have been delivered.
+            eofPending = true;
+            SelectionKey k = key;
+            if (k != null && k.isValid()) {
+                try {
+                    k.interestOps(k.interestOps() & ~SelectionKey.OP_READ);
+                } catch (CancelledKeyException e) {
+                    // already closed
+                }
+            }
+            return;
+        }
         try {
             deliverDisconnected();
         } finally {
