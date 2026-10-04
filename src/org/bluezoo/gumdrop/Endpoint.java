@@ -236,6 +236,21 @@ public interface Endpoint {
      */
     void onWriteReady(Runnable callback);
 
+    /**
+     * Returns the number of bytes accepted by {@link #send(ByteBuffer)}
+     * that the transport is still holding, not yet written to the network.
+     * A sender that produces data faster than the peer reads it should
+     * stop once this grows and resume from {@link #onWriteReady(Runnable)}:
+     * a transport may close a connection whose unsent data passes its
+     * ceiling. May be called from any thread.
+     *
+     * @return the number of unsent bytes held; 0 if none or if the
+     *         transport does not hold unsent data
+     */
+    default int pendingWriteBytes() {
+        return 0;
+    }
+
     // -- Infrastructure --
 
     /**

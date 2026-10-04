@@ -261,15 +261,16 @@ class ServletWebConnection implements WebConnection {
             return;
         }
         final CountDownLatch latch = new CountDownLatch(1);
+        final Runnable release = new Runnable() {
+            @Override
+            public void run() {
+                latch.countDown();
+            }
+        };
         response.execute(new Runnable() {
             @Override
             public void run() {
-                response.onWritable(new Runnable() {
-                    @Override
-                    public void run() {
-                        latch.countDown();
-                    }
-                });
+                registerWritable(release);
             }
         });
         try {
@@ -291,32 +292,47 @@ class ServletWebConnection implements WebConnection {
         }
     }
 
+    /**
+     * Runs {@code callback} once the transport has sent what it holds, or
+     * at once if it holds nothing: there is then no write left to complete
+     * and so nothing that would ever notify. Runs on the connection's I/O
+     * thread.
+     */
+    private void registerWritable(Runnable callback) {
+        if (response.pendingResponseBytes() == 0) {
+            callback.run();
+        } else {
+            response.onWritable(callback);
+        }
+    }
+
     private void scheduleWritePossibleNotification() {
         if (writePossibleScheduled || response == null
                 || !outputStream.hasWriteListener()) {
             return;
         }
         writePossibleScheduled = true;
+        final Runnable notification = new Runnable() {
+            @Override
+            public void run() {
+                writePossibleScheduled = false;
+                if (outputStream.hasWriteListener()) {
+                    dispatchContainerCallback(new Runnable() {
+                        @Override
+                        public void run() {
+                            outputStream.notifyWritePossible();
+                            if (!isResponseWritable()) {
+                                scheduleWritePossibleNotification();
+                            }
+                        }
+                    });
+                }
+            }
+        };
         response.execute(new Runnable() {
             @Override
             public void run() {
-                response.onWritable(new Runnable() {
-                    @Override
-                    public void run() {
-                        writePossibleScheduled = false;
-                        if (outputStream.hasWriteListener()) {
-                            dispatchContainerCallback(new Runnable() {
-                                @Override
-                                public void run() {
-                                    outputStream.notifyWritePossible();
-                                    if (!isResponseWritable()) {
-                                        scheduleWritePossibleNotification();
-                                    }
-                                }
-                            });
-                        }
-                    }
-                });
+                registerWritable(notification);
             }
         });
     }

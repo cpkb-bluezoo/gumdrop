@@ -42,6 +42,7 @@ import java.util.Map;
 import java.util.ResourceBundle;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Supplier;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -301,8 +302,15 @@ public class ServletHandler extends DefaultHttpRequestHandler {
     }
 
     boolean isResponseWritable() {
-        return state == null
-                || state.pendingResponseBytes() <= PENDING_RESPONSE_HIGH_WATERMARK;
+        if (state == null) {
+            return true;
+        }
+        // Unsent body data is either still queued for the connection's
+        // I/O thread or already held by the transport: count both, or a
+        // worker that outruns the I/O thread is never held back.
+        long unsent = queuedResponseBytes.get();
+        unsent += (long) state.pendingResponseBytes();
+        return unsent <= (long) PENDING_RESPONSE_HIGH_WATERMARK;
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -335,8 +343,20 @@ public class ServletHandler extends DefaultHttpRequestHandler {
     // blocks the calling (worker) thread until the transport drains below
     // it, rather than letting the transport's pending-data queue grow
     // without bound while a slow/unresponsive peer never opens its
-    // flow-control window (issue #123).
-    private static final int PENDING_RESPONSE_HIGH_WATERMARK = 4 * 1024 * 1024;
+    // flow-control window (issue #123). It has to stay well below the
+    // transport's outbound buffer ceiling (TransportFactory
+    // maxNetOutSize, 4MB by default): a connection whose outbound buffer
+    // passes that ceiling is closed, which truncates the response.
+    private static final int PENDING_RESPONSE_HIGH_WATERMARK = 1024 * 1024;
+
+    // A blocking write larger than this is handed to the transport in
+    // pieces, waiting for the transport between them as needed, so that
+    // one large write cannot overrun the outbound buffer on its own.
+    private static final int MAX_BODY_PIECE = 64 * 1024;
+
+    // Body bytes queued by writeBody() for the connection's I/O thread
+    // that it has not passed to the transport yet.
+    private final AtomicLong queuedResponseBytes = new AtomicLong();
 
     void writeBody(ByteBuffer buf) {
         writeBody(buf, false);
@@ -363,25 +383,52 @@ public class ServletHandler extends DefaultHttpRequestHandler {
         contentLength += (long) length;
 
         ensureBodyStarted();
-        if (!isResponseWritable()) {
-            if (response != null && response.isNonBlockingWrite()) {
+        if (response != null && response.isNonBlockingWrite()) {
+            if (!isResponseWritable()) {
                 scheduleWritePossibleNotification();
                 throw new IllegalStateException(
                         L10N.getString("err.write_not_ready"));
             }
+            queueBody(payload);
+            return;
+        }
+        while (payload.remaining() > MAX_BODY_PIECE) {
+            int end = payload.position() + MAX_BODY_PIECE;
+            ByteBuffer piece = payload.duplicate();
+            piece.limit(end);
+            payload.position(end);
+            if (!isResponseWritable()) {
+                awaitWritable();
+            }
+            queueBody(piece);
+        }
+        if (!isResponseWritable()) {
             awaitWritable();
         }
+        queueBody(payload);
+    }
+
+    /**
+     * Queues body data for the connection's I/O thread to pass to the
+     * transport.
+     */
+    private void queueBody(final ByteBuffer chunk) {
         // Fire-and-forget: state.execute() preserves submission order (it
         // is backed by the connection's SelectorLoop task queue), so this
         // chunk is guaranteed to be sent before any later writeBody() call
         // or the final endResponse() completion, without the worker
         // thread needing to wait for each individual chunk in the normal
         // case.
-        final ByteBuffer chunk = payload;
+        final long length = (long) chunk.remaining();
+        queuedResponseBytes.addAndGet(length);
         state.execute(new Runnable() {
             @Override
             public void run() {
-                state.bodyContent(chunk);
+                try {
+                    state.bodyContent(chunk);
+                } finally {
+                    queuedResponseBytes.addAndGet(-length);
+                }
             }
         });
     }
@@ -392,21 +439,22 @@ public class ServletHandler extends DefaultHttpRequestHandler {
             return;
         }
         writePossibleScheduled = true;
+        final Runnable notification = new Runnable() {
+            @Override
+            public void run() {
+                writePossibleScheduled = false;
+                if (response != null && response.isNonBlockingWrite()) {
+                    response.notifyWritePossible();
+                    if (!isResponseWritable()) {
+                        scheduleWritePossibleNotification();
+                    }
+                }
+            }
+        };
         state.execute(new Runnable() {
             @Override
             public void run() {
-                state.onWritable(new Runnable() {
-                    @Override
-                    public void run() {
-                        writePossibleScheduled = false;
-                        if (response != null && response.isNonBlockingWrite()) {
-                            response.notifyWritePossible();
-                            if (!isResponseWritable()) {
-                                scheduleWritePossibleNotification();
-                            }
-                        }
-                    }
-                });
+                registerWritable(notification);
             }
         });
     }
@@ -429,15 +477,16 @@ public class ServletHandler extends DefaultHttpRequestHandler {
      */
     private void awaitWritable() {
         final CountDownLatch latch = new CountDownLatch(1);
+        final Runnable release = new Runnable() {
+            @Override
+            public void run() {
+                latch.countDown();
+            }
+        };
         state.execute(new Runnable() {
             @Override
             public void run() {
-                state.onWritable(new Runnable() {
-                    @Override
-                    public void run() {
-                        latch.countDown();
-                    }
-                });
+                registerWritable(release);
             }
         });
         try {
@@ -454,6 +503,21 @@ public class ServletHandler extends DefaultHttpRequestHandler {
             }
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
+        }
+    }
+
+    /**
+     * Runs {@code callback} once the transport has sent what it holds.
+     * Runs on the connection's I/O thread, after every body chunk queued
+     * before it, so the transport holds all the unsent data there is. If
+     * that is none there is no write left to complete, and so nothing
+     * that would ever notify: the callback then runs at once.
+     */
+    private void registerWritable(Runnable callback) {
+        if (state.pendingResponseBytes() == 0) {
+            callback.run();
+        } else {
+            state.onWritable(callback);
         }
     }
 

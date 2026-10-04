@@ -676,6 +676,11 @@ public class TcpEndpoint implements Endpoint, ChannelHandler, TlsRecordState.Cal
         this.writeCompleteCallback = callback;
     }
 
+    @Override
+    public int pendingWriteBytes() {
+        return pendingNetOutBytes();
+    }
+
     /**
      * Returns whether reading is currently paused on this endpoint.
      *
