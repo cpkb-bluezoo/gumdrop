@@ -357,6 +357,24 @@ public class QuicMiscUnitTest {
     }
 
     @Test
+    public void serverListenerHonoursItsConfiguredNamedGroups() throws Exception {
+        // The server picks the group, by its own preference among those
+        // the client supports (RFC 8446 section 4.2.8): a server configured
+        // without the hybrid group must not negotiate it, even though the
+        // client offers it first.
+        QuicLoopback lb = new QuicLoopback();
+        lb.serverFactory.setNamedGroups("secp256r1:x25519");
+        lb.startFactories();
+        ConnCapture server = new ConnCapture();
+        lb.startServer(server);
+        ConnCapture client = new ConnCapture();
+        lb.startClient(null, client);
+        lb.pump();
+        assertEquals("secp256r1", client.conn.getSecurityInfo().getNamedGroup());
+        assertEquals("secp256r1", server.conn.getSecurityInfo().getNamedGroup());
+    }
+
+    @Test
     public void securityInfoReportsHandshakeDetails() throws Exception {
         QuicLoopback lb = new QuicLoopback();
         lb.startFactories();

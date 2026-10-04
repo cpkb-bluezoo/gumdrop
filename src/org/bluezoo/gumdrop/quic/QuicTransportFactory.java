@@ -83,13 +83,10 @@ import org.bluezoo.gumdrop.util.TlsUtils;
  * unimplemented cipher suite or named group is dropped from the
  * configured list (falling back to gumdrop's full default list, with a
  * logged warning, only if nothing configured survives filtering).
- * Named-group selection has no server-side effect at all, unlike cipher
- * suites: RFC 8446 section 4.2.7 makes {@code supported_groups} a
- * client-only extension, and the server accepts whichever of the
- * client's offered groups it prefers most, from its own configured list
- * -- {@link #createServerEngine} logs a warning if {@code namedGroups} is
- * set on a factory used for a server listener, since it has no effect
- * there. {@link #setCongestionControl} is similarly accepted but ignored
+ * The named-group list is what a client offers and what a server
+ * accepts, each in its own preference order: a server negotiates the
+ * first group in its list that the client also supports.
+ * {@link #setCongestionControl} is accepted but ignored
  * -- {@code quic.recovery}'s {@code CongestionController} is NewReno only.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
@@ -557,8 +554,8 @@ public class QuicTransportFactory extends TransportFactory {
     /**
      * Returns the raw, unparsed {@link #setNamedGroups} value (colon-
      * separated group names, or null) -- resolving these against
-     * {@link org.bluezoo.gumdrop.crypto.NamedGroup} is
-     * {@link org.bluezoo.gumdrop.quic.tls.QuicTlsClientEngine}'s job.
+     * {@link org.bluezoo.gumdrop.crypto.NamedGroup} is the TLS
+     * engines' job (client and server alike).
      */
     String getNamedGroups() {
         return namedGroups;
@@ -833,14 +830,6 @@ public class QuicTransportFactory extends TransportFactory {
     }
 
     private QuicEngine newBoundServerEngine(InetAddress bindAddress, int port, SelectorLoop loop) throws IOException {
-        if (namedGroups != null && LOGGER.isLoggable(Level.WARNING)) {
-            // RFC 8446 section 4.2.7: only the client sends supported_groups;
-            // the server picks from the client's key_share. setNamedGroups
-            // therefore has no effect on a QUIC server listener.
-            String message = MessageFormat.format(
-                    L10N.getString("warn.set_named_groups_no_effect_server"), namedGroups);
-            LOGGER.warning(message);
-        }
         DatagramChannel dc = DatagramChannel.open(bindAddress instanceof Inet6Address
                 ? StandardProtocolFamily.INET6 : StandardProtocolFamily.INET);
         dc.configureBlocking(false);

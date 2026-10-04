@@ -121,10 +121,9 @@ public abstract class TransportFactory {
      * ({@code X25519MLKEM768}, {@code SecP256r1MLKEM768},
      * {@code SecP384r1MLKEM1024}) are supported by the in-tree
      * {@link org.bluezoo.gumdrop.tls.HandshakeEngine} on Java&nbsp;25+ when
-     * the JCA provider exposes ML-KEM/ML-DSA. On QUIC server listeners,
-     * {@code named-groups} has no effect (RFC&nbsp;8446 section&nbsp;4.2.7:
-     * only the client sends {@code supported_groups}); client-side QUIC
-     * engines honour this setting when opening outbound connections.
+     * the JCA provider exposes ML-KEM/ML-DSA. A client offers these
+     * groups; a server negotiates the first of them that the client
+     * also supports.
      */
     protected String namedGroups;
 
@@ -289,9 +288,8 @@ public abstract class TransportFactory {
      * registry names (case-insensitive), in preference order; an
      * unrecognised name is logged and skipped. Honoured by the in-tree
      * {@link org.bluezoo.gumdrop.tls.HandshakeEngine} on TCP, DTLS, and
-     * QUIC client connections. Hybrid post-quantum groups require Java&nbsp;25+
-     * JCA support. QUIC server listeners ignore this setting (see
-     * {@link #namedGroups} field comment).
+     * QUIC, client and server. Hybrid post-quantum groups require Java&nbsp;25+
+     * JCA support.
      *
      * @param namedGroups the named group list
      */

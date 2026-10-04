@@ -303,6 +303,25 @@ public final class QuicTlsServerEngine implements QuicTlsEngine {
     }
 
     /**
+     * Sets the groups this server accepts for key exchange, in its own
+     * preference order: the group negotiated is the first of these the
+     * client also supports (RFC 8446 section 4.2.8), requested with a
+     * HelloRetryRequest if the client sent no share for it. Must be
+     * called before the handshake starts.
+     *
+     * @param namedGroups colon-separated IANA TLS Supported Groups
+     *                    registry names (e.g. {@code
+     *                    "X25519MLKEM768:x25519"}), or null for the
+     *                    default order (hybrid PQC group first)
+     */
+    public void setNamedGroups(String namedGroups) {
+        List<NamedGroup> resolved = QuicNamedGroups.resolve(namedGroups);
+        if (resolved != null) {
+            config.setNamedGroups(resolved);
+        }
+    }
+
+    /**
      * Sets the server's session-ticket encryption keyring, enabling
      * automatic {@code NewSessionTicket} issuance on every completed
      * handshake -- without this, {@code earlyDataEnabled} alone is not

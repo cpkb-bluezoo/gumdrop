@@ -23,16 +23,11 @@ package org.bluezoo.gumdrop.quic.tls;
 
 import java.nio.ByteBuffer;
 import java.security.cert.X509Certificate;
-import java.text.MessageFormat;
 import java.util.ArrayDeque;
-import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.Deque;
 import java.util.List;
-import java.util.ResourceBundle;
-import java.util.logging.Level;
-import java.util.logging.Logger;
 
 import javax.net.ssl.X509TrustManager;
 
@@ -65,10 +60,6 @@ import org.bluezoo.gumdrop.tls.TlsProtocolError;
  * @see QuicTlsServerEngine
  */
 public final class QuicTlsClientEngine implements QuicTlsEngine {
-
-    private static final Logger LOGGER = Logger.getLogger(QuicTlsClientEngine.class.getName());
-    private static final ResourceBundle L10N =
-            ResourceBundle.getBundle("org.bluezoo.gumdrop.quic.L10N");
 
     private final HandshakeEngine engine;
     private final HandshakeConfig config;
@@ -220,41 +211,11 @@ public final class QuicTlsClientEngine implements QuicTlsEngine {
         config.setApplicationProtocols(applicationProtocols != null && !applicationProtocols.isEmpty()
                 ? Arrays.asList(applicationProtocols.split(","))
                 : Collections.<String>emptyList());
-        List<NamedGroup> resolvedGroups = resolveNamedGroups(namedGroups);
+        List<NamedGroup> resolvedGroups = QuicNamedGroups.resolve(namedGroups);
         if (resolvedGroups != null) {
             config.setNamedGroups(resolvedGroups);
         }
         this.engine = new HandshakeEngine(config);
-    }
-
-    private static List<NamedGroup> resolveNamedGroups(String namedGroups) {
-        if (namedGroups == null || namedGroups.isEmpty()) {
-            return null;
-        }
-        List<NamedGroup> resolved = new ArrayList<NamedGroup>();
-        for (String name : namedGroups.split(":")) {
-            name = name.trim();
-            if (name.isEmpty()) {
-                continue;
-            }
-            NamedGroup group = NamedGroup.fromName(name);
-            if (group != null) {
-                resolved.add(group);
-            } else if (LOGGER.isLoggable(Level.WARNING)) {
-                String message = MessageFormat.format(
-                        L10N.getString("warn.unrecognized_named_group"), name);
-                LOGGER.warning(message);
-            }
-        }
-        if (resolved.isEmpty()) {
-            if (LOGGER.isLoggable(Level.WARNING)) {
-                String message = MessageFormat.format(
-                        L10N.getString("warn.named_groups_fallback"), namedGroups);
-                LOGGER.warning(message);
-            }
-            return null;
-        }
-        return resolved;
     }
 
     /**

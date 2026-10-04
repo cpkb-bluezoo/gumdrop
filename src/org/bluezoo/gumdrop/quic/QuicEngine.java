@@ -513,6 +513,7 @@ public final class QuicEngine implements ChannelHandler, MultiplexedEndpoint {
                 factory.isEarlyDataEnabled(), factory.getApplicationProtocols(),
                 factory.getCipherSuites(), factory.isNeedClientAuth(),
                 factory.getTrustManager());
+        tlsEngine.setNamedGroups(factory.getNamedGroups());
         tlsEngine.setVersionPolicy(version, factory.getVersions());
         factory.applyEchServerSettings(tlsEngine);
         tlsEngine.setTicketKeys(factory.getTicketKeys());
