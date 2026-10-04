@@ -114,6 +114,34 @@ public class LossDetectorTest {
      * for packet-threshold loss to also fire -- isolating
      * time-threshold behaviour.
      */
+    /**
+     * RFC 9002 Appendix B.8: a packet declared lost is no longer in flight.
+     * While its bytes stayed counted, each loss took room out of the
+     * congestion window for good; after a few a connection could not fit a
+     * datagram in the window, and with nothing in flight to be acknowledged
+     * or to time out, it never sent again.
+     */
+    @Test
+    public void testLostPacketIsNoLongerInFlight() {
+        LossDetector detector = new LossDetector(1200);
+        detector.onPacketSent(EncryptionLevel.INITIAL, 0, 0, true, true, 50);
+        detector.onAckReceived(EncryptionLevel.INITIAL, 0, 0, new long[][] { { 0, 0 } }, 25, 200, true);
+        assertEquals(0, detector.getCongestionController().getBytesInFlight());
+
+        detector.onPacketSent(EncryptionLevel.ONE_RTT, 0, 1000, true, true, 100);
+        detector.onPacketSent(EncryptionLevel.ONE_RTT, 1, 1000, true, true, 100);
+        detector.onPacketSent(EncryptionLevel.ONE_RTT, 2, 1000, true, true, 100);
+        detector.onPacketSent(EncryptionLevel.ONE_RTT, 3, 1005, true, true, 100);
+        assertEquals(400, detector.getCongestionController().getBytesInFlight());
+
+        LossDetector.AckResult result = detector.onAckReceived(EncryptionLevel.ONE_RTT, 3, 0,
+                new long[][] { { 3, 3 } }, 25, 1010, true);
+        assertEquals(1, result.getNewlyAcked().size());
+        assertEquals(1, result.getNewlyLost().size());
+        // packet 3 acknowledged and packet 0 lost: packets 1 and 2 remain
+        assertEquals(200, detector.getCongestionController().getBytesInFlight());
+    }
+
     @Test
     public void testTimeThresholdLossDetection() {
         LossDetector detector = new LossDetector(1200);

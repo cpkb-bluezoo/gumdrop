@@ -385,6 +385,9 @@ public final class LossDetector {
         long sentTimeOfLastLoss = 0;
         for (SentPacket packet : lost) {
             if (packet.isInFlight()) {
+                // a lost packet is no longer in flight: left counted, each
+                // loss would take its bytes out of the window for good
+                congestionController.removeFromBytesInFlight(packet.getSentBytes());
                 sentTimeOfLastLoss = Math.max(sentTimeOfLastLoss, packet.getTimeSentMillis());
             }
         }
