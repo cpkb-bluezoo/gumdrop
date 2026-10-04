@@ -91,6 +91,38 @@ public class LogFormattersTest {
         assertTrue(text.startsWith(Level.INFO.getLocalizedName() + ": "));
     }
 
+    /**
+     * A library that logs through java.util.logging may hand over a
+     * message pattern and its parameters separately, for the formatter to
+     * put together.
+     */
+    @Test
+    public void laconicFormatterSubstitutesParameters() {
+        LaconicFormatter formatter = new LaconicFormatter();
+        LogRecord record = new LogRecord(Level.INFO, "Deploying {0}: {1}");
+        record.setParameters(new Object[] { "application", "rs.App" });
+        String text = formatter.format(record);
+        assertTrue(text, text.startsWith(Level.INFO.getLocalizedName()
+                + ": Deploying application: rs.App"));
+    }
+
+    /** Braces in a message that came with no parameters are just text. */
+    @Test
+    public void laconicFormatterLeavesBracesWithoutParameters() {
+        LaconicFormatter formatter = new LaconicFormatter();
+        LogRecord record = new LogRecord(Level.INFO, "body {\"a\": {0}}");
+        String text = formatter.format(record);
+        assertTrue(text, text.contains("body {\"a\": {0}}"));
+    }
+
+    @Test
+    public void messageFormatterSubstitutesParameters() {
+        MessageFormatter formatter = new MessageFormatter();
+        LogRecord record = new LogRecord(Level.INFO, "{0} of {1}");
+        record.setParameters(new Object[] { Integer.valueOf(1), Integer.valueOf(2) });
+        assertEquals("1 of 2" + MessageFormatter.EOL, formatter.format(record));
+    }
+
     @Test
     public void messageFormatterEmitsMessageAndEol() {
         MessageFormatter formatter = new MessageFormatter();

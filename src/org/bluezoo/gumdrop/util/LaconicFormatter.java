@@ -37,8 +37,9 @@ public class LaconicFormatter extends Formatter {
         StringBuffer buf = new StringBuffer();
         buf.append(record.getLevel().getLocalizedName());
         buf.append(": ");
-        String message = record.getMessage();
-        if (message != null) {
+        if (record.getMessage() != null) {
+            // the message with its parameters, if it came with any, put in
+            String message = formatMessage(record);
             buf.append(message);
         }
         buf.append(System.getProperty("line.separator"));
