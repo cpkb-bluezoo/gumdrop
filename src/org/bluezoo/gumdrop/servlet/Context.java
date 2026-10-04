@@ -1058,7 +1058,12 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
                     }
                     filterDef.init(webFilter, className);
                     descriptor.addFilterDef(filterDef);
+                    // value is the same attribute as urlPatterns under
+                    // another name; only one of them may be given
                     String[] urlPatterns = webFilter.urlPatterns();
+                    if (urlPatterns.length == 0) {
+                        urlPatterns = webFilter.value();
+                    }
                     if (urlPatterns.length > 0) {
                         FilterMapping filterMapping = new FilterMapping(webFilter.dispatcherTypes());
                         filterMapping.filterDef = filterDef;
@@ -1116,7 +1121,12 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
                     }
                     servletDef.init(webServlet, className);
                     descriptor.addServletDef(servletDef);
+                    // value is the same attribute as urlPatterns under
+                    // another name; only one of them may be given
                     String[] urlPatterns = webServlet.urlPatterns();
+                    if (urlPatterns.length == 0) {
+                        urlPatterns = webServlet.value();
+                    }
                     if (urlPatterns.length > 0) {
                         ServletMapping servletMapping = new ServletMapping();
                         servletMapping.servletDef = servletDef;

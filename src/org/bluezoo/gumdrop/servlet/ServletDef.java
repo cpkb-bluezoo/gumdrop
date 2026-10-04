@@ -88,6 +88,11 @@ final class ServletDef implements ServletConfig, Comparable<ServletDef>, Servlet
         smallIcon = config.smallIcon();
         largeIcon = config.largeIcon();
         name = config.name();
+        if (name.isEmpty()) {
+            // Servlet 6.1 section 8.1.1: the name defaults to the fully
+            // qualified class name
+            name = className;
+        }
         loadOnStartup = config.loadOnStartup();
         for (WebInitParam configInitParam : config.initParams()) {
             addInitParam(new InitParam(configInitParam));

@@ -78,6 +78,11 @@ final class FilterDef implements FilterConfig, FilterReg {
         smallIcon = config.smallIcon();
         largeIcon = config.largeIcon();
         name = config.filterName();
+        if (name.isEmpty()) {
+            // Servlet 6.1 section 8.1.2: the name defaults to the fully
+            // qualified class name
+            name = className;
+        }
         for (WebInitParam configInitParam : config.initParams()) {
             addInitParam(new InitParam(configInitParam));
         }
