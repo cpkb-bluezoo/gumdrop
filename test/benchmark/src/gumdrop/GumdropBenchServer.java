@@ -7,6 +7,7 @@ import java.util.Map;
 import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.http.HttpMethod;
 import org.bluezoo.gumdrop.http.HttpServer;
+import org.bluezoo.gumdrop.http.h3.Http3Listener;
 import org.bluezoo.gumdrop.http.server.DefaultHttpRequestHandler;
 import org.bluezoo.gumdrop.http.server.Http2Listener;
 import org.bluezoo.gumdrop.http.server.HttpRequestHandler;
@@ -22,6 +23,7 @@ import org.bluezoo.gumdrop.tls.TlsConfig;
  *   plaintext - GET returns a fixed short text body
  *   json      - POST with a small JSON body, returns a small JSON body
  *   tls       - like plaintext but over HTTPS (h2 or http/1.1 via ALPN)
+ *   h3        - like plaintext but over HTTP/3, with a PEM certificate and key
  */
 public class GumdropBenchServer {
 
@@ -44,18 +46,23 @@ public class GumdropBenchServer {
             }
         };
 
-        Http2Listener listener = new Http2Listener().port(port);
-        if ("tls".equals(mode)) {
-            listener.secure(true).tls(TlsConfig.keystore(
-                    Path.of(req(opt, "keystore")), req(opt, "keystore-pass")));
+        HttpServer.Composer composer = HttpServer.compose()
+                .streamHandler(streamHandler)
+                .addSecurityHeaders(false);
+        if ("h3".equals(mode)) {
+            composer.listener(new Http3Listener().port(port).tls(TlsConfig.pem(
+                    Path.of(req(opt, "cert")), Path.of(req(opt, "key")))));
+        } else {
+            Http2Listener listener = new Http2Listener().port(port);
+            if ("tls".equals(mode)) {
+                listener.secure(true).tls(TlsConfig.keystore(
+                        Path.of(req(opt, "keystore")), req(opt, "keystore-pass")));
+            }
+            composer.listener(listener);
         }
 
         Gumdrop gumdrop = Gumdrop.boot();
-        gumdrop.addServer(HttpServer.compose()
-                .listener(listener)
-                .streamHandler(streamHandler)
-                .addSecurityHeaders(false)
-                .server());
+        gumdrop.addServer(composer.server());
 
         System.out.println("GumdropBenchServer mode=" + mode + " port=" + port + " ready");
         gumdrop.join();

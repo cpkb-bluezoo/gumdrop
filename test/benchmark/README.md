@@ -24,6 +24,17 @@ fetches, should you want to place them by hand, are, from
     netty-codec-http  netty-codec-http2  netty-handler
     netty-transport-native-unix-common
 
+For HTTP/3 it also fetches, from
+`https://repo1.maven.org/maven2/io/netty/incubator/<module>/<version>/`:
+
+    netty-incubator-codec-http3          (NETTY_HTTP3_VERSION, default 0.0.29.Final)
+    netty-incubator-codec-classes-quic   (NETTY_QUIC_VERSION, default 0.0.71.Final)
+    netty-incubator-codec-native-quic    (same version, with a platform classifier
+                                          such as osx-aarch_64 or linux-x86_64)
+
+and writes the keystore's certificate and key out as PEM files, which both
+HTTP/3 servers take.
+
 Re-run `ant jar` and `setup.sh` after changing Gumdrop.
 
 ## Running
@@ -47,6 +58,29 @@ the two servers of a scenario are measured back-to-back. Results go to
 
 Environment variables: `FRAMEWORKS` (`"gumdrop netty"`), `CLIENT`,
 `SCENARIOS` (labels to run), `REPEATS`, `RESULTS`, `SERVER_JVM_ARGS`.
+
+## HTTP/3
+
+```bash
+test/benchmark/run_bench_h3.sh
+```
+
+One scenario, `h3-c50`: `GET /` over HTTP/3, 50 connections each issuing
+requests one after another. Results go to `results/results_h3.csv` in the
+same form. `CONCURRENCY` and `NETTY_THREADS` (event loop threads for Netty's
+QUIC channel, default 1) can be set in the environment.
+
+Two things to keep in mind when reading it:
+
+- **Netty's QUIC is native code.** `netty-incubator-codec-native-quic` is a
+  JNI wrapper around Cloudflare's quiche (Rust) with BoringSSL, shipped
+  prebuilt in the platform jar; Netty's Java code handles the datagram I/O
+  and the HTTP/3 framing above it. Gumdrop's QUIC, TLS and HTTP/3 are all
+  Java. The comparison is of a Java stack with a native one.
+- **The load client is Gumdrop's own.** The JDK `HttpClient` does not speak
+  HTTP/3, so `H3LoadClient` uses Gumdrop's HTTP/3 client for both servers.
+  Its cost is in every figure, and a Gumdrop-to-Gumdrop run has the same
+  implementation at both ends.
 
 ## The two load clients
 
