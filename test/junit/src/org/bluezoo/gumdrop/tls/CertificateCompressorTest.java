@@ -81,6 +81,40 @@ public class CertificateCompressorTest {
         assertArrayEquals(SAMPLE_CERT_MESSAGE, restored);
     }
 
+    /**
+     * A server compresses the same Certificate message for every handshake;
+     * the work is done once. What a caller is given is its own copy.
+     */
+    @Test
+    public void sameMessageIsCompressedOnce() throws Exception {
+        byte[] message = ("certificate-message-for-the-cache-test-" + System.nanoTime())
+                .getBytes(StandardCharsets.US_ASCII);
+        CertificateCompressionAlgorithm[] algorithms = {
+                CertificateCompressionAlgorithm.BROTLI, CertificateCompressionAlgorithm.ZLIB };
+        for (int i = 0; i < algorithms.length; i++) {
+            int before = CertificateCompressor.cachedMessageCount();
+            byte[] first = CertificateCompressor.compress(algorithms[i], message);
+            assertEquals(before + 1, CertificateCompressor.cachedMessageCount());
+            byte[] expected = first.clone();
+            first[0] ^= 0x55;
+            byte[] second = CertificateCompressor.compress(algorithms[i], message.clone());
+            assertArrayEquals(expected, second);
+            assertEquals(before + 1, CertificateCompressor.cachedMessageCount());
+            assertArrayEquals(message, CertificateCompressor.decompress(algorithms[i], second,
+                    CertificateCompressor.DEFAULT_MAX_DECOMPRESSED_SIZE));
+        }
+    }
+
+    /** The cache is bounded however many different messages are compressed. */
+    @Test
+    public void cacheOfCompressedMessagesIsBounded() throws Exception {
+        for (int i = 0; i < 200; i++) {
+            CertificateCompressor.compress(CertificateCompressionAlgorithm.ZLIB,
+                    ("message " + i + " " + System.nanoTime()).getBytes(StandardCharsets.US_ASCII));
+            assertTrue(CertificateCompressor.cachedMessageCount() <= 64);
+        }
+    }
+
     @Test
     public void zlibRoundTrip() throws Exception {
         byte[] compressed = CertificateCompressor.compress(

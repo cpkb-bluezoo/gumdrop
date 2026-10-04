@@ -24,7 +24,9 @@ package org.bluezoo.gumdrop.tls;
 import java.io.ByteArrayOutputStream;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.zip.DataFormatException;
 import java.util.zip.Deflater;
 import java.util.zip.Inflater;
@@ -98,13 +100,67 @@ public final class CertificateCompressor {
      */
     public static byte[] compress(CertificateCompressionAlgorithm algorithm, byte[] certificateMessage)
             throws HandshakeFormatException {
+        // A server sends the same certificate chain in every handshake, and
+        // compressing it costs milliseconds: far more than the rest of the
+        // handshake's own work on the message. The result is kept, keyed by
+        // the message itself, so a changed certificate is simply a new entry.
+        CacheKey key = new CacheKey(algorithm, certificateMessage);
+        byte[] cached = COMPRESSED.get(key);
+        if (cached != null) {
+            return cached.clone();
+        }
+        byte[] compressed;
         if (algorithm == CertificateCompressionAlgorithm.BROTLI) {
-            return compressBrotli(certificateMessage);
+            compressed = compressBrotli(certificateMessage);
+        } else if (algorithm == CertificateCompressionAlgorithm.ZLIB) {
+            compressed = compressZlib(certificateMessage);
+        } else {
+            throw new HandshakeFormatException("unsupported certificate compression algorithm");
         }
-        if (algorithm == CertificateCompressionAlgorithm.ZLIB) {
-            return compressZlib(certificateMessage);
+        if (COMPRESSED.size() >= MAX_CACHED_MESSAGES) {
+            // few certificates are expected; a client sending many
+            // different ones must not be able to fill memory with them
+            COMPRESSED.clear();
         }
-        throw new HandshakeFormatException("unsupported certificate compression algorithm");
+        COMPRESSED.put(new CacheKey(algorithm, certificateMessage.clone()), compressed.clone());
+        return compressed;
+    }
+
+    private static final int MAX_CACHED_MESSAGES = 64;
+
+    private static final ConcurrentHashMap<CacheKey, byte[]> COMPRESSED =
+            new ConcurrentHashMap<CacheKey, byte[]>();
+
+    /** The number of compressed messages held, for tests. */
+    static int cachedMessageCount() {
+        return COMPRESSED.size();
+    }
+
+    /** A message and the algorithm it is to be compressed with. */
+    private static final class CacheKey {
+        private final CertificateCompressionAlgorithm algorithm;
+        private final byte[] message;
+        private final int hash;
+
+        CacheKey(CertificateCompressionAlgorithm algorithm, byte[] message) {
+            this.algorithm = algorithm;
+            this.message = message;
+            this.hash = Arrays.hashCode(message) * 31 + algorithm.getId();
+        }
+
+        @Override
+        public int hashCode() {
+            return hash;
+        }
+
+        @Override
+        public boolean equals(Object other) {
+            if (!(other instanceof CacheKey)) {
+                return false;
+            }
+            CacheKey that = (CacheKey) other;
+            return algorithm == that.algorithm && Arrays.equals(message, that.message);
+        }
     }
 
     /**
