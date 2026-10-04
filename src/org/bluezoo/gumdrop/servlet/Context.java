@@ -1008,6 +1008,28 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
         }
     }
     
+    // The annotation, EJB, persistence and web service APIs are optional
+    // at run time. Naming a class that is absent fails when the code that
+    // names it first runs, so scanClass tests for an annotation type only
+    // where its API is present: a class cannot carry an annotation of an
+    // absent type in any case.
+    private static final boolean JAKARTA_ANNOTATION = isPresent("jakarta.annotation.Resource");
+    private static final boolean JAKARTA_PERSISTENCE = isPresent("jakarta.persistence.PersistenceContext");
+    private static final boolean JAVAX_ANNOTATION = isPresent("javax.annotation.Resource");
+    private static final boolean JAVAX_EJB = isPresent("javax.ejb.EJB");
+    private static final boolean JAVAX_PERSISTENCE = isPresent("javax.persistence.PersistenceContext");
+    private static final boolean JAVAX_XML_WS = isPresent("javax.xml.ws.WebServiceRef");
+
+    private static boolean isPresent(String className) {
+        try {
+            ClassLoader loader = Context.class.getClassLoader();
+            Class.forName(className, false, loader);
+            return true;
+        } catch (ClassNotFoundException | LinkageError e) {
+            return false;
+        }
+    }
+
     /**
      * Scan a class for @WebServlet, @WebFilter annotations.
      * The class will be loaded by the context classloader.
@@ -1136,14 +1158,14 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
                         servletDef = (ServletDef) target;
                     }
                     servletDef.init(servletSecurity);
-                } else if (annotation instanceof DeclareRoles) {
+                } else if (JAVAX_ANNOTATION && annotation instanceof DeclareRoles) {
                     DeclareRoles declareRoles = (DeclareRoles) annotation;
                     for (String roleName : declareRoles.value()) {
                         SecurityRole securityRole = new SecurityRole();
                         securityRole.roleName = roleName;
                         descriptor.addSecurityRole(securityRole);
                     }
-                } else if (annotation instanceof jakarta.annotation.security.DeclareRoles) {
+                } else if (JAKARTA_ANNOTATION && annotation instanceof jakarta.annotation.security.DeclareRoles) {
                     jakarta.annotation.security.DeclareRoles declareRoles =
                             (jakarta.annotation.security.DeclareRoles) annotation;
                     for (String roleName : declareRoles.value()) {
@@ -1151,7 +1173,7 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
                         securityRole.roleName = roleName;
                         descriptor.addSecurityRole(securityRole);
                     }
-                } else if (annotation instanceof RunAs) {
+                } else if (JAVAX_ANNOTATION && annotation instanceof RunAs) {
                     RunAs runAs = (RunAs) annotation;
                     ServletDef servletDef;
                     if (target == null) {
@@ -1161,7 +1183,7 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
                         servletDef = (ServletDef) target;
                     }
                     servletDef.init(runAs);
-                } else if (annotation instanceof jakarta.annotation.security.RunAs) {
+                } else if (JAKARTA_ANNOTATION && annotation instanceof jakarta.annotation.security.RunAs) {
                     jakarta.annotation.security.RunAs runAs =
                             (jakarta.annotation.security.RunAs) annotation;
                     ServletDef servletDef;
@@ -1172,45 +1194,45 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
                         servletDef = (ServletDef) target;
                     }
                     servletDef.init(runAs);
-                } else if (annotation instanceof EJBs) {
+                } else if (JAVAX_EJB && annotation instanceof EJBs) {
                     EJBs ejbs = (EJBs) annotation;
                     for (EJB ejb : ejbs.value()) {
                         initEjbRef(ejb);
                     }
-                } else if (annotation instanceof PersistenceContexts) {
+                } else if (JAVAX_PERSISTENCE && annotation instanceof PersistenceContexts) {
                     PersistenceContexts persistenceContexts = (PersistenceContexts) annotation;
                     for (PersistenceContext persistenceContext : persistenceContexts.value()) {
                         initPersistenceContextRef(persistenceContext);
                     }
-                } else if (annotation instanceof jakarta.persistence.PersistenceContexts) {
+                } else if (JAKARTA_PERSISTENCE && annotation instanceof jakarta.persistence.PersistenceContexts) {
                     jakarta.persistence.PersistenceContexts persistenceContexts =
                             (jakarta.persistence.PersistenceContexts) annotation;
                     for (jakarta.persistence.PersistenceContext persistenceContext : persistenceContexts.value()) {
                         initPersistenceContextRef(persistenceContext);
                     }
-                } else if (annotation instanceof PersistenceUnits) {
+                } else if (JAVAX_PERSISTENCE && annotation instanceof PersistenceUnits) {
                     PersistenceUnits persistenceUnits = (PersistenceUnits) annotation;
                     for (PersistenceUnit persistenceUnit : persistenceUnits.value()) {
                         initPersistenceUnitRef(persistenceUnit);
                     }
-                } else if (annotation instanceof jakarta.persistence.PersistenceUnits) {
+                } else if (JAKARTA_PERSISTENCE && annotation instanceof jakarta.persistence.PersistenceUnits) {
                     jakarta.persistence.PersistenceUnits persistenceUnits =
                             (jakarta.persistence.PersistenceUnits) annotation;
                     for (jakarta.persistence.PersistenceUnit persistenceUnit : persistenceUnits.value()) {
                         initPersistenceUnitRef(persistenceUnit);
                     }
-                } else if (annotation instanceof Resources) {
+                } else if (JAVAX_ANNOTATION && annotation instanceof Resources) {
                     Resources resources = (Resources) annotation;
                     for (javax.annotation.Resource resource : resources.value()) {
                         initResourceRef(resource);
                     }
-                } else if (annotation instanceof jakarta.annotation.Resources) {
+                } else if (JAKARTA_ANNOTATION && annotation instanceof jakarta.annotation.Resources) {
                     jakarta.annotation.Resources resources =
                             (jakarta.annotation.Resources) annotation;
                     for (jakarta.annotation.Resource resource : resources.value()) {
                         initResourceRef(resource);
                     }
-                } else if (annotation instanceof WebServiceRefs) {
+                } else if (JAVAX_XML_WS && annotation instanceof WebServiceRefs) {
                     WebServiceRefs webServiceRefs = (WebServiceRefs) annotation;
                     for (WebServiceRef webServiceRef : webServiceRefs.value()) {
                         initServiceRef(webServiceRef);
@@ -1220,37 +1242,37 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
             // field annotations
             for (Field field : t.getDeclaredFields()) { // NB may be private
                 for (Annotation annotation : field.getAnnotations()) {
-                    if (annotation instanceof EJB) {
+                    if (JAVAX_EJB && annotation instanceof EJB) {
                         EJB ejb = (EJB) annotation;
                         EjbRef ejbRef = initEjbRef(ejb);
                         addInjectionTarget(ejbRef, className, field.getName());
-                    } else if (annotation instanceof javax.annotation.Resource) {
+                    } else if (JAVAX_ANNOTATION && annotation instanceof javax.annotation.Resource) {
                         javax.annotation.Resource resource = (javax.annotation.Resource) annotation;
                         ResourceRef resourceRef = initResourceRef(resource);
                         addInjectionTarget(resourceRef, className, field.getName());
-                    } else if (annotation instanceof jakarta.annotation.Resource) {
+                    } else if (JAKARTA_ANNOTATION && annotation instanceof jakarta.annotation.Resource) {
                         jakarta.annotation.Resource resource = (jakarta.annotation.Resource) annotation;
                         ResourceRef resourceRef = initResourceRef(resource);
                         addInjectionTarget(resourceRef, className, field.getName());
-                    } else if (annotation instanceof PersistenceContext) {
+                    } else if (JAVAX_PERSISTENCE && annotation instanceof PersistenceContext) {
                         PersistenceContext persistenceContext = (PersistenceContext) annotation;
                         PersistenceContextRef persistenceContextRef = initPersistenceContextRef(persistenceContext);
                         addInjectionTarget(persistenceContextRef, className, field.getName());
-                    } else if (annotation instanceof jakarta.persistence.PersistenceContext) {
+                    } else if (JAKARTA_PERSISTENCE && annotation instanceof jakarta.persistence.PersistenceContext) {
                         jakarta.persistence.PersistenceContext persistenceContext =
                                 (jakarta.persistence.PersistenceContext) annotation;
                         PersistenceContextRef persistenceContextRef = initPersistenceContextRef(persistenceContext);
                         addInjectionTarget(persistenceContextRef, className, field.getName());
-                    } else if (annotation instanceof PersistenceUnit) {
+                    } else if (JAVAX_PERSISTENCE && annotation instanceof PersistenceUnit) {
                         PersistenceUnit persistenceUnit = (PersistenceUnit) annotation;
                         PersistenceUnitRef persistenceUnitRef = initPersistenceUnitRef(persistenceUnit);
                         addInjectionTarget(persistenceUnitRef, className, field.getName());
-                    } else if (annotation instanceof jakarta.persistence.PersistenceUnit) {
+                    } else if (JAKARTA_PERSISTENCE && annotation instanceof jakarta.persistence.PersistenceUnit) {
                         jakarta.persistence.PersistenceUnit persistenceUnit =
                                 (jakarta.persistence.PersistenceUnit) annotation;
                         PersistenceUnitRef persistenceUnitRef = initPersistenceUnitRef(persistenceUnit);
                         addInjectionTarget(persistenceUnitRef, className, field.getName());
-                    } else if (annotation instanceof WebServiceRef) {
+                    } else if (JAVAX_XML_WS && annotation instanceof WebServiceRef) {
                         WebServiceRef webServiceRef = (WebServiceRef) annotation;
                         ServiceRef serviceRef = initServiceRef(webServiceRef);
                         addInjectionTarget(serviceRef, className, field.getName());
@@ -1260,14 +1282,14 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
             // method annotations
             for (Method method : t.getMethods()) {
                 for (Annotation annotation : method.getAnnotations()) {
-                    if (annotation instanceof PostConstruct
-                            || annotation instanceof jakarta.annotation.PostConstruct) {
+                    if ((JAVAX_ANNOTATION && annotation instanceof PostConstruct)
+                            || (JAKARTA_ANNOTATION && annotation instanceof jakarta.annotation.PostConstruct)) {
                         LifecycleCallback callback = new LifecycleCallback();
                         callback.className = className;
                         callback.methodName = method.getName();
                         addPostConstruct(callback);
-                    } else if (annotation instanceof PreDestroy
-                            || annotation instanceof jakarta.annotation.PreDestroy) {
+                    } else if ((JAVAX_ANNOTATION && annotation instanceof PreDestroy)
+                            || (JAKARTA_ANNOTATION && annotation instanceof jakarta.annotation.PreDestroy)) {
                         LifecycleCallback callback = new LifecycleCallback();
                         callback.className = className;
                         callback.methodName = method.getName();
