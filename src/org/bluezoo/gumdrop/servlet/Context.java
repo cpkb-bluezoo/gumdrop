@@ -842,7 +842,7 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
                 if (handlesTypes != null) {
                     for (Class<?> handleType : handlesTypes.value()) {
                         for (Class<?> scanned : scannedApplicationClasses) {
-                            if (handleType.isAssignableFrom(scanned)) {
+                            if (isHandled(handleType, scanned)) {
                                 types.add(scanned);
                             }
                         }
@@ -857,6 +857,47 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
                 LOGGER.log(Level.SEVERE, message, e);
             }
         }
+    }
+
+    /**
+     * Returns whether a scanned class is one an initializer asked for by
+     * naming {@code handleType} in {@code @HandlesTypes} (Servlet spec
+     * section 8.2.4): a class that extends or implements the type or, for
+     * an annotation type, one annotated with it on the class or on any of
+     * its fields or methods. The type itself is not such a class. Only an
+     * annotation retained at run time can be seen.
+     */
+    static boolean isHandled(Class<?> handleType, Class<?> scanned) {
+        if (handleType == scanned) {
+            return false;
+        }
+        if (handleType.isAssignableFrom(scanned)) {
+            return true;
+        }
+        if (!handleType.isAnnotation()) {
+            return false;
+        }
+        Class<? extends Annotation> annotationType = handleType.asSubclass(Annotation.class);
+        try {
+            if (scanned.isAnnotationPresent(annotationType)) {
+                return true;
+            }
+            for (Field field : scanned.getDeclaredFields()) {
+                if (field.isAnnotationPresent(annotationType)) {
+                    return true;
+                }
+            }
+            for (Method method : scanned.getDeclaredMethods()) {
+                if (method.isAnnotationPresent(annotationType)) {
+                    return true;
+                }
+            }
+        } catch (LinkageError e) {
+            // A field or method of the class names a type that is not
+            // there, typically an optional dependency of a library. The
+            // class cannot be used either, so it is not handed over.
+        }
+        return false;
     }
 
     private List<ServletContainerInitializer> discoverServletContainerInitializers() {
