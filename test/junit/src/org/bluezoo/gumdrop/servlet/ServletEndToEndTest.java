@@ -34,6 +34,7 @@ import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Base64;
 import java.util.Collections;
 import java.util.Enumeration;
@@ -229,6 +230,20 @@ public class ServletEndToEndTest {
                 resp.setStatus(404);
             } else if ("204".equals(mode)) {
                 resp.setStatus(204);
+            } else if ("multi".equals(mode)) {
+                resp.addHeader("X-Multi", "one");
+                resp.addHeader("X-Multi", "two");
+                resp.addHeader("Vary", "Accept");
+                resp.addHeader("Vary", "Origin");
+                resp.addIntHeader("X-Count", 1);
+                resp.addIntHeader("X-Count", 2);
+                resp.addHeader("Content-Type", "text/html");
+                resp.addHeader("Content-Type", "text/plain");
+                resp.addHeader("Location", "/a");
+                resp.addHeader("Location", "/b");
+                resp.getWriter().print("first=" + resp.getHeader("X-Multi")
+                        + " all=" + resp.getHeaders("X-Multi")
+                        + " none=" + resp.getHeaders("X-None"));
             } else if ("headers".equals(mode)) {
                 resp.setHeader("X-One", "1");
                 resp.addHeader("X-One", "2");
@@ -842,6 +857,35 @@ public class ServletEndToEndTest {
             }
         }
         assertEquals(2, cookies);
+    }
+
+    private static List<String> values(Result r, String name) {
+        List<String> values = new ArrayList<String>();
+        for (Header header : r.headers) {
+            if (name.equalsIgnoreCase(header.getName())) {
+                values.add(header.getValue());
+            }
+        }
+        return values;
+    }
+
+    /**
+     * addHeader adds a value to whatever the header already has, for any
+     * header that can have more than one. Only a header that takes a
+     * single value is replaced.
+     */
+    @Test
+    public void testAddHeaderAddsAValue() throws Exception {
+        Result r = send("GET", "/app/err?mode=multi");
+        assertEquals(200, r.status);
+        assertEquals(Arrays.asList("one", "two"), values(r, "x-multi"));
+        assertEquals(Arrays.asList("Accept", "Origin"), values(r, "vary"));
+        assertEquals(Arrays.asList("1", "2"), values(r, "x-count"));
+        List<String> types = values(r, "content-type");
+        assertEquals(types.toString(), 1, types.size());
+        assertTrue(types.toString(), types.get(0).startsWith("text/plain"));
+        assertEquals(Arrays.asList("/b"), values(r, "location"));
+        assertEquals("first=one all=[one, two] none=null", r.text());
     }
 
     @Test
