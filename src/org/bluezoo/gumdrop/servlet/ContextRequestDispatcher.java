@@ -296,8 +296,13 @@ private static final Logger LOGGER = Logger.getLogger(ContextRequestDispatcher.c
             }
         }
         if (!errorSent && (filterResponse instanceof FilterResponse)) {
+            // An error status set with setStatus and no body to go with
+            // it gets the error page for that status. A servlet that
+            // went on to write a body has made its own response:
+            // sendError would throw that body away.
             int sc = ((FilterResponse) filterResponse).code;
-            if (sc > 399 && originalResponse != null && !originalResponse.committed) {
+            if (sc > 399 && originalResponse != null && !originalResponse.committed
+                    && !originalResponse.isBodyOpened()) {
                 originalResponse.sendError(sc, null, servletName, null);
             }
         }

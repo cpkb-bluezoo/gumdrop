@@ -680,6 +680,16 @@ private static final Logger LOGGER = Logger.getLogger(Response.class.getName());
         return outputStream;
     }
 
+    /**
+     * Returns whether the servlet has asked for the writer or the output
+     * stream, which is to say has set about writing a body. What it has
+     * written may still be buffered, in the stream or in the writer's
+     * encoder.
+     */
+    boolean isBodyOpened() {
+        return writer != null || outputStream != null;
+    }
+
     public PrintWriter getWriter() throws IOException {
         // If already committed and we have a writer, return it
         // (supports RequestDispatcher.include() per SRV.9.3)
