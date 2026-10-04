@@ -7,8 +7,11 @@
 # Environment:
 #   FRAMEWORKS  servers to run, default "gumdrop netty"
 #   CLIENT      LoadClient (JDK HttpClient, the method behind the README
-#               figures) or RawLoadClient (lean blocking sockets; the
-#               HTTP/2 scenario then uses H2LoadClient); default LoadClient
+#               figures), RawLoadClient (lean blocking sockets; the
+#               HTTP/2 scenario then uses H2LoadClient), or h2load
+#               (nghttp2's load tool, if installed: an independent check;
+#               it cannot open a connection per request, so that scenario
+#               is skipped); default LoadClient
 #   SCENARIOS   space-separated scenario labels to run, default all
 #   REPEATS     default 2
 #   RESULTS     default results/results.csv
@@ -40,6 +43,37 @@ wait_for_port() {
     done
     echo "server on port $port did not come up" >&2
     return 1
+}
+
+# Runs h2load for one scenario and prints the same "CSV,..." line as the
+# Java clients. h2load reports the median, 95th and 99th percentiles, so the
+# p90 and p999 columns are left empty.
+h2load_client() {
+    local label=$1 url=$2 concurrency=$3 duration=$4 warmup=$5 extra=$6
+    local args="-D $duration --warm-up-time=$warmup"
+    case "$extra" in
+        *--http2*) args="$args -c 1 -m $concurrency -t 1" ;;
+        *) args="$args --h1 -c $concurrency -t 4" ;;
+    esac
+    case "$extra" in
+        *--method=POST*) args="$args -d results/bench-body.json -H content-type:application/json" ;;
+    esac
+    h2load $args "$url" 2>&1 | awk -v label="$label" -v conc="$concurrency" -v duration="$duration" '
+        function ms(v) {
+            if (v ~ /us$/) { sub(/us$/, "", v); return v / 1000 }
+            if (v ~ /ms$/) { sub(/ms$/, "", v); return v + 0 }
+            if (v ~ /s$/) { sub(/s$/, "", v); return v * 1000 }
+            return v + 0
+        }
+        { print }
+        # "finished in" gives the time including the warm-up; the rate
+        # is over the measured duration alone
+        /^finished in/ { secs = duration; rps = $4; mbps = $6; sub(/MB\/s$/, "", mbps) }
+        /^requests:/ { ok = $8; failed = $10; errored = $12 }
+        /^request  / { p50 = ms($5); p99 = ms($7) }
+        END {
+            printf "CSV,%s,%d,%d,%d,%.4f,%.2f,%.2f,%.3f,,%.3f,\n", label, conc, ok, failed + errored, secs, rps, mbps, p50, p99
+        }'
 }
 
 # Total CPU time the process has used, in seconds ("[[HH:]MM:]SS.ss").
@@ -85,8 +119,12 @@ run_scenario() {
 
         echo ">>> $label / $framework / rep $rep" >&2
         local out
-        out=$(java $CLIENT_JVM_ARGS -cp "$LOADCLIENT_CP" $CLIENT --url="$url" --concurrency="$concurrency" \
-            --duration="$duration" --warmup="$warmup" --label="$label" $extra_client_args 2>&1)
+        if [ "$CLIENT" = "h2load" ]; then
+            out=$(h2load_client "$label" "$url" "$concurrency" "$duration" "$warmup" "$extra_client_args")
+        else
+            out=$(java $CLIENT_JVM_ARGS -cp "$LOADCLIENT_CP" $CLIENT --url="$url" --concurrency="$concurrency" \
+                --duration="$duration" --warmup="$warmup" --label="$label" $extra_client_args 2>&1)
+        fi
         echo "$out" >&2
         wait "$sampler" 2>/dev/null
 
@@ -144,6 +182,7 @@ for fw in $FRAMEWORKS; do
 done
 
 for fw in $FRAMEWORKS; do
+    [ "$CLIENT" = "h2load" ] && continue
     CLIENT_JVM_ARGS="-Djdk.httpclient.allowRestrictedHeaders=connection"
     run_scenario "tls-c20-handshake" "$fw" 18105 tls "https://localhost:18105/" 20 12 5 "$insecure --close-per-request"
 done
@@ -154,6 +193,7 @@ if [ "$CLIENT" = "RawLoadClient" ]; then
     CLIENT=H2LoadClient
     http2_args=""
 fi
+# (h2load is told which scenario is HTTP/2 by the --http2 in http2_args)
 for fw in $FRAMEWORKS; do
     CLIENT_JVM_ARGS=""
     run_scenario "h2-c50" "$fw" 18106 tls "https://localhost:18106/" 50 12 5 "$http2_args"

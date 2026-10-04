@@ -118,6 +118,8 @@ With lean load clients on blocking sockets (a pre-encoded request and only enoug
 | TLS 1.3, new connection per request | 20 | 7,198 | 3,162* | 1.92 | 1.52 | 17.04 | 91.75 | 565 | 791 |
 | TLS 1.3, HTTP/2 (ALPN), 50 streams on one connection | 50 | 633,219 | 413,193 | 0.08 | 0.12 | 0.12 | 0.17 | 1.3 | 2.4 |
 
+The same scenarios driven by nghttp2's `h2load`, as a check independent of the harness's own clients, agree: Gumdrop ahead on each, by 14% to 27% on plaintext and JSON, 9% on TLS keep-alive and 18% on HTTP/2, at between a half and two thirds of Netty's CPU per request.
+
 HTTP/3, with Gumdrop's own HTTP/3 client as the load client for both servers (the JDK client does not speak HTTP/3). Netty's QUIC transport here is native code, Cloudflare's quiche with BoringSSL behind JNI; Gumdrop's is Java throughout:
 
 | Scenario | Concurrency | Req/s (Gumdrop) | Req/s (Netty) | p50 ms (Gumdrop) | p50 ms (Netty) | p99 ms (Gumdrop) | p99 ms (Netty) | CPU µs (Gumdrop) | CPU µs (Netty) |

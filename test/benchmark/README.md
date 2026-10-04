@@ -105,10 +105,16 @@ with `--connections=N` to spread the streams over several connections, and
 `H2_DEBUG_FRAMES=n` in the environment prints the first `n` frames it
 receives.
 
-These are the harness's own programs rather than `wrk` or `h2load`, which
-would do the same job and make a good independent check where they are
-installed. `curl` is not a substitute: it has no closed loop of concurrent
-clients and reports no latency distribution.
+`CLIENT=h2load` uses nghttp2's `h2load` instead, where it is installed
+(MacPorts: `sudo port install nghttp2-tools`): an independent check on the
+harness's own clients, for the HTTP/1.1 keep-alive and HTTP/2 scenarios. It
+cannot open a connection per request, so `tls-c20-handshake` is skipped, and
+it reports the median, 95th and 99th percentiles, so the `p90_ms` and
+`p999_ms` columns are empty. The MacPorts build has no HTTP/3 support (it is
+not built with nghttp3), so the HTTP/3 scenario still needs `H3LoadClient`.
+
+`curl` is not a substitute for any of these: it has no closed loop of
+concurrent clients and reports no latency distribution.
 
 ## Reading the results
 
