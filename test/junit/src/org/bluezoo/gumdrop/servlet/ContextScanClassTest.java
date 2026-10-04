@@ -97,6 +97,27 @@ public class ContextScanClassTest {
         }
     }
 
+    /** Servlet mapped by the annotation's value, with no name given. */
+    @WebServlet("/value")
+    public static class ValueServlet extends HttpServlet {
+        private static final long serialVersionUID = 1L;
+    }
+
+    /** Another servlet with no name given. */
+    @WebServlet(urlPatterns = { "/unnamed" })
+    public static class UnnamedServlet extends HttpServlet {
+        private static final long serialVersionUID = 1L;
+    }
+
+    /** Filter mapped by the annotation's value, with no name given. */
+    @WebFilter("/fv/*")
+    public static class ValueFilter implements jakarta.servlet.Filter {
+        @Override
+        public void doFilter(jakarta.servlet.ServletRequest request,
+                jakarta.servlet.ServletResponse response, jakarta.servlet.FilterChain chain) {
+        }
+    }
+
     /** Listener. */
     @WebListener
     public static class Listener implements EventListener {
@@ -234,6 +255,42 @@ public class ContextScanClassTest {
         assertTrue(descriptor.listenerDefs.isEmpty());
         assertTrue(descriptor.servletDefs.isEmpty());
         assertEquals(5, context.scannedApplicationClasses.size());
+    }
+
+    /**
+     * A servlet annotated without a name is named after its class (Servlet
+     * 6.1 section 8.1.1), so that two of them stay two servlets, and the
+     * annotation's value is its URL patterns as much as urlPatterns is.
+     */
+    @Test
+    public void testUnnamedServletsAreNamedAfterTheirClass() throws Exception {
+        scan(ValueServlet.class);
+        scan(UnnamedServlet.class);
+        assertEquals(2, descriptor.servletDefs.size());
+        ServletDef value = descriptor.servletDefs.get(ValueServlet.class.getName());
+        assertNotNull(value);
+        assertEquals(ValueServlet.class.getName(), value.className);
+        ServletDef unnamed = descriptor.servletDefs.get(UnnamedServlet.class.getName());
+        assertNotNull(unnamed);
+        assertEquals(2, descriptor.servletMappings.size());
+        ServletMapping valueMapping = descriptor.servletMappings.get(0);
+        assertEquals(ValueServlet.class.getName(), valueMapping.servletName);
+        assertTrue(valueMapping.urlPatterns.contains("/value"));
+        ServletMapping unnamedMapping = descriptor.servletMappings.get(1);
+        assertEquals(UnnamedServlet.class.getName(), unnamedMapping.servletName);
+        assertTrue(unnamedMapping.urlPatterns.contains("/unnamed"));
+    }
+
+    /** As for a servlet: Servlet 6.1 section 8.1.2. */
+    @Test
+    public void testUnnamedFilterIsNamedAfterItsClass() throws Exception {
+        scan(ValueFilter.class);
+        assertEquals(1, descriptor.filterDefs.size());
+        assertNotNull(descriptor.filterDefs.get(ValueFilter.class.getName()));
+        assertEquals(1, descriptor.filterMappings.size());
+        FilterMapping mapping = descriptor.filterMappings.get(0);
+        assertEquals(ValueFilter.class.getName(), mapping.filterName);
+        assertTrue(mapping.urlPatterns.contains("/fv/*"));
     }
 
     @Test
