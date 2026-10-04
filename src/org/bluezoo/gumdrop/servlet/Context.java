@@ -2789,7 +2789,10 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
     }
 
     public ServletRegistration.Dynamic addServlet(String servletName, Servlet servlet) {
-        return addServlet(servletName, servlet.getClass());
+        ServletRegistration.Dynamic registration = addServlet(servletName, servlet.getClass());
+        ServletDef servletDef = (ServletDef) registration;
+        servletDef.instance = servlet;
+        return registration;
     }
 
     public ServletRegistration.Dynamic addServlet(String servletName, Class<? extends Servlet> t) {
@@ -2859,7 +2862,10 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
     }
 
     public FilterRegistration.Dynamic addFilter(String filterName, Filter filter) {
-        return addFilter(filterName, filter.getClass());
+        FilterRegistration.Dynamic registration = addFilter(filterName, filter.getClass());
+        FilterDef filterDef = (FilterDef) registration;
+        filterDef.instance = filter;
+        return registration;
     }
 
     public FilterRegistration.Dynamic addFilter(String filterName, Class<? extends Filter> t) {
