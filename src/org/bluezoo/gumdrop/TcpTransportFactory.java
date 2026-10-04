@@ -35,12 +35,14 @@ import org.bluezoo.gumdrop.tls.HandshakeRole;
 import org.bluezoo.gumdrop.tls.ServerCredentials;
 import org.bluezoo.gumdrop.tls.ServerCredentialsResolver;
 import org.bluezoo.gumdrop.tls.Tls12CipherSuite;
+import org.bluezoo.gumdrop.tls.TicketKeys;
 import org.bluezoo.gumdrop.tls.Tls12HandshakeConfig;
 import org.bluezoo.gumdrop.tls.TlsVersion;
 import org.bluezoo.gumdrop.util.PinnedCertTrustManager;
 import org.bluezoo.gumdrop.util.SniCredentialsResolver;
 import org.bluezoo.gumdrop.util.TlsUtils;
 
+import java.security.SecureRandom;
 import java.io.IOException;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
@@ -124,6 +126,20 @@ public class TcpTransportFactory extends TransportFactory {
     // this is never runtime-negotiated. Defaults to TLS_1_3, so every
     // existing caller's behaviour is unchanged.
     private TlsVersion tlsVersion = TlsVersion.NEGOTIATE;
+
+    // The key this factory's server endpoints seal session tickets under, so
+    // that a returning client resumes its session (RFC 8446 section 4.6.1,
+    // RFC 5077) instead of repeating the full handshake. Made afresh for
+    // each factory: tickets do not outlive the process or cross listeners.
+    // Not used when client certificates are required: a ticket does not
+    // carry the client's identity, so a resumed session would have none.
+    private final TicketKeys ticketKeys = newTicketKeys();
+
+    private static TicketKeys newTicketKeys() {
+        byte[] key = new byte[16];
+        new SecureRandom().nextBytes(key);
+        return new TicketKeys(key);
+    }
 
     private EchConfig clientEchConfig;
     private boolean clientEchGreaseEnabled;
@@ -753,6 +769,8 @@ public class TcpTransportFactory extends TransportFactory {
             // behavior as before.
             config.setClientAuthPolicy(ClientAuthPolicy.REQUIRE);
             config.setClientTrustManager(effectiveTrustManager);
+        } else {
+            config.setTicketKeys(ticketKeys);
         }
         applyCommonConfig(config);
         EchDeployment.applyServer(config, echConfigListFile, echPrivateKeyFile, echServerRequired);
@@ -805,6 +823,8 @@ public class TcpTransportFactory extends TransportFactory {
         if (needClientAuth) {
             config.setClientAuthPolicy(ClientAuthPolicy.REQUIRE);
             config.setClientTrustManager(effectiveTrustManager);
+        } else {
+            config.setTicketKeys(ticketKeys);
         }
         applyCommonConfig12(config);
         return config;
