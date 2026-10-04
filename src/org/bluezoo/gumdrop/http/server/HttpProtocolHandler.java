@@ -295,6 +295,11 @@ public  class HttpProtocolHandler
     private H2FlowControl h2FlowControl;
     private final H2FlowControl.DataReceivedResult h2DataResult =
             new H2FlowControl.DataReceivedResult();
+    // HTTP/1.x output held while a read is handled (see hold())
+    private static final int HELD_OUTPUT_LIMIT = 16384;
+    private Thread receivingThread;
+    private ByteBuffer heldOutput;
+
     // Issue #322: depth counter for h2Dispatch()'s flush-coalescing
     // window -- see its javadoc. A counter rather than a boolean because
     // a top-level frame callback (e.g. dataFrameReceived) can itself
@@ -444,6 +449,16 @@ public  class HttpProtocolHandler
     public void receive(ByteBuffer buf) {
         // RFC 9112 section 9.8: reset idle timer on activity
         resetIdleTimeout();
+        receivingThread = Thread.currentThread();
+        try {
+            receiveWhileHolding(buf);
+        } finally {
+            receivingThread = null;
+            flushHeld();
+        }
+    }
+
+    private void receiveWhileHolding(ByteBuffer buf) {
         // If HTTP/2 was negotiated via ALPN but parser not yet initialized,
         // we shouldn't receive data yet (securityEstablished should be called first)
         if ((state == State.PRI_SETTINGS || state == State.HTTP2 
@@ -1031,10 +1046,59 @@ public  class HttpProtocolHandler
         }
         flushH2Writer();
         if (buf == null) {
+            flushHeld();
             endpoint.close();
             return;
         }
+        // only for output from the thread handling the read: a response
+        // written from elsewhere meanwhile is sent as it comes
+        if (h2Writer == null && Thread.currentThread() == receivingThread && hold(buf)) {
+            return;
+        }
         endpoint.send(buf);
+    }
+
+    /**
+     * Keeps HTTP/1.x output produced while a read is being handled, to be
+     * written in one go when the read has been handled: the header section,
+     * the chunk and the last chunk of a response, and the responses to
+     * pipelined requests, reach the endpoint as one write and so, over TLS,
+     * one record rather than one each. Output too large to be worth copying
+     * is not held: what is held is written and the caller sends it directly.
+     *
+     * @return true if the data was taken; false if the caller must send it
+     */
+    private boolean hold(ByteBuffer buf) {
+        int length = buf.remaining();
+        if (length > HELD_OUTPUT_LIMIT
+                || (heldOutput != null && heldOutput.position() + length > HELD_OUTPUT_LIMIT)) {
+            flushHeld();
+            if (length > HELD_OUTPUT_LIMIT / 2) {
+                return false;
+            }
+        }
+        if (heldOutput == null) {
+            heldOutput = ByteBufferPool.acquire(HELD_OUTPUT_LIMIT);
+        }
+        heldOutput.put(buf);
+        return true;
+    }
+
+    /** Writes what {@link #hold} kept. */
+    private void flushHeld() {
+        ByteBuffer held = heldOutput;
+        if (held == null) {
+            return;
+        }
+        heldOutput = null;
+        try {
+            held.flip();
+            if (held.hasRemaining() && endpoint != null) {
+                endpoint.send(held);
+            }
+        } finally {
+            ByteBufferPool.release(held);
+        }
     }
 
     // RFC 9113 section 5.4.2: stream errors are signaled with RST_STREAM
@@ -1414,6 +1478,7 @@ public  class HttpProtocolHandler
         cancelIdleTimeout();
         cancelPingKeepAlive();
         flushH2Writer();
+        flushHeld();
         if (endpoint != null) {
             endpoint.close();
         }
@@ -3032,6 +3097,9 @@ public  class HttpProtocolHandler
                 return 0;
             }
             int written = src.remaining();
+            // HTTP/1.x output from before the connection became HTTP/2
+            // (the 101 response to an h2c upgrade) goes first
+            flushHeld();
             if (written > 0 && endpoint != null) {
                 // the endpoint takes what it is given before it returns
                 // (copied to its output buffer, or sealed into a TLS

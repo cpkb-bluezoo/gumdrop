@@ -76,6 +76,7 @@ public final class BinaryRecordingEndpoint implements Endpoint {
     private boolean open = true;
     private boolean secure;
     private int closeCount;
+    private int writesAfterClose;
     private boolean startTlsCalled;
 
     /** When set, returned from {@link #getSelectorLoop()} (e.g. {@link InlineSelectorLoop}). */
@@ -138,6 +139,17 @@ public final class BinaryRecordingEndpoint implements Endpoint {
         byte[] bytes = new byte[data.remaining()];
         data.get(bytes);
         writes.add(bytes);
+        if (!open && bytes.length > 0) {
+            writesAfterClose++;
+        }
+    }
+
+    /**
+     * The number of non-empty writes made after {@link #close()}. A TLS
+     * endpoint cannot send them: its outbound side is already closed.
+     */
+    public int getWritesAfterClose() {
+        return writesAfterClose;
     }
 
     private Trace trace;

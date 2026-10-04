@@ -1336,7 +1336,17 @@ class Stream implements HttpResponse {
      */
     final void sendResponseBody(ByteBuffer buf, boolean endStream) throws ProtocolException {
         int bytesToAdd = (buf != null) ? buf.remaining() : 0;
-        sendResponseBodyInternal(bytesToAdd, endStream);
+        boolean closeAfter = sendResponseBodyInternal(bytesToAdd, endStream);
+        writeResponseBody(buf, endStream);
+        if (closeAfter) {
+            // RFC 9112 section 9.6: Connection: close, once the last of the
+            // response has been written. Closing first loses it on a TLS
+            // connection, whose outbound side shuts with the close.
+            connection.send(null);
+        }
+    }
+
+    private void writeResponseBody(ByteBuffer buf, boolean endStream) throws ProtocolException {
         // RFC 9110 section 9.3.2: suppress body content for HEAD responses
         if ("HEAD".equals(method)) {
             if (endStream && connection.getVersion() == HttpVersion.HTTP_2_0) {
@@ -1534,12 +1544,16 @@ class Stream implements HttpResponse {
 
     /**
      * Common state management for sendResponseBody.
+     *
+     * @return true if the connection is to be closed once the body data
+     *         this call accounts for has been written
      */
-    private void sendResponseBodyInternal(int bytesToAdd, boolean endStream) throws ProtocolException {
+    private boolean sendResponseBodyInternal(int bytesToAdd, boolean endStream) throws ProtocolException {
         if (state != State.HALF_CLOSED_REMOTE && state != State.OPEN) {
             throw new ProtocolException("Invalid state: " + state);
         }
         responseBodyBytes += bytesToAdd;
+        boolean closeAfter = false;
         if (endStream) {
             if (state == State.HALF_CLOSED_REMOTE) {
                 state = State.CLOSED;
@@ -1547,15 +1561,13 @@ class Stream implements HttpResponse {
                 if (connection instanceof HttpProtocolHandler) {
                     ((HttpProtocolHandler) connection).streamResponseCompleted(streamId);
                 }
-                // Close TCP connection if Connection: close was set
-                if (closeConnection && connection.getVersion() != HttpVersion.HTTP_2_0) {
-                    connection.send(null);
-                }
+                closeAfter = closeConnection && connection.getVersion() != HttpVersion.HTTP_2_0;
             } else {
                 state = State.HALF_CLOSED_LOCAL;
             }
             endTelemetrySpan(responseStatusCode);
         }
+        return closeAfter;
     }
 
     // -- WebSocket Support (Internal) --

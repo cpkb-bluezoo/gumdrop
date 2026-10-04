@@ -198,6 +198,68 @@ public class HttpProtocolHandlerHttp1Test {
         assertEquals(1, f.rec.completed);
     }
 
+    /**
+     * The parts of a response written while a read is handled (header
+     * section, chunk, last chunk) go to the endpoint as one write. Over TLS
+     * each write is a record: three records a response cost three seals
+     * where one will do.
+     */
+    @Test
+    public void testChunkedResponseGoesOutAsOneWrite() {
+        Fixture f = new Fixture();
+        f.rec.withLength = false;
+        f.open();
+        f.feed("GET /x HTTP/1.1\r\nHost: h.test\r\n\r\n", Integer.MAX_VALUE);
+        assertTrue(f.wire(), f.wire().contains("Transfer-Encoding: chunked"));
+        assertTrue(f.wire(), f.wire().endsWith("2\r\nok\r\n0\r\n\r\n"));
+        assertEquals(1, f.endpoint.getWrites().size());
+    }
+
+    @Test
+    public void testResponsesToPipelinedRequestsGoOutAsOneWrite() {
+        Fixture f = run("GET /a HTTP/1.1\r\nHost: h.test\r\n\r\n"
+                + "GET /b HTTP/1.1\r\nHost: h.test\r\n\r\n");
+        assertEquals(2, f.rec.completed);
+        assertEquals(1, f.endpoint.getWrites().size());
+        assertEquals(2, f.wire().split("HTTP/1.1 200", -1).length - 1);
+    }
+
+    /** What was held for the end of the read is written before the connection is closed. */
+    @Test
+    public void testHeldResponseIsWrittenBeforeConnectionClose() {
+        Fixture f = new Fixture();
+        f.rec.withLength = false;
+        f.open();
+        f.feed("GET /x HTTP/1.1\r\nHost: h.test\r\nConnection: close\r\n\r\n", Integer.MAX_VALUE);
+        assertEquals(1, f.endpoint.getCloseCount());
+        assertEquals("nothing is written after the close", 0, f.endpoint.getWritesAfterClose());
+        assertTrue(f.wire(), f.wire().endsWith("2\r\nok\r\n0\r\n\r\n"));
+    }
+
+    /** A body too large to be worth copying is passed straight through, after what was held. */
+    @Test
+    public void testLargeBodyIsNotHeld() {
+        Fixture f = new Fixture();
+        final byte[] big = new byte[100000];
+        java.util.Arrays.fill(big, (byte) 'x');
+        f.rec.hook = new HeadersHook() {
+            @Override
+            public void run(HttpResponse state, List<Header> headers) {
+                state.status(200);
+                state.longHeader("Content-Length", big.length);
+                state.bodyContent(ByteBuffer.wrap(big));
+                state.endMessage();
+            }
+        };
+        f.open();
+        f.feed("GET /x HTTP/1.1\r\nHost: h.test\r\n\r\n", Integer.MAX_VALUE);
+        String wire = f.wire();
+        int body = wire.indexOf("\r\n\r\n") + 4;
+        assertTrue(wire.startsWith("HTTP/1.1 200"));
+        assertEquals(big.length, wire.length() - body);
+        assertEquals('x', wire.charAt(wire.length() - 1));
+    }
+
     @Test
     public void testByteAtATimeEqualsWholeBuffer() {
         String req = "POST /p HTTP/1.1\r\nHost: h.test\r\nContent-Length: 5\r\n\r\nhello"
@@ -1247,24 +1309,31 @@ public class HttpProtocolHandlerHttp1Test {
 
     @Test
     public void testEndHeadersSendsTheHeaderSectionBeforeAnyBody() {
+        // The header section goes out although the response is not finished
+        // and no body has been written, as an event stream needs. It is
+        // written when the read that produced it has been handled, with
+        // whatever else that read produced, so it is looked for after the
+        // handler has returned.
         final Fixture f = new Fixture();
-        final String[] snapshot = new String[1];
+        final HttpResponse[] open = new HttpResponse[1];
         f.rec.hook = new HeadersHook() {
             @Override
             public void run(HttpResponse state, List<Header> headers) {
                 state.status(200);
                 state.header("Content-Type", "text/event-stream");
                 state.endHeaders();
-                snapshot[0] = f.wire();
-                state.bodyContent(ByteBuffer.wrap(new byte[] {'o', 'k'}));
-                state.endMessage();
+                open[0] = state;
             }
         };
         f.open();
         f.feed(GET_Z, 100);
-        assertTrue(snapshot[0], snapshot[0].startsWith("HTTP/1.1 200"));
-        assertTrue(snapshot[0], snapshot[0].endsWith("\r\n\r\n"));
-        assertFalse(snapshot[0], snapshot[0].contains("ok"));
+        String headersOnly = f.wire();
+        assertTrue(headersOnly, headersOnly.startsWith("HTTP/1.1 200"));
+        assertTrue(headersOnly, headersOnly.endsWith("\r\n\r\n"));
+        open[0].bodyContent(ByteBuffer.wrap(new byte[] {'o', 'k'}));
+        open[0].endMessage();
+        assertTrue(f.wire(), f.wire().startsWith(headersOnly));
+        assertTrue(f.wire(), f.wire().contains("ok"));
     }
 
     @Test
