@@ -96,6 +96,87 @@ public class QuicLoopbackFramesTest {
         assertFalse(f.client.conn.isClosed());
     }
 
+    /** One request and response on the client's next bidirectional stream, both ends finished. */
+    private static void exchange(Fixture f, int index) throws Exception {
+        Rec c = new Rec();
+        Endpoint e = f.client.conn.openStream(c);
+        e.send(ByteBuffer.wrap(new byte[] {1, 2, 3}));
+        e.close();
+        f.lb.pump();
+        Rec s = f.server.bidi.recs.get(index);
+        s.endpoint.send(ByteBuffer.wrap(new byte[] {4, 5, 6}));
+        s.endpoint.close();
+        f.lb.pump();
+        assertEquals(3, c.bytes);
+    }
+
+    /**
+     * RFC 9000 section 3: a frame may arrive for a stream that has finished,
+     * a retransmission that was not needed, and is ignored. A STREAM frame
+     * for a finished stream of this endpoint's own was taken for a stream
+     * the peer had opened: an HTTP/3 client then closed the connection,
+     * because a server may not open a bidirectional stream.
+     */
+    @Test
+    public void lateStreamFrameForOwnFinishedStreamIsIgnored() throws Exception {
+        Fixture f = Fixture.create();
+        exchange(f, 0);
+        ByteBuffer b = f.buf();
+        QuicFrameWriter.writeStream(b, 0, 0, new byte[] {4, 5, 6}, true);
+        f.toClient(b);
+        assertEquals("no stream was opened by it", 0, f.client.bidi.recs.size());
+        assertFalse(f.client.conn.isClosed());
+    }
+
+    /** The same for a finished stream of the peer's: it is not the peer opening the stream again. */
+    @Test
+    public void lateStreamFrameForPeersFinishedStreamIsIgnored() throws Exception {
+        Fixture f = Fixture.create();
+        exchange(f, 0);
+        ByteBuffer b = f.buf();
+        QuicFrameWriter.writeStream(b, 0, 0, new byte[] {1, 2, 3}, true);
+        f.toServer(b);
+        assertEquals("the request was not delivered a second time", 1, f.server.bidi.recs.size());
+        assertFalse(f.server.conn.isClosed());
+    }
+
+    /** RFC 9000 section 19.8: a STREAM frame for a stream of this endpoint's that it has not opened is an error. */
+    @Test
+    public void streamFrameForOwnUnopenedStreamClosesConnection() throws Exception {
+        Fixture f = Fixture.create();
+        ByteBuffer b = f.buf();
+        QuicFrameWriter.writeStream(b, 8, 0, new byte[] {1}, false);
+        f.toClient(b);
+        assertEquals(0, f.client.bidi.recs.size());
+        assertTrue(f.client.conn.isClosed());
+    }
+
+    /**
+     * RFC 9000 section 3.2: opening a stream opens every lower-numbered
+     * stream of its type, so the peer's streams may first be seen out of
+     * order; each is still accepted, once.
+     */
+    @Test
+    public void peerStreamsFirstSeenOutOfOrderAreEachAccepted() throws Exception {
+        Fixture f = Fixture.create();
+        ByteBuffer b = f.buf();
+        QuicFrameWriter.writeStream(b, 8, 0, new byte[] {1}, false);
+        f.toServer(b);
+        b = f.buf();
+        QuicFrameWriter.writeStream(b, 0, 0, new byte[] {1}, false);
+        f.toServer(b);
+        b = f.buf();
+        QuicFrameWriter.writeStream(b, 4, 0, new byte[] {1}, false);
+        f.toServer(b);
+        assertEquals(3, f.server.bidi.recs.size());
+        b = f.buf();
+        QuicFrameWriter.writeStream(b, 4, 1, new byte[] {2}, false);
+        f.toServer(b);
+        assertEquals(3, f.server.bidi.recs.size());
+        assertEquals(2, f.server.bidi.recs.get(2).bytes);
+        assertFalse(f.server.conn.isClosed());
+    }
+
     @Test
     public void resetStreamFrameClosesStream() throws Exception {
         Fixture f = Fixture.create();

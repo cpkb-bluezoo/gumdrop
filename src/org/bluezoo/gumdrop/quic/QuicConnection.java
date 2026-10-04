@@ -33,8 +33,8 @@ import java.util.Collections;
 import java.util.Comparator;
 import java.util.EnumMap;
 import java.util.HashMap;
-import java.util.Iterator;
 import java.util.HashSet;
+import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -403,6 +403,10 @@ public final class QuicConnection implements QuicTlsEngineListener {
     private long nextPeerUniStreamId;
 
     private final Map<Long, QuicStreamEndpoint> streams = new HashMap<Long, QuicStreamEndpoint>();
+    // Streams of the peer's below nextPeerBidiStreamId/nextPeerUniStreamId
+    // that a higher-numbered stream opened implicitly and that have not yet
+    // been seen themselves (see acceptStream). MAX_STREAMS bounds it.
+    private final Set<Long> peerStreamsNotYetSeen = new HashSet<Long>();
 
     private StreamAcceptHandler streamAcceptHandler;
     private StreamAcceptHandler unidirectionalStreamAcceptHandler;
@@ -1189,12 +1193,46 @@ public final class QuicConnection implements QuicTlsEngineListener {
     }
 
     private QuicStreamEndpoint acceptStream(long streamId) {
+        boolean unidirectional = isUnidirectional(streamId);
+        if (!isPeerInitiated(streamId)) {
+            // A stream of this endpoint's own that is no longer tracked. If
+            // it was opened, it has finished, and this is a late or
+            // retransmitted frame for it (RFC 9000 section 3): ignored. It
+            // is not the peer opening a stream. If it was never opened, the
+            // peer has no business sending on it (section 19.8).
+            long next = unidirectional ? nextLocalUniStreamId : nextLocalBidiStreamId;
+            if (streamId >= next) {
+                closeWithError(TRANSPORT_ERROR_STREAM_STATE_ERROR,
+                        "STREAM frame for a stream this endpoint has not opened");
+            }
+            return null;
+        }
         if (peerInitiatedStreamExceedsLimit(streamId)) {
             closeWithError(TRANSPORT_ERROR_STREAM_LIMIT_ERROR,
                     "peer opened a stream beyond the advertised MAX_STREAMS limit");
             return null;
         }
-        boolean unidirectional = isUnidirectional(streamId);
+        // RFC 9000 section 3.2: a peer's stream opens every lower-numbered
+        // stream of its type with it. Those not yet seen are remembered, so
+        // that one whose first frame arrives late is still accepted, while
+        // a stream that has been seen and has finished is not accepted a
+        // second time: delivering it again would hand the application the
+        // same request twice.
+        long nextPeer = unidirectional ? nextPeerUniStreamId : nextPeerBidiStreamId;
+        if (streamId < nextPeer) {
+            if (!peerStreamsNotYetSeen.remove(Long.valueOf(streamId))) {
+                return null;
+            }
+        } else {
+            for (long id = nextPeer; id < streamId; id += 4) {
+                peerStreamsNotYetSeen.add(Long.valueOf(id));
+            }
+            if (unidirectional) {
+                nextPeerUniStreamId = streamId + 4;
+            } else {
+                nextPeerBidiStreamId = streamId + 4;
+            }
+        }
         StreamAcceptHandler handler = unidirectional ? unidirectionalStreamAcceptHandler : streamAcceptHandler;
         if (handler == null) {
             return null;
@@ -3729,6 +3767,7 @@ public final class QuicConnection implements QuicTlsEngineListener {
     private static final long TRANSPORT_ERROR_FLOW_CONTROL_ERROR = 0x3;
     /** RFC 9000 section 20.1: an endpoint received a STREAM/RESET_STREAM/STREAM_DATA_BLOCKED frame that would open more streams than it advertised. */
     private static final long TRANSPORT_ERROR_STREAM_LIMIT_ERROR = 0x4;
+    private static final long TRANSPORT_ERROR_STREAM_STATE_ERROR = 0x5;
     /** RFC 9000 section 20.1: a frame was malformed, e.g. MAX_STREAMS greater than 2^60. */
     private static final long TRANSPORT_ERROR_FRAME_ENCODING_ERROR = 0x7;
     /** RFC 9000 section 20.1: a transport parameter was received with a value not permitted for its type, e.g. a mismatched retry_source_connection_id. */
