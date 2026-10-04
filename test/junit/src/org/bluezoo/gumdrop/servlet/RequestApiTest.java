@@ -243,6 +243,57 @@ public class RequestApiTest {
         return request(plain, new StubState(), method, target, headerPairs);
     }
 
+    // ===== Request URL =====
+
+    /**
+     * getRequestURL reconstructs the URL the client used: scheme, the
+     * host and port it named, and the path, without the query string.
+     */
+    @Test
+    public void testRequestUrlIsAbsolute() throws Exception {
+        Request named = request("GET", "/plain/a%20b;v=1/c?x=1", "host", "example.org:9090");
+        assertEquals("http://example.org:9090/plain/a%20b;v=1/c", named.getRequestURL().toString());
+
+        StubState tls = new StubState();
+        tls.secure = true;
+        Request secure = request(plain, tls, "GET", "/plain/a", "host", "example.org");
+        assertEquals("https://example.org/plain/a", secure.getRequestURL().toString());
+
+        // the default port of the scheme is not spelled out
+        Request standard = request(plain, tls, "GET", "/plain/a", "host", "example.org:443");
+        assertEquals("https://example.org/plain/a", standard.getRequestURL().toString());
+        Request other = request("GET", "/plain/a", "host", "example.org:443");
+        assertEquals("http://example.org:443/plain/a", other.getRequestURL().toString());
+
+        // absolute-form request target: the path is still only the path
+        Request absolute = request("GET", "http://example.org/plain/a?x=1", "host", "example.org");
+        assertEquals("http://example.org/plain/a", absolute.getRequestURL().toString());
+
+        // no Host: the address the connection was accepted on
+        Request local = request("GET", "/plain/a");
+        String url = local.getRequestURL().toString();
+        assertTrue(url, url.startsWith("http://"));
+        assertTrue(url, url.endsWith(":8443/plain/a"));
+    }
+
+    /** An IPv6 literal in Host has colons of its own (RFC 3986 3.2.2). */
+    @Test
+    public void testServerNameAndPortWithIpv6Host() throws Exception {
+        Request withPort = request("GET", "/plain/a", "host", "[2001:db8::1]:9090");
+        assertEquals("[2001:db8::1]", withPort.getServerName());
+        assertEquals(9090, withPort.getServerPort());
+        assertEquals("http://[2001:db8::1]:9090/plain/a", withPort.getRequestURL().toString());
+
+        Request withoutPort = request("GET", "/plain/a", "host", "[::1]");
+        assertEquals("[::1]", withoutPort.getServerName());
+        assertEquals(8443, withoutPort.getServerPort());
+        assertEquals("http://[::1]/plain/a", withoutPort.getRequestURL().toString());
+
+        Request name = request("GET", "/plain/a", "host", "example.org:9090");
+        assertEquals("example.org", name.getServerName());
+        assertEquals(9090, name.getServerPort());
+    }
+
     // ===== Headers =====
 
     @Test
@@ -282,9 +333,9 @@ public class RequestApiTest {
 
     @Test
     public void testUrlAndPathAccessors() throws Exception {
-        Request r = request("GET", "/plain/a/b?x=1&y=2");
+        Request r = request("GET", "/plain/a/b?x=1&y=2", "host", "example.org");
         assertEquals("/plain/a/b", r.getRequestURI());
-        assertEquals("/plain/a/b", r.getRequestURL().toString());
+        assertEquals("http://example.org/plain/a/b", r.getRequestURL().toString());
         assertEquals("x=1&y=2", r.getQueryString());
         assertEquals("/plain", r.getContextPath());
         assertEquals("/svc", r.getServletPath());
@@ -292,9 +343,9 @@ public class RequestApiTest {
         assertEquals(MappingMatch.PATH, r.getHttpServletMapping().getMappingMatch());
         assertEquals("svc", r.getHttpServletMapping().getServletName());
         assertEquals("GET /plain/a/b?x=1&y=2 HTTP/2.0", r.toString().replace("HTTP/2", "HTTP/2"));
-        Request star = request("OPTIONS", "*");
+        Request star = request("OPTIONS", "*", "host", "example.org");
         assertNull(star.getRequestURI());
-        assertEquals("", star.getRequestURL().toString());
+        assertEquals("http://example.org", star.getRequestURL().toString());
         assertNull(star.getURI());
     }
 

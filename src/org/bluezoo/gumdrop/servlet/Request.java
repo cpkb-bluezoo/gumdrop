@@ -426,12 +426,72 @@ class Request implements HttpServletRequest {
     @Override public StringBuffer getRequestURL() {
         // Note: For forwards/includes, FilterRequest delegates to this method
         // which correctly returns the original request URL per Servlet spec
-        String s = (uri == null) ? "" : uri.toString();
-        int qi = s.indexOf('?');
-        if (qi != -1) {
-            s = s.substring(0, qi);
+        //
+        // The URL the client used: scheme, the server it named, and the
+        // path. No query string.
+        StringBuffer url = new StringBuffer();
+        String scheme = getScheme();
+        url.append(scheme);
+        url.append("://");
+        String name = getServerName();
+        if (name == null) {
+            // no Host and no local address to go by
+            name = "localhost";
         }
-        return new StringBuffer(s);
+        if (name.indexOf(':') != -1 && name.charAt(0) != '[') {
+            // IPv6 address of the local endpoint, when there is no Host
+            url.append('[');
+            url.append(name);
+            url.append(']');
+        } else {
+            url.append(name);
+        }
+        // A Host without a port means the default port of the scheme,
+        // whichever port the connection was accepted on.
+        String host = getHeader("Host");
+        int port = (host == null) ? getLocalPort() : hostPort(host);
+        boolean defaultPort = ("http".equals(scheme) && port == 80)
+                || ("https".equals(scheme) && port == 443);
+        if (port > 0 && !defaultPort) {
+            url.append(':');
+            url.append(port);
+        }
+        if (uri != null) {
+            String path = uri.getRawPath();
+            url.append(path);
+        }
+        return url;
+    }
+
+    /**
+     * Returns the index of the colon that introduces the port in a Host
+     * field value, or -1 if it names no port. The colons of an IPv6
+     * literal, which is bracketed (RFC 3986 section 3.2.2), are not it.
+     */
+    private static int hostPortSeparator(String host) {
+        int from = 0;
+        if (host.startsWith("[")) {
+            from = host.indexOf(']');
+            if (from == -1) {
+                return -1;
+            }
+        }
+        return host.indexOf(':', from);
+    }
+
+    /**
+     * Returns the port named in a Host field value, or -1 if none is.
+     */
+    private static int hostPort(String host) {
+        int ci = hostPortSeparator(host);
+        if (ci >= 0) {
+            try {
+                return Integer.parseInt(host.substring(ci + 1));
+            } catch (NumberFormatException e) {
+                // not a port
+            }
+        }
+        return -1;
     }
 
     @Override public String getServletPath() {
@@ -1078,7 +1138,7 @@ class Request implements HttpServletRequest {
                 host = getLocalAddr();
             }
         } else {
-            int ci = host.indexOf(':');
+            int ci = hostPortSeparator(host);
             if (ci >= 0) {
                 host = host.substring(0, ci);
             }
@@ -1089,13 +1149,9 @@ class Request implements HttpServletRequest {
     @Override public int getServerPort() {
         String host = getHeader("Host");
         if (host != null) {
-            int ci = host.indexOf(':');
-            if (ci >= 0) {
-                try {
-                    return Integer.parseInt(host.substring(ci + 1));
-                } catch (NumberFormatException e) {
-                    // fall through
-                }
+            int port = hostPort(host);
+            if (port != -1) {
+                return port;
             }
         }
         return getLocalPort();
