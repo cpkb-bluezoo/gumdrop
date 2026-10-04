@@ -106,6 +106,36 @@ public class OtlpFileExporterTest {
         }
     }
 
+    /**
+     * A flush or shutdown request must not cost the data it is asking for.
+     * The export thread used to be interrupted to wake it, and an interrupt
+     * that finds a thread writing to a file channel closes the channel, so
+     * what was queued was lost whenever the request caught the thread at
+     * work. Repeated, because it takes that timing to show.
+     */
+    @Test
+    public void testFlushAndShutdownKeepQueuedData() throws IOException {
+        for (int i = 0; i < 200; i++) {
+            Path dir = MemoryTemp.createTempDirectory("otlpfile");
+            try {
+                Path sub = dir.resolve("sub");
+                Path traces = sub.resolve("traces.json");
+                Path logs = sub.resolve("logs.json");
+                Path metrics = sub.resolve("metrics.json");
+                TelemetryConfig config = new TelemetryConfig();
+                config.setServiceName("svc");
+                OtlpFileExporter e = new OtlpFileExporter(config, traces, logs, metrics);
+                e.export(TelemetryTestData.richTrace());
+                e.flush();
+                e.shutdown();
+                String written = read(traces);
+                assertTrue("run " + i + ": " + written, written.contains("resourceSpans"));
+            } finally {
+                delete(dir);
+            }
+        }
+    }
+
     @Test
     public void testUnwritablePathFallsBack() throws IOException {
         Path dir = MemoryTemp.createTempDirectory("otlpfile");
