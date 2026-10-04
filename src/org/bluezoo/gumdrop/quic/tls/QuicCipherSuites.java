@@ -49,13 +49,14 @@ final class QuicCipherSuites {
 
     /**
      * Every cipher suite {@code QuicAeadAlgorithm} actually implements,
-     * in gumdrop's own preference order -- the full set {@link CipherSuite}
+     * in gumdrop's own preference order (AES-GCM first, as for TLS over
+     * TCP: see {@code HandshakeConfig}) -- the full set {@link CipherSuite}
      * defines.
      */
     static final List<CipherSuite> DEFAULT = Collections.unmodifiableList(Arrays.asList(
-            CipherSuite.TLS_CHACHA20_POLY1305_SHA256,
+            CipherSuite.TLS_AES_256_GCM_SHA384,
             CipherSuite.TLS_AES_128_GCM_SHA256,
-            CipherSuite.TLS_AES_256_GCM_SHA384));
+            CipherSuite.TLS_CHACHA20_POLY1305_SHA256));
 
     private QuicCipherSuites() {
     }

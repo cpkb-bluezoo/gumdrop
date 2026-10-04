@@ -24,6 +24,7 @@ package org.bluezoo.gumdrop.quic.packet;
 import java.security.GeneralSecurityException;
 import java.security.spec.AlgorithmParameterSpec;
 import java.util.Arrays;
+import java.util.concurrent.atomic.AtomicReference;
 
 import javax.crypto.Cipher;
 import javax.crypto.spec.ChaCha20ParameterSpec;
@@ -68,6 +69,21 @@ public final class PacketProtectionKeys {
     private final SecretKeySpec aeadKey;
     private final byte[] iv;
     private final SecretKeySpec headerProtectionKey;
+
+    // One cipher of each kind kept between packets, because making one
+    // (Cipher.getInstance: a provider search every time) cost more than the
+    // cryptography it then did on a small packet. An operation takes the
+    // idle cipher out of its slot for as long as it uses it and puts it
+    // back when it has finished; one that finds the slot empty, because
+    // another operation on these keys is under way (a flush re-entered
+    // from a callback, or another thread), makes its own. So no two
+    // operations ever share a cipher, which is what went wrong when a
+    // single cipher was simply kept in a field (issue #365).
+    private final AtomicReference<Cipher> idleSealCipher = new AtomicReference<Cipher>();
+    private final AtomicReference<Cipher> idleOpenCipher = new AtomicReference<Cipher>();
+    // For AES this one is initialised once, when made: an ECB cipher is
+    // ready for the next block after each doFinal.
+    private final AtomicReference<Cipher> idleHeaderCipher = new AtomicReference<Cipher>();
 
     private final byte[] headerMaskScratch = new byte[5];
     private final byte[] lastChachaHpSample = new byte[QuicAeadAlgorithm.SAMPLE_LENGTH];
@@ -175,10 +191,29 @@ public final class PacketProtectionKeys {
             throws PacketProtectionException {
         byte[] nonce = PacketProtection.computeNonce(iv, packetNumber);
         try {
-            Cipher cipher = Cipher.getInstance(algorithm.getAeadTransformation());
-            cipher.init(Cipher.ENCRYPT_MODE, aeadKey, aeadParameterSpec(algorithm, nonce));
+            AlgorithmParameterSpec parameters = aeadParameterSpec(algorithm, nonce);
+            Cipher cipher = idleSealCipher.getAndSet(null);
+            if (cipher != null) {
+                try {
+                    cipher.init(Cipher.ENCRYPT_MODE, aeadKey, parameters);
+                } catch (GeneralSecurityException e) {
+                    // A cipher refuses to encrypt twice running with one
+                    // key and nonce. A packet number is sealed once on the
+                    // wire, but a caller sealing the same one again (to
+                    // rebuild a packet it did not send) must still get its
+                    // answer, as it would from a cipher made for the call.
+                    cipher = null;
+                }
+            }
+            if (cipher == null) {
+                cipher = Cipher.getInstance(algorithm.getAeadTransformation());
+                cipher.init(Cipher.ENCRYPT_MODE, aeadKey, parameters);
+            }
             cipher.updateAAD(associatedData);
-            return cipher.doFinal(plaintext);
+            byte[] sealed = cipher.doFinal(plaintext);
+            // only a cipher that finished cleanly is kept
+            idleSealCipher.set(cipher);
+            return sealed;
         } catch (GeneralSecurityException e) {
             throw new PacketProtectionException("AEAD seal failed", e);
         }
@@ -221,10 +256,17 @@ public final class PacketProtectionKeys {
             byte[] ciphertext, int ciphertextOffset, int ciphertextLength) throws PacketProtectionException {
         byte[] nonce = PacketProtection.computeNonce(iv, packetNumber);
         try {
-            Cipher cipher = Cipher.getInstance(algorithm.getAeadTransformation());
+            Cipher cipher = idleOpenCipher.getAndSet(null);
+            if (cipher == null) {
+                cipher = Cipher.getInstance(algorithm.getAeadTransformation());
+            }
             cipher.init(Cipher.DECRYPT_MODE, aeadKey, aeadParameterSpec(algorithm, nonce));
             cipher.updateAAD(aad, aadOffset, aadLength);
-            return cipher.doFinal(ciphertext, ciphertextOffset, ciphertextLength);
+            byte[] opened = cipher.doFinal(ciphertext, ciphertextOffset, ciphertextLength);
+            // only a cipher that finished cleanly is kept: one that
+            // rejected a packet is dropped
+            idleOpenCipher.set(cipher);
+            return opened;
         } catch (GeneralSecurityException e) {
             throw new PacketProtectionException("AEAD open failed", e);
         }
@@ -271,18 +313,26 @@ public final class PacketProtectionKeys {
                 int counter = (sample[sampleOffset] & 0xff) | ((sample[sampleOffset + 1] & 0xff) << 8)
                         | ((sample[sampleOffset + 2] & 0xff) << 16) | ((sample[sampleOffset + 3] & 0xff) << 24);
                 byte[] hpNonce = Arrays.copyOfRange(sample, sampleOffset + 4, sampleOffset + 16);
-                Cipher cipher = Cipher.getInstance(algorithm.getHeaderProtectionTransformation());
+                Cipher cipher = idleHeaderCipher.getAndSet(null);
+                if (cipher == null) {
+                    cipher = Cipher.getInstance(algorithm.getHeaderProtectionTransformation());
+                }
                 cipher.init(Cipher.ENCRYPT_MODE, headerProtectionKey,
                         new ChaCha20ParameterSpec(hpNonce, counter));
                 byte[] mask = cipher.doFinal(HEADER_MASK_ZEROS);
+                idleHeaderCipher.set(cipher);
                 System.arraycopy(mask, 0, headerMaskScratch, 0, mask.length);
                 System.arraycopy(sample, sampleOffset, lastChachaHpSample, 0, QuicAeadAlgorithm.SAMPLE_LENGTH);
                 chachaHpMaskCached = true;
                 return headerMaskScratch;
             }
-            Cipher cipher = Cipher.getInstance(algorithm.getHeaderProtectionTransformation());
-            cipher.init(Cipher.ENCRYPT_MODE, headerProtectionKey);
+            Cipher cipher = idleHeaderCipher.getAndSet(null);
+            if (cipher == null) {
+                cipher = Cipher.getInstance(algorithm.getHeaderProtectionTransformation());
+                cipher.init(Cipher.ENCRYPT_MODE, headerProtectionKey);
+            }
             byte[] block = cipher.doFinal(sample, sampleOffset, QuicAeadAlgorithm.SAMPLE_LENGTH);
+            idleHeaderCipher.set(cipher);
             System.arraycopy(block, 0, headerMaskScratch, 0, headerMaskScratch.length);
             return headerMaskScratch;
         } catch (GeneralSecurityException e) {
