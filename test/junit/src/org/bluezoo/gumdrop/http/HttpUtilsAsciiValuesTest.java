@@ -22,15 +22,13 @@
 
 package org.bluezoo.gumdrop.http;
 
-import java.util.List;
-import java.util.ArrayList;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
 import org.junit.Test;
 
 /**
- * Tests for {@link HttpUtils#requireAsciiFieldValues(Headers)}.
+ * Tests for {@link HttpUtils#requireAsciiFieldValue(String, String)}.
  *
  * <p>RFC 9110 section 5.5 allows octets above 0x7F in a field value only as
  * obsolete text, to be treated as opaque by the recipient, and says new fields
@@ -43,30 +41,24 @@ public class HttpUtilsAsciiValuesTest {
 
     @Test
     public void asciiValuesAreAccepted() {
-        List<Header> h = new ArrayList<Header>();
-        HeaderFields.add(h, "content-type", "text/plain; charset=utf-8");
-        HeaderFields.add(h, "x-tab", "a\tb");
-        HttpUtils.requireAsciiFieldValues(h);
+        HttpUtils.requireAsciiFieldValue("content-type", "text/plain; charset=utf-8");
+        HttpUtils.requireAsciiFieldValue("x-tab", "a\tb");
     }
 
     @Test
-    public void emptyHeadersAreAccepted() {
-        HttpUtils.requireAsciiFieldValues(new ArrayList<Header>());
+    public void emptyValueIsAccepted() {
+        HttpUtils.requireAsciiFieldValue("x-empty", "");
     }
 
     @Test
     public void nullValuesAreIgnored() {
-        List<Header> h = new ArrayList<Header>();
-        h.add(new Header("x-null", null));
-        HttpUtils.requireAsciiFieldValues(h);
+        HttpUtils.requireAsciiFieldValue("x-null", null);
     }
 
     @Test
     public void nonAsciiValueIsRejectedNamingTheHeader() {
-        List<Header> h = new ArrayList<Header>();
-        HeaderFields.add(h, "x-custom", "café");
         try {
-            HttpUtils.requireAsciiFieldValues(h);
+            HttpUtils.requireAsciiFieldValue("x-custom", "café");
             fail("expected IllegalArgumentException");
         } catch (IllegalArgumentException e) {
             assertTrue(e.getMessage(), e.getMessage().contains("x-custom"));
@@ -76,10 +68,8 @@ public class HttpUtilsAsciiValuesTest {
 
     @Test
     public void latin1RangeCharacterIsRejectedToo() {
-        List<Header> h = new ArrayList<Header>();
-        HeaderFields.add(h, "x-custom", "\u0080");
         try {
-            HttpUtils.requireAsciiFieldValues(h);
+            HttpUtils.requireAsciiFieldValue("x-custom", "\u0080");
             fail("expected IllegalArgumentException");
         } catch (IllegalArgumentException expected) {
             // expected
@@ -88,10 +78,8 @@ public class HttpUtilsAsciiValuesTest {
 
     @Test
     public void theValueItselfIsNotEchoedInTheMessage() {
-        List<Header> h = new ArrayList<Header>();
-        HeaderFields.add(h, "x-secret", "s3crét");
         try {
-            HttpUtils.requireAsciiFieldValues(h);
+            HttpUtils.requireAsciiFieldValue("x-secret", "s3crét");
             fail("expected IllegalArgumentException");
         } catch (IllegalArgumentException e) {
             assertTrue(e.getMessage(), !e.getMessage().contains("s3cr"));

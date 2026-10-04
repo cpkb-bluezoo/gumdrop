@@ -27,6 +27,7 @@ import java.nio.ByteBuffer;
 import java.util.List;
 
 import org.bluezoo.gumdrop.http.Header;
+import org.bluezoo.gumdrop.http.HeaderFields;
 import org.bluezoo.gumdrop.http.HeaderCollector;
 
 /**
@@ -46,6 +47,6 @@ final class QpackTestSupport {
             throws ProtocolException {
         HeaderCollector collector = new HeaderCollector();
         decoder.decode(streamId, block, collector);
-        return collector.headers();
+        return HeaderFields.collected(collector);
     }
 }

@@ -21,14 +21,14 @@
 
 package org.bluezoo.gumdrop.http.client;
 
-import org.bluezoo.gumdrop.http.HeaderFields;
-import org.bluezoo.gumdrop.http.Header;
 import java.io.IOException;
 import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 
 import org.bluezoo.gumdrop.http.Capsule;
 import org.bluezoo.gumdrop.http.CapsuleParser;
+import org.bluezoo.gumdrop.http.HttpMessageHandler;
 import org.bluezoo.gumdrop.http.HttpStatus;
 import org.bluezoo.gumdrop.http.HttpDatagramContext;
 
@@ -61,6 +61,8 @@ class ConnectUdpClientProtocolHandler extends HttpClientProtocolHandler {
     private final ConnectUdpEventHandler eventHandler;
 
     private volatile boolean connectUdpMode;
+    // the Upgrade token of the 101 response being switched on
+    private String switchUpgrade;
     private final CapsuleParser capsuleParser = new CapsuleParser();
     private ClientConnectUdpSession session;
 
@@ -103,10 +105,29 @@ class ConnectUdpClientProtocolHandler extends HttpClientProtocolHandler {
         return session;
     }
 
+    /**
+     * Keeps the {@code Upgrade} token of the 101 response, which says what
+     * the server switched to.
+     */
+    @Override
+    protected HttpMessageHandler protocolSwitchEvents() {
+        switchUpgrade = null;
+        return new DefaultHttpResponseHandler() {
+            @Override
+            public void header(String name, ByteBuffer value) {
+                if (switchUpgrade == null && "upgrade".equalsIgnoreCase(name)) {
+                    byte[] octets = new byte[value.remaining()];
+                    value.duplicate().get(octets);
+                    switchUpgrade = new String(octets, StandardCharsets.ISO_8859_1).trim();
+                }
+            }
+        };
+    }
+
     /** RFC 9298 section 3: validates and switches to CONNECT-UDP tunnel mode. */
     @Override
-    protected boolean handleProtocolSwitch(HttpStatus status, List<Header> headers) {
-        if (!"connect-udp".equalsIgnoreCase(HeaderFields.getValue(headers, "upgrade"))) {
+    protected boolean handleProtocolSwitch(HttpStatus status) {
+        if (!"connect-udp".equalsIgnoreCase(switchUpgrade)) {
             return false;
         }
 

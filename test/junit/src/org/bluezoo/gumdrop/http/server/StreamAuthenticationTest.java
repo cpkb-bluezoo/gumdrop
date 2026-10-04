@@ -86,7 +86,7 @@ public class StreamAuthenticationTest {
                 creds.getBytes(java.nio.charset.StandardCharsets.US_ASCII));
     }
 
-    private static class StubConnection implements HttpConnectionLike {
+    private static class StubConnection extends HttpConnectionLike {
         @Override public void sendResponseTrailers(int streamId, List<Header> trailers) { }
         long maxRequestBodySize = 0; // unlimited
         HttpVersion version = HttpVersion.HTTP_1_1;

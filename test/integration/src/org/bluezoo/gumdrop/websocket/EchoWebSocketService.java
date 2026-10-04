@@ -21,8 +21,6 @@
 
 package org.bluezoo.gumdrop.websocket;
 
-import java.util.List;
-import org.bluezoo.gumdrop.http.Header;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -49,7 +47,8 @@ public class EchoWebSocketService
     }
 
     @Override
-    public WebSocketEventHandler create(String requestPath, List<Header> upgradeHeaders) {
+    public WebSocketEventHandler create(String requestPath,
+            WebSocketRequestHandler.UpgradeRequest request) {
         EchoHandler handler = new EchoHandler(requestPath);
         handlers.add(handler);
         return handler;

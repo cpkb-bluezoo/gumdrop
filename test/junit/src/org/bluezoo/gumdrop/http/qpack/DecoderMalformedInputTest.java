@@ -67,6 +67,6 @@ public class DecoderMalformedInputTest {
                 new org.bluezoo.gumdrop.http.HeaderCollector();
         decoder.decode(1L, ByteBuffer.wrap(data), collector);
         org.junit.Assert.assertTrue("the field was refused by the receiver", collector.isMalformed());
-        org.junit.Assert.assertTrue("and nothing invalid got through", collector.headers().isEmpty());
+        org.junit.Assert.assertTrue("and nothing invalid got through", org.bluezoo.gumdrop.http.HeaderFields.collected(collector).isEmpty());
     }
 }

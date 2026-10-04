@@ -41,7 +41,7 @@ import org.junit.Test;
 
 import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.SecurityInfo;
-import org.bluezoo.gumdrop.http.Header;
+import org.bluezoo.gumdrop.http.HttpMessageHandler;
 import org.bluezoo.gumdrop.http.HttpStatus;
 import org.bluezoo.gumdrop.http.HttpVersion;
 import org.bluezoo.gumdrop.testsupport.BinaryRecordingEndpoint;
@@ -144,6 +144,8 @@ public class HttpClientProtocolHandlerEdgeTest {
         boolean accept;
         boolean switched;
         int switchCalls;
+        boolean wantEvents;
+        final List<String> order = new ArrayList<String>();
         final ByteArrayOutputStream tail = new ByteArrayOutputStream();
 
         Switching(HttpClientHandler handler) {
@@ -151,7 +153,42 @@ public class HttpClientProtocolHandlerEdgeTest {
         }
 
         @Override
-        protected boolean handleProtocolSwitch(HttpStatus status, List<Header> headers) {
+        protected HttpMessageHandler protocolSwitchEvents() {
+            if (!wantEvents) {
+                return null;
+            }
+            return new DefaultHttpResponseHandler() {
+                @Override
+                public void status(int code) {
+                    order.add("status:" + code);
+                }
+
+                @Override
+                public void header(String name, ByteBuffer value) {
+                    order.add("header:" + name.toLowerCase() + "="
+                            + StandardCharsets.ISO_8859_1.decode(value.duplicate()));
+                }
+
+                @Override
+                public void endHeaders() {
+                    order.add("endHeaders");
+                }
+
+                @Override
+                public void bodyContent(ByteBuffer data) {
+                    order.add("body");
+                }
+
+                @Override
+                public void endMessage() {
+                    order.add("endMessage");
+                }
+            };
+        }
+
+        @Override
+        protected boolean handleProtocolSwitch(HttpStatus status) {
+            order.add("switch:" + status.code);
             switchCalls++;
             if (accept) {
                 switched = true;
@@ -625,6 +662,46 @@ public class HttpClientProtocolHandlerEdgeTest {
         assertEquals(1, sw.switchCalls);
         assertEquals("FRAME", new String(sw.tail.toByteArray(), StandardCharsets.US_ASCII));
         assertEquals(0, r.okCalls);
+    }
+
+    @Test
+    public void protocolSwitchEventsReceiveTheResponseEventsBeforeTheSwitchHook() {
+        Switching sw = new Switching(conn);
+        sw.accept = true;
+        sw.wantEvents = true;
+        BinaryRecordingEndpoint ep = new BinaryRecordingEndpoint();
+        sw.connected(ep);
+        sw.setH2cUpgradeEnabled(false);
+        Recorder r = new Recorder();
+        sw.get("/ws", r).endMessage();
+        String raw = "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\n"
+                + "Connection: Upgrade\r\n\r\nFRAME";
+        sw.receive(ByteBuffer.wrap(raw.getBytes(StandardCharsets.UTF_8)));
+        List<String> expected = new ArrayList<String>();
+        expected.add("status:101");
+        expected.add("header:upgrade=websocket");
+        expected.add("header:connection=Upgrade");
+        expected.add("endHeaders");
+        expected.add("switch:101");
+        assertEquals(expected, sw.order);
+        assertEquals("FRAME", new String(sw.tail.toByteArray(), StandardCharsets.US_ASCII));
+        assertEquals(0, r.okCalls);
+    }
+
+    @Test
+    public void protocolSwitchEventsAreNotGivenAnH2cUpgrade() {
+        Switching sw = new Switching(conn);
+        sw.wantEvents = true;
+        BinaryRecordingEndpoint ep = new BinaryRecordingEndpoint();
+        ep.setSelectorLoop(new InlineSelectorLoop());
+        sw.connected(ep);
+        sw.setH2cUpgradeEnabled(true);
+        Recorder r = new Recorder();
+        sw.get("/p", r).endMessage();
+        String raw = "HTTP/1.1 101 Switching Protocols\r\nConnection: Upgrade\r\nUpgrade: h2c\r\n\r\n";
+        sw.receive(ByteBuffer.wrap(raw.getBytes(StandardCharsets.UTF_8)));
+        assertEquals(0, sw.switchCalls);
+        assertTrue(sw.order.toString(), sw.order.isEmpty());
     }
 
     @Test

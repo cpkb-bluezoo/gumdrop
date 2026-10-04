@@ -40,7 +40,7 @@ package org.bluezoo.gumdrop.http;
  * percent-encoded as {@code "%2F"}, and an IPv6 address's colons
  * percent-encoded as {@code "%3A"}) -- this class decodes the segment
  * but does not itself further parse which of those three shapes it is;
- * that's a policy/forwarding-layer concern (see {@link ConnectIpPolicy}).
+ * that's a policy/forwarding-layer concern (see {@link org.bluezoo.gumdrop.http.server.ConnectIpPolicy}).
  * {@code ipproto} is a decimal Internet Protocol Number in {@code
  * [0, 255]}, or {@code "*"}.
  *

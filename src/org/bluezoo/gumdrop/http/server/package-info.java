@@ -24,8 +24,23 @@
  * authentication, and metrics. Application facades {@link org.bluezoo.gumdrop.http.HttpServer}
  * and {@link org.bluezoo.gumdrop.http.HttpClient} live in the protocol root package.
  *
- * <p>Shared codec types ({@link org.bluezoo.gumdrop.http.Header},
- * {@link org.bluezoo.gumdrop.http.HttpStatus}, {@link org.bluezoo.gumdrop.http.HttpVersion})
+ * <p>A request arrives as a sequence of events delivered to an {@link
+ * org.bluezoo.gumdrop.http.server.HttpRequestHandler} (an {@link
+ * org.bluezoo.gumdrop.http.HttpMessageHandler}): {@code method}, {@code
+ * target}, {@code scheme}, {@code authority}, one {@code header} (or typed
+ * {@code longHeader}, {@code dateHeader}, {@code contentType},
+ * {@code contentDisposition}) event per field, {@code endHeaders}, any
+ * number of {@code bodyContent} events, trailer fields as further field
+ * events, and {@code endMessage}. The response is written through {@link
+ * org.bluezoo.gumdrop.http.server.HttpResponse} with the same vocabulary:
+ * {@code status}, one {@code header} call per field, {@code bodyContent}
+ * and {@code endMessage}. Server push is {@code startPushPromise}, field
+ * calls, then {@code endPushPromise}. The same handler code serves
+ * HTTP/1.1, HTTP/2 and HTTP/3.
+ *
+ * <p>Shared codec types ({@link org.bluezoo.gumdrop.http.HttpStatus},
+ * {@link org.bluezoo.gumdrop.http.HttpVersion},
+ * {@link org.bluezoo.gumdrop.http.HttpMethod})
  * remain in {@link org.bluezoo.gumdrop.http}.
  */
 package org.bluezoo.gumdrop.http.server;

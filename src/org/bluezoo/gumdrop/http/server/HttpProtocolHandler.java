@@ -99,16 +99,16 @@ import org.bluezoo.gumdrop.util.IntObjectHashMap;
  *     received in {@link #connected(Endpoint)}</li>
  * <li>Line parsing uses a streaming {@link HttpLineLexer} (issue #85):
  *     bytes are tokenised as they arrive rather than buffered into whole
- *     lines — see {@link ByteStreamLexer}. Content-Length and chunked
- *     bodies use {@link ByteStreamLexer#enterRaw(long)}; HTTP/2 framing,
+ *     lines — see {@link org.bluezoo.gumdrop.ByteStreamLexer}. Content-Length and chunked
+ *     bodies use {@link org.bluezoo.gumdrop.ByteStreamLexer#enterRaw(long)}; HTTP/2 framing,
  *     the h2c/prior-knowledge prefaces, the HTTP/1.0 until-close body, and
  *     WebSocket data are read entirely outside the lexer, unchanged</li>
  * <li>TLS upgrade uses {@link Endpoint#startTLS()}</li>
  * <li>Security info uses {@link Endpoint#getSecurityInfo()}</li>
  * </ul>
  *
- * <p>Implements {@link HttpConnectionLike} so that {@link Stream} can
- * work with either HTTPConnection or HttpProtocolHandler.
+ * <p>Extends the package-private {@code HttpConnectionLike} so that {@link Stream}
+ * can work with it through a single connection abstraction.
  *
  * <p>HTTP/1.1 message syntax and routing per RFC 9112:
  * <ul>
@@ -140,11 +140,9 @@ import org.bluezoo.gumdrop.util.IntObjectHashMap;
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see ProtocolHandler
  * @see HttpLineLexer
- * @see HttpConnectionLike
  */
-public  class HttpProtocolHandler
-        implements ProtocolHandler,
-                   H2FrameHandler, HttpConnectionLike {
+public class HttpProtocolHandler extends HttpConnectionLike
+        implements ProtocolHandler, H2FrameHandler {
 
     static final ResourceBundle L10N =
             ResourceBundle.getBundle("org.bluezoo.gumdrop.http.L10N");
@@ -624,7 +622,7 @@ public  class HttpProtocolHandler
     }
 
     @Override
-    public void sendResponseHeaders(int streamId, int statusCode, List<Header> headers, boolean endStream) {
+    void sendResponseHeaders(int streamId, int statusCode, List<Header> headers, boolean endStream) {
         String altSvc = server.getAltSvc();
         if (altSvc != null) {
             headers.add(new Header("Alt-Svc", altSvc));
@@ -635,7 +633,7 @@ public  class HttpProtocolHandler
         switch (state) {
             case HTTP2:
                 // RFC 9113 section 8.2.2: do not send HTTP/1 framing headers
-                HttpVersion.stripHttp1FramingHeaders(headers);
+                HeaderFields.stripHttp1FramingHeaders(headers, true);
                 // RFC 9113 section 8.3.2: :status is the only response pseudo-header
                 headers.add(0, new Header(":status", Integer.toString(statusCode)));
                 writeH2Headers(streamId, headers, endStream);
@@ -789,7 +787,7 @@ public  class HttpProtocolHandler
     }
 
     @Override
-    public void sendResponseTrailers(int streamId, List<Header> trailers) {
+    void sendResponseTrailers(int streamId, List<Header> trailers) {
         if (state != State.HTTP2) {
             return;
         }
@@ -1343,7 +1341,7 @@ public  class HttpProtocolHandler
     }
 
     @Override
-    public Stream newStream(HttpConnectionLike connection, int streamId) {
+    Stream newStream(HttpConnectionLike connection, int streamId) {
         return new Stream(connection, streamId);
     }
 
@@ -1356,7 +1354,7 @@ public  class HttpProtocolHandler
     }
 
     @Override
-    public byte[] encodeHeaders(List<Header> headers) {
+    byte[] encodeHeaders(List<Header> headers) {
         try {
             if (hpackEncoder == null) {
                 hpackEncoder = new Encoder(headerTableSize, maxHeaderListSize);
@@ -1397,7 +1395,7 @@ public  class HttpProtocolHandler
     }
 
     @Override
-    public Stream createPushedStream(int streamId, String method, String uri, List<Header> headers) {
+    Stream createPushedStream(int streamId, String method, String uri, List<Header> headers) {
         try {
             Stream pushedStream = newStream(this, streamId);
             pushedStream.setPushPromise();
@@ -2441,7 +2439,7 @@ public  class HttpProtocolHandler
                 // non-ASCII octets opaque and does not define RFC 2047 for
                 // HTTP. Stream.headers and H3Stream.headers reject them where
                 // the handler sets them; this is the last line of defence.
-                HttpUtils.requireAsciiFieldValues(headers);
+                HttpUtils.requireAsciiFieldValue(name, value);
                 throw new IllegalArgumentException("Response header '" + name
                         + "' has a value with control characters that HTTP field values must not carry");
             }
@@ -2717,8 +2715,9 @@ public  class HttpProtocolHandler
     }
 
     @Override
-    public void applyRfc9218Priority(int streamId, List<Header> headers) {
-        applyRfc9218Priority(streamId, PriorityParams.fromHeaders(headers), false);
+    void applyRfc9218Priority(int streamId, List<Header> headers) {
+        applyRfc9218Priority(streamId, PriorityParams.parse(
+                HeaderFields.getValue(headers, PriorityParams.PRIORITY_HEADER)), false);
     }
 
     private void applyRfc9218Priority(int streamId, PriorityParams params, boolean fromUpdate) {

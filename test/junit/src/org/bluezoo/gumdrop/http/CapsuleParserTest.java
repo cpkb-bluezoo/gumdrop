@@ -21,7 +21,6 @@
 
 package org.bluezoo.gumdrop.http;
 
-import java.util.ArrayList;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
@@ -78,11 +77,8 @@ public class CapsuleParserTest {
 
     @Test
     public void testCapsuleProtocolHeaderTrue() {
-        List<Header> headers = new ArrayList<Header>();
-        HeaderFields.add(headers, "Capsule-Protocol", "?1");
-        assertTrue(Capsule.capsuleProtocolEnabled(headers));
-        List<Header> disabled = new ArrayList<Header>();
-        HeaderFields.add(disabled, "capsule-protocol", "?0");
-        assertFalse(Capsule.capsuleProtocolEnabled(disabled));
+        assertTrue(Capsule.capsuleProtocolEnabled("?1"));
+        assertFalse(Capsule.capsuleProtocolEnabled("?0"));
+        assertFalse(Capsule.capsuleProtocolEnabled(null));
     }
 }

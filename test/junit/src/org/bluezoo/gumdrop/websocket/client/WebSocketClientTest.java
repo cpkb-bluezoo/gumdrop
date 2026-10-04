@@ -267,6 +267,34 @@ public class WebSocketClientTest {
     }
 
     @Test
+    public void upgradeRequestCarriesTheHandshakeFields() throws Exception {
+        InMemoryClient c = new InMemoryClient();
+        c.setSubprotocol(" chat ");
+        RecordingWebSocketEventHandler h = new RecordingWebSocketEventHandler();
+        c.connect(null, "/socket", h);
+        String req = c.sentRequest().toLowerCase();
+        assertTrue(req, req.contains("\r\nupgrade: websocket\r\n"));
+        assertTrue(req, req.contains("\r\nconnection: upgrade\r\n"));
+        assertTrue(req, req.contains("\r\nsec-websocket-version: 13\r\n"));
+        assertTrue(req, req.contains("\r\nsec-websocket-key: "
+                + c.sentKey().toLowerCase() + "\r\n"));
+        assertTrue(WebSocketHandshake.isValidWebSocketKey(c.sentKey()));
+        assertTrue(req, req.contains("\r\nsec-websocket-protocol: chat\r\n"));
+        assertTrue(req, req.contains("\r\nsec-websocket-extensions: permessage-deflate"));
+    }
+
+    @Test
+    public void upgradeRequestOmitsOptionalFieldsWhenUnset() throws Exception {
+        InMemoryClient c = new InMemoryClient();
+        c.setDeflateEnabled(false);
+        RecordingWebSocketEventHandler h = new RecordingWebSocketEventHandler();
+        c.connect(null, "/socket", h);
+        String req = c.sentRequest().toLowerCase();
+        assertFalse(req, req.contains("sec-websocket-protocol"));
+        assertFalse(req, req.contains("sec-websocket-extensions"));
+    }
+
+    @Test
     public void frameSentInSameBufferAsUpgradeResponseIsDelivered()
             throws Exception {
         InMemoryClient c = new InMemoryClient();

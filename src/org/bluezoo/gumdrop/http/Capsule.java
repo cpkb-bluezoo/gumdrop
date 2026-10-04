@@ -21,7 +21,6 @@
 
 package org.bluezoo.gumdrop.http;
 
-import java.util.List;
 import java.nio.ByteBuffer;
 
 import org.bluezoo.gumdrop.quic.packet.VarInt;
@@ -99,22 +98,19 @@ public final class Capsule {
     }
 
     /**
-     * Returns whether {@code headers} carry {@code Capsule-Protocol: ?1}
-     * (RFC 9297 section 3.4). List and other structured-field types are
-     * treated as absent.
+     * Returns whether a {@code Capsule-Protocol} field value is
+     * {@code ?1} (RFC 9297 section 3.4). List and other structured-field
+     * types are treated as absent.
      *
-     * @param headers the request or response headers
+     * @param value the value of the {@link #PROTOCOL_HEADER} field, or
+     *     null if the message has none
      * @return true if the Capsule Protocol is enabled
      */
-    public static boolean capsuleProtocolEnabled(List<Header> headers) {
-        if (headers == null) {
+    public static boolean capsuleProtocolEnabled(String value) {
+        if (value == null) {
             return false;
         }
-        String raw = HeaderFields.getValue(headers, PROTOCOL_HEADER);
-        if (raw == null) {
-            return false;
-        }
-        String v = raw.trim();
+        String v = value.trim();
         return "?1".equals(v) || "1".equals(v) || "true".equalsIgnoreCase(v);
     }
 

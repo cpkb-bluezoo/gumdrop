@@ -34,7 +34,7 @@ import org.bluezoo.gumdrop.servlet.ServletHandler;
  *
  * <p>Install on {@link org.bluezoo.gumdrop.http.HttpServer} with a
  * pre-configured {@link Container} (contexts, realms, resources). The
- * handler drives container {@link Container#start()} /
+ * handler drives container {@link Container#start(org.bluezoo.gumdrop.Gumdrop)} /
  * {@link Container#destroy()} via {@link HttpServerServiceHook}.
  *
  * <pre>{@code
@@ -48,7 +48,6 @@ import org.bluezoo.gumdrop.servlet.ServletHandler;
  * }</pre>
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see web/configuration.html
  */
 public final class ServletRequestHandler
         implements HttpStreamHandler, HttpServerServiceHook {

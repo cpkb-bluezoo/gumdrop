@@ -60,9 +60,9 @@ import org.bluezoo.gumdrop.tls.TlsConfig;
  *   <li>{@link Http3Listener} for HTTP/3 over QUIC</li>
  * </ul>
  *
- * <p>During {@link #start()}, the server:
+ * <p>During {@link #start(Gumdrop)}, the server:
  * <ol>
- *   <li>Calls {@link #initService()} for subclass-specific initialisation
+ *   <li>Calls {@link #initService(Gumdrop)} for subclass-specific initialisation
  *       (e.g., starting a servlet container or building a handler factory).</li>
  *   <li>Wires each listener by pushing the handler factory and
  *       authentication provider into it.</li>

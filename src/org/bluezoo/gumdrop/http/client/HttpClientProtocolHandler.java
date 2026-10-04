@@ -98,9 +98,8 @@ import org.bluezoo.gumdrop.util.ByteBufferPool;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-public class HttpClientProtocolHandler
-        implements ProtocolHandler,
-                   H2FrameHandler, HttpClientConnectionOps {
+public class HttpClientProtocolHandler extends HttpClientConnectionOps
+        implements ProtocolHandler, H2FrameHandler {
 
     private static final ResourceBundle L10N =
         ResourceBundle.getBundle("org.bluezoo.gumdrop.http.client.L10N");
@@ -552,22 +551,43 @@ public class HttpClientProtocolHandler
     // ─────────────────────────────────────────────────────────────────────────
 
     /**
+     * Supplies the receiver for the events of a 101 Switching Protocols
+     * response that is not an h2c upgrade. When it returns a handler, the
+     * response's events (status, reason, fields) are replayed to it, followed
+     * by {@link HttpMessageHandler#endHeaders()}, before
+     * {@link #handleProtocolSwitch(HttpStatus)} is called. A subclass returns
+     * a small handler that keeps just the fields it needs to decide whether
+     * to take the switch (the {@code Upgrade} token, for example).
+     *
+     * <p>A fresh handler, or one reset for the purpose, should be returned
+     * each time: it is asked for once per 101 response.
+     *
+     * @return the receiver for the response events, or null (the default) if
+     *         the subclass needs none
+     */
+    protected HttpMessageHandler protocolSwitchEvents() {
+        return null;
+    }
+
+    /**
      * Called when a 101 Switching Protocols response is received that is
      * not an h2c upgrade. Subclasses can override this to handle
      * protocol switches (e.g. WebSocket, RFC 6455).
      *
      * <p>Per RFC 9110 section 15.2.2, the server switches to the protocol
-     * defined by the response Upgrade header. When this method returns
+     * defined by the response Upgrade header. The response's events have
+     * already been delivered to the handler returned by
+     * {@link #protocolSwitchEvents()}, if there is one, which is where a
+     * subclass learns what the response said. When this method returns
      * {@code true}, the caller assumes the protocol switch has been fully
      * handled and the HTTP parsing state machine will not process the
      * response further. The subclass is responsible for managing all
      * subsequent data on the connection.
      *
      * @param status the response status (always 101)
-     * @param headers the response headers
      * @return true if the switch was handled, false to log a warning
      */
-    protected boolean handleProtocolSwitch(HttpStatus status, List<Header> headers) {
+    protected boolean handleProtocolSwitch(HttpStatus status) {
         return false;
     }
 
@@ -1043,7 +1063,7 @@ public class HttpClientProtocolHandler
     }
 
     @Override
-    public void endRequestWithTrailers(HttpStream request, List<Header> trailers) {
+    void endRequestWithTrailers(HttpStream request, List<Header> trailers) {
         if (runOnSelectorLoop(new Runnable() {
             @Override
             public void run() {
@@ -1658,7 +1678,12 @@ public class HttpClientProtocolHandler
                     }
                     h2cUpgradeInFlight = false;
                 }
-                if (handleProtocolSwitch(status, responseHeaders)) {
+                HttpMessageHandler switchEvents = protocolSwitchEvents();
+                if (switchEvents != null) {
+                    h1Events.replay(switchEvents);
+                    switchEvents.endHeaders();
+                }
+                if (handleProtocolSwitch(status)) {
                     // the bytes that follow the headers belong to the new
                     // protocol: receive() hands them to the subclass
                     responseParser.handOff();
@@ -2591,7 +2616,7 @@ public class HttpClientProtocolHandler
             failMalformedResponse(stream, streamId);
             return;
         }
-        final List<Header> headers = collected.headers();
+        final List<Header> headers = HeaderFields.collected(collected);
         if (trailers) {
             // fields after the body: given to the handler as further fields
             HttpResponseHandler trailerHandler = stream.getHandler();

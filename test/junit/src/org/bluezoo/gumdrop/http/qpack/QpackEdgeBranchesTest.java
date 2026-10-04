@@ -30,6 +30,7 @@ import java.util.List;
 import org.junit.Test;
 
 import org.bluezoo.gumdrop.http.Header;
+import org.bluezoo.gumdrop.http.HeaderFields;
 import org.bluezoo.util.ByteArrays;
 
 import static org.junit.Assert.assertEquals;
@@ -179,7 +180,7 @@ public class QpackEdgeBranchesTest {
                 new org.bluezoo.gumdrop.http.HeaderCollector();
         d.decode(1, hex("00002361206201" + "76"), collector);
         assertTrue(collector.isMalformed());
-        assertTrue(collector.headers().isEmpty());
+        assertTrue(HeaderFields.collected(collector).isEmpty());
     }
 
     @Test

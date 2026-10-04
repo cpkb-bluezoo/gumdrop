@@ -111,7 +111,7 @@ HttpServer server = HttpServer.compose()
                 .onConnect(new WebSocketRequestHandler.ConnectionHandlerFactory() {
                     @Override
                     public WebSocketEventHandler create(
-                            String requestPath, List&lt;Header&gt; upgradeHeaders) {
+                            String requestPath, WebSocketRequestHandler.UpgradeRequest request) {
                         return new DefaultWebSocketEventHandler() {
                             @Override
                             public void textMessageReceived(WebSocketSession session,
@@ -130,12 +130,16 @@ HttpServer server = HttpServer.compose()
 </pre>
 
 <p>
-The factory receives the request path and upgrade headers, which can be used
-for routing or authentication decisions:
+The factory receives the request path and the upgrade request, which can be
+used for routing or authentication decisions. The request is not a list of
+headers: it is the events of the HTTP request, which <code>replay(...)</code>
+delivers, in order, to an <code>HttpMessageHandler</code> of your own, so the
+fields can be examined as they would be in any other HTTP handler:
 </p>
 
 <pre>
-public WebSocketEventHandler create(String requestPath, List&lt;Header&gt; upgradeHeaders) {
+public WebSocketEventHandler create(String requestPath,
+        WebSocketRequestHandler.UpgradeRequest request) {
     // Route based on path
     if ("/chat".equals(requestPath)) {
         return new ChatHandler();
@@ -146,6 +150,24 @@ public WebSocketEventHandler create(String requestPath, List&lt;Header&gt; upgra
     // Reject unknown paths
     return null;
 }
+</pre>
+
+<p>
+To see the fields of the upgrade request (an <code>Authorization</code> field,
+for example), replay it to a handler that keeps what it needs:
+</p>
+
+<pre>
+final String[] authorization = new String[1];
+request.replay(new DefaultHttpRequestHandler() {
+    @Override
+    public void header(String name, ByteBuffer value) {
+        if ("authorization".equalsIgnoreCase(name)) {
+            // the value is only valid during this call: copy it
+            authorization[0] = StandardCharsets.ISO_8859_1.decode(value).toString();
+        }
+    }
+});
 </pre>
 
 <h3 id="handler">Event Handler API</h3>
@@ -218,16 +240,14 @@ WebSocketRequestHandler.builder()
         .onConnect(connectionHandlerFactory)
         .subprotocolSelector(new WebSocketRequestHandler.SubprotocolSelector() {
             @Override
-            public String select(List&lt;Header&gt; upgradeHeaders) {
-                String requested = HeaderFields.getValue(upgradeHeaders, "Sec-WebSocket-Protocol");
-                if (requested != null) {
-                    // Client may request multiple protocols, comma-separated
-                    if (requested.contains("graphql-ws")) {
-                        return "graphql-ws";
-                    }
-                    if (requested.contains("mqtt")) {
-                        return "mqtt";
-                    }
+            public String select(List&lt;String&gt; offeredSubprotocols) {
+                // the tokens of Sec-WebSocket-Protocol, trimmed, in the
+                // order the client offered them; empty if it sent none
+                if (offeredSubprotocols.contains("graphql-ws")) {
+                    return "graphql-ws";
+                }
+                if (offeredSubprotocols.contains("mqtt")) {
+                    return "mqtt";
                 }
                 return null;  // no subprotocol
             }
@@ -452,7 +472,7 @@ public class NostrRelayService
 
     @Override
     public WebSocketEventHandler create(
-            String requestPath, List&lt;Header&gt; upgradeHeaders) {
+            String requestPath, WebSocketRequestHandler.UpgradeRequest request) {
         return new DefaultWebSocketEventHandler() {
             private WebSocketSession session;
 
@@ -518,7 +538,7 @@ public class DashboardService
 
     @Override
     public WebSocketEventHandler create(
-            String requestPath, List&lt;Header&gt; upgradeHeaders) {
+            String requestPath, WebSocketRequestHandler.UpgradeRequest request) {
         return new DefaultWebSocketEventHandler() {
             private WebSocketSession session;
 
@@ -685,7 +705,11 @@ manually using <code>HttpResponse.upgradeToWebSocket()</code>:
 <pre>
 public class MyHandler extends DefaultHttpRequestHandler {
     private final HttpResponse response;
-    private final List&lt;Header&gt; headers = new ArrayList&lt;Header&gt;();
+    private String upgrade;
+    private String connection;
+    private String key;
+    private String version;
+    private String protocol;
 
     public MyHandler(HttpResponse response) {
         this.response = response;
@@ -694,13 +718,23 @@ public class MyHandler extends DefaultHttpRequestHandler {
     @Override
     public void header(String name, ByteBuffer value) {
         // the value is only valid during this call: copy it
-        headers.add(new Header(name, StandardCharsets.UTF_8.decode(value).toString()));
+        String text = StandardCharsets.ISO_8859_1.decode(value).toString();
+        if ("upgrade".equalsIgnoreCase(name)) {
+            upgrade = text;
+        } else if ("connection".equalsIgnoreCase(name)) {
+            connection = text;
+        } else if ("sec-websocket-key".equalsIgnoreCase(name)) {
+            key = text;
+        } else if ("sec-websocket-version".equalsIgnoreCase(name)) {
+            version = text;
+        } else if ("sec-websocket-protocol".equalsIgnoreCase(name)) {
+            protocol = text;
+        }
     }
 
     @Override
     public void endHeaders() {
-        if (WebSocketHandshake.isValidWebSocketUpgrade(headers)) {
-            String protocol = HeaderFields.getValue(headers, "Sec-WebSocket-Protocol");
+        if (WebSocketHandshake.isValidWebSocketUpgrade(upgrade, connection, key, version)) {
             response.upgradeToWebSocket(protocol, new EchoWebSocketHandler());
         } else {
             // Handle as regular HTTP request

@@ -501,6 +501,15 @@ response.header("x-checksum", checksum);  // a trailer field
 response.endMessage();
 </pre>
 
+<p>
+A <code>content-length</code> set on an HTTP/2 or HTTP/3 response is sent as
+given, and must equal the body bytes (RFC 9113 section 8.1.1, RFC 9114 section
+4.1.2). If the body runs past it, <code>bodyContent</code> throws
+<code>IllegalStateException</code>; if the response ends short of it, or past
+it, the stream is reset with an internal error rather than finished as a
+malformed message. The length is not checked for HEAD, 204 or 304 responses.
+</p>
+
 <h4>Example: Hello World Handler</h4>
 
 <pre>

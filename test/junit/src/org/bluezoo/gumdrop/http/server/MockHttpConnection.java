@@ -50,7 +50,7 @@ import org.bluezoo.gumdrop.testsupport.InlineSelectorLoop;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-class MockHttpConnection implements HttpConnectionLike {
+class MockHttpConnection extends HttpConnectionLike {
 
     final SelectorLoop loop = new InlineSelectorLoop();
     HttpVersion version = HttpVersion.HTTP_2_0;

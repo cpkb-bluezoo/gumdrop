@@ -42,6 +42,52 @@ public final class HeaderFields {
     }
 
     /**
+     * Returns the valid fields a {@link HeaderCollector} has gathered so
+     * far, in the order delivered. The returned list is the collector's own
+     * and keeps growing as more fields are delivered.
+     *
+     * @param collector the collector
+     * @return the collected fields
+     */
+    public static List<Header> collected(HeaderCollector collector) {
+        return collector.headers();
+    }
+
+    /**
+     * Strips {@link HttpVersion#isHttp1FramingHeader HTTP/1 framing headers}
+     * from a multiplexed-protocol header list before dispatch or sending.
+     * Pseudo-header fields (names starting with a colon) are left alone.
+     *
+     * <p>A {@code Content-Length} is a legal field in an HTTP/2 or HTTP/3
+     * message (RFC 9113 section 8.1.1, RFC 9114 section 4.1.2) provided it
+     * matches the DATA bytes. A caller whose messages carry one that is
+     * checked against the body keeps it by passing true.
+     *
+     * @param fields the header list, edited in place; may be null
+     * @param keepContentLength true to leave {@code Content-Length} in place,
+     *        false to strip it with the other framing fields
+     */
+    public static void stripHttp1FramingHeaders(List<Header> fields,
+            boolean keepContentLength) {
+        if (fields == null) {
+            return;
+        }
+        Iterator<Header> it = fields.iterator();
+        while (it.hasNext()) {
+            Header header = it.next();
+            if (header.getName().startsWith(":")) {
+                continue;
+            }
+            if (keepContentLength && "content-length".equalsIgnoreCase(header.getName())) {
+                continue;
+            }
+            if (HttpVersion.isHttp1FramingHeader(header.getName(), header.getValue())) {
+                it.remove();
+            }
+        }
+    }
+
+    /**
      * Returns the value of the first header with the specified name.
      *
      * @param fields the header list

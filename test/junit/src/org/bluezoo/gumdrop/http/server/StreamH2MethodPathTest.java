@@ -152,7 +152,7 @@ public class StreamH2MethodPathTest {
                 + cnonce + "\"";
     }
 
-    private static class StubH2Connection implements HttpConnectionLike {
+    private static class StubH2Connection extends HttpConnectionLike {
         @Override public void sendResponseTrailers(int streamId, List<Header> trailers) { }
         final Decoder hpackDecoder = new Decoder(4096, 8192);
         HttpAuthenticationProvider authProvider;

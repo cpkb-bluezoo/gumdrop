@@ -852,10 +852,116 @@ public class H3ServerFlowTest {
         f.rec.state.bodyContent(ByteBuffer.wrap(new byte[] {1, 2, 3}));
         f.rec.state.endMessage();
         H3ResponseWire.Frame h = new H3ResponseWire(f.conn, stream.getStreamId()).headerFrames().get(0);
-        // the HTTP/1 framing fields are stripped from HTTP/3 responses (HttpVersion)
-        assertNull(h.get("content-length"));
+        // a Content-Length the handler set is sent as it is (RFC 9114 section 4.1.2)
+        assertEquals("3", h.get("content-length"));
         assertEquals("Thu, 01 Jan 1970 00:00:00 GMT", h.get("last-modified"));
         assertTrue(h.get("content-type"), h.get("content-type").startsWith("text/plain"));
+    }
+
+    private static H3Stream openAndReadMethod(Fixture f, String method) {
+        H3Stream stream = f.open();
+        feed(stream, headersFrame(":method", method, ":scheme", "https",
+                ":path", "/", ":authority", "x"));
+        stream.readFinished();
+        assertNotNull(f.rec.state);
+        return stream;
+    }
+
+    private static void assertStreamReset(Fixture f, H3Stream stream) {
+        assertEquals("H3_INTERNAL_ERROR", H3ErrorCode.H3_INTERNAL_ERROR,
+                QuicConnectionTestFactory.pendingResetCode(f.conn, stream.getStreamId()));
+        assertFalse("no clean FIN",
+                QuicConnectionTestFactory.queuedStreamFin(f.conn, stream.getStreamId()));
+    }
+
+    @Test
+    public void testContentLengthPassesThroughOnMatchingBody() throws Exception {
+        Fixture f = new Fixture();
+        H3Stream stream = openAndRead(f);
+        f.rec.state.status(200);
+        f.rec.state.longHeader("content-length", 3L);
+        f.rec.state.bodyContent(ByteBuffer.wrap(new byte[] {1, 2}));
+        f.rec.state.bodyContent(ByteBuffer.wrap(new byte[] {3}));
+        f.rec.state.endMessage();
+        H3ResponseWire wire = new H3ResponseWire(f.conn, stream.getStreamId());
+        assertEquals("3", wire.headerFrames().get(0).get("content-length"));
+        assertEquals(3, wire.dataBytes());
+        assertTrue(wire.fin);
+    }
+
+    @Test
+    public void testHeadResponseKeepsContentLength() throws Exception {
+        Fixture f = new Fixture();
+        H3Stream stream = openAndReadMethod(f, "HEAD");
+        f.rec.state.status(200);
+        f.rec.state.longHeader("content-length", 100L);
+        f.rec.state.endMessage();
+        H3ResponseWire wire = new H3ResponseWire(f.conn, stream.getStreamId());
+        assertEquals("100", wire.headerFrames().get(0).get("content-length"));
+        assertEquals(0, wire.dataBytes());
+        assertTrue(wire.fin);
+    }
+
+    @Test
+    public void testNotModifiedKeepsContentLengthWithoutBody() throws Exception {
+        Fixture f = new Fixture();
+        H3Stream stream = openAndRead(f);
+        f.rec.state.status(304);
+        f.rec.state.longHeader("content-length", 100L);
+        f.rec.state.endMessage();
+        H3ResponseWire wire = new H3ResponseWire(f.conn, stream.getStreamId());
+        assertEquals("100", wire.headerFrames().get(0).get("content-length"));
+        assertTrue(wire.fin);
+    }
+
+    @Test
+    public void testNoContentResponseIsNotEnforced() throws Exception {
+        Fixture f = new Fixture();
+        H3Stream stream = openAndRead(f);
+        f.rec.state.status(204);
+        f.rec.state.longHeader("content-length", 7L);
+        f.rec.state.endMessage();
+        H3ResponseWire wire = new H3ResponseWire(f.conn, stream.getStreamId());
+        assertTrue(wire.fin);
+        assertEquals(-1L, QuicConnectionTestFactory.pendingResetCode(f.conn, stream.getStreamId()));
+    }
+
+    @Test
+    public void testBodyLongerThanContentLengthResetsStream() throws Exception {
+        Fixture f = new Fixture();
+        H3Stream stream = openAndRead(f);
+        f.rec.state.status(200);
+        f.rec.state.longHeader("content-length", 2L);
+        f.rec.state.bodyContent(ByteBuffer.wrap(new byte[] {1}));
+        try {
+            f.rec.state.bodyContent(ByteBuffer.wrap(new byte[] {2, 3}));
+            fail("the excess is refused");
+        } catch (IllegalStateException expected) {
+            // refused
+        }
+        f.rec.state.endMessage();
+        assertStreamReset(f, stream);
+    }
+
+    @Test
+    public void testBodyShorterThanContentLengthResetsStream() throws Exception {
+        Fixture f = new Fixture();
+        H3Stream stream = openAndRead(f);
+        f.rec.state.status(200);
+        f.rec.state.longHeader("content-length", 5L);
+        f.rec.state.bodyContent(ByteBuffer.wrap(new byte[] {1, 2}));
+        f.rec.state.endMessage();
+        assertStreamReset(f, stream);
+    }
+
+    @Test
+    public void testContentLengthWithNoBodyResetsStream() throws Exception {
+        Fixture f = new Fixture();
+        H3Stream stream = openAndRead(f);
+        f.rec.state.status(200);
+        f.rec.state.longHeader("content-length", 5L);
+        f.rec.state.endMessage();
+        assertStreamReset(f, stream);
     }
 
     @Test

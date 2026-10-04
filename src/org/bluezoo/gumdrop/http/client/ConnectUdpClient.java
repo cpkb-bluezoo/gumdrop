@@ -243,9 +243,9 @@ public class ConnectUdpClient implements AltSvcListener {
     }
 
     /**
-     * Sets an externally-configured SSL context.
+     * Sets the credentials presented to the server for client authentication.
      *
-     * @param context the SSL context
+     * @param clientCredentials the credentials, or null for none
      */
     public void setClientCredentials(ServerCredentials clientCredentials) {
         this.clientCredentials = clientCredentials;

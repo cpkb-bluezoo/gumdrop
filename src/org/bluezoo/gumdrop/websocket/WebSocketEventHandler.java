@@ -21,8 +21,6 @@
 
 package org.bluezoo.gumdrop.websocket;
 
-import java.util.List;
-import org.bluezoo.gumdrop.http.Header;
 import java.nio.ByteBuffer;
 
 /**
@@ -41,7 +39,8 @@ import java.nio.ByteBuffer;
  *         .listener(new Http2Listener().port(8080))
  *         .streamHandler(WebSocketRequestHandler.builder()
  *                 .onConnect(new WebSocketRequestHandler.ConnectionHandlerFactory() {
- *                     public WebSocketEventHandler create(String requestPath, List<Header> upgradeHeaders) {
+ *                     public WebSocketEventHandler create(String requestPath,
+ *                                                         WebSocketRequestHandler.UpgradeRequest request) {
  *                         return new DefaultWebSocketEventHandler() {
  *                             @Override
  *                             public void textMessageReceived(WebSocketSession session,

@@ -137,6 +137,31 @@ public final class QuicConnectionTestFactory {
         return false;
     }
 
+    /**
+     * Returns the application error code of the RESET_STREAM queued for the
+     * stream, or -1 if none is queued.
+     *
+     * @param conn a connection from {@link #create}
+     * @param streamId the stream
+     * @return the error code, or -1
+     */
+    public static long pendingResetCode(QuicConnection conn, long streamId) {
+        try {
+            java.lang.reflect.Field f = QuicConnection.class.getDeclaredField("pendingResetStreams");
+            f.setAccessible(true);
+            java.util.List<?> resets = (java.util.List<?>) f.get(conn);
+            for (Object o : resets) {
+                long[] r = (long[]) o;
+                if (r[0] == streamId) {
+                    return r[1];
+                }
+            }
+        } catch (ReflectiveOperationException e) {
+            throw new IllegalStateException(e);
+        }
+        return -1L;
+    }
+
     private static java.util.List<?> queuedChunks(QuicConnection conn, long streamId)
             throws ReflectiveOperationException {
         java.lang.reflect.Field pending = QuicConnection.class.getDeclaredField("pendingStream");

@@ -181,6 +181,13 @@ class H3Stream implements ProtocolHandler, H3FrameHandler, HttpResponse {
     private int responseStatusCode;
     private long responseBodyBytes;
 
+    /**
+     * The Content-Length the handler declared for a response whose DATA
+     * must add up to it, or -1 when there is none to enforce (HEAD, 204,
+     * 304, or no declared length).
+     */
+    private long responseDeclaredLength = -1L;
+
     private ContentEncoding.Encoder responseContentEncoder;
     private boolean decodeRequestContentCoding;
     private boolean encodeResponseContentCoding;
@@ -376,7 +383,7 @@ class H3Stream implements ProtocolHandler, H3FrameHandler, HttpResponse {
             }
             return;
         }
-        List<Header> headers = collected.headers();
+        List<Header> headers = HeaderFields.collected(collected);
         if (H3Writer.fieldSectionSize(headers) > localMaxFieldSectionSize()) {
             // RFC 9114 section 4.2.2 / 10.5.1: refuse oversized field
             // sections with a stream error rather than hanging the peer.
@@ -437,7 +444,7 @@ class H3Stream implements ProtocolHandler, H3FrameHandler, HttpResponse {
                 return;
             }
 
-            HttpVersion.stripHttp1FramingHeaders(headers);
+            HeaderFields.stripHttp1FramingHeaders(headers, false);
 
             HttpAuthenticationProvider authProvider = connection.getAuthenticationProvider();
             if (authProvider != null) {
@@ -458,10 +465,12 @@ class H3Stream implements ProtocolHandler, H3FrameHandler, HttpResponse {
                 return;
             }
 
-            capsuleMode = Capsule.capsuleProtocolEnabled(headers);
+            capsuleMode = Capsule.capsuleProtocolEnabled(
+                    HeaderFields.getValue(headers, Capsule.PROTOCOL_HEADER));
 
             if (connection != null) {
-                connection.applyRequestPriority(streamId, PriorityParams.fromHeaders(headers), false);
+                connection.applyRequestPriority(streamId, PriorityParams.parse(
+                        HeaderFields.getValue(headers, PriorityParams.PRIORITY_HEADER)), false);
             }
 
             initTelemetrySpan();
@@ -605,6 +614,10 @@ class H3Stream implements ProtocolHandler, H3FrameHandler, HttpResponse {
      * (RFC 9114 section 4.1.2 / 8.1) because the message is malformed.
      */
     private void abortMessageError(String reason) {
+        abortStream(reason, H3ErrorCode.H3_MESSAGE_ERROR);
+    }
+
+    private void abortStream(String reason, long errorCode) {
         if (span != null && !span.isEnded()) {
             span.recordError(ErrorCategory.PROTOCOL_ERROR, reason);
             span.end();
@@ -612,7 +625,41 @@ class H3Stream implements ProtocolHandler, H3FrameHandler, HttpResponse {
         state = State.CLOSED;
         handler = null;
         if (endpoint != null) {
-            endpoint.resetStream(H3ErrorCode.H3_MESSAGE_ERROR);
+            endpoint.resetStream(errorCode);
+        }
+    }
+
+    /**
+     * Abandons a response whose body does not add up to the Content-Length
+     * it declared (RFC 9114 section 4.1.2): the stream is reset with
+     * {@link H3ErrorCode#H3_INTERNAL_ERROR} rather than finished as if it
+     * were sound.
+     *
+     * @param actual the number of body bytes the response came to
+     */
+    private void abortResponseLength(long actual) {
+        String reason = MessageFormat.format(
+                HTTP_L10N.getString("warn.response_length_mismatch"),
+                Long.valueOf(streamId), Long.valueOf(responseDeclaredLength),
+                Long.valueOf(actual));
+        LOGGER.warning(reason);
+        responseDeclaredLength = -1L;
+        heldBody = null;
+        abortStream(reason, H3ErrorCode.H3_INTERNAL_ERROR);
+        if (connection != null) {
+            connection.streamFinished(this);
+        }
+    }
+
+    private static long parseDeclaredLength(String value) {
+        if (value == null) {
+            return -1L;
+        }
+        try {
+            long length = Long.parseLong(value.trim());
+            return length >= 0 ? length : -1L;
+        } catch (NumberFormatException e) {
+            return -1L;
         }
     }
 
@@ -842,6 +889,16 @@ class H3Stream implements ProtocolHandler, H3FrameHandler, HttpResponse {
                     HTTP_L10N.getString("err.response_body_late"), "trailers"));
         }
         int len = data.remaining();
+        if (responseDeclaredLength >= 0
+                && responseBodyBytes + len > responseDeclaredLength) {
+            long total = responseBodyBytes + len;
+            long declared = responseDeclaredLength;
+            abortResponseLength(total);
+            throw new IllegalStateException(MessageFormat.format(
+                    HTTP_L10N.getString("warn.response_length_mismatch"),
+                    Long.valueOf(streamId), Long.valueOf(declared),
+                    Long.valueOf(total)));
+        }
         responseBodyBytes += len;
         if ("HEAD".equals(method)) {
             return;
@@ -860,7 +917,14 @@ class H3Stream implements ProtocolHandler, H3FrameHandler, HttpResponse {
         if (!responseStarted && !responseBodyStarted) {
             ensureStatus();
             flushHeaders(true);
+            if (state == State.CLOSED) {
+                return; // the response was abandoned
+            }
         } else if (responseBodyStarted) {
+            if (responseDeclaredLength >= 0 && responseBodyBytes != responseDeclaredLength) {
+                abortResponseLength(responseBodyBytes);
+                return;
+            }
             finishResponseContentEncoder();
             if (responseTrailers != null) {
                 sendHeaderFrame(responseTrailers, false);
@@ -1463,8 +1527,21 @@ class H3Stream implements ProtocolHandler, H3FrameHandler, HttpResponse {
             }
         }
 
-        // Strip headers that are illegal in HTTP/3 (RFC 9114 section 4.2)
-        HttpVersion.stripHttp1FramingHeaders(pendingResponseHeaders);
+        // Strip headers that are illegal in HTTP/3 (RFC 9114 section 4.2).
+        // A Content-Length is kept: RFC 9114 section 4.1.2 requires it to
+        // equal the DATA bytes, which bodyContent and endMessage enforce
+        // (not for HEAD, 204 or 304, which carry no body).
+        HeaderFields.stripHttp1FramingHeaders(pendingResponseHeaders, true);
+        if (responseStatusCode >= 200 && responseStatusCode != 204
+                && responseStatusCode != 304 && !"HEAD".equals(method)) {
+            responseDeclaredLength = parseDeclaredLength(
+                    HeaderFields.getValue(pendingResponseHeaders, "content-length"));
+            if (responseDeclaredLength > 0 && fin) {
+                pendingResponseHeaders = null;
+                abortResponseLength(0L);
+                return;
+            }
+        }
 
         // Inject traceparent for distributed trace propagation
         if (span != null) {

@@ -354,7 +354,7 @@ public class HttpStreamTest {
         return false;
     }
 
-    private static final class RecordingOps implements HttpClientConnectionOps {
+    private static final class RecordingOps extends HttpClientConnectionOps {
         boolean encodeRequestBody = true;
         final List<String> events = new ArrayList<String>();
 
@@ -386,7 +386,7 @@ public class HttpStreamTest {
         }
 
         @Override
-        public void endRequestWithTrailers(HttpStream request, java.util.List<org.bluezoo.gumdrop.http.Header> trailers) {
+        void endRequestWithTrailers(HttpStream request, java.util.List<org.bluezoo.gumdrop.http.Header> trailers) {
             StringBuilder sb = new StringBuilder("trailers:");
             for (org.bluezoo.gumdrop.http.Header h : trailers) {
                 sb.append(h.getName().toLowerCase()).append('=').append(h.getValue());

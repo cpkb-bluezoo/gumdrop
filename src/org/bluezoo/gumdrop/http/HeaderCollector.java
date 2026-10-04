@@ -58,10 +58,11 @@ public final class HeaderCollector implements HeaderFieldHandler {
 
     /**
      * Returns the valid fields collected so far, in the order delivered.
+     * Read through {@link HeaderFields#collected(HeaderCollector)}.
      *
      * @return the headers
      */
-    public List<Header> headers() {
+    List<Header> headers() {
         return headers;
     }
 

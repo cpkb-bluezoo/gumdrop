@@ -1028,6 +1028,10 @@ public class HttpProtocolHandlerHttp1Test {
         String wire = f.wire();
         assertTrue(wire, wire.startsWith("HTTP/1.1 101"));
         assertTrue(wire, wire.contains("Sec-WebSocket-Accept: s3pPLMBiTxaQ9kYGzzhZRbK+xOo="));
+        assertTrue(wire, wire.contains("Upgrade: websocket\r\n"));
+        assertTrue(wire, wire.contains("Connection: Upgrade\r\n"));
+        assertFalse(wire, wire.contains("Sec-WebSocket-Protocol"));
+        assertFalse(wire, wire.contains("Sec-WebSocket-Extensions"));
         assertEquals(1, ws.openedCount);
         assertEquals(1, ws.texts.size());
         assertEquals("hi", ws.texts.get(0));
@@ -1043,6 +1047,27 @@ public class HttpProtocolHandlerHttp1Test {
         f.feed(maskedFrame(8, new byte[] {0x03, (byte) 0xe8}), 100);
         assertEquals(1, ws.closeCodes.size());
         assertEquals(1000, ws.closeCodes.get(0).intValue());
+    }
+
+    @Test
+    public void testWebSocketUpgradeResponseCarriesSubprotocolAndExtensions() {
+        Fixture f = new Fixture();
+        final RecordingWebSocketEventHandler ws = new RecordingWebSocketEventHandler();
+        f.rec.hook = new HeadersHook() {
+            @Override
+            public void run(HttpResponse state, List<Header> headers) {
+                java.util.List<org.bluezoo.gumdrop.websocket.WebSocketExtension> extensions =
+                        new java.util.ArrayList<org.bluezoo.gumdrop.websocket.WebSocketExtension>();
+                extensions.add(new org.bluezoo.gumdrop.websocket.PerMessageDeflateExtension());
+                state.upgradeToWebSocket(" graphql-ws ", extensions, ws);
+            }
+        };
+        f.open();
+        f.feed(WS_UPGRADE, 100);
+        String wire = f.wire();
+        assertTrue(wire, wire.startsWith("HTTP/1.1 101"));
+        assertTrue(wire, wire.contains("Sec-WebSocket-Protocol: graphql-ws\r\n"));
+        assertTrue(wire, wire.contains("Sec-WebSocket-Extensions: permessage-deflate\r\n"));
     }
 
     @Test

@@ -572,10 +572,10 @@ public interface HttpResponse {
      *
      * <p>Example usage:
      * <pre>{@code
-     * public void headers(HttpResponse state, List<Header> headers) {
-     *     if (WebSocketHandshake.isValidWebSocketUpgrade(headers)) {
-     *         String protocol = HeaderFields.getValue(headers, "Sec-WebSocket-Protocol");
-     *         state.upgradeToWebSocket(protocol, new DefaultWebSocketEventHandler() {
+     * public void endHeaders() {
+     *     // upgrade, connection, key, version and protocol were kept from the header events
+     *     if (WebSocketHandshake.isValidWebSocketUpgrade(upgrade, connection, key, version)) {
+     *         response.upgradeToWebSocket(protocol, new DefaultWebSocketEventHandler() {
      *             
      *             public void textMessageReceived(WebSocketSession session,
      *                                             String message) {

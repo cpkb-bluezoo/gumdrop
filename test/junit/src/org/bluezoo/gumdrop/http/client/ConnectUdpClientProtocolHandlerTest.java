@@ -34,7 +34,7 @@ import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
 import org.bluezoo.gumdrop.telemetry.Trace;
 import org.bluezoo.gumdrop.http.Capsule;
 import org.bluezoo.gumdrop.http.CapsuleParser;
-import org.bluezoo.gumdrop.http.Header;
+import org.bluezoo.gumdrop.http.HttpMessageHandler;
 import org.bluezoo.gumdrop.http.HttpStatus;
 import org.bluezoo.gumdrop.http.HttpDatagramContext;
 
@@ -65,7 +65,7 @@ public class ConnectUdpClientProtocolHandlerTest {
         ConnectUdpClientProtocolHandler handler =
                 new ConnectUdpClientProtocolHandler(null, eventHandler, "localhost", 8080, false);
 
-        boolean handled = handler.handleProtocolSwitch(HttpStatus.SWITCHING_PROTOCOLS, upgradeHeaders());
+        boolean handled = switchOn(handler, "connect-udp");
 
         assertTrue("a connect-udp Upgrade response must be accepted", handled);
         assertNotNull("opened() should have been called", eventHandler.session);
@@ -79,11 +79,7 @@ public class ConnectUdpClientProtocolHandlerTest {
         ConnectUdpClientProtocolHandler handler =
                 new ConnectUdpClientProtocolHandler(null, eventHandler, "localhost", 8080, false);
 
-        List<Header> headers = new ArrayList<Header>();
-        headers.add(new Header("connection", "upgrade"));
-        headers.add(new Header("upgrade", "websocket"));
-
-        boolean handled = handler.handleProtocolSwitch(HttpStatus.SWITCHING_PROTOCOLS, headers);
+        boolean handled = switchOn(handler, "websocket");
 
         assertFalse("an unrelated Upgrade response must not be claimed", handled);
         assertNull("opened() should not have been called", eventHandler.session);
@@ -95,7 +91,7 @@ public class ConnectUdpClientProtocolHandlerTest {
         RecordingConnectUdpHandler eventHandler = new RecordingConnectUdpHandler();
         ConnectUdpClientProtocolHandler handler =
                 new ConnectUdpClientProtocolHandler(null, eventHandler, "localhost", 8080, false);
-        handler.handleProtocolSwitch(HttpStatus.SWITCHING_PROTOCOLS, upgradeHeaders());
+        switchOn(handler, "connect-udp");
 
         byte[] udpPayload = "hello-target".getBytes(StandardCharsets.US_ASCII);
         ByteBuffer contextEncoded =
@@ -120,7 +116,7 @@ public class ConnectUdpClientProtocolHandlerTest {
         RecordingEndpoint endpoint = new RecordingEndpoint();
         handler.endpoint = endpoint;
 
-        handler.handleProtocolSwitch(HttpStatus.SWITCHING_PROTOCOLS, upgradeHeaders());
+        switchOn(handler, "connect-udp");
         assertNotNull(eventHandler.session);
 
         byte[] udpPayload = "to-target".getBytes(StandardCharsets.US_ASCII);
@@ -144,18 +140,58 @@ public class ConnectUdpClientProtocolHandlerTest {
         RecordingConnectUdpHandler eventHandler = new RecordingConnectUdpHandler();
         ConnectUdpClientProtocolHandler handler =
                 new ConnectUdpClientProtocolHandler(null, eventHandler, "localhost", 8080, false);
-        handler.handleProtocolSwitch(HttpStatus.SWITCHING_PROTOCOLS, upgradeHeaders());
+        switchOn(handler, "connect-udp");
 
         handler.disconnected();
 
         assertTrue("closed() should have been called", eventHandler.closed);
     }
 
-    private static List<Header> upgradeHeaders() {
-        List<Header> headers = new ArrayList<Header>();
-        headers.add(new Header("connection", "upgrade"));
-        headers.add(new Header("upgrade", "connect-udp"));
-        return headers;
+    @Test
+    public void testHandleProtocolSwitchRejectsResponseWithoutUpgradeToken() {
+        RecordingConnectUdpHandler eventHandler = new RecordingConnectUdpHandler();
+        ConnectUdpClientProtocolHandler handler =
+                new ConnectUdpClientProtocolHandler(null, eventHandler, "localhost", 8080, false);
+
+        assertFalse(switchOn(handler, null));
+        assertNull(eventHandler.session);
+    }
+
+    @Test
+    public void testUpgradeTokenFromEarlierResponseDoesNotLeakIntoTheNext() {
+        RecordingConnectUdpHandler eventHandler = new RecordingConnectUdpHandler();
+        ConnectUdpClientProtocolHandler handler =
+                new ConnectUdpClientProtocolHandler(null, eventHandler, "localhost", 8080, false);
+
+        assertFalse(switchOn(handler, "websocket"));
+        assertFalse("a 101 with no Upgrade token must not reuse the previous one",
+                switchOn(handler, null));
+        assertTrue(switchOn(handler, "connect-udp"));
+    }
+
+    @Test
+    public void testUpgradeTokenIsMatchedCaseInsensitively() {
+        RecordingConnectUdpHandler eventHandler = new RecordingConnectUdpHandler();
+        ConnectUdpClientProtocolHandler handler =
+                new ConnectUdpClientProtocolHandler(null, eventHandler, "localhost", 8080, false);
+
+        assertTrue(switchOn(handler, "CONNECT-UDP"));
+    }
+
+    /**
+     * Delivers a 101 response with the given Upgrade token the way the HTTP
+     * layer does: the events to protocolSwitchEvents(), then the hook.
+     */
+    private static boolean switchOn(ConnectUdpClientProtocolHandler handler, String upgrade) {
+        HttpMessageHandler events = handler.protocolSwitchEvents();
+        assertNotNull("the handler must ask to see the 101 events", events);
+        events.status(101);
+        events.header("connection", ByteBuffer.wrap("upgrade".getBytes(StandardCharsets.US_ASCII)));
+        if (upgrade != null) {
+            events.header("upgrade", ByteBuffer.wrap(upgrade.getBytes(StandardCharsets.US_ASCII)));
+        }
+        events.endHeaders();
+        return handler.handleProtocolSwitch(HttpStatus.SWITCHING_PROTOCOLS);
     }
 
     private static class RecordingEndpoint implements Endpoint {

@@ -51,7 +51,7 @@ import static org.junit.Assert.*;
  */
 public class StreamContentLengthValidationTest {
 
-    private static class StubConnection implements HttpConnectionLike {
+    private static class StubConnection extends HttpConnectionLike {
         @Override public void sendResponseTrailers(int streamId, List<Header> trailers) { }
         long maxRequestBodySize = 0; // unlimited, so only CL validation is under test
         HttpVersion version = HttpVersion.HTTP_1_1;

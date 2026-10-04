@@ -21,10 +21,9 @@
 
 package org.bluezoo.gumdrop.websocket.client;
 
-import org.bluezoo.gumdrop.http.HeaderFields;
-import org.bluezoo.gumdrop.http.Header;
 import java.io.IOException;
 import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
@@ -33,8 +32,10 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 
 import org.bluezoo.gumdrop.Endpoint;
+import org.bluezoo.gumdrop.http.HttpMessageHandler;
 import org.bluezoo.gumdrop.http.HttpStatus;
 import org.bluezoo.gumdrop.http.client.AltSvcListener;
+import org.bluezoo.gumdrop.http.client.DefaultHttpResponseHandler;
 import org.bluezoo.gumdrop.http.client.HttpClientHandler;
 import org.bluezoo.gumdrop.http.client.HttpClientProtocolHandler;
 import org.bluezoo.gumdrop.websocket.WebSocketConnection;
@@ -73,6 +74,13 @@ class WebSocketClientProtocolHandler extends HttpClientProtocolHandler {
     private List<WebSocketExtension> requestedExtensions = Collections.emptyList();
     private volatile boolean webSocketMode;
     private ClientWebSocketConnection webSocketConnection;
+
+    // What the 101 response being switched on said, as the events delivered
+    // by protocolSwitchEvents(): the values handleProtocolSwitch() validates
+    private String switchUpgrade;
+    private String switchConnection;
+    private String switchAccept;
+    private String switchExtensions;
 
     /**
      * Creates a WebSocket client protocol handler.
@@ -135,14 +143,52 @@ class WebSocketClientProtocolHandler extends HttpClientProtocolHandler {
         return webSocketConnection;
     }
 
+    /**
+     * Keeps the fields of the 101 response that RFC 6455 section 4.1 step 5
+     * validates, and the extensions the server accepted.
+     */
+    @Override
+    protected HttpMessageHandler protocolSwitchEvents() {
+        switchUpgrade = null;
+        switchConnection = null;
+        switchAccept = null;
+        switchExtensions = null;
+        return new DefaultHttpResponseHandler() {
+            @Override
+            public void header(String name, ByteBuffer value) {
+                byte[] octets = new byte[value.remaining()];
+                value.duplicate().get(octets);
+                String text = new String(octets, StandardCharsets.ISO_8859_1).trim();
+                if ("upgrade".equalsIgnoreCase(name)) {
+                    switchUpgrade = combine(switchUpgrade, text);
+                } else if ("connection".equalsIgnoreCase(name)) {
+                    switchConnection = combine(switchConnection, text);
+                } else if ("sec-websocket-accept".equalsIgnoreCase(name)) {
+                    if (switchAccept == null) {
+                        switchAccept = text;
+                    }
+                } else if ("sec-websocket-extensions".equalsIgnoreCase(name)) {
+                    if (switchExtensions == null) {
+                        switchExtensions = text;
+                    }
+                }
+            }
+        };
+    }
+
+    private static String combine(String existing, String value) {
+        return existing == null ? value : existing + ", " + value;
+    }
+
     /** RFC 6455 §4.1 — validates the server's 101 response and switches to WebSocket mode. */
     @Override
-    protected boolean handleProtocolSwitch(HttpStatus status, List<Header> headers) {
+    protected boolean handleProtocolSwitch(HttpStatus status) {
         if (websocketKey == null) {
             return false;
         }
 
-        if (!WebSocketHandshake.validateUpgradeResponse(websocketKey, headers)) {
+        if (!WebSocketHandshake.validateUpgradeResponse(websocketKey,
+                switchUpgrade, switchConnection, switchAccept)) {
             LOGGER.warning(L10N.getString("warn.upgrade_response_validation_failed"));
             eventHandler.error(new IOException("Invalid WebSocket upgrade response"));
             return false;
@@ -151,7 +197,7 @@ class WebSocketClientProtocolHandler extends HttpClientProtocolHandler {
         LOGGER.fine(L10N.getString("fine.upgrade_accepted"));
 
         // RFC 6455 §9 — negotiate extensions from server response
-        List<WebSocketExtension> activeExtensions = negotiateResponseExtensions(headers);
+        List<WebSocketExtension> activeExtensions = negotiateResponseExtensions();
 
         webSocketConnection = new ClientWebSocketConnection(eventHandler);
         webSocketConnection.setClientMode(true);
@@ -214,9 +260,8 @@ class WebSocketClientProtocolHandler extends HttpClientProtocolHandler {
      * RFC 6455 §9.1 — processes the server's Sec-WebSocket-Extensions
      * response and activates matching extensions from our offer list.
      */
-    private List<WebSocketExtension> negotiateResponseExtensions(List<Header> headers) {
-        return WebSocketHandshake.reconcileExtensions(
-                HeaderFields.getValue(headers, "Sec-WebSocket-Extensions"), requestedExtensions);
+    private List<WebSocketExtension> negotiateResponseExtensions() {
+        return WebSocketHandshake.reconcileExtensions(switchExtensions, requestedExtensions);
     }
 
     // ─────────────────────────────────────────────────────────────────────────

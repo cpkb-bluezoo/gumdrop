@@ -67,15 +67,16 @@ import org.bluezoo.gumdrop.websocket.WebSocketHandshake;
  * stream and sends SETTINGS in its constructor, and registers via
  * {@link H3ControlStream} to receive the peer's control stream events.
  *
- * <p>This class provides
- * {@link #sendRequest(List, HttpResponseHandler)} to initiate
- * HTTP/3 requests: each request opens a new bidirectional stream
- * handled by its own {@link H3ClientStream}, which owns its own
+ * <p>Requests are made through {@link org.bluezoo.gumdrop.http.HttpClient}
+ * and {@link org.bluezoo.gumdrop.http.client.HttpRequest}, which {@link H3Request}
+ * implements over this handler: each request opens a new bidirectional
+ * stream handled by its own {@link H3ClientStream}, which owns its own
  * {@link H3Parser} and translates response frames into
  * {@link HttpResponseHandler} callbacks directly as they arrive, rather
- * than through any polling loop. Public send entry points marshal onto
- * the connection's {@code SelectorLoop} so callers need not share that
- * thread affinity.
+ * than through any polling loop. The extended CONNECT entry points
+ * ({@link #connectWebSocket}, {@link #connectUdp}, {@link #connectIp})
+ * marshal onto the connection's {@code SelectorLoop} so callers need not
+ * share that thread affinity.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see H3ClientStream
@@ -463,7 +464,7 @@ public final class Http3ClientHandler implements H3ControlStream.Listener {
      * @param handler the handler to receive response events
      * @return the stream ID, or -1 on failure
      */
-    public long sendRequest(List<Header> headers, HttpResponseHandler handler) {
+    long sendRequest(List<Header> headers, HttpResponseHandler handler) {
         return sendRequest(headers, handler, true);
     }
 
@@ -491,7 +492,7 @@ public final class Http3ClientHandler implements H3ControlStream.Listener {
      * @return the stream ID, or -1 on failure or if the open is still
      *         queued behind peer MAX_STREAMS credit
      */
-    public long sendRequest(final List<Header> headers, final HttpResponseHandler handler,
+    long sendRequest(final List<Header> headers, final HttpResponseHandler handler,
             final boolean fin) {
         final long[] streamId = new long[] { -1L };
         final CountDownLatch done = new CountDownLatch(1);
@@ -618,7 +619,7 @@ public final class Http3ClientHandler implements H3ControlStream.Listener {
      * @param data the body data
      * @param fin true if this is the last body data
      */
-    public void sendRequestBody(final long streamId, ByteBuffer data, final boolean fin) {
+    void sendRequestBody(final long streamId, ByteBuffer data, final boolean fin) {
         final byte[] snapshot = new byte[data.remaining()];
         data.get(snapshot);
         execute(new Runnable() {
@@ -769,7 +770,7 @@ public final class Http3ClientHandler implements H3ControlStream.Listener {
      * {@code CONNECT} request with {@code :protocol: websocket} and the
      * requested subprotocol/extensions, and leaves the stream open in
      * both directions for the WebSocket tunnel -- unlike
-     * {@link #sendRequest}, this never closes the stream after sending
+     * an ordinary request, this never closes the stream after sending
      * headers. Once the server responds with {@code 200}, {@code wsHandler}
      * starts receiving {@link org.bluezoo.gumdrop.websocket.WebSocketEventHandler}
      * callbacks; any other response, or a connection-level failure before

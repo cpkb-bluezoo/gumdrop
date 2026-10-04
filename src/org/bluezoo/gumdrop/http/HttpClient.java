@@ -418,7 +418,7 @@ public class HttpClient implements AltSvcListener {
     /**
      * Forces HTTP/3 over QUIC, bypassing automatic transport negotiation.
      *
-     * <p>By default (this not called), {@link #connect(HttpClientHandler)}
+     * <p>By default (this not called), {@link #connect(Gumdrop, HttpClientHandler)}
      * negotiates the transport automatically: a DNS HTTPS record
      * advertising "h3" support (see {@link #setDnsHttpsRecordEnabled(boolean)}),
      * then a cached Alt-Svc discovery ({@link AltSvcCache}), then plain TCP
@@ -457,7 +457,7 @@ public class HttpClient implements AltSvcListener {
      * Enables or disables DNS HTTPS-record discovery (RFC 9460) of HTTP/3
      * support, checked before connecting.
      *
-     * <p>When enabled (the default), {@link #connect(HttpClientHandler)}
+     * <p>When enabled (the default), {@link #connect(Gumdrop, HttpClientHandler)}
      * queries an HTTPS record for the target host via gumdrop's async
      * {@link DnsResolver} before choosing a transport; if it advertises
      * "h3" ALPN support, the connection uses QUIC directly. This is the
@@ -477,7 +477,7 @@ public class HttpClient implements AltSvcListener {
      * <p>When enabled, if a session ticket was cached from a previous
      * connection to the same destination ({@link org.bluezoo.gumdrop.quic.SessionTicketCache}),
      * a GET/HEAD/OPTIONS/TRACE request issued immediately after
-     * {@link #connect(HttpClientHandler)} may ride the very first flight of
+     * {@link #connect(Gumdrop, HttpClientHandler)} may ride the very first flight of
      * packets, before the TLS handshake completes -- see
      * {@link HttpMethodSafety}. Disabled by default: 0-RTT data has no
      * anti-replay guarantee at the transport layer, so this is an explicit

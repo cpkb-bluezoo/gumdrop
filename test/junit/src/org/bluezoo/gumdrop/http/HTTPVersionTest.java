@@ -155,10 +155,20 @@ public class HTTPVersionTest {
         HeaderFields.add(headers, "Transfer-Encoding", "chunked");
         HeaderFields.add(headers, "Content-Type", "text/plain");
         HeaderFields.add(headers, ":method", "GET");
-        HttpVersion.stripHttp1FramingHeaders(headers);
+        HeaderFields.stripHttp1FramingHeaders(headers, false);
         assertNull(HeaderFields.getValue(headers, "Content-Length"));
         assertNull(HeaderFields.getValue(headers, "Transfer-Encoding"));
         assertEquals("text/plain", HeaderFields.getValue(headers, "Content-Type"));
         assertEquals("GET", HeaderFields.getValue(headers, ":method"));
+    }
+
+    @Test
+    public void testStripHttp1FramingHeadersKeepingContentLength() {
+        List<Header> headers = new ArrayList<Header>();
+        HeaderFields.add(headers, "Content-Length", "42");
+        HeaderFields.add(headers, "Transfer-Encoding", "chunked");
+        HeaderFields.stripHttp1FramingHeaders(headers, true);
+        assertEquals("42", HeaderFields.getValue(headers, "Content-Length"));
+        assertNull(HeaderFields.getValue(headers, "Transfer-Encoding"));
     }
 }

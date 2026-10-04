@@ -725,21 +725,27 @@ class Request implements HttpServletRequest {
      * @return true if this is a valid WebSocket upgrade request
      */
     private boolean isWebSocketUpgrade() {
-        // Use the request headers from this Request object
-        ServletHeaders requestHeaders = new ServletHeaders();
-        
-        // Convert servlet headers to HTTP headers
-        Enumeration<String> headerNames = getHeaderNames();
-        while (headerNames.hasMoreElements()) {
-            String name = headerNames.nextElement();
-            Enumeration<String> values = getHeaders(name);
-            while (values.hasMoreElements()) {
-                String value = values.nextElement();
-                requestHeaders.add(name, value);
-            }
+        return WebSocketHandshake.isValidWebSocketUpgrade(
+                combinedHeader("Upgrade"),
+                combinedHeader("Connection"),
+                getHeader("Sec-WebSocket-Key"),
+                getHeader("Sec-WebSocket-Version"));
+    }
+
+    /** The values of a request header joined as a comma-separated list, or null if absent. */
+    private String combinedHeader(String name) {
+        Enumeration<String> values = getHeaders(name);
+        if (values == null || !values.hasMoreElements()) {
+            return null;
         }
-        
-        return WebSocketHandshake.isValidWebSocketUpgrade(requestHeaders);
+        StringBuilder combined = new StringBuilder();
+        while (values.hasMoreElements()) {
+            if (combined.length() > 0) {
+                combined.append(", ");
+            }
+            combined.append(values.nextElement());
+        }
+        return combined.toString();
     }
 
     /**

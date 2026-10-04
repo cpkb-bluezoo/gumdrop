@@ -468,7 +468,7 @@ class H3ClientStream implements ProtocolHandler, H3FrameHandler {
             }
             return;
         }
-        List<Header> fields = collected.headers();
+        List<Header> fields = HeaderFields.collected(collected);
         if (connection != null
                 && H3Writer.fieldSectionSize(fields) > connection.getLocalMaxFieldSectionSize()) {
             abortExcessiveLoad("response field section exceeds SETTINGS_MAX_FIELD_SECTION_SIZE");
@@ -529,7 +529,8 @@ class H3ClientStream implements ProtocolHandler, H3FrameHandler {
             // on HEAD may still describe a would-be GET body.
             responseMustNotHaveBody = statusCode == 204 || statusCode == 304
                     || "HEAD".equalsIgnoreCase(requestMethod);
-            capsuleMode = Capsule.capsuleProtocolEnabled(hdrs);
+            capsuleMode = Capsule.capsuleProtocolEnabled(
+                    HeaderFields.getValue(hdrs, Capsule.PROTOCOL_HEADER));
 
             // See this class's own documentation: an Extended CONNECT
             // response has no HTTP body, and HTTP/3 has no way to learn

@@ -1608,12 +1608,158 @@ public class HttpProtocolHandlerH2WireTest {
             }
         });
         Decoded h = c.responseHeaderFrames(1).get(0);
-        // the HTTP/1 framing fields are stripped from HTTP/2 responses (HttpVersion)
-        assertNull(h.get("content-length"));
+        // a Content-Length the handler set is sent as it is (RFC 9113 section 8.1.1)
+        assertEquals("2", h.get("content-length"));
         assertEquals("Thu, 01 Jan 1970 00:00:00 GMT", h.get("last-modified"));
         assertTrue(h.get("content-type"), h.get("content-type").startsWith("text/plain"));
         assertFalse(h.endStream());
         assertEquals(2, dataBytes(c.frames(), 1));
+    }
+
+    private static Conn scriptedMethod(String method, Script script) {
+        Conn c = new Conn();
+        c.app.script = script;
+        c.handshake();
+        c.request(1, method, "/r", true);
+        return c;
+    }
+
+    private static boolean anyEndStream(Conn c, int streamId) {
+        List<Frame> frames = c.frames();
+        for (int i = 0; i < frames.size(); i++) {
+            Frame f = frames.get(i);
+            if (f.streamId == streamId && (f.type == 0 || f.type == 1)
+                    && (f.flags & 1) != 0) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static void assertStreamReset(Conn c, int streamId) {
+        List<Frame> frames = c.frames();
+        Frame rst = null;
+        for (int i = 0; i < frames.size(); i++) {
+            if (frames.get(i).type == 3 && frames.get(i).streamId == streamId) {
+                rst = frames.get(i);
+            }
+        }
+        assertNotNull("the stream is reset", rst);
+        assertEquals("INTERNAL_ERROR", 2, rst.payload[3]);
+        assertFalse("no clean END_STREAM", anyEndStream(c, streamId));
+    }
+
+    @Test
+    public void testContentLengthPassesThroughOnMatchingBody() {
+        Conn c = scripted(new Script() {
+            @Override
+            public void run(HttpResponse r) {
+                r.status(200);
+                r.longHeader("content-length", 3L);
+                r.bodyContent(ByteBuffer.wrap(new byte[] {1, 2}));
+                r.bodyContent(ByteBuffer.wrap(new byte[] {3}));
+                r.endMessage();
+            }
+        });
+        assertEquals("3", c.responseHeaderFrames(1).get(0).get("content-length"));
+        assertEquals(3, dataBytes(c.frames(), 1));
+        assertTrue(anyEndStream(c, 1));
+        assertEquals(0, count(c.frames(), 3));
+    }
+
+    @Test
+    public void testHeadResponseKeepsContentLength() {
+        Conn c = scriptedMethod("HEAD", new Script() {
+            @Override
+            public void run(HttpResponse r) {
+                r.status(200);
+                r.longHeader("content-length", 100L);
+                r.endMessage();
+            }
+        });
+        Decoded h = c.responseHeaderFrames(1).get(0);
+        assertEquals("100", h.get("content-length"));
+        assertTrue(h.endStream());
+        assertEquals(0, count(c.frames(), 3));
+    }
+
+    @Test
+    public void testNotModifiedKeepsContentLengthWithoutBody() {
+        Conn c = scripted(new Script() {
+            @Override
+            public void run(HttpResponse r) {
+                r.status(304);
+                r.longHeader("content-length", 100L);
+                r.endMessage();
+            }
+        });
+        Decoded h = c.responseHeaderFrames(1).get(0);
+        assertEquals("100", h.get("content-length"));
+        assertTrue(h.endStream());
+        assertEquals(0, count(c.frames(), 3));
+    }
+
+    @Test
+    public void testNoContentLengthIsNotEnforced() {
+        Conn c = scripted(new Script() {
+            @Override
+            public void run(HttpResponse r) {
+                r.status(204);
+                r.longHeader("content-length", 7L);
+                r.endMessage();
+            }
+        });
+        assertEquals(0, count(c.frames(), 3));
+        assertTrue(c.responseHeaderFrames(1).get(0).endStream());
+    }
+
+    @Test
+    public void testBodyLongerThanContentLengthResetsStream() {
+        final boolean[] refused = new boolean[1];
+        Conn c = scripted(new Script() {
+            @Override
+            public void run(HttpResponse r) {
+                r.status(200);
+                r.longHeader("content-length", 2L);
+                r.bodyContent(ByteBuffer.wrap(new byte[] {1}));
+                try {
+                    r.bodyContent(ByteBuffer.wrap(new byte[] {2, 3}));
+                } catch (IllegalStateException e) {
+                    refused[0] = true;
+                }
+                r.endMessage();
+            }
+        });
+        assertTrue("the excess is refused", refused[0]);
+        assertStreamReset(c, 1);
+        assertEquals("the excess is never sent", 1, dataBytes(c.frames(), 1));
+    }
+
+    @Test
+    public void testBodyShorterThanContentLengthResetsStream() {
+        Conn c = scripted(new Script() {
+            @Override
+            public void run(HttpResponse r) {
+                r.status(200);
+                r.longHeader("content-length", 5L);
+                r.bodyContent(ByteBuffer.wrap(new byte[] {1, 2}));
+                r.endMessage();
+            }
+        });
+        assertStreamReset(c, 1);
+    }
+
+    @Test
+    public void testContentLengthWithNoBodyResetsStream() {
+        Conn c = scripted(new Script() {
+            @Override
+            public void run(HttpResponse r) {
+                r.status(200);
+                r.longHeader("content-length", 5L);
+                r.endMessage();
+            }
+        });
+        assertStreamReset(c, 1);
     }
 
     @Test

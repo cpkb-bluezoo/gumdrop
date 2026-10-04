@@ -22,9 +22,6 @@
 package org.bluezoo.gumdrop.http.server;
 
 
-import org.bluezoo.gumdrop.http.HeaderFields;
-import java.util.ArrayList;
-import org.bluezoo.gumdrop.http.Header;
 import org.bluezoo.gumdrop.http.Capsule;
 import org.bluezoo.gumdrop.http.ConnectUdpTarget;
 import org.bluezoo.gumdrop.http.HttpMethod;
@@ -143,22 +140,13 @@ public class ConnectUdpRequestHandler extends DefaultHttpRequestHandler {
         return new String(octets, StandardCharsets.ISO_8859_1);
     }
 
-    /** The request's Capsule-Protocol field, as a field for {@link Capsule#capsuleProtocolEnabled}. */
-    private List<Header> capsuleHeaders() {
-        List<Header> headers = new ArrayList<Header>();
-        if (capsuleProtocol != null) {
-            HeaderFields.add(headers, "capsule-protocol", capsuleProtocol);
-        }
-        return headers;
-    }
-
     @Override
     public void endHeaders() {
         if (!isConnectUdpRequest()) {
             rejectRequest(400);
             return;
         }
-        if (!Capsule.capsuleProtocolEnabled(capsuleHeaders())) {
+        if (!Capsule.capsuleProtocolEnabled(capsuleProtocol)) {
             LOGGER.warning(L10N.getString("warn.connect_udp_not_capsule"));
             rejectRequest(400);
             return;

@@ -178,6 +178,13 @@ class Stream implements HttpResponse {
     // Response body size tracking for metrics
     private long responseBodyBytes = 0L;
 
+    /**
+     * The Content-Length the handler declared for an HTTP/2 response whose
+     * DATA must add up to it, or -1 when there is none to enforce (HTTP/1,
+     * HEAD, 204, 304, or no declared length).
+     */
+    private long responseDeclaredLength = -1L;
+
     /** True when HTTP/1.1 response uses Transfer-Encoding: chunked (auto-added) */
     private boolean responseChunked = false;
 
@@ -563,7 +570,7 @@ class Stream implements HttpResponse {
             // malformed, a stream error, decided only now that the whole
             // block has been decoded so the HPACK state stays in step.
             boolean accepted = adapter.finish();
-            for (Header header : collected.headers()) {
+            for (Header header : HeaderFields.collected(collected)) {
                 addHeader(header);
             }
             if (!accepted || collected.isMalformed()) {
@@ -743,7 +750,7 @@ class Stream implements HttpResponse {
             }
         }
         if (connection.getVersion() == HttpVersion.HTTP_2_0 && headers != null) {
-            HttpVersion.stripHttp1FramingHeaders(headers);
+            HeaderFields.stripHttp1FramingHeaders(headers, false);
         }
         if (maxBody > 0) {
             if (!chunked && contentLength > maxBody) {
@@ -791,7 +798,8 @@ class Stream implements HttpResponse {
         // via HttpStreamHandler.openStream() (the late-bind branch below
         // already did this; pre-bound handlers did not).
         if (!requestHeadersDispatched && headers != null) {
-            capsuleMode = Capsule.capsuleProtocolEnabled(headers);
+            capsuleMode = Capsule.capsuleProtocolEnabled(
+                    HeaderFields.getValue(headers, Capsule.PROTOCOL_HEADER));
         }
         
         // Dispatch to handler if present
@@ -812,7 +820,8 @@ class Stream implements HttpResponse {
                     return;
                 }
                 replayRecordedEvents();
-                capsuleMode = Capsule.capsuleProtocolEnabled(headers);
+                capsuleMode = Capsule.capsuleProtocolEnabled(
+                    HeaderFields.getValue(headers, Capsule.PROTOCOL_HEADER));
             } else if (responseState == ResponseState.INITIAL) {
                 try {
                     sendError(404);
@@ -1259,6 +1268,19 @@ class Stream implements HttpResponse {
         // Save status code for telemetry
         this.responseStatusCode = statusCode;
 
+        // RFC 9113 section 8.1.1: a Content-Length on an HTTP/2 response
+        // must equal the DATA bytes. A HEAD, 204 or 304 response carries
+        // none, so what it declares is not checked.
+        if (hasContentLength && connection.getVersion() == HttpVersion.HTTP_2_0
+                && statusCode != 204 && statusCode != 304 && !"HEAD".equals(method)) {
+            responseDeclaredLength = parseDeclaredLength(
+                    HeaderFields.getValue(headers, "Content-Length"));
+            if (responseDeclaredLength >= 0 && endStream && responseDeclaredLength != 0) {
+                abortResponseLength();
+                return;
+            }
+        }
+
         connection.sendResponseHeaders(streamId, statusCode, headers, endStream);
         if (endStream) {
             if (state == State.HALF_CLOSED_REMOTE) {
@@ -1277,6 +1299,40 @@ class Stream implements HttpResponse {
             // End telemetry span with response status
             endTelemetrySpan(statusCode);
         }
+    }
+
+    /**
+     * Parses a Content-Length field value.
+     *
+     * @return the length, or -1 if the value is not a valid one
+     */
+    private static long parseDeclaredLength(String value) {
+        if (value == null) {
+            return -1L;
+        }
+        try {
+            long length = Long.parseLong(value.trim());
+            return length >= 0 ? length : -1L;
+        } catch (NumberFormatException e) {
+            return -1L;
+        }
+    }
+
+    /**
+     * Abandons an HTTP/2 response whose body does not add up to the
+     * Content-Length it declared (RFC 9113 section 8.1.1): the stream is
+     * reset with INTERNAL_ERROR rather than ended as if it were sound.
+     */
+    private void abortResponseLength() {
+        LOGGER.warning(MessageFormat.format(
+                L10N.getString("warn.response_length_mismatch"),
+                Integer.valueOf(streamId), Long.valueOf(responseDeclaredLength),
+                Long.valueOf(responseBodyBytes)));
+        responseDeclaredLength = -1L;
+        connection.sendRstStream(streamId, H2FrameHandler.ERROR_INTERNAL_ERROR);
+        responseState = ResponseState.COMPLETE;
+        bufferedResponseHeaders = null;
+        streamClose(false);
     }
 
     /**
@@ -1336,6 +1392,22 @@ class Stream implements HttpResponse {
      */
     final void sendResponseBody(ByteBuffer buf, boolean endStream) throws ProtocolException {
         int bytesToAdd = (buf != null) ? buf.remaining() : 0;
+        if (responseDeclaredLength >= 0) {
+            long total = responseBodyBytes + bytesToAdd;
+            if (total > responseDeclaredLength) {
+                responseBodyBytes = total;
+                abortResponseLength();
+                throw new ProtocolException(MessageFormat.format(
+                        L10N.getString("warn.response_length_mismatch"),
+                        Integer.valueOf(streamId), Long.valueOf(responseDeclaredLength),
+                        Long.valueOf(total)));
+            }
+            if (endStream && total != responseDeclaredLength) {
+                responseBodyBytes = total;
+                abortResponseLength();
+                return;
+            }
+        }
         boolean closeAfter = sendResponseBodyInternal(bytesToAdd, endStream);
         writeResponseBody(buf, endStream);
         if (closeAfter) {
@@ -1649,7 +1721,11 @@ class Stream implements HttpResponse {
             return "CONNECT".equals(HeaderFields.getValue(headers, ":method"))
                     && "websocket".equalsIgnoreCase(HeaderFields.getValue(headers, ":protocol"));
         }
-        return WebSocketHandshake.isValidWebSocketUpgrade(headers);
+        return WebSocketHandshake.isValidWebSocketUpgrade(
+                HeaderFields.getCombinedValue(headers, "Upgrade"),
+                HeaderFields.getCombinedValue(headers, "Connection"),
+                HeaderFields.getValue(headers, "Sec-WebSocket-Key"),
+                HeaderFields.getValue(headers, "Sec-WebSocket-Version"));
     }
     
     // ─────────────────────────────────────────────────────────────────────────
@@ -1709,8 +1785,18 @@ class Stream implements HttpResponse {
             } else {
                 String key = HeaderFields.getValue(headers, "sec-websocket-key");
                 String extHeader = WebSocketHandshake.formatExtensions(extensions);
-                List<Header> responseHeaders = WebSocketHandshake.createWebSocketResponse(
-                        key, subprotocol, extHeader);
+                // RFC 6455 section 4.2.2
+                List<Header> responseHeaders = new ArrayList<Header>();
+                HeaderFields.add(responseHeaders, "Upgrade", "websocket");
+                HeaderFields.add(responseHeaders, "Connection", "Upgrade");
+                HeaderFields.add(responseHeaders, "Sec-WebSocket-Accept",
+                        WebSocketHandshake.calculateAccept(key));
+                if (subprotocol != null && !subprotocol.trim().isEmpty()) {
+                    HeaderFields.add(responseHeaders, "Sec-WebSocket-Protocol", subprotocol.trim());
+                }
+                if (extHeader != null && !extHeader.trim().isEmpty()) {
+                    HeaderFields.add(responseHeaders, "Sec-WebSocket-Extensions", extHeader.trim());
+                }
                 sendResponseHeaders(101, responseHeaders, false);
             }
 
@@ -2308,6 +2394,10 @@ class Stream implements HttpResponse {
         }
 
         if (responseState == ResponseState.IN_BODY && trailersStarted) {
+            if (responseDeclaredLength >= 0 && responseBodyBytes != responseDeclaredLength) {
+                abortResponseLength();
+                return;
+            }
             try {
                 sendTrailers();
             } catch (ProtocolException e) {

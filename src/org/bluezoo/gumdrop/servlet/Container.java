@@ -78,7 +78,7 @@ import org.bluezoo.gumdrop.util.MessageFormatter;
  *
  * <p>Owns servlet runtime resources (worker pool, async timeout scheduler,
  * access logging, authentication provider wiring) and coordinates
- * {@link #start()} / {@link #destroy()} lifecycle for composed
+ * {@link #start(Gumdrop)} / {@link #destroy()} lifecycle for composed
  * {@link org.bluezoo.gumdrop.servlet.server.ServletRequestHandler} use.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>

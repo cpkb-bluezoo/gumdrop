@@ -35,53 +35,53 @@ import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
 import org.bluezoo.gumdrop.telemetry.Trace;
 
 /**
- * Interface for HTTP connection abstractions used by {@link Stream}.
+ * Abstract base for HTTP connection abstractions used by {@link Stream}.
  *
- * <p>{@link HttpProtocolHandler} implements this interface so that
+ * <p>{@link HttpProtocolHandler} extends this class so that
  * {@link Stream} can interact with the HTTP protocol handler uniformly.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-public interface HttpConnectionLike {
+abstract class HttpConnectionLike {
 
-    String getScheme();
-    HttpVersion getVersion();
-    SocketAddress getRemoteSocketAddress();
-    SocketAddress getLocalSocketAddress();
-    SecurityInfo getSecurityInfoForStream();
-    HttpStreamHandler getStreamHandler();
+    abstract String getScheme();
+    abstract HttpVersion getVersion();
+    abstract SocketAddress getRemoteSocketAddress();
+    abstract SocketAddress getLocalSocketAddress();
+    abstract SecurityInfo getSecurityInfoForStream();
+    abstract HttpStreamHandler getStreamHandler();
 
-    void sendResponseHeaders(int streamId, int statusCode, List<Header> headers, boolean endStream);
-    void sendResponseBody(int streamId, ByteBuffer buf, boolean endStream);
+    abstract void sendResponseHeaders(int streamId, int statusCode, List<Header> headers, boolean endStream);
+    abstract void sendResponseBody(int streamId, ByteBuffer buf, boolean endStream);
 
     /**
      * Sends trailer fields as the final HEADERS frame of an HTTP/2 response,
      * ending the stream, after any data still queued for it. HTTP/1.x
      * trailers are part of the chunked body and are written by the stream.
      */
-    void sendResponseTrailers(int streamId, List<Header> trailers);
-    void send(ByteBuffer buf);
-    void sendRstStream(int streamId, int errorCode);
-    void sendGoaway(int errorCode);
-    void switchToWebSocketMode(int streamId);
-    void switchToStreamTunnelMode(int streamId);
-    Decoder getHpackDecoder();
-    boolean isSecure();
-    TelemetryConfig getTelemetryConfig();
-    Trace getTrace();
-    void setTrace(Trace trace);
-    boolean isTelemetryEnabled();
-    HttpServerMetrics getServerMetrics();
-    boolean isEnablePush();
-    Stream newStream(HttpConnectionLike connection, int streamId);
-    int getNextServerStreamId();
-    byte[] encodeHeaders(List<Header> headers);
-    void sendPushPromise(int streamId, int promisedStreamId, ByteBuffer headerBlock, boolean endHeaders);
-    Stream createPushedStream(int streamId, String method, String uri, List<Header> headers);
-    SelectorLoop getSelectorLoop();
-    TimerHandle scheduleTimer(long delayMs, Runnable callback);
-    int getMaxHeaderListSize();
-    long getMaxRequestBodySize();
+    abstract void sendResponseTrailers(int streamId, List<Header> trailers);
+    abstract void send(ByteBuffer buf);
+    abstract void sendRstStream(int streamId, int errorCode);
+    abstract void sendGoaway(int errorCode);
+    abstract void switchToWebSocketMode(int streamId);
+    abstract void switchToStreamTunnelMode(int streamId);
+    abstract Decoder getHpackDecoder();
+    abstract boolean isSecure();
+    abstract TelemetryConfig getTelemetryConfig();
+    abstract Trace getTrace();
+    abstract void setTrace(Trace trace);
+    abstract boolean isTelemetryEnabled();
+    abstract HttpServerMetrics getServerMetrics();
+    abstract boolean isEnablePush();
+    abstract Stream newStream(HttpConnectionLike connection, int streamId);
+    abstract int getNextServerStreamId();
+    abstract byte[] encodeHeaders(List<Header> headers);
+    abstract void sendPushPromise(int streamId, int promisedStreamId, ByteBuffer headerBlock, boolean endHeaders);
+    abstract Stream createPushedStream(int streamId, String method, String uri, List<Header> headers);
+    abstract SelectorLoop getSelectorLoop();
+    abstract TimerHandle scheduleTimer(long delayMs, Runnable callback);
+    abstract int getMaxHeaderListSize();
+    abstract long getMaxRequestBodySize();
 
     /**
      * Returns the authentication provider configured for this connection's
@@ -89,7 +89,7 @@ public interface HttpConnectionLike {
      *
      * @return the authentication provider, or null
      */
-    HttpAuthenticationProvider getAuthenticationProvider();
+    abstract HttpAuthenticationProvider getAuthenticationProvider();
 
     /**
      * Registers a one-shot callback invoked when the transport is ready
@@ -105,7 +105,7 @@ public interface HttpConnectionLike {
      * @param streamId the stream requesting write-readiness notification
      * @param callback the callback, or null to clear
      */
-    void onWritable(int streamId, Runnable callback);
+    abstract void onWritable(int streamId, Runnable callback);
 
     /**
      * Pauses delivery of request body data for the given stream.
@@ -124,7 +124,7 @@ public interface HttpConnectionLike {
      *
      * @param streamId the stream to pause
      */
-    void pauseRead(int streamId);
+    abstract void pauseRead(int streamId);
 
     /**
      * Resumes delivery of request body data for the given stream
@@ -143,7 +143,7 @@ public interface HttpConnectionLike {
      *
      * @param streamId the stream to resume
      */
-    void resumeRead(int streamId);
+    abstract void resumeRead(int streamId);
 
     /**
      * Returns the number of response body bytes currently buffered for
@@ -158,7 +158,7 @@ public interface HttpConnectionLike {
      * @return the number of buffered, unsent bytes; 0 if none or not
      *      applicable to this transport
      */
-    int pendingResponseBytes(int streamId);
+    abstract int pendingResponseBytes(int streamId);
 
     /**
      * Applies RFC 9218 priority from a request's {@code Priority} header.
@@ -167,6 +167,6 @@ public interface HttpConnectionLike {
      * @param streamId the HTTP/2 stream identifier
      * @param headers the decoded request headers
      */
-    default void applyRfc9218Priority(int streamId, List<Header> headers) {
+    void applyRfc9218Priority(int streamId, List<Header> headers) {
     }
 }

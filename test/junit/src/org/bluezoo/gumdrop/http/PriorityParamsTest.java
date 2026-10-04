@@ -76,7 +76,8 @@ public class PriorityParamsTest {
     public void testFromHeaders() {
         List<Header> headers = new ArrayList<Header>();
         HeaderFields.add(headers, "Priority", "u=1, i");
-        assertEquals(new PriorityParams(1, true), PriorityParams.fromHeaders(headers));
+        assertEquals(new PriorityParams(1, true), PriorityParams.parse(
+                HeaderFields.getValue(headers, PriorityParams.PRIORITY_HEADER)));
     }
 
     @Test

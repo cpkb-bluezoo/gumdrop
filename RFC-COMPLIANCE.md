@@ -803,6 +803,7 @@ practices.
 | CONNECT needs only :method | 8.3.1 | Compliant | Special case in `validateH2Headers()` |
 | :status response pseudo-header | 8.3.2 | Compliant | Added in `sendResponseHeaders()` |
 | Connection-specific headers MUST NOT appear | 8.2.2 | Compliant | Stripped in `sendResponseHeaders()`; rejected in `validateH2Headers()` |
+| Content-Length MUST equal the DATA bytes | 8.1.1 | Compliant | Handler-set value is sent; a mismatch resets the stream with INTERNAL_ERROR (not checked for HEAD, 204, 304) |
 | Transfer-Encoding MUST NOT appear | 8.2.2 | Compliant | Rejected in `validateH2Headers()` |
 | TE only with "trailers" value | 8.2.2 | Compliant | Validated in `validateH2Headers()` |
 | Server push via PUSH_PROMISE | 8.4 | Compliant | `Stream.startPushPromise()` / `endPushPromise()` + `sendPushPromise()` both gated by `isEnablePush()` |

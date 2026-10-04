@@ -21,9 +21,6 @@
 
 package org.bluezoo.gumdrop.websocket;
 
-import org.bluezoo.gumdrop.http.HeaderFields;
-import org.bluezoo.gumdrop.http.Header;
-
 import java.io.UnsupportedEncodingException;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -41,7 +38,7 @@ import java.util.logging.Logger;
  * WebSocket handshake utilities implementing RFC 6455 §4.
  * Handles the opening handshake for both server (§4.2) and client (§4.1)
  * sides, including key validation, accept value calculation, response
- * header generation, and extension negotiation (§9).
+ * validation, and extension negotiation (§9).
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see <a href="https://tools.ietf.org/html/rfc6455">RFC 6455: The WebSocket Protocol</a>
@@ -94,28 +91,22 @@ public class WebSocketHandshake {
     }
 
     /**
-     * RFC 6455 §4.2.1 — validates a server-side WebSocket upgrade request.
-     * Checks required headers: Upgrade: websocket, Connection: Upgrade,
-     * Sec-WebSocket-Key, Sec-WebSocket-Version: 13.
+     * RFC 6455 §4.2.1 — validates a server-side WebSocket upgrade request
+     * from the values of its fields. Checks that the upgrade token list
+     * contains {@code websocket}, the connection token list contains
+     * {@code Upgrade}, the key is present and the version is {@code 13}.
      *
-     * @param headers the HTTP request headers
+     * @param upgrade the combined value of the {@code Upgrade} fields (may be null)
+     * @param connection the combined value of the {@code Connection} fields (may be null)
+     * @param key the {@code Sec-WebSocket-Key} value (may be null)
+     * @param version the {@code Sec-WebSocket-Version} value (may be null)
      * @return true if this is a valid WebSocket upgrade request
      */
-    public static boolean isValidWebSocketUpgrade(List<Header> headers) {
-        // Check Upgrade header contains "websocket"
-        String upgradeValue = HeaderFields.getCombinedValue(headers, "Upgrade");
-        boolean hasUpgradeWebSocket = containsIgnoreCase(upgradeValue, "websocket");
-
-        // Check Connection header contains "Upgrade"
-        String connectionValue = HeaderFields.getCombinedValue(headers, "Connection");
-        boolean hasConnectionUpgrade = containsIgnoreCase(connectionValue, "Upgrade");
-
-        // Check Sec-WebSocket-Key is present and non-empty
-        String key = HeaderFields.getValue(headers, "Sec-WebSocket-Key");
+    public static boolean isValidWebSocketUpgrade(String upgrade, String connection,
+                                                  String key, String version) {
+        boolean hasUpgradeWebSocket = containsIgnoreCase(upgrade, "websocket");
+        boolean hasConnectionUpgrade = containsIgnoreCase(connection, "Upgrade");
         boolean hasWebSocketKey = (key != null && !key.trim().isEmpty());
-
-        // Check Sec-WebSocket-Version is "13"
-        String version = HeaderFields.getValue(headers, "Sec-WebSocket-Version");
         boolean hasValidVersion = (version != null && WEBSOCKET_VERSION.equals(version.trim()));
 
         boolean isValid = hasUpgradeWebSocket && hasConnectionUpgrade && hasWebSocketKey && hasValidVersion;
@@ -150,47 +141,6 @@ public class WebSocketHandshake {
             start = end + 1;
         }
         return false;
-    }
-
-    /**
-     * RFC 6455 §4.2.2 — creates the 101 Switching Protocols response headers:
-     * Upgrade, Connection, Sec-WebSocket-Accept, and optional Sec-WebSocket-Protocol.
-     *
-     * @param key the Sec-WebSocket-Key from the client request
-     * @param protocol the negotiated subprotocol (may be null, §4.2.2)
-     * @return headers for the WebSocket upgrade response
-     * @throws IllegalArgumentException if the key is invalid
-     */
-    public static List<Header> createWebSocketResponse(String key, String protocol) {
-        return createWebSocketResponse(key, protocol, null);
-    }
-
-    /**
-     * RFC 6455 §4.2.2 — creates the 101 response headers, including the
-     * optional {@code Sec-WebSocket-Extensions} header (§9.1).
-     *
-     * @param key the Sec-WebSocket-Key from the client request
-     * @param protocol the negotiated subprotocol (may be null)
-     * @param extensions the negotiated extensions header value (may be null)
-     * @return headers for the WebSocket upgrade response
-     */
-    public static List<Header> createWebSocketResponse(String key, String protocol,
-                                                  String extensions) {
-        List<Header> responseHeaders = new ArrayList<Header>();
-        HeaderFields.add(responseHeaders, "Upgrade", "websocket");
-        HeaderFields.add(responseHeaders, "Connection", "Upgrade");
-
-        String accept = calculateAccept(key);
-        HeaderFields.add(responseHeaders, "Sec-WebSocket-Accept", accept);
-
-        if (protocol != null && !protocol.trim().isEmpty()) {
-            HeaderFields.add(responseHeaders, "Sec-WebSocket-Protocol", protocol.trim());
-        }
-        if (extensions != null && !extensions.trim().isEmpty()) {
-            HeaderFields.add(responseHeaders, "Sec-WebSocket-Extensions", extensions.trim());
-        }
-
-        return responseHeaders;
     }
 
     /**
@@ -230,66 +180,28 @@ public class WebSocketHandshake {
     }
 
     /**
-     * RFC 6455 §4.1 — creates the client opening handshake request headers:
-     * Upgrade, Connection, Sec-WebSocket-Version, Sec-WebSocket-Key,
-     * and optional Sec-WebSocket-Protocol.
-     *
-     * @param key the Sec-WebSocket-Key value (from {@link #generateKey()})
-     * @param subprotocol the requested subprotocol (may be null)
-     * @return headers for the WebSocket upgrade request
-     */
-    public static List<Header> createUpgradeRequest(String key, String subprotocol) {
-        return createUpgradeRequest(key, subprotocol, null);
-    }
-
-    /**
-     * RFC 6455 §4.1 — creates the client upgrade request headers, including
-     * the optional {@code Sec-WebSocket-Extensions} header (§9.1).
-     *
-     * @param key the Sec-WebSocket-Key value
-     * @param subprotocol the requested subprotocol (may be null)
-     * @param extensions the extension offer header value (may be null)
-     * @return headers for the WebSocket upgrade request
-     */
-    public static List<Header> createUpgradeRequest(String key, String subprotocol,
-                                               String extensions) {
-        List<Header> headers = new ArrayList<Header>();
-        HeaderFields.add(headers, "Upgrade", "websocket");
-        HeaderFields.add(headers, "Connection", "Upgrade");
-        HeaderFields.add(headers, "Sec-WebSocket-Version", WEBSOCKET_VERSION);
-        HeaderFields.add(headers, "Sec-WebSocket-Key", key);
-        if (subprotocol != null && !subprotocol.trim().isEmpty()) {
-            HeaderFields.add(headers, "Sec-WebSocket-Protocol", subprotocol.trim());
-        }
-        if (extensions != null && !extensions.trim().isEmpty()) {
-            HeaderFields.add(headers, "Sec-WebSocket-Extensions", extensions.trim());
-        }
-        return headers;
-    }
-
-    /**
      * RFC 6455 §4.1 step 5 — client-side validation of the server's 101
-     * response: checks Upgrade, Connection, and Sec-WebSocket-Accept.
+     * response from the values of its fields: checks Upgrade, Connection,
+     * and Sec-WebSocket-Accept.
      *
      * @param sentKey the Sec-WebSocket-Key that was sent in the request
-     * @param responseHeaders the headers from the server's 101 response
+     * @param upgrade the combined value of the response's {@code Upgrade} fields (may be null)
+     * @param connection the combined value of the response's {@code Connection} fields (may be null)
+     * @param accept the response's {@code Sec-WebSocket-Accept} value (may be null)
      * @return true if the response is a valid WebSocket upgrade
      */
-    public static boolean validateUpgradeResponse(String sentKey,
-                                                  List<Header> responseHeaders) {
-        String upgradeValue = HeaderFields.getCombinedValue(responseHeaders, "Upgrade");
-        if (!containsIgnoreCase(upgradeValue, "websocket")) {
+    public static boolean validateUpgradeResponse(String sentKey, String upgrade,
+                                                  String connection, String accept) {
+        if (!containsIgnoreCase(upgrade, "websocket")) {
             LOGGER.fine(L10N.getString("fine.upgrade_missing_upgrade"));
             return false;
         }
 
-        String connectionValue = HeaderFields.getCombinedValue(responseHeaders, "Connection");
-        if (!containsIgnoreCase(connectionValue, "Upgrade")) {
+        if (!containsIgnoreCase(connection, "Upgrade")) {
             LOGGER.fine(L10N.getString("fine.upgrade_missing_connection"));
             return false;
         }
 
-        String accept = HeaderFields.getValue(responseHeaders, "Sec-WebSocket-Accept");
         if (accept == null) {
             LOGGER.fine(L10N.getString("fine.upgrade_missing_accept"));
             return false;

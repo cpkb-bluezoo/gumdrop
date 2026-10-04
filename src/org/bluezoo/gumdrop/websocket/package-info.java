@@ -31,8 +31,9 @@
  *
  * <p>The entry point for building WebSocket applications is
  * {@link org.bluezoo.gumdrop.websocket.server.WebSocketRequestHandler}, an
- * {@code HttpStreamHandler} composed directly onto a plain {@link
- * org.bluezoo.gumdrop.http.HttpServer} — there is no separate WebSocket
+ * {@link org.bluezoo.gumdrop.http.server.HttpStreamHandler} composed directly
+ * onto a plain {@link
+ * org.bluezoo.gumdrop.http.HttpServer} - there is no separate WebSocket
  * server type or dedicated listener; ordinary {@code Http2Listener} /
  * {@code Http3Listener} instances handle the upgrade:
  *
@@ -42,7 +43,9 @@
  *       {@code WebSocketRequestHandler.builder().onConnect(...).build()}</li>
  *   <li>{@link org.bluezoo.gumdrop.websocket.WebSocketEventHandler} -
  *       Handler for WebSocket lifecycle events, created per connection by
- *       the builder's {@code ConnectionHandlerFactory}</li>
+ *       the builder's {@code ConnectionHandlerFactory}, which also receives
+ *       the upgrade request as an {@code UpgradeRequest} whose events can be
+ *       replayed to an {@link org.bluezoo.gumdrop.http.HttpMessageHandler}</li>
  *   <li>{@link org.bluezoo.gumdrop.websocket.DefaultWebSocketEventHandler} -
  *       Convenience base class with empty event methods</li>
  *   <li>{@link org.bluezoo.gumdrop.websocket.WebSocketSession} -
@@ -57,7 +60,7 @@
  *   <li>{@link org.bluezoo.gumdrop.websocket.WebSocketFrame} -
  *       WebSocket protocol frame codec</li>
  *   <li>{@link org.bluezoo.gumdrop.websocket.WebSocketHandshake} -
- *       HTTP upgrade handshake validation</li>
+ *       HTTP upgrade handshake validation (plain values, no header objects)</li>
  *   <li>{@link org.bluezoo.gumdrop.websocket.WebSocketProtocolException} -
  *       Exception for protocol violations</li>
  * </ul>
@@ -78,6 +81,5 @@
  * @see <a href="https://www.rfc-editor.org/rfc/rfc8441">RFC 8441 - WebSocket over HTTP/2</a>
  * @see <a href="https://www.rfc-editor.org/rfc/rfc9220">RFC 9220 - WebSocket over HTTP/3</a>
  * @see org.bluezoo.gumdrop.websocket.server.WebSocketRequestHandler
- * @see web/configuration.html
  */
 package org.bluezoo.gumdrop.websocket;

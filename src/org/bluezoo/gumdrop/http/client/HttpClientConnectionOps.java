@@ -28,12 +28,12 @@ import java.nio.ByteBuffer;
 /**
  * Operations required by {@link HttpStream} to send requests.
  *
- * <p>Implemented by {@link HttpClientProtocolHandler} so that
+ * <p>Extended by {@link HttpClientProtocolHandler} so that
  * {@link HttpStream} can delegate I/O operations.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-interface HttpClientConnectionOps {
+abstract class HttpClientConnectionOps {
 
     /**
      * Sends a request.
@@ -41,7 +41,7 @@ interface HttpClientConnectionOps {
      * @param request the request to send
      * @param hasBody true if the request will have a body
      */
-    void sendRequest(HttpStream request, boolean hasBody);
+    abstract void sendRequest(HttpStream request, boolean hasBody);
 
     /**
      * Sends request body data.
@@ -50,7 +50,7 @@ interface HttpClientConnectionOps {
      * @param data the body data
      * @return the number of bytes consumed
      */
-    int sendRequestBody(HttpStream request, ByteBuffer data);
+    abstract int sendRequestBody(HttpStream request, ByteBuffer data);
 
     /**
      * Compresses and sends request body data when {@code Content-Encoding}
@@ -61,7 +61,7 @@ interface HttpClientConnectionOps {
      * @param end true when finishing the compressed stream
      * @return the number of plaintext bytes consumed
      */
-    int sendRequestBodyEncoded(HttpStream request, ByteBuffer data, boolean end);
+    abstract int sendRequestBodyEncoded(HttpStream request, ByteBuffer data, boolean end);
 
     /**
      * Sends the last (here, the only) piece of the request body and ends the
@@ -70,14 +70,14 @@ interface HttpClientConnectionOps {
      * @param request the request
      * @param data the body data
      */
-    void sendLastRequestBody(HttpStream request, ByteBuffer data);
+    abstract void sendLastRequestBody(HttpStream request, ByteBuffer data);
 
     /**
      * Ends the request body.
      *
      * @param request the request
      */
-    void endRequestBody(HttpStream request);
+    abstract void endRequestBody(HttpStream request);
 
     /**
      * Ends the request body with trailer fields after it.
@@ -85,18 +85,18 @@ interface HttpClientConnectionOps {
      * @param request the request
      * @param trailers the trailer fields
      */
-    void endRequestWithTrailers(HttpStream request, List<Header> trailers);
+    abstract void endRequestWithTrailers(HttpStream request, List<Header> trailers);
 
     /**
      * Cancels a request.
      *
      * @param request the request to cancel
      */
-    void cancelRequest(HttpStream request);
+    abstract void cancelRequest(HttpStream request);
 
     /**
      * When true, plaintext supplied via {@link HttpRequest#requestBodyContent}
      * is compressed if {@code Content-Encoding} is set to a supported coding.
      */
-    boolean isEncodeRequestBodyContentCoding();
+    abstract boolean isEncodeRequestBodyContentCoding();
 }

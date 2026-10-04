@@ -21,8 +21,6 @@
 
 package org.bluezoo.gumdrop.http;
 
-import java.util.Iterator;
-import java.util.List;
 
 /**
  * Enum of possible HTTP versions.
@@ -167,7 +165,10 @@ public enum HttpVersion {
      * HTTP/1 connection-specific and message-framing header fields that have
      * no role on HTTP/2 or HTTP/3 (body length is defined by DATA frames).
      * Peers may send these incorrectly; strip on ingest rather than rejecting
-     * the stream. Outbound multiplexed messages must not include them.
+     * the stream. Outbound multiplexed messages must not include them,
+     * except that a {@code Content-Length} is permitted (RFC 9113 section
+     * 8.1.1, RFC 9114 section 4.1.2) and is kept where the sender checks it
+     * against the body; see {@link HeaderFields#stripHttp1FramingHeaders}.
      *
      * @param name header field name
      * @param value header field value
@@ -178,7 +179,7 @@ public enum HttpVersion {
         // name once and comparing - name.toLowerCase() allocates a new
         // String on every call regardless of match, for a value discarded
         // immediately after; this runs once per header of every HTTP/2 and
-        // HTTP/3 request (stripHttp1FramingHeaders below), so that
+        // HTTP/3 request (HeaderFields.stripHttp1FramingHeaders), so that
         // allocation was paid on the hot path for headers that are, in the
         // overwhelmingly common case, not framing headers at all.
         // equalsIgnoreCase also short-circuits on length mismatch before
@@ -195,23 +196,4 @@ public enum HttpVersion {
         return name.equalsIgnoreCase("te") && !"trailers".equals(value);
     }
 
-    /**
-     * Strips {@link #isHttp1FramingHeader HTTP/1 framing headers} from a
-     * multiplexed-protocol header list before dispatch or sending.
-     */
-    public static void stripHttp1FramingHeaders(List<Header> headers) {
-        if (headers == null) {
-            return;
-        }
-        Iterator<Header> it = headers.iterator();
-        while (it.hasNext()) {
-            Header header = it.next();
-            if (header.getName().startsWith(":")) {
-                continue;
-            }
-            if (isHttp1FramingHeader(header.getName(), header.getValue())) {
-                it.remove();
-            }
-        }
-    }
 }

@@ -21,10 +21,6 @@
 
 package org.bluezoo.gumdrop.websocket;
 
-import java.util.ArrayList;
-import java.util.List;
-import org.bluezoo.gumdrop.http.HeaderFields;
-import org.bluezoo.gumdrop.http.Header;
 import org.junit.Test;
 
 import java.util.Base64;
@@ -36,7 +32,7 @@ import static org.junit.Assert.*;
 /**
  * Unit tests for {@link WebSocketHandshake} — RFC 6455 §4.
  * Covers accept value calculation (§1.3), key generation and validation,
- * upgrade request/response creation, and client-side response validation.
+ * upgrade request validation, and client-side response validation.
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 public class WebSocketHandshakeTest {
@@ -140,132 +136,62 @@ public class WebSocketHandshakeTest {
 
     @Test
     public void testValidUpgradeRequest() {
-        List<Header> headers = new ArrayList<Header>();
-        HeaderFields.add(headers, "Upgrade", "websocket");
-        HeaderFields.add(headers, "Connection", "Upgrade");
-        HeaderFields.add(headers, "Sec-WebSocket-Key", WebSocketHandshake.generateKey());
-        HeaderFields.add(headers, "Sec-WebSocket-Version", "13");
-        assertTrue(WebSocketHandshake.isValidWebSocketUpgrade(headers));
+        assertTrue(WebSocketHandshake.isValidWebSocketUpgrade(
+                "websocket", "Upgrade", WebSocketHandshake.generateKey(), "13"));
     }
 
     @Test
     public void testUpgradeMissingUpgradeHeader() {
-        List<Header> headers = new ArrayList<Header>();
-        HeaderFields.add(headers, "Connection", "Upgrade");
-        HeaderFields.add(headers, "Sec-WebSocket-Key", WebSocketHandshake.generateKey());
-        HeaderFields.add(headers, "Sec-WebSocket-Version", "13");
-        assertFalse(WebSocketHandshake.isValidWebSocketUpgrade(headers));
+        assertFalse(WebSocketHandshake.isValidWebSocketUpgrade(
+                null, "Upgrade", WebSocketHandshake.generateKey(), "13"));
     }
 
     @Test
     public void testUpgradeMissingConnectionHeader() {
-        List<Header> headers = new ArrayList<Header>();
-        HeaderFields.add(headers, "Upgrade", "websocket");
-        HeaderFields.add(headers, "Sec-WebSocket-Key", WebSocketHandshake.generateKey());
-        HeaderFields.add(headers, "Sec-WebSocket-Version", "13");
-        assertFalse(WebSocketHandshake.isValidWebSocketUpgrade(headers));
+        assertFalse(WebSocketHandshake.isValidWebSocketUpgrade(
+                "websocket", null, WebSocketHandshake.generateKey(), "13"));
     }
 
     @Test
     public void testUpgradeMissingKey() {
-        List<Header> headers = new ArrayList<Header>();
-        HeaderFields.add(headers, "Upgrade", "websocket");
-        HeaderFields.add(headers, "Connection", "Upgrade");
-        HeaderFields.add(headers, "Sec-WebSocket-Version", "13");
-        assertFalse(WebSocketHandshake.isValidWebSocketUpgrade(headers));
+        assertFalse(WebSocketHandshake.isValidWebSocketUpgrade(
+                "websocket", "Upgrade", null, "13"));
+    }
+
+    @Test
+    public void testUpgradeEmptyKey() {
+        assertFalse(WebSocketHandshake.isValidWebSocketUpgrade(
+                "websocket", "Upgrade", "  ", "13"));
     }
 
     @Test
     public void testUpgradeMissingVersion() {
-        List<Header> headers = new ArrayList<Header>();
-        HeaderFields.add(headers, "Upgrade", "websocket");
-        HeaderFields.add(headers, "Connection", "Upgrade");
-        HeaderFields.add(headers, "Sec-WebSocket-Key", WebSocketHandshake.generateKey());
-        assertFalse(WebSocketHandshake.isValidWebSocketUpgrade(headers));
+        assertFalse(WebSocketHandshake.isValidWebSocketUpgrade(
+                "websocket", "Upgrade", WebSocketHandshake.generateKey(), null));
     }
 
     @Test
     public void testUpgradeWrongVersion() {
-        List<Header> headers = new ArrayList<Header>();
-        HeaderFields.add(headers, "Upgrade", "websocket");
-        HeaderFields.add(headers, "Connection", "Upgrade");
-        HeaderFields.add(headers, "Sec-WebSocket-Key", WebSocketHandshake.generateKey());
-        HeaderFields.add(headers, "Sec-WebSocket-Version", "8");
-        assertFalse(WebSocketHandshake.isValidWebSocketUpgrade(headers));
+        assertFalse(WebSocketHandshake.isValidWebSocketUpgrade(
+                "websocket", "Upgrade", WebSocketHandshake.generateKey(), "8"));
     }
 
     @Test
-    public void testUpgradeCaseInsensitiveHeaders() {
-        List<Header> headers = new ArrayList<Header>();
-        HeaderFields.add(headers, "Upgrade", "WebSocket");
-        HeaderFields.add(headers, "Connection", "upgrade");
-        HeaderFields.add(headers, "Sec-WebSocket-Key", WebSocketHandshake.generateKey());
-        HeaderFields.add(headers, "Sec-WebSocket-Version", "13");
-        assertTrue(WebSocketHandshake.isValidWebSocketUpgrade(headers));
+    public void testUpgradeCaseInsensitiveValues() {
+        assertTrue(WebSocketHandshake.isValidWebSocketUpgrade(
+                "WebSocket", "upgrade", WebSocketHandshake.generateKey(), "13"));
     }
 
     @Test
     public void testUpgradeConnectionWithMultipleValues() {
-        List<Header> headers = new ArrayList<Header>();
-        HeaderFields.add(headers, "Upgrade", "websocket");
-        HeaderFields.add(headers, "Connection", "keep-alive, Upgrade");
-        HeaderFields.add(headers, "Sec-WebSocket-Key", WebSocketHandshake.generateKey());
-        HeaderFields.add(headers, "Sec-WebSocket-Version", "13");
-        assertTrue(WebSocketHandshake.isValidWebSocketUpgrade(headers));
-    }
-
-    // ── createWebSocketResponse (RFC 6455 §4.2.2) ──
-
-    @Test
-    public void testCreateResponse() {
-        String key = WebSocketHandshake.generateKey();
-        List<Header> response = WebSocketHandshake.createWebSocketResponse(key, null);
-        assertEquals("websocket", HeaderFields.getValue(response, "Upgrade"));
-        assertEquals("Upgrade", HeaderFields.getValue(response, "Connection"));
-        assertNotNull(HeaderFields.getValue(response, "Sec-WebSocket-Accept"));
-        assertNull(HeaderFields.getValue(response, "Sec-WebSocket-Protocol"));
+        assertTrue(WebSocketHandshake.isValidWebSocketUpgrade(
+                "websocket", "keep-alive, Upgrade", WebSocketHandshake.generateKey(), "13"));
     }
 
     @Test
-    public void testCreateResponseWithProtocol() {
-        String key = WebSocketHandshake.generateKey();
-        List<Header> response = WebSocketHandshake.createWebSocketResponse(key, "graphql-ws");
-        assertEquals("graphql-ws", HeaderFields.getValue(response, "Sec-WebSocket-Protocol"));
-    }
-
-    @Test
-    public void testCreateResponseAcceptMatchesCalculation() {
-        String key = WebSocketHandshake.generateKey();
-        List<Header> response = WebSocketHandshake.createWebSocketResponse(key, null);
-        String expected = WebSocketHandshake.calculateAccept(key);
-        assertEquals(expected, HeaderFields.getValue(response, "Sec-WebSocket-Accept"));
-    }
-
-    // ── createUpgradeRequest (RFC 6455 §4.1) ──
-
-    @Test
-    public void testCreateUpgradeRequest() {
-        String key = WebSocketHandshake.generateKey();
-        List<Header> request = WebSocketHandshake.createUpgradeRequest(key, null);
-        assertEquals("websocket", HeaderFields.getValue(request, "Upgrade"));
-        assertEquals("Upgrade", HeaderFields.getValue(request, "Connection"));
-        assertEquals("13", HeaderFields.getValue(request, "Sec-WebSocket-Version"));
-        assertEquals(key, HeaderFields.getValue(request, "Sec-WebSocket-Key"));
-        assertNull(HeaderFields.getValue(request, "Sec-WebSocket-Protocol"));
-    }
-
-    @Test
-    public void testCreateUpgradeRequestWithProtocol() {
-        String key = WebSocketHandshake.generateKey();
-        List<Header> request = WebSocketHandshake.createUpgradeRequest(key, "chat");
-        assertEquals("chat", HeaderFields.getValue(request, "Sec-WebSocket-Protocol"));
-    }
-
-    @Test
-    public void testCreateUpgradeRequestWithExtensions() {
-        String key = WebSocketHandshake.generateKey();
-        List<Header> request = WebSocketHandshake.createUpgradeRequest(key, null, "permessage-deflate");
-        assertEquals("permessage-deflate", HeaderFields.getValue(request, "Sec-WebSocket-Extensions"));
+    public void testUpgradeTokenListWithOtherProtocols() {
+        assertTrue(WebSocketHandshake.isValidWebSocketUpgrade(
+                "h2c, websocket", "Upgrade", WebSocketHandshake.generateKey(), " 13 "));
     }
 
     // ── validateUpgradeResponse (RFC 6455 §4.1 step 5) ──
@@ -273,89 +199,57 @@ public class WebSocketHandshakeTest {
     @Test
     public void testValidateValidResponse() {
         String key = WebSocketHandshake.generateKey();
-        List<Header> response = WebSocketHandshake.createWebSocketResponse(key, null);
-        assertTrue(WebSocketHandshake.validateUpgradeResponse(key, response));
+        assertTrue(WebSocketHandshake.validateUpgradeResponse(key, "websocket", "Upgrade",
+                WebSocketHandshake.calculateAccept(key)));
     }
 
     @Test
     public void testValidateResponseMissingUpgrade() {
         String key = WebSocketHandshake.generateKey();
-        List<Header> response = new ArrayList<Header>();
-        HeaderFields.add(response, "Connection", "Upgrade");
-        HeaderFields.add(response, "Sec-WebSocket-Accept", WebSocketHandshake.calculateAccept(key));
-        assertFalse(WebSocketHandshake.validateUpgradeResponse(key, response));
+        assertFalse(WebSocketHandshake.validateUpgradeResponse(key, null, "Upgrade",
+                WebSocketHandshake.calculateAccept(key)));
     }
 
     @Test
     public void testValidateResponseMissingConnection() {
         String key = WebSocketHandshake.generateKey();
-        List<Header> response = new ArrayList<Header>();
-        HeaderFields.add(response, "Upgrade", "websocket");
-        HeaderFields.add(response, "Sec-WebSocket-Accept", WebSocketHandshake.calculateAccept(key));
-        assertFalse(WebSocketHandshake.validateUpgradeResponse(key, response));
+        assertFalse(WebSocketHandshake.validateUpgradeResponse(key, "websocket", null,
+                WebSocketHandshake.calculateAccept(key)));
     }
 
     @Test
     public void testValidateResponseMissingAccept() {
         String key = WebSocketHandshake.generateKey();
-        List<Header> response = new ArrayList<Header>();
-        HeaderFields.add(response, "Upgrade", "websocket");
-        HeaderFields.add(response, "Connection", "Upgrade");
-        assertFalse(WebSocketHandshake.validateUpgradeResponse(key, response));
+        assertFalse(WebSocketHandshake.validateUpgradeResponse(key, "websocket", "Upgrade", null));
     }
 
     @Test
     public void testValidateResponseWrongAccept() {
         String key = WebSocketHandshake.generateKey();
-        List<Header> response = new ArrayList<Header>();
-        HeaderFields.add(response, "Upgrade", "websocket");
-        HeaderFields.add(response, "Connection", "Upgrade");
-        HeaderFields.add(response, "Sec-WebSocket-Accept", "wrongvalue");
-        assertFalse(WebSocketHandshake.validateUpgradeResponse(key, response));
+        assertFalse(WebSocketHandshake.validateUpgradeResponse(key, "websocket", "Upgrade",
+                "wrongvalue"));
     }
 
     @Test
     public void testValidateResponseAcceptMismatch() {
         String key1 = WebSocketHandshake.generateKey();
         String key2 = WebSocketHandshake.generateKey();
-        List<Header> response = WebSocketHandshake.createWebSocketResponse(key2, null);
-        assertFalse(WebSocketHandshake.validateUpgradeResponse(key1, response));
+        assertFalse(WebSocketHandshake.validateUpgradeResponse(key1, "websocket", "Upgrade",
+                WebSocketHandshake.calculateAccept(key2)));
     }
 
     // ── Full handshake round-trip ──
 
     @Test
     public void testFullHandshakeRoundTrip() {
-        // Client generates key and creates upgrade request
+        // Client generates key; the server validates the upgrade it sends
         String clientKey = WebSocketHandshake.generateKey();
-        List<Header> clientRequest = WebSocketHandshake.createUpgradeRequest(clientKey, "chat");
+        assertTrue(WebSocketHandshake.isValidWebSocketUpgrade(
+                "websocket", "Upgrade", clientKey, "13"));
 
-        // Server validates the upgrade
-        assertTrue(WebSocketHandshake.isValidWebSocketUpgrade(clientRequest));
-
-        // Server creates response
-        String serverKey = HeaderFields.getValue(clientRequest, "Sec-WebSocket-Key");
-        String protocol = HeaderFields.getValue(clientRequest, "Sec-WebSocket-Protocol");
-        List<Header> serverResponse = WebSocketHandshake.createWebSocketResponse(serverKey, protocol);
-
-        // Client validates response
-        assertTrue(WebSocketHandshake.validateUpgradeResponse(clientKey, serverResponse));
-
-        // Protocol should be echoed back
-        assertEquals("chat", HeaderFields.getValue(serverResponse, "Sec-WebSocket-Protocol"));
-    }
-
-    @Test
-    public void testFullHandshakeWithoutProtocol() {
-        String clientKey = WebSocketHandshake.generateKey();
-        List<Header> clientRequest = WebSocketHandshake.createUpgradeRequest(clientKey, null);
-
-        assertTrue(WebSocketHandshake.isValidWebSocketUpgrade(clientRequest));
-
-        String serverKey = HeaderFields.getValue(clientRequest, "Sec-WebSocket-Key");
-        List<Header> serverResponse = WebSocketHandshake.createWebSocketResponse(serverKey, null);
-
-        assertTrue(WebSocketHandshake.validateUpgradeResponse(clientKey, serverResponse));
-        assertNull(HeaderFields.getValue(serverResponse, "Sec-WebSocket-Protocol"));
+        // Server answers with the accept value for that key; client validates
+        String accept = WebSocketHandshake.calculateAccept(clientKey);
+        assertTrue(WebSocketHandshake.validateUpgradeResponse(
+                clientKey, "websocket", "Upgrade", accept));
     }
 }

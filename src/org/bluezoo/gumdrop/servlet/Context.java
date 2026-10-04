@@ -464,7 +464,7 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
      * No-arg constructor for dependency injection.
      * After construction, set {@link #setPath(String)} and {@link #setRoot(File)}.
      * The container, load, and init lifecycle is handled by
-     * {@link Container#initContexts()} during service startup.
+     * {@link Container#initContexts(Gumdrop)} during service startup.
      */
     public Context() {
     }
@@ -474,7 +474,7 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
      * Must be called before {@link #load()} when using the no-arg constructor.
      * A no-op when {@code container} is already this context's container
      * (as when {@link #Context(Container, String, File)} already assigned
-     * it and {@link Container#start()} re-asserts it during {@code
+     * it and {@link Container#start(Gumdrop)} re-asserts it during {@code
      * initContexts()}); throws if reassigning to a different container.
      *
      * @param container the parent container

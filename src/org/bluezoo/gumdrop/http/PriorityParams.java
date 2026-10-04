@@ -21,7 +21,6 @@
 
 package org.bluezoo.gumdrop.http;
 
-import java.util.List;
 
 /**
  * RFC 9218 Extensible Prioritization parameters ({@code u} / {@code i})
@@ -167,24 +166,6 @@ public final class PriorityParams {
             }
         }
         return new PriorityParams(urgency, incremental);
-    }
-
-    /**
-     * Parses from request/response headers ({@code Priority} field), or
-     * {@link #DEFAULT} if absent.
-     *
-     * @param headers the header set
-     * @return the parsed parameters
-     */
-    public static PriorityParams fromHeaders(List<Header> headers) {
-        if (headers == null) {
-            return DEFAULT;
-        }
-        String value = HeaderFields.getValue(headers, PRIORITY_HEADER);
-        if (value == null) {
-            return DEFAULT;
-        }
-        return parse(value);
     }
 
     /**

@@ -119,12 +119,14 @@ public class WebSocketRequestHandlerTest {
             new DefaultWebSocketEventHandler() {
             };
     private String seenPath;
+    private WebSocketRequestHandler.UpgradeRequest seenRequest;
     private StubState state;
 
     @Before
     public void setUp() {
         state = new StubState();
         seenPath = null;
+        seenRequest = null;
     }
 
     private WebSocketRequestHandler.Builder builder(
@@ -133,8 +135,9 @@ public class WebSocketRequestHandlerTest {
                 new WebSocketRequestHandler.ConnectionHandlerFactory() {
                     @Override
                     public WebSocketEventHandler create(String requestPath,
-                            List<Header> upgradeHeaders) {
+                            WebSocketRequestHandler.UpgradeRequest request) {
                         seenPath = requestPath;
+                        seenRequest = request;
                         return result;
                     }
                 });
@@ -189,12 +192,171 @@ public class WebSocketRequestHandlerTest {
                 .subprotocolSelector(
                         new WebSocketRequestHandler.SubprotocolSelector() {
                             @Override
-                            public String select(List<Header> upgradeHeaders) {
+                            public String select(List<String> offeredSubprotocols) {
                                 return "mqtt";
                             }
                         }).build();
         open(h, upgradeRequest());
         assertEquals("mqtt", state.subprotocol);
+    }
+
+    /** Opens an upgrade offering the given Sec-WebSocket-Protocol field lines; returns what the selector saw. */
+    private List<String> offered(String... fieldLines) {
+        final List<List<String>> seen = new ArrayList<List<String>>();
+        WebSocketRequestHandler h = builder(appHandler)
+                .subprotocolSelector(
+                        new WebSocketRequestHandler.SubprotocolSelector() {
+                            @Override
+                            public String select(List<String> offeredSubprotocols) {
+                                seen.add(offeredSubprotocols);
+                                return null;
+                            }
+                        }).build();
+        List<Header> req = upgradeRequest();
+        for (String line : fieldLines) {
+            HeaderFields.add(req, "Sec-WebSocket-Protocol", line);
+        }
+        open(h, req);
+        assertEquals("the selector is asked once", 1, seen.size());
+        assertSame(appHandler, state.handler);
+        return seen.get(0);
+    }
+
+    @Test
+    public void selectorGetsEmptyListWhenNoSubprotocolOffered() {
+        List<String> offered = offered();
+        assertNotNull(offered);
+        assertTrue(offered.toString(), offered.isEmpty());
+    }
+
+    @Test
+    public void selectorGetsASingleOfferedToken() {
+        assertEquals(java.util.Arrays.asList("chat"), offered("chat"));
+    }
+
+    @Test
+    public void selectorGetsTrimmedTokensInOrder() {
+        assertEquals(java.util.Arrays.asList("graphql-ws", "mqtt", "chat"),
+                offered("  graphql-ws ,mqtt,   chat  "));
+    }
+
+    @Test
+    public void selectorGetsTokensFromRepeatedFieldLinesInOrder() {
+        assertEquals(java.util.Arrays.asList("a", "b", "c"), offered("a, b", "c"));
+    }
+
+    @Test
+    public void selectorIgnoresEmptyTokens() {
+        assertEquals(java.util.Arrays.asList("a", "b"), offered("a,, ,b,"));
+    }
+
+    @Test
+    public void selectorIsNotAskedForARejectedUpgrade() {
+        final int[] asked = new int[1];
+        WebSocketRequestHandler h = builder(null)
+                .subprotocolSelector(
+                        new WebSocketRequestHandler.SubprotocolSelector() {
+                            @Override
+                            public String select(List<String> offeredSubprotocols) {
+                                asked[0]++;
+                                return null;
+                            }
+                        }).build();
+        open(h, upgradeRequest());
+        assertEquals("403", state.status());
+        assertEquals(0, asked[0]);
+    }
+
+    /** Records the events it is given, as short strings. */
+    private static final class EventLog extends org.bluezoo.gumdrop.http.server.DefaultHttpRequestHandler {
+        final List<String> events = new ArrayList<String>();
+
+        private static String text(ByteBuffer b) {
+            return java.nio.charset.StandardCharsets.ISO_8859_1.decode(b.duplicate()).toString();
+        }
+
+        @Override public void method(org.bluezoo.gumdrop.http.HttpMethod method) { events.add("method:" + method.name()); }
+        @Override public void target(ByteBuffer target) { events.add("target:" + text(target)); }
+        @Override public void scheme(ByteBuffer scheme) { events.add("scheme:" + text(scheme)); }
+        @Override public void authority(ByteBuffer authority) { events.add("authority:" + text(authority)); }
+        @Override public void protocol(ByteBuffer protocol) { events.add("protocol:" + text(protocol)); }
+        @Override public void header(String name, ByteBuffer value) { events.add("header:" + name.toLowerCase() + "=" + text(value)); }
+        @Override public void endHeaders() { events.add("endHeaders"); }
+    }
+
+    @Test
+    public void replayDeliversTheUpgradeRequestEventsInOrder() {
+        List<Header> req = new ArrayList<Header>();
+        HeaderFields.add(req, ":method", "GET");
+        HeaderFields.add(req, ":path", "/chat?room=1");
+        HeaderFields.add(req, ":authority", "example.org");
+        HeaderFields.add(req, "Upgrade", "websocket");
+        HeaderFields.add(req, "Connection", "Upgrade");
+        HeaderFields.add(req, "Sec-WebSocket-Key", "dGhlIHNhbXBsZSBub25jZQ==");
+        HeaderFields.add(req, "Sec-WebSocket-Version", "13");
+        HeaderFields.add(req, "Authorization", "Bearer abc");
+        open(builder(appHandler).build(), req);
+        assertNotNull(seenRequest);
+
+        EventLog log = new EventLog();
+        seenRequest.replay(log);
+
+        int method = log.events.indexOf("method:GET");
+        int target = log.events.indexOf("target:/chat?room=1");
+        int upgrade = log.events.indexOf("header:upgrade=websocket");
+        int key = log.events.indexOf("header:sec-websocket-key=dGhlIHNhbXBsZSBub25jZQ==");
+        int auth = log.events.indexOf("header:authorization=Bearer abc");
+        assertTrue(log.events.toString(), method >= 0);
+        assertTrue(log.events.toString(), method < target);
+        assertTrue(log.events.toString(), target < upgrade);
+        assertTrue(log.events.toString(), upgrade < key);
+        assertTrue(log.events.toString(), key < auth);
+        assertEquals("endHeaders is the last event", log.events.size() - 1,
+                log.events.indexOf("endHeaders"));
+        assertEquals("endHeaders is delivered once", log.events.indexOf("endHeaders"),
+                log.events.lastIndexOf("endHeaders"));
+    }
+
+    @Test
+    public void replayCarriesSchemeAuthorityAndProtocolOfAnExtendedConnect() {
+        List<Header> req = new ArrayList<Header>();
+        HeaderFields.add(req, ":method", "CONNECT");
+        HeaderFields.add(req, ":protocol", "websocket");
+        HeaderFields.add(req, ":scheme", "https");
+        HeaderFields.add(req, ":authority", "example.org");
+        HeaderFields.add(req, ":path", "/h2ws");
+        HeaderFields.add(req, "x-token", "t1");
+        open(builder(appHandler).build(), req);
+
+        EventLog log = new EventLog();
+        seenRequest.replay(log);
+
+        assertTrue(log.events.toString(), log.events.contains("method:CONNECT"));
+        assertTrue(log.events.toString(), log.events.contains("scheme:https"));
+        assertTrue(log.events.toString(), log.events.contains("authority:example.org"));
+        assertTrue(log.events.toString(), log.events.contains("protocol:websocket"));
+        assertTrue(log.events.toString(), log.events.contains("target:/h2ws"));
+        assertTrue(log.events.toString(), log.events.contains("header:x-token=t1"));
+        assertEquals("endHeaders", log.events.get(log.events.size() - 1));
+    }
+
+    @Test
+    public void replayCanBeRepeatedAndOutlivesTheFactoryCall() {
+        open(builder(appHandler).build(), upgradeRequest());
+        EventLog first = new EventLog();
+        EventLog second = new EventLog();
+        seenRequest.replay(first);
+        seenRequest.replay(second);
+        assertFalse(first.events.isEmpty());
+        assertEquals(first.events, second.events);
+    }
+
+    @Test
+    public void requestIsNotReplayedForARejectedUpgradeBeforeTheFactory() {
+        List<Header> h = upgradeRequest();
+        HeaderFields.removeAll(h, "Sec-WebSocket-Key");
+        open(builder(appHandler).build(), h);
+        assertNull("the factory is not called for an invalid upgrade", seenRequest);
     }
 
     @Test

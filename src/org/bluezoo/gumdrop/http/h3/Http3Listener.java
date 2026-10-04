@@ -60,7 +60,7 @@ import org.bluezoo.gumdrop.tls.TlsConfig;
  * {@link QuicTransportFactory} with ALPN "h3" (RFC 9114 section 3.1),
  * binds to the configured UDP port, and installs an
  * {@link Http3ServerHandler} on each new QUIC connection to dispatch
- * requests to the gumdrop {@link org.bluezoo.gumdrop.http.HttpRequestHandler}
+ * requests to the gumdrop {@link org.bluezoo.gumdrop.http.server.HttpRequestHandler}
  * API.
  *
  * <p>Per RFC 9114 section 3, HTTP/3 runs exclusively over QUIC
@@ -211,9 +211,9 @@ public class Http3Listener extends TcpListener
     }
 
     /**
-     * Sets the handler factory for this endpoint.
+     * Sets the stream handler for this endpoint.
      *
-     * @param factory the handler factory, or null
+     * @param streamHandler the stream handler, or null
      */
     public void setStreamHandler(HttpStreamHandler streamHandler) {
         this.streamHandler = streamHandler;

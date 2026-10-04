@@ -122,6 +122,32 @@ user-visible themes since 2.2.x.
 - **Gonzalez dependency is now `gonzalez-core` only** (same JPMS module name).
 - **`gumdrop-container.jar`** (fat jar) is deprecated in favour of the zip
   layout.
+- **`Header` no longer appears in public or protected wire-plumbing API.**
+  Outside the HPACK and QPACK codecs, only the `HeaderFields` static helpers
+  take or return `List<Header>`. `HttpConnectionLike` and
+  `HttpClientConnectionOps` are now package-private abstract classes (the
+  protocol handlers extend them), so `HttpProtocolHandler`'s response-header,
+  trailer, push and priority plumbing and
+  `HttpClientProtocolHandler.endRequestWithTrailers` are package-private.
+  `Capsule.capsuleProtocolEnabled` now takes the field value as a `String`,
+  `PriorityParams.fromHeaders` is replaced by `PriorityParams.parse` on the
+  field value, `HttpVersion.stripHttp1FramingHeaders` moved to
+  `HeaderFields`, `HeaderCollector.headers()` is read through
+  `HeaderFields.collected(HeaderCollector)`, and `H3Writer.fieldSectionSize`
+  is package-private.
+- **HTTP/2 and HTTP/3 responses keep a `Content-Length` the handler sets.** It
+  was stripped as an HTTP/1 framing field; it is now sent as the handler set
+  it (RFC 9110 section 8.6, RFC 9113 section 8.1.1, RFC 9114 section 4.1.2),
+  including on HEAD and 304 responses, where it is the size of the
+  representation. Because it must equal the DATA bytes, the server checks it:
+  a body that runs past the declared length, or a response that ends short of
+  it, resets the stream (`RST_STREAM` `INTERNAL_ERROR` on HTTP/2,
+  `H3_INTERNAL_ERROR` on HTTP/3) with a warning instead of finishing as a
+  malformed message, and `bodyContent` throws `IllegalStateException` for the
+  excess. The length is not checked for HEAD, 204 or 304. HTTP/1.1 and
+  inbound requests are unchanged, as is the HTTP client, which still strips
+  it from the requests it sends. `HeaderFields.stripHttp1FramingHeaders` takes
+  a `keepContentLength` flag.
 
 ### Fixed
 

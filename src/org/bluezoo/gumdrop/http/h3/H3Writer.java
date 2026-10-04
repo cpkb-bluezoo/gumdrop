@@ -57,7 +57,7 @@ public final class H3Writer {
      * @param fields the decoded field lines
      * @return the size in octets
      */
-    public static long fieldSectionSize(List<Header> fields) {
+    static long fieldSectionSize(List<Header> fields) {
         long size = 0;
         for (int i = 0; i < fields.size(); i++) {
             Header field = fields.get(i);

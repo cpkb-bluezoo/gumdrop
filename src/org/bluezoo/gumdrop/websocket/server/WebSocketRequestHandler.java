@@ -21,10 +21,11 @@
 
 package org.bluezoo.gumdrop.websocket.server;
 
-import org.bluezoo.gumdrop.http.HeaderFields;
-import org.bluezoo.gumdrop.http.Header;
+import org.bluezoo.gumdrop.http.HttpMessageHandler;
+import org.bluezoo.gumdrop.http.HttpMessageRecorder;
 import org.bluezoo.gumdrop.http.HttpMethod;
 import org.bluezoo.gumdrop.http.HttpStatus;
+import org.bluezoo.gumdrop.http.HttpVersion;
 import org.bluezoo.gumdrop.http.server.DefaultHttpRequestHandler;
 import org.bluezoo.gumdrop.http.server.HttpRequestHandler;
 import org.bluezoo.gumdrop.http.server.HttpResponse;
@@ -42,6 +43,7 @@ import org.bluezoo.gumdrop.websocket.WebSocketServerMetrics;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.ResourceBundle;
 import java.util.logging.Level;
@@ -64,7 +66,8 @@ import java.util.logging.Logger;
  *         .listener(new Http3Listener().port(8443).tls(tls))
  *         .streamHandler(WebSocketRequestHandler.builder()
  *                 .onConnect(new WebSocketRequestHandler.ConnectionHandlerFactory() {
- *                     public WebSocketEventHandler create(String path, List<Header> headers) {
+ *                     public WebSocketEventHandler create(String path,
+ *                                                         WebSocketRequestHandler.UpgradeRequest request) {
  *                         return new EchoHandler();
  *                     }
  *                 })
@@ -73,7 +76,6 @@ import java.util.logging.Logger;
  * }</pre>
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see web/configuration.html
  * @see <a href="https://tools.ietf.org/html/rfc6455">RFC 6455: The WebSocket Protocol</a>
  * @see <a href="https://www.rfc-editor.org/rfc/rfc8441">RFC 8441: Bootstrapping WebSockets with HTTP/2</a>
  * @see <a href="https://www.rfc-editor.org/rfc/rfc9220">RFC 9220: Bootstrapping WebSockets with HTTP/3</a>
@@ -122,11 +124,32 @@ public final class WebSocketRequestHandler implements HttpStreamHandler {
          * Called when a valid WebSocket upgrade request is received.
          *
          * @param requestPath the request path from the HTTP upgrade request
-         * @param upgradeHeaders the full HTTP headers of the upgrade request
+         * @param request the upgrade request, whose events can be replayed
+         *        to a handler of the application's own to see its fields
          * @return a handler for this connection, or null to reject (a 403
          *         Forbidden response is sent)
          */
-        WebSocketEventHandler create(String requestPath, List<Header> upgradeHeaders);
+        WebSocketEventHandler create(String requestPath, UpgradeRequest request);
+
+    }
+
+    /**
+     * The HTTP upgrade request that opened a WebSocket connection, as the
+     * events it was made of.
+     */
+    public interface UpgradeRequest {
+
+        /**
+         * Delivers the events of the upgrade request, in order, to
+         * {@code target}: the method, the target, the version, the scheme and
+         * authority where the request had them, the fields, and then
+         * {@link HttpMessageHandler#endHeaders()}. May be called more than
+         * once, and is valid for as long as the application holds the
+         * request.
+         *
+         * @param target the receiver of the request's events
+         */
+        void replay(HttpMessageHandler target);
 
     }
 
@@ -137,11 +160,13 @@ public final class WebSocketRequestHandler implements HttpStreamHandler {
     public interface SubprotocolSelector {
 
         /**
-         * @param upgradeHeaders the HTTP headers of the upgrade request
+         * @param offeredSubprotocols the subprotocol tokens the client
+         *        offered in {@code Sec-WebSocket-Protocol}, trimmed and in
+         *        the order offered; empty if the field was absent
          * @return the selected subprotocol, or null for no subprotocol
          *         negotiation
          */
-        String select(List<Header> upgradeHeaders);
+        String select(List<String> offeredSubprotocols);
 
     }
 
@@ -220,7 +245,7 @@ public final class WebSocketRequestHandler implements HttpStreamHandler {
         private static final SubprotocolSelector NO_SUBPROTOCOL =
                 new SubprotocolSelector() {
                     @Override
-                    public String select(List<Header> upgradeHeaders) {
+                    public String select(List<String> offeredSubprotocols) {
                         return null;
                     }
                 };
@@ -234,12 +259,21 @@ public final class WebSocketRequestHandler implements HttpStreamHandler {
      * delegates to {@link #connectionHandlerFactory}.
      */
     private final class UpgradeHandler extends DefaultHttpRequestHandler
-            implements WebSocketMetricsSource {
+            implements WebSocketMetricsSource, UpgradeRequest {
 
         private final HttpResponse response;
-        // The request as the connection factory and the subprotocol
-        // selector are given it, assembled from the events.
-        private final List<Header> headers = new ArrayList<Header>();
+        // The request as the connection factory is given it, to replay
+        private final HttpMessageRecorder recorder = new HttpMessageRecorder();
+        // The values the upgrade decision is made from, taken from the events
+        private String method;
+        private String path;
+        private String protocol;
+        private String upgrade;
+        private String connection;
+        private String key;
+        private String version;
+        private String extensions;
+        private final List<String> subprotocols = new ArrayList<String>();
 
         UpgradeHandler(HttpResponse response) {
             this.response = response;
@@ -251,87 +285,130 @@ public final class WebSocketRequestHandler implements HttpStreamHandler {
             return new String(octets, StandardCharsets.ISO_8859_1);
         }
 
+        private String combine(String existing, String value) {
+            return existing == null ? value : existing + ", " + value;
+        }
+
+        @Override
+        public void replay(HttpMessageHandler target) {
+            recorder.replay(target);
+        }
+
         @Override
         public void method(HttpMethod method) {
-            headers.add(new Header(":method", method.name()));
+            this.method = method.name();
+            recorder.method(method);
         }
 
         @Override
         public void target(ByteBuffer target) {
-            headers.add(new Header(":path", text(target)));
+            path = text(target);
+            recorder.target(target);
         }
 
         @Override
         public void scheme(ByteBuffer scheme) {
-            headers.add(new Header(":scheme", text(scheme)));
+            recorder.scheme(scheme);
         }
 
         @Override
         public void authority(ByteBuffer authority) {
-            headers.add(new Header(":authority", text(authority)));
+            recorder.authority(authority);
         }
 
         @Override
         public void protocol(ByteBuffer protocol) {
-            headers.add(new Header(":protocol", text(protocol)));
+            this.protocol = text(protocol);
+            recorder.protocol(protocol);
+        }
+
+        @Override
+        public void version(HttpVersion version) {
+            recorder.version(version);
         }
 
         @Override
         public void contentType(ContentType contentType) {
-            headers.add(new Header("content-type", contentType.toHeaderValue()));
+            recorder.contentType(contentType);
         }
 
         @Override
         public void contentDisposition(ContentDisposition contentDisposition) {
-            headers.add(new Header("content-disposition", contentDisposition.toHeaderValue()));
+            recorder.contentDisposition(contentDisposition);
         }
 
         @Override
         public void longHeader(String name, long value) {
-            headers.add(new Header(name, Long.toString(value)));
+            recorder.longHeader(name, value);
         }
 
         @Override
         public void dateHeader(String name, java.time.Instant value) {
-            headers.add(new Header(name, new org.bluezoo.gumdrop.http.HttpDateFormat().format(value.toEpochMilli())));
+            recorder.dateHeader(name, value);
         }
 
         @Override
         public void header(String name, ByteBuffer value) {
-            headers.add(new Header(name, text(value)));
+            String text = text(value).trim();
+            if ("upgrade".equalsIgnoreCase(name)) {
+                upgrade = combine(upgrade, text);
+            } else if ("connection".equalsIgnoreCase(name)) {
+                connection = combine(connection, text);
+            } else if ("sec-websocket-key".equalsIgnoreCase(name)) {
+                if (key == null) {
+                    key = text;
+                }
+            } else if ("sec-websocket-version".equalsIgnoreCase(name)) {
+                if (version == null) {
+                    version = text;
+                }
+            } else if ("sec-websocket-extensions".equalsIgnoreCase(name)) {
+                if (extensions == null) {
+                    extensions = text;
+                }
+            } else if ("sec-websocket-protocol".equalsIgnoreCase(name)) {
+                int start = 0;
+                while (start <= text.length()) {
+                    int end = text.indexOf(',', start);
+                    if (end < 0) {
+                        end = text.length();
+                    }
+                    String token = text.substring(start, end).trim();
+                    if (!token.isEmpty()) {
+                        subprotocols.add(token);
+                    }
+                    start = end + 1;
+                }
+            }
+            recorder.header(name, value);
         }
 
         @Override
         public void endHeaders() {
-            boolean extendedConnect = "CONNECT".equals(HeaderFields.getValue(headers, ":method"))
-                    && "websocket".equalsIgnoreCase(HeaderFields.getValue(headers, ":protocol"));
-            String offeredExtensions;
-            String path;
-            if (extendedConnect) {
-                // RFC 8441 section 4 / RFC 9220 section 3 -- HTTP/2 and
-                // HTTP/3 forbid the RFC 6455 Upgrade: header exchange as
-                // connection-specific, so both use Extended CONNECT instead.
-                path = HeaderFields.getValue(headers, ":path");
-                offeredExtensions = HeaderFields.getValue(headers, "sec-websocket-extensions");
-            } else if (WebSocketHandshake.isValidWebSocketUpgrade(headers)) {
-                path = HeaderFields.getValue(headers, ":path");
-                offeredExtensions = HeaderFields.getValue(headers, "Sec-WebSocket-Extensions");
-            } else {
+            recorder.endHeaders();
+            // RFC 8441 section 4 / RFC 9220 section 3 -- HTTP/2 and HTTP/3
+            // forbid the RFC 6455 Upgrade: header exchange as
+            // connection-specific, so both use Extended CONNECT instead.
+            boolean extendedConnect = "CONNECT".equals(method)
+                    && "websocket".equalsIgnoreCase(protocol);
+            if (!extendedConnect
+                    && !WebSocketHandshake.isValidWebSocketUpgrade(upgrade, connection, key, version)) {
                 sendError(HttpStatus.BAD_REQUEST);
                 return;
             }
 
             WebSocketEventHandler handler =
-                    connectionHandlerFactory.create(path, headers);
+                    connectionHandlerFactory.create(path, this);
             if (handler == null) {
                 sendError(HttpStatus.FORBIDDEN);
                 return;
             }
 
-            String subprotocol = subprotocolSelector.select(headers);
+            String subprotocol = subprotocolSelector.select(
+                    Collections.unmodifiableList(new ArrayList<String>(subprotocols)));
 
             List<WebSocketExtension> negotiated = WebSocketHandshake.negotiateExtensions(
-                    offeredExtensions, supportedExtensions);
+                    extensions, supportedExtensions);
 
             try {
                 response.upgradeToWebSocket(subprotocol, negotiated, handler);

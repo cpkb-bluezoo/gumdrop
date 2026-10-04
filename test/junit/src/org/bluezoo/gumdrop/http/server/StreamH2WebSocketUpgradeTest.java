@@ -52,7 +52,7 @@ import static org.junit.Assert.*;
  */
 public class StreamH2WebSocketUpgradeTest {
 
-    private static class StubConnection implements HttpConnectionLike {
+    private static class StubConnection extends HttpConnectionLike {
         @Override public void sendResponseTrailers(int streamId, List<Header> trailers) { }
         private static final SelectorLoop LOOP = new InlineSelectorLoop();
         HttpVersion version = HttpVersion.HTTP_2_0;

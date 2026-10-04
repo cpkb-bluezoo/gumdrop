@@ -50,7 +50,6 @@ import org.bluezoo.gumdrop.dns.DnsResourceRecord;
 import org.bluezoo.gumdrop.dns.DnsType;
 import org.bluezoo.gumdrop.dns.client.DnsResolver;
 import org.bluezoo.gumdrop.http.HttpStatus;
-import org.bluezoo.gumdrop.http.Header;
 import org.bluezoo.gumdrop.http.HttpVersion;
 import org.bluezoo.gumdrop.http.client.AltSvcCache;
 import org.bluezoo.gumdrop.http.client.AltSvcListener;
@@ -633,10 +632,7 @@ public class WebSocketClient implements AltSvcListener {
 
         // RFC 6455 §9 — build extension offer list
         final List<WebSocketExtension> allExtensions = buildExtensionOffers();
-        String extOffer = WebSocketHandshake.formatOffers(allExtensions);
-
-        final List<Header> upgradeHeaders =
-                WebSocketHandshake.createUpgradeRequest(key, subprotocol, extOffer);
+        final String extOffer = WebSocketHandshake.formatOffers(allExtensions);
 
         transportFactory = new TcpTransportFactory();
         TlsConfig effectiveTls = ClientConnect.prepareTls(secure, tls, transportFactory);
@@ -676,8 +672,15 @@ public class WebSocketClient implements AltSvcListener {
                 }
                 // RFC 6455 §4.1 -- classic HTTP/1.1 upgrade handshake
                 HttpRequest request = protocolHandler.get(path, new UpgradeResponseHandler(handler));
-                for (Header h : upgradeHeaders) {
-                    request.header(h.getName(), h.getValue());
+                request.header("Upgrade", "websocket");
+                request.header("Connection", "Upgrade");
+                request.header("Sec-WebSocket-Version", "13");
+                request.header("Sec-WebSocket-Key", key);
+                if (subprotocol != null && !subprotocol.trim().isEmpty()) {
+                    request.header("Sec-WebSocket-Protocol", subprotocol.trim());
+                }
+                if (extOffer != null && !extOffer.trim().isEmpty()) {
+                    request.header("Sec-WebSocket-Extensions", extOffer.trim());
                 }
                 request.endMessage();
             }

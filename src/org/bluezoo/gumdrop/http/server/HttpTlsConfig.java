@@ -64,7 +64,7 @@ public final class HttpTlsConfig {
     }
 
     /**
-     * @deprecated use {@link TlsConfig#keystore(Path, String, String)}.
+     * @deprecated use {@code TlsConfig.keystore(Path, String, String)}.
      */
     @Deprecated
     public static HttpTlsConfig keystore(Path keystoreFile, String keystorePass,
