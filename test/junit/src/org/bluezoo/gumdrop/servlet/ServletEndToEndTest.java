@@ -74,6 +74,7 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
 
 /**
  * Drives complete requests through {@link ServletHandler}, {@link
@@ -931,6 +932,46 @@ public class ServletEndToEndTest {
         Result own = send("GET", "/app/err?mode=statusbody");
         assertEquals(404, own.status);
         assertNull(own.header("connection"));
+    }
+
+    /**
+     * A web application that could not be loaded serves nothing. A request
+     * for it is answered as unavailable, not passed to whatever part of
+     * the application had been set up before the failure.
+     */
+    @Test
+    public void testContextThatFailedToLoadIsUnavailable() throws Exception {
+        java.nio.file.Path brokenRoot = tmp.newFolder("broken");
+        MemoryFolder.write(brokenRoot, "WEB-INF/web.xml",
+                "<web-app><servlet>".getBytes(StandardCharsets.UTF_8));
+        MemoryFolder.write(brokenRoot, "index.html", "<html>x</html>".getBytes(StandardCharsets.UTF_8));
+        Container shared = SharedContainer.get();
+        Context broken = new Context(shared, "/broken", brokenRoot);
+        shared.addContext(broken);
+        container.addContext(broken);
+        try {
+            broken.load();
+            fail("expected the descriptor to be rejected");
+        } catch (Exception expected) {
+            assertNotNull(expected);
+        }
+        broken.init();
+        Result r = send("GET", "/broken/index.html");
+        assertEquals(503, r.status);
+        Result servlet = send("GET", "/broken/anything");
+        assertEquals(503, servlet.status);
+        // the other applications are unaffected
+        Result ok = send("GET", "/app/echo");
+        assertEquals(200, ok.status);
+
+        // corrected and reloaded, it serves again
+        MemoryFolder.write(brokenRoot, "WEB-INF/web.xml",
+                "<web-app xmlns=\"https://jakarta.ee/xml/ns/jakartaee\" version=\"6.1\"/>"
+                        .getBytes(StandardCharsets.UTF_8));
+        broken.reload();
+        Result recovered = send("GET", "/broken/index.html");
+        assertEquals(200, recovered.status);
+        broken.destroy();
     }
 
     @Test

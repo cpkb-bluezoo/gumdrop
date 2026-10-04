@@ -675,6 +675,20 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
      * Loads this context from the deployment descriptor.
      */
     public void load() throws IOException, SAXException {
+        // Until this returns normally the context is only partly set up,
+        // and stays that way if it does not
+        loadFailed = true;
+        loadDescriptors();
+        loadFailed = false;
+    }
+
+    /**
+     * Whether the last {@link #load()} did not complete. Such a context
+     * is not initialised, and requests for it are answered as unavailable.
+     */
+    volatile boolean loadFailed;
+
+    private void loadDescriptors() throws IOException, SAXException {
         // Initialize internal state if not already done (for no-arg constructor path)
         if (sessionManager == null) {
             initializeInternal();
@@ -1560,6 +1574,12 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
      * @see SRV.9.12
      */
     public synchronized void init() {
+        if (loadFailed) {
+            // Half a web application is not one to start: its listeners,
+            // filters and servlets would run against whatever had been
+            // set up before the failure.
+            return;
+        }
         Thread thread = Thread.currentThread();
         ClassLoader originalClassLoader = thread.getContextClassLoader();
         ClassLoader containerClassLoader = Context.class.getClassLoader();
