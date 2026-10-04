@@ -1293,6 +1293,17 @@ public class TcpEndpoint implements Endpoint, ChannelHandler, TlsRecordState.Cal
                     getRemoteAddress(), error));
         }
         handler.error(new javax.net.ssl.SSLException(error.toString()));
+        if (error.isFromPeer() || selectorLoop == null || pendingNetOutBytes() == 0) {
+            // The peer is already tearing down, or there is nothing queued.
+            doClose();
+            return;
+        }
+        // RFC 8446 section 6.2: the fatal alert the record engine queued
+        // for this failure has to reach the peer, so the socket closes
+        // when the output has drained rather than straight away.
+        closing = true;
+        closeRequested = true;
+        selectorLoop.requestWrite(this);
     }
 
     // -- Timestamps --

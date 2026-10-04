@@ -451,7 +451,8 @@ public final class Tls12RecordEngine {
                     AlertDescription desc = AlertDescription.fromCode(code);
                     String label = (level == ALERT_LEVEL_FATAL) ? "fatal" : "warning";
                     String descLabel = (desc != null) ? desc.name() : ("code " + code);
-                    sink.protocolError(new TlsProtocolError(desc, "peer sent " + label + " alert " + descLabel));
+                    sink.protocolError(new TlsProtocolError(desc,
+                            "peer sent " + label + " alert " + descLabel, true));
                 }
                 return false;
             }

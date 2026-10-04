@@ -34,6 +34,7 @@ public final class TlsProtocolError {
 
     private final AlertDescription alert;
     private final String message;
+    private final boolean fromPeer;
 
     /**
      * Creates a protocol error.
@@ -43,8 +44,21 @@ public final class TlsProtocolError {
      * @param message a human-readable description
      */
     public TlsProtocolError(AlertDescription alert, String message) {
+        this(alert, message, false);
+    }
+
+    /**
+     * Creates a protocol error, saying which side detected it.
+     *
+     * @param alert the TLS alert this failure corresponds to
+     * @param message a human-readable description
+     * @param fromPeer true if this is an alert the peer sent, false if
+     *                 it is a failure this side detected
+     */
+    public TlsProtocolError(AlertDescription alert, String message, boolean fromPeer) {
         this.alert = alert;
         this.message = message;
+        this.fromPeer = fromPeer;
     }
 
     /**
@@ -63,6 +77,17 @@ public final class TlsProtocolError {
      */
     public String getMessage() {
         return message;
+    }
+
+    /**
+     * Returns whether this is an alert received from the peer, as
+     * opposed to a failure detected locally -- for which this side owes
+     * the peer an alert of its own (RFC 8446 section 6.2).
+     *
+     * @return true if the peer sent this alert
+     */
+    public boolean isFromPeer() {
+        return fromPeer;
     }
 
     @Override

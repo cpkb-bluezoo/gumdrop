@@ -297,8 +297,12 @@ final class Tls12RecordState implements TlsRecordSink {
                     Gumdrop.L10N.getString("log.tls_protocol_error"),
                     callback.getRemoteAddress(), error));
         }
+        // Closed to further TLS traffic before the endpoint hears of it:
+        // a handler's usual reaction is to close the endpoint, and that
+        // must not queue a close_notify behind the fatal alert. The
+        // endpoint closes the socket itself, once the alert has drained.
+        closed = true;
         callback.onProtocolError(error);
-        handleClosed("protocol-error");
     }
 
     @Override

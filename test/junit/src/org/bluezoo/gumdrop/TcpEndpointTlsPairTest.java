@@ -566,7 +566,15 @@ public class TcpEndpointTlsPairTest {
         handshake(client, server);
         injectGarbageRecord(server);
         assertFalse(sp.errors.isEmpty());
-        assertTrue(sp.events.contains("disconnected"));
+        // The server owes the client a fatal alert, so it is closing but
+        // holds the socket until the selector loop has drained the alert
+        // (no loop writes in this harness; pump() carries it across).
+        assertTrue(server.isClosing());
+        pump(client, server);
+        assertFalse(cp.errors.isEmpty());
+        assertTrue(cp.errors.get(0).getMessage(),
+                cp.errors.get(0).getMessage().contains("peer sent fatal alert BAD_RECORD_MAC"));
+        assertTrue(cp.events.contains("disconnected"));
     }
 
     @Test
@@ -578,7 +586,15 @@ public class TcpEndpointTlsPairTest {
         handshake(client, server);
         injectGarbageRecord(server);
         assertFalse(sp.errors.isEmpty());
-        assertTrue(sp.events.contains("disconnected"));
+        // The server owes the client a fatal alert, so it is closing but
+        // holds the socket until the selector loop has drained the alert
+        // (no loop writes in this harness; pump() carries it across).
+        assertTrue(server.isClosing());
+        pump(client, server);
+        assertFalse(cp.errors.isEmpty());
+        assertTrue(cp.errors.get(0).getMessage(),
+                cp.errors.get(0).getMessage().contains("peer sent fatal alert BAD_RECORD_MAC"));
+        assertTrue(cp.events.contains("disconnected"));
     }
 
     @Test
@@ -814,6 +830,42 @@ public class TcpEndpointTlsPairTest {
             assertTrue(label, serverInfo.getHandshakeDurationMs() >= -1L);
             assertFalse(label, serverInfo.isSessionResumed());
         }
+    }
+
+    @Test
+    public void tls13ServerSendsAFatalAlertWhenNoGroupIsMutuallyAcceptable() throws Exception {
+        // RFC 8446 section 6.2: a side that fails the handshake tells its
+        // peer why before closing. The alert must reach the wire rather
+        // than be discarded with the endpoint's output buffer.
+        HandshakeConfig cc = client13();
+        cc.setNamedGroups(Arrays.asList(NamedGroup.X25519));
+        HandshakeConfig sc = server13();
+        sc.setNamedGroups(Arrays.asList(NamedGroup.SECP384R1));
+        Peer cp = new Peer();
+        Peer sp = new Peer();
+        TcpEndpoint client = endpoint(cp, cc, null, TlsVersion.TLS_1_3, true);
+        TcpEndpoint server = endpoint(sp, sc, null, TlsVersion.TLS_1_3, false);
+        handshake(client, server);
+        assertFalse(sp.errors.isEmpty());
+        assertFalse("client never heard why the handshake failed", cp.errors.isEmpty());
+        String reason = cp.errors.get(0).getMessage();
+        assertTrue(reason, reason.contains("peer sent fatal alert"));
+        assertTrue(reason, reason.contains("HANDSHAKE_FAILURE"));
+    }
+
+    @Test
+    public void tls12ClientSendsAFatalAlertWhenItRejectsTheServerCertificate() throws Exception {
+        Tls12HandshakeConfig cc = client12();
+        cc.setTrustManager(TestCertificates.newEc256("someone-else").trustManager());
+        Peer cp = new Peer();
+        Peer sp = new Peer();
+        TcpEndpoint client = endpoint(cp, null, cc, TlsVersion.TLS_1_2, true);
+        TcpEndpoint server = endpoint(sp, null, server12(), TlsVersion.TLS_1_2, false);
+        handshake(client, server);
+        assertFalse(cp.errors.isEmpty());
+        assertFalse("server never heard why the handshake failed", sp.errors.isEmpty());
+        String reason = sp.errors.get(0).getMessage();
+        assertTrue(reason, reason.contains("peer sent fatal alert"));
     }
 
     @Test
