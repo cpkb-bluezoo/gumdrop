@@ -148,6 +148,12 @@ public class SelectorLoop implements Runnable {
     // Queue for timer callbacks (cross-thread, from ScheduledTimer)
     private final ConcurrentLinkedQueue<ScheduledTimer.TimerEntry> pendingTimers;
 
+    // The endpoint whose read is being handled on this loop's thread, and
+    // whether it has asked to write since that began (see doTcpEndpointRead).
+    // Only this loop's own thread reads or writes these to any effect.
+    private TcpEndpoint readingEndpoint;
+    private boolean writeRequestedDuringRead;
+
     // Queue for general tasks (cross-thread, from invokeLater)
     private final ConcurrentLinkedQueue<Runnable> pendingTasks;
 
@@ -708,6 +714,12 @@ public class SelectorLoop implements Runnable {
     private void doTcpEndpointRead(SelectionKey key, TcpEndpoint endpoint) {
         SocketChannel sc = (SocketChannel) key.channel();
 
+        // What the endpoint is given to send while it handles this read is
+        // written as soon as it has finished, below, rather than by asking
+        // for OP_WRITE and coming back round the selector for it.
+        readingEndpoint = endpoint;
+        writeRequestedDuringRead = false;
+        boolean handled = false;
         try {
             // Read straight into the endpoint's netIn buffer. This avoids
             // copying through a shared scratch buffer on every read. The
@@ -728,8 +740,19 @@ public class SelectorLoop implements Runnable {
                 netIn.flip();
                 endpoint.processInbound();
             }
+            handled = true;
         } catch (IOException e) {
             endpoint.handleReadError(e);
+            handled = true;
+        } finally {
+            readingEndpoint = null;
+            if (!handled && writeRequestedDuringRead) {
+                // the handler threw: leave what it queued to OP_WRITE
+                requestWriteInternal(endpoint);
+            }
+        }
+        if (writeRequestedDuringRead && key.isValid()) {
+            doTcpEndpointWrite(key, endpoint);
         }
     }
 
@@ -758,7 +781,11 @@ public class SelectorLoop implements Runnable {
                     }
 
                     if (netOut.hasRemaining()) {
+                        // The socket would take no more: finish when it
+                        // can. OP_WRITE is not yet set if this write was
+                        // made straight after a read.
                         netOut.compact();
+                        key.interestOps(key.interestOps() | SelectionKey.OP_WRITE);
                         return;
                     }
                 }
@@ -1111,6 +1138,11 @@ public class SelectorLoop implements Runnable {
      * @param endpoint the endpoint with pending data
      */
     void requestWrite(TcpEndpoint endpoint) {
+        if (Thread.currentThread() == thread && endpoint == readingEndpoint) {
+            // written when the read being handled has finished
+            writeRequestedDuringRead = true;
+            return;
+        }
         requestWriteInternal(endpoint);
     }
 
