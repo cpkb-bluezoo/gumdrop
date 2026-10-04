@@ -91,6 +91,14 @@ public class ClientEndpoint {
     private DnsResolver dnsResolver;
     /** Remaining addresses to try if the current attempt fails to connect (RFC 8305). */
     private ConnectCandidates candidates;
+    /**
+     * Attempts that failed and were replaced by the next address, whose
+     * endpoints have yet to report that they have closed. An endpoint
+     * reports its connect error and then its close, one after the other
+     * on its loop thread.
+     */
+    private int abandonedAttempts;
+
     /** Set once an attempt has connected; later errors are not retried. */
     private boolean established;
 
@@ -506,6 +514,14 @@ public class ClientEndpoint {
 
             @Override
             public void disconnected() {
+                if (abandonedAttempts > 0) {
+                    // The close of an attempt that failed and was
+                    // replaced by the next address. The connection the
+                    // handler is waiting for has not gone away, and this
+                    // client must stay registered while it is attempted.
+                    abandonedAttempts--;
+                    return;
+                }
                 handler.disconnected();
                 deregister();
             }
@@ -516,6 +532,7 @@ public class ClientEndpoint {
                     // The attempt failed before connecting and the host has
                     // another address: try it instead of failing (RFC 8305).
                     logFallback(cause);
+                    abandonedAttempts++;
                     connectNextCandidate(this);
                     return;
                 }

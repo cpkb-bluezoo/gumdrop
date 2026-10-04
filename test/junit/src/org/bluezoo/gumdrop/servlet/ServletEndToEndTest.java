@@ -217,6 +217,16 @@ public class ServletEndToEndTest {
                 resp.sendRedirect("/app/echo/redirected");
             } else if ("redirectRel".equals(mode)) {
                 resp.sendRedirect("other");
+            } else if ("statusbody".equals(mode)) {
+                resp.setStatus(404);
+                resp.setContentType("text/plain");
+                resp.getWriter().print("my own 404");
+            } else if ("statusstream".equals(mode)) {
+                resp.setStatus(422);
+                resp.setContentType("application/json");
+                resp.getOutputStream().write("{\"error\":1}".getBytes(StandardCharsets.UTF_8));
+            } else if ("statusonly".equals(mode)) {
+                resp.setStatus(404);
             } else if ("204".equals(mode)) {
                 resp.setStatus(204);
             } else if ("headers".equals(mode)) {
@@ -780,6 +790,28 @@ public class ServletEndToEndTest {
         assertEquals(404, miss.status);
         Result nocontext = send("GET", "/other/path");
         assertEquals(404, nocontext.status);
+    }
+
+    /**
+     * An error status set with setStatus is the servlet's own response:
+     * the body it writes goes out as written. Only sendError, or a
+     * servlet that sets an error status and writes nothing, gets the
+     * container's error page.
+     */
+    @Test
+    public void testErrorStatusKeepsTheBodyTheServletWrote() throws Exception {
+        Result text = send("GET", "/app/err?mode=statusbody");
+        assertEquals(404, text.status);
+        assertEquals("my own 404", text.text());
+        assertTrue(text.header("content-type"), text.header("content-type").startsWith("text/plain"));
+
+        Result stream = send("GET", "/app/err?mode=statusstream");
+        assertEquals(422, stream.status);
+        assertEquals("{\"error\":1}", stream.text());
+
+        Result bare = send("GET", "/app/err?mode=statusonly");
+        assertEquals(404, bare.status);
+        assertTrue(bare.text(), bare.text().contains("errorpage:404"));
     }
 
     @Test

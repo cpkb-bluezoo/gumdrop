@@ -73,6 +73,8 @@ public class ClientEndpointFallbackTest {
         volatile boolean connected;
         volatile Exception error;
         volatile int errors;
+        volatile int disconnects;
+        volatile int disconnectsBeforeConnected;
 
         @Override
         public void receive(ByteBuffer data) {
@@ -81,6 +83,7 @@ public class ClientEndpointFallbackTest {
         @Override
         public void connected(Endpoint endpoint) {
             connected = true;
+            disconnectsBeforeConnected = disconnects;
             done.countDown();
         }
 
@@ -90,6 +93,7 @@ public class ClientEndpointFallbackTest {
 
         @Override
         public void disconnected() {
+            disconnects++;
         }
 
         @Override
@@ -137,6 +141,11 @@ public class ClientEndpointFallbackTest {
                     InetAddress.getByName("127.0.0.1")), server.getLocalPort());
             assertNull("fallback should hide the first failure", handler.error);
             assertTrue(handler.connected);
+            // The attempt that was refused is closed, but that is not the
+            // connection going away: reporting it would also take the
+            // client off the books while its second attempt is under way.
+            assertEquals("fallback should hide the first attempt's close",
+                    0, handler.disconnectsBeforeConnected);
             Socket accepted = server.accept();
             accepted.close();
         } finally {
