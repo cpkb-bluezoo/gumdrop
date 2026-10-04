@@ -1064,7 +1064,7 @@ public class ServletEndToEndMoreTest {
         Result r = get("/more/resp?mode=misc");
         assertEquals(201, r.status);
         String t = r.text();
-        assertTrue(t, t.startsWith("200;201;1;-1;9;null;false;2;1;true;null;4096;201;"));
+        assertTrue(t, t.startsWith("200;201;1;-1;9;null;false;2;2;true;null;4096;201;"));
         assertHas(t, ";true;0");
     }
 

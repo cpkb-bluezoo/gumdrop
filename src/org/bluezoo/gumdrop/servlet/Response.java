@@ -70,16 +70,22 @@ private static final Logger LOGGER = Logger.getLogger(Response.class.getName());
                     .withZone(ZoneId.systemDefault());
 
     /**
-     * For these header names, it is permitted to have multiple headers of
-     * the same name.
-     * Otherwise we won't allow addHeader to create multiple headers with
-     * the same name, it will quietly remove any previous header set.
-     * This is to conform to RFC 9110.
+     * Request headers that may be given more than once. For any other
+     * name {@link Request#addHeader} keeps only the last value.
      */
     static final Collection<String> MULTIPLE_VALUE = new TreeSet<String>(Arrays.asList(new String[] {
         "set-cookie", "link", "prefer", "accept", "accept-charset", "accept-encoding", "allow",
         "accept-language", "cache-control", "connection", "content-encoding", "transfer-encoding", "via",
         "warning"
+    }));
+
+    /**
+     * Response headers that take a single value (RFC 9110): adding one
+     * replaces what is there. Every other header keeps each value added.
+     */
+    static final Collection<String> SINGLE_VALUE = new TreeSet<String>(Arrays.asList(new String[] {
+        "age", "content-length", "content-location", "content-range", "content-type", "date", "etag",
+        "expires", "last-modified", "location", "retry-after", "server"
     }));
 
     final ServletHandler handler;
@@ -538,7 +544,7 @@ private static final Logger LOGGER = Logger.getLogger(Response.class.getName());
     }
 
     public void addHeader(String name, String value) {
-        if (!MULTIPLE_VALUE.contains(name.toLowerCase())) {
+        if (SINGLE_VALUE.contains(name.toLowerCase())) {
             removeHeaders(name);
         }
         try {
