@@ -782,6 +782,24 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
 
     private static final String WEB_INF_CLASSES_PREFIX = "/WEB-INF/classes/";
 
+    /**
+     * Returns whether an entry of a jar, or a path under WEB-INF/classes,
+     * is a class to scan. A module descriptor is not a class, and the
+     * entries under META-INF (the versioned classes of a multi-release
+     * jar) are not classes under the names they would be given.
+     *
+     * @param entry the entry name, relative to the root of the class path
+     */
+    static boolean isScannableClassEntry(String entry) {
+        if (!entry.endsWith(".class")) {
+            return false;
+        }
+        if (entry.startsWith("META-INF/")) {
+            return false;
+        }
+        return !entry.equals("module-info.class") && !entry.endsWith("/module-info.class");
+    }
+
     private void scanClassesDirectory(DeploymentDescriptorParser parser,
             DeploymentDescriptor descriptor, String basePath)
             throws IOException, SAXException {
@@ -790,10 +808,11 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
             return;
         }
         for (String resourcePath : resourcePaths) {
-            if (resourcePath.toLowerCase().endsWith(".class")) {
-                String className = resourcePath.substring(
-                        WEB_INF_CLASSES_PREFIX.length(),
-                        resourcePath.length() - 6).replace('/', '.');
+            String entry = resourcePath.startsWith(WEB_INF_CLASSES_PREFIX)
+                    ? resourcePath.substring(WEB_INF_CLASSES_PREFIX.length())
+                    : resourcePath;
+            if (isScannableClassEntry(entry)) {
+                String className = entry.substring(0, entry.length() - 6).replace('/', '.');
                 InputStream in = getResourceAsStream(resourcePath);
                 scanClass(descriptor, className, in);
             } else if (isResourceDirectory(resourcePath)) {
@@ -1032,7 +1051,7 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
             if (!exclude && !webFragment.metadataComplete) {
                 // scan classes in jar for annotations
                 for (String entry : jarFile.entryNames()) {
-                    if (entry.endsWith(".class")) {
+                    if (isScannableClassEntry(entry)) {
                         String className = entry.substring(0, entry.length() - 6).replace('/', '.');
                         InputStream classIn = jarFile.stream(entry);
                         scanClass(webFragment, className, classIn);
@@ -1348,10 +1367,20 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
                     }
                 }
             }
-        } catch (ClassNotFoundException | NoClassDefFoundError e) {
+        } catch (ClassNotFoundException e) {
             String message = L10N.getString("err.load_resource");
             message = MessageFormat.format(message, className);
             JulWarnings.severe(LOGGER, message, e);
+        } catch (NoClassDefFoundError e) {
+            // The class is there but a class it refers to is not. That is
+            // routine in a library, whose support for an optional
+            // dependency cannot be linked without it, and it is no fault
+            // in the application: the class is just not one to scan.
+            if (LOGGER.isLoggable(Level.FINE)) {
+                String message = L10N.getString("err.load_resource");
+                message = MessageFormat.format(message, className);
+                LOGGER.log(Level.FINE, message, e);
+            }
         }
     }
 
