@@ -172,11 +172,11 @@ public final class QuicTlsClientEngine implements QuicTlsEngine {
      * @param applicationProtocols the ALPN application protocol(s) to
      *                             offer (RFC 7301), comma-separated, or
      *                             null to offer none
-     * @param namedGroups colon-separated preferred named group(s) (e.g.
-     *                    {@code "x25519:secp256r1"}, matching the same
-     *                    IANA/TLS-registry names {@code
-     *                    TransportFactory#setNamedGroups}'s javadoc
-     *                    already documents), or null for this engine's
+     * @param namedGroups colon-separated preferred named group(s) by
+     *                    IANA TLS Supported Groups registry name (e.g.
+     *                    {@code "X25519MLKEM768:x25519"}, as for {@code
+     *                    TransportFactory#setNamedGroups}), or null for
+     *                    this engine's
      *                    own default order (hybrid PQC group first).
      *                    Unrecognised names are skipped with a logged
      *                    warning rather than silently substituted or
@@ -237,10 +237,13 @@ public final class QuicTlsClientEngine implements QuicTlsEngine {
             if (name.isEmpty()) {
                 continue;
             }
-            try {
-                resolved.add(NamedGroup.valueOf(name.toUpperCase()));
-            } catch (IllegalArgumentException e) {
-                // Tried in order; not every name is necessarily unsupported.
+            NamedGroup group = NamedGroup.fromName(name);
+            if (group != null) {
+                resolved.add(group);
+            } else if (LOGGER.isLoggable(Level.WARNING)) {
+                String message = MessageFormat.format(
+                        L10N.getString("warn.unrecognized_named_group"), name);
+                LOGGER.warning(message);
             }
         }
         if (resolved.isEmpty()) {

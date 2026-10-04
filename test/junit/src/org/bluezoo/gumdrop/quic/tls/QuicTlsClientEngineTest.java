@@ -96,6 +96,24 @@ public class QuicTlsClientEngineTest {
     }
 
     @Test
+    public void testHybridGroupsResolveByIanaName() throws Exception {
+        // The TLS Supported Groups registry spellings, as OpenSSL and
+        // curl take them -- a name the resolver skips here silently
+        // downgrades the connection to a classical group.
+        assertEquals(List.of(NamedGroup.X25519_MLKEM768, NamedGroup.X25519),
+                resolvedGroups("X25519MLKEM768:x25519"));
+        assertEquals(List.of(NamedGroup.SECP256R1_MLKEM768, NamedGroup.SECP384R1_MLKEM1024),
+                resolvedGroups("SecP256r1MLKEM768:SecP384r1MLKEM1024"));
+    }
+
+    @Test
+    public void testEnumConstantSpellingIsNotAGroupName() throws Exception {
+        // Only registry names are configuration names: the Java constant
+        // X25519_MLKEM768 is skipped like any other unknown name.
+        assertEquals(List.of(NamedGroup.X25519), resolvedGroups("X25519_MLKEM768:x25519"));
+    }
+
+    @Test
     public void testBlankTokensInListIgnored() throws Exception {
         assertEquals(List.of(NamedGroup.X25519), resolvedGroups(":: x25519 :"));
     }

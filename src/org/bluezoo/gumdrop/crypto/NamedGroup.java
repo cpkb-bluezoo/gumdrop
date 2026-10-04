@@ -24,8 +24,8 @@ package org.bluezoo.gumdrop.crypto;
 /**
  * TLS 1.3 key-exchange groups (the {@code NamedGroup} enum of RFC 8446
  * section 4.2.7), extended with the three post-quantum/classical hybrid
- * groups of RFC 10024. Each constant carries its IANA codepoint and the
- * wire lengths of a client and server key share.
+ * groups of RFC 10024. Each constant carries its IANA registry name and
+ * codepoint and the wire lengths of a client and server key share.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see <a href="https://www.rfc-editor.org/rfc/rfc8446#section-4.2.7">RFC 8446 section 4.2.7</a>
@@ -33,9 +33,9 @@ package org.bluezoo.gumdrop.crypto;
  */
 public enum NamedGroup {
 
-    X25519(0x001d, 32, 32),
-    SECP256R1(0x0017, 65, 65),
-    SECP384R1(0x0018, 97, 97),
+    X25519("x25519", 0x001d, 32, 32),
+    SECP256R1("secp256r1", 0x0017, 65, 65),
+    SECP384R1("secp384r1", 0x0018, 97, 97),
 
     /**
      * The hybrid post-quantum/classical group of RFC 10024 section 2.2.
@@ -47,14 +47,14 @@ public enum NamedGroup {
      * historical exception to the classical-first convention the other
      * two hybrid groups below follow.
      */
-    X25519_MLKEM768(0x11ec, 1184 + 32, 1088 + 32, true),
+    X25519_MLKEM768("X25519MLKEM768", 0x11ec, 1184 + 32, 1088 + 32, true),
 
     /**
      * RFC 10024 section 2.3: classical P-256 (uncompressed point, 65
      * bytes) concatenated with ML-KEM-768, classical component
      * <em>first</em> -- the RFC's normal (non-exceptional) ordering.
      */
-    SECP256R1_MLKEM768(0x11eb, 65 + 1184, 65 + 1088, false),
+    SECP256R1_MLKEM768("SecP256r1MLKEM768", 0x11eb, 65 + 1184, 65 + 1088, false),
 
     /**
      * RFC 10024 section 2.4: classical P-384 (uncompressed point, 97
@@ -64,22 +64,35 @@ public enum NamedGroup {
      * 1568 bytes, so this group's client and server share lengths are
      * equal.
      */
-    SECP384R1_MLKEM1024(0x11ed, 97 + 1568, 97 + 1568, false);
+    SECP384R1_MLKEM1024("SecP384r1MLKEM1024", 0x11ed, 97 + 1568, 97 + 1568, false);
 
+    private final String name;
     private final int code;
     private final int clientShareLength;
     private final int serverShareLength;
     private final boolean pqFirst;
 
-    NamedGroup(int code, int clientShareLength, int serverShareLength) {
-        this(code, clientShareLength, serverShareLength, false);
+    NamedGroup(String name, int code, int clientShareLength, int serverShareLength) {
+        this(name, code, clientShareLength, serverShareLength, false);
     }
 
-    NamedGroup(int code, int clientShareLength, int serverShareLength, boolean pqFirst) {
+    NamedGroup(String name, int code, int clientShareLength, int serverShareLength, boolean pqFirst) {
+        this.name = name;
         this.code = code;
         this.clientShareLength = clientShareLength;
         this.serverShareLength = serverShareLength;
         this.pqFirst = pqFirst;
+    }
+
+    /**
+     * Returns the name of this group in the IANA TLS Supported Groups
+     * registry (e.g. {@code x25519}, {@code X25519MLKEM768}). This, not
+     * the Java constant name, is the name a group is configured by.
+     *
+     * @return the registry name
+     */
+    public String getName() {
+        return name;
     }
 
     /**
@@ -137,6 +150,23 @@ public enum NamedGroup {
      */
     public boolean isPqFirst() {
         return pqFirst;
+    }
+
+    /**
+     * Looks up a group by its name in the IANA TLS Supported Groups
+     * registry, ignoring case.
+     *
+     * @param name the registry name
+     * @return the matching group, or null if unrecognised
+     */
+    public static NamedGroup fromName(String name) {
+        NamedGroup[] values = values();
+        for (int i = 0; i < values.length; i++) {
+            if (values[i].name.equalsIgnoreCase(name)) {
+                return values[i];
+            }
+        }
+        return null;
     }
 
     /**

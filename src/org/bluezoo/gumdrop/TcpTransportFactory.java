@@ -58,7 +58,6 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -488,29 +487,6 @@ public class TcpTransportFactory extends TransportFactory {
                 if (LOGGER.isLoggable(Level.WARNING)) {
                     LOGGER.warning(MessageFormat.format(
                             Gumdrop.L10N.getString("warn.unrecognized_tls12_cipher_suite"), name));
-                }
-            }
-        }
-        return resolved.isEmpty() ? null : resolved;
-    }
-
-    private static List<NamedGroup> resolveNamedGroups(String raw) {
-        if (raw == null || raw.isEmpty()) {
-            return null;
-        }
-        List<NamedGroup> resolved = new ArrayList<NamedGroup>();
-        String[] names = raw.split(":");
-        for (int i = 0; i < names.length; i++) {
-            String name = names[i].trim();
-            if (name.isEmpty()) {
-                continue;
-            }
-            try {
-                resolved.add(NamedGroup.valueOf(name.toUpperCase(Locale.ROOT)));
-            } catch (IllegalArgumentException e) {
-                if (LOGGER.isLoggable(Level.WARNING)) {
-                    LOGGER.warning(MessageFormat.format(
-                            Gumdrop.L10N.getString("warn.unrecognized_named_group"), name));
                 }
             }
         }

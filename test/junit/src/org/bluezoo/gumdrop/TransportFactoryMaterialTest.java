@@ -33,9 +33,12 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.KeyStore;
+import java.util.Arrays;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
+import org.bluezoo.gumdrop.crypto.NamedGroup;
 import org.bluezoo.gumdrop.testsupport.TestCertificates;
 import org.bluezoo.gumdrop.testsupport.memfs.MemoryFileSystem;
 import org.bluezoo.gumdrop.tls.DtlsVersion;
@@ -219,6 +222,27 @@ public class TransportFactoryMaterialTest {
         onlyBlank.setTlsVersion(TlsVersion.TLS_1_3);
         onlyBlank.setTrustManager(TestCertificates.trustAll());
         onlyBlank.start();
+    }
+
+    @Test
+    public void tcpAndUdpResolveHybridGroupsByIanaName() throws Exception {
+        TcpTransportFactory tcp = new TcpTransportFactory();
+        tcp.setSecure(true);
+        tcp.setTlsVersion(TlsVersion.TLS_1_3);
+        tcp.setTrustManager(TestCertificates.trustAll());
+        tcp.setNamedGroups("X25519MLKEM768:SecP256r1MLKEM768:SecP384r1MLKEM1024:x25519:X25519_MLKEM768");
+        tcp.start();
+        List<NamedGroup> expected = Arrays.asList(NamedGroup.X25519_MLKEM768, NamedGroup.SECP256R1_MLKEM768,
+                NamedGroup.SECP384R1_MLKEM1024, NamedGroup.X25519);
+        assertEquals(expected, tcp.buildClientConfig("localhost").getNamedGroups());
+
+        UdpTransportFactory udp = new UdpTransportFactory();
+        udp.setSecure(true);
+        udp.setDtlsVersion(DtlsVersion.DTLS_1_3);
+        udp.setTrustManager(TestCertificates.trustAll());
+        udp.setNamedGroups("X25519MLKEM768:SecP256r1MLKEM768:SecP384r1MLKEM1024:x25519:X25519_MLKEM768");
+        udp.start();
+        assertEquals(expected, udp.buildClientConfig13("localhost").getNamedGroups());
     }
 
     @Test

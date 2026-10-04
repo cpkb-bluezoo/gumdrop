@@ -244,8 +244,8 @@ it, such as one without AES hardware. This is the order the JDK uses.
 
 <p>
 Default named groups (preference order):
-<code>X25519_MLKEM768</code>, <code>X25519</code>,
-<code>SECP256R1</code>, <code>SECP384R1</code>.
+<code>X25519MLKEM768</code>, <code>x25519</code>,
+<code>secp256r1</code>, <code>secp384r1</code>.
 </p>
 
 <h2 id="tls12">TLS 1.2 engine</h2>
@@ -518,9 +518,11 @@ TLS&nbsp;1.2 / DTLS&nbsp;1.2.
 <h3 id="groups">Named groups (TLS 1.3 / DTLS 1.3)</h3>
 
 <p>
-Colon-separated group names: <code>X25519</code>, <code>SECP256R1</code>,
-<code>SECP384R1</code>, <code>X25519_MLKEM768</code>,
-<code>SECP256R1_MLKEM768</code>, <code>SECP384R1_MLKEM1024</code>. Hybrid groups
+Colon-separated group names, as registered in the IANA TLS Supported Groups
+registry (matched case-insensitively): <code>x25519</code>,
+<code>secp256r1</code>, <code>secp384r1</code>, <code>X25519MLKEM768</code>,
+<code>SecP256r1MLKEM768</code>, <code>SecP384r1MLKEM1024</code>. An
+unrecognised name is logged and skipped. Hybrid groups
 require Java&nbsp;25+ JCA support for ML-KEM/ML-DSA.
 </p>
 

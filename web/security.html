@@ -529,8 +529,8 @@ listener.setNamedGroups("X25519");
 
 <p>
 The default cipher suites are AES-256-GCM, then AES-128-GCM, then
-ChaCha20-Poly1305 (see <a href="tls.html#tls13">TLS &amp; DTLS</a>). The default named group is X25519; hybrid post-quantum groups
-(e.g. X25519MLKEM768) are available on Java 25+ when configured.
+ChaCha20-Poly1305 (see <a href="tls.html#tls13">TLS &amp; DTLS</a>). The default named group is the hybrid post-quantum X25519MLKEM768,
+falling back to x25519, secp256r1 and secp384r1 for a peer that does not support it.
 </p>
 
 <h3 id="cert-pinning">Certificate Pinning</h3>

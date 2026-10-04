@@ -2912,8 +2912,8 @@ public class QuicProductionEndToEndTest {
      * consulted client-side (previously a silent no-op -- see {@link
      * org.bluezoo.gumdrop.quic.tls.QuicTlsClientEngineTest} for the
      * focused resolution-logic coverage). This is the end-to-end proof
-     * that explicitly requesting a real, Agent15-supported named group
-     * doesn't break a real handshake against a real server.
+     * that explicitly requesting a classical named group doesn't break
+     * a real handshake against a real server.
      */
     @Test
     public void testClientHandshakeCompletesWithConfiguredNamedGroup() throws Exception {
@@ -2921,14 +2921,23 @@ public class QuicProductionEndToEndTest {
     }
 
     /**
-     * A configured list whose first entry Agent15 cannot support (a real
-     * IANA hybrid PQC group name -- Agent15 has no ML-KEM support at
-     * all) must fall back to the first entry it does support, rather
-     * than failing the connection outright.
+     * A hybrid post-quantum group, configured by its IANA registry name
+     * as the only group offered, completes a real handshake -- with no
+     * classical group in the list there is nothing to downgrade to.
+     */
+    @Test
+    public void testClientHandshakeCompletesWithHybridNamedGroup() throws Exception {
+        assertNamedGroupsAllowHandshake("X25519MLKEM768");
+    }
+
+    /**
+     * A configured list whose first entry the engine does not implement
+     * (x448, a real IANA group name) must fall back to the first entry
+     * it does support, rather than failing the connection outright.
      */
     @Test
     public void testClientHandshakeFallsBackWhenPreferredGroupUnsupported() throws Exception {
-        assertNamedGroupsAllowHandshake("X25519MLKEM768:x25519");
+        assertNamedGroupsAllowHandshake("x448:x25519");
     }
 
     private void assertNamedGroupsAllowHandshake(String namedGroups) throws Exception {

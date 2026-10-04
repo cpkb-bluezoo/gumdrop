@@ -21,10 +21,15 @@
 
 package org.bluezoo.gumdrop;
 
+import org.bluezoo.gumdrop.crypto.NamedGroup;
 import org.bluezoo.gumdrop.tls.KeystoreFormat;
 import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
 
 import java.nio.file.Path;
+import java.text.MessageFormat;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.logging.Level;
 import java.util.logging.Logger;
 
 /**
@@ -111,8 +116,10 @@ public abstract class TransportFactory {
 
     /**
      * Allowed key exchange groups / named curves (colon-separated),
-     * e.g. "X25519:secp256r1". Hybrid post-quantum groups (e.g.
-     * {@code X25519_MLKEM768}) are supported by the in-tree
+     * by IANA TLS Supported Groups registry name, e.g.
+     * "X25519MLKEM768:x25519:secp256r1". Hybrid post-quantum groups
+     * ({@code X25519MLKEM768}, {@code SecP256r1MLKEM768},
+     * {@code SecP384r1MLKEM1024}) are supported by the in-tree
      * {@link org.bluezoo.gumdrop.tls.HandshakeEngine} on Java&nbsp;25+ when
      * the JCA provider exposes ML-KEM/ML-DSA. On QUIC server listeners,
      * {@code named-groups} has no effect (RFC&nbsp;8446 section&nbsp;4.2.7:
@@ -278,8 +285,9 @@ public abstract class TransportFactory {
     /**
      * Sets the allowed key exchange groups / named curves.
      *
-     * <p>Accepts a colon-separated list of group names in canonical form,
-     * tried in order until one is supported. Honoured by the in-tree
+     * <p>Accepts a colon-separated list of IANA TLS Supported Groups
+     * registry names (case-insensitive), in preference order; an
+     * unrecognised name is logged and skipped. Honoured by the in-tree
      * {@link org.bluezoo.gumdrop.tls.HandshakeEngine} on TCP, DTLS, and
      * QUIC client connections. Hybrid post-quantum groups require Java&nbsp;25+
      * JCA support. QUIC server listeners ignore this setting (see
@@ -450,4 +458,36 @@ public abstract class TransportFactory {
      * @return the description
      */
     protected abstract String getDescription();
+    /**
+     * Resolves a colon-separated {@link #setNamedGroups} value against
+     * {@link NamedGroup}, in configured order. Names are those of the
+     * IANA TLS Supported Groups registry; an unrecognised name is logged
+     * and skipped.
+     *
+     * @param raw the configured value, or null
+     * @return the resolved groups, or null if none were configured or
+     *         recognised (the engine's own default order then applies)
+     */
+    static List<NamedGroup> resolveNamedGroups(String raw) {
+        if (raw == null || raw.isEmpty()) {
+            return null;
+        }
+        List<NamedGroup> resolved = new ArrayList<NamedGroup>();
+        String[] names = raw.split(":");
+        for (int i = 0; i < names.length; i++) {
+            String name = names[i].trim();
+            if (name.isEmpty()) {
+                continue;
+            }
+            NamedGroup group = NamedGroup.fromName(name);
+            if (group != null) {
+                resolved.add(group);
+            } else if (LOGGER.isLoggable(Level.WARNING)) {
+                LOGGER.warning(MessageFormat.format(
+                        Gumdrop.L10N.getString("warn.unrecognized_named_group"), name));
+            }
+        }
+        return resolved.isEmpty() ? null : resolved;
+    }
+
 }
