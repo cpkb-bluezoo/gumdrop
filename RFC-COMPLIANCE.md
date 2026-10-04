@@ -611,7 +611,7 @@ practices.
 | Last chunk (0 CRLF) + trailer section | 7.1, 7.1.2 | Compliant | `processTrailerLine()` handles |
 | Content-Length delimited body | 6.2 | Compliant | `receiveBody()` |
 | Read-until-close for HTTP/1.0 | 6.3 | Compliant | `receiveBodyUntilClose()` |
-| 411 Length Required | 6.3 | Compliant | Sent when body present but no framing in HTTP/1.1 |
+| Request with neither Content-Length nor Transfer-Encoding has no body | 6.3 | Compliant | `streamEndHeaders()` resolves the length to zero for any method; 411 is not sent |
 | Reject requests with both Transfer-Encoding and Content-Length | 6.3 | Compliant | `streamEndHeaders()` detects both TE and CL present and sends 400 Bad Request |
 
 #### Section 4 — Status Line

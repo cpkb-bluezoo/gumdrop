@@ -242,6 +242,9 @@ public class ServletEndToEndTest {
                 resp.getOutputStream().write("{\"error\":1}".getBytes(StandardCharsets.UTF_8));
             } else if ("statusonly".equals(mode)) {
                 resp.setStatus(404);
+            } else if ("299".equals(mode)) {
+                resp.setStatus(299);
+                resp.getWriter().print("extension");
             } else if ("204".equals(mode)) {
                 resp.setStatus(204);
             } else if ("multi".equals(mode)) {
@@ -984,6 +987,10 @@ public class ServletEndToEndTest {
         assertTrue(r2.header("location"), r2.header("location").endsWith("other"));
         Result r3 = send("GET", "/app/err?mode=204");
         assertEquals(204, r3.status);
+        // a status the server has no name for is sent as the servlet set it
+        Result r4 = send("GET", "/app/err?mode=299");
+        assertEquals(299, r4.status);
+        assertEquals("extension", r4.text());
     }
 
     @Test
@@ -1030,7 +1037,7 @@ public class ServletEndToEndTest {
         assertEquals(types.toString(), 1, types.size());
         assertTrue(types.toString(), types.get(0).startsWith("text/plain"));
         assertEquals(Arrays.asList("/b"), values(r, "location"));
-        assertEquals("first=one all=[one, two] none=null", r.text());
+        assertEquals("first=one all=[one, two] none=[]", r.text());
     }
 
     @Test

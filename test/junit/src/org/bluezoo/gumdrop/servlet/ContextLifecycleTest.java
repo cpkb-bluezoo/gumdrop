@@ -43,12 +43,14 @@ import java.util.Set;
 import jakarta.servlet.Filter;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.FilterConfig;
+import jakarta.servlet.FilterRegistration;
 import jakarta.servlet.RequestDispatcher;
 import jakarta.servlet.ServletContextAttributeEvent;
 import jakarta.servlet.ServletContextAttributeListener;
 import jakarta.servlet.ServletContextEvent;
 import jakarta.servlet.ServletContextListener;
 import jakarta.servlet.ServletException;
+import jakarta.servlet.ServletRegistration;
 import jakarta.servlet.ServletRequest;
 import jakarta.servlet.ServletResponse;
 import jakarta.servlet.annotation.WebFilter;
@@ -534,6 +536,47 @@ public class ContextLifecycleTest {
     }
 
     // ===== dynamic registration =====
+
+    /**
+     * A name that already has a complete registration cannot be registered
+     * again: the method returns null and the first registration stands. A
+     * registration that has no class yet, as a descriptor may declare one,
+     * is completed by it instead (ServletContext.addServlet, addFilter).
+     */
+    @Test
+    public void testAddServletAndFilterWithANameAlreadyRegistered() throws Exception {
+        context.load();
+        String hello = HelloServlet.class.getName();
+        ServletRegistration.Dynamic first = context.addServlet("dup", hello);
+        assertNotNull(first);
+        first.setInitParameter("which", "first");
+        assertNull(context.addServlet("dup", hello));
+        assertEquals("first", context.getServletRegistration("dup").getInitParameter("which"));
+
+        String pass = PassFilter.class.getName();
+        FilterRegistration.Dynamic firstFilter = context.addFilter("dupf", pass);
+        assertNotNull(firstFilter);
+        firstFilter.setInitParameter("which", "first");
+        assertNull(context.addFilter("dupf", pass));
+        assertEquals("first", context.getFilterRegistration("dupf").getInitParameter("which"));
+
+        ServletDef preliminary = new ServletDef();
+        preliminary.name = "pre";
+        preliminary.context = context;
+        preliminary.setInitParameter("declared", "yes");
+        context.addServletDef(preliminary);
+        ServletRegistration.Dynamic completed = context.addServlet("pre", hello);
+        assertSame(preliminary, completed);
+        assertEquals(hello, completed.getClassName());
+        assertEquals("yes", completed.getInitParameter("declared"));
+
+        FilterDef preliminaryFilter = new FilterDef();
+        preliminaryFilter.name = "pref";
+        context.addFilterDef(preliminaryFilter);
+        FilterRegistration.Dynamic completedFilter = context.addFilter("pref", pass);
+        assertSame(preliminaryFilter, completedFilter);
+        assertEquals(pass, completedFilter.getClassName());
+    }
 
     @Test
     public void testAddServletAndFilterBeforeInit() throws Exception {

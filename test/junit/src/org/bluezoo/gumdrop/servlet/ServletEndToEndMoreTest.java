@@ -1064,7 +1064,7 @@ public class ServletEndToEndMoreTest {
         Result r = get("/more/resp?mode=misc");
         assertEquals(201, r.status);
         String t = r.text();
-        assertTrue(t, t.startsWith("200;201;1;-1;9;null;false;2;2;true;null;4096;201;"));
+        assertTrue(t, t.startsWith("200;201;1;-1;9;[];false;2;2;true;null;4096;201;"));
         assertHas(t, ";true;0");
     }
 
@@ -1097,6 +1097,7 @@ public class ServletEndToEndMoreTest {
         assertEquals(404, nomsg.status);
         Result odd = get("/more/resp?mode=e599");
         assertHas(odd.text(), "<h1>599 ");
+        assertEquals(599, odd.status);
         Result notModified = get("/more/resp?mode=e304");
         assertEquals(304, notModified.status);
         assertEquals(0, notModified.body.size());

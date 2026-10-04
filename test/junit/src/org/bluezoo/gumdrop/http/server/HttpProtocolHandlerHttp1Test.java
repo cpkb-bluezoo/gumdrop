@@ -441,24 +441,31 @@ public class HttpProtocolHandlerHttp1Test {
         assertTrue(f.wire(), f.wire().startsWith("HTTP/1.1 400"));
     }
 
-    @Test
-    public void testPostWithoutLengthIs411() {
-        Fixture f = run("POST /x HTTP/1.1\r\nHost: h\r\n\r\n");
-        assertTrue(f.wire(), f.wire().startsWith("HTTP/1.1 411"));
-    }
-
     /**
-     * A request that is refused is answered by the server itself. The
-     * application must not be given it as well: it would act on a request
-     * whose sender has already been told it failed.
+     * RFC 9112 section 6.3: a request with neither Content-Length nor
+     * Transfer-Encoding has no body. That is so whatever its method: a
+     * POST sent that way is a POST of nothing, not a malformed request.
      */
     @Test
-    public void testPostWithoutLengthDoesNotReachTheHandler() {
+    public void testPostWithoutLengthHasNoBody() {
         Fixture f = run("POST /x HTTP/1.1\r\nHost: h\r\n\r\n");
-        assertTrue(f.wire(), f.wire().startsWith("HTTP/1.1 411"));
-        assertTrue(f.rec.methods.toString(), f.rec.methods.isEmpty());
-        assertEquals(0, f.rec.completed);
-        assertEquals(0, f.rec.bodyEnds);
+        assertTrue(f.wire(), f.wire().startsWith("HTTP/1.1 200"));
+        assertEquals("POST", f.rec.methods.get(0));
+        assertEquals(0, f.rec.body.size());
+        assertEquals(1, f.rec.completed);
+    }
+
+    /** What follows such a request on the connection is the next request. */
+    @Test
+    public void testRequestAfterPostWithoutLengthIsRead() {
+        Fixture f = run("POST /a HTTP/1.1\r\nHost: h\r\n\r\n"
+                + "PUT /b HTTP/1.1\r\nHost: h\r\n\r\n"
+                + "GET /c HTTP/1.1\r\nHost: h\r\n\r\n");
+        assertEquals(3, f.rec.completed);
+        assertEquals("POST", f.rec.methods.get(0));
+        assertEquals("PUT", f.rec.methods.get(1));
+        assertEquals("/c", f.rec.paths.get(2));
+        assertEquals(0, f.rec.body.size());
     }
 
     @Test
@@ -524,11 +531,15 @@ public class HttpProtocolHandlerHttp1Test {
     }
 
     @Test
-    public void testHttp10RequestWithoutLengthIs411() {
+    public void testHttp10RequestWithoutLengthHasNoBody() {
         // RFC 9112 section 6.3: a request has no body unless it declares a
-        // length; the server no longer reads an HTTP/1.0 request body to close
+        // length; the server does not read an HTTP/1.0 request body to
+        // close, so what follows the header section is not the body
         Fixture f = run("POST /x HTTP/1.0\r\nHost: h\r\n\r\nsome data", 3);
-        assertTrue(f.wire(), f.wire().contains(" 411 "));
+        assertTrue(f.wire(), f.wire().startsWith("HTTP/1.0 200")
+                || f.wire().startsWith("HTTP/1.1 200"));
+        assertEquals("POST", f.rec.methods.get(0));
+        assertEquals(0, f.rec.body.size());
         f.handler.disconnected();
     }
 
@@ -897,7 +908,7 @@ public class HttpProtocolHandlerHttp1Test {
         String[] bad = {"abc", "-1", "1, 2", ""};
         for (int i = 0; i < bad.length; i++) {
             Fixture f = run("POST /e HTTP/1.1\r\nHost: h\r\nContent-Length: " + bad[i] + "\r\n\r\nabc");
-            assertTrue(bad[i] + f.wire(), f.wire().contains(" 400 ") || f.wire().contains(" 411 "));
+            assertTrue(bad[i] + f.wire(), f.wire().contains(" 400 "));
         }
     }
 

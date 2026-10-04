@@ -40,7 +40,6 @@ import java.util.Set;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.TimeUnit;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -199,7 +198,9 @@ public class OtlpExporter implements TelemetryExporter {
         if (!running || trace == null) {
             return;
         }
-        if (!traceQueue.offer(trace)) {
+        if (traceQueue.offer(trace)) {
+            exportThread.wake();
+        } else {
             if (logger.isLoggable(Level.FINE)) {
                 logger.fine(MessageFormat.format(L10N.getString("fine.trace_queue_full_dropping"), trace.getTraceIdHex()));
             }
@@ -242,7 +243,7 @@ public class OtlpExporter implements TelemetryExporter {
         forceFlush();
 
         running = false;
-        exportThread.interrupt();
+        exportThread.wake();
 
         try {
             exportThread.join(config.getTimeoutMs());
@@ -372,9 +373,36 @@ public class OtlpExporter implements TelemetryExporter {
             setDaemon(true);
         }
 
+        // The thread waits on this for a trace to arrive or for a flush
+        // or shutdown to be requested. It is not woken by interrupting
+        // it: an interrupt that arrives while it is exporting would abort
+        // whatever wait the export is in, and lose the export.
+        private final Object wakeLock = new Object();
+
         void requestFlush() {
-            flushRequested = true;
-            interrupt();
+            synchronized (wakeLock) {
+                flushRequested = true;
+                wakeLock.notifyAll();
+            }
+        }
+
+        /** Wakes the thread: a trace has been queued, or it is to stop. */
+        void wake() {
+            synchronized (wakeLock) {
+                wakeLock.notifyAll();
+            }
+        }
+
+        /**
+         * Waits until a trace is queued, a flush or shutdown is requested,
+         * or the time is up.
+         */
+        private void awaitWork(long waitTime) throws InterruptedException {
+            synchronized (wakeLock) {
+                if (running && !flushRequested && traceQueue.isEmpty()) {
+                    wakeLock.wait(waitTime);
+                }
+            }
         }
 
         private final List<Trace> traceBatch = new ArrayList<>();
@@ -408,11 +436,8 @@ public class OtlpExporter implements TelemetryExporter {
                     : flushWait;
             long waitTime = Math.min(flushWait, metricsWait);
 
-            if (mayBlock && waitTime > 0 && !flushRequested) {
-                Trace polled = traceQueue.poll(waitTime, TimeUnit.MILLISECONDS);
-                if (polled != null) {
-                    traceBatch.add(polled);
-                }
+            if (mayBlock && waitTime > 0) {
+                awaitWork(waitTime);
             }
 
             drainQueue(traceQueue, traceBatch);

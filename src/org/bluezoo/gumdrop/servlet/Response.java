@@ -829,7 +829,7 @@ private static final Logger LOGGER = Logger.getLogger(Response.class.getName());
 
     public Collection<String> getHeaders(String name) {
         List<String> ret = headers.getValues(name);
-        return ret.isEmpty() ? null : Collections.unmodifiableList(ret);
+        return Collections.unmodifiableList(ret);
     }
 
     public Collection<String> getHeaderNames() {

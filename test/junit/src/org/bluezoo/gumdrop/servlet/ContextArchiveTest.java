@@ -412,13 +412,20 @@ public class ContextArchiveTest {
         } catch (ClassNotFoundException expected) {
             assertEquals("no.such.Clazz", expected.getMessage());
         }
-        URL res = loader.getResource("/res.txt");
+        // The class path is WEB-INF/classes and the jars in WEB-INF/lib.
+        // The documents the application serves are not on it: not those
+        // in its root, nor those a jar supplies in META-INF/resources,
+        // which is on the class path only under that name.
+        assertNull(loader.getResource("index.html"));
+        assertNull(loader.getResource("/res.txt"));
+        assertNull(loader.getResourceAsStream("/index.html"));
+        assertNull(loader.getResourceAsStream("res.txt"));
+        assertFalse(loader.getResources("res.txt").hasMoreElements());
+        URL res = loader.getResource("META-INF/resources/res.txt");
         assertNotNull(res);
-        assertNotNull(loader.getResource("index.html"));
+        assertEquals("from-jar", read(loader.getResourceAsStream("META-INF/resources/res.txt")));
         assertNotNull(loader.getResource("java/lang/String.class"));
-        assertEquals("from-jar", read(loader.getResourceAsStream("res.txt")));
-        assertNotNull(loader.getResourceAsStream("/index.html"));
-        Enumeration<URL> all = loader.getResources("res.txt");
+        Enumeration<URL> all = loader.getResources("META-INF/resources/res.txt");
         assertTrue(all.hasMoreElements());
         Enumeration<URL> none = loader.getResources("nothing-here.txt");
         assertFalse(none.hasMoreElements());

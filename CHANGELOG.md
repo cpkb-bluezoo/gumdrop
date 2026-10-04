@@ -217,9 +217,9 @@ user-visible themes since 2.2.x.
   HTTP/1.0 or HTTP/1.1 now reaches a handler through the same message events
   as HTTP/2 and HTTP/3. The lexer-based request parser in
   `HttpProtocolHandler` is gone. Behaviour that changes with it: a request
-  without `Content-Length` or `Transfer-Encoding` has no body, so an HTTP/1.0
-  `POST` that relied on "body until close" is answered `411` (RFC 9112 section
-  6.3); a request line naming `HTTP/2.0` other than the connection preface is
+  without `Content-Length` or `Transfer-Encoding` has no body, whatever its
+  method, so an HTTP/1.0 `POST` that relied on "body until close" is handled
+  as a `POST` of nothing (RFC 9112 section 6.3); a request line naming `HTTP/2.0` other than the connection preface is
   answered `505` rather than `400`; a quoted-string chunk extension is
   accepted (RFC 9112 section 7.1.1); chunk data is streamed, so a chunk is no
   longer limited to 10 MB and a body over the size limit is refused once its

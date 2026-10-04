@@ -226,9 +226,9 @@ final class ContextClassLoader extends ClassLoader {
     /**
      * Finds a resource on the class path of the web application: in
      * WEB-INF/classes, then in each jar in WEB-INF/lib in name order, as
-     * classes are found. Last comes the context's own resource space (the
-     * document root and META-INF/resources of the library jars), which
-     * this class loader has always exposed too.
+     * classes are found. The documents the application serves (its root,
+     * and META-INF/resources of the library jars) are not on the class
+     * path: they are reached through the ServletContext.
      *
      * @param name the resource name, without leading '/'
      * @param acc receives the URL of each place the resource is found
@@ -252,10 +252,6 @@ final class ContextClassLoader extends ClassLoader {
                         return;
                     }
                 }
-            }
-            url = context.getResource("/" + name);
-            if (url != null) {
-                acc.add(url);
             }
         } catch (IOException e) {
             String message = Context.L10N.getString("err.load_resource");
@@ -325,9 +321,8 @@ final class ContextClassLoader extends ClassLoader {
             String message = Context.L10N.getString("err.load_resource");
             message = MessageFormat.format(message, name);
             Context.LOGGER.log(Level.WARNING, message, e);
-            return null;
         }
-        return context.getResourceAsStream("/" + name);
+        return null;
     }
 
     @Override public Enumeration<URL> getResources(String name) throws IOException {
