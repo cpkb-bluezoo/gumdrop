@@ -192,10 +192,6 @@ worker for its entire lifetime, eliminating race conditions and simplifying
 state management.
 </p>
 
-<p style="text-align:center">
-<img src="classes.svg" alt="Gumdrop Class Hierarchy" style="max-width:100%"/>
-</p>
-
 <h3>Servers and listeners</h3>
 
 <p>
@@ -211,7 +207,7 @@ sockets, or UDP/QUIC endpoints and accept or receive traffic.
 Listeners carry transport configuration: address, TLS or DTLS, ALPN, CIDR
 filtering, rate limits, and timeouts. Subclasses choose TCP, UDP, or QUIC via
 <code>createTransportFactory()</code>. One server often has several listeners
-(for example SMTP on port 25 and 465, or HTTP on TCP and a UNIX socket).
+(for example SMTP on port 25 and 465, or HTTP on TCP 80 and 443 and also QUIC).
 </p>
 
 <p>
