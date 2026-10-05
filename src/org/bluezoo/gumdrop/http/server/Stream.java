@@ -73,6 +73,7 @@ import org.bluezoo.gumdrop.telemetry.ErrorCategory;
 import org.bluezoo.gumdrop.telemetry.Span;
 import org.bluezoo.gumdrop.telemetry.SpanKind;
 import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
+import org.bluezoo.gumdrop.telemetry.access.HttpAccessLog;
 import org.bluezoo.gumdrop.telemetry.Trace;
 
 /**
@@ -223,6 +224,7 @@ class Stream implements HttpResponse {
     private boolean applicationHandlerOpened;
     private boolean requestHeadersDispatched;
     private Principal authenticatedPrincipal;
+    private Principal applicationPrincipal;
 
     // Request body state tracking for handler dispatch
     private boolean handlerBodyStarted = false;
@@ -1361,6 +1363,24 @@ class Stream implements HttpResponse {
                     responseBodyBytes);
         }
 
+        long completedAt = timestampCompleted > 0
+                ? timestampCompleted : System.currentTimeMillis();
+        TelemetryConfig telemetryConfig = connection.getTelemetryConfig();
+        if (telemetryConfig != null && telemetryConfig.isAccessLogEnabled()) {
+            HttpAccessLog.record(
+                    telemetryConfig,
+                    completedAt,
+                    connection.getRemoteSocketAddress(),
+                    method,
+                    requestTarget,
+                    connection.getVersion() != null
+                            ? connection.getVersion().toString() : null,
+                    authenticatedPrincipal,
+                    applicationPrincipal,
+                    statusCode,
+                    responseBodyBytes);
+        }
+
         if (span == null) {
             return;
         }
@@ -2169,6 +2189,16 @@ class Stream implements HttpResponse {
     @Override
     public Principal getPrincipal() {
         return authenticatedPrincipal;
+    }
+
+    @Override
+    public Principal getApplicationPrincipal() {
+        return applicationPrincipal;
+    }
+
+    @Override
+    public void setApplicationPrincipal(Principal principal) {
+        this.applicationPrincipal = principal;
     }
 
     @Override

@@ -22,9 +22,13 @@
 package org.bluezoo.gumdrop.telemetry;
 
 import org.bluezoo.gumdrop.tls.KeystoreFormat;
+import org.bluezoo.gumdrop.telemetry.access.AccessLogFormat;
+import org.bluezoo.gumdrop.telemetry.access.AccessLogUserSelection;
+import org.bluezoo.gumdrop.telemetry.access.HttpAccessLogWriter;
 import org.bluezoo.gumdrop.telemetry.metrics.AggregationTemporality;
 import org.bluezoo.gumdrop.telemetry.metrics.Meter;
 
+import java.io.IOException;
 import java.nio.file.Path;
 import java.text.MessageFormat;
 import java.util.Collections;
@@ -96,6 +100,13 @@ public class TelemetryConfig {
     private Path fileLogsPath;
     private Path fileMetricsPath;
     private int fileBufferSize = 8192; // 8KB default
+
+    // HTTP access log (local file, not OTLP)
+    private Path accessLogPath;
+    private AccessLogFormat accessLogFormat = AccessLogFormat.CLF;
+    private AccessLogUserSelection accessLogUserSelection =
+            AccessLogUserSelection.PROTOCOL_FIRST;
+    private HttpAccessLogWriter accessLogWriter;
 
     // Metrics configuration
     private AggregationTemporality metricsTemporality = AggregationTemporality.CUMULATIVE;
@@ -633,6 +644,75 @@ public class TelemetryConfig {
     }
 
     /**
+     * Returns the path for HTTP access log output, or null if disabled.
+     */
+    public Path getAccessLogPath() {
+        return accessLogPath;
+    }
+
+    /**
+     * Sets the path for HTTP access log output (CLF or ELFF).
+     *
+     * @param path the log file path, or null to disable
+     */
+    public void setAccessLogPath(Path path) {
+        this.accessLogPath = path;
+    }
+
+    public AccessLogFormat getAccessLogFormat() {
+        return accessLogFormat;
+    }
+
+    public void setAccessLogFormat(AccessLogFormat accessLogFormat) {
+        if (accessLogFormat != null) {
+            this.accessLogFormat = accessLogFormat;
+        }
+    }
+
+    /**
+     * XML property {@code access-log-format}: {@code clf} or {@code elff}.
+     */
+    public void setAccessLogFormat(String value) {
+        if (value == null || value.isEmpty()) {
+            return;
+        }
+        setAccessLogFormat(AccessLogFormat.valueOf(value.trim().toUpperCase()));
+    }
+
+    public AccessLogUserSelection getAccessLogUserSelection() {
+        return accessLogUserSelection;
+    }
+
+    public void setAccessLogUserSelection(AccessLogUserSelection accessLogUserSelection) {
+        if (accessLogUserSelection != null) {
+            this.accessLogUserSelection = accessLogUserSelection;
+        }
+    }
+
+    /**
+     * XML property {@code access-log-user-selection}.
+     */
+    public void setAccessLogUserSelection(String value) {
+        if (value == null || value.isEmpty()) {
+            return;
+        }
+        String normalized = value.trim().toUpperCase().replace('-', '_');
+        setAccessLogUserSelection(AccessLogUserSelection.valueOf(normalized));
+    }
+
+    /**
+     * Returns the access log writer when {@link #getAccessLogPath()} is set
+     * and {@link #init()} has run.
+     */
+    public HttpAccessLogWriter getAccessLogWriter() {
+        return accessLogWriter;
+    }
+
+    public boolean isAccessLogEnabled() {
+        return accessLogPath != null;
+    }
+
+    /**
      * Returns the buffer size for file exporter I/O in bytes.
      */
     public int getFileBufferSize() {
@@ -762,10 +842,7 @@ public class TelemetryConfig {
      * MBeans for JMX-based monitoring tools.
      */
     public void init() {
-        if (exporter != null) {
-            return;
-        }
-        if (isExportConfigured()) {
+        if (exporter == null && isExportConfigured()) {
             exporter = loadExporter();
             if (exporter != null) {
                 registerShutdownHook();
@@ -774,7 +851,18 @@ public class TelemetryConfig {
                         L10N.getString("warn.exporter_factory_not_found"));
             }
         }
-        if (metricsEnabled && jmxBridgeEnabled) {
+        if (accessLogWriter == null && accessLogPath != null) {
+            try {
+                accessLogWriter = new HttpAccessLogWriter(
+                        accessLogPath, accessLogFormat, accessLogUserSelection);
+                registerShutdownHook();
+            } catch (IOException e) {
+                logger.log(Level.SEVERE, MessageFormat.format(
+                        L10N.getString("err.access_log_open_failed"),
+                        accessLogPath, e.getMessage()), e);
+            }
+        }
+        if (jmxBridge == null && metricsEnabled && jmxBridgeEnabled) {
             jmxBridge = new TelemetryJMXBridge(this);
             jmxBridge.register();
         }
@@ -977,6 +1065,16 @@ public class TelemetryConfig {
         if (exporter != null) {
             exporter.forceFlush();
             exporter.shutdown();
+        }
+        if (accessLogWriter != null) {
+            try {
+                accessLogWriter.close();
+            } catch (IOException e) {
+                logger.log(Level.WARNING, MessageFormat.format(
+                        L10N.getString("warn.access_log_close_failed"),
+                        e.getMessage()), e);
+            }
+            accessLogWriter = null;
         }
     }
 

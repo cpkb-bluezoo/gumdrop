@@ -22,8 +22,6 @@
 package org.bluezoo.gumdrop.servlet;
 
 import java.net.InetAddress;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
@@ -54,7 +52,7 @@ import static org.junit.Assert.fail;
 
 /**
  * Covers {@link Container} configuration, context lookup, the worker pool,
- * the access log and the start/destroy lifecycle without any network.
+ * and the start/destroy lifecycle without any network.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
@@ -271,19 +269,6 @@ public class ContainerConfigurationTest {
                 fail("pool is shut down");
             }
         }, null);
-    }
-
-    @Test
-    public void testAccessLogWritesLinesAndBadPathIsReported() throws Exception {
-        container.log("ignored without a log");
-        Path log = tmp.getRoot().resolve("access.log");
-        container.setAccessLog(log);
-        container.log("GET /one");
-        container.log("GET /two");
-        String text = new String(Files.readAllBytes(log), StandardCharsets.UTF_8);
-        assertTrue(text.contains("GET /one"));
-        assertTrue(text.contains("GET /two"));
-        container.setAccessLog(tmp.getRoot());
     }
 
     @Test

@@ -232,6 +232,23 @@ public interface HttpResponse {
      */
     Principal getPrincipal();
 
+    /**
+     * Returns the application-layer principal (for example servlet
+     * {@code getRemoteUser()}), or null if none was established.
+     */
+    default Principal getApplicationPrincipal() {
+        return null;
+    }
+
+    /**
+     * Sets the application-layer principal for access logging. Does not
+     * replace {@link #getPrincipal()} (protocol-layer identity).
+     *
+     * @param principal the servlet or handler identity, or null
+     */
+    default void setApplicationPrincipal(Principal principal) {
+    }
+
     // ─────────────────────────────────────────────────────────────────────────
     // Response Events
     // ─────────────────────────────────────────────────────────────────────────

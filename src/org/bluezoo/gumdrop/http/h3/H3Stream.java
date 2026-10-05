@@ -72,6 +72,7 @@ import org.bluezoo.gumdrop.telemetry.ErrorCategory;
 import org.bluezoo.gumdrop.telemetry.Span;
 import org.bluezoo.gumdrop.telemetry.SpanKind;
 import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
+import org.bluezoo.gumdrop.telemetry.access.HttpAccessLog;
 import org.bluezoo.gumdrop.telemetry.Trace;
 
 /**
@@ -147,6 +148,7 @@ class H3Stream implements ProtocolHandler, H3FrameHandler, HttpResponse {
     private String requestTarget;
     private String protocol;
     private Principal authenticatedPrincipal;
+    private Principal applicationPrincipal;
     private boolean bodyStarted;
     private boolean responseStarted;
     private boolean responseBodyStarted;
@@ -779,6 +781,16 @@ class H3Stream implements ProtocolHandler, H3FrameHandler, HttpResponse {
     @Override
     public Principal getPrincipal() {
         return authenticatedPrincipal;
+    }
+
+    @Override
+    public Principal getApplicationPrincipal() {
+        return applicationPrincipal;
+    }
+
+    @Override
+    public void setApplicationPrincipal(Principal principal) {
+        this.applicationPrincipal = principal;
     }
 
     @Override
@@ -1426,6 +1438,21 @@ class H3Stream implements ProtocolHandler, H3FrameHandler, HttpResponse {
         if (metrics != null && timestampStarted > 0) {
             double durationMs = System.currentTimeMillis() - timestampStarted;
             metrics.requestCompleted(method != null ? method : "UNKNOWN", statusCode, durationMs, 0, responseBodyBytes);
+        }
+
+        TelemetryConfig telemetryConfig = connection.getTelemetryConfig();
+        if (telemetryConfig != null && telemetryConfig.isAccessLogEnabled()) {
+            HttpAccessLog.record(
+                    telemetryConfig,
+                    System.currentTimeMillis(),
+                    connection.getRemoteAddress(),
+                    method,
+                    requestTarget,
+                    HttpVersion.HTTP_3.toString(),
+                    authenticatedPrincipal,
+                    applicationPrincipal,
+                    statusCode,
+                    responseBodyBytes);
         }
 
         if (span == null || span.isEnded()) {
