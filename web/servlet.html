@@ -554,7 +554,6 @@ class names permitted in Java-serialized replicated session attributes, in
 addition to the built-in JDK allowlist (webapp class loaders are never
 blanket-allowed)</li>
 <li><code>addRealm(String, Realm)</code> / <code>setRealms(Map)</code> - named realms available to contexts</li>
-<li><code>setAccessLog(Path)</code> - path to access log file (W3C Extended Log Format)</li>
 <li><code>setBufferSize(int)</code> - I/O buffer size for request/response streams in bytes
 (default: 8192, minimum: 1024)</li>
 <li><code>setWorkerCorePoolSize(int)</code> - minimum servlet worker pool size (virtual threads)</li>
@@ -565,6 +564,14 @@ blanket-allowed)</li>
 <p>
 The servlet worker pool is distinct from the I/O worker loops, allowing
 independent tuning based on workload characteristics.
+</p>
+
+<p>
+HTTP access logs (CLF or ELFF) are configured on the listener&rsquo;s
+<a href="telemetry.html">TelemetryConfig</a> (<code>access-log-path</code> and
+related properties), not on <code>Container</code>. Lines are written when each
+HTTP response completes; servlet identity is recorded separately from
+protocol-layer authentication when both are present.
 </p>
 
 <h4>Context Configuration</h4>

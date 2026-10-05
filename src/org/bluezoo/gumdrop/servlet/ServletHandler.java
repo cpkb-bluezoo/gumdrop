@@ -115,6 +115,16 @@ public class ServletHandler extends DefaultHttpRequestHandler {
         return container;
     }
 
+    /**
+     * Publishes servlet identity for HTTP access logging without altering
+     * protocol-layer {@link org.bluezoo.gumdrop.http.server.HttpResponse#getPrincipal()}.
+     */
+    void publishApplicationPrincipal(Request request) {
+        if (request != null) {
+            state.setApplicationPrincipal(request.getUserPrincipal());
+        }
+    }
+
     // ─────────────────────────────────────────────────────────────────────────
     // HttpRequestHandler implementation
     // ─────────────────────────────────────────────────────────────────────────

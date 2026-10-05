@@ -34,12 +34,8 @@ import org.bluezoo.gumdrop.servlet.session.SessionContext;
 import org.bluezoo.gumdrop.servlet.session.SessionManager;
 
 import java.io.IOException;
-import java.io.OutputStream;
 import java.text.MessageFormat;
 import java.net.InetAddress;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.StandardOpenOption;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -58,12 +54,8 @@ import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
-import java.util.logging.Formatter;
-import java.util.logging.Handler;
 import java.util.logging.Level;
-import java.util.logging.LogRecord;
 import java.util.logging.Logger;
-import java.util.logging.StreamHandler;
 
 import javax.naming.InitialContext;
 import javax.naming.NamingException;
@@ -77,7 +69,7 @@ import org.bluezoo.gumdrop.util.MessageFormatter;
  * "mounted".
  *
  * <p>Owns servlet runtime resources (worker pool, async timeout scheduler,
- * access logging, authentication provider wiring) and coordinates
+ * authentication provider wiring) and coordinates
  * {@link #start(Gumdrop)} / {@link #destroy()} lifecycle for composed
  * {@link org.bluezoo.gumdrop.servlet.server.ServletRequestHandler} use.
  *
@@ -109,7 +101,6 @@ public class Container implements ManagerContainerServer, ClusterContainer {
 
     private final ThreadPoolExecutor workerThreadPool;
     private final AsyncTimeoutScheduler asyncTimeoutScheduler;
-    private Logger accessLogger;
     private int bufferSize = DEFAULT_BUFFER_SIZE;
 
     public Container() {
@@ -259,7 +250,7 @@ public class Container implements ManagerContainerServer, ClusterContainer {
                 ? null : new HashSet<String>(classNames);
     }
 
-    // ── Servlet runtime (worker pool, auth, access log) ──
+    // ── Servlet runtime (worker pool, auth) ──
 
     public int getBufferSize() {
         return bufferSize;
@@ -275,43 +266,6 @@ public class Container implements ManagerContainerServer, ClusterContainer {
 
     public ThreadPoolExecutor getWorkerThreadPool() {
         return workerThreadPool;
-    }
-
-    /**
-     * A {@link StreamHandler} that flushes after every record, so each
-     * access log line reaches the file as it is written.
-     */
-    private static final class FlushingStreamHandler extends StreamHandler {
-
-        FlushingStreamHandler(OutputStream out, Formatter formatter) {
-            super(out, formatter);
-        }
-
-        @Override
-        public synchronized void publish(LogRecord record) {
-            super.publish(record);
-            flush();
-        }
-    }
-
-    public void setAccessLog(Path path) {
-        try {
-            OutputStream out = Files.newOutputStream(path,
-                    StandardOpenOption.CREATE, StandardOpenOption.APPEND);
-            MessageFormatter formatter = new MessageFormatter();
-            StreamHandler handler = new FlushingStreamHandler(out, formatter);
-            handler.setLevel(Level.FINEST);
-            accessLogger = Logger.getAnonymousLogger();
-            accessLogger.setLevel(Level.FINEST);
-            accessLogger.setUseParentHandlers(false);
-            Handler[] oldHandlers = accessLogger.getHandlers();
-            for (int i = 0; i < oldHandlers.length; i++) {
-                oldHandlers[i].setLevel(Level.SEVERE);
-            }
-            accessLogger.addHandler(handler);
-        } catch (IOException e) {
-            Context.LOGGER.log(Level.SEVERE, e.getMessage(), e);
-        }
     }
 
     public void setWorkerCorePoolSize(int corePoolSize) {
@@ -340,14 +294,6 @@ public class Container implements ManagerContainerServer, ClusterContainer {
         init();
         initContexts(gumdrop);
         asyncTimeoutScheduler.start();
-    }
-
-    @SuppressWarnings("deprecation")
-    public void log(String message) {
-        if (accessLogger != null) {
-            accessLogger.logrb(Level.FINEST, null, null,
-                    (String) null, message, (Throwable) null);
-        }
     }
 
     /**

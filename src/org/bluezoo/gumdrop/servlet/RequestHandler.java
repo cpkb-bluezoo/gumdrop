@@ -24,9 +24,6 @@ package org.bluezoo.gumdrop.servlet;
 import java.io.IOException;
 import java.net.URI;
 import java.nio.channels.ClosedChannelException;
-import java.time.Instant;
-import java.time.ZoneId;
-import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.logging.Level;
 
@@ -43,16 +40,6 @@ import jakarta.servlet.http.HttpSession;
  */
 public class RequestHandler implements Runnable {
 
-    /**
-     * Date format for common log format. Immutable and thread-safe; a single
-     * instance is shared across all servlet worker threads. The {@code [ ]}
-     * literals are quoted because they are section markers in
-     * {@link DateTimeFormatter} patterns.
-     */
-    static final DateTimeFormatter df =
-            DateTimeFormatter.ofPattern("'['dd/MMM/yyyy:HH:mm:ss Z']'")
-                    .withZone(ZoneId.systemDefault());
-
     final ServletHandler handler;
     final Container container;
 
@@ -62,7 +49,6 @@ public class RequestHandler implements Runnable {
     }
 
     public void run() {
-        final long t1 = System.currentTimeMillis();
         ClassLoader loader = Thread.currentThread().getContextClassLoader();
         final Request request = handler.getRequest();
         final Response response = handler.getResponse();
@@ -98,51 +84,19 @@ public class RequestHandler implements Runnable {
             // Only complete the response if async was NOT started
             // If async was started, the AsyncContext.complete() will handle it
             if (!request.isAsyncStarted() && !request.isUpgraded()) {
-                // endResponse() is fire-and-forget: it schedules the
-                // network send on the connection's SelectorLoop and
-                // returns immediately instead of blocking this worker
-                // thread until the write (including any TLS/socket work)
-                // finishes - worker threads are the scarce, bounded
-                // resource. Access logging, which used to run
-                // synchronously right after the blocking send completed,
-                // now runs from this completion callback instead, at the
-                // same point in the response's actual lifecycle. If
-                // scheduling itself fails, logCompletion() still runs
-                // exactly once, from the finally below, matching the
-                // previous behaviour of always logging regardless of a
-                // flush/send error.
-                boolean scheduled = false;
+                handler.publishApplicationPrincipal(request);
                 try {
                     response.flushBuffer();
-                    response.endResponse(new Runnable() {
-                        @Override
-                        public void run() {
-                            logCompletion(t1, request, response);
-                        }
-                    });
-                    scheduled = true;
+                    response.endResponse();
                 } catch (ClosedChannelException e) {
                     // ignore
                 } catch (IOException e) {
                     Context.LOGGER.log(Level.SEVERE, e.getMessage(), e);
-                } finally {
-                    if (!scheduled) {
-                        logCompletion(t1, request, response);
-                    }
                 }
             } else {
-                // Async: the response isn't complete yet (AsyncContext
-                // .complete() will finish it later), so this log entry
-                // reflects dispatch completion, not response completion -
-                // unchanged from before this fix.
-                logCompletion(t1, request, response);
+                handler.publishApplicationPrincipal(request);
             }
         }
-    }
-
-    private void logCompletion(long t1, Request request, Response response) {
-        String logEntry = createLogEntry(t1, request, response);
-        container.log(logEntry);
     }
 
     void notifyRequestInitialized(Request request) {
@@ -165,40 +119,6 @@ public class RequestHandler implements Runnable {
         } catch (Exception e) {
             Context.LOGGER.log(Level.SEVERE, e.getMessage(), e);
         }
-    }
-
-    /**
-     * W3C common logfile format.
-     */
-    String createLogEntry(long time, Request request, Response response) {
-        String remotehost = request.getRemoteHost();
-        String rfc931 = "-"; // username on remote system
-        String authuser = request.getRemoteUser();
-        if (authuser == null) {
-            authuser = "-";
-        }
-        String date = df.format(Instant.ofEpochMilli(time));
-        String requestLine = request.toString();
-        String status = response.toString();
-        String bytes = Integer.toString(response.getContentLength());
-
-        StringBuffer buf = new StringBuffer();
-        buf.append(remotehost);
-        buf.append(' ');
-        buf.append(rfc931);
-        buf.append(' ');
-        buf.append(authuser);
-        buf.append(' ');
-        buf.append(date);
-        buf.append(' ');
-        buf.append('"');
-        buf.append(requestLine);
-        buf.append('"');
-        buf.append(' ');
-        buf.append(status);
-        buf.append(' ');
-        buf.append(bytes);
-        return buf.toString();
     }
 
     /**
