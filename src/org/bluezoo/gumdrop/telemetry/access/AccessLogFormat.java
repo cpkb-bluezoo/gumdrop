@@ -23,6 +23,7 @@ package org.bluezoo.gumdrop.telemetry.access;
 
 /**
  * File format for HTTP access logs.
+  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 public enum AccessLogFormat {
 

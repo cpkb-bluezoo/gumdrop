@@ -34,11 +34,13 @@ import java.util.logging.Logger;
 
 /**
  * Records completed HTTP requests to the configured access log file.
+ *
+ * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 public final class HttpAccessLog {
 
     private static final ResourceBundle L10N =
-            ResourceBundle.getBundle("org.bluezoo.gumdrop.telemetry.access.L10N");
+            ResourceBundle.getBundle("org.bluezoo.gumdrop.telemetry.L10N");
     private static final Logger LOGGER = Logger.getLogger(HttpAccessLog.class.getName());
 
     private HttpAccessLog() {

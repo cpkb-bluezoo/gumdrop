@@ -23,6 +23,7 @@ package org.bluezoo.gumdrop.telemetry.access;
 
 /**
  * One completed HTTP request for access logging.
+  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 public final class HttpAccessRecord {
 

@@ -28,6 +28,7 @@ package org.bluezoo.gumdrop.telemetry.access;
  * {@code Authorization} validated on the connection). Application identity
  * comes from servlet processing when present; it never replaces protocol
  * identity in storage, only in formatted output per this policy.
+  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 public enum AccessLogUserSelection {
 

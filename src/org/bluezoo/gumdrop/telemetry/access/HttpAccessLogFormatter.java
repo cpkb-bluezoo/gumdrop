@@ -27,6 +27,7 @@ import java.time.format.DateTimeFormatter;
 
 /**
  * Formats {@link HttpAccessRecord} as CLF or ELFF lines.
+  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 public final class HttpAccessLogFormatter {
 

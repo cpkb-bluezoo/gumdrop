@@ -31,6 +31,7 @@ import java.nio.file.StandardOpenOption;
 
 /**
  * Appends formatted HTTP access log lines to a file, flushing after each line.
+  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 public final class HttpAccessLogWriter {
 
