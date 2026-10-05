@@ -98,6 +98,7 @@ module org.bluezoo.gumdrop {
     exports org.bluezoo.gumdrop.redis.client;
     exports org.bluezoo.gumdrop.redis.codec;
     exports org.bluezoo.gumdrop.telemetry;
+    exports org.bluezoo.gumdrop.telemetry.access;
     exports org.bluezoo.gumdrop.telemetry.metrics;
     exports org.bluezoo.gumdrop.telemetry.otlp;
     exports org.bluezoo.gumdrop.telemetry.json;
