@@ -115,9 +115,12 @@ public class TopicTree {
      * @param qos the requested QoS level
      */
     public void subscribe(String topicFilter, String clientId, QoS qos) {
-        String[] levels = topicFilter.split("/", -1);
         Node current = root;
-        for (String level : levels) {
+        int pos = 0;
+        while (true) {
+            int end = topicFilter.indexOf('/', pos);
+            String level = end < 0 ? topicFilter.substring(pos)
+                    : topicFilter.substring(pos, end);
             Node child = current.children.get(level);
             if (child == null) {
                 child = new Node();
@@ -127,6 +130,10 @@ public class TopicTree {
                 }
             }
             current = child;
+            if (end < 0) {
+                break;
+            }
+            pos = end + 1;
         }
         // Remove any existing subscription for this client (to update QoS)
         current.subscribers.remove(new SubscriptionEntry(clientId, qos));
@@ -248,17 +255,21 @@ public class TopicTree {
      *         and use the highest QoS)
      */
     public List<SubscriptionEntry> match(String topicName) {
-        String[] levels = topicName.split("/", -1);
         boolean dollarTopic = topicName.startsWith("$");
         List<SubscriptionEntry> result = new ArrayList<>();
-        matchRecursive(root, levels, 0, dollarTopic, result);
+        matchRecursive(root, topicName, 0, dollarTopic, result);
         return result;
     }
 
-    private void matchRecursive(Node node, String[] levels, int depth,
+    /**
+     * Walks the topic one level at a time by index. {@code pos} is the
+     * start of the next level, or -1 once every level has been consumed;
+     * a topic with n separators has n + 1 levels (empty ones included).
+     */
+    private void matchRecursive(Node node, String topic, int pos,
                                 boolean dollarTopic,
                                 List<SubscriptionEntry> result) {
-        if (depth == levels.length) {
+        if (pos < 0) {
             result.addAll(node.subscribers);
             // # at the end matches zero trailing levels
             Node hashNode = node.children.get("#");
@@ -268,23 +279,26 @@ public class TopicTree {
             return;
         }
 
-        String level = levels[depth];
+        int end = topic.indexOf('/', pos);
+        String level = end < 0 ? topic.substring(pos) : topic.substring(pos, end);
+        int next = end < 0 ? -1 : end + 1;
 
         // Exact match
         Node exactChild = node.children.get(level);
         if (exactChild != null) {
-            matchRecursive(exactChild, levels, depth + 1, false, result);
+            matchRecursive(exactChild, topic, next, false, result);
         }
 
-        // $-prefixed topics don't match root-level wildcards
-        if (dollarTopic && depth == 0) {
+        // $-prefixed topics don't match root-level wildcards (dollarTopic
+        // is only ever true for the root call)
+        if (dollarTopic) {
             return;
         }
 
         // Single-level wildcard (+)
         Node plusChild = node.children.get("+");
         if (plusChild != null) {
-            matchRecursive(plusChild, levels, depth + 1, false, result);
+            matchRecursive(plusChild, topic, next, false, result);
         }
 
         // Multi-level wildcard (#)

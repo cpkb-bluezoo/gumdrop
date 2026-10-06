@@ -1115,7 +1115,7 @@ public final class FtpProtocolHandler
     // single-line replies.  Multi-line uses "<code>-<text>\r\n" for
     // intermediate lines and "<code> <text>\r\n" for the final line.
     private void reply(int code, String description) throws IOException {
-        String message = String.format("%d %s\r\n", code, description);
+        String message = code + " " + description + "\r\n";
         // RFC 2640: use UTF-8 encoding when OPTS UTF8 ON has been issued
         String encoding = utf8Enabled ? "UTF-8" : "US-ASCII";
         ByteBuffer buffer = ByteBuffer.wrap(message.getBytes(encoding));

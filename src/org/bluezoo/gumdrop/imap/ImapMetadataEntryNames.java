@@ -57,12 +57,19 @@ public final class ImapMetadataEntryNames {
                 return false;
             }
         }
-        String[] parts = name.substring(1).split("/");
-        if (parts.length < 2) {
+        // The name starts with '/' and has no empty segment, so the number
+        // of segments is the number of separators
+        int parts = 0;
+        for (int i = 0; i < name.length(); i++) {
+            if (name.charAt(i) == '/') {
+                parts++;
+            }
+        }
+        if (parts < 2) {
             return false;
         }
         if (isVendorEntry(name)) {
-            return parts.length >= 4;
+            return parts >= 4;
         }
         return true;
     }

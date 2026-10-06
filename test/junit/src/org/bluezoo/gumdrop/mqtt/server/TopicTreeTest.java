@@ -239,4 +239,37 @@ public class TopicTreeTest {
         assertFalse(matched.containsKey("c3"));
         assertFalse(matched instanceof ConcurrentHashMap);
     }
+
+    @Test
+    public void testLeadingAndTrailingSeparatorsAreEmptyLevels() {
+        tree.subscribe("/a", "lead", QoS.AT_MOST_ONCE);
+        tree.subscribe("a/", "trail", QoS.AT_MOST_ONCE);
+        tree.subscribe("/", "both", QoS.AT_MOST_ONCE);
+        tree.subscribe("", "empty", QoS.AT_MOST_ONCE);
+        assertEquals(1, tree.match("/a").size());
+        assertEquals("lead", tree.match("/a").get(0).getClientId());
+        assertEquals("trail", tree.match("a/").get(0).getClientId());
+        assertEquals("both", tree.match("/").get(0).getClientId());
+        assertEquals("empty", tree.match("").get(0).getClientId());
+        assertTrue(tree.match("a").isEmpty());
+        assertTrue(tree.match("//").isEmpty());
+    }
+
+    @Test
+    public void testWildcardsMatchEmptyLevelsAndLiteralLookalikes() {
+        tree.subscribe("+/x", "plus", QoS.AT_MOST_ONCE);
+        tree.subscribe("a/+x", "lookalike", QoS.AT_MOST_ONCE);
+        assertTrue(tree.matchWithMaxQoS("/x").containsKey("plus"));
+        assertTrue(tree.matchWithMaxQoS("a/+x").containsKey("lookalike"));
+        assertFalse(tree.matchWithMaxQoS("a/bx").containsKey("lookalike"));
+    }
+
+    @Test
+    public void testMultiLevelWildcardAfterEmptyLevel() {
+        tree.subscribe("a//#", "c", QoS.AT_MOST_ONCE);
+        assertTrue(tree.matchWithMaxQoS("a//b/c").containsKey("c"));
+        // # also matches its parent level, so "a/" (levels a, "") matches
+        assertTrue(tree.matchWithMaxQoS("a/").containsKey("c"));
+        assertTrue(tree.matchWithMaxQoS("a").isEmpty());
+    }
 }

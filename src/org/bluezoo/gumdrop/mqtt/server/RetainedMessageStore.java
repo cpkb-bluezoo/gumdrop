@@ -132,36 +132,43 @@ public class RetainedMessageStore {
      */
     public List<RetainedMessage> match(String topicFilter) {
         List<RetainedMessage> result = new ArrayList<>();
-        String[] filterLevels = topicFilter.split("/", -1);
-        matchRecursive(root, filterLevels, 0, result);
+        matchRecursive(root, topicFilter, 0, result);
         return result;
     }
 
-    private void matchRecursive(Node node, String[] filterLevels, int depth,
+    /**
+     * Walks the filter one level at a time by index. {@code pos} is the
+     * start of the next level, or -1 once every level has been consumed;
+     * wildcard levels are recognised in place without extracting them.
+     */
+    private void matchRecursive(Node node, String filter, int pos,
             List<RetainedMessage> result) {
-        if (depth == filterLevels.length) {
+        if (pos < 0) {
             if (node.retained != null) {
                 result.add(node.retained);
             }
             return;
         }
-        String fl = filterLevels[depth];
-        if ("#".equals(fl)) {
+        int end = filter.indexOf('/', pos);
+        int next = end < 0 ? -1 : end + 1;
+        int levelEnd = end < 0 ? filter.length() : end;
+        boolean single = levelEnd - pos == 1;
+        if (single && filter.charAt(pos) == '#') {
             // Matches this node and all descendants (zero or more levels).
-            // $-topics don't match a root-level # (depth 0 only).
-            collectAll(node, depth == 0, result);
-        } else if ("+".equals(fl)) {
-            // $-topics don't match a root-level + (depth 0 only).
+            // $-topics don't match a root-level # (pos 0 only).
+            collectAll(node, pos == 0, result);
+        } else if (single && filter.charAt(pos) == '+') {
+            // $-topics don't match a root-level + (pos 0 only).
             for (Map.Entry<String, Node> entry : node.children.entrySet()) {
-                if (depth == 0 && entry.getKey().startsWith("$")) {
+                if (pos == 0 && entry.getKey().startsWith("$")) {
                     continue;
                 }
-                matchRecursive(entry.getValue(), filterLevels, depth + 1, result);
+                matchRecursive(entry.getValue(), filter, next, result);
             }
         } else {
-            Node child = node.children.get(fl);
+            Node child = node.children.get(filter.substring(pos, levelEnd));
             if (child != null) {
-                matchRecursive(child, filterLevels, depth + 1, result);
+                matchRecursive(child, filter, next, result);
             }
         }
     }
@@ -180,9 +187,11 @@ public class RetainedMessageStore {
     }
 
     private void addToTrie(String topic, RetainedMessage message) {
-        String[] levels = topic.split("/", -1);
         Node current = root;
-        for (String level : levels) {
+        int pos = 0;
+        while (true) {
+            int end = topic.indexOf('/', pos);
+            String level = end < 0 ? topic.substring(pos) : topic.substring(pos, end);
             Node child = current.children.get(level);
             if (child == null) {
                 child = new Node();
@@ -192,6 +201,10 @@ public class RetainedMessageStore {
                 }
             }
             current = child;
+            if (end < 0) {
+                break;
+            }
+            pos = end + 1;
         }
         current.retained = message;
     }

@@ -179,4 +179,29 @@ public class RetainedMessageStoreTest {
         assertFalse(store.match("a//b").isEmpty());
         assertTrue(store.match("a/b").isEmpty());
     }
+
+    @Test
+    public void testLeadingAndTrailingSeparatorsAreEmptyLevels() {
+        store.set("/a", content("1"), QoS.AT_MOST_ONCE);
+        store.set("a/", content("2"), QoS.AT_MOST_ONCE);
+        store.set("/", content("3"), QoS.AT_MOST_ONCE);
+        assertEquals(1, store.match("/a").size());
+        assertEquals("/a", store.match("/a").get(0).getTopic());
+        assertEquals("a/", store.match("a/").get(0).getTopic());
+        assertEquals("/", store.match("/").get(0).getTopic());
+        assertTrue(store.match("a").isEmpty());
+        assertTrue(store.match("//").isEmpty());
+    }
+
+    @Test
+    public void testWildcardsCoverEmptyLevelsAndLookalikesAreLiteral() {
+        store.set("/x", content("1"), QoS.AT_MOST_ONCE);
+        store.set("a/+x", content("2"), QoS.AT_MOST_ONCE);
+        store.set("a/#x", content("3"), QoS.AT_MOST_ONCE);
+        assertEquals(1, store.match("+/x").size());
+        assertEquals("/x", store.match("+/x").get(0).getTopic());
+        assertEquals("a/+x", store.match("a/+x").get(0).getTopic());
+        assertEquals("a/#x", store.match("a/#x").get(0).getTopic());
+        assertEquals(2, store.match("a/#").size());
+    }
 }
