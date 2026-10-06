@@ -157,7 +157,7 @@ public class MessageDateTimeFormatter {
 	 * @return parsed OffsetDateTime
 	 */
 	public static OffsetDateTime parse(String dateString) {
-		return OffsetDateTime.parse(dateString.trim(), RFC5322_PARSER);
+		return OffsetDateTime.parse(stripCfws(dateString, false), RFC5322_PARSER);
 	}
 
 	/**
@@ -170,7 +170,7 @@ public class MessageDateTimeFormatter {
 	 */
 	public static OffsetDateTime parseObsolete(String dateString) {
 		try {
-			dateString = dateString.trim();
+			dateString = stripCfws(dateString, true);
 
 			// Handle two-digit year conversion (RFC 5322 section 4.5)
 			// Years 00-49 are interpreted as 2000-2049
@@ -184,6 +184,70 @@ public class MessageDateTimeFormatter {
 		} catch (Exception e) {
 			return null;
 		}
+	}
+
+	/**
+	 * Removes surrounding CFWS (RFC 5322 section 3.2.2) from a date-time
+	 * value, discarding the content of any comments. Trailing CFWS is
+	 * always permitted (section 3.3); a leading comment is only valid in
+	 * the obsolete syntax (section 4.3), so it is removed only when
+	 * allowLeadingComment is set, otherwise just whitespace is trimmed
+	 * and the date-time parse rejects the comment. Only
+	 * well-formed comments (balanced parentheses, quoted-pairs honoured)
+	 * are removed; if a comment is malformed the value is returned
+	 * trimmed but otherwise untouched, so that the subsequent date-time
+	 * parse rejects it. A date-time never contains parentheses itself, so
+	 * the first one outside leading CFWS begins the trailing CFWS.
+	 */
+	private static String stripCfws(String value, boolean allowLeadingComment) {
+		int len = value.length();
+		int start = allowLeadingComment ? skipCfws(value, 0) : 0;
+		if (start < 0) {
+			return value.trim();
+		}
+		int end = value.indexOf('(', start);
+		if (end < 0) {
+			return value.substring(start).trim();
+		}
+		if (skipCfws(value, end) != len) {
+			return value.trim();
+		}
+		return value.substring(start, end).trim();
+	}
+
+	/**
+	 * Returns the index of the first character at or after pos that is not
+	 * whitespace or part of a well-formed comment, or -1 if a comment is
+	 * unterminated.
+	 */
+	private static int skipCfws(String s, int pos) {
+		int len = s.length();
+		while (pos < len) {
+			char c = s.charAt(pos);
+			if (c == ' ' || c == '\t' || c == '\r' || c == '\n') {
+				pos++;
+			} else if (c == '(') {
+				int depth = 1;
+				pos++;
+				while (pos < len && depth > 0) {
+					c = s.charAt(pos);
+					if (c == '\\') {
+						pos++;
+					} else if (c == '(') {
+						depth++;
+					} else if (c == ')') {
+						depth--;
+					}
+					pos++;
+				}
+				if (depth > 0) {
+					return -1;
+				}
+			} else {
+				break;
+			}
+		}
+		return pos;
 	}
 
 	/**

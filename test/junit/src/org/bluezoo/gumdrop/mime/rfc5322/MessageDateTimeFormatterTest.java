@@ -371,5 +371,99 @@ public class MessageDateTimeFormatterTest {
             assertNotNull("Failed to parse obsolete: " + example, dt);
         }
     }
+
+    // ========== CFWS / comment tests (RFC 5322 section 3.3) ==========
+
+    private static final String BASE = "Fri, 21 Nov 1997 09:55:06 -0600";
+
+    private static void assertBase(OffsetDateTime dt) {
+        assertEquals(OffsetDateTime.of(1997, 11, 21, 9, 55, 6, 0, ZoneOffset.ofHours(-6)), dt);
+    }
+
+    @Test
+    public void testParseTrailingComment() {
+        assertBase(MessageDateTimeFormatter.parse(BASE + " (via relay)"));
+    }
+
+    @Test
+    public void testParseTrailingCommentNoSpace() {
+        assertBase(MessageDateTimeFormatter.parse(BASE + "(note)"));
+    }
+
+    @Test(expected = java.time.format.DateTimeParseException.class)
+    public void testParseLeadingCommentRejected() {
+        // leading comments are only valid in the obsolete syntax
+        MessageDateTimeFormatter.parse("(sent) " + BASE);
+    }
+
+    @Test
+    public void testParseLeadingWhitespaceAndTrailingComments() {
+        assertBase(MessageDateTimeFormatter.parse(" \t" + BASE + " (c) \t(d) "));
+    }
+
+    @Test
+    public void testParseNestedAndEscapedComment() {
+        assertBase(MessageDateTimeFormatter.parse(BASE + " (a (nested) \\) still) (b\\))"));
+    }
+
+    @Test
+    public void testParseFoldedWhitespaceAroundComment() {
+        assertBase(MessageDateTimeFormatter.parse(BASE + "\r\n (note)\r\n "));
+    }
+
+    @Test(expected = java.time.format.DateTimeParseException.class)
+    public void testParseUnterminatedCommentRejected() {
+        MessageDateTimeFormatter.parse(BASE + " (unterminated");
+    }
+
+    @Test(expected = java.time.format.DateTimeParseException.class)
+    public void testParseUnterminatedNestedCommentRejected() {
+        MessageDateTimeFormatter.parse(BASE + " (a (b)");
+    }
+
+    @Test(expected = java.time.format.DateTimeParseException.class)
+    public void testParseEscapedCloseParenUnterminatedRejected() {
+        MessageDateTimeFormatter.parse(BASE + " (a\\)");
+    }
+
+    @Test(expected = java.time.format.DateTimeParseException.class)
+    public void testParseTrailingJunkAfterCommentRejected() {
+        MessageDateTimeFormatter.parse(BASE + " (ok) junk");
+    }
+
+    @Test(expected = java.time.format.DateTimeParseException.class)
+    public void testParseStrayCloseParenRejected() {
+        MessageDateTimeFormatter.parse(BASE + " )");
+    }
+
+    @Test(expected = java.time.format.DateTimeParseException.class)
+    public void testParseUnterminatedLeadingCommentRejected() {
+        MessageDateTimeFormatter.parse("(oops " + BASE);
+    }
+
+    @Test
+    public void testParseObsoleteTrailingComment() {
+        assertBase(MessageDateTimeFormatter.parseObsolete("Fri, 21 Nov 97 09:55:06 -0600 (note)"));
+    }
+
+    @Test
+    public void testParseObsoleteLeadingComment() {
+        assertBase(MessageDateTimeFormatter.parseObsolete("(x) Fri, 21 Nov 97 09:55:06 -0600"));
+    }
+
+    @Test
+    public void testParseObsoleteUnterminatedCommentReturnsNull() {
+        assertNull(MessageDateTimeFormatter.parseObsolete("Fri, 21 Nov 97 09:55:06 -0600 (oops"));
+    }
+
+    @Test
+    public void testParseObsoleteUnterminatedLeadingCommentReturnsNull() {
+        assertNull(MessageDateTimeFormatter.parseObsolete("(oops Fri, 21 Nov 97 09:55:06 -0600"));
+    }
+
+    @Test
+    public void testParseObsoleteNullInputReturnsNull() {
+        assertNull(MessageDateTimeFormatter.parseObsolete(null));
+    }
 }
 

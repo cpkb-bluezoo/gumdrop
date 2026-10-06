@@ -226,6 +226,55 @@ public class MessageParserTest {
     }
     
     @Test
+    public void testDateHeaderWithTrailingComment() throws MimeParseException {
+        String content = "Date: Fri, 21 Nov 1997 09:55:06 -0600 (via relay)\r\n" +
+            "\r\n" +
+            "Body";
+
+        TestMessageHandler handler = new TestMessageHandler();
+        MessageParser parser = new MessageParser();
+        parser.setMessageHandler(handler);
+
+        parse(parser, content);
+
+        assertTrue(handler.dateHeaders.containsKey("Date"));
+        assertFalse(handler.unexpectedHeaders.containsKey("Date"));
+        assertEquals(ZoneOffset.ofHours(-6), handler.dateHeaders.get("Date").getOffset());
+    }
+
+    @Test
+    public void testDateHeaderWithLeadingCommentIsObsolete() throws MimeParseException {
+        String content = "Date: (sent) Fri, 21 Nov 1997 09:55:06 -0600\r\n" +
+            "\r\n" +
+            "Body";
+
+        TestMessageHandler handler = new TestMessageHandler();
+        MessageParser parser = new MessageParser();
+        parser.setMessageHandler(handler);
+
+        parse(parser, content);
+
+        assertTrue(handler.dateHeaders.containsKey("Date"));
+        assertTrue(handler.events.contains("obsoleteStructure:OBSOLETE_DATE_TIME_SYNTAX"));
+    }
+
+    @Test
+    public void testDateHeaderWithUnterminatedCommentUnexpected() throws MimeParseException {
+        String content = "Date: Fri, 21 Nov 1997 09:55:06 -0600 (oops\r\n" +
+            "\r\n" +
+            "Body";
+
+        TestMessageHandler handler = new TestMessageHandler();
+        MessageParser parser = new MessageParser();
+        parser.setMessageHandler(handler);
+
+        parse(parser, content);
+
+        assertFalse(handler.dateHeaders.containsKey("Date"));
+        assertTrue(handler.unexpectedHeaders.containsKey("Date"));
+    }
+
+    @Test
     public void testResentDateHeader() throws MimeParseException {
         String content = "Resent-Date: Mon, 9 Dec 2024 10:00:00 +0100\r\n" +
             "\r\n" +
