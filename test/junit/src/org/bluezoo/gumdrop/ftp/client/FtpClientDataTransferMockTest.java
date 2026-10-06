@@ -394,6 +394,21 @@ public class FtpClientDataTransferMockTest {
     }
 
     @Test
+    public void passiveNlstHandlesMixedLineEndingsAndBlankLines() {
+        Listing l = new Listing();
+        handler.nlst(null, dataAddress, l);
+        MockDataConnector.Connect c = connector.lastConnect();
+        c.handler.connected(new MockDataConnector.MockDataEndpoint());
+        deliver(c.handler, "alpha\nbeta\r\n\r\n\ngamma");
+        c.handler.disconnected();
+        reply("226 done\r\n");
+        assertEquals(3, l.entries.size());
+        assertEquals("alpha", l.entries.get(0).getName());
+        assertEquals("beta", l.entries.get(1).getName());
+        assertEquals("gamma", l.entries.get(2).getName());
+    }
+
+    @Test
     public void passiveMlsdParsesFacts() {
         Listing l = new Listing();
         handler.mlsd("", dataAddress, l);

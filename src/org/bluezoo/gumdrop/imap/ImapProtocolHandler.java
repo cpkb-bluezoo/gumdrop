@@ -77,6 +77,7 @@ import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.TimerHandle;
 import org.bluezoo.gumdrop.TokenErrorRecovery;
+import org.bluezoo.gumdrop.util.Tokens;
 import org.bluezoo.util.ByteArrays;
 import org.bluezoo.gumdrop.auth.GssapiServer;
 import org.bluezoo.gumdrop.auth.Realm;
@@ -2679,7 +2680,7 @@ public final class ImapProtocolHandler
                     }
                     String inner = modifiers.substring(
                             innerStart + 1, innerEnd).trim();
-                    String[] parts = inner.split("\\s+");
+                    String[] parts = Tokens.split(inner);
                     if (parts.length >= 2) {
                         try {
                             qresyncUidValidity =

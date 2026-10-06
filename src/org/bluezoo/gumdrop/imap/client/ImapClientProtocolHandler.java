@@ -40,6 +40,7 @@ import org.bluezoo.gumdrop.ProtocolHandler;
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.imap.ImapDeflateLayer;
 import org.bluezoo.gumdrop.util.JulWarnings;
+import org.bluezoo.gumdrop.util.Tokens;
 
 import java.util.zip.DataFormatException;
 
@@ -1157,11 +1158,9 @@ public final class ImapClientProtocolHandler
 
         if (upper.startsWith("ENABLED ")) {
             if (state == ImapState.ENABLE_SENT) {
-                String[] tokens = msg.substring(8).trim().split("\\s+");
+                String[] tokens = Tokens.split(msg.substring(8));
                 for (String token : tokens) {
-                    if (!token.isEmpty()) {
-                        pendingEnabled.add(token);
-                    }
+                    pendingEnabled.add(token);
                 }
             }
             return;
@@ -1554,7 +1553,7 @@ public final class ImapClientProtocolHandler
     }
 
     private void parseStatusItems(String items) {
-        String[] tokens = items.trim().split("\\s+");
+        String[] tokens = Tokens.split(items);
         for (int i = 0; i < tokens.length - 1; i += 2) {
             String key = tokens[i].toUpperCase();
             String val = tokens[i + 1];
@@ -1619,7 +1618,7 @@ public final class ImapClientProtocolHandler
 
     private void accumulateSearchNumbers(String data) {
         if (!data.isEmpty()) {
-            String[] tokens = data.split("\\s+");
+            String[] tokens = Tokens.split(data);
             for (String token : tokens) {
                 try {
                     searchResults.add(Long.parseLong(token));
@@ -1665,7 +1664,7 @@ public final class ImapClientProtocolHandler
         String quotaRoot = unquote(data.substring(0, parenStart).trim());
         String resources = data.substring(parenStart + 1,
                 data.lastIndexOf(')'));
-        String[] tokens = resources.trim().split("\\s+");
+        String[] tokens = Tokens.split(resources);
         // triplets: resourceName usage limit
         int max = tokens.length - 2;
         for (int i = 0; i < max; i += 3) {
@@ -2050,7 +2049,7 @@ public final class ImapClientProtocolHandler
             if (code != null
                     && code.toUpperCase()
                             .startsWith("APPENDUID ")) {
-                String[] parts = code.substring(10).split("\\s+");
+                String[] parts = Tokens.split(code.substring(10));
                 if (parts.length >= 2) {
                     try {
                         uidValidity = Long.parseLong(parts[0]);
@@ -2168,7 +2167,7 @@ public final class ImapClientProtocolHandler
             if (code != null
                     && code.toUpperCase()
                             .startsWith("COPYUID ")) {
-                String[] parts = code.substring(8).split("\\s+");
+                String[] parts = Tokens.split(code.substring(8));
                 if (parts.length >= 3) {
                     try {
                         copyUidValidity = Long.parseLong(parts[0]);
@@ -2386,11 +2385,9 @@ public final class ImapClientProtocolHandler
 
     private void parseCapabilities(String data) {
         capabilities.clear();
-        String[] tokens = data.trim().split("\\s+");
+        String[] tokens = Tokens.split(data);
         for (String token : tokens) {
-            if (!token.isEmpty()) {
-                capabilities.add(token);
-            }
+            capabilities.add(token);
         }
     }
 
@@ -2446,10 +2443,7 @@ public final class ImapClientProtocolHandler
         if (data.startsWith("(") && data.endsWith(")")) {
             data = data.substring(1, data.length() - 1).trim();
         }
-        if (data.isEmpty()) {
-            return new String[0];
-        }
-        return data.split("\\s+");
+        return Tokens.split(data);
     }
 
     private static String extractToken(String data, int start) {
