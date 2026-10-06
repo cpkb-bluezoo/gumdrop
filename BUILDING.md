@@ -20,7 +20,7 @@ This compiles the project and creates distribution artifacts.
 
 ### External dependencies
 
-Jars under `lib/` are **not** in git. The first build downloads them via `ant resolve-deps` (run automatically when you compile or run `ant assemble-container`). Versions are pinned in `boms/versions.properties`; Dependabot tracks the Maven coordinates in root `pom.xml`. You need network access on a fresh clone until `lib/` is populated.
+Jars under `lib/` are **not** in git. The first build downloads them via `ant resolve-deps` (run automatically when you compile or run `ant assemble-container`). Versions are pinned in `boms/versions.properties`; Dependabot tracks the Maven coordinates in root `pom.xml`. When a pin changes, the next `ant resolve-deps` deletes the other versions of that jar from `lib/` (two versions of one module would fail `ant jpms-check`). You need network access on a fresh clone until `lib/` is populated.
 
 See [lib/README](lib/README) for the full list. In short:
 

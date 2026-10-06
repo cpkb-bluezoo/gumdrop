@@ -210,7 +210,27 @@
     <mkdir dir='${lib}'/>
     <!-- All pins are Maven Central coords (org.bluezoo:gonzalez-core / jsonparser,
          etc.); keep versions in sync with root pom.xml dependencyManagement. -->
-    <delete file='${lib}/gonzalez-${gonzalez.version}.jar' quiet='true'/>
+    <!-- Other versions of the same artifacts, left behind by an earlier pin,
+         go first: two versions of one module on the path are an error for
+         jdeps (jpms-check) and a lottery for the class path. The gonzalez
+         pattern also removes the jar under its old name, gonzalez-x.y.z. -->
+    <delete quiet='true'>
+      <fileset dir='${lib}' includes='gonzalez-*.jar' excludes='${gonzalez.jar}'/>
+      <fileset dir='${lib}' includes='jsonparser-*.jar' excludes='${jsonparser.jar}'/>
+      <fileset dir='${lib}' includes='jprotobuf-*.jar' excludes='${jprotobuf.jar}'/>
+      <fileset dir='${lib}' includes='micula-*.jar' excludes='${micula.jar}'/>
+      <fileset dir='${lib}' includes='jakarta.servlet-api-*.jar' excludes='${servlet.jar}'/>
+      <fileset dir='${lib}' includes='jakarta.annotation-api-*.jar' excludes='${jakarta.annotation.jar}'/>
+      <fileset dir='${lib}' includes='jakarta.persistence-api-*.jar' excludes='${jakarta.persistence.jar}'/>
+      <fileset dir='${lib}' includes='jakarta.mail-api-*.jar' excludes='${jakarta.mail.jar}'/>
+      <fileset dir='${lib}' includes='jakarta.activation-api-*.jar' excludes='${jakarta.activation.jar}'/>
+      <fileset dir='${lib}' includes='angus-mail-*.jar' excludes='${angus.mail.jar}'/>
+      <fileset dir='${lib}' includes='angus-activation-*.jar' excludes='${angus.activation.jar}'/>
+      <fileset dir='${lib}' includes='javax.annotation-api-*.jar' excludes='${annotation.jar}'/>
+      <fileset dir='${lib}' includes='javax.ejb-api-*.jar' excludes='${ejb.jar}'/>
+      <fileset dir='${lib}' includes='javax.persistence-api-*.jar' excludes='${persistence.jar}'/>
+      <fileset dir='${lib}' includes='jaxws-api-*.jar' excludes='${jaxws.jar}'/>
+    </delete>
     <get src='https://repo1.maven.org/maven2/org/bluezoo/gonzalez-core/${gonzalez.version}/gonzalez-core-${gonzalez.version}.jar'
          dest='${lib}/${gonzalez.jar}' skipexisting='true'/>
     <get src='https://repo1.maven.org/maven2/org/bluezoo/jsonparser/${jsonparser.version}/jsonparser-${jsonparser.version}.jar'
@@ -265,6 +285,10 @@
   <target name='resolve-test-deps' depends='reject-maven-test-property'
           description='Download JUnit and Hamcrest into test/junit/lib/'>
     <mkdir dir='${testdir}/junit/lib'/>
+    <delete quiet='true'>
+      <fileset dir='${testdir}/junit/lib' includes='junit-*.jar' excludes='${junit.jar}'/>
+      <fileset dir='${testdir}/junit/lib' includes='hamcrest-*.jar' excludes='${hamcrest.jar}'/>
+    </delete>
     <get src='https://repo1.maven.org/maven2/junit/junit/${junit.version}/junit-${junit.version}.jar'
          dest='${testdir}/junit/lib/${junit.jar}' skipexisting='true'/>
     <get src='https://repo1.maven.org/maven2/org/hamcrest/hamcrest/${hamcrest.version}/hamcrest-${hamcrest.version}.jar'
@@ -275,6 +299,12 @@
   <target name='resolve-jacoco' depends='reject-maven-test-property'
           description='Download JaCoCo Ant task into test/junit/lib/'>
     <mkdir dir='${testdir}/junit/lib'/>
+    <delete quiet='true'>
+      <fileset dir='${testdir}/junit/lib' includes='org.jacoco.*.jar'
+               excludes='${jacoco.ant.jar},${jacoco.core.jar},${jacoco.report.jar},${jacoco.agent.jar},${jacoco.agent.runtime.jar}'/>
+      <fileset dir='${testdir}/junit/lib' includes='asm-*.jar'
+               excludes='${jacoco.asm.jar},${jacoco.asm.commons.jar},${jacoco.asm.tree.jar}'/>
+    </delete>
     <get src='https://repo1.maven.org/maven2/org/jacoco/org.jacoco.ant/${jacoco.version}/${jacoco.ant.jar}'
          dest='${testdir}/junit/lib/${jacoco.ant.jar}' skipexisting='true'/>
     <get src='https://repo1.maven.org/maven2/org/jacoco/org.jacoco.core/${jacoco.version}/${jacoco.core.jar}'
