@@ -1228,8 +1228,20 @@ public final class FtpClientProtocolHandler
      */
     private List<FtpFileEntry> parseListingBuffer(String command) {
         List<FtpFileEntry> entries = new ArrayList<FtpFileEntry>();
-        String[] lines = listingBuffer.toString().split("\r\n|\n");
-        for (String line : lines) {
+        String text = listingBuffer.toString();
+        int len = text.length();
+        int start = 0;
+        while (start < len) {
+            int end = text.indexOf('\n', start);
+            int next = end < 0 ? len : end + 1;
+            if (end < 0) {
+                end = len;
+            }
+            if (end > start && text.charAt(end - 1) == '\r') {
+                end--;
+            }
+            String line = text.substring(start, end);
+            start = next;
             if (line.isEmpty()) {
                 continue;
             }

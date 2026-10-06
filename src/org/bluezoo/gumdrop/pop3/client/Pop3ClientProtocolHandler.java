@@ -37,6 +37,7 @@ import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.ProtocolHandler;
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.util.JulWarnings;
+import org.bluezoo.gumdrop.util.Tokens;
 
 /**
  * POP3 client protocol handler (RFC 1939).
@@ -790,7 +791,7 @@ public final class Pop3ClientProtocolHandler
             } else if (upper.startsWith("SASL")) {
                 String mechs = line.substring(4).trim();
                 if (!mechs.isEmpty()) {
-                    for (String m : mechs.split("\\s+")) {
+                    for (String m : Tokens.split(mechs)) {
                         capaSaslMechanisms.add(m);
                     }
                 }

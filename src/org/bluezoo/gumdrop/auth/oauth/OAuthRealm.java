@@ -33,6 +33,7 @@ import org.bluezoo.gumdrop.http.HttpClient;
 import org.bluezoo.gumdrop.http.client.HttpClientHandler;
 import org.bluezoo.gumdrop.http.client.HttpRequest;
 import org.bluezoo.gumdrop.http.HttpStatus;
+import org.bluezoo.gumdrop.util.Tokens;
 import org.bluezoo.json.JSONParser;
 import org.bluezoo.json.JSONDefaultHandler;
 import org.bluezoo.json.JSONException;
@@ -564,8 +565,7 @@ public class OAuthRealm implements Realm {
             }
             
             String scopeStr = claimsHandler.getString("scope");
-            String[] scopes = (scopeStr != null && !scopeStr.isEmpty())
-                    ? scopeStr.split("\\s+") : new String[0];
+            String[] scopes = Tokens.split(scopeStr);
             
             long expiration = (exp != null) ? exp : 0;
             LOGGER.fine(MessageFormat.format(

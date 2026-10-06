@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.ftp.client;
 
+import org.bluezoo.gumdrop.util.Tokens;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -189,7 +190,7 @@ public final class FtpFileEntry {
         // day time/year name... (name may itself contain spaces, so once
         // 8 fields are consumed the remainder — untrimmed except for the
         // single separating space — is the name).
-        String[] parts = line.trim().split("\\s+", 9);
+        String[] parts = Tokens.split(line, 9);
         long size = -1;
         String name = line;
         if (parts.length == 9) {

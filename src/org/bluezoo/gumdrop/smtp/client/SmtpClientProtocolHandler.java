@@ -38,6 +38,7 @@ import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.ProtocolHandler;
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.mime.rfc5322.EmailAddress;
+import org.bluezoo.gumdrop.util.Tokens;
 
 /**
  * SMTP client protocol handler implementing RFC 5321 (SMTP).
@@ -1232,7 +1233,7 @@ public final class SmtpClientProtocolHandler
 
     /** RFC 9422 — parse LIMITS keyword parameters (RCPTMAX, MAILMAX). */
     private void parseLimits(String line) {
-        String[] tokens = line.split("\\s+");
+        String[] tokens = Tokens.split(line);
         for (int i = 1; i < tokens.length; i++) {
             String token = tokens[i].toUpperCase();
             if (token.startsWith("RCPTMAX=")) {
