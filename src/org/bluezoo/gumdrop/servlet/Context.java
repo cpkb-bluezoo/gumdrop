@@ -2870,8 +2870,31 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
         return registration;
     }
 
-    public ServletRegistration.Dynamic addServlet(String servletName, Class<? extends Servlet> t) {
+    /**
+     * Returns whether a class may be registered with this context as a
+     * servlet, filter or listener: a class the web application's class
+     * loader resolves its name to. That is one of the application's own
+     * classes, or one it sees through its parent, such as a servlet of a
+     * library the container provides. A class of the container itself is
+     * not one, as the loader does not resolve those; nor is a class of
+     * the same name from some other loader.
+     */
+    private boolean isApplicationClass(Class<?> t) {
         if (t.getClassLoader() == contextClassLoader) {
+            return true;
+        }
+        try {
+            Class<?> resolved = contextClassLoader.loadClass(t.getName());
+            return resolved == t;
+        } catch (ClassNotFoundException e) {
+            return false;
+        } catch (LinkageError e) {
+            return false;
+        }
+    }
+
+    public ServletRegistration.Dynamic addServlet(String servletName, Class<? extends Servlet> t) {
+        if (isApplicationClass(t)) {
             return addServlet(servletName, t.getName());
         } else {
             String message = L10N.getString("err.bad_servlet");
@@ -2882,7 +2905,7 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
 
     @SuppressWarnings("unchecked") // the cast is guaranteed by servletDef.className == t.getName()
     public <T extends Servlet> T createServlet(Class<T> t) throws ServletException {
-        if (t.getClassLoader() == contextClassLoader) {
+        if (isApplicationClass(t)) {
             // Find ServletDef by className
             ServletDef servletDef = null;
             for (ServletDef fd : servletDefs.values()) {
@@ -2957,7 +2980,7 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
     }
 
     public FilterRegistration.Dynamic addFilter(String filterName, Class<? extends Filter> t) {
-        if (t.getClassLoader() == contextClassLoader) {
+        if (isApplicationClass(t)) {
             return addFilter(filterName, t.getName());
         } else {
             String message = L10N.getString("err.bad_filter");
@@ -2968,7 +2991,7 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
 
     @SuppressWarnings("unchecked") // the cast is guaranteed by filterDef.className == t.getName()
     public <T extends Filter> T createFilter(Class<T> t) throws ServletException {
-        if (t.getClassLoader() == contextClassLoader) {
+        if (isApplicationClass(t)) {
             // Find FilterDef by className
             FilterDef filterDef = null;
             for (FilterDef fd : filterDefs.values()) {
@@ -3044,7 +3067,7 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
         }
         // check classloader
         Class<?> t = listener.getClass();
-        if (t.getClassLoader() != contextClassLoader) {
+        if (!isApplicationClass(t)) {
             String message = L10N.getString("err.bad_listener");
             message = MessageFormat.format(message, t.getName());
             throw new SecurityException(message);

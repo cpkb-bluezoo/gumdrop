@@ -32,6 +32,7 @@ import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.EventListener;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
@@ -41,6 +42,7 @@ import java.util.Map;
 import java.util.Set;
 
 import jakarta.servlet.Filter;
+import jakarta.servlet.Servlet;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.FilterConfig;
 import jakarta.servlet.FilterRegistration;
@@ -84,6 +86,20 @@ public class ContextLifecycleTest {
     /** Servlet declared in web.xml. */
     public static class HelloServlet extends HttpServlet {
         private static final long serialVersionUID = 1L;
+    }
+
+    /** Servlet the web application sees only through its parent loader. */
+    public static class SharedServlet extends HttpServlet {
+        private static final long serialVersionUID = 1L;
+    }
+
+    /** Filter the web application sees only through its parent loader. */
+    public static class SharedFilter implements Filter {
+        @Override
+        public void doFilter(ServletRequest request, ServletResponse response, FilterChain chain)
+                throws IOException, ServletException {
+            chain.doFilter(request, response);
+        }
     }
 
     /** Servlet declared via annotations, scanned from WEB-INF/classes. */
@@ -623,23 +639,59 @@ public class ContextLifecycleTest {
         context.destroy();
     }
 
+    /** Defines a copy of a class of the test class path under its own name. */
+    private static final class CopyingClassLoader extends ClassLoader {
+        CopyingClassLoader() {
+            super(ContextLifecycleTest.class.getClassLoader());
+        }
+
+        Class<?> copy(Class<?> original) throws IOException {
+            String resource = original.getName().replace('.', '/') + ".class";
+            InputStream in = getParent().getResourceAsStream(resource);
+            try {
+                byte[] bytes = in.readAllBytes();
+                return defineClass(original.getName(), bytes, 0, bytes.length);
+            } finally {
+                in.close();
+            }
+        }
+    }
+
+    /**
+     * A class may be registered if the web application's class loader
+     * resolves its name to that class: one of the application's own, or
+     * one it sees through its parent, such as a servlet of a library the
+     * container provides. The spec sets no other condition.
+     */
     @Test
-    public void testForeignClassLoaderRejected() throws Exception {
+    public void testClassesTheLoaderResolvesAreAccepted() throws Exception {
+        context.load();
+        // seen through the parent loader: not in WEB-INF/classes
+        assertNotNull(context.addServlet("byclass", SharedServlet.class));
+        assertNotNull(context.createServlet(SharedServlet.class));
+        assertNotNull(context.addFilter("fbyclass", SharedFilter.class));
+        assertNotNull(context.createFilter(SharedFilter.class));
+        assertNotNull(context.addServlet("byinstance", new SharedServlet()));
+        assertNotNull(context.addFilter("fbyinstance", new SharedFilter()));
+        context.addListener(new PlainListener());
+        // the application's own copy, as the application would hold it
+        ClassLoader loader = context.getContextClassLoader();
+        Class<?> own = loader.loadClass(HelloServlet.class.getName());
+        assertNotNull(context.addServlet("own", own.asSubclass(Servlet.class)));
+    }
+
+    /**
+     * A class the loader resolves to a different class of the same name,
+     * or cannot resolve at all, is not the application's and is refused.
+     * The application here carries its own copies of these classes in
+     * WEB-INF/classes, so the test class path's are foreign to it, as are
+     * further copies from yet another loader.
+     */
+    @Test
+    public void testClassesTheLoaderDoesNotResolveAreRejected() throws Exception {
         context.load();
         try {
             context.addServlet("x", HelloServlet.class);
-            fail("expected SecurityException");
-        } catch (SecurityException e) {
-            assertNotNull(e.getMessage());
-        }
-        try {
-            context.addServlet("x", new HelloServlet());
-            fail("expected SecurityException");
-        } catch (SecurityException e) {
-            assertNotNull(e.getMessage());
-        }
-        try {
-            context.addFilter("x", PassFilter.class);
             fail("expected SecurityException");
         } catch (SecurityException e) {
             assertNotNull(e.getMessage());
@@ -651,19 +703,56 @@ public class ContextLifecycleTest {
             assertNotNull(e.getMessage());
         }
         try {
-            context.createServlet(HelloServlet.class);
-            fail("expected SecurityException");
-        } catch (SecurityException e) {
-            assertNotNull(e.getMessage());
-        }
-        try {
-            context.createFilter(PassFilter.class);
-            fail("expected SecurityException");
-        } catch (SecurityException e) {
-            assertNotNull(e.getMessage());
-        }
-        try {
             context.addListener(new AppListener());
+            fail("expected SecurityException");
+        } catch (SecurityException e) {
+            assertNotNull(e.getMessage());
+        }
+        CopyingClassLoader other = new CopyingClassLoader();
+        @SuppressWarnings("unchecked")
+        Class<? extends Servlet> servletCopy = (Class<? extends Servlet>) other.copy(HelloServlet.class);
+        @SuppressWarnings("unchecked")
+        Class<? extends Filter> filterCopy = (Class<? extends Filter>) other.copy(PassFilter.class);
+        @SuppressWarnings("unchecked")
+        Class<? extends EventListener> listenerCopy = (Class<? extends EventListener>) other.copy(AppListener.class);
+        try {
+            context.addServlet("x", servletCopy);
+            fail("expected SecurityException");
+        } catch (SecurityException e) {
+            assertNotNull(e.getMessage());
+        }
+        try {
+            context.addServlet("x", servletCopy.getDeclaredConstructor().newInstance());
+            fail("expected SecurityException");
+        } catch (SecurityException e) {
+            assertNotNull(e.getMessage());
+        }
+        try {
+            context.addFilter("x", filterCopy);
+            fail("expected SecurityException");
+        } catch (SecurityException e) {
+            assertNotNull(e.getMessage());
+        }
+        try {
+            context.addFilter("x", filterCopy.getDeclaredConstructor().newInstance());
+            fail("expected SecurityException");
+        } catch (SecurityException e) {
+            assertNotNull(e.getMessage());
+        }
+        try {
+            context.createServlet(servletCopy);
+            fail("expected SecurityException");
+        } catch (SecurityException e) {
+            assertNotNull(e.getMessage());
+        }
+        try {
+            context.createFilter(filterCopy);
+            fail("expected SecurityException");
+        } catch (SecurityException e) {
+            assertNotNull(e.getMessage());
+        }
+        try {
+            context.addListener(listenerCopy.getDeclaredConstructor().newInstance());
             fail("expected SecurityException");
         } catch (SecurityException e) {
             assertNotNull(e.getMessage());

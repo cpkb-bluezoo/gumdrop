@@ -357,10 +357,11 @@ public class ContextInitFaultsTest {
         container.addContext(context);
         context.load();
         try {
+            // a listener of none of the listener interfaces
             context.addListener(new java.util.EventListener() { });
-            fail("foreign loader");
-        } catch (SecurityException e) {
-            assertNotNull(e.getMessage());
+            fail("not a servlet listener");
+        } catch (IllegalArgumentException e) {
+            assertNotNull(e);
         }
         try {
             context.addListener("com.example.Absent");
