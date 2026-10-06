@@ -1041,8 +1041,12 @@ class Request implements HttpServletRequest {
         if (queryString != null) {
             addEncodedParameters(accum, queryString, "UTF-8");
         }
-        // Parameters in x-www-form-urlencoded POST body
-        if ("POST".equals(method)) {
+        // Parameters in x-www-form-urlencoded POST body: only while the
+        // body is still the container's to read. Once the servlet has
+        // taken the input stream or the reader, the body is its own, and
+        // what it has left of it is not the form (Servlet spec section
+        // 3.1.1).
+        if ("POST".equals(method) && inputStreamState == InputStreamState.NONE) {
             String contentType = getContentType();
             if (contentType != null
                     && contentType.startsWith("application/x-www-form-urlencoded")) {

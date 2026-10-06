@@ -149,6 +149,21 @@ public class ServletEndToEndTest {
 
         @Override
         protected void doPost(HttpServletRequest req, HttpServletResponse resp) throws IOException {
+            if ("partial".equals(req.getQueryString())) {
+                byte[] first = new byte[3];
+                int n = req.getInputStream().read(first);
+                resp.setContentType("text/plain");
+                resp.getWriter().print("read=" + n + " x=" + req.getParameter("x")
+                        + " names=" + req.getParameterMap().keySet());
+                return;
+            }
+            if ("reader".equals(req.getQueryString())) {
+                req.getReader();
+                resp.setContentType("text/plain");
+                resp.getWriter().print("x=" + req.getParameter("x")
+                        + " names=" + req.getParameterMap().keySet());
+                return;
+            }
             if ("charset".equals(req.getQueryString())) {
                 req.setCharacterEncoding("UTF-8");
                 resp.setContentType("text/plain; charset=UTF-8");
@@ -822,6 +837,26 @@ public class ServletEndToEndTest {
                 "content-type", "application/x-www-form-urlencoded",
                 "content-length", "8");
         assertEquals("p=\u00e9", decoded.text());
+    }
+
+    /**
+     * Once the servlet has taken the input stream or the reader, the form
+     * in the body is its own to read: the parameters are the query string
+     * alone (Servlet 6.1 section 3.1.1). What is left of the body must not
+     * be parsed as if it were the whole form.
+     */
+    @Test
+    public void testFormBodyIsNotParsedOnceTheServletHasTakenTheStream() throws Exception {
+        byte[] body = "x=1&x=2&y=3".getBytes(StandardCharsets.US_ASCII);
+        Result partial = sendBody("POST", "/app/body?partial", body,
+                "content-type", "application/x-www-form-urlencoded",
+                "content-length", Integer.toString(body.length));
+        assertEquals("read=3 x=null names=[partial]", partial.text());
+
+        Result reader = sendBody("POST", "/app/body?reader", body,
+                "content-type", "application/x-www-form-urlencoded",
+                "content-length", Integer.toString(body.length));
+        assertEquals("x=null names=[reader]", reader.text());
     }
 
     /** A session id is taken from the URL or a cookie, never the body. */
