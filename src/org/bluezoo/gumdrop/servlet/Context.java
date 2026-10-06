@@ -952,6 +952,18 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
                     }
                 }
             }
+            // Initializers the container provides (Servlet spec section
+            // 8.2.4): declared by the jars on its own class path, such as
+            // a framework installed in its lib directory, which the
+            // application's class loader sees through its parent.
+            ClassLoader parent = contextClassLoader.getParent();
+            if (parent != null) {
+                Enumeration<URL> services = parent.getResources(SCI_SERVICE);
+                while (services.hasMoreElements()) {
+                    URL service = services.nextElement();
+                    readServiceProviders(service.openStream(), providerNames);
+                }
+            }
         } catch (IOException e) {
             String message = L10N.getString("err.load_resource");
             message = MessageFormat.format(message, SCI_SERVICE);

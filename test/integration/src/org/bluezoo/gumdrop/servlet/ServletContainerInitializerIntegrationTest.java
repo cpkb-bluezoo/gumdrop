@@ -21,6 +21,15 @@
 
 package org.bluezoo.gumdrop.servlet;
 
+import java.io.FileOutputStream;
+import java.io.IOException;
+import java.net.URL;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.jar.JarOutputStream;
+import java.util.zip.ZipEntry;
+import org.bluezoo.gumdrop.ContainerClassLoader;
+import org.bluezoo.gumdrop.servlet.sci.TestContainerSciInitializer;
 import org.bluezoo.gumdrop.servlet.sci.SciMarker;
 import org.bluezoo.gumdrop.servlet.sci.SciMarkedClass;
 import org.bluezoo.gumdrop.servlet.sci.TestSciHandlesTypesInitializer;
@@ -65,6 +74,56 @@ public class ServletContainerInitializerIntegrationTest {
             context.destroy();
         }
         deleteRecursively(webappRoot);
+    }
+
+    /**
+     * Writes a jar holding only a service declaration of the given
+     * initializer, as a library in the container's lib directory would.
+     */
+    private File writeServiceJar(String name, String initializer) throws IOException {
+        File jar = new File(webappRoot.getParentFile(), name);
+        JarOutputStream out = new JarOutputStream(new FileOutputStream(jar));
+        try {
+            out.putNextEntry(new ZipEntry("META-INF/services/jakarta.servlet.ServletContainerInitializer"));
+            out.write((initializer + "\n").getBytes(StandardCharsets.UTF_8));
+            out.closeEntry();
+        } finally {
+            out.close();
+        }
+        return jar;
+    }
+
+    /**
+     * Initializers are discovered on the container's class path as well
+     * as in the web application (Servlet 6.1 section 8.2.4): a library
+     * the container provides, such as a JAX-RS runtime in its lib
+     * directory, declares its initializer there.
+     */
+    @Test
+    public void sciOnTheContainerClassPathIsDiscovered() throws Exception {
+        deploySciWebapp(false, false);
+        File containerJar = writeServiceJar("container.jar", "");
+        File libraryJar = writeServiceJar("library.jar", TestContainerSciInitializer.class.getName());
+        List<URL> deps = new ArrayList<URL>();
+        deps.add(libraryJar.toURI().toURL());
+        ContainerClassLoader parent = new ContainerClassLoader(containerJar.toURI().toURL(), deps,
+                ServletContainerInitializerIntegrationTest.class.getClassLoader());
+        try {
+            java.lang.reflect.Field loaderField = Context.class.getDeclaredField("contextClassLoader");
+            loaderField.setAccessible(true);
+            loaderField.set(context, new ContextClassLoader(parent, context, false));
+
+            context.load();
+            context.init();
+
+            assertEquals("ran", context.getAttribute(TestContainerSciInitializer.STARTUP_ATTRIBUTE));
+            // the application's own initializer still runs too
+            assertEquals("done", context.getAttribute(TestSciInitializer.STARTUP_ATTRIBUTE));
+        } finally {
+            parent.close();
+            libraryJar.delete();
+            containerJar.delete();
+        }
     }
 
     @Test
