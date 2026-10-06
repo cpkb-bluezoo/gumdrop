@@ -101,4 +101,14 @@ public class IMAPTagGeneratorTest {
             assertTrue("Duplicate tag: " + tag, seen.add(tag));
         }
     }
+
+    @Test
+    public void testEveryTagMatchesPrintfFormat() {
+        ImapTagGenerator gen = new ImapTagGenerator();
+        for (int n = 0; n < 26 * 1000; n++) {
+            char prefix = (char) ('A' + n / 1000);
+            assertEquals(String.format("%c%03d", prefix, n % 1000), gen.next());
+        }
+        assertEquals("A000", gen.next());
+    }
 }

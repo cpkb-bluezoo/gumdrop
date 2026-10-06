@@ -33,7 +33,12 @@ class ImapTagGenerator {
     private int counter = 0;
 
     String next() {
-        String tag = String.format("%c%03d", prefix, counter);
+        String tag = new String(new char[] {
+            prefix,
+            (char) ('0' + counter / 100),
+            (char) ('0' + counter / 10 % 10),
+            (char) ('0' + counter % 10)
+        });
         counter++;
         if (counter > 999) {
             counter = 0;
