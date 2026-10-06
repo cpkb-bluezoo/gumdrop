@@ -99,13 +99,7 @@ public class DeclarationElement implements JspElement {
      * @return {@code true} if the declaration is effectively empty
      */
     public boolean isEmpty() {
-        // Remove single-line and multi-line comments, then check if only whitespace remains
-        String cleanCode = declaration
-            .replaceAll("//.*?(?=\n|$)", "")  // Remove single-line comments
-            .replaceAll("/\\*.*?\\*/", "")     // Remove multi-line comments
-            .trim();
-        
-        return cleanCode.isEmpty();
+        return JavaSnippets.isBlank(declaration);
     }
     
     /**
@@ -115,8 +109,7 @@ public class DeclarationElement implements JspElement {
      * @return {@code true} if the declaration likely contains methods
      */
     public boolean containsMethods() {
-        // Simple heuristic: look for method signatures
-        return declaration.matches("(?s).*\\b(public|private|protected|static)?\\s*(\\w+\\s+)*\\w+\\s*\\([^)]*\\)\\s*\\{.*");
+        return (JavaSnippets.memberKinds(declaration) & JavaSnippets.METHODS) != 0;
     }
     
     /**
@@ -126,9 +119,7 @@ public class DeclarationElement implements JspElement {
      * @return {@code true} if the declaration likely contains fields
      */
     public boolean containsFields() {
-        // Simple heuristic: look for variable declarations (not in method signatures)
-        String withoutMethods = declaration.replaceAll("\\([^)]*\\)\\s*\\{[^}]*\\}", "");
-        return withoutMethods.matches("(?s).*\\b(public|private|protected|static|final)?\\s*(\\w+\\s+)*\\w+\\s+(\\w+)(\\s*=.*?)?\\s*;.*");
+        return (JavaSnippets.memberKinds(declaration) & JavaSnippets.FIELDS) != 0;
     }
     
     @Override

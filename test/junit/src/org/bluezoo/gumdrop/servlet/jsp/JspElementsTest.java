@@ -129,6 +129,73 @@ public class JspElementsTest {
     }
 
     @Test
+    public void testScriptletEmptyWithCommentsOnly() {
+        assertTrue(new ScriptletElement("/* a\n b */", 1, 1).isEmpty());
+        assertTrue(new ScriptletElement("// c\n  /* d */\n\t// e", 1, 1).isEmpty());
+        assertTrue(new ScriptletElement("/**/", 1, 1).isEmpty());
+        assertTrue(new ScriptletElement("//", 1, 1).isEmpty());
+        assertFalse(new ScriptletElement("// c\nint x;", 1, 1).isEmpty());
+        assertFalse(new ScriptletElement("/* c */ x", 1, 1).isEmpty());
+        assertFalse(new ScriptletElement("x // c", 1, 1).isEmpty());
+        assertFalse(new ScriptletElement("/* unterminated", 1, 1).isEmpty());
+        assertFalse(new ScriptletElement("/ x", 1, 1).isEmpty());
+        assertFalse(new ScriptletElement("/", 1, 1).isEmpty());
+    }
+
+    @Test
+    public void testDeclarationEmptyWithMultilineComment() {
+        assertTrue(new DeclarationElement("/* a\n b */\n// c", 1, 1).isEmpty());
+        assertFalse(new DeclarationElement("/* a */ int x;", 1, 1).isEmpty());
+    }
+
+    @Test
+    public void testDeclarationMemberDetection() {
+        DeclarationElement throwsMethod = new DeclarationElement(
+            "void run() throws Exception { }", 1, 1);
+        assertTrue(throwsMethod.containsMethods());
+        assertFalse(throwsMethod.containsFields());
+
+        DeclarationElement anonField = new DeclarationElement(
+            "Runnable r = new Runnable() { public void run() { } };", 1, 1);
+        assertTrue(anonField.containsFields());
+        assertFalse(anonField.containsMethods());
+
+        DeclarationElement commented = new DeclarationElement(
+            "// int x;\n/* void f() { } */", 1, 1);
+        assertFalse(commented.containsFields());
+        assertFalse(commented.containsMethods());
+
+        DeclarationElement literal = new DeclarationElement(
+            "String s = \"a(){\"; char c = '{';", 1, 1);
+        assertTrue(literal.containsFields());
+        assertFalse(literal.containsMethods());
+
+        DeclarationElement both = new DeclarationElement(
+            "private int n;\nprivate int get() { return n; }", 1, 1);
+        assertTrue(both.containsFields());
+        assertTrue(both.containsMethods());
+
+        DeclarationElement init = new DeclarationElement(
+            "static { System.out.println(\"x\"); }", 1, 1);
+        assertFalse(init.containsFields());
+        assertFalse(init.containsMethods());
+    }
+
+    @Test
+    public void testSimpleVariableIdentifierRules() {
+        assertTrue(new ExpressionElement("_a1", 1, 1).isSimpleVariable());
+        assertTrue(new ExpressionElement("Zz09", 1, 1).isSimpleVariable());
+        assertFalse(new ExpressionElement("1a", 1, 1).isSimpleVariable());
+        assertFalse(new ExpressionElement("a-b", 1, 1).isSimpleVariable());
+        assertFalse(new ExpressionElement("a.b", 1, 1).isSimpleVariable());
+        assertFalse(new ExpressionElement("a b", 1, 1).isSimpleVariable());
+        assertFalse(new ExpressionElement("@", 1, 1).isSimpleVariable());
+        assertFalse(new ExpressionElement("[", 1, 1).isSimpleVariable());
+        assertFalse(new ExpressionElement("{", 1, 1).isSimpleVariable());
+        assertFalse(new ExpressionElement("a@", 1, 1).isSimpleVariable());
+    }
+
+    @Test
     public void testExpressionElement() throws Exception {
         ExpressionElement e = new ExpressionElement("  foo  ", 1, 2);
         assertEquals(JspElement.Type.EXPRESSION, e.getType());
