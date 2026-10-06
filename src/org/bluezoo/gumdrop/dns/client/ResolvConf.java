@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.dns.client;
 
+import org.bluezoo.gumdrop.util.Tokens;
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -139,7 +140,7 @@ public final class ResolvConf {
                     if (line.isEmpty()) {
                         continue;
                     }
-                    String[] parts = line.split("\\s+");
+                    String[] parts = Tokens.split(line);
                     if (parts.length < 2 || !"nameserver".equals(parts[0])) {
                         continue;
                     }

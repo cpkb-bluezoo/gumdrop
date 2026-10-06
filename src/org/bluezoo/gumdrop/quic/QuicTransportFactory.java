@@ -64,6 +64,7 @@ import org.bluezoo.gumdrop.tls.TicketKeys;
 import org.bluezoo.gumdrop.util.PinnedCertTrustManager;
 import org.bluezoo.gumdrop.util.SniCredentialsResolver;
 import org.bluezoo.gumdrop.util.TlsUtils;
+import org.bluezoo.gumdrop.util.Tokens;
 
 /**
  * Configuration and bootstrap for QUIC transports.
@@ -190,7 +191,11 @@ public class QuicTransportFactory extends TransportFactory {
      *         unknown version
      */
     public void setVersions(String list) {
-        String[] tokens = list.trim().split("[,\\s]+");
+        // Commas and whitespace both separate versions
+        String[] tokens = Tokens.split(list.replace(',', ' '));
+        if (tokens.length == 0) {
+            throw new IllegalArgumentException("Empty QUIC version list");
+        }
         java.util.List<QuicVersion> parsed = new java.util.ArrayList<QuicVersion>();
         for (int i = 0; i < tokens.length; i++) {
             QuicVersion v;

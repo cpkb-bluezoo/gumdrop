@@ -162,6 +162,33 @@ public class QuicMiscUnitTest {
     }
 
     @Test
+    public void factoryVersionsAcceptCommasAndWhitespaceInAnyMix() {
+        QuicTransportFactory f = new QuicTransportFactory();
+        String[] lists = { "2,1", "2, 1", " 2 ,\t1 ", "2 1", ",2,,1," };
+        for (int i = 0; i < lists.length; i++) {
+            f.setVersions(lists[i]);
+            QuicVersion[] v = f.getVersions();
+            assertEquals(lists[i], 2, v.length);
+            assertEquals(lists[i], QuicVersion.V2, v[0]);
+            assertEquals(lists[i], QuicVersion.V1, v[1]);
+        }
+    }
+
+    @Test
+    public void factoryVersionsRejectSeparatorsOnly() {
+        QuicTransportFactory f = new QuicTransportFactory();
+        String[] lists = { "", " ", ",", " , ,\t" };
+        for (int i = 0; i < lists.length; i++) {
+            try {
+                f.setVersions(lists[i]);
+                fail("accepted: [" + lists[i] + "]");
+            } catch (IllegalArgumentException expected) {
+                assertNotNull(expected.getMessage());
+            }
+        }
+    }
+
+    @Test
     public void factorySettersFeedTransportParameters() {
         QuicTransportFactory f = new QuicTransportFactory();
         f.setMaxIdleTimeout(1234);

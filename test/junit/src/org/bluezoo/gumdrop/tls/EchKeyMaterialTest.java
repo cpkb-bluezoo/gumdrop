@@ -110,6 +110,15 @@ public class EchKeyMaterialTest {
     }
 
     @Test
+    public void crlfLineEndingsAndMissingFinalNewlineAreAccepted() throws Exception {
+        String text = "# c\r\n" + SK2_HEX + "\r\n\r\n" + SK1_HEX;
+        List<byte[]> keys = EchKeyMaterial.readPrivateKeys(write("crlf.hex", text));
+        assertEquals(2, keys.size());
+        assertArrayEquals(hex(SK2_HEX), keys.get(0));
+        assertArrayEquals(hex(SK1_HEX), keys.get(1));
+    }
+
+    @Test
     public void malformedKeyLineIsRejected() throws Exception {
         try {
             EchKeyMaterial.readPrivateKeys(write("bad.hex", SK1_HEX + "\nnot-a-key\n"));
