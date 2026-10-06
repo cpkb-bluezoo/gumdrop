@@ -106,7 +106,14 @@ public class ExpressionElement implements JspElement {
         }
         
         // Check if it's a valid Java identifier (simple variable name)
-        return expression.matches("[a-zA-Z_][a-zA-Z0-9_]*");
+        for (int i = 0; i < expression.length(); i++) {
+            char c = expression.charAt(i);
+            boolean letter = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_';
+            if (!letter && !(i > 0 && c >= '0' && c <= '9')) {
+                return false;
+            }
+        }
+        return true;
     }
     
     @Override

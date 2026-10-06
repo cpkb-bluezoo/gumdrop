@@ -90,13 +90,7 @@ public class ScriptletElement implements JspElement {
      * @return {@code true} if the code is effectively empty
      */
     public boolean isEmpty() {
-        // Remove single-line and multi-line comments, then check if only whitespace remains
-        String cleanCode = code
-            .replaceAll("//.*?(?=\n|$)", "")  // Remove single-line comments
-            .replaceAll("/\\*.*?\\*/", "")     // Remove multi-line comments
-            .trim();
-        
-        return cleanCode.isEmpty();
+        return JavaSnippets.isBlank(code);
     }
     
     @Override
