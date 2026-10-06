@@ -465,5 +465,177 @@ public class MessageDateTimeFormatterTest {
     public void testParseObsoleteNullInputReturnsNull() {
         assertNull(MessageDateTimeFormatter.parseObsolete(null));
     }
+
+    // ========== single-pass parser grammar tests ==========
+
+    private static void assertRejected(String value) {
+        assertNull("strict should reject: " + value, MessageDateTimeFormatter.parseStrict(value));
+        try {
+            MessageDateTimeFormatter.parse(value);
+            fail("parse should throw: " + value);
+        } catch (java.time.format.DateTimeParseException expected) {
+            // expected
+        }
+    }
+
+    @Test
+    public void testEveryProperPrefixRejected() {
+        for (int i = 0; i < BASE.length(); i++) {
+            assertRejected(BASE.substring(0, i));
+        }
+    }
+
+    @Test
+    public void testEveryProperPrefixRejectedObsoleteWithoutMinutes() {
+        String full = "Fri, 21 Nov 1997 09:55";
+        for (int i = 0; i < full.length(); i++) {
+            assertNull("obsolete should reject: " + full.substring(0, i),
+                MessageDateTimeFormatter.parseObsolete(full.substring(0, i)));
+        }
+        assertNotNull(MessageDateTimeFormatter.parseObsolete(full));
+    }
+
+    @Test
+    public void testAllMonthNames() {
+        String[] months = { "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+            "Jul", "Aug", "Sep", "Oct", "Nov", "Dec" };
+        for (int m = 0; m < 12; m++) {
+            OffsetDateTime dt = MessageDateTimeFormatter.parse("1 " + months[m] + " 2001 00:00:00 +0000");
+            assertEquals(m + 1, dt.getMonthValue());
+        }
+    }
+
+    @Test
+    public void testAllDayNames() {
+        // 2024-12-01 is a Sunday
+        String[] days = { "Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat" };
+        for (int d = 0; d < 7; d++) {
+            OffsetDateTime dt = MessageDateTimeFormatter.parse(
+                days[d] + ", " + (d + 1) + " Dec 2024 00:00:00 +0000");
+            assertEquals(d + 1, dt.getDayOfMonth());
+        }
+    }
+
+    @Test
+    public void testNamesAreCaseInsensitive() {
+        assertBase(MessageDateTimeFormatter.parse("FRI, 21 NOV 1997 09:55:06 -0600"));
+        assertBase(MessageDateTimeFormatter.parse("fri, 21 nov 1997 09:55:06 -0600"));
+    }
+
+    @Test
+    public void testFoldingWhitespaceBetweenComponents() {
+        assertBase(MessageDateTimeFormatter.parse("Fri ,\r\n 21\t Nov  1997 \r\n 09:55:06\t-0600"));
+    }
+
+    @Test
+    public void testRejectedStructure() {
+        assertRejected("");
+        assertRejected("   ");
+        assertRejected("(c) " + BASE);
+        assertRejected("Xyz, 21 Nov 1997 09:55:06 -0600");
+        assertRejected("Fri 21 Nov 1997 09:55:06 -0600");
+        assertRejected("Fri, Nov 1997 09:55:06 -0600");
+        assertRejected("Fri, 21Nov 1997 09:55:06 -0600");
+        assertRejected("Fri, 21 Xxx 1997 09:55:06 -0600");
+        assertRejected("Fri, 21 Nov1997 09:55:06 -0600");
+        assertRejected("Fri, 21 Nov 97 09:55:06 -0600");
+        assertRejected("Fri, 21 Nov 19970 09:55:06 -0600");
+        assertRejected("Fri, 21 Nov 1997x09:55:06 -0600");
+        assertRejected("Fri, 21 Nov 1997 9:55:06 -0600");
+        assertRejected("Fri, 21 Nov 1997 09-55:06 -0600");
+        assertRejected("Fri, 21 Nov 1997 09:5x:06 -0600");
+        assertRejected("Fri, 21 Nov 1997 09:55 -0600");
+        assertRejected("Fri, 21 Nov 1997 09:55:0x -0600");
+        assertRejected("Fri, 21 Nov 1997 09:55:06");
+        assertRejected("Fri, 21 Nov 1997 09:55:06 ");
+        assertRejected("Fri, 21 Nov 1997 09:55:06-0600");
+        assertRejected("Fri, 21 Nov 1997 09:55:06 GMT");
+        assertRejected("Fri, 21 Nov 1997 09:55:06 -06");
+        assertRejected("Fri, 21 Nov 1997 09:55:06 -06x0");
+        assertRejected("Fri, 21 Nov 1997 09:55:06 -0600x");
+    }
+
+    @Test
+    public void testRejectedRanges() {
+        assertRejected("Fri, 21 Nov 1997 24:00:00 -0600");
+        assertRejected("Fri, 21 Nov 1997 09:60:00 -0600");
+        assertRejected("Fri, 21 Nov 1997 09:55:60 -0600");
+        assertRejected("Fri, 21 Nov 1997 09:55:06 -0660");
+        assertRejected("Fri, 21 Nov 1997 09:55:06 +1801");
+        assertRejected("Fri, 0 Nov 1997 09:55:06 -0600");
+        assertRejected("Fri, 31 Nov 1997 09:55:06 -0600");
+        assertRejected("Sat, 29 Feb 1997 09:55:06 -0600");
+        assertRejected("Sat, 21 Nov 1997 09:55:06 -0600");
+    }
+
+    @Test
+    public void testLeapDays() {
+        assertEquals(29, MessageDateTimeFormatter.parse("Thu, 29 Feb 2024 00:00:00 +0000").getDayOfMonth());
+        assertEquals(29, MessageDateTimeFormatter.parse("29 Feb 2000 00:00:00 +0000").getDayOfMonth());
+        assertRejected("29 Feb 1900 00:00:00 +0000");
+    }
+
+    @Test
+    public void testDayOfWeekAcrossMonths() {
+        assertNotNull(MessageDateTimeFormatter.parse("Wed, 1 Jan 2020 00:00:00 +0000"));
+        assertNotNull(MessageDateTimeFormatter.parse("Sat, 1 Feb 2020 00:00:00 +0000"));
+        assertNotNull(MessageDateTimeFormatter.parse("Sun, 1 Mar 2020 00:00:00 +0000"));
+    }
+
+    @Test
+    public void testZoneExtremes() {
+        assertEquals(ZoneOffset.ofHours(18),
+            MessageDateTimeFormatter.parse("1 Jan 2020 00:00:00 +1800").getOffset());
+        assertEquals(ZoneOffset.ofHoursMinutes(-5, -30),
+            MessageDateTimeFormatter.parse("1 Jan 2020 00:00:00 -0530").getOffset());
+    }
+
+    @Test
+    public void testObsoleteYears() {
+        assertEquals(2005, MessageDateTimeFormatter.parseObsolete("1 Jan 05 00:00 +0000").getYear());
+        assertEquals(2049, MessageDateTimeFormatter.parseObsolete("1 Jan 49 00:00 +0000").getYear());
+        assertEquals(1950, MessageDateTimeFormatter.parseObsolete("1 Jan 50 00:00 +0000").getYear());
+        assertEquals(1999, MessageDateTimeFormatter.parseObsolete("1 Jan 99 00:00 +0000").getYear());
+        assertEquals(1999, MessageDateTimeFormatter.parseObsolete("1 Jan 099 00:00 +0000").getYear());
+        assertEquals(2020, MessageDateTimeFormatter.parseObsolete("1 Jan 2020 00:00 +0000").getYear());
+        assertNull(MessageDateTimeFormatter.parseObsolete("1 Jan 5 00:00 +0000"));
+    }
+
+    @Test
+    public void testObsoleteZones() {
+        assertEquals(ZoneOffset.UTC, MessageDateTimeFormatter.parseObsolete("1 Jan 2020 00:00:00 utc").getOffset());
+        assertEquals(ZoneOffset.UTC, MessageDateTimeFormatter.parseObsolete("1 Jan 2020 00:00 UT").getOffset());
+        assertEquals(ZoneOffset.UTC, MessageDateTimeFormatter.parseObsolete("1 Jan 2020 00:00 GMT (x)").getOffset());
+        assertNull(MessageDateTimeFormatter.parseObsolete("1 Jan 2020 00:00 ESTX"));
+        assertNull(MessageDateTimeFormatter.parseObsolete("1 Jan 2020 00:00 ES"));
+        assertNull(MessageDateTimeFormatter.parseObsolete("1 Jan 2020 00:00 U"));
+        assertNull(MessageDateTimeFormatter.parseObsolete("1 Jan 2020 00:00 +06"));
+        assertNull(MessageDateTimeFormatter.parseObsolete("1 Jan 2020 00:00 +1900"));
+        assertNull(MessageDateTimeFormatter.parseObsolete("1 Jan 2020 00:00 +0060"));
+    }
+
+    @Test
+    public void testObsoleteZoneAbsent() {
+        assertEquals(ZoneOffset.UTC, MessageDateTimeFormatter.parseObsolete("1 Jan 2020 00:00:00 ").getOffset());
+        assertEquals(ZoneOffset.UTC, MessageDateTimeFormatter.parseObsolete("1 Jan 2020 00:00:00(c)").getOffset());
+        assertNull(MessageDateTimeFormatter.parseObsolete("1 Jan 2020 00:00:00-0600"));
+    }
+
+    @Test
+    public void testObsoleteSecondsMalformed() {
+        assertNull(MessageDateTimeFormatter.parseObsolete("1 Jan 2020 00:00:6 +0000"));
+        assertNull(MessageDateTimeFormatter.parseObsolete("1 Jan 2020 00:00:60 +0000"));
+    }
+
+    @Test
+    public void testObsoleteZoneWithNonLetterCharacters() {
+        assertNull(MessageDateTimeFormatter.parseObsolete("1 Jan 2020 00:00 ~"));
+        assertNull(MessageDateTimeFormatter.parseObsolete("1 Jan 2020 00:00 {"));
+    }
+
+    @Test
+    public void testInstantiable() {
+        assertNotNull(new MessageDateTimeFormatter());
+    }
 }
 

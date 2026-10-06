@@ -31,7 +31,6 @@ import java.nio.charset.CharsetDecoder;
 import java.nio.charset.CodingErrorAction;
 import java.nio.charset.StandardCharsets;
 import java.time.OffsetDateTime;
-import java.time.format.DateTimeParseException;
 import java.util.List;
 
 /**
@@ -261,19 +260,14 @@ public class MessageParser extends MimeParser {
 	 * Returns null if the parse failed.
 	 */
 	private OffsetDateTime parseRFC5322DateTime(String value) {
-		try {
-			return MessageDateTimeFormatter.parse(value);
-		} catch (DateTimeParseException e) {
-			try {
-				OffsetDateTime ret = MessageDateTimeFormatter.parseObsolete(value);
-				if (ret != null) {
-					this.usedObsoleteSyntax = true;
-				}
-				return ret;
-			} catch (Exception e2) {
-				return null;
+		OffsetDateTime ret = MessageDateTimeFormatter.parseStrict(value);
+		if (ret == null) {
+			ret = MessageDateTimeFormatter.parseObsolete(value);
+			if (ret != null) {
+				this.usedObsoleteSyntax = true;
 			}
 		}
+		return ret;
 	}
 
 	private CharsetDecoder getHeaderDecoder() {
