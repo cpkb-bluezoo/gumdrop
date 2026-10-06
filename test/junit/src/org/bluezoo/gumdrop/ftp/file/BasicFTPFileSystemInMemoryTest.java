@@ -486,6 +486,13 @@ public class BasicFTPFileSystemInMemoryTest {
     }
 
     @Test
+    public void testGenerateUniqueNameSanitisesBackslashes() {
+        FtpFileSystem.UniqueNameResult r = fs.generateUniqueName("/", "..\\..\\a/b.txt", null);
+        assertEquals(FtpFileOperationResult.SUCCESS, r.getResult());
+        assertEquals("/.._.._a_b.txt", r.getUniquePath());
+    }
+
+    @Test
     public void testGenerateUniqueNameSanitisesSeparators() {
         FtpFileSystem.UniqueNameResult r = fs.generateUniqueName("/", "../../etc/passwd", null);
         assertEquals(FtpFileOperationResult.SUCCESS, r.getResult());

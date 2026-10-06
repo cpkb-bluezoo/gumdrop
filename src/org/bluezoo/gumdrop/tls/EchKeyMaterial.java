@@ -69,9 +69,17 @@ public final class EchKeyMaterial {
             keys.add(raw);
             return keys;
         }
-        String[] lines = new String(raw, StandardCharsets.US_ASCII).split("\\r?\\n");
-        for (int i = 0; i < lines.length; i++) {
-            String line = lines[i].trim();
+        String text = new String(raw, StandardCharsets.US_ASCII);
+        int len = text.length();
+        int start = 0;
+        while (start < len) {
+            int end = text.indexOf('\n', start);
+            if (end < 0) {
+                end = len;
+            }
+            // trim() also removes the carriage return of a CRLF line end
+            String line = text.substring(start, end).trim();
+            start = end + 1;
             if (line.isEmpty() || line.startsWith("#")) {
                 continue;
             }

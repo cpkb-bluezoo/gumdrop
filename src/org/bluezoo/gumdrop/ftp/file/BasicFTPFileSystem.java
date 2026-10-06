@@ -689,7 +689,7 @@ public class BasicFTPFileSystem implements FtpFileSystem {
             // Generate unique filename; strip any path separators from the
             // suggested name so it cannot escape baseDir via .. components.
             String sanitized = suggestedName != null
-                    ? suggestedName.replaceAll("[/\\\\]", "_").trim() : "";
+                    ? suggestedName.replace('/', '_').replace('\\', '_').trim() : "";
             String baseName = !sanitized.isEmpty() ? sanitized : "file";
                              
             // Remove extension for counter insertion
