@@ -21,9 +21,14 @@
 
 package org.bluezoo.gumdrop.quic.interop;
 
+import java.io.IOException;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.logging.Level;
+import java.util.logging.Logger;
+
+import org.bluezoo.gumdrop.tls.KeyLog;
 
 /**
  * The contract between the quic-interop-runner and an endpoint container,
@@ -119,6 +124,25 @@ final class InteropEnvironment {
     /** The server's UDP port; the runner expects 443. */
     int port() {
         return port;
+    }
+
+    /**
+     * Writes every connection's TLS secrets to the file the runner names
+     * in {@code SSLKEYLOGFILE}, which it needs to decrypt the traces for
+     * several of its checks. Nothing is written when the variable is
+     * unset.
+     */
+    static void enableKeyLog() {
+        Logger logger = Logger.getLogger(InteropEnvironment.class.getName());
+        try {
+            KeyLog keyLog = KeyLog.fromEnvironment();
+            if (keyLog != null) {
+                KeyLog.setDefault(keyLog);
+                logger.info("writing TLS secrets to " + System.getenv(KeyLog.ENVIRONMENT_VARIABLE));
+            }
+        } catch (IOException e) {
+            logger.log(Level.WARNING, "cannot open " + KeyLog.ENVIRONMENT_VARIABLE + " file", e);
+        }
     }
 
 }

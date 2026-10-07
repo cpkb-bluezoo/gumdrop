@@ -120,6 +120,10 @@ public final class HandshakeEngine {
     private CompressedCertificateReceiver compressedCertificateReceiver;
     private Map<NamedGroup, KeyExchange> clientKeyExchanges;
     private byte[] clientHelloRandom;
+    // Key log generations of the application traffic secrets: 0 after the
+    // handshake, then one more per key update of that side's secret.
+    private int clientTrafficSecretGeneration;
+    private int serverTrafficSecretGeneration;
     private boolean clientRetried;
     private byte[] clientRetryCookie;
     private byte[] clientCertRequestContext;
@@ -335,6 +339,7 @@ public final class HandshakeEngine {
             KeySchedule pskSchedule = new KeySchedule(ticket.getCipherSuite());
             byte[] clientHelloHash = truncatedClientHelloHash(ticket.getCipherSuite(), clientHello);
             byte[] earlyTrafficSecret = pskSchedule.deriveEarlyTrafficSecret(ticket.getPsk(), clientHelloHash);
+            keyLog(KeyLog.CLIENT_EARLY_TRAFFIC_SECRET, earlyTrafficSecret);
             sink.quicEarlyKeysReady(ticket.getCipherSuite(), earlyTrafficSecret);
         }
 
@@ -499,6 +504,7 @@ public final class HandshakeEngine {
         byte[] psk = resumed ? config.getSessionTicket().getPsk() : null;
         keySchedule.deriveEarlySecret(psk);
         keySchedule.deriveHandshakeSecret(sharedSecret, transcript.hash());
+        logHandshakeSecrets();
         state = State.WAIT_ENCRYPTED_EXTENSIONS;
         sink.handshakeSecretsReady();
     }
@@ -761,6 +767,7 @@ public final class HandshakeEngine {
         hashThroughServerFinished = transcript.hash();
         keySchedule.deriveMasterSecret();
         keySchedule.deriveApplicationTrafficSecrets(hashThroughServerFinished);
+        logApplicationSecrets(hashThroughServerFinished);
 
         // RFC 8446 section 4.3.2: respond to a requested client
         // certificate before our own Finished, so its verify-data covers
@@ -918,6 +925,9 @@ public final class HandshakeEngine {
         byte[] clientHelloForTranscript = message;
         boolean dtls = config.getMode() == HandshakeMode.DTLS;
         HandshakeMessages.ClientHello ch = HandshakeMessages.parseClientHello(message, dtls);
+        // The random of the ClientHello as sent (the outer one under ECH)
+        // is what a packet trace is matched to in a key log.
+        clientHelloRandom = ch.random;
         boolean echOuterOffered = ch.encryptedClientHelloOuter != null;
         if (config.isEchServerRequired() && !echOuterOffered) {
             fail(sink, AlertDescription.ECH_REQUIRED, "Client did not offer Encrypted Client Hello");
@@ -1059,6 +1069,7 @@ public final class HandshakeEngine {
         keySchedule = new KeySchedule(negotiatedSuite);
         keySchedule.deriveEarlySecret(presentedPsk);
         keySchedule.deriveHandshakeSecret(kxResult.getSharedSecret(), transcript.hash());
+        logHandshakeSecrets();
         sink.handshakeSecretsReady();
 
         negotiatedAlpn = selectFirst(config.getApplicationProtocols(), ch.alpnProtocols);
@@ -1117,6 +1128,7 @@ public final class HandshakeEngine {
         hashThroughServerFinished = transcript.hash();
         keySchedule.deriveMasterSecret();
         keySchedule.deriveApplicationTrafficSecrets(hashThroughServerFinished);
+        logApplicationSecrets(hashThroughServerFinished);
 
         state = requestClientCert ? State.WAIT_CLIENT_CERTIFICATE : State.WAIT_CLIENT_FINISHED;
     }
@@ -1299,6 +1311,7 @@ public final class HandshakeEngine {
         chTranscript.update(message);
         KeySchedule pskSchedule = new KeySchedule(payload.cipherSuite);
         byte[] earlyTrafficSecret = pskSchedule.deriveEarlyTrafficSecret(payload.psk, chTranscript.hash());
+        keyLog(KeyLog.CLIENT_EARLY_TRAFFIC_SECRET, earlyTrafficSecret);
         sink.quicEarlyKeysReady(payload.cipherSuite, earlyTrafficSecret);
         return true;
     }
@@ -1454,6 +1467,7 @@ public final class HandshakeEngine {
                 ? keySchedule.updateServerApplicationTrafficSecret()
                 : keySchedule.updateClientApplicationTrafficSecret();
         sink.applicationTrafficSecretUpdated(KeyUpdateDirection.READ, newSecret);
+        logUpdatedTrafficSecret(config.getRole() != HandshakeRole.CLIENT, newSecret);
         if (kind == HandshakeMessages.KEY_UPDATE_REQUESTED) {
             sendKeyUpdate(sink, false);
         }
@@ -1474,6 +1488,47 @@ public final class HandshakeEngine {
                 ? keySchedule.updateClientApplicationTrafficSecret()
                 : keySchedule.updateServerApplicationTrafficSecret();
         sink.applicationTrafficSecretUpdated(KeyUpdateDirection.WRITE, newSecret);
+        logUpdatedTrafficSecret(config.getRole() == HandshakeRole.CLIENT, newSecret);
+    }
+
+    // ---- NSS key log ----
+
+    private void keyLog(String label, byte[] secret) {
+        KeyLog log = config.resolvedKeyLog();
+        if (log != null && clientHelloRandom != null && secret != null) {
+            log.log(label, clientHelloRandom, secret);
+        }
+    }
+
+    private void logHandshakeSecrets() {
+        keyLog(KeyLog.CLIENT_HANDSHAKE_TRAFFIC_SECRET, keySchedule.getClientHandshakeTrafficSecret());
+        keyLog(KeyLog.SERVER_HANDSHAKE_TRAFFIC_SECRET, keySchedule.getServerHandshakeTrafficSecret());
+    }
+
+    private void logApplicationSecrets(byte[] hashThroughServerFinished) {
+        if (config.resolvedKeyLog() == null) {
+            return;
+        }
+        keyLog(KeyLog.clientTrafficSecret(0), keySchedule.getClientApplicationTrafficSecret());
+        keyLog(KeyLog.serverTrafficSecret(0), keySchedule.getServerApplicationTrafficSecret());
+        keyLog(KeyLog.EXPORTER_SECRET, keySchedule.deriveExporterMasterSecret(hashThroughServerFinished));
+    }
+
+    /**
+     * Logs a ratcheted application traffic secret under the next
+     * generation of its side.
+     *
+     * @param clientsSecret whether the client's (rather than the server's)
+     *        secret moved on
+     */
+    private void logUpdatedTrafficSecret(boolean clientsSecret, byte[] secret) {
+        if (clientsSecret) {
+            clientTrafficSecretGeneration++;
+            keyLog(KeyLog.clientTrafficSecret(clientTrafficSecretGeneration), secret);
+        } else {
+            serverTrafficSecretGeneration++;
+            keyLog(KeyLog.serverTrafficSecret(serverTrafficSecretGeneration), secret);
+        }
     }
 
     // ---- shared helpers ----

@@ -202,6 +202,7 @@ public final class Dtls12HandshakeConfig {
         copy.setClientTicketStore(base.getClientTicketStore());
         copy.setDtlsCookie(base.getDtlsCookie());
         copy.setDtlsClientRandom(base.getDtlsClientRandom());
+        copy.setKeyLog(base.getKeyLog());
         return copy;
     }
 

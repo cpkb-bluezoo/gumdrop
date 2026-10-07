@@ -45,6 +45,7 @@ import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
 import org.bluezoo.gumdrop.crypto.CertificateVerifier;
+import org.bluezoo.gumdrop.testsupport.RecordingKeyLog;
 import org.bluezoo.gumdrop.testsupport.TestCertificates;
 import org.bluezoo.gumdrop.crypto.Hpke;
 import org.bluezoo.gumdrop.crypto.KeyExchange;
@@ -505,6 +506,90 @@ public class HandshakeEngineLoopbackTest {
     }
 
     // ---- session resumption / PSK / 0-RTT ----
+
+    // ---- NSS key log ----
+
+    @Test
+    public void keyLogReceivesEverySecretOfAFullHandshakeOnBothSides() throws Exception {
+        RecordingKeyLog clientLog = new RecordingKeyLog();
+        RecordingKeyLog serverLog = new RecordingKeyLog();
+        HandshakeConfig cc = clientConfig(ecChain, SERVER_NAME);
+        cc.setKeyLog(clientLog);
+        HandshakeConfig sc = serverConfig(ecChain, ecKey);
+        sc.setKeyLog(serverLog);
+        HandshakeEngine client = new HandshakeEngine(cc);
+        HandshakeEngine server = new HandshakeEngine(sc);
+        RecordingSink clientSink = new RecordingSink();
+        RecordingSink serverSink = new RecordingSink();
+        runHandshake(client, clientSink, server, serverSink);
+        assertNull(clientSink.error);
+        assertNull(serverSink.error);
+
+        List<String> expected = Arrays.asList(
+                KeyLog.CLIENT_HANDSHAKE_TRAFFIC_SECRET, KeyLog.SERVER_HANDSHAKE_TRAFFIC_SECRET,
+                KeyLog.clientTrafficSecret(0), KeyLog.serverTrafficSecret(0), KeyLog.EXPORTER_SECRET);
+        assertEquals(expected, clientLog.labels());
+        assertEquals(expected, serverLog.labels());
+
+        assertArrayEquals(client.getClientHandshakeTrafficSecret(), clientLog.secret(KeyLog.CLIENT_HANDSHAKE_TRAFFIC_SECRET));
+        assertArrayEquals(client.getServerHandshakeTrafficSecret(), clientLog.secret(KeyLog.SERVER_HANDSHAKE_TRAFFIC_SECRET));
+        assertArrayEquals(client.getClientApplicationTrafficSecret(), clientLog.secret(KeyLog.clientTrafficSecret(0)));
+        assertArrayEquals(client.getServerApplicationTrafficSecret(), clientLog.secret(KeyLog.serverTrafficSecret(0)));
+        assertArrayEquals(server.getClientApplicationTrafficSecret(), serverLog.secret(KeyLog.clientTrafficSecret(0)));
+        assertArrayEquals("both sides derive the same exporter secret",
+                clientLog.secret(KeyLog.EXPORTER_SECRET), serverLog.secret(KeyLog.EXPORTER_SECRET));
+        assertEquals("exporter secret is one hash long", client.getClientHandshakeTrafficSecret().length,
+                clientLog.secret(KeyLog.EXPORTER_SECRET).length);
+
+        byte[] random = clientLog.entries.get(0).clientRandom;
+        assertEquals("the ClientHello random keys every line", 32, random.length);
+        for (RecordingKeyLog.Entry entry : clientLog.entries) {
+            assertArrayEquals(random, entry.clientRandom);
+        }
+        for (RecordingKeyLog.Entry entry : serverLog.entries) {
+            assertArrayEquals("the server logs the random it saw on the wire", random, entry.clientRandom);
+        }
+    }
+
+    @Test
+    public void keyLogReceivesTheEarlyTrafficSecretOfAResumedHandshake() throws Exception {
+        byte[] ticketKey = testTicketKey();
+        HandshakeConfig sc1 = serverConfig(ecChain, ecKey);
+        sc1.setTicketKeys(new TicketKeys(ticketKey));
+        sc1.setEnableEarlyData(true);
+        HandshakeEngine client1 = new HandshakeEngine(clientConfig(ecChain, SERVER_NAME));
+        HandshakeEngine server1 = new HandshakeEngine(sc1);
+        RecordingSink clientSink1 = new RecordingSink();
+        RecordingSink serverSink1 = new RecordingSink();
+        runHandshake(client1, clientSink1, server1, serverSink1);
+        assertNotNull(clientSink1.sessionTicket);
+
+        RecordingKeyLog clientLog = new RecordingKeyLog();
+        RecordingKeyLog serverLog = new RecordingKeyLog();
+        HandshakeConfig sc2 = serverConfig(ecChain, ecKey);
+        sc2.setTicketKeys(new TicketKeys(ticketKey));
+        sc2.setEnableEarlyData(true);
+        sc2.setKeyLog(serverLog);
+        HandshakeConfig cc2 = clientConfig(ecChain, SERVER_NAME);
+        cc2.setSessionTicket(clientSink1.sessionTicket);
+        cc2.setEnableEarlyData(true);
+        cc2.setKeyLog(clientLog);
+        HandshakeEngine client2 = new HandshakeEngine(cc2);
+        HandshakeEngine server2 = new HandshakeEngine(sc2);
+        RecordingSink clientSink2 = new RecordingSink();
+        RecordingSink serverSink2 = new RecordingSink();
+        runHandshake(client2, clientSink2, server2, serverSink2);
+        assertNull(clientSink2.error);
+        assertNull(serverSink2.error);
+        assertTrue(server2.wasEarlyDataAccepted());
+
+        assertEquals("the client derives 0-RTT keys before anything else",
+                KeyLog.CLIENT_EARLY_TRAFFIC_SECRET, clientLog.labels().get(0));
+        assertArrayEquals(clientSink2.earlyTrafficSecret, clientLog.secret(KeyLog.CLIENT_EARLY_TRAFFIC_SECRET));
+        assertArrayEquals(serverSink2.earlyTrafficSecret, serverLog.secret(KeyLog.CLIENT_EARLY_TRAFFIC_SECRET));
+        assertTrue(clientLog.labels().contains(KeyLog.clientTrafficSecret(0)));
+        assertTrue(serverLog.labels().contains(KeyLog.serverTrafficSecret(0)));
+    }
 
     @Test
     public void resumptionWithEarlyDataRoundTripsWithMatchingSecretsBothSides() throws Exception {

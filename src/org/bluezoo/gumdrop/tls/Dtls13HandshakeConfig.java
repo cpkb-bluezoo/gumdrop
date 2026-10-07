@@ -213,6 +213,7 @@ public final class Dtls13HandshakeConfig {
         copy.setAntiReplay(base.getAntiReplay());
         copy.setTransportParameterConsistencyChecker(base.getTransportParameterConsistencyChecker());
         copy.setOfferTls12Fallback(base.isOfferTls12Fallback());
+        copy.setKeyLog(base.getKeyLog());
         return copy;
     }
 }

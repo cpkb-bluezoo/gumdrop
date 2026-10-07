@@ -78,6 +78,7 @@ public final class InteropClient {
         }
         LOGGER.info("gumdrop interop client: test case " + testCase.getWireName() + ", "
                 + urls.size() + " request(s), downloads to " + env.downloads());
+        InteropEnvironment.enableKeyLog();
         boolean ok;
         try {
             ok = run(env, testCase, urls);

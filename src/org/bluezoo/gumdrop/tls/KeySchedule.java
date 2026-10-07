@@ -149,6 +149,18 @@ public final class KeySchedule {
      *        ClientHello through the client's Finished message
      * @return the resumption master secret
      */
+    /**
+     * RFC 8446 section 7.1: {@code Derive-Secret(Master Secret, "exp master",
+     * ClientHello..server Finished)}, the exporter master secret, which
+     * the NSS key log format records as {@code EXPORTER_SECRET}.
+     *
+     * @param clientHelloThroughServerFinished the transcript hash through
+     *        the server's {@code Finished}
+     */
+    public byte[] deriveExporterMasterSecret(byte[] clientHelloThroughServerFinished) {
+        return deriveSecret(masterSecret, "exp master", clientHelloThroughServerFinished);
+    }
+
     public byte[] deriveResumptionMasterSecret(byte[] clientHelloThroughClientFinished) {
         return deriveSecret(masterSecret, "res master", clientHelloThroughClientFinished);
     }

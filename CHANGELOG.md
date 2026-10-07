@@ -13,6 +13,16 @@ user-visible themes since 2.2.x.
 
 ### Added
 
+- **NSS key log** (`org.bluezoo.gumdrop.tls.KeyLog`): TLS 1.3 (TCP, DTLS and
+  QUIC) and TLS 1.2 connections can report their secrets in the format
+  Wireshark reads (`CLIENT_HANDSHAKE_TRAFFIC_SECRET`, `CLIENT_TRAFFIC_SECRET_n`
+  through key updates, `CLIENT_EARLY_TRAFFIC_SECRET`, `EXPORTER_SECRET`,
+  `CLIENT_RANDOM`). Off by default: an application sets
+  `HandshakeConfig.setKeyLog` per connection or `KeyLog.setDefault` for the
+  process, typically with `KeyLog.fromEnvironment()` for `SSLKEYLOGFILE`.
+  The quic-interop-runner endpoint does the latter, which lets the runner
+  evaluate its resumption, amplification-limit, rebinding and other
+  trace-based checks.
 - **quic-interop-runner endpoint** (`test/quic-interop-runner`): a Docker
   image and `InteropServer`/`InteropClient` mains that put gumdrop's QUIC
   stack through the [quic-interop-runner](https://github.com/quic-interop/quic-interop-runner)

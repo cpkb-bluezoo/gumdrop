@@ -384,6 +384,7 @@ final class Tls12HandshakeEngine {
             }
             resumed = true;
             masterSecret = pendingResumeTicket.getMasterSecret();
+            logMasterSecret();
             DirectionalKeyMaterial[] km = computeKeyMaterial();
             sink.keysReady(negotiatedSuite, km[0], km[1]);
             state = State.EXPECT_SERVER_FINISHED_RESUMED;
@@ -677,6 +678,7 @@ final class Tls12HandshakeEngine {
             negotiatedSuite = Tls12CipherSuite.fromCode(resumePayload.cipherSuiteCode);
             resumed = true;
             masterSecret = resumePayload.masterSecret;
+            logMasterSecret();
 
             byte[] random = new byte[32];
             secureRandom.nextBytes(random);
@@ -913,6 +915,15 @@ final class Tls12HandshakeEngine {
             seed = s.toByteArray();
         }
         masterSecret = prf.compute(preMaster, label, seed, 48);
+        logMasterSecret();
+    }
+
+    /** NSS key log: {@code CLIENT_RANDOM <client random> <master secret>}. */
+    private void logMasterSecret() {
+        KeyLog log = config.resolvedKeyLog();
+        if (log != null && clientRandom != null && masterSecret != null) {
+            log.log(KeyLog.CLIENT_RANDOM, clientRandom, masterSecret);
+        }
     }
 
     /** Key block (RFC 5246 section 6.3): client_write_key, server_write_key, client_write_IV, server_write_IV -- no MAC keys, AEAD only. */

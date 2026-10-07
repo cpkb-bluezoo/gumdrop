@@ -77,6 +77,7 @@ public final class InteropServer {
         }
         LOGGER.info("gumdrop interop server: test case " + testCase.getWireName()
                 + ", serving " + env.www() + " on port " + env.port());
+        InteropEnvironment.enableKeyLog();
         if (testCase == InteropTestCase.HTTP3) {
             runHttp3(env);
         } else {

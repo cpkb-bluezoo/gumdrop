@@ -80,6 +80,9 @@ public final class Tls12HandshakeConfig {
 
     // RFC 8449 record_size_limit (TLS 1.2 and DTLS 1.2).
     private boolean recordSizeLimitEnabled = true;
+
+    // NSS key log of this connection's master secret (null: the process default, if any).
+    private KeyLog keyLog;
     private int recordSizeLimit = RecordSizeLimit.DEFAULT;
 
     /**
@@ -441,6 +444,34 @@ public final class Tls12HandshakeConfig {
         suites.add(Tls12CipherSuite.TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256);
         suites.add(Tls12CipherSuite.TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256);
         return suites;
+    }
+
+
+    /**
+     * Returns the key log this connection's master secret is reported
+     * to, or null to use {@link KeyLog#getDefault}.
+     */
+    public KeyLog getKeyLog() {
+        return keyLog;
+    }
+
+    /**
+     * Sets the key log this connection's master secret is reported to;
+     * null falls back to {@link KeyLog#getDefault}.
+     *
+     * @param keyLog the key log
+     */
+    public void setKeyLog(KeyLog keyLog) {
+        this.keyLog = keyLog;
+    }
+
+    /**
+     * The key log actually in effect: this configuration's, else the
+     * process default, else null for no logging.
+     */
+    KeyLog resolvedKeyLog() {
+        KeyLog log = keyLog;
+        return log != null ? log : KeyLog.getDefault();
     }
 
 }

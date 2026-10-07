@@ -35,6 +35,7 @@ import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
+import org.bluezoo.gumdrop.testsupport.RecordingKeyLog;
 import org.bluezoo.gumdrop.tls.TlsBLoopbackSupport.Peer;
 import org.bluezoo.gumdrop.tls.TlsBLoopbackSupport.Sink;
 
@@ -276,6 +277,35 @@ public class TlsRecordEngineLoopbackTest {
         p.client.sendCloseNotify(p.cs);
         p.pump(0);
         assertTrue(p.ss.peerClosed);
+    }
+
+    @Test
+    public void keyLogRecordsUpdatedTrafficSecretsWithTheirGeneration() throws Exception {
+        RecordingKeyLog clientLog = new RecordingKeyLog();
+        RecordingKeyLog serverLog = new RecordingKeyLog();
+        HandshakeConfig cc = clientConfig();
+        cc.setKeyLog(clientLog);
+        HandshakeConfig sc = serverConfig();
+        sc.setKeyLog(serverLog);
+        Pair p = new Pair(cc, sc);
+        p.handshake(0);
+        assertTrue(p.client.isComplete());
+        assertTrue(p.server.isComplete());
+
+        // The client ratchets its own secret and asks the server to do the same.
+        assertTrue(p.client.requestKeyUpdate(p.cs, true));
+        p.pump(0);
+        assertNotNull(clientLog.secret(KeyLog.clientTrafficSecret(1)));
+        assertNotNull(clientLog.secret(KeyLog.serverTrafficSecret(1)));
+        assertArrayEquals(clientLog.secret(KeyLog.clientTrafficSecret(1)), serverLog.secret(KeyLog.clientTrafficSecret(1)));
+        assertArrayEquals(clientLog.secret(KeyLog.serverTrafficSecret(1)), serverLog.secret(KeyLog.serverTrafficSecret(1)));
+
+        // A second, unrequested update moves only the client's secret on.
+        assertTrue(p.client.requestKeyUpdate(p.cs, false));
+        p.pump(0);
+        assertNotNull(serverLog.secret(KeyLog.clientTrafficSecret(2)));
+        assertNull(clientLog.secret(KeyLog.serverTrafficSecret(2)));
+        assertNull(serverLog.secret(KeyLog.serverTrafficSecret(2)));
     }
 
     @Test

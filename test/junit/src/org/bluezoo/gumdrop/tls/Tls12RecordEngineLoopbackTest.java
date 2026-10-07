@@ -33,6 +33,7 @@ import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
+import org.bluezoo.gumdrop.testsupport.RecordingKeyLog;
 import org.bluezoo.gumdrop.tls.TlsBLoopbackSupport.Peer;
 import org.bluezoo.gumdrop.tls.TlsBLoopbackSupport.Sink;
 
@@ -99,6 +100,31 @@ public class Tls12RecordEngineLoopbackTest {
         assertTrue(p.cs.events.toString(), p.client.isComplete());
         assertTrue(p.ss.events.toString(), p.server.isComplete());
         return p;
+    }
+
+    @Test
+    public void keyLogRecordsClientRandomAndMasterSecret() throws Exception {
+        RecordingKeyLog clientLog = new RecordingKeyLog();
+        RecordingKeyLog serverLog = new RecordingKeyLog();
+        Tls12HandshakeConfig cc = clientConfig(false);
+        cc.setKeyLog(clientLog);
+        Tls12HandshakeConfig sc = serverConfig(false);
+        sc.setKeyLog(serverLog);
+        Pair p = new Pair(cc, sc);
+        p.handshake(0);
+        assertTrue(p.cs.events.toString(), p.client.isComplete());
+        assertTrue(p.ss.events.toString(), p.server.isComplete());
+
+        assertEquals(1, clientLog.entries.size());
+        assertEquals(1, serverLog.entries.size());
+        RecordingKeyLog.Entry client = clientLog.entries.get(0);
+        RecordingKeyLog.Entry server = serverLog.entries.get(0);
+        assertEquals(KeyLog.CLIENT_RANDOM, client.label);
+        assertEquals(KeyLog.CLIENT_RANDOM, server.label);
+        assertEquals(32, client.clientRandom.length);
+        assertEquals("TLS 1.2 master secret", 48, client.secret.length);
+        assertArrayEquals(client.clientRandom, server.clientRandom);
+        assertArrayEquals(client.secret, server.secret);
     }
 
     @Test

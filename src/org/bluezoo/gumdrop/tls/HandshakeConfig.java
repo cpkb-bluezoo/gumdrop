@@ -111,6 +111,9 @@ public final class HandshakeConfig {
     /** DTLS 1.3 server-only HelloRetryRequest cookie hook (RFC 9147 section 5.2). */
     private CookieValidator cookieValidator;
 
+    // NSS key log of this connection's secrets (null: the process default, if any).
+    private KeyLog keyLog;
+
     private static final TransportParameterConsistencyChecker PERMISSIVE_CHECKER =
             new TransportParameterConsistencyChecker() {
                 @Override
@@ -884,6 +887,34 @@ public final class HandshakeConfig {
         suites.add(CipherSuite.TLS_AES_128_GCM_SHA256);
         suites.add(CipherSuite.TLS_CHACHA20_POLY1305_SHA256);
         return suites;
+    }
+
+
+    /**
+     * Returns the key log this connection's secrets are reported to, or
+     * null to use {@link KeyLog#getDefault} (which may itself be null).
+     */
+    public KeyLog getKeyLog() {
+        return keyLog;
+    }
+
+    /**
+     * Sets the key log this connection's secrets are reported to; null
+     * falls back to {@link KeyLog#getDefault}.
+     *
+     * @param keyLog the key log
+     */
+    public void setKeyLog(KeyLog keyLog) {
+        this.keyLog = keyLog;
+    }
+
+    /**
+     * The key log actually in effect: this configuration's, else the
+     * process default, else null for no logging.
+     */
+    KeyLog resolvedKeyLog() {
+        KeyLog log = keyLog;
+        return log != null ? log : KeyLog.getDefault();
     }
 
 }

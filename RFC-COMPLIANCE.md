@@ -333,6 +333,7 @@ practices.
 | 0-RTT early data | 4.2.10 | Compliant | When enabled; anti-replay in config |
 | Post-handshake NewSessionTicket | 4.6.1 | Compliant | Server emission after handshake |
 | KeyUpdate (TCP record layer) | 4.6.3 | Compliant | `TlsRecordEngine`; not over QUIC (RFC 9001 §4.6) |
+| NSS key log (`SSLKEYLOGFILE`) | - | Implemented | `KeyLog`: handshake, application (per key update generation), early and exporter secrets keyed by the on-the-wire ClientHello random; TLS 1.2 `CLIENT_RANDOM`; opt-in per `HandshakeConfig` or process-wide |
 | Downgrade protection (SCSV / version checks) | 4.1.3 | Compliant | Legacy version fields handled in engine |
 | Named groups (X25519, P-256, P-384, hybrid PQ) | 4.2.7 | Compliant | `NamedGroup`; configured by IANA registry name; server preference order |
 | Signature algorithms / CertificateVerify | 4.2.3, 4.4.3 | Compliant | `SignatureScheme`; RSA-PSS, ECDSA (curve-bound), Ed25519, ML-DSA; signs only with a scheme the peer offered; rejects PKCS#1 v1.5 and a scheme that does not match the certificate key |

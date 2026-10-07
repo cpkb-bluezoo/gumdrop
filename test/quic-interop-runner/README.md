@@ -36,11 +36,11 @@ The runner knows nothing about gumdrop; it only runs the image.
   images that do not answer 127.
 - Every case except `http3` uses HTTP/0.9 over ALPN `hq-interop`:
   `GET /path\r\n` on a client stream, the raw file bytes back, FIN.
-- `SSLKEYLOGFILE` names a file the endpoint should write TLS secrets to in
-  NSS key log format. Several checks (resumption, key update, ECN,
-  amplification limit, rebinding, migration) are only evaluated when it
-  is present; gumdrop does not write it yet, so those report
-  "unsupported" rather than pass or fail.
+- `SSLKEYLOGFILE` names a file the endpoint writes TLS secrets to in NSS
+  key log format (`KeyLog.fromEnvironment()` installed as the process
+  default). Several checks (resumption, multiplexing, amplification
+  limit, rebinding, key update, ECN, migration) are only evaluated when
+  the runner can decrypt the traces with it.
 
 ## Test case coverage
 
