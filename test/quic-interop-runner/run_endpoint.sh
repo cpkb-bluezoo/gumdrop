@@ -24,6 +24,11 @@ fi
 JVM_OPTS="-XX:MaxRAMPercentage=50 -Djava.util.logging.config.file=$LOGGING $JAVA_OPTS"
 CLASSPATH="/gumdrop/classes:/gumdrop/lib/*"
 
+# The connectionmigration server case advertises this host's own addresses
+# on another port (setup.sh reads them the same way).
+export INTEROP_PREFERRED_IPV4="${INTEROP_PREFERRED_IPV4:-$(hostname -I | cut -f1 -d" ")}"
+export INTEROP_PREFERRED_IPV6="${INTEROP_PREFERRED_IPV6:-$(hostname -I | cut -f2 -d" ")}"
+
 if [ "$ROLE" = "client" ]; then
     # The simulator opens this port once its network is up.
     /wait-for-it.sh sim:57832 -s -t 30

@@ -22,14 +22,18 @@
 package org.bluezoo.gumdrop.quic;
 
 import java.io.IOException;
+import java.net.Inet6Address;
+import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.SocketAddress;
+import java.net.StandardProtocolFamily;
 import java.nio.ByteBuffer;
 import java.nio.channels.ClosedChannelException;
 import java.nio.channels.DatagramChannel;
 import java.nio.channels.SelectionKey;
 import java.security.SecureRandom;
 import java.util.ArrayList;
+import java.util.List;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.Map;
@@ -52,6 +56,7 @@ import org.bluezoo.gumdrop.TimerHandle;
 import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
 import org.bluezoo.gumdrop.telemetry.Trace;
 import org.bluezoo.gumdrop.ratelimit.RateLimiter;
+import org.bluezoo.gumdrop.quic.cid.ConnectionIdEntry;
 import org.bluezoo.gumdrop.quic.cid.ConnectionIdKey;
 import org.bluezoo.gumdrop.quic.cid.QuicLbConfig;
 import org.bluezoo.gumdrop.quic.cid.StatelessResetToken;
@@ -162,6 +167,13 @@ public final class QuicEngine implements ChannelHandler, MultiplexedEndpoint {
     // overload -- every send, the local address, isOpen(), and close()
     // all go through this rather than channel directly (issue #392).
     private QuicDatagramPath path;
+    // RFC 9000 section 9: further local paths datagrams arrive on or leave
+    // by -- a server's preferred_address sockets, a client's socket for a
+    // migration. Those with a channel of their own are read in onReadable.
+    private final List<QuicDatagramPath> additionalPaths = new ArrayList<QuicDatagramPath>();
+    private final List<DatagramChannel> additionalChannels = new ArrayList<DatagramChannel>();
+    private final List<QuicDatagramPath> additionalChannelPaths = new ArrayList<QuicDatagramPath>();
+    private AdditionalPathOpener additionalPathOpener;
     private SelectionKey selectionKey;
     private SelectorLoop selectorLoop;
     private ByteBuffer recvBuf;
@@ -202,6 +214,71 @@ public final class QuicEngine implements ChannelHandler, MultiplexedEndpoint {
      */
     void init(QuicDatagramPath path) {
         this.path = path;
+    }
+
+    /**
+     * Opens the local path a client migrates from (RFC 9000 section 9),
+     * in place of a new datagram socket; set by tests and by engines
+     * whose datagrams do not travel over sockets of their own.
+     */
+    interface AdditionalPathOpener {
+        QuicDatagramPath open(InetAddress remote) throws IOException;
+    }
+
+    void setAdditionalPathOpener(AdditionalPathOpener opener) {
+        this.additionalPathOpener = opener;
+    }
+
+    /** The path this engine was created with. */
+    QuicDatagramPath getPrimaryPath() {
+        return path;
+    }
+
+    /**
+     * Registers a further path datagrams for this engine's connections
+     * may arrive on and leave by.
+     */
+    void addPath(QuicDatagramPath additional) {
+        additionalPaths.add(additional);
+    }
+
+    /**
+     * Registers a further bound channel this engine reads, such as a
+     * socket at a server's preferred_address. The caller registers the
+     * channel with the selector loop, naming this engine as its handler.
+     */
+    void addListeningChannel(DatagramChannel additional) {
+        QuicDatagramPath additionalPath = new DatagramChannelPath(additional);
+        additionalChannels.add(additional);
+        additionalChannelPaths.add(additionalPath);
+        additionalPaths.add(additionalPath);
+    }
+
+    /**
+     * Opens a new local path towards {@code remote} for a connection
+     * about to migrate: a fresh unbound datagram socket, read by this
+     * engine, or whatever the {@link AdditionalPathOpener} provides.
+     *
+     * @return the path, or null if this engine cannot open paths
+     */
+    QuicDatagramPath openAdditionalPath(InetAddress remote) throws IOException {
+        if (additionalPathOpener != null) {
+            QuicDatagramPath opened = additionalPathOpener.open(remote);
+            if (opened != null) {
+                additionalPaths.add(opened);
+            }
+            return opened;
+        }
+        if (channel == null || selectorLoop == null) {
+            return null;
+        }
+        DatagramChannel dc = DatagramChannel.open(remote instanceof Inet6Address
+                ? StandardProtocolFamily.INET6 : StandardProtocolFamily.INET);
+        dc.configureBlocking(false);
+        dc.bind(null);
+        addListeningChannel(dc);
+        selectorLoop.registerDatagram(dc, this);
+        return additionalChannelPaths.get(additionalChannelPaths.size() - 1);
     }
 
     QuicTransportFactory getFactory() {
@@ -289,10 +366,21 @@ public final class QuicEngine implements ChannelHandler, MultiplexedEndpoint {
      * datagram ready to read.
      */
     public void onReadable() {
+        if (channel != null) {
+            readOne(channel, path);
+        }
+        for (int i = 0; i < additionalChannels.size(); i++) {
+            readOne(additionalChannels.get(i), additionalChannelPaths.get(i));
+        }
+    }
+
+    // Reads at most one datagram: the selector reports readiness again
+    // while more wait, so each channel gets its turn.
+    private void readOne(DatagramChannel from, QuicDatagramPath via) {
         recvBuf.clear();
         InetSocketAddress source;
         try {
-            source = (InetSocketAddress) channel.receive(recvBuf);
+            source = (InetSocketAddress) from.receive(recvBuf);
         } catch (IOException e) {
             LOGGER.log(Level.WARNING, L10N.getString("warn.recv_error"), e);
             return;
@@ -306,7 +394,7 @@ public final class QuicEngine implements ChannelHandler, MultiplexedEndpoint {
         }
         byte[] bytes = new byte[recvBuf.remaining()];
         recvBuf.get(bytes);
-        receiveDatagram(bytes, source);
+        receiveDatagram(bytes, source, via);
     }
 
     /**
@@ -329,15 +417,25 @@ public final class QuicEngine implements ChannelHandler, MultiplexedEndpoint {
      * @param source the address the packet is considered to have come from
      */
     public void receivePathDatagram(final byte[] bytes, final InetSocketAddress source) {
+        receivePathDatagram(bytes, source, path);
+    }
+
+    /**
+     * As {@link #receivePathDatagram(byte[], InetSocketAddress)}, for a
+     * datagram that arrived on one of the engine's further paths.
+     *
+     * @param via the path it arrived on (see {@link #addPath})
+     */
+    public void receivePathDatagram(final byte[] bytes, final InetSocketAddress source, final QuicDatagramPath via) {
         selectorLoop.invokeLater(new Runnable() {
             @Override
             public void run() {
-                receiveDatagram(bytes, source);
+                receiveDatagram(bytes, source, via);
             }
         });
     }
 
-    private void receiveDatagram(byte[] bytes, InetSocketAddress source) {
+    private void receiveDatagram(byte[] bytes, InetSocketAddress source, QuicDatagramPath via) {
         if (bytes.length == 0) {
             // an empty datagram has no header to dispatch on (onReadable
             // already drops them, but path datagrams arrive here directly)
@@ -362,7 +460,7 @@ public final class QuicEngine implements ChannelHandler, MultiplexedEndpoint {
                     QuicConnection attempt = connections.get(
                             new ConnectionIdKey(invariants.getDestinationConnectionId()));
                     if (attempt != null) {
-                        attempt.receive(ByteBuffer.wrap(bytes), source);
+                        attempt.receive(ByteBuffer.wrap(bytes), source, via);
                     }
                 }
                 return;
@@ -370,7 +468,7 @@ public final class QuicEngine implements ChannelHandler, MultiplexedEndpoint {
             version = supportedVersion(invariants.getVersion());
             if (version == null) {
                 if (serverMode && bytes.length >= MIN_INITIAL_DATAGRAM_SIZE) {
-                    sendVersionNegotiation(invariants, source);
+                    sendVersionNegotiation(invariants, source, via);
                 }
                 return;
             }
@@ -412,7 +510,7 @@ public final class QuicEngine implements ChannelHandler, MultiplexedEndpoint {
                                 RETRY_TOKEN_MAX_AGE_MILLIS);
                     }
                     if (originalDcid == null) {
-                        sendRetry(version, prefix.getSourceConnectionId(), dcid, source);
+                        sendRetry(version, prefix.getSourceConnectionId(), dcid, source, via);
                         return;
                     }
                     conn = acceptConnection(dcid, prefix.getSourceConnectionId(), source, originalDcid, dcid, true,
@@ -433,11 +531,11 @@ public final class QuicEngine implements ChannelHandler, MultiplexedEndpoint {
                 if (tryHandleStatelessResetForPeer(bytes, source)) {
                     return;
                 }
-                trySendStatelessReset(dcid, bytes, source);
+                trySendStatelessReset(dcid, bytes, source, via);
                 return;
             }
         }
-        conn.receive(ByteBuffer.wrap(bytes), source);
+        conn.receive(ByteBuffer.wrap(bytes), source, via);
         if (conn.isClosed() && clientConnection == conn) {
             clientConnection = null;
         }
@@ -500,6 +598,14 @@ public final class QuicEngine implements ChannelHandler, MultiplexedEndpoint {
                 localParams, connectionIdStaticKey, version, false);
         if (addressValidated) {
             conn.markAddressValidated();
+        }
+        if (factory.hasPreferredAddress()) {
+            // RFC 9000 section 9.6: the client reaches us at the preferred
+            // address under a connection ID of its own (sequence number 1).
+            ConnectionIdEntry preferred = conn.mintPreferredAddressConnectionId();
+            localParams.setPreferredAddress(factory.getPreferredAddressIpv4(), factory.getPreferredAddressIpv6(),
+                    preferred.getConnectionId(), preferred.getStatelessResetToken());
+            registerConnectionId(preferred.getConnectionId(), conn);
         }
         ServerCredentials serverCredentials = factory.getServerCredentials();
         ServerCredentialsResolver serverCredentialsResolver =
@@ -608,7 +714,7 @@ public final class QuicEngine implements ChannelHandler, MultiplexedEndpoint {
         return false;
     }
 
-    private void trySendStatelessReset(byte[] dcid, byte[] received, InetSocketAddress source) {
+    private void trySendStatelessReset(byte[] dcid, byte[] received, InetSocketAddress source, QuicDatagramPath via) {
         if (received.length < StatelessResetPacket.MIN_DATAGRAM_LENGTH || !isResetEligible(dcid)
                 || (factory.getQuicLbConfig() != null && !isOwnLbConnectionId(dcid))) {
             return;
@@ -630,7 +736,7 @@ public final class QuicEngine implements ChannelHandler, MultiplexedEndpoint {
         if (LOGGER.isLoggable(Level.FINE)) {
             LOGGER.fine(L10N.getString("fine.stateless_reset_sent"));
         }
-        sendTo(source, reset);
+        sendTo(via, source, reset);
     }
 
     /**
@@ -652,7 +758,8 @@ public final class QuicEngine implements ChannelHandler, MultiplexedEndpoint {
      *        field of the Retry packet
      * @param source the client's address
      */
-    private void sendRetry(QuicVersion version, byte[] clientScid, byte[] originalClientDcid, InetSocketAddress source) {
+    private void sendRetry(QuicVersion version, byte[] clientScid, byte[] originalClientDcid, InetSocketAddress source,
+            QuicDatagramPath via) {
         byte[] retryScid = generateServerConnectionId();
         byte[] token = RetryToken.seal(factory.getRetryTokenKey(), originalClientDcid, source.getAddress(),
                 System.currentTimeMillis());
@@ -661,7 +768,7 @@ public final class QuicEngine implements ChannelHandler, MultiplexedEndpoint {
         byte[] packet = new byte[withoutTag.length + tag.length];
         System.arraycopy(withoutTag, 0, packet, 0, withoutTag.length);
         System.arraycopy(tag, 0, packet, withoutTag.length, tag.length);
-        sendTo(source, packet);
+        sendTo(via, source, packet);
     }
 
     /**
@@ -695,7 +802,8 @@ public final class QuicEngine implements ChannelHandler, MultiplexedEndpoint {
      * Version Negotiation packet advertising every configured version
      * (RFC 9000 section 6.1), subject to {@link #VERSION_NEGOTIATION_MAX_PER_SECOND}.
      */
-    private void sendVersionNegotiation(LongHeaderInvariants invariants, InetSocketAddress source) {
+    private void sendVersionNegotiation(LongHeaderInvariants invariants, InetSocketAddress source,
+            QuicDatagramPath via) {
         long now = System.nanoTime();
         if (now - versionNegotiationWindowStartNanos >= 1_000_000_000L) {
             versionNegotiationWindowStartNanos = now;
@@ -705,7 +813,7 @@ public final class QuicEngine implements ChannelHandler, MultiplexedEndpoint {
             return;
         }
         versionNegotiationSentInWindow++;
-        sendTo(source, VersionNegotiationPacket.build(invariants.getSourceConnectionId(),
+        sendTo(via, source, VersionNegotiationPacket.build(invariants.getSourceConnectionId(),
                 invariants.getDestinationConnectionId(), supportedWireValues(),
                 RANDOM.nextInt()));
     }
@@ -719,11 +827,19 @@ public final class QuicEngine implements ChannelHandler, MultiplexedEndpoint {
      * @param packet the raw packet bytes
      */
     void sendTo(SocketAddress address, byte[] packet) {
-        if (!datagramPathOpen()) {
+        sendTo(path, address, packet);
+    }
+
+    /**
+     * Sends a raw packet by a given path, or the primary one for null.
+     */
+    void sendTo(QuicDatagramPath via, SocketAddress address, byte[] packet) {
+        QuicDatagramPath by = via != null ? via : path;
+        if (by == null || !by.isOpen()) {
             return;
         }
         try {
-            path.send(address, ByteBuffer.wrap(packet));
+            by.send(address, ByteBuffer.wrap(packet));
         } catch (IOException e) {
             logDatagramSendFailure(L10N.getString("warn.send_retry_failed"), e);
         }
@@ -871,11 +987,15 @@ public final class QuicEngine implements ChannelHandler, MultiplexedEndpoint {
     }
 
     void sendPacket(QuicConnection connection, byte[] packet) {
-        if (!datagramPathOpen()) {
+        QuicDatagramPath by = connection.getSendPath();
+        if (by == null) {
+            by = path;
+        }
+        if (by == null || !by.isOpen()) {
             return;
         }
         try {
-            int sent = path.send(connection.getRemoteAddress(), ByteBuffer.wrap(packet));
+            int sent = by.send(connection.getRemoteAddress(), ByteBuffer.wrap(packet));
             if (sent == 0) {
                 LOGGER.fine(L10N.getString("fine.datagram_send_would_block"));
             }
@@ -1049,6 +1169,13 @@ public final class QuicEngine implements ChannelHandler, MultiplexedEndpoint {
         if (path != null) {
             try {
                 path.close();
+            } catch (IOException e) {
+                LOGGER.log(Level.WARNING, L10N.getString("warn.close_channel_failed"), e);
+            }
+        }
+        for (QuicDatagramPath additional : additionalPaths) {
+            try {
+                additional.close();
             } catch (IOException e) {
                 LOGGER.log(Level.WARNING, L10N.getString("warn.close_channel_failed"), e);
             }

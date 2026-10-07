@@ -22,6 +22,11 @@
 package org.bluezoo.gumdrop.quic.packet;
 
 import java.nio.BufferUnderflowException;
+import java.net.Inet4Address;
+import java.net.Inet6Address;
+import java.net.InetAddress;
+import java.net.InetSocketAddress;
+import java.net.UnknownHostException;
 import java.nio.ByteBuffer;
 
 /**
@@ -59,6 +64,7 @@ public final class TransportParameters {
     public static final long MAX_IDLE_TIMEOUT = 0x01;
     /** Server-only: token for the handshake connection ID (RFC 9000 section 18.2). */
     public static final long STATELESS_RESET_TOKEN = 0x02;
+    private static final long PREFERRED_ADDRESS = 0x0d;
     public static final long MAX_UDP_PAYLOAD_SIZE = 0x03;
     public static final long INITIAL_MAX_DATA = 0x04;
     public static final long INITIAL_MAX_STREAM_DATA_BIDI_LOCAL = 0x05;
@@ -94,6 +100,12 @@ public final class TransportParameters {
     private byte[] initialSourceConnectionId;
     private byte[] retrySourceConnectionId;
     private byte[] statelessResetToken;
+    
+    // RFC 9000 section 18.2 preferred_address (servers only).
+    private InetSocketAddress preferredAddressIpv4;
+    private InetSocketAddress preferredAddressIpv6;
+    private byte[] preferredAddressConnectionId;
+    private byte[] preferredAddressResetToken;
     private long maxDatagramFrameSize;
     private int versionInformationChosen;
     private int[] versionInformationAvailable;
@@ -302,6 +314,69 @@ public final class TransportParameters {
     }
 
     /**
+     * Sets the server's {@code preferred_address} (RFC 9000 section 18.2):
+     * where it would rather the client sent after the handshake, with the
+     * connection ID (sequence number 1) and stateless reset token the
+     * client uses there. Either address may be null.
+     *
+     * @param ipv4 the IPv4 address and port, or null
+     * @param ipv6 the IPv6 address and port, or null
+     * @param connectionId the connection ID, 1 to 20 bytes
+     * @param statelessResetToken its 16-byte stateless reset token
+     */
+    public void setPreferredAddress(InetSocketAddress ipv4, InetSocketAddress ipv6, byte[] connectionId,
+            byte[] statelessResetToken) {
+        if (ipv4 == null && ipv6 == null) {
+            throw new IllegalArgumentException("preferred_address needs at least one address");
+        }
+        if (ipv4 != null && !(ipv4.getAddress() instanceof Inet4Address)) {
+            throw new IllegalArgumentException("not an IPv4 address: " + ipv4);
+        }
+        if (ipv6 != null && !(ipv6.getAddress() instanceof Inet6Address)) {
+            throw new IllegalArgumentException("not an IPv6 address: " + ipv6);
+        }
+        if (connectionId == null || connectionId.length < 1 || connectionId.length > 20) {
+            throw new IllegalArgumentException("preferred_address connection ID must be 1 to 20 bytes");
+        }
+        if (statelessResetToken == null || statelessResetToken.length != 16) {
+            throw new IllegalArgumentException("stateless reset token must be 16 bytes");
+        }
+        this.preferredAddressIpv4 = ipv4;
+        this.preferredAddressIpv6 = ipv6;
+        this.preferredAddressConnectionId = connectionId.clone();
+        this.preferredAddressResetToken = statelessResetToken.clone();
+    }
+
+    /** Whether a {@code preferred_address} is present. */
+    public boolean hasPreferredAddress() {
+        return preferredAddressConnectionId != null;
+    }
+
+    /** The preferred IPv4 address and port, or null if none was given. */
+    public InetSocketAddress getPreferredAddressIpv4() {
+        return preferredAddressIpv4;
+    }
+
+    /** The preferred IPv6 address and port, or null if none was given. */
+    public InetSocketAddress getPreferredAddressIpv6() {
+        return preferredAddressIpv6;
+    }
+
+    /** The connection ID to use at the preferred address, or null. */
+    public byte[] getPreferredAddressConnectionId() {
+        return preferredAddressConnectionId == null ? null : preferredAddressConnectionId.clone();
+    }
+
+    /** The stateless reset token of that connection ID, or null. */
+    public byte[] getPreferredAddressResetToken() {
+        return preferredAddressResetToken == null ? null : preferredAddressResetToken.clone();
+    }
+
+    private int preferredAddressLength() {
+        return 4 + 2 + 16 + 2 + 1 + preferredAddressConnectionId.length + 16;
+    }
+
+    /**
      * Encodes these parameters as the transport-parameters TLV list
      * (RFC 9000 section 18.1) -- the extension_data of the
      * quic_transport_parameters TLS extension (RFC 9001 section 8.2),
@@ -332,6 +407,9 @@ public final class TransportParameters {
         if (statelessResetToken != null) {
             size += entryLength(STATELESS_RESET_TOKEN, statelessResetToken.length);
         }
+        if (preferredAddressConnectionId != null) {
+            size += entryLength(PREFERRED_ADDRESS, preferredAddressLength());
+        }
         if (maxDatagramFrameSize > 0) {
             size += entryLength(MAX_DATAGRAM_FRAME_SIZE, varIntValueLength(maxDatagramFrameSize));
         }
@@ -361,6 +439,15 @@ public final class TransportParameters {
         if (statelessResetToken != null) {
             writeBytesParam(buf, STATELESS_RESET_TOKEN, statelessResetToken);
         }
+        if (preferredAddressConnectionId != null) {
+            VarInt.encode(PREFERRED_ADDRESS, buf);
+            VarInt.encode(preferredAddressLength(), buf);
+            writeAddress(buf, preferredAddressIpv4, 4);
+            writeAddress(buf, preferredAddressIpv6, 16);
+            buf.put((byte) preferredAddressConnectionId.length);
+            buf.put(preferredAddressConnectionId);
+            buf.put(preferredAddressResetToken);
+        }
         if (maxDatagramFrameSize > 0) {
             writeVarIntParam(buf, MAX_DATAGRAM_FRAME_SIZE, maxDatagramFrameSize);
         }
@@ -377,6 +464,59 @@ public final class TransportParameters {
 
     // RFC 9368 section 4: a malformed value is recorded, not thrown, so the
     // connection can close with the transport error the RFC prescribes.
+    // An absent address is all zero bytes with port 0 (RFC 9000 section 18.2).
+    private static void writeAddress(ByteBuffer buf, InetSocketAddress address, int addressLength) {
+        if (address == null) {
+            buf.put(new byte[addressLength]);
+            buf.putShort((short) 0);
+        } else {
+            buf.put(address.getAddress().getAddress());
+            buf.putShort((short) address.getPort());
+        }
+    }
+
+    private static InetSocketAddress readAddress(ByteBuffer buf, int addressLength) {
+        byte[] address = new byte[addressLength];
+        buf.get(address);
+        int port = buf.getShort() & 0xffff;
+        boolean allZero = port == 0;
+        for (int i = 0; allZero && i < address.length; i++) {
+            allZero = address[i] == 0;
+        }
+        if (allZero) {
+            return null;
+        }
+        try {
+            return new InetSocketAddress(InetAddress.getByAddress(address), port);
+        } catch (UnknownHostException e) {
+            throw new IllegalArgumentException("Malformed preferred_address", e);
+        }
+    }
+
+    private void decodePreferredAddress(ByteBuffer buf, int length) {
+        if (length < 4 + 2 + 16 + 2 + 1 + 16) {
+            throw new IllegalArgumentException("Malformed transport parameters: preferred_address too short");
+        }
+        InetSocketAddress ipv4 = readAddress(buf, 4);
+        InetSocketAddress ipv6 = readAddress(buf, 16);
+        int connectionIdLength = buf.get() & 0xff;
+        if (connectionIdLength < 1 || connectionIdLength > 20
+                || length != 4 + 2 + 16 + 2 + 1 + connectionIdLength + 16) {
+            throw new IllegalArgumentException("Malformed transport parameters: preferred_address connection ID");
+        }
+        if (ipv4 == null && ipv6 == null) {
+            throw new IllegalArgumentException("Malformed transport parameters: preferred_address has no address");
+        }
+        byte[] connectionId = new byte[connectionIdLength];
+        buf.get(connectionId);
+        byte[] token = new byte[16];
+        buf.get(token);
+        preferredAddressIpv4 = ipv4;
+        preferredAddressIpv6 = ipv6;
+        preferredAddressConnectionId = connectionId;
+        preferredAddressResetToken = token;
+    }
+
     private void decodeVersionInformation(ByteBuffer buf, int length) {
         if (length < 4 || length % 4 != 0) {
             versionInformationMalformed = true;
@@ -480,6 +620,8 @@ public final class TransportParameters {
             } else if (id == STATELESS_RESET_TOKEN) {
                 params.statelessResetToken = new byte[length];
                 buf.get(params.statelessResetToken);
+            } else if (id == PREFERRED_ADDRESS) {
+                params.decodePreferredAddress(buf, length);
             } else if (id == MAX_DATAGRAM_FRAME_SIZE) {
                 params.maxDatagramFrameSize = VarInt.decode(buf);
             } else if (id == VERSION_INFORMATION) {

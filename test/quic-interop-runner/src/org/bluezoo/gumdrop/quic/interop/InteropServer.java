@@ -105,6 +105,18 @@ public final class InteropServer {
             // other case on v1, which is what those cases check for.
             factory.setVersions(V2_PREFERRED);
         }
+        if (testCase == InteropTestCase.CONNECTIONMIGRATION) {
+            // RFC 9000 section 9.6: offer this host's addresses on another
+            // port; the engine listens there too and the client migrates.
+            InetSocketAddress ipv4 = InteropEnvironment.preferredAddress(false);
+            InetSocketAddress ipv6 = InteropEnvironment.preferredAddress(true);
+            if (ipv4 == null && ipv6 == null) {
+                LOGGER.warning("connectionmigration needs INTEROP_PREFERRED_IPV4 or INTEROP_PREFERRED_IPV6");
+            } else {
+                factory.setPreferredAddress(ipv4, ipv6);
+                LOGGER.info("preferred address " + ipv4 + " / " + ipv6);
+            }
+        }
     }
 
     private static void runHq(InteropEnvironment env, InteropTestCase testCase) throws Exception {

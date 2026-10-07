@@ -22,6 +22,7 @@
 package org.bluezoo.gumdrop.quic;
 
 import java.io.IOException;
+import java.net.Inet6Address;
 import java.net.InetSocketAddress;
 import java.net.SocketAddress;
 import java.nio.ByteBuffer;
@@ -277,6 +278,31 @@ public final class QuicConnection implements QuicTlsEngineListener {
     // space.
     private PacketProtectionKeys zeroRttSendKeys;
     private PacketProtectionKeys zeroRttRecvKeys;
+
+    // RFC 9001 section 6: 1-RTT key update state. The current generation's
+    // secrets are kept so the next can be derived; the receive side holds
+    // the next generation's keys ready (a peer may update at any time) and
+    // the previous generation's for a few PTOs, for packets that were
+    // reordered across the update. sendKeyPhase/recvKeyPhase are the Key
+    // Phase bits the current send/receive keys belong to; they differ only
+    // while an update is half way through.
+    private byte[] oneRttSendSecret;
+    private byte[] oneRttRecvSecret;
+    private byte[] nextRecvSecret;
+    private PacketProtectionKeys nextRecvKeys;
+    private PacketProtectionKeys previousRecvKeys;
+    private long previousRecvKeysDiscardAtMillis;
+    private boolean sendKeyPhase;
+    private boolean recvKeyPhase;
+    // Lowest packet number read with the current receive keys, which tells
+    // a late packet of the previous phase from the first of the next one.
+    private long lowestPnOfCurrentRecvPhase = -1;
+    // RFC 9001 section 6.1: no new update until a packet sent with the
+    // current send keys has been acknowledged.
+    private long firstPnOfCurrentSendPhase;
+    private boolean currentSendKeysAcknowledged;
+    private int keyUpdateCount;
+    private int previousPhasePacketsRead;
 
     // Client-only: tracks this connection's own 0-RTT attempt, if any.
     // NONE until a ticket is presented and keys are derived; OFFERED
@@ -566,7 +592,7 @@ public final class QuicConnection implements QuicTlsEngineListener {
     // frame callbacks below (which don't otherwise see the datagram's
     // source address) know where a PATH_CHALLENGE/PATH_RESPONSE
     // actually arrived from.
-    private final Map<InetSocketAddress, PathValidationAttempt> pathValidationAttempts = new HashMap<>();
+    private final Map<PathKey, PathValidationAttempt> pathValidationAttempts = new HashMap<PathKey, PathValidationAttempt>();
     private final Map<InetSocketAddress, Long> recentlyMigratedFromAddresses =
             new LinkedHashMap<InetSocketAddress, Long>() {
                 @Override
@@ -575,6 +601,14 @@ public final class QuicConnection implements QuicTlsEngineListener {
                 }
             };
     private InetSocketAddress currentDatagramSource;
+    // The path the datagram being processed arrived on (RFC 9000 section
+    // 9: a path is a local and a remote address; the local side is which
+    // of the engine's sockets it came in by).
+    private QuicDatagramPath currentDatagramPath;
+    // The path this connection sends on; null means the engine's primary.
+    private QuicDatagramPath sendPath;
+    // Client: a server preferred_address awaiting handshake confirmation.
+    private boolean preferredAddressPending;
     private boolean sawValidOneRttThisReceive;
     private boolean decryptFailedOrUnparseableThisDatagram;
 
@@ -800,7 +834,31 @@ public final class QuicConnection implements QuicTlsEngineListener {
     }
 
     public SocketAddress getLocalAddress() {
-        return localAddress;
+        return sendPath != null ? sendPath.getLocalAddress() : localAddress;
+    }
+
+    /** The path this connection sends on, or null for the engine's primary path. */
+    QuicDatagramPath getSendPath() {
+        return sendPath;
+    }
+
+    /** The connection ID this endpoint currently puts in packets to its peer. */
+    byte[] getPeerConnectionId() {
+        return peerConnectionId == null ? null : peerConnectionId.clone();
+    }
+
+    /** The peer's transport parameters, once received. */
+    TransportParameters getPeerTransportParameters() {
+        return peerTransportParameters;
+    }
+
+    /**
+     * Server: mints the connection ID conveyed in {@code preferred_address}
+     * (RFC 9000 section 5.1.1, sequence number 1). Must be called before
+     * the handshake issues any other connection ID.
+     */
+    ConnectionIdEntry mintPreferredAddressConnectionId() {
+        return connectionIdManager.mintPreferredAddressConnectionId();
     }
 
     public SocketAddress getRemoteAddress() {
@@ -1416,6 +1474,17 @@ public final class QuicConnection implements QuicTlsEngineListener {
      *        {@link #remoteAddress} until a candidate path validates
      */
     void receive(ByteBuffer datagram, InetSocketAddress source) {
+        receive(datagram, source, null);
+    }
+
+    /**
+     * Processes one datagram.
+     *
+     * @param datagram the datagram
+     * @param source the peer address it came from
+     * @param via the local path it arrived on, or null for the engine's primary
+     */
+    void receive(ByteBuffer datagram, InetSocketAddress source, QuicDatagramPath via) {
         byte[] bytes = new byte[datagram.remaining()];
         datagram.get(bytes);
         if (isServer && !addressValidated) {
@@ -1424,6 +1493,7 @@ public final class QuicConnection implements QuicTlsEngineListener {
         int offset = 0;
         suppressFlush = true;
         currentDatagramSource = source;
+        currentDatagramPath = via != null ? via : engine.getPrimaryPath();
         sawValidOneRttThisReceive = false;
         decryptFailedOrUnparseableThisDatagram = false;
         try {
@@ -1451,10 +1521,11 @@ public final class QuicConnection implements QuicTlsEngineListener {
         // from it (see recentlyMigratedFromAddresses), and ignored
         // before the handshake completes (no 1-RTT keys yet to prove
         // anything).
-        if (sawValidOneRttThisReceive && established && !source.equals(remoteAddress)
-                && !pathValidationAttempts.containsKey(source)
+        PathKey arrival = new PathKey(currentDatagramPath, source);
+        if (sawValidOneRttThisReceive && established && !arrival.equals(currentPath())
+                && !pathValidationAttempts.containsKey(arrival)
                 && !isRecentlyMigratedFrom(source)) {
-            beginMigrationValidation(source);
+            beginMigrationValidation(arrival, null, 0);
         }
         requestFlush();
     }
@@ -1862,9 +1933,31 @@ public final class QuicConnection implements QuicTlsEngineListener {
             }
             long fullPacketNumber = PacketNumberCodec.decode(largestReceived[level.ordinal()], truncatedPn, pnLength);
 
+            // RFC 9001 section 6: a 1-RTT packet's Key Phase bit (now
+            // unprotected) says which generation of keys opens it. Header
+            // protection is the same for every generation, so the mask
+            // above was right whichever these turn out to be.
+            boolean[] updatedRecvKeys = new boolean[1];
+            if (level == EncryptionLevel.ONE_RTT && !isZeroRtt) {
+                keys = selectOneRttRecvKeys((packet[0] & 0x04) != 0, fullPacketNumber, updatedRecvKeys);
+                if (keys == null) {
+                    decryptFailedOrUnparseableThisDatagram = true;
+                    return;
+                }
+            }
+
             int headerLength = pnOffset + pnLength;
             byte[] plaintext = PacketProtection.open(keys, fullPacketNumber,
                     packet, 0, headerLength, packet, headerLength, packet.length - headerLength);
+
+            if (updatedRecvKeys[0]) {
+                completeRecvKeyUpdate(fullPacketNumber);
+            } else if (keys == previousRecvKeys) {
+                previousPhasePacketsRead++;
+            } else if (level == EncryptionLevel.ONE_RTT && !isZeroRtt && keys == recvKeys.get(EncryptionLevel.ONE_RTT)
+                    && (lowestPnOfCurrentRecvPhase < 0 || fullPacketNumber < lowestPnOfCurrentRecvPhase)) {
+                lowestPnOfCurrentRecvPhase = fullPacketNumber;
+            }
 
             if (switchTo != null) {
                 adoptVersion(switchTo, switchKeys);
@@ -2005,6 +2098,14 @@ public final class QuicConnection implements QuicTlsEngineListener {
             LossDetector.AckResult result = lossDetector.onAckReceived(level, largestAcknowledged, ackDelay,
                     ranges, peerMaxAckDelay(), nowMillis(), peerAddressValidated());
             retireAcknowledgedRanges(level, result.getNewlyAcked());
+            if (level == EncryptionLevel.ONE_RTT && !currentSendKeysAcknowledged) {
+                for (SentPacket acked : result.getNewlyAcked()) {
+                    if (acked.getPacketNumber() >= firstPnOfCurrentSendPhase) {
+                        currentSendKeysAcknowledged = true;
+                        break;
+                    }
+                }
+            }
             Map<Long, long[]> coverage = sentAckCoverage.get(level);
             for (SentPacket lost : result.getNewlyLost()) {
                 requeueLostPacket(level, lost.getPacketNumber());
@@ -2231,7 +2332,7 @@ public final class QuicConnection implements QuicTlsEngineListener {
             // RFC 9000 section 8.2.2: answered on the path the challenge
             // itself arrived on, which may not be remoteAddress yet (e.g.
             // the peer probing a path this endpoint hasn't switched to).
-            sendPathResponse(bytes, currentDatagramSource);
+            sendPathResponse(bytes, new PathKey(currentDatagramPath, currentDatagramSource));
         }
 
         @Override
@@ -2239,9 +2340,10 @@ public final class QuicConnection implements QuicTlsEngineListener {
             ackEliciting = true;
             byte[] bytes = new byte[data.remaining()];
             data.get(bytes);
-            PathValidationAttempt attempt = pathValidationAttempts.get(currentDatagramSource);
+            PathKey arrival = new PathKey(currentDatagramPath, currentDatagramSource);
+            PathValidationAttempt attempt = pathValidationAttempts.get(arrival);
             if (attempt != null && Arrays.equals(bytes, attempt.challengeData)) {
-                completeMigration(currentDatagramSource);
+                completeMigration(arrival, attempt);
             }
         }
 
@@ -2260,6 +2362,7 @@ public final class QuicConnection implements QuicTlsEngineListener {
             ackEliciting = true;
             handshakeConfirmed = true;
             notifyClientHandshakeComplete();
+            maybeMigrateToPreferredAddress();
         }
 
         @Override
@@ -2658,10 +2761,50 @@ public final class QuicConnection implements QuicTlsEngineListener {
     // validated concurrently without one evicting another's state.
     // deadlineMillis is fixed for the attempt's lifetime; challengeData
     // and timerHandle are updated in place on every retry.
+    /**
+     * A network path (RFC 9000 section 9): the local socket a datagram
+     * travels by and the peer address. Paths with the same remote address
+     * but different local sockets are different paths, which is what a
+     * server's preferred_address relies on.
+     */
+    static final class PathKey {
+        final QuicDatagramPath path;
+        final InetSocketAddress remote;
+
+        PathKey(QuicDatagramPath path, InetSocketAddress remote) {
+            this.path = path;
+            this.remote = remote;
+        }
+
+        @Override
+        public boolean equals(Object other) {
+            if (!(other instanceof PathKey)) {
+                return false;
+            }
+            PathKey that = (PathKey) other;
+            return path == that.path && remote.equals(that.remote);
+        }
+
+        @Override
+        public int hashCode() {
+            return System.identityHashCode(path) * 31 + remote.hashCode();
+        }
+
+        @Override
+        public String toString() {
+            return remote + " via " + (path == null ? "?" : path.getLocalAddress());
+        }
+    }
+
     private static final class PathValidationAttempt {
         final long deadlineMillis;
         byte[] challengeData;
         TimerHandle timerHandle;
+        // Client migration to a preferred_address: the peer connection ID
+        // (sequence number 1) to use on the new path, else null for the
+        // current one.
+        byte[] destinationConnectionId;
+        long destinationConnectionIdSequence;
 
         PathValidationAttempt(long deadlineMillis) {
             this.deadlineMillis = deadlineMillis;
@@ -2681,7 +2824,61 @@ public final class QuicConnection implements QuicTlsEngineListener {
     // amplification concern: beyond that, further candidates are
     // simply not validated until an existing one completes or is
     // abandoned).
-    private void beginMigrationValidation(InetSocketAddress candidate) {
+    /** The path this connection currently sends on. */
+    private PathKey currentPath() {
+        return new PathKey(sendPath != null ? sendPath : engine.getPrimaryPath(), remoteAddress);
+    }
+
+    // RFC 9000 section 9.6.2: once the handshake is confirmed a client
+    // moves to the server's preferred address of its current address
+    // family (or the other, if that is all the server offered), from a
+    // fresh local path and under the connection ID the parameter carried,
+    // after validating that path like any other migration.
+    private void maybeMigrateToPreferredAddress() {
+        if (!preferredAddressPending || closed) {
+            return;
+        }
+        preferredAddressPending = false;
+        if (!engine.getFactory().isMigrateToPreferredAddress()) {
+            return;
+        }
+        TransportParameters peer = peerTransportParameters;
+        boolean ipv6 = remoteAddress.getAddress() instanceof Inet6Address;
+        InetSocketAddress target = ipv6 ? peer.getPreferredAddressIpv6() : peer.getPreferredAddressIpv4();
+        if (target == null) {
+            target = ipv6 ? peer.getPreferredAddressIpv4() : peer.getPreferredAddressIpv6();
+        }
+        if (target == null || target.equals(remoteAddress)) {
+            return;
+        }
+        byte[] connectionId = peer.getPreferredAddressConnectionId();
+        if (!connectionIdManager.addPeerConnectionId(1, 0, connectionId, peer.getPreferredAddressResetToken())) {
+            return;
+        }
+        QuicDatagramPath path;
+        try {
+            path = engine.openAdditionalPath(target.getAddress());
+        } catch (IOException e) {
+            LOGGER.log(Level.FINE, L10N.getString("fine.path_validation_abandoned"), e);
+            return;
+        }
+        if (path == null) {
+            return;
+        }
+        beginMigrationValidation(new PathKey(path, target), connectionId, 1);
+    }
+
+    /**
+     * Starts validating a path (RFC 9000 section 8.2): a peer address
+     * seen on a new path, or, for a client, the server's preferred
+     * address.
+     *
+     * @param destinationConnectionId the peer connection ID to use on the
+     *        new path, or null to keep the current one
+     * @param destinationConnectionIdSequence its sequence number, if given
+     */
+    private void beginMigrationValidation(PathKey candidate, byte[] destinationConnectionId,
+            long destinationConnectionIdSequence) {
         if (pathValidationAttempts.size() >= MAX_CONCURRENT_PATH_VALIDATIONS) {
             if (LOGGER.isLoggable(Level.FINE)) {
                 LOGGER.fine(MessageFormat.format(
@@ -2690,13 +2887,15 @@ public final class QuicConnection implements QuicTlsEngineListener {
             }
             PathValidationRejectedObserver observer = pathValidationRejectedObserver;
             if (observer != null) {
-                observer.pathValidationRejected(this, candidate);
+                observer.pathValidationRejected(this, candidate.remote);
             }
             return;
         }
         long pto = currentPathValidationPto();
         long deadline = nowMillis() + Math.max(3 * pto, 6 * RttEstimator.K_INITIAL_RTT);
         PathValidationAttempt attempt = new PathValidationAttempt(deadline);
+        attempt.destinationConnectionId = destinationConnectionId;
+        attempt.destinationConnectionIdSequence = destinationConnectionIdSequence;
         pathValidationAttempts.put(candidate, attempt);
         sendPathChallengeAndScheduleRetry(candidate, attempt, pto);
     }
@@ -2709,11 +2908,12 @@ public final class QuicConnection implements QuicTlsEngineListener {
     // the class-level migration comment: these frames aren't
     // registered with it, so this can't piggyback on its PTO/loss
     // machinery and needs its own).
-    private void sendPathChallengeAndScheduleRetry(final InetSocketAddress candidate,
+    private void sendPathChallengeAndScheduleRetry(final PathKey candidate,
             final PathValidationAttempt attempt, long pto) {
         attempt.challengeData = new byte[QuicFrameHandler.PATH_DATA_LENGTH];
         RANDOM.nextBytes(attempt.challengeData);
-        sendPathChallenge(attempt.challengeData, candidate);
+        sendPathChallenge(attempt.challengeData, candidate,
+                attempt.destinationConnectionId != null ? attempt.destinationConnectionId : peerConnectionId);
 
         long now = nowMillis();
         long delay = Math.min(pto, attempt.deadlineMillis - now);
@@ -2729,7 +2929,7 @@ public final class QuicConnection implements QuicTlsEngineListener {
         });
     }
 
-    private void onPathValidationTimeout(InetSocketAddress candidate) {
+    private void onPathValidationTimeout(PathKey candidate) {
         PathValidationAttempt attempt = pathValidationAttempts.get(candidate);
         // Already completed, abandoned, or the connection closed out
         // from under this timer -- nothing to do.
@@ -2750,7 +2950,7 @@ public final class QuicConnection implements QuicTlsEngineListener {
     // attempt's own entry so a stray late PATH_RESPONSE for the
     // abandoned candidate is no longer treated as validating anything.
     // Other concurrently-outstanding candidates, if any, are untouched.
-    private void abandonMigrationValidation(InetSocketAddress candidate) {
+    private void abandonMigrationValidation(PathKey candidate) {
         PathValidationAttempt attempt = pathValidationAttempts.remove(candidate);
         if (attempt != null && attempt.timerHandle != null) {
             attempt.timerHandle.cancel();
@@ -2758,7 +2958,7 @@ public final class QuicConnection implements QuicTlsEngineListener {
         if (attempt != null) {
             PathValidationAbandonedObserver observer = pathValidationAbandonedObserver;
             if (observer != null) {
-                observer.pathValidationAbandoned(this, candidate);
+                observer.pathValidationAbandoned(this, candidate.remote);
             }
         }
         if (LOGGER.isLoggable(Level.FINE)) {
@@ -2830,42 +3030,54 @@ public final class QuicConnection implements QuicTlsEngineListener {
     // behind is recorded so its continued traffic doesn't immediately
     // look like another fresh migration candidate (see
     // recentlyMigratedFromAddresses' field comment).
-    private void completeMigration(InetSocketAddress candidate) {
+    private void completeMigration(PathKey candidate, PathValidationAttempt attempt) {
         if (remoteAddress != null) {
             recentlyMigratedFromAddresses.put(remoteAddress, Long.valueOf(nowMillis()));
         }
-        remoteAddress = candidate;
+        remoteAddress = candidate.remote;
+        sendPath = candidate.path == engine.getPrimaryPath() ? null : candidate.path;
         MigrationCompletedObserver observer = migrationCompletedObserver;
         if (observer != null) {
-            observer.migrationCompleted(this, candidate);
+            observer.migrationCompleted(this, candidate.remote);
         }
         cancelAllPathValidationAttempts();
 
-        // RFC 9000 section 9.5: prefer a peer connection ID not already
-        // used on the old path, if the peer has issued a spare one via
-        // NEW_CONNECTION_ID; if not (the common case in a simple
-        // two-endpoint exchange with no spare IDs), this just returns the
-        // same entry already in use and rotation is a no-op.
-        ConnectionIdEntry fresh = connectionIdManager.getActivePeerConnectionId();
-        if (fresh != null && !Arrays.equals(fresh.getConnectionId(), peerConnectionId)) {
-            connectionIdManager.retirePeerConnectionId(activePeerConnectionIdSequence);
-            peerConnectionId = fresh.getConnectionId();
-            activePeerConnectionIdSequence = fresh.getSequenceNumber();
+        if (attempt.destinationConnectionId != null) {
+            // RFC 9000 section 9.6.2: the preferred_address connection ID
+            // is the one to use there; the one used so far is retired.
+            if (!Arrays.equals(attempt.destinationConnectionId, peerConnectionId)) {
+                connectionIdManager.retirePeerConnectionId(activePeerConnectionIdSequence);
+                peerConnectionId = attempt.destinationConnectionId;
+                activePeerConnectionIdSequence = attempt.destinationConnectionIdSequence;
+            }
+        } else {
+            // RFC 9000 section 9.5: prefer a peer connection ID not already
+            // used on the old path, if the peer has issued a spare one via
+            // NEW_CONNECTION_ID; if not (the common case in a simple
+            // two-endpoint exchange with no spare IDs), this just returns the
+            // same entry already in use and rotation is a no-op.
+            ConnectionIdEntry fresh = connectionIdManager.getActivePeerConnectionId();
+            if (fresh != null && !Arrays.equals(fresh.getConnectionId(), peerConnectionId)) {
+                connectionIdManager.retirePeerConnectionId(activePeerConnectionIdSequence);
+                peerConnectionId = fresh.getConnectionId();
+                activePeerConnectionIdSequence = fresh.getSequenceNumber();
+            }
         }
 
         lossDetector.getCongestionController().reset();
         requestFlush();
     }
 
-    private void sendPathChallenge(byte[] data, InetSocketAddress destination) {
-        sendPathFramePacket(QuicFrameHandler.TYPE_PATH_CHALLENGE, data, destination);
+    private void sendPathChallenge(byte[] data, PathKey destination, byte[] destinationConnectionId) {
+        sendPathFramePacket(QuicFrameHandler.TYPE_PATH_CHALLENGE, data, destination, destinationConnectionId);
     }
 
-    private void sendPathResponse(byte[] data, InetSocketAddress destination) {
-        sendPathFramePacket(QuicFrameHandler.TYPE_PATH_RESPONSE, data, destination);
+    private void sendPathResponse(byte[] data, PathKey destination) {
+        sendPathFramePacket(QuicFrameHandler.TYPE_PATH_RESPONSE, data, destination, peerConnectionId);
     }
 
-    private void sendPathFramePacket(long frameType, byte[] data, InetSocketAddress destination) {
+    private void sendPathFramePacket(long frameType, byte[] data, PathKey destination,
+            byte[] destinationConnectionId) {
         try {
             // RFC 9000 section 8.2.1: a PATH_CHALLENGE-carrying datagram
             // must be expanded to the smallest allowed maximum datagram
@@ -2873,9 +3085,10 @@ public final class QuicConnection implements QuicTlsEngineListener {
             // amplified response; applied uniformly to PATH_RESPONSE too
             // for simplicity, even though the RFC only requires it of the
             // challenge (a PATH_RESPONSE is tiny either way).
-            byte[] packet = buildStandalonePathFramePacket(frameType, data, MIN_DATAGRAM_SIZE);
+            byte[] packet = buildStandalonePathFramePacket(frameType, data, MIN_DATAGRAM_SIZE,
+                    destinationConnectionId);
             if (packet != null) {
-                engine.sendTo(destination, packet);
+                engine.sendTo(destination.path, destination.remote, packet);
             }
         } catch (PacketProtectionException e) {
             LOGGER.log(Level.WARNING,
@@ -2891,8 +3104,8 @@ public final class QuicConnection implements QuicTlsEngineListener {
     // registered with lossDetector (no retransmission tracking for these
     // two frame types in this simplified pass, matching the same
     // accepted gap already documented for MAX_DATA/MAX_STREAM_DATA).
-    private byte[] buildStandalonePathFramePacket(long frameType, byte[] data, int minDatagramSize)
-            throws PacketProtectionException {
+    private byte[] buildStandalonePathFramePacket(long frameType, byte[] data, int minDatagramSize,
+            byte[] destinationConnectionId) throws PacketProtectionException {
         PacketProtectionKeys keys = sendKeys.get(EncryptionLevel.ONE_RTT);
         if (keys == null) {
             return null; // no 1-RTT keys yet; migration cannot apply before the handshake completes
@@ -2908,7 +3121,7 @@ public final class QuicConnection implements QuicTlsEngineListener {
         int paddingBytes = 0;
         byte[] header;
         while (true) {
-            header = ShortHeaderCodec.build(peerConnectionId, false, packetNumber, pnLength);
+            header = ShortHeaderCodec.build(destinationConnectionId, sendKeyPhase, packetNumber, pnLength);
             int required = minDatagramSize - (header.length + frameBytes + paddingBytes + QuicAeadAlgorithm.TAG_LENGTH);
             int nextPadding = Math.max(hpSamplePadding, Math.max(0, paddingBytes + required));
             if (nextPadding == paddingBytes) {
@@ -3517,7 +3730,7 @@ public final class QuicConnection implements QuicTlsEngineListener {
                     ? LongHeaderCodec.build(packetType, version.getWireValue(), peerConnectionId, ourConnectionId,
                             packetType == LongHeaderCodec.TYPE_INITIAL ? retryToken : EMPTY_TOKEN,
                             packetNumber, pnLength, frameBytes + paddingBytes + QuicAeadAlgorithm.TAG_LENGTH)
-                    : ShortHeaderCodec.build(peerConnectionId, false, packetNumber, pnLength);
+                    : ShortHeaderCodec.build(peerConnectionId, sendKeyPhase, packetNumber, pnLength);
             int required = minDatagramSize - (header.length + frameBytes + paddingBytes + QuicAeadAlgorithm.TAG_LENGTH);
             int nextPadding = Math.max(hpSamplePadding, Math.max(0, paddingBytes + required));
             if (nextPadding == paddingBytes) {
@@ -4072,7 +4285,7 @@ public final class QuicConnection implements QuicTlsEngineListener {
                 ? LongHeaderCodec.build(packetType, version.getWireValue(), peerConnectionId, ourConnectionId,
                         packetType == LongHeaderCodec.TYPE_INITIAL ? retryToken : EMPTY_TOKEN,
                         packetNumber, pnLength, frameBytes + QuicAeadAlgorithm.TAG_LENGTH)
-                : ShortHeaderCodec.build(peerConnectionId, false, packetNumber, pnLength);
+                : ShortHeaderCodec.build(peerConnectionId, sendKeyPhase, packetNumber, pnLength);
 
         ByteBuffer payload = ByteBuffer.allocate(frameBytes);
         QuicFrameWriter.writeConnectionClose(payload, applicationError, errorCode, 0, reason);
@@ -4234,6 +4447,9 @@ public final class QuicConnection implements QuicTlsEngineListener {
             }
         }
         this.peerTransportParameters = transportParameters;
+        if (!isServer && transportParameters.hasPreferredAddress()) {
+            preferredAddressPending = true;
+        }
         peerMaxData = transportParameters.getInitialMaxData();
         peerMaxDatagramFrameSize = transportParameters.getMaxDatagramFrameSize();
         if (peerMaxDatagramFrameSize <= 0) {
@@ -4465,6 +4681,113 @@ public final class QuicConnection implements QuicTlsEngineListener {
             sendKeys.put(level, clientKeys);
             recvKeys.put(level, serverKeys);
         }
+        if (level == EncryptionLevel.ONE_RTT) {
+            oneRttSendSecret = isServer ? serverSecret : clientSecret;
+            oneRttRecvSecret = isServer ? clientSecret : serverSecret;
+            sendKeyPhase = false;
+            recvKeyPhase = false;
+            lowestPnOfCurrentRecvPhase = -1;
+            firstPnOfCurrentSendPhase = sendPacketNumber[level.ordinal()];
+            currentSendKeysAcknowledged = true;
+            prepareNextRecvKeys();
+        }
+    }
+
+    // ---- RFC 9001 section 6: key update ----
+
+    /**
+     * Initiates a key update (RFC 9001 section 6): packets sent from now
+     * on are protected with the next generation of keys and carry the
+     * other Key Phase bit, and the peer is expected to follow. Permitted
+     * only once the handshake is confirmed, and not while a previous
+     * update still awaits acknowledgement of a packet sent under its
+     * keys.
+     *
+     * @return true if the update was initiated, false if it is not
+     *         permitted yet (or the connection is closed)
+     */
+    public boolean requestKeyUpdate() {
+        if (closed || !handshakeConfirmed || oneRttSendSecret == null || !currentSendKeysAcknowledged) {
+            return false;
+        }
+        advanceSendKeys();
+        requestFlush();
+        return true;
+    }
+
+    /** The Key Phase bit of the packets this endpoint currently sends. */
+    boolean getKeyPhase() {
+        return sendKeyPhase;
+    }
+
+    /** How many times this endpoint's send keys have moved to a new generation. */
+    int getKeyUpdateCount() {
+        return keyUpdateCount;
+    }
+
+    /** How many packets were read with the keys of the phase before the current one. */
+    int getPreviousPhasePacketsRead() {
+        return previousPhasePacketsRead;
+    }
+
+    private void prepareNextRecvKeys() {
+        nextRecvSecret = PacketProtectionKeys.nextSecret(hkdf, oneRttRecvSecret, version);
+        nextRecvKeys = PacketProtectionKeys.update(hkdf, nextRecvSecret, version, recvKeys.get(EncryptionLevel.ONE_RTT));
+    }
+
+    private void advanceSendKeys() {
+        oneRttSendSecret = PacketProtectionKeys.nextSecret(hkdf, oneRttSendSecret, version);
+        sendKeys.put(EncryptionLevel.ONE_RTT, PacketProtectionKeys.update(hkdf, oneRttSendSecret, version,
+                sendKeys.get(EncryptionLevel.ONE_RTT)));
+        sendKeyPhase = !sendKeyPhase;
+        firstPnOfCurrentSendPhase = sendPacketNumber[EncryptionLevel.ONE_RTT.ordinal()];
+        currentSendKeysAcknowledged = false;
+        keyUpdateCount++;
+    }
+
+    // The first packet of the next key phase has just been decrypted with
+    // the keys prepared for it: they become current, the old ones are kept
+    // a little longer for packets reordered across the update (RFC 9001
+    // section 6.5), and, if the peer initiated this update, this endpoint's
+    // own send keys move on too before anything else is sent (section 6.2).
+    private void completeRecvKeyUpdate(long packetNumber) {
+        previousRecvKeys = recvKeys.get(EncryptionLevel.ONE_RTT);
+        previousRecvKeysDiscardAtMillis = nowMillis() + 3 * probeTimeoutMillis();
+        recvKeys.put(EncryptionLevel.ONE_RTT, nextRecvKeys);
+        oneRttRecvSecret = nextRecvSecret;
+        recvKeyPhase = !recvKeyPhase;
+        lowestPnOfCurrentRecvPhase = packetNumber;
+        prepareNextRecvKeys();
+        if (sendKeyPhase != recvKeyPhase) {
+            advanceSendKeys();
+        }
+    }
+
+    // RFC 9002 section 6.2.1, without the backoff: enough for how long
+    // the previous generation's receive keys are worth keeping.
+    private long probeTimeoutMillis() {
+        RttEstimator rtt = lossDetector.getRttEstimator();
+        return rtt.getSmoothedRtt() + Math.max(4 * rtt.getRttVar(), 1) + peerMaxAckDelay();
+    }
+
+    // Picks the 1-RTT keys for a packet whose Key Phase bit is known, or
+    // null to drop it. updatedRecvKeys[0] is set when the packet claims
+    // the next phase, so that a successful decryption completes the update.
+    private PacketProtectionKeys selectOneRttRecvKeys(boolean phase, long packetNumber, boolean[] updatedRecvKeys) {
+        if (previousRecvKeys != null && nowMillis() > previousRecvKeysDiscardAtMillis) {
+            previousRecvKeys = null;
+        }
+        if (phase == recvKeyPhase) {
+            return recvKeys.get(EncryptionLevel.ONE_RTT);
+        }
+        if (previousRecvKeys != null && lowestPnOfCurrentRecvPhase >= 0 && packetNumber < lowestPnOfCurrentRecvPhase) {
+            return previousRecvKeys;
+        }
+        if (nextRecvKeys == null) {
+            return null;
+        }
+        updatedRecvKeys[0] = true;
+        return nextRecvKeys;
     }
 
     // Client-only: fires once the client's own handshake has finished,

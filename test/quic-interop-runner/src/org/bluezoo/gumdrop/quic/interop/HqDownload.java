@@ -87,7 +87,9 @@ final class HqDownload implements ProtocolHandler {
         }
         try {
             while (data.hasRemaining()) {
-                received += channel.write(data);
+                int written = channel.write(data);
+                received += written;
+                tracker.received(written);
             }
         } catch (IOException e) {
             LOGGER.log(Level.SEVERE, "cannot write " + target, e);

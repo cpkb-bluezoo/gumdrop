@@ -146,6 +146,12 @@ public class QuicTransportFactory extends TransportFactory {
     private boolean clientEchRequired;
     private QuicVersion[] versions = { QuicVersion.V1, QuicVersion.V2 };
 
+    // RFC 9000 section 9.6: the server's preferred_address (either family
+    // may be null), and whether a client follows a server's.
+    private InetSocketAddress preferredAddressIpv4;
+    private InetSocketAddress preferredAddressIpv6;
+    private boolean migrateToPreferredAddress = true;
+
     public QuicTransportFactory() {
         this.secure = true;
         new SecureRandom().nextBytes(connectionIdStaticKey);
@@ -220,6 +226,55 @@ public class QuicTransportFactory extends TransportFactory {
      */
     QuicVersion[] getVersions() {
         return versions.clone();
+    }
+
+    /**
+     * Sets the server's {@code preferred_address} (RFC 9000 section 9.6):
+     * an address, per family, that clients are asked to migrate to once
+     * the handshake is confirmed. A server engine bound by
+     * {@link #createServerEngine(InetAddress, int, StreamAcceptHandler, SelectorLoop)}
+     * also listens on each distinct preferred port, on the same bind
+     * address, so the preferred addresses must be ones that reach this
+     * host. Either argument may be null; both null disables the parameter.
+     *
+     * @param ipv4 the preferred IPv4 address and port, or null
+     * @param ipv6 the preferred IPv6 address and port, or null
+     */
+    public void setPreferredAddress(InetSocketAddress ipv4, InetSocketAddress ipv6) {
+        if (ipv4 != null && !(ipv4.getAddress() instanceof java.net.Inet4Address)) {
+            throw new IllegalArgumentException("not an IPv4 address: " + ipv4);
+        }
+        if (ipv6 != null && !(ipv6.getAddress() instanceof Inet6Address)) {
+            throw new IllegalArgumentException("not an IPv6 address: " + ipv6);
+        }
+        this.preferredAddressIpv4 = ipv4;
+        this.preferredAddressIpv6 = ipv6;
+    }
+
+    /** Whether a {@code preferred_address} is configured. */
+    public boolean hasPreferredAddress() {
+        return preferredAddressIpv4 != null || preferredAddressIpv6 != null;
+    }
+
+    public InetSocketAddress getPreferredAddressIpv4() {
+        return preferredAddressIpv4;
+    }
+
+    public InetSocketAddress getPreferredAddressIpv6() {
+        return preferredAddressIpv6;
+    }
+
+    /**
+     * Sets whether a client migrates to a server's {@code preferred_address}
+     * once the handshake is confirmed, as RFC 9000 section 9.6 recommends.
+     * Default true.
+     */
+    public void setMigrateToPreferredAddress(boolean migrate) {
+        this.migrateToPreferredAddress = migrate;
+    }
+
+    public boolean isMigrateToPreferredAddress() {
+        return migrateToPreferredAddress;
     }
 
     /**
@@ -847,7 +902,33 @@ public class QuicTransportFactory extends TransportFactory {
         String message = MessageFormat.format(
                 L10N.getString("fine.bound_server_engine"), bindAddress, Integer.valueOf(port));
         LOGGER.fine(message);
+        bindPreferredAddressChannels(engine, bindAddress, port, loop);
         return engine;
+    }
+
+    // RFC 9000 section 9.6: the server must be reachable at its preferred
+    // address, so each distinct preferred port gets a socket of its own on
+    // the same bind address, feeding the same engine.
+    private void bindPreferredAddressChannels(QuicEngine engine, InetAddress bindAddress, int primaryPort,
+            SelectorLoop loop) throws IOException {
+        java.util.Set<Integer> ports = new java.util.LinkedHashSet<Integer>();
+        if (preferredAddressIpv4 != null) {
+            ports.add(Integer.valueOf(preferredAddressIpv4.getPort()));
+        }
+        if (preferredAddressIpv6 != null) {
+            ports.add(Integer.valueOf(preferredAddressIpv6.getPort()));
+        }
+        for (Integer port : ports) {
+            if (port.intValue() == primaryPort) {
+                continue;
+            }
+            DatagramChannel dc = DatagramChannel.open(bindAddress instanceof Inet6Address
+                    ? StandardProtocolFamily.INET6 : StandardProtocolFamily.INET);
+            dc.configureBlocking(false);
+            dc.bind(new InetSocketAddress(bindAddress, port.intValue()));
+            engine.addListeningChannel(dc);
+            loop.registerDatagram(dc, engine);
+        }
     }
 
     /**

@@ -13,6 +13,26 @@ user-visible themes since 2.2.x.
 
 ### Added
 
+- **QUIC preferred address and client migration** (RFC 9000 section 9.6):
+  `QuicTransportFactory.setPreferredAddress` makes a server advertise an
+  address per family in its `preferred_address` transport parameter, listen
+  on each preferred port alongside its main socket, and route the client's
+  packets there by the connection ID (sequence number 1) the parameter
+  carries. A client migrates to a server's preferred address once the
+  handshake is confirmed, from a new local socket, after validating the
+  path with PATH_CHALLENGE, and retires the connection ID it used before;
+  `setMigrateToPreferredAddress(false)` opts out. Path validation and
+  migration now identify a path by local socket as well as peer address,
+  so a server answers a challenge on the socket it arrived at. The
+  quic-interop-runner server uses this for the `connectionmigration` case.
+- **QUIC key update** (RFC 9001 section 6): `QuicConnection.requestKeyUpdate`
+  moves a connection to the next generation of 1-RTT keys, and a peer's
+  update is followed on the first packet of the new key phase. Keys of the
+  previous phase are kept for three PTOs so packets reordered across the
+  update are still read, header protection keys are unchanged, and a
+  further update waits until a packet under the current keys has been
+  acknowledged. The quic-interop-runner client uses it for the
+  `keyupdate` case.
 - **NSS key log** (`org.bluezoo.gumdrop.tls.KeyLog`): TLS 1.3 (TCP, DTLS and
   QUIC) and TLS 1.2 connections can report their secrets in the format
   Wireshark reads (`CLIENT_HANDSHAKE_TRAFFIC_SECRET`, `CLIENT_TRAFFIC_SECRET_n`

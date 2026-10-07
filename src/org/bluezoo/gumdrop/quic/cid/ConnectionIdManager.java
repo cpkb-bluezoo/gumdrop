@@ -298,6 +298,25 @@ public final class ConnectionIdManager {
         return mint();
     }
 
+    /**
+     * Mints the connection ID a server conveys in its {@code preferred_address}
+     * transport parameter (RFC 9000 section 18.2). It has sequence number
+     * 1 (section 5.1.1), so it must be minted before any NEW_CONNECTION_ID
+     * is issued, and it is not queued for a frame: the parameter is how
+     * the peer learns it.
+     *
+     * @return the entry, with its stateless reset token
+     * @throws IllegalStateException if sequence number 1 has been issued already
+     */
+    public ConnectionIdEntry mintPreferredAddressConnectionId() {
+        if (nextSequenceNumber != 1) {
+            throw new IllegalStateException("preferred_address connection ID must be the first issued");
+        }
+        ConnectionIdEntry entry = mint();
+        pendingIssuance.remove(entry);
+        return entry;
+    }
+
     private ConnectionIdEntry mint() {
         byte[] connectionId;
         if (lbConfig != null) {

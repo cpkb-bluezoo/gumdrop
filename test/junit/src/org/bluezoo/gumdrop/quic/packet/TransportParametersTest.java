@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.quic.packet;
 
+import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
 
 import org.junit.Test;
@@ -32,6 +33,7 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
 
 /**
  * Round-trips {@link TransportParameters} through {@link #encode} and
@@ -258,4 +260,79 @@ public class TransportParametersTest {
         byte[] bad = new byte[] {0x04, 0x01, (byte) 0x80};
         TransportParameters.decode(ByteBuffer.wrap(bad));
     }
+
+    // ---- preferred_address (RFC 9000 section 18.2) ----
+
+    @Test
+    public void testPreferredAddressRoundTrip() {
+        TransportParameters params = new TransportParameters();
+        params.setInitialSourceConnectionId(ByteArrays.toByteArray("01020304"));
+        InetSocketAddress v4 = new InetSocketAddress("193.167.100.100", 4434);
+        InetSocketAddress v6 = new InetSocketAddress("fd00:cafe:cafe:100::100", 4434);
+        byte[] cid = ByteArrays.toByteArray("a1a2a3a4a5a6a7a8");
+        byte[] token = ByteArrays.toByteArray("000102030405060708090a0b0c0d0e0f");
+        params.setPreferredAddress(v4, v6, cid, token);
+
+        TransportParameters decoded = TransportParameters.decode(ByteBuffer.wrap(params.encode()));
+        assertTrue(decoded.hasPreferredAddress());
+        assertEquals(v4, decoded.getPreferredAddressIpv4());
+        assertEquals(v6, decoded.getPreferredAddressIpv6());
+        assertArrayEquals(cid, decoded.getPreferredAddressConnectionId());
+        assertArrayEquals(token, decoded.getPreferredAddressResetToken());
+    }
+
+    @Test
+    public void testPreferredAddressWithOnlyOneFamily() {
+        TransportParameters params = new TransportParameters();
+        params.setInitialSourceConnectionId(ByteArrays.toByteArray("01020304"));
+        InetSocketAddress v6 = new InetSocketAddress("2001:db8::7", 443);
+        byte[] cid = ByteArrays.toByteArray("0a0b0c0d");
+        byte[] token = new byte[16];
+        params.setPreferredAddress(null, v6, cid, token);
+
+        TransportParameters decoded = TransportParameters.decode(ByteBuffer.wrap(params.encode()));
+        assertTrue(decoded.hasPreferredAddress());
+        assertNull("an all-zero IPv4 address and port means none", decoded.getPreferredAddressIpv4());
+        assertEquals(v6, decoded.getPreferredAddressIpv6());
+        assertArrayEquals(cid, decoded.getPreferredAddressConnectionId());
+    }
+
+    @Test
+    public void testPreferredAddressAbsentByDefault() {
+        TransportParameters params = new TransportParameters();
+        params.setInitialSourceConnectionId(ByteArrays.toByteArray("01020304"));
+        TransportParameters decoded = TransportParameters.decode(ByteBuffer.wrap(params.encode()));
+        assertFalse(decoded.hasPreferredAddress());
+        assertNull(decoded.getPreferredAddressIpv4());
+        assertNull(decoded.getPreferredAddressIpv6());
+        assertNull(decoded.getPreferredAddressConnectionId());
+    }
+
+    @Test
+    public void testTruncatedPreferredAddressRejected() {
+        // id 0x0d, length 10: far too short for the fixed 41 bytes before the token
+        byte[] bad = ByteArrays.toByteArray("0d0a" + "00000000000000000000");
+        try {
+            TransportParameters.decode(ByteBuffer.wrap(bad));
+            fail("expected a malformed preferred_address to be rejected");
+        } catch (IllegalArgumentException expected) {
+        }
+    }
+
+    @Test
+    public void testPreferredAddressWithZeroLengthConnectionIdRejected() {
+        // RFC 9000 section 18.2: the connection ID is at least 1 byte long.
+        byte[] fixed = ByteArrays.toByteArray("c1a764640000" + "fd00cafecafe01000000000000000100" + "0000" + "00");
+        byte[] token = new byte[16];
+        byte[] value = new byte[fixed.length + token.length];
+        System.arraycopy(fixed, 0, value, 0, fixed.length);
+        ByteBuffer buf = ByteBuffer.allocate(2 + value.length);
+        buf.put((byte) 0x0d).put((byte) value.length).put(value);
+        try {
+            TransportParameters.decode(ByteBuffer.wrap(buf.array()));
+            fail("expected a zero-length preferred_address connection ID to be rejected");
+        } catch (IllegalArgumentException expected) {
+        }
+    }
+
 }

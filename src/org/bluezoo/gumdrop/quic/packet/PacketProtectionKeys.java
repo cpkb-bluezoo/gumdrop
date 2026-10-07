@@ -146,6 +146,39 @@ public final class PacketProtectionKeys {
      *
      * @return the AEAD algorithm
      */
+    /**
+     * RFC 9001 section 6.1: the next generation of a 1-RTT traffic secret,
+     * {@code HKDF-Expand-Label(secret, "quic ku", "", Hash.length)} (with
+     * {@code "quicv2 ku"} for QUIC version 2, RFC 9369 section 3.3.3).
+     *
+     * @param hkdf the HKDF of the negotiated hash
+     * @param secret the current generation's secret
+     * @param version the QUIC version, which selects the label prefix
+     */
+    public static byte[] nextSecret(Hkdf hkdf, byte[] secret, QuicVersion version) {
+        return hkdf.expandLabel(secret, version.getLabelPrefix() + " ku", EMPTY_CONTEXT, hkdf.getHashLength());
+    }
+
+    /**
+     * Keys for an updated traffic secret (RFC 9001 section 6.1): a fresh
+     * AEAD key and IV from {@code secret}, and the header protection key
+     * of {@code current}, which a key update does not change.
+     *
+     * @param hkdf the HKDF of the negotiated hash
+     * @param secret the next generation's secret, from {@link #nextSecret}
+     * @param version the QUIC version in use
+     * @param current the keys of the generation being replaced
+     */
+    public static PacketProtectionKeys update(Hkdf hkdf, byte[] secret, QuicVersion version,
+            PacketProtectionKeys current) {
+        QuicAeadAlgorithm algorithm = current.algorithm;
+        String prefix = version.getLabelPrefix();
+        byte[] keyBytes = hkdf.expandLabel(secret, prefix + " key", EMPTY_CONTEXT, algorithm.getKeyLength());
+        byte[] ivBytes = hkdf.expandLabel(secret, prefix + " iv", EMPTY_CONTEXT, QuicAeadAlgorithm.IV_LENGTH);
+        return new PacketProtectionKeys(algorithm, new SecretKeySpec(keyBytes, algorithm.getKeyAlgorithm()),
+                ivBytes, current.headerProtectionKey);
+    }
+
     public QuicAeadAlgorithm getAlgorithm() {
         return algorithm;
     }

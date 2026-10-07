@@ -53,8 +53,8 @@ The runner knows nothing about gumdrop; it only runs the image.
 | `resumption` | yes | yes | Second connection resumes with the first one's session ticket |
 | `zerortt` | yes | yes | Second connection sends its requests in 0-RTT |
 | `v2` | yes | yes | Compatible version negotiation to QUIC v2 (RFC 9368/9369): the server prefers v2 and switches any client that offers it; the client opens in v1 and lists v2 first |
-| `keyupdate` | - | 127 | Client-only case; needs RFC 9001 section 6 key update |
-| `connectionmigration` | 127 | - | Server-only case; needs `preferred_address` and client-side active migration |
+| `keyupdate` | - | yes | Client-only case: the client initiates a key update after the first 100 KiB; servers follow a peer's update in every case |
+| `connectionmigration` | yes | - | Server-only case: the server offers its own addresses on port 4434 (`INTEROP_PREFERRED_*`) as `preferred_address`; gumdrop clients migrate to a server's preferred address in every case |
 | `ecn` | 127 | 127 | Needs the ECN codepoint of received datagrams, which `DatagramChannel` cannot deliver |
 
 ## Building the image

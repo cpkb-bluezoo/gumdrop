@@ -21,11 +21,14 @@
 
 package org.bluezoo.gumdrop.quic;
 
+import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.SocketAddress;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 import org.bluezoo.gumdrop.ProtocolHandler;
 import org.bluezoo.gumdrop.StreamAcceptHandler;
@@ -54,6 +57,10 @@ public final class QuicLoopback {
 
     public static final InetSocketAddress CLIENT_ADDRESS = new InetSocketAddress("127.0.0.1", 50000);
     public static final InetSocketAddress SERVER_ADDRESS = new InetSocketAddress("127.0.0.1", 4433);
+    /** Local address of the path a client opens when it migrates (RFC 9000 section 9). */
+    public static final InetSocketAddress CLIENT_ADDRESS_2 = new InetSocketAddress("127.0.0.1", 50002);
+    /** The server's preferred_address, served by a second server path (see {@link #enableServerPreferredAddress}). */
+    public static final InetSocketAddress SERVER_PREFERRED_ADDRESS = new InetSocketAddress("127.0.0.1", 4434);
 
     public final QuicTransportFactory serverFactory = new QuicTransportFactory();
     public final QuicTransportFactory clientFactory = new QuicTransportFactory();
@@ -67,9 +74,26 @@ public final class QuicLoopback {
     public final List<byte[]> toServerLog = new ArrayList<byte[]>();
     public final List<byte[]> toClientLog = new ArrayList<byte[]>();
 
-    private final List<byte[]> toServer = new ArrayList<byte[]>();
-    private final List<byte[]> toClient = new ArrayList<byte[]>();
+    private final List<Delivery> toServer = new ArrayList<Delivery>();
+    private final List<Delivery> toClient = new ArrayList<Delivery>();
     private final InlineSelectorLoop loop = new InlineSelectorLoop();
+    // Every fake path on each side, by its local address: a datagram sent
+    // to an address arrives on the path bound to it, like a real socket.
+    private final Map<InetSocketAddress, QuicDatagramPath> serverPaths = new HashMap<InetSocketAddress, QuicDatagramPath>();
+    private final Map<InetSocketAddress, QuicDatagramPath> clientPaths = new HashMap<InetSocketAddress, QuicDatagramPath>();
+
+    /** One datagram in flight: its bytes, where it came from, and the address it was sent to. */
+    private static final class Delivery {
+        final byte[] bytes;
+        final InetSocketAddress source;
+        final InetSocketAddress destination;
+
+        Delivery(byte[] bytes, InetSocketAddress source, InetSocketAddress destination) {
+            this.bytes = bytes;
+            this.source = source;
+            this.destination = destination;
+        }
+    }
 
     /**
      * Creates and starts the factories with a self-signed server certificate.
@@ -92,22 +116,30 @@ public final class QuicLoopback {
     }
 
     private QuicDatagramPath path(final boolean fromClient) {
-        return new QuicDatagramPath() {
+        return path(fromClient, fromClient ? CLIENT_ADDRESS : SERVER_ADDRESS);
+    }
+
+    private QuicDatagramPath path(final boolean fromClient, final InetSocketAddress local) {
+        QuicDatagramPath path = new QuicDatagramPath() {
             @Override
             public int send(SocketAddress address, ByteBuffer packet) {
                 byte[] bytes = new byte[packet.remaining()];
                 packet.get(bytes);
+                InetSocketAddress destination = (InetSocketAddress) address;
                 if (fromClient) {
+                    // The primary client path is the one NAT rebinding
+                    // tests move about with clientSource.
+                    InetSocketAddress source = local.equals(CLIENT_ADDRESS) ? clientSource : local;
                     toServerLog.add(bytes);
                     int n = sentToServer++;
                     if (filter == null || filter.deliver(true, n, bytes)) {
-                        toServer.add(bytes);
+                        toServer.add(new Delivery(bytes, source, destination));
                     }
                 } else {
                     toClientLog.add(bytes);
                     int n = sentToClient++;
                     if (filter == null || filter.deliver(false, n, bytes)) {
-                        toClient.add(bytes);
+                        toClient.add(new Delivery(bytes, local, destination));
                     }
                 }
                 return bytes.length;
@@ -115,7 +147,7 @@ public final class QuicLoopback {
 
             @Override
             public SocketAddress getLocalAddress() {
-                return fromClient ? CLIENT_ADDRESS : SERVER_ADDRESS;
+                return local;
             }
 
             @Override
@@ -127,6 +159,50 @@ public final class QuicLoopback {
             public void close() {
             }
         };
+        (fromClient ? clientPaths : serverPaths).put(local, path);
+        return path;
+    }
+
+    /**
+     * Gives the server engine a second path, bound to
+     * {@link #SERVER_PREFERRED_ADDRESS}, as a real server binds a socket
+     * for its preferred_address. Call after {@code startServer}, and
+     * configure {@code serverFactory.setPreferredAddress} before
+     * {@code startFactories} for the parameter to be advertised.
+     */
+    public QuicDatagramPath enableServerPreferredAddress() {
+        QuicDatagramPath path = path(false, SERVER_PREFERRED_ADDRESS);
+        serverEngine.addPath(path);
+        return path;
+    }
+
+    // A datagram reaches the path bound to its destination; one addressed
+    // to a NAT-rebound address (see clientSource) still lands on the
+    // primary path, as it would on the socket behind the NAT.
+    private static QuicDatagramPath pathFor(Map<InetSocketAddress, QuicDatagramPath> paths,
+            InetSocketAddress destination, InetSocketAddress primary) {
+        QuicDatagramPath path = paths.get(destination);
+        if (path == null) {
+            path = paths.get(primary);
+        }
+        if (path == null) {
+            throw new IllegalStateException("no path bound to " + destination);
+        }
+        return path;
+    }
+
+    private QuicEngine newClientEngine() {
+        QuicEngine engine = new QuicEngine(clientFactory, false);
+        engine.init(path(true));
+        engine.setSelectorLoop(loop);
+        // A migrating client opens a fresh local path, as it would a new socket.
+        engine.setAdditionalPathOpener(new QuicEngine.AdditionalPathOpener() {
+            @Override
+            public QuicDatagramPath open(InetAddress remote) {
+                return path(true, CLIENT_ADDRESS_2);
+            }
+        });
+        return engine;
     }
 
     /**
@@ -154,9 +230,7 @@ public final class QuicLoopback {
      * @param conn connection-level handler, may be null
      */
     public void startClient(ProtocolHandler handler, QuicEngine.ConnectionAcceptedHandler conn) {
-        clientEngine = new QuicEngine(clientFactory, false);
-        clientEngine.init(path(true));
-        clientEngine.setSelectorLoop(loop);
+        clientEngine = newClientEngine();
         clientEngine.connectTo(SERVER_ADDRESS, handler, conn, "localhost");
     }
 
@@ -167,9 +241,7 @@ public final class QuicLoopback {
      * @param early early data handler
      */
     public void startClientEarly(QuicEngine.ConnectionAcceptedHandler conn, QuicEngine.EarlyDataHandler early) {
-        clientEngine = new QuicEngine(clientFactory, false);
-        clientEngine.init(path(true));
-        clientEngine.setSelectorLoop(loop);
+        clientEngine = newClientEngine();
         clientEngine.connectTo(SERVER_ADDRESS, null, conn, early, "localhost");
     }
 
@@ -183,13 +255,13 @@ public final class QuicLoopback {
         int guard = 0;
         while ((!toServer.isEmpty() || !toClient.isEmpty()) && guard++ < 10000) {
             if (!toServer.isEmpty()) {
-                byte[] d = toServer.remove(0);
-                serverEngine.receivePathDatagram(d, clientSource);
+                Delivery d = toServer.remove(0);
+                serverEngine.receivePathDatagram(d.bytes, d.source, pathFor(serverPaths, d.destination, SERVER_ADDRESS));
                 total++;
             }
             if (!toClient.isEmpty()) {
-                byte[] d = toClient.remove(0);
-                clientEngine.receivePathDatagram(d, SERVER_ADDRESS);
+                Delivery d = toClient.remove(0);
+                clientEngine.receivePathDatagram(d.bytes, d.source, pathFor(clientPaths, d.destination, CLIENT_ADDRESS));
                 total++;
             }
         }

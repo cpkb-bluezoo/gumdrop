@@ -147,7 +147,8 @@ public final class InteropClient {
                 return client.download(rest, false, testCase == InteropTestCase.ZERORTT,
                         CONNECTION_TIMEOUT_MILLIS);
             }
-            return client.download(urls, false, false, CONNECTION_TIMEOUT_MILLIS);
+            return client.download(urls, false, false, testCase == InteropTestCase.KEYUPDATE,
+                    CONNECTION_TIMEOUT_MILLIS);
         } finally {
             loop.shutdown();
         }

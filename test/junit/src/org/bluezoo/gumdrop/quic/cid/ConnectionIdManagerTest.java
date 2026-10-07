@@ -33,6 +33,8 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
+import static org.junit.Assert.assertTrue;
 
 /**
  * Verifies {@link ConnectionIdManager} (RFC 9000 section 5.1):
@@ -302,4 +304,42 @@ public class ConnectionIdManagerTest {
         assertEquals(1, manager.drainPendingIssuance().size());
         assertEquals(1, manager.getRetirePriorTo());
     }
+
+    // ---- preferred_address connection ID (RFC 9000 section 5.1.1) ----
+
+    @Test
+    public void testPreferredAddressConnectionIdIsSequenceOneAndNotQueuedAsAFrame() {
+        ConnectionIdManager manager = new ConnectionIdManager(new byte[] {1, 2}, new byte[] {3, 4}, new byte[32]);
+        ConnectionIdEntry preferred = manager.mintPreferredAddressConnectionId();
+        assertEquals("the preferred_address connection ID has sequence number 1", 1, preferred.getSequenceNumber());
+        assertEquals(16, preferred.getStatelessResetToken().length);
+        assertTrue("it is one of ours, so packets carrying it are routed to this connection",
+                containsId(manager.collectOurConnectionIds(), preferred.getConnectionId()));
+        assertTrue("it is conveyed in the transport parameter, not a NEW_CONNECTION_ID frame",
+                manager.drainPendingIssuance().isEmpty());
+        manager.setPeerAdvertisedLimit(8);
+        assertEquals("ordinary issuance continues after it", 2, manager.issueNext().getSequenceNumber());
+    }
+
+    @Test
+    public void testPreferredAddressConnectionIdMustBeMintedFirst() {
+        ConnectionIdManager manager = new ConnectionIdManager(new byte[] {1, 2}, new byte[] {3, 4}, new byte[32]);
+        manager.setPeerAdvertisedLimit(8);
+        manager.issueNext();
+        try {
+            manager.mintPreferredAddressConnectionId();
+            fail("sequence number 1 is already taken");
+        } catch (IllegalStateException expected) {
+        }
+    }
+
+    private static boolean containsId(java.util.List<byte[]> ids, byte[] id) {
+        for (int i = 0; i < ids.size(); i++) {
+            if (java.util.Arrays.equals(ids.get(i), id)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
 }

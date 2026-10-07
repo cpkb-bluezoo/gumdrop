@@ -263,14 +263,16 @@ public class QuicLoopbackLossTest {
         Map<?, ?> attempts = (Map<?, ?>) QuicForger.field(f.server.conn, "pathValidationAttempts");
         assertEquals(3, attempts.size());
         // The retry timer fires before the deadline: another challenge.
-        QuicForger.invoke(f.server.conn, "onPathValidationTimeout", candidates[0]);
+        // Paths are a local socket plus a peer address (RFC 9000 section 9).
+        QuicDatagramPath serverPath = f.lb.serverEngine.getPrimaryPath();
+        QuicForger.invoke(f.server.conn, "onPathValidationTimeout", new QuicConnection.PathKey(serverPath, candidates[0]));
         assertEquals(3, attempts.size());
         // A timer for an unknown candidate is a no-op.
-        QuicForger.invoke(f.server.conn, "onPathValidationTimeout", candidates[4]);
+        QuicForger.invoke(f.server.conn, "onPathValidationTimeout", new QuicConnection.PathKey(serverPath, candidates[4]));
         // Abandoning removes the candidate.
-        QuicForger.invoke(f.server.conn, "abandonMigrationValidation", candidates[1]);
+        QuicForger.invoke(f.server.conn, "abandonMigrationValidation", new QuicConnection.PathKey(serverPath, candidates[1]));
         assertEquals(2, attempts.size());
-        QuicForger.invoke(f.server.conn, "abandonMigrationValidation", candidates[1]);
+        QuicForger.invoke(f.server.conn, "abandonMigrationValidation", new QuicConnection.PathKey(serverPath, candidates[1]));
         assertFalse(f.server.conn.isClosed());
     }
 
@@ -296,7 +298,8 @@ public class QuicLoopbackLossTest {
         // Move the connection's clock past the attempt's deadline: the
         // timeout then abandons the candidate instead of re-challenging it.
         f.server.conn.clockOffsetMillis += 3600000L;
-        QuicForger.invoke(f.server.conn, "onPathValidationTimeout", candidate);
+        QuicForger.invoke(f.server.conn, "onPathValidationTimeout",
+                new QuicConnection.PathKey(f.lb.serverEngine.getPrimaryPath(), candidate));
         assertEquals(0, attempts.size());
     }
 }

@@ -35,9 +35,29 @@ final class DownloadTracker {
 
     private final CountDownLatch remaining;
     private final AtomicInteger failures = new AtomicInteger();
+    private long bytesReceived;
+    private Runnable progressListener;
 
     DownloadTracker(int count) {
         this.remaining = new CountDownLatch(count);
+    }
+
+    /** Runs on the transport's loop after every chunk of body received. */
+    void setProgressListener(Runnable listener) {
+        this.progressListener = listener;
+    }
+
+    /** Called on the transport's loop as body bytes arrive. */
+    void received(int bytes) {
+        bytesReceived += bytes;
+        Runnable listener = progressListener;
+        if (listener != null) {
+            listener.run();
+        }
+    }
+
+    long bytesReceived() {
+        return bytesReceived;
     }
 
     void finished(boolean ok) {

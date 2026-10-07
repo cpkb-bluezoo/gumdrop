@@ -45,10 +45,10 @@ public enum InteropTestCase {
     MULTICONNECT("multiconnect", true, true),
     V2("v2", true, true),
     IPV6("ipv6", true, true),
-    /** Client-only case; the server side of it runs as {@link #TRANSFER}. Needs RFC 9001 section 6 key update. */
-    KEYUPDATE("keyupdate", false, false),
-    /** Server-only case; the client side of it runs as {@link #TRANSFER}. Needs {@code preferred_address}. */
-    CONNECTIONMIGRATION("connectionmigration", false, false),
+    /** Client-only case; the server side of it runs as {@link #TRANSFER}. The client updates keys early in the transfer. */
+    KEYUPDATE("keyupdate", true, false),
+    /** Server-only case; the client side of it runs as {@link #TRANSFER}. The server advertises a {@code preferred_address}. */
+    CONNECTIONMIGRATION("connectionmigration", false, true),
     /** Needs IP-layer ECN codepoints on received datagrams, which NIO does not expose. */
     ECN("ecn", false, false),
     VERSIONNEGOTIATION("versionnegotiation", false, false);

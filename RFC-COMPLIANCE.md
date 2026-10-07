@@ -332,7 +332,7 @@ practices.
 | Session tickets / PSK resumption | 4.6.1 | Compliant | `TicketPayload`, `Tls12TicketPayload` (1.2) |
 | 0-RTT early data | 4.2.10 | Compliant | When enabled; anti-replay in config |
 | Post-handshake NewSessionTicket | 4.6.1 | Compliant | Server emission after handshake |
-| KeyUpdate (TCP record layer) | 4.6.3 | Compliant | `TlsRecordEngine`; not over QUIC (RFC 9001 §4.6) |
+| KeyUpdate (TCP record layer) | 4.6.3 | Compliant | `TlsRecordEngine`; QUIC uses its own key update instead (RFC 9001 §6, `QuicConnection.requestKeyUpdate`) |
 | NSS key log (`SSLKEYLOGFILE`) | - | Implemented | `KeyLog`: handshake, application (per key update generation), early and exporter secrets keyed by the on-the-wire ClientHello random; TLS 1.2 `CLIENT_RANDOM`; opt-in per `HandshakeConfig` or process-wide |
 | Downgrade protection (SCSV / version checks) | 4.1.3 | Compliant | Legacy version fields handled in engine |
 | Named groups (X25519, P-256, P-384, hybrid PQ) | 4.2.7 | Compliant | `NamedGroup`; configured by IANA registry name; server preference order |
@@ -1075,6 +1075,9 @@ implemented in Java, with TLS 1.3 integrated via the in-tree engine
 | Retry-based address validation | 8.1.2 | Compliant | `QuicEngine.sendRetry`; `Http3Listener` / `DoQListener` enable Retry by default; `require-retry=false` opts into the permissive (no-Retry) mode for trusted networks |
 | HANDSHAKE_DONE confirmation | 7.3 | Compliant | `QuicConnection.checkEstablished()` detects established state |
 | TLS 1.3 via in-tree engine | RFC 9001 | Compliant | `HandshakeEngine` integrated via `QuicTlsClientEngine`/`QuicTlsServerEngine` |
+| Key update | RFC 9001 §6 | Compliant | `QuicConnection.requestKeyUpdate` initiates once the handshake is confirmed and the previous update is acknowledged; a peer's update is followed on the first packet of the new phase; next-phase keys are kept ready and previous-phase keys for 3 PTO (reordered packets); header protection keys are not updated; `quic ku` / `quicv2 ku` labels |
+| Preferred address | RFC 9000 §9.6 | Compliant | Server: `QuicTransportFactory.setPreferredAddress` advertises `preferred_address` (connection ID sequence 1 and its reset token) and listens on the preferred ports; client: migrates there after handshake confirmation from a new socket, validating the path first and retiring the previous connection ID (`setMigrateToPreferredAddress` to opt out) |
+| Path identification | RFC 9000 §9 | Compliant | A path is the local socket plus the peer address (`QuicConnection.PathKey`); PATH_CHALLENGE/PATH_RESPONSE are sent on the socket the peer's packet arrived at, and a validated path becomes the connection's send path |
 | Idle timeout | 10.1 | Compliant | `QuicConnection` idle timeout handling |
 | Immediate close (CONNECTION_CLOSE) | 10.2 | Compliant | `QuicConnection.close()` sends CONNECTION_CLOSE with H3_NO_ERROR (0x100) or NO_ERROR (0x0) and flushes |
 

@@ -22,6 +22,10 @@
 package org.bluezoo.gumdrop.quic.interop;
 
 import java.io.IOException;
+import java.net.Inet6Address;
+import java.net.InetAddress;
+import java.net.InetSocketAddress;
+import java.net.UnknownHostException;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
@@ -124,6 +128,31 @@ final class InteropEnvironment {
     /** The server's UDP port; the runner expects 443. */
     int port() {
         return port;
+    }
+
+    /**
+     * The server's preferred address of one family for the
+     * connectionmigration case: {@code INTEROP_PREFERRED_IPV4} or
+     * {@code INTEROP_PREFERRED_IPV6} (the host's own addresses, which
+     * run_endpoint.sh fills in) on {@code INTEROP_PREFERRED_PORT}.
+     *
+     * @return the address and port, or null if the variable is unset
+     */
+    static InetSocketAddress preferredAddress(boolean ipv6) {
+        String host = getenv(ipv6 ? "INTEROP_PREFERRED_IPV6" : "INTEROP_PREFERRED_IPV4", null);
+        if (host == null) {
+            return null;
+        }
+        int port = Integer.parseInt(getenv("INTEROP_PREFERRED_PORT", "4434"));
+        try {
+            InetAddress address = InetAddress.getByName(host);
+            if ((address instanceof Inet6Address) != ipv6) {
+                return null;
+            }
+            return new InetSocketAddress(address, port);
+        } catch (UnknownHostException e) {
+            return null;
+        }
     }
 
     /**

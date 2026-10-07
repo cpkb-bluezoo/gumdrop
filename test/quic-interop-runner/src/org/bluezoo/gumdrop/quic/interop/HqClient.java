@@ -52,6 +52,9 @@ final class HqClient {
     /** How long to wait for the NEW_SESSION_TICKET a later connection will resume with. */
     private static final long TICKET_TIMEOUT_MILLIS = 5000;
 
+    /** The keyupdate case wants the update within the first megabyte; ask once this much has arrived. */
+    private static final long KEY_UPDATE_AFTER_BYTES = 100 * 1024;
+
     /**
      * How long a handshake may take before the attempt is abandoned. The
      * transport reports a failed attempt only to a first-stream handler,
@@ -82,6 +85,16 @@ final class HqClient {
      */
     boolean download(List<RequestUrl> urls, boolean awaitSessionTicket, boolean zeroRtt,
             long timeoutMillis) throws IOException, InterruptedException {
+        return download(urls, awaitSessionTicket, zeroRtt, false, timeoutMillis);
+    }
+
+    /**
+     * As {@link #download(List, boolean, boolean, long)}, optionally
+     * initiating a key update (RFC 9001 section 6) once the first part of
+     * the data has arrived, as the runner's {@code keyupdate} case asks.
+     */
+    boolean download(List<RequestUrl> urls, boolean awaitSessionTicket, boolean zeroRtt,
+            final boolean keyUpdate, long timeoutMillis) throws IOException, InterruptedException {
         if (urls.isEmpty()) {
             return true;
         }
@@ -98,6 +111,16 @@ final class HqClient {
             };
         }
         final RequestIssuer issuer = new RequestIssuer(urls, tracker);
+        if (keyUpdate) {
+            tracker.setProgressListener(new Runnable() {
+                @Override
+                public void run() {
+                    if (tracker.bytesReceived() >= KEY_UPDATE_AFTER_BYTES) {
+                        issuer.requestKeyUpdateOnce();
+                    }
+                }
+            });
+        }
         QuicEngine.ConnectionAcceptedHandler accepted = new QuicEngine.ConnectionAcceptedHandler() {
             @Override
             public void connectionAccepted(QuicConnection connection) {
@@ -137,6 +160,10 @@ final class HqClient {
         } else if (tracker.failures() > 0) {
             LOGGER.warning(tracker.failures() + " download(s) failed");
         }
+        QuicConnection connection = issuer.connection;
+        if (connection != null) {
+            LOGGER.info("finished on path " + connection.getLocalAddress() + " -> " + connection.getRemoteAddress());
+        }
         if (awaitSessionTicket) {
             if (complete && !ticket.await(TICKET_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS)) {
                 LOGGER.warning("no session ticket arrived within " + TICKET_TIMEOUT_MILLIS + " ms");
@@ -175,6 +202,8 @@ final class HqClient {
         private final List<RequestUrl> urls;
         private final DownloadTracker tracker;
         private final CountDownLatch issued = new CountDownLatch(1);
+        private QuicConnection connection;
+        private boolean keyUpdated;
 
         RequestIssuer(List<RequestUrl> urls, DownloadTracker tracker) {
             this.urls = urls;
@@ -187,6 +216,7 @@ final class HqClient {
                 return;
             }
             issued.countDown();
+            this.connection = connection;
             for (int i = 0; i < urls.size(); i++) {
                 RequestUrl url = urls.get(i);
                 connection.openStream(new HqDownload(url, downloads.resolve(url.fileName), tracker));
@@ -195,6 +225,17 @@ final class HqClient {
 
         boolean awaitIssued(long timeoutMillis) throws InterruptedException {
             return issued.await(timeoutMillis, TimeUnit.MILLISECONDS);
+        }
+
+        /** Runs on the connection's loop; retried on later progress until the connection permits it. */
+        void requestKeyUpdateOnce() {
+            if (keyUpdated || connection == null) {
+                return;
+            }
+            if (connection.requestKeyUpdate()) {
+                keyUpdated = true;
+                LOGGER.info("key update initiated");
+            }
         }
 
     }
