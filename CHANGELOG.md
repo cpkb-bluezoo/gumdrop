@@ -96,6 +96,13 @@ user-visible themes since 2.2.x.
 
 ### Changed
 
+- **QUIC compatible version negotiation follows the server's preference**:
+  a server now switches a client onto the first version in its own
+  `setVersions` order that the client offers, instead of the client's most
+  preferred offer (RFC 9368 section 2.3 makes the client's order advisory).
+  The default order `1,2` therefore keeps connections on v1 unless the
+  server is configured to prefer v2, which is how the quic-interop-runner's
+  v2 case and other implementations expect servers to behave.
 - **JNDI mail sessions use Jakarta Mail** (`jakarta.mail.Session`, resource type
   `jakarta.mail.Session`) instead of `javax.mail`, matching Servlet 6.1 and the
   `jakarta.*` namespace used everywhere else. The container now ships the Jakarta

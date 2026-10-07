@@ -52,7 +52,7 @@ The runner knows nothing about gumdrop; it only runs the image.
 | `chacha20` | yes | yes | Only `TLS_CHACHA20_POLY1305_SHA256` offered and accepted |
 | `resumption` | yes | yes | Second connection resumes with the first one's session ticket |
 | `zerortt` | yes | yes | Second connection sends its requests in 0-RTT |
-| `v2` | yes | yes | Compatible version negotiation to QUIC v2 (RFC 9368/9369). The client opens in v1 and lists v2 first; the server follows the client's order, so a v2-case client that lists v1 first stays on v1 |
+| `v2` | yes | yes | Compatible version negotiation to QUIC v2 (RFC 9368/9369): the server prefers v2 and switches any client that offers it; the client opens in v1 and lists v2 first |
 | `keyupdate` | - | 127 | Client-only case; needs RFC 9001 section 6 key update |
 | `connectionmigration` | 127 | - | Server-only case; needs `preferred_address` and client-side active migration |
 | `ecn` | 127 | 127 | Needs the ECN codepoint of received datagrams, which `DatagramChannel` cannot deliver |

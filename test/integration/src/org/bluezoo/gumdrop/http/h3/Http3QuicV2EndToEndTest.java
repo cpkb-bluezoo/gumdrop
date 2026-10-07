@@ -239,9 +239,16 @@ public class Http3QuicV2EndToEndTest {
         assertEquals(QuicVersion.V2, get("2", "2"));
     }
 
+    /** The client opens in v1 and offers v2; a server that prefers v2 switches it over. */
     @Test
     public void testGetWhenServerSwitchesVersionOneFirstFlightToVersionTwo() throws Exception {
-        assertEquals(QuicVersion.V2, get("1,2", "2,1"));
+        assertEquals(QuicVersion.V2, get("2,1", "1,2"));
+    }
+
+    /** A server that prefers v1 keeps a v2-offering client on v1. */
+    @Test
+    public void testGetStaysOnVersionOneWhenServerPrefersIt() throws Exception {
+        assertEquals(QuicVersion.V1, get("1,2", "2,1"));
     }
 
     @Test

@@ -66,11 +66,28 @@ public class QuicVersionSelectionTest {
                 QuicVersion.availableVersions(QuicVersion.V1, new QuicVersion[] { QuicVersion.V2 }));
     }
 
+    /**
+     * RFC 9368 section 2.3: the client's order is advisory and a server
+     * may use its own preference, so the server's configured order
+     * decides among the versions the client offers.
+     */
     @Test
-    public void testServerSelectsClientsMostPreferredAcceptableVersion() {
-        QuicVersion[] acceptable = { QuicVersion.V1, QuicVersion.V2 };
-        assertEquals(QuicVersion.V2, QuicVersion.selectCompatible(QuicVersion.V1, new int[] { GREASE, V2, V1 }, acceptable));
-        assertEquals(QuicVersion.V1, QuicVersion.selectCompatible(QuicVersion.V1, new int[] { V1, V2 }, acceptable));
+    public void testServerSelectsItsOwnMostPreferredVersionAmongThoseOffered() {
+        QuicVersion[] preferV2 = { QuicVersion.V2, QuicVersion.V1 };
+        assertEquals(QuicVersion.V2, QuicVersion.selectCompatible(QuicVersion.V1, new int[] { GREASE, V1, V2 }, preferV2));
+        assertEquals(QuicVersion.V2, QuicVersion.selectCompatible(QuicVersion.V1, new int[] { V2, V1 }, preferV2));
+        QuicVersion[] preferV1 = { QuicVersion.V1, QuicVersion.V2 };
+        assertEquals(QuicVersion.V1, QuicVersion.selectCompatible(QuicVersion.V1, new int[] { GREASE, V2, V1 }, preferV1));
+        assertEquals(QuicVersion.V1, QuicVersion.selectCompatible(QuicVersion.V1, new int[] { V1, V2 }, preferV1));
+    }
+
+    @Test
+    public void testServerSwitchesWhenItsFavouriteIsOfferedButNotChosen() {
+        // Only v2 is offered besides the chosen v1; a v2-preferring server takes it.
+        QuicVersion[] preferV2 = { QuicVersion.V2, QuicVersion.V1 };
+        assertEquals(QuicVersion.V2, QuicVersion.selectCompatible(QuicVersion.V1, new int[] { V1, V2 }, preferV2));
+        // A client offering only its chosen version is left on it.
+        assertEquals(QuicVersion.V1, QuicVersion.selectCompatible(QuicVersion.V1, new int[] { V1 }, preferV2));
     }
 
     @Test

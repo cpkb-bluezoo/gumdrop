@@ -238,23 +238,27 @@ public enum QuicVersion {
 
     /**
      * Server side of compatible version negotiation (RFC 9368 section
-     * 2.3): the client's most preferred available version that this
-     * server accepts and that the version in use is compatible with,
-     * or the version in use itself if there is none.
+     * 2.3): this server's most preferred version among those the client
+     * offers as Available Versions that the version in use is compatible
+     * with, or the version in use itself if there is none. The client's
+     * own order is advisory (section 2.3) and is not consulted, so a
+     * server configured to prefer v2 moves every client that offers v2
+     * onto it, and one that prefers v1 keeps clients on v1 however they
+     * order their offer.
      *
      * @param inUse the version of the client's first flight
-     * @param clientAvailable the client's Available Versions, in its order
-     * @param acceptable the versions this server accepts
+     * @param clientAvailable the client's Available Versions
+     * @param acceptable the versions this server accepts, most preferred first
      * @return the negotiated version
      */
     public static QuicVersion selectCompatible(QuicVersion inUse, int[] clientAvailable, QuicVersion[] acceptable) {
-        for (int i = 0; i < clientAvailable.length; i++) {
-            QuicVersion candidate = fromWireValue(clientAvailable[i]);
-            if (candidate == null || !inUse.isCompatibleWith(candidate)) {
+        for (int i = 0; i < acceptable.length; i++) {
+            QuicVersion candidate = acceptable[i];
+            if (!inUse.isCompatibleWith(candidate)) {
                 continue;
             }
-            for (int j = 0; j < acceptable.length; j++) {
-                if (acceptable[j] == candidate) {
+            for (int j = 0; j < clientAvailable.length; j++) {
+                if (clientAvailable[j] == candidate.wireValue) {
                     return candidate;
                 }
             }

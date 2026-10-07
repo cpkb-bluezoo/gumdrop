@@ -177,9 +177,11 @@ public class QuicTransportFactory extends TransportFactory {
     /**
      * Sets the QUIC versions to speak, as a comma- or space-separated list
      * of {@code 1} (RFC 9000) and {@code 2} (RFC 9369), in order of
-     * preference. A server accepts every listed version and advertises
-     * them in Version Negotiation packets and in its
-     * {@code version_information} transport parameter (RFC 9368). A client
+     * preference. A server accepts every listed version, advertises them
+     * in Version Negotiation packets and in its {@code version_information}
+     * transport parameter (RFC 9368), and in compatible version negotiation
+     * switches a client onto the first listed version the client also
+     * offers. A client
      * opens its connection in the oldest listed version, which servers most
      * often parse, and offers the others as compatible versions the server
      * may switch to; if the server cannot parse the first flight the client

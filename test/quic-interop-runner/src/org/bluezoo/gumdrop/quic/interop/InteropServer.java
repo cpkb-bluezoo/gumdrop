@@ -61,7 +61,7 @@ public final class InteropServer {
 
     static final String ALPN_HQ = "hq-interop";
     static final String CHACHA20_ONLY = "TLS_CHACHA20_POLY1305_SHA256";
-    /** Client version preference for the v2 case: open in v1, but list v2 first for the server to switch to. */
+    /** Version preference for the v2 case: a server switches offering clients to v2; a client opens in v1 and lists v2 first. */
     static final String V2_PREFERRED = "2,1";
 
     private InteropServer() {
@@ -98,10 +98,12 @@ public final class InteropServer {
         if (testCase == InteropTestCase.CHACHA20) {
             factory.setCipherSuites(CHACHA20_ONLY);
         }
-        // The v2 case needs no server setting: both versions are accepted
-        // by default, and compatible negotiation follows the client's
-        // preference, so a client that lists v2 first (as the runner's v2
-        // clients do) is moved onto v2 and everyone else stays on v1.
+        if (testCase == InteropTestCase.V2) {
+            // The runner expects the server to move a client that opens in
+            // v1 and offers v2 onto v2; the default order keeps every
+            // other case on v1, which is what those cases check for.
+            factory.setVersions(V2_PREFERRED);
+        }
     }
 
     private static void runHq(InteropEnvironment env, InteropTestCase testCase) throws Exception {

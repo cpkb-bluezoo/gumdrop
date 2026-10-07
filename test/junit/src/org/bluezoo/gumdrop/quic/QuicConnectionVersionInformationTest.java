@@ -177,16 +177,25 @@ public class QuicConnectionVersionInformationTest {
         assertClosedWith(TRANSPORT_PARAMETER_ERROR, conn);
     }
 
+    /** RFC 9368 section 2.3: the server's own preference decides among the versions the client offers. */
     @Test
-    public void testServerSwitchesToClientsPreferredCompatibleVersion() throws Exception {
-        QuicConnection conn = connection(engine("1,2"), true, QuicVersion.V1, false);
-        conn.transportParametersReceived(versionInformation(V1, V2, V1));
+    public void testServerSwitchesToItsPreferredCompatibleVersionTheClientOffers() throws Exception {
+        QuicConnection conn = connection(engine("2,1"), true, QuicVersion.V1, false);
+        conn.transportParametersReceived(versionInformation(V1, V1, V2));
         assertFalse(conn.isClosed());
         assertEquals(QuicVersion.V2, conn.getVersion());
     }
 
     @Test
-    public void testServerStaysInVersionWhenItCannotAcceptTheClientsPreference() throws Exception {
+    public void testServerPreferringTheVersionInUseIgnoresTheClientsPreference() throws Exception {
+        QuicConnection conn = connection(engine("1,2"), true, QuicVersion.V1, false);
+        conn.transportParametersReceived(versionInformation(V1, V2, V1));
+        assertFalse(conn.isClosed());
+        assertEquals(QuicVersion.V1, conn.getVersion());
+    }
+
+    @Test
+    public void testServerStaysInVersionWhenItCannotAcceptTheClientsOffer() throws Exception {
         QuicConnection conn = connection(engine("1"), true, QuicVersion.V1, false);
         conn.transportParametersReceived(versionInformation(V1, V2, V1));
         assertFalse(conn.isClosed());

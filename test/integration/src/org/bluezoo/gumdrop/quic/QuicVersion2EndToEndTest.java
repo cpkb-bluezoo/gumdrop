@@ -196,20 +196,27 @@ public class QuicVersion2EndToEndTest {
         assertEquals(QuicVersion.V2, roundTrip("2", "2", true));
     }
 
-    /** RFC 9368 section 2.3: the client starts in v1 and the server switches it to v2. */
+    /**
+     * RFC 9368 section 2.3: the client starts in v1 (its oldest version)
+     * and a server that prefers v2 switches it to v2, whichever way the
+     * client orders its offer.
+     */
     @Test
-    public void testCompatibleNegotiationSwitchesToClientsPreferredVersion() throws Exception {
-        assertEquals(QuicVersion.V2, roundTrip("1,2", "2,1", false));
+    public void testCompatibleNegotiationSwitchesToServersPreferredVersion() throws Exception {
+        assertEquals(QuicVersion.V2, roundTrip("2,1", "1,2", false));
+        assertEquals(QuicVersion.V2, roundTrip("2,1", "2,1", false));
     }
 
     @Test
     public void testCompatibleNegotiationAfterRetry() throws Exception {
-        assertEquals(QuicVersion.V2, roundTrip("1,2", "2,1", true));
+        assertEquals(QuicVersion.V2, roundTrip("2,1", "1,2", true));
     }
 
+    /** A server that prefers v1 keeps clients on v1, even ones that would rather have v2. */
     @Test
-    public void testClientPreferringV1StaysOnV1() throws Exception {
+    public void testServerPreferringV1StaysOnV1() throws Exception {
         assertEquals(QuicVersion.V1, roundTrip("1,2", "1,2", false));
+        assertEquals(QuicVersion.V1, roundTrip("1,2", "2,1", false));
         assertEquals(QuicVersion.V1, roundTrip("1,2", "1", false));
     }
 
