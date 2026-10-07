@@ -1259,6 +1259,8 @@ implemented in Java, with TLS 1.3 integrated via the in-tree engine
 | SASL initial response | RFC 4959 | Compliant | Sent inline in `authenticate()` |
 | SASL challenge/response exchange | RFC 4422 | Compliant | `respond()` in ClientAuthExchange |
 | SASL abort (*) | RFC 9051 §6.2.2 | Compliant | `abort()` sends `*` line |
+| SASL OAUTHBEARER (client) | RFC 7628 | Compliant | `SaslUtils.createClient("OAUTHBEARER", account, token, host)`; `authenticateWithAccessToken()` sends the GS2 initial response and acknowledges an error challenge with `%x01` (§3.2.3) |
+| SASL XOAUTH2 (client, Gmail) | Google XOAUTH2 | Compliant | `user=<account>^Aauth=Bearer <token>^A^A`; mechanism chosen from `AUTH=` capabilities (XOAUTH2 preferred over OAUTHBEARER) or given explicitly |
 
 ### Mailbox Operations
 

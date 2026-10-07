@@ -38,6 +38,8 @@ import org.bluezoo.gumdrop.ByteStreamLexer;
 import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.ProtocolHandler;
 import org.bluezoo.gumdrop.SecurityInfo;
+import org.bluezoo.gumdrop.auth.SaslClientMechanism;
+import org.bluezoo.gumdrop.auth.SaslUtils;
 import org.bluezoo.gumdrop.imap.ImapDeflateLayer;
 import org.bluezoo.gumdrop.util.JulWarnings;
 import org.bluezoo.gumdrop.util.Tokens;
@@ -434,6 +436,81 @@ public final class ImapClientProtocolHandler
                     .encodeToString(initialResponse));
         }
         sendTaggedCommand(cmd.toString(), ImapState.AUTHENTICATE_SENT);
+    }
+
+    // RFC 7628 OAUTHBEARER / Google XOAUTH2 over AUTHENTICATE
+    @Override
+    public void authenticateWithAccessToken(String mechanism, String account,
+                                            String accessToken,
+                                            AuthReplyHandler callback) {
+        String name = mechanism;
+        if (name == null) {
+            name = SaslUtils.selectOAuthMechanism(capabilities);
+        }
+        SaslClientMechanism sasl = null;
+        if (name != null) {
+            String upper = name.toUpperCase();
+            if ("XOAUTH2".equals(upper) || "OAUTHBEARER".equals(upper)) {
+                sasl = SaslUtils.createClient(upper, account, accessToken,
+                        null);
+            }
+        }
+        if (sasl == null) {
+            callback.handleAuthFailed(this,
+                    "No OAuth SASL mechanism offered by server");
+            return;
+        }
+        byte[] initial;
+        try {
+            initial = sasl.evaluateChallenge(new byte[0]);
+        } catch (IOException e) {
+            callback.handleAuthFailed(this, e.getMessage());
+            return;
+        }
+        authenticate(sasl.getMechanismName(), initial,
+                new OAuthAuthReplyHandler(sasl, callback));
+    }
+
+    // Acknowledges the error challenge on behalf of the application
+    private static final class OAuthAuthReplyHandler
+            implements AuthReplyHandler {
+        private final SaslClientMechanism sasl;
+        private final AuthReplyHandler delegate;
+
+        OAuthAuthReplyHandler(SaslClientMechanism sasl,
+                              AuthReplyHandler delegate) {
+            this.sasl = sasl;
+            this.delegate = delegate;
+        }
+
+        @Override
+        public void handleAuthSuccess(ClientAuthenticatedState session,
+                                      List<String> capabilities) {
+            delegate.handleAuthSuccess(session, capabilities);
+        }
+
+        @Override
+        public void handleChallenge(byte[] challenge,
+                                    ClientAuthExchange exchange) {
+            byte[] ack;
+            try {
+                ack = sasl.evaluateChallenge(challenge);
+            } catch (IOException e) {
+                ack = new byte[0];
+            }
+            exchange.respond(ack, this);
+        }
+
+        @Override
+        public void handleAuthFailed(ClientNotAuthenticatedState auth,
+                                     String message) {
+            delegate.handleAuthFailed(auth, message);
+        }
+
+        @Override
+        public void handleServiceClosing(String message) {
+            delegate.handleServiceClosing(message);
+        }
     }
 
     // RFC 9051 section 6.2.1 — STARTTLS command
