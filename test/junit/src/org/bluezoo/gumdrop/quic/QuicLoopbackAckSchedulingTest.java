@@ -28,6 +28,8 @@ import static org.junit.Assert.assertTrue;
 import java.nio.ByteBuffer;
 
 import org.bluezoo.gumdrop.Endpoint;
+import org.bluezoo.gumdrop.quic.frame.QuicFrameWriter;
+import org.bluezoo.gumdrop.quic.recovery.LossDetector;
 import org.bluezoo.gumdrop.quic.QuicLoopbackScenariosTest.ConnCapture;
 import org.bluezoo.gumdrop.quic.tls.EncryptionLevel;
 import org.bluezoo.gumdrop.quic.QuicLoopbackScenariosTest.Rec;
@@ -62,9 +64,7 @@ public class QuicLoopbackAckSchedulingTest {
         lb.pump();
         serverStream = server.bidi.recs.get(0).endpoint;
         // let any acknowledgement still owed from the handshake go out
-        client.conn.clockOffsetMillis += 1000;
         QuicForger.invoke(client.conn, "onAckTimeout");
-        server.conn.clockOffsetMillis += 1000;
         QuicForger.invoke(server.conn, "onAckTimeout");
         lb.pump();
     }
@@ -142,5 +142,33 @@ public class QuicLoopbackAckSchedulingTest {
             fractional = delay % 125 != 0;
         }
         assertTrue(fractional);
+    }
+
+    /**
+     * RFC 9000 section 19.3: the ACK Delay field counts units of
+     * 2^ack_delay_exponent microseconds, and the RTT estimator is owed
+     * the delay in real time. It was handed the raw field as if it were
+     * milliseconds.
+     */
+    @Test
+    public void ackDelayFieldIsConvertedBeforeItIsSubtractedFromTheRttSample() throws Exception {
+        connect();
+        Endpoint stream = client.conn.openStream(new Rec());
+        stream.send(ByteBuffer.wrap(new byte[] {1}));
+        lb.pump();
+        long sentPacket = ((long[]) QuicForger.field(client.conn, "sendPacketNumber"))[2] - 1;
+        // the server holds its ACK back; the one forged here arrives 100 ms
+        // after the packet was sent and says it waited 20 ms (2500 x 8 us)
+        client.conn.clockOffsetMillis += 100;
+        ByteBuffer frames = ByteBuffer.allocate(64);
+        QuicFrameWriter.writeAck(frames, new long[][] { { sentPacket, sentPacket } }, 2500);
+        frames.flip();
+        long pn = ((long[]) QuicForger.field(client.conn, "largestReceived"))[2] + 1;
+        lb.injectToClient(QuicForger.forge(server.conn, client.conn, pn, frames));
+        lb.pump();
+        long smoothedMicros = ((LossDetector) QuicForger.field(client.conn, "lossDetector"))
+                .getRttEstimator().getSmoothedRtt();
+        // (7 x ~0 + (100 - 20) ms) / 8 = 10 ms; ignoring the delay gives 12.5 ms
+        assertTrue("smoothed RTT " + smoothedMicros, smoothedMicros > 9500 && smoothedMicros < 11500);
     }
 }

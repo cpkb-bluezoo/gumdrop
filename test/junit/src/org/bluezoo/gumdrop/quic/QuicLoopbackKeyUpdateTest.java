@@ -52,6 +52,11 @@ public class QuicLoopbackKeyUpdateTest {
 
         Fixture() throws Exception {
             lb = new QuicLoopback();
+            // These tests need each packet acknowledged within its exchange; with
+            // ACK_FREQUENCY in play the peer may hold ACKs back until a timer
+            // that the in-memory loopback does not run.
+            lb.clientFactory.setAckFrequencyEnabled(false);
+            lb.serverFactory.setAckFrequencyEnabled(false);
             lb.startFactories();
             lb.startServer(server);
             lb.startClient(null, client);

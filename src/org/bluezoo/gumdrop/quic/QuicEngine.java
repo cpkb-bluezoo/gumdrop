@@ -1035,6 +1035,11 @@ public final class QuicEngine implements ChannelHandler, MultiplexedEndpoint {
         return generateConnectionId();
     }
 
+    /** Returns whether to send ACK_FREQUENCY and IMMEDIATE_ACK frames. */
+    boolean isAckFrequencyEnabled() {
+        return factory.isAckFrequencyEnabled();
+    }
+
     /** Returns the active QUIC-LB configuration, or {@code null}. */
     QuicLbConfig getQuicLbConfig() {
         return factory.getQuicLbConfig();

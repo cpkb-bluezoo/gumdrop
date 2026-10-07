@@ -1118,7 +1118,7 @@ implemented in Java, with TLS 1.3 integrated via the in-tree engine
 
 ### QUIC ACK Frequency — draft-ietf-quic-ack-frequency-14
 
-The draft is not an RFC. Codepoints are kept in `AckFrequencyDraft`. Receiver side only so far; this endpoint does not yet send `ACK_FREQUENCY` or `IMMEDIATE_ACK`.
+The draft is not an RFC. Codepoints are kept in `AckFrequencyDraft`. The sender side is on by default and switchable with `QuicTransportFactory.setAckFrequencyEnabled`; it never affects what this endpoint accepts.
 
 | Requirement | Section | Status | Notes |
 |-------------|---------|--------|-------|
@@ -1127,6 +1127,9 @@ The draft is not an RFC. Codepoints are kept in `AckFrequencyDraft`. Receiver si
 | `ACK_FREQUENCY` frame (0xaf) | 4 | Compliant | Thresholds and delay applied; stale sequence numbers ignored; Requested Max Ack Delay below `min_ack_delay` or 2^14 ms or more, or a frame outside 1-RTT, is `PROTOCOL_VIOLATION` |
 | Reordering Threshold | 4 | Partial | 0 disables the reordering ACK; N acknowledges a packet N or more below the largest or a new gap of N or more; the ECN CE rule has nothing to act on because the UDP path does not expose the codepoint |
 | `IMMEDIATE_ACK` frame (0x1f) | 5 | Compliant | ACK on the next flush; 1-RTT only |
+| Send `ACK_FREQUENCY` | 6 | Compliant | Only to a peer that advertised `min_ack_delay`, once the handshake is confirmed and an RTT sample exists: Requested Max Ack Delay no more than the smoothed RTT (capped at 25 ms) and no less than the peer's `min_ack_delay`, threshold a quarter of the congestion window in packets, Reordering Threshold 1. Sent again after a migration, and with a new sequence number when the frame is lost |
+| Send `IMMEDIATE_ACK` | 6 | Compliant | In Probe Timeout packets, and in any 1-RTT packet sent when no ACK has arrived for more than a smoothed RTT while ack-eliciting data is in flight (once per silence) |
+| Recovery follows the requested delay | 6 | Compliant | Until the latest frame is acknowledged the larger of the old and new value is used for the Probe Timeout and the RTT ACK Delay clamp, then the requested value; the delay term is left out of the Probe Timeout while more packets than the threshold are in flight. Reordering Threshold 0 is never requested, so the rule that it needs a Probe Timeout above the peer's `max_ack_delay` has nothing to act on |
 
 ### HTTP Datagrams and Capsule Protocol — RFC 9297
 

@@ -31,7 +31,7 @@ package org.bluezoo.gumdrop.quic.recovery;
 public final class SentPacket {
 
     private final long packetNumber;
-    private final long timeSentMillis;
+    private final long timeSentMicros;
     private final boolean ackEliciting;
     private final boolean inFlight;
     private final int sentBytes;
@@ -40,16 +40,16 @@ public final class SentPacket {
      * Creates a sent-packet record.
      *
      * @param packetNumber the packet number
-     * @param timeSentMillis the time the packet was sent
+     * @param timeSentMicros the time the packet was sent
      * @param ackEliciting true if an acknowledgment is expected for this packet
      * @param inFlight true if this packet counts toward bytes in flight
      * @param sentBytes the number of bytes sent in the packet (QUIC
      *                  framing included, UDP/IP overhead excluded)
      */
-    public SentPacket(long packetNumber, long timeSentMillis, boolean ackEliciting, boolean inFlight,
+    public SentPacket(long packetNumber, long timeSentMicros, boolean ackEliciting, boolean inFlight,
             int sentBytes) {
         this.packetNumber = packetNumber;
-        this.timeSentMillis = timeSentMillis;
+        this.timeSentMicros = timeSentMicros;
         this.ackEliciting = ackEliciting;
         this.inFlight = inFlight;
         this.sentBytes = sentBytes;
@@ -67,10 +67,10 @@ public final class SentPacket {
     /**
      * Returns the time the packet was sent.
      *
-     * @return the send time, in milliseconds
+     * @return the send time, in microseconds
      */
-    public long getTimeSentMillis() {
-        return timeSentMillis;
+    public long getTimeSentMicros() {
+        return timeSentMicros;
     }
 
     /**

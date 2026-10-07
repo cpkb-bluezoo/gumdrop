@@ -55,10 +55,12 @@ public class QuicLoopbackAckFrequencyTest {
 
     /** An established pair with no ACK owed and the client's next packet number lined up. */
     private static Fixture connect() throws Exception {
-        Fixture f = Fixture.create();
-        f.client.conn.clockOffsetMillis += 1000;
+        // the sending side has its own tests; here only the receiver is observed
+        QuicLoopback lb = new QuicLoopback();
+        lb.clientFactory.setAckFrequencyEnabled(false);
+        lb.serverFactory.setAckFrequencyEnabled(false);
+        Fixture f = new Fixture(lb);
         QuicForger.invoke(f.client.conn, "onAckTimeout");
-        f.server.conn.clockOffsetMillis += 1000;
         QuicForger.invoke(f.server.conn, "onAckTimeout");
         f.lb.pump();
         long[] largest = (long[]) QuicForger.field(f.server.conn, "largestReceived");

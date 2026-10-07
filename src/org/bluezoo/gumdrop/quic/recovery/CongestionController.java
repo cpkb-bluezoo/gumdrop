@@ -119,7 +119,7 @@ public final class CongestionController {
      * Appendix B.5's {@code OnPacketAcked}). The caller is responsible
      * for only calling this for packets that were in flight.
      *
-     * @param sentTimeMillis the time the acknowledged packet was sent
+     * @param sentTimeMicros the time the acknowledged packet was sent
      * @param sentBytes the number of bytes the acknowledged packet sent
      * @param appOrFlowControlLimited true if the sender was not sending
      *                                as much as the congestion window
@@ -127,12 +127,12 @@ public final class CongestionController {
      *                                flow-control-limited) -- the window
      *                                does not grow in that case
      */
-    public void onPacketAcked(long sentTimeMillis, int sentBytes, boolean appOrFlowControlLimited) {
+    public void onPacketAcked(long sentTimeMicros, int sentBytes, boolean appOrFlowControlLimited) {
         bytesInFlight -= sentBytes;
         if (appOrFlowControlLimited) {
             return;
         }
-        if (inCongestionRecovery(sentTimeMillis)) {
+        if (inCongestionRecovery(sentTimeMicros)) {
             return;
         }
         if (congestionWindow < ssthresh) {
@@ -148,21 +148,21 @@ public final class CongestionController {
      * practice only loss) -- entering a recovery period if not already
      * in one (RFC 9002 Appendix B.6's {@code OnCongestionEvent}).
      *
-     * @param sentTimeMillis the send time of the packet whose loss (or
+     * @param sentTimeMicros the send time of the packet whose loss (or
      *                       ECN marking) triggered this event
-     * @param nowMillis the current time
+     * @param nowMicros the current time
      */
-    public void onCongestionEvent(long sentTimeMillis, long nowMillis) {
-        if (inCongestionRecovery(sentTimeMillis)) {
+    public void onCongestionEvent(long sentTimeMicros, long nowMicros) {
+        if (inCongestionRecovery(sentTimeMicros)) {
             return;
         }
-        congestionRecoveryStartTime = nowMillis;
+        congestionRecoveryStartTime = nowMicros;
         ssthresh = (long) (congestionWindow * K_LOSS_REDUCTION_FACTOR);
         congestionWindow = Math.max(ssthresh, minimumWindow);
     }
 
-    private boolean inCongestionRecovery(long sentTimeMillis) {
-        return sentTimeMillis <= congestionRecoveryStartTime;
+    private boolean inCongestionRecovery(long sentTimeMicros) {
+        return sentTimeMicros <= congestionRecoveryStartTime;
     }
 
     /**

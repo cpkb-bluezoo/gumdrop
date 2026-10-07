@@ -34,7 +34,7 @@
  * (NewReno, section 7, Appendix B).
  *
  * <p>Every class here is transport/frame-agnostic and takes time
- * explicitly as a {@code long} milliseconds parameter rather than
+ * explicitly as a {@code long} microseconds parameter rather than
  * reading a system clock -- deterministically testable, and reusable
  * regardless of which clock source the eventual owning connection uses.
  * Nothing here schedules a real timer or writes wire bytes; the owning

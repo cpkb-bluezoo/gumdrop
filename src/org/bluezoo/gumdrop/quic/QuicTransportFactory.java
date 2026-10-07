@@ -119,6 +119,7 @@ public class QuicTransportFactory extends TransportFactory {
     private boolean verifyPeer = true;
     private boolean verifyHostname = true;
     private boolean earlyDataEnabled;
+    private boolean ackFrequencyEnabled = true;
     private long maxIdleTimeout = DEFAULT_MAX_IDLE_TIMEOUT;
     private long maxData = DEFAULT_MAX_DATA;
     private long maxStreamDataBidiLocal = DEFAULT_MAX_STREAM_DATA;
@@ -290,6 +291,28 @@ public class QuicTransportFactory extends TransportFactory {
      */
     public void setEarlyDataEnabled(boolean enabled) {
         this.earlyDataEnabled = enabled;
+    }
+
+    /**
+     * Sets whether this endpoint asks peers to acknowledge less often by
+     * sending ACK_FREQUENCY and IMMEDIATE_ACK frames
+     * (draft-ietf-quic-ack-frequency-14). On by default; it only ever
+     * applies to a peer that advertised {@code min_ack_delay}. Turning it
+     * off does not stop this endpoint accepting the frames from its peer.
+     *
+     * @param enabled the new state
+     */
+    public void setAckFrequencyEnabled(boolean enabled) {
+        this.ackFrequencyEnabled = enabled;
+    }
+
+    /**
+     * Returns whether this endpoint sends ACK_FREQUENCY and IMMEDIATE_ACK frames.
+     *
+     * @return the current state
+     */
+    public boolean isAckFrequencyEnabled() {
+        return ackFrequencyEnabled;
     }
 
     /**

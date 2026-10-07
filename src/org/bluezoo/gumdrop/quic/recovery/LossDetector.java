@@ -42,7 +42,7 @@ import org.bluezoo.gumdrop.quic.tls.EncryptionLevel;
  * ApplicationData), so no separate enumeration is needed.
  *
  * <p>Like every class in this package, time is supplied explicitly by
- * the caller as milliseconds rather than read from a system clock, and
+ * the caller as microseconds rather than read from a system clock, and
  * PTO/loss timeouts are returned as plain deadlines -- this class never
  * schedules a real timer itself. Not yet wired to a live connection:
  * anti-amplification (RFC 9002 Appendix A.6) and persistent congestion
@@ -62,10 +62,13 @@ public final class LossDetector {
     public static final double K_TIME_THRESHOLD = 9.0 / 8.0;
 
     /** RFC 9002 Appendix A.2: timer granularity. */
-    public static final long K_GRANULARITY = 1;
+    public static final long K_GRANULARITY = 1000;
 
     /** RFC 9002 section 7.6.1: multiplier on the RTT-based term to get the persistent congestion duration. */
     public static final int K_PERSISTENT_CONGESTION_THRESHOLD = 3;
+
+    /** Sentinel for {@link #setAckElicitingThreshold}: the rule is off. */
+    private static final long NO_THRESHOLD = -1;
 
     /** Sentinel meaning "no packet number space loss/PTO timeout is currently needed". */
     public static final long NO_TIMEOUT = -1;
@@ -170,6 +173,7 @@ public final class LossDetector {
 
     private int ptoCount;
     private boolean handshakeConfirmed;
+    private long ackElicitingThreshold = NO_THRESHOLD;
 
     /**
      * 0 until the first RTT sample is taken (RFC 9002 section 7.6.2 --
@@ -216,6 +220,19 @@ public final class LossDetector {
     }
 
     /**
+     * Sets the Ack-Eliciting Threshold the peer is known to be applying
+     * (draft-ietf-quic-ack-frequency section 6.5). While more ack-eliciting
+     * application data packets than this are in flight, the peer cannot be
+     * holding an ACK back for its max_ack_delay, so the Probe Timeout
+     * leaves that term out.
+     *
+     * @param threshold the threshold, or a negative number for none
+     */
+    public void setAckElicitingThreshold(long threshold) {
+        this.ackElicitingThreshold = threshold < 0 ? NO_THRESHOLD : threshold;
+    }
+
+    /**
      * Records that the handshake is confirmed (RFC 9001 section 4.1.2),
      * affecting ACK delay clamping ({@link RttEstimator#onRttSample})
      * and PTO computation's treatment of the ApplicationData space.
@@ -231,21 +248,21 @@ public final class LossDetector {
      *
      * @param level the packet number space
      * @param packetNumber the packet number
-     * @param nowMillis the current time
+     * @param nowMicros the current time
      * @param ackEliciting true if an acknowledgment is expected
      * @param inFlight true if this packet counts toward bytes in flight
      * @param sentBytes the number of bytes sent
      */
-    public void onPacketSent(EncryptionLevel level, long packetNumber, long nowMillis,
+    public void onPacketSent(EncryptionLevel level, long packetNumber, long nowMicros,
             boolean ackEliciting, boolean inFlight, int sentBytes) {
-        SentPacket packet = new SentPacket(packetNumber, nowMillis, ackEliciting, inFlight, sentBytes);
+        SentPacket packet = new SentPacket(packetNumber, nowMicros, ackEliciting, inFlight, sentBytes);
         sentPackets.get(level).put(packetNumber, packet);
         if (ackEliciting && inFlight) {
             ackElicitingInFlightCount.put(level, ackElicitingInFlightCount.get(level) + 1);
         }
         if (inFlight) {
             if (ackEliciting) {
-                timeOfLastAckEliciting.put(level, nowMillis);
+                timeOfLastAckEliciting.put(level, nowMicros);
             }
             congestionController.onPacketSent(sentBytes);
         }
@@ -256,18 +273,18 @@ public final class LossDetector {
      *
      * @param level the packet number space the ACK frame arrived in
      * @param largestAcked the ACK frame's Largest Acknowledged field
-     * @param ackDelayMillis the ACK frame's ACK Delay field, converted to milliseconds
+     * @param ackDelayMicros the ACK frame's ACK Delay field, converted to microseconds
      * @param ackRanges every acknowledged packet number range in the
      *                  frame, as {@code {low, high}} pairs -- see
      *                  {@code QuicFrameHandler#ackFrameReceived}
-     * @param maxAckDelayMillis the peer's {@code max_ack_delay} transport parameter
-     * @param nowMillis the current time
+     * @param maxAckDelayMicros the peer's {@code max_ack_delay} transport parameter
+     * @param nowMicros the current time
      * @param peerAddressValidated true once {@code PeerCompletedAddressValidation()}
      *                             (RFC 9002 Appendix A.8) holds, resetting the PTO count
      * @return the newly acknowledged and newly lost packets
      */
-    public AckResult onAckReceived(EncryptionLevel level, long largestAcked, long ackDelayMillis,
-            long[][] ackRanges, long maxAckDelayMillis, long nowMillis, boolean peerAddressValidated) {
+    public AckResult onAckReceived(EncryptionLevel level, long largestAcked, long ackDelayMicros,
+            long[][] ackRanges, long maxAckDelayMicros, long nowMicros, boolean peerAddressValidated) {
         long currentLargest = largestAckedPacket.get(level);
         largestAckedPacket.put(level, currentLargest < 0 ? largestAcked : Math.max(currentLargest, largestAcked));
 
@@ -278,19 +295,19 @@ public final class LossDetector {
 
         SentPacket largestNewlyAcked = newlyAcked.get(newlyAcked.size() - 1);
         if (largestNewlyAcked.getPacketNumber() == largestAcked && includesAckEliciting(newlyAcked)) {
-            rttEstimator.onRttSample(nowMillis - largestNewlyAcked.getTimeSentMillis(), ackDelayMillis,
-                    maxAckDelayMillis, handshakeConfirmed);
+            rttEstimator.onRttSample(nowMicros - largestNewlyAcked.getTimeSentMicros(), ackDelayMicros,
+                    maxAckDelayMicros, handshakeConfirmed);
             if (firstRttSampleTime == 0) {
-                firstRttSampleTime = nowMillis;
+                firstRttSampleTime = nowMicros;
             }
         }
 
-        List<SentPacket> newlyLost = detectAndRemoveLostPackets(level, nowMillis);
-        onPacketsLost(newlyLost, maxAckDelayMillis, nowMillis);
+        List<SentPacket> newlyLost = detectAndRemoveLostPackets(level, nowMicros);
+        onPacketsLost(newlyLost, maxAckDelayMicros, nowMicros);
 
         for (SentPacket acked : newlyAcked) {
             if (acked.isInFlight()) {
-                congestionController.onPacketAcked(acked.getTimeSentMillis(), acked.getSentBytes(), false);
+                congestionController.onPacketAcked(acked.getTimeSentMicros(), acked.getSentBytes(), false);
             }
         }
 
@@ -343,27 +360,27 @@ public final class LossDetector {
     // at or below largestAcked can be lost, so headMap bounds the scan
     // to exactly those, rather than visiting every outstanding packet
     // (including ones sent after largestAcked) only to skip most of them.
-    private List<SentPacket> detectAndRemoveLostPackets(EncryptionLevel level, long nowMillis) {
+    private List<SentPacket> detectAndRemoveLostPackets(EncryptionLevel level, long nowMicros) {
         long largestAcked = largestAckedPacket.get(level);
         lossTime.put(level, 0L);
         List<SentPacket> lost = new ArrayList<SentPacket>();
 
         long lossDelay = (long) (K_TIME_THRESHOLD * Math.max(rttEstimator.getLatestRtt(), rttEstimator.getSmoothedRtt()));
         lossDelay = Math.max(lossDelay, K_GRANULARITY);
-        long lostSendTime = nowMillis - lossDelay;
+        long lostSendTime = nowMicros - lossDelay;
 
         NavigableMap<Long, SentPacket> candidates = sentPackets.get(level).headMap(largestAcked, true);
         Iterator<Map.Entry<Long, SentPacket>> it = candidates.entrySet().iterator();
         while (it.hasNext()) {
             SentPacket packet = it.next().getValue();
-            if (packet.getTimeSentMillis() <= lostSendTime || largestAcked >= packet.getPacketNumber() + K_PACKET_THRESHOLD) {
+            if (packet.getTimeSentMicros() <= lostSendTime || largestAcked >= packet.getPacketNumber() + K_PACKET_THRESHOLD) {
                 it.remove();
                 if (packet.isAckEliciting() && packet.isInFlight()) {
                     ackElicitingInFlightCount.put(level, ackElicitingInFlightCount.get(level) - 1);
                 }
                 lost.add(packet);
             } else {
-                long candidateLossTime = packet.getTimeSentMillis() + lossDelay;
+                long candidateLossTime = packet.getTimeSentMicros() + lossDelay;
                 long currentLossTime = lossTime.get(level);
                 lossTime.put(level, currentLossTime == 0 ? candidateLossTime : Math.min(currentLossTime, candidateLossTime));
             }
@@ -378,7 +395,7 @@ public final class LossDetector {
     // shrinks the congestion window exactly like an ACK-driven one does,
     // which onLossDetectionTimeout previously skipped entirely), then
     // checks whether that loss also constitutes persistent congestion.
-    private void onPacketsLost(List<SentPacket> lost, long maxAckDelayMillis, long nowMillis) {
+    private void onPacketsLost(List<SentPacket> lost, long maxAckDelayMicros, long nowMicros) {
         if (lost.isEmpty()) {
             return;
         }
@@ -388,17 +405,17 @@ public final class LossDetector {
                 // a lost packet is no longer in flight: left counted, each
                 // loss would take its bytes out of the window for good
                 congestionController.removeFromBytesInFlight(packet.getSentBytes());
-                sentTimeOfLastLoss = Math.max(sentTimeOfLastLoss, packet.getTimeSentMillis());
+                sentTimeOfLastLoss = Math.max(sentTimeOfLastLoss, packet.getTimeSentMicros());
             }
         }
         if (sentTimeOfLastLoss != 0) {
-            congestionController.onCongestionEvent(sentTimeOfLastLoss, nowMillis);
+            congestionController.onCongestionEvent(sentTimeOfLastLoss, nowMicros);
         }
 
         if (firstRttSampleTime == 0) {
             return;
         }
-        if (isInPersistentCongestion(lost, maxAckDelayMillis)) {
+        if (isInPersistentCongestion(lost, maxAckDelayMicros)) {
             congestionController.onPersistentCongestion();
         }
     }
@@ -426,15 +443,15 @@ public final class LossDetector {
     // over-detect -- an accepted simplification given persistent
     // congestion is itself an additional-safety-margin mechanism on top
     // of ordinary loss-based congestion response, not the primary signal.
-    private boolean isInPersistentCongestion(List<SentPacket> lost, long maxAckDelayMillis) {
+    private boolean isInPersistentCongestion(List<SentPacket> lost, long maxAckDelayMicros) {
         long durationThreshold = (rttEstimator.getSmoothedRtt()
-                + Math.max(4 * rttEstimator.getRttVar(), K_GRANULARITY) + maxAckDelayMillis)
+                + Math.max(4 * rttEstimator.getRttVar(), K_GRANULARITY) + maxAckDelayMicros)
                 * K_PERSISTENT_CONGESTION_THRESHOLD;
 
         SentPacket runFirstAckEliciting = null;
         SentPacket previous = null;
         for (SentPacket packet : lost) {
-            if (packet.getTimeSentMillis() <= firstRttSampleTime) {
+            if (packet.getTimeSentMicros() <= firstRttSampleTime) {
                 runFirstAckEliciting = null;
                 previous = null;
                 continue;
@@ -446,7 +463,7 @@ public final class LossDetector {
             if (packet.isAckEliciting()) {
                 if (runFirstAckEliciting == null) {
                     runFirstAckEliciting = packet;
-                } else if (packet.getTimeSentMillis() - runFirstAckEliciting.getTimeSentMillis() >= durationThreshold) {
+                } else if (packet.getTimeSentMicros() - runFirstAckEliciting.getTimeSentMicros() >= durationThreshold) {
                     return true;
                 }
             }
@@ -471,12 +488,12 @@ public final class LossDetector {
      *                         determines which space an anti-deadlock
      *                         probe targets when nothing is in flight
      *                         and the peer's address is not yet validated
-     * @param maxAckDelayMillis the peer's {@code max_ack_delay} transport parameter
-     * @param nowMillis the current time
+     * @param maxAckDelayMicros the peer's {@code max_ack_delay} transport parameter
+     * @param nowMicros the current time
      * @return the absolute deadline, or {@link #NO_TIMEOUT} if no timer is needed
      */
     public long getLossDetectionTimeout(boolean serverAtAntiAmplificationLimit, boolean peerAddressValidated,
-            boolean hasHandshakeKeys, long maxAckDelayMillis, long nowMillis) {
+            boolean hasHandshakeKeys, long maxAckDelayMicros, long nowMicros) {
         long earliestLossTime = earliestLossTime();
         if (earliestLossTime != 0) {
             return earliestLossTime;
@@ -487,7 +504,7 @@ public final class LossDetector {
         if (!hasAckElicitingInFlight() && peerAddressValidated) {
             return NO_TIMEOUT;
         }
-        return (Long) ptoTimeAndSpace(peerAddressValidated, hasHandshakeKeys, maxAckDelayMillis, nowMillis)[0];
+        return (Long) ptoTimeAndSpace(peerAddressValidated, hasHandshakeKeys, maxAckDelayMicros, nowMicros)[0];
     }
 
     private long earliestLossTime() {
@@ -514,7 +531,12 @@ public final class LossDetector {
         return space;
     }
 
-    private boolean hasAckElicitingInFlight() {
+    /**
+     * Returns whether any ack-eliciting packet is in flight in any space.
+     *
+     * @return true if one is
+     */
+    public boolean hasAckElicitingInFlight() {
         for (EncryptionLevel level : EncryptionLevel.values()) {
             if (ackElicitingInFlightCount.get(level) > 0) {
                 return true;
@@ -528,14 +550,14 @@ public final class LossDetector {
     // the pair together (getLossDetectionTimeout for the timeout,
     // onLossDetectionTimeout for the space).
     private Object[] ptoTimeAndSpace(boolean peerAddressValidated, boolean hasHandshakeKeys,
-            long maxAckDelayMillis, long nowMillis) {
+            long maxAckDelayMicros, long nowMicros) {
         long duration = (rttEstimator.getSmoothedRtt() + Math.max(4 * rttEstimator.getRttVar(), K_GRANULARITY))
                 * (1L << ptoCount);
 
         if (!hasAckElicitingInFlight()) {
             // Anti-deadlock PTO: only reachable before peerAddressValidated.
             EncryptionLevel space = hasHandshakeKeys ? EncryptionLevel.HANDSHAKE : EncryptionLevel.INITIAL;
-            return new Object[] { nowMillis + duration, space };
+            return new Object[] { nowMicros + duration, space };
         }
 
         long ptoTimeout = Long.MAX_VALUE;
@@ -549,7 +571,10 @@ public final class LossDetector {
                 if (!handshakeConfirmed) {
                     return new Object[] { ptoTimeout == Long.MAX_VALUE ? NO_TIMEOUT : ptoTimeout, ptoSpace };
                 }
-                levelDuration += maxAckDelayMillis * (1L << ptoCount);
+                if (ackElicitingThreshold == NO_THRESHOLD
+                        || ackElicitingInFlightCount.get(level) <= ackElicitingThreshold) {
+                    levelDuration += maxAckDelayMicros * (1L << ptoCount);
+                }
             }
             long candidate = timeOfLastAckEliciting.get(level) + levelDuration;
             if (candidate < ptoTimeout) {
@@ -571,23 +596,23 @@ public final class LossDetector {
      * @param peerAddressValidated true once {@code PeerCompletedAddressValidation()} holds
      * @param hasHandshakeKeys true once Handshake-level packet
      *                         protection keys have been derived
-     * @param maxAckDelayMillis the peer's {@code max_ack_delay} transport parameter
-     * @param nowMillis the current time
+     * @param maxAckDelayMicros the peer's {@code max_ack_delay} transport parameter
+     * @param nowMicros the current time
      * @return either the packets lost by time-threshold detection, or
      *         (if nothing was lost) the packet number space a probe
      *         should be sent in
      */
     public TimeoutResult onLossDetectionTimeout(boolean peerAddressValidated, boolean hasHandshakeKeys,
-            long maxAckDelayMillis, long nowMillis) {
+            long maxAckDelayMicros, long nowMicros) {
         long earliestLossTime = earliestLossTime();
         if (earliestLossTime != 0) {
             EncryptionLevel space = earliestLossSpace();
-            List<SentPacket> lost = detectAndRemoveLostPackets(space, nowMillis);
-            onPacketsLost(lost, maxAckDelayMillis, nowMillis);
+            List<SentPacket> lost = detectAndRemoveLostPackets(space, nowMicros);
+            onPacketsLost(lost, maxAckDelayMicros, nowMicros);
             return new TimeoutResult(lost, space, null);
         }
 
-        Object[] ptoTimeAndSpace = ptoTimeAndSpace(peerAddressValidated, hasHandshakeKeys, maxAckDelayMillis, nowMillis);
+        Object[] ptoTimeAndSpace = ptoTimeAndSpace(peerAddressValidated, hasHandshakeKeys, maxAckDelayMicros, nowMicros);
         EncryptionLevel probeSpace = (EncryptionLevel) ptoTimeAndSpace[1];
         ptoCount++;
         return new TimeoutResult(new ArrayList<SentPacket>(), null, probeSpace);

@@ -72,6 +72,7 @@ public final class TransportParameters {
     public static final long INITIAL_MAX_STREAM_DATA_UNI = 0x07;
     public static final long INITIAL_MAX_STREAMS_BIDI = 0x08;
     public static final long INITIAL_MAX_STREAMS_UNI = 0x09;
+    public static final long ACK_DELAY_EXPONENT = 0x0a;
     public static final long MAX_ACK_DELAY = 0x0b;
     /** The sender's own connection ID from its first Initial packet (RFC 9000 section 7.3). */
     public static final long INITIAL_SOURCE_CONNECTION_ID = 0x0f;
@@ -86,6 +87,8 @@ public final class TransportParameters {
 
     /** RFC 9000 section 18.2: default when max_udp_payload_size is absent. */
     public static final long DEFAULT_MAX_UDP_PAYLOAD_SIZE = 65527;
+    /** RFC 9000 section 18.2: default when ack_delay_exponent is absent. */
+    public static final long DEFAULT_ACK_DELAY_EXPONENT = 3;
     /** RFC 9000 section 18.2: default when max_ack_delay is absent. */
     public static final long DEFAULT_MAX_ACK_DELAY = 25;
 
@@ -93,6 +96,7 @@ public final class TransportParameters {
     private long maxIdleTimeout;
     private long maxUdpPayloadSize = DEFAULT_MAX_UDP_PAYLOAD_SIZE;
     private long maxAckDelay = DEFAULT_MAX_ACK_DELAY;
+    private long ackDelayExponent = DEFAULT_ACK_DELAY_EXPONENT;
     private long initialMaxData;
     private long initialMaxStreamDataBidiLocal;
     private long initialMaxStreamDataBidiRemote;
@@ -156,6 +160,7 @@ public final class TransportParameters {
         c.maxIdleTimeout = maxIdleTimeout;
         c.maxUdpPayloadSize = maxUdpPayloadSize;
         c.maxAckDelay = maxAckDelay;
+        c.ackDelayExponent = ackDelayExponent;
         c.initialMaxData = initialMaxData;
         c.initialMaxStreamDataBidiLocal = initialMaxStreamDataBidiLocal;
         c.initialMaxStreamDataBidiRemote = initialMaxStreamDataBidiRemote;
@@ -209,6 +214,14 @@ public final class TransportParameters {
      *
      * @return the max ack delay, in milliseconds
      */
+    public long getAckDelayExponent() {
+        return ackDelayExponent;
+    }
+
+    public void setAckDelayExponent(long ackDelayExponent) {
+        this.ackDelayExponent = ackDelayExponent;
+    }
+
     public long getMaxAckDelay() {
         return maxAckDelay;
     }
@@ -460,6 +473,9 @@ public final class TransportParameters {
         size += entryLength(INITIAL_MAX_STREAMS_BIDI, varIntValueLength(initialMaxStreamsBidi));
         size += entryLength(INITIAL_MAX_STREAMS_UNI, varIntValueLength(initialMaxStreamsUni));
         size += entryLength(MAX_ACK_DELAY, varIntValueLength(maxAckDelay));
+        if (ackDelayExponent != DEFAULT_ACK_DELAY_EXPONENT) {
+            size += entryLength(ACK_DELAY_EXPONENT, varIntValueLength(ackDelayExponent));
+        }
         if (initialSourceConnectionId != null) {
             size += entryLength(INITIAL_SOURCE_CONNECTION_ID, initialSourceConnectionId.length);
         }
@@ -495,6 +511,9 @@ public final class TransportParameters {
         writeVarIntParam(buf, INITIAL_MAX_STREAMS_BIDI, initialMaxStreamsBidi);
         writeVarIntParam(buf, INITIAL_MAX_STREAMS_UNI, initialMaxStreamsUni);
         writeVarIntParam(buf, MAX_ACK_DELAY, maxAckDelay);
+        if (ackDelayExponent != DEFAULT_ACK_DELAY_EXPONENT) {
+            writeVarIntParam(buf, ACK_DELAY_EXPONENT, ackDelayExponent);
+        }
         if (initialSourceConnectionId != null) {
             writeBytesParam(buf, INITIAL_SOURCE_CONNECTION_ID, initialSourceConnectionId);
         }
@@ -677,6 +696,8 @@ public final class TransportParameters {
                 params.initialMaxStreamsBidi = VarInt.decode(buf);
             } else if (id == INITIAL_MAX_STREAMS_UNI) {
                 params.initialMaxStreamsUni = VarInt.decode(buf);
+            } else if (id == ACK_DELAY_EXPONENT) {
+                params.ackDelayExponent = VarInt.decode(buf);
             } else if (id == MAX_ACK_DELAY) {
                 params.maxAckDelay = VarInt.decode(buf);
             } else if (id == INITIAL_SOURCE_CONNECTION_ID) {

@@ -369,4 +369,20 @@ public class TransportParametersTest {
         assertEquals(1200, copy.getMaxDatagramFrameSize());
         assertTrue(params.hasMinAckDelay());
     }
+
+    @Test
+    public void testAckDelayExponentDefaultsToThree() {
+        TransportParameters decoded = TransportParameters.decode(
+                ByteBuffer.wrap(new TransportParameters().encode()));
+        assertEquals(3, decoded.getAckDelayExponent());
+    }
+
+    @Test
+    public void testAckDelayExponentRoundTrip() {
+        TransportParameters params = new TransportParameters();
+        params.setAckDelayExponent(5);
+        TransportParameters decoded = TransportParameters.decode(ByteBuffer.wrap(params.encode()));
+        assertEquals(5, decoded.getAckDelayExponent());
+        assertEquals(5, params.copyWithoutMinAckDelay().getAckDelayExponent());
+    }
 }

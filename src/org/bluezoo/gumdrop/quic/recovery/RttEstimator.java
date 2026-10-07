@@ -25,7 +25,7 @@ package org.bluezoo.gumdrop.quic.recovery;
  * Round-trip time estimation (RFC 9002 section 5), the exact algorithm
  * from the {@code UpdateRtt} pseudocode in Appendix A.7.
  *
- * <p>All times are milliseconds, supplied explicitly by the caller
+ * <p>All times are microseconds, supplied explicitly by the caller
  * rather than read from a system clock -- this class has no notion of
  * "now" of its own, which keeps it deterministically testable and
  * reusable regardless of which clock source the eventual owning
@@ -39,7 +39,7 @@ package org.bluezoo.gumdrop.quic.recovery;
 public final class RttEstimator {
 
     /** RFC 9002 section 6.2.2: the RTT assumed before any real sample exists. */
-    public static final long K_INITIAL_RTT = 333;
+    public static final long K_INITIAL_RTT = 333_000;
 
     private long latestRtt;
     private long smoothedRtt;
@@ -59,33 +59,33 @@ public final class RttEstimator {
      * Records a new RTT sample and updates the smoothed estimate (RFC
      * 9002 Appendix A.7's {@code UpdateRtt}).
      *
-     * @param latestRttMillis the RTT just measured for a newly
+     * @param latestRttMicros the RTT just measured for a newly
      *                        acknowledged, previously unacknowledged packet
-     * @param ackDelayMillis the ACK Delay field from the acknowledging
-     *                       ACK frame, already converted to milliseconds
-     * @param maxAckDelayMillis the peer's {@code max_ack_delay} transport parameter
+     * @param ackDelayMicros the ACK Delay field from the acknowledging
+     *                       ACK frame, already converted to microseconds
+     * @param maxAckDelayMicros the peer's {@code max_ack_delay} transport parameter
      * @param handshakeConfirmed true once the handshake is confirmed
      *                           (RFC 9001 section 4.1.2) -- until then,
-     *                           {@code ackDelayMillis} is used unclamped
+     *                           {@code ackDelayMicros} is used unclamped
      */
-    public void onRttSample(long latestRttMillis, long ackDelayMillis, long maxAckDelayMillis,
+    public void onRttSample(long latestRttMicros, long ackDelayMicros, long maxAckDelayMicros,
             boolean handshakeConfirmed) {
-        this.latestRtt = latestRttMillis;
+        this.latestRtt = latestRttMicros;
 
         if (!hasSample) {
-            minRtt = latestRttMillis;
-            smoothedRtt = latestRttMillis;
-            rttvar = latestRttMillis / 2;
+            minRtt = latestRttMicros;
+            smoothedRtt = latestRttMicros;
+            rttvar = latestRttMicros / 2;
             hasSample = true;
             return;
         }
 
-        minRtt = Math.min(minRtt, latestRttMillis);
-        long ackDelay = handshakeConfirmed ? Math.min(ackDelayMillis, maxAckDelayMillis) : ackDelayMillis;
+        minRtt = Math.min(minRtt, latestRttMicros);
+        long ackDelay = handshakeConfirmed ? Math.min(ackDelayMicros, maxAckDelayMicros) : ackDelayMicros;
 
-        long adjustedRtt = latestRttMillis;
-        if (latestRttMillis >= minRtt + ackDelay) {
-            adjustedRtt = latestRttMillis - ackDelay;
+        long adjustedRtt = latestRttMicros;
+        if (latestRttMicros >= minRtt + ackDelay) {
+            adjustedRtt = latestRttMicros - ackDelay;
         }
 
         rttvar = (3 * rttvar + Math.abs(smoothedRtt - adjustedRtt)) / 4;
@@ -95,7 +95,7 @@ public final class RttEstimator {
     /**
      * Returns the most recent RTT sample.
      *
-     * @return the latest RTT, in milliseconds
+     * @return the latest RTT, in microseconds
      */
     public long getLatestRtt() {
         return latestRtt;
@@ -104,7 +104,7 @@ public final class RttEstimator {
     /**
      * Returns the smoothed RTT estimate.
      *
-     * @return the smoothed RTT, in milliseconds
+     * @return the smoothed RTT, in microseconds
      */
     public long getSmoothedRtt() {
         return smoothedRtt;
@@ -113,7 +113,7 @@ public final class RttEstimator {
     /**
      * Returns the RTT variation.
      *
-     * @return the RTT variation, in milliseconds
+     * @return the RTT variation, in microseconds
      */
     public long getRttVar() {
         return rttvar;
@@ -122,7 +122,7 @@ public final class RttEstimator {
     /**
      * Returns the minimum RTT observed so far (0 if no sample yet).
      *
-     * @return the minimum RTT, in milliseconds
+     * @return the minimum RTT, in microseconds
      */
     public long getMinRtt() {
         return minRtt;

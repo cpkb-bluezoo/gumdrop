@@ -92,7 +92,7 @@ public class RttEstimatorTest {
         estimator.onRttSample(50, 0, 10, false); // smoothedRtt=50, rttvar=25, minRtt=50
 
         estimator.onRttSample(100, 40, 10, true);
-        // ackDelay clamped to maxAckDelayMillis = 10; adjustedRtt: 100 >= 50+10 -> 100-10 = 90
+        // ackDelay clamped to maxAckDelayMicros = 10; adjustedRtt: 100 >= 50+10 -> 100-10 = 90
         // rttvar = (3*25 + |50-90|)/4 = 115/4 = 28
         // smoothedRtt = (7*50 + 90)/8 = 440/8 = 55
         assertEquals(28, estimator.getRttVar());

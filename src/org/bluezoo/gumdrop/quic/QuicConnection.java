@@ -352,6 +352,24 @@ public final class QuicConnection implements QuicTlsEngineListener {
     // The peer's min_ack_delay in microseconds, from its real transport
     // parameters only (never a remembered set): negative when absent
     private long peerMinAckDelayMicros = -1;
+    // Sending ACK_FREQUENCY (draft-ietf-quic-ack-frequency sections 4, 6):
+    // the next Sequence Number, whether a frame is owed, and the frames in
+    // flight keyed by the packet number carrying them: {sequence, requested
+    // max ack delay in microseconds, ack-eliciting threshold}
+    private long nextAckFrequencySequence;
+    private boolean ackFrequencyOwed;
+    private boolean ackFrequencyQueuedOnce;
+    private long latestAckFrequencySequenceSent = -1;
+    private long ackedAckFrequencySequence = -1;
+    private final Map<Long, long[]> sentAckFrequency = new HashMap<Long, long[]>();
+    // The requested max ack delay the peer is known to apply (the latest
+    // acknowledged frame), and that of the latest frame still unacknowledged
+    private long ackFrequencyAckedDelayMicros = -1;
+    private long ackFrequencyPendingDelayMicros = -1;
+    // IMMEDIATE_ACK: owed to a probe packet, or for ACK silence beyond a round trip
+    private boolean immediateAckOwed;
+    private boolean immediateAckSinceLastAck;
+    private long lastAckReceivedMicros = Long.MIN_VALUE;
     private TimerHandle ackTimerHandle;
     // Packet numbers received (ack-eliciting) but not yet *confirmed
     // received by the peer* -- RFC 9000 section 13.2.1 requires an ACK
@@ -2133,9 +2151,12 @@ public final class QuicConnection implements QuicTlsEngineListener {
             if (level == EncryptionLevel.HANDSHAKE) {
                 receivedHandshakeAck = true;
             }
-            LossDetector.AckResult result = lossDetector.onAckReceived(level, largestAcknowledged, ackDelay,
-                    ranges, peerMaxAckDelay(), nowMillis(), peerAddressValidated());
+            LossDetector.AckResult result = lossDetector.onAckReceived(level, largestAcknowledged,
+                    ackDelayMicros(ackDelay), ranges, peerMaxAckDelayMicros(), nowMicros(), peerAddressValidated());
             retireAcknowledgedRanges(level, result.getNewlyAcked());
+            if (level == EncryptionLevel.ONE_RTT) {
+                noteOneRttAckReceived(result);
+            }
             if (level == EncryptionLevel.ONE_RTT && !currentSendKeysAcknowledged) {
                 for (SentPacket acked : result.getNewlyAcked()) {
                     if (acked.getPacketNumber() >= firstPnOfCurrentSendPhase) {
@@ -2399,6 +2420,7 @@ public final class QuicConnection implements QuicTlsEngineListener {
         public void handshakeDoneFrameReceived() {
             ackEliciting = true;
             handshakeConfirmed = true;
+            lossDetector.setHandshakeConfirmed(true);
             notifyClientHandshakeComplete();
             maybeMigrateToPreferredAddress();
         }
@@ -2484,9 +2506,109 @@ public final class QuicConnection implements QuicTlsEngineListener {
     // The peer's declared max_ack_delay (RFC 9000 section 18.2), or the
     // RFC's own default if the peer's transport parameters haven't
     // arrived yet (e.g. while still building Initial-level packets).
-    private long peerMaxAckDelay() {
-        return peerTransportParameters == null
-                ? TransportParameters.DEFAULT_MAX_ACK_DELAY : peerTransportParameters.getMaxAckDelay();
+    // draft-ietf-quic-ack-frequency section 6.5: until the latest frame
+    // is acknowledged the peer may be applying either value, so the larger
+    // of the two is used; once it is, the requested value stands in for
+    // the transport parameter.
+    private long peerMaxAckDelayMicros() {
+        long current = ackFrequencyAckedDelayMicros;
+        if (current < 0) {
+            long millis = peerTransportParameters == null
+                    ? TransportParameters.DEFAULT_MAX_ACK_DELAY : peerTransportParameters.getMaxAckDelay();
+            current = millis * 1000L;
+        }
+        return Math.max(current, ackFrequencyPendingDelayMicros);
+    }
+
+    // Whether this endpoint may send ACK_FREQUENCY and IMMEDIATE_ACK:
+    // switched on, and only to a peer that advertised min_ack_delay
+    private boolean mayAskForFewerAcks() {
+        return engine.isAckFrequencyEnabled() && peerMinAckDelayMicros >= 0;
+    }
+
+    // Asks for an ACK_FREQUENCY frame to be sent with the next packet
+    // that can carry it: once the handshake is confirmed and there is an
+    // RTT sample to size the request with, again after the congestion
+    // controller is reset by a migration, and again with a new sequence
+    // number when a frame is lost.
+    private void queueAckFrequency() {
+        if (mayAskForFewerAcks()) {
+            ackFrequencyOwed = true;
+            ackFrequencyQueuedOnce = true;
+        }
+    }
+
+    // The values to request (draft section 6.1.2, kept conservative since
+    // there is no pacing): no longer than a smoothed RTT or max_ack_delay,
+    // but no shorter than the peer's min_ack_delay; a threshold of a
+    // quarter of the congestion window in full-size packets; and the
+    // RFC 9000 reordering rule.
+    private long[] ackFrequencyRequest() {
+        long srtt = lossDetector.getRttEstimator().getSmoothedRtt();
+        long delay = Math.min(srtt, TransportParameters.DEFAULT_MAX_ACK_DELAY * 1000L);
+        delay = Math.max(delay, peerMinAckDelayMicros);
+        delay = Math.min(delay, AckFrequencyDraft.REQUESTED_MAX_ACK_DELAY_LIMIT_MICROS - 1);
+        long window = lossDetector.getCongestionController().getCongestionWindow() / MAX_DATAGRAM_SIZE;
+        long threshold = Math.max(AckFrequencyDraft.DEFAULT_ACK_ELICITING_THRESHOLD, window / 4);
+        return new long[] { delay, threshold };
+    }
+
+    // draft section 6.2: an ACK_FREQUENCY frame was acknowledged
+    private void ackFrequencyAcknowledged(long[] sent) {
+        if (sent[0] > ackedAckFrequencySequence) {
+            ackedAckFrequencySequence = sent[0];
+            ackFrequencyAckedDelayMicros = sent[1];
+            lossDetector.setAckElicitingThreshold(sent[2]);
+        }
+        if (sent[0] == latestAckFrequencySequenceSent) {
+            ackFrequencyPendingDelayMicros = -1;
+        }
+    }
+
+    // The ACK Delay field was received in this ACK frame's packet
+    private void noteOneRttAckReceived(LossDetector.AckResult result) {
+        if (result.getNewlyAcked().isEmpty()) {
+            return;
+        }
+        lastAckReceivedMicros = nowMicros();
+        immediateAckSinceLastAck = false;
+        for (SentPacket acked : result.getNewlyAcked()) {
+            long[] sent = sentAckFrequency.remove(Long.valueOf(acked.getPacketNumber()));
+            if (sent != null) {
+                ackFrequencyAcknowledged(sent);
+            }
+        }
+        if (!ackFrequencyQueuedOnce && handshakeConfirmed && lossDetector.getRttEstimator().hasRttSample()) {
+            queueAckFrequency();
+        }
+    }
+
+    // draft section 6.3: no ACK has arrived for more than a round trip
+    // although ack-eliciting data is in flight
+    private boolean ackSilenceCallsForImmediateAck() {
+        if (immediateAckSinceLastAck || lastAckReceivedMicros == Long.MIN_VALUE
+                || !lossDetector.hasAckElicitingInFlight()) {
+            return false;
+        }
+        return nowMicros() - lastAckReceivedMicros > lossDetector.getRttEstimator().getSmoothedRtt();
+    }
+
+    // RFC 9000 section 19.3: the ACK Delay field is in units of
+    // 2^ack_delay_exponent microseconds, the exponent being the one the
+    // peer declared (18.2), default 3.
+    private long ackDelayMicros(long field) {
+        long exponentValue = peerTransportParameters == null
+                ? TransportParameters.DEFAULT_ACK_DELAY_EXPONENT : peerTransportParameters.getAckDelayExponent();
+        // validated to at most 20 when the parameters arrive
+        int exponent = (int) Math.min(exponentValue, 20L);
+        if (field > (Long.MAX_VALUE >> exponent)) {
+            return Long.MAX_VALUE;
+        }
+        return field << exponent;
+    }
+
+    private static long microsToMillisCeil(long micros) {
+        return (micros + 999L) / 1000L;
     }
 
     // RFC 9000 section 13.2.4: once one of this endpoint's own sent
@@ -2536,6 +2658,12 @@ public final class QuicConnection implements QuicTlsEngineListener {
             pendingCrypto.get(level).addAll(0, lostCrypto);
         }
         if (level == EncryptionLevel.ONE_RTT) {
+            long[] lostAckFrequency = sentAckFrequency.remove(Long.valueOf(packetNumber));
+            if (lostAckFrequency != null && lostAckFrequency[0] == latestAckFrequencySequenceSent) {
+                // draft section 6.4: sent again with the current values
+                // and a new Sequence Number, not as the old frame
+                ackFrequencyOwed = mayAskForFewerAcks();
+            }
             Map<Long, List<PendingChunk>> lostStreams = sentStream.remove(Long.valueOf(packetNumber));
             if (lostStreams != null) {
                 for (Map.Entry<Long, List<PendingChunk>> entry : lostStreams.entrySet()) {
@@ -2972,7 +3100,7 @@ public final class QuicConnection implements QuicTlsEngineListener {
             return;
         }
         long pto = currentPathValidationPto();
-        long deadline = nowMillis() + Math.max(3 * pto, 6 * RttEstimator.K_INITIAL_RTT);
+        long deadline = nowMillis() + Math.max(3 * pto, 6 * microsToMillisCeil(RttEstimator.K_INITIAL_RTT));
         PathValidationAttempt attempt = new PathValidationAttempt(deadline);
         attempt.destinationConnectionId = destinationConnectionId;
         attempt.destinationConnectionIdSequence = destinationConnectionIdSequence;
@@ -3097,7 +3225,8 @@ public final class QuicConnection implements QuicTlsEngineListener {
         RttEstimator rtt = lossDetector.getRttEstimator();
         long smoothed = rtt.hasRttSample() ? rtt.getSmoothedRtt() : RttEstimator.K_INITIAL_RTT;
         long rttVar = rtt.hasRttSample() ? rtt.getRttVar() : RttEstimator.K_INITIAL_RTT / 2;
-        return smoothed + Math.max(4 * rttVar, 1) + peerMaxAckDelay();
+        return microsToMillisCeil(smoothed + Math.max(4 * rttVar, LossDetector.K_GRANULARITY)
+                + peerMaxAckDelayMicros());
     }
 
     // Called once a PATH_RESPONSE has proven the candidate path is real
@@ -3145,6 +3274,8 @@ public final class QuicConnection implements QuicTlsEngineListener {
         }
 
         lossDetector.getCongestionController().reset();
+        // the request was sized for the old path's window and RTT
+        queueAckFrequency();
         requestFlush();
     }
 
@@ -3684,6 +3815,10 @@ public final class QuicConnection implements QuicTlsEngineListener {
         long ackDelay = includeAck ? computeAckDelay(level) : 0;
         boolean includeHandshakeDone = oneRtt && handshakeDoneOwed;
         boolean includePing = pendingPing[level.ordinal()];
+        boolean includeAckFrequency = oneRtt && ackFrequencyOwed && handshakeConfirmed && mayAskForFewerAcks();
+        boolean immediateAckDue = oneRtt && immediateAckOwed && mayAskForFewerAcks();
+        boolean includeImmediateAck = immediateAckDue || (oneRtt && mayAskForFewerAcks() && ackSilenceCallsForImmediateAck());
+        long[] ackFrequencyValues = includeAckFrequency ? ackFrequencyRequest() : null;
         List<long[]> resetsToSend = oneRtt ? new ArrayList<long[]>(pendingResetStreams) : Collections.<long[]>emptyList();
         if (oneRtt && isServer) {
             connectionIdManager.rotateTo(engine.getQuicLbConfig());
@@ -3717,6 +3852,13 @@ public final class QuicConnection implements QuicTlsEngineListener {
         }
         if (includePing) {
             frameBytes += QuicFrameWriter.pingLength();
+        }
+        if (includeAckFrequency) {
+            frameBytes += QuicFrameWriter.ackFrequencyLength(nextAckFrequencySequence, ackFrequencyValues[1],
+                    ackFrequencyValues[0], AckFrequencyDraft.DEFAULT_REORDERING_THRESHOLD);
+        }
+        if (includeImmediateAck) {
+            frameBytes += QuicFrameWriter.immediateAckLength();
         }
         for (long[] reset : resetsToSend) {
             frameBytes += QuicFrameWriter.resetStreamLength(reset[0], reset[1], reset[2]);
@@ -3779,7 +3921,8 @@ public final class QuicConnection implements QuicTlsEngineListener {
         }
 
         boolean nothingToSend = cryptoToSend.isEmpty() && streamChunksToSend.isEmpty() && !includeAck
-                && !includeHandshakeDone && !includePing && resetsToSend.isEmpty() && newCidsToSend.isEmpty()
+                && !includeHandshakeDone && !includePing && !includeAckFrequency && !immediateAckDue
+                && resetsToSend.isEmpty() && newCidsToSend.isEmpty()
                 && retiresToSend.length == 0 && !includeMaxData && maxStreamDataToSend.isEmpty()
                 && !includeDataBlocked && streamDataBlockedToSend.isEmpty()
                 && !includeMaxStreamsBidi && !includeMaxStreamsUni
@@ -3898,6 +4041,21 @@ public final class QuicConnection implements QuicTlsEngineListener {
             QuicFrameWriter.writePing(payload);
             pendingPing[level.ordinal()] = false;
         }
+        if (includeAckFrequency) {
+            long sequence = nextAckFrequencySequence++;
+            QuicFrameWriter.writeAckFrequency(payload, sequence, ackFrequencyValues[1], ackFrequencyValues[0],
+                    AckFrequencyDraft.DEFAULT_REORDERING_THRESHOLD);
+            sentAckFrequency.put(Long.valueOf(packetNumber),
+                    new long[] { sequence, ackFrequencyValues[0], ackFrequencyValues[1] });
+            latestAckFrequencySequenceSent = sequence;
+            ackFrequencyPendingDelayMicros = ackFrequencyValues[0];
+            ackFrequencyOwed = false;
+        }
+        if (includeImmediateAck) {
+            QuicFrameWriter.writeImmediateAck(payload);
+            immediateAckOwed = false;
+            immediateAckSinceLastAck = true;
+        }
         for (long[] reset : resetsToSend) {
             QuicFrameWriter.writeResetStream(payload, reset[0], reset[1], reset[2]);
         }
@@ -3970,7 +4128,8 @@ public final class QuicConnection implements QuicTlsEngineListener {
         PacketProtection.xorPacketNumberBytes(packet, pnOffset, pnLength, mask);
 
         boolean ackEliciting = !sentCryptoThisPacket.isEmpty() || !sentStreamThisPacket.isEmpty()
-                || includeHandshakeDone || includePing || !resetsToSend.isEmpty() || !newCidsToSend.isEmpty()
+                || includeHandshakeDone || includePing || includeAckFrequency || includeImmediateAck
+                || !resetsToSend.isEmpty() || !newCidsToSend.isEmpty()
                 || retiresToSend.length > 0 || includeMaxData || !maxStreamDataToSend.isEmpty()
                 || includeDataBlocked || !streamDataBlockedToSend.isEmpty()
                 || !datagramsToSend.isEmpty();
@@ -3982,7 +4141,7 @@ public final class QuicConnection implements QuicTlsEngineListener {
         // be treated as congestion-window-relevant if it's ever declared
         // lost.
         boolean inFlight = ackEliciting || paddingBytes > 0;
-        lossDetector.onPacketSent(level, packetNumber, nowMillis(), ackEliciting, inFlight, packet.length);
+        lossDetector.onPacketSent(level, packetNumber, nowMicros(), ackEliciting, inFlight, packet.length);
         // Deferred until every bit of this packet's own construction and
         // bookkeeping above is done: notifyWriteReady() synchronously
         // runs application code, which can call stream.send(...) ->
@@ -4103,7 +4262,7 @@ public final class QuicConnection implements QuicTlsEngineListener {
         PacketProtection.xorPacketNumberBytes(packet, pnOffset, pnLength, mask);
 
         sentZeroRttStream.put(Long.valueOf(packetNumber), sentThisPacket);
-        lossDetector.onPacketSent(EncryptionLevel.ONE_RTT, packetNumber, nowMillis(), true, true,
+        lossDetector.onPacketSent(EncryptionLevel.ONE_RTT, packetNumber, nowMicros(), true, true,
                 packet.length);
         // Deferred until every bit of this packet's own construction and
         // bookkeeping above is done -- see the identical comment in
@@ -4132,10 +4291,10 @@ public final class QuicConnection implements QuicTlsEngineListener {
             timerHandle.cancel();
             timerHandle = null;
         }
-        long now = nowMillis();
+        long now = nowMicros();
         boolean hasHandshakeKeys = sendKeys.get(EncryptionLevel.HANDSHAKE) != null;
         long deadline = lossDetector.getLossDetectionTimeout(false, peerAddressValidated(), hasHandshakeKeys,
-                peerMaxAckDelay(), now);
+                peerMaxAckDelayMicros(), now);
         if (deadline == LossDetector.NO_TIMEOUT) {
             Runnable observer = lossDetectionIdleObserver;
             if (observer != null) {
@@ -4143,7 +4302,7 @@ public final class QuicConnection implements QuicTlsEngineListener {
             }
             return;
         }
-        long delay = Math.max(0, deadline - now);
+        long delay = Math.max(0, microsToMillisCeil(deadline - now));
         timerHandle = engine.scheduleTimer(delay, new Runnable() {
             @Override
             public void run() {
@@ -4158,7 +4317,7 @@ public final class QuicConnection implements QuicTlsEngineListener {
         }
         boolean hasHandshakeKeys = sendKeys.get(EncryptionLevel.HANDSHAKE) != null;
         LossDetector.TimeoutResult result = lossDetector.onLossDetectionTimeout(peerAddressValidated(), hasHandshakeKeys,
-                peerMaxAckDelay(), nowMillis());
+                peerMaxAckDelayMicros(), nowMicros());
         EncryptionLevel lossSpace = result.getLossSpace();
         if (lossSpace != null) {
             for (SentPacket lost : result.getNewlyLost()) {
@@ -4171,6 +4330,10 @@ public final class QuicConnection implements QuicTlsEngineListener {
             EncryptionLevel probeSpace = result.getProbeSpace();
             if (probeSpace != null && sendKeys.get(probeSpace) != null) {
                 pendingPing[probeSpace.ordinal()] = true;
+                // draft section 6.3: the probe asks for an ACK at once
+                if (probeSpace == EncryptionLevel.ONE_RTT && mayAskForFewerAcks()) {
+                    immediateAckOwed = true;
+                }
             }
         }
         flush();
@@ -4470,6 +4633,7 @@ public final class QuicConnection implements QuicTlsEngineListener {
         if (isServer) {
             handshakeDoneOwed = true;
             handshakeConfirmed = true; // RFC 9001 section 4.1.2: sending HANDSHAKE_DONE is the server's own confirmation
+            lossDetector.setHandshakeConfirmed(true);
             requestFlush();
         } else {
             notifyClientHandshakeComplete();
@@ -4483,6 +4647,10 @@ public final class QuicConnection implements QuicTlsEngineListener {
         if (transportParameters.hasMinAckDelay()
                 && transportParameters.getMinAckDelay() > transportParameters.getMaxAckDelay() * 1000L) {
             closeWithError(TRANSPORT_ERROR_TRANSPORT_PARAMETER_ERROR, "min_ack_delay exceeds max_ack_delay");
+            return;
+        }
+        if (transportParameters.getAckDelayExponent() > 20) {
+            closeWithError(TRANSPORT_ERROR_TRANSPORT_PARAMETER_ERROR, "ack_delay_exponent exceeds 20");
             return;
         }
         peerMinAckDelayMicros = transportParameters.hasMinAckDelay() ? transportParameters.getMinAckDelay() : -1;
@@ -4862,7 +5030,8 @@ public final class QuicConnection implements QuicTlsEngineListener {
     // the previous generation's receive keys are worth keeping.
     private long probeTimeoutMillis() {
         RttEstimator rtt = lossDetector.getRttEstimator();
-        return rtt.getSmoothedRtt() + Math.max(4 * rtt.getRttVar(), 1) + peerMaxAckDelay();
+        return microsToMillisCeil(rtt.getSmoothedRtt() + Math.max(4 * rtt.getRttVar(), LossDetector.K_GRANULARITY)
+                + peerMaxAckDelayMicros());
     }
 
     // Picks the 1-RTT keys for a packet whose Key Phase bit is known, or
@@ -4983,6 +5152,14 @@ public final class QuicConnection implements QuicTlsEngineListener {
         long micros = requestedMaxAckDelayMicros >= 0
                 ? requestedMaxAckDelayMicros : localTransportParameters.getMaxAckDelay() * 1000L;
         return micros * 1000L;
+    }
+
+    /**
+     * Returns a monotonic time in microseconds, plus the test-only offset,
+     * for loss detection and RTT estimation. Only differences are meaningful.
+     */
+    private long nowMicros() {
+        return nowNanos() / 1000L;
     }
 
     /**

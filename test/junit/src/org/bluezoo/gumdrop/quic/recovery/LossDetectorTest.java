@@ -42,6 +42,9 @@ import static org.junit.Assert.assertTrue;
  */
 public class LossDetectorTest {
 
+    /** The detector counts microseconds; the scenarios below are written in milliseconds. */
+    private static final long MS = 1000;
+
     private static void assertContainsPacketNumber(List<SentPacket> packets, long packetNumber) {
         for (SentPacket packet : packets) {
             if (packet.getPacketNumber() == packetNumber) {
@@ -54,22 +57,22 @@ public class LossDetectorTest {
     @Test
     public void testOnPacketSentTracksBytesInFlight() {
         LossDetector detector = new LossDetector(1200);
-        detector.onPacketSent(EncryptionLevel.ONE_RTT, 0, 100, true, true, 500);
+        detector.onPacketSent(EncryptionLevel.ONE_RTT, 0, 100 * MS, true, true, 500);
         assertEquals(500, detector.getCongestionController().getBytesInFlight());
     }
 
     @Test
     public void testAckAcknowledgesPacketAndTakesRttSample() {
         LossDetector detector = new LossDetector(1200);
-        detector.onPacketSent(EncryptionLevel.ONE_RTT, 0, 100, true, true, 500);
+        detector.onPacketSent(EncryptionLevel.ONE_RTT, 0, 100 * MS, true, true, 500);
 
         LossDetector.AckResult result = detector.onAckReceived(EncryptionLevel.ONE_RTT, 0, 0,
-                new long[][] { { 0, 0 } }, 25, 150, true);
+                new long[][] { { 0, 0 } }, 25 * MS, 150 * MS, true);
 
         assertEquals(1, result.getNewlyAcked().size());
         assertEquals(0, result.getNewlyAcked().get(0).getPacketNumber());
         assertTrue(result.getNewlyLost().isEmpty());
-        assertEquals(50, detector.getRttEstimator().getLatestRtt());
+        assertEquals(50 * MS, detector.getRttEstimator().getLatestRtt());
         assertEquals(0, detector.getCongestionController().getBytesInFlight());
     }
 
@@ -87,15 +90,15 @@ public class LossDetectorTest {
         // Application Data space's own first ACK doesn't also have to
         // absorb the "first sample" special case.
         detector.onPacketSent(EncryptionLevel.INITIAL, 0, 0, true, true, 50);
-        detector.onAckReceived(EncryptionLevel.INITIAL, 0, 0, new long[][] { { 0, 0 } }, 25, 200, true);
+        detector.onAckReceived(EncryptionLevel.INITIAL, 0, 0, new long[][] { { 0, 0 } }, 25 * MS, 200 * MS, true);
 
-        detector.onPacketSent(EncryptionLevel.ONE_RTT, 0, 1000, true, true, 100);
-        detector.onPacketSent(EncryptionLevel.ONE_RTT, 1, 1000, true, true, 100);
-        detector.onPacketSent(EncryptionLevel.ONE_RTT, 2, 1000, true, true, 100);
-        detector.onPacketSent(EncryptionLevel.ONE_RTT, 3, 1005, true, true, 100);
+        detector.onPacketSent(EncryptionLevel.ONE_RTT, 0, 1000 * MS, true, true, 100);
+        detector.onPacketSent(EncryptionLevel.ONE_RTT, 1, 1000 * MS, true, true, 100);
+        detector.onPacketSent(EncryptionLevel.ONE_RTT, 2, 1000 * MS, true, true, 100);
+        detector.onPacketSent(EncryptionLevel.ONE_RTT, 3, 1005 * MS, true, true, 100);
 
         LossDetector.AckResult result = detector.onAckReceived(EncryptionLevel.ONE_RTT, 3, 0,
-                new long[][] { { 3, 3 } }, 25, 1010, true);
+                new long[][] { { 3, 3 } }, 25 * MS, 1010 * MS, true);
 
         assertEquals(1, result.getNewlyAcked().size());
         assertEquals(3, result.getNewlyAcked().get(0).getPacketNumber());
@@ -125,17 +128,17 @@ public class LossDetectorTest {
     public void testLostPacketIsNoLongerInFlight() {
         LossDetector detector = new LossDetector(1200);
         detector.onPacketSent(EncryptionLevel.INITIAL, 0, 0, true, true, 50);
-        detector.onAckReceived(EncryptionLevel.INITIAL, 0, 0, new long[][] { { 0, 0 } }, 25, 200, true);
+        detector.onAckReceived(EncryptionLevel.INITIAL, 0, 0, new long[][] { { 0, 0 } }, 25 * MS, 200 * MS, true);
         assertEquals(0, detector.getCongestionController().getBytesInFlight());
 
-        detector.onPacketSent(EncryptionLevel.ONE_RTT, 0, 1000, true, true, 100);
-        detector.onPacketSent(EncryptionLevel.ONE_RTT, 1, 1000, true, true, 100);
-        detector.onPacketSent(EncryptionLevel.ONE_RTT, 2, 1000, true, true, 100);
-        detector.onPacketSent(EncryptionLevel.ONE_RTT, 3, 1005, true, true, 100);
+        detector.onPacketSent(EncryptionLevel.ONE_RTT, 0, 1000 * MS, true, true, 100);
+        detector.onPacketSent(EncryptionLevel.ONE_RTT, 1, 1000 * MS, true, true, 100);
+        detector.onPacketSent(EncryptionLevel.ONE_RTT, 2, 1000 * MS, true, true, 100);
+        detector.onPacketSent(EncryptionLevel.ONE_RTT, 3, 1005 * MS, true, true, 100);
         assertEquals(400, detector.getCongestionController().getBytesInFlight());
 
         LossDetector.AckResult result = detector.onAckReceived(EncryptionLevel.ONE_RTT, 3, 0,
-                new long[][] { { 3, 3 } }, 25, 1010, true);
+                new long[][] { { 3, 3 } }, 25 * MS, 1010 * MS, true);
         assertEquals(1, result.getNewlyAcked().size());
         assertEquals(1, result.getNewlyLost().size());
         // packet 3 acknowledged and packet 0 lost: packets 1 and 2 remain
@@ -146,18 +149,18 @@ public class LossDetectorTest {
     public void testTimeThresholdLossDetection() {
         LossDetector detector = new LossDetector(1200);
         detector.onPacketSent(EncryptionLevel.INITIAL, 0, 0, true, true, 50);
-        detector.onAckReceived(EncryptionLevel.INITIAL, 0, 0, new long[][] { { 0, 0 } }, 25, 50, true);
+        detector.onAckReceived(EncryptionLevel.INITIAL, 0, 0, new long[][] { { 0, 0 } }, 25 * MS, 50 * MS, true);
         // First (and so far only) RTT sample: 50ms -> smoothedRtt=50, rttvar=25, minRtt=50.
 
-        detector.onPacketSent(EncryptionLevel.ONE_RTT, 0, 1000, true, true, 100);
-        detector.onPacketSent(EncryptionLevel.ONE_RTT, 1, 1000, true, true, 100);
-        detector.onPacketSent(EncryptionLevel.ONE_RTT, 2, 1300, true, true, 100);
+        detector.onPacketSent(EncryptionLevel.ONE_RTT, 0, 1000 * MS, true, true, 100);
+        detector.onPacketSent(EncryptionLevel.ONE_RTT, 1, 1000 * MS, true, true, 100);
+        detector.onPacketSent(EncryptionLevel.ONE_RTT, 2, 1300 * MS, true, true, 100);
 
         // Packet 2's own round trip is a normal ~50ms, keeping the RTT
         // estimate stable, but packets 0/1 were sent 300ms before packet
         // 2 -- long enough to exceed the time-reordering window.
         LossDetector.AckResult result = detector.onAckReceived(EncryptionLevel.ONE_RTT, 2, 0,
-                new long[][] { { 2, 2 } }, 25, 1350, true);
+                new long[][] { { 2, 2 } }, 25 * MS, 1350 * MS, true);
 
         assertEquals(1, result.getNewlyAcked().size());
         assertEquals(2, result.getNewlyAcked().get(0).getPacketNumber());
@@ -171,7 +174,7 @@ public class LossDetectorTest {
     @Test
     public void testNoTimeoutWhenNothingAckElicitingInFlight() {
         LossDetector detector = new LossDetector(1200);
-        long timeout = detector.getLossDetectionTimeout(false, true, true, 25, 1000);
+        long timeout = detector.getLossDetectionTimeout(false, true, true, 25 * MS, 1000 * MS);
         assertEquals(LossDetector.NO_TIMEOUT, timeout);
     }
 
@@ -179,27 +182,27 @@ public class LossDetectorTest {
     public void testPtoTimeoutComputationAndBackoff() {
         LossDetector detector = new LossDetector(1200); // smoothedRtt=333, rttvar=166 (no sample yet)
         detector.setHandshakeConfirmed(true);
-        detector.onPacketSent(EncryptionLevel.ONE_RTT, 0, 1000, true, true, 100);
+        detector.onPacketSent(EncryptionLevel.ONE_RTT, 0, 1000 * MS, true, true, 100);
 
-        // duration = (333 + max(4*166, 1)) * 2^0 = 997; +maxAckDelay(25)*2^0 = 1022
-        // timeout = timeOfLastAckEliciting(1000) + 1022 = 2022
-        long firstTimeout = detector.getLossDetectionTimeout(false, true, true, 25, 1000);
-        assertEquals(2022, firstTimeout);
+        // duration = (333 + max(4*166.5, 1)) * 2^0 = 999; +maxAckDelay(25)*2^0 = 1024
+        // timeout = timeOfLastAckEliciting(1000) + 1024 = 2024
+        long firstTimeout = detector.getLossDetectionTimeout(false, true, true, 25 * MS, 1000 * MS);
+        assertEquals(2024 * MS, firstTimeout);
 
-        LossDetector.TimeoutResult result = detector.onLossDetectionTimeout(true, true, 25, 2022);
+        LossDetector.TimeoutResult result = detector.onLossDetectionTimeout(true, true, 25 * MS, 2024 * MS);
         assertTrue(result.getNewlyLost().isEmpty());
         assertEquals(EncryptionLevel.ONE_RTT, result.getProbeSpace());
 
         // pto_count is now 1: duration doubles, as does the max_ack_delay term.
-        // duration = 997 * 2 = 1994; + 25*2 = 50 -> 2044; timeout = 1000 + 2044 = 3044
-        long secondTimeout = detector.getLossDetectionTimeout(false, true, true, 25, 2022);
-        assertEquals(3044, secondTimeout);
+        // duration = 999 * 2 = 1998; + 25*2 = 50 -> 2048; timeout = 1000 + 2048 = 3048
+        long secondTimeout = detector.getLossDetectionTimeout(false, true, true, 25 * MS, 2024 * MS);
+        assertEquals(3048 * MS, secondTimeout);
     }
 
     @Test
     public void testDiscardPacketNumberSpaceClearsStateAndBytesInFlight() {
         LossDetector detector = new LossDetector(1200);
-        detector.onPacketSent(EncryptionLevel.INITIAL, 0, 1000, true, true, 300);
+        detector.onPacketSent(EncryptionLevel.INITIAL, 0, 1000 * MS, true, true, 300);
         assertEquals(300, detector.getCongestionController().getBytesInFlight());
 
         detector.discardPacketNumberSpace(EncryptionLevel.INITIAL);
@@ -207,7 +210,7 @@ public class LossDetectorTest {
         assertEquals(0, detector.getCongestionController().getBytesInFlight());
         // Nothing left in flight in that space, so a subsequent ACK there acknowledges nothing.
         LossDetector.AckResult result = detector.onAckReceived(EncryptionLevel.INITIAL, 0, 0,
-                new long[][] { { 0, 0 } }, 25, 1100, true);
+                new long[][] { { 0, 0 } }, 25 * MS, 1100 * MS, true);
         assertTrue(result.getNewlyAcked().isEmpty());
     }
 
@@ -222,19 +225,19 @@ public class LossDetectorTest {
     public void testPersistentCongestionDropsWindowToMinimum() {
         LossDetector detector = new LossDetector(1200); // window 12000, minimum 2400
         detector.onPacketSent(EncryptionLevel.INITIAL, 0, 0, true, true, 50);
-        detector.onAckReceived(EncryptionLevel.INITIAL, 0, 0, new long[][] { { 0, 0 } }, 25, 200, true);
+        detector.onAckReceived(EncryptionLevel.INITIAL, 0, 0, new long[][] { { 0, 0 } }, 25 * MS, 200 * MS, true);
         // RTT sample: 200ms -> smoothedRtt=200, rttvar=100; firstRttSampleTime=200.
         // Persistent congestion duration = (200 + max(4*100,1) + 25) * 3 = 1875ms.
 
-        detector.onPacketSent(EncryptionLevel.ONE_RTT, 0, 1000, true, true, 100);
-        detector.onPacketSent(EncryptionLevel.ONE_RTT, 1, 2876, true, true, 100); // gap 1876ms > 1875ms
+        detector.onPacketSent(EncryptionLevel.ONE_RTT, 0, 1000 * MS, true, true, 100);
+        detector.onPacketSent(EncryptionLevel.ONE_RTT, 1, 2876 * MS, true, true, 100); // gap 1876ms > 1875ms
         // Non-ack-eliciting "vehicle" packet: its ack advances largestAcked
         // far enough for packet-threshold loss to declare 0 and 1 lost,
         // without itself contributing a second RTT sample that would
         // perturb the duration threshold computed above.
-        detector.onPacketSent(EncryptionLevel.ONE_RTT, 4, 3000, false, true, 50);
+        detector.onPacketSent(EncryptionLevel.ONE_RTT, 4, 3000 * MS, false, true, 50);
 
-        detector.onAckReceived(EncryptionLevel.ONE_RTT, 4, 0, new long[][] { { 4, 4 } }, 25, 3100, true);
+        detector.onAckReceived(EncryptionLevel.ONE_RTT, 4, 0, new long[][] { { 4, 4 } }, 25 * MS, 3100 * MS, true);
         // largestAcked(4) >= packetNumber+3 for both 0 and 1 -> both lost together, consecutively numbered.
         // onPersistentCongestion clears recoveryStartTime to 0, so the
         // vehicle packet's own (already in-flight) ack -- processed right
@@ -249,16 +252,16 @@ public class LossDetectorTest {
     public void testPersistentCongestionNotDetectedWhenAckedPacketBreaksTheRun() {
         LossDetector detector = new LossDetector(1200); // window 12000
         detector.onPacketSent(EncryptionLevel.INITIAL, 0, 0, true, true, 50);
-        detector.onAckReceived(EncryptionLevel.INITIAL, 0, 0, new long[][] { { 0, 0 } }, 25, 200, true);
+        detector.onAckReceived(EncryptionLevel.INITIAL, 0, 0, new long[][] { { 0, 0 } }, 25 * MS, 200 * MS, true);
 
-        detector.onPacketSent(EncryptionLevel.ONE_RTT, 0, 1000, true, true, 100);
-        detector.onPacketSent(EncryptionLevel.ONE_RTT, 1, 1500, false, true, 100); // acked below, breaking the run
-        detector.onPacketSent(EncryptionLevel.ONE_RTT, 2, 2876, true, true, 100); // same gap as the positive test
-        detector.onPacketSent(EncryptionLevel.ONE_RTT, 5, 3000, false, true, 50); // packet-threshold vehicle
+        detector.onPacketSent(EncryptionLevel.ONE_RTT, 0, 1000 * MS, true, true, 100);
+        detector.onPacketSent(EncryptionLevel.ONE_RTT, 1, 1500 * MS, false, true, 100); // acked below, breaking the run
+        detector.onPacketSent(EncryptionLevel.ONE_RTT, 2, 2876 * MS, true, true, 100); // same gap as the positive test
+        detector.onPacketSent(EncryptionLevel.ONE_RTT, 5, 3000 * MS, false, true, 50); // packet-threshold vehicle
 
         // Acknowledge packet 1 and the vehicle together, both
         // non-ack-eliciting so no RTT sample is taken here either.
-        detector.onAckReceived(EncryptionLevel.ONE_RTT, 5, 0, new long[][] { { 1, 1 }, { 5, 5 } }, 25, 3100, true);
+        detector.onAckReceived(EncryptionLevel.ONE_RTT, 5, 0, new long[][] { { 1, 1 }, { 5, 5 } }, 25 * MS, 3100 * MS, true);
         // largestAcked(5) declares both 0 (packet numbers 0+3<=5) and 2
         // (2+3<=5) lost together -- but packet 1, sent between them, was
         // acknowledged, not lost, breaking packet-number consecutiveness.
@@ -272,14 +275,14 @@ public class LossDetectorTest {
     public void testPersistentCongestionNotDetectedWhenDurationTooShort() {
         LossDetector detector = new LossDetector(1200);
         detector.onPacketSent(EncryptionLevel.INITIAL, 0, 0, true, true, 50);
-        detector.onAckReceived(EncryptionLevel.INITIAL, 0, 0, new long[][] { { 0, 0 } }, 25, 200, true);
+        detector.onAckReceived(EncryptionLevel.INITIAL, 0, 0, new long[][] { { 0, 0 } }, 25 * MS, 200 * MS, true);
         // Duration threshold is 1875ms (see the positive test above).
 
-        detector.onPacketSent(EncryptionLevel.ONE_RTT, 0, 1000, true, true, 100);
-        detector.onPacketSent(EncryptionLevel.ONE_RTT, 1, 2000, true, true, 100); // gap only 1000ms < 1875ms
-        detector.onPacketSent(EncryptionLevel.ONE_RTT, 4, 3000, false, true, 50);
+        detector.onPacketSent(EncryptionLevel.ONE_RTT, 0, 1000 * MS, true, true, 100);
+        detector.onPacketSent(EncryptionLevel.ONE_RTT, 1, 2000 * MS, true, true, 100); // gap only 1000ms < 1875ms
+        detector.onPacketSent(EncryptionLevel.ONE_RTT, 4, 3000 * MS, false, true, 50);
 
-        detector.onAckReceived(EncryptionLevel.ONE_RTT, 4, 0, new long[][] { { 4, 4 } }, 25, 3100, true);
+        detector.onAckReceived(EncryptionLevel.ONE_RTT, 4, 0, new long[][] { { 4, 4 } }, 25 * MS, 3100 * MS, true);
 
         assertEquals(6000, detector.getCongestionController().getCongestionWindow());
     }
@@ -298,26 +301,59 @@ public class LossDetectorTest {
     public void testLossDetectionTimeoutNotifiesCongestionControllerOfLoss() {
         LossDetector detector = new LossDetector(1200); // window 12000
         detector.onPacketSent(EncryptionLevel.INITIAL, 0, 0, true, true, 50);
-        detector.onAckReceived(EncryptionLevel.INITIAL, 0, 0, new long[][] { { 0, 0 } }, 25, 200, true);
+        detector.onAckReceived(EncryptionLevel.INITIAL, 0, 0, new long[][] { { 0, 0 } }, 25 * MS, 200 * MS, true);
         // smoothedRtt=200, rttvar=100 -> time-threshold lossDelay = 9/8*200 = 225
 
-        detector.onPacketSent(EncryptionLevel.ONE_RTT, 0, 1000, true, true, 100);
-        detector.onPacketSent(EncryptionLevel.ONE_RTT, 1, 1050, false, true, 50);
+        detector.onPacketSent(EncryptionLevel.ONE_RTT, 0, 1000 * MS, true, true, 100);
+        detector.onPacketSent(EncryptionLevel.ONE_RTT, 1, 1050 * MS, false, true, 50);
         // Ack packet 1 alone (non-ack-eliciting): packet 0 isn't lost yet
         // by either threshold at this point, but this schedules a
         // time-threshold loss deadline for it (lossTime = 1000+225=1225).
         // Packet 1 itself was in flight, so acking it also grows the
         // still-pristine window by its 50 bytes via ordinary slow start
         // (no congestion event has happened yet): 12000 + 50 = 12050.
-        detector.onAckReceived(EncryptionLevel.ONE_RTT, 1, 0, new long[][] { { 1, 1 } }, 25, 1100, true);
+        detector.onAckReceived(EncryptionLevel.ONE_RTT, 1, 0, new long[][] { { 1, 1 } }, 25 * MS, 1100 * MS, true);
 
-        LossDetector.TimeoutResult result = detector.onLossDetectionTimeout(true, true, 25, 1300);
+        LossDetector.TimeoutResult result = detector.onLossDetectionTimeout(true, true, 25 * MS, 1300 * MS);
         assertEquals(1, result.getNewlyLost().size());
         // Halved from the grown 12050, not the original 12000: 6025.
         assertEquals(6025, detector.getCongestionController().getCongestionWindow());
     }
 
+    /**
+     * draft-ietf-quic-ack-frequency section 6.5: with more ack-eliciting
+     * packets in flight than the peer's Ack-Eliciting Threshold, an ACK
+     * cannot be held back for max_ack_delay, so the PTO leaves that term out.
+     */
+    @Test
+    public void testPtoOmitsMaxAckDelayWhenMoreThanTheThresholdIsInFlight() {
+        LossDetector detector = new LossDetector(1200);
+        detector.setHandshakeConfirmed(true);
+        detector.onPacketSent(EncryptionLevel.ONE_RTT, 0, 1000 * MS, true, true, 100);
+        detector.onPacketSent(EncryptionLevel.ONE_RTT, 1, 1000 * MS, true, true, 100);
+        detector.onPacketSent(EncryptionLevel.ONE_RTT, 2, 1000 * MS, true, true, 100);
+        long withTerm = detector.getLossDetectionTimeout(false, true, true, 25 * MS, 1000 * MS);
+        assertEquals(2024 * MS, withTerm);
 
+        detector.setAckElicitingThreshold(2);
+        assertEquals("three in flight exceeds a threshold of two", 1999 * MS,
+                detector.getLossDetectionTimeout(false, true, true, 25 * MS, 1000 * MS));
 
+        detector.setAckElicitingThreshold(3);
+        assertEquals("three in flight does not exceed three", 2024 * MS,
+                detector.getLossDetectionTimeout(false, true, true, 25 * MS, 1000 * MS));
 
+        detector.setAckElicitingThreshold(-1);
+        assertEquals("a negative threshold switches the rule off", 2024 * MS,
+                detector.getLossDetectionTimeout(false, true, true, 25 * MS, 1000 * MS));
+    }
+
+    @Test
+    public void testSubMillisecondRttSampleIsKept() {
+        LossDetector detector = new LossDetector(1200);
+        detector.onPacketSent(EncryptionLevel.ONE_RTT, 0, 1_000_000, true, true, 100);
+        detector.onAckReceived(EncryptionLevel.ONE_RTT, 0, 0, new long[][] { { 0, 0 } }, 25 * MS,
+                1_000_250, true);
+        assertEquals(250, detector.getRttEstimator().getLatestRtt());
+    }
 }
