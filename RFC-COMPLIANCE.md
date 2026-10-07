@@ -311,7 +311,7 @@ practices.
 | RFC 7627 | TLS Session Hash and Extended Master Secret Extension | Mandatory (TLS 1.2) |
 | RFC 5746 | Transport Layer Security (TLS) Renegotiation Indication Extension | Indication only; renegotiation not performed |
 | RFC 5289 / RFC 7905 | AES-GCM / ChaCha20-Poly1305 TLS 1.2 cipher suites | Implemented (ECDHE only) |
-| RFC 4492 / RFC 8422 | ECDHE key exchange | Implemented (TLS 1.2: secp256r1 only) |
+| RFC 4492 / RFC 8422 | ECDHE key exchange | Implemented (TLS 1.2 / DTLS 1.2: x25519 and secp256r1) |
 | RFC 9001 | Using TLS to Secure QUIC | Implemented (QUIC + DTLS 1.3 record crypto) |
 | RFC 10024 | Hybrid post-quantum key exchange | Implemented (TLS 1.3 / DTLS 1.3 / QUIC named groups; X25519MLKEM768 is the default) |
 | draft-ietf-tls-mldsa | ML-DSA signatures in TLS 1.3 | Implemented (`mldsa44`, `mldsa65`, `mldsa87` in `CertificateVerify`, server and client certificates; not in TLS 1.2) |
@@ -345,7 +345,7 @@ practices.
 
 | Requirement | Section | Status | Notes |
 |-------------|---------|--------|-------|
-| ECDHE key exchange | 7.4 / RFC 4492 | Compliant | **secp256r1 only** — not configurable |
+| ECDHE key exchange | 7.4 / RFC 4492 | Compliant | x25519 (preferred) and secp256r1 |
 | AEAD cipher suites | Appendix A.5 | Compliant | Six ECDHE AEAD suites; **no CBC** |
 | Extended Master Secret | RFC 7627 | Compliant | Mandatory |
 | Secure renegotiation indication | RFC 5746 | Compliant | Sent; **renegotiation never performed** |
@@ -355,7 +355,7 @@ practices.
 | Static RSA key transport | 7.4.3 | **Not implemented** | By design |
 | CBC / non-AEAD suites | Appendix A.5 | **Not implemented** | By design |
 | Renegotiation | 7.4 | **Not implemented** | Indication only |
-| Configurable ECDHE curves | RFC 8422 | **Not implemented** | Fixed secp256r1 |
+| Configurable ECDHE curves | RFC 8422 | Partial | `named-groups` selects x25519 and/or secp256r1 (default x25519 first); secp384r1, X448 and hybrids are TLS 1.3 only |
 | Certificate compression | RFC 8879 | **N/A** | Extension MUST be ignored on TLS 1.2 (RFC 8879 section 3); no `CompressedCertificate` message |
 
 ### DTLS 1.2 — RFC 6347

@@ -486,4 +486,44 @@ public abstract class TransportFactory {
         return resolved.isEmpty() ? null : resolved;
     }
 
+    /**
+     * Narrows a {@link #setNamedGroups} value to the classical groups the
+     * TLS 1.2 / DTLS 1.2 engine implements: {@code x25519} and
+     * {@code secp256r1}, in configured order. Hybrid and other groups are
+     * TLS 1.3 only.
+     *
+     * @param raw the configured value, or null
+     * @param warn whether to log the entries dropped, and a fallback to
+     *        the default; false when the same value also drives a TLS 1.3
+     *        engine that does use the dropped entries
+     * @return the usable groups, or null for the engine's default
+     *         (x25519 then secp256r1)
+     */
+    static List<NamedGroup> resolveTls12NamedGroups(String raw, boolean warn) {
+        List<NamedGroup> all = resolveNamedGroups(raw);
+        if (all == null) {
+            return null;
+        }
+        List<NamedGroup> usable = new ArrayList<NamedGroup>();
+        for (int i = 0; i < all.size(); i++) {
+            NamedGroup group = all.get(i);
+            if (group == NamedGroup.X25519 || group == NamedGroup.SECP256R1) {
+                if (!usable.contains(group)) {
+                    usable.add(group);
+                }
+            } else if (warn && LOGGER.isLoggable(Level.WARNING)) {
+                LOGGER.warning(MessageFormat.format(
+                        Gumdrop.L10N.getString("warn.tls12_named_groups_ignored"), group.getName()));
+            }
+        }
+        if (usable.isEmpty()) {
+            if (warn && LOGGER.isLoggable(Level.WARNING)) {
+                LOGGER.warning(MessageFormat.format(
+                        Gumdrop.L10N.getString("warn.tls12_named_groups_default"), raw));
+            }
+            return null;
+        }
+        return usable;
+    }
+
 }

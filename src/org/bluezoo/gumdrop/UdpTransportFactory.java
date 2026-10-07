@@ -83,6 +83,7 @@ public class UdpTransportFactory extends TransportFactory {
     private List<Tls12CipherSuite> resolvedTls12CipherSuites;
     private List<CipherSuite> resolvedCipherSuites;
     private List<NamedGroup> resolvedNamedGroups;
+    private List<NamedGroup> resolvedTls12NamedGroups;
     private DtlsVersion dtlsVersion = DtlsVersion.NEGOTIATE;
 
     private boolean requireCookie;
@@ -199,11 +200,8 @@ public class UdpTransportFactory extends TransportFactory {
             resolvedTls12CipherSuites = resolveTls12CipherSuites(cipherSuites);
             resolvedCipherSuites = resolveCipherSuites(cipherSuites);
             resolvedNamedGroups = resolveNamedGroups(namedGroups);
-            if (namedGroups != null && !namedGroups.isEmpty() && dtlsVersion == DtlsVersion.DTLS_1_2
-                    && LOGGER.isLoggable(Level.WARNING)) {
-                LOGGER.warning(MessageFormat.format(
-                        Gumdrop.L10N.getString("warn.dtls12_named_groups_ignored"), namedGroups));
-            }
+            resolvedTls12NamedGroups = resolveTls12NamedGroups(namedGroups,
+                    dtlsVersion == DtlsVersion.DTLS_1_2);
             if (secure && (serverCredentials != null || serverCredentialsResolver != null)) {
                 if (dtlsVersion == DtlsVersion.DTLS_1_2) {
                     sharedServerConfig = buildServerConfig12();
@@ -311,6 +309,9 @@ public class UdpTransportFactory extends TransportFactory {
         }
         if (resolvedTls12CipherSuites != null) {
             config.setCipherSuites(resolvedTls12CipherSuites);
+        }
+        if (resolvedTls12NamedGroups != null) {
+            config.setNamedGroups(resolvedTls12NamedGroups);
         }
     }
 

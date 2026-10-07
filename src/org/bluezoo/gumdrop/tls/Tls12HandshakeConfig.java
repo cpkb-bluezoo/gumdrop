@@ -26,6 +26,8 @@ import java.util.List;
 
 import javax.net.ssl.X509TrustManager;
 
+import org.bluezoo.gumdrop.crypto.NamedGroup;
+
 /**
  * Configuration for one {@link Tls12HandshakeEngine} instance: role,
  * identity, trust, and negotiation preferences. Mutable, plain
@@ -36,8 +38,9 @@ import javax.net.ssl.X509TrustManager;
  * several fields reuse exactly the same types -- {@link ServerCredentials},
  * {@link ServerCredentialsResolver}, {@link ClientAuthPolicy} -- since
  * those concepts (identity, SNI dispatch, mTLS policy) don't differ
- * between TLS versions. No {@code namedGroups} field (this engine only
- * ever speaks secp256r1 ECDHE) and no {@link HandshakeMode}/QUIC concept
+ * between TLS versions. {@code namedGroups} is limited to the classical
+ * ECDHE groups this engine implements (RFC 8422): x25519 and secp256r1,
+ * x25519 first by default. There is no {@link HandshakeMode}/QUIC concept
  * (TLS 1.2 has no QUIC mapping).
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
@@ -53,6 +56,7 @@ public final class Tls12HandshakeConfig {
     private boolean verifyHostname = true;
     private List<String> applicationProtocols = new ArrayList<String>();
     private List<Tls12CipherSuite> cipherSuites = defaultCipherSuites();
+    private List<NamedGroup> namedGroups = defaultNamedGroups();
 
     // Client-certificate authentication (mTLS).
     private ClientAuthPolicy clientAuthPolicy = ClientAuthPolicy.NONE;
@@ -287,6 +291,38 @@ public final class Tls12HandshakeConfig {
     }
 
     /**
+     * Returns the ECDHE groups, in preference order. A client offers them
+     * in this order in {@code supported_groups}; a server selects the
+     * first one the client also offers.
+     *
+     * @return the named groups (x25519 and/or secp256r1)
+     */
+    public List<NamedGroup> getNamedGroups() {
+        return namedGroups;
+    }
+
+    /**
+     * Sets the ECDHE groups, in preference order.
+     *
+     * @param namedGroups x25519 and/or secp256r1; no other group is
+     *        implemented by the TLS 1.2 engine
+     * @throws IllegalArgumentException if the list is empty or contains
+     *         any other group
+     */
+    public void setNamedGroups(List<NamedGroup> namedGroups) {
+        if (namedGroups == null || namedGroups.isEmpty()) {
+            throw new IllegalArgumentException("namedGroups must not be empty");
+        }
+        for (int i = 0; i < namedGroups.size(); i++) {
+            NamedGroup g = namedGroups.get(i);
+            if (g != NamedGroup.X25519 && g != NamedGroup.SECP256R1) {
+                throw new IllegalArgumentException("Unsupported TLS 1.2 named group: " + g);
+            }
+        }
+        this.namedGroups = namedGroups;
+    }
+
+    /**
      * Returns the cipher suites to offer/accept, in preference order.
      *
      * @return the cipher suites
@@ -432,6 +468,13 @@ public final class Tls12HandshakeConfig {
 
     public void setRecordSizeLimit(int recordSizeLimit) {
         this.recordSizeLimit = recordSizeLimit;
+    }
+
+    private static List<NamedGroup> defaultNamedGroups() {
+        List<NamedGroup> groups = new ArrayList<NamedGroup>();
+        groups.add(NamedGroup.X25519);
+        groups.add(NamedGroup.SECP256R1);
+        return groups;
     }
 
     private static List<Tls12CipherSuite> defaultCipherSuites() {

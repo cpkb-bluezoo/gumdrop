@@ -23,8 +23,10 @@ package org.bluezoo.gumdrop.tls;
 
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 
+import org.bluezoo.gumdrop.crypto.NamedGroup;
 import org.bluezoo.gumdrop.crypto.SignatureScheme;
 
 /**
@@ -84,8 +86,6 @@ final class Tls12HandshakeMessages {
 
     private static final int SERVER_NAME_TYPE_HOST_NAME = 0;
 
-    /** RFC 4492 section 5.1.1 -- the only curve this engine speaks. */
-    private static final int NAMED_CURVE_SECP256R1 = 23;
     /** RFC 4492 section 5.4. */
     private static final int EC_CURVE_TYPE_NAMED_CURVE = 3;
     /** RFC 4492 section 5.1.2 -- we only ever offer/accept uncompressed. */
@@ -102,6 +102,8 @@ final class Tls12HandshakeMessages {
         /** Empty for a full handshake; a fresh random value to offer resumption. */
         byte[] sessionId;
         List<Tls12CipherSuite> cipherSuites;
+        /** The ECDHE groups offered in {@code supported_groups}, in preference order. */
+        List<NamedGroup> namedGroups = Arrays.asList(NamedGroup.X25519, NamedGroup.SECP256R1);
         String serverName;
         List<SignatureScheme> signatureAlgorithms;
         List<String> applicationProtocols;
@@ -153,7 +155,7 @@ final class Tls12HandshakeMessages {
         WireWriter sv = new WireWriter();
         sv.opaque8(new byte[] { (byte) (TLS_1_2_LEGACY_VERSION >> 8), (byte) TLS_1_2_LEGACY_VERSION });
         writeExtension(ext, EXT_SUPPORTED_VERSIONS, sv.toByteArray());
-        writeSupportedGroupsExtension(ext);
+        writeSupportedGroupsExtension(ext, params.namedGroups);
         writeExtension(ext, EXT_EC_POINT_FORMATS, new byte[] { 1, EC_POINT_FORMAT_UNCOMPRESSED });
         writeSignatureAlgorithmsExtension(ext, params.signatureAlgorithms);
         if (params.serverName != null) {
@@ -178,6 +180,8 @@ final class Tls12HandshakeMessages {
         byte[] random;
         byte[] sessionId;
         List<Tls12CipherSuite> cipherSuites = new ArrayList<Tls12CipherSuite>();
+        /** Wire ids from {@code supported_groups}; null when the extension was absent. */
+        List<Integer> supportedGroups;
         /**
          * True if the client offered {@link #TLS_EMPTY_RENEGOTIATION_INFO_SCSV}
          * among its cipher suites -- checked separately from
@@ -271,6 +275,14 @@ final class Tls12HandshakeMessages {
                     if (s != null) {
                         ch.signatureAlgorithms.add(s);
                     }
+                }
+                break;
+            }
+            case EXT_SUPPORTED_GROUPS: {
+                WireReader gr = new WireReader(new WireReader(extBody).opaque16());
+                ch.supportedGroups = new ArrayList<Integer>();
+                while (gr.hasRemaining()) {
+                    ch.supportedGroups.add(gr.u16());
                 }
                 break;
             }
@@ -450,24 +462,26 @@ final class Tls12HandshakeMessages {
     // ---- ServerKeyExchange (RFC 4492 section 5.4 -- named-curve ECDHE only) ----
 
     /** The {@code ServerECDHParams} bytes the signature actually covers. */
-    static byte[] serverEcdhParamsBytes(byte[] ecPoint) {
+    static byte[] serverEcdhParamsBytes(NamedGroup group, byte[] ecPoint) {
         WireWriter w = new WireWriter();
         w.u8(EC_CURVE_TYPE_NAMED_CURVE);
-        w.u16(NAMED_CURVE_SECP256R1);
+        w.u16(group.getCode());
         w.opaque8(ecPoint);
         return w.toByteArray();
     }
 
-    static byte[] buildServerKeyExchange(byte[] ecPoint, SignatureScheme scheme, byte[] signature) {
+    static byte[] buildServerKeyExchange(NamedGroup group, byte[] ecPoint, SignatureScheme scheme,
+            byte[] signature) {
         WireWriter w = new WireWriter();
-        w.bytes(serverEcdhParamsBytes(ecPoint));
+        w.bytes(serverEcdhParamsBytes(group, ecPoint));
         w.u16(scheme.getCode());
         w.opaque16(signature);
         return WireWriter.frameHandshakeMessage(HANDSHAKE_TYPE_SERVER_KEY_EXCHANGE, w.toByteArray());
     }
 
-    /** Parsed ServerKeyExchange (named-curve secp256r1 ECDHE only -- the only key exchange this engine speaks). */
+    /** Parsed ServerKeyExchange (named-curve ECDHE over x25519 or secp256r1). */
     static final class ServerKeyExchange {
+        NamedGroup group;
         byte[] ecPoint;
         SignatureScheme scheme;
         byte[] signature;
@@ -485,7 +499,8 @@ final class Tls12HandshakeMessages {
             throw new HandshakeFormatException("Unsupported ECCurveType (explicit curves not supported): " + curveType);
         }
         int curve = body.u16();
-        if (curve != NAMED_CURVE_SECP256R1) {
+        NamedGroup group = NamedGroup.fromCode(curve);
+        if (group != NamedGroup.X25519 && group != NamedGroup.SECP256R1) {
             throw new HandshakeFormatException("Unsupported named curve: " + curve);
         }
         byte[] ecPoint = body.opaque8();
@@ -497,10 +512,11 @@ final class Tls12HandshakeMessages {
         byte[] signature = body.opaque16();
 
         ServerKeyExchange ske = new ServerKeyExchange();
+        ske.group = group;
         ske.ecPoint = ecPoint;
         ske.scheme = scheme;
         ske.signature = signature;
-        ske.signedParams = serverEcdhParamsBytes(ecPoint);
+        ske.signedParams = serverEcdhParamsBytes(group, ecPoint);
         return ske;
     }
 
@@ -657,9 +673,11 @@ final class Tls12HandshakeMessages {
         writeExtension(ext, EXT_SERVER_NAME, list.toByteArray());
     }
 
-    private static void writeSupportedGroupsExtension(WireWriter ext) {
+    private static void writeSupportedGroupsExtension(WireWriter ext, List<NamedGroup> groups) {
         WireWriter list = new WireWriter();
-        list.u16(NAMED_CURVE_SECP256R1);
+        for (int i = 0; i < groups.size(); i++) {
+            list.u16(groups.get(i).getCode());
+        }
         WireWriter body = new WireWriter();
         body.opaque16(list.toByteArray());
         writeExtension(ext, EXT_SUPPORTED_GROUPS, body.toByteArray());

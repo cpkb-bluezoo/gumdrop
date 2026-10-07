@@ -281,6 +281,23 @@ public class Dtls12RecordEngineTest {
     }
 
     @Test
+    public void loopbackNegotiatesX25519ByDefault() throws Exception {
+        Loopback lb = runLoopback();
+        assertEquals(org.bluezoo.gumdrop.crypto.NamedGroup.X25519, lb.client.getNegotiatedGroup());
+        assertEquals(org.bluezoo.gumdrop.crypto.NamedGroup.X25519, lb.server.getNegotiatedGroup());
+    }
+
+    @Test
+    public void loopbackFallsBackToSecp256r1() throws Exception {
+        Tls12HandshakeConfig cc = clientBase();
+        cc.setNamedGroups(Collections.singletonList(org.bluezoo.gumdrop.crypto.NamedGroup.SECP256R1));
+        Loopback lb = runLoopback(cc, serverBase(), 1024,
+                DatagramDelivery.IN_ORDER, DatagramDelivery.IN_ORDER);
+        assertEquals(org.bluezoo.gumdrop.crypto.NamedGroup.SECP256R1, lb.client.getNegotiatedGroup());
+        assertEquals(org.bluezoo.gumdrop.crypto.NamedGroup.SECP256R1, lb.server.getNegotiatedGroup());
+    }
+
+    @Test
     public void applicationDataRoundTripsAfterHandshake() throws Exception {
         Loopback lb = runLoopback();
 

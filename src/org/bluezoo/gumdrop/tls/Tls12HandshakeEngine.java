@@ -47,8 +47,8 @@ import org.bluezoo.gumdrop.crypto.SignatureScheme;
  * and {@link #processMessage} take complete handshake messages and push
  * every outcome to a {@link Tls12EventSink}.
  *
- * <p>Scope: ECDHE key exchange only (secp256r1 only -- no static-RSA, no
- * other curves), AEAD cipher suites only (RFC 5289 GCM, RFC 7905
+ * <p>Scope: ECDHE key exchange only (x25519, preferred, and secp256r1 per
+ * RFC 8422 -- no static-RSA, no other curves), AEAD cipher suites only (RFC 5289 GCM, RFC 7905
  * ChaCha20-Poly1305 -- CBC suites are permanently out of scope, not
  * deferred: MAC-then-encrypt CBC has a real, recurring timing-side-
  * channel history). Extended Master Secret (RFC 7627) and RFC 5746
@@ -115,6 +115,9 @@ final class Tls12HandshakeEngine {
     private byte[] clientRandom;
     private byte[] serverRandom;
     private KeyExchange localEcdhe;
+    /** The ECDHE group used by a full handshake; null until negotiated and for a resumption. */
+    private NamedGroup negotiatedGroup;
+    private NamedGroup peerGroup;
     private byte[] peerEcPoint;
     private byte[] masterSecret;
     /**
@@ -197,6 +200,7 @@ final class Tls12HandshakeEngine {
         params.random = clientRandom;
         params.sessionId = sessionId;
         params.cipherSuites = config.getCipherSuites();
+        params.namedGroups = config.getNamedGroups();
         params.serverName = config.getServerName();
         params.signatureAlgorithms = signatureAlgorithms;
         params.applicationProtocols = config.getApplicationProtocols();
@@ -452,6 +456,10 @@ final class Tls12HandshakeEngine {
 
     private void onServerKeyExchange(byte[] message, Tls12EventSink sink) throws HandshakeFormatException {
         Tls12HandshakeMessages.ServerKeyExchange ske = Tls12HandshakeMessages.parseServerKeyExchange(message);
+        if (!config.getNamedGroups().contains(ske.group)) {
+            fail(sink, AlertDescription.ILLEGAL_PARAMETER, "ServerKeyExchange group not offered: " + ske.group.getName());
+            return;
+        }
         if (peerCertificateChain == null || peerCertificateChain.isEmpty()) {
             fail(sink, AlertDescription.UNEXPECTED_MESSAGE, "ServerKeyExchange before Certificate");
             return;
@@ -465,6 +473,7 @@ final class Tls12HandshakeEngine {
             return;
         }
         peerEcPoint = ske.ecPoint;
+        peerGroup = ske.group;
         addToTranscript(message);
         state = State.EXPECT_SERVER_HELLO_DONE_OR_CERT_REQUEST;
     }
@@ -485,11 +494,12 @@ final class Tls12HandshakeEngine {
         }
         KeyExchange local;
         try {
-            local = KeyExchange.generate(NamedGroup.SECP256R1);
+            local = KeyExchange.generate(peerGroup);
         } catch (GeneralSecurityException e) {
             fail(sink, AlertDescription.INTERNAL_ERROR, "Key generation failed: " + e.getMessage());
             return;
         }
+        negotiatedGroup = peerGroup;
         byte[] clientPoint = local.getShareBytes();
         byte[] preMaster;
         try {
@@ -719,6 +729,24 @@ final class Tls12HandshakeEngine {
         }
         negotiatedSuite = suite;
 
+        // RFC 8422 section 5.1: the first group of ours the client also
+        // offers. A client that omits supported_groups entirely gets
+        // secp256r1, the one curve every pre-X25519 peer implements.
+        NamedGroup group = null;
+        List<NamedGroup> groupPreference = config.getNamedGroups();
+        for (int i = 0; i < groupPreference.size() && group == null; i++) {
+            NamedGroup candidate = groupPreference.get(i);
+            if (ch.supportedGroups == null
+                    ? candidate == NamedGroup.SECP256R1
+                    : ch.supportedGroups.contains(Integer.valueOf(candidate.getCode()))) {
+                group = candidate;
+            }
+        }
+        if (group == null) {
+            fail(sink, AlertDescription.HANDSHAKE_FAILURE, "No mutually supported ECDHE group");
+            return;
+        }
+
         negotiatedAlpn = HandshakeEngine.selectFirst(config.getApplicationProtocols(), ch.alpnProtocols);
         if (ch.alpnExtensionPresent && !config.getApplicationProtocols().isEmpty() && negotiatedAlpn == null) {
             fail(sink, AlertDescription.NO_APPLICATION_PROTOCOL, "No mutually acceptable application protocol");
@@ -746,13 +774,14 @@ final class Tls12HandshakeEngine {
 
         KeyExchange local;
         try {
-            local = KeyExchange.generate(NamedGroup.SECP256R1);
+            local = KeyExchange.generate(group);
         } catch (GeneralSecurityException e) {
             fail(sink, AlertDescription.INTERNAL_ERROR, "Key generation failed: " + e.getMessage());
             return;
         }
+        negotiatedGroup = group;
         byte[] serverPoint = local.getShareBytes();
-        byte[] signedParams = Tls12HandshakeMessages.serverEcdhParamsBytes(serverPoint);
+        byte[] signedParams = Tls12HandshakeMessages.serverEcdhParamsBytes(group, serverPoint);
         ByteArrayOutputStream signed = new ByteArrayOutputStream();
         signed.write(clientRandom, 0, clientRandom.length);
         signed.write(serverRandom, 0, serverRandom.length);
@@ -769,7 +798,7 @@ final class Tls12HandshakeEngine {
             fail(sink, AlertDescription.INTERNAL_ERROR, "Server signing failed: " + e.getMessage());
             return;
         }
-        byte[] ske = Tls12HandshakeMessages.buildServerKeyExchange(serverPoint, scheme, signature);
+        byte[] ske = Tls12HandshakeMessages.buildServerKeyExchange(group, serverPoint, scheme, signature);
         emit(ske, sink);
         localEcdhe = local;
 
@@ -1057,6 +1086,11 @@ final class Tls12HandshakeEngine {
 
     Tls12CipherSuite getNegotiatedCipherSuite() {
         return negotiatedSuite;
+    }
+
+    /** The ECDHE group of the full handshake; null before negotiation and on a resumption. */
+    NamedGroup getNegotiatedGroup() {
+        return negotiatedGroup;
     }
 
     String getNegotiatedApplicationProtocol() {

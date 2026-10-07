@@ -29,6 +29,7 @@ import java.util.Arrays;
 import java.util.Deque;
 import java.util.List;
 
+import org.bluezoo.gumdrop.crypto.NamedGroup;
 import org.bluezoo.gumdrop.tls.HandshakeAsyncOffload;
 import org.bluezoo.gumdrop.tls.HandshakeAsyncScheduler;
 
@@ -327,6 +328,15 @@ public final class Dtls12RecordEngine {
         }
         writeOneRecord(CONTENT_ALERT,
                 new byte[] { (byte) ALERT_LEVEL_WARNING, (byte) ALERT_CLOSE_NOTIFY }, sink);
+    }
+
+    /**
+     * Returns the ECDHE group of the full handshake.
+     *
+     * @return the group, or null if not yet negotiated or the session was resumed
+     */
+    public NamedGroup getNegotiatedGroup() {
+        return engine.getNegotiatedGroup();
     }
 
     public Tls12CipherSuite getNegotiatedCipherSuite() {

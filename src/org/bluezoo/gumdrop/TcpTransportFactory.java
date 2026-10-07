@@ -119,6 +119,7 @@ public class TcpTransportFactory extends TransportFactory {
 
     private List<CipherSuite> resolvedCipherSuites;
     private List<NamedGroup> resolvedNamedGroups;
+    private List<NamedGroup> resolvedTls12NamedGroups;
     private List<Tls12CipherSuite> resolvedTls12CipherSuites;
 
     // Deployment-time TLS version pin -- see TlsVersion's own doc for why
@@ -398,10 +399,7 @@ public class TcpTransportFactory extends TransportFactory {
         }
         if (tlsVersion == TlsVersion.TLS_1_2) {
             resolvedTls12CipherSuites = resolveTls12CipherSuites(cipherSuites);
-            if (namedGroups != null && !namedGroups.isEmpty() && LOGGER.isLoggable(Level.WARNING)) {
-                LOGGER.warning(MessageFormat.format(
-                        Gumdrop.L10N.getString("warn.tls12_named_groups_ignored"), namedGroups));
-            }
+            resolvedTls12NamedGroups = resolveTls12NamedGroups(namedGroups, true);
         } else if (tlsVersion == TlsVersion.TLS_1_3) {
             resolvedCipherSuites = resolveCipherSuites(cipherSuites);
             resolvedNamedGroups = resolveNamedGroups(namedGroups);
@@ -409,6 +407,7 @@ public class TcpTransportFactory extends TransportFactory {
             resolvedTls12CipherSuites = resolveTls12CipherSuites(cipherSuites);
             resolvedCipherSuites = resolveCipherSuites(cipherSuites);
             resolvedNamedGroups = resolveNamedGroups(namedGroups);
+            resolvedTls12NamedGroups = resolveTls12NamedGroups(namedGroups, false);
         }
     }
 
@@ -823,6 +822,9 @@ public class TcpTransportFactory extends TransportFactory {
         }
         if (resolvedTls12CipherSuites != null) {
             config.setCipherSuites(resolvedTls12CipherSuites);
+        }
+        if (resolvedTls12NamedGroups != null) {
+            config.setNamedGroups(resolvedTls12NamedGroups);
         }
     }
 

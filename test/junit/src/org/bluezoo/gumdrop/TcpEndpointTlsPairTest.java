@@ -955,9 +955,9 @@ public class TcpEndpointTlsPairTest {
             assertTrue(label, info.toString().contains("ALPN=h2"));
             assertNotNull(label, info.getLocalCertificates());
             SecurityInfo serverInfo = server.getSecurityInfo();
-            // The TLS 1.2 engine's ECDHE is fixed to secp256r1.
-            assertEquals(label, "secp256r1", info.getNamedGroup());
-            assertEquals(label, "secp256r1", serverInfo.getNamedGroup());
+            // Both default to x25519 first (RFC 8422).
+            assertEquals(label, "x25519", info.getNamedGroup());
+            assertEquals(label, "x25519", serverInfo.getNamedGroup());
             assertNotNull(label, serverInfo.getPeerCertificates());
             assertFalse(label, serverInfo.isSessionResumed());
         }

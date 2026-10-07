@@ -64,8 +64,9 @@ final class Dtls12SecurityInfo implements SecurityInfo {
 
     @Override
     public String getNamedGroup() {
-        // The TLS 1.2 engine's ECDHE is fixed to this curve.
-        return NamedGroup.SECP256R1.getName();
+        // Null for a resumed session: no ECDHE ran, so no group was negotiated.
+        NamedGroup group = engine.getNegotiatedGroup();
+        return (group != null) ? group.getName() : null;
     }
 
     @Override

@@ -516,7 +516,7 @@ certificate matches.
 <p>
 Cipher suite and named group configuration applies to all transports using the
 in-tree engine (TCP/TLS, DTLS, QUIC). On TLS&nbsp;1.2 / DTLS&nbsp;1.2 listeners,
-use TLS&nbsp;1.2 cipher suite names; <code>setNamedGroups</code> is ignored.
+use TLS&nbsp;1.2 cipher suite names; <code>setNamedGroups</code> applies only to <code>x25519</code> and <code>secp256r1</code> (hybrid groups are ignored).
 See <a href="tls.html#ciphers">TLS &amp; DTLS &mdash; cipher suites</a>.
 </p>
 
