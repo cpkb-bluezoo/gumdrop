@@ -14,5 +14,6 @@ module org.bluezoo.gumdrop.telemetry.export {
     uses org.bluezoo.gumdrop.telemetry.TelemetryExporterFactory;
 
     provides org.bluezoo.gumdrop.telemetry.TelemetryExporterFactory
-        with org.bluezoo.gumdrop.telemetry.export.DefaultTelemetryExporterFactory;
+        with org.bluezoo.gumdrop.telemetry.export.DefaultTelemetryExporterFactory,
+              org.bluezoo.gumdrop.telemetry.export.QlogExporterFactory;
 }

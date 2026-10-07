@@ -36,6 +36,13 @@ public class LogRecord {
     /**
      * Severity number values matching OTLP SeverityNumber enum.
      */
+    /**
+     * The attribute naming the channel a record is for. A record with a
+     * channel goes only to exporters that claim it (see
+     * {@link TelemetryExporter#claimsChannel}); one without goes to all.
+     */
+    public static final String CHANNEL_ATTRIBUTE = "gumdrop.channel";
+
     public static final int SEVERITY_TRACE = 1;
     public static final int SEVERITY_DEBUG = 5;
     public static final int SEVERITY_INFO = 9;
@@ -59,7 +66,22 @@ public class LogRecord {
      * @param body the log message
      */
     public LogRecord(Span span, int severityNumber, String body) {
-        this.timeUnixNano = System.currentTimeMillis() * 1_000_000L;
+        this(span, System.currentTimeMillis() * 1_000_000L, severityNumber, body);
+    }
+
+    /**
+     * Creates a record that happened at a given time, rather than now.
+     *
+     * @param timeUnixNano the time of the event, in nanoseconds since the Unix epoch
+     * @param severityNumber the severity
+     * @param body the body
+     */
+    public LogRecord(long timeUnixNano, int severityNumber, String body) {
+        this(null, timeUnixNano, severityNumber, body);
+    }
+
+    private LogRecord(Span span, long timeUnixNano, int severityNumber, String body) {
+        this.timeUnixNano = timeUnixNano;
         this.severityNumber = severityNumber;
         this.severityText = getSeverityText(severityNumber);
         this.body = body;
@@ -146,6 +168,20 @@ public class LogRecord {
     /**
      * Returns true if this log is correlated with a span.
      */
+    /**
+     * Returns the channel this record is tagged for.
+     *
+     * @return the channel, or null if the record is not tagged
+     */
+    public String getChannel() {
+        for (Attribute attribute : attributes) {
+            if (attribute.getType() == Attribute.TYPE_STRING && attribute.getKey().equals(CHANNEL_ATTRIBUTE)) {
+                return attribute.getStringValue();
+            }
+        }
+        return null;
+    }
+
     public boolean hasSpanContext() {
         return traceId != null && spanId != null;
     }

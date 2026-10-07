@@ -62,6 +62,19 @@ public interface TelemetryExporter {
     void flush();
 
     /**
+     * Returns whether this exporter takes log records tagged for a
+     * channel (see {@link LogRecord#CHANNEL_ATTRIBUTE}). A tagged record
+     * reaches only the exporters that claim its channel, so a high-volume
+     * stream meant for one exporter does not flood the others.
+     *
+     * @param channel the channel
+     * @return true if this exporter takes records for it; false by default
+     */
+    default boolean claimsChannel(String channel) {
+        return false;
+    }
+
+    /**
      * Flushes any buffered telemetry data, waiting for in-flight export to finish.
      * Implementations that queue asynchronously should override this method.
      */

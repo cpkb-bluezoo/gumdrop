@@ -31,7 +31,9 @@ import org.bluezoo.gumdrop.telemetry.metrics.Meter;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.text.MessageFormat;
+import java.util.ArrayList;
 import java.util.Collections;
+import java.util.List;
 import java.util.ResourceBundle;
 import java.util.HashMap;
 import java.util.Map;
@@ -100,6 +102,9 @@ public class TelemetryConfig {
     private Path fileLogsPath;
     private Path fileMetricsPath;
     private int fileBufferSize = 8192; // 8KB default
+
+    // Directory for qlog files (draft-ietf-quic-qlog-main-schema), or null for none
+    private Path qlogDirectory;
 
     // HTTP access log (local file, not OTLP)
     private Path accessLogPath;
@@ -590,6 +595,38 @@ public class TelemetryConfig {
         this.truststoreFormat = truststoreFormat;
     }
 
+    // -- qlog --
+
+    /**
+     * Returns the directory qlog files are written to.
+     *
+     * @return the directory, or null if qlog files are not written
+     */
+    public Path getQlogDirectory() {
+        return qlogDirectory;
+    }
+
+    /**
+     * Sets the directory qlog files are written to, one file per
+     * connection. Left unset, {@link #init} takes it from the
+     * {@code QLOGDIR} environment variable, which is how the QUIC interop
+     * runner asks for qlog output.
+     *
+     * @param directory the directory, or null for none
+     */
+    public void setQlogDirectory(Path directory) {
+        this.qlogDirectory = directory;
+    }
+
+    /**
+     * Returns whether qlog files are to be written.
+     *
+     * @return true if a qlog directory is set
+     */
+    public boolean isQlogConfigured() {
+        return qlogDirectory != null;
+    }
+
     // -- File exporter settings --
 
     /**
@@ -842,8 +879,14 @@ public class TelemetryConfig {
      * MBeans for JMX-based monitoring tools.
      */
     public void init() {
-        if (exporter == null && isExportConfigured()) {
-            exporter = loadExporter();
+        if (qlogDirectory == null) {
+            String environment = System.getenv("QLOGDIR");
+            if (environment != null && !environment.isEmpty()) {
+                qlogDirectory = Path.of(environment);
+            }
+        }
+        if (exporter == null && (isExportConfigured() || isQlogConfigured())) {
+            exporter = loadExporters();
             if (exporter != null) {
                 registerShutdownHook();
             } else {
@@ -875,12 +918,15 @@ public class TelemetryConfig {
         return exporterType == ExporterType.FILE || hasAnyEndpoint();
     }
 
-    private TelemetryExporter loadExporter() {
+    // Every factory that has something to create for this configuration
+    // contributes an exporter: OTLP and qlog output can run together.
+    private TelemetryExporter loadExporters() {
+        List<TelemetryExporter> created = new ArrayList<TelemetryExporter>();
         for (TelemetryExporterFactory factory : ServiceLoader.load(TelemetryExporterFactory.class)) {
             try {
-                TelemetryExporter created = factory.createExporter(this);
-                if (created != null) {
-                    return created;
+                TelemetryExporter e = factory.createExporter(this);
+                if (e != null) {
+                    created.add(e);
                 }
             } catch (Exception e) {
                 logger.log(Level.WARNING, MessageFormat.format(
@@ -888,7 +934,24 @@ public class TelemetryConfig {
                         factory.getClass().getName()), e);
             }
         }
-        return null;
+        return combine(created);
+    }
+
+    /**
+     * Joins exporters into one: none give null, one stands as it is, and
+     * several are routed by channel.
+     *
+     * @param exporters the exporters
+     * @return the exporter to use
+     */
+    static TelemetryExporter combine(List<TelemetryExporter> exporters) {
+        if (exporters.isEmpty()) {
+            return null;
+        }
+        if (exporters.size() == 1) {
+            return exporters.get(0);
+        }
+        return new CompositeTelemetryExporter(exporters);
     }
 
     /**

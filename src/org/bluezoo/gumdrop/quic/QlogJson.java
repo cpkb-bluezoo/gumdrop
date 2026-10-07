@@ -1,0 +1,166 @@
+/*
+ * QlogJson.java
+ * Copyright (C) 2026 Chris Burdess
+ *
+ * This file is part of gumdrop, a multipurpose Java server.
+ * For more information please visit https://www.nongnu.org/gumdrop/
+ *
+ * gumdrop is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * gumdrop is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with gumdrop.  If not, see <http://www.gnu.org/licenses/>.
+ */
+
+package org.bluezoo.gumdrop.quic;
+
+/**
+ * Builds the JSON data object of a qlog event. The core module has no JSON
+ * library, and the objects are small and flat, so this writes the text
+ * directly.
+ *
+ * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
+ */
+final class QlogJson {
+
+    private static final char[] HEX = "0123456789abcdef".toCharArray();
+
+    private final StringBuilder sb = new StringBuilder(160);
+
+    private QlogJson() {
+        sb.append('{');
+    }
+
+    /** Starts an object. */
+    static QlogJson object() {
+        return new QlogJson();
+    }
+
+    private void separate() {
+        char last = sb.charAt(sb.length() - 1);
+        if (last != '{' && last != '[' && last != ':') {
+            sb.append(',');
+        }
+    }
+
+    private void key(String key) {
+        separate();
+        string(key);
+        sb.append(':');
+    }
+
+    private void string(String value) {
+        sb.append('"');
+        for (int i = 0; i < value.length(); i++) {
+            char c = value.charAt(i);
+            if (c == '"' || c == '\\') {
+                sb.append('\\').append(c);
+            } else if (c < 0x20) {
+                sb.append("\\u00").append(HEX[c >> 4]).append(HEX[c & 15]);
+            } else {
+                sb.append(c);
+            }
+        }
+        sb.append('"');
+    }
+
+    QlogJson put(String key, String value) {
+        key(key);
+        string(value);
+        return this;
+    }
+
+    QlogJson put(String key, long value) {
+        key(key);
+        sb.append(value);
+        return this;
+    }
+
+    QlogJson put(String key, boolean value) {
+        key(key);
+        sb.append(value);
+        return this;
+    }
+
+    /** Writes a duration given in microseconds as milliseconds, which is what qlog counts in. */
+    QlogJson putMillis(String key, long micros) {
+        key(key);
+        long abs = Math.abs(micros);
+        long fraction = abs % 1000L;
+        if (micros < 0) {
+            sb.append('-');
+        }
+        sb.append(abs / 1000L).append('.');
+        if (fraction < 100) {
+            sb.append('0');
+        }
+        if (fraction < 10) {
+            sb.append('0');
+        }
+        sb.append(fraction);
+        return this;
+    }
+
+    /** Writes bytes as the lowercase hexadecimal string qlog uses. */
+    QlogJson putHex(String key, byte[] value) {
+        key(key);
+        sb.append('"');
+        for (int i = 0; i < value.length; i++) {
+            sb.append(HEX[(value[i] >> 4) & 15]).append(HEX[value[i] & 15]);
+        }
+        sb.append('"');
+        return this;
+    }
+
+    QlogJson beginObject(String key) {
+        key(key);
+        sb.append('{');
+        return this;
+    }
+
+    QlogJson endObject() {
+        sb.append('}');
+        return this;
+    }
+
+    QlogJson beginArray(String key) {
+        key(key);
+        sb.append('[');
+        return this;
+    }
+
+    QlogJson endArray() {
+        sb.append(']');
+        return this;
+    }
+
+    /** Adds an element to the open array. */
+    QlogJson item(String value) {
+        separate();
+        string(value);
+        return this;
+    }
+
+    /** Ends the object and returns its text. */
+    String build() {
+        sb.append('}');
+        return sb.toString();
+    }
+
+    /** Returns the lowercase hexadecimal form of bytes. */
+    static String hex(byte[] value) {
+        char[] out = new char[value.length * 2];
+        for (int i = 0; i < value.length; i++) {
+            out[2 * i] = HEX[(value[i] >> 4) & 15];
+            out[2 * i + 1] = HEX[value[i] & 15];
+        }
+        return new String(out);
+    }
+}

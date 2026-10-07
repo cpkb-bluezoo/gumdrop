@@ -127,5 +127,6 @@ module org.bluezoo.gumdrop {
     provides org.bluezoo.gumdrop.mailbox.spi.MailboxLifecycle
         with org.bluezoo.gumdrop.mailbox.DefaultMailboxLifecycle;
     provides org.bluezoo.gumdrop.telemetry.TelemetryExporterFactory
-        with org.bluezoo.gumdrop.telemetry.export.DefaultTelemetryExporterFactory;
+        with org.bluezoo.gumdrop.telemetry.export.DefaultTelemetryExporterFactory,
+              org.bluezoo.gumdrop.telemetry.export.QlogExporterFactory;
 }

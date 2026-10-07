@@ -74,6 +74,7 @@ import org.bluezoo.gumdrop.quic.packet.TransportParameters;
 import org.bluezoo.gumdrop.quic.packet.QuicVersion;
 import org.bluezoo.gumdrop.quic.packet.VarInt;
 import org.bluezoo.gumdrop.quic.packet.VersionNegotiationPacket;
+import org.bluezoo.gumdrop.quic.recovery.CongestionController;
 import org.bluezoo.gumdrop.quic.recovery.LossDetector;
 import org.bluezoo.gumdrop.quic.recovery.RttEstimator;
 import org.bluezoo.gumdrop.quic.recovery.SentPacket;
@@ -349,6 +350,11 @@ public final class QuicConnection implements QuicTlsEngineListener {
     private long requestedMaxAckDelayMicros = -1;
     private long reorderingThreshold = AckFrequencyDraft.DEFAULT_REORDERING_THRESHOLD;
     private long lastAckFrequencySequence = -1;
+    // qlog events (draft-ietf-quic-qlog-quic-events), or null when this connection does not log
+    private QuicQlog qlog;
+    private boolean qlogClosedLogged;
+    private boolean closedByPeer;
+    private long[] qlogLastMetrics;
     // The peer's min_ack_delay in microseconds, from its real transport
     // parameters only (never a remembered set): negative when absent
     private long peerMinAckDelayMicros = -1;
@@ -777,6 +783,182 @@ public final class QuicConnection implements QuicTlsEngineListener {
         this.localMaxData = localTransportParameters.getInitialMaxData();
         this.localMaxStreamsBidi = localTransportParameters.getInitialMaxStreamsBidi();
         this.localMaxStreamsUni = localTransportParameters.getInitialMaxStreamsUni();
+        this.qlog = QuicQlog.create(engine, isServer, initialSecretDcid);
+        if (qlog != null) {
+            qlogConnectionStarted();
+            qlog.emit(QlogEvents.PARAMETERS_SET, nowNanos(),
+                    qlogParameters(QlogEvents.OWNER_LOCAL, localTransportParameters));
+        }
+    }
+
+    // ── qlog (draft-ietf-quic-qlog-quic-events) ──
+
+    private void qlogConnectionStarted() {
+        QlogJson data = QlogJson.object();
+        InetSocketAddress src = localAddress;
+        InetSocketAddress dst = remoteAddress;
+        if (dst != null && dst.getAddress() != null) {
+            data.put(QlogEvents.IP_VERSION, dst.getAddress() instanceof java.net.Inet6Address ? "v6" : "v4");
+        }
+        if (src != null && src.getAddress() != null) {
+            data.put(QlogEvents.SRC_IP, src.getAddress().getHostAddress());
+            data.put(QlogEvents.SRC_PORT, src.getPort());
+        }
+        if (dst != null && dst.getAddress() != null) {
+            data.put(QlogEvents.DST_IP, dst.getAddress().getHostAddress());
+            data.put(QlogEvents.DST_PORT, dst.getPort());
+        }
+        data.putHex(QlogEvents.SRC_CID, ourConnectionId);
+        data.putHex(QlogEvents.DST_CID, peerConnectionId);
+        qlog.emit(QlogEvents.CONNECTION_STARTED, nowNanos(), data);
+    }
+
+    private static QlogJson qlogParameters(String owner, TransportParameters p) {
+        QlogJson data = QlogJson.object();
+        data.put(QlogEvents.OWNER, owner);
+        if (p.getOriginalDestinationConnectionId() != null) {
+            data.putHex(QlogEvents.ORIGINAL_DESTINATION_CONNECTION_ID, p.getOriginalDestinationConnectionId());
+        }
+        if (p.getInitialSourceConnectionId() != null) {
+            data.putHex(QlogEvents.INITIAL_SOURCE_CONNECTION_ID, p.getInitialSourceConnectionId());
+        }
+        if (p.getRetrySourceConnectionId() != null) {
+            data.putHex(QlogEvents.RETRY_SOURCE_CONNECTION_ID, p.getRetrySourceConnectionId());
+        }
+        if (p.getStatelessResetToken() != null) {
+            data.putHex(QlogEvents.STATELESS_RESET_TOKEN, p.getStatelessResetToken());
+        }
+        data.put(QlogEvents.MAX_IDLE_TIMEOUT, p.getMaxIdleTimeout());
+        data.put(QlogEvents.MAX_UDP_PAYLOAD_SIZE, p.getMaxUdpPayloadSize());
+        data.put(QlogEvents.ACK_DELAY_EXPONENT, p.getAckDelayExponent());
+        data.put(QlogEvents.MAX_ACK_DELAY, p.getMaxAckDelay());
+        if (p.hasMinAckDelay()) {
+            data.put(QlogEvents.MIN_ACK_DELAY, p.getMinAckDelay());
+        }
+        data.put(QlogEvents.INITIAL_MAX_DATA, p.getInitialMaxData());
+        data.put(QlogEvents.INITIAL_MAX_STREAM_DATA_BIDI_LOCAL, p.getInitialMaxStreamDataBidiLocal());
+        data.put(QlogEvents.INITIAL_MAX_STREAM_DATA_BIDI_REMOTE, p.getInitialMaxStreamDataBidiRemote());
+        data.put(QlogEvents.INITIAL_MAX_STREAM_DATA_UNI, p.getInitialMaxStreamDataUni());
+        data.put(QlogEvents.INITIAL_MAX_STREAMS_BIDI, p.getInitialMaxStreamsBidi());
+        data.put(QlogEvents.INITIAL_MAX_STREAMS_UNI, p.getInitialMaxStreamsUni());
+        if (p.getMaxDatagramFrameSize() > 0) {
+            data.put(QlogEvents.MAX_DATAGRAM_FRAME_SIZE, p.getMaxDatagramFrameSize());
+        }
+        return data;
+    }
+
+    private static String qlogPacketType(EncryptionLevel level) {
+        switch (level) {
+            case INITIAL:
+                return QlogEvents.PACKET_TYPE_INITIAL;
+            case HANDSHAKE:
+                return QlogEvents.PACKET_TYPE_HANDSHAKE;
+            default:
+                return QlogEvents.PACKET_TYPE_1RTT;
+        }
+    }
+
+    private static String qlogVersion(int wire) {
+        byte[] bytes = { (byte) (wire >>> 24), (byte) (wire >>> 16), (byte) (wire >>> 8), (byte) wire };
+        return QlogJson.hex(bytes);
+    }
+
+    private void qlogVersionInformation(TransportParameters peer) {
+        QlogJson data = QlogJson.object();
+        String ours = isServer ? QlogEvents.SERVER_VERSIONS : QlogEvents.CLIENT_VERSIONS;
+        String theirs = isServer ? QlogEvents.CLIENT_VERSIONS : QlogEvents.SERVER_VERSIONS;
+        QuicVersion[] supported = engine.getSupportedVersions();
+        data.beginArray(ours);
+        for (int i = 0; i < supported.length; i++) {
+            data.item(qlogVersion(supported[i].getWireValue()));
+        }
+        data.endArray();
+        if (peer.hasVersionInformation() && peer.getVersionInformationAvailable() != null) {
+            int[] available = peer.getVersionInformationAvailable();
+            data.beginArray(theirs);
+            for (int i = 0; i < available.length; i++) {
+                data.item(qlogVersion(available[i]));
+            }
+            data.endArray();
+        }
+        data.put(QlogEvents.CHOSEN_VERSION, qlogVersion(version.getWireValue()));
+        qlog.emit(QlogEvents.VERSION_INFORMATION, nowNanos(), data);
+    }
+
+    private void qlogKeysDiscarded(EncryptionLevel level) {
+        String name;
+        if (level == EncryptionLevel.INITIAL) {
+            name = "initial";
+        } else if (level == EncryptionLevel.HANDSHAKE) {
+            name = "handshake";
+        } else {
+            return;
+        }
+        qlog.emit(QlogEvents.KEY_DISCARDED, nowNanos(),
+                QlogJson.object().put(QlogEvents.KEY_TYPE, "client_" + name + "_secret"));
+        qlog.emit(QlogEvents.KEY_DISCARDED, nowNanos(),
+                QlogJson.object().put(QlogEvents.KEY_TYPE, "server_" + name + "_secret"));
+    }
+
+    // Reports the recovery state when it differs from what was last reported.
+    private void qlogRecoveryMetrics() {
+        RttEstimator rtt = lossDetector.getRttEstimator();
+        CongestionController cc = lossDetector.getCongestionController();
+        long ssthresh = cc.getSsthresh();
+        long[] now = { rtt.getMinRtt(), rtt.getSmoothedRtt(), rtt.getLatestRtt(), rtt.getRttVar(),
+                cc.getCongestionWindow(), cc.getBytesInFlight(), ssthresh };
+        if (qlogLastMetrics != null && Arrays.equals(qlogLastMetrics, now)) {
+            return;
+        }
+        qlogLastMetrics = now;
+        QlogJson data = QlogJson.object();
+        if (rtt.hasRttSample()) {
+            data.putMillis(QlogEvents.MIN_RTT, now[0]);
+            data.putMillis(QlogEvents.SMOOTHED_RTT, now[1]);
+            data.putMillis(QlogEvents.LATEST_RTT, now[2]);
+            data.putMillis(QlogEvents.RTT_VARIANCE, now[3]);
+        }
+        data.put(QlogEvents.CONGESTION_WINDOW, now[4]);
+        data.put(QlogEvents.BYTES_IN_FLIGHT, now[5]);
+        if (ssthresh < Long.MAX_VALUE / 2) {
+            data.put(QlogEvents.SSTHRESH, ssthresh);
+        }
+        qlog.emit(QlogEvents.RECOVERY_METRICS_UPDATED, nowNanos(), data);
+    }
+
+    private void qlogPacketLost(EncryptionLevel level, long packetNumber, String trigger) {
+        QlogJson data = QlogJson.object();
+        data.beginObject(QlogEvents.HEADER);
+        data.put(QlogEvents.PACKET_TYPE, qlogPacketType(level));
+        data.put(QlogEvents.PACKET_NUMBER, packetNumber);
+        data.endObject();
+        if (trigger != null) {
+            data.put(QlogEvents.TRIGGER, trigger);
+        }
+        qlog.emit(QlogEvents.PACKET_LOST, nowNanos(), data);
+    }
+
+    // Reported once, whichever way the connection ends.
+    private void qlogConnectionClosed(String owner, String trigger) {
+        if (qlog == null || qlogClosedLogged) {
+            return;
+        }
+        qlogClosedLogged = true;
+        QlogJson data = QlogJson.object();
+        data.put(QlogEvents.OWNER, owner);
+        if (deferredCloseIsError) {
+            data.put(deferredCloseApplicationError ? QlogEvents.APPLICATION_CODE : QlogEvents.CONNECTION_CODE,
+                    deferredCloseErrorCode);
+            if (deferredCloseReason != null && !deferredCloseReason.isEmpty()) {
+                data.put(QlogEvents.REASON, deferredCloseReason);
+            }
+        }
+        if (trigger == null) {
+            trigger = !deferredCloseIsError ? QlogEvents.TRIGGER_CLEAN
+                    : deferredCloseApplicationError ? QlogEvents.TRIGGER_APPLICATION : QlogEvents.TRIGGER_ERROR;
+        }
+        data.put(QlogEvents.TRIGGER, trigger);
+        qlog.emit(QlogEvents.CONNECTION_CLOSED, nowNanos(), data);
     }
 
     /**
@@ -1771,12 +1953,13 @@ public final class QuicConnection implements QuicTlsEngineListener {
             return;
         }
         closed = true;
+        deferredCloseIsError = true;
+        qlogConnectionClosed(QlogEvents.OWNER_LOCAL, QlogEvents.TRIGGER_VERSION_MISMATCH);
         if (timerHandle != null) {
             timerHandle.cancel();
             timerHandle = null;
         }
         cancelAllPathValidationAttempts();
-        deferredCloseIsError = true;
         QuicVersionNegotiationException failure = new QuicVersionNegotiationException();
         tearDownStreams(failure);
         // The handler for the not-yet-opened first stream would otherwise
@@ -1904,6 +2087,9 @@ public final class QuicConnection implements QuicTlsEngineListener {
             return;
         }
         discarded[level.ordinal()] = true;
+        if (qlog != null) {
+            qlogKeysDiscarded(level);
+        }
         EncryptionLevelDiscardedObserver observer = encryptionLevelDiscardedObserver;
         if (observer != null) {
             observer.encryptionLevelDiscarded(this, level);
@@ -2166,7 +2352,13 @@ public final class QuicConnection implements QuicTlsEngineListener {
                 }
             }
             Map<Long, long[]> coverage = sentAckCoverage.get(level);
+            if (qlog != null) {
+                qlogRecoveryMetrics();
+            }
             for (SentPacket lost : result.getNewlyLost()) {
+                if (qlog != null) {
+                    qlogPacketLost(level, lost.getPacketNumber(), null);
+                }
                 requeueLostPacket(level, lost.getPacketNumber());
                 // The ACK this packet would have carried (if any) never
                 // reached the peer -- nothing to retire, and no further
@@ -2413,6 +2605,7 @@ public final class QuicConnection implements QuicTlsEngineListener {
             deferredCloseErrorCode = errorCode;
             deferredCloseReason = reason;
             deferredCloseIsError = true;
+            closedByPeer = true;
             close();
         }
 
@@ -4321,7 +4514,13 @@ public final class QuicConnection implements QuicTlsEngineListener {
         EncryptionLevel lossSpace = result.getLossSpace();
         if (lossSpace != null) {
             for (SentPacket lost : result.getNewlyLost()) {
+                if (qlog != null) {
+                    qlogPacketLost(lossSpace, lost.getPacketNumber(), QlogEvents.TRIGGER_TIME_THRESHOLD);
+                }
                 requeueLostPacket(lossSpace, lost.getPacketNumber());
+            }
+            if (qlog != null) {
+                qlogRecoveryMetrics();
             }
         } else {
             // Probe Timeout: nothing was naturally queued to retransmit,
@@ -4401,6 +4600,7 @@ public final class QuicConnection implements QuicTlsEngineListener {
             return;
         }
         closed = true;
+        qlogConnectionClosed(closedByPeer ? QlogEvents.OWNER_REMOTE : QlogEvents.OWNER_LOCAL, null);
         if (timerHandle != null) {
             timerHandle.cancel();
             timerHandle = null;
@@ -4445,6 +4645,7 @@ public final class QuicConnection implements QuicTlsEngineListener {
             return;
         }
         closed = true;
+        qlogConnectionClosed(QlogEvents.OWNER_LOCAL, null);
         if (timerHandle != null) {
             timerHandle.cancel();
             timerHandle = null;
@@ -4478,12 +4679,13 @@ public final class QuicConnection implements QuicTlsEngineListener {
             return;
         }
         closed = true;
+        deferredCloseIsError = true;
+        qlogConnectionClosed(QlogEvents.OWNER_REMOTE, QlogEvents.TRIGGER_STATELESS_RESET);
         if (timerHandle != null) {
             timerHandle.cancel();
             timerHandle = null;
         }
         cancelAllPathValidationAttempts();
-        deferredCloseIsError = true;
         tearDownStreams(new QuicStatelessResetException());
         engine.onConnectionClosed(this);
     }
@@ -4654,12 +4856,19 @@ public final class QuicConnection implements QuicTlsEngineListener {
             return;
         }
         peerMinAckDelayMicros = transportParameters.hasMinAckDelay() ? transportParameters.getMinAckDelay() : -1;
+        if (qlog != null) {
+            qlog.emit(QlogEvents.PARAMETERS_SET, nowNanos(),
+                    qlogParameters(QlogEvents.OWNER_REMOTE, transportParameters));
+        }
         if (transportParameters.isVersionInformationMalformed()) {
             closeWithError(TRANSPORT_ERROR_TRANSPORT_PARAMETER_ERROR, "malformed version_information");
             return;
         }
         if (!processPeerVersionInformation(transportParameters)) {
             return;
+        }
+        if (qlog != null) {
+            qlogVersionInformation(transportParameters);
         }
         if (!isServer) {
             // RFC 9000 section 17.2.5.2: an off-path attacker that
