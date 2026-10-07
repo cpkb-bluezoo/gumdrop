@@ -34,6 +34,31 @@ public interface ClientNotAuthenticatedState {
 
     void authenticate(String mechanism, byte[] initialResponse, AuthReplyHandler callback);
 
+    /**
+     * Authenticates with an OAuth 2.0 access token using SASL XOAUTH2
+     * (Google) or OAUTHBEARER (RFC 7628), sending the initial response
+     * inline (RFC 4959). If the server answers with an error challenge
+     * the client acknowledges it itself, so the callback only sees
+     * {@code handleAuthSuccess} or {@code handleAuthFailed}.
+     *
+     * <p>The connection must already be protected by TLS (implicit TLS
+     * on port 993, or after STARTTLS). Obtaining the access token is the
+     * application's responsibility; Gmail requires the
+     * {@code https://mail.google.com/} scope.
+     *
+     * @param mechanism {@code "XOAUTH2"} or {@code "OAUTHBEARER"}, or
+     *        null to choose from the server's {@code AUTH=} capabilities
+     *        (XOAUTH2 preferred); capabilities must have been received
+     *        from the greeting or a CAPABILITY command
+     * @param account the account identity (email address)
+     * @param accessToken the OAuth 2.0 access token
+     * @param callback receives the result; fails immediately if no
+     *        mechanism can be chosen
+     */
+    void authenticateWithAccessToken(String mechanism, String account,
+                                     String accessToken,
+                                     AuthReplyHandler callback);
+
     void starttls(StarttlsReplyHandler callback);
 
     void logout();

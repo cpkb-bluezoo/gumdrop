@@ -499,4 +499,72 @@ public class SASLUtilsTest {
     public void testCreateClientGssapiWithoutSubject() {
         assertNull(SaslUtils.createClient("GSSAPI", "user", null, "host"));
     }
+
+    // ========== Client OAuth (RFC 7628, XOAUTH2) ==========
+
+    @Test
+    public void testFormatOAuthBearerInitialResponse() {
+        assertEquals("n,a=user@example.com,\u0001auth=Bearer mytoken\u0001\u0001",
+                SaslUtils.formatOAuthBearerInitialResponse("user@example.com", "mytoken"));
+    }
+
+    @Test
+    public void testFormatOAuthBearerRoundTripsThroughParser() {
+        String ir = SaslUtils.formatOAuthBearerInitialResponse("a@b.c", "tok");
+        Map<String, String> parsed = SaslUtils.parseOAuthBearerCredentials(ir);
+        assertEquals("a@b.c", parsed.get("user"));
+        assertEquals("tok", parsed.get("token"));
+    }
+
+    @Test
+    public void testFormatOAuthBearerEscapesAuthzid() {
+        assertEquals("n,a=a=3Db=2Cc,\u0001auth=Bearer t\u0001\u0001",
+                SaslUtils.formatOAuthBearerInitialResponse("a=b,c", "t"));
+    }
+
+    @Test
+    public void testFormatXOAuth2InitialResponse() {
+        assertEquals("user=someuser@example.com\u0001auth=Bearer ya29.vF9dft4qmTc2Nvb3RlckBhdHRhdmlzdGEuY29tCg\u0001\u0001",
+                SaslUtils.formatXOAuth2InitialResponse("someuser@example.com",
+                        "ya29.vF9dft4qmTc2Nvb3RlckBhdHRhdmlzdGEuY29tCg"));
+    }
+
+    @Test
+    public void testCreateClientXOAuth2() throws Exception {
+        SaslClientMechanism m = SaslUtils.createClient("xoauth2", "u@example.com", "tok", "imap.gmail.com");
+        assertNotNull(m);
+        assertEquals("XOAUTH2", m.getMechanismName());
+        assertTrue(m.hasInitialResponse());
+        assertFalse(m.isComplete());
+        byte[] ir = m.evaluateChallenge(new byte[0]);
+        assertEquals(SaslUtils.formatXOAuth2InitialResponse("u@example.com", "tok"),
+                new String(ir, StandardCharsets.UTF_8));
+        // error challenge from the server is acknowledged with an empty response
+        assertEquals(0, m.evaluateChallenge("{\"status\":\"400\"}".getBytes(StandardCharsets.UTF_8)).length);
+        assertTrue(m.isComplete());
+    }
+
+    @Test
+    public void testCreateClientOAuthBearer() throws Exception {
+        SaslClientMechanism m = SaslUtils.createClient("OAUTHBEARER", "u@example.com", "tok", "h");
+        assertNotNull(m);
+        assertEquals("OAUTHBEARER", m.getMechanismName());
+        assertTrue(m.hasInitialResponse());
+        byte[] ir = m.evaluateChallenge(new byte[0]);
+        assertEquals(SaslUtils.formatOAuthBearerInitialResponse("u@example.com", "tok"),
+                new String(ir, StandardCharsets.UTF_8));
+        // RFC 7628 section 3.2.3: client acknowledges an error with a single %x01
+        assertArrayEquals(new byte[] {1}, m.evaluateChallenge("{\"status\":\"invalid_token\"}".getBytes(StandardCharsets.UTF_8)));
+        assertTrue(m.isComplete());
+    }
+
+    @Test
+    public void testSelectOAuthMechanism() {
+        assertEquals("XOAUTH2", SaslUtils.selectOAuthMechanism(
+                java.util.Arrays.asList("IMAP4rev1", "AUTH=OAUTHBEARER", "auth=xoauth2")));
+        assertEquals("OAUTHBEARER", SaslUtils.selectOAuthMechanism(
+                java.util.Arrays.asList("IMAP4rev1", "AUTH=PLAIN", "AUTH=OAUTHBEARER")));
+        assertNull(SaslUtils.selectOAuthMechanism(java.util.Arrays.asList("AUTH=PLAIN")));
+        assertNull(SaslUtils.selectOAuthMechanism(null));
+    }
 }

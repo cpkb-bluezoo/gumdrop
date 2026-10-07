@@ -50,6 +50,24 @@
  *       Structured FETCH response data per message</li>
  * </ul>
  *
+ * <h2>OAuth 2.0 (Gmail and similar providers)</h2>
+ *
+ * <p>With an access token obtained by the application (Gmail requires the
+ * {@code https://mail.google.com/} scope; see Google's
+ * <a href="https://developers.google.com/gmail/imap/xoauth2-protocol">XOAUTH2
+ * protocol</a> documentation), connect with implicit TLS to
+ * {@code imap.gmail.com:993} (or STARTTLS first), fetch capabilities, then:
+ *
+ * <pre>
+ * state.capability(...);   // then, in handleCapabilities:
+ * state.authenticateWithAccessToken(null, "me@gmail.com", token, handler);
+ * </pre>
+ *
+ * <p>A null mechanism chooses from the server's {@code AUTH=} capabilities,
+ * preferring {@code XOAUTH2} over {@code OAUTHBEARER} (RFC 7628); pass a
+ * mechanism name to override. Error challenges are acknowledged
+ * automatically, so the handler sees only success or failure.
+ *
  * <h2>Features</h2>
  *
  * <ul>

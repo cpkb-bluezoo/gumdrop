@@ -147,6 +147,73 @@ public class IMAPClientCommandsTest {
     }
 
     @Test
+    public void testAuthenticateWithAccessTokenPrefersXOAuth2() {
+        greet();
+        handler.capability(rec);
+        line("* CAPABILITY IMAP4rev1 AUTH=OAUTHBEARER AUTH=XOAUTH2");
+        done("OK done");
+        handler.authenticateWithAccessToken(null, "u@example.com", "tok", rec);
+        String expected = java.util.Base64.getEncoder().encodeToString(
+                "user=u@example.com\u0001auth=Bearer tok\u0001\u0001".getBytes(StandardCharsets.UTF_8));
+        assertTrue(lastSent().endsWith("AUTHENTICATE XOAUTH2 " + expected));
+        done("OK [CAPABILITY IMAP4rev1] ok");
+        assertTrue(saw("authSuccess:IMAP4rev1"));
+    }
+
+    @Test
+    public void testAuthenticateWithAccessTokenOAuthBearer() {
+        greet();
+        handler.capability(rec);
+        line("* CAPABILITY IMAP4rev1 AUTH=OAUTHBEARER");
+        done("OK done");
+        handler.authenticateWithAccessToken(null, "u@example.com", "tok", rec);
+        String expected = java.util.Base64.getEncoder().encodeToString(
+                "n,a=u@example.com,\u0001auth=Bearer tok\u0001\u0001".getBytes(StandardCharsets.UTF_8));
+        assertTrue(lastSent().endsWith("AUTHENTICATE OAUTHBEARER " + expected));
+        done("OK ok");
+        assertTrue(saw("authSuccess:"));
+    }
+
+    @Test
+    public void testAuthenticateWithAccessTokenExplicitMechanism() {
+        greet();
+        handler.capability(rec);
+        line("* CAPABILITY IMAP4rev1 AUTH=OAUTHBEARER AUTH=XOAUTH2");
+        done("OK done");
+        handler.authenticateWithAccessToken("OAUTHBEARER", "u@example.com", "tok", rec);
+        assertTrue(lastSent().contains("AUTHENTICATE OAUTHBEARER "));
+    }
+
+    @Test
+    public void testAuthenticateWithAccessTokenNoMechanismOffered() {
+        greet();
+        handler.capability(rec);
+        line("* CAPABILITY IMAP4rev1 AUTH=PLAIN");
+        done("OK done");
+        int sent = endpoint.getSentCommands().size();
+        handler.authenticateWithAccessToken(null, "u@example.com", "tok", rec);
+        assertEquals(sent, endpoint.getSentCommands().size());
+        assertTrue(saw("authFailed:No OAuth SASL mechanism offered by server"));
+    }
+
+    @Test
+    public void testAuthenticateWithAccessTokenErrorChallengeAcknowledged() {
+        greet();
+        handler.capability(rec);
+        line("* CAPABILITY IMAP4rev1 AUTH=XOAUTH2");
+        done("OK done");
+        handler.authenticateWithAccessToken(null, "u@example.com", "bad", rec);
+        line("+ " + java.util.Base64.getEncoder().encodeToString(
+                "{\"status\":\"400\"}".getBytes(StandardCharsets.UTF_8)));
+        // the application handler is not bothered: the client acknowledges
+        assertFalse(saw("challenge:0"));
+        assertEquals("", lastSent());
+        done("NO [AUTHENTICATIONFAILED] Invalid credentials");
+        assertTrue(saw("authFailed:[AUTHENTICATIONFAILED] Invalid credentials")
+                || saw("authFailed:Invalid credentials"));
+    }
+
+    @Test
     public void testAuthAbort() {
         greet();
         handler.authenticate("X", null, rec);

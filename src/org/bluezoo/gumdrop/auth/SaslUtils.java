@@ -610,6 +610,64 @@ public final class SaslUtils {
         return CertificateAuthenticationResult.success(targetUser);
     }
 
+    /**
+     * RFC 7628 §3.1 — builds the OAUTHBEARER initial client response:
+     * {@code n,a=<authzid>,^Aauth=Bearer <token>^A^A}. The authzid is
+     * escaped per RFC 5801 §4 ({@code =} as {@code =3D}, {@code ,} as
+     * {@code =2C}).
+     *
+     * @param authzid the account identity (e.g. the email address)
+     * @param token the OAuth 2.0 access token
+     * @return the unencoded initial response
+     */
+    public static String formatOAuthBearerInitialResponse(String authzid,
+                                                          String token) {
+        String escaped = authzid.replace("=", "=3D").replace(",", "=2C");
+        return "n,a=" + escaped + ",\u0001auth=Bearer " + token
+                + "\u0001\u0001";
+    }
+
+    /**
+     * Builds the Google XOAUTH2 initial client response:
+     * {@code user=<account>^Aauth=Bearer <token>^A^A}.
+     *
+     * @param user the account (email address)
+     * @param token the OAuth 2.0 access token
+     * @return the unencoded initial response
+     * @see <a href="https://developers.google.com/gmail/imap/xoauth2-protocol">XOAUTH2 protocol</a>
+     */
+    public static String formatXOAuth2InitialResponse(String user,
+                                                      String token) {
+        return "user=" + user + "\u0001auth=Bearer " + token
+                + "\u0001\u0001";
+    }
+
+    /**
+     * Chooses an OAuth SASL mechanism from a server capability list
+     * containing {@code AUTH=<mechanism>} tokens. XOAUTH2 is preferred
+     * over OAUTHBEARER.
+     *
+     * @param capabilities the server capability tokens (may be null)
+     * @return {@code "XOAUTH2"}, {@code "OAUTHBEARER"}, or null if neither
+     *         is offered
+     */
+    public static String selectOAuthMechanism(
+            java.util.Collection<String> capabilities) {
+        if (capabilities == null) {
+            return null;
+        }
+        boolean bearer = false;
+        for (String cap : capabilities) {
+            if ("AUTH=XOAUTH2".equalsIgnoreCase(cap)) {
+                return "XOAUTH2";
+            }
+            if ("AUTH=OAUTHBEARER".equalsIgnoreCase(cap)) {
+                bearer = true;
+            }
+        }
+        return bearer ? "OAUTHBEARER" : null;
+    }
+
     // ========================================================================
     // Client-Side SASL Mechanisms
     // ========================================================================
@@ -647,9 +705,11 @@ public final class SaslUtils {
      * offload to a worker thread.
      *
      * @param mechanism the SASL mechanism name (PLAIN, CRAM-MD5, DIGEST-MD5,
-     *        EXTERNAL, GSSAPI)
-     * @param username the authentication identity
-     * @param password the password (may be null for EXTERNAL/GSSAPI)
+     *        EXTERNAL, GSSAPI, OAUTHBEARER, XOAUTH2)
+     * @param username the authentication identity (the account for
+     *        OAUTHBEARER and XOAUTH2)
+     * @param password the password (may be null for EXTERNAL/GSSAPI); the
+     *        OAuth 2.0 access token for OAUTHBEARER and XOAUTH2
      * @param host the server hostname (used by DIGEST-MD5 for digest-uri,
      *        and by GSSAPI for the service principal)
      * @param subject the JAAS Subject with Kerberos credentials (required
@@ -674,6 +734,20 @@ public final class SaslUtils {
                 return new DigestMD5Client(username, password, host);
             case "EXTERNAL":
                 return new ExternalClient();
+            case "OAUTHBEARER":
+                if (username == null || password == null) {
+                    return null;
+                }
+                return new OAuthClient("OAUTHBEARER",
+                        formatOAuthBearerInitialResponse(username, password),
+                        new byte[] {1});
+            case "XOAUTH2":
+                if (username == null || password == null) {
+                    return null;
+                }
+                return new OAuthClient("XOAUTH2",
+                        formatXOAuth2InitialResponse(username, password),
+                        new byte[0]);
             case "GSSAPI":
                 if (subject == null || host == null) {
                     return null;
@@ -686,6 +760,42 @@ public final class SaslUtils {
             default:
                 return null;
         }
+    }
+
+    // RFC 7628 OAUTHBEARER / Google XOAUTH2: single initial response; if
+    // the server answers with an error challenge the client acknowledges it
+    // and the server then fails the exchange
+    private static final class OAuthClient implements SaslClientMechanism {
+        private final String name;
+        private final byte[] initial;
+        private final byte[] errorAck;
+        private boolean sent;
+        private boolean complete;
+
+        OAuthClient(String name, String initialResponse, byte[] errorAck) {
+            this.name = name;
+            this.initial = initialResponse.getBytes(UTF_8);
+            this.errorAck = errorAck;
+        }
+
+        @Override
+        public String getMechanismName() { return name; }
+
+        @Override
+        public boolean hasInitialResponse() { return true; }
+
+        @Override
+        public byte[] evaluateChallenge(byte[] challenge) {
+            if (!sent) {
+                sent = true;
+                return initial;
+            }
+            complete = true;
+            return errorAck;
+        }
+
+        @Override
+        public boolean isComplete() { return complete; }
     }
 
     // RFC 4616 — PLAIN: \0authcid\0password (single step)
