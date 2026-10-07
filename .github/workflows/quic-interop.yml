@@ -1,0 +1,151 @@
+name: QUIC interop
+
+# Runs gumdrop's QUIC stack through the quic-interop-runner
+# (https://github.com/quic-interop/quic-interop-runner) against other
+# implementations, as server and as client. The endpoint image is built
+# from test/quic-interop-runner/. Manual, plus a weekly run; results go to
+# the job summary and the logs are kept as artifacts. Nothing here is part
+# of the normal CI workflow.
+
+on:
+  workflow_dispatch:
+    inputs:
+      peers:
+        description: 'Peer implementations (comma-separated names from implementations_quic.json)'
+        default: 'quic-go,ngtcp2,quiche,picoquic,msquic,neqo'
+        type: string
+      tests:
+        description: 'Test cases (comma-separated; empty runs the whole suite)'
+        default: ''
+        type: string
+  schedule:
+    - cron: '0 4 * * 1'
+
+permissions:
+  contents: read
+
+env:
+  DEFAULT_PEERS: quic-go,ngtcp2,quiche,picoquic,msquic,neqo
+
+jobs:
+  image:
+    name: Build endpoint image
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    outputs:
+      peers: ${{ steps.peers.outputs.peers }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Build image
+        run: docker build -f test/quic-interop-runner/Dockerfile -t gumdrop-interop:ci .
+
+      - name: Save image
+        run: docker save gumdrop-interop:ci | zstd -T0 -o gumdrop-interop.tar.zst
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: gumdrop-interop-image
+          path: gumdrop-interop.tar.zst
+          retention-days: 1
+
+      - name: Peer list for the matrix
+        id: peers
+        env:
+          PEERS: ${{ inputs.peers }}
+        run: |
+          peers="${PEERS:-$DEFAULT_PEERS}"
+          echo "peers=$(printf '%s' "$peers" | tr -d ' ' | jq -R -c 'split(",")')" >> "$GITHUB_OUTPUT"
+
+  interop:
+    name: "vs ${{ matrix.peer }}"
+    needs: image
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        peer: ${{ fromJson(needs.image.outputs.peers) }}
+    steps:
+      - name: Check out the interop runner
+        uses: actions/checkout@v7
+        with:
+          repository: quic-interop/quic-interop-runner
+          path: runner
+
+      # The runner's compose file needs a newer engine than the runner
+      # image ships; this mirrors the runner's own CI.
+      - uses: docker/setup-docker-action@v5
+        with:
+          version: version=v28.3.0
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Enable IPv6 in the simulator
+        run: sudo modprobe ip6table_filter
+
+      - name: Install Wireshark
+        run: |
+          sudo add-apt-repository -y ppa:wireshark-dev/nightly
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends tshark
+          tshark --version | head -n 1
+
+      - name: Install runner dependencies
+        run: pip install -r runner/requirements.txt
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: gumdrop-interop-image
+
+      - name: Load endpoint image
+        run: zstd -d -c gumdrop-interop.tar.zst | docker load
+
+      - name: Register gumdrop with the runner
+        working-directory: runner
+        run: |
+          jq '. + {"gumdrop": {"image": "gumdrop-interop:ci", "url": "https://github.com/cpkb-bluezoo/gumdrop", "role": "both"}}' \
+            implementations_quic.json > implementations_quic.json.new
+          mv implementations_quic.json.new implementations_quic.json
+          python implementations.py -p quic
+
+      - name: gumdrop server, ${{ matrix.peer }} client
+        working-directory: runner
+        env:
+          TESTS: ${{ inputs.tests }}
+          PEER: ${{ matrix.peer }}
+        run: |
+          mkdir -p "$GITHUB_WORKSPACE/results"
+          args=(-s gumdrop -c "$PEER" --markdown
+                --log-dir "$GITHUB_WORKSPACE/logs/gumdrop-server"
+                --json "$GITHUB_WORKSPACE/results/server-gumdrop_client-$PEER.json")
+          if [ -n "$TESTS" ]; then args+=(-t "$TESTS"); fi
+          python run.py "${args[@]}" | tee server.txt || true
+          { echo "### gumdrop server, $PEER client"; echo; cat server.txt; echo; } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: ${{ matrix.peer }} server, gumdrop client
+        if: always()
+        working-directory: runner
+        env:
+          TESTS: ${{ inputs.tests }}
+          PEER: ${{ matrix.peer }}
+        run: |
+          mkdir -p "$GITHUB_WORKSPACE/results"
+          args=(-s "$PEER" -c gumdrop --markdown
+                --log-dir "$GITHUB_WORKSPACE/logs/gumdrop-client"
+                --json "$GITHUB_WORKSPACE/results/server-${PEER}_client-gumdrop.json")
+          if [ -n "$TESTS" ]; then args+=(-t "$TESTS"); fi
+          python run.py "${args[@]}" | tee client.txt || true
+          { echo "### $PEER server, gumdrop client"; echo; cat client.txt; echo; } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload logs and results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: quic-interop-${{ matrix.peer }}
+          if-no-files-found: warn
+          path: |
+            logs/
+            results/

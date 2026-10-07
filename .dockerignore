@@ -8,8 +8,13 @@ doc/
 *.dylib
 *.o
 
-# Tests and their artifacts
-test/
+# Tests and their artifacts (except the quic-interop-runner endpoint, whose
+# Dockerfile builds from the repository root)
+test/*
+!test/quic-interop-runner
+test/quic-interop-runner/classes
+test/quic-interop-runner/results
+test/quic-interop-runner/logs
 *.properties.tmp
 junit*.properties
 junitvmwatcher*.properties

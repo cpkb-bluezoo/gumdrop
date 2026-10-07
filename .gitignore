@@ -45,3 +45,9 @@ test/benchmark/lib/
 test/benchmark/certs/
 test/benchmark/out/
 test/benchmark/results/
+
+# quic-interop-runner endpoint (test/quic-interop-runner): compiled classes,
+# unit test results, and logs from local runner invocations
+test/quic-interop-runner/classes/
+test/quic-interop-runner/results/
+test/quic-interop-runner/logs/

@@ -22,6 +22,7 @@
 package org.bluezoo.gumdrop.quic.tls;
 
 import org.bluezoo.gumdrop.testsupport.memfs.MemoryTemp;
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -32,6 +33,8 @@ import java.security.KeyPair;
 import java.security.KeyPairGenerator;
 import java.security.PrivateKey;
 import java.security.cert.X509Certificate;
+import java.security.interfaces.ECPrivateKey;
+import java.security.spec.ECGenParameterSpec;
 import java.util.Base64;
 import java.util.List;
 
@@ -107,6 +110,89 @@ public class PemCredentialsTest {
             Path keyFile = write(kinds[i] + ".key", pem("PRIVATE KEY", key.getEncoded()));
             ServerCredentials loaded = PemCredentials.loadServerCredentials(cert, keyFile);
             assertEquals(kinds[i].toString(), key, loaded.getPrivateKey());
+        }
+    }
+
+    // ── SEC1 ("EC PRIVATE KEY") keys, as OpenSSL writes them by default ──
+
+    /** DER OBJECT IDENTIFIER prime256v1 (1.2.840.10045.3.1.7). */
+    private static final byte[] P256_OID = {
+        0x06, 0x08, 0x2A, (byte) 0x86, 0x48, (byte) 0xCE, 0x3D, 0x03, 0x01, 0x07
+    };
+
+    private static byte[] der(int tag, byte[]... parts) {
+        int length = 0;
+        for (byte[] part : parts) {
+            length += part.length;
+        }
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        out.write(tag);
+        if (length < 0x80) {
+            out.write(length);
+        } else {
+            out.write(0x81);
+            out.write(length);
+        }
+        for (byte[] part : parts) {
+            out.write(part, 0, part.length);
+        }
+        return out.toByteArray();
+    }
+
+    /**
+     * RFC 5915 ECPrivateKey: version 1, the scalar, and optionally the
+     * named curve in [0]. The public key in [1] is left out, as it is
+     * optional and some generators omit it.
+     */
+    private static byte[] sec1(ECPrivateKey key, boolean embedCurve) {
+        byte[] s = key.getS().toByteArray();
+        byte[] scalar = new byte[32];
+        int skip = Math.max(0, s.length - 32);
+        System.arraycopy(s, skip, scalar, 32 - (s.length - skip), s.length - skip);
+        byte[] version = der(0x02, new byte[] {1});
+        byte[] privateKey = der(0x04, scalar);
+        if (embedCurve) {
+            return der(0x30, version, privateKey, der(0xA0, P256_OID));
+        }
+        return der(0x30, version, privateKey);
+    }
+
+    private static ECPrivateKey newP256Key() throws Exception {
+        KeyPairGenerator generator = KeyPairGenerator.getInstance("EC");
+        generator.initialize(new ECGenParameterSpec("secp256r1"));
+        return (ECPrivateKey) generator.generateKeyPair().getPrivate();
+    }
+
+    @Test
+    public void testLoadsSec1EcPrivateKeyWithEmbeddedCurve() throws Exception {
+        ECPrivateKey key = newP256Key();
+        Path keyFile = write("sec1.key", pem("EC PRIVATE KEY", sec1(key, true)));
+        ECPrivateKey loaded = (ECPrivateKey) PemCredentials.loadPrivateKey(keyFile);
+        assertEquals(key.getS(), loaded.getS());
+        assertEquals(key.getParams().getCurve(), loaded.getParams().getCurve());
+    }
+
+    @Test
+    public void testLoadsSec1EcPrivateKeyWithSeparateParametersBlock() throws Exception {
+        // "openssl ecparam -genkey" output: an EC PARAMETERS block naming
+        // the curve, then the key, which may or may not repeat the curve.
+        ECPrivateKey key = newP256Key();
+        Path keyFile = write("ecparam.key",
+                pem("EC PARAMETERS", P256_OID) + pem("EC PRIVATE KEY", sec1(key, false)));
+        ECPrivateKey loaded = (ECPrivateKey) PemCredentials.loadPrivateKey(keyFile);
+        assertEquals(key.getS(), loaded.getS());
+        assertEquals(key.getParams().getCurve(), loaded.getParams().getCurve());
+    }
+
+    @Test
+    public void testSec1EcPrivateKeyWithoutAnyCurveRejected() throws Exception {
+        ECPrivateKey key = newP256Key();
+        Path keyFile = write("nocurve.key", pem("EC PRIVATE KEY", sec1(key, false)));
+        try {
+            PemCredentials.loadPrivateKey(keyFile);
+            fail("expected a key without curve parameters to be rejected");
+        } catch (GeneralSecurityException expected) {
+            assertTrue(expected.getMessage().contains("curve"));
         }
     }
 

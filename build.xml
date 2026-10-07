@@ -827,6 +827,47 @@
     </javac>
   </target>
 
+  <!-- quic-interop-runner endpoint (test/quic-interop-runner): the client and
+       server mains the interop Docker image runs, plus their unit tests.
+       Not part of 'ant test'; see test/quic-interop-runner/README.md. -->
+  <property name='quic.interop.dir' location='${testdir}/quic-interop-runner'/>
+  <property name='quic.interop.classes' location='${quic.interop.dir}/classes'/>
+
+  <target name='quic-interop-build' depends='resolve-test-deps,build-modules'
+          description='Compile the quic-interop-runner endpoint (test/quic-interop-runner)'>
+    <mkdir dir='${quic.interop.classes}'/>
+    <javac srcdir='${quic.interop.dir}/src' destdir='${quic.interop.classes}' debug='true'
+           release='${java.release.version}'
+           includeantruntime='false'>
+      <classpath>
+        <path refid='module.compile.classpath'/>
+        <pathelement location='${testdir}/junit/lib/${junit.jar}'/>
+      </classpath>
+    </javac>
+  </target>
+
+  <target name='quic-interop-test' depends='quic-interop-build'
+          description='Run the quic-interop-runner endpoint unit tests'>
+    <mkdir dir='${quic.interop.dir}/results'/>
+    <junit printsummary='yes' haltonfailure='yes' haltonerror='yes' fork='yes'>
+      <classpath>
+        <pathelement location='${quic.interop.classes}'/>
+        <path refid='module.compile.classpath'/>
+        <pathelement location='${testdir}/junit/lib/${junit.jar}'/>
+        <pathelement location='${testdir}/junit/lib/${hamcrest.jar}'/>
+      </classpath>
+      <batchtest todir='${quic.interop.dir}/results'>
+        <fileset dir='${quic.interop.dir}/src' includes='**/*Test.java'/>
+      </batchtest>
+      <formatter type='plain'/>
+    </junit>
+  </target>
+
+  <target name='quic-interop-clean' description='Remove quic-interop-runner endpoint build output'>
+    <delete dir='${quic.interop.classes}' quiet='true'/>
+    <delete dir='${quic.interop.dir}/results' quiet='true'/>
+  </target>
+
   <target name='junit-build' depends='resolve-test-deps,build-modules'>
     <mkdir dir='${testdir}/junit/classes'/>
     <javac srcdir='${testdir}/junit/src' destdir='${testdir}/junit/classes' debug='true'

@@ -13,6 +13,13 @@ user-visible themes since 2.2.x.
 
 ### Added
 
+- **quic-interop-runner endpoint** (`test/quic-interop-runner`): a Docker
+  image and `InteropServer`/`InteropClient` mains that put gumdrop's QUIC
+  stack through the [quic-interop-runner](https://github.com/quic-interop/quic-interop-runner)
+  as server and client (HTTP/0.9 over `hq-interop` and HTTP/3), covering
+  handshake, transfer, multiconnect, retry, resumption, 0-RTT, ChaCha20,
+  QUIC v2, IPv6 and HTTP/3. The `QUIC interop` GitHub Actions workflow runs
+  the matrix against other implementations on demand and weekly.
 - **AMQP 1.0 client** (`org.bluezoo.gumdrop.amqp1.client` and
   `org.bluezoo.gumdrop.amqp1.codec`, new `gumdrop-amqp1` module, issue #501):
   a non-blocking client for brokers that speak AMQP 1.0 natively, such as
@@ -156,6 +163,11 @@ user-visible themes since 2.2.x.
 
 ### Fixed
 
+- **PEM private keys in SEC1 form** (`-----BEGIN EC PRIVATE KEY-----`, as
+  written by `openssl ecparam -genkey` and `openssl ec`) are now accepted
+  by `PemCredentials.loadPrivateKey`, with the curve taken from the key's
+  own parameters or the file's `EC PARAMETERS` block; previously only PKCS8
+  `PRIVATE KEY` blocks loaded.
 - **HTTP/2 request trailers no longer cause a GOAWAY.** A HEADERS frame on a
   stream that was already open was checked as if it opened a new stream, so a
   client that sent trailers had its connection closed with `PROTOCOL_ERROR`.
