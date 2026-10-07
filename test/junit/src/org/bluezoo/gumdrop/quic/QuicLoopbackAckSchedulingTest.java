@@ -67,6 +67,11 @@ public class QuicLoopbackAckSchedulingTest {
         QuicForger.invoke(client.conn, "onAckTimeout");
         QuicForger.invoke(server.conn, "onAckTimeout");
         lb.pump();
+        // From here the only time that passes is what a test adds, so the
+        // delays measured below are exact rather than bounded by the CI host.
+        long now = System.nanoTime();
+        client.conn.frozenNanos = now;
+        server.conn.frozenNanos = now;
     }
 
     private void serverSends() {
@@ -124,8 +129,8 @@ public class QuicLoopbackAckSchedulingTest {
         client.conn.clockOffsetMillis += 10;
         long delay = ((Long) QuicForger.invoke(client.conn, "computeAckDelay",
                 EncryptionLevel.ONE_RTT)).longValue();
-        // 10 ms in units of 2^3 microseconds, plus the real time elapsed
-        assertTrue("ack delay " + delay, delay >= 1250 && delay < 1250 + 1250);
+        // 10 ms in units of 2^3 microseconds
+        assertEquals(1250, delay);
     }
 
     @Test
@@ -135,13 +140,11 @@ public class QuicLoopbackAckSchedulingTest {
         lb.pump();
         // a millisecond clock could only ever report whole multiples of
         // 1000 microseconds, which is 125 units of 2^3 microseconds
-        boolean fractional = false;
-        for (int i = 0; i < 100000 && !fractional; i++) {
-            long delay = ((Long) QuicForger.invoke(client.conn, "computeAckDelay",
-                    EncryptionLevel.ONE_RTT)).longValue();
-            fractional = delay % 125 != 0;
-        }
-        assertTrue(fractional);
+        client.conn.clockOffsetNanos += 1500000L;
+        long delay = ((Long) QuicForger.invoke(client.conn, "computeAckDelay",
+                EncryptionLevel.ONE_RTT)).longValue();
+        assertEquals(1500 >>> 3, delay);
+        assertTrue(delay % 125 != 0);
     }
 
     /**

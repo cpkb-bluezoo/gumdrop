@@ -233,6 +233,15 @@ public final class QuicConnection implements QuicTlsEngineListener, QlogSink {
      * waiting in real time.
      */
     long clockOffsetMillis;
+    /** Test seam like {@link #clockOffsetMillis}, for sub-millisecond steps. Zero in production. */
+    long clockOffsetNanos;
+    /**
+     * Test seam: when non-zero, {@link #nowNanos()} and {@link #nowMillis()}
+     * stop following the real clock and read this value (plus the offsets),
+     * so a test sees exactly the time it has advanced and no more. Zero in
+     * production.
+     */
+    long frozenNanos;
 
     /**
      * Test hook: run on the event loop after each RETIRE_CONNECTION_ID
@@ -5890,12 +5899,14 @@ public final class QuicConnection implements QuicTlsEngineListener, QlogSink {
      * Only differences are meaningful.
      */
     private long nowNanos() {
-        return System.nanoTime() + clockOffsetMillis * 1000000L;
+        long base = (frozenNanos != 0) ? frozenNanos : System.nanoTime();
+        return base + clockOffsetMillis * 1000000L + clockOffsetNanos;
     }
 
     /** Returns the current time in milliseconds, plus the test-only offset. */
     private long nowMillis() {
-        return System.currentTimeMillis() + clockOffsetMillis;
+        long base = (frozenNanos != 0) ? frozenNanos / 1000000L : System.currentTimeMillis();
+        return base + clockOffsetMillis + clockOffsetNanos / 1000000L;
     }
 
 }
