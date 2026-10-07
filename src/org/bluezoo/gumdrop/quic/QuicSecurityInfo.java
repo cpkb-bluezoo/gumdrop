@@ -36,12 +36,11 @@ import org.bluezoo.gumdrop.tls.CipherSuite;
  * {@link SecurityInfo} backed by the QUIC connection's negotiated TLS 1.3
  * state. QUIC always uses TLS 1.3, so the protocol is always "QUICv1".
  *
- * <p>Not yet available: although ALPN itself is negotiated (it selects
- * "h3" for HTTP/3), the negotiated value isn't surfaced here, so {@link
- * #getApplicationProtocol} always returns {@code null}; the server side
- * has no client certificate chain accessor (mutual TLS is not
- * exercised), so {@link #getPeerCertificates} is only ever populated on
- * the client side.
+ * <p>Not yet available: the server side has no client certificate chain
+ * accessor (mutual TLS is not exercised), so {@link #getPeerCertificates}
+ * is only ever populated on the client side. {@link #getApplicationProtocol}
+ * is the protocol ALPN settled on (such as "h3"), or {@code null} if none
+ * was configured.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see SecurityInfo
@@ -50,6 +49,7 @@ final class QuicSecurityInfo implements SecurityInfo {
 
     private final String cipherSuite;
     private final String namedGroup;
+    private final String applicationProtocol;
     private final Certificate[] peerCertificates;
     private final long handshakeDurationMs;
     private final boolean earlyDataAccepted;
@@ -74,6 +74,7 @@ final class QuicSecurityInfo implements SecurityInfo {
                 ? ((QuicTlsServerEngine) tlsEngine).getSelectedGroup()
                 : ((QuicTlsClientEngine) tlsEngine).getSelectedGroup();
         this.namedGroup = group != null ? group.getName() : null;
+        this.applicationProtocol = tlsEngine.getNegotiatedApplicationProtocol();
         this.peerCertificates = isServer ? null : parsePeerCerts((QuicTlsClientEngine) tlsEngine);
         this.handshakeDurationMs = System.currentTimeMillis() - handshakeStartTime;
         this.earlyDataAccepted = earlyDataAccepted;
@@ -121,7 +122,7 @@ final class QuicSecurityInfo implements SecurityInfo {
 
     @Override
     public String getApplicationProtocol() {
-        return null;
+        return applicationProtocol;
     }
 
     @Override

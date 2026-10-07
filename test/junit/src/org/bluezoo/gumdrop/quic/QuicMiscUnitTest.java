@@ -430,6 +430,22 @@ public class QuicMiscUnitTest {
     }
 
     @Test
+    public void securityInfoReportsTheNegotiatedApplicationProtocol() throws Exception {
+        QuicLoopback lb = new QuicLoopback();
+        lb.serverFactory.setApplicationProtocols("h3,hq-interop");
+        lb.clientFactory.setApplicationProtocols("hq-interop,h3");
+        lb.startFactories();
+        ConnCapture server = new ConnCapture();
+        lb.startServer(server);
+        ConnCapture client = new ConnCapture();
+        lb.startClient(null, client);
+        lb.pump();
+        // the server's preference wins
+        assertEquals("h3", client.conn.getSecurityInfo().getApplicationProtocol());
+        assertEquals("h3", server.conn.getSecurityInfo().getApplicationProtocol());
+    }
+
+    @Test
     public void securityInfoReportsHandshakeDetails() throws Exception {
         QuicLoopback lb = new QuicLoopback();
         lb.startFactories();
@@ -448,7 +464,9 @@ public class QuicMiscUnitTest {
         assertNotNull(c.getPeerCertificates());
         assertNull(s.getPeerCertificates());
         assertNull(c.getLocalCertificates());
-        assertNull(c.getApplicationProtocol());
+        // the harness offers "test" on both sides
+        assertEquals("test", c.getApplicationProtocol());
+        assertEquals("test", s.getApplicationProtocol());
         assertTrue(c.getHandshakeDurationMs() >= 0);
         assertFalse(c.isSessionResumed());
         assertFalse(c.isEarlyDataAccepted());
