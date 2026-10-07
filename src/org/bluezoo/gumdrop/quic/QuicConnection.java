@@ -326,8 +326,20 @@ public final class QuicConnection implements QuicTlsEngineListener {
     // largestReceived[level], updated only when a new largest arrives --
     // RFC 9000 section 13.2.5's ACK Delay field measures elapsed time
     // since *that* receipt, not since some other packet in the range.
+    // Nanoseconds (nowNanos), so the ACK Delay field can resolve less
+    // than a millisecond.
     private final long[] largestReceivedTime = { -1, -1, -1 };
     private final boolean[] ackOwed = new boolean[EncryptionLevel.values().length];
+    // RFC 9000 section 13.2.1 delayed-ACK state, per space: ack-eliciting
+    // packets received since an ACK was last written, when the first of
+    // them arrived (nanoTime based), and whether one calls for an ACK
+    // without waiting (an out-of-order arrival).
+    private final int[] ackElicitingUnacked = new int[EncryptionLevel.values().length];
+    private final long[] firstUnackedNanos = new long[EncryptionLevel.values().length];
+    private final boolean[] ackImmediate = new boolean[EncryptionLevel.values().length];
+    // RFC 9000 section 13.2.2: an ACK at least every second packet
+    private int ackElicitingThreshold = 2;
+    private TimerHandle ackTimerHandle;
     // Packet numbers received (ack-eliciting) but not yet *confirmed
     // received by the peer* -- RFC 9000 section 13.2.1 requires an ACK
     // frame to acknowledge every received packet number, not just the
@@ -1527,6 +1539,7 @@ public final class QuicConnection implements QuicTlsEngineListener {
                 && !isRecentlyMigratedFrom(source)) {
             beginMigrationValidation(arrival, null, 0);
         }
+        scheduleAcks();
         requestFlush();
     }
 
@@ -1868,6 +1881,8 @@ public final class QuicConnection implements QuicTlsEngineListener {
         recvKeys.remove(level);
         sentCrypto.get(level).clear();
         ackOwed[level.ordinal()] = false;
+        ackElicitingUnacked[level.ordinal()] = 0;
+        ackImmediate[level.ordinal()] = false;
         receivedUnacked.remove(level);
         sentAckCoverage.remove(level);
         pendingPing[level.ordinal()] = false;
@@ -1962,9 +1977,10 @@ public final class QuicConnection implements QuicTlsEngineListener {
             if (switchTo != null) {
                 adoptVersion(switchTo, switchKeys);
             }
-            if (fullPacketNumber > largestReceived[level.ordinal()]) {
+            long previousLargest = largestReceived[level.ordinal()];
+            if (fullPacketNumber > previousLargest) {
                 largestReceived[level.ordinal()] = fullPacketNumber;
-                largestReceivedTime[level.ordinal()] = nowMillis();
+                largestReceivedTime[level.ordinal()] = nowNanos();
             }
             if (level == EncryptionLevel.HANDSHAKE) {
                 initialVersionRecvKeys = null;
@@ -1996,7 +2012,17 @@ public final class QuicConnection implements QuicTlsEngineListener {
             // CONNECTION_CLOSE would let two endpoints that just did that
             // to each other keep acking one another's ACKs forever.
             if (dispatcher.ackEliciting) {
-                ackOwed[level.ordinal()] = true;
+                int space = level.ordinal();
+                if (ackElicitingUnacked[space]++ == 0) {
+                    firstUnackedNanos[space] = nowNanos();
+                }
+                // RFC 9000 section 13.2.1: a packet that arrives out of
+                // order, below the largest or after a gap, is
+                // acknowledged without waiting
+                if (previousLargest >= 0
+                        && (fullPacketNumber < previousLargest || fullPacketNumber > previousLargest + 1)) {
+                    ackImmediate[space] = true;
+                }
             }
             // Every packet received is named in the next ACK frame this
             // endpoint sends, whether or not it is one that makes an ACK
@@ -3592,7 +3618,7 @@ public final class QuicConnection implements QuicTlsEngineListener {
         if (receivedAt < 0) {
             return 0;
         }
-        long elapsedMicros = Math.max(0, nowMillis() - receivedAt) * 1000;
+        long elapsedMicros = Math.max(0, nowNanos() - receivedAt) / 1000L;
         return elapsedMicros >>> DEFAULT_ACK_DELAY_EXPONENT;
     }
 
@@ -3780,6 +3806,12 @@ public final class QuicConnection implements QuicTlsEngineListener {
         if (includeAck) {
             QuicFrameWriter.writeAck(payload, ackRanges, ackDelay);
             ackOwed[level.ordinal()] = false;
+            ackElicitingUnacked[level.ordinal()] = 0;
+            ackImmediate[level.ordinal()] = false;
+            if (oneRtt && ackTimerHandle != null) {
+                ackTimerHandle.cancel();
+                ackTimerHandle = null;
+            }
             // Deliberately not clearing receivedUnacked here -- this ACK
             // frame has only been written into a buffer, not confirmed
             // (or even necessarily yet sent: sealing, anti-amplification
@@ -4821,6 +4853,65 @@ public final class QuicConnection implements QuicTlsEngineListener {
             this.data = data;
             this.fin = fin;
         }
+    }
+
+    // RFC 9000 section 13.2.1: the delayed-ACK timer for the application
+    // data space expired; the ACK is owed whatever has arrived since.
+    void onAckTimeout() {
+        ackTimerHandle = null;
+        if (closed) {
+            return;
+        }
+        int app = EncryptionLevel.ONE_RTT.ordinal();
+        if (ackElicitingUnacked[app] > 0) {
+            ackOwed[app] = true;
+            flush();
+        }
+    }
+
+    // RFC 9000 section 13.2.1, run once a whole datagram has been
+    // processed: decide which spaces now owe an ACK, and arm the timer
+    // that bounds the delay of the rest.
+    private void scheduleAcks() {
+        int initial = EncryptionLevel.INITIAL.ordinal();
+        int handshake = EncryptionLevel.HANDSHAKE.ordinal();
+        int app = EncryptionLevel.ONE_RTT.ordinal();
+        // Initial and Handshake packets are acknowledged immediately
+        if (ackElicitingUnacked[initial] > 0) {
+            ackOwed[initial] = true;
+        }
+        if (ackElicitingUnacked[handshake] > 0) {
+            ackOwed[handshake] = true;
+        }
+        if (ackElicitingUnacked[app] == 0) {
+            return;
+        }
+        if (ackImmediate[app] || ackElicitingUnacked[app] >= ackElicitingThreshold) {
+            ackOwed[app] = true;
+            return;
+        }
+        if (ackTimerHandle == null) {
+            long elapsedMillis = (nowNanos() - firstUnackedNanos[app]) / 1000000L;
+            long delay = Math.max(0, localMaxAckDelayMillis() - elapsedMillis);
+            ackTimerHandle = engine.scheduleTimer(delay, new Runnable() {
+                @Override
+                public void run() {
+                    onAckTimeout();
+                }
+            });
+        }
+    }
+
+    private long localMaxAckDelayMillis() {
+        return localTransportParameters.getMaxAckDelay();
+    }
+
+    /**
+     * Returns a monotonic time in nanoseconds, plus the test-only offset.
+     * Only differences are meaningful.
+     */
+    private long nowNanos() {
+        return System.nanoTime() + clockOffsetMillis * 1000000L;
     }
 
     /** Returns the current time in milliseconds, plus the test-only offset. */
