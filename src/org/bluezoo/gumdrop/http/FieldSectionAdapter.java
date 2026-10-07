@@ -361,7 +361,7 @@ public final class FieldSectionAdapter implements HeaderFieldHandler {
             return false;
         }
         for (int i = 0; i < trailers.length(); i++) {
-            byte b = value.get(value.position() + i);
+            int b = value.get(value.position() + i);
             if (b >= 'A' && b <= 'Z') {
                 b += 32;
             }

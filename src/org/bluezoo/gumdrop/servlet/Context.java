@@ -2128,6 +2128,24 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
     }
 
     /**
+     * Resolves an entry path returned by {@link #safeResourceEntryPath}
+     * against the exploded web application root. The entry path has
+     * already been validated, so the containment check here cannot fail
+     * for a well-formed caller; it exists as defence in depth and so the
+     * resolution is self-evidently confined to the root.
+     *
+     * @return the resolved path, or null if it would lie outside the root
+     */
+    private Path resolveEntry(String entryPath) {
+        Path base = root.normalize();
+        Path resolved = base.resolve(entryPath).normalize();
+        if (!resolved.startsWith(base)) {
+            return null;
+        }
+        return resolved;
+    }
+
+    /**
      * Returns a relative path's names joined with '/', independent of the
      * separator of the file system the path belongs to.
      */
@@ -2171,9 +2189,9 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
         Set<String> ret = new LinkedHashSet<>();
         List<String> libJarFiles = new ArrayList<>(); // lib jars to search META-INF/resources
         if (Files.isDirectory(root)) {
-            Path dir = root.resolve(entryPath);
+            Path dir = resolveEntry(entryPath);
             // Check file entries in root
-            if (Files.isDirectory(dir)) { // may not be a directory
+            if (dir != null && Files.isDirectory(dir)) { // may not be a directory
                 try (DirectoryStream<Path> children = Files.newDirectoryStream(dir)) {
                     for (Path child : children) {
                         String entry = child.getFileName().toString();
@@ -2276,8 +2294,8 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
         String libPath = "WEB-INF/lib/";
         List<String> libJarFiles = new ArrayList<>(); // lib jars to search META-INF/resources
         if (Files.isDirectory(root)) {
-            Path file = root.resolve(entryPath);
-            if (Files.isRegularFile(file)) {
+            Path file = resolveEntry(entryPath);
+            if (file != null && Files.isRegularFile(file)) {
                 found = true;
             } else {
                 // Check entries in jars in WEB-INF/lib
@@ -2372,8 +2390,8 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
         List<String> libJarFiles = new ArrayList<>(); // lib jars to search META-INF/resources
         try {
             if (Files.isDirectory(root)) {
-                Path file = root.resolve(entryPath);
-                if (Files.isRegularFile(file)) {
+                Path file = resolveEntry(entryPath);
+                if (file != null && Files.isRegularFile(file)) {
                     return Files.newInputStream(file);
                 } else {
                     // Check entries in jars in WEB-INF/lib

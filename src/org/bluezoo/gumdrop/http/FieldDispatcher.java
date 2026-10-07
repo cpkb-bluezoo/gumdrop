@@ -350,7 +350,7 @@ public final class FieldDispatcher {
         }
         String chunked = "chunked";
         for (int i = 0; i < 7; i++) {
-            byte c = b.get(from + i);
+            int c = b.get(from + i);
             if (c >= 'A' && c <= 'Z') {
                 c += 32;
             }
