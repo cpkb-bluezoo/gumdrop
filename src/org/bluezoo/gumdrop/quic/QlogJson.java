@@ -22,13 +22,13 @@
 package org.bluezoo.gumdrop.quic;
 
 /**
- * Builds the JSON data object of a qlog event. The core module has no JSON
+ * Builds the JSON data object of a qlog event, for the protocols that run on a QUIC connection as well as the transport. The core module has no JSON
  * library, and the objects are small and flat, so this writes the text
  * directly.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-final class QlogJson {
+public final class QlogJson {
 
     private static final char[] HEX = "0123456789abcdef".toCharArray();
 
@@ -39,7 +39,7 @@ final class QlogJson {
     }
 
     /** Starts an object. */
-    static QlogJson object() {
+    public static QlogJson object() {
         return new QlogJson();
     }
 
@@ -57,7 +57,7 @@ final class QlogJson {
     }
 
     /** Appends value as a JSON string, quoted and escaped. */
-    static void appendString(StringBuilder out, String value) {
+    public static void appendString(StringBuilder out, String value) {
         out.append('"');
         for (int i = 0; i < value.length(); i++) {
             char c = value.charAt(i);
@@ -76,26 +76,26 @@ final class QlogJson {
         appendString(sb, value);
     }
 
-    QlogJson put(String key, String value) {
+    public QlogJson put(String key, String value) {
         key(key);
         string(value);
         return this;
     }
 
-    QlogJson put(String key, long value) {
+    public QlogJson put(String key, long value) {
         key(key);
         sb.append(value);
         return this;
     }
 
-    QlogJson put(String key, boolean value) {
+    public QlogJson put(String key, boolean value) {
         key(key);
         sb.append(value);
         return this;
     }
 
     /** Writes a duration given in microseconds as milliseconds, which is what qlog counts in. */
-    QlogJson putMillis(String key, long micros) {
+    public QlogJson putMillis(String key, long micros) {
         key(key);
         long abs = Math.abs(micros);
         long fraction = abs % 1000L;
@@ -114,7 +114,7 @@ final class QlogJson {
     }
 
     /** Writes bytes as the lowercase hexadecimal string qlog uses. */
-    QlogJson putHex(String key, byte[] value) {
+    public QlogJson putHex(String key, byte[] value) {
         key(key);
         sb.append('"');
         for (int i = 0; i < value.length; i++) {
@@ -125,56 +125,63 @@ final class QlogJson {
     }
 
     /** Writes a number as given: for a value that is not an integer, such as 1.125. */
-    QlogJson put(String key, double value) {
+    public QlogJson put(String key, double value) {
         key(key);
         sb.append(value);
         return this;
     }
 
     /** Embeds JSON text built elsewhere. */
-    QlogJson putRaw(String key, String json) {
+    public QlogJson putRaw(String key, String json) {
         key(key);
         sb.append(json);
         return this;
     }
 
-    QlogJson beginObject(String key) {
+    public QlogJson beginObject(String key) {
         key(key);
         sb.append('{');
         return this;
     }
 
-    QlogJson endObject() {
+    public QlogJson endObject() {
         sb.append('}');
         return this;
     }
 
-    QlogJson beginArray(String key) {
+    public QlogJson beginArray(String key) {
         key(key);
         sb.append('[');
         return this;
     }
 
-    QlogJson endArray() {
+    public QlogJson endArray() {
         sb.append(']');
         return this;
     }
 
+    /** Adds an element that is already JSON text to the open array. */
+    public QlogJson itemRaw(String json) {
+        separate();
+        sb.append(json);
+        return this;
+    }
+
     /** Adds an element to the open array. */
-    QlogJson item(String value) {
+    public QlogJson item(String value) {
         separate();
         string(value);
         return this;
     }
 
     /** Ends the object and returns its text. */
-    String build() {
+    public String build() {
         sb.append('}');
         return sb.toString();
     }
 
     /** Returns the lowercase hexadecimal form of bytes. */
-    static String hex(byte[] value) {
+    public static String hex(byte[] value) {
         char[] out = new char[value.length * 2];
         for (int i = 0; i < value.length; i++) {
             out[2 * i] = HEX[(value[i] >> 4) & 15];

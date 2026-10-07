@@ -32,6 +32,9 @@ import java.util.List;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
+import org.bluezoo.gumdrop.quic.QuicTransportFactory;
+import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
+import org.bluezoo.gumdrop.telemetry.export.QlogExporter;
 import org.bluezoo.gumdrop.tls.KeyLog;
 
 /**
@@ -153,6 +156,44 @@ final class InteropEnvironment {
         } catch (UnknownHostException e) {
             return null;
         }
+    }
+
+    /**
+     * Makes connections on the factory report qlog events, written to the
+     * directory the runner names in {@code QLOGDIR}, so that the runner
+     * stores gumdrop's qlog next to the trace and the key log. Nothing is
+     * done when the variable is unset.
+     *
+     * @param factory the transport factory of the endpoint
+     */
+    static void enableQlog(QuicTransportFactory factory) {
+        TelemetryConfig telemetry = qlogTelemetry(System.getenv("QLOGDIR"));
+        if (telemetry != null) {
+            factory.setTelemetryConfig(telemetry);
+            factory.setQlogEnabled(true);
+            Logger.getLogger(InteropEnvironment.class.getName())
+                    .info("writing qlog to " + telemetry.getQlogDirectory());
+        }
+    }
+
+    /**
+     * The telemetry configuration that writes qlog files to a directory:
+     * the qlog exporter is created directly, so the endpoint does not
+     * depend on service discovery in the image's class path. Its shutdown
+     * hook flushes the files when the process exits.
+     *
+     * @param directory the directory, or null or empty for none
+     * @return the configuration, or null if there is no directory
+     */
+    static TelemetryConfig qlogTelemetry(String directory) {
+        if (directory == null || directory.isEmpty()) {
+            return null;
+        }
+        Path path = Path.of(directory);
+        TelemetryConfig telemetry = new TelemetryConfig();
+        telemetry.setQlogDirectory(path);
+        telemetry.setExporter(new QlogExporter(path, QlogExporter.DEFAULT_QUEUE_SIZE));
+        return telemetry;
     }
 
     /**

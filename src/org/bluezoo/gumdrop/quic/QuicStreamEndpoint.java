@@ -58,7 +58,7 @@ import org.bluezoo.gumdrop.telemetry.Trace;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-public final class QuicStreamEndpoint implements Endpoint {
+public final class QuicStreamEndpoint implements Endpoint, QlogSink {
 
     private static final ByteBuffer EMPTY_BUFFER = ByteBuffer.allocate(0).asReadOnlyBuffer();
 
@@ -131,6 +131,16 @@ public final class QuicStreamEndpoint implements Endpoint {
      * been reset) -- the point at which {@link QuicConnection} can safely
      * forget this stream.
      */
+    @Override
+    public boolean isQlogEnabled() {
+        return connection.isQlogEnabled();
+    }
+
+    @Override
+    public void emitQlog(String schema, String eventName, String dataJson) {
+        connection.emitQlog(schema, eventName, dataJson);
+    }
+
     boolean isPeerFinished() {
         return peerFinished;
     }

@@ -491,6 +491,11 @@ public final class QuicTlsServerEngine implements QuicTlsEngine {
     }
 
     @Override
+    public String getNegotiatedApplicationProtocol() {
+        return engine.getNegotiatedApplicationProtocol();
+    }
+
+    @Override
     public byte[] getClientHandshakeTrafficSecret() {
         return engine.getClientHandshakeTrafficSecret();
     }

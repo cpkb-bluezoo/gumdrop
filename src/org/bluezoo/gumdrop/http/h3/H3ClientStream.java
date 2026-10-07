@@ -196,6 +196,9 @@ class H3ClientStream implements ProtocolHandler, H3FrameHandler {
     public void connected(Endpoint endpoint) {
         this.endpoint = endpoint;
         this.streamId = ((QuicStreamEndpoint) endpoint).getStreamId();
+        if (H3Qlog.on(H3Qlog.sinkOf(endpoint))) {
+            H3Qlog.streamTypeSet(H3Qlog.sinkOf(endpoint), H3Qlog.OWNER_LOCAL, streamId, H3Qlog.STREAM_TYPE_REQUEST);
+        }
         if (connection != null && pendingRequestHeaders != null) {
             connection.completePreparedRequest(this);
         }
@@ -337,6 +340,9 @@ class H3ClientStream implements ProtocolHandler, H3FrameHandler {
         frameData.get(bytes);
         H3Writer.writeData(out, bytes);
         out.flip();
+        if (H3Qlog.on(H3Qlog.sinkOf(endpoint))) {
+            H3Qlog.frameCreated(H3Qlog.sinkOf(endpoint), streamId, H3Qlog.dataFrame(bytes.length));
+        }
         // Callers (WebSocket sessions) may be on any application thread;
         // the QUIC endpoint is owned by the connection's selector loop.
         endpoint.execute(new Runnable() {
@@ -469,6 +475,9 @@ class H3ClientStream implements ProtocolHandler, H3FrameHandler {
             return;
         }
         List<Header> fields = HeaderFields.collected(collected);
+        if (H3Qlog.on(H3Qlog.sinkOf(endpoint))) {
+            H3Qlog.frameParsed(H3Qlog.sinkOf(endpoint), streamId, H3Qlog.headersFrame(fields));
+        }
         if (connection != null
                 && H3Writer.fieldSectionSize(fields) > connection.getLocalMaxFieldSectionSize()) {
             abortExcessiveLoad("response field section exceeds SETTINGS_MAX_FIELD_SECTION_SIZE");
@@ -579,6 +588,9 @@ class H3ClientStream implements ProtocolHandler, H3FrameHandler {
 
     @Override
     public void dataFrameReceived(ByteBuffer data, boolean endOfFrame) {
+        if (H3Qlog.on(H3Qlog.sinkOf(endpoint))) {
+            H3Qlog.frameParsed(H3Qlog.sinkOf(endpoint), streamId, H3Qlog.dataFrame(data.remaining()));
+        }
         if (capsuleMode) {
             dispatchCapsules(data);
             return;
@@ -622,6 +634,9 @@ class H3ClientStream implements ProtocolHandler, H3FrameHandler {
         }
         for (int i = 0; i < capsules.size(); i++) {
             Capsule capsule = capsules.get(i);
+            if (H3Qlog.on(H3Qlog.sinkOf(endpoint))) {
+                H3Qlog.capsuleParsed(H3Qlog.sinkOf(endpoint), streamId, capsule.getType(), capsule.getValue().length);
+            }
             if (capsule.getType() == Capsule.TYPE_DATAGRAM) {
                 if (responseHandler.wantsDatagrams()) {
                     responseHandler.datagramReceived(ByteBuffer.wrap(capsule.getValue()));

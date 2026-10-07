@@ -672,6 +672,10 @@ public final class QuicEngine implements ChannelHandler, MultiplexedEndpoint {
             markResetEligible(connectionId);
         }
         removeConnection(connection);
+        QuicServerMetrics m = getMetrics();
+        if (m != null && connection.isServerSide()) {
+            m.connectionClosed();
+        }
     }
 
     private void removeConnection(QuicConnection connection) {
@@ -737,6 +741,10 @@ public final class QuicEngine implements ChannelHandler, MultiplexedEndpoint {
             LOGGER.fine(L10N.getString("fine.stateless_reset_sent"));
         }
         sendTo(via, source, reset);
+        QuicServerMetrics m = getMetrics();
+        if (m != null) {
+            m.statelessResetSent();
+        }
     }
 
     /**
@@ -769,6 +777,10 @@ public final class QuicEngine implements ChannelHandler, MultiplexedEndpoint {
         System.arraycopy(withoutTag, 0, packet, 0, withoutTag.length);
         System.arraycopy(tag, 0, packet, withoutTag.length, tag.length);
         sendTo(via, source, packet);
+        QuicServerMetrics m = getMetrics();
+        if (m != null) {
+            m.retrySent();
+        }
     }
 
     /**
@@ -816,6 +828,10 @@ public final class QuicEngine implements ChannelHandler, MultiplexedEndpoint {
         sendTo(via, source, VersionNegotiationPacket.build(invariants.getSourceConnectionId(),
                 invariants.getDestinationConnectionId(), supportedWireValues(),
                 RANDOM.nextInt()));
+        QuicServerMetrics m = getMetrics();
+        if (m != null) {
+            m.versionNegotiationSent();
+        }
     }
 
     /**
@@ -1033,6 +1049,30 @@ public final class QuicEngine implements ChannelHandler, MultiplexedEndpoint {
             return lb.generate(RANDOM);
         }
         return generateConnectionId();
+    }
+
+    // Created on first use, once the factory has its telemetry configuration
+    private QuicServerMetrics metrics;
+    private boolean metricsResolved;
+
+    /**
+     * Returns the aggregate metrics of a server engine, or null for a
+     * client engine or when metrics are not enabled.
+     */
+    QuicServerMetrics getMetrics() {
+        if (!metricsResolved) {
+            metricsResolved = true;
+            TelemetryConfig config = factory.getTelemetryConfig();
+            if (serverMode && config != null && config.isMetricsEnabled()) {
+                metrics = new QuicServerMetrics(config);
+            }
+        }
+        return metrics;
+    }
+
+    /** Returns the configured application protocols, comma separated, or null. */
+    String getApplicationProtocols() {
+        return factory.getApplicationProtocols();
     }
 
     /** Returns whether the factory asks connections to report qlog events. */

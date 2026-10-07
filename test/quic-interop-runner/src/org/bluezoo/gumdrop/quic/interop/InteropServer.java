@@ -92,6 +92,7 @@ public final class InteropServer {
     static void configure(QuicTransportFactory factory, InteropEnvironment env, InteropTestCase testCase) {
         factory.setCertFile(env.certFile());
         factory.setKeyFile(env.keyFile());
+        InteropEnvironment.enableQlog(factory);
         // The handshake test fails if a Retry is sent, so only the retry
         // case validates addresses.
         factory.setRequireRetry(testCase == InteropTestCase.RETRY);

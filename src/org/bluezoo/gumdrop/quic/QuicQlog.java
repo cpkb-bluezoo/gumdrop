@@ -82,14 +82,26 @@ final class QuicQlog {
      * @param data the event's data object
      */
     void emit(String name, long nanoTime, QlogJson data) {
+        emit(QlogAttributes.SCHEMA_QUIC, name, nanoTime, data.build());
+    }
+
+    /**
+     * Emits an event of any schema whose data is already JSON text.
+     *
+     * @param schema the event schema URI
+     * @param name the event name
+     * @param nanoTime the time of the event, as for {@link #emit(String, long, QlogJson)}
+     * @param dataJson the event's data object
+     */
+    void emit(String schema, String name, long nanoTime, String dataJson) {
         TelemetryExporter exporter = config.getExporter();
         if (exporter == null) {
             return;
         }
-        LogRecord record = new LogRecord(nanoTime + wallClockOffsetNanos, LogRecord.SEVERITY_DEBUG, data.build());
+        LogRecord record = new LogRecord(nanoTime + wallClockOffsetNanos, LogRecord.SEVERITY_DEBUG, dataJson);
         record.addAttribute(LogRecord.CHANNEL_ATTRIBUTE, QlogAttributes.CHANNEL);
         record.addAttribute(QlogAttributes.NAME, name);
-        record.addAttribute(QlogAttributes.SCHEMA, QlogAttributes.SCHEMA_QUIC);
+        record.addAttribute(QlogAttributes.SCHEMA, schema);
         record.addAttribute(QlogAttributes.GROUP_ID, groupId);
         record.addAttribute(QlogAttributes.VANTAGE_POINT, vantagePoint);
         exporter.export(record);

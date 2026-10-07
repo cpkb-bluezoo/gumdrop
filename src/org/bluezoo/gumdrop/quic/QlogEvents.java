@@ -55,6 +55,7 @@ final class QlogEvents {
     static final String STREAM_DATA_MOVED = "quic:stream_data_moved";
     static final String DATAGRAM_DATA_MOVED = "quic:datagram_data_moved";
     static final String PARAMETERS_RESTORED = "quic:parameters_restored";
+    static final String ALPN_INFORMATION = "quic:alpn_information";
 
     // connection_started
     static final String IP_VERSION = "ip_version";
@@ -94,6 +95,12 @@ final class QlogEvents {
     static final String INITIAL_MAX_STREAMS_BIDI = "initial_max_streams_bidi";
     static final String INITIAL_MAX_STREAMS_UNI = "initial_max_streams_uni";
     static final String MAX_DATAGRAM_FRAME_SIZE = "max_datagram_frame_size";
+
+    // alpn_information
+    static final String SERVER_ALPNS = "server_alpns";
+    static final String CLIENT_ALPNS = "client_alpns";
+    static final String CHOSEN_ALPN = "chosen_alpn";
+    static final String STRING_VALUE = "string_value";
 
     // key_discarded
     static final String KEY_TYPE = "key_type";

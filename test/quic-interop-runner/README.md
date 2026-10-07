@@ -41,6 +41,12 @@ The runner knows nothing about gumdrop; it only runs the image.
   default). Several checks (resumption, multiplexing, amplification
   limit, rebinding, key update, ECN, migration) are only evaluated when
   the runner can decrypt the traces with it.
+- `QLOGDIR` names a directory the endpoint writes qlog files to, one
+  `{original destination connection ID}_{client|server}.sqlog` per
+  connection (JSON-SEQ, draft-ietf-quic-qlog-main-schema), so the runner
+  keeps gumdrop's view of each case next to the trace and the key log. The
+  hq endpoints and the HTTP/3 server write them; the HTTP/3 client case
+  builds its transport inside `HttpClient` and writes none.
 
 ## Test case coverage
 

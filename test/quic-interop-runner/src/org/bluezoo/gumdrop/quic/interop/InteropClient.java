@@ -102,6 +102,7 @@ public final class InteropClient {
             QuicTransportFactory factory = new QuicTransportFactory();
             factory.setApplicationProtocols(InteropServer.ALPN_HQ);
             factory.setCaFile(env.caFile());
+            InteropEnvironment.enableQlog(factory);
             factory.setEarlyDataEnabled(testCase == InteropTestCase.ZERORTT);
             if (testCase == InteropTestCase.CHACHA20) {
                 factory.setCipherSuites(InteropServer.CHACHA20_ONLY);

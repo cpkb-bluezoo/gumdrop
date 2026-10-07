@@ -151,7 +151,12 @@ public class H3ServerFlowTest {
 
         Fixture(HttpAuthenticationProvider auth, HttpServerMetrics metrics,
                 TelemetryConfig tc, boolean secHeaders, boolean compress, String hsts) {
-            conn = QuicConnectionTestFactory.create(true);
+            this(QuicConnectionTestFactory.create(true), auth, metrics, tc, secHeaders, compress, hsts);
+        }
+
+        Fixture(QuicConnection conn, HttpAuthenticationProvider auth, HttpServerMetrics metrics,
+                TelemetryConfig tc, boolean secHeaders, boolean compress, String hsts) {
+            this.conn = conn;
             rec = new Recorder();
             HttpStreamHandler sh = new HttpStreamHandler() {
                 @Override

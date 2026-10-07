@@ -33,6 +33,7 @@ import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.http.qpack.Decoder;
 import org.bluezoo.gumdrop.http.qpack.Encoder;
 import org.bluezoo.gumdrop.quic.QuicConnection;
+import org.bluezoo.gumdrop.quic.QuicStreamEndpoint;
 import org.bluezoo.gumdrop.quic.packet.VarInt;
 
 /**
@@ -143,6 +144,9 @@ class H3ControlStream implements ProtocolHandler, H3FrameHandler {
     // a push stream is H3_ID_ERROR rather than H3_STREAM_CREATION_ERROR.
     private final boolean client;
 
+    // for qlog: -1 until the stream is known
+    private long streamId = -1;
+
     private int typeBytesNeeded = -1;
     private final ByteArrayOutputStream typeBuffer = new ByteArrayOutputStream(8);
     private StreamKind kind;
@@ -171,6 +175,9 @@ class H3ControlStream implements ProtocolHandler, H3FrameHandler {
 
     @Override
     public void connected(Endpoint endpoint) {
+        if (endpoint instanceof QuicStreamEndpoint) {
+            streamId = ((QuicStreamEndpoint) endpoint).getStreamId();
+        }
     }
 
     @Override
@@ -182,6 +189,9 @@ class H3ControlStream implements ProtocolHandler, H3FrameHandler {
         if (kind == null) {
             if (!readStreamType(data)) {
                 return;
+            }
+            if (H3Qlog.on(quicConnection)) {
+                H3Qlog.streamTypeSet(quicConnection, H3Qlog.OWNER_REMOTE, streamId, qlogStreamType());
             }
             if (kind == StreamKind.CONTROL) {
                 parser = new H3Parser(this);
@@ -289,6 +299,21 @@ class H3ControlStream implements ProtocolHandler, H3FrameHandler {
         closeIfCriticalStreamClosed();
     }
 
+    private String qlogStreamType() {
+        switch (kind) {
+            case CONTROL:
+                return H3Qlog.STREAM_TYPE_CONTROL;
+            case PUSH:
+                return H3Qlog.STREAM_TYPE_PUSH;
+            case QPACK_ENCODER:
+                return H3Qlog.STREAM_TYPE_QPACK_ENCODE;
+            case QPACK_DECODER:
+                return H3Qlog.STREAM_TYPE_QPACK_DECODE;
+            default:
+                return H3Qlog.STREAM_TYPE_UNKNOWN;
+        }
+    }
+
     private boolean isCritical() {
         return kind == StreamKind.CONTROL
                 || kind == StreamKind.QPACK_ENCODER
@@ -349,6 +374,9 @@ class H3ControlStream implements ProtocolHandler, H3FrameHandler {
 
     @Override
     public void settingsFrameReceived(long[] settings) {
+        if (H3Qlog.on(quicConnection)) {
+            H3Qlog.frameParsed(quicConnection, streamId, H3Qlog.settingsFrame(settings));
+        }
         if (settingsReceived) {
             // RFC 9114 section 7.2.4: a second SETTINGS is unexpected.
             connectionError(H3ErrorCode.H3_FRAME_UNEXPECTED,
@@ -374,6 +402,9 @@ class H3ControlStream implements ProtocolHandler, H3FrameHandler {
             }
         }
         settingsReceived = true;
+        if (H3Qlog.on(quicConnection)) {
+            H3Qlog.parametersSet(quicConnection, H3Qlog.OWNER_REMOTE, settings);
+        }
         listener.settingsReceived(settings);
     }
 
@@ -387,6 +418,9 @@ class H3ControlStream implements ProtocolHandler, H3FrameHandler {
 
     @Override
     public void goawayFrameReceived(long streamOrPushId) {
+        if (H3Qlog.on(quicConnection)) {
+            H3Qlog.frameParsed(quicConnection, streamId, H3Qlog.goawayFrame(streamOrPushId));
+        }
         if (!requireSettingsFirst()) {
             return;
         }
@@ -413,6 +447,9 @@ class H3ControlStream implements ProtocolHandler, H3FrameHandler {
 
     @Override
     public void maxPushIdFrameReceived(long maxPushId) {
+        if (H3Qlog.on(quicConnection)) {
+            H3Qlog.frameParsed(quicConnection, streamId, H3Qlog.maxPushIdFrame(maxPushId));
+        }
         if (!requireSettingsFirst()) {
             return;
         }
@@ -428,6 +465,9 @@ class H3ControlStream implements ProtocolHandler, H3FrameHandler {
 
     @Override
     public void priorityUpdateRequestFrameReceived(long streamId, String fieldValue) {
+        if (H3Qlog.on(quicConnection)) {
+            H3Qlog.frameParsed(quicConnection, this.streamId, H3Qlog.unknownFrame(H3FrameHandler.TYPE_PRIORITY_UPDATE_REQUEST));
+        }
         if (!requireSettingsFirst()) {
             return;
         }
@@ -444,11 +484,17 @@ class H3ControlStream implements ProtocolHandler, H3FrameHandler {
                     "PRIORITY_UPDATE stream ID is not a client-initiated bidirectional stream");
             return;
         }
+        if (H3Qlog.on(quicConnection)) {
+            H3Qlog.priorityUpdated(quicConnection, false, streamId, fieldValue);
+        }
         listener.priorityUpdateReceived(streamId, fieldValue);
     }
 
     @Override
     public void priorityUpdatePushFrameReceived(long pushId, String fieldValue) {
+        if (H3Qlog.on(quicConnection)) {
+            H3Qlog.frameParsed(quicConnection, streamId, H3Qlog.unknownFrame(H3FrameHandler.TYPE_PRIORITY_UPDATE_PUSH));
+        }
         if (!requireSettingsFirst()) {
             return;
         }

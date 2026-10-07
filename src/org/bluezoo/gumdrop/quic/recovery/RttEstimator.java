@@ -46,6 +46,7 @@ public final class RttEstimator {
     private long rttvar;
     private long minRtt;
     private boolean hasSample;
+    private long sampleCount;
 
     /**
      * Creates an estimator with no RTT sample yet (RFC 9002 Appendix A.4).
@@ -71,6 +72,7 @@ public final class RttEstimator {
     public void onRttSample(long latestRttMicros, long ackDelayMicros, long maxAckDelayMicros,
             boolean handshakeConfirmed) {
         this.latestRtt = latestRttMicros;
+        sampleCount++;
 
         if (!hasSample) {
             minRtt = latestRttMicros;
@@ -126,6 +128,15 @@ public final class RttEstimator {
      */
     public long getMinRtt() {
         return minRtt;
+    }
+
+    /**
+     * Returns how many RTT samples have been recorded.
+     *
+     * @return the number of samples
+     */
+    public long getSampleCount() {
+        return sampleCount;
     }
 
     /**

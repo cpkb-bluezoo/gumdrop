@@ -254,6 +254,12 @@ public final class Http3ServerHandler implements StreamAcceptHandler, H3ControlS
             @Override
             public void connected(Endpoint endpoint) {
                 controlStream = endpoint;
+                if (H3Qlog.on(quicConnection)) {
+                    long id = ((QuicStreamEndpoint) endpoint).getStreamId();
+                    H3Qlog.streamTypeSet(quicConnection, H3Qlog.OWNER_LOCAL, id, H3Qlog.STREAM_TYPE_CONTROL);
+                    H3Qlog.parametersSet(quicConnection, H3Qlog.OWNER_LOCAL, settings);
+                    H3Qlog.frameCreated(quicConnection, id, H3Qlog.settingsFrame(settings));
+                }
                 int length = H3Writer.streamTypeLength(0x00) + H3Writer.settingsLength(settings);
                 ByteBuffer out = ByteBuffer.allocate(length);
                 H3Writer.writeStreamType(out, 0x00);
@@ -292,6 +298,10 @@ public final class Http3ServerHandler implements StreamAcceptHandler, H3ControlS
             @Override
             public void connected(Endpoint endpoint) {
                 qpackEncoderStream = endpoint;
+                if (H3Qlog.on(quicConnection)) {
+                    H3Qlog.streamTypeSet(quicConnection, H3Qlog.OWNER_LOCAL,
+                            ((QuicStreamEndpoint) endpoint).getStreamId(), H3Qlog.STREAM_TYPE_QPACK_ENCODE);
+                }
                 ByteBuffer out = ByteBuffer.allocate(H3Writer.streamTypeLength(0x02));
                 H3Writer.writeStreamType(out, 0x02);
                 out.flip();
@@ -318,6 +328,10 @@ public final class Http3ServerHandler implements StreamAcceptHandler, H3ControlS
             @Override
             public void connected(Endpoint endpoint) {
                 qpackDecoderStream = endpoint;
+                if (H3Qlog.on(quicConnection)) {
+                    H3Qlog.streamTypeSet(quicConnection, H3Qlog.OWNER_LOCAL,
+                            ((QuicStreamEndpoint) endpoint).getStreamId(), H3Qlog.STREAM_TYPE_QPACK_DECODE);
+                }
                 ByteBuffer out = ByteBuffer.allocate(H3Writer.streamTypeLength(0x03));
                 H3Writer.writeStreamType(out, 0x03);
                 out.flip();
@@ -402,6 +416,9 @@ public final class Http3ServerHandler implements StreamAcceptHandler, H3ControlS
         if (streamId > highestClientStreamId) {
             highestClientStreamId = streamId;
         }
+        if (H3Qlog.on(quicConnection)) {
+            H3Qlog.streamTypeSet(quicConnection, H3Qlog.OWNER_REMOTE, streamId, H3Qlog.STREAM_TYPE_REQUEST);
+        }
         return new H3Stream(this, qpackEncoder, qpackDecoder);
     }
 
@@ -451,6 +468,9 @@ public final class Http3ServerHandler implements StreamAcceptHandler, H3ControlS
         if (encoded == null) {
             return false;
         }
+        if (H3Qlog.on(quicConnection)) {
+            H3Qlog.datagramCreated(quicConnection, streamId, payload.length);
+        }
         return quicConnection.sendDatagram(ByteBuffer.wrap(encoded));
     }
 
@@ -465,6 +485,9 @@ public final class Http3ServerHandler implements StreamAcceptHandler, H3ControlS
             closeWithApplicationError(H3ErrorCode.H3_DATAGRAM_ERROR,
                     "malformed HTTP Datagram");
             return;
+        }
+        if (H3Qlog.on(quicConnection)) {
+            H3Qlog.datagramParsed(quicConnection, datagram.getStreamId(), datagram.getPayload().length);
         }
         H3Stream stream = requestStreams.get(Long.valueOf(datagram.getStreamId()));
         if (stream == null) {

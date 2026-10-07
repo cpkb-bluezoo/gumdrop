@@ -102,4 +102,14 @@ public interface QuicTlsEngine {
      * @return true if resumed
      */
     boolean isResumed();
+
+    /**
+     * Returns the application protocol (ALPN, RFC 7301) the handshake
+     * settled on.
+     *
+     * @return the protocol name, or null if none was negotiated yet
+     */
+    default String getNegotiatedApplicationProtocol() {
+        return null;
+    }
 }

@@ -47,7 +47,24 @@ public final class QuicConnectionTestFactory {
      * @return the connection
      */
     public static QuicConnection create(boolean server) {
-        QuicEngine engine = new QuicEngine(new QuicTransportFactory(), true);
+        return create(server, null);
+    }
+
+    /**
+     * Creates a connection like {@link #create(boolean)} that reports qlog
+     * events to the given telemetry configuration.
+     *
+     * @param server whether the connection plays the server role
+     * @param telemetry the telemetry configuration, or null for none
+     * @return the connection
+     */
+    public static QuicConnection create(boolean server, org.bluezoo.gumdrop.telemetry.TelemetryConfig telemetry) {
+        QuicTransportFactory transport = new QuicTransportFactory();
+        if (telemetry != null) {
+            transport.setTelemetryConfig(telemetry);
+            transport.setQlogEnabled(true);
+        }
+        QuicEngine engine = new QuicEngine(transport, true);
         engine.setSelectorLoop(new InlineSelectorLoop());
         engine.init(new QuicDatagramPath() {
             @Override

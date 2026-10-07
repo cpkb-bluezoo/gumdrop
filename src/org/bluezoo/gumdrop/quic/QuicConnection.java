@@ -160,7 +160,7 @@ import org.bluezoo.gumdrop.tls.SessionTicket;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-public final class QuicConnection implements QuicTlsEngineListener {
+public final class QuicConnection implements QuicTlsEngineListener, QlogSink {
 
     private static final Logger LOGGER = Logger.getLogger(QuicConnection.class.getName());
     private static final ResourceBundle L10N =
@@ -350,6 +350,9 @@ public final class QuicConnection implements QuicTlsEngineListener {
     private long requestedMaxAckDelayMicros = -1;
     private long reorderingThreshold = AckFrequencyDraft.DEFAULT_REORDERING_THRESHOLD;
     private long lastAckFrequencySequence = -1;
+    // aggregate server metrics, or null on a client or when metrics are off
+    private final QuicServerMetrics metrics;
+    private long metricsRttSamples;
     // qlog events (draft-ietf-quic-qlog-quic-events), or null when this connection does not log
     private QuicQlog qlog;
     private boolean qlogClosedLogged;
@@ -785,6 +788,10 @@ public final class QuicConnection implements QuicTlsEngineListener {
         this.localMaxData = localTransportParameters.getInitialMaxData();
         this.localMaxStreamsBidi = localTransportParameters.getInitialMaxStreamsBidi();
         this.localMaxStreamsUni = localTransportParameters.getInitialMaxStreamsUni();
+        this.metrics = isServer ? engine.getMetrics() : null;
+        if (metrics != null) {
+            metrics.connectionOpened();
+        }
         this.qlog = QuicQlog.create(engine, isServer, initialSecretDcid);
         if (qlog != null) {
             qlogConnectionStarted();
@@ -796,6 +803,57 @@ public final class QuicConnection implements QuicTlsEngineListener {
     }
 
     // ── qlog (draft-ietf-quic-qlog-quic-events) ──
+
+    boolean isServerSide() {
+        return isServer;
+    }
+
+    @Override
+    public boolean isQlogEnabled() {
+        return qlog != null;
+    }
+
+    @Override
+    public void emitQlog(String schema, String eventName, String dataJson) {
+        if (qlog != null) {
+            qlog.emit(schema, eventName, nowNanos(), dataJson);
+        }
+    }
+
+    // Counts the packets just declared lost and a round-trip time sample if
+    // the acknowledgement just processed took one.
+    private void metricsRecoverySample(int newlyLost) {
+        for (int i = 0; i < newlyLost; i++) {
+            metrics.packetLost();
+        }
+        RttEstimator rtt = lossDetector.getRttEstimator();
+        if (rtt.getSampleCount() != metricsRttSamples) {
+            metricsRttSamples = rtt.getSampleCount();
+            metrics.rttSample(rtt.getLatestRtt());
+        }
+    }
+
+    // The protocols this end offered or accepts, and the one the handshake chose.
+    private void qlogAlpnInformation() {
+        String chosen = tlsEngine.getNegotiatedApplicationProtocol();
+        String configured = engine.getApplicationProtocols();
+        if (chosen == null && (configured == null || configured.isEmpty())) {
+            return;
+        }
+        QlogJson data = QlogJson.object();
+        if (configured != null && !configured.isEmpty()) {
+            data.beginArray(isServer ? QlogEvents.SERVER_ALPNS : QlogEvents.CLIENT_ALPNS);
+            String[] protocols = configured.split(",");
+            for (int i = 0; i < protocols.length; i++) {
+                data.itemRaw(QlogJson.object().put(QlogEvents.STRING_VALUE, protocols[i].trim()).build());
+            }
+            data.endArray();
+        }
+        if (chosen != null) {
+            data.beginObject(QlogEvents.CHOSEN_ALPN).put(QlogEvents.STRING_VALUE, chosen).endObject();
+        }
+        qlog.emit(QlogEvents.ALPN_INFORMATION, nowNanos(), data);
+    }
 
     private void qlogConnectionStarted() {
         QlogJson data = QlogJson.object();
@@ -2445,6 +2503,9 @@ public final class QuicConnection implements QuicTlsEngineListener {
 
             FrameDispatcher dispatcher = new FrameDispatcher(level, isZeroRtt);
             new QuicFrameParser(dispatcher).receive(ByteBuffer.wrap(plaintext));
+            if (metrics != null) {
+                metrics.packetReceived(packet.length);
+            }
             if (qlog != null) {
                 qlogPacketReceived(isZeroRtt ? QlogEvents.PACKET_TYPE_0RTT : qlogPacketType(level), fullPacketNumber,
                         packet, longHeader, dispatcher.qlogFrames);
@@ -2597,6 +2658,9 @@ public final class QuicConnection implements QuicTlsEngineListener {
             Map<Long, long[]> coverage = sentAckCoverage.get(level);
             if (qlog != null) {
                 qlogRecoveryMetrics(!result.getNewlyLost().isEmpty());
+            }
+            if (metrics != null) {
+                metricsRecoverySample(result.getNewlyLost().size());
             }
             for (SentPacket lost : result.getNewlyLost()) {
                 if (qlog != null) {
@@ -4740,6 +4804,9 @@ public final class QuicConnection implements QuicTlsEngineListener {
         // lost.
         boolean inFlight = ackEliciting || paddingBytes > 0;
         lossDetector.onPacketSent(level, packetNumber, nowMicros(), ackEliciting, inFlight, packet.length);
+        if (metrics != null) {
+            metrics.packetSent(packet.length);
+        }
         if (qf != null) {
             qlogPacketSent(qlogPacketType(level), packetNumber, packet.length, longHeader, version, peerConnectionId, qf);
         }
@@ -4872,6 +4939,9 @@ public final class QuicConnection implements QuicTlsEngineListener {
         sentZeroRttStream.put(Long.valueOf(packetNumber), sentThisPacket);
         lossDetector.onPacketSent(EncryptionLevel.ONE_RTT, packetNumber, nowMicros(), true, true,
                 packet.length);
+        if (metrics != null) {
+            metrics.packetSent(packet.length);
+        }
         if (qf != null) {
             qlogPacketSent(QlogEvents.PACKET_TYPE_0RTT, packetNumber, packet.length, true, initialVersion, peerConnectionId, qf);
         }
@@ -4931,6 +5001,9 @@ public final class QuicConnection implements QuicTlsEngineListener {
                 peerMaxAckDelayMicros(), nowMicros());
         EncryptionLevel lossSpace = result.getLossSpace();
         if (lossSpace != null) {
+            if (metrics != null) {
+                metricsRecoverySample(result.getNewlyLost().size());
+            }
             for (SentPacket lost : result.getNewlyLost()) {
                 if (qlog != null) {
                     qlogPacketLost(lossSpace, lost.getPacketNumber(), QlogEvents.TRIGGER_TIME_THRESHOLD);
@@ -5254,6 +5327,12 @@ public final class QuicConnection implements QuicTlsEngineListener {
             keysObserver.run();
         }
         established = true;
+        if (qlog != null) {
+            qlogAlpnInformation();
+        }
+        if (metrics != null) {
+            metrics.handshakeCompleted(System.currentTimeMillis() - handshakeStartTime);
+        }
         if (isServer) {
             handshakeDoneOwed = true;
             handshakeConfirmed = true; // RFC 9001 section 4.1.2: sending HANDSHAKE_DONE is the server's own confirmation

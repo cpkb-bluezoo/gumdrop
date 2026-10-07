@@ -423,6 +423,34 @@ public class QuicLoopbackQlogPacketEventsTest {
     }
 
     @Test
+    public void negotiatedProtocolIsReported() throws Exception {
+        lb = new QuicLoopback();
+        capture = new Capture();
+        TelemetryConfig config = new TelemetryConfig();
+        config.setExporter(capture);
+        lb.serverFactory.setTelemetryConfig(config);
+        lb.clientFactory.setTelemetryConfig(config);
+        lb.serverFactory.setQlogEnabled(true);
+        lb.clientFactory.setQlogEnabled(true);
+        lb.serverFactory.setApplicationProtocols("h3,hq-interop");
+        lb.clientFactory.setApplicationProtocols("hq-interop,h3");
+        lb.startFactories();
+        lb.startServer(new ConnCapture());
+        lb.startClient(null, new ConnCapture());
+        lb.pump();
+        String[] vantages = { "client", "server" };
+        for (int i = 0; i < vantages.length; i++) {
+            List<Map<String, String>> info = events(vantages[i], "quic:alpn_information");
+            assertEquals(vantages[i], 1, info.size());
+            Map<String, String> a = info.get(0);
+            // the server prefers h3
+            assertEquals("h3", a.get("chosen_alpn.string_value"));
+            String ours = "client".equals(vantages[i]) ? "client_alpns" : "server_alpns";
+            assertEquals("client".equals(vantages[i]) ? "hq-interop" : "h3", a.get(ours + ".0.string_value"));
+        }
+    }
+
+    @Test
     public void parametersRememberedFromATicketAreReportedRestored() throws Exception {
         SessionTicketCache.clear();
         try {

@@ -386,6 +386,9 @@ class H3Stream implements ProtocolHandler, H3FrameHandler, HttpResponse {
             return;
         }
         List<Header> headers = HeaderFields.collected(collected);
+        if (H3Qlog.on(endpoint)) {
+            H3Qlog.frameParsed(endpoint, streamId, H3Qlog.headersFrame(headers));
+        }
         if (H3Writer.fieldSectionSize(headers) > localMaxFieldSectionSize()) {
             // RFC 9114 section 4.2.2 / 10.5.1: refuse oversized field
             // sections with a stream error rather than hanging the peer.
@@ -489,6 +492,9 @@ class H3Stream implements ProtocolHandler, H3FrameHandler, HttpResponse {
 
     @Override
     public void dataFrameReceived(ByteBuffer data, boolean endOfFrame) {
+        if (H3Qlog.on(endpoint)) {
+            H3Qlog.frameParsed(endpoint, streamId, H3Qlog.dataFrame(data.remaining()));
+        }
         if (isWebSocketUpgraded()) {
             onWebSocketData(data);
             return;
@@ -548,6 +554,9 @@ class H3Stream implements ProtocolHandler, H3FrameHandler, HttpResponse {
         }
         for (int i = 0; i < capsules.size(); i++) {
             Capsule capsule = capsules.get(i);
+            if (H3Qlog.on(endpoint)) {
+                H3Qlog.capsuleParsed(endpoint, streamId, capsule.getType(), capsule.getValue().length);
+            }
             if (capsule.getType() == Capsule.TYPE_DATAGRAM) {
                 if (handler != null && handler.wantsDatagrams()) {
                     handler.datagramReceived(this, ByteBuffer.wrap(capsule.getValue()));
@@ -998,6 +1007,9 @@ class H3Stream implements ProtocolHandler, H3FrameHandler, HttpResponse {
         byte[] copy = new byte[value.remaining()];
         value.get(copy);
         byte[] encoded = new Capsule(type, copy).encode();
+        if (H3Qlog.on(endpoint)) {
+            H3Qlog.capsuleCreated(endpoint, streamId, type, copy.length);
+        }
         sendBody(ByteBuffer.wrap(encoded));
         return true;
     }
@@ -1601,6 +1613,9 @@ class H3Stream implements ProtocolHandler, H3FrameHandler, HttpResponse {
         ByteBuffer out = ByteBuffer.allocate(H3Writer.headersLength(encoded.length));
         H3Writer.writeHeaders(out, encoded);
         out.flip();
+        if (H3Qlog.on(endpoint)) {
+            H3Qlog.frameCreated(endpoint, streamId, H3Qlog.headersFrame(fields));
+        }
         endpoint.send(out);
         if (fin) {
             endpoint.close();
@@ -1777,6 +1792,9 @@ class H3Stream implements ProtocolHandler, H3FrameHandler, HttpResponse {
         ByteBuffer out = ByteBuffer.allocate(H3Writer.dataLength(bytes.length));
         H3Writer.writeData(out, bytes);
         out.flip();
+        if (H3Qlog.on(endpoint)) {
+            H3Qlog.frameCreated(endpoint, streamId, H3Qlog.dataFrame(bytes.length));
+        }
         endpoint.send(out);
     }
 
