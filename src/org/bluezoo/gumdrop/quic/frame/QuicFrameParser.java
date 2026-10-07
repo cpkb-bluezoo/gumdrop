@@ -234,6 +234,12 @@ public class QuicFrameParser {
             }
         } else if (type == QuicFrameHandler.TYPE_HANDSHAKE_DONE) {
             handler.handshakeDoneFrameReceived();
+        } else if (type == QuicFrameHandler.TYPE_ACK_FREQUENCY) {
+            if (!parseAckFrequencyFrame(buf)) {
+                return false;
+            }
+        } else if (type == QuicFrameHandler.TYPE_IMMEDIATE_ACK) {
+            handler.immediateAckFrameReceived();
         } else if (type == QuicFrameHandler.TYPE_DATAGRAM
                 || type == QuicFrameHandler.TYPE_DATAGRAM_LEN) {
             if (!parseDatagramFrame(buf, startPosition, type == QuicFrameHandler.TYPE_DATAGRAM_LEN)) {
@@ -244,6 +250,20 @@ public class QuicFrameParser {
             handler.frameError("Unsupported or unknown frame type: " + type);
             return false;
         }
+        return true;
+    }
+
+    // draft-ietf-quic-ack-frequency section 4: four variable-length integers
+    private boolean parseAckFrequencyFrame(ByteBuffer buf) {
+        long[] fields = new long[4];
+        for (int i = 0; i < fields.length; i++) {
+            if (!buf.hasRemaining()) {
+                handler.frameError("ACK_FREQUENCY frame underflow");
+                return false;
+            }
+            fields[i] = VarInt.decode(buf);
+        }
+        handler.ackFrequencyFrameReceived(fields[0], fields[1], fields[2], fields[3]);
         return true;
     }
 

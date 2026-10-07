@@ -51,6 +51,7 @@ import org.bluezoo.gumdrop.StreamAcceptHandler;
 import org.bluezoo.gumdrop.TransportFactory;
 import org.bluezoo.gumdrop.quic.cid.QuicLbConfig;
 import org.bluezoo.gumdrop.quic.cid.StatelessResetToken;
+import org.bluezoo.gumdrop.quic.packet.AckFrequencyDraft;
 import org.bluezoo.gumdrop.quic.packet.QuicVersion;
 import org.bluezoo.gumdrop.quic.packet.TransportParameters;
 import org.bluezoo.gumdrop.quic.tls.PemCredentials;
@@ -687,6 +688,8 @@ public class QuicTransportFactory extends TransportFactory {
         params.setInitialMaxStreamsBidi(maxStreamsBidi);
         params.setInitialMaxStreamsUni(maxStreamsUni);
         params.setMaxDatagramFrameSize(maxDatagramFrameSize);
+        // draft-ietf-quic-ack-frequency section 3: accept ACK_FREQUENCY
+        params.setMinAckDelay(AckFrequencyDraft.LOCAL_MIN_ACK_DELAY_MICROS);
         if (server) {
             params.setStatelessResetToken(
                     StatelessResetToken.generate(connectionIdStaticKey, initialSourceConnectionId));

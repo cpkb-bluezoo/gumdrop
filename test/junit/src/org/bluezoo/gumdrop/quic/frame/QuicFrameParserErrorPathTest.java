@@ -139,6 +139,8 @@ public class QuicFrameParserErrorPathTest {
             events.add("datagram:" + data.remaining() + ":" + encodedLength);
         }
 
+        @Override public void ackFrequencyFrameReceived(long sequenceNumber, long ackElicitingThreshold, long requestedMaxAckDelay, long reorderingThreshold) { }
+        @Override public void immediateAckFrameReceived() { }
         public void frameError(String message) {
             events.add("error:" + message);
         }

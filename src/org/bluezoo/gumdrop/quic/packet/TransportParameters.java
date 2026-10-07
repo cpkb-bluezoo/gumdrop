@@ -79,6 +79,8 @@ public final class TransportParameters {
     public static final long RETRY_SOURCE_CONNECTION_ID = 0x10;
     /** RFC 9221 section 3: maximum DATAGRAM frame size this endpoint will receive. Absent or 0 means DATAGRAM is not supported. */
     public static final long MAX_DATAGRAM_FRAME_SIZE = 0x20;
+    /** draft-ietf-quic-ack-frequency section 3: the smallest max ack delay, in microseconds, this endpoint will accept in an ACK_FREQUENCY frame. */
+    public static final long MIN_ACK_DELAY = AckFrequencyDraft.TRANSPORT_PARAMETER_MIN_ACK_DELAY;
     /** RFC 9368 section 3: the Chosen Version and Available Versions used to prevent version downgrade. */
     public static final long VERSION_INFORMATION = 0x11;
 
@@ -107,9 +109,72 @@ public final class TransportParameters {
     private byte[] preferredAddressConnectionId;
     private byte[] preferredAddressResetToken;
     private long maxDatagramFrameSize;
+    // microseconds; negative when the parameter is absent
+    private long minAckDelay = -1;
     private int versionInformationChosen;
     private int[] versionInformationAvailable;
     private boolean versionInformationMalformed;
+
+    /**
+     * Returns whether the min_ack_delay parameter is present, meaning the
+     * endpoint accepts ACK_FREQUENCY frames.
+     *
+     * @return true if present
+     */
+    public boolean hasMinAckDelay() {
+        return minAckDelay >= 0;
+    }
+
+    /**
+     * Returns min_ack_delay in microseconds.
+     *
+     * @return the value, or a negative number if the parameter is absent
+     */
+    public long getMinAckDelay() {
+        return minAckDelay;
+    }
+
+    /**
+     * Sets min_ack_delay.
+     *
+     * @param microseconds the value in microseconds
+     */
+    public void setMinAckDelay(long microseconds) {
+        this.minAckDelay = microseconds;
+    }
+
+    /**
+     * Returns a copy of these parameters without min_ack_delay, for
+     * remembering alongside a session ticket: the draft forbids using a
+     * peer's value on a later connection.
+     *
+     * @return the copy
+     */
+    public TransportParameters copyWithoutMinAckDelay() {
+        TransportParameters c = new TransportParameters();
+        c.originalDestinationConnectionId = originalDestinationConnectionId;
+        c.maxIdleTimeout = maxIdleTimeout;
+        c.maxUdpPayloadSize = maxUdpPayloadSize;
+        c.maxAckDelay = maxAckDelay;
+        c.initialMaxData = initialMaxData;
+        c.initialMaxStreamDataBidiLocal = initialMaxStreamDataBidiLocal;
+        c.initialMaxStreamDataBidiRemote = initialMaxStreamDataBidiRemote;
+        c.initialMaxStreamDataUni = initialMaxStreamDataUni;
+        c.initialMaxStreamsBidi = initialMaxStreamsBidi;
+        c.initialMaxStreamsUni = initialMaxStreamsUni;
+        c.initialSourceConnectionId = initialSourceConnectionId;
+        c.retrySourceConnectionId = retrySourceConnectionId;
+        c.statelessResetToken = statelessResetToken;
+        c.preferredAddressIpv4 = preferredAddressIpv4;
+        c.preferredAddressIpv6 = preferredAddressIpv6;
+        c.preferredAddressConnectionId = preferredAddressConnectionId;
+        c.preferredAddressResetToken = preferredAddressResetToken;
+        c.maxDatagramFrameSize = maxDatagramFrameSize;
+        c.versionInformationChosen = versionInformationChosen;
+        c.versionInformationAvailable = versionInformationAvailable;
+        c.versionInformationMalformed = versionInformationMalformed;
+        return c;
+    }
 
     public byte[] getOriginalDestinationConnectionId() {
         return originalDestinationConnectionId;
@@ -416,6 +481,9 @@ public final class TransportParameters {
         if (versionInformationAvailable != null) {
             size += entryLength(VERSION_INFORMATION, 4 + 4 * versionInformationAvailable.length);
         }
+        if (minAckDelay >= 0) {
+            size += entryLength(MIN_ACK_DELAY, varIntValueLength(minAckDelay));
+        }
 
         ByteBuffer buf = ByteBuffer.allocate(size);
         writeVarIntParam(buf, MAX_IDLE_TIMEOUT, maxIdleTimeout);
@@ -458,6 +526,9 @@ public final class TransportParameters {
             for (int i = 0; i < versionInformationAvailable.length; i++) {
                 buf.putInt(versionInformationAvailable[i]);
             }
+        }
+        if (minAckDelay >= 0) {
+            writeVarIntParam(buf, MIN_ACK_DELAY, minAckDelay);
         }
         return buf.array();
     }
@@ -626,6 +697,8 @@ public final class TransportParameters {
                 params.maxDatagramFrameSize = VarInt.decode(buf);
             } else if (id == VERSION_INFORMATION) {
                 params.decodeVersionInformation(buf, length);
+            } else if (id == MIN_ACK_DELAY) {
+                params.minAckDelay = VarInt.decode(buf);
             }
             // RFC 9000 section 18.1: ignore parameters we don't understand.
 

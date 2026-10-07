@@ -335,4 +335,38 @@ public class TransportParametersTest {
         }
     }
 
+
+    @Test
+    public void testMinAckDelayRoundTrip() {
+        TransportParameters params = new TransportParameters();
+        assertFalse(params.hasMinAckDelay());
+        params.setMinAckDelay(1000);
+        TransportParameters decoded = TransportParameters.decode(ByteBuffer.wrap(params.encode()));
+        assertTrue(decoded.hasMinAckDelay());
+        assertEquals(1000, decoded.getMinAckDelay());
+    }
+
+    @Test
+    public void testMinAckDelayAbsentByDefault() {
+        TransportParameters decoded = TransportParameters.decode(
+                ByteBuffer.wrap(new TransportParameters().encode()));
+        assertFalse(decoded.hasMinAckDelay());
+    }
+
+    @Test
+    public void testCopyWithoutMinAckDelayKeepsTheRest() {
+        TransportParameters params = new TransportParameters();
+        params.setMinAckDelay(1000);
+        params.setMaxAckDelay(30);
+        params.setInitialMaxData(12345);
+        params.setInitialSourceConnectionId(new byte[] {1, 2});
+        params.setMaxDatagramFrameSize(1200);
+        TransportParameters copy = params.copyWithoutMinAckDelay();
+        assertFalse(copy.hasMinAckDelay());
+        assertEquals(30, copy.getMaxAckDelay());
+        assertEquals(12345, copy.getInitialMaxData());
+        assertArrayEquals(new byte[] {1, 2}, copy.getInitialSourceConnectionId());
+        assertEquals(1200, copy.getMaxDatagramFrameSize());
+        assertTrue(params.hasMinAckDelay());
+    }
 }

@@ -180,6 +180,18 @@ public class QuicFrameCodecTest {
         }
 
         @Override
+        public void ackFrequencyFrameReceived(long sequenceNumber, long ackElicitingThreshold,
+                long requestedMaxAckDelay, long reorderingThreshold) {
+            events.add("ack_frequency:" + sequenceNumber + ":" + ackElicitingThreshold + ":"
+                    + requestedMaxAckDelay + ":" + reorderingThreshold);
+        }
+
+        @Override
+        public void immediateAckFrameReceived() {
+            events.add("immediate_ack");
+        }
+
+        @Override
         public void frameError(String message) {
             events.add("error:" + message);
         }
@@ -413,7 +425,7 @@ public class QuicFrameCodecTest {
     @Test
     public void testUnknownFrameTypeReportsError() {
         ByteBuffer buf = ByteBuffer.allocate(1);
-        buf.put((byte) 0x1f); // one past HANDSHAKE_DONE (0x1e) -- not a defined frame type
+        buf.put((byte) 0x20); // between IMMEDIATE_ACK (0x1f) and DATAGRAM (0x30) -- not a defined frame type
         buf.flip();
 
         RecordingHandler handler = new RecordingHandler();
@@ -645,6 +657,41 @@ public class QuicFrameCodecTest {
         RecordingHandler handler = new RecordingHandler();
         new QuicFrameParser(handler).receive(buf);
 
+        assertEquals(1, handler.events.size());
+        assertTrue(handler.events.get(0).startsWith("error:"));
+    }
+
+    @Test
+    public void testAckFrequencyFrame() {
+        ByteBuffer buf = ByteBuffer.allocate(QuicFrameWriter.ackFrequencyLength(3, 10, 25000, 2));
+        QuicFrameWriter.writeAckFrequency(buf, 3, 10, 25000, 2);
+        buf.flip();
+        RecordingHandler handler = new RecordingHandler();
+        new QuicFrameParser(handler).receive(buf);
+        assertEquals(1, handler.events.size());
+        assertEquals("ack_frequency:3:10:25000:2", handler.events.get(0));
+    }
+
+    @Test
+    public void testImmediateAckFrame() {
+        ByteBuffer buf = ByteBuffer.allocate(QuicFrameWriter.immediateAckLength());
+        QuicFrameWriter.writeImmediateAck(buf);
+        buf.flip();
+        assertEquals(0x1f, buf.get(0));
+        RecordingHandler handler = new RecordingHandler();
+        new QuicFrameParser(handler).receive(buf);
+        assertEquals(1, handler.events.size());
+        assertEquals("immediate_ack", handler.events.get(0));
+    }
+
+    @Test
+    public void testAckFrequencyFrameTruncated() {
+        ByteBuffer buf = ByteBuffer.allocate(16);
+        QuicFrameWriter.writeAckFrequency(buf, 3, 10, 25000, 2);
+        buf.flip();
+        buf.limit(buf.limit() - 1);
+        RecordingHandler handler = new RecordingHandler();
+        new QuicFrameParser(handler).receive(buf);
         assertEquals(1, handler.events.size());
         assertTrue(handler.events.get(0).startsWith("error:"));
     }

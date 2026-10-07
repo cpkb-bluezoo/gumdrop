@@ -614,6 +614,60 @@ public final class QuicFrameWriter {
     }
 
     /**
+     * Returns the encoded length of an ACK_FREQUENCY frame.
+     *
+     * @param sequenceNumber the Sequence Number
+     * @param ackElicitingThreshold the Ack-Eliciting Threshold
+     * @param requestedMaxAckDelay the Requested Max Ack Delay, in microseconds
+     * @param reorderingThreshold the Reordering Threshold
+     * @return the encoded length in bytes
+     */
+    public static int ackFrequencyLength(long sequenceNumber, long ackElicitingThreshold,
+            long requestedMaxAckDelay, long reorderingThreshold) {
+        return VarInt.encodedLength(QuicFrameHandler.TYPE_ACK_FREQUENCY)
+                + VarInt.encodedLength(sequenceNumber)
+                + VarInt.encodedLength(ackElicitingThreshold)
+                + VarInt.encodedLength(requestedMaxAckDelay)
+                + VarInt.encodedLength(reorderingThreshold);
+    }
+
+    /**
+     * Writes an ACK_FREQUENCY frame (draft-ietf-quic-ack-frequency section 4).
+     *
+     * @param out the destination buffer
+     * @param sequenceNumber the Sequence Number
+     * @param ackElicitingThreshold the Ack-Eliciting Threshold
+     * @param requestedMaxAckDelay the Requested Max Ack Delay, in microseconds
+     * @param reorderingThreshold the Reordering Threshold
+     */
+    public static void writeAckFrequency(ByteBuffer out, long sequenceNumber, long ackElicitingThreshold,
+            long requestedMaxAckDelay, long reorderingThreshold) {
+        VarInt.encode(QuicFrameHandler.TYPE_ACK_FREQUENCY, out);
+        VarInt.encode(sequenceNumber, out);
+        VarInt.encode(ackElicitingThreshold, out);
+        VarInt.encode(requestedMaxAckDelay, out);
+        VarInt.encode(reorderingThreshold, out);
+    }
+
+    /**
+     * Returns the encoded length of an IMMEDIATE_ACK frame.
+     *
+     * @return the encoded length in bytes
+     */
+    public static int immediateAckLength() {
+        return VarInt.encodedLength(QuicFrameHandler.TYPE_IMMEDIATE_ACK);
+    }
+
+    /**
+     * Writes an IMMEDIATE_ACK frame (draft-ietf-quic-ack-frequency section 5).
+     *
+     * @param out the destination buffer
+     */
+    public static void writeImmediateAck(ByteBuffer out) {
+        VarInt.encode(QuicFrameHandler.TYPE_IMMEDIATE_ACK, out);
+    }
+
+    /**
      * Returns the encoded length of a DATAGRAM frame with a Length
      * field (RFC 9221 type {@link QuicFrameHandler#TYPE_DATAGRAM_LEN}).
      * Production sends always use this form so a DATAGRAM can share a

@@ -23,6 +23,8 @@ package org.bluezoo.gumdrop.quic.frame;
 
 import java.nio.ByteBuffer;
 
+import org.bluezoo.gumdrop.quic.packet.AckFrequencyDraft;
+
 /**
  * Callback interface for receiving parsed QUIC frames from a
  * {@link QuicFrameParser}, in the same style as
@@ -70,6 +72,8 @@ public interface QuicFrameHandler {
     long TYPE_CONNECTION_CLOSE = 0x1c;  // RFC 9000 section 19.19, transport error
     long TYPE_CONNECTION_CLOSE_APP = 0x1d; // RFC 9000 section 19.19, application error
     long TYPE_HANDSHAKE_DONE = 0x1e;    // RFC 9000 section 19.20
+    long TYPE_ACK_FREQUENCY = AckFrequencyDraft.FRAME_TYPE_ACK_FREQUENCY;   // draft-ietf-quic-ack-frequency section 4
+    long TYPE_IMMEDIATE_ACK = AckFrequencyDraft.FRAME_TYPE_IMMEDIATE_ACK;   // draft-ietf-quic-ack-frequency section 5
     long TYPE_DATAGRAM = 0x30;          // RFC 9221 section 4, no Length field
     long TYPE_DATAGRAM_LEN = 0x31;      // RFC 9221 section 4, Length varint present
 
@@ -285,6 +289,24 @@ public interface QuicFrameHandler {
      *                      against {@code max_datagram_frame_size}
      */
     void datagramFrameReceived(ByteBuffer data, int encodedLength);
+
+    /**
+     * Called when an ACK_FREQUENCY frame is received
+     * (draft-ietf-quic-ack-frequency section 4).
+     *
+     * @param sequenceNumber the Sequence Number
+     * @param ackElicitingThreshold the Ack-Eliciting Threshold
+     * @param requestedMaxAckDelay the Requested Max Ack Delay, in microseconds
+     * @param reorderingThreshold the Reordering Threshold
+     */
+    void ackFrequencyFrameReceived(long sequenceNumber, long ackElicitingThreshold,
+            long requestedMaxAckDelay, long reorderingThreshold);
+
+    /**
+     * Called when an IMMEDIATE_ACK frame is received
+     * (draft-ietf-quic-ack-frequency section 5).
+     */
+    void immediateAckFrameReceived();
 
     /**
      * Called when a frame cannot be parsed, or is a type not

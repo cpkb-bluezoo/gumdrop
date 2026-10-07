@@ -74,6 +74,8 @@ public class QuicDecoderSweepTest {
                 long frameType, String reason) { }
         public void handshakeDoneFrameReceived() { }
         public void datagramFrameReceived(ByteBuffer data, int encodedLength) { }
+        @Override public void ackFrequencyFrameReceived(long sequenceNumber, long ackElicitingThreshold, long requestedMaxAckDelay, long reorderingThreshold) { }
+        @Override public void immediateAckFrameReceived() { }
         public void frameError(String message) { }
     }
 

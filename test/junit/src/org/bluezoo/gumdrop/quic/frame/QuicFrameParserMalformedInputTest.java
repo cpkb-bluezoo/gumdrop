@@ -74,6 +74,8 @@ public class QuicFrameParserMalformedInputTest {
         @Override public void handshakeDoneFrameReceived() { }
         @Override public void datagramFrameReceived(ByteBuffer data, int encodedLength) { }
 
+        @Override public void ackFrequencyFrameReceived(long sequenceNumber, long ackElicitingThreshold, long requestedMaxAckDelay, long reorderingThreshold) { }
+        @Override public void immediateAckFrameReceived() { }
         @Override
         public void frameError(String message) {
             events.add("error:" + message);

@@ -58,6 +58,7 @@ import org.bluezoo.gumdrop.quic.cid.ConnectionIdManager;
 import org.bluezoo.gumdrop.quic.frame.QuicFrameHandler;
 import org.bluezoo.gumdrop.quic.frame.QuicFrameParser;
 import org.bluezoo.gumdrop.quic.frame.QuicFrameWriter;
+import org.bluezoo.gumdrop.quic.packet.AckFrequencyDraft;
 import org.bluezoo.gumdrop.quic.packet.LongHeaderCodec;
 import org.bluezoo.gumdrop.quic.packet.LongHeaderPrefix;
 import org.bluezoo.gumdrop.quic.packet.PacketNumberCodec;
@@ -337,8 +338,20 @@ public final class QuicConnection implements QuicTlsEngineListener {
     private final int[] ackElicitingUnacked = new int[EncryptionLevel.values().length];
     private final long[] firstUnackedNanos = new long[EncryptionLevel.values().length];
     private final boolean[] ackImmediate = new boolean[EncryptionLevel.values().length];
-    // RFC 9000 section 13.2.2: an ACK at least every second packet
-    private int ackElicitingThreshold = 2;
+    // The ACK scheduling parameters: RFC 9000 section 13.2 until the peer
+    // sends ACK_FREQUENCY frames (draft-ietf-quic-ack-frequency section 4).
+    // An ACK is sent once more than ackElicitingThreshold ack-eliciting
+    // packets have arrived, or requestedMaxAckDelayMicros have elapsed
+    // since the first (negative: this endpoint's own max_ack_delay), and
+    // at once for a packet reordered by reorderingThreshold or more
+    // (zero: never).
+    private long ackElicitingThreshold = AckFrequencyDraft.DEFAULT_ACK_ELICITING_THRESHOLD;
+    private long requestedMaxAckDelayMicros = -1;
+    private long reorderingThreshold = AckFrequencyDraft.DEFAULT_REORDERING_THRESHOLD;
+    private long lastAckFrequencySequence = -1;
+    // The peer's min_ack_delay in microseconds, from its real transport
+    // parameters only (never a remembered set): negative when absent
+    private long peerMinAckDelayMicros = -1;
     private TimerHandle ackTimerHandle;
     // Packet numbers received (ack-eliciting) but not yet *confirmed
     // received by the peer* -- RFC 9000 section 13.2.1 requires an ACK
@@ -2019,8 +2032,7 @@ public final class QuicConnection implements QuicTlsEngineListener {
                 // RFC 9000 section 13.2.1: a packet that arrives out of
                 // order, below the largest or after a gap, is
                 // acknowledged without waiting
-                if (previousLargest >= 0
-                        && (fullPacketNumber < previousLargest || fullPacketNumber > previousLargest + 1)) {
+                if (previousLargest >= 0 && reorderingCallsForAck(fullPacketNumber, previousLargest)) {
                     ackImmediate[space] = true;
                 }
             }
@@ -2389,6 +2401,48 @@ public final class QuicConnection implements QuicTlsEngineListener {
             handshakeConfirmed = true;
             notifyClientHandshakeComplete();
             maybeMigrateToPreferredAddress();
+        }
+
+        // draft-ietf-quic-ack-frequency section 4
+        @Override
+        public void ackFrequencyFrameReceived(long sequenceNumber, long ackElicitingThresholdValue,
+                long requestedMaxAckDelay, long reorderingThresholdValue) {
+            ackEliciting = true;
+            if (level != EncryptionLevel.ONE_RTT || zeroRtt) {
+                closeWithError(TRANSPORT_ERROR_PROTOCOL_VIOLATION,
+                        "ACK_FREQUENCY frames are only permitted in 1-RTT packets");
+                return;
+            }
+            if (requestedMaxAckDelay < AckFrequencyDraft.LOCAL_MIN_ACK_DELAY_MICROS
+                    || requestedMaxAckDelay >= AckFrequencyDraft.REQUESTED_MAX_ACK_DELAY_LIMIT_MICROS) {
+                closeWithError(TRANSPORT_ERROR_PROTOCOL_VIOLATION,
+                        "ACK_FREQUENCY Requested Max Ack Delay out of range");
+                return;
+            }
+            if (sequenceNumber <= lastAckFrequencySequence) {
+                return;
+            }
+            lastAckFrequencySequence = sequenceNumber;
+            ackElicitingThreshold = ackElicitingThresholdValue;
+            requestedMaxAckDelayMicros = requestedMaxAckDelay;
+            reorderingThreshold = reorderingThresholdValue;
+            // a timer armed for the old delay is re-armed for the new one
+            if (ackTimerHandle != null) {
+                ackTimerHandle.cancel();
+                ackTimerHandle = null;
+            }
+        }
+
+        // draft-ietf-quic-ack-frequency section 5
+        @Override
+        public void immediateAckFrameReceived() {
+            ackEliciting = true;
+            if (level != EncryptionLevel.ONE_RTT || zeroRtt) {
+                closeWithError(TRANSPORT_ERROR_PROTOCOL_VIOLATION,
+                        "IMMEDIATE_ACK frames are only permitted in 1-RTT packets");
+                return;
+            }
+            ackImmediate[level.ordinal()] = true;
         }
 
         @Override
@@ -4424,6 +4478,14 @@ public final class QuicConnection implements QuicTlsEngineListener {
 
     @Override
     public void transportParametersReceived(TransportParameters transportParameters) {
+        // draft-ietf-quic-ack-frequency section 3: min_ack_delay, in
+        // microseconds, must not exceed max_ack_delay, in milliseconds
+        if (transportParameters.hasMinAckDelay()
+                && transportParameters.getMinAckDelay() > transportParameters.getMaxAckDelay() * 1000L) {
+            closeWithError(TRANSPORT_ERROR_TRANSPORT_PARAMETER_ERROR, "min_ack_delay exceeds max_ack_delay");
+            return;
+        }
+        peerMinAckDelayMicros = transportParameters.hasMinAckDelay() ? transportParameters.getMinAckDelay() : -1;
         if (transportParameters.isVersionInformationMalformed()) {
             closeWithError(TRANSPORT_ERROR_TRANSPORT_PARAMETER_ERROR, "malformed version_information");
             return;
@@ -4628,7 +4690,8 @@ public final class QuicConnection implements QuicTlsEngineListener {
     @Override
     public void newSessionTicketReceived(SessionTicket ticket) {
         String host = (serverName != null) ? serverName : remoteAddress.getAddress().getHostAddress();
-        SessionTicketCache.put(host, remoteAddress.getPort(), version, ticket, peerTransportParameters);
+        SessionTicketCache.put(host, remoteAddress.getPort(), version, ticket,
+                peerTransportParameters.copyWithoutMinAckDelay());
     }
 
     @Override
@@ -4886,13 +4949,13 @@ public final class QuicConnection implements QuicTlsEngineListener {
         if (ackElicitingUnacked[app] == 0) {
             return;
         }
-        if (ackImmediate[app] || ackElicitingUnacked[app] >= ackElicitingThreshold) {
+        if (ackImmediate[app] || ackElicitingUnacked[app] > ackElicitingThreshold) {
             ackOwed[app] = true;
             return;
         }
         if (ackTimerHandle == null) {
-            long elapsedMillis = (nowNanos() - firstUnackedNanos[app]) / 1000000L;
-            long delay = Math.max(0, localMaxAckDelayMillis() - elapsedMillis);
+            long remainingNanos = maxAckDelayNanos() - (nowNanos() - firstUnackedNanos[app]);
+            long delay = Math.max(0, (remainingNanos + 999999L) / 1000000L);
             ackTimerHandle = engine.scheduleTimer(delay, new Runnable() {
                 @Override
                 public void run() {
@@ -4902,8 +4965,24 @@ public final class QuicConnection implements QuicTlsEngineListener {
         }
     }
 
-    private long localMaxAckDelayMillis() {
-        return localTransportParameters.getMaxAckDelay();
+    // draft-ietf-quic-ack-frequency section 4: a Reordering Threshold of 0
+    // never calls for an immediate ACK; N calls for one when the packet is
+    // N or more below the largest received, or opens a gap of N or more
+    // (1 is the RFC 9000 section 13.2.1 behaviour of any gap).
+    private boolean reorderingCallsForAck(long packetNumber, long previousLargest) {
+        if (reorderingThreshold == 0) {
+            return false;
+        }
+        long below = previousLargest - packetNumber;
+        long gap = packetNumber - previousLargest - 1;
+        return below >= reorderingThreshold || gap >= reorderingThreshold;
+    }
+
+    // The longest an ack-eliciting packet may wait for its ACK, in nanoseconds
+    private long maxAckDelayNanos() {
+        long micros = requestedMaxAckDelayMicros >= 0
+                ? requestedMaxAckDelayMicros : localTransportParameters.getMaxAckDelay() * 1000L;
+        return micros * 1000L;
     }
 
     /**

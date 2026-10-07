@@ -1116,6 +1116,18 @@ implemented in Java, with TLS 1.3 integrated via the in-tree engine
 | Ack-eliciting, congestion-controlled, not retransmitted | 5 | Compliant | Packed into 1-RTT packets; lost DATAGRAMs are not requeued |
 | Application API | — | Compliant | `Endpoint.sendDatagram` / `QuicConnection.sendDatagram`; `ProtocolHandler.datagramReceived` via `QuicConnection.setDatagramHandler` |
 
+### QUIC ACK Frequency — draft-ietf-quic-ack-frequency-14
+
+The draft is not an RFC. Codepoints are kept in `AckFrequencyDraft`. Receiver side only so far; this endpoint does not yet send `ACK_FREQUENCY` or `IMMEDIATE_ACK`.
+
+| Requirement | Section | Status | Notes |
+|-------------|---------|--------|-------|
+| Delayed ACKs without the extension | RFC 9000 13.2.1 | Compliant | Initial/Handshake at once; application data after two ack-eliciting packets, on `max_ack_delay` expiry, or at once for a reordered packet |
+| `min_ack_delay` transport parameter (0xff04de1b) | 3 | Compliant | Advertised (1 ms); peer value above its `max_ack_delay` is `TRANSPORT_PARAMETER_ERROR`; not stored with the session ticket |
+| `ACK_FREQUENCY` frame (0xaf) | 4 | Compliant | Thresholds and delay applied; stale sequence numbers ignored; Requested Max Ack Delay below `min_ack_delay` or 2^14 ms or more, or a frame outside 1-RTT, is `PROTOCOL_VIOLATION` |
+| Reordering Threshold | 4 | Partial | 0 disables the reordering ACK; N acknowledges a packet N or more below the largest or a new gap of N or more; the ECN CE rule has nothing to act on because the UDP path does not expose the codepoint |
+| `IMMEDIATE_ACK` frame (0x1f) | 5 | Compliant | ACK on the next flush; 1-RTT only |
+
 ### HTTP Datagrams and Capsule Protocol — RFC 9297
 
 | Requirement | Section | Status | Notes |
