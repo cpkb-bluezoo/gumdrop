@@ -56,19 +56,24 @@ final class QlogJson {
         sb.append(':');
     }
 
-    private void string(String value) {
-        sb.append('"');
+    /** Appends value as a JSON string, quoted and escaped. */
+    static void appendString(StringBuilder out, String value) {
+        out.append('"');
         for (int i = 0; i < value.length(); i++) {
             char c = value.charAt(i);
             if (c == '"' || c == '\\') {
-                sb.append('\\').append(c);
+                out.append('\\').append(c);
             } else if (c < 0x20) {
-                sb.append("\\u00").append(HEX[c >> 4]).append(HEX[c & 15]);
+                out.append("\\u00").append(HEX[c >> 4]).append(HEX[c & 15]);
             } else {
-                sb.append(c);
+                out.append(c);
             }
         }
-        sb.append('"');
+        out.append('"');
+    }
+
+    private void string(String value) {
+        appendString(sb, value);
     }
 
     QlogJson put(String key, String value) {
@@ -116,6 +121,20 @@ final class QlogJson {
             sb.append(HEX[(value[i] >> 4) & 15]).append(HEX[value[i] & 15]);
         }
         sb.append('"');
+        return this;
+    }
+
+    /** Writes a number as given: for a value that is not an integer, such as 1.125. */
+    QlogJson put(String key, double value) {
+        key(key);
+        sb.append(value);
+        return this;
+    }
+
+    /** Embeds JSON text built elsewhere. */
+    QlogJson putRaw(String key, String json) {
+        key(key);
+        sb.append(json);
         return this;
     }
 

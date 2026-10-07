@@ -355,6 +355,8 @@ public final class QuicConnection implements QuicTlsEngineListener {
     private boolean qlogClosedLogged;
     private boolean closedByPeer;
     private long[] qlogLastMetrics;
+    private String qlogCongestionState;
+    private int qlogTuples;
     // The peer's min_ack_delay in microseconds, from its real transport
     // parameters only (never a remembered set): negative when absent
     private long peerMinAckDelayMicros = -1;
@@ -788,6 +790,8 @@ public final class QuicConnection implements QuicTlsEngineListener {
             qlogConnectionStarted();
             qlog.emit(QlogEvents.PARAMETERS_SET, nowNanos(),
                     qlogParameters(QlogEvents.OWNER_LOCAL, localTransportParameters));
+            qlogRecoveryParameters();
+            qlogTupleAssigned();
         }
     }
 
@@ -815,7 +819,9 @@ public final class QuicConnection implements QuicTlsEngineListener {
 
     private static QlogJson qlogParameters(String owner, TransportParameters p) {
         QlogJson data = QlogJson.object();
-        data.put(QlogEvents.OWNER, owner);
+        if (owner != null) {
+            data.put(QlogEvents.OWNER, owner);
+        }
         if (p.getOriginalDestinationConnectionId() != null) {
             data.putHex(QlogEvents.ORIGINAL_DESTINATION_CONNECTION_ID, p.getOriginalDestinationConnectionId());
         }
@@ -901,7 +907,8 @@ public final class QuicConnection implements QuicTlsEngineListener {
     }
 
     // Reports the recovery state when it differs from what was last reported.
-    private void qlogRecoveryMetrics() {
+    private void qlogRecoveryMetrics(boolean lost) {
+        qlogCongestionState(lost);
         RttEstimator rtt = lossDetector.getRttEstimator();
         CongestionController cc = lossDetector.getCongestionController();
         long ssthresh = cc.getSsthresh();
@@ -936,6 +943,175 @@ public final class QuicConnection implements QuicTlsEngineListener {
             data.put(QlogEvents.TRIGGER, trigger);
         }
         qlog.emit(QlogEvents.PACKET_LOST, nowNanos(), data);
+    }
+
+    private void qlogPacketSent(String packetType, long packetNumber, int length, boolean longHeader,
+            QuicVersion headerVersion, byte[] dcid, QlogFrames frames) {
+        QlogJson data = QlogJson.object();
+        data.beginObject(QlogEvents.HEADER);
+        data.put(QlogEvents.PACKET_TYPE, packetType);
+        data.put(QlogEvents.PACKET_NUMBER, packetNumber);
+        if (longHeader) {
+            data.put(QlogEvents.VERSION, qlogVersion(headerVersion.getWireValue()));
+            data.putHex(QlogEvents.SCID, ourConnectionId);
+        }
+        data.putHex(QlogEvents.DCID, dcid);
+        data.endObject();
+        data.beginObject(QlogEvents.RAW).put(QlogEvents.LENGTH, length).endObject();
+        data.putRaw(QlogEvents.FRAMES, frames.array());
+        qlog.emit(QlogEvents.PACKET_SENT, nowNanos(), data);
+    }
+
+    private void qlogPacketReceived(String packetType, long packetNumber, byte[] packet, boolean longHeader,
+            QlogFrames frames) {
+        QlogJson data = QlogJson.object();
+        data.beginObject(QlogEvents.HEADER);
+        data.put(QlogEvents.PACKET_TYPE, packetType);
+        data.put(QlogEvents.PACKET_NUMBER, packetNumber);
+        qlogHeaderIds(data, packet, longHeader);
+        data.endObject();
+        data.beginObject(QlogEvents.RAW).put(QlogEvents.LENGTH, packet.length).endObject();
+        data.putRaw(QlogEvents.FRAMES, frames.array());
+        qlog.emit(QlogEvents.PACKET_RECEIVED, nowNanos(), data);
+    }
+
+    // The version and connection IDs of a received packet's header, which
+    // header protection leaves in the clear.
+    private void qlogHeaderIds(QlogJson data, byte[] packet, boolean longHeader) {
+        if (!longHeader) {
+            if (packet.length >= 1 + ourConnectionId.length) {
+                data.putHex(QlogEvents.DCID, Arrays.copyOfRange(packet, 1, 1 + ourConnectionId.length));
+            }
+            return;
+        }
+        if (packet.length < 7) {
+            return;
+        }
+        int wire = ((packet[1] & 0xff) << 24) | ((packet[2] & 0xff) << 16) | ((packet[3] & 0xff) << 8)
+                | (packet[4] & 0xff);
+        data.put(QlogEvents.VERSION, qlogVersion(wire));
+        int dcidLength = packet[5] & 0xff;
+        int scidLengthAt = 6 + dcidLength;
+        if (packet.length <= scidLengthAt) {
+            return;
+        }
+        int scidLength = packet[scidLengthAt] & 0xff;
+        if (packet.length < scidLengthAt + 1 + scidLength) {
+            return;
+        }
+        data.putHex(QlogEvents.DCID, Arrays.copyOfRange(packet, 6, 6 + dcidLength));
+        data.putHex(QlogEvents.SCID, Arrays.copyOfRange(packet, scidLengthAt + 1, scidLengthAt + 1 + scidLength));
+    }
+
+    private void qlogDroppedUnparseable(int length) {
+        if (qlog != null) {
+            qlogPacketDropped(null, length, QlogEvents.TRIGGER_HEADER_PARSE_ERROR);
+        }
+    }
+
+    private void qlogPacketDropped(String packetType, int length, String trigger) {
+        QlogJson data = QlogJson.object();
+        if (packetType != null) {
+            data.beginObject(QlogEvents.HEADER).put(QlogEvents.PACKET_TYPE, packetType).endObject();
+        }
+        data.beginObject(QlogEvents.RAW).put(QlogEvents.LENGTH, length).endObject();
+        data.put(QlogEvents.TRIGGER, trigger);
+        qlog.emit(QlogEvents.PACKET_DROPPED, nowNanos(), data);
+    }
+
+    private void qlogRecoveryParameters() {
+        CongestionController cc = lossDetector.getCongestionController();
+        QlogJson data = QlogJson.object();
+        data.put(QlogEvents.REORDERING_THRESHOLD, LossDetector.K_PACKET_THRESHOLD);
+        data.put(QlogEvents.TIME_THRESHOLD, LossDetector.K_TIME_THRESHOLD);
+        data.putMillis(QlogEvents.TIMER_GRANULARITY, LossDetector.K_GRANULARITY);
+        data.putMillis(QlogEvents.INITIAL_RTT, RttEstimator.K_INITIAL_RTT);
+        data.put(QlogEvents.MAX_DATAGRAM_SIZE, MIN_DATAGRAM_SIZE);
+        data.put(QlogEvents.INITIAL_CONGESTION_WINDOW, cc.getCongestionWindow());
+        data.put(QlogEvents.MINIMUM_CONGESTION_WINDOW, 2L * MIN_DATAGRAM_SIZE);
+        data.put(QlogEvents.LOSS_REDUCTION_FACTOR, CongestionController.K_LOSS_REDUCTION_FACTOR);
+        data.put(QlogEvents.PERSISTENT_CONGESTION_THRESHOLD, LossDetector.K_PERSISTENT_CONGESTION_THRESHOLD);
+        qlog.emit(QlogEvents.RECOVERY_PARAMETERS_SET, nowNanos(), data);
+    }
+
+    private void qlogKeyUpdated(boolean clientSecret, String level, long generation, String trigger) {
+        QlogJson data = QlogJson.object();
+        data.put(QlogEvents.KEY_TYPE, (clientSecret ? "client_" : "server_") + level + "_secret");
+        data.put(QlogEvents.GENERATION, generation);
+        data.put(QlogEvents.TRIGGER, trigger);
+        qlog.emit(QlogEvents.KEY_UPDATED, nowNanos(), data);
+    }
+
+    private void qlogConnectionIdUpdated(String owner, byte[] old, byte[] updated) {
+        QlogJson data = QlogJson.object();
+        data.put(QlogEvents.OWNER, owner);
+        if (old != null) {
+            data.putHex(QlogEvents.OLD, old);
+        }
+        data.putHex(QlogEvents.NEW, updated);
+        qlog.emit(QlogEvents.CONNECTION_ID_UPDATED, nowNanos(), data);
+    }
+
+    private static void qlogEndpoint(QlogJson data, String key, InetSocketAddress address) {
+        if (address == null || address.getAddress() == null) {
+            return;
+        }
+        data.beginObject(key);
+        if (address.getAddress() instanceof java.net.Inet6Address) {
+            data.put(QlogEvents.IP_V6, address.getAddress().getHostAddress());
+            data.put(QlogEvents.PORT_V6, address.getPort());
+        } else {
+            data.put(QlogEvents.IP_V4, address.getAddress().getHostAddress());
+            data.put(QlogEvents.PORT_V4, address.getPort());
+        }
+        data.endObject();
+    }
+
+    private void qlogTupleAssigned() {
+        QlogJson data = QlogJson.object();
+        data.put(QlogEvents.TUPLE_ID, "tuple-" + (qlogTuples++));
+        qlogEndpoint(data, QlogEvents.TUPLE_REMOTE, remoteAddress);
+        qlogEndpoint(data, QlogEvents.TUPLE_LOCAL, localAddress);
+        qlog.emit(QlogEvents.TUPLE_ASSIGNED, nowNanos(), data);
+    }
+
+    private void qlogStreamState(long streamId, String state) {
+        QlogJson data = QlogJson.object();
+        data.put(QlogEvents.STREAM_ID, streamId);
+        data.put(QlogEvents.STREAM_TYPE, isUnidirectional(streamId) ? "unidirectional" : "bidirectional");
+        data.put(QlogEvents.NEW, state);
+        qlog.emit(QlogEvents.STREAM_STATE_UPDATED, nowNanos(), data);
+    }
+
+    // A stream's data (streamId >= 0) or a datagram's moving between the
+    // application, the transport and the network.
+    private void qlogDataMoved(String event, long streamId, long offset, int length, String from, String to) {
+        QlogJson data = QlogJson.object();
+        if (streamId >= 0) {
+            data.put(QlogEvents.STREAM_ID, streamId);
+            data.put(QlogEvents.OFFSET, offset);
+        }
+        data.put(QlogEvents.LENGTH, length);
+        data.put(QlogEvents.FROM, from);
+        data.put(QlogEvents.TO, to);
+        qlog.emit(event, nowNanos(), data);
+    }
+
+    private void qlogCongestionState(boolean lost) {
+        CongestionController cc = lossDetector.getCongestionController();
+        String state = lost ? QlogEvents.STATE_RECOVERY
+                : cc.getCongestionWindow() < cc.getSsthresh()
+                        ? QlogEvents.STATE_SLOW_START : QlogEvents.STATE_CONGESTION_AVOIDANCE;
+        if (state.equals(qlogCongestionState)) {
+            return;
+        }
+        QlogJson data = QlogJson.object();
+        if (qlogCongestionState != null) {
+            data.put(QlogEvents.OLD, qlogCongestionState);
+        }
+        data.put(QlogEvents.NEW, state);
+        qlogCongestionState = state;
+        qlog.emit(QlogEvents.CONGESTION_STATE_UPDATED, nowNanos(), data);
     }
 
     // Reported once, whichever way the connection ends.
@@ -1196,6 +1372,10 @@ public final class QuicConnection implements QuicTlsEngineListener {
             }
         }
         pendingDatagrams.add(copy);
+        if (qlog != null) {
+            qlogDataMoved(QlogEvents.DATAGRAM_DATA_MOVED, -1, -1, copy.length,
+                    QlogEvents.LOCATION_APPLICATION, QlogEvents.LOCATION_TRANSPORT);
+        }
         requestFlush();
         return true;
     }
@@ -1242,6 +1422,9 @@ public final class QuicConnection implements QuicTlsEngineListener {
      *                   connection the presented session ticket came from
      */
     void seedRememberedTransportParameters(TransportParameters remembered) {
+        if (qlog != null) {
+            qlog.emit(QlogEvents.PARAMETERS_RESTORED, nowNanos(), qlogParameters(null, remembered));
+        }
         this.peerTransportParameters = remembered;
         this.peerMaxData = remembered.getInitialMaxData();
         this.peerMaxStreamsBidi = remembered.getInitialMaxStreamsBidi();
@@ -1448,6 +1631,9 @@ public final class QuicConnection implements QuicTlsEngineListener {
     private Endpoint createStream(long streamId, ProtocolHandler handler) {
         QuicStreamEndpoint stream = new QuicStreamEndpoint(this, streamId, handler);
         streams.put(Long.valueOf(streamId), stream);
+        if (qlog != null) {
+            qlogStreamState(streamId, QlogEvents.STREAM_OPEN);
+        }
         handler.connected(stream);
         handler.securityEstablished(getSecurityInfo());
         return stream;
@@ -1528,6 +1714,9 @@ public final class QuicConnection implements QuicTlsEngineListener {
         }
         QuicStreamEndpoint stream = new QuicStreamEndpoint(this, streamId, protocolHandler);
         streams.put(Long.valueOf(streamId), stream);
+        if (qlog != null) {
+            qlogStreamState(streamId, QlogEvents.STREAM_OPEN);
+        }
         protocolHandler.connected(stream);
         protocolHandler.securityEstablished(getSecurityInfo());
         return stream;
@@ -1552,6 +1741,17 @@ public final class QuicConnection implements QuicTlsEngineListener {
             addPendingStreamChunks(key, chunks);
         }
         chunks.add(new PendingChunk(offset, copy, fin));
+        if (qlog != null) {
+            if (copy.length > 0) {
+                qlogDataMoved(QlogEvents.STREAM_DATA_MOVED, streamId, offset, copy.length,
+                        QlogEvents.LOCATION_APPLICATION, QlogEvents.LOCATION_TRANSPORT);
+            }
+            if (fin) {
+                QuicStreamEndpoint finished = streams.get(key);
+                qlogStreamState(streamId, finished != null && finished.isPeerFinished()
+                        ? QlogEvents.STREAM_CLOSED : QlogEvents.STREAM_HALF_CLOSED_LOCAL);
+            }
+        }
         requestFlush();
     }
 
@@ -1679,6 +1879,10 @@ public final class QuicConnection implements QuicTlsEngineListener {
             @Override
             public void run() {
                 stream.markPeerFinished();
+                if (qlog != null) {
+                    qlogStreamState(streamId, stream.isLocalFinished()
+                            ? QlogEvents.STREAM_CLOSED : QlogEvents.STREAM_HALF_CLOSED_REMOTE);
+                }
                 stream.getHandler().readFinished();
                 retireStreamIfFullyClosed(streamId, stream);
             }
@@ -1841,6 +2045,7 @@ public final class QuicConnection implements QuicTlsEngineListener {
             // doesn't need an offset-0 view.
             if (bytes.length - offset < 5) {
                 decryptFailedOrUnparseableThisDatagram = true;
+                qlogDroppedUnparseable(bytes.length - offset);
                 return -1;
             }
             int packetVersion = ((bytes[offset + 1] & 0xff) << 24) | ((bytes[offset + 2] & 0xff) << 16)
@@ -1848,6 +2053,7 @@ public final class QuicConnection implements QuicTlsEngineListener {
             packetQuicVersion = QuicVersion.fromWireValue(packetVersion);
             if (packetQuicVersion == null) {
                 decryptFailedOrUnparseableThisDatagram = true;
+                qlogDroppedUnparseable(bytes.length - offset);
                 return -1;
             }
             int packetType = LongHeaderCodec.packetType(packetVersion, bytes[offset]);
@@ -1875,6 +2081,7 @@ public final class QuicConnection implements QuicTlsEngineListener {
                 prefix = LongHeaderCodec.parsePrefix(bytes, offset);
             } catch (IllegalArgumentException e) {
                 decryptFailedOrUnparseableThisDatagram = true;
+                qlogDroppedUnparseable(bytes.length - offset);
                 return -1;
             }
             isZeroRtt = prefix.getPacketType() == LongHeaderCodec.TYPE_0RTT;
@@ -1897,6 +2104,7 @@ public final class QuicConnection implements QuicTlsEngineListener {
         }
         if (packetLength <= pnOffset || offset + packetLength > bytes.length) {
             decryptFailedOrUnparseableThisDatagram = true;
+            qlogDroppedUnparseable(bytes.length - offset);
             return -1;
         }
         byte[] packet = new byte[packetLength];
@@ -1909,6 +2117,9 @@ public final class QuicConnection implements QuicTlsEngineListener {
     // first long-header response arrives (see the class documentation
     // on why this never changes again after that).
     private void learnPeerConnectionId(byte[] scid) {
+        if (qlog != null) {
+            qlogConnectionIdUpdated(QlogEvents.OWNER_REMOTE, peerConnectionId, scid);
+        }
         peerConnectionId = scid;
         peerConnectionIdLearned = true;
     }
@@ -2034,6 +2245,9 @@ public final class QuicConnection implements QuicTlsEngineListener {
         retryProcessed = true;
         retryToken = retry.getRetryToken();
         expectedRetrySourceConnectionId = retry.getSourceConnectionId();
+        if (qlog != null) {
+            qlogConnectionIdUpdated(QlogEvents.OWNER_REMOTE, peerConnectionId, retry.getSourceConnectionId());
+        }
         peerConnectionId = retry.getSourceConnectionId();
         peerConnectionIdLearned = true;
 
@@ -2139,6 +2353,10 @@ public final class QuicConnection implements QuicTlsEngineListener {
             keys = packetVersion == null || packetVersion == version ? recvKeys.get(level) : null;
         }
         if (keys == null) {
+            if (qlog != null) {
+                qlogPacketDropped(isZeroRtt ? QlogEvents.PACKET_TYPE_0RTT : qlogPacketType(level), packet.length,
+                        QlogEvents.TRIGGER_KEY_UNAVAILABLE);
+            }
             return; // keys not derived yet (or not accepted) at this level; drop
         }
         // 0-RTT is wire-long-header despite sharing ONE_RTT's packet
@@ -2174,6 +2392,10 @@ public final class QuicConnection implements QuicTlsEngineListener {
                 keys = selectOneRttRecvKeys((packet[0] & 0x04) != 0, fullPacketNumber, updatedRecvKeys);
                 if (keys == null) {
                     decryptFailedOrUnparseableThisDatagram = true;
+                    if (qlog != null) {
+                        qlogPacketDropped(QlogEvents.PACKET_TYPE_1RTT, packet.length,
+                                QlogEvents.TRIGGER_KEY_UNAVAILABLE);
+                    }
                     return;
                 }
             }
@@ -2223,6 +2445,10 @@ public final class QuicConnection implements QuicTlsEngineListener {
 
             FrameDispatcher dispatcher = new FrameDispatcher(level, isZeroRtt);
             new QuicFrameParser(dispatcher).receive(ByteBuffer.wrap(plaintext));
+            if (qlog != null) {
+                qlogPacketReceived(isZeroRtt ? QlogEvents.PACKET_TYPE_0RTT : qlogPacketType(level), fullPacketNumber,
+                        packet, longHeader, dispatcher.qlogFrames);
+            }
             // RFC 9000 section 13.2: only owe an ACK if this packet
             // carried at least one ack-eliciting frame -- acknowledging a
             // packet that itself contained nothing but ACK/PADDING/
@@ -2256,6 +2482,10 @@ public final class QuicConnection implements QuicTlsEngineListener {
             }
             unacked.add(Long.valueOf(fullPacketNumber));
         } catch (PacketProtectionException e) {
+            if (qlog != null) {
+                qlogPacketDropped(isZeroRtt ? QlogEvents.PACKET_TYPE_0RTT : qlogPacketType(level), packet.length,
+                        QlogEvents.TRIGGER_DECRYPTION_FAILURE);
+            }
             LOGGER.log(Level.FINE, MessageFormat.format(
                     L10N.getString("fine.packet_protection_failure"), level), e);
             if (level == EncryptionLevel.ONE_RTT && !isZeroRtt) {
@@ -2318,22 +2548,35 @@ public final class QuicConnection implements QuicTlsEngineListener {
         // received; processPacket only sets ackOwed when this ends up true.
         boolean ackEliciting;
 
+        // the frames of this packet, for the qlog packet_received event; null when not logging
+        final QlogFrames qlogFrames;
+
         FrameDispatcher(EncryptionLevel level, boolean zeroRtt) {
+            this.qlogFrames = qlog != null ? new QlogFrames() : null;
             this.level = level;
             this.zeroRtt = zeroRtt;
         }
 
         @Override
         public void paddingFrameReceived(int length) {
+            if (qlogFrames != null) {
+                qlogFrames.padding(length);
+            }
         }
 
         @Override
         public void pingFrameReceived() {
+            if (qlogFrames != null) {
+                qlogFrames.ping();
+            }
             ackEliciting = true;
         }
 
         @Override
         public void ackFrameReceived(long largestAcknowledged, long ackDelay, long[][] ranges) {
+            if (qlogFrames != null) {
+                qlogFrames.ack(ranges, ackDelayMicros(ackDelay));
+            }
             if (level == EncryptionLevel.HANDSHAKE) {
                 receivedHandshakeAck = true;
             }
@@ -2353,7 +2596,7 @@ public final class QuicConnection implements QuicTlsEngineListener {
             }
             Map<Long, long[]> coverage = sentAckCoverage.get(level);
             if (qlog != null) {
-                qlogRecoveryMetrics();
+                qlogRecoveryMetrics(!result.getNewlyLost().isEmpty());
             }
             for (SentPacket lost : result.getNewlyLost()) {
                 if (qlog != null) {
@@ -2374,6 +2617,9 @@ public final class QuicConnection implements QuicTlsEngineListener {
 
         @Override
         public void resetStreamFrameReceived(long streamId, long applicationErrorCode, long finalSize) {
+            if (qlogFrames != null) {
+                qlogFrames.resetStream(streamId, applicationErrorCode, finalSize);
+            }
             ackEliciting = true;
             Long key = Long.valueOf(streamId);
             if (streams.get(key) == null && peerInitiatedStreamExceedsLimit(streamId)) {
@@ -2392,12 +2638,18 @@ public final class QuicConnection implements QuicTlsEngineListener {
 
         @Override
         public void stopSendingFrameReceived(long streamId, long applicationErrorCode) {
+            if (qlogFrames != null) {
+                qlogFrames.stopSending(streamId, applicationErrorCode);
+            }
             ackEliciting = true;
             resetStream(streamId, applicationErrorCode);
         }
 
         @Override
         public void cryptoFrameReceived(long offset, ByteBuffer data) {
+            if (qlogFrames != null) {
+                qlogFrames.crypto(offset, data.remaining());
+            }
             ackEliciting = true;
             byte[] copy = new byte[data.remaining()];
             data.get(copy);
@@ -2410,11 +2662,17 @@ public final class QuicConnection implements QuicTlsEngineListener {
 
         @Override
         public void newTokenFrameReceived(ByteBuffer token) {
+            if (qlogFrames != null) {
+                qlogFrames.newToken(token.remaining());
+            }
             ackEliciting = true;
         }
 
         @Override
         public void streamFrameReceived(long streamId, long offset, boolean fin, ByteBuffer data) {
+            if (qlogFrames != null) {
+                qlogFrames.stream(streamId, offset, data.remaining(), fin);
+            }
             ackEliciting = true;
             // Boxed once and threaded through every per-stream map touched
             // below (streams, checkAndRecordFlowControl's own chain,
@@ -2457,6 +2715,11 @@ public final class QuicConnection implements QuicTlsEngineListener {
                 return;
             }
             if (contiguous.length > 0) {
+                if (qlog != null) {
+                    qlogDataMoved(QlogEvents.STREAM_DATA_MOVED, streamId,
+                            reassembler.getNextOffset() - contiguous.length, contiguous.length,
+                            QlogEvents.LOCATION_TRANSPORT, QlogEvents.LOCATION_APPLICATION);
+                }
                 stream.deliverData(ByteBuffer.wrap(contiguous));
             }
             if (fin) {
@@ -2480,6 +2743,9 @@ public final class QuicConnection implements QuicTlsEngineListener {
 
         @Override
         public void maxDataFrameReceived(long maximumData) {
+            if (qlogFrames != null) {
+                qlogFrames.maxData(maximumData);
+            }
             ackEliciting = true;
             if (maximumData > peerMaxData) {
                 peerMaxData = maximumData;
@@ -2489,6 +2755,9 @@ public final class QuicConnection implements QuicTlsEngineListener {
 
         @Override
         public void maxStreamDataFrameReceived(long streamId, long maximumStreamData) {
+            if (qlogFrames != null) {
+                qlogFrames.maxStreamData(streamId, maximumStreamData);
+            }
             ackEliciting = true;
             Long key = Long.valueOf(streamId);
             Long current = peerMaxStreamData.get(key);
@@ -2500,6 +2769,9 @@ public final class QuicConnection implements QuicTlsEngineListener {
 
         @Override
         public void maxStreamsFrameReceived(boolean bidirectional, long maximumStreams) {
+            if (qlogFrames != null) {
+                qlogFrames.maxStreams(bidirectional, maximumStreams);
+            }
             ackEliciting = true;
             if (maximumStreams > MAX_STREAMS_COUNT) {
                 closeWithError(TRANSPORT_ERROR_FRAME_ENCODING_ERROR,
@@ -2529,12 +2801,18 @@ public final class QuicConnection implements QuicTlsEngineListener {
         // xxxOnBlocked growth is used instead -- see its javadoc.
         @Override
         public void dataBlockedFrameReceived(long maximumData) {
+            if (qlogFrames != null) {
+                qlogFrames.dataBlocked(maximumData);
+            }
             ackEliciting = true;
             growConnectionLimitOnBlocked();
         }
 
         @Override
         public void streamDataBlockedFrameReceived(long streamId, long maximumStreamData) {
+            if (qlogFrames != null) {
+                qlogFrames.streamDataBlocked(streamId, maximumStreamData);
+            }
             ackEliciting = true;
             if (streams.get(Long.valueOf(streamId)) == null && peerInitiatedStreamExceedsLimit(streamId)) {
                 closeWithError(TRANSPORT_ERROR_STREAM_LIMIT_ERROR,
@@ -2546,12 +2824,22 @@ public final class QuicConnection implements QuicTlsEngineListener {
 
         @Override
         public void streamsBlockedFrameReceived(boolean bidirectional, long maximumStreams) {
+            if (qlogFrames != null) {
+                qlogFrames.streamsBlocked(bidirectional, maximumStreams);
+            }
             ackEliciting = true;
         }
 
         @Override
         public void newConnectionIdFrameReceived(long sequenceNumber, long retirePriorTo,
                 ByteBuffer connectionId, ByteBuffer statelessResetToken) {
+            if (qlogFrames != null) {
+                byte[] cidCopy = new byte[connectionId.remaining()];
+                connectionId.duplicate().get(cidCopy);
+                byte[] tokenCopy = new byte[statelessResetToken.remaining()];
+                statelessResetToken.duplicate().get(tokenCopy);
+                qlogFrames.newConnectionId(sequenceNumber, retirePriorTo, cidCopy, tokenCopy);
+            }
             ackEliciting = true;
             byte[] cid = new byte[connectionId.remaining()];
             connectionId.get(cid);
@@ -2562,6 +2850,9 @@ public final class QuicConnection implements QuicTlsEngineListener {
 
         @Override
         public void retireConnectionIdFrameReceived(long sequenceNumber) {
+            if (qlogFrames != null) {
+                qlogFrames.retireConnectionId(sequenceNumber);
+            }
             ackEliciting = true;
             byte[] retired = connectionIdManager.getOurConnectionId(sequenceNumber);
             connectionIdManager.retireOurs(sequenceNumber);
@@ -2577,6 +2868,11 @@ public final class QuicConnection implements QuicTlsEngineListener {
 
         @Override
         public void pathChallengeFrameReceived(ByteBuffer data) {
+            if (qlogFrames != null) {
+                byte[] copy = new byte[data.remaining()];
+                data.duplicate().get(copy);
+                qlogFrames.pathChallenge(copy);
+            }
             ackEliciting = true;
             byte[] bytes = new byte[data.remaining()];
             data.get(bytes);
@@ -2588,6 +2884,11 @@ public final class QuicConnection implements QuicTlsEngineListener {
 
         @Override
         public void pathResponseFrameReceived(ByteBuffer data) {
+            if (qlogFrames != null) {
+                byte[] copy = new byte[data.remaining()];
+                data.duplicate().get(copy);
+                qlogFrames.pathResponse(copy);
+            }
             ackEliciting = true;
             byte[] bytes = new byte[data.remaining()];
             data.get(bytes);
@@ -2601,6 +2902,9 @@ public final class QuicConnection implements QuicTlsEngineListener {
         @Override
         public void connectionCloseFrameReceived(boolean applicationError, long errorCode,
                 long frameType, String reason) {
+            if (qlogFrames != null) {
+                qlogFrames.connectionClose(applicationError, errorCode, reason);
+            }
             deferredCloseApplicationError = applicationError;
             deferredCloseErrorCode = errorCode;
             deferredCloseReason = reason;
@@ -2611,6 +2915,9 @@ public final class QuicConnection implements QuicTlsEngineListener {
 
         @Override
         public void handshakeDoneFrameReceived() {
+            if (qlogFrames != null) {
+                qlogFrames.handshakeDone();
+            }
             ackEliciting = true;
             handshakeConfirmed = true;
             lossDetector.setHandshakeConfirmed(true);
@@ -2622,6 +2929,9 @@ public final class QuicConnection implements QuicTlsEngineListener {
         @Override
         public void ackFrequencyFrameReceived(long sequenceNumber, long ackElicitingThresholdValue,
                 long requestedMaxAckDelay, long reorderingThresholdValue) {
+            if (qlogFrames != null) {
+                qlogFrames.unknown(AckFrequencyDraft.FRAME_TYPE_ACK_FREQUENCY);
+            }
             ackEliciting = true;
             if (level != EncryptionLevel.ONE_RTT || zeroRtt) {
                 closeWithError(TRANSPORT_ERROR_PROTOCOL_VIOLATION,
@@ -2651,6 +2961,9 @@ public final class QuicConnection implements QuicTlsEngineListener {
         // draft-ietf-quic-ack-frequency section 5
         @Override
         public void immediateAckFrameReceived() {
+            if (qlogFrames != null) {
+                qlogFrames.unknown(AckFrequencyDraft.FRAME_TYPE_IMMEDIATE_ACK);
+            }
             ackEliciting = true;
             if (level != EncryptionLevel.ONE_RTT || zeroRtt) {
                 closeWithError(TRANSPORT_ERROR_PROTOCOL_VIOLATION,
@@ -2662,6 +2975,9 @@ public final class QuicConnection implements QuicTlsEngineListener {
 
         @Override
         public void datagramFrameReceived(ByteBuffer data, int encodedLength) {
+            if (qlogFrames != null) {
+                qlogFrames.datagram(data.remaining());
+            }
             ackEliciting = true;
             // RFC 9221 section 5: DATAGRAM frames MUST only appear in
             // 1-RTT packets (not Initial, Handshake, or 0-RTT).
@@ -2684,6 +3000,10 @@ public final class QuicConnection implements QuicTlsEngineListener {
             if (datagramHandler != null) {
                 byte[] copy = new byte[data.remaining()];
                 data.get(copy);
+                if (qlog != null) {
+                    qlogDataMoved(QlogEvents.DATAGRAM_DATA_MOVED, -1, -1, copy.length,
+                            QlogEvents.LOCATION_TRANSPORT, QlogEvents.LOCATION_APPLICATION);
+                }
                 datagramHandler.datagramReceived(ByteBuffer.wrap(copy));
             }
         }
@@ -3437,6 +3757,9 @@ public final class QuicConnection implements QuicTlsEngineListener {
             recentlyMigratedFromAddresses.put(remoteAddress, Long.valueOf(nowMillis()));
         }
         remoteAddress = candidate.remote;
+        if (qlog != null) {
+            qlogTupleAssigned();
+        }
         sendPath = candidate.path == engine.getPrimaryPath() ? null : candidate.path;
         MigrationCompletedObserver observer = migrationCompletedObserver;
         if (observer != null) {
@@ -3449,6 +3772,9 @@ public final class QuicConnection implements QuicTlsEngineListener {
             // is the one to use there; the one used so far is retired.
             if (!Arrays.equals(attempt.destinationConnectionId, peerConnectionId)) {
                 connectionIdManager.retirePeerConnectionId(activePeerConnectionIdSequence);
+                if (qlog != null) {
+                    qlogConnectionIdUpdated(QlogEvents.OWNER_REMOTE, peerConnectionId, attempt.destinationConnectionId);
+                }
                 peerConnectionId = attempt.destinationConnectionId;
                 activePeerConnectionIdSequence = attempt.destinationConnectionIdSequence;
             }
@@ -3461,6 +3787,9 @@ public final class QuicConnection implements QuicTlsEngineListener {
             ConnectionIdEntry fresh = connectionIdManager.getActivePeerConnectionId();
             if (fresh != null && !Arrays.equals(fresh.getConnectionId(), peerConnectionId)) {
                 connectionIdManager.retirePeerConnectionId(activePeerConnectionIdSequence);
+                if (qlog != null) {
+                    qlogConnectionIdUpdated(QlogEvents.OWNER_REMOTE, peerConnectionId, fresh.getConnectionId());
+                }
                 peerConnectionId = fresh.getConnectionId();
                 activePeerConnectionIdSequence = fresh.getSequenceNumber();
             }
@@ -3560,6 +3889,19 @@ public final class QuicConnection implements QuicTlsEngineListener {
         PacketProtection.xorFirstByte(packet, mask, false);
         PacketProtection.xorPacketNumberBytes(packet, pnOffset, pnLength, mask);
 
+        if (qlog != null) {
+            QlogFrames qf = new QlogFrames();
+            if (frameType == QuicFrameHandler.TYPE_PATH_CHALLENGE) {
+                qf.pathChallenge(data);
+            } else {
+                qf.pathResponse(data);
+            }
+            if (paddingBytes > 0) {
+                qf.padding(paddingBytes);
+            }
+            qlogPacketSent(QlogEvents.PACKET_TYPE_1RTT, packetNumber, packet.length, false, version,
+                    destinationConnectionId, qf);
+        }
         return packet;
     }
 
@@ -4157,9 +4499,13 @@ public final class QuicConnection implements QuicTlsEngineListener {
         int totalFrameBytes = frameBytes + paddingBytes;
 
         ByteBuffer payload = ByteBuffer.allocate(totalFrameBytes);
+        QlogFrames qf = qlog != null ? new QlogFrames() : null;
         List<PendingChunk> sentCryptoThisPacket = cryptoToSend;
         for (PendingChunk chunk : cryptoToSend) {
             QuicFrameWriter.writeCrypto(payload, chunk.offset, chunk.data);
+            if (qf != null) {
+                qf.crypto(chunk.offset, chunk.data.length);
+            }
         }
         if (!sentCryptoThisPacket.isEmpty()) {
             sentCrypto.get(level).put(Long.valueOf(packetNumber), sentCryptoThisPacket);
@@ -4171,6 +4517,9 @@ public final class QuicConnection implements QuicTlsEngineListener {
             long streamId = entry.getKey().longValue();
             for (PendingChunk chunk : entry.getValue()) {
                 QuicFrameWriter.writeStream(payload, streamId, chunk.offset, chunk.data, chunk.fin);
+                if (qf != null) {
+                    qf.stream(streamId, chunk.offset, chunk.data.length, chunk.fin);
+                }
             }
             List<PendingChunk> queued = pendingStream.get(entry.getKey());
             // entry.getValue() (drainEligibleStreamChunks' toSend) is
@@ -4195,6 +4544,9 @@ public final class QuicConnection implements QuicTlsEngineListener {
 
         if (includeAck) {
             QuicFrameWriter.writeAck(payload, ackRanges, ackDelay);
+            if (qf != null) {
+                qf.ack(ackRanges, ackDelay << DEFAULT_ACK_DELAY_EXPONENT);
+            }
             ackOwed[level.ordinal()] = false;
             ackElicitingUnacked[level.ordinal()] = 0;
             ackImmediate[level.ordinal()] = false;
@@ -4228,16 +4580,25 @@ public final class QuicConnection implements QuicTlsEngineListener {
         }
         if (includeHandshakeDone) {
             QuicFrameWriter.writeHandshakeDone(payload);
+            if (qf != null) {
+                qf.handshakeDone();
+            }
             handshakeDoneOwed = false;
         }
         if (includePing) {
             QuicFrameWriter.writePing(payload);
+            if (qf != null) {
+                qf.ping();
+            }
             pendingPing[level.ordinal()] = false;
         }
         if (includeAckFrequency) {
             long sequence = nextAckFrequencySequence++;
             QuicFrameWriter.writeAckFrequency(payload, sequence, ackFrequencyValues[1], ackFrequencyValues[0],
                     AckFrequencyDraft.DEFAULT_REORDERING_THRESHOLD);
+            if (qf != null) {
+                qf.unknown(AckFrequencyDraft.FRAME_TYPE_ACK_FREQUENCY);
+            }
             sentAckFrequency.put(Long.valueOf(packetNumber),
                     new long[] { sequence, ackFrequencyValues[0], ackFrequencyValues[1] });
             latestAckFrequencySequenceSent = sequence;
@@ -4246,11 +4607,17 @@ public final class QuicConnection implements QuicTlsEngineListener {
         }
         if (includeImmediateAck) {
             QuicFrameWriter.writeImmediateAck(payload);
+            if (qf != null) {
+                qf.unknown(AckFrequencyDraft.FRAME_TYPE_IMMEDIATE_ACK);
+            }
             immediateAckOwed = false;
             immediateAckSinceLastAck = true;
         }
         for (long[] reset : resetsToSend) {
             QuicFrameWriter.writeResetStream(payload, reset[0], reset[1], reset[2]);
+            if (qf != null) {
+                qf.resetStream(reset[0], reset[1], reset[2]);
+            }
         }
         if (!resetsToSend.isEmpty()) {
             pendingResetStreams.removeAll(resetsToSend);
@@ -4258,50 +4625,88 @@ public final class QuicConnection implements QuicTlsEngineListener {
         for (ConnectionIdEntry entry : newCidsToSend) {
             QuicFrameWriter.writeNewConnectionId(payload, entry.getSequenceNumber(), connectionIdManager.getRetirePriorTo(),
                     entry.getConnectionId(), entry.getStatelessResetToken());
+            if (qf != null) {
+                qf.newConnectionId(entry.getSequenceNumber(), connectionIdManager.getRetirePriorTo(),
+                        entry.getConnectionId(), entry.getStatelessResetToken());
+                qlogConnectionIdUpdated(QlogEvents.OWNER_LOCAL, null, entry.getConnectionId());
+            }
         }
         for (long sequenceNumber : retiresToSend) {
             QuicFrameWriter.writeRetireConnectionId(payload, sequenceNumber);
+            if (qf != null) {
+                qf.retireConnectionId(sequenceNumber);
+            }
         }
         if (includeMaxData) {
             QuicFrameWriter.writeMaxData(payload, localMaxData);
+            if (qf != null) {
+                qf.maxData(localMaxData);
+            }
             maxDataOwed = false;
         }
         for (Map.Entry<Long, Long> entry : maxStreamDataToSend.entrySet()) {
             QuicFrameWriter.writeMaxStreamData(payload, entry.getKey().longValue(), entry.getValue().longValue());
+            if (qf != null) {
+                qf.maxStreamData(entry.getKey().longValue(), entry.getValue().longValue());
+            }
         }
         maxStreamDataOwed.keySet().removeAll(maxStreamDataToSend.keySet());
         if (includeDataBlocked) {
             QuicFrameWriter.writeDataBlocked(payload, peerMaxData);
+            if (qf != null) {
+                qf.dataBlocked(peerMaxData);
+            }
             dataBlockedOwed = false;
         }
         for (Map.Entry<Long, Long> entry : streamDataBlockedToSend.entrySet()) {
             QuicFrameWriter.writeStreamDataBlocked(payload, entry.getKey().longValue(), entry.getValue().longValue());
+            if (qf != null) {
+                qf.streamDataBlocked(entry.getKey().longValue(), entry.getValue().longValue());
+            }
         }
         streamDataBlockedOwed.keySet().removeAll(streamDataBlockedToSend.keySet());
         if (includeMaxStreamsBidi) {
             QuicFrameWriter.writeMaxStreams(payload, true, localMaxStreamsBidi);
+            if (qf != null) {
+                qf.maxStreams(true, localMaxStreamsBidi);
+            }
             maxStreamsBidiOwed = false;
         }
         if (includeMaxStreamsUni) {
             QuicFrameWriter.writeMaxStreams(payload, false, localMaxStreamsUni);
+            if (qf != null) {
+                qf.maxStreams(false, localMaxStreamsUni);
+            }
             maxStreamsUniOwed = false;
         }
         if (includeStreamsBlockedBidi) {
             QuicFrameWriter.writeStreamsBlocked(payload, true, peerMaxStreamsBidi);
+            if (qf != null) {
+                qf.streamsBlocked(true, peerMaxStreamsBidi);
+            }
             streamsBlockedBidiOwed = false;
         }
         if (includeStreamsBlockedUni) {
             QuicFrameWriter.writeStreamsBlocked(payload, false, peerMaxStreamsUni);
+            if (qf != null) {
+                qf.streamsBlocked(false, peerMaxStreamsUni);
+            }
             streamsBlockedUniOwed = false;
         }
         for (byte[] datagram : datagramsToSend) {
             QuicFrameWriter.writeDatagram(payload, datagram);
+            if (qf != null) {
+                qf.datagram(datagram.length);
+            }
         }
         if (!datagramsToSend.isEmpty()) {
             pendingDatagrams.removeAll(datagramsToSend);
         }
         if (paddingBytes > 0) {
             QuicFrameWriter.writePadding(payload, paddingBytes);
+            if (qf != null) {
+                qf.padding(paddingBytes);
+            }
         }
         payload.flip();
         byte[] plaintext = new byte[payload.remaining()];
@@ -4335,6 +4740,9 @@ public final class QuicConnection implements QuicTlsEngineListener {
         // lost.
         boolean inFlight = ackEliciting || paddingBytes > 0;
         lossDetector.onPacketSent(level, packetNumber, nowMicros(), ackEliciting, inFlight, packet.length);
+        if (qf != null) {
+            qlogPacketSent(qlogPacketType(level), packetNumber, packet.length, longHeader, version, peerConnectionId, qf);
+        }
         // Deferred until every bit of this packet's own construction and
         // bookkeeping above is done: notifyWriteReady() synchronously
         // runs application code, which can call stream.send(...) ->
@@ -4417,10 +4825,14 @@ public final class QuicConnection implements QuicTlsEngineListener {
         ByteBuffer payload = ByteBuffer.allocate(totalFrameBytes);
         Map<Long, List<PendingChunk>> sentThisPacket = new HashMap<Long, List<PendingChunk>>();
         List<QuicStreamEndpoint> streamsToNotify = new ArrayList<QuicStreamEndpoint>();
+        QlogFrames qf = qlog != null ? new QlogFrames() : null;
         for (Map.Entry<Long, List<PendingChunk>> entry : streamChunksToSend.entrySet()) {
             long streamId = entry.getKey().longValue();
             for (PendingChunk chunk : entry.getValue()) {
                 QuicFrameWriter.writeStream(payload, streamId, chunk.offset, chunk.data, chunk.fin);
+                if (qf != null) {
+                    qf.stream(streamId, chunk.offset, chunk.data.length, chunk.fin);
+                }
             }
             List<PendingChunk> queued = pendingStream.get(entry.getKey());
             // See buildProtectedPacket's identical drain-truncation site
@@ -4437,6 +4849,9 @@ public final class QuicConnection implements QuicTlsEngineListener {
         }
         if (paddingBytes > 0) {
             QuicFrameWriter.writePadding(payload, paddingBytes);
+            if (qf != null) {
+                qf.padding(paddingBytes);
+            }
         }
         payload.flip();
         byte[] plaintext = new byte[payload.remaining()];
@@ -4457,6 +4872,9 @@ public final class QuicConnection implements QuicTlsEngineListener {
         sentZeroRttStream.put(Long.valueOf(packetNumber), sentThisPacket);
         lossDetector.onPacketSent(EncryptionLevel.ONE_RTT, packetNumber, nowMicros(), true, true,
                 packet.length);
+        if (qf != null) {
+            qlogPacketSent(QlogEvents.PACKET_TYPE_0RTT, packetNumber, packet.length, true, initialVersion, peerConnectionId, qf);
+        }
         // Deferred until every bit of this packet's own construction and
         // bookkeeping above is done -- see the identical comment in
         // buildProtectedPacket (issue #320's CI investigation) for why
@@ -4520,7 +4938,7 @@ public final class QuicConnection implements QuicTlsEngineListener {
                 requeueLostPacket(lossSpace, lost.getPacketNumber());
             }
             if (qlog != null) {
-                qlogRecoveryMetrics();
+                qlogRecoveryMetrics(!result.getNewlyLost().isEmpty());
             }
         } else {
             // Probe Timeout: nothing was naturally queued to retransmit,
@@ -4756,6 +5174,10 @@ public final class QuicConnection implements QuicTlsEngineListener {
         PacketProtection.xorFirstByte(packet, mask, longHeader);
         PacketProtection.xorPacketNumberBytes(packet, pnOffset, pnLength, mask);
 
+        if (qlog != null) {
+            qlogPacketSent(qlogPacketType(level), packetNumber, packet.length, longHeader, version, peerConnectionId,
+                    new QlogFrames().connectionClose(applicationError, errorCode, reason));
+        }
         engine.sendPacket(this, packet);
     }
 
@@ -5153,6 +5575,11 @@ public final class QuicConnection implements QuicTlsEngineListener {
             sendKeys.put(level, clientKeys);
             recvKeys.put(level, serverKeys);
         }
+        if (qlog != null && (level == EncryptionLevel.HANDSHAKE || level == EncryptionLevel.ONE_RTT)) {
+            String name = level == EncryptionLevel.HANDSHAKE ? "handshake" : "1rtt";
+            qlogKeyUpdated(true, name, 0, QlogEvents.TRIGGER_TLS);
+            qlogKeyUpdated(false, name, 0, QlogEvents.TRIGGER_TLS);
+        }
         if (level == EncryptionLevel.ONE_RTT) {
             oneRttSendSecret = isServer ? serverSecret : clientSecret;
             oneRttRecvSecret = isServer ? clientSecret : serverSecret;
@@ -5182,7 +5609,7 @@ public final class QuicConnection implements QuicTlsEngineListener {
         if (closed || !handshakeConfirmed || oneRttSendSecret == null || !currentSendKeysAcknowledged) {
             return false;
         }
-        advanceSendKeys();
+        advanceSendKeys(QlogEvents.TRIGGER_LOCAL_UPDATE);
         requestFlush();
         return true;
     }
@@ -5207,7 +5634,7 @@ public final class QuicConnection implements QuicTlsEngineListener {
         nextRecvKeys = PacketProtectionKeys.update(hkdf, nextRecvSecret, version, recvKeys.get(EncryptionLevel.ONE_RTT));
     }
 
-    private void advanceSendKeys() {
+    private void advanceSendKeys(String trigger) {
         oneRttSendSecret = PacketProtectionKeys.nextSecret(hkdf, oneRttSendSecret, version);
         sendKeys.put(EncryptionLevel.ONE_RTT, PacketProtectionKeys.update(hkdf, oneRttSendSecret, version,
                 sendKeys.get(EncryptionLevel.ONE_RTT)));
@@ -5215,6 +5642,9 @@ public final class QuicConnection implements QuicTlsEngineListener {
         firstPnOfCurrentSendPhase = sendPacketNumber[EncryptionLevel.ONE_RTT.ordinal()];
         currentSendKeysAcknowledged = false;
         keyUpdateCount++;
+        if (qlog != null) {
+            qlogKeyUpdated(!isServer, "1rtt", keyUpdateCount, trigger);
+        }
     }
 
     // The first packet of the next key phase has just been decrypted with
@@ -5230,8 +5660,13 @@ public final class QuicConnection implements QuicTlsEngineListener {
         recvKeyPhase = !recvKeyPhase;
         lowestPnOfCurrentRecvPhase = packetNumber;
         prepareNextRecvKeys();
-        if (sendKeyPhase != recvKeyPhase) {
-            advanceSendKeys();
+        boolean peerInitiated = sendKeyPhase != recvKeyPhase;
+        if (peerInitiated) {
+            advanceSendKeys(QlogEvents.TRIGGER_REMOTE_UPDATE);
+        }
+        if (qlog != null) {
+            qlogKeyUpdated(isServer, "1rtt", keyUpdateCount,
+                    peerInitiated ? QlogEvents.TRIGGER_REMOTE_UPDATE : QlogEvents.TRIGGER_LOCAL_UPDATE);
         }
     }
 

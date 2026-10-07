@@ -131,6 +131,14 @@ public final class QuicStreamEndpoint implements Endpoint {
      * been reset) -- the point at which {@link QuicConnection} can safely
      * forget this stream.
      */
+    boolean isPeerFinished() {
+        return peerFinished;
+    }
+
+    boolean isLocalFinished() {
+        return !open;
+    }
+
     boolean isFullyClosed() {
         return peerFinished && !open;
     }

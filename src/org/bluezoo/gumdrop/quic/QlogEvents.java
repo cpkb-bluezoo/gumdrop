@@ -43,6 +43,18 @@ final class QlogEvents {
     static final String KEY_DISCARDED = "quic:key_discarded";
     static final String RECOVERY_METRICS_UPDATED = "quic:recovery_metrics_updated";
     static final String PACKET_LOST = "quic:packet_lost";
+    static final String PACKET_SENT = "quic:packet_sent";
+    static final String PACKET_RECEIVED = "quic:packet_received";
+    static final String PACKET_DROPPED = "quic:packet_dropped";
+    static final String RECOVERY_PARAMETERS_SET = "quic:recovery_parameters_set";
+    static final String CONGESTION_STATE_UPDATED = "quic:congestion_state_updated";
+    static final String KEY_UPDATED = "quic:key_updated";
+    static final String CONNECTION_ID_UPDATED = "quic:connection_id_updated";
+    static final String TUPLE_ASSIGNED = "quic:tuple_assigned";
+    static final String STREAM_STATE_UPDATED = "quic:stream_state_updated";
+    static final String STREAM_DATA_MOVED = "quic:stream_data_moved";
+    static final String DATAGRAM_DATA_MOVED = "quic:datagram_data_moved";
+    static final String PARAMETERS_RESTORED = "quic:parameters_restored";
 
     // connection_started
     static final String IP_VERSION = "ip_version";
@@ -100,7 +112,62 @@ final class QlogEvents {
     static final String PACKET_TYPE = "packet_type";
     static final String PACKET_NUMBER = "packet_number";
 
+    // packet_sent, packet_received, packet_dropped
+    static final String RAW = "raw";
+    static final String LENGTH = "length";
+    static final String FRAMES = "frames";
+    static final String VERSION = "version";
+    static final String SCID = "scid";
+    static final String DCID = "dcid";
+    static final String DATAGRAM_ID = "datagram_id";
+
+    // recovery_parameters_set
+    static final String REORDERING_THRESHOLD = "reordering_threshold";
+    static final String TIME_THRESHOLD = "time_threshold";
+    static final String TIMER_GRANULARITY = "timer_granularity";
+    static final String INITIAL_RTT = "initial_rtt";
+    static final String MAX_DATAGRAM_SIZE = "max_datagram_size";
+    static final String INITIAL_CONGESTION_WINDOW = "initial_congestion_window";
+    static final String MINIMUM_CONGESTION_WINDOW = "minimum_congestion_window";
+    static final String LOSS_REDUCTION_FACTOR = "loss_reduction_factor";
+    static final String PERSISTENT_CONGESTION_THRESHOLD = "persistent_congestion_threshold";
+
+    // congestion_state_updated, key_updated, connection_id_updated, tuple_assigned
+    static final String OLD = "old";
+    static final String NEW = "new";
+    static final String GENERATION = "generation";
+    static final String TUPLE_ID = "tuple_id";
+    static final String TUPLE_REMOTE = "tuple_remote";
+    static final String TUPLE_LOCAL = "tuple_local";
+    static final String IP_V4 = "ip_v4";
+    static final String PORT_V4 = "port_v4";
+    static final String IP_V6 = "ip_v6";
+    static final String PORT_V6 = "port_v6";
+
+    // stream_state_updated, stream_data_moved, datagram_data_moved
+    static final String STREAM_ID = "stream_id";
+    static final String STREAM_TYPE = "stream_type";
+    static final String OFFSET = "offset";
+    static final String FROM = "from";
+    static final String TO = "to";
+
     // values
+    static final String PACKET_TYPE_0RTT = "0RTT";
+    static final String TRIGGER_DECRYPTION_FAILURE = "decryption_failure";
+    static final String TRIGGER_KEY_UNAVAILABLE = "key_unavailable";
+    static final String TRIGGER_HEADER_PARSE_ERROR = "header_parse_error";
+    static final String TRIGGER_TLS = "tls";
+    static final String TRIGGER_LOCAL_UPDATE = "local_update";
+    static final String TRIGGER_REMOTE_UPDATE = "remote_update";
+    static final String STATE_SLOW_START = "slow_start";
+    static final String STATE_CONGESTION_AVOIDANCE = "congestion_avoidance";
+    static final String STATE_RECOVERY = "recovery";
+    static final String STREAM_OPEN = "open";
+    static final String STREAM_HALF_CLOSED_LOCAL = "half_closed_local";
+    static final String STREAM_HALF_CLOSED_REMOTE = "half_closed_remote";
+    static final String STREAM_CLOSED = "closed";
+    static final String LOCATION_APPLICATION = "application";
+    static final String LOCATION_TRANSPORT = "transport";
     static final String OWNER_LOCAL = "local";
     static final String OWNER_REMOTE = "remote";
     static final String PACKET_TYPE_INITIAL = "initial";
