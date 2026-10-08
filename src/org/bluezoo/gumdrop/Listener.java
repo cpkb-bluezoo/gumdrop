@@ -761,6 +761,7 @@ public abstract class Listener {
      */
     public void start(Gumdrop gumdrop) {
         this.gumdrop = gumdrop;
+        attachRateLimiters();
         start();
     }
 
@@ -1020,12 +1021,28 @@ public abstract class Listener {
     private void ensureConnectionRateLimiter() {
         if (connectionRateLimiter == null) {
             connectionRateLimiter = new ConnectionRateLimiter();
+            attachRateLimiters();
         }
     }
 
     private void ensureAuthRateLimiter() {
         if (authRateLimiter == null) {
             authRateLimiter = new AuthenticationRateLimiter();
+            attachRateLimiters();
+        }
+    }
+
+    // Gives the limiters the configuration their events go to, once there is a runtime
+    private void attachRateLimiters() {
+        TelemetryConfig telemetry = getTelemetryConfig();
+        if (telemetry == null) {
+            return;
+        }
+        if (connectionRateLimiter != null) {
+            connectionRateLimiter.setTelemetryConfig(telemetry);
+        }
+        if (authRateLimiter != null) {
+            authRateLimiter.setTelemetryConfig(telemetry);
         }
     }
 
