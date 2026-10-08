@@ -21,14 +21,12 @@
 
 package org.bluezoo.gumdrop.http.server;
 
-
 import org.bluezoo.gumdrop.http.Capsule;
 import org.bluezoo.gumdrop.http.HttpDatagramContext;
 
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
-import java.text.MessageFormat;
 import java.util.ResourceBundle;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -39,6 +37,9 @@ import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.TimerHandle;
 import org.bluezoo.gumdrop.UdpEndpoint;
 import org.bluezoo.gumdrop.UdpTransportFactory;
+import org.bluezoo.gumdrop.telemetry.EventLogger;
+import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
+import org.bluezoo.gumdrop.SelectorLoop;
 
 /**
  * Relays RFC 9298 CONNECT-UDP datagrams between one HTTP request/response
@@ -66,6 +67,13 @@ import org.bluezoo.gumdrop.UdpTransportFactory;
 final class ConnectUdpRelay {
 
     private static final Logger LOGGER = Logger.getLogger(ConnectUdpRelay.class.getName());
+
+    private EventLogger events() {
+        // a response with no loop, as in tests, reports through a configuration of its own
+        SelectorLoop loop = response.getSelectorLoop();
+        TelemetryConfig telemetry = loop != null ? loop.getTelemetryConfig() : new TelemetryConfig();
+        return telemetry.getLogger(ConnectUdpRelay.class, L10N);
+    }
     private static final ResourceBundle L10N =
             ResourceBundle.getBundle("org.bluezoo.gumdrop.http.L10N");
 
@@ -207,9 +215,9 @@ final class ConnectUdpRelay {
         @Override
         public void error(Exception cause) {
             if (!closed) {
-                LOGGER.log(Level.WARNING,
-                        MessageFormat.format(L10N.getString("log.connect_udp_upstream_error"), cause),
-                        cause);
+                events().warn("log.connect_udp_upstream_error")
+                        .attr("cause", String.valueOf(cause))
+                        .thrown(cause).emit();
                 close();
             }
         }

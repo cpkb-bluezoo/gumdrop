@@ -154,7 +154,10 @@ class MockHttpConnection extends HttpConnectionLike {
     @Override public void switchToStreamTunnelMode(int streamId) { tunnelSwitches++; }
     @Override public Decoder getHpackDecoder() { return decoder; }
     @Override public boolean isSecure() { return secure; }
-    @Override public TelemetryConfig getTelemetryConfig() { return telemetryConfig; }
+    @Override public TelemetryConfig getTelemetryConfig() {
+        return telemetryConfig != null ? telemetryConfig
+                : org.bluezoo.gumdrop.testsupport.StubTelemetry.CONFIG;
+    }
     @Override public Trace getTrace() { return trace; }
     @Override public void setTrace(Trace t) { trace = t; }
     @Override public HttpServerMetrics getServerMetrics() { return metrics; }

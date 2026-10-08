@@ -25,12 +25,9 @@ import org.bluezoo.gumdrop.http.HeaderFields;
 import java.io.IOException;
 import java.net.ProtocolException;
 import java.nio.ByteBuffer;
-import java.text.MessageFormat;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.ResourceBundle;
-import java.util.logging.Level;
-import java.util.logging.Logger;
 
 import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.ProtocolHandler;
@@ -48,6 +45,8 @@ import org.bluezoo.gumdrop.http.HttpVersion;
 import org.bluezoo.gumdrop.http.qpack.Decoder;
 import org.bluezoo.gumdrop.http.client.HttpResponseHandler;
 import org.bluezoo.gumdrop.quic.QuicStreamEndpoint;
+import org.bluezoo.gumdrop.telemetry.EventLogger;
+import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
 
 /**
  * A single HTTP/3 client request/response exchange on a QUIC stream.
@@ -90,7 +89,9 @@ import org.bluezoo.gumdrop.quic.QuicStreamEndpoint;
  */
 class H3ClientStream implements ProtocolHandler, H3FrameHandler {
 
-    private static final Logger LOGGER = Logger.getLogger(H3ClientStream.class.getName());
+    private EventLogger events() {
+        return endpoint.getTelemetryConfig().getLogger(H3ClientStream.class, L10N);
+    }
     private static final ResourceBundle L10N =
             ResourceBundle.getBundle("org.bluezoo.gumdrop.http.h3.L10N");
 
@@ -456,7 +457,7 @@ class H3ClientStream implements ProtocolHandler, H3FrameHandler {
         try {
             qpackDecoder.decode(streamId, encodedFieldSection, adapter);
         } catch (ProtocolException e) {
-            LOGGER.log(Level.WARNING, L10N.getString("warn.qpack_decode_failed"), e);
+            events().warn("warn.qpack_decode_failed").thrown(e).emit();
             state = State.CLOSED;
             responseHandler.failed(new IOException("Malformed HTTP/3 response headers", e));
             return;
@@ -760,17 +761,20 @@ class H3ClientStream implements ProtocolHandler, H3FrameHandler {
         // Genuine GREASE / extension frame types are ignored (section 9).
     }
 
+    /** The configuration this stream's endpoint reports. */
+    TelemetryConfig getTelemetryConfig() {
+        return endpoint.getTelemetryConfig();
+    }
+
     @Override
     public void frameError(String message) {
-        String formatted = MessageFormat.format(L10N.getString("warn.frame_error"), message);
-        LOGGER.warning(formatted);
+        events().warn("warn.frame_error").attr("message", message).emit();
         state = State.CLOSED;
         responseHandler.failed(new IOException("HTTP/3 frame error: " + message));
     }
 
     private void connectionError(long errorCode, String message) {
-        String formatted = MessageFormat.format(L10N.getString("warn.frame_error"), message);
-        LOGGER.warning(formatted);
+        events().warn("warn.frame_error").attr("message", message).emit();
         // connection is only ever null when a test constructs this class
         // directly without going through Http3ClientHandler.
         if (connection != null) {

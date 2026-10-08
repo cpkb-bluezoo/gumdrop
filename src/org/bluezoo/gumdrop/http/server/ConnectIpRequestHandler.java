@@ -21,12 +21,14 @@
 
 package org.bluezoo.gumdrop.http.server;
 
-
 import org.bluezoo.gumdrop.http.Capsule;
 import org.bluezoo.gumdrop.http.ConnectIpAddress;
 import org.bluezoo.gumdrop.http.ConnectIpTarget;
 import org.bluezoo.gumdrop.http.HttpDatagramContext;
 import org.bluezoo.gumdrop.http.HttpMethod;
+import org.bluezoo.gumdrop.telemetry.EventLogger;
+import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
+import org.bluezoo.gumdrop.SelectorLoop;
 
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
@@ -66,6 +68,13 @@ import java.util.logging.Logger;
 public class ConnectIpRequestHandler extends DefaultHttpRequestHandler {
 
     private static final Logger LOGGER = Logger.getLogger(ConnectIpRequestHandler.class.getName());
+
+    private EventLogger events() {
+        // a response with no loop, as in tests, reports through a configuration of its own
+        SelectorLoop loop = response.getSelectorLoop();
+        TelemetryConfig telemetry = loop != null ? loop.getTelemetryConfig() : new TelemetryConfig();
+        return telemetry.getLogger(ConnectIpRequestHandler.class, L10N);
+    }
     private static final ResourceBundle L10N =
             ResourceBundle.getBundle("org.bluezoo.gumdrop.http.L10N");
 
@@ -95,7 +104,6 @@ public class ConnectIpRequestHandler extends DefaultHttpRequestHandler {
         this.policy = policy;
         this.packetHandler = packetHandler;
     }
-
 
     private HttpMethod requestMethod;
     private String protocol;
@@ -140,14 +148,13 @@ public class ConnectIpRequestHandler extends DefaultHttpRequestHandler {
             return;
         }
         if (!Capsule.capsuleProtocolEnabled(capsuleProtocol)) {
-            LOGGER.warning(L10N.getString("warn.connect_ip_not_capsule"));
+            events().warn("warn.connect_ip_not_capsule").emit();
             rejectRequest(400);
             return;
         }
         ConnectIpTarget target = ConnectIpTarget.parse(path);
         if (target == null) {
-            LOGGER.warning(MessageFormat.format(
-                    L10N.getString("warn.connect_ip_bad_target"), path));
+            events().warn("warn.connect_ip_bad_target").attr("path", path).emit();
             rejectRequest(400);
             return;
         }
@@ -210,7 +217,7 @@ public class ConnectIpRequestHandler extends DefaultHttpRequestHandler {
         }
         List<ConnectIpAddress> requested = ConnectIpAddress.decodeList(value);
         if (requested == null) {
-            LOGGER.warning(L10N.getString("log.connect_ip_malformed_address_capsule"));
+            events().warn("log.connect_ip_malformed_address_capsule").emit();
             return;
         }
         packetHandler.addressRequested(session, requested);

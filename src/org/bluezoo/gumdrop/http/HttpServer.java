@@ -21,13 +21,10 @@
 
 package org.bluezoo.gumdrop.http;
 
-import java.text.MessageFormat;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.ResourceBundle;
-import java.util.logging.Level;
-import java.util.logging.Logger;
 
 import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.Listener;
@@ -42,6 +39,8 @@ import org.bluezoo.gumdrop.http.server.HttpRequestHandler;
 import org.bluezoo.gumdrop.http.server.HttpStreamHandler;
 import org.bluezoo.gumdrop.http.server.HttpTlsConfig;
 import org.bluezoo.gumdrop.tls.TlsConfig;
+import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
+import org.bluezoo.gumdrop.telemetry.EventLogger;
 
 /**
  * Abstract base for HTTP protocol servers.
@@ -96,6 +95,8 @@ import org.bluezoo.gumdrop.tls.TlsConfig;
  */
 public abstract class HttpServer implements Server {
 
+    private volatile Gumdrop runtime;
+
     /**
      * Starts fluent composition of a concrete {@link HttpServer}.
      *
@@ -116,8 +117,9 @@ public abstract class HttpServer implements Server {
     private static final ResourceBundle L10N =
             ResourceBundle.getBundle("org.bluezoo.gumdrop.http.L10N");
 
-    private static final Logger LOGGER =
-            Logger.getLogger(HttpServer.class.getName());
+    private EventLogger events() {
+        return (runtime != null ? runtime.getTelemetryConfig() : new TelemetryConfig()).getLogger(HttpServer.class, L10N);
+    }
 
     private final List<Listener> listeners = new ArrayList<Listener>();
     private Realm realm;
@@ -333,6 +335,7 @@ public abstract class HttpServer implements Server {
      */
     @Override
     public void start(Gumdrop gumdrop) {
+        this.runtime = gumdrop;
         initService(gumdrop);
 
         HttpStreamHandler streamHandler = getStreamHandler();
@@ -408,8 +411,9 @@ public abstract class HttpServer implements Server {
             try {
                 ((Listener) listener).start(gumdrop);
             } catch (Exception e) {
-                LOGGER.log(Level.SEVERE, MessageFormat.format(
-                        L10N.getString("log.http_listener_start_failed"), listener), e);
+                events().error("log.http_listener_start_failed")
+                        .attr("listener", String.valueOf(listener))
+                        .thrown(e).emit();
             }
         }
     }
@@ -422,8 +426,9 @@ public abstract class HttpServer implements Server {
             try {
                 ((Listener) listener).stop();
             } catch (Exception e) {
-                LOGGER.log(Level.WARNING, MessageFormat.format(
-                        L10N.getString("warn.http_listener_stop_error"), listener), e);
+                events().warn("warn.http_listener_stop_error")
+                        .attr("listener", String.valueOf(listener))
+                        .thrown(e).emit();
             }
         }
     }

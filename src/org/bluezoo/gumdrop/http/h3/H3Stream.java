@@ -33,7 +33,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.ResourceBundle;
-import java.util.logging.Level;
 import java.util.logging.Logger;
 
 import org.bluezoo.gumdrop.Endpoint;
@@ -75,6 +74,7 @@ import org.bluezoo.gumdrop.telemetry.LogLevel;
 import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
 import org.bluezoo.gumdrop.telemetry.access.HttpAccessLog;
 import org.bluezoo.gumdrop.telemetry.Trace;
+import org.bluezoo.gumdrop.telemetry.EventLogger;
 
 /**
  * A single HTTP/3 request/response exchange on a QUIC stream.
@@ -102,6 +102,14 @@ import org.bluezoo.gumdrop.telemetry.Trace;
 class H3Stream implements ProtocolHandler, H3FrameHandler, HttpResponse {
 
     private static final Logger LOGGER = Logger.getLogger(H3Stream.class.getName());
+
+    private EventLogger eventsHttp() {
+        return connection.getTelemetryConfig().getLogger(H3Stream.class, HTTP_L10N);
+    }
+
+    private EventLogger events() {
+        return connection.getTelemetryConfig().getLogger(H3Stream.class, L10N);
+    }
 
     private static final ResourceBundle L10N =
             ResourceBundle.getBundle("org.bluezoo.gumdrop.http.h3.L10N");
@@ -369,7 +377,7 @@ class H3Stream implements ProtocolHandler, H3FrameHandler, HttpResponse {
             // table in a way that surfaces here, but gumdrop has no way
             // to distinguish that from an ordinary malformed field
             // section from this exception alone.
-            LOGGER.log(Level.WARNING, L10N.getString("warn.qpack_decode_failed"), e);
+            events().warn("warn.qpack_decode_failed").thrown(e).emit();
             cancel();
             return;
         }
@@ -423,8 +431,8 @@ class H3Stream implements ProtocolHandler, H3FrameHandler, HttpResponse {
                     || (!"CONNECT".equals(method)
                         && (HeaderFields.getValue(headers, ":scheme") == null
                             || requestTarget == null))) {
-                LOGGER.warning(MessageFormat.format(
-                        L10N.getString("warn.malformed_request_missing_pseudo_headers"), connection.getRemoteAddress()));
+                events().warn("warn.malformed_request_missing_pseudo_headers")
+                        .attr("remote_address", String.valueOf(connection.getRemoteAddress())).emit();
                 sendErrorResponse(400);
                 return;
             }
@@ -654,7 +662,10 @@ class H3Stream implements ProtocolHandler, H3FrameHandler, HttpResponse {
                 HTTP_L10N.getString("warn.response_length_mismatch"),
                 Long.valueOf(streamId), Long.valueOf(responseDeclaredLength),
                 Long.valueOf(actual));
-        LOGGER.warning(reason);
+        eventsHttp().warn("warn.response_length_mismatch")
+                .attr("stream_id", streamId)
+                .attr("declared_length", responseDeclaredLength)
+                .attr("body_bytes", actual).emit();
         responseDeclaredLength = -1L;
         heldBody = null;
         abortStream(reason, H3ErrorCode.H3_INTERNAL_ERROR);
@@ -730,14 +741,12 @@ class H3Stream implements ProtocolHandler, H3FrameHandler, HttpResponse {
 
     @Override
     public void frameError(String message) {
-        String formatted = MessageFormat.format(L10N.getString("warn.frame_error"), message);
-        LOGGER.warning(formatted);
+        events().warn("warn.frame_error").attr("message", message).emit();
         cancel();
     }
 
     private void connectionError(long errorCode, String message) {
-        String formatted = MessageFormat.format(L10N.getString("warn.frame_error"), message);
-        LOGGER.warning(formatted);
+        events().warn("warn.frame_error").attr("message", message).emit();
         connection.closeWithApplicationError(errorCode, message);
     }
 
@@ -1177,7 +1186,7 @@ class H3Stream implements ProtocolHandler, H3FrameHandler, HttpResponse {
         try {
             webSocketAdapter.processIncomingData(data);
         } catch (IOException e) {
-            LOGGER.log(Level.WARNING, L10N.getString("warn.websocket_frame_error"), e);
+            events().warn("warn.websocket_frame_error").thrown(e).emit();
             webSocketAdapter.notifyError(e);
         }
     }

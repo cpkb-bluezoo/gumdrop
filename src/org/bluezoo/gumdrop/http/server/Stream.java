@@ -49,9 +49,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.logging.Level;
 import java.util.ResourceBundle;
-import java.util.logging.Logger;
 
 import org.bluezoo.gumdrop.http.h2.H2FrameHandler;
 import org.bluezoo.gumdrop.NullSecurityInfo;
@@ -76,6 +74,7 @@ import org.bluezoo.gumdrop.telemetry.LogLevel;
 import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
 import org.bluezoo.gumdrop.telemetry.access.HttpAccessLog;
 import org.bluezoo.gumdrop.telemetry.Trace;
+import org.bluezoo.gumdrop.telemetry.EventLogger;
 
 /**
  * A stream representing a single HTTP request/response exchange.
@@ -100,7 +99,9 @@ import org.bluezoo.gumdrop.telemetry.Trace;
  */
 class Stream implements HttpResponse {
 
-    private static final Logger LOGGER = Logger.getLogger(Stream.class.getName());
+    private EventLogger events() {
+        return connection.getTelemetryConfig().getLogger(Stream.class, L10N);
+    }
     private static final ResourceBundle L10N =
             ResourceBundle.getBundle("org.bluezoo.gumdrop.http.L10N");
 
@@ -401,9 +402,7 @@ class Stream implements HttpResponse {
             
         } catch (Exception e) {
             // Log error but don't throw - server push failures should not break main response
-            if (LOGGER.isLoggable(Level.WARNING)) {
-                LOGGER.log(Level.WARNING, MessageFormat.format(L10N.getString("warn.server_push_failed"), uri), e);
-            }
+            events().warn("warn.server_push_failed").attr("uri", uri).thrown(e).emit();
         }
         
         return false;
@@ -559,8 +558,7 @@ class Stream implements HttpResponse {
             } catch (IOException e) {
                 // RFC 9113 section 4.3: HPACK decompression failure MUST
                 // be treated as a connection error of type COMPRESSION_ERROR
-                LOGGER.log(Level.WARNING,
-                        L10N.getString("warn.hpack_decompression_error"), e);
+                events().warn("warn.hpack_decompression_error").thrown(e).emit();
                 ByteBufferPool.release(headerBlock);
                 headerBlock = null;
                 connection.sendGoaway(H2FrameHandler.ERROR_COMPRESSION_ERROR);
@@ -647,28 +645,25 @@ class Stream implements HttpResponse {
                         // instead.
                         long parsed = HttpUtils.validateContentLength(value);
                         if (parsed < 0) {
-                            LOGGER.warning(MessageFormat.format(
-                                    L10N.getString("warn.reject_invalid_content_length"),
-                                    value));
+                            events().warn("warn.reject_invalid_content_length")
+                                    .attr("value", value).emit();
                             try {
                                 sendError(400);
                             } catch (ProtocolException e) {
-                                LOGGER.warning(MessageFormat.format(
-                                        L10N.getString("warn.invalid_content_length"),
-                                        value));
+                                events().warn("warn.invalid_content_length")
+                                        .attr("value", value).emit();
                             }
                             return;
                         } else if (hasExplicitContentLength
                                 && parsed != contentLength) {
-                            LOGGER.warning(MessageFormat.format(
-                                    L10N.getString("warn.reject_conflicting_content_length"),
-                                    parsed, contentLength));
+                            events().warn("warn.reject_conflicting_content_length")
+                                    .attr("parsed", parsed)
+                                    .attr("content_length", contentLength).emit();
                             try {
                                 sendError(400);
                             } catch (ProtocolException e) {
-                                LOGGER.warning(MessageFormat.format(
-                                        L10N.getString("warn.invalid_content_length"),
-                                        value));
+                                events().warn("warn.invalid_content_length")
+                                        .attr("value", value).emit();
                             }
                             return;
                         } else {
@@ -693,9 +688,8 @@ class Stream implements HttpResponse {
                             try {
                                 sendError(400);
                             } catch (ProtocolException e) {
-                                LOGGER.warning(MessageFormat.format(
-                                        L10N.getString("warn.invalid_transfer_encoding"),
-                                        value));
+                                events().warn("warn.invalid_transfer_encoding")
+                                        .attr("value", value).emit();
                             }
                             return;
                         }
@@ -724,9 +718,9 @@ class Stream implements HttpResponse {
                             http2Settings = parseH2cSettings(ByteBuffer.wrap(settings));
                         } catch (IllegalArgumentException e) {
                             // Invalid base64 in HTTP2-Settings header - ignore it
-                            LOGGER.log(Level.WARNING, MessageFormat.format(
-                                    L10N.getString("warn.invalid_http2_settings_base64"),
-                                    value), e);
+                            events().warn("warn.invalid_http2_settings_base64")
+                                    .attr("value", value)
+                                    .thrown(e).emit();
                         }
                     }
                 }
@@ -793,9 +787,8 @@ class Stream implements HttpResponse {
                     try {
                         sendUnauthorized(authProvider);
                     } catch (ProtocolException e) {
-                        LOGGER.warning(MessageFormat.format(
-                                L10N.getString("warn.unauthorized_response_failed"),
-                                e.getMessage()));
+                        events().warn("warn.unauthorized_response_failed")
+                                .attr("reason", e.getMessage()).emit();
                     }
                     return;
                 }
@@ -837,8 +830,7 @@ class Stream implements HttpResponse {
                 try {
                     sendError(404);
                 } catch (ProtocolException e) {
-                    LOGGER.warning(MessageFormat.format(
-                            L10N.getString("warn.default_404_failed"), e.getMessage()));
+                    events().warn("warn.default_404_failed").attr("reason", e.getMessage()).emit();
                 }
             }
         }
@@ -993,9 +985,8 @@ class Stream implements HttpResponse {
                 try {
                     sendError(400);
                 } catch (ProtocolException pe) {
-                    LOGGER.warning(MessageFormat.format(
-                            L10N.getString("warn.request_content_decoding_failed"),
-                            e.getMessage()));
+                    events().warn("warn.request_content_decoding_failed")
+                            .attr("reason", e.getMessage()).emit();
                 }
                 return;
             }
@@ -1040,11 +1031,11 @@ class Stream implements HttpResponse {
     }
 
     private void rejectContentLengthWithTransferEncoding() {
-        LOGGER.warning(L10N.getString("warn.reject_content_length_and_transfer_encoding"));
+        events().warn("warn.reject_content_length_and_transfer_encoding").emit();
         try {
             sendError(400);
         } catch (ProtocolException e) {
-            LOGGER.warning(L10N.getString("warn.reject_content_length_and_transfer_encoding"));
+            events().warn("warn.reject_content_length_and_transfer_encoding").emit();
         }
     }
 
@@ -1056,8 +1047,7 @@ class Stream implements HttpResponse {
         try {
             sendError(413);
         } catch (ProtocolException e) {
-            LOGGER.warning(MessageFormat.format(
-                    L10N.getString("warn.request_body_too_large"), e.getMessage()));
+            events().warn("warn.request_body_too_large").attr("reason", e.getMessage()).emit();
         }
     }
 
@@ -1125,8 +1115,7 @@ class Stream implements HttpResponse {
                 try {
                     sendError(400);
                 } catch (ProtocolException e) {
-                    LOGGER.warning(MessageFormat.format(
-                            L10N.getString("warn.truncated_capsule"), e.getMessage()));
+                    events().warn("warn.truncated_capsule").attr("reason", e.getMessage()).emit();
                 }
                 return;
             }
@@ -1334,10 +1323,10 @@ class Stream implements HttpResponse {
      * reset with INTERNAL_ERROR rather than ended as if it were sound.
      */
     private void abortResponseLength() {
-        LOGGER.warning(MessageFormat.format(
-                L10N.getString("warn.response_length_mismatch"),
-                Integer.valueOf(streamId), Long.valueOf(responseDeclaredLength),
-                Long.valueOf(responseBodyBytes)));
+        events().warn("warn.response_length_mismatch")
+                .attr("stream_id", streamId)
+                .attr("response_declared_length", responseDeclaredLength)
+                .attr("response_body_bytes", responseBodyBytes).emit();
         responseDeclaredLength = -1L;
         connection.sendRstStream(streamId, H2FrameHandler.ERROR_INTERNAL_ERROR);
         responseState = ResponseState.COMPLETE;
@@ -1535,8 +1524,8 @@ class Stream implements HttpResponse {
             try {
                 sendError(415);
             } catch (ProtocolException e) {
-                LOGGER.warning(MessageFormat.format(
-                        L10N.getString("warn.unsupported_content_encoding"), encoding));
+                events().warn("warn.unsupported_content_encoding")
+                        .attr("encoding", encoding).emit();
             }
             return false;
         }
@@ -1599,9 +1588,8 @@ class Stream implements HttpResponse {
             try {
                 sendError(400);
             } catch (ProtocolException pe) {
-                LOGGER.warning(MessageFormat.format(
-                        L10N.getString("warn.request_content_decoding_failed"),
-                        e.getMessage()));
+                events().warn("warn.request_content_decoding_failed")
+                        .attr("reason", e.getMessage()).emit();
             }
             return false;
         }
@@ -1723,9 +1711,7 @@ class Stream implements HttpResponse {
         try {
             webSocketAdapter.processIncomingData(buf);
         } catch (IOException e) {
-            if (LOGGER.isLoggable(Level.WARNING)) {
-                LOGGER.log(Level.WARNING, L10N.getString("warn.error_websocket_data"), e);
-            }
+            events().warn("warn.error_websocket_data").thrown(e).emit();
         }
     }
 
@@ -2047,7 +2033,7 @@ class Stream implements HttpResponse {
                     try {
                         sendResponseBody(frame, false);
                     } catch (ProtocolException e) {
-                        LOGGER.log(Level.WARNING, L10N.getString("warn.websocket_frame_send_failed"), e);
+                        events().warn("warn.websocket_frame_send_failed").thrown(e).emit();
                     }
                 }
             });
