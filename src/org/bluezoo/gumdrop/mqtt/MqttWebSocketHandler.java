@@ -39,6 +39,7 @@ import org.bluezoo.gumdrop.websocket.WebSocketSession;
 import org.bluezoo.gumdrop.mqtt.server.SubscriptionManager;
 import org.bluezoo.gumdrop.mqtt.server.WillManager;
 import org.bluezoo.gumdrop.mqtt.store.MqttMessageStore;
+import org.bluezoo.gumdrop.telemetry.EventLogger;
 
 /**
  * Bridges MQTT over WebSocket (RFC 6455 subprotocol "mqtt").
@@ -55,6 +56,10 @@ public class MqttWebSocketHandler implements WebSocketEventHandler {
 
     private static final Logger LOGGER =
             Logger.getLogger(MqttWebSocketHandler.class.getName());
+
+    private EventLogger events() {
+        return (listener != null && listener.getTelemetryConfig() != null ? listener.getTelemetryConfig() : new TelemetryConfig()).getLogger(MqttWebSocketHandler.class, L10N);
+    }
     private static final ResourceBundle L10N =
             ResourceBundle.getBundle("org.bluezoo.gumdrop.mqtt.L10N");
 
@@ -91,7 +96,7 @@ public class MqttWebSocketHandler implements WebSocketEventHandler {
     @Override
     public void textMessageReceived(WebSocketSession session, String message) {
         // MQTT-over-WebSocket uses binary frames per the spec
-        LOGGER.warning(L10N.getString("log.ws_unexpected_text"));
+        events().warn("log.ws_unexpected_text").emit();
     }
 
     @Override
@@ -110,7 +115,7 @@ public class MqttWebSocketHandler implements WebSocketEventHandler {
 
     @Override
     public void error(Throwable cause) {
-        LOGGER.log(Level.WARNING, L10N.getString("log.ws_error"), cause);
+        events().warn("log.ws_error").thrown(cause).emit();
         if (protocolHandler != null) {
             protocolHandler.error(cause instanceof Exception
                     ? (Exception) cause

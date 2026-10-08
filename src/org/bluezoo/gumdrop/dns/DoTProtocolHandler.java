@@ -34,6 +34,9 @@ import org.bluezoo.gumdrop.ProtocolHandler;
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.dns.server.DnsServer;
 import org.bluezoo.gumdrop.dns.DnsQueryTransport;
+import org.bluezoo.gumdrop.telemetry.EventLogger;
+import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
+import org.bluezoo.gumdrop.SelectorLoop;
 
 /**
  * Protocol handler for DNS-over-TLS (DoT) connections.
@@ -58,6 +61,10 @@ final class DoTProtocolHandler implements ProtocolHandler {
 
     private static final Logger LOGGER =
             Logger.getLogger(DoTProtocolHandler.class.getName());
+
+    private EventLogger events() {
+        return (endpoint != null ? endpoint.getTelemetryConfig() : new TelemetryConfig()).getLogger(DoTProtocolHandler.class, DnsServer.L10N);
+    }
 
     // RFC 1035 section 4.2.2: 2-byte big-endian length prefix
     private static final int LENGTH_PREFIX_SIZE = 2;
@@ -112,10 +119,9 @@ final class DoTProtocolHandler implements ProtocolHandler {
 
             if (messageLength <= 0
                     || messageLength > MAX_DNS_MESSAGE_SIZE) {
-                LOGGER.warning(MessageFormat.format(
-                        DnsServer.L10N.getString("err.dot_bad_length"),
-                        Integer.valueOf(messageLength),
-                        endpoint.getRemoteAddress()));
+                events().warn("err.dot_bad_length")
+                        .attr("message_length", messageLength)
+                        .attr("remote_address", String.valueOf(endpoint.getRemoteAddress())).emit();
                 endpoint.close();
                 return;
             }
@@ -148,10 +154,9 @@ final class DoTProtocolHandler implements ProtocolHandler {
 
     @Override
     public void error(Exception cause) {
-        LOGGER.log(Level.WARNING, MessageFormat.format(
-                DnsServer.L10N.getString("err.dot_error"),
-                endpoint != null ? endpoint.getRemoteAddress() : null),
-                cause);
+        events().warn("err.dot_error")
+                .attr("remote_address", String.valueOf(endpoint != null ? endpoint.getRemoteAddress() : null))
+                .thrown(cause).emit();
     }
 
     private void processMessage(ByteBuffer messageBuf) {
@@ -195,9 +200,9 @@ final class DoTProtocolHandler implements ProtocolHandler {
                     DnsServer.L10N.getString("err.dot_malformed"),
                     endpoint.getRemoteAddress()), e);
         } catch (Exception e) {
-            LOGGER.log(Level.WARNING, MessageFormat.format(
-                    DnsServer.L10N.getString("err.dot_query_error"),
-                    endpoint.getRemoteAddress()), e);
+            events().warn("err.dot_query_error")
+                    .attr("remote_address", String.valueOf(endpoint.getRemoteAddress()))
+                    .thrown(e).emit();
         }
     }
 

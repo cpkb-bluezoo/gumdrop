@@ -41,6 +41,8 @@ import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.UdpTransportFactory;
 import org.bluezoo.gumdrop.socks.SocksUDPHeader;
 import org.bluezoo.gumdrop.util.ByteBufferPool;
+import org.bluezoo.gumdrop.telemetry.EventLogger;
+import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
 
 import static org.bluezoo.gumdrop.socks.SocksConstants.*;
 
@@ -110,6 +112,10 @@ public class SocksClientHandler implements ProtocolHandler {
 
     private static final Logger LOGGER =
             Logger.getLogger(SocksClientHandler.class.getName());
+
+    private EventLogger events() {
+        return (endpoint != null ? endpoint.getTelemetryConfig() : new TelemetryConfig()).getLogger(SocksClientHandler.class, L10N);
+    }
     private static final ResourceBundle L10N =
             ResourceBundle.getBundle("org.bluezoo.gumdrop.socks.L10N");
 
@@ -426,8 +432,7 @@ public class SocksClientHandler implements ProtocolHandler {
         } else if (state == State.UDP_ASSOCIATED) {
             udpAssociateListener.error(cause);
         } else {
-            LOGGER.log(Level.WARNING,
-                    L10N.getString("log.client_handshake_error"), cause);
+            events().warn("log.client_handshake_error").thrown(cause).emit();
             reportError(new IOException(
                     L10N.getString("err.client_handshake_failed"), cause));
         }

@@ -23,15 +23,12 @@ package org.bluezoo.gumdrop.dns;
 
 import java.io.IOException;
 import java.net.InetAddress;
-import java.text.MessageFormat;
 import java.util.ResourceBundle;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Set;
-import java.util.logging.Level;
-import java.util.logging.Logger;
 
 import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.Gumdrop;
@@ -43,6 +40,7 @@ import org.bluezoo.gumdrop.TransportFactory;
 import org.bluezoo.gumdrop.quic.QuicEngine;
 import org.bluezoo.gumdrop.quic.QuicTransportFactory;
 import org.bluezoo.gumdrop.tls.TlsConfig;
+import org.bluezoo.gumdrop.telemetry.EventLogger;
 
 /**
  * QUIC transport listener for DNS-over-QUIC (DoQ) queries.
@@ -76,8 +74,9 @@ public class DoQListener extends TcpListener
     private static final ResourceBundle L10N =
             ResourceBundle.getBundle("org.bluezoo.gumdrop.dns.L10N");
 
-    private static final Logger LOGGER =
-            Logger.getLogger(DoQListener.class.getName());
+    private EventLogger events() {
+        return eventTelemetry().getLogger(DoQListener.class, L10N);
+    }
 
     private static final int DEFAULT_PORT = 853;
 
@@ -142,7 +141,6 @@ public class DoQListener extends TcpListener
         super.tls(tls);
         return this;
     }
-
 
     @Override
     public String getDescription() {
@@ -331,14 +329,15 @@ public class DoQListener extends TcpListener
                         addr, port, this, selectorLoop);
                 engines.add(engine);
             } catch (IOException e) {
-                LOGGER.log(Level.WARNING, MessageFormat.format(
-                        L10N.getString("log.doq_bind_failed"),
-                        addr.getHostAddress(), port), e);
+                events().warn("log.doq_bind_failed")
+                        .attr("host_address", addr.getHostAddress())
+                        .attr("port", port)
+                        .thrown(e).emit();
             }
         }
 
         if (engines.isEmpty()) {
-            LOGGER.warning(L10N.getString("warn.doq_no_bind_address"));
+            events().warn("warn.doq_no_bind_address").emit();
         }
     }
 

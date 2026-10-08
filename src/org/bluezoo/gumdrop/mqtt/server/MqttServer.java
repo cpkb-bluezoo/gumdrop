@@ -24,14 +24,11 @@ package org.bluezoo.gumdrop.mqtt.server;
 import org.bluezoo.gumdrop.mqtt.MqttListener;
 import org.bluezoo.gumdrop.mqtt.MqttProtocolHandler;
 
-import java.text.MessageFormat;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.ResourceBundle;
 import java.util.function.Supplier;
-import java.util.logging.Level;
-import java.util.logging.Logger;
 
 import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.Server;
@@ -39,6 +36,8 @@ import org.bluezoo.gumdrop.TcpListener;
 import org.bluezoo.gumdrop.auth.Realm;
 import org.bluezoo.gumdrop.mqtt.store.InMemoryMessageStore;
 import org.bluezoo.gumdrop.mqtt.store.MqttMessageStore;
+import org.bluezoo.gumdrop.telemetry.EventLogger;
+import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
 
 /**
  * MQTT protocol server — listeners, configuration, and session composition.
@@ -73,8 +72,11 @@ import org.bluezoo.gumdrop.mqtt.store.MqttMessageStore;
  */
 public class MqttServer implements Server, MqttServerSessionProvider {
 
-    private static final Logger LOGGER =
-            Logger.getLogger(MqttServer.class.getName());
+    private volatile Gumdrop runtime;
+
+    private EventLogger events() {
+        return (runtime != null ? runtime.getTelemetryConfig() : new TelemetryConfig()).getLogger(MqttServer.class, L10N);
+    }
     private static final ResourceBundle L10N =
             ResourceBundle.getBundle("org.bluezoo.gumdrop.mqtt.L10N");
 
@@ -214,6 +216,7 @@ public class MqttServer implements Server, MqttServerSessionProvider {
 
     @Override
     public void start(Gumdrop gumdrop) {
+        this.runtime = gumdrop;
         messageStore = createMessageStore();
         initService();
 
@@ -223,8 +226,7 @@ public class MqttServer implements Server, MqttServerSessionProvider {
             try {
                 ep.start(gumdrop);
             } catch (Exception e) {
-                LOGGER.log(Level.SEVERE, MessageFormat.format(
-                        L10N.getString("log.listener_start_failed"), ep), e);
+                events().error("log.listener_start_failed").attr("listener", String.valueOf(ep)).thrown(e).emit();
             }
         }
     }
@@ -235,8 +237,7 @@ public class MqttServer implements Server, MqttServerSessionProvider {
             try {
                 ep.stop();
             } catch (Exception e) {
-                LOGGER.log(Level.WARNING, MessageFormat.format(
-                        L10N.getString("log.listener_stop_error"), ep), e);
+                events().warn("log.listener_stop_error").attr("listener", String.valueOf(ep)).thrown(e).emit();
             }
         }
         destroyService();

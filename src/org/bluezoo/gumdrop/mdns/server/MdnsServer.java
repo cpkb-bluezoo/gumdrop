@@ -32,7 +32,6 @@ import java.net.NetworkInterface;
 import java.net.SocketException;
 import java.net.UnknownHostException;
 import java.nio.ByteBuffer;
-import java.text.MessageFormat;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -55,6 +54,8 @@ import org.bluezoo.gumdrop.dns.DnsMessage;
 import org.bluezoo.gumdrop.dns.DnsQuestion;
 import org.bluezoo.gumdrop.dns.DnsResourceRecord;
 import org.bluezoo.gumdrop.dns.DnsType;
+import org.bluezoo.gumdrop.telemetry.EventLogger;
+import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
 
 /**
  * A multicast DNS responder and querier (RFC 6762).
@@ -104,6 +105,10 @@ public class MdnsServer implements Server {
 
     private static final Logger LOGGER =
             Logger.getLogger(MdnsServer.class.getName());
+
+    private EventLogger events() {
+        return (gumdrop != null ? gumdrop.getTelemetryConfig() : new TelemetryConfig()).getLogger(MdnsServer.class, L10N);
+    }
     public static final ResourceBundle L10N =
             ResourceBundle.getBundle("org.bluezoo.gumdrop.mdns.L10N");
 
@@ -328,15 +333,16 @@ public class MdnsServer implements Server {
             try {
                 l.start(gumdrop);
             } catch (Exception e) {
-                LOGGER.log(Level.SEVERE, MessageFormat.format(
-                        L10N.getString("err.mdns_listener_start_failed"), l), e);
+                events().error("err.mdns_listener_start_failed")
+                        .attr("listener", String.valueOf(l))
+                        .thrown(e).emit();
                 continue;
             }
             anyBound |= l.isBound();
         }
 
         if (listeners.isEmpty()) {
-            LOGGER.warning(L10N.getString("warn.mdns_no_listener"));
+            events().warn("warn.mdns_no_listener").emit();
             return;
         }
         // l.start() logs and swallows bind failures rather than
@@ -345,11 +351,11 @@ public class MdnsServer implements Server {
         // -- anyBound is what actually tells us whether it's safe to
         // start probing.
         if (!anyBound) {
-            LOGGER.warning(L10N.getString("warn.mdns_no_listener_bound"));
+            events().warn("warn.mdns_no_listener_bound").emit();
             return;
         }
         if (ownAddresses.isEmpty()) {
-            LOGGER.warning(L10N.getString("warn.mdns_no_addresses"));
+            events().warn("warn.mdns_no_addresses").emit();
             return;
         }
         beginProbing();
@@ -382,9 +388,9 @@ public class MdnsServer implements Server {
             try {
                 listeners.get(i).stop();
             } catch (Exception e) {
-                LOGGER.log(Level.WARNING, MessageFormat.format(
-                        L10N.getString("warn.mdns_listener_stop_failed"),
-                        listeners.get(i)), e);
+                events().warn("warn.mdns_listener_stop_failed")
+                        .attr("listener", String.valueOf(listeners.get(i)))
+                        .thrown(e).emit();
             }
         }
         cancelTimer();
@@ -433,8 +439,7 @@ public class MdnsServer implements Server {
                 }
             }
         } catch (SocketException e) {
-            LOGGER.log(Level.WARNING,
-                    L10N.getString("err.mdns_enumerate_interfaces"), e);
+            events().warn("err.mdns_enumerate_interfaces").thrown(e).emit();
         }
         return result;
     }
@@ -479,11 +484,7 @@ public class MdnsServer implements Server {
     }
 
     private void restartProbingAfterConflict() {
-        if (LOGGER.isLoggable(Level.INFO)) {
-            String msg = MessageFormat.format(
-                    L10N.getString("info.mdns_name_conflict"), currentName);
-            LOGGER.info(msg);
-        }
+        events().info("info.mdns_name_conflict").attr("current_name", currentName).emit();
         nameConflictSuffix++;
         beginProbing();
     }
@@ -580,9 +581,7 @@ public class MdnsServer implements Server {
                         L10N.getString("warn.mdns_malformed_packet"), e);
             }
         } catch (Exception e) {
-            String msg = MessageFormat.format(
-                    L10N.getString("err.mdns_handle_datagram"), source);
-            LOGGER.log(Level.WARNING, msg, e);
+            events().warn("err.mdns_handle_datagram").attr("source", String.valueOf(source)).thrown(e).emit();
         }
     }
 

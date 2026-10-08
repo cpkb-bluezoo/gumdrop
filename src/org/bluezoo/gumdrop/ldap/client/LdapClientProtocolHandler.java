@@ -32,7 +32,6 @@ import java.util.Map;
 import java.util.ResourceBundle;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.logging.Level;
 import java.util.logging.Logger;
 
 import org.bluezoo.gumdrop.Endpoint;
@@ -45,6 +44,8 @@ import org.bluezoo.gumdrop.ldap.asn1.Asn1Exception;
 import org.bluezoo.gumdrop.ldap.asn1.Asn1Type;
 import org.bluezoo.gumdrop.ldap.asn1.BerDecoder;
 import org.bluezoo.gumdrop.ldap.asn1.BerEncoder;
+import org.bluezoo.gumdrop.telemetry.EventLogger;
+import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
 
 /**
  * LDAPv3 client protocol handler (RFC 4511).
@@ -93,6 +94,10 @@ public class LdapClientProtocolHandler
             ResourceBundle.getBundle("org.bluezoo.gumdrop.ldap.client.L10N");
     private static final Logger logger =
             Logger.getLogger(LdapClientProtocolHandler.class.getName());
+
+    private EventLogger events() {
+        return (endpoint != null ? endpoint.getTelemetryConfig() : new TelemetryConfig()).getLogger(LdapClientProtocolHandler.class, L10N);
+    }
 
     // Message ID generator
     private final AtomicInteger nextMessageId = new AtomicInteger(1);
@@ -165,11 +170,11 @@ public class LdapClientProtocolHandler
             // error rather than let it escape into the selector loop.
             Asn1Exception malformed = new Asn1Exception("Malformed LDAP message");
             malformed.initCause(e);
-            logger.log(Level.WARNING, L10N.getString("warn.protocol_error"), malformed);
+            events().warn("warn.protocol_error").thrown(malformed).emit();
             handler.onError(malformed);
             close();
         } catch (Asn1Exception e) {
-            logger.log(Level.WARNING, L10N.getString("warn.protocol_error"), e);
+            events().warn("warn.protocol_error").thrown(e).emit();
             handler.onError(e);
             close();
         }
@@ -319,7 +324,7 @@ public class LdapClientProtocolHandler
                         initialResponse, callback);
             } catch (IOException e) {
                 clearSaslClient();
-                logger.log(Level.WARNING, L10N.getString("warn.bind_failed"), e);
+                events().warn("warn.bind_failed").thrown(e).emit();
                 callback.handleBindFailure(
                         new LdapResult(LdapResultCode.OTHER, "",
                                 "Operation failed", null),
@@ -347,7 +352,7 @@ public class LdapClientProtocolHandler
                         }
                     });
                 } catch (IOException e) {
-                    logger.log(Level.WARNING, L10N.getString("warn.bind_failed"), e);
+                    events().warn("warn.bind_failed").thrown(e).emit();
                     endpoint.execute(new Runnable() {
                         @Override
                         public void run() {
@@ -933,9 +938,8 @@ public class LdapClientProtocolHandler
                 handleIntermediateResponse(messageId, protocolOp);
                 break;
             default:
-                logger.warning(MessageFormat.format(
-                        L10N.getString("warn.unknown_ldap_response_tag"),
-                        Integer.toHexString(tag)));
+                events().warn("warn.unknown_ldap_response_tag")
+                        .attr("tag", Integer.toHexString(tag)).emit();
         }
     }
 
@@ -1020,7 +1024,7 @@ public class LdapClientProtocolHandler
                                 response, bindCallback);
                     } catch (IOException e) {
                         clearSaslClient();
-                        logger.log(Level.WARNING, L10N.getString("warn.bind_failed"), e);
+                        events().warn("warn.bind_failed").thrown(e).emit();
                         bindCallback.handleBindFailure(
                                 new LdapResult(LdapResultCode.OTHER, "",
                                         "Operation failed", null),
@@ -1046,7 +1050,7 @@ public class LdapClientProtocolHandler
                     }
                 } catch (IOException e) {
                     clearSaslClient();
-                    logger.log(Level.WARNING, L10N.getString("warn.bind_failed"), e);
+                    events().warn("warn.bind_failed").thrown(e).emit();
                     bindCallback.handleBindFailure(
                             new LdapResult(LdapResultCode.OTHER, "",
                                     "Operation failed", null),
@@ -1273,7 +1277,7 @@ public class LdapClientProtocolHandler
                     }
                     logger.fine(L10N.getString("fine.tls_upgrade_after_starttls"));
                 } catch (IOException e) {
-                    logger.log(Level.WARNING, L10N.getString("warn.ldap_starttls_failed"), e);
+                    events().warn("warn.ldap_starttls_failed").thrown(e).emit();
                     if (startTLSCallback != null) {
                         StartTLSResultHandler callback = startTLSCallback;
                         startTLSCallback = null;
@@ -1321,14 +1325,16 @@ public class LdapClientProtocolHandler
         }
 
         if (LdapConstants.OID_NOTICE_OF_DISCONNECTION.equals(responseName)) {
-            logger.warning(MessageFormat.format(L10N.getString("warn.notice_of_disconnection"),
-                    result.getDiagnosticMessage(), result.getResultCode()));
+            events().warn("warn.notice_of_disconnection")
+                    .attr("diagnostic_message", result.getDiagnosticMessage())
+                    .attr("result_code", String.valueOf(result.getResultCode())).emit();
             handler.onError(new IOException("Server sent Notice of Disconnection: "
                     + result.getDiagnosticMessage()));
             close();
         } else {
-            logger.info(MessageFormat.format(L10N.getString("info.unsolicited_notification"),
-                    responseName, result));
+            events().info("info.unsolicited_notification")
+                    .attr("response_name", responseName)
+                    .attr("result", String.valueOf(result)).emit();
         }
     }
 

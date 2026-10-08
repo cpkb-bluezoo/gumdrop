@@ -55,6 +55,7 @@ import org.bluezoo.gumdrop.Listener;
 import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.Server;
 import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
+import org.bluezoo.gumdrop.telemetry.EventLogger;
 
 /**
  * DNS protocol server — listeners, validation, and query dispatch to a
@@ -97,8 +98,14 @@ import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
  */
 public class DnsServer implements Server {
 
+    private volatile Gumdrop runtime;
+
     private static final Logger LOGGER =
             Logger.getLogger(DnsServer.class.getName());
+
+    private EventLogger events() {
+        return (runtime != null ? runtime.getTelemetryConfig() : new TelemetryConfig()).getLogger(DnsServer.class, L10N);
+    }
     public static final ResourceBundle L10N =
             ResourceBundle.getBundle("org.bluezoo.gumdrop.dns.L10N");
 
@@ -246,6 +253,7 @@ public class DnsServer implements Server {
 
     @Override
     public void start(Gumdrop gumdrop) {
+        this.runtime = gumdrop;
         initService();
 
         for (int i = 0; i < listeners.size(); i++) {
@@ -313,8 +321,7 @@ public class DnsServer implements Server {
             final DnsMessage query = DnsMessage.parse(data);
 
             if (LOGGER.isLoggable(Level.FINE)) {
-                String message = L10N.getString("debug.received_query");
-                message = MessageFormat.format(message, query, source);
+                String message = MessageFormat.format(L10N.getString("debug.received_query"), query, source);
                 LOGGER.fine(message);
             }
 
@@ -420,14 +427,11 @@ public class DnsServer implements Server {
             });
 
         } catch (DnsFormatException e) {
-            String msg = MessageFormat.format(
-                    L10N.getString("err.malformed_query"), source);
-            LOGGER.log(Level.FINE, msg, e);
+            LOGGER.log(Level.FINE, MessageFormat.format(
+                    L10N.getString("err.malformed_query"), source), e);
             onComplete.run();
         } catch (Exception e) {
-            String msg = MessageFormat.format(
-                    L10N.getString("err.query"), source);
-            LOGGER.log(Level.WARNING, msg, e);
+            events().warn("err.query").attr("source", String.valueOf(source)).thrown(e).emit();
             onComplete.run();
         }
     }
@@ -886,9 +890,7 @@ public class DnsServer implements Server {
         ByteBuffer data = response.serialize();
 
         if (LOGGER.isLoggable(Level.FINE)) {
-            String message = L10N.getString("debug.sending_response");
-            message = MessageFormat.format(
-                    message, response, destination);
+            String message = MessageFormat.format(L10N.getString("debug.sending_response"), response, destination);
             LOGGER.fine(message);
         }
 
@@ -916,8 +918,9 @@ public class DnsServer implements Server {
             try {
                 ((Listener) listener).start(gumdrop);
             } catch (Exception e) {
-                LOGGER.log(Level.SEVERE, MessageFormat.format(
-                        L10N.getString("log.dns_listener_start_failed"), listener), e);
+                events().error("log.dns_listener_start_failed")
+                        .attr("listener", String.valueOf(listener))
+                        .thrown(e).emit();
             }
         }
     }
@@ -927,8 +930,9 @@ public class DnsServer implements Server {
             try {
                 ((Listener) listener).stop();
             } catch (Exception e) {
-                LOGGER.log(Level.WARNING, MessageFormat.format(
-                        L10N.getString("warn.dns_listener_stop_error"), listener), e);
+                events().warn("warn.dns_listener_stop_error")
+                        .attr("listener", String.valueOf(listener))
+                        .thrown(e).emit();
             }
         }
     }

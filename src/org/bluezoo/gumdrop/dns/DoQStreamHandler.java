@@ -33,6 +33,8 @@ import org.bluezoo.gumdrop.ProtocolHandler;
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.dns.server.DnsServer;
 import org.bluezoo.gumdrop.quic.QuicStreamEndpoint;
+import org.bluezoo.gumdrop.telemetry.EventLogger;
+import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
 
 /**
  * Protocol handler for a single DNS-over-QUIC stream.
@@ -55,6 +57,10 @@ final class DoQStreamHandler implements ProtocolHandler {
 
     private static final Logger LOGGER =
             Logger.getLogger(DoQStreamHandler.class.getName());
+
+    private EventLogger events() {
+        return (endpoint != null ? endpoint.getTelemetryConfig() : new TelemetryConfig()).getLogger(DoQStreamHandler.class, DnsServer.L10N);
+    }
 
     private static final int MAX_DNS_MESSAGE_SIZE = 65535;
 
@@ -93,9 +99,8 @@ final class DoQStreamHandler implements ProtocolHandler {
     public void receive(ByteBuffer data) {
         int len = data.remaining();
         if (accumulator.size() + len > MAX_DNS_MESSAGE_SIZE) {
-            LOGGER.warning(MessageFormat.format(
-                    DnsServer.L10N.getString("err.doq_message_too_large"),
-                    endpoint.getRemoteAddress()));
+            events().warn("err.doq_message_too_large")
+                    .attr("remote_address", String.valueOf(endpoint.getRemoteAddress())).emit();
             // RFC 9250 section 4.3.3: protocol error for oversized message
             resetWithError(DOQ_PROTOCOL_ERROR);
             return;
@@ -187,9 +192,9 @@ final class DoQStreamHandler implements ProtocolHandler {
             // RFC 9250 section 4.3.3: malformed query is a protocol error
             resetWithError(DOQ_PROTOCOL_ERROR);
         } catch (Exception e) {
-            LOGGER.log(Level.WARNING, MessageFormat.format(
-                    DnsServer.L10N.getString("err.doq_query_error"),
-                    endpoint.getRemoteAddress()), e);
+            events().warn("err.doq_query_error")
+                    .attr("remote_address", String.valueOf(endpoint.getRemoteAddress()))
+                    .thrown(e).emit();
             // RFC 9250 section 4.3.2: unexpected exception is an internal error
             resetWithError(DOQ_INTERNAL_ERROR);
         }
@@ -197,10 +202,9 @@ final class DoQStreamHandler implements ProtocolHandler {
 
     @Override
     public void error(Exception cause) {
-        LOGGER.log(Level.WARNING, MessageFormat.format(
-                DnsServer.L10N.getString("err.doq_error"),
-                endpoint != null ? endpoint.getRemoteAddress() : null),
-                cause);
+        events().warn("err.doq_error")
+                .attr("remote_address", String.valueOf(endpoint != null ? endpoint.getRemoteAddress() : null))
+                .thrown(cause).emit();
     }
 
     /**

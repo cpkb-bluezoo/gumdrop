@@ -66,6 +66,8 @@ import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.TcpTransportFactory;
 import org.bluezoo.gumdrop.TimerHandle;
 import org.bluezoo.gumdrop.UdpTransportFactory;
+import org.bluezoo.gumdrop.telemetry.EventLogger;
+import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
 
 /**
  * Caching DNS forwarder — proxies queries to configured upstream resolvers.
@@ -80,6 +82,10 @@ public final class UpstreamRelayHandler implements DnsQueryHandler {
 
     private static final Logger LOGGER =
             Logger.getLogger(UpstreamRelayHandler.class.getName());
+
+    private EventLogger events() {
+        return (gumdrop != null ? gumdrop.getTelemetryConfig() : new TelemetryConfig()).getLogger(UpstreamRelayHandler.class, L10N);
+    }
     private static final ResourceBundle L10N =
             ResourceBundle.getBundle("org.bluezoo.gumdrop.dns.L10N");
 
@@ -122,7 +128,6 @@ public final class UpstreamRelayHandler implements DnsQueryHandler {
         return new Builder();
     }
 
-
     public void setUpstreamServers(String servers) {
         upstreamServers.clear();
         if (servers == null || servers.trim().isEmpty()) {
@@ -134,9 +139,9 @@ public final class UpstreamRelayHandler implements DnsQueryHandler {
             try {
                 upstreamServers.add(parseAddress(server, DEFAULT_PORT));
             } catch (Exception e) {
-                String msg = MessageFormat.format(
-                        L10N.getString("err.invalid_upstream_server"), server);
-                LOGGER.log(Level.WARNING, msg, e);
+                events().warn("err.invalid_upstream_server")
+                        .attr("server", server)
+                        .thrown(e).emit();
             }
         }
     }
@@ -242,7 +247,7 @@ public final class UpstreamRelayHandler implements DnsQueryHandler {
             loadSystemResolvers();
         }
         if (upstreamServers.isEmpty()) {
-            LOGGER.warning(L10N.getString("warn.no_upstream_servers"));
+            events().warn("warn.no_upstream_servers").emit();
         }
         if (dnssecEnabled) {
             startDnssecValidation();
@@ -371,10 +376,9 @@ public final class UpstreamRelayHandler implements DnsQueryHandler {
                 validationResolver.addServer(
                         addr.getAddress().getHostAddress());
             } catch (Exception e) {
-                String msg = MessageFormat.format(
+                LOGGER.log(Level.FINE, MessageFormat.format(
                         L10N.getString("err.invalid_upstream_server"),
-                        addr.getAddress().getHostAddress());
-                LOGGER.log(Level.FINE, msg, e);
+                        addr.getAddress().getHostAddress()), e);
             }
         }
         try {
@@ -382,8 +386,7 @@ public final class UpstreamRelayHandler implements DnsQueryHandler {
             chainValidator = new DnssecChainValidator(
                     validationResolver, trustAnchor);
         } catch (IOException e) {
-            LOGGER.log(Level.WARNING,
-                    L10N.getString("warn.dnssec_validation_unavailable"), e);
+            events().warn("warn.dnssec_validation_unavailable").thrown(e).emit();
             validationResolver = null;
             chainValidator = null;
         }
@@ -969,7 +972,6 @@ public final class UpstreamRelayHandler implements DnsQueryHandler {
         }
     }
 
-
     private static InetSocketAddress parseAddress(String address,
                                                   int defaultPort)
             throws Exception {
@@ -1023,11 +1025,10 @@ public final class UpstreamRelayHandler implements DnsQueryHandler {
                                     LOGGER.fine(msg);
                                 }
                             } catch (Exception e) {
-                                String msg = MessageFormat.format(
+                                LOGGER.log(Level.FINE, MessageFormat.format(
                                         L10N.getString(
                                                 "debug.skip_invalid_resolver"),
-                                        server);
-                                LOGGER.log(Level.FINE, msg, e);
+                                        server), e);
                             }
                         }
                     }

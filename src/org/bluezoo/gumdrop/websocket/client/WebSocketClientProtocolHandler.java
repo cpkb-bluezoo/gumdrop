@@ -28,7 +28,6 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.ResourceBundle;
-import java.util.logging.Level;
 import java.util.logging.Logger;
 
 import org.bluezoo.gumdrop.Endpoint;
@@ -43,6 +42,8 @@ import org.bluezoo.gumdrop.websocket.WebSocketEventHandler;
 import org.bluezoo.gumdrop.websocket.WebSocketExtension;
 import org.bluezoo.gumdrop.websocket.WebSocketHandshake;
 import org.bluezoo.gumdrop.websocket.WebSocketSession;
+import org.bluezoo.gumdrop.telemetry.EventLogger;
+import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
 
 /**
  * Protocol handler for WebSocket client connections (RFC 6455 §4.1).
@@ -65,6 +66,10 @@ class WebSocketClientProtocolHandler extends HttpClientProtocolHandler {
 
     private static final Logger LOGGER =
             Logger.getLogger(WebSocketClientProtocolHandler.class.getName());
+
+    private EventLogger events() {
+        return (endpoint != null ? endpoint.getTelemetryConfig() : new TelemetryConfig()).getLogger(WebSocketClientProtocolHandler.class, L10N);
+    }
     private static final ResourceBundle L10N =
             ResourceBundle.getBundle("org.bluezoo.gumdrop.websocket.L10N");
 
@@ -189,7 +194,7 @@ class WebSocketClientProtocolHandler extends HttpClientProtocolHandler {
 
         if (!WebSocketHandshake.validateUpgradeResponse(websocketKey,
                 switchUpgrade, switchConnection, switchAccept)) {
-            LOGGER.warning(L10N.getString("warn.upgrade_response_validation_failed"));
+            events().warn("warn.upgrade_response_validation_failed").emit();
             eventHandler.error(new IOException("Invalid WebSocket upgrade response"));
             return false;
         }
@@ -239,7 +244,7 @@ class WebSocketClientProtocolHandler extends HttpClientProtocolHandler {
             try {
                 webSocketConnection.processIncomingData(data);
             } catch (IOException e) {
-                LOGGER.log(Level.WARNING, L10N.getString("warn.websocket_data_error"), e);
+                events().warn("warn.websocket_data_error").thrown(e).emit();
                 eventHandler.error(e);
             }
             return;

@@ -22,14 +22,13 @@
 package org.bluezoo.gumdrop.mqtt;
 
 import java.util.ResourceBundle;
-import java.util.logging.Level;
-import java.util.logging.Logger;
 
 import org.bluezoo.gumdrop.ProtocolHandler;
 import org.bluezoo.gumdrop.TcpListener;
 import org.bluezoo.gumdrop.auth.Realm;
 import java.net.InetAddress;
 import org.bluezoo.gumdrop.tls.TlsConfig;
+import org.bluezoo.gumdrop.telemetry.EventLogger;
 
 /**
  * TCP transport listener for MQTT connections.
@@ -43,8 +42,9 @@ import org.bluezoo.gumdrop.tls.TlsConfig;
  */
 public class MqttListener extends TcpListener {
 
-    private static final Logger LOGGER =
-            Logger.getLogger(MqttListener.class.getName());
+    private EventLogger events() {
+        return eventTelemetry().getLogger(MqttListener.class, L10N);
+    }
     private static final ResourceBundle L10N =
             ResourceBundle.getBundle("org.bluezoo.gumdrop.mqtt.L10N");
 
@@ -128,7 +128,6 @@ public class MqttListener extends TcpListener {
         return this;
     }
 
-
     public int getMaxPacketSize() {
         return maxPacketSize;
     }
@@ -167,8 +166,7 @@ public class MqttListener extends TcpListener {
             try {
                 return server.createProtocolHandler(this);
             } catch (Exception e) {
-                LOGGER.log(Level.WARNING,
-                        L10N.getString("log.handler_create_failed"), e);
+                events().warn("log.handler_create_failed").thrown(e).emit();
             }
         }
         // Should not happen if server is correctly configured

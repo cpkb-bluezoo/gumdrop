@@ -736,10 +736,8 @@ public class QuicTransportFactory extends TransportFactory {
                         serverCredentialsResolver = new SniCredentialsResolver(
                                 keyStore, keystorePass, sniHostnameToAlias, sniDefaultAlias);
                         if (LOGGER.isLoggable(Level.INFO)) {
-                            LOGGER.info(MessageFormat.format(
-                                    ResourceBundle.getBundle("org.bluezoo.gumdrop.L10N")
-                                            .getString("info.sni_enabled"),
-                                    sniHostnameToAlias.size()));
+                            eventTelemetry().getLogger(QuicTransportFactory.class, ResourceBundle.getBundle("org.bluezoo.gumdrop.L10N"))
+                    .info("info.sni_enabled").attr("hostnames", sniHostnameToAlias.size()).emit();
                         }
                     } else {
                         serverCredentials = TlsUtils.loadServerCredentials(

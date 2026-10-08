@@ -29,6 +29,7 @@ import org.bluezoo.gumdrop.dns.DnsType;
 
 import org.bluezoo.gumdrop.ScheduledTimer;
 import org.bluezoo.gumdrop.TimerHandle;
+import org.bluezoo.gumdrop.telemetry.EventLogger;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -99,6 +100,10 @@ public class DnssecTrustAnchorUpdater {
 
     private static final Logger LOGGER =
             Logger.getLogger(DnssecTrustAnchorUpdater.class.getName());
+
+    private EventLogger events() {
+        return resolver.getTelemetryConfig().getLogger(DnssecTrustAnchorUpdater.class, L10N);
+    }
     private static final ResourceBundle L10N =
             ResourceBundle.getBundle("org.bluezoo.gumdrop.dns.L10N");
 
@@ -315,8 +320,7 @@ public class DnssecTrustAnchorUpdater {
             try {
                 checkNow(zone);
             } catch (RuntimeException e) {
-                LOGGER.log(Level.WARNING, MessageFormat.format(
-                        L10N.getString("rfc5011.check_failed"), zone), e);
+                events().warn("rfc5011.check_failed").attr("zone", zone).thrown(e).emit();
             }
             if (scheduledChecks.containsKey(zone) && timer != null) {
                 scheduleNextCheck(zone, checkIntervalMs);
@@ -493,8 +497,7 @@ public class DnssecTrustAnchorUpdater {
             // established), so the only cleanup needed is restoring
             // whatever `before` had Valid back into the trust anchor --
             // this round may have removed it on the way to here.
-            LOGGER.warning(MessageFormat.format(
-                    L10N.getString("rfc5011.rejecting_zero_valid_keys"), zone));
+            events().warn("rfc5011.rejecting_zero_valid_keys").attr("zone", zone).emit();
             for (TrackedKey tk : before) {
                 if (tk.state == KeyState.VALID) {
                     trustAnchor.addDNSKEYAnchor(zone, toDNSKEYRecord(zone, tk.rdata));
@@ -610,8 +613,9 @@ public class DnssecTrustAnchorUpdater {
         try {
             Files.write(stateFile, lines, StandardCharsets.US_ASCII);
         } catch (IOException e) {
-            LOGGER.log(Level.WARNING, MessageFormat.format(
-                    L10N.getString("rfc5011.state_save_failed"), stateFile), e);
+            events().warn("rfc5011.state_save_failed")
+                    .attr("state_file", String.valueOf(stateFile))
+                    .thrown(e).emit();
         }
     }
 
@@ -655,8 +659,9 @@ public class DnssecTrustAnchorUpdater {
             // Corrupt or unreadable state degrades to "nothing restored" --
             // trust points fall back to their statically-configured
             // anchors and re-learn from scratch, rather than failing startup.
-            LOGGER.log(Level.WARNING, MessageFormat.format(
-                    L10N.getString("rfc5011.state_load_failed"), stateFile), e);
+            events().warn("rfc5011.state_load_failed")
+                    .attr("state_file", String.valueOf(stateFile))
+                    .thrown(e).emit();
         }
     }
 
