@@ -249,7 +249,7 @@ public class DoQListener extends TcpListener
 
     @Override
     public void start(Gumdrop gumdrop) {
-        super.start();
+        super.start(gumdrop);
         if (selectorLoop == null && gumdrop != null) {
             selectorLoop = gumdrop.nextWorkerLoop();
         }

@@ -54,6 +54,7 @@ import org.bluezoo.gumdrop.quic.QuicConnectionTestFactory;
 import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
 import org.bluezoo.gumdrop.testsupport.RecordingWebSocketEventHandler;
 import org.bluezoo.gumdrop.testsupport.CollectingRequestHandler;
+import org.bluezoo.gumdrop.testsupport.RecordingExporter;
 import org.junit.Test;
 
 /**
@@ -609,6 +610,7 @@ public class H3ServerFlowTest {
     @Test
     public void testTelemetryAndMetrics() throws Exception {
         TelemetryConfig tc = new TelemetryConfig();
+        tc.setExporter(new RecordingExporter());
         HttpServerMetrics metrics = new HttpServerMetrics(tc);
         Fixture f = new Fixture(null, metrics, tc, false, false, null);
         H3Stream stream = f.open();

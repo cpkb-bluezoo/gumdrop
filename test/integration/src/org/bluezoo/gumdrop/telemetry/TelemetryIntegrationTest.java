@@ -120,16 +120,15 @@ public class TelemetryIntegrationTest {
         httpServer = new Http2Listener();
         httpServer.setPort(HTTP_PORT);
         httpServer.addresses(java.net.InetAddress.getByName("::1"));
-        httpServer.setTelemetryConfig(telemetryConfig);
 
         // Create SMTP server with telemetry enabled
         smtpServer = new SmtpListener();
         smtpServer.setPort(SMTP_PORT);
         smtpServer.addresses(java.net.InetAddress.getByName("::1"));
-        smtpServer.setTelemetryConfig(telemetryConfig);
 
         // Start both servers using their own dedicated runtime
         gumdrop = Gumdrop.boot(GumdropConfig.create().workerThreads(2));
+        gumdrop.setTelemetryConfig(telemetryConfig);
         gumdrop.addListener(httpServer);
         gumdrop.addListener(smtpServer);
 

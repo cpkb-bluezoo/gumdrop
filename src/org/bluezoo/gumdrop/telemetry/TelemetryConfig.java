@@ -34,8 +34,10 @@ import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Top-level telemetry configuration for Gumdrop: where traces, log
- * events and metrics go. Composed in Java and attached to a listener
- * with {@link org.bluezoo.gumdrop.Listener#setTelemetryConfig}.
+ * events and metrics go. Composed in Java and set on the runtime with
+ * {@link org.bluezoo.gumdrop.Gumdrop#setTelemetryConfig}, one per runtime:
+ * listeners and endpoints reach it through the runtime, and the runtime
+ * flushes and shuts it down when it shuts down.
  *
  * <p>The destinations are a tree of {@link TelemetryExporter}s, set
  * with {@link #setExporter}: one exporter, or several joined by
@@ -62,7 +64,6 @@ import java.util.concurrent.ConcurrentHashMap;
 public class TelemetryConfig {
 
     // Feature flags (traces/logs/metrics can be individually disabled)
-    private boolean tracesEnabled = true;
     private boolean metricsEnabled = true;
 
     // Resource attributes
@@ -127,23 +128,6 @@ public class TelemetryConfig {
     }
 
     // -- Feature flags --
-
-    /**
-     * Returns true if trace collection is enabled.
-     * Traces are enabled by default when TelemetryConfig is present.
-     */
-    public boolean isTracesEnabled() {
-        return tracesEnabled;
-    }
-
-    /**
-     * Enables or disables trace collection.
-     *
-     * @param tracesEnabled true to enable traces
-     */
-    public void setTracesEnabled(boolean tracesEnabled) {
-        this.tracesEnabled = tracesEnabled;
-    }
 
     /**
      * Returns true if metrics collection is enabled.
@@ -665,7 +649,6 @@ public class TelemetryConfig {
             if (environment != null && !environment.isEmpty()) {
                 exporter = new TeeExporter(exporter,
                         new QlogExporter(Path.of(environment), QlogExporter.DEFAULT_QUEUE_SIZE));
-                registerShutdownHook();
             }
         }
         if (jmxBridge == null && metricsEnabled && jmxBridgeEnabled) {
@@ -688,8 +671,8 @@ public class TelemetryConfig {
 
     /**
      * Sets the exporter tree: one exporter, or several joined by
-     * {@link TeeExporter}. Registers a JVM shutdown hook that flushes
-     * telemetry on exit.
+     * {@link TeeExporter}. The runtime flushes and shuts the tree down
+     * when it shuts down.
      *
      * @param exporter the exporter
      */
@@ -698,7 +681,6 @@ public class TelemetryConfig {
             throw new IllegalArgumentException("exporter");
         }
         this.exporter = exporter;
-        registerShutdownHook();
     }
 
     /**
@@ -739,7 +721,7 @@ public class TelemetryConfig {
      * Creates a new trace with this configuration.
      *
      * @param rootSpanName the name for the root span
-     * @return a new trace, or null if telemetry is disabled
+     * @return a new trace, or null if no exporter takes traces
      */
     public Trace createTrace(String rootSpanName) {
         return createTrace(rootSpanName, SpanKind.SERVER);
@@ -750,10 +732,10 @@ public class TelemetryConfig {
      *
      * @param rootSpanName the name for the root span
      * @param kind the kind for the root span
-     * @return a new trace, or null if telemetry is disabled
+     * @return a new trace, or null if no exporter takes traces
      */
     public Trace createTrace(String rootSpanName, SpanKind kind) {
-        if (!isTracesEnabled()) {
+        if (!exporter.acceptsTraces()) {
             return null;
         }
         Trace trace = new Trace(rootSpanName, kind);
@@ -768,10 +750,10 @@ public class TelemetryConfig {
      * @param traceparent the W3C traceparent header value
      * @param rootSpanName the name for the local root span
      * @param kind the kind for the root span
-     * @return a new trace, or null if telemetry is disabled
+     * @return a new trace, or null if no exporter takes traces
      */
     public Trace createTraceFromTraceparent(String traceparent, String rootSpanName, SpanKind kind) {
-        if (!isTracesEnabled()) {
+        if (!exporter.acceptsTraces()) {
             return null;
         }
         Trace trace = Trace.fromTraceparent(traceparent, rootSpanName, kind);
@@ -836,29 +818,7 @@ public class TelemetryConfig {
 
     // -- Shutdown handling --
 
-    private volatile boolean shutdownHookRegistered = false;
     private volatile boolean shuttingDown = false;
-
-    /**
-     * Registers a JVM shutdown hook to flush telemetry on exit.
-     * This ensures all pending telemetry data is exported before the JVM terminates.
-     * The hook is registered automatically when an exporter is set.
-     */
-    void registerShutdownHook() {
-        if (shutdownHookRegistered) {
-            return;
-        }
-        shutdownHookRegistered = true;
-
-        final TelemetryConfig config = this;
-        Thread shutdownHook = new Thread(new Runnable() {
-            @Override
-            public void run() {
-                config.shutdown();
-            }
-        }, "TelemetryShutdownHook");
-        Runtime.getRuntime().addShutdownHook(shutdownHook);
-    }
 
     /**
      * Shuts down telemetry, flushing all pending data.
@@ -895,7 +855,6 @@ public class TelemetryConfig {
         if (endpoint != null) {
             sb.append(", endpoint=").append(endpoint);
         }
-        sb.append(", traces=").append(tracesEnabled);
         sb.append(", exporter=").append(exporter.getClass().getSimpleName());
         sb.append(", metrics=").append(metricsEnabled);
         if (metricsEnabled) {

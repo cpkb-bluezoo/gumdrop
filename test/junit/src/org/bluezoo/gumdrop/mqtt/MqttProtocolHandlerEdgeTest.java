@@ -60,6 +60,9 @@ import org.bluezoo.gumdrop.telemetry.SpanEvent;
 import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
 import org.bluezoo.gumdrop.telemetry.Trace;
 import org.bluezoo.gumdrop.testsupport.BinaryRecordingEndpoint;
+import org.bluezoo.gumdrop.Gumdrop;
+import org.bluezoo.gumdrop.testsupport.TestGumdrop;
+import org.bluezoo.gumdrop.testsupport.RecordingExporter;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
@@ -82,7 +85,7 @@ public class MqttProtocolHandlerEdgeTest {
         final List<Trace> traces = new ArrayList<Trace>();
 
         CapturingConfig() {
-            setTracesEnabled(true);
+            setExporter(new RecordingExporter());
         }
 
         @Override
@@ -97,10 +100,6 @@ public class MqttProtocolHandlerEdgeTest {
 
     /** Config that declines to create traces although telemetry is on. */
     private static final class NullTraceConfig extends TelemetryConfig {
-        NullTraceConfig() {
-            setTracesEnabled(true);
-        }
-
         @Override
         public Trace createTrace(String rootSpanName, SpanKind kind) {
             return null;
@@ -698,8 +697,9 @@ public class MqttProtocolHandlerEdgeTest {
         listener.setRealm(realm);
         TelemetryConfig tc = new TelemetryConfig();
         tc.setMetricsEnabled(true);
-        listener.setTelemetryConfig(tc);
-        listener.start();
+        Gumdrop g = TestGumdrop.create();
+        g.setTelemetryConfig(tc);
+        listener.start(g);
         handler.connected(endpoint);
         ConnectPacket p = connectPacket("nopw", true, 0, MqttVersion.V3_1_1);
         p.setUsername("alice");

@@ -47,7 +47,6 @@ public class TelemetryConfigTest {
     @Test
     public void defaults() {
         TelemetryConfig c = new TelemetryConfig();
-        assertTrue(c.isTracesEnabled());
         assertTrue(c.isMetricsEnabled());
         assertEquals("gumdrop", c.getServiceName());
         assertEquals(TelemetryConfig.Protocol.HTTP_PROTOBUF, c.getProtocol());
@@ -71,7 +70,6 @@ public class TelemetryConfigTest {
     @Test
     public void simpleAccessorsRoundTrip() {
         TelemetryConfig c = new TelemetryConfig();
-        c.setTracesEnabled(false);
         c.setMetricsEnabled(false);
         c.setServiceName("svc");
         c.setServiceVersion("1.2");
@@ -89,7 +87,6 @@ public class TelemetryConfigTest {
         c.setJmxBridgeEnabled(false);
         c.setIncludeExceptionDetails(true);
 
-        assertFalse(c.isTracesEnabled());
         assertFalse(c.isMetricsEnabled());
         assertEquals("svc", c.getServiceName());
         assertEquals("1.2", c.getServiceVersion());
@@ -186,21 +183,22 @@ public class TelemetryConfigTest {
     }
 
     @Test
-    public void createTraceHonoursEnabledFlag() {
+    public void tracesAreCreatedOnlyWhenAnExporterTakesThem() {
         TelemetryConfig c = new TelemetryConfig();
+        assertNull(c.createTrace("root"));
+        assertNull(c.createTrace("root", SpanKind.CLIENT));
+        assertNull(c.createTraceFromTraceparent(TRACEPARENT, "root", SpanKind.SERVER));
+        c.setExporter(new RecordingExporter());
         Trace trace = c.createTrace("root");
         assertNotNull(trace);
         assertNotNull(trace.getRootSpan());
         assertNotNull(c.createTrace("root", SpanKind.CLIENT));
-        c.setTracesEnabled(false);
-        assertNull(c.createTrace("root"));
-        assertNull(c.createTrace("root", SpanKind.CLIENT));
-        assertNull(c.createTraceFromTraceparent(TRACEPARENT, "root", SpanKind.SERVER));
     }
 
     @Test
     public void createTraceContinuesIncomingTraceparent() {
         TelemetryConfig c = new TelemetryConfig();
+        c.setExporter(new RecordingExporter());
         Trace trace = c.createTraceFromTraceparent(TRACEPARENT, "root", SpanKind.SERVER);
         assertEquals("4bf92f3577b34da6a3ce929d0e0e4736", trace.getTraceIdHex());
     }

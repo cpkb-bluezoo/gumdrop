@@ -105,24 +105,6 @@ public class FtpListener extends TcpListener {
     // Metrics for this endpoint (null if telemetry is not enabled)
     private FtpServerMetrics metrics;
 
-    private Gumdrop gumdrop;
-
-    @Override
-    public void start(Gumdrop gumdrop) {
-        this.gumdrop = gumdrop;
-        super.start(gumdrop);
-    }
-
-    /**
-     * Returns the runtime this listener is running under, for data
-     * connection coordinators created by accepted connections.
-     *
-     * @return the runtime, or null if not yet started
-     */
-    Gumdrop getGumdrop() {
-        return gumdrop;
-    }
-
     @Override
     public String getDescription() {
         return secure ? "ftps" : "ftp";

@@ -25,6 +25,7 @@ package org.bluezoo.gumdrop.websocket;
 import org.bluezoo.gumdrop.telemetry.Span;
 import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
 import org.bluezoo.gumdrop.telemetry.Trace;
+import org.bluezoo.gumdrop.testsupport.RecordingExporter;
 import org.junit.Test;
 import static org.junit.Assert.*;
 
@@ -513,7 +514,7 @@ public class WebSocketConnectionFlowTest {
 
     private static TelemetryConfig tracing() {
         TelemetryConfig config = new TelemetryConfig();
-        config.setTracesEnabled(true);
+        config.setExporter(new RecordingExporter());
         return config;
     }
 
@@ -565,7 +566,6 @@ public class WebSocketConnectionFlowTest {
     public void createSpanWithTracesDisabledLeavesConnectionSpanless() throws Exception {
         Conn c = new Conn(true);
         TelemetryConfig disabled = new TelemetryConfig();
-        disabled.setTracesEnabled(false);
         c.setTelemetryConfig(disabled);
         c.createSpan("ignored");
         c.createSpan(null);

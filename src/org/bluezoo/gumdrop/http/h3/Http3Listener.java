@@ -526,7 +526,7 @@ public class Http3Listener extends TcpListener
         if (port <= 0) {
             port = HTTP3_DEFAULT_PORT;
         }
-        super.start();
+        super.start(gumdrop);
         if (isMetricsEnabled()) {
             metrics = new HttpServerMetrics(getTelemetryConfig());
         }

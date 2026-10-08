@@ -44,6 +44,7 @@ import org.bluezoo.gumdrop.dns.client.DnsResolver;
 import org.bluezoo.gumdrop.dns.client.HostsFile;
 import org.bluezoo.gumdrop.dns.client.ResolvConf;
 import org.bluezoo.gumdrop.mailbox.spi.MailboxLifecycle;
+import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
 
 /**
  * Central configuration and lifecycle manager for the Gumdrop server.
@@ -136,6 +137,9 @@ public class Gumdrop {
      * storage and crypto work runs. Such an instance owns no threads.
      */
     private final Executor embeddedWork;
+
+    // Where this runtime's traces, log events and metrics go
+    private volatile TelemetryConfig telemetryConfig = new TelemetryConfig();
 
     // State
     private volatile boolean started;
@@ -1265,6 +1269,10 @@ public class Gumdrop {
         }
 
         operatorInfo(L10N.getString("info.servers_closed"));
+
+        // Telemetry last: the exporters take events until here, then
+        // are flushed and shut down.
+        telemetryConfig.shutdown();
     }
 
     /** Gives each protocol server its first-phase notice, isolating failures. */
@@ -1487,6 +1495,33 @@ public class Gumdrop {
      */
     public void setDrainTimeoutMs(long drainTimeoutMs) {
         this.drainTimeoutMs = drainTimeoutMs;
+    }
+
+    /**
+     * Returns the telemetry configuration: where this runtime's traces,
+     * log events and metrics go. Never null; a runtime that was given
+     * none has a configuration whose exporter prints log events through
+     * {@code java.util.logging} and takes nothing else.
+     *
+     * @return the configuration
+     */
+    public TelemetryConfig getTelemetryConfig() {
+        return telemetryConfig;
+    }
+
+    /**
+     * Sets the telemetry configuration, composed before the runtime
+     * starts. Listeners and their endpoints reach it through the runtime,
+     * and shutdown flushes and shuts its exporters down once the servers
+     * have closed.
+     *
+     * @param telemetryConfig the configuration
+     */
+    public void setTelemetryConfig(TelemetryConfig telemetryConfig) {
+        if (telemetryConfig == null) {
+            throw new IllegalArgumentException("telemetryConfig");
+        }
+        this.telemetryConfig = telemetryConfig;
     }
 
     /**

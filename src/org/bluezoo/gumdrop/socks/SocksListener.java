@@ -197,24 +197,6 @@ public class SocksListener extends TcpListener {
         this.server = server;
     }
 
-    private Gumdrop gumdrop;
-
-    @Override
-    public void start(Gumdrop gumdrop) {
-        this.gumdrop = gumdrop;
-        super.start(gumdrop);
-    }
-
-    /**
-     * Returns the runtime this listener is running under, for relays
-     * (UDP ASSOCIATE, BIND) created by accepted connections.
-     *
-     * @return the runtime, or null if not yet started
-     */
-    public Gumdrop getGumdrop() {
-        return gumdrop;
-    }
-
     @Override
     protected ProtocolHandler createHandler() {
         if (server != null) {

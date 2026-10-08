@@ -38,6 +38,7 @@ import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
 import org.bluezoo.gumdrop.testsupport.TestCertificates;
 import org.bluezoo.gumdrop.tls.ServerCredentials;
 import org.bluezoo.gumdrop.util.CidrNetwork;
+import org.bluezoo.gumdrop.testsupport.TestGumdrop;
 import org.junit.Test;
 
 /**
@@ -91,7 +92,9 @@ public class ListenerCredentialsHandoffTest {
         Plain l = new Plain();
         TelemetryConfig telemetry = new TelemetryConfig();
         telemetry.setMetricsEnabled(false);
-        l.setTelemetryConfig(telemetry);
+        Gumdrop g = TestGumdrop.create();
+        g.setTelemetryConfig(telemetry);
+        l.start(g);
         assertFalse(l.metrics());
         telemetry.setMetricsEnabled(true);
         assertTrue(l.metrics());

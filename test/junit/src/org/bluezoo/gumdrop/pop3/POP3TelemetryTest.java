@@ -36,6 +36,7 @@ import org.bluezoo.gumdrop.telemetry.SpanEvent;
 import org.bluezoo.gumdrop.telemetry.SpanKind;
 import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
 import org.bluezoo.gumdrop.telemetry.Trace;
+import org.bluezoo.gumdrop.testsupport.RecordingExporter;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
@@ -57,6 +58,10 @@ public class POP3TelemetryTest {
     /** Config that remembers the traces it created. */
     private static final class CapturingConfig extends TelemetryConfig {
         final List<Trace> traces = new ArrayList<Trace>();
+
+        CapturingConfig() {
+            setExporter(new RecordingExporter());
+        }
 
         @Override
         public Trace createTrace(String rootSpanName, SpanKind kind) {
@@ -223,7 +228,6 @@ public class POP3TelemetryTest {
     @Test
     public void disabledTracesLeaveSessionWorking() {
         TelemetryConfig off = new TelemetryConfig();
-        off.setTracesEnabled(false);
         TelemetryEndpoint plain = new TelemetryEndpoint(off);
         Pop3ProtocolHandler h = new Pop3ProtocolHandler(listener);
         h.connected(plain);

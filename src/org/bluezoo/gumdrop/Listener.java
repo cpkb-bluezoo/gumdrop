@@ -112,7 +112,7 @@ public abstract class Listener {
     protected boolean echServerRequired;
     private String cipherSuites;
     private String namedGroups;
-    protected TelemetryConfig telemetryConfig;
+    private Gumdrop gumdrop;
     private Map<String, String> sniHostnameToAlias;
     private String sniDefaultAlias;
     private int maxNetInSize = DEFAULT_MAX_NET_IN_SIZE;
@@ -188,12 +188,24 @@ public abstract class Listener {
     // Connector-level setters
     // ═══════════════════════════════════════════════════════════════════
 
-    public TelemetryConfig getTelemetryConfig() {
-        return telemetryConfig;
+    /**
+     * Returns the runtime this listener started under.
+     *
+     * @return the runtime, or null before {@link #start(Gumdrop)}
+     */
+    public Gumdrop getGumdrop() {
+        return gumdrop;
     }
 
-    public void setTelemetryConfig(TelemetryConfig telemetryConfig) {
-        this.telemetryConfig = telemetryConfig;
+    /**
+     * Returns the telemetry configuration of the runtime this listener
+     * started under.
+     *
+     * @return the configuration, or null before {@link #start(Gumdrop)}
+     */
+    public TelemetryConfig getTelemetryConfig() {
+        Gumdrop runtime = gumdrop;
+        return runtime != null ? runtime.getTelemetryConfig() : null;
     }
 
     public int getMaxNetInSize() {
@@ -402,7 +414,8 @@ public abstract class Listener {
     }
 
     protected boolean isMetricsEnabled() {
-        return telemetryConfig != null && telemetryConfig.isMetricsEnabled();
+        TelemetryConfig telemetry = getTelemetryConfig();
+        return telemetry != null && telemetry.isMetricsEnabled();
     }
 
     // ═══════════════════════════════════════════════════════════════════
@@ -720,11 +733,13 @@ public abstract class Listener {
      * pick a worker loop of their own; that happens per-accepted-connection
      * instead). Subclasses that do need it (e.g. QUIC-based listeners
      * choosing a worker loop for the connection) override this instead of
-     * {@link #start()}.
+     * {@link #start()}, and call this: it is how a listener learns its
+     * runtime, and through it the telemetry configuration.
      *
      * @param gumdrop the runtime this listener is starting under
      */
     public void start(Gumdrop gumdrop) {
+        this.gumdrop = gumdrop;
         start();
     }
 
@@ -764,8 +779,9 @@ public abstract class Listener {
         if (keyFile != null) {
             factory.setKeyFile(keyFile);
         }
-        if (telemetryConfig != null) {
-            factory.setTelemetryConfig(telemetryConfig);
+        TelemetryConfig telemetry = getTelemetryConfig();
+        if (telemetry != null) {
+            factory.setTelemetryConfig(telemetry);
         }
         if (cipherSuites != null) {
             factory.setCipherSuites(cipherSuites);

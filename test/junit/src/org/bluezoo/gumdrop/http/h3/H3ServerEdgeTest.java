@@ -46,6 +46,7 @@ import org.bluezoo.gumdrop.http.server.HttpServerMetrics;
 import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
 import org.bluezoo.gumdrop.testsupport.RecordingWebSocketEventHandler;
 import org.bluezoo.gumdrop.websocket.WebSocketExtension;
+import org.bluezoo.gumdrop.testsupport.RecordingExporter;
 import org.junit.Test;
 
 /**
@@ -94,7 +95,7 @@ public class H3ServerEdgeTest {
 
     private static TelemetryConfig tracing() {
         TelemetryConfig tc = new TelemetryConfig();
-        tc.setTracesEnabled(true);
+        tc.setExporter(new RecordingExporter());
         return tc;
     }
 
