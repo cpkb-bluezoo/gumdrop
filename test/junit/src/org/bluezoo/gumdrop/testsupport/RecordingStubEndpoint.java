@@ -337,7 +337,9 @@ public final class RecordingStubEndpoint implements Endpoint {
 
     @Override public Trace getTrace() { return trace; }
     @Override public void setTrace(Trace trace) { this.trace = trace; }
-    @Override public TelemetryConfig getTelemetryConfig() { return telemetryConfig; }
+    @Override public TelemetryConfig getTelemetryConfig() {
+        return telemetryConfig != null ? telemetryConfig : StubTelemetry.CONFIG;
+    }
     @Override public void pauseRead() { }
     @Override public void resumeRead() { }
     @Override public void onWriteReady(Runnable callback) {

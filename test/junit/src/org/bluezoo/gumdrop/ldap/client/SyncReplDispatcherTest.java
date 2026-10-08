@@ -527,7 +527,7 @@ public class SyncReplDispatcherTest {
 
         @Override
         public org.bluezoo.gumdrop.telemetry.TelemetryConfig getTelemetryConfig() {
-            return null;
+            return org.bluezoo.gumdrop.testsupport.StubTelemetry.CONFIG;
         }
 
         @Override

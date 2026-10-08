@@ -186,6 +186,7 @@ public final class QuicEngine implements ChannelHandler, MultiplexedEndpoint {
     private StreamAcceptHandler streamAcceptHandler;
     private ConnectionAcceptedHandler connectionAcceptedHandler;
     private Trace trace;
+    private TelemetryConfig standaloneTelemetry;
     private boolean closing;
     // False once the engine has been told to stop admitting new
     // connections (graceful shutdown): existing connections carry on.
@@ -1279,9 +1280,22 @@ public final class QuicEngine implements ChannelHandler, MultiplexedEndpoint {
         this.trace = trace;
     }
 
+    /**
+     * {@inheritDoc}
+     *
+     * <p>The factory's configuration, else one of this engine's own for
+     * an engine outside any runtime, as in tests.
+     */
     @Override
-    public TelemetryConfig getTelemetryConfig() {
-        return factory.getTelemetryConfig();
+    public synchronized TelemetryConfig getTelemetryConfig() {
+        TelemetryConfig telemetry = factory.getTelemetryConfig();
+        if (telemetry != null) {
+            return telemetry;
+        }
+        if (standaloneTelemetry == null) {
+            standaloneTelemetry = new TelemetryConfig();
+        }
+        return standaloneTelemetry;
     }
 
     @Override

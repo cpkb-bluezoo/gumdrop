@@ -176,7 +176,9 @@ public final class BinaryRecordingEndpoint implements Endpoint {
     }
     @Override public Trace getTrace() { return trace; }
     @Override public void setTrace(Trace trace) { this.trace = trace; }
-    @Override public TelemetryConfig getTelemetryConfig() { return telemetryConfig; }
+    @Override public TelemetryConfig getTelemetryConfig() {
+        return telemetryConfig != null ? telemetryConfig : StubTelemetry.CONFIG;
+    }
 
     /**
      * Gives this endpoint a telemetry configuration; telemetry is reported

@@ -1295,7 +1295,7 @@ public class HttpProtocolHandlerH2WireTest {
         assertTrue(c.handler.getMaxRequestBodySize() > 0);
         assertNotNull(c.handler.getStreamHandler());
         assertTrue(c.handler.getNextServerStreamId() % 2 == 0);
-        assertNull(c.handler.getTelemetryConfig());
+        assertNotNull(c.handler.getTelemetryConfig());
         c.handler.getTrace();
         assertNotNull(c.handler.getRemoteSocketAddress());
         assertNotNull(c.handler.getLocalSocketAddress());

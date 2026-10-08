@@ -357,7 +357,7 @@ public class CryptoExecutorIntegrationTest {
 
         @Override
         public TelemetryConfig getTelemetryConfig() {
-            return null;
+            return org.bluezoo.gumdrop.testsupport.StubTelemetry.CONFIG;
         }
     }
 }

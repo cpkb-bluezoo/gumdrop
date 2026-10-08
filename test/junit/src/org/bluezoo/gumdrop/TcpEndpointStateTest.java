@@ -135,7 +135,7 @@ public class TcpEndpointStateTest {
         assertSame(NullSecurityInfo.INSTANCE, ep.getSecurityInfo());
         assertNull(ep.getTransportFactory());
         assertNull(ep.getTrace());
-        assertNull(ep.getTelemetryConfig());
+        assertNotNull(ep.getTelemetryConfig());
         assertTrue(ep.getTimestampCreated() > 0);
         assertTrue(ep.getTimestampLastActivity() >= ep.getTimestampCreated());
         assertTrue(ep.getIdleTimeMs() >= 0);

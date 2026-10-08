@@ -136,7 +136,7 @@ class StubEndpoint implements Endpoint {
 
     @Override
     public TelemetryConfig getTelemetryConfig() {
-        return null;
+        return org.bluezoo.gumdrop.testsupport.StubTelemetry.CONFIG;
     }
 
     // ── Test inspection methods ──

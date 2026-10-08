@@ -328,7 +328,7 @@ final class Dtls12Session implements TlsRecordSink {
         long timeoutMs = retransmit.currentTimeoutMs();
         if (timeoutMs < 0L) {
             int attempts = retransmit.currentFlight().size();
-            endpoint.eventTelemetry().getLogger(Dtls12Session.class, Gumdrop.L10N)
+            endpoint.getTelemetryConfig().getLogger(Dtls12Session.class, Gumdrop.L10N)
                     .warn("warn.dtls_handshake_timeout")
                     .attr("peer", String.valueOf(remoteAddress)).attr("attempts", attempts).emit();
             fail(MessageFormat.format(

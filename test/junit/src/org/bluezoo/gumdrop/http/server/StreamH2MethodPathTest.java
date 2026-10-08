@@ -198,7 +198,7 @@ public class StreamH2MethodPathTest {
         @Override public org.bluezoo.gumdrop.TimerHandle scheduleTimer(long delayMs, Runnable callback) { return null; }
         @Override public Decoder getHpackDecoder() { return hpackDecoder; }
         @Override public boolean isSecure() { return true; }
-        @Override public TelemetryConfig getTelemetryConfig() { return null; }
+        @Override public TelemetryConfig getTelemetryConfig() { return org.bluezoo.gumdrop.testsupport.StubTelemetry.CONFIG; }
         @Override public Trace getTrace() { return null; }
         @Override public void setTrace(Trace trace) { }
         @Override public HttpServerMetrics getServerMetrics() { return null; }

@@ -76,7 +76,6 @@ public class UdpEndpoint implements Endpoint, ChannelHandler {
     private static final Logger LOGGER =
             Logger.getLogger(UdpEndpoint.class.getName());
 
-    private EventLogger events;
     private final Object telemetryLock = new Object();
     private TelemetryConfig standaloneTelemetry;
 
@@ -722,18 +721,15 @@ public class UdpEndpoint implements Endpoint, ChannelHandler {
         this.trace = trace;
     }
 
+    /**
+     * {@inheritDoc}
+     *
+     * <p>The factory's configuration, else the loop's, else one of this
+     * endpoint's own for an endpoint outside any runtime, as in tests.
+     */
     @Override
     public TelemetryConfig getTelemetryConfig() {
-        return factory != null ? factory.getTelemetryConfig() : null;
-    }
-
-    /**
-     * Returns the telemetry configuration this endpoint's events go to:
-     * its factory's, else its loop's, else one of its own for an endpoint
-     * outside any runtime, as in tests. Never null.
-     */
-    TelemetryConfig eventTelemetry() {
-        TelemetryConfig telemetry = getTelemetryConfig();
+        TelemetryConfig telemetry = factory != null ? factory.getTelemetryConfig() : null;
         if (telemetry != null) {
             return telemetry;
         }
@@ -750,10 +746,7 @@ public class UdpEndpoint implements Endpoint, ChannelHandler {
     }
 
     private EventLogger events() {
-        if (events == null) {
-            events = eventTelemetry().getLogger(UdpEndpoint.class, Gumdrop.L10N);
-        }
-        return events;
+        return getTelemetryConfig().getLogger(UdpEndpoint.class, Gumdrop.L10N);
     }
 
     // -- Flow control (not supported for datagrams) --

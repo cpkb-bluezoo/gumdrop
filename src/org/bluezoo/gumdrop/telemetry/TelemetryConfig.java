@@ -700,16 +700,20 @@ public class TelemetryConfig {
      * and the bundle is where their keys are looked up: the one the
      * class already holds for its messages.
      *
+     * <p>A class that takes its messages from more than one bundle has a
+     * logger for each, since a key means nothing without its bundle.
+     *
      * @param scope the emitting class
      * @param bundle the class's resource bundle
      * @return the logger
      */
     public EventLogger getLogger(Class<?> scope, ResourceBundle bundle) {
         String name = scope.getName();
-        EventLogger events = loggers.get(name);
+        String key = name + '|' + bundle.getBaseBundleName();
+        EventLogger events = loggers.get(key);
         if (events == null) {
             events = new EventLogger(this, name, bundle);
-            EventLogger existing = loggers.putIfAbsent(name, events);
+            EventLogger existing = loggers.putIfAbsent(key, events);
             if (existing != null) {
                 events = existing;
             }

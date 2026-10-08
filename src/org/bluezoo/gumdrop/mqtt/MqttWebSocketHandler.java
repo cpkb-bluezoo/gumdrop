@@ -264,7 +264,10 @@ public class MqttWebSocketHandler implements WebSocketEventHandler {
         }
 
         @Override
-        public TelemetryConfig getTelemetryConfig() {
+        public synchronized TelemetryConfig getTelemetryConfig() {
+            if (telemetryConfig == null) {
+                telemetryConfig = new TelemetryConfig();
+            }
             return telemetryConfig;
         }
     }

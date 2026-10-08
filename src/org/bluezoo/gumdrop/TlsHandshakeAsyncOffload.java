@@ -81,7 +81,7 @@ public final class TlsHandshakeAsyncOffload implements HandshakeAsyncOffload {
             return gumdrop.getTelemetryConfig();
         }
         if (endpoint != null) {
-            return endpoint.eventTelemetry();
+            return endpoint.getTelemetryConfig();
         }
         if (standaloneTelemetry == null) {
             standaloneTelemetry = new TelemetryConfig();

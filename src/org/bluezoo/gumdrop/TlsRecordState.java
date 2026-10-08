@@ -396,7 +396,7 @@ final class TlsRecordState implements TlsRecordSink {
     }
 
     private void handleOverflow() {
-        tcpEndpoint.eventTelemetry().getLogger(TlsRecordState.class, Gumdrop.L10N)
+        tcpEndpoint.getTelemetryConfig().getLogger(TlsRecordState.class, Gumdrop.L10N)
                 .warn("warn.tls_outbound_buffer_overflow")
                 .attr("max_bytes", tcpEndpoint.getMaxNetOutSize())
                 .attr("peer", String.valueOf(callback.getRemoteAddress())).emit();

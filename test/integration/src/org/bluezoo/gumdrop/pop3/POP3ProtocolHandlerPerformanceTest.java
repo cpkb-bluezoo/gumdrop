@@ -686,7 +686,7 @@ public class POP3ProtocolHandlerPerformanceTest {
         @Override public Trace getTrace() { return null; }
         @Override public void setTrace(Trace trace) {}
         @Override public TelemetryConfig getTelemetryConfig() {
-            return null;
+            return org.bluezoo.gumdrop.testsupport.StubTelemetry.CONFIG;
         }
         @Override public void pauseRead() {}
         @Override public void resumeRead() {}

@@ -90,6 +90,20 @@ public class EventLoggerTest {
     }
 
     @Test
+    public void aClassWithTwoBundlesHasALoggerForEach() {
+        TelemetryConfig config = new TelemetryConfig();
+        ResourceBundle other = ResourceBundle.getBundle("org.bluezoo.gumdrop.L10N");
+        EventLogger a = config.getLogger(EventLoggerTest.class, BUNDLE);
+        EventLogger b = config.getLogger(EventLoggerTest.class, other);
+        assertNotSame(a, b);
+        assertSame(BUNDLE, a.getResourceBundle());
+        assertSame(other, b.getResourceBundle());
+        assertEquals(a.getScope(), b.getScope());
+        assertSame(a, config.getLogger(EventLoggerTest.class, BUNDLE));
+        assertSame(b, config.getLogger(EventLoggerTest.class, other));
+    }
+
+    @Test
     public void nothingIsBuiltForALevelNobodyAccepts() {
         TelemetryConfig config = new TelemetryConfig();
         RecordingExporter exporter = new RecordingExporter(LogLevel.ERROR);

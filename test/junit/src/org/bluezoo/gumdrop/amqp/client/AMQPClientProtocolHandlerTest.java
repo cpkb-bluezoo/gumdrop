@@ -1221,7 +1221,7 @@ public class AMQPClientProtocolHandlerTest {
         public org.bluezoo.gumdrop.telemetry.Trace getTrace() { return null; }
 
         @Override
-        public org.bluezoo.gumdrop.telemetry.TelemetryConfig getTelemetryConfig() { return null; }
+        public org.bluezoo.gumdrop.telemetry.TelemetryConfig getTelemetryConfig() { return org.bluezoo.gumdrop.testsupport.StubTelemetry.CONFIG; }
 
         @Override
         public org.bluezoo.gumdrop.TimerHandle scheduleTimer(long delayMs, Runnable callback) { return null; }
