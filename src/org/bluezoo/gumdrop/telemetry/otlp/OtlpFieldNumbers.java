@@ -127,6 +127,7 @@ final class OtlpFieldNumbers {
     static final int LOG_RECORD_FLAGS = 8;
     static final int LOG_RECORD_TRACE_ID = 9;
     static final int LOG_RECORD_SPAN_ID = 10;
+    static final int LOG_RECORD_EVENT_NAME = 12;
 
     // ========== METRICS ==========
 

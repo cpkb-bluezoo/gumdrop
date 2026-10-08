@@ -139,6 +139,30 @@ public class LogRecordTest {
     }
 
     @Test
+    public void exportAttributesAddTheExceptionUnderThePolicy() {
+        LogRecord plain = new LogRecord(LogLevel.INFO, "k").attr("a", "b");
+        assertEquals(1, plain.exportAttributes(true).size());
+        IllegalStateException boom = new IllegalStateException("boom");
+        LogRecord r = new LogRecord(LogLevel.ERROR, "k").attr("a", "b").thrown(boom);
+        List<Attribute> terse = r.exportAttributes(false);
+        assertEquals(2, terse.size());
+        assertEquals("a", terse.get(0).getKey());
+        assertEquals("exception.type", terse.get(1).getKey());
+        assertEquals("java.lang.IllegalStateException", terse.get(1).getStringValue());
+        List<Attribute> full = r.exportAttributes(true);
+        assertEquals(4, full.size());
+        assertEquals("exception.message", full.get(2).getKey());
+        assertEquals("boom", full.get(2).getStringValue());
+        assertEquals("exception.stacktrace", full.get(3).getKey());
+        assertTrue(full.get(3).getStringValue().contains("LogRecordTest"));
+        // the record itself is unchanged
+        assertEquals(1, r.getAttributes().size());
+        LogRecord silent = new LogRecord(LogLevel.ERROR, "k").thrown(new IllegalStateException());
+        // no message: type and stack trace only
+        assertEquals(2, silent.exportAttributes(true).size());
+    }
+
+    @Test
     public void spanCorrelatesTheRecord() {
         Trace trace = new Trace("op", SpanKind.SERVER);
         Span span = trace.getRootSpan();

@@ -152,7 +152,8 @@ public class OtlpExporter implements TelemetryExporter {
                 config.getServiceName(),
                 config.getServiceVersion(),
                 config.getServiceNamespace(),
-                resourceAttrs);
+                resourceAttrs,
+                config.isIncludeExceptionDetails());
 
         this.metricSerializer = new MetricSerializer(
                 config.getServiceName(),

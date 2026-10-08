@@ -39,6 +39,14 @@ import org.bluezoo.gumdrop.telemetry.metrics.DoubleHistogram;
 import org.bluezoo.gumdrop.telemetry.metrics.LongCounter;
 import org.bluezoo.gumdrop.telemetry.metrics.MetricData;
 import org.bluezoo.gumdrop.telemetry.metrics.Meter;
+import java.nio.charset.StandardCharsets;
+import java.util.HashMap;
+import org.bluezoo.protobuf.DefaultProtobufHandler;
+import org.bluezoo.protobuf.ProtobufParser;
+import java.util.ResourceBundle;
+import org.bluezoo.gumdrop.telemetry.LogLevel;
+import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
+import org.bluezoo.gumdrop.testsupport.RecordingExporter;
 import org.junit.Test;
 
 /**
@@ -84,6 +92,90 @@ public class OtlpSerializersTest {
         assertTrue(one.remaining() > 0);
         ByteBuffer none = s.serialize(new ArrayList<LogRecord>());
         assertTrue(none.remaining() >= 0);
+    }
+
+    /** Collects the length-delimited fields of one message, by field number. */
+    private static final class Fields extends DefaultProtobufHandler {
+        final Map<Integer, List<byte[]>> bytes = new HashMap<Integer, List<byte[]>>();
+
+        @Override
+        public void handleBytes(int fieldNumber, ByteBuffer data) {
+            byte[] copy = new byte[data.remaining()];
+            data.get(copy);
+            List<byte[]> list = bytes.get(Integer.valueOf(fieldNumber));
+            if (list == null) {
+                list = new ArrayList<byte[]>();
+                bytes.put(Integer.valueOf(fieldNumber), list);
+            }
+            list.add(copy);
+        }
+
+        List<byte[]> all(int field) {
+            List<byte[]> list = bytes.get(Integer.valueOf(field));
+            return list != null ? list : new ArrayList<byte[]>();
+        }
+
+        byte[] one(int field) {
+            List<byte[]> list = all(field);
+            assertEquals(1, list.size());
+            return list.get(0);
+        }
+
+        String string(int field) {
+            return new String(one(field), StandardCharsets.UTF_8);
+        }
+    }
+
+    private static Fields fields(byte[] message) throws Exception {
+        Fields fields = new Fields();
+        ProtobufParser parser = new ProtobufParser(fields);
+        parser.receive(ByteBuffer.wrap(message));
+        return fields;
+    }
+
+    private static byte[] bytes(ByteBuffer buf) {
+        byte[] copy = new byte[buf.remaining()];
+        buf.get(copy);
+        return copy;
+    }
+
+    @Test
+    public void logsCarryScopeEventNameAndExceptionType() throws Exception {
+        TelemetryConfig config = new TelemetryConfig();
+        RecordingExporter exporter = new RecordingExporter();
+        config.setExporter(exporter);
+        config.getLogger(OtlpSerializersTest.class, ResourceBundle.getBundle("org.bluezoo.gumdrop.telemetry.L10N"))
+                .error("err.thing").attr("uri", "/x").thrown(new IllegalStateException("secret")).emit();
+        exporter.records.add(new LogRecord(LogLevel.ACCESS, "http.server.request"));
+        LogSerializer s = new LogSerializer("svc");
+        Fields logsData = fields(bytes(s.serialize(exporter.records)));
+        Fields resourceLogs = fields(logsData.one(1));
+        List<byte[]> scopeLogs = resourceLogs.all(2);
+        assertEquals("one ScopeLogs per scope", 2, scopeLogs.size());
+
+        Fields first = fields(scopeLogs.get(0));
+        assertEquals(OtlpSerializersTest.class.getName(), fields(first.one(1)).string(1));
+        Fields record = fields(first.one(2));
+        assertEquals("err.thing", record.string(12));
+        assertTrue(record.all(5).isEmpty());
+        List<byte[]> attributes = record.all(6);
+        assertEquals(2, attributes.size());
+        assertEquals("uri", fields(attributes.get(0)).string(1));
+        assertEquals("exception.type", fields(attributes.get(1)).string(1));
+        assertEquals("java.lang.IllegalStateException", fields(fields(attributes.get(1)).one(2)).string(1));
+
+        Fields second = fields(scopeLogs.get(1));
+        assertEquals("gumdrop", fields(second.one(1)).string(1));
+        assertEquals("http.server.request", fields(second.one(2)).string(12));
+
+        LogSerializer detailed = new LogSerializer("svc", null, null, null, true);
+        Fields detailedRecord = fields(fields(fields(fields(bytes(detailed.serialize(exporter.records.get(0))))
+                .one(1)).one(2)).one(2));
+        List<byte[]> more = detailedRecord.all(6);
+        assertEquals(4, more.size());
+        assertEquals("exception.message", fields(more.get(2)).string(1));
+        assertEquals("secret", fields(fields(more.get(2)).one(2)).string(1));
+        assertEquals("exception.stacktrace", fields(more.get(3)).string(1));
     }
 
     @Test

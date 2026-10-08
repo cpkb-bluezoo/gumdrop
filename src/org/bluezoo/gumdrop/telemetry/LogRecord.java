@@ -310,6 +310,40 @@ public final class LogRecord {
     }
 
     /**
+     * Returns the attributes an exporter writes: the record's own, and
+     * for a record with a throwable the OpenTelemetry exception
+     * attributes. {@code exception.type} is always among them;
+     * {@code exception.message} and {@code exception.stacktrace} only
+     * when the exporter is configured to include exception details,
+     * since a message or a stack trace may carry what should not leave
+     * the host.
+     *
+     * @param includeExceptionDetails whether to add the message and stack trace
+     * @return the attributes, in order
+     */
+    public List<Attribute> exportAttributes(boolean includeExceptionDetails) {
+        if (thrown == null) {
+            return getAttributes();
+        }
+        List<Attribute> result = new ArrayList<Attribute>(attributes.size() + 3);
+        result.addAll(attributes);
+        result.add(Attribute.string("exception.type", thrown.getClass().getName()));
+        if (includeExceptionDetails) {
+            if (thrown.getMessage() != null) {
+                result.add(Attribute.string("exception.message", thrown.getMessage()));
+            }
+            StringBuilder sb = new StringBuilder();
+            for (StackTraceElement element : thrown.getStackTrace()) {
+                sb.append(element.toString()).append('\n');
+            }
+            if (sb.length() > 0) {
+                result.add(Attribute.string("exception.stacktrace", sb.toString()));
+            }
+        }
+        return Collections.unmodifiableList(result);
+    }
+
+    /**
      * Returns the first attribute with a name.
      *
      * @param name the attribute name

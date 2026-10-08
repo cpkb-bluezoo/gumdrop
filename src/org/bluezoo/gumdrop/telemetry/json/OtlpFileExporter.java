@@ -148,7 +148,8 @@ private static final Logger logger = Logger.getLogger(OtlpFileExporter.class.get
                 config.getServiceName(),
                 config.getServiceVersion(),
                 config.getServiceNamespace(),
-                resourceAttrs);
+                resourceAttrs,
+                config.isIncludeExceptionDetails());
 
         this.metricSerializer = new MetricJsonSerializer(
                 config.getServiceName(),
