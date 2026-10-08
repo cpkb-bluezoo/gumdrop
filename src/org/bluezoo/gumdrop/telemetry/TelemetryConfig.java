@@ -21,8 +21,6 @@
 
 package org.bluezoo.gumdrop.telemetry;
 
-import org.bluezoo.gumdrop.tls.KeystoreFormat;
-import org.bluezoo.gumdrop.telemetry.metrics.AggregationTemporality;
 import org.bluezoo.gumdrop.telemetry.metrics.Meter;
 
 import java.nio.file.Path;
@@ -48,11 +46,18 @@ import java.util.concurrent.ConcurrentHashMap;
  * operational events to the console and a collector, access events to
  * a file, and qlog events to a qlog directory.
  *
+ * <p>This class holds what is true of the service and of the runtime:
+ * its identity, whether metrics are collected, and the exception detail
+ * policy. What is particular to a destination, such as an endpoint, a
+ * batch size or a TLS configuration, is a setting of the exporter that
+ * sends there.
+ *
  * <pre>
  * TelemetryConfig telemetry = new TelemetryConfig();
  * telemetry.setServiceName("my-service");
- * telemetry.setEndpoint("https://collector:4318");
- * telemetry.setExporter(new TeeExporter(new OtlpExporter(telemetry), new DefaultExporter()));
+ * OtlpExporter otlp = new OtlpExporter();
+ * otlp.setEndpoint("https://collector:4318");
+ * telemetry.setExporter(new TeeExporter(otlp, new DefaultExporter()));
  * telemetry.init();
  * </pre>
  *
@@ -63,7 +68,7 @@ import java.util.concurrent.ConcurrentHashMap;
  */
 public class TelemetryConfig {
 
-    // Feature flags (traces/logs/metrics can be individually disabled)
+    // Metrics can be disabled
     private boolean metricsEnabled = true;
 
     // Resource attributes
@@ -74,33 +79,6 @@ public class TelemetryConfig {
     private String deploymentEnvironment;
 
 
-    // OTLP exporter settings
-    private String endpoint;
-    private String tracesEndpoint;
-    private String logsEndpoint;
-    private String metricsEndpoint;
-    private Protocol protocol = Protocol.HTTP_PROTOBUF;
-    private String headers;
-    private volatile Map<String, String> parsedHeadersCache;
-    private int timeoutMs = 10000;
-
-    // TLS configuration for HTTPS endpoints
-    private Path truststoreFile;
-    private String truststorePass;
-    private KeystoreFormat truststoreFormat = KeystoreFormat.PKCS12;
-
-    // File exporter settings
-    private int fileBufferSize = 8192; // 8KB default
-
-    // Metrics configuration
-    private AggregationTemporality metricsTemporality = AggregationTemporality.CUMULATIVE;
-    private long metricsIntervalMs = 60000; // 60 seconds default
-
-    // Batching configuration
-    private int batchSize = 512;
-    private long flushIntervalMs = 5000;
-    private int maxQueueSize = 2048;
-
     // Exception detail export (default off for security)
     private boolean includeExceptionDetails = false;
 
@@ -109,6 +87,7 @@ public class TelemetryConfig {
 
     // The exporter tree: where everything goes
     private TelemetryExporter exporter = new DefaultExporter();
+    private boolean initialised;
 
     // Event loggers, by instrumentation scope
     private final Map<String, EventLogger> loggers = new ConcurrentHashMap<String, EventLogger>();
@@ -245,346 +224,6 @@ public class TelemetryConfig {
         resourceAttributes.put(key, value);
     }
 
-    /** The OTLP transport used when exporting to a collector. */
-    public enum Protocol {
-        /** OTLP over HTTP with protobuf bodies. */
-        HTTP_PROTOBUF,
-        /** OTLP over gRPC. */
-        GRPC
-    }
-
-    // -- Exporter settings --
-
-    /**
-     * Returns the OTLP endpoint URL.
-     */
-    public String getEndpoint() {
-        return endpoint;
-    }
-
-    /**
-     * Sets the OTLP endpoint URL.
-     * This is the base URL; /v1/traces and /v1/logs will be appended.
-     *
-     * @param endpoint the endpoint URL (e.g., "http://localhost:4318")
-     */
-    public void setEndpoint(String endpoint) {
-        this.endpoint = endpoint;
-    }
-
-    /**
-     * Returns the traces-specific endpoint, or the base endpoint with /v1/traces.
-     */
-    public String getTracesEndpoint() {
-        if (tracesEndpoint != null) {
-            return tracesEndpoint;
-        }
-        if (endpoint != null) {
-            return endpoint + "/v1/traces";
-        }
-        return null;
-    }
-
-    /**
-     * Sets a traces-specific endpoint.
-     *
-     * @param tracesEndpoint the traces endpoint URL
-     */
-    public void setTracesEndpoint(String tracesEndpoint) {
-        this.tracesEndpoint = tracesEndpoint;
-    }
-
-    /**
-     * Returns the logs-specific endpoint, or the base endpoint with /v1/logs.
-     */
-    public String getLogsEndpoint() {
-        if (logsEndpoint != null) {
-            return logsEndpoint;
-        }
-        if (endpoint != null) {
-            return endpoint + "/v1/logs";
-        }
-        return null;
-    }
-
-    /**
-     * Sets a logs-specific endpoint.
-     *
-     * @param logsEndpoint the logs endpoint URL
-     */
-    public void setLogsEndpoint(String logsEndpoint) {
-        this.logsEndpoint = logsEndpoint;
-    }
-
-    /**
-     * Returns the metrics-specific endpoint, or the base endpoint with /v1/metrics.
-     */
-    public String getMetricsEndpoint() {
-        if (metricsEndpoint != null) {
-            return metricsEndpoint;
-        }
-        if (endpoint != null) {
-            return endpoint + "/v1/metrics";
-        }
-        return null;
-    }
-
-    /**
-     * Sets a metrics-specific endpoint.
-     *
-     * @param metricsEndpoint the metrics endpoint URL
-     */
-    public void setMetricsEndpoint(String metricsEndpoint) {
-        this.metricsEndpoint = metricsEndpoint;
-    }
-
-    /**
-     * Returns the aggregation temporality for metrics.
-     */
-    public AggregationTemporality getMetricsTemporality() {
-        return metricsTemporality;
-    }
-
-    /**
-     * Sets the aggregation temporality for metrics.
-     *
-     * @param temporality DELTA or CUMULATIVE
-     */
-    public void setMetricsTemporality(AggregationTemporality temporality) {
-        this.metricsTemporality = temporality;
-    }
-
-    /**
-     * Returns the metrics collection interval in milliseconds.
-     */
-    public long getMetricsIntervalMs() {
-        return metricsIntervalMs;
-    }
-
-    /**
-     * Sets the metrics collection interval in milliseconds.
-     *
-     * @param metricsIntervalMs the interval
-     */
-    public void setMetricsIntervalMs(long metricsIntervalMs) {
-        this.metricsIntervalMs = metricsIntervalMs;
-    }
-
-    /**
-     * Returns the export protocol.
-     */
-    public Protocol getProtocol() {
-        return protocol;
-    }
-
-    /**
-     * Sets the export protocol.
-     *
-     * @param protocol the OTLP transport
-     */
-    public void setProtocol(Protocol protocol) {
-        if (protocol == null) {
-            throw new NullPointerException("protocol");
-        }
-        this.protocol = protocol;
-    }
-
-    /**
-     * Returns extra headers to send with export requests.
-     */
-    public String getHeaders() {
-        return headers;
-    }
-
-    /**
-     * Sets extra headers to send with export requests.
-     * Format: "key1=value1,key2=value2"
-     *
-     * @param headers the headers string
-     */
-    public void setHeaders(String headers) {
-        this.headers = headers;
-        this.parsedHeadersCache = null;
-    }
-
-    /**
-     * Parses the headers string into a map.
-     * The result is cached and invalidated when headers are set.
-     *
-     * @return an unmodifiable map of header names to values
-     */
-    public Map<String, String> getParsedHeaders() {
-        Map<String, String> cache = parsedHeadersCache;
-        if (cache != null) {
-            return Collections.unmodifiableMap(cache);
-        }
-        Map<String, String> result = new HashMap<String, String>();
-        if (headers != null && headers.length() > 0) {
-            int start = 0;
-            int length = headers.length();
-            while (start <= length) {
-                int end = headers.indexOf(',', start);
-                if (end < 0) {
-                    end = length;
-                }
-                String pair = headers.substring(start, end);
-                int idx = pair.indexOf('=');
-                if (idx > 0) {
-                    String key = pair.substring(0, idx).trim();
-                    String value = pair.substring(idx + 1).trim();
-                    result.put(key, value);
-                }
-                start = end + 1;
-            }
-        }
-        parsedHeadersCache = result;
-        return Collections.unmodifiableMap(result);
-    }
-
-    /**
-     * Returns the export timeout in milliseconds.
-     */
-    public int getTimeoutMs() {
-        return timeoutMs;
-    }
-
-    /**
-     * Sets the export timeout in milliseconds.
-     *
-     * @param timeoutMs the timeout
-     */
-    public void setTimeoutMs(int timeoutMs) {
-        this.timeoutMs = timeoutMs;
-    }
-
-    // -- TLS settings --
-
-    /**
-     * Returns the truststore file path for HTTPS endpoints.
-     *
-     * <p>When connecting to HTTPS OTLP endpoints, this truststore is used
-     * to verify the server's certificate. If not set, the JVM's default
-     * truststore is used.
-     */
-    public Path getTruststoreFile() {
-        return truststoreFile;
-    }
-
-    /**
-     * Sets the truststore file path for HTTPS endpoints.
-     *
-     * @param truststoreFile the path to the truststore file
-     */
-    public void setTruststoreFile(Path truststoreFile) {
-        this.truststoreFile = truststoreFile;
-    }
-
-    /**
-     * Returns the truststore password.
-     */
-    public String getTruststorePass() {
-        return truststorePass;
-    }
-
-    /**
-     * Sets the truststore password.
-     *
-     * @param truststorePass the truststore password
-     */
-    public void setTruststorePass(String truststorePass) {
-        this.truststorePass = truststorePass;
-    }
-
-    /**
-     * Returns the truststore format.
-     */
-    public KeystoreFormat getTruststoreFormat() {
-        return truststoreFormat;
-    }
-
-    /**
-     * Sets the truststore format.
-     *
-     * @param truststoreFormat the format (default: PKCS12)
-     */
-    public void setTruststoreFormat(KeystoreFormat truststoreFormat) {
-        this.truststoreFormat = truststoreFormat;
-    }
-
-    // -- File exporter settings --
-
-    /**
-     * Returns the buffer size for file exporter I/O in bytes.
-     */
-    public int getFileBufferSize() {
-        return fileBufferSize;
-    }
-
-    /**
-     * Sets the buffer size for file exporter I/O in bytes.
-     * Writes are accumulated in a buffer of this size before being
-     * flushed to the underlying file channel.
-     *
-     * @param fileBufferSize buffer size in bytes (default 8192)
-     */
-    public void setFileBufferSize(int fileBufferSize) {
-        this.fileBufferSize = fileBufferSize;
-    }
-
-    public void setFileBufferSize(String fileBufferSize) {
-        this.fileBufferSize = Integer.parseInt(fileBufferSize);
-    }
-
-    // -- Batching settings --
-
-    /**
-     * Returns the batch size for exports.
-     */
-    public int getBatchSize() {
-        return batchSize;
-    }
-
-    /**
-     * Sets the batch size for exports.
-     *
-     * @param batchSize the batch size
-     */
-    public void setBatchSize(int batchSize) {
-        this.batchSize = batchSize;
-    }
-
-    /**
-     * Returns the flush interval in milliseconds.
-     */
-    public long getFlushIntervalMs() {
-        return flushIntervalMs;
-    }
-
-    /**
-     * Sets the flush interval in milliseconds.
-     *
-     * @param flushIntervalMs the flush interval
-     */
-    public void setFlushIntervalMs(long flushIntervalMs) {
-        this.flushIntervalMs = flushIntervalMs;
-    }
-
-    /**
-     * Returns the maximum queue size.
-     */
-    public int getMaxQueueSize() {
-        return maxQueueSize;
-    }
-
-    /**
-     * Sets the maximum queue size.
-     *
-     * @param maxQueueSize the max queue size
-     */
-    public void setMaxQueueSize(int maxQueueSize) {
-        this.maxQueueSize = maxQueueSize;
-    }
-
     // -- Lifecycle methods --
 
     /**
@@ -632,8 +271,11 @@ public class TelemetryConfig {
     }
 
     /**
-     * Initializes the telemetry configuration, after configuration
-     * properties have been set and the exporter tree is composed.
+     * Initializes the telemetry configuration, after its own settings
+     * and those of every exporter have been made and the exporter tree is
+     * composed. Each exporter in the tree is started: it reads its
+     * settings and the identity of the service, and opens whatever
+     * threads, files and connections it needs.
      *
      * <p>When the {@code QLOGDIR} environment variable names a directory
      * and no exporter in the tree takes qlog events, a {@link QlogExporter}
@@ -644,6 +286,8 @@ public class TelemetryConfig {
      * via MBeans for JMX-based monitoring tools.
      */
     public void init() {
+        initialised = true;
+        exporter.init(this);
         if (!exporter.accepts(LogLevel.QLOG)) {
             String environment = System.getenv("QLOGDIR");
             if (environment != null && !environment.isEmpty()) {
@@ -672,7 +316,9 @@ public class TelemetryConfig {
     /**
      * Sets the exporter tree: one exporter, or several joined by
      * {@link TeeExporter}. The runtime flushes and shuts the tree down
-     * when it shuts down.
+     * when it shuts down. Set the settings of each exporter before
+     * {@link #init()}, which starts them; an exporter set after it has
+     * run is started at once.
      *
      * @param exporter the exporter
      */
@@ -681,6 +327,9 @@ public class TelemetryConfig {
             throw new IllegalArgumentException("exporter");
         }
         this.exporter = exporter;
+        if (initialised) {
+            exporter.init(this);
+        }
     }
 
     /**
@@ -856,14 +505,8 @@ public class TelemetryConfig {
         StringBuilder sb = new StringBuilder();
         sb.append("TelemetryConfig[");
         sb.append("service=").append(serviceName);
-        if (endpoint != null) {
-            sb.append(", endpoint=").append(endpoint);
-        }
         sb.append(", exporter=").append(exporter.getClass().getSimpleName());
         sb.append(", metrics=").append(metricsEnabled);
-        if (metricsEnabled) {
-            sb.append(", temporality=").append(metricsTemporality);
-        }
         sb.append("]");
         return sb.toString();
     }

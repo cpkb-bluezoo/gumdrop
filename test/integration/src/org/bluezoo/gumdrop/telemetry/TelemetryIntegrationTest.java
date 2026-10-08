@@ -22,6 +22,11 @@
 package org.bluezoo.gumdrop.telemetry;
 
 import java.nio.file.Path;
+import javax.net.ssl.TrustManager;
+import javax.net.ssl.X509TrustManager;
+import org.bluezoo.gumdrop.tls.KeystoreFormat;
+import org.bluezoo.gumdrop.tls.TlsConfig;
+import org.bluezoo.gumdrop.util.TlsUtils;
 import org.bluezoo.gumdrop.telemetry.otlp.OtlpExporter;
 
 import org.junit.After;
@@ -96,23 +101,31 @@ public class TelemetryIntegrationTest {
         telemetryConfig = new TelemetryConfig();
         telemetryConfig.setServiceName(SERVICE_NAME);
         telemetryConfig.setServiceVersion(SERVICE_VERSION);
-        telemetryConfig.setTracesEndpoint(collector.getTracesEndpoint());
-        telemetryConfig.setLogsEndpoint(collector.getLogsEndpoint());
-        telemetryConfig.setMetricsEndpoint(collector.getMetricsEndpoint());
-        telemetryConfig.setFlushIntervalMs(100); // Fast flush for testing
-        telemetryConfig.setBatchSize(1); // Send immediately
-        telemetryConfig.setTimeoutMs(5000);
+
+        exporter = new OtlpExporter();
+        exporter.setTracesEndpoint(collector.getTracesEndpoint());
+        exporter.setLogsEndpoint(collector.getLogsEndpoint());
+        exporter.setMetricsEndpoint(collector.getMetricsEndpoint());
+        exporter.setFlushIntervalMs(100); // Fast flush for testing
+        exporter.setBatchSize(1); // Send immediately
+        exporter.setTimeoutMs(5000);
 
         // Configure truststore for HTTPS endpoints
         if (collector.isSecure()) {
             TestCertificateManager certManager = collector.getCertificateManager();
             File certsDir = new File(System.getProperty("java.io.tmpdir"), "otlp-test-certs");
             File truststoreFile = new File(certsDir, "test-truststore.p12");
-            telemetryConfig.setTruststoreFile(Path.of(truststoreFile.getAbsolutePath()));
-            telemetryConfig.setTruststorePass("testpass");
+            TrustManager[] managers = TlsUtils.loadTrustManagers(
+                    Path.of(truststoreFile.getAbsolutePath()), "testpass", KeystoreFormat.PKCS12);
+            TlsConfig tls = new TlsConfig();
+            for (int i = 0; i < managers.length; i++) {
+                if (managers[i] instanceof X509TrustManager) {
+                    tls.trustManager((X509TrustManager) managers[i]);
+                }
+            }
+            exporter.setTls(tls);
         }
 
-        exporter = new OtlpExporter(telemetryConfig);
         telemetryConfig.setExporter(exporter);
         telemetryConfig.init();
 

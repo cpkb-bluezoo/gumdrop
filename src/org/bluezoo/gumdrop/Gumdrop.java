@@ -1499,10 +1499,10 @@ public class Gumdrop {
     }
 
     /**
-     * Sets the telemetry configuration, composed before the runtime
-     * starts. Listeners and their endpoints reach it through the runtime,
-     * and shutdown flushes and shuts its exporters down once the servers
-     * have closed.
+     * Sets the telemetry configuration, composed and initialised before
+     * any server is added to the runtime. Listeners and their endpoints
+     * reach it through the runtime, and shutdown flushes and shuts its
+     * exporters down once the servers have closed.
      *
      * @param telemetryConfig the configuration
      */

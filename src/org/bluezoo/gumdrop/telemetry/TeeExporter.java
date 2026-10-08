@@ -65,6 +65,20 @@ public final class TeeExporter implements TelemetryExporter {
     }
 
     @Override
+    public void init(TelemetryConfig config) {
+        try {
+            first.init(config);
+        } catch (RuntimeException e) {
+            failed(first, e);
+        }
+        try {
+            second.init(config);
+        } catch (RuntimeException e) {
+            failed(second, e);
+        }
+    }
+
+    @Override
     public void export(Trace trace) {
         try {
             first.export(trace);

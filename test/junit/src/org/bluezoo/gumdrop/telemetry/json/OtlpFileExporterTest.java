@@ -22,6 +22,7 @@
 package org.bluezoo.gumdrop.telemetry.json;
 
 import org.bluezoo.gumdrop.testsupport.memfs.MemoryTemp;
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
@@ -34,6 +35,7 @@ import java.nio.file.Path;
 import java.util.List;
 
 import org.bluezoo.gumdrop.telemetry.LogRecord;
+import org.bluezoo.gumdrop.telemetry.LogLevel;
 import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
 import org.bluezoo.gumdrop.telemetry.TelemetryTestData;
 import org.bluezoo.gumdrop.telemetry.metrics.LongCounter;
@@ -75,12 +77,13 @@ public class OtlpFileExporterTest {
             config.setServiceInstanceId("inst");
             config.setDeploymentEnvironment("test");
             config.setMetricsEnabled(true);
-            config.setMetricsIntervalMs(60000L);
-            config.setMaxQueueSize(2);
             Meter meter = config.getMeter("scope");
             LongCounter counter = meter.counterBuilder("c").build();
             counter.add(5L);
-            OtlpFileExporter e = new OtlpFileExporter(config, traces, logs, metrics);
+            OtlpFileExporter e = new OtlpFileExporter(traces, logs, metrics);
+            e.setMetricsIntervalMs(60000L);
+            e.setMaxQueueSize(2);
+            e.init(config);
             e.export(TelemetryTestData.richTrace());
             e.export(TelemetryTestData.richTrace());
             e.export(TelemetryTestData.richTrace());
@@ -124,7 +127,8 @@ public class OtlpFileExporterTest {
                 Path metrics = sub.resolve("metrics.json");
                 TelemetryConfig config = new TelemetryConfig();
                 config.setServiceName("svc");
-                OtlpFileExporter e = new OtlpFileExporter(config, traces, logs, metrics);
+                OtlpFileExporter e = new OtlpFileExporter(traces, logs, metrics);
+                e.init(config);
                 e.export(TelemetryTestData.richTrace());
                 e.flush();
                 e.shutdown();
@@ -158,7 +162,8 @@ public class OtlpFileExporterTest {
             PrintStream capture = new PrintStream(sink, true);
             System.setOut(capture);
             try {
-                OtlpFileExporter e = new OtlpFileExporter(config, bad, bad, bad);
+                OtlpFileExporter e = new OtlpFileExporter(bad, bad, bad);
+                e.init(config);
                 e.export(TelemetryTestData.richTrace());
                 e.flush();
                 e.shutdown();
@@ -170,6 +175,36 @@ public class OtlpFileExporterTest {
             } finally {
                 System.setOut(saved);
             }
+        } finally {
+            delete(dir);
+        }
+    }
+
+    @Test
+    public void testFileBufferSizeIsASettingOfTheExporter() {
+        OtlpFileExporter e = new OtlpFileExporter();
+        assertEquals(8192, e.getFileBufferSize());
+        e.setFileBufferSize(4096);
+        assertEquals(4096, e.getFileBufferSize());
+    }
+
+    @Test
+    public void testAcceptsNothingUntilStarted() throws IOException {
+        Path dir = MemoryTemp.createTempDirectory("otlpfile");
+        try {
+            Path sub = dir.resolve("sub");
+            OtlpFileExporter e = new OtlpFileExporter(
+                    sub.resolve("traces.json"), sub.resolve("logs.json"), sub.resolve("metrics.json"));
+            assertFalse(e.accepts(LogLevel.INFO));
+            assertFalse(e.acceptsTraces());
+            e.shutdown();
+            e.init(new TelemetryConfig());
+            assertTrue(e.accepts(LogLevel.INFO));
+            assertTrue(e.acceptsTraces());
+            assertFalse(e.accepts(LogLevel.ACCESS));
+            e.setLevels(LogLevel.ACCESS);
+            assertTrue(e.accepts(LogLevel.ACCESS));
+            e.shutdown();
         } finally {
             delete(dir);
         }

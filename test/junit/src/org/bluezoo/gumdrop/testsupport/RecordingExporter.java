@@ -27,6 +27,7 @@ import java.util.List;
 
 import org.bluezoo.gumdrop.telemetry.LogLevel;
 import org.bluezoo.gumdrop.telemetry.LogRecord;
+import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
 import org.bluezoo.gumdrop.telemetry.TelemetryExporter;
 import org.bluezoo.gumdrop.telemetry.Trace;
 import org.bluezoo.gumdrop.telemetry.metrics.MetricData;
@@ -45,6 +46,7 @@ public class RecordingExporter implements TelemetryExporter {
     public int flushes;
     public int forceFlushes;
     public int shutdowns;
+    public int inits;
 
     private final EnumSet<LogLevel> levels;
 
@@ -90,6 +92,11 @@ public class RecordingExporter implements TelemetryExporter {
     @Override
     public synchronized void export(List<MetricData> metrics) {
         this.metrics.add(metrics);
+    }
+
+    @Override
+    public void init(TelemetryConfig config) {
+        inits++;
     }
 
     @Override

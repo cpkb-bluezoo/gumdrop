@@ -175,7 +175,6 @@ public class OtlpChannelAndLoggingTest {
     private static TelemetryConfig config() {
         TelemetryConfig config = new TelemetryConfig();
         config.setServiceName("svc");
-        config.setTimeoutMs(500);
         return config;
     }
 
@@ -227,7 +226,9 @@ public class OtlpChannelAndLoggingTest {
 
     @Test
     public void httpHandlerLogsAtEveryLevel() {
-        OtlpExporter e = new OtlpExporter(config(), false);
+        OtlpExporter e = new OtlpExporter();
+        e.setTimeoutMs(500);
+        e.start(config(), false);
         try {
             OtlpResponseHandler h = new OtlpResponseHandler("traces", e);
             h.status(HttpStatus.OK.code);
@@ -243,7 +244,9 @@ public class OtlpChannelAndLoggingTest {
 
     @Test
     public void grpcHandlerLogsAtEveryLevel() {
-        OtlpGrpcExporter e = new OtlpGrpcExporter(config(), false);
+        OtlpGrpcExporter e = new OtlpGrpcExporter();
+        e.setTimeoutMs(500);
+        e.start(config(), false);
         try {
             OtlpGrpcResponseHandler h = new OtlpGrpcResponseHandler("logs", e);
             h.status(HttpStatus.OK.code);

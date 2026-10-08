@@ -13,6 +13,26 @@ user-visible themes since 2.2.x.
 
 ### Added
 
+- **Structured log events and composable exporters** (#551): operational
+  logging is now a stream of `LogRecord`s with a level (`INFO`, `WARN`,
+  `ERROR`, plus `ACCESS` and `QLOG`), a stable key and named attributes,
+  emitted through an `EventLogger` obtained from the runtime's
+  `TelemetryConfig` (`events.warn(key).attr(name, value).thrown(e).emit()`).
+  Where records go is the exporter tree set with
+  `TelemetryConfig.setExporter`: `DefaultExporter` (publishes through
+  `java.util.logging`, so `logging.properties` and the localised bundles
+  apply as before and remains the default), `OtlpExporter` and
+  `OtlpGrpcExporter` (logs, traces and metrics to a collector),
+  `OtlpFileExporter` (JSONL), `AccessLogExporter` (CLF or ELFF) and
+  `QlogExporter`, joined by `TeeExporter`. Each exporter takes the levels it
+  is configured for. Delivery is asynchronous and never blocks a connection
+  thread; shutdown flushes the tree, with a standard error fallback when
+  `java.util.logging` has no handler left. Roughly a thousand operational
+  log sites across the protocol packages emit events; fine-grained
+  `FINE` and below tracing stays on `java.util.logging`. The HTTP access log
+  is now the `http.server.request` event with OpenTelemetry HTTP attributes,
+  and can be exported over OTLP as well as written to a file. See
+  `telemetry.html`.
 - **QUIC preferred address and client migration** (RFC 9000 section 9.6):
   `QuicTransportFactory.setPreferredAddress` makes a server advertise an
   address per family in its `preferred_address` transport parameter, listen
@@ -126,6 +146,28 @@ user-visible themes since 2.2.x.
 
 ### Changed
 
+- **One `TelemetryConfig` per runtime** (#551): telemetry is configured with
+  `Gumdrop.setTelemetryConfig` and reached through the runtime by every
+  listener, endpoint and component, instead of being attached to individual
+  listeners. `Endpoint.getTelemetryConfig()` never returns null, there is no
+  `isTelemetryEnabled()`, and the exporter is chosen by constructing it:
+  the `exporter-type`, `protocol`, `file-*-path`, `access-log-*` and
+  `traces-enabled` / `logs-enabled` settings, and
+  `TelemetryConfig.Protocol`, are removed. Tracing is created only when an
+  exporter in the tree takes traces. Telemetry no longer registers a JVM
+  shutdown hook; shutting the runtime down flushes it.
+- **Exporter settings live on the exporters** (#551): the endpoints, headers,
+  timeout, batch, queue, flush and metrics interval and temporality settings
+  moved from `TelemetryConfig` to the exporters that use them
+  (`BatchingExporter` for the batching ones, shared by `OtlpExporter`,
+  `OtlpGrpcExporter` and `OtlpFileExporter`; the OTLP exporters for
+  endpoints, headers and timeout; `OtlpFileExporter` for the file buffer
+  size). `TelemetryConfig` keeps the identity of the service, metrics, the
+  JMX bridge and the exception detail policy. TLS for the OTLP exporters is a
+  `TlsConfig` set with `setTls`, replacing the truststore file, password and
+  format settings; a truststore file is loaded into a trust manager first.
+  Exporters are constructed without a configuration and started by
+  `TelemetryConfig.init()` through the new `TelemetryExporter.init` method.
 - **QUIC compatible version negotiation follows the server's preference**:
   a server now switches a client onto the first version in its own
   `setVersions` order that the client offers, instead of the client's most

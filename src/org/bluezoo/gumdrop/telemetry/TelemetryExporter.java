@@ -77,6 +77,20 @@ public interface TelemetryExporter {
     boolean acceptsTraces();
 
     /**
+     * Starts the exporter. {@link TelemetryConfig#init()} calls this once,
+     * after the exporter tree is composed and every exporter has its
+     * settings, handing over the configuration for the identity of the
+     * service and the meters it holds. An exporter that needs threads,
+     * files or connections starts them here and not when it is
+     * constructed, which is what lets its settings be made on the exporter
+     * itself. The default does nothing.
+     *
+     * @param config the configuration the exporter belongs to
+     */
+    default void init(TelemetryConfig config) {
+    }
+
+    /**
      * Flushes any buffered telemetry data.
      * This method blocks until the flush is complete.
      */

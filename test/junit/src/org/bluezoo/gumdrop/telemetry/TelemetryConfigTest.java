@@ -21,14 +21,9 @@
 
 package org.bluezoo.gumdrop.telemetry;
 
-import org.bluezoo.gumdrop.tls.KeystoreFormat;
-import org.bluezoo.gumdrop.telemetry.metrics.AggregationTemporality;
 import org.bluezoo.gumdrop.telemetry.metrics.Meter;
 import org.bluezoo.gumdrop.testsupport.RecordingExporter;
 import org.junit.Test;
-
-import java.nio.file.Path;
-import java.util.Map;
 
 import static org.junit.Assert.*;
 
@@ -49,22 +44,12 @@ public class TelemetryConfigTest {
         TelemetryConfig c = new TelemetryConfig();
         assertTrue(c.isMetricsEnabled());
         assertEquals("gumdrop", c.getServiceName());
-        assertEquals(TelemetryConfig.Protocol.HTTP_PROTOBUF, c.getProtocol());
-        assertEquals(AggregationTemporality.CUMULATIVE, c.getMetricsTemporality());
-        assertEquals(60000L, c.getMetricsIntervalMs());
-        assertEquals(10000, c.getTimeoutMs());
-        assertEquals(KeystoreFormat.PKCS12, c.getTruststoreFormat());
-        assertEquals(8192, c.getFileBufferSize());
-        assertEquals(512, c.getBatchSize());
-        assertEquals(5000L, c.getFlushIntervalMs());
-        assertEquals(2048, c.getMaxQueueSize());
         assertFalse(c.isIncludeExceptionDetails());
         assertTrue(c.isJmxBridgeEnabled());
         assertFalse(c.isShuttingDown());
         assertTrue(c.getExporter() instanceof DefaultExporter);
         assertTrue(c.accepts(LogLevel.WARN));
         assertFalse(c.accepts(LogLevel.QLOG));
-        assertNull(c.getEndpoint());
     }
 
     @Test
@@ -76,14 +61,6 @@ public class TelemetryConfigTest {
         c.setServiceNamespace("ns");
         c.setServiceInstanceId("i-1");
         c.setDeploymentEnvironment("prod");
-        c.setProtocol(TelemetryConfig.Protocol.GRPC);
-        c.setTimeoutMs(5);
-        c.setTruststorePass("secret");
-        c.setTruststoreFormat(KeystoreFormat.JKS);
-        c.setMetricsIntervalMs(1000L);
-        c.setBatchSize(10);
-        c.setFlushIntervalMs(20L);
-        c.setMaxQueueSize(30);
         c.setJmxBridgeEnabled(false);
         c.setIncludeExceptionDetails(true);
 
@@ -93,14 +70,6 @@ public class TelemetryConfigTest {
         assertEquals("ns", c.getServiceNamespace());
         assertEquals("i-1", c.getServiceInstanceId());
         assertEquals("prod", c.getDeploymentEnvironment());
-        assertEquals(TelemetryConfig.Protocol.GRPC, c.getProtocol());
-        assertEquals(5, c.getTimeoutMs());
-        assertEquals("secret", c.getTruststorePass());
-        assertEquals(KeystoreFormat.JKS, c.getTruststoreFormat());
-        assertEquals(1000L, c.getMetricsIntervalMs());
-        assertEquals(10, c.getBatchSize());
-        assertEquals(20L, c.getFlushIntervalMs());
-        assertEquals(30, c.getMaxQueueSize());
         assertFalse(c.isJmxBridgeEnabled());
         assertTrue(c.isIncludeExceptionDetails());
     }
@@ -110,76 +79,6 @@ public class TelemetryConfigTest {
         TelemetryConfig c = new TelemetryConfig();
         c.addResourceAttribute("k", "v");
         assertEquals("v", c.getResourceAttributes().get("k"));
-    }
-
-    @Test
-    public void endpointsDeriveFromBaseUnlessOverridden() {
-        TelemetryConfig c = new TelemetryConfig();
-        assertNull(c.getTracesEndpoint());
-        assertNull(c.getLogsEndpoint());
-        assertNull(c.getMetricsEndpoint());
-        c.setEndpoint("http://collector:4318");
-        assertEquals("http://collector:4318/v1/traces", c.getTracesEndpoint());
-        assertEquals("http://collector:4318/v1/logs", c.getLogsEndpoint());
-        assertEquals("http://collector:4318/v1/metrics", c.getMetricsEndpoint());
-        c.setTracesEndpoint("http://t");
-        c.setLogsEndpoint("http://l");
-        c.setMetricsEndpoint("http://m");
-        assertEquals("http://t", c.getTracesEndpoint());
-        assertEquals("http://l", c.getLogsEndpoint());
-        assertEquals("http://m", c.getMetricsEndpoint());
-    }
-
-    @Test
-    public void temporalityIsSetByEnum() {
-        TelemetryConfig c = new TelemetryConfig();
-        c.setMetricsTemporality(AggregationTemporality.DELTA);
-        assertEquals(AggregationTemporality.DELTA, c.getMetricsTemporality());
-        c.setMetricsTemporality(AggregationTemporality.CUMULATIVE);
-        assertEquals(AggregationTemporality.CUMULATIVE, c.getMetricsTemporality());
-    }
-
-    @Test
-    public void headersAreParsedAndCacheInvalidated() {
-        TelemetryConfig c = new TelemetryConfig();
-        assertTrue(c.getParsedHeaders().isEmpty());
-        c.setHeaders("a=1, b = two ,bad,=x,c=3=4");
-        assertEquals("a=1, b = two ,bad,=x,c=3=4", c.getHeaders());
-        Map<String, String> parsed = c.getParsedHeaders();
-        assertEquals("1", parsed.get("a"));
-        assertEquals("two", parsed.get("b"));
-        assertEquals("3=4", parsed.get("c"));
-        assertEquals(3, parsed.size());
-        assertSame(parsed.get("a"), c.getParsedHeaders().get("a"));
-        c.setHeaders("z=9");
-        assertEquals(1, c.getParsedHeaders().size());
-        assertEquals("9", c.getParsedHeaders().get("z"));
-    }
-
-    @Test(expected = UnsupportedOperationException.class)
-    public void parsedHeadersAreUnmodifiable() {
-        TelemetryConfig c = new TelemetryConfig();
-        c.setHeaders("a=1");
-        c.getParsedHeaders().put("x", "y");
-    }
-
-    @Test
-    public void pathSettersDoNotTouchDisk() {
-        TelemetryConfig c = new TelemetryConfig();
-        c.setTruststoreFile(Path.of("/nonexistent/ts.p12"));
-        assertEquals(Path.of("/nonexistent/ts.p12"), c.getTruststoreFile());
-        Path p = Path.of("/other");
-        c.setTruststoreFile(p);
-        assertSame(p, c.getTruststoreFile());
-    }
-
-    @Test
-    public void fileBufferSizeFromString() {
-        TelemetryConfig c = new TelemetryConfig();
-        c.setFileBufferSize("4096");
-        assertEquals(4096, c.getFileBufferSize());
-        c.setFileBufferSize(16);
-        assertEquals(16, c.getFileBufferSize());
     }
 
     @Test
@@ -242,11 +141,47 @@ public class TelemetryConfigTest {
     @Test
     public void toStringSummarises() {
         TelemetryConfig c = new TelemetryConfig();
-        c.setEndpoint("http://e");
         String text = c.toString();
         assertTrue(text.startsWith("TelemetryConfig["));
         assertTrue(text.contains("service=gumdrop"));
-        assertTrue(text.contains("endpoint=http://e"));
-        assertTrue(text.contains("temporality="));
+        assertTrue(text.contains("exporter=DefaultExporter"));
+    }
+
+    @Test
+    public void initStartsEveryExporterInTheTree() {
+        TelemetryConfig c = new TelemetryConfig();
+        RecordingExporter a = new RecordingExporter();
+        RecordingExporter b = new RecordingExporter();
+        c.setExporter(new TeeExporter(a, b));
+        assertEquals(0, a.inits);
+        c.setJmxBridgeEnabled(false);
+        c.init();
+        assertEquals(1, a.inits);
+        assertEquals(1, b.inits);
+    }
+
+    @Test
+    public void anExporterSetAfterInitIsStartedAtOnce() {
+        TelemetryConfig c = new TelemetryConfig();
+        c.setJmxBridgeEnabled(false);
+        c.init();
+        RecordingExporter late = new RecordingExporter();
+        c.setExporter(late);
+        assertEquals(1, late.inits);
+    }
+
+    @Test
+    public void anExporterThatFailsToStartDoesNotStopItsSibling() {
+        TelemetryConfig c = new TelemetryConfig();
+        RecordingExporter ok = new RecordingExporter();
+        c.setExporter(new TeeExporter(new RecordingExporter() {
+            @Override
+            public void init(TelemetryConfig config) {
+                throw new IllegalStateException("cannot start");
+            }
+        }, ok));
+        c.setJmxBridgeEnabled(false);
+        c.init();
+        assertEquals(1, ok.inits);
     }
 }

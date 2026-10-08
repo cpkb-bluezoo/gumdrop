@@ -25,7 +25,7 @@ import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.telemetry.LogLevel;
 import org.bluezoo.gumdrop.telemetry.LogRecord;
 import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
-import org.bluezoo.gumdrop.telemetry.TelemetryExporter;
+import org.bluezoo.gumdrop.telemetry.BatchingExporter;
 import org.bluezoo.gumdrop.telemetry.Trace;
 import org.bluezoo.gumdrop.telemetry.metrics.AggregationTemporality;
 import org.bluezoo.gumdrop.telemetry.metrics.Meter;
@@ -43,7 +43,6 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
-import java.util.EnumSet;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ArrayBlockingQueue;
@@ -72,18 +71,24 @@ import java.util.ResourceBundle;
  * thread to avoid blocking the caller.
  *
  * <h3>Configuration</h3>
+ * <p>The file paths are given to the constructor; the buffer size, the
+ * batching and metrics settings of {@link BatchingExporter} and the levels
+ * are set on the exporter before {@link TelemetryConfig#init()} starts it.
  * <pre>
  * TelemetryConfig telemetry = new TelemetryConfig();
  * telemetry.setServiceName("my-service");
- * telemetry.setExporter(new OtlpFileExporter(telemetry,
+ * OtlpFileExporter files = new OtlpFileExporter(
  *         Path.of("/var/log/otel/traces.jsonl"),
  *         Path.of("/var/log/otel/logs.jsonl"),
- *         Path.of("/var/log/otel/metrics.jsonl")));
+ *         Path.of("/var/log/otel/metrics.jsonl"));
+ * files.setFileBufferSize(16384);
+ * telemetry.setExporter(files);
+ * telemetry.init();
  * </pre>
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-public class OtlpFileExporter implements TelemetryExporter {
+public class OtlpFileExporter extends BatchingExporter {
 
         private static final ResourceBundle L10N = ResourceBundle.getBundle("org.bluezoo.gumdrop.telemetry.L10N",
                 org.bluezoo.gumdrop.telemetry.Trace.class.getModule());
@@ -91,43 +96,82 @@ private static final Logger logger = Logger.getLogger(OtlpFileExporter.class.get
 
     private static final byte[] NEWLINE = "\n".getBytes(StandardCharsets.UTF_8);
 
-    private final TelemetryConfig config;
-    private final TraceJsonSerializer traceSerializer;
-    private final LogJsonSerializer logSerializer;
-    private final MetricJsonSerializer metricSerializer;
+    // How long shutdown waits for the export thread to finish.
+    private static final long SHUTDOWN_WAIT_MS = 10000L;
 
-    private final BufferingByteChannel tracesChannel;
-    private final BufferingByteChannel logsChannel;
-    private final BufferingByteChannel metricsChannel;
+    private final Path tracesPath;
+    private final Path logsPath;
+    private final Path metricsPath;
+    private int fileBufferSize = 8192;
 
-    private final BlockingQueue<Trace> traceQueue;
-    private final BlockingQueue<LogRecord> logQueue;
-    private final BlockingQueue<List<MetricData>> metricQueue;
+    // Everything below is created by init()
+    private TelemetryConfig config;
+    private TraceJsonSerializer traceSerializer;
+    private LogJsonSerializer logSerializer;
+    private MetricJsonSerializer metricSerializer;
 
-    private final ExportThread exportThread;
-    private final EnumSet<LogLevel> levels = EnumSet.of(LogLevel.INFO, LogLevel.WARN, LogLevel.ERROR);
+    private BufferingByteChannel tracesChannel;
+    private BufferingByteChannel logsChannel;
+    private BufferingByteChannel metricsChannel;
+
+    private BlockingQueue<Trace> traceQueue;
+    private BlockingQueue<LogRecord> logQueue;
+    private BlockingQueue<List<MetricData>> metricQueue;
+
+    private volatile ExportThread exportThread;
     private volatile boolean running;
 
     /**
      * Creates a file exporter that writes all signals to stdout.
-     *
-     * @param config the telemetry configuration
      */
-    public OtlpFileExporter(TelemetryConfig config) {
-        this(config, null, null, null);
+    public OtlpFileExporter() {
+        this(null, null, null);
     }
 
     /**
      * Creates a file exporter that writes to the specified file paths.
-     * Any null path causes that signal to be written to stdout.
+     * Any null path causes that signal to be written to stdout. The
+     * files are opened, creating them and their directories if need be,
+     * when the exporter is started.
      *
-     * @param config the telemetry configuration
      * @param tracesPath path for traces JSONL file, or null for stdout
      * @param logsPath path for logs JSONL file, or null for stdout
      * @param metricsPath path for metrics JSONL file, or null for stdout
      */
-    public OtlpFileExporter(TelemetryConfig config,
-                            Path tracesPath, Path logsPath, Path metricsPath) {
+    public OtlpFileExporter(Path tracesPath, Path logsPath, Path metricsPath) {
+        this.tracesPath = tracesPath;
+        this.logsPath = logsPath;
+        this.metricsPath = metricsPath;
+    }
+
+    /**
+     * Returns the size of the I/O buffer of each file in bytes.
+     *
+     * @return the buffer size
+     */
+    public int getFileBufferSize() {
+        return fileBufferSize;
+    }
+
+    /**
+     * Sets the size of the I/O buffer of each file in bytes. Writes are
+     * accumulated in a buffer of this size before being flushed to the
+     * underlying file. The default is 8192.
+     *
+     * @param fileBufferSize the buffer size
+     */
+    public void setFileBufferSize(int fileBufferSize) {
+        this.fileBufferSize = fileBufferSize;
+    }
+
+    /**
+     * Opens the files and starts the thread that writes them.
+     */
+    @Override
+    public synchronized void init(TelemetryConfig config) {
+        if (running) {
+            return;
+        }
         this.config = config;
 
         Map<String, String> resourceAttrs = config.getResourceAttributes();
@@ -157,18 +201,19 @@ private static final Logger logger = Logger.getLogger(OtlpFileExporter.class.get
                 config.getServiceNamespace(),
                 resourceAttrs);
 
-        int bufferSize = config.getFileBufferSize();
+        int bufferSize = fileBufferSize;
         this.tracesChannel = new BufferingByteChannel(openChannel(tracesPath), bufferSize);
         this.logsChannel = new BufferingByteChannel(openChannel(logsPath), bufferSize);
         this.metricsChannel = new BufferingByteChannel(openChannel(metricsPath), bufferSize);
 
-        this.traceQueue = new ArrayBlockingQueue<>(config.getMaxQueueSize());
-        this.logQueue = new ArrayBlockingQueue<>(config.getMaxQueueSize());
-        this.metricQueue = new ArrayBlockingQueue<>(config.getMaxQueueSize());
+        this.traceQueue = new ArrayBlockingQueue<>(getMaxQueueSize());
+        this.logQueue = new ArrayBlockingQueue<>(getMaxQueueSize());
+        this.metricQueue = new ArrayBlockingQueue<>(getMaxQueueSize());
 
+        ExportThread thread = new ExportThread();
+        this.exportThread = thread;
         this.running = true;
-        this.exportThread = new ExportThread();
-        this.exportThread.start();
+        thread.start();
 
         logger.info(L10N.getString("info.file_exporter_started"));
     }
@@ -224,31 +269,14 @@ private static final Logger logger = Logger.getLogger(OtlpFileExporter.class.get
         }
     }
 
-    /**
-     * Sets the levels of log record this exporter takes. The default is
-     * the operational levels: INFO, WARN and ERROR.
-     *
-     * @param levels the levels
-     */
-    public void setLevels(LogLevel... levels) {
-        synchronized (this.levels) {
-            this.levels.clear();
-            for (LogLevel level : levels) {
-                this.levels.add(level);
-            }
-        }
-    }
-
     @Override
     public boolean accepts(LogLevel level) {
-        synchronized (levels) {
-            return levels.contains(level);
-        }
+        return running && takesLevel(level);
     }
 
     @Override
     public boolean acceptsTraces() {
-        return true;
+        return running;
     }
 
     @Override
@@ -291,16 +319,23 @@ private static final Logger logger = Logger.getLogger(OtlpFileExporter.class.get
 
     @Override
     public void flush() {
-        exportThread.requestFlush();
+        ExportThread thread = exportThread;
+        if (thread != null) {
+            thread.requestFlush();
+        }
     }
 
     @Override
     public void shutdown() {
+        ExportThread thread = exportThread;
+        if (thread == null) {
+            return;
+        }
         running = false;
-        exportThread.requestFlush();
+        thread.requestFlush();
 
         try {
-            exportThread.join(config.getTimeoutMs());
+            thread.join(SHUTDOWN_WAIT_MS);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
         }
@@ -383,9 +418,9 @@ private static final Logger logger = Logger.getLogger(OtlpFileExporter.class.get
             while (running || !traceQueue.isEmpty() || !logQueue.isEmpty() || !metricQueue.isEmpty()) {
                 try {
                     long now = System.currentTimeMillis();
-                    long flushWait = config.getFlushIntervalMs() - (now - lastFlush);
+                    long flushWait = getFlushIntervalMs() - (now - lastFlush);
                     long metricsWait = config.isMetricsEnabled()
-                            ? config.getMetricsIntervalMs() - (now - lastMetricsCollection)
+                            ? getMetricsIntervalMs() - (now - lastMetricsCollection)
                             : flushWait;
                     long waitTime = Math.min(flushWait, metricsWait);
 
@@ -400,17 +435,17 @@ private static final Logger logger = Logger.getLogger(OtlpFileExporter.class.get
                     now = System.currentTimeMillis();
 
                     if (config.isMetricsEnabled()
-                            && (now - lastMetricsCollection) >= config.getMetricsIntervalMs()) {
+                            && (now - lastMetricsCollection) >= getMetricsIntervalMs()) {
                         collectMetrics();
                         drainQueue(metricQueue, metricBatches);
                         lastMetricsCollection = now;
                     }
 
                     boolean shouldFlush = flushRequested ||
-                            traceBatch.size() >= config.getBatchSize() ||
-                            logBatch.size() >= config.getBatchSize() ||
+                            traceBatch.size() >= getBatchSize() ||
+                            logBatch.size() >= getBatchSize() ||
                             !metricBatches.isEmpty() ||
-                            (now - lastFlush) >= config.getFlushIntervalMs();
+                            (now - lastFlush) >= getFlushIntervalMs();
 
                     if (shouldFlush) {
                         if (!traceBatch.isEmpty()) {
@@ -465,7 +500,7 @@ private static final Logger logger = Logger.getLogger(OtlpFileExporter.class.get
             if (meters.isEmpty()) {
                 return;
             }
-            AggregationTemporality temporality = config.getMetricsTemporality();
+            AggregationTemporality temporality = getMetricsTemporality();
             List<MetricData> allMetrics = new ArrayList<>();
             for (Meter meter : meters.values()) {
                 allMetrics.addAll(meter.collect(temporality));

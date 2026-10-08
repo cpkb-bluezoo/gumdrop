@@ -53,22 +53,52 @@ public class OtlpExportersTest {
         config.setServiceNamespace("ns");
         config.setServiceInstanceId("inst");
         config.setDeploymentEnvironment("test");
-        config.setTimeoutMs(500);
         config.setMetricsEnabled(true);
-        config.setMetricsIntervalMs(50L);
-        config.setMaxQueueSize(2);
         Meter meter = config.getMeter("scope");
         LongCounter counter = meter.counterBuilder("c").build();
         counter.add(1L);
         return config;
     }
 
+    private static OtlpExporter http() {
+        OtlpExporter e = new OtlpExporter();
+        e.setTimeoutMs(500);
+        e.setMetricsIntervalMs(50L);
+        e.setMaxQueueSize(2);
+        e.start(config(), false);
+        return e;
+    }
+
+    private static OtlpGrpcExporter grpc() {
+        OtlpGrpcExporter e = new OtlpGrpcExporter();
+        e.setTimeoutMs(500);
+        e.setMetricsIntervalMs(50L);
+        e.setMaxQueueSize(2);
+        e.start(config(), false);
+        return e;
+    }
+
+    /** An exporter whose export thread waits a long time. */
+    private static OtlpExporter idleHttp() {
+        OtlpExporter e = new OtlpExporter();
+        e.setTimeoutMs(2000);
+        e.setFlushIntervalMs(600000L);
+        e.start(idleConfig(), false);
+        return e;
+    }
+
+    private static OtlpGrpcExporter idleGrpc() {
+        OtlpGrpcExporter e = new OtlpGrpcExporter();
+        e.setTimeoutMs(2000);
+        e.setFlushIntervalMs(600000L);
+        e.start(idleConfig(), false);
+        return e;
+    }
+
     /** A configuration under which the export thread waits a long time. */
     private static TelemetryConfig idleConfig() {
         TelemetryConfig config = new TelemetryConfig();
         config.setServiceName("svc");
-        config.setTimeoutMs(2000);
-        config.setFlushIntervalMs(600000L);
         return config;
     }
 
@@ -79,7 +109,7 @@ public class OtlpExportersTest {
      */
     @Test
     public void testHttpExportThreadIsWokenToShutDown() throws Exception {
-        OtlpExporter e = new OtlpExporter(idleConfig(), false);
+        OtlpExporter e = idleHttp();
         Thread thread = e.exportThreadForTesting();
         thread.start();
         e.flush();
@@ -90,7 +120,7 @@ public class OtlpExportersTest {
 
     @Test
     public void testGrpcExportThreadIsWokenToShutDown() throws Exception {
-        OtlpGrpcExporter e = new OtlpGrpcExporter(idleConfig(), false);
+        OtlpGrpcExporter e = idleGrpc();
         Thread thread = e.exportThreadForTesting();
         thread.start();
         e.flush();
@@ -101,7 +131,7 @@ public class OtlpExportersTest {
 
     @Test
     public void testHttpResponseHandler() {
-        OtlpExporter e = new OtlpExporter(config(), false);
+        OtlpExporter e = http();
         try {
             OtlpResponseHandler h = new OtlpResponseHandler("traces", e);
             assertFalse(h.isComplete());
@@ -132,7 +162,7 @@ public class OtlpExportersTest {
 
     @Test
     public void testGrpcResponseHandler() {
-        OtlpGrpcExporter e = new OtlpGrpcExporter(config(), false);
+        OtlpGrpcExporter e = grpc();
         try {
             OtlpGrpcResponseHandler h = new OtlpGrpcResponseHandler("traces", e);
             assertFalse(h.isComplete());

@@ -567,11 +567,13 @@ independent tuning based on workload characteristics.
 </p>
 
 <p>
-HTTP access logs (CLF or ELFF) are configured on the listener&rsquo;s
-<a href="telemetry.html">TelemetryConfig</a> (<code>access-log-path</code> and
-related properties), not on <code>Container</code>. Lines are written when each
-HTTP response completes; servlet identity is recorded separately from
-protocol-layer authentication when both are present.
+HTTP access logs (CLF or ELFF) are configured on the runtime&rsquo;s
+<a href="telemetry.html#access-log">TelemetryConfig</a> by adding an
+<code>AccessLogExporter</code> to its exporter tree, not on
+<code>Container</code>. Lines are written when each HTTP response completes;
+servlet identity is recorded separately from protocol-layer authentication
+when both are present, and the <code>AccessLogUserSelection</code> chosen for
+the exporter says which appears.
 </p>
 
 <h4>Context Configuration</h4>
