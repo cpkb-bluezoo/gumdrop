@@ -24,6 +24,7 @@ package org.bluezoo.gumdrop.telemetry;
 import org.bluezoo.gumdrop.tls.KeystoreFormat;
 import org.bluezoo.gumdrop.telemetry.metrics.AggregationTemporality;
 import org.bluezoo.gumdrop.telemetry.metrics.Meter;
+import org.bluezoo.gumdrop.testsupport.RecordingExporter;
 import org.junit.Test;
 
 import java.nio.file.Path;
@@ -33,8 +34,8 @@ import static org.junit.Assert.*;
 
 /**
  * Unit tests for the pure configuration, trace and meter factory behaviour
- * of {@link TelemetryConfig}. Lifecycle methods that register JVM shutdown
- * hooks or JMX beans ({@code init}, {@code setExporter}) are not exercised.
+ * of {@link TelemetryConfig}. Lifecycle methods that register JMX beans
+ * ({@code init}) are not exercised.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
@@ -47,10 +48,8 @@ public class TelemetryConfigTest {
     public void defaults() {
         TelemetryConfig c = new TelemetryConfig();
         assertTrue(c.isTracesEnabled());
-        assertTrue(c.isLogsEnabled());
         assertTrue(c.isMetricsEnabled());
         assertEquals("gumdrop", c.getServiceName());
-        assertEquals(TelemetryConfig.ExporterType.OTLP, c.getExporterType());
         assertEquals(TelemetryConfig.Protocol.HTTP_PROTOBUF, c.getProtocol());
         assertEquals(AggregationTemporality.CUMULATIVE, c.getMetricsTemporality());
         assertEquals(60000L, c.getMetricsIntervalMs());
@@ -62,9 +61,10 @@ public class TelemetryConfigTest {
         assertEquals(2048, c.getMaxQueueSize());
         assertFalse(c.isIncludeExceptionDetails());
         assertTrue(c.isJmxBridgeEnabled());
-        assertFalse(c.isExportConfigured());
         assertFalse(c.isShuttingDown());
-        assertNull(c.getExporter());
+        assertTrue(c.getExporter() instanceof DefaultExporter);
+        assertTrue(c.accepts(LogLevel.WARN));
+        assertFalse(c.accepts(LogLevel.QLOG));
         assertNull(c.getEndpoint());
     }
 
@@ -72,14 +72,12 @@ public class TelemetryConfigTest {
     public void simpleAccessorsRoundTrip() {
         TelemetryConfig c = new TelemetryConfig();
         c.setTracesEnabled(false);
-        c.setLogsEnabled(false);
         c.setMetricsEnabled(false);
         c.setServiceName("svc");
         c.setServiceVersion("1.2");
         c.setServiceNamespace("ns");
         c.setServiceInstanceId("i-1");
         c.setDeploymentEnvironment("prod");
-        c.setExporterType(TelemetryConfig.ExporterType.FILE);
         c.setProtocol(TelemetryConfig.Protocol.GRPC);
         c.setTimeoutMs(5);
         c.setTruststorePass("secret");
@@ -92,14 +90,12 @@ public class TelemetryConfigTest {
         c.setIncludeExceptionDetails(true);
 
         assertFalse(c.isTracesEnabled());
-        assertFalse(c.isLogsEnabled());
         assertFalse(c.isMetricsEnabled());
         assertEquals("svc", c.getServiceName());
         assertEquals("1.2", c.getServiceVersion());
         assertEquals("ns", c.getServiceNamespace());
         assertEquals("i-1", c.getServiceInstanceId());
         assertEquals("prod", c.getDeploymentEnvironment());
-        assertEquals(TelemetryConfig.ExporterType.FILE, c.getExporterType());
         assertEquals(TelemetryConfig.Protocol.GRPC, c.getProtocol());
         assertEquals(5, c.getTimeoutMs());
         assertEquals("secret", c.getTruststorePass());
@@ -110,7 +106,6 @@ public class TelemetryConfigTest {
         assertEquals(30, c.getMaxQueueSize());
         assertFalse(c.isJmxBridgeEnabled());
         assertTrue(c.isIncludeExceptionDetails());
-        assertTrue(c.isExportConfigured());
     }
 
     @Test
@@ -127,7 +122,6 @@ public class TelemetryConfigTest {
         assertNull(c.getLogsEndpoint());
         assertNull(c.getMetricsEndpoint());
         c.setEndpoint("http://collector:4318");
-        assertTrue(c.isExportConfigured());
         assertEquals("http://collector:4318/v1/traces", c.getTracesEndpoint());
         assertEquals("http://collector:4318/v1/logs", c.getLogsEndpoint());
         assertEquals("http://collector:4318/v1/metrics", c.getMetricsEndpoint());
@@ -137,13 +131,6 @@ public class TelemetryConfigTest {
         assertEquals("http://t", c.getTracesEndpoint());
         assertEquals("http://l", c.getLogsEndpoint());
         assertEquals("http://m", c.getMetricsEndpoint());
-    }
-
-    @Test
-    public void anySpecificEndpointCountsAsExportConfigured() {
-        TelemetryConfig c = new TelemetryConfig();
-        c.setMetricsEndpoint("http://m");
-        assertTrue(c.isExportConfigured());
     }
 
     @Test
@@ -183,22 +170,10 @@ public class TelemetryConfigTest {
     public void pathSettersDoNotTouchDisk() {
         TelemetryConfig c = new TelemetryConfig();
         c.setTruststoreFile(Path.of("/nonexistent/ts.p12"));
-        c.setFileTracesPath(Path.of("/nonexistent/traces"));
-        c.setFileLogsPath(Path.of("/nonexistent/logs"));
-        c.setFileMetricsPath(Path.of("/nonexistent/metrics"));
         assertEquals(Path.of("/nonexistent/ts.p12"), c.getTruststoreFile());
-        assertEquals(Path.of("/nonexistent/traces"), c.getFileTracesPath());
-        assertEquals(Path.of("/nonexistent/logs"), c.getFileLogsPath());
-        assertEquals(Path.of("/nonexistent/metrics"), c.getFileMetricsPath());
         Path p = Path.of("/other");
         c.setTruststoreFile(p);
-        c.setFileTracesPath(p);
-        c.setFileLogsPath(p);
-        c.setFileMetricsPath(p);
         assertSame(p, c.getTruststoreFile());
-        assertSame(p, c.getFileTracesPath());
-        assertSame(p, c.getFileLogsPath());
-        assertSame(p, c.getFileMetricsPath());
     }
 
     @Test
@@ -242,11 +217,28 @@ public class TelemetryConfigTest {
     }
 
     @Test
-    public void shutdownIsIdempotentWithoutExporter() {
+    public void shutdownIsIdempotent() {
         TelemetryConfig c = new TelemetryConfig();
+        RecordingExporter exporter = new RecordingExporter();
+        c.setExporter(exporter);
         c.shutdown();
         assertTrue(c.isShuttingDown());
         c.shutdown();
+        assertEquals(1, exporter.forceFlushes);
+        assertEquals(1, exporter.shutdowns);
+    }
+
+    @Test
+    public void exporterTreeDecidesWhatIsAccepted() {
+        TelemetryConfig c = new TelemetryConfig();
+        RecordingExporter access = new RecordingExporter(LogLevel.ACCESS);
+        c.setExporter(new TeeExporter(new DefaultExporter(), access));
+        assertTrue(c.accepts(LogLevel.INFO));
+        assertTrue(c.accepts(LogLevel.ACCESS));
+        assertFalse(c.accepts(LogLevel.QLOG));
+        Trace trace = c.createTrace("root");
+        trace.end();
+        assertSame(trace, access.traces.get(0));
     }
 
     @Test

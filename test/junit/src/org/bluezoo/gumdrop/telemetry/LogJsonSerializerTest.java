@@ -42,7 +42,7 @@ public class LogJsonSerializerTest {
 
     @Test
     public void testSerializeSingleLog() throws IOException {
-        LogRecord record = new LogRecord(LogRecord.SEVERITY_INFO, "Test message");
+        LogRecord record = new LogRecord(LogLevel.INFO, "info.test").body("Test message");
 
         String json = serializeLog(record, "test-service");
 
@@ -57,7 +57,7 @@ public class LogJsonSerializerTest {
     public void testSerializeLogWithSpanContext() throws IOException {
         Trace trace = new Trace("test-op", SpanKind.SERVER);
         Span span = trace.getRootSpan();
-        LogRecord record = LogRecord.info(span, "Correlated log");
+        LogRecord record = new LogRecord(LogLevel.INFO, "info.test").body("Correlated log").span(span);
 
         String json = serializeLog(record, "test-service");
 
@@ -67,8 +67,8 @@ public class LogJsonSerializerTest {
 
     @Test
     public void testSerializeLogWithAttributes() throws IOException {
-        LogRecord record = new LogRecord(LogRecord.SEVERITY_WARN, "Warning message");
-        record.addAttribute("request.id", "abc-123");
+        LogRecord record = new LogRecord(LogLevel.WARN, "warn.test").body("Warning message");
+        record.attr("request.id", "abc-123");
 
         String json = serializeLog(record, "test-service");
 
@@ -80,8 +80,8 @@ public class LogJsonSerializerTest {
     @Test
     public void testSerializeLogBatch() throws IOException {
         List<LogRecord> records = new ArrayList<LogRecord>();
-        records.add(new LogRecord(LogRecord.SEVERITY_INFO, "Message 1"));
-        records.add(new LogRecord(LogRecord.SEVERITY_ERROR, "Message 2"));
+        records.add(new LogRecord(LogLevel.INFO, "info.test").body("Message 1"));
+        records.add(new LogRecord(LogLevel.ERROR, "err.test").body("Message 2"));
 
         LogJsonSerializer serializer = new LogJsonSerializer("test-service");
         ByteArrayOutputStream out = new ByteArrayOutputStream();
@@ -95,7 +95,7 @@ public class LogJsonSerializerTest {
 
     @Test
     public void testLogTimestampsAreStrings() throws IOException {
-        LogRecord record = new LogRecord(LogRecord.SEVERITY_INFO, "Timestamp test");
+        LogRecord record = new LogRecord(LogLevel.INFO, "info.test").body("Timestamp test");
 
         String json = serializeLog(record, "test-service");
 

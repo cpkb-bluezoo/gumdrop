@@ -21,62 +21,118 @@
 
 package org.bluezoo.gumdrop.telemetry.access;
 
+import org.bluezoo.gumdrop.telemetry.LogLevel;
+import org.bluezoo.gumdrop.telemetry.LogRecord;
+import org.bluezoo.gumdrop.telemetry.Span;
 import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
 
-import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.net.SocketAddress;
 import java.security.Principal;
-import java.text.MessageFormat;
-import java.util.ResourceBundle;
-import java.util.logging.Level;
-import java.util.logging.Logger;
 
 /**
- * Records completed HTTP requests to the configured access log file.
+ * Emits one {@link LogLevel#ACCESS} record per completed HTTP request.
+ * The record's event name is {@link #EVENT_NAME}, its attributes are
+ * the access fields named here, and it carries the request span when
+ * there is one. Every exporter that accepts the level receives it: an
+ * {@link AccessLogExporter} writes the CLF or ELFF line, OTLP or JSONL
+ * exports the record as it is.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 public final class HttpAccessLog {
 
-    private static final ResourceBundle L10N =
-            ResourceBundle.getBundle("org.bluezoo.gumdrop.telemetry.L10N");
-    private static final Logger LOGGER = Logger.getLogger(HttpAccessLog.class.getName());
+    /** The event name of an access record. */
+    public static final String EVENT_NAME = "http.server.request";
+
+    /** The client host, as an address or a name. */
+    public static final String CLIENT_ADDRESS = "client.address";
+
+    /** The request method. */
+    public static final String METHOD = "http.request.method";
+
+    /** The request target, as it appeared in the request. */
+    public static final String TARGET = "http.request.target";
+
+    /** The protocol version, such as {@code HTTP/1.1}. */
+    public static final String PROTOCOL_VERSION = "network.protocol.version";
+
+    /** The response status code. */
+    public static final String STATUS_CODE = "http.response.status_code";
+
+    /** The number of response body bytes sent. */
+    public static final String RESPONSE_BYTES = "http.response.body.size";
+
+    /** The user the protocol authenticated, such as a TLS client certificate's. */
+    public static final String PROTOCOL_USER = "enduser.id";
+
+    /** The user the application authenticated. */
+    public static final String APPLICATION_USER = "gumdrop.application.user";
 
     private HttpAccessLog() {
     }
 
-    public static void record(TelemetryConfig config, long timeEpochMillis,
+    /**
+     * Builds the access record for a completed request and hands it to
+     * the exporter, when any exporter accepts access records.
+     *
+     * @param config the telemetry configuration, or null for none
+     * @param span the request span, or null for none
+     * @param timeEpochMillis when the request completed
+     * @param remoteAddress the client's address
+     * @param method the request method
+     * @param requestTarget the request target
+     * @param protocolVersion the protocol version
+     * @param protocolPrincipal the user the protocol authenticated, or null
+     * @param applicationPrincipal the user the application authenticated, or null
+     * @param statusCode the response status
+     * @param responseBytes the response body size
+     */
+    public static void record(TelemetryConfig config, Span span, long timeEpochMillis,
             SocketAddress remoteAddress, String method, String requestTarget,
             String protocolVersion, Principal protocolPrincipal,
             Principal applicationPrincipal, int statusCode, long responseBytes) {
-        if (config == null) {
+        if (config == null || !config.accepts(LogLevel.ACCESS)) {
             return;
         }
-        HttpAccessLogWriter writer = config.getAccessLogWriter();
-        if (writer == null) {
-            return;
+        config.getExporter().export(toRecord(span, timeEpochMillis, remoteAddress, method,
+                requestTarget, protocolVersion, protocolPrincipal, applicationPrincipal,
+                statusCode, responseBytes));
+    }
+
+    /**
+     * Builds the access record for a completed request.
+     *
+     * @return the record
+     * @see #record
+     */
+    public static LogRecord toRecord(Span span, long timeEpochMillis,
+            SocketAddress remoteAddress, String method, String requestTarget,
+            String protocolVersion, Principal protocolPrincipal,
+            Principal applicationPrincipal, int statusCode, long responseBytes) {
+        LogRecord record = new LogRecord(timeEpochMillis * 1_000_000L, LogLevel.ACCESS, EVENT_NAME);
+        record.span(span);
+        record.attr(CLIENT_ADDRESS, clientHost(remoteAddress));
+        if (method != null) {
+            record.attr(METHOD, method);
         }
-        String clientHost = clientHost(remoteAddress);
+        if (requestTarget != null) {
+            record.attr(TARGET, requestTarget);
+        }
+        if (protocolVersion != null) {
+            record.attr(PROTOCOL_VERSION, protocolVersion);
+        }
+        record.attr(STATUS_CODE, statusCode);
+        record.attr(RESPONSE_BYTES, responseBytes);
         String protocolUser = nameOf(protocolPrincipal);
-        String applicationUser = nameOf(applicationPrincipal);
-        HttpAccessRecord record = new HttpAccessRecord(
-                timeEpochMillis,
-                clientHost,
-                protocolUser,
-                applicationUser,
-                method,
-                requestTarget,
-                protocolVersion,
-                statusCode,
-                responseBytes);
-        try {
-            writer.write(record);
-        } catch (IOException e) {
-            LOGGER.log(Level.SEVERE,
-                    MessageFormat.format(L10N.getString("err.access_log_write_failed"),
-                            e.getMessage()), e);
+        if (protocolUser != null) {
+            record.attr(PROTOCOL_USER, protocolUser);
         }
+        String applicationUser = nameOf(applicationPrincipal);
+        if (applicationUser != null) {
+            record.attr(APPLICATION_USER, applicationUser);
+        }
+        return record;
     }
 
     private static String clientHost(SocketAddress remoteAddress) {
@@ -91,6 +147,10 @@ public final class HttpAccessLog {
     }
 
     private static String nameOf(Principal principal) {
-        return principal != null ? principal.getName() : null;
+        if (principal == null) {
+            return null;
+        }
+        String name = principal.getName();
+        return name == null || name.isEmpty() ? null : name;
     }
 }

@@ -1,6 +1,6 @@
 /*
  * TelemetryExporter.java
- * Copyright (C) 2025 Chris Burdess
+ * Copyright (C) 2025, 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
  * For more information please visit https://www.nongnu.org/gumdrop/
@@ -26,9 +26,14 @@ import org.bluezoo.gumdrop.telemetry.metrics.MetricData;
 import java.util.List;
 
 /**
- * Interface for exporting trace, log, and metric data.
- * Implementations may send data to an OpenTelemetry Collector,
- * log to a file, or export to other observability backends.
+ * A destination for traces, log records and metrics. Exporters are
+ * composed into a tree with {@link TeeExporter} and set on a
+ * {@link TelemetryConfig}; the tree is asked what it {@linkplain
+ * #accepts accepts} so that nobody builds what nothing will take.
+ *
+ * <p>An exporter is handed every record the tree receives and takes the
+ * ones whose level it accepts. It must not block the thread that calls
+ * it: records are queued and written by a thread of the exporter's own.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
@@ -42,7 +47,8 @@ public interface TelemetryExporter {
     void export(Trace trace);
 
     /**
-     * Exports a log record.
+     * Exports a log record. A record of a level this exporter does not
+     * accept is ignored.
      *
      * @param record the log record to export
      */
@@ -56,23 +62,25 @@ public interface TelemetryExporter {
     void export(List<MetricData> metrics);
 
     /**
+     * Returns whether this exporter takes log records of a level.
+     *
+     * @param level the level
+     * @return true if records of that level are exported
+     */
+    boolean accepts(LogLevel level);
+
+    /**
+     * Returns whether this exporter takes traces.
+     *
+     * @return true if traces are exported
+     */
+    boolean acceptsTraces();
+
+    /**
      * Flushes any buffered telemetry data.
      * This method blocks until the flush is complete.
      */
     void flush();
-
-    /**
-     * Returns whether this exporter takes log records tagged for a
-     * channel (see {@link LogRecord#CHANNEL_ATTRIBUTE}). A tagged record
-     * reaches only the exporters that claim its channel, so a high-volume
-     * stream meant for one exporter does not flood the others.
-     *
-     * @param channel the channel
-     * @return true if this exporter takes records for it; false by default
-     */
-    default boolean claimsChannel(String channel) {
-        return false;
-    }
 
     /**
      * Flushes any buffered telemetry data, waiting for in-flight export to finish.
@@ -88,5 +96,3 @@ public interface TelemetryExporter {
     void shutdown();
 
 }
-
-

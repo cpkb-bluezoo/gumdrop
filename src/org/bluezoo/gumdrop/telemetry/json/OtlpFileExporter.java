@@ -22,6 +22,7 @@
 package org.bluezoo.gumdrop.telemetry.json;
 
 import org.bluezoo.gumdrop.Gumdrop;
+import org.bluezoo.gumdrop.telemetry.LogLevel;
 import org.bluezoo.gumdrop.telemetry.LogRecord;
 import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
 import org.bluezoo.gumdrop.telemetry.TelemetryExporter;
@@ -42,6 +43,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
+import java.util.EnumSet;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ArrayBlockingQueue;
@@ -71,14 +73,12 @@ import java.util.ResourceBundle;
  *
  * <h3>Configuration</h3>
  * <pre>
- * &lt;component id="telemetry" class="org.bluezoo.gumdrop.telemetry.TelemetryConfig"&gt;
- *     &lt;property name="service-name"&gt;my-service&lt;/property&gt;
- *     &lt;property name="exporter-type"&gt;file&lt;/property&gt;
- *     &lt;property name="file-traces-path"&gt;/var/log/otel/traces.jsonl&lt;/property&gt;
- *     &lt;property name="file-logs-path"&gt;/var/log/otel/logs.jsonl&lt;/property&gt;
- *     &lt;property name="file-metrics-path"&gt;/var/log/otel/metrics.jsonl&lt;/property&gt;
- *     &lt;property name="file-buffer-size"&gt;8192&lt;/property&gt;
- * &lt;/component&gt;
+ * TelemetryConfig telemetry = new TelemetryConfig();
+ * telemetry.setServiceName("my-service");
+ * telemetry.setExporter(new OtlpFileExporter(telemetry,
+ *         Path.of("/var/log/otel/traces.jsonl"),
+ *         Path.of("/var/log/otel/logs.jsonl"),
+ *         Path.of("/var/log/otel/metrics.jsonl")));
  * </pre>
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
@@ -105,6 +105,7 @@ private static final Logger logger = Logger.getLogger(OtlpFileExporter.class.get
     private final BlockingQueue<List<MetricData>> metricQueue;
 
     private final ExportThread exportThread;
+    private final EnumSet<LogLevel> levels = EnumSet.of(LogLevel.INFO, LogLevel.WARN, LogLevel.ERROR);
     private volatile boolean running;
 
     /**
@@ -222,6 +223,33 @@ private static final Logger logger = Logger.getLogger(OtlpFileExporter.class.get
         }
     }
 
+    /**
+     * Sets the levels of log record this exporter takes. The default is
+     * the operational levels: INFO, WARN and ERROR.
+     *
+     * @param levels the levels
+     */
+    public void setLevels(LogLevel... levels) {
+        synchronized (this.levels) {
+            this.levels.clear();
+            for (LogLevel level : levels) {
+                this.levels.add(level);
+            }
+        }
+    }
+
+    @Override
+    public boolean accepts(LogLevel level) {
+        synchronized (levels) {
+            return levels.contains(level);
+        }
+    }
+
+    @Override
+    public boolean acceptsTraces() {
+        return true;
+    }
+
     @Override
     public void export(Trace trace) {
         if (!running || trace == null) {
@@ -238,7 +266,7 @@ private static final Logger logger = Logger.getLogger(OtlpFileExporter.class.get
 
     @Override
     public void export(LogRecord record) {
-        if (!running || record == null) {
+        if (!running || record == null || !accepts(record.getLevel())) {
             return;
         }
         if (!logQueue.offer(record)) {

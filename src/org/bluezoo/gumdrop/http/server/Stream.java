@@ -72,6 +72,7 @@ import org.bluezoo.gumdrop.websocket.WebSocketSession;
 import org.bluezoo.gumdrop.telemetry.ErrorCategory;
 import org.bluezoo.gumdrop.telemetry.Span;
 import org.bluezoo.gumdrop.telemetry.SpanKind;
+import org.bluezoo.gumdrop.telemetry.LogLevel;
 import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
 import org.bluezoo.gumdrop.telemetry.access.HttpAccessLog;
 import org.bluezoo.gumdrop.telemetry.Trace;
@@ -1365,9 +1366,10 @@ class Stream implements HttpResponse {
         long completedAt = timestampCompleted > 0
                 ? timestampCompleted : System.currentTimeMillis();
         TelemetryConfig telemetryConfig = connection.getTelemetryConfig();
-        if (telemetryConfig != null && telemetryConfig.isAccessLogEnabled()) {
+        if (telemetryConfig != null && telemetryConfig.accepts(LogLevel.ACCESS)) {
             HttpAccessLog.record(
                     telemetryConfig,
+                    span,
                     completedAt,
                     connection.getRemoteSocketAddress(),
                     method,

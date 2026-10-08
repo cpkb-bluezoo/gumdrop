@@ -33,8 +33,8 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 
 import org.bluezoo.gumdrop.quic.QuicTransportFactory;
+import org.bluezoo.gumdrop.telemetry.QlogExporter;
 import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
-import org.bluezoo.gumdrop.telemetry.export.QlogExporter;
 import org.bluezoo.gumdrop.tls.KeyLog;
 
 /**
@@ -170,9 +170,8 @@ final class InteropEnvironment {
         TelemetryConfig telemetry = qlogTelemetry(System.getenv("QLOGDIR"));
         if (telemetry != null) {
             factory.setTelemetryConfig(telemetry);
-            factory.setQlogEnabled(true);
             Logger.getLogger(InteropEnvironment.class.getName())
-                    .info("writing qlog to " + telemetry.getQlogDirectory());
+                    .info("writing qlog to " + System.getenv("QLOGDIR"));
         }
     }
 
@@ -191,7 +190,6 @@ final class InteropEnvironment {
         }
         Path path = Path.of(directory);
         TelemetryConfig telemetry = new TelemetryConfig();
-        telemetry.setQlogDirectory(path);
         telemetry.setExporter(new QlogExporter(path, QlogExporter.DEFAULT_QUEUE_SIZE));
         return telemetry;
     }

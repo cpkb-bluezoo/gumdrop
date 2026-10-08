@@ -19,7 +19,7 @@
  * along with gumdrop.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-package org.bluezoo.gumdrop.telemetry.export;
+package org.bluezoo.gumdrop.telemetry;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
@@ -35,10 +35,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
-import org.bluezoo.gumdrop.telemetry.LogRecord;
-import org.bluezoo.gumdrop.telemetry.QlogAttributes;
-import org.bluezoo.gumdrop.telemetry.SpanKind;
-import org.bluezoo.gumdrop.telemetry.Trace;
 import org.bluezoo.gumdrop.testsupport.FlatJson;
 import org.bluezoo.gumdrop.testsupport.memfs.MemoryTemp;
 import org.junit.After;
@@ -75,13 +71,11 @@ public class QlogExporterTest {
     }
 
     static LogRecord event(long timeNanos, String group, String vantage, String name, String data) {
-        LogRecord r = new LogRecord(timeNanos, LogRecord.SEVERITY_DEBUG, data);
-        r.addAttribute(LogRecord.CHANNEL_ATTRIBUTE, QlogAttributes.CHANNEL);
-        r.addAttribute(QlogAttributes.NAME, name);
-        r.addAttribute(QlogAttributes.SCHEMA, QlogAttributes.SCHEMA_QUIC);
-        r.addAttribute(QlogAttributes.GROUP_ID, group);
-        r.addAttribute(QlogAttributes.VANTAGE_POINT, vantage);
-        return r;
+        return new LogRecord(timeNanos, LogLevel.QLOG, name)
+                .body(data)
+                .attr(QlogAttributes.SCHEMA, QlogAttributes.SCHEMA_QUIC)
+                .attr(QlogAttributes.GROUP_ID, group)
+                .attr(QlogAttributes.VANTAGE_POINT, vantage);
     }
 
     /** The records of a JSON-SEQ file, as text without the framing. */
@@ -182,12 +176,10 @@ public class QlogExporterTest {
     }
 
     @Test
-    public void recordsForOtherChannelsAndOtherSignalsAreIgnored() throws Exception {
+    public void recordsOfOtherLevelsAndOtherSignalsAreIgnored() throws Exception {
         QlogExporter e = new QlogExporter(dir, 1000);
-        e.export(new LogRecord(LogRecord.SEVERITY_INFO, "plain"));
-        LogRecord other = new LogRecord(LogRecord.SEVERITY_INFO, "{}");
-        other.addAttribute(LogRecord.CHANNEL_ATTRIBUTE, "other");
-        e.export(other);
+        e.export(new LogRecord(LogLevel.INFO, "info.plain"));
+        e.export(new LogRecord(LogLevel.ACCESS, "http.server.request").body("{}"));
         e.export(new Trace("t", SpanKind.SERVER));
         e.export(new ArrayList<org.bluezoo.gumdrop.telemetry.metrics.MetricData>());
         e.export((LogRecord) null);
@@ -198,8 +190,9 @@ public class QlogExporterTest {
         } finally {
             files.close();
         }
-        assertTrue(e.claimsChannel("qlog"));
-        assertFalse(e.claimsChannel("other"));
+        assertTrue(e.accepts(LogLevel.QLOG));
+        assertFalse(e.accepts(LogLevel.INFO));
+        assertFalse(e.acceptsTraces());
     }
 
     @Test

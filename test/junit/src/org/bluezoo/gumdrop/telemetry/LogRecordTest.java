@@ -1,6 +1,6 @@
 /*
  * LogRecordTest.java
- * Copyright (C) 2025 Chris Burdess
+ * Copyright (C) 2025, 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
  * For more information please visit https://www.nongnu.org/gumdrop/
@@ -21,304 +21,149 @@
 
 package org.bluezoo.gumdrop.telemetry;
 
-import org.junit.Test;
-import static org.junit.Assert.*;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertSame;
+import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
 
 import java.util.List;
 
+import org.junit.Test;
+
 /**
- * Unit tests for {@link LogRecord}.
- *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 public class LogRecordTest {
 
-    // ========================================================================
-    // Construction Tests
-    // ========================================================================
-
     @Test
-    public void testBasicConstruction() {
-        LogRecord log = new LogRecord(LogRecord.SEVERITY_INFO, "Test message");
-        
-        assertEquals(LogRecord.SEVERITY_INFO, log.getSeverityNumber());
-        assertEquals("INFO", log.getSeverityText());
-        assertEquals("Test message", log.getBody());
-    }
-
-    @Test
-    public void testConstructionWithSpan() {
-        Trace trace = new Trace("test-operation", SpanKind.SERVER);
-        Span span = trace.getRootSpan();
-        
-        LogRecord log = new LogRecord(span, LogRecord.SEVERITY_WARN, "Warning message");
-        
-        assertTrue(log.hasSpanContext());
-        assertEquals(trace.getTraceId(), log.getTraceId());
-        assertEquals(span.getSpanId(), log.getSpanId());
-    }
-
-    @Test
-    public void testConstructionWithNullSpan() {
-        LogRecord log = new LogRecord(null, LogRecord.SEVERITY_INFO, "Message");
-        
-        assertFalse(log.hasSpanContext());
-        assertNull(log.getTraceId());
-        assertNull(log.getSpanId());
-    }
-
-    @Test
-    public void testTimestamp() {
+    public void recordOfNowIsStampedNow() {
         long before = System.currentTimeMillis() * 1_000_000L;
-        LogRecord log = new LogRecord(LogRecord.SEVERITY_INFO, "Message");
+        LogRecord r = new LogRecord(LogLevel.INFO, "info.started");
         long after = System.currentTimeMillis() * 1_000_000L;
-        
-        assertTrue("Timestamp should be >= before", log.getTimeUnixNano() >= before);
-        assertTrue("Timestamp should be <= after", log.getTimeUnixNano() <= after);
-    }
-
-    // ========================================================================
-    // Severity Level Tests
-    // ========================================================================
-
-    @Test
-    public void testSeverityTrace() {
-        LogRecord log = new LogRecord(LogRecord.SEVERITY_TRACE, "Trace");
-        
-        assertEquals(LogRecord.SEVERITY_TRACE, log.getSeverityNumber());
-        assertEquals("TRACE", log.getSeverityText());
+        assertTrue(r.getTimeUnixNano() >= before);
+        assertTrue(r.getTimeUnixNano() <= after);
+        assertEquals(LogLevel.INFO, r.getLevel());
+        assertEquals("info.started", r.getKey());
+        assertNull(r.getBody());
+        assertNull(r.getThrown());
+        assertNull(r.getScope());
+        assertNull(r.getResourceBundle());
+        assertTrue(r.getAttributes().isEmpty());
     }
 
     @Test
-    public void testSeverityDebug() {
-        LogRecord log = new LogRecord(LogRecord.SEVERITY_DEBUG, "Debug");
-        
-        assertEquals(LogRecord.SEVERITY_DEBUG, log.getSeverityNumber());
-        assertEquals("DEBUG", log.getSeverityText());
+    public void recordKeepsTheTimeItIsGiven() {
+        LogRecord r = new LogRecord(123_456_789L, LogLevel.QLOG, "quic:packet_sent");
+        assertEquals(123_456_789L, r.getTimeUnixNano());
     }
 
     @Test
-    public void testSeverityInfo() {
-        LogRecord log = new LogRecord(LogRecord.SEVERITY_INFO, "Info");
-        
-        assertEquals(LogRecord.SEVERITY_INFO, log.getSeverityNumber());
-        assertEquals("INFO", log.getSeverityText());
+    public void levelGivesTheOtlpSeverity() {
+        assertEquals(9, new LogRecord(LogLevel.INFO, "k").getSeverityNumber());
+        assertEquals("INFO", new LogRecord(LogLevel.INFO, "k").getSeverityText());
+        assertEquals(13, new LogRecord(LogLevel.WARN, "k").getSeverityNumber());
+        assertEquals("WARN", new LogRecord(LogLevel.WARN, "k").getSeverityText());
+        assertEquals(17, new LogRecord(LogLevel.ERROR, "k").getSeverityNumber());
+        assertEquals("ERROR", new LogRecord(LogLevel.ERROR, "k").getSeverityText());
+        assertEquals(9, new LogRecord(LogLevel.ACCESS, "k").getSeverityNumber());
+        assertEquals(5, new LogRecord(LogLevel.QLOG, "k").getSeverityNumber());
+        assertEquals("DEBUG", new LogRecord(LogLevel.QLOG, "k").getSeverityText());
     }
 
     @Test
-    public void testSeverityWarn() {
-        LogRecord log = new LogRecord(LogRecord.SEVERITY_WARN, "Warn");
-        
-        assertEquals(LogRecord.SEVERITY_WARN, log.getSeverityNumber());
-        assertEquals("WARN", log.getSeverityText());
-    }
-
-    @Test
-    public void testSeverityError() {
-        LogRecord log = new LogRecord(LogRecord.SEVERITY_ERROR, "Error");
-        
-        assertEquals(LogRecord.SEVERITY_ERROR, log.getSeverityNumber());
-        assertEquals("ERROR", log.getSeverityText());
-    }
-
-    @Test
-    public void testSeverityFatal() {
-        LogRecord log = new LogRecord(LogRecord.SEVERITY_FATAL, "Fatal");
-        
-        assertEquals(LogRecord.SEVERITY_FATAL, log.getSeverityNumber());
-        assertEquals("FATAL", log.getSeverityText());
-    }
-
-    @Test
-    public void testSeverityBetweenLevels() {
-        // OTLP severity numbers can be between levels
-        // The code uses <= comparison, so:
-        // 2 > TRACE(1) and <= DEBUG(5) -> DEBUG
-        LogRecord log2 = new LogRecord(2, "Between TRACE and DEBUG");
-        assertEquals("DEBUG", log2.getSeverityText());
-        
-        // 6 > DEBUG(5) and <= INFO(9) -> INFO
-        LogRecord log6 = new LogRecord(6, "Between DEBUG and INFO");
-        assertEquals("INFO", log6.getSeverityText());
-        
-        // 10 > INFO(9) and <= WARN(13) -> WARN
-        LogRecord log10 = new LogRecord(10, "Between INFO and WARN");
-        assertEquals("WARN", log10.getSeverityText());
-    }
-
-    @Test
-    public void testSeverityConstants() {
-        assertEquals(1, LogRecord.SEVERITY_TRACE);
-        assertEquals(5, LogRecord.SEVERITY_DEBUG);
-        assertEquals(9, LogRecord.SEVERITY_INFO);
-        assertEquals(13, LogRecord.SEVERITY_WARN);
-        assertEquals(17, LogRecord.SEVERITY_ERROR);
-        assertEquals(21, LogRecord.SEVERITY_FATAL);
-    }
-
-    // ========================================================================
-    // Factory Method Tests
-    // ========================================================================
-
-    @Test
-    public void testInfoFactory() {
-        Trace trace = new Trace("test", SpanKind.SERVER);
-        Span span = trace.getRootSpan();
-        
-        LogRecord log = LogRecord.info(span, "Info message");
-        
-        assertEquals(LogRecord.SEVERITY_INFO, log.getSeverityNumber());
-        assertEquals("Info message", log.getBody());
-        assertTrue(log.hasSpanContext());
-    }
-
-    @Test
-    public void testWarnFactory() {
-        Trace trace = new Trace("test", SpanKind.SERVER);
-        Span span = trace.getRootSpan();
-        
-        LogRecord log = LogRecord.warn(span, "Warning message");
-        
-        assertEquals(LogRecord.SEVERITY_WARN, log.getSeverityNumber());
-        assertEquals("Warning message", log.getBody());
-    }
-
-    @Test
-    public void testErrorFactory() {
-        Trace trace = new Trace("test", SpanKind.SERVER);
-        Span span = trace.getRootSpan();
-        
-        LogRecord log = LogRecord.error(span, "Error message");
-        
-        assertEquals(LogRecord.SEVERITY_ERROR, log.getSeverityNumber());
-        assertEquals("Error message", log.getBody());
-    }
-
-    @Test
-    public void testFactoryWithNullSpan() {
-        LogRecord log = LogRecord.info(null, "Message");
-        
-        assertFalse(log.hasSpanContext());
-    }
-
-    // ========================================================================
-    // Attribute Tests
-    // ========================================================================
-
-    @Test
-    public void testAddAttribute() {
-        LogRecord log = new LogRecord(LogRecord.SEVERITY_INFO, "Message");
-        
-        log.addAttribute("key", "value");
-        
-        List<Attribute> attrs = log.getAttributes();
-        assertEquals(1, attrs.size());
-        assertEquals("key", attrs.get(0).getKey());
-        assertEquals("value", attrs.get(0).getStringValue());
-    }
-
-    @Test
-    public void testAddAttributeObject() {
-        LogRecord log = new LogRecord(LogRecord.SEVERITY_INFO, "Message");
-        
-        Attribute attr = Attribute.integer("count", 42);
-        log.addAttribute(attr);
-        
-        List<Attribute> attrs = log.getAttributes();
-        assertEquals(1, attrs.size());
-        assertSame(attr, attrs.get(0));
-    }
-
-    @Test
-    public void testAddMultipleAttributes() {
-        LogRecord log = new LogRecord(LogRecord.SEVERITY_INFO, "Message");
-        log.addAttribute("key1", "value1");
-        log.addAttribute("key2", "value2");
-        
-        assertEquals(2, log.getAttributes().size());
-    }
-
-    @Test
-    public void testAddNullAttribute() {
-        LogRecord log = new LogRecord(LogRecord.SEVERITY_INFO, "Message");
-        
-        log.addAttribute((Attribute) null);
-        
-        assertEquals(0, log.getAttributes().size());
-    }
-
-    @Test
-    public void testAttributesUnmodifiable() {
-        LogRecord log = new LogRecord(LogRecord.SEVERITY_INFO, "Message");
-        log.addAttribute("key", "value");
-        
-        List<Attribute> attrs = log.getAttributes();
+    public void levelAndKeyAreRequired() {
         try {
-            attrs.add(Attribute.string("new", "attr"));
-            fail("Should throw UnsupportedOperationException");
-        } catch (UnsupportedOperationException e) {
-            // Expected
+            new LogRecord(null, "k");
+            fail();
+        } catch (IllegalArgumentException expected) {
+        }
+        try {
+            new LogRecord(LogLevel.INFO, null);
+            fail();
+        } catch (IllegalArgumentException expected) {
         }
     }
 
-    // ========================================================================
-    // Span Context Defensive Copy Tests
-    // ========================================================================
-
     @Test
-    public void testTraceIdDefensiveCopy() {
-        Trace trace = new Trace("test", SpanKind.SERVER);
-        LogRecord log = new LogRecord(trace.getRootSpan(), LogRecord.SEVERITY_INFO, "Message");
-        
-        byte[] id1 = log.getTraceId().getBytes();
-        byte[] id2 = log.getTraceId().getBytes();
-        
-        assertNotSame(id1, id2);
-        assertArrayEquals(id1, id2);
-        
-        id1[0] ^= (byte) 0xFF;
-        assertArrayEquals(id2, log.getTraceId().getBytes());
+    public void attributesKeepTheirOrderAndTypes() {
+        LogRecord r = new LogRecord(LogLevel.WARN, "k")
+                .attr("s", "text")
+                .attr("n", 42L)
+                .attr("b", true)
+                .attr("d", 2.5)
+                .addAttribute(Attribute.string("t", "tail"))
+                .addAttribute(null);
+        List<Attribute> attributes = r.getAttributes();
+        assertEquals(5, attributes.size());
+        assertEquals("s", attributes.get(0).getKey());
+        assertEquals(Attribute.TYPE_STRING, attributes.get(0).getType());
+        assertEquals("n", attributes.get(1).getKey());
+        assertEquals(42L, attributes.get(1).getIntValue());
+        assertEquals("b", attributes.get(2).getKey());
+        assertTrue(attributes.get(2).getBoolValue());
+        assertEquals("d", attributes.get(3).getKey());
+        assertEquals(2.5, attributes.get(3).getDoubleValue(), 0.0);
+        assertEquals("t", attributes.get(4).getKey());
+        assertEquals("text", r.getString("s"));
+        assertNull(r.getString("n"));
+        assertNull(r.getString("missing"));
+        assertSame(attributes.get(1), r.getAttribute("n"));
+        assertNull(r.getAttribute("missing"));
     }
 
     @Test
-    public void testSpanIdDefensiveCopy() {
-        Trace trace = new Trace("test", SpanKind.SERVER);
-        LogRecord log = new LogRecord(trace.getRootSpan(), LogRecord.SEVERITY_INFO, "Message");
-        
-        byte[] id1 = log.getSpanId().getBytes();
-        byte[] id2 = log.getSpanId().getBytes();
-        
-        assertNotSame(id1, id2);
-        assertArrayEquals(id1, id2);
-
-        id1[0] ^= (byte) 0xFF;
-        assertArrayEquals(id2, log.getSpanId().getBytes());
-    }
-
-    // ========================================================================
-    // toString Tests
-    // ========================================================================
-
-    @Test
-    public void testToString() {
-        LogRecord log = new LogRecord(LogRecord.SEVERITY_ERROR, "Error occurred");
-        
-        String str = log.toString();
-        assertTrue(str.contains("LogRecord"));
-        assertTrue(str.contains("ERROR"));
-        assertTrue(str.contains("Error occurred"));
-    }
-
-    // ========================================================================
-    // Helper Methods
-    // ========================================================================
-
-    private void assertArrayEquals(byte[] expected, byte[] actual) {
-        assertEquals("Array length mismatch", expected.length, actual.length);
-        for (int i = 0; i < expected.length; i++) {
-            assertEquals("Byte mismatch at index " + i, expected[i], actual[i]);
+    public void attributeListIsReadOnly() {
+        LogRecord r = new LogRecord(LogLevel.INFO, "k").attr("a", "b");
+        try {
+            r.getAttributes().clear();
+            fail();
+        } catch (UnsupportedOperationException expected) {
         }
+    }
+
+    @Test
+    public void nullStringKeepsItsPlace() {
+        LogRecord r = new LogRecord(LogLevel.INFO, "k").attr("first", (String) null).attr("second", "x");
+        assertEquals("", r.getAttributes().get(0).getStringValue());
+        assertEquals("x", r.getAttributes().get(1).getStringValue());
+    }
+
+    @Test
+    public void bodyAndThrowableAreCarried() {
+        Exception e = new IllegalStateException("bad");
+        LogRecord r = new LogRecord(LogLevel.ERROR, "k").body("{}").thrown(e);
+        assertEquals("{}", r.getBody());
+        assertSame(e, r.getThrown());
+    }
+
+    @Test
+    public void spanCorrelatesTheRecord() {
+        Trace trace = new Trace("op", SpanKind.SERVER);
+        Span span = trace.getRootSpan();
+        LogRecord r = new LogRecord(LogLevel.INFO, "k").span(span);
+        assertTrue(r.hasSpanContext());
+        assertEquals(trace.getTraceId(), r.getTraceId());
+        assertEquals(span.getSpanId(), r.getSpanId());
+        LogRecord none = new LogRecord(LogLevel.INFO, "k").span(null);
+        assertFalse(none.hasSpanContext());
+        assertNull(none.getTraceId());
+        assertNull(none.getSpanId());
+    }
+
+    @Test
+    public void recordBuiltOutsideALoggerCannotEmit() {
+        try {
+            new LogRecord(LogLevel.INFO, "k").emit();
+            fail();
+        } catch (IllegalStateException expected) {
+        }
+    }
+
+    @Test
+    public void toStringNamesLevelAndKey() {
+        assertEquals("LogRecord[WARN: warn.thing]", new LogRecord(LogLevel.WARN, "warn.thing").toString());
     }
 
 }
-

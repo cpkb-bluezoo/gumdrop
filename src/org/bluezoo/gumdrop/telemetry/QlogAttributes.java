@@ -22,8 +22,10 @@
 package org.bluezoo.gumdrop.telemetry;
 
 /**
- * The attributes a qlog event carries as a {@link LogRecord}: the record
- * body is the event's {@code data} object as JSON, and these name the rest
+ * The attributes a qlog event carries as a {@link LogRecord} of level
+ * {@link LogLevel#QLOG}: the record's key is the namespaced event name,
+ * such as {@code quic:packet_lost}, its body is the event's {@code data}
+ * object as JSON, and these name the rest
  * (draft-ietf-quic-qlog-main-schema-14 section 5.4).
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
@@ -32,12 +34,6 @@ public final class QlogAttributes {
 
     private QlogAttributes() {
     }
-
-    /** The channel qlog records are tagged with. */
-    public static final String CHANNEL = "qlog";
-
-    /** The namespaced event name, such as {@code quic:packet_lost}. */
-    public static final String NAME = "qlog.name";
 
     /** The URI of the event schema the event belongs to. */
     public static final String SCHEMA = "qlog.schema";

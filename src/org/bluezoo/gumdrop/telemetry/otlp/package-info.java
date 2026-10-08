@@ -32,9 +32,9 @@
  * and {@link org.bluezoo.gumdrop.telemetry.otlp.OtlpGrpcEndpoint} are the
  * OTLP/gRPC equivalents, framing the same protobuf payloads per the gRPC
  * wire format instead. Both implement {@link
- * org.bluezoo.gumdrop.telemetry.TelemetryExporter}, loaded via the
- * {@link org.bluezoo.gumdrop.telemetry.TelemetryExporterFactory} SPI
- * from the optional {@code gumdrop-telemetry.jar}.
+ * org.bluezoo.gumdrop.telemetry.TelemetryExporter} and are composed
+ * onto a {@link org.bluezoo.gumdrop.telemetry.TelemetryConfig}; they
+ * ship in the optional {@code gumdrop-telemetry.jar}.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see org.bluezoo.gumdrop.telemetry.TelemetryConfig

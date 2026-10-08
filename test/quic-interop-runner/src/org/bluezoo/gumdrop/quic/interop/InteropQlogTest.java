@@ -21,7 +21,6 @@
 
 package org.bluezoo.gumdrop.quic.interop;
 
-import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
@@ -29,6 +28,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 
+import org.bluezoo.gumdrop.telemetry.LogLevel;
 import org.bluezoo.gumdrop.telemetry.LogRecord;
 import org.bluezoo.gumdrop.telemetry.QlogAttributes;
 import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
@@ -52,13 +52,11 @@ public class InteropQlogTest {
         Path dir = Files.createTempDirectory("interop-qlog");
         try {
             TelemetryConfig telemetry = InteropEnvironment.qlogTelemetry(dir.toString());
-            assertTrue(telemetry.isQlogConfigured());
-            assertEquals(dir, telemetry.getQlogDirectory());
-            LogRecord event = new LogRecord(1_700_000_000_000_000_000L, LogRecord.SEVERITY_DEBUG, "{}");
-            event.addAttribute(LogRecord.CHANNEL_ATTRIBUTE, QlogAttributes.CHANNEL);
-            event.addAttribute(QlogAttributes.NAME, "quic:connection_started");
-            event.addAttribute(QlogAttributes.GROUP_ID, "0a0b");
-            event.addAttribute(QlogAttributes.VANTAGE_POINT, "server");
+            assertTrue(telemetry.accepts(LogLevel.QLOG));
+            LogRecord event = new LogRecord(1_700_000_000_000_000_000L, LogLevel.QLOG, "quic:connection_started")
+                    .body("{}")
+                    .attr(QlogAttributes.GROUP_ID, "0a0b")
+                    .attr(QlogAttributes.VANTAGE_POINT, "server");
             telemetry.getExporter().export(event);
             telemetry.shutdown();
             Path file = dir.resolve("0a0b_server.sqlog");

@@ -23,6 +23,7 @@ package org.bluezoo.gumdrop.telemetry.otlp;
 
 import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.GumdropConfig;
+import org.bluezoo.gumdrop.telemetry.LogLevel;
 import org.bluezoo.gumdrop.telemetry.LogRecord;
 import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
 import org.bluezoo.gumdrop.telemetry.TelemetryExporter;
@@ -34,6 +35,7 @@ import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.text.MessageFormat;
 import java.util.ArrayList;
+import java.util.EnumSet;
 import java.util.List;
 import java.util.Map;
 import java.util.ResourceBundle;
@@ -92,6 +94,7 @@ public class OtlpGrpcExporter implements TelemetryExporter {
         return exportThread;
     }
 
+    private final EnumSet<LogLevel> levels = EnumSet.of(LogLevel.INFO, LogLevel.WARN, LogLevel.ERROR);
     private volatile boolean running;
 
     // Standalone runtime for this exporter's outbound HTTP client
@@ -177,6 +180,33 @@ public class OtlpGrpcExporter implements TelemetryExporter {
         return OtlpGrpcEndpoint.create(runtime, endpointName, url, grpcPath, headers, config);
     }
 
+    /**
+     * Sets the levels of log record this exporter takes. The default is
+     * the operational levels: INFO, WARN and ERROR.
+     *
+     * @param levels the levels
+     */
+    public void setLevels(LogLevel... levels) {
+        synchronized (this.levels) {
+            this.levels.clear();
+            for (LogLevel level : levels) {
+                this.levels.add(level);
+            }
+        }
+    }
+
+    @Override
+    public boolean accepts(LogLevel level) {
+        synchronized (levels) {
+            return logsEndpoint != null && levels.contains(level);
+        }
+    }
+
+    @Override
+    public boolean acceptsTraces() {
+        return tracesEndpoint != null;
+    }
+
     @Override
     public void export(Trace trace) {
         if (!running || trace == null) {
@@ -193,7 +223,7 @@ public class OtlpGrpcExporter implements TelemetryExporter {
 
     @Override
     public void export(LogRecord record) {
-        if (!running || record == null) {
+        if (!running || record == null || !accepts(record.getLevel())) {
             return;
         }
         if (!logQueue.offer(record)) {

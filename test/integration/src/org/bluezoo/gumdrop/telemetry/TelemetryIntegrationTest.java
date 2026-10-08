@@ -112,9 +112,9 @@ public class TelemetryIntegrationTest {
             telemetryConfig.setTruststorePass("testpass");
         }
 
-        // Initialize the config - this automatically creates the exporter
+        exporter = new OtlpExporter(telemetryConfig);
+        telemetryConfig.setExporter(exporter);
         telemetryConfig.init();
-        exporter = (OtlpExporter) telemetryConfig.getExporter();
 
         // Create HTTP server with telemetry enabled
         httpServer = new Http2Listener();

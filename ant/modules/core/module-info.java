@@ -43,5 +43,4 @@ module org.bluezoo.gumdrop.core {
     opens org.bluezoo.gumdrop.telemetry to org.bluezoo.gumdrop.telemetry.export;
 
     uses org.bluezoo.gumdrop.mailbox.spi.MailboxLifecycle;
-    uses org.bluezoo.gumdrop.telemetry.TelemetryExporterFactory;
 }

@@ -1,2 +1,0 @@
-org.bluezoo.gumdrop.telemetry.export.DefaultTelemetryExporterFactory
-org.bluezoo.gumdrop.telemetry.export.QlogExporterFactory

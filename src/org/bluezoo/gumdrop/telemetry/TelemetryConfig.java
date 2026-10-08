@@ -22,55 +22,47 @@
 package org.bluezoo.gumdrop.telemetry;
 
 import org.bluezoo.gumdrop.tls.KeystoreFormat;
-import org.bluezoo.gumdrop.telemetry.access.AccessLogFormat;
-import org.bluezoo.gumdrop.telemetry.access.AccessLogUserSelection;
-import org.bluezoo.gumdrop.telemetry.access.HttpAccessLogWriter;
 import org.bluezoo.gumdrop.telemetry.metrics.AggregationTemporality;
 import org.bluezoo.gumdrop.telemetry.metrics.Meter;
 
-import java.io.IOException;
 import java.nio.file.Path;
-import java.text.MessageFormat;
-import java.util.ArrayList;
 import java.util.Collections;
-import java.util.List;
 import java.util.ResourceBundle;
 import java.util.HashMap;
 import java.util.Map;
-import java.util.ServiceLoader;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.logging.Level;
-import java.util.logging.Logger;
 
 /**
- * Top-level telemetry configuration for Gumdrop.
- * Composed in Java and attached to a listener with {@link
- * org.bluezoo.gumdrop.Listener#setTelemetryConfig}.
+ * Top-level telemetry configuration for Gumdrop: where traces, log
+ * events and metrics go. Composed in Java and attached to a listener
+ * with {@link org.bluezoo.gumdrop.Listener#setTelemetryConfig}.
  *
- * <p>The presence of a TelemetryConfig (non-null) on a connector indicates
- * that telemetry is enabled. There is no separate "enabled" flag.
+ * <p>The destinations are a tree of {@link TelemetryExporter}s, set
+ * with {@link #setExporter}: one exporter, or several joined by
+ * {@link TeeExporter}. A fresh configuration has the {@link
+ * DefaultExporter}, which prints log events through
+ * {@code java.util.logging} and takes nothing else. Each exporter
+ * takes the log levels it is configured for, so one tree can send
+ * operational events to the console and a collector, access events to
+ * a file, and qlog events to a qlog directory.
  *
- * <p>Example configuration:
  * <pre>
  * TelemetryConfig telemetry = new TelemetryConfig();
  * telemetry.setServiceName("my-service");
- * telemetry.setServiceVersion("1.0.0");
- * telemetry.setEndpoint("http://localhost:4318");
+ * telemetry.setEndpoint("https://collector:4318");
+ * telemetry.setExporter(new TeeExporter(new OtlpExporter(telemetry), new DefaultExporter()));
  * telemetry.init();
  * </pre>
+ *
+ * <p>Classes emit operational events through the {@link EventLogger}
+ * that {@link #getLogger} returns for them.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 public class TelemetryConfig {
 
-    private static final ResourceBundle L10N =
-            ResourceBundle.getBundle("org.bluezoo.gumdrop.telemetry.L10N");
-
-    private static final Logger logger = Logger.getLogger(TelemetryConfig.class.getName());
-
     // Feature flags (traces/logs/metrics can be individually disabled)
     private boolean tracesEnabled = true;
-    private boolean logsEnabled = true;
     private boolean metricsEnabled = true;
 
     // Resource attributes
@@ -80,7 +72,6 @@ public class TelemetryConfig {
     private String serviceInstanceId;
     private String deploymentEnvironment;
 
-    private ExporterType exporterType = ExporterType.OTLP;
 
     // OTLP exporter settings
     private String endpoint;
@@ -98,20 +89,7 @@ public class TelemetryConfig {
     private KeystoreFormat truststoreFormat = KeystoreFormat.PKCS12;
 
     // File exporter settings
-    private Path fileTracesPath;
-    private Path fileLogsPath;
-    private Path fileMetricsPath;
     private int fileBufferSize = 8192; // 8KB default
-
-    // Directory for qlog files (draft-ietf-quic-qlog-main-schema), or null for none
-    private Path qlogDirectory;
-
-    // HTTP access log (local file, not OTLP)
-    private Path accessLogPath;
-    private AccessLogFormat accessLogFormat = AccessLogFormat.CLF;
-    private AccessLogUserSelection accessLogUserSelection =
-            AccessLogUserSelection.PROTOCOL_FIRST;
-    private HttpAccessLogWriter accessLogWriter;
 
     // Metrics configuration
     private AggregationTemporality metricsTemporality = AggregationTemporality.CUMULATIVE;
@@ -128,8 +106,11 @@ public class TelemetryConfig {
     // Additional resource attributes
     private Map<String, String> resourceAttributes;
 
-    // The exporter instance (created when start() is called)
-    private TelemetryExporter exporter;
+    // The exporter tree: where everything goes
+    private TelemetryExporter exporter = new DefaultExporter();
+
+    // Event loggers, by instrumentation scope
+    private final Map<String, EventLogger> loggers = new ConcurrentHashMap<String, EventLogger>();
 
     // Meter registry - maps scope name to meter instance
     private final Map<String, Meter> meters = new ConcurrentHashMap<>();
@@ -162,23 +143,6 @@ public class TelemetryConfig {
      */
     public void setTracesEnabled(boolean tracesEnabled) {
         this.tracesEnabled = tracesEnabled;
-    }
-
-    /**
-     * Returns true if log collection is enabled.
-     * Logs are enabled by default when TelemetryConfig is present.
-     */
-    public boolean isLogsEnabled() {
-        return logsEnabled;
-    }
-
-    /**
-     * Enables or disables log collection.
-     *
-     * @param logsEnabled true to enable logs
-     */
-    public void setLogsEnabled(boolean logsEnabled) {
-        this.logsEnabled = logsEnabled;
     }
 
     /**
@@ -297,44 +261,12 @@ public class TelemetryConfig {
         resourceAttributes.put(key, value);
     }
 
-    // -- Exporter type --
-
-    /** Where telemetry is exported to. */
-    public enum ExporterType {
-        /** OTLP export to a collector. */
-        OTLP,
-        /** JSONL export to files. */
-        FILE
-    }
-
     /** The OTLP transport used when exporting to a collector. */
     public enum Protocol {
         /** OTLP over HTTP with protobuf bodies. */
         HTTP_PROTOBUF,
         /** OTLP over gRPC. */
         GRPC
-    }
-
-    /**
-     * Returns the exporter type.
-     *
-     * @return the exporter type
-     */
-    public ExporterType getExporterType() {
-        return exporterType;
-    }
-
-    /**
-     * Sets the exporter type.
-     *
-     * @param exporterType {@link ExporterType#OTLP} for OTLP export,
-     *        {@link ExporterType#FILE} for JSONL file export
-     */
-    public void setExporterType(ExporterType exporterType) {
-        if (exporterType == null) {
-            throw new NullPointerException("exporterType");
-        }
-        this.exporterType = exporterType;
     }
 
     // -- Exporter settings --
@@ -595,159 +527,7 @@ public class TelemetryConfig {
         this.truststoreFormat = truststoreFormat;
     }
 
-    // -- qlog --
-
-    /**
-     * Returns the directory qlog files are written to.
-     *
-     * @return the directory, or null if qlog files are not written
-     */
-    public Path getQlogDirectory() {
-        return qlogDirectory;
-    }
-
-    /**
-     * Sets the directory qlog files are written to, one file per
-     * connection. Left unset, {@link #init} takes it from the
-     * {@code QLOGDIR} environment variable, which is how the QUIC interop
-     * runner asks for qlog output.
-     *
-     * @param directory the directory, or null for none
-     */
-    public void setQlogDirectory(Path directory) {
-        this.qlogDirectory = directory;
-    }
-
-    /**
-     * Returns whether qlog files are to be written.
-     *
-     * @return true if a qlog directory is set
-     */
-    public boolean isQlogConfigured() {
-        return qlogDirectory != null;
-    }
-
     // -- File exporter settings --
-
-    /**
-     * Returns the file path for trace JSONL output.
-     * When null, traces are written to stdout.
-     */
-    public Path getFileTracesPath() {
-        return fileTracesPath;
-    }
-
-    /**
-     * Sets the file path for trace JSONL output.
-     *
-     * @param path the file path, or null for stdout
-     */
-    public void setFileTracesPath(Path path) {
-        this.fileTracesPath = path;
-    }
-
-    /**
-     * Returns the file path for log JSONL output.
-     * When null, logs are written to stdout.
-     */
-    public Path getFileLogsPath() {
-        return fileLogsPath;
-    }
-
-    /**
-     * Sets the file path for log JSONL output.
-     *
-     * @param path the file path, or null for stdout
-     */
-    public void setFileLogsPath(Path path) {
-        this.fileLogsPath = path;
-    }
-
-    /**
-     * Returns the file path for metrics JSONL output.
-     * When null, metrics are written to stdout.
-     */
-    public Path getFileMetricsPath() {
-        return fileMetricsPath;
-    }
-
-    /**
-     * Sets the file path for metrics JSONL output.
-     *
-     * @param path the file path, or null for stdout
-     */
-    public void setFileMetricsPath(Path path) {
-        this.fileMetricsPath = path;
-    }
-
-    /**
-     * Returns the path for HTTP access log output, or null if disabled.
-     */
-    public Path getAccessLogPath() {
-        return accessLogPath;
-    }
-
-    /**
-     * Sets the path for HTTP access log output (CLF or ELFF).
-     *
-     * @param path the log file path, or null to disable
-     */
-    public void setAccessLogPath(Path path) {
-        this.accessLogPath = path;
-    }
-
-    public AccessLogFormat getAccessLogFormat() {
-        return accessLogFormat;
-    }
-
-    public void setAccessLogFormat(AccessLogFormat accessLogFormat) {
-        if (accessLogFormat != null) {
-            this.accessLogFormat = accessLogFormat;
-        }
-    }
-
-    /**
-     * XML property {@code access-log-format}: {@code clf} or {@code elff}.
-     */
-    public void setAccessLogFormat(String value) {
-        if (value == null || value.isEmpty()) {
-            return;
-        }
-        setAccessLogFormat(AccessLogFormat.valueOf(value.trim().toUpperCase()));
-    }
-
-    public AccessLogUserSelection getAccessLogUserSelection() {
-        return accessLogUserSelection;
-    }
-
-    public void setAccessLogUserSelection(AccessLogUserSelection accessLogUserSelection) {
-        if (accessLogUserSelection != null) {
-            this.accessLogUserSelection = accessLogUserSelection;
-        }
-    }
-
-    /**
-     * XML property {@code access-log-user-selection}.
-     */
-    public void setAccessLogUserSelection(String value) {
-        if (value == null || value.isEmpty()) {
-            return;
-        }
-        String normalized = value.trim().toUpperCase().replace('-', '_');
-        setAccessLogUserSelection(AccessLogUserSelection.valueOf(normalized));
-    }
-
-    /**
-     * Returns the access log writer when {@link #getAccessLogPath()} is set
-     * and {@link #init()} has run.
-     */
-    public HttpAccessLogWriter getAccessLogWriter() {
-        return accessLogWriter;
-    }
-
-    public boolean isAccessLogEnabled() {
-        return accessLogPath != null;
-    }
 
     /**
      * Returns the buffer size for file exporter I/O in bytes.
@@ -869,40 +649,23 @@ public class TelemetryConfig {
 
     /**
      * Initializes the telemetry configuration, after configuration
-     * properties have been set.
+     * properties have been set and the exporter tree is composed.
      *
-     * <p>When export is configured, a {@link TelemetryExporter} is created via
-     * {@link ServiceLoader} from {@link TelemetryExporterFactory} implementations
-     * (provided by the optional {@code gumdrop-telemetry.jar}).
+     * <p>When the {@code QLOGDIR} environment variable names a directory
+     * and no exporter in the tree takes qlog events, a {@link QlogExporter}
+     * writing there is added to the tree: this is how the QUIC interop
+     * runner asks for qlog output.
      *
-     * <p>When metrics and JMX bridge are enabled, metrics are exposed via
-     * MBeans for JMX-based monitoring tools.
+     * <p>When metrics and the JMX bridge are enabled, metrics are exposed
+     * via MBeans for JMX-based monitoring tools.
      */
     public void init() {
-        if (qlogDirectory == null) {
+        if (!exporter.accepts(LogLevel.QLOG)) {
             String environment = System.getenv("QLOGDIR");
             if (environment != null && !environment.isEmpty()) {
-                qlogDirectory = Path.of(environment);
-            }
-        }
-        if (exporter == null && (isExportConfigured() || isQlogConfigured())) {
-            exporter = loadExporters();
-            if (exporter != null) {
+                exporter = new TeeExporter(exporter,
+                        new QlogExporter(Path.of(environment), QlogExporter.DEFAULT_QUEUE_SIZE));
                 registerShutdownHook();
-            } else {
-                logger.log(Level.WARNING,
-                        L10N.getString("warn.exporter_factory_not_found"));
-            }
-        }
-        if (accessLogWriter == null && accessLogPath != null) {
-            try {
-                accessLogWriter = new HttpAccessLogWriter(
-                        accessLogPath, accessLogFormat, accessLogUserSelection);
-                registerShutdownHook();
-            } catch (IOException e) {
-                logger.log(Level.SEVERE, MessageFormat.format(
-                        L10N.getString("err.access_log_open_failed"),
-                        accessLogPath, e.getMessage()), e);
             }
         }
         if (jmxBridge == null && metricsEnabled && jmxBridgeEnabled) {
@@ -911,79 +674,65 @@ public class TelemetryConfig {
         }
     }
 
-    /**
-     * Returns true when OTLP or JSONL file export has been configured.
-     */
-    public boolean isExportConfigured() {
-        return exporterType == ExporterType.FILE || hasAnyEndpoint();
-    }
-
-    // Every factory that has something to create for this configuration
-    // contributes an exporter: OTLP and qlog output can run together.
-    private TelemetryExporter loadExporters() {
-        List<TelemetryExporter> created = new ArrayList<TelemetryExporter>();
-        for (TelemetryExporterFactory factory : ServiceLoader.load(TelemetryExporterFactory.class)) {
-            try {
-                TelemetryExporter e = factory.createExporter(this);
-                if (e != null) {
-                    created.add(e);
-                }
-            } catch (Exception e) {
-                logger.log(Level.WARNING, MessageFormat.format(
-                        L10N.getString("warn.exporter_factory_failed"),
-                        factory.getClass().getName()), e);
-            }
-        }
-        return combine(created);
-    }
+    // -- Exporters and loggers --
 
     /**
-     * Joins exporters into one: none give null, one stands as it is, and
-     * several are routed by channel.
+     * Returns the exporter tree. A fresh configuration has a
+     * {@link DefaultExporter}, so this is never null.
      *
-     * @param exporters the exporters
-     * @return the exporter to use
-     */
-    static TelemetryExporter combine(List<TelemetryExporter> exporters) {
-        if (exporters.isEmpty()) {
-            return null;
-        }
-        if (exporters.size() == 1) {
-            return exporters.get(0);
-        }
-        return new CompositeTelemetryExporter(exporters);
-    }
-
-    /**
-     * Returns true if any OTLP endpoint is configured.
-     */
-    private boolean hasAnyEndpoint() {
-        return (tracesEndpoint != null && !tracesEndpoint.isEmpty()) ||
-               (logsEndpoint != null && !logsEndpoint.isEmpty()) ||
-               (metricsEndpoint != null && !metricsEndpoint.isEmpty()) ||
-               (endpoint != null && !endpoint.isEmpty());
-    }
-
-    // -- Exporter lifecycle --
-
-    /**
-     * Returns the exporter instance.
+     * @return the exporter
      */
     public TelemetryExporter getExporter() {
         return exporter;
     }
 
     /**
-     * Sets the exporter instance.
-     * Automatically registers a JVM shutdown hook to flush telemetry on exit.
+     * Sets the exporter tree: one exporter, or several joined by
+     * {@link TeeExporter}. Registers a JVM shutdown hook that flushes
+     * telemetry on exit.
      *
      * @param exporter the exporter
      */
     public void setExporter(TelemetryExporter exporter) {
-        this.exporter = exporter;
-        if (exporter != null) {
-            registerShutdownHook();
+        if (exporter == null) {
+            throw new IllegalArgumentException("exporter");
         }
+        this.exporter = exporter;
+        registerShutdownHook();
+    }
+
+    /**
+     * Returns whether any exporter in the tree takes log records of a
+     * level. Code that would build an expensive record asks this first.
+     *
+     * @param level the level
+     * @return true if an exporter accepts it
+     */
+    public boolean accepts(LogLevel level) {
+        return exporter.accepts(level);
+    }
+
+    /**
+     * Returns the event logger for a class, creating it on first use.
+     * The class is the instrumentation scope of the events it emits,
+     * and the bundle is where their keys are looked up: the one the
+     * class already holds for its messages.
+     *
+     * @param scope the emitting class
+     * @param bundle the class's resource bundle
+     * @return the logger
+     */
+    public EventLogger getLogger(Class<?> scope, ResourceBundle bundle) {
+        String name = scope.getName();
+        EventLogger events = loggers.get(name);
+        if (events == null) {
+            events = new EventLogger(this, name, bundle);
+            EventLogger existing = loggers.putIfAbsent(name, events);
+            if (existing != null) {
+                events = existing;
+            }
+        }
+        return events;
     }
 
     /**
@@ -1095,7 +844,7 @@ public class TelemetryConfig {
      * This ensures all pending telemetry data is exported before the JVM terminates.
      * The hook is registered automatically when an exporter is set.
      */
-    public void registerShutdownHook() {
+    void registerShutdownHook() {
         if (shutdownHookRegistered) {
             return;
         }
@@ -1125,20 +874,8 @@ public class TelemetryConfig {
             jmxBridge.unregister();
             jmxBridge = null;
         }
-        if (exporter != null) {
-            exporter.forceFlush();
-            exporter.shutdown();
-        }
-        if (accessLogWriter != null) {
-            try {
-                accessLogWriter.close();
-            } catch (IOException e) {
-                logger.log(Level.WARNING, MessageFormat.format(
-                        L10N.getString("warn.access_log_close_failed"),
-                        e.getMessage()), e);
-            }
-            accessLogWriter = null;
-        }
+        exporter.forceFlush();
+        exporter.shutdown();
     }
 
     /**
@@ -1159,7 +896,7 @@ public class TelemetryConfig {
             sb.append(", endpoint=").append(endpoint);
         }
         sb.append(", traces=").append(tracesEnabled);
-        sb.append(", logs=").append(logsEnabled);
+        sb.append(", exporter=").append(exporter.getClass().getSimpleName());
         sb.append(", metrics=").append(metricsEnabled);
         if (metricsEnabled) {
             sb.append(", temporality=").append(metricsTemporality);

@@ -21,8 +21,10 @@
 
 package org.bluezoo.gumdrop.telemetry.access;
 
+import org.bluezoo.gumdrop.telemetry.LogRecord;
 import org.junit.Test;
 
+import java.net.InetSocketAddress;
 import java.time.Instant;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
@@ -38,14 +40,18 @@ public class HttpAccessLogFormatterTest {
     private static final long TIME = Instant.parse("2026-01-15T12:00:00Z")
             .toEpochMilli();
 
+    private static LogRecord record(String protocolUser, String applicationUser,
+            String method, String target, String version, int status, long bytes) {
+        return HttpAccessLog.toRecord(null, TIME, new InetSocketAddress("10.0.0.1", 1234),
+                method, target, version, HttpAccessLogTest.named(protocolUser),
+                HttpAccessLogTest.named(applicationUser), status, bytes);
+    }
+
     @Test
     public void clfProtocolFirstPrefersProtocolUser() {
         HttpAccessLogFormatter formatter = new HttpAccessLogFormatter(
                 AccessLogFormat.CLF, AccessLogUserSelection.PROTOCOL_FIRST);
-        HttpAccessRecord record = new HttpAccessRecord(
-                TIME, "10.0.0.1", "mtls-user", "app-user",
-                "GET", "/hello", "HTTP/1.1", 200, 42L);
-        String line = formatter.formatLine(record);
+        String line = formatter.formatLine(record("mtls-user", "app-user", "GET", "/hello", "HTTP/1.1", 200, 42L));
         String date = DateTimeFormatter.ofPattern("'['dd/MMM/yyyy:HH:mm:ss Z']'")
                 .withZone(ZoneId.systemDefault())
                 .format(Instant.ofEpochMilli(TIME));
@@ -60,10 +66,7 @@ public class HttpAccessLogFormatterTest {
     public void clfApplicationFirstUsesServletWhenProtocolAbsent() {
         HttpAccessLogFormatter formatter = new HttpAccessLogFormatter(
                 AccessLogFormat.CLF, AccessLogUserSelection.APPLICATION_FIRST);
-        HttpAccessRecord record = new HttpAccessRecord(
-                TIME, "10.0.0.1", null, "app-user",
-                "GET", "/", "HTTP/1.1", 404, 0L);
-        String line = formatter.formatLine(record);
+        String line = formatter.formatLine(record(null, "app-user", "GET", "/", "HTTP/1.1", 404, 0L));
         assertTrue(line.contains(" app-user "));
     }
 
@@ -71,10 +74,18 @@ public class HttpAccessLogFormatterTest {
     public void elffBothIncludesApplicationColumn() {
         HttpAccessLogFormatter formatter = new HttpAccessLogFormatter(
                 AccessLogFormat.ELFF, AccessLogUserSelection.BOTH);
-        HttpAccessRecord record = new HttpAccessRecord(
-                TIME, "10.0.0.1", "proto", "app",
-                "POST", "/api", "HTTP/2.0", 201, 9L);
-        String line = formatter.formatLine(record);
+        String line = formatter.formatLine(record("proto", "app", "POST", "/api", "HTTP/2.0", 201, 9L));
         assertTrue(line.contains("\tproto\tapp\t"));
+    }
+
+    @Test
+    public void missingFieldsAreDashes() {
+        HttpAccessLogFormatter formatter = new HttpAccessLogFormatter(
+                AccessLogFormat.CLF, AccessLogUserSelection.PROTOCOL);
+        LogRecord r = HttpAccessLog.toRecord(null, TIME, null, null, null, null, null, null, 500, 7L);
+        String line = formatter.formatLine(r);
+        assertTrue(line, line.startsWith("- - - ["));
+        assertTrue(line, line.endsWith("\"- - HTTP/1.1\" 500 7"));
+        assertEquals(null, formatter.selectClfUser(r));
     }
 }

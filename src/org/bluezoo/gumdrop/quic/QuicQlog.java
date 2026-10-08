@@ -21,21 +21,17 @@
 
 package org.bluezoo.gumdrop.quic;
 
+import org.bluezoo.gumdrop.telemetry.LogLevel;
 import org.bluezoo.gumdrop.telemetry.LogRecord;
 import org.bluezoo.gumdrop.telemetry.QlogAttributes;
 import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
-import org.bluezoo.gumdrop.telemetry.TelemetryExporter;
 
 /**
  * The qlog event sink of one connection: turns an event into a telemetry
- * log record tagged for the qlog channel and hands it to the telemetry
+ * log record of level {@link LogLevel#QLOG} and hands it to the telemetry
  * pipeline. Whether a connection logs is decided once, when it is created,
- * and a connection that does not holds no instance, so the packet path
- * pays a null test.
- *
- * <p>This is independent of {@link TelemetryConfig#isLogsEnabled()}: that
- * switch is about log records for an OTLP endpoint, and per-packet events
- * must not start because it is on.
+ * by whether any configured exporter accepts that level; a connection that
+ * does not log holds no instance, so the packet path pays a null test.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
@@ -64,10 +60,7 @@ final class QuicQlog {
      */
     static QuicQlog create(QuicEngine engine, boolean server, byte[] originalDcid) {
         TelemetryConfig config = engine.getTelemetryConfig();
-        if (config == null || originalDcid == null) {
-            return null;
-        }
-        if (!engine.isQlogEnabled() && !config.isQlogConfigured()) {
+        if (config == null || originalDcid == null || !config.accepts(LogLevel.QLOG)) {
             return null;
         }
         return new QuicQlog(config, QlogJson.hex(originalDcid), server ? "server" : "client");
@@ -94,16 +87,11 @@ final class QuicQlog {
      * @param dataJson the event's data object
      */
     void emit(String schema, String name, long nanoTime, String dataJson) {
-        TelemetryExporter exporter = config.getExporter();
-        if (exporter == null) {
-            return;
-        }
-        LogRecord record = new LogRecord(nanoTime + wallClockOffsetNanos, LogRecord.SEVERITY_DEBUG, dataJson);
-        record.addAttribute(LogRecord.CHANNEL_ATTRIBUTE, QlogAttributes.CHANNEL);
-        record.addAttribute(QlogAttributes.NAME, name);
-        record.addAttribute(QlogAttributes.SCHEMA, schema);
-        record.addAttribute(QlogAttributes.GROUP_ID, groupId);
-        record.addAttribute(QlogAttributes.VANTAGE_POINT, vantagePoint);
-        exporter.export(record);
+        LogRecord record = new LogRecord(nanoTime + wallClockOffsetNanos, LogLevel.QLOG, name)
+                .body(dataJson)
+                .attr(QlogAttributes.SCHEMA, schema)
+                .attr(QlogAttributes.GROUP_ID, groupId)
+                .attr(QlogAttributes.VANTAGE_POINT, vantagePoint);
+        config.getExporter().export(record);
     }
 }

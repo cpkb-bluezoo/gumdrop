@@ -71,6 +71,7 @@ import org.bluezoo.gumdrop.http.qpack.Encoder;
 import org.bluezoo.gumdrop.telemetry.ErrorCategory;
 import org.bluezoo.gumdrop.telemetry.Span;
 import org.bluezoo.gumdrop.telemetry.SpanKind;
+import org.bluezoo.gumdrop.telemetry.LogLevel;
 import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
 import org.bluezoo.gumdrop.telemetry.access.HttpAccessLog;
 import org.bluezoo.gumdrop.telemetry.Trace;
@@ -1452,9 +1453,10 @@ class H3Stream implements ProtocolHandler, H3FrameHandler, HttpResponse {
         }
 
         TelemetryConfig telemetryConfig = connection.getTelemetryConfig();
-        if (telemetryConfig != null && telemetryConfig.isAccessLogEnabled()) {
+        if (telemetryConfig != null && telemetryConfig.accepts(LogLevel.ACCESS)) {
             HttpAccessLog.record(
                     telemetryConfig,
+                    span,
                     System.currentTimeMillis(),
                     connection.getRemoteAddress(),
                     method,

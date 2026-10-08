@@ -1075,11 +1075,6 @@ public final class QuicEngine implements ChannelHandler, MultiplexedEndpoint {
         return factory.getApplicationProtocols();
     }
 
-    /** Returns whether the factory asks connections to report qlog events. */
-    boolean isQlogEnabled() {
-        return factory.isQlogEnabled();
-    }
-
     /** Returns whether to send ACK_FREQUENCY and IMMEDIATE_ACK frames. */
     boolean isAckFrequencyEnabled() {
         return factory.isAckFrequencyEnabled();
