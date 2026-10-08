@@ -76,6 +76,7 @@ import org.bluezoo.gumdrop.http.HeaderCollector;
 import org.bluezoo.gumdrop.telemetry.Trace;
 import org.bluezoo.gumdrop.util.ByteBufferPool;
 import org.bluezoo.gumdrop.telemetry.EventLogger;
+import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
 
 /**
  * HTTP client endpoint handler that manages protocol-level communication
@@ -107,7 +108,9 @@ public class HttpClientProtocolHandler extends HttpClientConnectionOps
     private static final Logger LOGGER = Logger.getLogger(HttpClientProtocolHandler.class.getName());
 
     private EventLogger events() {
-        return endpoint.getTelemetryConfig().getLogger(HttpClientProtocolHandler.class, L10N);
+        // before the handler is connected, events go to a configuration of its own
+        TelemetryConfig telemetry = endpoint != null ? endpoint.getTelemetryConfig() : new TelemetryConfig();
+        return telemetry.getLogger(HttpClientProtocolHandler.class, L10N);
     }
 
     private static final ByteBuffer EMPTY_BUFFER = ByteBuffer.allocate(0);

@@ -99,6 +99,7 @@ import org.bluezoo.gumdrop.telemetry.Span;
 import org.bluezoo.gumdrop.telemetry.SpanKind;
 import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
 import org.bluezoo.gumdrop.telemetry.Trace;
+import org.bluezoo.gumdrop.telemetry.EventLogger;
 
 /**
  * SMTP server protocol handler implementing RFC 5321 (SMTP) and
@@ -152,6 +153,12 @@ public final class SmtpProtocolHandler
 
     private static final Logger LOGGER =
             Logger.getLogger(SmtpProtocolHandler.class.getName());
+
+    private EventLogger events() {
+        // before the handler is connected, events go to a configuration of its own
+        TelemetryConfig telemetry = endpoint != null ? endpoint.getTelemetryConfig() : new TelemetryConfig();
+        return telemetry.getLogger(SmtpProtocolHandler.class, L10N);
+    }
     static final ResourceBundle L10N =
             ResourceBundle.getBundle("org.bluezoo.gumdrop.smtp.L10N");
 
@@ -352,9 +359,7 @@ public final class SmtpProtocolHandler
             // released centrally by TcpEndpoint when the endpoint closes, so
             // no per-handler connectionClosed call is needed here.
         } catch (Exception e) {
-            if (LOGGER.isLoggable(Level.WARNING)) {
-                LOGGER.log(Level.WARNING, L10N.getString("warn.error_disconnected_handler"), e);
-            }
+            events().warn("warn.error_disconnected_handler").thrown(e).emit();
         } finally {
             if (recipients != null) {
                 recipients.clear();
@@ -382,7 +387,7 @@ public final class SmtpProtocolHandler
 
     @Override
     public void error(Exception cause) {
-        LOGGER.log(Level.WARNING, L10N.getString("warn.smtp_transport_error"), cause);
+        events().warn("warn.smtp_transport_error").thrown(cause).emit();
         if (endpoint != null) {
             endpoint.close();
         }
@@ -473,7 +478,7 @@ public final class SmtpProtocolHandler
         // SMTP's command channel is always line-based; DATA/BDAT content is
         // handled directly from receive(), never as a lexer raw escape, so
         // this is structurally unreachable.
-        LOGGER.warning(L10N.getString("warn.unexpected_raw_bytes_server"));
+        events().warn("warn.unexpected_raw_bytes_server").emit();
     }
 
     @Override
@@ -757,7 +762,6 @@ public final class SmtpProtocolHandler
         return pack4(window, base) == (('M' << 24) | ('A' << 16) | ('I' << 8) | 'L');
     }
 
-
     // RFC 5321 §4.5.1 — command dispatch and sequencing. `command` was
     // already resolved from the KEYWORD token's raw bytes (see
     // matchCommand()); SASL continuation routing happens earlier, in
@@ -905,7 +909,7 @@ public final class SmtpProtocolHandler
                     : (cause instanceof HeaderValueTooLongException)
                         ? L10N.getString("smtp.err.header_value_too_long")
                         : L10N.getString("smtp.err.syntax_error");
-                LOGGER.log(Level.WARNING, L10N.getString("warn.error_writing_pipeline"), e);
+                events().warn("warn.error_writing_pipeline").thrown(e).emit();
             }
         }
     }
@@ -1423,7 +1427,7 @@ public final class SmtpProtocolHandler
             }
         } catch (Exception e) {
             reply(454, "4.3.0 TLS not available due to temporary reason");
-            LOGGER.log(Level.WARNING, L10N.getString("warn.starttls_failed"), e);
+            events().warn("warn.starttls_failed").thrown(e).emit();
         }
     }
 
@@ -1537,7 +1541,7 @@ public final class SmtpProtocolHandler
 
                 @Override
                 public void failed(Throwable t) {
-                    LOGGER.log(Level.WARNING, L10N.getString("warn.auth_plain_check_failed"), t);
+                    events().warn("warn.auth_plain_check_failed").thrown(t).emit();
                     notifyAuthenticationFailure(username, "PLAIN");
                     resetAuthState();
                 }
@@ -1545,9 +1549,7 @@ public final class SmtpProtocolHandler
         } catch (Exception e) {
             reply(535, "5.7.8 Authentication credentials invalid");
             resetAuthState();
-            if (LOGGER.isLoggable(Level.WARNING)) {
-                LOGGER.log(Level.WARNING, L10N.getString("warn.auth_plain_error"), e);
-            }
+            events().warn("warn.auth_plain_error").thrown(e).emit();
         }
     }
 
@@ -1607,9 +1609,7 @@ public final class SmtpProtocolHandler
         } catch (Exception e) {
             reply(535, "5.7.8 Authentication credentials invalid");
             resetAuthState();
-            if (LOGGER.isLoggable(Level.WARNING)) {
-                LOGGER.log(Level.WARNING, L10N.getString("warn.auth_login_error"), e);
-            }
+            events().warn("warn.auth_login_error").thrown(e).emit();
         }
     }
 
@@ -1629,9 +1629,7 @@ public final class SmtpProtocolHandler
         } catch (Exception e) {
             reply(454, "4.7.0 Temporary authentication failure");
             resetAuthState();
-            if (LOGGER.isLoggable(Level.WARNING)) {
-                LOGGER.log(Level.WARNING, L10N.getString("warn.auth_cram_md5_error"), e);
-            }
+            events().warn("warn.auth_cram_md5_error").thrown(e).emit();
         }
     }
 
@@ -1653,9 +1651,7 @@ public final class SmtpProtocolHandler
         } catch (Exception e) {
             reply(454, "4.7.0 Temporary authentication failure");
             resetAuthState();
-            if (LOGGER.isLoggable(Level.WARNING)) {
-                LOGGER.log(Level.WARNING, L10N.getString("warn.auth_digest_md5_error"), e);
-            }
+            events().warn("warn.auth_digest_md5_error").thrown(e).emit();
         }
     }
 
@@ -1675,9 +1671,7 @@ public final class SmtpProtocolHandler
         } catch (Exception e) {
             reply(535, "5.7.8 Authentication credentials invalid");
             resetAuthState();
-            if (LOGGER.isLoggable(Level.WARNING)) {
-                LOGGER.log(Level.WARNING, L10N.getString("warn.auth_scram_sha256_error"), e);
-            }
+            events().warn("warn.auth_scram_sha256_error").thrown(e).emit();
         }
     }
 
@@ -1726,9 +1720,7 @@ public final class SmtpProtocolHandler
         } catch (Exception e) {
             reply(535, "5.7.8 Authentication credentials invalid");
             resetAuthState();
-            if (LOGGER.isLoggable(Level.WARNING)) {
-                LOGGER.log(Level.WARNING, L10N.getString("warn.auth_scram_sha256_error"), e);
-            }
+            events().warn("warn.auth_scram_sha256_error").thrown(e).emit();
             return;
         }
 
@@ -1765,9 +1757,7 @@ public final class SmtpProtocolHandler
             public void failed(Throwable error) {
                 reply(535, "5.7.8 Authentication credentials invalid");
                 resetAuthState();
-                if (LOGGER.isLoggable(Level.WARNING)) {
-                    LOGGER.log(Level.WARNING, L10N.getString("warn.auth_scram_sha256_error"), error);
-                }
+                events().warn("warn.auth_scram_sha256_error").thrown(error).emit();
             }
         });
     }
@@ -1785,9 +1775,7 @@ public final class SmtpProtocolHandler
         } catch (Exception e) {
             reply(535, "5.7.8 Authentication credentials invalid");
             resetAuthState();
-            if (LOGGER.isLoggable(Level.WARNING)) {
-                LOGGER.log(Level.WARNING, L10N.getString("warn.auth_scram_sha256_error"), e);
-            }
+            events().warn("warn.auth_scram_sha256_error").thrown(e).emit();
             return;
         }
 
@@ -1818,9 +1806,7 @@ public final class SmtpProtocolHandler
             public void failed(Throwable error) {
                 reply(535, "5.7.8 Authentication credentials invalid");
                 resetAuthState();
-                if (LOGGER.isLoggable(Level.WARNING)) {
-                    LOGGER.log(Level.WARNING, L10N.getString("warn.auth_scram_sha256_error"), error);
-                }
+                events().warn("warn.auth_scram_sha256_error").thrown(error).emit();
             }
         });
     }
@@ -1841,9 +1827,7 @@ public final class SmtpProtocolHandler
         } catch (Exception e) {
             reply(535, "5.7.8 Authentication credentials invalid");
             resetAuthState();
-            if (LOGGER.isLoggable(Level.WARNING)) {
-                LOGGER.log(Level.WARNING, L10N.getString("warn.auth_oauthbearer_error"), e);
-            }
+            events().warn("warn.auth_oauthbearer_error").thrown(e).emit();
         }
     }
 
@@ -1890,7 +1874,7 @@ public final class SmtpProtocolHandler
         try {
             gssapiExchange = gssapiServer.createExchange();
         } catch (IOException e) {
-            LOGGER.log(Level.WARNING, L10N.getString("warn.gssapi_exchange_creation_failed"), e);
+            events().warn("warn.gssapi_exchange_creation_failed").thrown(e).emit();
             reply(454, "4.7.0 Temporary authentication failure");
             return;
         }
@@ -2037,8 +2021,7 @@ public final class SmtpProtocolHandler
 
                         @Override
                         public void failed(Throwable t) {
-                            LOGGER.log(Level.WARNING,
-                                    L10N.getString("warn.auth_login_check_failed"), t);
+                            events().warn("warn.auth_login_check_failed").thrown(t).emit();
                             notifyAuthenticationFailure(loginUsername, "LOGIN");
                             resetAuthState();
                         }
@@ -2075,9 +2058,7 @@ public final class SmtpProtocolHandler
         } catch (Exception e) {
             reply(535, "5.7.8 Authentication credentials invalid");
             resetAuthState();
-            if (LOGGER.isLoggable(Level.WARNING)) {
-                LOGGER.log(Level.WARNING, L10N.getString("warn.auth_data_handling_error"), e);
-            }
+            events().warn("warn.auth_data_handling_error").thrown(e).emit();
         }
     }
 

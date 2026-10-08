@@ -90,7 +90,9 @@ import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
 class H3ClientStream implements ProtocolHandler, H3FrameHandler {
 
     private EventLogger events() {
-        return endpoint.getTelemetryConfig().getLogger(H3ClientStream.class, L10N);
+        // before the handler is connected, events go to a configuration of its own
+        TelemetryConfig telemetry = endpoint != null ? endpoint.getTelemetryConfig() : new TelemetryConfig();
+        return telemetry.getLogger(H3ClientStream.class, L10N);
     }
     private static final ResourceBundle L10N =
             ResourceBundle.getBundle("org.bluezoo.gumdrop.http.h3.L10N");

@@ -24,20 +24,19 @@ package org.bluezoo.gumdrop.ftp.server;
 import org.bluezoo.gumdrop.ftp.FtpConnectionHandler;
 import org.bluezoo.gumdrop.ftp.FtpListener;
 
-import java.text.MessageFormat;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.ResourceBundle;
 import java.util.function.Supplier;
-import java.util.logging.Level;
-import java.util.logging.Logger;
 
 import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.Listener;
 import org.bluezoo.gumdrop.TcpListener;
 import org.bluezoo.gumdrop.Server;
 import org.bluezoo.gumdrop.auth.Realm;
+import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
+import org.bluezoo.gumdrop.telemetry.EventLogger;
 
 /**
  * FTP protocol server — listeners, configuration, and session composition.
@@ -71,8 +70,11 @@ import org.bluezoo.gumdrop.auth.Realm;
  */
 public class FtpServer implements Server, FtpServerSessionProvider {
 
-    private static final Logger LOGGER =
-            Logger.getLogger(FtpServer.class.getName());
+    private volatile Gumdrop runtime;
+
+    private EventLogger events() {
+        return (runtime != null ? runtime.getTelemetryConfig() : new TelemetryConfig()).getLogger(FtpServer.class, L10N);
+    }
 
     private static final ResourceBundle L10N =
             ResourceBundle.getBundle("org.bluezoo.gumdrop.ftp.L10N");
@@ -249,6 +251,7 @@ public class FtpServer implements Server, FtpServerSessionProvider {
 
     @Override
     public void start(Gumdrop gumdrop) {
+        this.runtime = gumdrop;
         initService();
 
         for (int i = 0; i < listeners.size(); i++) {
@@ -292,8 +295,9 @@ public class FtpServer implements Server, FtpServerSessionProvider {
             try {
                 ((Listener) listener).start(gumdrop);
             } catch (Exception e) {
-                LOGGER.log(Level.SEVERE,
-                        MessageFormat.format(L10N.getString("log.listener_start_failed"), listener), e);
+                events().error("log.listener_start_failed")
+                        .attr("listener", String.valueOf(listener))
+                        .thrown(e).emit();
             }
         }
     }
@@ -303,8 +307,9 @@ public class FtpServer implements Server, FtpServerSessionProvider {
             try {
                 ((Listener) listener).stop();
             } catch (Exception e) {
-                LOGGER.log(Level.WARNING,
-                        MessageFormat.format(L10N.getString("log.listener_stop_error"), listener), e);
+                events().warn("log.listener_stop_error")
+                        .attr("listener", String.valueOf(listener))
+                        .thrown(e).emit();
             }
         }
     }

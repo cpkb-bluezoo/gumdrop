@@ -44,6 +44,7 @@ import org.bluezoo.gumdrop.imap.ImapDeflateLayer;
 import org.bluezoo.gumdrop.util.JulWarnings;
 import org.bluezoo.gumdrop.util.Tokens;
 import org.bluezoo.gumdrop.telemetry.EventLogger;
+import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
 
 import java.util.zip.DataFormatException;
 
@@ -93,7 +94,9 @@ public final class ImapClientProtocolHandler
                     ImapClientProtocolHandler.class.getName());
 
     private EventLogger events() {
-        return endpoint.getTelemetryConfig().getLogger(ImapClientProtocolHandler.class, L10N);
+        // before the handler is connected, events go to a configuration of its own
+        TelemetryConfig telemetry = endpoint != null ? endpoint.getTelemetryConfig() : new TelemetryConfig();
+        return telemetry.getLogger(ImapClientProtocolHandler.class, L10N);
     }
     private static final ResourceBundle L10N =
             ResourceBundle.getBundle("org.bluezoo.gumdrop.imap.L10N");

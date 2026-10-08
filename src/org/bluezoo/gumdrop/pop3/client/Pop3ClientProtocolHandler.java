@@ -38,6 +38,8 @@ import org.bluezoo.gumdrop.ProtocolHandler;
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.util.JulWarnings;
 import org.bluezoo.gumdrop.util.Tokens;
+import org.bluezoo.gumdrop.telemetry.EventLogger;
+import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
 
 /**
  * POP3 client protocol handler (RFC 1939).
@@ -80,6 +82,12 @@ public final class Pop3ClientProtocolHandler
 
     private static final Logger LOGGER =
             Logger.getLogger(Pop3ClientProtocolHandler.class.getName());
+
+    private EventLogger events() {
+        // before the handler is connected, events go to a configuration of its own
+        TelemetryConfig telemetry = endpoint != null ? endpoint.getTelemetryConfig() : new TelemetryConfig();
+        return telemetry.getLogger(Pop3ClientProtocolHandler.class, L10N);
+    }
     private static final ResourceBundle L10N =
             ResourceBundle.getBundle("org.bluezoo.gumdrop.pop3.L10N");
 
@@ -183,9 +191,7 @@ public final class Pop3ClientProtocolHandler
 
     @Override
     public void disconnected() {
-        if (LOGGER.isLoggable(Level.INFO)) {
-            LOGGER.info(L10N.getString("info.pop3_client_disconnected"));
-        }
+        events().info("info.pop3_client_disconnected").emit();
         state = Pop3State.CLOSED;
         handler.onDisconnected();
     }
@@ -257,14 +263,14 @@ public final class Pop3ClientProtocolHandler
     public void rawBytes(ByteBuffer slice) {
         // RETR/TOP content bypasses this lexer entirely (see
         // Pop3ClientLexer's class Javadoc) — structurally unreachable.
-        LOGGER.warning(L10N.getString("warn.unexpected_raw_bytes_client"));
+        events().warn("warn.unexpected_raw_bytes_client").emit();
     }
 
     @Override
     public void tokenTooLong() {
         // maxTokenLength is Integer.MAX_VALUE for this lexer (no cap);
         // structurally unreachable.
-        LOGGER.warning(L10N.getString("warn.unexpected_token_too_long_client"));
+        events().warn("warn.unexpected_token_too_long_client").emit();
     }
 
     private boolean isDataLineState() {
@@ -339,8 +345,7 @@ public final class Pop3ClientProtocolHandler
             if (status == null) {
                 if (LOGGER.isLoggable(Level.WARNING)) {
                     String line = hadSp ? (wordText + " " + text) : wordText;
-                    LOGGER.warning(MessageFormat.format(
-                            L10N.getString("warn.unparseable_pop3_response"), line));
+                    events().warn("warn.unparseable_pop3_response").attr("line", line).emit();
                 }
                 return;
             }
@@ -351,9 +356,7 @@ public final class Pop3ClientProtocolHandler
 
             dispatchResponse(new Pop3Response(status, text));
         } catch (Exception e) {
-            if (LOGGER.isLoggable(Level.WARNING)) {
-                LOGGER.log(Level.WARNING, L10N.getString("warn.error_handling_pop3_response"), e);
-            }
+            events().warn("warn.error_handling_pop3_response").thrown(e).emit();
             handler.onError(e);
         }
     }
@@ -695,10 +698,9 @@ public final class Pop3ClientProtocolHandler
                 close();
                 break;
             default:
-                if (LOGGER.isLoggable(Level.WARNING)) {
-                    LOGGER.warning(MessageFormat.format(
-                            L10N.getString("warn.unexpected_response_in_state"), state, response));
-                }
+                events().warn("warn.unexpected_response_in_state")
+                        .attr("state", String.valueOf(state))
+                        .attr("response", String.valueOf(response)).emit();
         }
     }
 
@@ -928,11 +930,9 @@ public final class Pop3ClientProtocolHandler
                             msg.substring(spaceIdx + 1).trim());
                 }
             } catch (NumberFormatException e) {
-                LOGGER.log(Level.WARNING,
-                        MessageFormat.format(
-                                L10N.getString("warn.failed_parse_stat_response"),
-                                msg),
-                        e);
+                events().warn("warn.failed_parse_stat_response")
+                        .attr("message", msg)
+                        .thrown(e).emit();
             }
             callback.handleStat(this, messageCount, totalSize);
         } else {
@@ -995,11 +995,7 @@ public final class Pop3ClientProtocolHandler
                 return;
             }
         } catch (NumberFormatException e) {
-            LOGGER.log(Level.WARNING,
-                    MessageFormat.format(
-                            L10N.getString("warn.failed_parse_list_response"),
-                            msg),
-                    e);
+            events().warn("warn.failed_parse_list_response").attr("message", msg).thrown(e).emit();
         }
         callback.handleError(this, msg);
     }
@@ -1016,11 +1012,7 @@ public final class Pop3ClientProtocolHandler
                 callback.handleListEntry(num, size);
             }
         } catch (NumberFormatException e) {
-            LOGGER.log(Level.WARNING,
-                    MessageFormat.format(
-                            L10N.getString("warn.failed_parse_list_entry"),
-                            line),
-                    e);
+            events().warn("warn.failed_parse_list_entry").attr("line", line).thrown(e).emit();
         }
     }
 
@@ -1077,11 +1069,9 @@ public final class Pop3ClientProtocolHandler
                 callback.handleUid(this, num, uid);
                 return;
             } catch (NumberFormatException e) {
-                LOGGER.log(Level.WARNING,
-                        MessageFormat.format(
-                                L10N.getString("warn.failed_parse_uidl_response"),
-                                msg),
-                        e);
+                events().warn("warn.failed_parse_uidl_response")
+                        .attr("message", msg)
+                        .thrown(e).emit();
             }
         }
         callback.handleError(this, msg);
@@ -1097,11 +1087,7 @@ public final class Pop3ClientProtocolHandler
                 String uid = line.substring(spaceIdx + 1).trim();
                 callback.handleUidEntry(num, uid);
             } catch (NumberFormatException e) {
-                LOGGER.log(Level.WARNING,
-                        MessageFormat.format(
-                                L10N.getString("warn.failed_parse_uidl_entry"),
-                                line),
-                        e);
+                events().warn("warn.failed_parse_uidl_entry").attr("line", line).thrown(e).emit();
             }
         }
     }

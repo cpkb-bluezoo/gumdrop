@@ -188,7 +188,9 @@ public final class ImapProtocolHandler
             Logger.getLogger(ImapProtocolHandler.class.getName());
 
     private EventLogger events() {
-        return endpoint.getTelemetryConfig().getLogger(ImapProtocolHandler.class, L10N);
+        // before the handler is connected, events go to a configuration of its own
+        TelemetryConfig telemetry = endpoint != null ? endpoint.getTelemetryConfig() : new TelemetryConfig();
+        return telemetry.getLogger(ImapProtocolHandler.class, L10N);
     }
     static final ResourceBundle L10N =
             ResourceBundle.getBundle("org.bluezoo.gumdrop.imap.L10N");

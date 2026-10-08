@@ -23,14 +23,11 @@ package org.bluezoo.gumdrop.smtp.server;
 
 import org.bluezoo.gumdrop.smtp.SmtpListener;
 
-import java.text.MessageFormat;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.ResourceBundle;
 import java.util.function.Supplier;
-import java.util.logging.Level;
-import java.util.logging.Logger;
 
 import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.Listener;
@@ -38,6 +35,8 @@ import org.bluezoo.gumdrop.Server;
 import org.bluezoo.gumdrop.TcpListener;
 import org.bluezoo.gumdrop.auth.Realm;
 import org.bluezoo.gumdrop.mailbox.MailboxFactory;
+import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
+import org.bluezoo.gumdrop.telemetry.EventLogger;
 
 /**
  * Abstract base for SMTP protocol servers.
@@ -90,8 +89,11 @@ import org.bluezoo.gumdrop.mailbox.MailboxFactory;
  */
 public abstract class SmtpServer implements Server, SmtpServerSessionProvider {
 
-    private static final Logger LOGGER =
-            Logger.getLogger(SmtpServer.class.getName());
+    private volatile Gumdrop runtime;
+
+    private EventLogger events() {
+        return (runtime != null ? runtime.getTelemetryConfig() : new TelemetryConfig()).getLogger(SmtpServer.class, L10N);
+    }
 
     private static final ResourceBundle L10N =
             ResourceBundle.getBundle("org.bluezoo.gumdrop.smtp.L10N");
@@ -253,6 +255,7 @@ public abstract class SmtpServer implements Server, SmtpServerSessionProvider {
 
     @Override
     public void start(Gumdrop gumdrop) {
+        this.runtime = gumdrop;
         SmtpServerSessionProvider providerForGumdrop = getSessionProvider();
         if (providerForGumdrop instanceof SimpleRelaySessionProvider) {
             ((SimpleRelaySessionProvider) providerForGumdrop).setGumdrop(gumdrop);
@@ -304,8 +307,7 @@ public abstract class SmtpServer implements Server, SmtpServerSessionProvider {
         try {
             listener.start(gumdrop);
         } catch (Exception e) {
-            LOGGER.log(Level.SEVERE,
-                    MessageFormat.format(L10N.getString("log.listener_start_failed"), listener), e);
+            events().error("log.listener_start_failed").attr("listener", String.valueOf(listener)).thrown(e).emit();
         }
     }
 
@@ -313,8 +315,7 @@ public abstract class SmtpServer implements Server, SmtpServerSessionProvider {
         try {
             listener.stop();
         } catch (Exception e) {
-            LOGGER.log(Level.WARNING,
-                    MessageFormat.format(L10N.getString("log.listener_stop_error"), listener), e);
+            events().warn("log.listener_stop_error").attr("listener", String.valueOf(listener)).thrown(e).emit();
         }
     }
 
