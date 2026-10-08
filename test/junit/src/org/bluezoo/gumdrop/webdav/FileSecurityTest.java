@@ -23,6 +23,13 @@ package org.bluezoo.gumdrop.webdav;
 
 import org.bluezoo.gumdrop.testsupport.memfs.MemoryFileSystem;
 import org.bluezoo.gumdrop.webdav.server.WebDAVRequestHandler;
+import org.bluezoo.gumdrop.SelectorLoop;
+import org.bluezoo.gumdrop.http.server.HttpResponse;
+import org.bluezoo.gumdrop.telemetry.LogLevel;
+import org.bluezoo.gumdrop.telemetry.LogRecord;
+import org.bluezoo.gumdrop.testsupport.RecordingExporter;
+import java.lang.reflect.Proxy;
+import java.lang.reflect.InvocationHandler;
 
 import org.junit.Before;
 import org.junit.Test;
@@ -32,10 +39,7 @@ import java.io.IOException;
 import java.lang.reflect.Method;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.ArrayList;
 import java.util.Collections;
-import java.util.List;
-import java.util.logging.Handler;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -56,6 +60,7 @@ public class FileSecurityTest {
     private Path tempFile;
     private Path outsideFile;
     private TestFileHandler testHandler;
+    private RecordingExporter events;
     
     /**
      * Test implementation of FileHandler that exposes the validateAndResolvePath method
@@ -63,8 +68,8 @@ public class FileSecurityTest {
      */
     private static class TestFileHandler extends FileHandler {
         
-        public TestFileHandler(Path rootPath) {
-            super(null, rootPath, true, false, "GET, HEAD, PUT, DELETE, OPTIONS", new String[]{"index.html"},
+        public TestFileHandler(HttpResponse response, Path rootPath) {
+            super(response, rootPath, true, false, "GET, HEAD, PUT, DELETE, OPTIONS", new String[]{"index.html"},
                     Collections.emptyMap(), null, null, null);
         }
         
@@ -88,7 +93,19 @@ public class FileSecurityTest {
         outsideFile = Files.createFile(outsideDir.resolve("sensitive.txt"));
         Files.write(outsideFile, "sensitive data".getBytes());
 
-        testHandler = new TestFileHandler(tempRootDir);
+        // the handler reports through its response's loop: record what it says
+        final SelectorLoop loop = new SelectorLoop(0);
+        events = new RecordingExporter(LogLevel.WARN);
+        loop.getTelemetryConfig().setExporter(events);
+        HttpResponse response = (HttpResponse) Proxy.newProxyInstance(
+                HttpResponse.class.getClassLoader(), new Class<?>[] {HttpResponse.class},
+                new InvocationHandler() {
+                    @Override
+                    public Object invoke(Object proxy, Method method, Object[] args) {
+                        return "getSelectorLoop".equals(method.getName()) ? loop : null;
+                    }
+                });
+        testHandler = new TestFileHandler(response, tempRootDir);
 
         Logger.getLogger(FileHandler.class.getName()).setLevel(Level.SEVERE);
     }
@@ -296,48 +313,26 @@ public class FileSecurityTest {
 
     @Test
     public void testSecurityLogging() throws Exception {
-        // Capture log messages for security events
-        List<String> logMessages = new ArrayList<>();
-        Handler logHandler = new Handler() {
-            @Override
-            public void publish(java.util.logging.LogRecord record) {
-                logMessages.add(record.getMessage());
+        // Trigger security violations
+        testHandler.testValidateAndResolvePath("/../etc/passwd");
+        testHandler.testValidateAndResolvePath("/CON");
+        testHandler.testValidateAndResolvePath("/test\0file");
+
+        // Verify security events are reported, with the offending component named
+        boolean hasTraversalLog = false;
+        boolean hasDangerousLog = false;
+        for (LogRecord record : events.named("warn.rejected_dangerous_path_component")) {
+            String component = record.getString("decoded_component");
+            if (component != null && component.contains("..")) {
+                hasTraversalLog = true;
             }
-            @Override public void flush() {}
-            @Override public void close() {}
-        };
-        
-        Logger fileHandlerLogger = Logger.getLogger(FileHandler.class.getName());
-        fileHandlerLogger.setLevel(Level.WARNING);
-        fileHandlerLogger.addHandler(logHandler);
-        
-        try {
-            // Trigger security violations
-            testHandler.testValidateAndResolvePath("/../etc/passwd");
-            testHandler.testValidateAndResolvePath("/CON");
-            testHandler.testValidateAndResolvePath("/test\0file");
-            
-            // Verify security events are logged
-            boolean hasTraversalLog = false;
-            boolean hasDangerousLog = false;
-            boolean hasNullByteLog = false;
-            for (String msg : logMessages) {
-                if (msg.contains("dangerous path component") && msg.contains("..")) {
-                    hasTraversalLog = true;
-                }
-                if (msg.contains("dangerous path component") && msg.contains("CON")) {
-                    hasDangerousLog = true;
-                }
-                if (msg.contains("null bytes")) {
-                    hasNullByteLog = true;
-                }
+            if ("CON".equals(component)) {
+                hasDangerousLog = true;
             }
-            assertTrue("Should log directory traversal attempt: " + logMessages, hasTraversalLog);
-            assertTrue("Should log dangerous path component: " + logMessages, hasDangerousLog);
-            assertTrue("Should log null byte attack: " + logMessages, hasNullByteLog);
-                      
-        } finally {
-            fileHandlerLogger.removeHandler(logHandler);
         }
+        boolean hasNullByteLog = !events.named("warn.rejected_null_byte_path").isEmpty();
+        assertTrue("Should log directory traversal attempt: " + events.records, hasTraversalLog);
+        assertTrue("Should log dangerous path component: " + events.records, hasDangerousLog);
+        assertTrue("Should log null byte attack: " + events.records, hasNullByteLog);
     }
 }

@@ -21,6 +21,8 @@
 
 package org.bluezoo.gumdrop.servlet;
 
+import org.bluezoo.gumdrop.telemetry.EventLogger;
+
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.FileSystems;
@@ -34,12 +36,10 @@ import java.nio.file.WatchKey;
 import java.nio.file.WatchService;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.nio.file.attribute.FileTime;
-import java.text.MessageFormat;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
-import java.util.logging.Level;
 import org.xml.sax.SAXException;
 
 /**
@@ -53,6 +53,10 @@ import org.xml.sax.SAXException;
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 class HotDeploymentThread extends Thread {
+
+    private EventLogger events() {
+        return container.getTelemetryConfig().getLogger(HotDeploymentThread.class, Context.L10N);
+    }
 
     final Container container;
     final Map<Context,Long> warLastModified;
@@ -112,8 +116,7 @@ class HotDeploymentThread extends Thread {
                 try {
                     watchService.close();
                 } catch (IOException e2) {
-                    String message = Context.L10N.getString("err.watch");
-                    Context.LOGGER.log(Level.SEVERE, message, e2);
+                    events().error("err.watch").thrown(e2).emit();
                 }
                 return;
             }
@@ -144,9 +147,9 @@ class HotDeploymentThread extends Thread {
                     try {
                         registerAll(changedPath, context);
                     } catch (IOException e) {
-                        String message = Context.L10N.getString("err.watch_new_directory");
-                        message = MessageFormat.format(message, context.getContextPath());
-                        Context.LOGGER.log(Level.SEVERE, message, e);
+                        events().error("err.watch_new_directory")
+                                .attr("context_path", context.getContextPath())
+                                .thrown(e).emit();
                     }
                 }
                 redeploy(context);
@@ -189,9 +192,9 @@ class HotDeploymentThread extends Thread {
                     registerAll(webInf, context);
                 }
             } catch (IOException e) {
-                String message = Context.L10N.getString("err.watch_web_inf");
-                message = MessageFormat.format(message, context.getContextPath());
-                Context.LOGGER.log(Level.SEVERE, message, e);
+                events().error("err.watch_web_inf")
+                        .attr("context_path", context.getContextPath())
+                        .thrown(e).emit();
             }
         } else { // WAR based, just store last-modified of war file
             long lastModified = lastModified(context.root);
@@ -220,9 +223,9 @@ class HotDeploymentThread extends Thread {
             }
             return true;
         } catch (IOException | SAXException e) {
-            String message = Context.L10N.getString("err.reload");
-            message = MessageFormat.format(message, context.getContextPath());
-            Context.LOGGER.log(Level.SEVERE, message, e);
+            events().error("err.reload")
+                    .attr("context_path", context.getContextPath())
+                    .thrown(e).emit();
             return false;
         }
     }

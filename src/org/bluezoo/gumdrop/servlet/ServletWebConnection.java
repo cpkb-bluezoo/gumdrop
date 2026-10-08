@@ -25,6 +25,9 @@ import org.bluezoo.gumdrop.http.server.HttpResponse;
 import org.bluezoo.gumdrop.websocket.DefaultWebSocketEventHandler;
 import org.bluezoo.gumdrop.websocket.WebSocketEventHandler;
 import org.bluezoo.gumdrop.websocket.WebSocketSession;
+import org.bluezoo.gumdrop.telemetry.EventLogger;
+import org.bluezoo.gumdrop.SelectorLoop;
+import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
 
 import jakarta.servlet.ServletInputStream;
 import jakarta.servlet.ServletOutputStream;
@@ -64,6 +67,11 @@ import java.util.logging.Logger;
 class ServletWebConnection implements WebConnection {
 
     private static final Logger LOGGER = Logger.getLogger(ServletWebConnection.class.getName());
+
+    private EventLogger events() {
+        TelemetryConfig telemetry = handler != null ? handler.getTelemetryConfig() : new TelemetryConfig();
+        return telemetry.getLogger(ServletWebConnection.class, L10N);
+    }
     private static final ResourceBundle L10N =
             ResourceBundle.getBundle("org.bluezoo.gumdrop.servlet.L10N");
 
@@ -197,7 +205,7 @@ class ServletWebConnection implements WebConnection {
                 try {
                     sendMessageDirect(message, asText);
                 } catch (IOException e) {
-                    LOGGER.log(Level.WARNING, L10N.getString("warn.websocket_send_message"), e);
+                    events().warn("warn.websocket_send_message").thrown(e).emit();
                 }
                 if (outputStream.hasWriteListener()) {
                     dispatchContainerCallback(new Runnable() {
@@ -433,7 +441,7 @@ class ServletWebConnection implements WebConnection {
 
         @Override
         public void error(Throwable cause) {
-            LOGGER.log(Level.WARNING, L10N.getString("warn.websocket_error"), cause);
+            events().warn("warn.websocket_error").thrown(cause).emit();
             if (!closed) {
                 messageStream.fail(new IOException("WebSocket error", cause));
                 inputStream.dispatchDataAvailable();
@@ -472,8 +480,7 @@ class ServletWebConnection implements WebConnection {
             @Override
             public void run() {
                 upgradeInitStarted.countDown();
-                LOGGER.log(Level.WARNING,
-                        L10N.getString("warn.websocket_worker_pool_saturated"));
+                events().warn("warn.websocket_worker_pool_saturated").emit();
                 try {
                     close();
                 } catch (IOException e) {
@@ -509,8 +516,7 @@ class ServletWebConnection implements WebConnection {
         try {
             if (!upgradeInitStarted.await(PENDING_RESPONSE_WAIT_TIMEOUT_MS,
                     TimeUnit.MILLISECONDS)) {
-                LOGGER.log(Level.WARNING,
-                        L10N.getString("warn.websocket_upgrade_destroy_timeout"));
+                events().warn("warn.websocket_upgrade_destroy_timeout").emit();
                 return;
             }
         } catch (InterruptedException e) {
@@ -522,12 +528,12 @@ class ServletWebConnection implements WebConnection {
         try {
             upgradeHandler.destroy();
         } catch (Exception e) {
-            LOGGER.log(Level.WARNING, L10N.getString("warn.websocket_upgrade_destroy"), e);
+            events().warn("warn.websocket_upgrade_destroy").thrown(e).emit();
         }
     }
 
     private void handleUpgradeInitFailure(final Exception e) {
-        LOGGER.log(Level.WARNING, L10N.getString("warn.websocket_upgrade_init"), e);
+        events().warn("warn.websocket_upgrade_init").thrown(e).emit();
         Runnable closeTask = new Runnable() {
             @Override
             public void run() {

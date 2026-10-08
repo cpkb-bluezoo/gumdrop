@@ -29,12 +29,14 @@ import jakarta.servlet.ServletException;
 import jakarta.servlet.ServletRequest;
 import jakarta.servlet.ServletResponse;
 
+import org.bluezoo.gumdrop.telemetry.EventLogger;
+import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
+
 import java.io.IOException;
 import java.text.MessageFormat;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.ResourceBundle;
-import java.util.logging.Level;
 import java.util.logging.Logger;
 
 /**
@@ -48,6 +50,11 @@ import java.util.logging.Logger;
 class AsyncContextImpl implements AsyncContext {
 
     private static final Logger LOGGER = Logger.getLogger(AsyncContextImpl.class.getName());
+
+    private EventLogger events() {
+        TelemetryConfig telemetry = handler != null ? handler.getTelemetryConfig() : new TelemetryConfig();
+        return telemetry.getLogger(AsyncContextImpl.class, L10N);
+    }
     private static final ResourceBundle L10N =
             ResourceBundle.getBundle("org.bluezoo.gumdrop.servlet.L10N");
     private static final long DEFAULT_TIMEOUT = 30000L; // 30 seconds
@@ -145,11 +152,11 @@ class AsyncContextImpl implements AsyncContext {
                         complete();
                     }
                 } catch (Exception e) {
-                    LOGGER.log(Level.SEVERE, L10N.getString("async.error_dispatch"), e);
+                    events().error("async.error_dispatch").thrown(e).emit();
                     try {
                         notifyError(e);
                     } catch (Exception ex) {
-                        LOGGER.log(Level.SEVERE, L10N.getString("async.error_listener"), ex);
+                        events().error("async.error_listener").thrown(ex).emit();
                     }
                 }
             }
@@ -177,7 +184,7 @@ class AsyncContextImpl implements AsyncContext {
             
             LOGGER.fine(L10N.getString("async.completed"));
         } catch (IOException e) {
-            LOGGER.log(Level.SEVERE, L10N.getString("async.error_flush"), e);
+            events().error("async.error_flush").thrown(e).emit();
         }
     }
 
@@ -194,11 +201,11 @@ class AsyncContextImpl implements AsyncContext {
                 try {
                     run.run();
                 } catch (Exception e) {
-                    LOGGER.log(Level.SEVERE, L10N.getString("async.error_task"), e);
+                    events().error("async.error_task").thrown(e).emit();
                     try {
                         notifyError(e);
                     } catch (Exception ex) {
-                        LOGGER.log(Level.SEVERE, L10N.getString("async.error_listener"), ex);
+                        events().error("async.error_listener").thrown(ex).emit();
                     }
                 }
             }
@@ -289,14 +296,14 @@ class AsyncContextImpl implements AsyncContext {
             
             if (!handled) {
                 // No listener handled the timeout, complete with error
-                LOGGER.warning(L10N.getString("async.timeout_no_handler"));
+                events().warn("async.timeout_no_handler").emit();
                 if (!response.isCommitted()) {
                     response.sendError(500, L10N.getString("async.timeout_error"));
                 }
                 complete();
             }
         } catch (Exception e) {
-            LOGGER.log(Level.SEVERE, L10N.getString("async.error_timeout"), e);
+            events().error("async.error_timeout").thrown(e).emit();
             complete();
         }
     }
@@ -313,7 +320,7 @@ class AsyncContextImpl implements AsyncContext {
                     listener.onComplete(event);
                 }
             } catch (Exception e) {
-                LOGGER.log(Level.WARNING, L10N.getString("async.error_listener"), e);
+                events().warn("async.error_listener").thrown(e).emit();
             }
         }
     }
@@ -333,7 +340,7 @@ class AsyncContextImpl implements AsyncContext {
                 // If any listener handles the timeout (doesn't throw), consider it handled
                 handled = true;
             } catch (Exception e) {
-                LOGGER.log(Level.WARNING, L10N.getString("async.error_listener"), e);
+                events().warn("async.error_listener").thrown(e).emit();
             }
         }
         return handled;
@@ -351,7 +358,7 @@ class AsyncContextImpl implements AsyncContext {
                     listener.onError(event);
                 }
             } catch (Exception e) {
-                LOGGER.log(Level.WARNING, L10N.getString("async.error_listener"), e);
+                events().warn("async.error_listener").thrown(e).emit();
             }
         }
     }
@@ -363,7 +370,7 @@ class AsyncContextImpl implements AsyncContext {
                     listener.onStartAsync(event);
                 }
             } catch (Exception e) {
-                LOGGER.log(Level.WARNING, L10N.getString("async.error_listener"), e);
+                events().warn("async.error_listener").thrown(e).emit();
             }
         }
     }

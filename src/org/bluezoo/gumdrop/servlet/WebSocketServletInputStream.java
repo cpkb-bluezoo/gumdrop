@@ -24,11 +24,12 @@ package org.bluezoo.gumdrop.servlet;
 import jakarta.servlet.ReadListener;
 import jakarta.servlet.ServletInputStream;
 
+import org.bluezoo.gumdrop.telemetry.EventLogger;
+import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
+
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.ResourceBundle;
-import java.util.logging.Level;
-import java.util.logging.Logger;
 
 /**
  * ServletInputStream wrapper for WebSocket message delivery.
@@ -43,8 +44,11 @@ class WebSocketServletInputStream extends ServletInputStream {
 
     private static final ResourceBundle L10N =
         ResourceBundle.getBundle("org.bluezoo.gumdrop.servlet.L10N");
-    private static final Logger LOGGER =
-        Logger.getLogger(WebSocketServletInputStream.class.getName());
+
+    private EventLogger events() {
+        TelemetryConfig telemetry = handler != null ? handler.getTelemetryConfig() : new TelemetryConfig();
+        return telemetry.getLogger(WebSocketServletInputStream.class, L10N);
+    }
 
     private final ServletHandler handler;
     private final RequestBodyStream in;
@@ -257,7 +261,7 @@ class WebSocketServletInputStream extends ServletInputStream {
             try {
                 readListener.onDataAvailable();
             } catch (IOException e) {
-                LOGGER.log(Level.WARNING, L10N.getString("async.read_listener_error"), e);
+                events().warn("async.read_listener_error").thrown(e).emit();
                 notifyError(e);
             }
         }
@@ -269,7 +273,7 @@ class WebSocketServletInputStream extends ServletInputStream {
             try {
                 readListener.onAllDataRead();
             } catch (IOException e) {
-                LOGGER.log(Level.WARNING, L10N.getString("async.read_listener_all_data"), e);
+                events().warn("async.read_listener_all_data").thrown(e).emit();
                 notifyError(e);
             }
         }
@@ -280,7 +284,7 @@ class WebSocketServletInputStream extends ServletInputStream {
             try {
                 readListener.onError(t);
             } catch (Exception e) {
-                LOGGER.log(Level.SEVERE, L10N.getString("async.read_listener_on_error"), e);
+                events().error("async.read_listener_on_error").thrown(e).emit();
             }
         }
     }

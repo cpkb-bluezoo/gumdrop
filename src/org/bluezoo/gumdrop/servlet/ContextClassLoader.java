@@ -23,13 +23,13 @@ package org.bluezoo.gumdrop.servlet;
 
 import org.bluezoo.gumdrop.ContainerClassLoader;
 import org.bluezoo.gumdrop.util.IteratorEnumeration;
+import org.bluezoo.gumdrop.telemetry.EventLogger;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.URL;
 import java.net.MalformedURLException;
-import java.text.MessageFormat;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
@@ -39,7 +39,6 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.logging.Level;
 
 /**
  * Class loader that loads classes inside a web application.
@@ -50,6 +49,10 @@ import java.util.logging.Level;
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 final class ContextClassLoader extends ClassLoader {
+
+    private EventLogger events() {
+        return context.getTelemetryConfig().getLogger(ContextClassLoader.class, Context.L10N);
+    }
 
     static {
         // Required for getClassLoadingLock(name) to return a genuine
@@ -254,9 +257,7 @@ final class ContextClassLoader extends ClassLoader {
                 }
             }
         } catch (IOException e) {
-            String message = Context.L10N.getString("err.load_resource");
-            message = MessageFormat.format(message, name);
-            Context.LOGGER.log(Level.WARNING, message, e);
+            events().warn("err.load_resource").attr("resource", name).thrown(e).emit();
         }
     }
 
@@ -318,9 +319,7 @@ final class ContextClassLoader extends ClassLoader {
                 }
             }
         } catch (IOException e) {
-            String message = Context.L10N.getString("err.load_resource");
-            message = MessageFormat.format(message, name);
-            Context.LOGGER.log(Level.WARNING, message, e);
+            events().warn("err.load_resource").attr("resource", name).thrown(e).emit();
         }
         return null;
     }

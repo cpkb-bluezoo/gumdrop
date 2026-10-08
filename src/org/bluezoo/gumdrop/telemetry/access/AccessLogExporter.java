@@ -40,6 +40,7 @@ import java.util.ResourceBundle;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -70,6 +71,8 @@ public final class AccessLogExporter implements TelemetryExporter {
     private final BufferedWriter writer;
     private final BlockingQueue<LogRecord> queue;
     private final AtomicLong dropped = new AtomicLong();
+    // records offered to the queue and not yet written
+    private final AtomicInteger pending = new AtomicInteger();
     private final Object writeLock = new Object();
     private final Thread thread;
     private boolean preambleWritten;
@@ -133,7 +136,9 @@ public final class AccessLogExporter implements TelemetryExporter {
         if (!running || record == null || record.getLevel() != LogLevel.ACCESS) {
             return;
         }
-        if (!queue.offer(record)) {
+        if (queue.offer(record)) {
+            pending.incrementAndGet();
+        } else {
             dropped.incrementAndGet();
         }
     }
@@ -195,7 +200,9 @@ public final class AccessLogExporter implements TelemetryExporter {
                 if (first != null) {
                     synchronized (writeLock) {
                         write(first);
+                        pending.decrementAndGet();
                         drainLocked();
+                        writeLock.notifyAll();
                     }
                 }
             } catch (InterruptedException e) {
@@ -204,10 +211,27 @@ public final class AccessLogExporter implements TelemetryExporter {
         }
     }
 
-    /** Writes everything queued so far, on the calling thread. */
+    /**
+     * Writes everything queued so far on the calling thread, and waits for
+     * whatever the writer thread had already taken.
+     */
     private void drain() {
         synchronized (writeLock) {
             drainLocked();
+            long deadline = System.nanoTime() + 5_000_000_000L;
+            while (pending.get() > 0 && thread.isAlive() && System.nanoTime() < deadline) {
+                try {
+                    writeLock.wait(100L);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    return;
+                }
+            }
+            try {
+                writer.flush();
+            } catch (IOException e) {
+                failed(e);
+            }
         }
     }
 
@@ -215,6 +239,7 @@ public final class AccessLogExporter implements TelemetryExporter {
         LogRecord record;
         while ((record = queue.poll()) != null) {
             write(record);
+            pending.decrementAndGet();
         }
         try {
             writer.flush();
