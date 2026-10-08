@@ -53,6 +53,7 @@ import org.bluezoo.gumdrop.tls.ServerCredentials;
 import org.bluezoo.gumdrop.tls.DtlsVersion;
 import org.bluezoo.gumdrop.tls.TlsVersion;
 import org.bluezoo.gumdrop.util.CidrNetwork;
+import org.bluezoo.gumdrop.telemetry.EventLogger;
 import java.util.ResourceBundle;
 /**
  * Common base class for all server endpoint types (TCP and UDP).
@@ -113,6 +114,7 @@ public abstract class Listener {
     private String cipherSuites;
     private String namedGroups;
     private Gumdrop gumdrop;
+    private TelemetryConfig standaloneTelemetry;
     private Map<String, String> sniHostnameToAlias;
     private String sniDefaultAlias;
     private int maxNetInSize = DEFAULT_MAX_NET_IN_SIZE;
@@ -206,6 +208,25 @@ public abstract class Listener {
     public TelemetryConfig getTelemetryConfig() {
         Gumdrop runtime = gumdrop;
         return runtime != null ? runtime.getTelemetryConfig() : null;
+    }
+
+    /**
+     * Returns the telemetry configuration this listener's events go to:
+     * its runtime's, else one of its own for a listener that has not
+     * started under a runtime, which prints events through
+     * {@code java.util.logging}. Never null.
+     *
+     * @return the configuration
+     */
+    protected synchronized TelemetryConfig eventTelemetry() {
+        TelemetryConfig telemetry = getTelemetryConfig();
+        if (telemetry != null) {
+            return telemetry;
+        }
+        if (standaloneTelemetry == null) {
+            standaloneTelemetry = new TelemetryConfig();
+        }
+        return standaloneTelemetry;
     }
 
     public int getMaxNetInSize() {
@@ -902,8 +923,8 @@ public abstract class Listener {
                 }
             }
         } catch (IOException e) {
-            LOGGER.log(Level.WARNING,
-                    L10N.getString("log.failed_to_enumerate_network_interfaces"), e);
+            eventTelemetry().getLogger(Listener.class, L10N)
+                    .warn("log.failed_to_enumerate_network_interfaces").thrown(e).emit();
         }
         return all;
     }

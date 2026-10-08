@@ -354,12 +354,10 @@ final class Tls12RecordState implements TlsRecordSink {
     }
 
     private void handleOverflow() {
-        if (LOGGER.isLoggable(Level.WARNING)) {
-            LOGGER.warning(MessageFormat.format(
-                    Gumdrop.L10N.getString("warn.tls_outbound_buffer_overflow"),
-                    Integer.valueOf(tcpEndpoint.getMaxNetOutSize()),
-                    callback.getRemoteAddress()));
-        }
+        tcpEndpoint.eventTelemetry().getLogger(Tls12RecordState.class, Gumdrop.L10N)
+                .warn("warn.tls_outbound_buffer_overflow")
+                .attr("max_bytes", tcpEndpoint.getMaxNetOutSize())
+                .attr("peer", String.valueOf(callback.getRemoteAddress())).emit();
         handleClosed("outbound-overflow");
     }
 

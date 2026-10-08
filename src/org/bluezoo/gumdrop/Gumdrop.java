@@ -22,7 +22,6 @@
 package org.bluezoo.gumdrop;
 
 import java.io.IOException;
-import java.text.MessageFormat;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
@@ -45,6 +44,7 @@ import org.bluezoo.gumdrop.dns.client.HostsFile;
 import org.bluezoo.gumdrop.dns.client.ResolvConf;
 import org.bluezoo.gumdrop.mailbox.spi.MailboxLifecycle;
 import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
+import org.bluezoo.gumdrop.telemetry.EventLogger;
 
 /**
  * Central configuration and lifecycle manager for the Gumdrop server.
@@ -140,6 +140,11 @@ public class Gumdrop {
 
     // Where this runtime's traces, log events and metrics go
     private volatile TelemetryConfig telemetryConfig = new TelemetryConfig();
+
+    // Looked up each time, as the configuration can be replaced before start
+    private EventLogger events() {
+        return telemetryConfig.getLogger(Gumdrop.class, L10N);
+    }
 
     // State
     private volatile boolean started;
@@ -851,9 +856,7 @@ public class Gumdrop {
                     readyLatch.countDown();
                     long t2 = System.currentTimeMillis();
                     if (LOGGER.isLoggable(Level.INFO)) {
-                        String message = L10N.getString("info.started_gumdrop");
-                        message = MessageFormat.format(message, (t2 - t1));
-                        LOGGER.info(message);
+                        events().info("info.started_gumdrop").attr("elapsed_ms", t2 - t1).emit();
                     }
                 }
             });
@@ -862,9 +865,7 @@ public class Gumdrop {
             readyLatch.countDown();
             long t2 = System.currentTimeMillis();
             if (LOGGER.isLoggable(Level.INFO)) {
-                String message = L10N.getString("info.started_gumdrop");
-                message = MessageFormat.format(message, (t2 - t1));
-                LOGGER.info(message);
+                events().info("info.started_gumdrop").attr("elapsed_ms", t2 - t1).emit();
             }
         }
     }
@@ -1208,12 +1209,11 @@ public class Gumdrop {
     private void doShutdown() {
         long drainTimeout = drainTimeoutMs;
         if (isAbortRequested()) {
-            operatorInfo(L10N.getString("info.closing_servers_abort"));
+            events().info("info.closing_servers_abort").emit();
         } else if (drainTimeout > 0) {
-            operatorInfo(MessageFormat.format(
-                    L10N.getString("info.closing_servers"), drainTimeout));
+            events().info("info.closing_servers").attr("timeout_ms", drainTimeout).emit();
         } else {
-            operatorInfo(L10N.getString("info.closing_servers_no_drain"));
+            events().info("info.closing_servers_no_drain").emit();
         }
 
         // No longer ready: fail readiness immediately so load balancers stop
@@ -1268,7 +1268,7 @@ public class Gumdrop {
             stopMailboxLifecycle();
         }
 
-        operatorInfo(L10N.getString("info.servers_closed"));
+        events().info("info.servers_closed").emit();
 
         // Telemetry last: the exporters take events until here, then
         // are flushed and shut down.
@@ -1281,7 +1281,7 @@ public class Gumdrop {
             try {
                 server.beginShutdown();
             } catch (RuntimeException e) {
-                LOGGER.log(Level.WARNING, L10N.getString("log.error_closing_on_shutdown"), e);
+                events().warn("log.error_closing_on_shutdown").thrown(e).emit();
             }
         }
     }
@@ -1388,20 +1388,9 @@ public class Gumdrop {
     private void awaitLoopTerminated(SelectorLoop loop, long deadlineNanos) {
         long remaining = Math.max(1L, (deadlineNanos - System.nanoTime()) / 1_000_000L);
         if (!loop.awaitQuiesce(remaining)
-                && Thread.currentThread() != loop.getThread()
-                && LOGGER.isLoggable(Level.WARNING)) {
-            LOGGER.warning(L10N.getString("warn.loop_did_not_terminate"));
+                && Thread.currentThread() != loop.getThread()) {
+            events().warn("warn.loop_did_not_terminate").emit();
         }
-    }
-
-    /**
-     * Operator-visible lifecycle line (matches {@link org.bluezoo.gumdrop.util.LaconicFormatter}).
-     * Written to stderr so Ctrl+C / {@code SIGTERM} still show progress after
-     * {@code LogManager} shutdown hooks close JUL handlers.
-     */
-    private static void operatorInfo(String message) {
-        System.err.println("INFO: " + message);
-        System.err.flush();
     }
 
     private void awaitShutdownFinished() throws InterruptedException {
@@ -1549,10 +1538,8 @@ public class Gumdrop {
         if (remaining == 0) {
             return;
         }
-        if (LOGGER.isLoggable(Level.INFO)) {
-            LOGGER.info(MessageFormat.format(
-                    L10N.getString("info.draining_connections"), remaining, timeoutMs));
-        }
+        events().info("info.draining_connections")
+                .attr("connections", remaining).attr("timeout_ms", timeoutMs).emit();
         Runnable observer = drainWaitObserver;
         if (observer != null) {
             observer.run();
@@ -1577,12 +1564,9 @@ public class Gumdrop {
             remaining = activeServerConnectionCount();
         }
         if (remaining > 0) {
-            if (LOGGER.isLoggable(Level.WARNING)) {
-                LOGGER.warning(MessageFormat.format(
-                        L10N.getString("warn.drain_timeout"), remaining));
-            }
-        } else if (LOGGER.isLoggable(Level.INFO)) {
-            LOGGER.info(L10N.getString("info.drain_complete"));
+            events().warn("warn.drain_timeout").attr("connections", remaining).emit();
+        } else {
+            events().info("info.drain_complete").emit();
         }
     }
 
@@ -1806,7 +1790,7 @@ public class Gumdrop {
             try {
                 lifecycle.onServerStart();
             } catch (IOException e) {
-                LOGGER.log(Level.WARNING, L10N.getString("log.could_not_start_mailbox_infrastructure"), e);
+                events().warn("log.could_not_start_mailbox_infrastructure").thrown(e).emit();
             }
         }
     }
@@ -1816,7 +1800,7 @@ public class Gumdrop {
             try {
                 lifecycle.onServerStop();
             } catch (Exception e) {
-                LOGGER.log(Level.WARNING, L10N.getString("log.error_stopping_mailbox_infrastructure"), e);
+                events().warn("log.error_stopping_mailbox_infrastructure").thrown(e).emit();
             }
         }
     }

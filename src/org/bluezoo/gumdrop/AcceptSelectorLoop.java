@@ -21,6 +21,9 @@
 
 package org.bluezoo.gumdrop;
 
+import org.bluezoo.gumdrop.telemetry.EventLogger;
+import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
+
 import java.io.IOException;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
@@ -106,6 +109,7 @@ public class AcceptSelectorLoop implements Runnable {
     }
 
     private final Gumdrop gumdrop;
+    private final EventLogger events;
     private Thread thread;
     private volatile Selector selector;
     private volatile boolean active;
@@ -123,6 +127,10 @@ public class AcceptSelectorLoop implements Runnable {
 
     AcceptSelectorLoop(Gumdrop gumdrop) {
         this.gumdrop = gumdrop;
+        // A loop created outside any runtime, as in tests, reports through
+        // a configuration of its own.
+        TelemetryConfig telemetry = gumdrop != null ? gumdrop.getTelemetryConfig() : new TelemetryConfig();
+        this.events = telemetry.getLogger(AcceptSelectorLoop.class, L10N);
         this.pendingRegistrations = new ConcurrentLinkedQueue<PendingRegistration>();
     }
 
@@ -203,12 +211,12 @@ public class AcceptSelectorLoop implements Runnable {
                     if ("Bad file descriptor".equals(e.getMessage())) {
                         // Selector was closed
                     } else {
-                        LOGGER.log(Level.WARNING, L10N.getString("log.error_in_accept_loop"), e);
+                        events.warn("log.error_in_accept_loop").thrown(e).emit();
                     }
                 }
             }
         } catch (IOException e) {
-            LOGGER.log(Level.SEVERE, L10N.getString("log.failed_to_initialize_acceptselectorloop"), e);
+            events.error("log.failed_to_initialize_acceptselectorloop").thrown(e).emit();
         } finally {
             terminate();
         }
@@ -234,7 +242,7 @@ public class AcceptSelectorLoop implements Runnable {
                     try {
                         selector.close();
                     } catch (IOException e) {
-                        LOGGER.log(Level.WARNING, L10N.getString("log.error_closing_selector"), e);
+                        events.warn("log.error_closing_selector").thrown(e).emit();
                     }
                     selector = null;
                 }
@@ -567,11 +575,8 @@ public class AcceptSelectorLoop implements Runnable {
             case BIND_LISTENER:
                 bindFailures.add(pending.listener.getDescription() + ": "
                         + L10N.getString("log.accept_loop_terminated"));
-                if (LOGGER.isLoggable(Level.WARNING)) {
-                    LOGGER.warning(MessageFormat.format(
-                            L10N.getString("log.registration_refused_accept_loop_terminated"),
-                            pending.listener.getDescription()));
-                }
+                events.warn("log.registration_refused_accept_loop_terminated")
+                        .attr("listener", pending.listener.getDescription()).emit();
                 break;
         }
     }
@@ -624,11 +629,9 @@ public class AcceptSelectorLoop implements Runnable {
                 // registration queue; that is normal, not a server fault.
                 if (pending.rawHandler == null) {
                     bindFailures.add(pending.listener.getDescription() + ": " + e);
-                    if (LOGGER.isLoggable(Level.SEVERE)) {
-                        LOGGER.log(Level.SEVERE, MessageFormat.format(
-                                L10N.getString("log.failed_to_register_server"),
-                                pending.listener.getDescription(), e.getMessage()));
-                    }
+                    events.error("log.failed_to_register_server")
+                            .attr("listener", pending.listener.getDescription())
+                            .attr("reason", e.getMessage()).thrown(e).emit();
                 } else if (pending.rawHandler != null
                         && LOGGER.isLoggable(Level.FINE)) {
                     LOGGER.fine(L10N.getString("log.raw_acceptor_closed_before_registration"));
@@ -654,11 +657,8 @@ public class AcceptSelectorLoop implements Runnable {
         if (pending.rawHandler == null) {
             bindFailures.add(desc + ": " + e.getMessage());
         }
-        if (LOGGER.isLoggable(Level.SEVERE)) {
-            LOGGER.log(Level.SEVERE, MessageFormat.format(
-                    L10N.getString("log.failed_to_register_server"),
-                    desc, e.getMessage()));
-        }
+        events.error("log.failed_to_register_server")
+                .attr("listener", desc).attr("reason", e.getMessage()).thrown(e).emit();
     }
 
     /**
@@ -794,10 +794,7 @@ public class AcceptSelectorLoop implements Runnable {
                         ((RawAcceptHandler) attachment).accepted(sc);
                     }
                 } catch (IOException e) {
-                    if (LOGGER.isLoggable(Level.WARNING)) {
-                        LOGGER.log(Level.WARNING,
-                                L10N.getString("log.error_processing_accepted_connection"), e);
-                    }
+                    events.warn("log.error_processing_accepted_connection").thrown(e).emit();
                     try {
                         sc.close();
                     } catch (IOException closeEx) {
@@ -809,12 +806,11 @@ public class AcceptSelectorLoop implements Runnable {
             if (isFileDescriptorExhausted(e)) {
                 // Out of file descriptors: back off so we don't spin on a
                 // permanently-readable accept selector until FDs free up.
-                LOGGER.log(Level.SEVERE, MessageFormat.format(
-                        L10N.getString("log.out_of_file_descriptors_accept"),
-                        ACCEPT_BACKOFF_MS), e);
+                events.error("log.out_of_file_descriptors_accept")
+                        .attr("backoff_ms", ACCEPT_BACKOFF_MS).thrown(e).emit();
                 backoffAfterAcceptFailure();
             } else {
-                LOGGER.log(Level.WARNING, L10N.getString("log.error_accepting_connection"), e);
+                events.warn("log.error_accepting_connection").thrown(e).emit();
             }
         }
     }
@@ -876,8 +872,7 @@ public class AcceptSelectorLoop implements Runnable {
                 try {
                     endpoint = listener.newEndpoint(sc, workerLoop);
                 } catch (IOException e) {
-                    LOGGER.log(Level.WARNING,
-                            L10N.getString("log.error_setting_up_accepted_connection"), e);
+                    events.warn("log.error_setting_up_accepted_connection").thrown(e).emit();
                     try {
                         sc.close();
                     } catch (IOException closeEx) {

@@ -25,12 +25,11 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.Callable;
 import java.util.concurrent.Executor;
-import java.util.logging.Level;
-import java.util.logging.Logger;
 
 import org.bluezoo.gumdrop.tls.HandshakeAsyncOffload;
 import org.bluezoo.gumdrop.tls.HandshakeEngine;
 import org.bluezoo.gumdrop.tls.TlsEventSink;
+import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
 
 /**
  * Runs {@link HandshakeEngine}'s handshake start and message processing --
@@ -54,7 +53,6 @@ import org.bluezoo.gumdrop.tls.TlsEventSink;
  */
 public final class TlsHandshakeAsyncOffload implements HandshakeAsyncOffload {
 
-    private static final Logger LOGGER = Logger.getLogger(TlsHandshakeAsyncOffload.class.getName());
 
     /** @see HandshakeAsyncOffload.BatchProcessor */
     public interface BatchProcessor extends HandshakeAsyncOffload.BatchProcessor {
@@ -74,6 +72,22 @@ public final class TlsHandshakeAsyncOffload implements HandshakeAsyncOffload {
 
     private boolean taskInFlight;
     private boolean deferring;
+    private TelemetryConfig standaloneTelemetry;
+
+    // The runtime's configuration, else the endpoint's, else one of this
+    // offload's own for a handshake run outside any runtime, as in tests.
+    private synchronized TelemetryConfig eventTelemetry() {
+        if (gumdrop != null) {
+            return gumdrop.getTelemetryConfig();
+        }
+        if (endpoint != null) {
+            return endpoint.eventTelemetry();
+        }
+        if (standaloneTelemetry == null) {
+            standaloneTelemetry = new TelemetryConfig();
+        }
+        return standaloneTelemetry;
+    }
     private List<Runnable> deferredCallbacks;
     private final ArrayList<Runnable> deferredCallbackBuffer = new ArrayList<Runnable>(16);
 
@@ -215,8 +229,8 @@ public final class TlsHandshakeAsyncOffload implements HandshakeAsyncOffload {
 
             @Override
             public void failed(Throwable error) {
-                LOGGER.log(Level.SEVERE,
-                        Gumdrop.L10N.getString("err.tls_handshake_offload_failed"), error);
+                eventTelemetry().getLogger(TlsHandshakeAsyncOffload.class, Gumdrop.L10N)
+                        .error("err.tls_handshake_offload_failed").thrown(error).emit();
                 onFailure.failed(error);
                 boolean idle = false;
                 synchronized (lock) {
