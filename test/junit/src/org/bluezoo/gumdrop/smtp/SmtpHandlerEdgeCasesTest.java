@@ -958,11 +958,6 @@ public class SmtpHandlerEdgeCasesTest {
         }
 
         @Override
-        public boolean isTelemetryEnabled() {
-            return enabled;
-        }
-
-        @Override
         public TelemetryConfig getTelemetryConfig() {
             return config;
         }

@@ -151,11 +151,6 @@ final class MockDataConnector
         }
 
         @Override
-        public boolean isTelemetryEnabled() {
-            return false;
-        }
-
-        @Override
         public TelemetryConfig getTelemetryConfig() {
             return null;
         }

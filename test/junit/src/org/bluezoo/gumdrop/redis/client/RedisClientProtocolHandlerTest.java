@@ -499,7 +499,6 @@ public class RedisClientProtocolHandlerTest {
         @Override public void execute(Runnable task) { task.run(); }
         @Override public void setTrace(org.bluezoo.gumdrop.telemetry.Trace trace) {}
         @Override public org.bluezoo.gumdrop.telemetry.Trace getTrace() { return null; }
-        @Override public boolean isTelemetryEnabled() { return false; }
         @Override public org.bluezoo.gumdrop.telemetry.TelemetryConfig getTelemetryConfig() { return null; }
         @Override public org.bluezoo.gumdrop.SelectorLoop getSelectorLoop() { return null; }
         @Override public org.bluezoo.gumdrop.TimerHandle scheduleTimer(long delayMs, Runnable callback) { return null; }

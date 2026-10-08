@@ -858,11 +858,10 @@ class Stream implements HttpResponse {
             metrics.requestStarted(method != null ? method : "UNKNOWN");
         }
 
-        if (!connection.isTelemetryEnabled()) {
+        TelemetryConfig telemetryConfig = connection.getTelemetryConfig();
+        if (telemetryConfig == null) {
             return;
         }
-
-        TelemetryConfig telemetryConfig = connection.getTelemetryConfig();
         Trace trace = connection.getTrace();
 
         // Check for incoming traceparent header (distributed tracing)
@@ -1846,7 +1845,7 @@ class Stream implements HttpResponse {
             }
             
             // Configure telemetry if enabled
-            if (connection.isTelemetryEnabled()) {
+            if (connection.getTelemetryConfig() != null) {
                 webSocketAdapter.setTelemetryConfig(connection.getTelemetryConfig());
                 if (span != null) {
                     webSocketAdapter.setParentSpan(span);

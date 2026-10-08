@@ -182,7 +182,6 @@ public class MqttWebSocketHandlerTest {
         assertNull(a.getSecurityInfo());
         assertNull(a.getSelectorLoop());
         assertNull(a.getTrace());
-        assertFalse(a.isTelemetryEnabled());
         assertNull(a.getTelemetryConfig());
         a.pauseRead();
         a.resumeRead();

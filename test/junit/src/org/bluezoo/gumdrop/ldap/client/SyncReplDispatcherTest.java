@@ -526,11 +526,6 @@ public class SyncReplDispatcherTest {
         }
 
         @Override
-        public boolean isTelemetryEnabled() {
-            return false;
-        }
-
-        @Override
         public org.bluezoo.gumdrop.telemetry.TelemetryConfig getTelemetryConfig() {
             return null;
         }

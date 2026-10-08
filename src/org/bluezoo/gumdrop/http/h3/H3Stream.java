@@ -1101,7 +1101,7 @@ class H3Stream implements ProtocolHandler, H3FrameHandler, HttpResponse {
             webSocketAdapter.setExtensions(extensions);
         }
 
-        if (connection.isTelemetryEnabled()) {
+        if (connection.getTelemetryConfig() != null) {
             webSocketAdapter.setTelemetryConfig(connection.getTelemetryConfig());
             if (span != null) {
                 webSocketAdapter.setParentSpan(span);
@@ -1393,11 +1393,10 @@ class H3Stream implements ProtocolHandler, H3FrameHandler, HttpResponse {
             metrics.requestStarted(method != null ? method : "UNKNOWN");
         }
 
-        if (!connection.isTelemetryEnabled()) {
+        TelemetryConfig telemetryConfig = connection.getTelemetryConfig();
+        if (telemetryConfig == null) {
             return;
         }
-
-        TelemetryConfig telemetryConfig = connection.getTelemetryConfig();
         Trace trace = connection.getTrace();
 
         String traceparent = requestHeaders != null ? HeaderFields.getValue(requestHeaders, "traceparent") : null;

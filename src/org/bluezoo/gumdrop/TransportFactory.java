@@ -344,15 +344,6 @@ public abstract class TransportFactory {
     }
 
     /**
-     * Returns true if telemetry is enabled.
-     *
-     * @return true if a TelemetryConfig has been set
-     */
-    public boolean isTelemetryEnabled() {
-        return telemetryConfig != null;
-    }
-
-    /**
      * Returns true if metrics collection is enabled.
      *
      * @return true if telemetry is configured with metrics enabled

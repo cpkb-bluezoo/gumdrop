@@ -686,10 +686,7 @@ public final class SmtpProtocolHandler
     }
 
     private void initConnectionTrace() {
-        if (endpoint == null || !endpoint.isTelemetryEnabled()) {
-            return;
-        }
-        TelemetryConfig cfg = endpoint.getTelemetryConfig();
+        TelemetryConfig cfg = endpoint != null ? endpoint.getTelemetryConfig() : null;
         if (cfg != null) {
             String spanName = L10N.getString("telemetry.smtp_connection");
             Trace trace = cfg.createTrace(spanName, SpanKind.SERVER);

@@ -722,11 +722,6 @@ public class UdpEndpoint implements Endpoint, ChannelHandler {
     }
 
     @Override
-    public boolean isTelemetryEnabled() {
-        return factory != null && factory.isTelemetryEnabled();
-    }
-
-    @Override
     public TelemetryConfig getTelemetryConfig() {
         return factory != null ? factory.getTelemetryConfig() : null;
     }

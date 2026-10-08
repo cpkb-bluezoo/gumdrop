@@ -624,7 +624,6 @@ public class AsyncDiskOffloadBoundaryTest {
         }
         @Override public void setTrace(
                 org.bluezoo.gumdrop.telemetry.Trace trace) { }
-        @Override public boolean isTelemetryEnabled() { return false; }
         @Override public org.bluezoo.gumdrop.telemetry.TelemetryConfig
                 getTelemetryConfig() {
             return null;

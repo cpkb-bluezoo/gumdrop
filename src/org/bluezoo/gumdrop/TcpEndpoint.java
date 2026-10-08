@@ -638,11 +638,6 @@ public class TcpEndpoint implements Endpoint, ChannelHandler, TlsRecordState.Cal
     }
 
     @Override
-    public boolean isTelemetryEnabled() {
-        return factory != null && factory.isTelemetryEnabled();
-    }
-
-    @Override
     public TelemetryConfig getTelemetryConfig() {
         return factory != null ? factory.getTelemetryConfig() : null;
     }

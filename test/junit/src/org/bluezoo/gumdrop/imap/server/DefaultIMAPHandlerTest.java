@@ -219,7 +219,6 @@ public class DefaultIMAPHandlerTest {
         @Override public void execute(Runnable task) { task.run(); }
         @Override public void setTrace(Trace trace) {}
         @Override public Trace getTrace() { return null; }
-        @Override public boolean isTelemetryEnabled() { return false; }
         @Override public TelemetryConfig getTelemetryConfig() { return null; }
         @Override public SelectorLoop getSelectorLoop() { return null; }
         @Override public TimerHandle scheduleTimer(long delayMs, Runnable callback) { return null; }

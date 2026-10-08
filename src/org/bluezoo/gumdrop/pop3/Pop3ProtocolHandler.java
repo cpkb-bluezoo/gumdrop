@@ -3330,8 +3330,8 @@ public final class Pop3ProtocolHandler
     // ── Telemetry ──
 
     private void initConnectionTrace() {
-        if (endpoint.isTelemetryEnabled()) {
-            TelemetryConfig config = endpoint.getTelemetryConfig();
+        TelemetryConfig config = endpoint.getTelemetryConfig();
+        if (config != null) {
             String traceName = L10N.getString(
                     "telemetry.pop3_connection");
             connectionTrace = config.createTrace(traceName);

@@ -1076,10 +1076,10 @@ public final class MqttProtocolHandler implements ProtocolHandler, MqttEventHand
     // ═══════════════════════════════════════════════════════════════════
 
     private void initConnectionTrace() {
-        if (!endpoint.isTelemetryEnabled()) {
+        TelemetryConfig telemetryConfig = endpoint.getTelemetryConfig();
+        if (telemetryConfig == null) {
             return;
         }
-        TelemetryConfig telemetryConfig = endpoint.getTelemetryConfig();
         String spanName = L10N.getString("telemetry.mqtt_connection");
         Trace trace = telemetryConfig.createTrace(spanName, SpanKind.SERVER);
         endpoint.setTrace(trace);

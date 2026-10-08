@@ -92,14 +92,13 @@ public class ListenerCredentialsHandoffTest {
         TelemetryConfig telemetry = new TelemetryConfig();
         telemetry.setMetricsEnabled(false);
         l.setTelemetryConfig(telemetry);
-        assertTrue(l.isTelemetryEnabled());
         assertFalse(l.metrics());
         telemetry.setMetricsEnabled(true);
         assertTrue(l.metrics());
         assertSame(telemetry, l.getTelemetryConfig());
         TcpTransportFactory f = new TcpTransportFactory();
         l.configureTransportFactory(f);
-        assertTrue(f.isTelemetryEnabled());
+        assertSame(telemetry, f.getTelemetryConfig());
     }
 
     @Test

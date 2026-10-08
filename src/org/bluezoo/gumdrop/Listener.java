@@ -196,10 +196,6 @@ public abstract class Listener {
         this.telemetryConfig = telemetryConfig;
     }
 
-    public boolean isTelemetryEnabled() {
-        return telemetryConfig != null;
-    }
-
     public int getMaxNetInSize() {
         return maxNetInSize;
     }

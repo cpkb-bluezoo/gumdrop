@@ -619,7 +619,6 @@ public class H3ServerFlowTest {
         f.rec.state.status(HttpStatus.NOT_FOUND.code);
         f.rec.state.bodyContent(ByteBuffer.wrap(new byte[] {1}));
         f.rec.state.endMessage();
-        assertTrue(f.server.isTelemetryEnabled());
         assertNotNull(f.server.getTelemetryConfig());
         assertNotNull(f.server.getMetrics());
         assertNotNull(f.server.getTrace());

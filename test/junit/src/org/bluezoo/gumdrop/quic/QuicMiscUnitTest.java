@@ -316,7 +316,6 @@ public class QuicMiscUnitTest {
         assertNotNull(s.getRemoteAddress());
         s.setTrace(null);
         assertNull(s.getTrace());
-        s.isTelemetryEnabled();
         s.getTelemetryConfig();
         final int[] ran = new int[2];
         s.execute(new Runnable() {

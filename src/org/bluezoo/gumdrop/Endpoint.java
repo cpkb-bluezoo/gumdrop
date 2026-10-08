@@ -299,13 +299,6 @@ public interface Endpoint {
     void setTrace(Trace trace);
 
     /**
-     * Returns whether telemetry is enabled for this endpoint.
-     *
-     * @return true if telemetry is enabled
-     */
-    boolean isTelemetryEnabled();
-
-    /**
      * Returns the telemetry configuration for this endpoint.
      *
      * @return the telemetry config, or null if not configured

@@ -3161,18 +3161,16 @@ public final class FtpProtocolHandler
     // ── Telemetry ──
 
     private void initConnectionTrace() {
-        if (endpoint != null && endpoint.isTelemetryEnabled()) {
-            TelemetryConfig config = endpoint.getTelemetryConfig();
-            if (config != null) {
-                String traceName = L10N.getString("telemetry.ftp_connection");
-                connectionTrace = config.createTrace(traceName);
-                if (connectionTrace != null) {
-                    Span rootSpan = connectionTrace.getRootSpan();
-                    if (rootSpan != null) {
-                        rootSpan.addAttribute("net.transport", "ip_tcp");
-                        rootSpan.addAttribute("net.peer.ip", getRemoteSocketAddress());
-                        rootSpan.addAttribute("rpc.system", "ftp");
-                    }
+        TelemetryConfig config = endpoint != null ? endpoint.getTelemetryConfig() : null;
+        if (config != null) {
+            String traceName = L10N.getString("telemetry.ftp_connection");
+            connectionTrace = config.createTrace(traceName);
+            if (connectionTrace != null) {
+                Span rootSpan = connectionTrace.getRootSpan();
+                if (rootSpan != null) {
+                    rootSpan.addAttribute("net.transport", "ip_tcp");
+                    rootSpan.addAttribute("net.peer.ip", getRemoteSocketAddress());
+                    rootSpan.addAttribute("rpc.system", "ftp");
                 }
             }
         }

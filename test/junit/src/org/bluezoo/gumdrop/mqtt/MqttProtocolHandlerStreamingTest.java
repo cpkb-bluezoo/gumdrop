@@ -166,9 +166,6 @@ public class MqttProtocolHandlerStreamingTest {
         public Object invoke(Object proxy, Method method, Object[] args)
                 throws Throwable {
             String name = method.getName();
-            if (name.equals("isTelemetryEnabled")) {
-                return Boolean.TRUE;
-            }
             if (name.equals("getTelemetryConfig")) {
                 return config;
             }

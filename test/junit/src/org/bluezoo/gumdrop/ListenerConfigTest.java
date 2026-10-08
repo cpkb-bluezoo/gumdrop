@@ -143,7 +143,6 @@ public class ListenerConfigTest {
         assertSame(l, l.secure(false));
         assertFalse(l.isSecure());
         assertNull(l.getTelemetryConfig());
-        assertFalse(l.isTelemetryEnabled());
         assertFalse(l.metrics());
         assertNull(l.getServerCredentials());
         assertEquals(TlsVersion.NEGOTIATE, l.getTlsVersion());

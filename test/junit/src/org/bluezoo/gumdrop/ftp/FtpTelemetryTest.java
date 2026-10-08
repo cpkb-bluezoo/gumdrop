@@ -82,11 +82,6 @@ public class FtpTelemetryTest {
         }
 
         @Override
-        public boolean isTelemetryEnabled() {
-            return config != null;
-        }
-
-        @Override
         public TelemetryConfig getTelemetryConfig() {
             return config;
         }

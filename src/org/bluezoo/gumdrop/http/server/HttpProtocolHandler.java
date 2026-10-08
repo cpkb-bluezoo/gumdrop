@@ -1328,11 +1328,6 @@ public class HttpProtocolHandler extends HttpConnectionLike
     }
 
     @Override
-    public boolean isTelemetryEnabled() {
-        return endpoint != null && endpoint.isTelemetryEnabled();
-    }
-
-    @Override
     public HttpServerMetrics getServerMetrics() {
         return server != null ? server.getMetrics() : null;
     }

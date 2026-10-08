@@ -78,7 +78,6 @@ public class StreamRequestBodyLimitTest {
         @Override public TelemetryConfig getTelemetryConfig() { return null; }
         @Override public Trace getTrace() { return null; }
         @Override public void setTrace(Trace trace) { }
-        @Override public boolean isTelemetryEnabled() { return false; }
         @Override public HttpServerMetrics getServerMetrics() { return null; }
         @Override public boolean isEnablePush() { return false; }
         @Override public Stream newStream(HttpConnectionLike connection, int streamId) {

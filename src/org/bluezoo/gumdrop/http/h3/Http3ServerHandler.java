@@ -734,13 +734,6 @@ public final class Http3ServerHandler implements StreamAcceptHandler, H3ControlS
     }
 
     /**
-     * Returns true if telemetry tracing is enabled.
-     */
-    boolean isTelemetryEnabled() {
-        return telemetryConfig != null && telemetryConfig.isTracesEnabled();
-    }
-
-    /**
      * Returns the HTTP server metrics, or null.
      */
     HttpServerMetrics getMetrics() {

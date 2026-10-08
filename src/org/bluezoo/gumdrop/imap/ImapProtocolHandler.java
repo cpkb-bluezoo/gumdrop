@@ -1135,11 +1135,10 @@ public final class ImapProtocolHandler
     // ── Telemetry ──
 
     private void initConnectionTrace() {
-        if (!endpoint.isTelemetryEnabled()) {
+        TelemetryConfig telemetryConfig = endpoint.getTelemetryConfig();
+        if (telemetryConfig == null) {
             return;
         }
-
-        TelemetryConfig telemetryConfig = endpoint.getTelemetryConfig();
         String spanName = L10N.getString("telemetry.imap_connection");
         Trace trace = telemetryConfig.createTrace(spanName, SpanKind.SERVER);
         endpoint.setTrace(trace);

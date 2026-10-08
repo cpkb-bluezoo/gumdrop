@@ -1285,11 +1285,6 @@ public final class QuicEngine implements ChannelHandler, MultiplexedEndpoint {
     }
 
     @Override
-    public boolean isTelemetryEnabled() {
-        return factory.isTelemetryEnabled();
-    }
-
-    @Override
     public TelemetryConfig getTelemetryConfig() {
         return factory.getTelemetryConfig();
     }

@@ -135,11 +135,6 @@ class StubEndpoint implements Endpoint {
     }
 
     @Override
-    public boolean isTelemetryEnabled() {
-        return false;
-    }
-
-    @Override
     public TelemetryConfig getTelemetryConfig() {
         return null;
     }

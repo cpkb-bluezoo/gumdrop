@@ -613,7 +613,6 @@ public class StreamResponseApiTest {
 
     private static Env traced(String traceparent, boolean preTrace, String status) {
         Env e = new Env(HttpVersion.HTTP_2_0);
-        e.conn.telemetryEnabled = true;
         e.conn.telemetryConfig = tracing();
         if (preTrace) {
             e.conn.trace = e.conn.telemetryConfig.createTrace("pre",

@@ -276,7 +276,7 @@ public class H3ServerEdgeTest {
         respondWithStatus(f, f.open(), "/missing", HttpStatus.NOT_FOUND);
         respondWithStatus(f, f.open(), "/boom", HttpStatus.INTERNAL_SERVER_ERROR);
         assertNotNull(f.server.getTrace());
-        assertTrue(f.server.isTelemetryEnabled());
+        assertNotNull(f.server.getTelemetryConfig());
     }
 
     @Test

@@ -77,11 +77,6 @@ public class POP3TelemetryTest {
         }
 
         @Override
-        public boolean isTelemetryEnabled() {
-            return config != null;
-        }
-
-        @Override
         public TelemetryConfig getTelemetryConfig() {
             return config;
         }
