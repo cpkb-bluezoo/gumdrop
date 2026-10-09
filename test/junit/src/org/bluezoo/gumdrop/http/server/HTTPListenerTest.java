@@ -45,7 +45,7 @@ public class HTTPListenerTest {
     public void testSetIdleTimeout() {
         // RFC 9112 section 9.8
         Http2Listener listener = new Http2Listener();
-        listener.setIdleTimeoutMs(60000);
+        listener.idleTimeoutMs(60000);
         assertEquals(60000, listener.getIdleTimeoutMs());
     }
 
@@ -60,7 +60,7 @@ public class HTTPListenerTest {
     public void testSetMaxRequestsPerConnection() {
         // RFC 9112 section 9.6
         Http2Listener listener = new Http2Listener();
-        listener.setMaxRequestsPerConnection(100);
+        listener.maxRequestsPerConnection(100);
         assertEquals(100, listener.getMaxRequestsPerConnection());
     }
 
@@ -75,7 +75,7 @@ public class HTTPListenerTest {
     @Test
     public void testSetTraceMethodEnabled() {
         Http2Listener listener = new Http2Listener();
-        listener.setTraceMethodEnabled(true);
+        listener.traceMethodEnabled(true);
         assertTrue(listener.isTraceMethodEnabled());
     }
 
@@ -89,7 +89,7 @@ public class HTTPListenerTest {
     public void testMaxConcurrentStreams() {
         Http2Listener listener = new Http2Listener();
         assertEquals(100, listener.getMaxConcurrentStreams());
-        listener.setMaxConcurrentStreams(200);
+        listener.maxConcurrentStreams(200);
         assertEquals(200, listener.getMaxConcurrentStreams());
     }
 
@@ -103,20 +103,20 @@ public class HTTPListenerTest {
     @Test
     public void testSetMaxHeaderListSize() {
         Http2Listener listener = new Http2Listener();
-        listener.setMaxHeaderListSize(16384);
+        listener.maxHeaderListSize(16384);
         assertEquals(16384, listener.getMaxHeaderListSize());
     }
 
     @Test(expected = IllegalArgumentException.class)
     public void testMaxHeaderListSizeRejectsZero() {
         Http2Listener listener = new Http2Listener();
-        listener.setMaxHeaderListSize(0);
+        listener.maxHeaderListSize(0);
     }
 
     @Test(expected = IllegalArgumentException.class)
     public void testMaxConcurrentStreamsRejectsZero() {
         Http2Listener listener = new Http2Listener();
-        listener.setMaxConcurrentStreams(0);
+        listener.maxConcurrentStreams(0);
     }
 
     // RFC 9113 section 6.7: PING keep-alive interval
@@ -130,7 +130,7 @@ public class HTTPListenerTest {
     @Test
     public void testSetPingInterval() {
         Http2Listener listener = new Http2Listener();
-        listener.setPingIntervalMs(30000);
+        listener.pingIntervalMs(30000);
         assertEquals(30000, listener.getPingIntervalMs());
     }
 
@@ -144,21 +144,21 @@ public class HTTPListenerTest {
     @Test
     public void testSetMaxRequestBodySize() {
         Http2Listener listener = new Http2Listener();
-        listener.setMaxRequestBodySize(1024);
+        listener.maxRequestBodySize(1024);
         assertEquals(1024, listener.getMaxRequestBodySize());
     }
 
     @Test
     public void testZeroMaxRequestBodySizeMeansUnlimited() {
         Http2Listener listener = new Http2Listener();
-        listener.setMaxRequestBodySize(0);
+        listener.maxRequestBodySize(0);
         assertEquals(0, listener.getMaxRequestBodySize());
     }
 
     @Test(expected = IllegalArgumentException.class)
     public void testMaxRequestBodySizeRejectsNegative() {
         Http2Listener listener = new Http2Listener();
-        listener.setMaxRequestBodySize(-1);
+        listener.maxRequestBodySize(-1);
     }
 
     @Test

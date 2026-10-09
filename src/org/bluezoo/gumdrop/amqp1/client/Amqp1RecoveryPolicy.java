@@ -22,7 +22,7 @@
 package org.bluezoo.gumdrop.amqp1.client;
 
 /**
- * How {@link Amqp1ClientRecovery} retries after losing its connection:
+ * How {@link Amqp1Client} retries after losing its connection:
  * exponential backoff from an initial delay up to a ceiling, optionally
  * giving up after a number of consecutive failed attempts.
  *

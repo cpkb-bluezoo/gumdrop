@@ -28,6 +28,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 
 import org.bluezoo.gumdrop.Endpoint;
+import org.bluezoo.gumdrop.tls.TlsConfig;
 import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.GumdropConfig;
 import org.bluezoo.gumdrop.SecurityInfo;
@@ -98,11 +99,10 @@ public class HTTP3AutoNegotiationIntegrationTest {
         System.setProperty("gumdrop.workers", "2");
 
         listener = new Http3Listener();
-        listener.setPort(H3_PORT);
+        listener.port(H3_PORT);
         listener.addresses(java.net.InetAddress.getByName(TEST_HOST));
-        listener.setCertFile(Path.of(pemCert.getAbsolutePath()));
-        listener.setKeyFile(Path.of(pemKey.getAbsolutePath()));
-        listener.setStreamHandler(new EchoHandlerFactory());
+        listener.tls(TlsConfig.pem(Path.of(pemCert.getAbsolutePath()), Path.of(pemKey.getAbsolutePath())));
+        listener.streamHandler(new EchoHandlerFactory());
 
         gumdrop = Gumdrop.boot(GumdropConfig.create().workerThreads(2));
         gumdrop.addListener(listener);
@@ -134,7 +134,7 @@ public class HTTP3AutoNegotiationIntegrationTest {
             HttpClient client = new HttpClient(TEST_HOST, ORIGIN_PORT);
             // Neither setH3Enabled(true) nor any manual transport choice --
             // this is exactly the "just connect" application code path.
-            client.setVerifyPeer(false);
+            client.tls(new TlsConfig().verifyPeer(false));
 
             final CountDownLatch connected = new CountDownLatch(1);
             final AtomicReference<Exception> error = new AtomicReference<>();

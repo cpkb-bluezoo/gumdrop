@@ -64,8 +64,8 @@ public class RoleBasedQuotaManagerAsyncSaveIntegrationTest {
 
         manager = new RoleBasedQuotaManager();
         manager.setGumdrop(gumdrop);
-        manager.setStorageDir(tempDir);
-        manager.setDefaultQuota("1GB");
+        manager.storageDir(tempDir);
+        manager.defaultQuota("1GB");
     }
 
     @After

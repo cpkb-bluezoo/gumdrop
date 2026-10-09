@@ -136,21 +136,27 @@ public class AuthPipeline implements SmtpPipeline {
     @Override
     public void mailFrom(EmailAddress sender) {
         // Create DmarcValidator for this message (it aggregates SPF + DKIM results)
-        dmarcValidator = new DmarcValidator(resolver, dmarcCallback);
+        // Asynchronous answers capture this message's validator: a reset
+        // while DNS is in flight clears the field and the answer is dropped
+        final DmarcValidator dmarc = new DmarcValidator(resolver, dmarcCallback);
+        dmarcValidator = dmarc;
         if (arcDmarcPolicy != null) {
-            dmarcValidator.setArcDmarcPolicy(arcDmarcPolicy);
+            dmarc.setArcDmarcPolicy(arcDmarcPolicy);
         }
 
         // Set SPF domain on DmarcValidator
         String spfDomain = (sender != null) ? sender.getDomain() : heloHost;
-        dmarcValidator.setSpfDomain(spfDomain);
+        dmarc.setSpfDomain(spfDomain);
 
         // Create SPF callback that forwards to both user callback and DmarcValidator
         SpfCallback effectiveSpfCallback = new SpfCallback() {
             @Override
             public void spfResult(SpfResult result, String explanation) {
+                if (dmarcValidator != dmarc) {
+                    return;
+                }
                 // Forward to DmarcValidator for DMARC evaluation
-                dmarcValidator.spfResult(result, explanation);
+                dmarc.spfResult(result, explanation);
                 // Forward to user callback if registered
                 if (spfCallback != null) {
                     spfCallback.spfResult(result, explanation);
@@ -171,7 +177,7 @@ public class AuthPipeline implements SmtpPipeline {
                 new DmarcMessageHandler.FromDomainCallback() {
                     @Override
                     public void onFromDomain(String domain) {
-                        dmarcValidator.setFromDomain(domain);
+                        dmarc.setFromDomain(domain);
                     }
                 };
         DmarcMessageHandler dmarcHandler = new DmarcMessageHandler(fromDomainCallback, messageHandler);
@@ -209,6 +215,7 @@ public class AuthPipeline implements SmtpPipeline {
         }
 
         final byte[] bodyHash = parser.getBodyHash();
+        final DmarcValidator dmarc = dmarcValidator;
 
         if (arcValidator != null) {
             arcValidator.setMessageParser(parser);
@@ -218,27 +225,33 @@ public class AuthPipeline implements SmtpPipeline {
             arcValidator.verify(new ArcCallback() {
                 @Override
                 public void arcResult(ArcValidationResult result) {
-                    dmarcValidator.setArcValidationResult(result);
+                    if (dmarcValidator != dmarc) {
+                        return;
+                    }
+                    dmarc.setArcValidationResult(result);
                     if (arcCallback != null) {
                         arcCallback.arcResult(result);
                     }
-                    verifyDkim(bodyHash);
+                    verifyDkim(bodyHash, dmarc);
                 }
             });
         } else {
-            verifyDkim(bodyHash);
+            verifyDkim(bodyHash, dmarc);
         }
     }
 
-    private void verifyDkim(byte[] bodyHash) {
+    private void verifyDkim(byte[] bodyHash, final DmarcValidator dmarc) {
         DkimCallback effectiveDkimCallback = new DkimCallback() {
             @Override
             public void dkimResult(DkimResult result, String signingDomain,
                                    String selector) {
+                if (dmarcValidator != dmarc) {
+                    return;
+                }
                 if (dkimCallback != null) {
                     dkimCallback.dkimResult(result, signingDomain, selector);
                 }
-                dmarcValidator.dkimResult(result, signingDomain, selector);
+                dmarc.dkimResult(result, signingDomain, selector);
             }
         };
 

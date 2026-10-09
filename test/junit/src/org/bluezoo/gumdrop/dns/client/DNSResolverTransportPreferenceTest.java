@@ -213,7 +213,7 @@ public class DNSResolverTransportPreferenceTest {
     public void testExplicitTransportOverrideSkipsPreferenceSelection() throws Exception {
         RecordingTransport explicit = new RecordingTransport();
         TestableResolver resolver = new TestableResolver();
-        resolver.setTransport(explicit);
+        resolver.transport(explicit);
         resolver.addServer("8.8.8.8");
         resolver.open();
 

@@ -76,9 +76,9 @@ public class POP3HandlerStatesTest {
     public void setUp() {
         factory = new POP3ProtocolHandlerTest.StubMailboxFactory();
         listener = new POP3ProtocolHandlerTest.TestPOP3Listener();
-        listener.setRealm(new POP3ProtocolHandlerTest.StubRealm());
-        listener.setMailboxFactory(factory);
-        listener.setEnableAPOP(false);
+        listener.realm(new POP3ProtocolHandlerTest.StubRealm());
+        listener.mailboxFactory(factory);
+        listener.enableAPOP(false);
         tx = new Scripted();
         greeter = new Greeter();
         greeter.tx = tx;

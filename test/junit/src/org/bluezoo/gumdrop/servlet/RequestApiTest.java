@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.servlet;
 
+import org.bluezoo.gumdrop.auth.SynchronousRealm;
 import org.junit.AfterClass;
 import org.junit.BeforeClass;
 import org.bluezoo.gumdrop.testsupport.MessageEvents;
@@ -150,8 +151,7 @@ public class RequestApiTest {
         @Override public void cancel() { }
     }
 
-    private static final class TestRealm implements Realm {
-        @Override public Realm forSelectorLoop(SelectorLoop loop) { return this; }
+    private static final class TestRealm implements SynchronousRealm {
         @Override public Set<SaslMechanism> getSupportedSASLMechanisms() {
             return Collections.<SaslMechanism>emptySet();
         }
@@ -159,7 +159,6 @@ public class RequestApiTest {
             return "bob".equals(username) && "secret".equals(password);
         }
         @Override public String getDigestHA1(String username, String realmName) { return null; }
-        @Override public String getPassword(String username) { return "secret"; }
         @Override public boolean isUserInRole(String username, String role) {
             return "staff".equals(role);
         }

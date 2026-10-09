@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.imap;
 
+import org.bluezoo.gumdrop.auth.SynchronousRealm;
 import org.bluezoo.gumdrop.auth.Realm;
 import org.bluezoo.gumdrop.auth.SaslMechanism;
 import org.bluezoo.gumdrop.testsupport.RecordingStubEndpoint;
@@ -44,8 +45,8 @@ public class IMAPUtf8AcceptTest {
     @Test(timeout = 10000)
     public void testEnableUtf8AcceptAdvertisesAndActivates() throws Exception {
         ImapListener listener = new ImapListener();
-        listener.setRealm(new AcceptingRealm());
-        listener.setAllowPlaintextLogin(true);
+        listener.realm(new AcceptingRealm());
+        listener.allowPlaintextLogin(true);
 
         ImapProtocolHandler handler = new ImapProtocolHandler(listener);
         RecordingStubEndpoint endpoint = new RecordingStubEndpoint(143);
@@ -76,7 +77,7 @@ public class IMAPUtf8AcceptTest {
         handler.receive(ByteBuffer.wrap(data));
     }
 
-    private static final class AcceptingRealm implements Realm {
+    private static final class AcceptingRealm implements SynchronousRealm {
         private static final Set<SaslMechanism> SUPPORTED =
                 Collections.unmodifiableSet(
                         EnumSet.of(SaslMechanism.PLAIN, SaslMechanism.LOGIN));
@@ -102,11 +103,6 @@ public class IMAPUtf8AcceptTest {
             return null;
         }
 
-        @Override
-        @SuppressWarnings("deprecation")
-        public String getPassword(String username) {
-            return "user".equals(username) ? "pass" : null;
-        }
 
         @Override
         public boolean isUserInRole(String username, String role) {

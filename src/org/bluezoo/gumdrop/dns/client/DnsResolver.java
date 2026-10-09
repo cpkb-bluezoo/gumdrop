@@ -49,6 +49,7 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 
 import org.bluezoo.gumdrop.SelectorLoop;
+import org.bluezoo.gumdrop.tls.TlsConfig;
 import org.bluezoo.gumdrop.TimerHandle;
 import org.bluezoo.gumdrop.dns.DnsCache;
 import org.bluezoo.gumdrop.dns.DnsQueryIdGenerator;
@@ -85,7 +86,7 @@ import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
  * configurable depth limit.
  *
  * <p>The transport used for DNS communication is pluggable via {@link
- * DnsClientTransport} and {@link #setTransport}. Without an explicit
+ * DnsClientTransport} and {@link #transport}. Without an explicit
  * override, each configured server gets its own transport chosen by
  * descending preference -- RFC 9250 DoQ, then RFC 7858 DoT, then RFC
  * 8484 DoH, then plain UDP ({@link UdpDnsClientTransport}) -- based on
@@ -96,7 +97,7 @@ import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
  * connection-timeout latency to the common case).
  *
  * <p>SelectorLoop affinity: when used inside a Gumdrop service (e.g. from an
- * HTTP or SMTP handler), call {@link #setSelectorLoop(SelectorLoop)} with
+ * HTTP or SMTP handler), call {@link #selectorLoop(SelectorLoop)} with
  * the endpoint's SelectorLoop so that DNS callbacks run on the same thread
  * and avoid cross-thread coordination.
  *
@@ -186,8 +187,8 @@ public class DnsResolver {
             return existing;
         }
         DnsResolver r = new DnsResolver();
-        r.setSelectorLoop(loop);
-        r.setDnssecEnabled(defaultDnssecEnabled);
+        r.selectorLoop(loop);
+        r.dnssecEnabled(defaultDnssecEnabled);
         r.useSystemResolvers();
         // Not opened here: connecting to the nameservers waits until a name
         // needs one. Most names a loop resolves may never do so (address
@@ -285,6 +286,7 @@ public class DnsResolver {
 
     /** RFC 4035: when true, set the DO bit and validate responses. */
     private boolean dnssecEnabled;
+    private TlsConfig tls;
     private DnssecChainValidator chainValidator;
     private DnssecTrustAnchor trustAnchor;
 
@@ -322,9 +324,11 @@ public class DnsResolver {
      * server gets its own transport chosen automatically.
      *
      * @param transport the transport prototype to use for each server
+     * @return this client
      */
-    public void setTransport(DnsClientTransport transport) {
+    public DnsResolver transport(DnsClientTransport transport) {
         this.transportPrototype = transport;
+        return this;
     }
 
     /**
@@ -386,15 +390,6 @@ public class DnsResolver {
     }
 
     /**
-     * Sets the query timeout in milliseconds.
-     *
-     * @param timeoutMs the timeout in milliseconds
-     */
-    public void setTimeoutMs(long timeoutMs) {
-        this.timeoutMs = timeoutMs;
-    }
-
-    /**
      * Adds a DNS server by address on the default port (53). Returns
      * {@code this} for fluent configuration.
      *
@@ -448,7 +443,7 @@ public class DnsResolver {
      * @return this resolver
      */
     public DnsResolver timeoutMs(long timeoutMs) {
-        setTimeoutMs(timeoutMs);
+        this.timeoutMs = timeoutMs;
         return this;
     }
 
@@ -460,7 +455,21 @@ public class DnsResolver {
      * @return this resolver
      */
     public DnsResolver dnssecEnabled(boolean enabled) {
-        setDnssecEnabled(enabled);
+        this.dnssecEnabled = enabled;
+        return this;
+    }
+
+    /**
+     * Sets the TLS settings used for the encrypted transports (DNS over TLS,
+     * QUIC and HTTPS): trust material for verifying the upstream, and a client
+     * identity if it wants one. The settings are copied. Plain UDP and TCP
+     * queries are unaffected.
+     *
+     * @param source the TLS configuration, or null for the defaults
+     * @return this resolver
+     */
+    public DnsResolver tls(TlsConfig source) {
+        this.tls = (source == null) ? null : new TlsConfig().copyFrom(source);
         return this;
     }
 
@@ -471,20 +480,6 @@ public class DnsResolver {
      */
     public SelectorLoop getSelectorLoop() {
         return selectorLoop;
-    }
-
-    /**
-     * Enables or disables DNSSEC validation.
-     * RFC 4035 section 3.2.1: when enabled, the DO bit is set in
-     * outgoing queries and responses are validated via the chain of
-     * trust before delivery.
-     *
-     * <p>Must be called before {@link #open()}.
-     *
-     * @param enabled true to enable DNSSEC validation
-     */
-    public void setDnssecEnabled(boolean enabled) {
-        this.dnssecEnabled = enabled;
     }
 
     /**
@@ -516,12 +511,14 @@ public class DnsResolver {
      * <p>Must be called before {@link #open()}. Disabled by default,
      * like {@link #setDnssecEnabled}, since it adds an extra query per
      * not-yet-known server; has no effect when a transport was
-     * explicitly configured via {@link #setTransport}.
+     * explicitly configured via {@link #transport}.
      *
      * @param enabled true to enable DDR discovery
+     * @return this client
      */
-    public void setDdrEnabled(boolean enabled) {
+    public DnsResolver ddrEnabled(boolean enabled) {
         this.ddrEnabled = enabled;
+        return this;
     }
 
     /**
@@ -538,9 +535,11 @@ public class DnsResolver {
      * enabled, a default store with the IANA root anchors is used.
      *
      * @param trustAnchor the trust anchor store
+     * @return this client
      */
-    public void setTrustAnchor(DnssecTrustAnchor trustAnchor) {
+    public DnsResolver trustAnchor(DnssecTrustAnchor trustAnchor) {
         this.trustAnchor = trustAnchor;
+        return this;
     }
 
     /**
@@ -552,9 +551,11 @@ public class DnsResolver {
      * <p>Must be called before {@link #open()}.
      *
      * @param loop the SelectorLoop, or null to use a Gumdrop worker loop
+     * @return this client
      */
-    public void setSelectorLoop(SelectorLoop loop) {
+    public DnsResolver selectorLoop(SelectorLoop loop) {
         this.selectorLoop = loop;
+        return this;
     }
 
     /**
@@ -1436,7 +1437,7 @@ public class DnsResolver {
 
     /**
      * Opens a transport to {@code server}. If an explicit transport was
-     * configured via {@link #setTransport}, that override is used as
+     * configured via {@link #transport}, that override is used as
      * before, with no capability-based selection. Otherwise, transports
      * are tried in {@link #TRANSPORT_PREFERENCE_ORDER}, skipping any
      * {@link DnsServerCapabilityCache} already knows this server doesn't
@@ -1527,12 +1528,18 @@ public class DnsResolver {
     // createTcpRetryTransport() below is overridable for the TC-retry path.
     DnsClientTransport newTransportInstance(DnsTransportType type, DnsServerCapabilities caps) {
         switch (type) {
-            case DOQ:
-                return new DoQClientTransport();
-            case DOT:
-                return TcpDnsClientTransport.createDoT();
+            case DOQ: {
+                DoQClientTransport doq = new DoQClientTransport();
+                doq.tls(tls);
+                return doq;
+            }
+            case DOT: {
+                TcpDnsClientTransport dot = TcpDnsClientTransport.createDoT();
+                dot.tls(tls);
+                return dot;
+            }
             case DOH:
-                return createDohTransport(caps.getDohPath());
+                return createDohTransport(caps.getDohPath(), tls);
             case PLAIN:
             default:
                 return new UdpDnsClientTransport();
@@ -1548,7 +1555,7 @@ public class DnsResolver {
      * directly -- see that interface's Javadoc), or null if no provider
      * is on the classpath.
      */
-    private static DnsClientTransport createDohTransport(String path) {
+    private static DnsClientTransport createDohTransport(String path, TlsConfig tls) {
         if (!dohTransportFactoryLoaded) {
             synchronized (DnsResolver.class) {
                 if (!dohTransportFactoryLoaded) {
@@ -1561,7 +1568,7 @@ public class DnsResolver {
             }
         }
         DoHTransportFactory factory = dohTransportFactory;
-        return factory != null ? factory.createTransport(path) : null;
+        return factory != null ? factory.createTransport(path, tls) : null;
     }
 
     // RFC 1035 section 7.3: match response to query by Message ID
@@ -1857,7 +1864,7 @@ public class DnsResolver {
      * {@code server}, over a fresh plaintext connection to that same
      * server, and on a usable response records what was discovered and
      * upgrades that server's active transport. See {@link
-     * #setDdrEnabled} for the full behavior and failure handling.
+     * #ddrEnabled} for the full behavior and failure handling.
      */
     private void startDdrDiscovery(final int serverIndex, final InetSocketAddress server) {
         try {
@@ -2307,7 +2314,7 @@ public class DnsResolver {
 
         /**
          * Set by {@link #openBestTransport} once its transport.open()
-         * call succeeds; null while an explicit {@link #setTransport}
+         * call succeeds; null while an explicit {@link #transport}
          * override is in effect, since there's nothing to fall back
          * from in that case.
          */

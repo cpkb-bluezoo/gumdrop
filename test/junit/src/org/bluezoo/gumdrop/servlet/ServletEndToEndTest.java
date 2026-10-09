@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.servlet;
 
+import org.bluezoo.gumdrop.auth.SynchronousRealm;
 import org.junit.AfterClass;
 import org.junit.BeforeClass;
 import org.bluezoo.gumdrop.testsupport.MessageEvents;
@@ -568,8 +569,7 @@ public class ServletEndToEndTest {
     }
 
     /** Realm that authenticates alice/pw as an admin. */
-    static final class TestRealm implements Realm {
-        @Override public Realm forSelectorLoop(SelectorLoop loop) { return this; }
+    static final class TestRealm implements SynchronousRealm {
         @Override public Set<SaslMechanism> getSupportedSASLMechanisms() {
             return Collections.<SaslMechanism>emptySet();
         }
@@ -577,7 +577,6 @@ public class ServletEndToEndTest {
             return "alice".equals(username) && "pw".equals(password);
         }
         @Override public String getDigestHA1(String username, String realmName) { return null; }
-        @Override public String getPassword(String username) { return "pw"; }
         @Override public boolean isUserInRole(String username, String role) {
             return "alice".equals(username) && "admin".equals(role);
         }

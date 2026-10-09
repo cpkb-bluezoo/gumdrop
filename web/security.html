@@ -34,307 +34,61 @@
 <p class="back-link"><a href="index.html">&larr; Back to Main Page</a></p>
 
 <p>
-This document covers security features available across all Gumdrop servers,
-including identity and access management, rate limiting, and transport security.
-For the in-tree TLS/DTLS stack (scope, cipher profiles, version pinning,
-configuration, and RFC conformance), see the dedicated
+This page covers security in Gumdrop servers outside the transport layer:
+identity and access management with the shared <code>Realm</code>, SASL
+mechanisms and role-based authorisation, connection rate limiting and network
+filtering, and storage quotas. Certificates, keystores, pinning, cipher suites
+and everything else about TLS, DTLS and QUIC are on the
 <a href="tls.html">TLS &amp; DTLS</a> page.
-</p>
-
-<p>
-HTTP services add default security headers (<code>X-Frame-Options</code>,
-<code>X-Content-Type-Options</code>) to responses unless the application sets
-them. Optional RFC 6797 HSTS (<code>Strict-Transport-Security</code>) is
-available on TLS listeners. See <a href="http.html#configuration">HTTP
-Configuration</a> for <code>add-security-headers</code> and HSTS properties.
 </p>
 
 <h3>Contents</h3>
 <ul>
-<li><a href="tls.html">Transport Layer Security</a>
+<li><a href="#iam">Identity and access management</a>
   <ul>
-  <li><a href="#tls-certificates">TLS Certificates for Local Development</a>
-    <ul>
-    <li><a href="#pem-layout">The simplest form: three PEM files</a></li>
-    <li><a href="#generate-certificates">Generating them: ant tls-certs</a></li>
-    <li><a href="#without-ant">Without Ant</a></li>
-    <li><a href="#keystores">Using Java keystores and truststores instead</a></li>
-    </ul>
-  </li>
-  <li><a href="#server-identity">Server identity across transports</a></li>
-  <li><a href="#sni">SNI (Server Name Indication)</a></li>
+  <li><a href="#realm-wiring">Using a realm</a></li>
+  <li><a href="#realm">The Realm interface</a></li>
+  <li><a href="#custom-realm">Writing a realm</a></li>
+  <li><a href="#basicrealm">BasicRealm</a></li>
+  <li><a href="#ldaprealm">LdapRealm</a></li>
+  <li><a href="#oauthrealm">OAuthRealm</a></li>
+  <li><a href="#sasl">SASL authentication</a></li>
+  <li><a href="#gssapi">GSSAPI and Kerberos</a></li>
+  <li><a href="#http-auth">HTTP authentication</a></li>
+  <li><a href="#rbac">Role-based access control</a></li>
   </ul>
 </li>
-<li><a href="#iam">Identity and Access Management (IAM)</a>
+<li><a href="#ratelimit">Rate limiting and network filtering</a>
   <ul>
-  <li><a href="#realm">The Realm Interface</a></li>
-  <li><a href="#basicrealm">BasicRealm Implementation</a></li>
-  <li><a href="#sasl">SASL Authentication</a></li>
-  <li><a href="#rbac">Role-Based Access Control</a></li>
+  <li><a href="#connection-rate">Connection limits</a></li>
+  <li><a href="#auth-lockout">Authentication lockout</a></li>
+  <li><a href="#cidr">Network filtering (CIDR)</a></li>
   </ul>
 </li>
-<li><a href="#ratelimit">Rate Limiting</a>
-  <ul>
-  <li><a href="#connection-rate">Connection Rate Limiting</a></li>
-  <li><a href="#auth-rate">Authentication Rate Limiting</a></li>
-  <li><a href="#cidr">Network Filtering (CIDR)</a></li>
-  </ul>
-</li>
-<li><a href="#telemetry-security">Security Telemetry</a></li>
+<li><a href="#quota">Storage quotas</a></li>
+<li><a href="#headers">HTTP security headers</a></li>
+<li><a href="#telemetry-security">Security events</a></li>
 </ul>
 
-<h2 id="tls">Transport Layer Security</h2>
+<h2 id="iam">Identity and access management</h2>
 
 <p>
-See <a href="tls.html">TLS &amp; DTLS</a> for full documentation of supported
-protocol versions, TLS&nbsp;1.2 profile limits, cipher suites, named groups,
-ALPN/SNI/mTLS configuration, and RFC conformance matrices. The sections below
-cover certificate setup and cross-transport comparisons.
+Every Gumdrop protocol that authenticates users does so through one
+abstraction, <code>org.bluezoo.gumdrop.auth.Realm</code>. A realm is a
+collection of principals with credentials and roles. SMTP, IMAP, POP3, FTP,
+HTTP (including WebDAV and the servlet container), MQTT and SOCKS all take the
+same realm, so one user store can serve every service you run.
 </p>
 
-<h3 id="tls-certificates">TLS Certificates for Local Development</h3>
+<h3 id="realm-wiring">Using a realm</h3>
 
 <p>
-All secure listeners (TCP/TLS, DTLS, and QUIC) use the same in-tree TLS
-stack and accept the same server-identity configuration. See
-<a href="#server-identity">Server identity across transports</a>. Certificate
-material is not checked in to the repository; you generate it once, locally.
-</p>
-
-<h4 id="pem-layout">The simplest form: three PEM files</h4>
-
-<p>
-The lowest-overhead way to give a listener an identity is plain PEM files. No
-keystore, no password, no format conversion, and the files are readable by
-<code>curl</code>, <code>openssl</code>, browsers and most other tools as they
-stand. Gumdrop&rsquo;s build, tests and documentation use one layout:
-</p>
-
-<table border="1" cellpadding="5">
-<tr><th>File</th><th>Holds</th><th>Used by</th></tr>
-<tr>
-  <td><code>key.pem</code></td>
-  <td>The server&rsquo;s private key (unencrypted PKCS#8)</td>
-  <td>The server: <code>key-file</code> / <code>TlsConfig.pem</code></td>
-</tr>
-<tr>
-  <td><code>cert.pem</code></td>
-  <td>The server&rsquo;s certificate (and any intermediates)</td>
-  <td>The server: <code>cert-file</code> / <code>TlsConfig.pem</code></td>
-</tr>
-<tr>
-  <td><code>ca.pem</code></td>
-  <td>The certificate of the CA that signed <code>cert.pem</code></td>
-  <td>Clients, as their trust anchor (<code>curl --cacert</code>,
-      <code>PemCredentials.loadTrustManager</code>)</td>
-</tr>
-</table>
-
-<p>
-Only <code>ca.pem</code> is ever given to clients. <code>key.pem</code> stays on
-the server.
+Give a realm to a server with <code>realm()</code> on its composer:
 </p>
 
 <pre>
-// Server: the identity from two PEM files
-TlsConfig tls = TlsConfig.pem(Path.of("etc/tls/cert.pem"), Path.of("etc/tls/key.pem"));
-HttpServer http = HttpServer.compose()
-    .secureEndpoint(8443, tls)
-    .streamHandler(new MyStreamHandler())
-    .server();
+BasicRealm realm = new BasicRealm().href(Path.of("users.xml"));
 
-// Client: trust the CA in ca.pem, and nothing else
-X509TrustManager trust = PemCredentials.loadTrustManager(Path.of("etc/tls/ca.pem"));
-</pre>
-
-<p>
-In <code>server.xml</code> for the servlet container, the same identity is:
-</p>
-
-<pre>
-&lt;listener port="8443" secure="true" cert-file="tls/cert.pem" key-file="tls/key.pem"/&gt;
-</pre>
-
-<h4 id="generate-certificates">Generating them: <code>ant tls-certs</code></h4>
-
-<p>
-From a checkout, one command creates the three files in <code>etc/tls/</code>
-(gitignored), valid for <code>localhost</code>, <code>127.0.0.1</code> and
-<code>::1</code>:
-</p>
-
-<pre>
-ant tls-certs
-</pre>
-
-<p>
-It uses <a href="https://github.com/FiloSottile/mkcert">mkcert</a> when it is
-installed, and <code>openssl</code> with a private CA otherwise. If neither is
-found the build stops and tells you how to install them for your system:
-</p>
-
-<table border="1" cellpadding="5">
-<tr><th></th><th>mkcert (recommended)</th><th>openssl (fallback)</th></tr>
-<tr><td>macOS</td><td><code>brew install mkcert</code></td><td><code>brew install openssl</code></td></tr>
-<tr><td>Debian / Ubuntu</td><td><code>sudo apt install mkcert</code></td><td><code>sudo apt install openssl</code></td></tr>
-<tr><td>Fedora</td><td><code>sudo dnf install mkcert</code></td><td><code>sudo dnf install openssl</code></td></tr>
-<tr><td>Windows</td><td><code>winget install FiloSottile.mkcert</code></td>
-    <td><code>winget install ShiningLight.OpenSSL.Light</code>, or the copy that
-        comes with Git for Windows (found automatically)</td></tr>
-</table>
-
-<p>
-mkcert is preferred because its CA can be added to your operating system&rsquo;s
-trust store, which makes browsers and other tools trust the certificate with no
-further steps. With <code>openssl</code> you add <code>ca.pem</code> to the
-trust store yourself, or point a client at it directly. Programs installed
-somewhere unusual can be named with <code>-Dmkcert.executable=...</code> and
-<code>-Dopenssl.executable=...</code>.
-</p>
-
-<table border="1" cellpadding="5">
-<tr><th>Ant target</th><th>What it does</th></tr>
-<tr><td><code>tls-certs</code></td>
-    <td>Creates <code>key.pem</code>, <code>cert.pem</code> and <code>ca.pem</code>;
-        does nothing if they exist (<code>-Dtls.force=true</code> renews the
-        certificate, keeping the CA)</td></tr>
-<tr><td><code>tls-keystore</code></td>
-    <td>Also builds <code>keystore.p12</code> and <code>truststore.p12</code>
-        (see <a href="#keystores">below</a>)</td></tr>
-<tr><td><code>tls-trust-install</code></td>
-    <td>Adds the CA to the operating system trust store (mkcert only; may ask
-        for your password)</td></tr>
-<tr><td><code>tls-trust-uninstall</code></td>
-    <td>Removes it again</td></tr>
-<tr><td><code>tls-clean</code></td>
-    <td>Deletes everything generated, including the CA and its key</td></tr>
-</table>
-
-<p>
-Useful properties: <code>-Dtls.dir=</code> (output directory),
-<code>-Dtls.names="localhost example.test 10.0.0.5"</code> (host names and
-addresses), <code>-Dtls.keytype=rsa</code> (default is EC P-256) and
-<code>-Dtls.generator=openssl</code>. The header of
-<code>ant/tls.xml</code> lists them all.
-</p>
-
-<p>
-The CA is created inside the checkout (<code>etc/tls/ca/</code>), not in
-mkcert&rsquo;s per-user location, so nothing outside the checkout changes until
-you run <code>tls-trust-install</code>. After that, anyone who can read
-<code>etc/tls/ca/rootCA-key.pem</code> can create certificates your browser
-trusts: keep it private, and run <code>ant tls-trust-uninstall tls-clean</code>
-when you are finished with it.
-</p>
-
-<p>
-To check a running server without touching the trust store, give
-<code>curl</code> the CA:
-</p>
-
-<pre>
-curl --cacert etc/tls/ca.pem https://localhost:8443/
-</pre>
-
-<h4 id="without-ant">Without Ant</h4>
-
-<p>
-The files are ordinary PEM, so any tool can make them. With mkcert:
-</p>
-
-<pre>
-mkcert -ecdsa -cert-file cert.pem -key-file key.pem localhost 127.0.0.1 ::1
-cp "$(mkcert -CAROOT)/rootCA.pem" ca.pem
-</pre>
-
-<p>
-With only OpenSSL 1.1.1 or later, a self-signed certificate is a single command
-(it signs itself, so it is also its own trust anchor):
-</p>
-
-<pre>
-openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes -days 365 \
-    -keyout key.pem -out cert.pem -subj "/CN=localhost" \
-    -addext "subjectAltName=DNS:localhost,IP:127.0.0.1,IP:::1"
-cp cert.pem ca.pem
-</pre>
-
-<h4 id="keystores">Using Java keystores and truststores instead</h4>
-
-<p>
-Everything above also works with Java keystores, which suit deployments that
-already manage certificates that way. A keystore (PKCS#12, or JKS) holds the
-identity, and a truststore holds the trust anchors, in place of
-<code>key.pem</code> + <code>cert.pem</code> and <code>ca.pem</code>:
-</p>
-
-<table border="1" cellpadding="5">
-<tr><th></th><th>PEM</th><th>Java keystore</th></tr>
-<tr><td>Server identity</td>
-    <td><code>cert-file</code>, <code>key-file</code>;
-        <code>TlsConfig.pem(cert, key)</code></td>
-    <td><code>keystore-file</code>, <code>keystore-pass</code>,
-        optional <code>keystore-format</code> (<code>PKCS12</code> by default,
-        or <code>JKS</code>); <code>TlsConfig.keystore(path, pass)</code></td></tr>
-<tr><td>Trust anchors</td>
-    <td><code>PemCredentials.loadTrustManager(Path)</code></td>
-    <td><code>TlsUtils.loadTrustManagers(path, pass, format)</code></td></tr>
-<tr><td>Password</td><td>none</td><td>required</td></tr>
-<tr><td>Several identities in one file (SNI)</td><td>no, one pair per listener</td>
-    <td>yes, selected by alias</td></tr>
-</table>
-
-<p>
-A listener takes one form or the other, not both. To build the keystore and
-truststore from the PEM files:
-</p>
-
-<pre>
-ant tls-keystore          # etc/tls/keystore.p12 and etc/tls/truststore.p12, password "changeit"
-</pre>
-
-<p>
-or by hand:
-</p>
-
-<pre>
-# PKCS#12 keystore: the server key and certificate, with the CA in the chain
-openssl pkcs12 -export -in cert.pem -inkey key.pem -certfile ca.pem \
-    -name server -out keystore.p12 -passout pass:changeit
-
-# PKCS#12 truststore: the CA as a trust anchor (needs only the JDK)
-keytool -importcert -noprompt -alias ca -file ca.pem \
-    -keystore truststore.p12 -storetype PKCS12 -storepass changeit
-
-# JKS, if something still wants it
-keytool -importkeystore -srckeystore keystore.p12 -srcstoretype PKCS12 \
-    -destkeystore keystore.jks -deststoretype JKS
-</pre>
-
-<pre>
-TlsConfig tls = TlsConfig.keystore(Path.of("keystore.p12"), "changeit");
-X509TrustManager trust = (X509TrustManager)
-        TlsUtils.loadTrustManagers(Path.of("truststore.p12"), "changeit", "PKCS12")[0];
-</pre>
-
-<p>
-Going the other way, from an existing keystore back to PEM:
-</p>
-
-<pre>
-openssl pkcs12 -in keystore.p12 -nokeys -out cert.pem                 # certificate(s)
-openssl pkcs12 -in keystore.p12 -nocerts -nodes -out key.pem          # private key (PKCS#8)
-</pre>
-
-<h3>TCP/TLS Configuration</h3>
-
-<h4>Implicit TLS</h4>
-
-<p>
-Connection is encrypted from the start (e.g., SMTPS port 465, IMAPS port 993):
-</p>
-
-<pre>
 TlsConfig tls = TlsConfig.keystore(Path.of("keystore.p12"), "secret");
 ImapServer imaps = ImapServer.compose()
     .listener(new ImapListener().port(993).secure(true).tls(tls))
@@ -343,327 +97,255 @@ ImapServer imaps = ImapServer.compose()
     .server();
 </pre>
 
-<h4>STARTTLS</h4>
-
 <p>
-Connection starts unencrypted and upgrades to TLS on client request:
+<code>SmtpServer</code>, <code>Pop3Server</code>, <code>FtpServer</code>,
+<code>HttpServer</code>, <code>SocksServer</code> and <code>MqttServer</code>
+composers all have the same <code>realm(Realm)</code> method, and so does the
+<code>WebDAVRequestHandler</code> builder (where it supplies the privilege
+roles, see <a href="#rbac">below</a>). The servlet container declares its
+realms in <code>server.xml</code>:
 </p>
 
 <pre>
-TlsConfig tls = TlsConfig.keystore(Path.of("keystore.p12"), "secret");
-SmtpServer smtp = SmtpServer.compose()
-    // Advertises STARTTLS capability
-    .listener(new SmtpListener().port(25).tls(tls))
-    .sessionProvider(SmtpServerSessionProviders.relay()
-        .hostname("relay.example.com"))
-    .server();
-</pre>
-
-<h4 id="mtls">Client Certificate Authentication (mTLS)</h4>
-
-<p>
-Servers can require or request client certificates for mutual TLS (mTLS):
-</p>
-
-<p>
-The trust anchors are the CA that signed the clients&rsquo; certificates, as a
-PEM file or a truststore (see <a href="#keystores">above</a>):
-</p>
-
-<pre>
-SmtpListener listener = new SmtpListener();
-listener.setNeedClientAuth(true);
-// From a PEM file (simplest):
-listener.setTrustManager(PemCredentials.loadTrustManager(Path.of("client-ca.pem")));
-// or from a Java truststore:
-// listener.setTrustManager((X509TrustManager)
-//         TlsUtils.loadTrustManagers(Path.of("truststore.p12"), "secret", "PKCS12")[0]);
-SmtpServer smtp = SmtpServer.compose()
-    .listener(listener)
-    .sessionProvider(SmtpServerSessionProviders.relay()
-        .hostname("relay.example.com"))
-    .server();
-</pre>
-
-<h4 id="sni">SNI (Server Name Indication)</h4>
-
-<p>
-SNI allows a server to present different certificates based on the hostname
-the client requests during the TLS handshake. This enables hosting multiple
-secure domains on a single IP address and port.
-</p>
-
-<pre>
-Map&lt;String, String&gt; sniHostnames = new HashMap&lt;&gt;();
-sniHostnames.put("example.com", "example-cert");
-sniHostnames.put("*.example.com", "example-wildcard");
-sniHostnames.put("other.com", "other-cert");
-
-Http2Listener listener = new Http2Listener().port(443).secure(true);
-listener.setKeystoreFile(Path.of("multi-domain.p12"));
-listener.setKeystorePass("secret");
-listener.setSniHostnames(sniHostnames);
-listener.setSniDefaultAlias("default-cert");
-HttpServer https = HttpServer.compose()
-    .listener(listener)
-    .streamHandler(new MyStreamHandler())
-    .server();
+&lt;realm name="myRealm" class="org.bluezoo.gumdrop.auth.BasicRealm" href="realm.xml"/&gt;
 </pre>
 
 <p>
-The <code>sniHostnames</code> map specifies hostname-to-certificate-alias mappings.
-Hostnames can be exact (<code>example.com</code>) or wildcard patterns
-(<code>*.example.com</code>). The keystore must contain certificates with the
-specified aliases. If no match is found, <code>sniDefaultAlias</code> is used.
-</p>
-
-<h3 id="server-identity">Server identity across transports</h3>
-
-<p>
-Gumdrop uses one in-tree TLS implementation
-(<code>org.bluezoo.gumdrop.tls</code>) for TCP/TLS, DTLS, and QUIC-TLS. Server
-certificate configuration is therefore the same regardless of transport:
-either a Java keystore or a PEM certificate chain plus private key. There is
-no separate &ldquo;QUIC TLS engine&rdquo; with different credential rules.
+and web applications refer to one by name from <code>web.xml</code>. The
+<code>class</code> needs a public no-argument constructor, and <code>href</code>
+is only understood for <code>BasicRealm</code>. See
+<a href="servlet.html">Servlet container</a>.
 </p>
 
 <p>
-QUIC mandates TLS&nbsp;1.3 &mdash; there is no unencrypted mode and no STARTTLS
-upgrade. The handshake is integrated into QUIC connection establishment, so
-every QUIC packet is encrypted. That is a protocol requirement, not a
-difference in how you load keys.
+What each protocol asks of the realm:
 </p>
 
 <table border="1" cellpadding="5">
-<tr>
-  <th></th>
-  <th>TCP/TLS (HTTP/1.x, HTTP/2, SMTP, &hellip;)</th>
-  <th>UDP (DTLS, DoQ) / QUIC (HTTP/3)</th>
-</tr>
-<tr>
-  <td><b>TLS engine</b></td>
-  <td>In-tree <code>org.bluezoo.gumdrop.tls</code></td>
-  <td>Same engine (<code>TlsRecordEngine</code>, <code>Dtls13RecordEngine</code>,
-      <code>QuicTlsServerEngine</code>, &hellip;)</td>
-</tr>
-<tr>
-  <td><b>Keystore</b></td>
-  <td colspan="2"><code>keystore-file</code>, <code>keystore-pass</code>,
-      optional <code>keystore-format</code> (PKCS#12 or JKS)</td>
-</tr>
-<tr>
-  <td><b>PEM files</b></td>
-  <td colspan="2"><code>cert-file</code> (full chain) and <code>key-file</code>
-      (unencrypted private key)</td>
-</tr>
-<tr>
-  <td><b>Protocol version</b></td>
-  <td>TLS&nbsp;1.2 or TLS&nbsp;1.3 per listener (<code>tls-version</code>)</td>
-  <td>DTLS&nbsp;1.2/1.3 (<code>dtls-version</code>) or TLS&nbsp;1.3 only for QUIC</td>
-</tr>
+<tr><th>Protocol</th><th>Authentication</th></tr>
+<tr><td>SMTP, IMAP, POP3</td>
+    <td>SASL (see <a href="#sasl">below</a>). IMAP also has <code>LOGIN</code>
+        (refused on a plaintext connection unless the server is composed with
+        <code>allowPlaintextLogin(true)</code>), POP3 also has
+        <code>USER</code>/<code>PASS</code> and <code>APOP</code>.</td></tr>
+<tr><td>FTP</td><td><code>USER</code>/<code>PASS</code> checked with
+    <code>passwordMatch</code>; the FTP roles are then resolved once at login.</td></tr>
+<tr><td>HTTP</td><td>Basic, Digest or Bearer, chosen from the realm (see
+    <a href="#http-auth">HTTP authentication</a>).</td></tr>
+<tr><td>MQTT</td><td>The username and password in <code>CONNECT</code>.</td></tr>
+<tr><td>SOCKS</td><td>RFC 1929 username/password.</td></tr>
 </table>
 
-<p>
-Use one identity for co-located listeners (e.g. HTTPS on TCP and HTTP/3 on UDP
-on port 443): the same <code>keystore-file</code> or the same
-<code>cert-file</code>/<code>key-file</code> pair on both listeners. Browsers
-require matching certificate identity when upgrading via <code>Alt-Svc</code>.
-</p>
-
-<h4>PEM file format</h4>
+<h3 id="realm">The Realm interface</h3>
 
 <p>
-When using <code>cert-file</code> and <code>key-file</code>, the certificate
-file must contain the full chain (leaf followed by intermediates). The private
-key file must be unencrypted PEM in PKCS#8 form (a
-<code>-----BEGIN PRIVATE KEY-----</code> block: RSA, EC, Ed25519 or ML-DSA;
-the last two are for TLS&nbsp;1.3 only). The older
-traditional format (<code>-----BEGIN RSA PRIVATE KEY-----</code>) is not
-supported; convert it with <code>openssl pkcs8 -topk8 -nocrypt -in old.pem -out key.pem</code>.
-This applies on every transport, not only QUIC. See
-<a href="#pem-layout">the standard three-file layout</a>, and
-<a href="#keystores">converting to and from keystores</a>.
-</p>
-
-<h4>Example: Co-located HTTPS and HTTP/3 Listeners</h4>
-
-<p>
-A typical deployment shares the same port (443 or 8443) between an HTTPS
-listener on TCP and an HTTP/3 listener on UDP, using the same server identity
-on both:
+<b>A realm never blocks the thread that calls it.</b> A realm backed by a
+directory server or a token service has to talk to the network to answer, and a
+server must not make an event-loop thread wait while it does. So every lookup
+takes a <code>RealmCallback</code> and returns at once:
 </p>
 
 <pre>
-// secureEndpoint() pairs a TCP HTTP/2 listener and a UDP HTTP/3 listener
-// on the same port, both presenting the same TlsConfig identity.
-TlsConfig tls = TlsConfig.keystore(Path.of("keystore.p12"), "secret");
-HttpServer http = HttpServer.compose()
-    .secureEndpoint(8443, tls)
-    .streamHandler(new ServletRequestHandler(container))
-    .server();
-</pre>
-
-<p>
-Both listeners must present the <b>same certificate identity</b> (same
-subject/SAN) to avoid browser warnings when upgrading from HTTP/2 to HTTP/3.
-The browser discovers HTTP/3 support via the <code>Alt-Svc</code> response
-header on the initial HTTP/2 connection and will only attempt QUIC if the
-certificate matches.
-</p>
-
-<h4>Cipher Suite and Named Group Configuration</h4>
-
-<p>
-Cipher suite and named group configuration applies to all transports using the
-in-tree engine (TCP/TLS, DTLS, QUIC). On TLS&nbsp;1.2 / DTLS&nbsp;1.2 listeners,
-use TLS&nbsp;1.2 cipher suite names; <code>setNamedGroups</code> applies only to <code>x25519</code> and <code>secp256r1</code> (hybrid groups are ignored).
-See <a href="tls.html#ciphers">TLS &amp; DTLS &mdash; cipher suites</a>.
-</p>
-
-<pre>
-Http3Listener listener = new Http3Listener().port(443);
-listener.setKeystoreFile(Path.of("keystore.p12"));
-listener.setKeystorePass("secret");
-listener.setCipherSuites("TLS_AES_256_GCM_SHA384");
-listener.setNamedGroups("X25519");
-</pre>
-
-<p>
-The default cipher suites are AES-256-GCM, then AES-128-GCM, then
-ChaCha20-Poly1305 (see <a href="tls.html#tls13">TLS &amp; DTLS</a>). The default named group is the hybrid post-quantum X25519MLKEM768,
-falling back to x25519, secp256r1 and secp384r1 for a peer that does not support it.
-Post-quantum authentication needs an ML-DSA certificate (see
-<a href="tls.html#signatures">signature schemes and certificate keys</a>).
-</p>
-
-<h3 id="cert-pinning">Certificate Pinning</h3>
-
-<p>
-<code>PinnedCertTrustManager</code> wraps an <code>X509TrustManager</code> and
-validates server certificates against a set of SHA-256 fingerprints. If the
-presented certificate does not match any pinned fingerprint, the TLS handshake
-is rejected.
-</p>
-
-<p>
-All client classes support certificate pinning via
-<code>setTrustManager(X509TrustManager)</code>:
-<code>HttpClient</code>, <code>SmtpClient</code>, <code>ImapClient</code>,
-<code>Pop3Client</code>, <code>WebSocketClient</code>, <code>RedisClient</code>,
-<code>LdapClient</code>.
-</p>
-
-<h2 id="iam">Identity and Access Management (IAM)</h2>
-
-<p>
-Gumdrop provides a unified identity and access management framework used across
-all protocol implementations. At its core is the <code>Realm</code> interface,
-which abstracts credential storage and verification.
-</p>
-
-<h3 id="realm">The Realm Interface</h3>
-
-<p>
-A <code>Realm</code> represents a collection of authenticatable principals with
-associated passwords and roles. The interface supports multiple authentication
-mechanisms without exposing stored credentials:
-</p>
-
-<pre>
-public interface Realm {
-    Realm forSelectorLoop(SelectorLoop loop);
-    Set&lt;SaslMechanism&gt; getSupportedSASLMechanisms();
-    boolean passwordMatch(String username, String password);
-    String getDigestHA1(String username, String realmName);
-    boolean isUserInRole(String username, String role);
-    boolean userExists(String username);
-    String getCramMD5Response(String username, String challenge);
-    ScramCredentials getScramCredentials(String username);
-    TokenValidationResult validateBearerToken(String token);
-    TokenValidationResult validateOAuthToken(String accessToken);
-    CertificateAuthenticationResult authenticateCertificate(X509Certificate cert);
-    boolean authorizeAs(String authenticatedUser, String requestedUser);
+public interface RealmCallback&lt;T&gt; {
+    void completed(T result);
+    void failed(Throwable cause);
 }
 </pre>
 
 <p>
-Most methods are <code>default</code> and throw <code>UnsupportedOperationException</code>
-&mdash; realms need only implement the mechanisms they support. This design allows
-the realm to store passwords in any form (plaintext, hashed, or derived keys)
-without requiring the authentication layer to know the storage format.
+The callback is called exactly once. It is delivered on the thread of the loop
+the realm was bound to with <code>forSelectorLoop</code>, so a protocol handler
+can touch its connection state directly; a realm whose answer is already in
+memory may call it before the method returns. <code>failed</code> means the
+realm could not answer (directory unreachable, timeout), and every server treats
+that as a refusal: authentication fails and the user holds no role. A wrong
+password or an unknown user is not a failure; it completes with
+<code>false</code>.
 </p>
 
-<h3 id="basicrealm">BasicRealm Implementation</h3>
+<pre>
+Realm bound = realm.forSelectorLoop(endpoint.getSelectorLoop());
+bound.passwordMatch("alice", "secret", new RealmCallback&lt;Boolean&gt;() {
+    public void completed(Boolean matched) { /* on the connection's loop */ }
+    public void failed(Throwable cause)    { /* treat as not authenticated */ }
+});
+</pre>
 
 <p>
-The built-in <code>BasicRealm</code> reads users and groups from an XML file:
+You rarely write this yourself: the protocol handlers do it, and the servlet
+container bridges to the blocking Servlet API on its own worker threads. The
+operations are:
+</p>
+
+<table border="1" cellpadding="5">
+<tr><th>Method (each takes a <code>RealmCallback</code>)</th><th>Result</th><th>Backs</th></tr>
+<tr><td><code>passwordMatch(user, password)</code></td><td>Boolean</td>
+    <td>PLAIN, LOGIN, FTP, IMAP LOGIN, POP3 USER/PASS, HTTP Basic, MQTT, SOCKS</td></tr>
+<tr><td><code>getDigestHA1(user, realmName)</code></td><td>String</td>
+    <td>DIGEST-MD5, HTTP Digest</td></tr>
+<tr><td><code>isUserInRole(user, role)</code></td><td>Boolean</td>
+    <td>authorisation (see <a href="#rbac">roles</a>)</td></tr>
+<tr><td><code>userExists(user)</code></td><td>Boolean</td><td>default: false</td></tr>
+<tr><td><code>getCramMD5Response(user, challenge)</code></td><td>String</td>
+    <td>CRAM-MD5 (default: unsupported)</td></tr>
+<tr><td><code>getApopResponse(user, timestamp)</code></td><td>String</td>
+    <td>POP3 APOP (default: unsupported)</td></tr>
+<tr><td><code>getScramCredentials(user)</code></td><td><code>Realm.ScramCredentials</code></td>
+    <td>SCRAM-SHA-256 (default: unsupported)</td></tr>
+<tr><td><code>validateBearerToken(token)</code>, <code>validateOAuthToken(token)</code></td>
+    <td><code>Realm.TokenValidationResult</code></td>
+    <td>OAUTHBEARER, HTTP Bearer (default: null, not supported)</td></tr>
+<tr><td><code>authenticateCertificate(cert)</code></td>
+    <td><code>Realm.CertificateAuthenticationResult</code></td>
+    <td>EXTERNAL (default: null, not supported)</td></tr>
+<tr><td><code>authorizeAs(authenticated, requested)</code></td><td>Boolean</td>
+    <td>acting as another identity (default: only as yourself)</td></tr>
+<tr><td><code>mapKerberosPrincipal(name)</code></td><td>String</td>
+    <td>GSSAPI (default: strip the Kerberos realm)</td></tr>
+</table>
+
+<p>
+A realm also declares the mechanisms it can serve with
+<code>getSupportedSASLMechanisms()</code>; servers advertise only those. A
+realm stores credentials however it likes (plaintext, hashed, or derived keys),
+because the authentication layer only ever asks it questions and never reads a
+stored password.
+</p>
+
+<h3 id="custom-realm">Writing a realm</h3>
+
+<p>
+If every answer is already in memory (a map, a file read at start-up), extend
+<code>SynchronousRealm</code>. You write ordinary methods that return their
+answer, and it adapts them to the callback contract. A runtime exception from
+a lookup is reported as <code>failed</code>.
+</p>
+
+<pre>
+public class MapRealm implements SynchronousRealm {
+    private final Map&lt;String, String&gt; passwords;
+    private final Map&lt;String, Set&lt;String&gt;&gt; roles;
+    ...
+    public Set&lt;SaslMechanism&gt; getSupportedSASLMechanisms() {
+        return EnumSet.of(SaslMechanism.PLAIN, SaslMechanism.LOGIN);
+    }
+    public boolean passwordMatch(String user, String password) {
+        return password.equals(passwords.get(user));
+    }
+    public String getDigestHA1(String user, String realmName) { return null; }
+    public boolean isUserInRole(String user, String role) {
+        Set&lt;String&gt; held = roles.get(user);
+        return held != null &amp;&amp; held.contains(role);
+    }
+}
+</pre>
+
+<p>
+Only quick lookups belong there. If answering takes real work, a network round
+trip or a deliberately slow password hash, implement <code>Realm</code>
+directly and call the callback from where the work finishes. A
+<code>forSelectorLoop</code> that returns <code>this</code> is fine when the
+realm needs no loop; a realm that makes its own client connections returns a
+copy whose connections run on the given loop, as <code>LdapRealm</code> does.
+For slow work, <code>StorageExecutor.submit</code> runs a blocking task off
+the loop and delivers its result back on it.
+</p>
+
+<h3 id="basicrealm">BasicRealm</h3>
+
+<p>
+<code>BasicRealm</code> is the built-in realm. It reads users and groups from an
+XML file with a standalone SAX parser, and it is the one realm
+<code>server.xml</code> can load from a file:
 </p>
 
 <pre>
 &lt;realm&gt;
-  &lt;!-- Group definitions --&gt;
-  &lt;group id="readers" name="mail-read imap-read pop3-read"/&gt;
-  &lt;group id="writers" name="mail-read mail-write imap-read imap-write"/&gt;
-  &lt;group id="admins" name="admin mail-admin ftp-admin"/&gt;
-  
-  &lt;!-- User definitions --&gt;
-  &lt;user name="alice" password="secret123" groups="#readers #writers"/&gt;
-  &lt;user name="bob" password="password456" groups="#readers"/&gt;
-  &lt;user name="admin" password="adminpass" groups="#admins"/&gt;
-  
-  &lt;!-- Inline roles (legacy format) --&gt;
-  &lt;user name="guest" password="guest" roles="guest read-only"/&gt;
+  &lt;!-- id is what users refer to; name is the role checked at run time --&gt;
+  &lt;group id="readers" name="ftp-read"/&gt;
+  &lt;group id="writers" name="ftp-read ftp-write"/&gt;
+  &lt;group id="admins"  name="ftp-admin"/&gt;
+
+  &lt;user name="alice" password="secret123" groups="readers writers"/&gt;
+  &lt;user name="bob"   password="password456" groups="readers"/&gt;
+  &lt;user name="admin" password="adminpass" groups="admins"
+        cert-fingerprint="SHA-256:ab:cd:..."/&gt;
 &lt;/realm&gt;
 </pre>
 
-<h4>Group References</h4>
-
 <p>
-Groups are defined with an <code>id</code> for referencing and a <code>name</code>
-containing space-separated role names. Users reference groups using the
-<code>#id</code> syntax in their <code>groups</code> attribute.
-</p>
-
-<h4>Configuration</h4>
-
-<pre>
-BasicRealm mailRealm = new BasicRealm();
-mailRealm.setHref(Path.of("users.xml"));
-</pre>
-
-<p>
-<code>setHref</code> parses the <code>users.xml</code>-format file shown
-above directly — it's a standalone SAX parser, independent of any
-application composition code. Attach the realm to a server with
-<code>.realm(realm)</code> on the composer.
-</p>
-
-<h4>Production Use</h4>
-
-<p>
-BasicRealm with plaintext passwords is intended for development and testing
-only. For production, use <a href="#ldaprealm">LdapRealm</a> or
-<a href="#oauthrealm">OAuthRealm</a>. A warning is logged at startup when
-plaintext passwords are loaded.
-</p>
-
-<h4>Hashed Passwords (RFC 2307)</h4>
-
-<p>
-Passwords may use LDAP-style hashed formats for improved security. Supported
-schemes: <code>{SHA}</code>, <code>{SSHA}</code>, <code>{SHA256}</code>,
-<code>{SSHA256}</code>. Values can be exported from LDAP <code>userPassword</code>
-and used directly. Hashed users support only PLAIN and LOGIN SASL mechanisms;
-CRAM-MD5, SCRAM, Digest, and APOP require plaintext and will not work.
+A group has an <code>id</code> and a <code>name</code>. A user lists the
+<code>id</code>s of its groups, separated by spaces (XML IDREFS: no
+<code>#</code> prefix), and holds each group's <code>name</code> as a role.
+A group with only an <code>id</code> uses it as the role name too. The older
+nested form still works, with the users inside the group:
 </p>
 
 <pre>
-&lt;user name="alice" password="{SSHA256}base64digest+salt" groups="readers"/&gt;
+&lt;group name="admin"&gt;
+  &lt;user name="root" password="secret"/&gt;
+&lt;/group&gt;
 </pre>
 
 <p>
-Use <code>slappasswd -h {SSHA256} -s password</code> (OpenLDAP) or equivalent
-tools to generate hashed values.
+A user's <code>cert-fingerprint</code> (the SHA-256 of the DER certificate, as
+colon-separated hex, with or without a <code>SHA-256:</code> prefix) lets a
+client certificate authenticate as that user with SASL EXTERNAL.
+</p>
+
+<pre>
+BasicRealm realm = new BasicRealm().href(Path.of("users.xml"));   // or href(String)
+realm.defineGroup("ops", "ops-role");    // programmatic group: id, role name
+realm.addToRole("alice", "ops-role");    // grant a role to a user
+</pre>
+
+<p>
+Users can only be created from the XML; the programmatic methods manage groups
+and roles.
+</p>
+
+<h4 id="hashed-passwords">Passwords and hashing</h4>
+
+<p>
+A plaintext <code>password</code> is for development and testing, and a warning
+is logged when one is loaded. Use a hash instead. The recommended format is
+<code>{PBKDF2}</code>, a salted, iterated <code>PBKDF2WithHmacSHA256</code>:
+<code>{PBKDF2}&lt;iterations&gt;$&lt;base64-salt&gt;$&lt;base64-hash&gt;</code>,
+generated with <code>BasicRealm.createPbkdf2Hash(password)</code> (210,000
+iterations). The LDAP-style RFC 2307 formats <code>{SHA}</code>,
+<code>{SSHA}</code>, <code>{SHA256}</code> and <code>{SSHA256}</code> are
+also accepted so that values exported from a directory's
+<code>userPassword</code> can be reused, but they are weak: fast, unsalted
+(<code>{SHA}</code>, <code>{SHA256}</code>) or single-iteration hashes that
+are cheap to brute-force.
+</p>
+
+<ul>
+<li>A hashed user can only use <b>PLAIN</b> and <b>LOGIN</b> (and the
+    password-based protocols such as FTP and HTTP Basic). CRAM-MD5, SCRAM,
+    DIGEST-MD5 and APOP need the plaintext password, so they fail for hashed
+    users.</li>
+<li>Checking a hashed password is deliberately slow. Once the realm is bound to
+    a loop, <code>BasicRealm</code> runs it on the storage executor, so it
+    never stalls the loop. The same goes for the first SCRAM derivation of a
+    plaintext user, which is then cached.</li>
+</ul>
+
+<p>
+<code>BasicRealm</code> advertises PLAIN, LOGIN, CRAM-MD5, DIGEST-MD5,
+SCRAM-SHA-256 and EXTERNAL. For production user stores prefer
+<a href="#ldaprealm">LdapRealm</a> or <a href="#oauthrealm">OAuthRealm</a>.
+</p>
+
+<h3 id="ldaprealm">LdapRealm</h3>
+
+<p>
+<code>LdapRealm</code> (module <code>gumdrop-ldap</code>) authenticates against
+an LDAP or Active Directory server, and reads roles from a user attribute such
+as <code>memberOf</code>. It is fully asynchronous: each operation opens its
+own connection on the caller's loop, with a timeout, and fails closed. See
+<a href="ldap.html#realm">LDAP client &amp; realm</a> for configuration, STARTTLS,
+SASL binds and certificate lookup.
 </p>
 
 <h3 id="oauthrealm">OAuthRealm</h3>
@@ -671,24 +353,23 @@ tools to generate hashed values.
 <h4 id="oauth-non-goals">Scope and non-goals</h4>
 
 <p>
-Gumdrop is <b>not</b> an OAuth 2.0 authorization server. It does not
-implement authorization endpoints, authorization codes, refresh-token
-issuance, PKCE (RFC 7636), or DPoP (RFC 9449). Those flows exist to
-paper over weaknesses of bearer tokens (any holder can replay a stolen
-token). Gumdrop does not aim to grow a large in-tree OAuth server or
-sender-constrained token stack on top of that model.
+Gumdrop is <b>not</b> an OAuth 2.0 authorisation server. It does not implement
+authorisation endpoints, authorisation codes, refresh-token issuance, PKCE
+(RFC 7636) or DPoP (RFC 9449). Those flows exist to paper over weaknesses of
+bearer tokens, where any holder can replay a stolen token, and Gumdrop does not
+aim to grow an OAuth server or a sender-constrained token stack on top of that
+model.
 </p>
 
 <p>
-What <b>is</b> supported is narrow and conformant for a <b>resource
-server</b> that already receives tokens from an external authorization
-server you operate separately:
+What is supported is narrow, for a <b>resource server</b> that receives tokens
+from an authorisation server you operate separately:
 </p>
 
 <ul>
-<li><a href="https://www.rfc-editor.org/rfc/rfc6750">RFC 6750</a> Bearer
-    usage on protected HTTP resources (and related mail SASL OAUTHBEARER
-    where configured)</li>
+<li><a href="https://www.rfc-editor.org/rfc/rfc6750">RFC 6750</a> Bearer usage
+    on protected HTTP resources, and the mail SASL OAUTHBEARER mechanism
+    (RFC 7628)</li>
 <li><a href="https://www.rfc-editor.org/rfc/rfc7662">RFC 7662</a> token
     introspection, and optional local
     <a href="https://www.rfc-editor.org/rfc/rfc7519">RFC 7519</a> JWT
@@ -696,438 +377,512 @@ server you operate separately:
 </ul>
 
 <p>
-For deployments that care about proof of client identity rather than
-bearer replay, prefer mechanisms Gumdrop implements directly, such as
-<a href="#mtls">mTLS</a>, HTTP Digest, or SASL with channel binding,
-instead of expecting Gumdrop to become an OAuth authorization server.
+Where proof of client identity matters more than bearer replay, prefer
+mechanisms Gumdrop implements directly: mutual TLS (see
+<a href="tls.html#mtls">client certificates</a>), HTTP Digest, or SCRAM.
 </p>
+
+<h4>Configuration</h4>
 
 <p>
-<code>OAuthRealm</code> validates OAuth 2.0 tokens via
-<a href="https://www.rfc-editor.org/rfc/rfc7662">RFC 7662</a> (token
-introspection) and optionally via local
-<a href="https://www.rfc-editor.org/rfc/rfc7519">RFC 7519</a> JWT
-validation. Constructed with a <code>Properties</code> instance specifying
-the introspection endpoint, client credentials, and role-scope mappings. Not
-directly DI-instantiable; use a factory or programmatic setup.
+<code>org.bluezoo.gumdrop.auth.oauth.OAuthRealm</code> is built from a
+<code>Properties</code> object. Introspection is non-blocking: the token is
+posted to the authorisation server with Gumdrop's own HTTP client, and the
+request fails, and so the token is rejected, if no answer arrives within
+<code>oauth.http.timeout</code>.
 </p>
-
-<h4>Local JWT Validation (RFC 7519)</h4>
-
-<p>
-When <code>oauth.jwt.enabled=true</code>, tokens that look like JWTs
-(three Base64url-encoded dot-separated segments) are validated locally
-before falling back to the introspection endpoint. This eliminates the
-round-trip for self-contained JWTs.
-</p>
-
-<p>Supported signature algorithms
-(<a href="https://www.rfc-editor.org/rfc/rfc7518#section-3">RFC 7518 §3</a>):</p>
-<ul>
-<li><b>HS256</b> — HMAC-SHA256 with shared secret
-    (<code>oauth.jwt.secret</code>)</li>
-<li><b>RS256</b> — RSA PKCS#1 v1.5 SHA-256 with public key
-    (<code>oauth.jwt.public.key</code>)</li>
-<li><b>ES256</b> — ECDSA P-256 SHA-256 with public key
-    (<code>oauth.jwt.public.key</code>)</li>
-</ul>
-
-<p>Standard claims are verified: <code>exp</code> (expiration),
-<code>nbf</code> (not-before) with configurable clock skew tolerance,
-<code>iss</code> (issuer), and <code>aud</code> (audience).</p>
 
 <pre>
-# Enable local JWT validation
-oauth.jwt.enabled=true
-oauth.jwt.secret=my-shared-secret
-
-# Optional claim validation
-oauth.jwt.issuer=https://auth.example.com
-oauth.jwt.audience=my-service
-oauth.jwt.clock.skew=30
+Properties config = new Properties();
+config.setProperty("oauth.authorization.server.url", "https://auth.example.com");
+config.setProperty("oauth.client.id", "my-service");
+config.setProperty("oauth.client.secret", "secret123");
+config.setProperty("oauth.cache.enabled", "true");
+config.setProperty("oauth.scope.mapping.admin", "admin,superuser");
+OAuthRealm realm = new OAuthRealm(config);
 </pre>
-
-<p>
-<code>isUserInRole()</code> checks cached token scopes against role-scope
-mappings. See the <a href="../examples/oauth-servlet-auth/">oauth-servlet-auth
-example</a> for a working configuration.
-</p>
-
-<h4>Custom Realm Implementations</h4>
-
-<p>
-For production deployments, implement the <code>Realm</code> interface to
-integrate with your identity provider:
-</p>
-
-<ul>
-<li><b>LDAP/Active Directory</b> - query directory for authentication</li>
-<li><b>Database</b> - store credentials in SQL/NoSQL database</li>
-<li><b>OAuth 2.0/OIDC</b> - validate tokens via <code>OAuthRealm</code> or custom implementation</li>
-<li><b>PAM</b> - integrate with system authentication</li>
-</ul>
-
-<h3 id="sasl">SASL Authentication</h3>
-
-<p>
-SMTP, IMAP, POP3, and FTP servers support SASL (Simple Authentication and
-Security Layer) mechanisms for secure credential exchange.
-</p>
-
-<h4>Supported Mechanisms</h4>
 
 <table border="1" cellpadding="5">
-<tr>
-  <th>Mechanism</th>
-  <th>Security</th>
-  <th>Requirements</th>
-  <th>Recommended</th>
-</tr>
-<tr>
-  <td><b>PLAIN</b></td>
-  <td>Password transmitted (base64)</td>
-  <td>TLS required</td>
-  <td>Over TLS only</td>
-</tr>
-<tr>
-  <td><b>LOGIN</b></td>
-  <td>Password transmitted (base64)</td>
-  <td>TLS required</td>
-  <td>Legacy compatibility</td>
-</tr>
-<tr>
-  <td><b>CRAM-MD5</b></td>
-  <td>Challenge-response, no password sent</td>
-  <td>Realm must store plaintext</td>
-  <td>No</td>
-</tr>
-<tr>
-  <td><b>DIGEST-MD5</b></td>
-  <td>Digest authentication</td>
-  <td>Realm must provide H(A1)</td>
-  <td>No (deprecated)</td>
-</tr>
-<tr>
-  <td><b>SCRAM-SHA-256</b></td>
-  <td>Mutual auth, no password sent</td>
-  <td>Realm provides derived keys</td>
-  <td><b>Yes</b></td>
-</tr>
-<tr>
-  <td><b>OAUTHBEARER</b></td>
-  <td>Bearer token</td>
-  <td>OAuth 2.0 infrastructure</td>
-  <td>For OAuth deployments</td>
-</tr>
-<tr>
-  <td><b>GSSAPI</b></td>
-  <td>Kerberos V5 mutual auth</td>
-  <td>Keytab + service principal</td>
-  <td>For Kerberos/enterprise SSO</td>
-</tr>
-<tr>
-  <td><b>EXTERNAL</b></td>
-  <td>TLS client certificate</td>
-  <td>mTLS configured</td>
-  <td>For certificate-based auth</td>
-</tr>
+<tr><th>Property</th><th>Default</th><th>Meaning</th></tr>
+<tr><td><code>oauth.authorization.server.url</code></td><td>(required)</td>
+    <td>Base URL of the authorisation server</td></tr>
+<tr><td><code>oauth.client.id</code>, <code>oauth.client.secret</code></td><td>(required)</td>
+    <td>Credentials Gumdrop uses to call the introspection endpoint</td></tr>
+<tr><td><code>oauth.token.introspection.endpoint</code></td><td><code>/oauth/introspect</code></td>
+    <td>Path of the introspection endpoint</td></tr>
+<tr><td><code>oauth.http.timeout</code></td><td><code>5000</code></td>
+    <td>Milliseconds to wait for an introspection answer</td></tr>
+<tr><td><code>oauth.cache.enabled</code></td><td><code>false</code></td>
+    <td>Cache validation results</td></tr>
+<tr><td><code>oauth.cache.ttl</code></td><td><code>60</code></td><td>Cache lifetime, seconds</td></tr>
+<tr><td><code>oauth.cache.max.size</code></td><td><code>1000</code></td><td>Maximum cache entries</td></tr>
+<tr><td><code>oauth.scope.mapping.{role}</code></td><td></td>
+    <td>Comma-separated scopes that grant <code>{role}</code></td></tr>
+<tr><td><code>oauth.jwt.enabled</code></td><td><code>false</code></td>
+    <td>Validate JWT-shaped tokens locally first</td></tr>
+<tr><td><code>oauth.jwt.secret</code></td><td></td><td>Shared secret for HS256</td></tr>
+<tr><td><code>oauth.jwt.public.key</code></td><td></td>
+    <td>Base64 X.509 public key for RS256 or ES256</td></tr>
+<tr><td><code>oauth.jwt.key.algorithm</code></td><td><code>RSA</code></td><td><code>RSA</code> or <code>EC</code></td></tr>
+<tr><td><code>oauth.jwt.issuer</code>, <code>oauth.jwt.audience</code></td><td></td>
+    <td>Expected <code>iss</code> and <code>aud</code> claims</td></tr>
+<tr><td><code>oauth.jwt.clock.skew</code></td><td><code>30</code></td>
+    <td>Clock skew tolerance, seconds</td></tr>
 </table>
 
-<h4>SCRAM-SHA-256 (Recommended)</h4>
+<h4>Local JWT validation (RFC 7519)</h4>
 
 <p>
-SCRAM-SHA-256 is the recommended mechanism because:
-</p>
-
-<ul>
-<li>Password is never transmitted, even encrypted</li>
-<li>Mutual authentication (server proves identity too)</li>
-<li>Realm can store only derived keys (no plaintext)</li>
-<li>Protection against server compromise</li>
-</ul>
-
-<p>
-The realm stores <code>StoredKey</code> and <code>ServerKey</code> instead of
-the password. Even if the credential store is compromised, attackers cannot
-recover the original password.
-</p>
-
-<h4>GSSAPI/Kerberos (RFC 4752)</h4>
-
-<p>
-GSSAPI enables Kerberos V5 single sign-on authentication for IMAP, POP3, and
-SMTP. Each service requires a keytab file and service principal.
+With <code>oauth.jwt.enabled=true</code>, tokens that look like JWTs (three
+Base64url segments) are validated locally before the introspection endpoint
+is tried, which saves the round trip for self-contained tokens. Supported
+signatures (<a href="https://www.rfc-editor.org/rfc/rfc7518#section-3">RFC 7518
+&sect;3</a>) are HS256, RS256 and ES256. The <code>exp</code> and
+<code>nbf</code> claims (with the configured skew), <code>iss</code> and
+<code>aud</code> are checked.
 </p>
 
 <p>
-Server-side GSSAPI authentication is event-loop safe: the
-<code>acceptSecContext()</code> operation decrypts the service ticket using the
-local keytab with no KDC network I/O. The LDAP client's GSSAPI bind
-automatically offloads the first <code>initSecContext()</code> call to a worker
-thread since it may contact the KDC.
+<code>isUserInRole</code> maps the token's scopes to roles through
+<code>oauth.scope.mapping.*</code>. See the
+<a href="../examples/oauth-servlet-auth/">oauth-servlet-auth example</a>.
 </p>
+
+<h3 id="sasl">SASL authentication</h3>
 
 <p>
-Gumdrop negotiates "no security layer" (RFC 4752 &sect;3.1) since TLS already
-provides confidentiality and integrity.
+SMTP, IMAP and POP3 authenticate with SASL (RFC 4422). A server offers the
+mechanisms its realm lists in <code>getSupportedSASLMechanisms()</code>, and
+does not offer those that need a secure connection (<code>requiresTLS</code>)
+until the connection is encrypted. FTP, MQTT and SOCKS do not use SASL.
 </p>
-
-<h5>Configuration</h5>
-
-<pre>
-// Programmatic
-imapListener.configureGSSAPI(
-    Path.of("/etc/krb5.keytab"),
-    "imap/mail.example.com@EXAMPLE.COM");
-
-// Or via setGSSAPIServer() for shared keytab
-GssapiServer gss = new GssapiServer(
-    Path.of("/etc/krb5.keytab"),
-    "imap/mail.example.com@EXAMPLE.COM");
-imapListener.setGSSAPIServer(gss);
-</pre>
-
-<p>
-After successful GSSAPI authentication, the authenticated Kerberos principal
-(e.g. <code>user@EXAMPLE.COM</code>) is mapped to a local username via the
-Realm's <code>mapKerberosPrincipal()</code> method. The default implementation
-strips the realm portion.
-</p>
-
-<h3 id="rbac">Role-Based Access Control</h3>
-
-<p>
-Many Gumdrop servers support role-based access control (RBAC) for fine-grained
-authorization. Roles are assigned to users in the realm and checked by the
-server during operations.
-</p>
-
-<h4>Protocol-Specific Roles</h4>
 
 <table border="1" cellpadding="5">
-<tr><th>Protocol</th><th>Roles</th><th>Description</th></tr>
-<tr>
-  <td rowspan="4"><b>FTP</b></td>
-  <td>ftp-read</td>
-  <td>Download files, list directories</td>
-</tr>
-<tr>
-  <td>ftp-write</td>
-  <td>Upload files (implies ftp-read)</td>
-</tr>
-<tr>
-  <td>ftp-delete</td>
-  <td>Delete files/directories (implies ftp-write)</td>
-</tr>
-<tr>
-  <td>ftp-admin</td>
-  <td>Full access, SITE commands, quota management</td>
-</tr>
-<tr>
-  <td rowspan="2"><b>Servlet</b></td>
-  <td>(custom)</td>
-  <td>Roles defined in web.xml security constraints</td>
-</tr>
-<tr>
-  <td>manager</td>
-  <td>Access to manager application</td>
-</tr>
+<tr><th>Mechanism</th><th>Needs TLS</th><th>Realm must provide</th><th>Notes</th></tr>
+<tr><td><b>PLAIN</b> (RFC 4616)</td><td>yes</td><td><code>passwordMatch</code></td>
+    <td>Password sent (Base64); fine over TLS</td></tr>
+<tr><td><b>LOGIN</b></td><td>yes</td><td><code>passwordMatch</code></td>
+    <td>Legacy clients</td></tr>
+<tr><td><b>CRAM-MD5</b> (RFC 2195)</td><td>no</td><td><code>getCramMD5Response</code></td>
+    <td>No password sent, but the realm needs the plaintext. Not recommended.</td></tr>
+<tr><td><b>DIGEST-MD5</b> (RFC 2831)</td><td>no</td><td><code>getDigestHA1</code></td>
+    <td>Historic (RFC 6331). Not recommended.</td></tr>
+<tr><td><b>SCRAM-SHA-256</b> (RFC 5802, 7677)</td><td>no</td><td><code>getScramCredentials</code></td>
+    <td><b>Recommended.</b> No password sent, the server proves itself, and the
+        realm can hold derived keys instead of the password.</td></tr>
+<tr><td><b>OAUTHBEARER</b> (RFC 7628)</td><td>yes</td><td><code>validateBearerToken</code></td>
+    <td>For OAuth deployments (see <a href="#oauthrealm">OAuthRealm</a>)</td></tr>
+<tr><td><b>GSSAPI</b> (RFC 4752)</td><td>no</td><td>a configured <code>GssapiServer</code></td>
+    <td>Kerberos single sign-on (see <a href="#gssapi">below</a>)</td></tr>
+<tr><td><b>EXTERNAL</b> (RFC 4422 App. A)</td><td>yes</td><td><code>authenticateCertificate</code></td>
+    <td>Identity from the TLS client certificate (mutual TLS must be on)</td></tr>
 </table>
 
-<h4>Example: FTP Role Configuration</h4>
-
-<pre>
-&lt;!-- Define role groups --&gt;
-&lt;realm&gt;
-  &lt;group id="readers" name="ftp-read"/&gt;
-  &lt;group id="uploaders" name="ftp-read ftp-write"/&gt;
-  &lt;group id="managers" name="ftp-read ftp-write ftp-delete"/&gt;
-  &lt;group id="admins" name="ftp-admin"/&gt;
-  
-  &lt;user name="guest" password="guest" groups="#readers"/&gt;
-  &lt;user name="contributor" password="secret" groups="#uploaders"/&gt;
-  &lt;user name="editor" password="secret" groups="#managers"/&gt;
-  &lt;user name="admin" password="secret" groups="#admins"/&gt;
-&lt;/realm&gt;
-</pre>
-
-<h2 id="ratelimit">Rate Limiting</h2>
+<h4>SCRAM-SHA-256</h4>
 
 <p>
-Gumdrop provides comprehensive rate limiting to protect servers from abuse,
-denial-of-service attacks, and brute-force authentication attempts.
+SCRAM is the best choice for password logins. The password never crosses the
+wire, the client also verifies the server, and a stolen credential store does
+not reveal passwords. The realm supplies a salt, an iteration count, a
+<code>StoredKey</code> and a <code>ServerKey</code> in a
+<code>Realm.ScramCredentials</code>. A realm that keeps only these derived keys
+cannot be used to recover the passwords. <code>BasicRealm</code> derives them
+from a plaintext password with 210,000 PBKDF2 iterations (off the loop thread,
+then cached).
 </p>
 
-<h3 id="connection-rate">Connection Rate Limiting</h3>
+<h4 id="gssapi">GSSAPI and Kerberos</h4>
 
 <p>
-The <code>ConnectionRateLimiter</code> provides two types of protection:
-</p>
-
-<h4>Concurrent Connection Limits</h4>
-
-<p>
-Limits the number of simultaneous connections from a single IP address,
-preventing resource exhaustion from connection flooding.
-</p>
-
-<pre>
-SmtpListener listener = new SmtpListener().port(25);
-listener.setMaxConnectionsPerIP(10);
-SmtpServer smtp = SmtpServer.compose()
-    .listener(listener)
-    .sessionProvider(SmtpServerSessionProviders.relay()
-        .hostname("relay.example.com"))
-    .server();
-</pre>
-
-<h4>Connection Rate Limits</h4>
-
-<p>
-Limits the number of connection attempts per IP address within a time window,
-preventing rapid reconnection attacks.
-</p>
-
-<pre>
-FtpListener listener = new FtpListener().port(21);
-listener.setRateLimit("100/60s");
-FtpServer ftp = FtpServer.compose()
-    .listener(listener)
-    .realm(realm)
-    .sessionProvider(FtpServerSessionProviders.fileSystem()
-        .rootDirectory(Path.of("/var/ftp")))
-    .server();
-</pre>
-
-<h4>Rate Limit Format</h4>
-
-<p>
-<code>setRateLimit</code> accepts the format <code>count/duration</code>:
-</p>
-
-<ul>
-<li><code>100/60s</code> - 100 per minute</li>
-<li><code>1000/1h</code> - 1000 per hour</li>
-<li><code>50/30s</code> - 50 per 30 seconds</li>
-</ul>
-
-<h4>Implementation</h4>
-
-<p>
-Rate limiting uses a sliding window algorithm that efficiently tracks connection
-timestamps. Old entries are automatically expired, and a background cleanup task
-removes stale tracking data to prevent memory leaks.
-</p>
-
-<h3 id="auth-rate">Authentication Rate Limiting</h3>
-
-<p>
-The <code>AuthenticationRateLimiter</code> protects against brute-force password
-attacks by tracking failed authentication attempts and temporarily locking out
-offending clients.
+GSSAPI gives Kerberos V5 single sign-on on SMTP, IMAP and POP3. Each service
+needs a keytab and a service principal. Configure it on the listener:
 </p>
 
 <pre>
 ImapListener listener = new ImapListener().port(143);
-listener.setMaxAuthFailures(5);
-listener.setAuthLockoutTimeMs(5 * 60 * 1000L);
-ImapServer imap = ImapServer.compose()
-    .listener(listener)
-    .realm(realm)
-    .sessionProvider(ImapServerSessionProviders.mailbox(maildirFactory))
-    .server();
+listener.configureGSSAPI(
+    Path.of("/etc/krb5.keytab"),
+    "imap/mail.example.com@EXAMPLE.COM");        // throws IOException
+
+// or build one GssapiServer and share it
+GssapiServer gss = new GssapiServer(Path.of("/etc/krb5.keytab"),
+    "imap/mail.example.com@EXAMPLE.COM");
+listener.gssapiServer(gss);
 </pre>
 
-<h4>Exponential Backoff</h4>
-
 <p>
-By default, lockout duration increases exponentially for repeat offenders:
+<code>SmtpListener</code> and <code>Pop3Listener</code> have the same two
+methods. The keytab is read when the <code>GssapiServer</code> is created, so
+do that at start-up. Gumdrop negotiates no SASL security layer
+(RFC 4752 &sect;3.1), because TLS already provides confidentiality and
+integrity. After a successful exchange the Kerberos principal
+(<code>user@EXAMPLE.COM</code>) becomes a local user name through the realm's
+<code>mapKerberosPrincipal</code>, which by default strips the Kerberos realm.
+For GSSAPI as a client of an LDAP server, see
+<a href="ldap.html">LDAP client &amp; realm</a>.
 </p>
 
-<ul>
-<li>1st lockout: 5 minutes</li>
-<li>2nd lockout: 10 minutes</li>
-<li>3rd lockout: 20 minutes</li>
-<li>... up to maximum (default: 1 hour)</li>
-</ul>
-
-<h4>Tracking Keys</h4>
+<h3 id="http-auth">HTTP authentication</h3>
 
 <p>
-Authentication failures can be tracked by:
+Give an <code>HttpServer</code> a realm and it authenticates requests with a
+<code>DefaultHttpAuthenticationProvider</code> over that realm, in the first of
+these schemes the realm supports:
 </p>
 
-<ul>
-<li><b>IP address</b> - protects against distributed attacks from one source</li>
-<li><b>Username</b> - protects against credential stuffing</li>
-<li><b>IP + Username</b> - most precise tracking</li>
-</ul>
-
-<h3 id="cidr">Network Filtering (CIDR)</h3>
+<ol>
+<li><b>Bearer</b> if the realm supports OAUTHBEARER</li>
+<li><b>Digest</b> if it supports DIGEST-MD5</li>
+<li><b>Basic</b> otherwise</li>
+</ol>
 
 <p>
-SMTP servers support CIDR-based network filtering for allow/block lists:
+Basic sends the password, so use it only over TLS. Note that
+<code>BasicRealm</code> advertises DIGEST-MD5, so an HTTP server over a
+<code>BasicRealm</code> uses Digest, and Digest needs the plaintext password:
+users stored as hashes cannot log in over HTTP that way. Either keep those
+users in a realm that answers Digest, or supply your own
+<code>HttpAuthenticationProvider</code> (subclass it and implement the
+callback-based <code>passwordMatch</code>, <code>getDigestHA1</code>,
+<code>validateBearerToken</code> and <code>validateOAuthToken</code> hooks).
+</p>
+
+<p>
+The realm may take time to answer. The server does not process a request until
+authentication has finished, and holds any request events that arrive meanwhile
+(on HTTP/1.1, HTTP/2 and HTTP/3 alike). A failed or timed-out lookup answers
+<code>401</code>. The authenticated principal is then available to the request
+handler (<code>HttpResponse.getPrincipal()</code>, and the servlet user
+principal). The servlet container authenticates per web application from
+<code>web.xml</code> <code>login-config</code>, against the realm it names.
+</p>
+
+<h3 id="rbac">Role-based access control</h3>
+
+<p>
+Authentication says who a user is; roles say what they may do. Roles are
+assigned in the realm and asked of it with <code>isUserInRole</code>. Servers
+ask without blocking and carry on when the answer arrives: FTP resolves its
+four roles once at login, a quota manager resolves quota roles at login, and
+WebDAV resolves its privilege roles when a request starts.
+</p>
+
+<table border="1" cellpadding="5">
+<tr><th>Service</th><th>Roles</th><th>Meaning</th></tr>
+<tr>
+  <td rowspan="4"><b>FTP</b></td>
+  <td><code>ftp-read</code></td>
+  <td>Download files and list directories</td>
+</tr>
+<tr><td><code>ftp-write</code></td><td>Upload and create directories (includes read)</td></tr>
+<tr><td><code>ftp-delete</code></td>
+    <td>Delete, remove directories and rename (includes write and read)</td></tr>
+<tr><td><code>ftp-admin</code></td><td>Everything, plus <code>SITE</code> commands and quota management</td></tr>
+<tr>
+  <td><b>IMAP</b></td><td><code>admin</code></td>
+  <td>Read another user's quota, and <code>SETQUOTA</code></td>
+</tr>
+<tr>
+  <td><b>SMTP</b></td><td><code>admin</code>, <code>postmaster</code></td>
+  <td>Use an envelope sender other than your own address</td>
+</tr>
+<tr>
+  <td><b>WebDAV ACL</b></td><td><code>webdav:all</code>, <code>webdav:write</code>,
+      <code>webdav:read</code>, <code>webdav:write-properties</code>,
+      <code>webdav:write-content</code>, <code>webdav:bind</code>,
+      <code>webdav:unbind</code>, <code>webdav:unlock</code>,
+      <code>webdav:read-acl</code>, <code>webdav:write-acl</code>,
+      <code>webdav:read-current-user-privilege-set</code></td>
+  <td>The RFC 3744 privileges reported for the signed-in user.
+      <code>all</code> grants every privilege and <code>write</code> grants
+      write-properties, write-content, bind and unbind.</td>
+</tr>
+<tr>
+  <td rowspan="2"><b>Servlet</b></td><td>(your own)</td>
+  <td>Roles named in <code>web.xml</code> security constraints</td>
+</tr>
+<tr><td><code>manager</code></td><td>Access to the manager application</td></tr>
+</table>
+
+<p>
+The FTP role names are constants on <code>FtpRoles</code>. A realm that cannot
+answer a role check counts as not holding the role. For example, the FTP roles
+above in a <code>BasicRealm</code> file:
 </p>
 
 <pre>
-SmtpListener listener = new SmtpListener().port(25);
-listener.setAllowedNetworks(CidrNetwork.parseList("192.168.0.0/16,10.0.0.0/8,2001:db8::/32"));
-listener.setBlockedNetworks(CidrNetwork.parseList("192.168.100.0/24,2001:db8:bad::/48"));
+&lt;realm&gt;
+  &lt;group id="readers"   name="ftp-read"/&gt;
+  &lt;group id="uploaders" name="ftp-read ftp-write"/&gt;
+  &lt;group id="managers"  name="ftp-read ftp-write ftp-delete"/&gt;
+  &lt;group id="admins"    name="ftp-admin"/&gt;
+
+  &lt;user name="guest"       password="{PBKDF2}..." groups="readers"/&gt;
+  &lt;user name="contributor" password="{PBKDF2}..." groups="uploaders"/&gt;
+  &lt;user name="editor"      password="{PBKDF2}..." groups="managers"/&gt;
+  &lt;user name="admin"       password="{PBKDF2}..." groups="admins"/&gt;
+&lt;/realm&gt;
+</pre>
+
+<h2 id="ratelimit">Rate limiting and network filtering</h2>
+
+<p>
+These controls are set on a listener and are checked when a connection is
+accepted, before any protocol handler sees it. They work the same for every
+protocol.
+</p>
+
+<h3 id="connection-rate">Connection limits</h3>
+
+<table border="1" cellpadding="5">
+<tr><th>Listener method</th><th>Effect</th></tr>
+<tr><td><code>maxConnections(int)</code></td>
+    <td>A cap on all simultaneous connections to the listener (0 is unlimited).
+        The hard backstop against file-descriptor and memory exhaustion.</td></tr>
+<tr><td><code>maxConnectionsPerIP(int)</code></td>
+    <td>A cap on simultaneous connections from one address (0 disables it).</td></tr>
+<tr><td><code>rateLimit(String)</code></td>
+    <td>A cap on new connections from one address per time window, written
+        <code>count/duration</code>: <code>100/60s</code>, <code>1000/1h</code>,
+        <code>50/30s</code>, <code>500/250ms</code>, <code>20/5m</code>. The
+        units are <code>ms</code>, <code>s</code>, <code>m</code> and
+        <code>h</code>. An invalid string throws
+        <code>IllegalArgumentException</code>.</td></tr>
+</table>
+
+<p>
+Each returns the listener, so they chain:
+</p>
+
+<pre>
 SmtpServer smtp = SmtpServer.compose()
-    .listener(listener)
+    .listener(new SmtpListener().port(25)
+        .maxConnections(5000)
+        .maxConnectionsPerIP(10)
+        .rateLimit("100/60s"))
     .sessionProvider(SmtpServerSessionProviders.relay()
         .hostname("relay.example.com"))
     .server();
 </pre>
 
 <p>
-Blocked networks are checked first, then allowed networks. If allowed networks
-are configured, only connections from those networks are accepted.
+<b>The two per-address limits come as a pair.</b> The first call to either
+<code>maxConnectionsPerIP</code> or <code>rateLimit</code> switches on
+per-address limiting with both defaults: 10 simultaneous connections and 100
+new connections per 60 seconds from each address. Set both if you want
+different numbers. The rate uses a sliding window, and stale per-address
+entries are discarded as connections arrive so the tables stay bounded. A
+connection over a limit is refused at accept time.
 </p>
 
-<h2 id="telemetry-security">Security Telemetry</h2>
+<h3 id="auth-lockout">Authentication lockout</h3>
 
 <p>
-Security-related events are integrated with Gumdrop's <a href="telemetry.html">
-telemetry system</a> for monitoring and alerting:
+A listener can lock a client out of authenticating after repeated failures,
+which stops password guessing without involving the realm. Configure it on the
+listener:
 </p>
 
-<h4>Error Categories</h4>
+<table border="1" cellpadding="5">
+<tr><th>Listener method</th><th>Effect</th></tr>
+<tr><td><code>maxAuthFailures(int)</code></td>
+    <td>Failed attempts from one address before it is locked out (default 5
+        once lockout is enabled).</td></tr>
+<tr><td><code>authLockoutTimeMs(long)</code></td>
+    <td>How long the first lockout lasts (default 5 minutes).</td></tr>
+</table>
 
-<ul>
-<li><code>ErrorCategory.RATE_LIMITED</code> - connection/command rate limiting</li>
-<li><code>ErrorCategory.AUTHENTICATION_FAILED</code> - auth failures</li>
-<li><code>ErrorCategory.AUTHORIZATION_DENIED</code> - permission denied</li>
-<li><code>ErrorCategory.TLS_ERROR</code> - TLS handshake failures</li>
-</ul>
-
-<h4>Telemetry Events</h4>
-
-<ul>
-<li><code>AUTH_SUCCESS</code> - successful authentication</li>
-<li><code>AUTH_FAILURE</code> - failed authentication attempt</li>
-<li><code>AUTH_LOCKED</code> - account locked out</li>
-<li><code>CONNECTION_REJECTED</code> - rate limit or policy rejection</li>
-</ul>
-
-<h4>Example: Monitoring Authentication Failures</h4>
+<pre>
+ImapListener listener = new ImapListener().port(993).secure(true).tls(tls)
+    .maxAuthFailures(5)
+    .authLockoutTimeMs(5 * 60 * 1000L);
+</pre>
 
 <p>
-Configure your OpenTelemetry backend to alert on authentication failures:
+Calling either method switches lockout on; with neither, nothing is locked
+out. Failures are counted per client address (and per address and user name).
+Each further lockout of the same client doubles the time, up to one hour, and a
+successful login clears the failure count. A client that is locked out is
+refused before the realm is asked, even with the right password, so a guesser
+learns nothing during the lockout. Every protocol that authenticates enforces
+it:
+</p>
+
+<table border="1" cellpadding="5">
+<tr><th>Protocol</th><th>A locked-out client gets</th></tr>
+<tr><td>SMTP</td><td><code>454 4.7.0</code> to <code>AUTH</code></td></tr>
+<tr><td>IMAP</td><td><code>NO [UNAVAILABLE]</code> to <code>LOGIN</code> and <code>AUTHENTICATE</code></td></tr>
+<tr><td>POP3</td><td><code>-ERR [SYS/TEMP]</code> to <code>PASS</code>, <code>APOP</code> and <code>AUTH</code></td></tr>
+<tr><td>FTP</td><td><code>421</code> to <code>PASS</code></td></tr>
+<tr><td>HTTP (1.1, 2 and 3), WebDAV</td>
+    <td><code>429 Too Many Requests</code> to a request that carries credentials;
+        a request with none still gets the <code>401</code> challenge</td></tr>
+<tr><td>MQTT</td><td><code>CONNACK</code> "not authorised", then close</td></tr>
+<tr><td>SOCKS5</td><td>username/password failure, then close</td></tr>
+</table>
+
+<p>
+Only a bad credential counts as a failure. A realm that cannot answer (a
+directory outage, say) does fail the login, and counts like any other
+failure, so a long outage can lock out clients that were trying valid
+passwords; keep the threshold high enough to tolerate that.
+</p>
+
+<h3 id="cidr">Network filtering (CIDR)</h3>
+
+<p>
+Any listener can restrict who may connect by network, with IPv4 or IPv6 CIDR
+blocks:
 </p>
 
 <pre>
-// Prometheus query example
-sum(rate(span_events{event="AUTH_FAILURE"}[5m])) by (server) > 10
+SmtpListener listener = new SmtpListener().port(25)
+    .allowedNetworks(CidrNetwork.parseList("192.168.0.0/16,10.0.0.0/8,2001:db8::/32"))
+    .blockedNetworks(CidrNetwork.parseList("192.168.100.0/24,2001:db8:bad::/48"));
 </pre>
+
+<p>
+Order of checks: the global cap, then the <b>blocked</b> list (a match is
+refused), then the <b>allowed</b> list (if one is set, only a match gets in),
+then the per-address limits above. <code>CidrNetwork</code>
+(<code>org.bluezoo.gumdrop.util</code>) parses a single block with its
+constructor, a comma-separated list with <code>parseList</code>, and tests an
+address with <code>matches</code>.
+</p>
+
+<h2 id="quota">Storage quotas</h2>
+
+<p>
+Quotas bound how much storage a user may consume, and in a mail store how many
+messages. The FTP and IMAP servers enforce them: FTP checks uploads against the
+quota and offers <code>SITE QUOTA</code> and (to <code>ftp-admin</code>)
+<code>SITE SETQUOTA</code>, and IMAP implements the QUOTA extension
+(RFC 9208: <code>GETQUOTA</code>, <code>GETQUOTAROOT</code>,
+<code>SETQUOTA</code>) and refuses an <code>APPEND</code> that would exceed it.
+</p>
+
+<p>
+Both take a <code>QuotaManager</code> (<code>org.bluezoo.gumdrop.quota</code>).
+The one that ships is <code>RoleBasedQuotaManager</code>, which resolves a
+user's quota in this order:
+</p>
+
+<ol>
+<li>a <b>user</b> quota set for that user (<code>SITE SETQUOTA</code>, IMAP
+    <code>SETQUOTA</code> or <code>setUserQuota</code>)</li>
+<li>a <b>role</b> quota, from the roles the user holds in the realm; if
+    several apply the most generous wins</li>
+<li>the <b>default</b> quota</li>
+<li>otherwise <b>unlimited</b></li>
+</ol>
+
+<pre>
+RoleBasedQuotaManager quotas = new RoleBasedQuotaManager();
+quotas.realm(realm);                         // to find out which roles a user holds
+quotas.storageDir(Path.of("/var/gumdrop/quota"));
+quotas.defaultQuota("100MB");
+quotas.addRoleQuota("premium", "10GB");
+quotas.addRoleQuota("standard", "1GB", "50000");   // storage limit, message limit
+quotas.addRoleQuota("staff", "unlimited");
+
+// FTP
+FtpServer ftp = FtpServer.compose()
+    .listener(new FtpListener().port(21))
+    .realm(realm)
+    .sessionProvider(FtpServerSessionProviders.roleBased()
+        .realm(realm)
+        .rootDirectory(Path.of("/srv/ftp"))
+        .quotaManager(quotas))
+    .server();
+
+// IMAP
+ImapServer imap = ImapServer.compose()
+    .listener(new ImapListener().port(143))
+    .realm(realm)
+    .sessionProvider(ImapServerSessionProviders.mailbox(maildirFactory))
+    .quotaManager(quotas)
+    .enableQUOTA(true)
+    .server();
+</pre>
+
+<p>
+Sizes are a number with an optional <code>K</code>/<code>KB</code>,
+<code>M</code>/<code>MB</code>, <code>G</code>/<code>GB</code> or
+<code>T</code>/<code>TB</code> suffix, or <code>unlimited</code> (or
+<code>-1</code>). <code>QuotaPolicy.parseSize</code> and
+<code>formatSize</code> do the conversions.
+</p>
+
+<ul>
+<li><b>Roles are resolved at login.</b> A server calls
+    <code>QuotaManager.prepare(user, loop, done)</code> once the user has
+    authenticated. The role manager asks the realm which of its configured
+    roles the user holds, without waiting, and then answers every later quota
+    check from memory. A realm that cannot answer leaves the user with the
+    default quota rather than a role quota.</li>
+<li><b>Usage is tracked.</b> The server reports bytes and messages added and
+    removed (<code>recordBytesAdded</code>, <code>recordMessageAdded</code>,
+    and so on), and <code>canStore</code> and <code>canStoreMessage</code>
+    answer from the user's <code>Quota</code>. <code>recalculateUsage</code>
+    discards a user's cached figures so the next lookup reloads them.</li>
+<li><b>Usage persists</b> in the storage directory (<code>*.usage</code> files,
+    and <code>*.policy</code> for user overrides). Writes happen off the
+    loop and are coalesced, so a burst of uploads for one user causes one
+    pending write rather than one per file. Call <code>loadUsageData()</code>
+    at start-up and <code>saveUsageData()</code> at shutdown.</li>
+<li>A quota's <code>getSource()</code> (<code>QuotaSource</code>:
+    <code>USER</code>, <code>ROLE</code>, <code>DEFAULT</code> or
+    <code>NONE</code>) says where its limits came from, which IMAP and FTP
+    report to the client.</li>
+</ul>
+
+<p>
+To enforce quotas some other way, implement <code>QuotaManager</code>; its
+<code>prepare</code> method has a default that does nothing, which suits a
+manager that needs no per-user setup.
+</p>
+
+<h2 id="headers">HTTP security headers</h2>
+
+<p>
+An <code>HttpServer</code> adds <code>X-Frame-Options: SAMEORIGIN</code> and
+<code>X-Content-Type-Options: nosniff</code> to responses by default, unless
+the application sets them itself. RFC 6797 HSTS is opt-in and only takes effect
+on TLS listeners:
+</p>
+
+<pre>
+HttpServer http = HttpServer.compose()
+    .secureEndpoint(443, tls)
+    .addSecurityHeaders(true)                       // the default
+    .hsts(HstsPolicy.enabled(31536000L)             // max-age in seconds
+        .includeSubDomains(true).preload(false))
+    .streamHandler(handler)
+    .server();
+</pre>
+
+<h2 id="telemetry-security">Security events</h2>
+
+<p>
+Authentication and access decisions feed Gumdrop's
+<a href="telemetry.html">telemetry</a>. A realm that cannot answer (an
+unreachable directory, an introspection timeout) is logged as a warning with
+the cause, and the connection fails closed. Each connection's session span
+records authentication outcomes as events: FTP and POP3 add
+<code>AUTH_SUCCESS</code> and <code>AUTH_FAILURE</code>, SMTP records the
+mechanism that succeeded, and IMAP records <code>AUTHENTICATED</code>. Quota and
+rate-limiter housekeeping is logged through the same event logger.
+</p>
 
 <hr/>
 
 <p>
 <a href="index.html">&larr; Back to Main Page</a> |
+<a href="tls.html">TLS &amp; DTLS</a> |
 <a href="smtp.html">SMTP Server</a> |
 <a href="imap.html">IMAP Server</a> |
 <a href="ftp.html">FTP Server</a> |
+<a href="ldap.html">LDAP</a> |
 <a href="telemetry.html">Telemetry</a>
 </p>
 
@@ -1135,4 +890,3 @@ sum(rate(span_events{event="AUTH_FAILURE"}[5m])) by (server) > 10
 
 </body>
 </html>
-

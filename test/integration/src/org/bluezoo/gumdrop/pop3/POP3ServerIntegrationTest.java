@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.pop3;
 
+import org.bluezoo.gumdrop.auth.SynchronousRealm;
 import org.bluezoo.gumdrop.ListenerBindCheck;
 import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.GumdropConfig;
@@ -108,19 +109,19 @@ public class POP3ServerIntegrationTest {
         
         // Create mbox server
         mboxServer = new Pop3Listener();
-        mboxServer.setPort(MBOX_PORT);
+        mboxServer.port(MBOX_PORT);
         mboxServer.addresses(java.net.InetAddress.getByName("::1"));
-        mboxServer.setEnableAPOP(false);
-        mboxServer.setRealm(realm);
-        mboxServer.setMailboxFactory(new MboxMailboxFactory(mboxRoot));
+        mboxServer.enableAPOP(false);
+        mboxServer.realm(realm);
+        mboxServer.mailboxFactory(new MboxMailboxFactory(mboxRoot));
         
         // Create Maildir server
         maildirServer = new Pop3Listener();
-        maildirServer.setPort(MAILDIR_PORT);
+        maildirServer.port(MAILDIR_PORT);
         maildirServer.addresses(java.net.InetAddress.getByName("::1"));
-        maildirServer.setEnableAPOP(false);
-        maildirServer.setRealm(realm);
-        maildirServer.setMailboxFactory(new MaildirMailboxFactory(maildirRoot));
+        maildirServer.enableAPOP(false);
+        maildirServer.realm(realm);
+        maildirServer.mailboxFactory(new MaildirMailboxFactory(maildirRoot));
         
         // Start servers using their own dedicated runtime
         gumdrop = Gumdrop.boot(GumdropConfig.create().workerThreads(2));
@@ -482,7 +483,7 @@ public class POP3ServerIntegrationTest {
     /**
      * Test realm that accepts editor/editor credentials.
      */
-    private static class TestRealm implements Realm {
+    private static class TestRealm implements SynchronousRealm {
         
         private static final Set<SaslMechanism> SUPPORTED = 
             Collections.unmodifiableSet(EnumSet.of(SaslMechanism.PLAIN, SaslMechanism.LOGIN));
@@ -507,11 +508,6 @@ public class POP3ServerIntegrationTest {
             return null;
         }
         
-        @Override
-        @SuppressWarnings("deprecation")
-        public String getPassword(String username) {
-            throw new UnsupportedOperationException("getPassword is deprecated - use passwordMatch instead");
-        }
         
         @Override
         public boolean isUserInRole(String username, String role) {

@@ -158,7 +158,7 @@ public class HpackMalformedFieldH2Test {
     public void setUp() {
         Seen.requests.clear();
         Http2Listener listener = new Http2Listener();
-        listener.setStreamHandler(new HttpStreamHandler() {
+        listener.streamHandler(new HttpStreamHandler() {
             @Override
             public HttpRequestHandler openStream(HttpResponse state) {
                 return CollectingRequestHandler.bind(new Seen(), state);

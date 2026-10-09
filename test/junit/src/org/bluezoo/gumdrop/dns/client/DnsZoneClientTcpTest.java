@@ -492,8 +492,8 @@ public class DnsZoneClientTcpTest {
         TcpDnsClientTransport t = TcpDnsClientTransport.createDoT();
         java.util.Set<String> pins = new java.util.HashSet<String>();
         pins.add("aa:bb");
-        t.setPinnedSPKIFingerprints(pins);
-        t.setDefaultPort(9853);
+        t.pinnedSpkiFingerprints(pins);
+        t.defaultPort(9853);
         TcpDnsClientTransport copy = t.duplicate();
         assertNotSame(t, copy);
         assertNotNull(copy.createTransportFactory());

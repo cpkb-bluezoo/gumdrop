@@ -14,9 +14,9 @@ This document compares deployment size, dependencies, and startup characteristic
 
 | Framework | Deployment Model | Total JAR Size | Dependencies | Download & Build Time | Notes |
 |-----------|------------------|----------------|--------------|---------------|-------|
-| **Gumdrop (HttpServer)** | gumdrop.jar + gonzalez-core OR jsonparser | ~2.7 MB / ~2.57 MB | 2–3 JARs | Seconds | Minimal async microservice |
-| **Gumdrop (Servlet)** | gumdrop-container.jar (fat) | ~5.2 MB | Self-contained | Seconds | Full servlet container |
-| **Netty** | netty-codec-http + XML or JSON | ~2.3 MB / ~4.5 MB | 6–8 Netty + aalto or Jackson | ~10–30 sec | No servlet, HTTP handler only |
+| **Gumdrop (HttpServer)** | gumdrop-core, -http, -mime, -telemetry + 4 small libraries | ~3.1 MB | 8 JARs | Seconds | Complete async microservice with OpenTelemetry |
+| **Gumdrop (Servlet)** | gumdrop-container.jar (fat) | ~7.3 MB | Self-contained | Seconds | Full servlet container |
+| **Netty** | Feature-matched: HTTP/1.x/2/3 (quiche), Brotli, XML + JSON, OpenTelemetry | ~13.6 MB (native, Linux x86_64) | ~33 JARs incl. native quiche and Brotli | ~10–30 sec | No servlet; HTTP/3 and Brotli need native code; see section 2 |
 | **Jetty** | jetty-server + embedded | ~8–12 MB | Jetty + JSP compiler | ~30–60 sec | Servlet container |
 | **Tomcat** | tomcat-embed-core | ~6–10 MB | Tomcat + Catalina | ~30–60 sec | Servlet container |
 | **Spring Boot** | spring-boot-starter-web | ~50–80 MB | Spring + Tomcat + logging + many | ~2 min | Full stack, many transitive deps |
@@ -31,46 +31,63 @@ This document compares deployment size, dependencies, and startup characteristic
 
 For a pure async microservice without servlets:
 
-**Required:**
-- `gumdrop.jar` — core framework (2,537,896 bytes)
-- `gonzalez-core-1.2.0.jar` — XML parsing (~146 KB) **OR** `jsonparser-1.3.jar` — JSON (31,331 bytes)
+**Required (Gumdrop modules):**
+- `gumdrop-core.jar` — reactor, endpoints, in-tree TLS/QUIC (1,569,024 bytes)
+- `gumdrop-http.jar` — HTTP/1.x, HTTP/2, HTTP/3 (732,418 bytes)
+- `gumdrop-mime.jar` — MIME and header parsing (101,820 bytes)
+- `gumdrop-telemetry.jar` — OpenTelemetry tracing, metrics, and logs (110,321 bytes)
 
-**Total:** ~2.7 MB (with gonzalez-core) or ~2.57 MB (with jsonparser only)
+**Required (libraries the modules depend on):**
+- `gonzalez-core-1.2.0.jar` — XML parsing (149,662 bytes)
+- `jsonparser-1.3.jar` — JSON parsing (31,331 bytes)
+- `jprotobuf-1.1.0.jar` — protobuf for OTLP export (15,234 bytes)
+- `micula-1.1.0.jar` — Brotli, for HTTP content encoding and TLS certificate compression (437,500 bytes)
+
+**Total:** ~2.5 MB of Gumdrop modules plus ~0.6 MB of libraries, ~3.1 MB overall. The module descriptors declare all four libraries as `requires`, so they are needed on the module path even if your service only uses JSON or only XML. Add further protocol modules (`gumdrop-smtp`, `gumdrop-mqtt`, ...) only if you use them.
 
 **Dependencies:** Downloaded from Maven Central on first build. Ant `resolve-deps` fetches:
 - jsonparser: https://repo1.maven.org/maven2/org/bluezoo/jsonparser/1.3/jsonparser-1.3.jar
 - gonzalez-core: https://repo1.maven.org/maven2/org/bluezoo/gonzalez-core/1.2.0/gonzalez-core-1.2.0.jar
 
-**Build:** `ant dist` — downloads jars from Maven Central, compiles, produces `gumdrop.jar`. No Maven/Gradle required for build.
+**Build:** `ant dist` — downloads jars from Maven Central, compiles, produces the `gumdrop-*.jar` module jars in `dist/` (plus an aggregate `gumdrop.jar`). No Maven/Gradle required for build.
 
 #### Option B: Servlet Web Application (Fat JAR)
 
 **Required:**
-- `gumdrop-container.jar` — self-contained fat JAR (5.2 MB)
+- `gumdrop-container.jar` — self-contained fat JAR (7.3 MB)
 
 **Bundled inside fat JAR:**
-- gumdrop.jar
+- gumdrop.jar (aggregate of all modules, 5.5 MB)
 - gonzalez-core-1.2.0.jar
 - jsonparser-1.3.jar
-- jakarta.servlet-api-6.1.0.jar (95 KB)
+- jprotobuf-1.1.0.jar
+- micula-1.1.0.jar
+- jakarta.servlet-api-6.1.0.jar (398 KB)
 - jakarta.mail-api-2.1.3.jar (236 KB), jakarta.activation-api-2.1.3.jar (67 KB), angus-mail-2.0.3.jar (499 KB), angus-activation-2.0.2.jar (27 KB)
 - javax.annotation-api-1.3.2.jar (27 KB)
 - javax.ejb-api-3.2.2.jar (64 KB)
 - javax.persistence-api-2.2.jar (165 KB)
 - jaxws-api-2.3.1.jar (57 KB)
 
-**Total:** Single 5.2 MB JAR. No external runtime dependencies.
+**Total:** Single 7.3 MB JAR. No external runtime dependencies.
 
-**Startup:** `java -cp gumdrop.jar:... com.example.MyMain`, a compiled `main` that composes servers in Java (see [web/configuration.html](../web/configuration.html)). Fast startup — no reflection-heavy DI/config parsing at all.
+**Startup:** `java -cp gumdrop-core.jar:gumdrop-http.jar:... com.example.MyMain`, a compiled `main` that composes servers in Java (see [web/configuration.html](../web/configuration.html)). Fast startup — no reflection-heavy DI/config parsing at all.
 
 ### Gumdrop Measurements (from this repo)
 
 | Artifact | Size |
 |----------|------|
-| gumdrop.jar | 2,537,896 bytes |
-| gumdrop-container.jar | 5.2 MB |
+| gumdrop-core.jar | 1,569,024 bytes |
+| gumdrop-http.jar | 732,418 bytes |
+| gumdrop-mime.jar | 101,820 bytes |
+| gumdrop-telemetry.jar | 110,321 bytes |
+| gumdrop-servlet.jar | 631,694 bytes |
+| gumdrop.jar (aggregate of all modules) | 5,495,926 bytes |
+| gumdrop-container.jar | 7,268,988 bytes |
 | gonzalez-core-1.2.0.jar | 149,662 bytes |
 | jsonparser-1.3.jar | 31,331 bytes |
+| jprotobuf-1.1.0.jar | 15,234 bytes |
+| micula-1.1.0.jar | 437,500 bytes |
 | lib/ total (all deps) | ~3.5 MB |
 
 ### Sample Composition
@@ -91,9 +108,9 @@ gumdrop.addServer(server);
 ```java
 TlsConfig tls = TlsConfig.keystore(Path.of("myserver.p12"), "tlspassword");
 Container container = new Container();
-container.setHotDeploy(true);
+container.hotDeploy(true);
 Context context = new Context(container, "", new File("myservice.war"));
-context.setDistributable(true);
+context.distributable(true);
 container.addContext(context);
 
 HttpServer server = HttpServer.compose()
@@ -103,7 +120,7 @@ HttpServer server = HttpServer.compose()
 gumdrop.addServer(server);
 ```
 
-Run either with `java -cp gumdrop.jar:... com.example.MyMain`.
+Run either with `java -cp gumdrop-core.jar:gumdrop-http.jar:... com.example.MyMain`.
 
 ---
 
@@ -113,42 +130,28 @@ Run either with `java -cp gumdrop.jar:... com.example.MyMain`.
 
 Netty is a **low-level NIO framework** — there is no servlet container. You implement HTTP via `ChannelInboundHandler` and decode/encode HTTP with `HttpServerCodec`.
 
-### Minimal HTTP Server Dependencies
+### Feature-matched deployment
 
-```xml
-<dependency>
-    <groupId>io.netty</groupId>
-    <artifactId>netty-codec-http</artifactId>
-    <version>4.1.121.Final</version>
-</dependency>
-```
+To compare like for like with the Gumdrop microservice set (HTTP/1.x, HTTP/2 and HTTP/3 with TLS, Brotli, streaming XML and JSON parsing, OpenTelemetry tracing/metrics/logs with OTLP export), Netty 4.2 needs the following. Sizes are from Maven Central (Netty 4.2.19.Final, OpenTelemetry 1.66.0, brotli4j 1.23.0).
 
-**Transitive dependencies (compile scope):**
-- netty-common
-- netty-buffer
-- netty-transport
-- netty-codec
-- netty-handler
+| Feature | Artifacts | Size |
+|---------|-----------|------|
+| HTTP/1.x, HTTP/2, TLS (JSSE) | netty-common, -buffer, -resolver, -transport, -handler, -codec-base, -codec-http, -codec-http2 | 3.80 MB |
+| HTTP/3 Java layer | netty-codec-http3, netty-codec-classes-quic | 0.50 MB |
+| HTTP/3 native QUIC (quiche addon) | netty-codec-native-quic (per-platform, `linux-x86_64` shown; `osx-aarch_64` is 2.4 MB) | 2.90 MB |
+| Brotli | netty-codec-compression, brotli4j, brotli4j service, native-linux-x86_64 (per-platform) | 0.73 MB |
+| XML and JSON streaming parsers | netty-codec-xml, aalto-xml, stax2-api, jackson-core | 1.17 MB |
+| OpenTelemetry + OTLP export | opentelemetry-api, -context, -common, -sdk (+ -common, -trace, -metrics, -logs), -exporter-otlp (+ -common, -otlp-common, -sender-okhttp), okhttp, okio, kotlin-stdlib, jetbrains annotations | 4.50 MB |
+| **Total** | about 33 JARs | **~13.6 MB** |
 
-**Note:** `netty-all` (4.1.69+) is a BOM-style artifact (~4 KB) that declares dependencies; it does not bundle classes. Use individual modules or `netty-all` to pull in everything.
+Notes:
+- HTTP/3 in Netty is **not** part of the default stack: it is the separate `netty-codec-http3` module on top of the **quiche addon** (`netty-codec-native-quic`, Cloudflare quiche + BoringSSL via JNI). The native jar is platform-specific, so a multi-platform deployment ships one per target OS/architecture. Gumdrop includes HTTP/3 by default as pure Java.
+- Brotli is likewise native: `brotli4j` loads a platform-specific native library (the `native-*` jar). Gumdrop's micula is pure Java.
+- OpenTelemetry's default OTLP/HTTP sender pulls in OkHttp, Okio, and the Kotlin stdlib (1.7 MB on its own). OTLP/gRPC would instead pull in grpc-java and protobuf-java.
+- Asynchronous DNS resolution is built into Gumdrop's core, whereas Netty needs the separate `netty-resolver-dns` add-on (plus its DNS codec). It is left out of both totals because it is mainly needed for inter-service client calls rather than a straightforward microservice.
+- Gumdrop's equivalent set is ~3.1 MB (see section 1), all pure Java, with OTLP protobuf encoding done by the 15 KB jprotobuf.
 
-### Typical Sizes (from Maven Central)
-
-| Artifact | Approx Size |
-|----------|-------------|
-| netty-common | ~400 KB |
-| netty-buffer | ~200 KB |
-| netty-transport | ~300 KB |
-| netty-codec | ~150 KB |
-| netty-codec-http | ~500 KB |
-| netty-handler | ~100 KB |
-| **Total (minimal HTTP)** | **~1.7 MB** |
-
-**+ netty-codec-xml** (adds aalto-xml 350 KB, gson ~250 KB): **~2.3 MB total** — still fits in 2–3 MB.
-
-**+ Jackson** (jackson-databind 1.6 MB, jackson-core 584 KB, jackson-annotations ~70 KB): **~4.5 MB total** — no longer 2–3 MB.
-
-Optional: `netty-codec-http2` for HTTP/2 adds more. No servlet API, no JSP, no J2EE.
+Netty with only HTTP/1.1 and no telemetry is much smaller (about 2.3 MB with `netty-codec-xml`), but that is not feature-for-feature.
 
 ### Built-in XML and JSON Codecs
 
@@ -305,7 +308,7 @@ container.addContext(new Context(container, "/myservice",
 ```
 
 Changing the path or WAR root means editing this line and restarting the
-process (no drop-in auto-deploy) — hot deploy (`container.setHotDeploy(true)`)
+process (no drop-in auto-deploy) — hot deploy (`container.hotDeploy(true)`)
 picks up in-place changes to an already-deployed WAR's contents without a
 restart, but adding or removing a context is a code change.
 
@@ -397,13 +400,13 @@ There is no XML or properties-only way to deploy an external WAR; it requires Ja
 |-------------|---------|-------|-------|--------|-------------|
 | **HTTP server** | ✓ Built-in | ✓ Codec | ✓ Embedded | ✓ Embedded | ✓ Via Tomcat |
 | **Servlet API** | ✓ Optional | ✗ | ✓ | ✓ | ✓ |
-| **JSON parsing** | jsonparser (31 KB) | netty-codec (JsonObjectDecoder) + Jackson/Gson for POJOs | Add lib | Add lib | Jackson (included) |
+| **JSON parsing** | jsonparser (31 KB, required alongside gonzalez-core) | netty-codec (JsonObjectDecoder) + jackson-core non-blocking parser | Add lib | Add lib | Jackson (included) |
 | **XML parsing** | gonzalez-core (~146 KB) | netty-codec-xml (Aalto, async) | Add lib | Add lib | Add lib |
 | **DI framework** | ✗ (composition in Java) | ✗ | ✗ | ✗ | ✓ (Spring, full) |
 | **Build tool** | Ant (or Maven for deps) | Maven/Gradle | Maven/Gradle | Maven/Gradle | Maven/Gradle |
-| **Minimal deploy size** | ~2.57 MB | ~2.3 MB (XML) / ~4.5 MB (+Jackson) | ~6 MB | ~6 MB | ~25 MB |
-| **Fat JAR size** | 5.2 MB | N/A | ~8–12 MB | ~10–18 MB | ~25–80 MB |
+| **Deploy size** (Gumdrop and Netty feature-matched: HTTP/1-3, Brotli, XML/JSON, OpenTelemetry; others minimal) | ~3.1 MB | ~13.6 MB (incl. native quiche + Brotli) | ~6 MB | ~6 MB | ~25 MB |
+| **Fat JAR size** | 7.3 MB | N/A | ~8–12 MB | ~10–18 MB | ~25–80 MB |
 
 ---
 
-*Last updated: March 2026. Sizes are approximate and vary by version.*
+*Last updated: October 2026. Sizes are approximate and vary by version.*

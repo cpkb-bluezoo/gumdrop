@@ -100,21 +100,6 @@ public class Pop3Server implements Server, Pop3ServerSessionProvider {
         listeners.add(endpoint);
     }
 
-    /**
-     * Sets the listeners from a configuration list. Each item in the
-     * list must be a {@link Pop3Listener}.
-     *
-     * @param list the list of listener endpoints
-     */
-    public void setListeners(List<?> list) {
-        for (int i = 0; i < list.size(); i++) {
-            Object item = list.get(i);
-            if (item instanceof Pop3Listener) {
-                addListener((Pop3Listener) item);
-            }
-        }
-    }
-
     @Override
     public List<Listener> getListeners() {
         return Collections.unmodifiableList(listeners);
@@ -126,15 +111,16 @@ public class Pop3Server implements Server, Pop3ServerSessionProvider {
         return realm;
     }
 
-    public void setRealm(Realm realm) {
+    public Pop3Server realm(Realm realm) {
         this.realm = realm;
+        return this;
     }
 
     public MailboxFactory getMailboxFactory() {
         return mailboxFactory;
     }
 
-    public void setMailboxFactory(MailboxFactory factory) {
+    public Pop3Server mailboxFactory(MailboxFactory factory) {
         if (factory != null) {
             Pop3ServerSessionProvider provider = sessionProvider;
             if (provider instanceof MailboxStorePop3SessionProvider) {
@@ -144,6 +130,7 @@ public class Pop3Server implements Server, Pop3ServerSessionProvider {
             }
         }
         this.mailboxFactory = factory;
+        return this;
     }
 
     /**
@@ -161,49 +148,56 @@ public class Pop3Server implements Server, Pop3ServerSessionProvider {
     /**
      * Sets the greeting message sent to clients when using a mailbox store
      * session provider.
+     * @return this
      */
-    public void setGreeting(String greeting) {
+    public Pop3Server greeting(String greeting) {
         ensureMailboxStoreProvider().greeting(greeting);
+        return this;
     }
 
     public long getLoginDelayMs() {
         return loginDelayMs;
     }
 
-    public void setLoginDelayMs(long loginDelayMs) {
+    public Pop3Server loginDelayMs(long loginDelayMs) {
         this.loginDelayMs = loginDelayMs;
+        return this;
     }
 
     public long getTransactionTimeoutMs() {
         return transactionTimeoutMs;
     }
 
-    public void setTransactionTimeoutMs(long transactionTimeoutMs) {
+    public Pop3Server transactionTimeoutMs(long transactionTimeoutMs) {
         this.transactionTimeoutMs = transactionTimeoutMs;
+        return this;
     }
 
     public boolean isEnableAPOP() {
         return enableAPOP;
     }
 
-    public void setEnableAPOP(boolean enableAPOP) {
+    public Pop3Server enableAPOP(boolean enableAPOP) {
         this.enableAPOP = enableAPOP;
+        return this;
     }
 
     public boolean isEnableUTF8() {
         return enableUTF8;
     }
 
-    public void setEnableUTF8(boolean enableUTF8) {
+    public Pop3Server enableUTF8(boolean enableUTF8) {
         this.enableUTF8 = enableUTF8;
+        return this;
     }
 
     public boolean isEnablePipelining() {
         return enablePipelining;
     }
 
-    public void setEnablePipelining(boolean enablePipelining) {
+    public Pop3Server enablePipelining(boolean enablePipelining) {
         this.enablePipelining = enablePipelining;
+        return this;
     }
 
     // ── Handler creation ──
@@ -289,9 +283,9 @@ public class Pop3Server implements Server, Pop3ServerSessionProvider {
                 wireEndpoint(ep);
                 Pop3ServerSessionProvider provider = getSessionProvider();
                 if (provider != null) {
-                    ep.setSessionProvider(provider);
+                    ep.sessionProvider(provider);
                 }
-                ep.setServer(this);
+                ep.server(this);
             }
             startListener(gumdrop, listener);
         }
@@ -312,16 +306,16 @@ public class Pop3Server implements Server, Pop3ServerSessionProvider {
      */
     private void wireEndpoint(Pop3Listener ep) {
         if (realm != null) {
-            ep.setRealm(realm);
+            ep.realm(realm);
         }
         if (mailboxFactory != null) {
-            ep.setMailboxFactory(mailboxFactory);
+            ep.mailboxFactory(mailboxFactory);
         }
-        ep.setLoginDelayMs(loginDelayMs);
-        ep.setTransactionTimeoutMs(transactionTimeoutMs);
-        ep.setEnableAPOP(enableAPOP);
-        ep.setEnableUTF8(enableUTF8);
-        ep.setEnablePipelining(enablePipelining);
+        ep.loginDelayMs(loginDelayMs);
+        ep.transactionTimeoutMs(transactionTimeoutMs);
+        ep.enableAPOP(enableAPOP);
+        ep.enableUTF8(enableUTF8);
+        ep.enablePipelining(enablePipelining);
     }
 
     private void startListener(Gumdrop gumdrop, Object listener) {
@@ -459,13 +453,13 @@ public class Pop3Server implements Server, Pop3ServerSessionProvider {
             Pop3Server server = new Pop3Server();
             server.setComposedSessionProvider(provider);
             if (realm != null) {
-                server.setRealm(realm);
+                server.realm(realm);
             }
-            server.setLoginDelayMs(loginDelayMs);
-            server.setTransactionTimeoutMs(transactionTimeoutMs);
-            server.setEnableAPOP(enableAPOP);
-            server.setEnableUTF8(enableUTF8);
-            server.setEnablePipelining(enablePipelining);
+            server.loginDelayMs(loginDelayMs);
+            server.transactionTimeoutMs(transactionTimeoutMs);
+            server.enableAPOP(enableAPOP);
+            server.enableUTF8(enableUTF8);
+            server.enablePipelining(enablePipelining);
             for (int i = 0; i < listeners.size(); i++) {
                 server.addListener(listeners.get(i));
             }

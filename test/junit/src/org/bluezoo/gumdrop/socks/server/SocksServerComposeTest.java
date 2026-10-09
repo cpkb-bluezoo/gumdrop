@@ -159,17 +159,6 @@ public class SocksServerComposeTest {
     }
 
     @Test
-    @SuppressWarnings("rawtypes")
-    public void setListenersFiltersNonListeners() {
-        SocksServer server = new SocksServer();
-        List items = new ArrayList();
-        items.add(new SocksListener());
-        items.add("not a listener");
-        server.setListeners(items);
-        assertEquals(1, server.getListeners().size());
-    }
-
-    @Test
     public void startAndStopDriveProviderLifecycle() {
         CountingProvider provider = new CountingProvider();
         SocksListener l = new SocksListener();
@@ -193,7 +182,7 @@ public class SocksServerComposeTest {
         assertEquals(2, server.getActiveRelayCount());
         server.releaseRelay();
         assertEquals(1, server.getActiveRelayCount());
-        server.setMaxRelays(1);
+        server.maxRelays(1);
         assertFalse(server.acquireRelay());
         server.releaseRelay();
         assertTrue(server.acquireRelay());
@@ -202,9 +191,9 @@ public class SocksServerComposeTest {
     @Test
     public void emptyDestinationListsClearFilters() {
         SocksServer server = new SocksServer();
-        server.setBlockedDestinations(CidrNetwork.parseList("10.0.0.0/8"));
-        server.setBlockedDestinations(new ArrayList<CidrNetwork>());
-        server.setAllowedDestinations(null);
+        server.blockedDestinations(CidrNetwork.parseList("10.0.0.0/8"));
+        server.blockedDestinations(new ArrayList<CidrNetwork>());
+        server.allowedDestinations(null);
         InetAddressHolder h = new InetAddressHolder();
         assertTrue(server.isDestinationAllowed(h.addr(10, 0, 0, 1)));
     }

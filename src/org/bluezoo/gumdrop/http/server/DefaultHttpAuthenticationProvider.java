@@ -22,7 +22,9 @@
 package org.bluezoo.gumdrop.http.server;
 
 
+import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.auth.Realm;
+import org.bluezoo.gumdrop.auth.RealmCallback;
 import org.bluezoo.gumdrop.auth.SaslMechanism;
 
 /**
@@ -100,26 +102,27 @@ public class DefaultHttpAuthenticationProvider
     }
 
     @Override
-    protected boolean passwordMatch(String realm, String username,
-                                    String password) {
-        return this.realm.passwordMatch(username, password);
+    protected void passwordMatch(SelectorLoop loop, String realm, String username,
+                                 String password, RealmCallback<Boolean> callback) {
+        this.realm.forSelectorLoop(loop).passwordMatch(username, password, callback);
     }
 
     @Override
-    protected String getDigestHA1(String realm, String username) {
-        return this.realm.getDigestHA1(username, realm);
+    protected void getDigestHA1(SelectorLoop loop, String realm, String username,
+                                RealmCallback<String> callback) {
+        this.realm.forSelectorLoop(loop).getDigestHA1(username, realm, callback);
     }
 
     @Override
-    protected Realm.TokenValidationResult validateBearerToken(
-            String token) {
-        return realm.validateBearerToken(token);
+    protected void validateBearerToken(SelectorLoop loop, String token,
+            RealmCallback<Realm.TokenValidationResult> callback) {
+        realm.forSelectorLoop(loop).validateBearerToken(token, callback);
     }
 
     @Override
-    protected Realm.TokenValidationResult validateOAuthToken(
-            String accessToken) {
-        return realm.validateOAuthToken(accessToken);
+    protected void validateOAuthToken(SelectorLoop loop, String accessToken,
+            RealmCallback<Realm.TokenValidationResult> callback) {
+        realm.forSelectorLoop(loop).validateOAuthToken(accessToken, callback);
     }
 
     @Override

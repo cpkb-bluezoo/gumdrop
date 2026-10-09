@@ -143,9 +143,11 @@ public class DnsServer implements Server {
 
     /**
      * Sets the query handler for composed servers.
+     * @return this
      */
-    public void setHandler(DnsQueryHandler handler) {
+    public DnsServer handler(DnsQueryHandler handler) {
         this.queryHandler = handler;
+        return this;
     }
 
     // ── Listener management ──
@@ -184,28 +186,6 @@ public class DnsServer implements Server {
         listeners.add(endpoint);
     }
 
-    /**
-     * Sets the listeners from a configuration list. Each item must be
-     * a {@link DnsListener}, {@link DnsTcpListener}, {@link DoTListener}, or
-     * {@link DoQListener}.
-     *
-     * @param list the list of listener endpoints
-     */
-    public void setListeners(List<?> list) {
-        for (int i = 0; i < list.size(); i++) {
-            Object item = list.get(i);
-            if (item instanceof DnsListener) {
-                addListener((DnsListener) item);
-            } else if (item instanceof DnsTcpListener) {
-                addListener((DnsTcpListener) item);
-            } else if (item instanceof DoTListener) {
-                addListener((DoTListener) item);
-            } else if (item instanceof DoQListener) {
-                addListener((DoQListener) item);
-            }
-        }
-    }
-
     @Override
     public List<Listener> getListeners() {
         return Collections.unmodifiableList(listeners);
@@ -221,9 +201,11 @@ public class DnsServer implements Server {
      *
      * @param maxMQTypes the cap; defaults to
      *                   {@link DnsMultiQType#DEFAULT_MAX_MQTYPES}
+     * @return this
      */
-    public void setMaxMQTypes(int maxMQTypes) {
+    public DnsServer maxMQTypes(int maxMQTypes) {
         this.maxMQTypes = maxMQTypes;
+        return this;
     }
 
     /**
@@ -899,11 +881,13 @@ public class DnsServer implements Server {
 
     private void wireListener(Object listener) {
         if (listener instanceof DnsListener) {
-            ((DnsListener) listener).setServer(this);
+            ((DnsListener) listener).server(this);
+        } else if (listener instanceof DnsTcpListener) {
+            ((DnsTcpListener) listener).server(this);
         } else if (listener instanceof DoTListener) {
-            ((DoTListener) listener).setServer(this);
+            ((DoTListener) listener).server(this);
         } else if (listener instanceof DoQListener) {
-            ((DoQListener) listener).setServer(this);
+            ((DoQListener) listener).server(this);
         }
     }
 
@@ -911,7 +895,7 @@ public class DnsServer implements Server {
         if (listener instanceof DoQListener) {
             DoQListener doq = (DoQListener) listener;
             if (doq.getSelectorLoop() == null) {
-                doq.setSelectorLoop(gumdrop.nextWorkerLoop());
+                doq.selectorLoop(gumdrop.nextWorkerLoop());
             }
         }
         if (listener instanceof Listener) {
@@ -960,6 +944,11 @@ public class DnsServer implements Server {
             return this;
         }
 
+        public Composer listener(DnsTcpListener listener) {
+            listeners.add(listener);
+            return this;
+        }
+
         public Composer listener(DoTListener listener) {
             listeners.add(listener);
             return this;
@@ -984,7 +973,7 @@ public class DnsServer implements Server {
             }
             DnsServer server = new DnsServer();
             if (handler != null) {
-                server.setHandler(handler);
+                server.handler(handler);
             }
             for (int i = 0; i < listeners.size(); i++) {
                 server.listeners.add(listeners.get(i));

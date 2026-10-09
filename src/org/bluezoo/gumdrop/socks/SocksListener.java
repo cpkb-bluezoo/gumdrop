@@ -21,6 +21,8 @@
 
 package org.bluezoo.gumdrop.socks;
 
+import org.bluezoo.gumdrop.util.CidrNetwork;
+import java.util.List;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.ResourceBundle;
@@ -94,9 +96,6 @@ public class SocksListener extends TcpListener {
         return port;
     }
 
-    public void setPort(int port) {
-        this.port = port;
-    }
     /**
      * Sets the port. Returns {@code this} for fluent configuration.
      *
@@ -104,7 +103,7 @@ public class SocksListener extends TcpListener {
      * @return this listener
      */
     public SocksListener port(int port) {
-        setPort(port);
+        this.port = port;
         return this;
     }
 
@@ -132,6 +131,90 @@ public class SocksListener extends TcpListener {
         return this;
     }
 
+    @Override
+    public SocksListener maxConnections(int max) {
+        super.maxConnections(max);
+        return this;
+    }
+
+    @Override
+    public SocksListener maxConnectionsPerIP(int max) {
+        super.maxConnectionsPerIP(max);
+        return this;
+    }
+
+    @Override
+    public SocksListener rateLimit(String rateLimit) {
+        super.rateLimit(rateLimit);
+        return this;
+    }
+
+    @Override
+    public SocksListener maxAuthFailures(int max) {
+        super.maxAuthFailures(max);
+        return this;
+    }
+
+    @Override
+    public SocksListener authLockoutTimeMs(long lockoutMs) {
+        super.authLockoutTimeMs(lockoutMs);
+        return this;
+    }
+
+    @Override
+    public SocksListener allowedNetworks(List<CidrNetwork> allowedNetworks) {
+        super.allowedNetworks(allowedNetworks);
+        return this;
+    }
+
+    @Override
+    public SocksListener blockedNetworks(List<CidrNetwork> blockedNetworks) {
+        super.blockedNetworks(blockedNetworks);
+        return this;
+    }
+
+    @Override
+    public SocksListener name(String name) {
+        super.name(name);
+        return this;
+    }
+
+    @Override
+    public SocksListener maxNetInSize(int size) {
+        super.maxNetInSize(size);
+        return this;
+    }
+
+    @Override
+    public SocksListener maxNetOutSize(int size) {
+        super.maxNetOutSize(size);
+        return this;
+    }
+
+    @Override
+    public SocksListener idleTimeoutMs(long idleTimeoutMs) {
+        super.idleTimeoutMs(idleTimeoutMs);
+        return this;
+    }
+
+    @Override
+    public SocksListener readTimeoutMs(long readTimeoutMs) {
+        super.readTimeoutMs(readTimeoutMs);
+        return this;
+    }
+
+    @Override
+    public SocksListener connectionTimeoutMs(long connectionTimeoutMs) {
+        super.connectionTimeoutMs(connectionTimeoutMs);
+        return this;
+    }
+
+    @Override
+    public SocksListener maxDtlsPeers(int max) {
+        super.maxDtlsPeers(max);
+        return this;
+    }
+
     /**
      * Returns the authentication realm for this listener.
      * Used for SOCKS5 authentication per RFC 1928 §3, RFC 1929, RFC 1961.
@@ -147,9 +230,11 @@ public class SocksListener extends TcpListener {
      * Used for SOCKS5 authentication per RFC 1928 §3, RFC 1929, RFC 1961.
      *
      * @param realm the realm
+     * @return this
      */
-    public void setRealm(Realm realm) {
+    public SocksListener realm(Realm realm) {
         this.realm = realm;
+        return this;
     }
 
     /**
@@ -167,9 +252,11 @@ public class SocksListener extends TcpListener {
      * RFC 1961 §3–§4: GSS-API authentication for SOCKS5.
      *
      * @param gssapiServer the GSSAPI server
+     * @return this
      */
-    public void setGSSAPIServer(GssapiServer gssapiServer) {
+    public SocksListener gssapiServer(GssapiServer gssapiServer) {
         this.gssapiServer = gssapiServer;
+        return this;
     }
 
     /**
@@ -183,17 +270,19 @@ public class SocksListener extends TcpListener {
      * @throws IOException if the keytab cannot be read or credentials
      *         cannot be acquired
      */
-    public void configureGSSAPI(Path keytabPath, String servicePrincipal)
+    public SocksListener configureGSSAPI(Path keytabPath, String servicePrincipal)
             throws IOException {
         this.gssapiServer = new GssapiServer(keytabPath, servicePrincipal);
+        return this;
     }
 
     public org.bluezoo.gumdrop.socks.server.SocksServer getServer() {
         return server;
     }
 
-    public void setServer(org.bluezoo.gumdrop.socks.server.SocksServer server) {
+    public SocksListener server(org.bluezoo.gumdrop.socks.server.SocksServer server) {
         this.server = server;
+        return this;
     }
 
     @Override

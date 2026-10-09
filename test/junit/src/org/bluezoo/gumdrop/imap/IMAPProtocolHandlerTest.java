@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.imap;
 
+import org.bluezoo.gumdrop.auth.SynchronousRealm;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.SocketAddress;
@@ -329,7 +330,7 @@ public class IMAPProtocolHandlerTest {
     public void testChainedLiteralsInLoginBothSpliced() {
         connect();
         endpoint.sentData.clear();
-        listener.setAllowPlaintextLogin(true);
+        listener.allowPlaintextLogin(true);
         sendCommand("a1 LOGIN {5}");
         assertTrue(lastResponse().startsWith("+"));
         sendRaw("alice {8}\r\n");
@@ -344,9 +345,23 @@ public class IMAPProtocolHandlerTest {
     }
 
     @Test
+    public void testRepeatedLoginFailuresLockTheClientOut() {
+        connect();
+        listener.allowPlaintextLogin(true);
+        listener.maxAuthFailures(2);
+        endpoint.sentData.clear();
+        sendCommand("a1 LOGIN alice wrong");
+        assertTrue(lastResponse().contains("AUTHENTICATIONFAILED"));
+        sendCommand("a2 LOGIN alice wrong");
+        assertTrue(lastResponse().contains("AUTHENTICATIONFAILED"));
+        sendCommand("a3 LOGIN alice wrong");
+        assertTrue(lastResponse(), lastResponse().startsWith("a3 NO [UNAVAILABLE]"));
+    }
+
+    @Test
     public void testLiteralTooLargeRejectedAndResyncs() {
         listener = new ImapListener();
-        listener.setMaxLiteralSize(10);
+        listener.maxLiteralSize(10);
         handler = new ImapProtocolHandler(listener);
         endpoint = new StubEndpoint();
 
@@ -363,7 +378,7 @@ public class IMAPProtocolHandlerTest {
     public void testLiteralSlicedAtEveryChunkSize() {
         for (int chunkSize = 1; chunkSize <= 24; chunkSize++) {
             listener = new ImapListener();
-            listener.setAllowPlaintextLogin(true);
+            listener.allowPlaintextLogin(true);
             handler = new ImapProtocolHandler(listener);
             endpoint = new StubEndpoint();
 
@@ -440,13 +455,9 @@ public class IMAPProtocolHandlerTest {
         }
     }
 
-    static class StubRealm implements Realm {
+    static class StubRealm implements SynchronousRealm {
         Set<SaslMechanism> supportedMechanisms = new HashSet<SaslMechanism>();
 
-        @Override
-        public Realm forSelectorLoop(SelectorLoop loop) {
-            return this;
-        }
 
         @Override
         public Set<SaslMechanism> getSupportedSASLMechanisms() {
@@ -463,11 +474,6 @@ public class IMAPProtocolHandlerTest {
             return null;
         }
 
-        @Override
-        @SuppressWarnings("deprecation")
-        public String getPassword(String username) {
-            return "testuser".equals(username) ? "testpass" : null;
-        }
 
         @Override
         public boolean isUserInRole(String username, String role) {

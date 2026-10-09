@@ -38,6 +38,7 @@ import org.junit.After;
 import org.junit.Test;
 
 import org.bluezoo.gumdrop.http.Capsule;
+import org.bluezoo.gumdrop.tls.TlsConfig;
 import org.bluezoo.gumdrop.http.Header;
 import org.bluezoo.gumdrop.http.HttpDatagramContext;
 import org.bluezoo.gumdrop.http.h2.H2FrameHandler;
@@ -185,7 +186,7 @@ public class ConnectUdpClientFlowTest {
     @Test
     public void http11UpgradeOpensTunnelAndDeliversDatagrams() throws Exception {
         Client client = new Client("127.0.0.1", 80);
-        client.setDnsHttpsRecordEnabled(false);
+        client.dnsHttpsRecordEnabled(false);
         Events events = new Events();
         assertFalse(client.isOpen());
         client.connect(null, "target.example", 53, events);
@@ -204,7 +205,7 @@ public class ConnectUdpClientFlowTest {
     @Test
     public void http11NonUpgradeResponsesAreReportedAsErrors() {
         Client ok = new Client("127.0.0.1", 80);
-        ok.setDnsHttpsRecordEnabled(false);
+        ok.dnsHttpsRecordEnabled(false);
         Events okEvents = new Events();
         ok.connect(null, "t.example", 53, okEvents);
         ok.handler.receive(ByteBuffer.wrap(
@@ -212,7 +213,7 @@ public class ConnectUdpClientFlowTest {
         assertTrue(String.valueOf(okEvents.error), okEvents.error.getMessage().contains("did not upgrade"));
 
         Client denied = new Client("127.0.0.1", 80);
-        denied.setDnsHttpsRecordEnabled(false);
+        denied.dnsHttpsRecordEnabled(false);
         Events deniedEvents = new Events();
         denied.connect(null, "t.example", 53, deniedEvents);
         denied.handler.receive(ByteBuffer.wrap(
@@ -223,14 +224,14 @@ public class ConnectUdpClientFlowTest {
     @Test
     public void transportErrorsReachTheEventHandler() {
         Client client = new Client("127.0.0.1", 80);
-        client.setDnsHttpsRecordEnabled(false);
+        client.dnsHttpsRecordEnabled(false);
         client.failure = new IOException("no route");
         Events events = new Events();
         client.connect(null, "t.example", 53, events);
         assertEquals("no route", events.error.getMessage());
 
         Client live = new Client("127.0.0.1", 80);
-        live.setDnsHttpsRecordEnabled(false);
+        live.dnsHttpsRecordEnabled(false);
         Events liveEvents = new Events();
         live.connect(null, "t.example", 53, liveEvents);
         live.handler.error(new IOException("reset"));
@@ -241,8 +242,8 @@ public class ConnectUdpClientFlowTest {
 
     private static Client h2Client(Events events) {
         Client client = new Client("127.0.0.1", 80);
-        client.setDnsHttpsRecordEnabled(false);
-        client.setH2WithPriorKnowledge(true);
+        client.dnsHttpsRecordEnabled(false);
+        client.h2WithPriorKnowledge(true);
         client.connect(null, "target.example", 53, events);
         return client;
     }
@@ -302,22 +303,19 @@ public class ConnectUdpClientFlowTest {
     @Test
     public void secureDialConfigurationIsApplied() {
         Client client = new Client("127.0.0.1", 443);
-        client.setDnsHttpsRecordEnabled(false);
-        client.setSecure(true);
-        client.setVerifyPeer(false);
-        client.setKeystorePass("changeit");
-        client.setKeystoreFormat(KeystoreFormat.PKCS12);
-        client.setH2Enabled(true);
-        client.setClientCredentials(null);
+        client.dnsHttpsRecordEnabled(false);
+        client.secure(true);
+        client.tls(new TlsConfig().verifyPeer(false).keystorePass("changeit")
+                .keystoreFormat(KeystoreFormat.PKCS12));
         Events events = new Events();
         client.connect(null, "t.example", 53, events);
         assertEquals(1, client.connects);
 
         Client trusted = new Client("127.0.0.1", 443);
-        trusted.setDnsHttpsRecordEnabled(false);
-        trusted.setSecure(true);
-        trusted.setTrustManager(new EmptyX509TrustManager());
-        trusted.setKeystoreFile(Path.of("/nonexistent/keystore.p12"));
+        trusted.dnsHttpsRecordEnabled(false);
+        trusted.secure(true);
+        trusted.tls(new TlsConfig().trustManager(new EmptyX509TrustManager())
+                .keystoreFile(Path.of("/nonexistent/keystore.p12")));
         trusted.connect(null, "t.example", 53, new Events());
         assertEquals(1, trusted.connects);
     }
@@ -338,7 +336,7 @@ public class ConnectUdpClientFlowTest {
     @Test
     public void altSvcReceivedPopulatesTheCache() {
         Client client = new Client("127.0.0.1", 80);
-        client.setDnsHttpsRecordEnabled(false);
+        client.dnsHttpsRecordEnabled(false);
         client.altSvcReceived("garbage");
         client.altSvcReceived("h3=\"alt.example:8443\"; ma=60");
         assertNotNull(AltSvcCache.get("127.0.0.1", 80));

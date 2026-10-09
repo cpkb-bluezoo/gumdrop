@@ -107,7 +107,7 @@ public class ListenerCredentialsHandoffTest {
     @Test
     public void rateLimitedListenerTracksOnlyInetPeers() throws Exception {
         Plain l = new Plain();
-        l.setRateLimit("5/60s");
+        l.rateLimit("5/60s");
         SocketAddress inet = new InetSocketAddress(InetAddress.getByName("10.1.1.1"), 99);
         SocketAddress unix = UnixDomainSocketAddress.of("/tmp/never-created.sock");
         l.connectionOpened(inet);
@@ -123,7 +123,7 @@ public class ListenerCredentialsHandoffTest {
     @Test
     public void emptyAllowedNetworkListMeansEveryoneNotBlocked() throws Exception {
         Plain l = new Plain();
-        l.setAllowedNetworks(new ArrayList<CidrNetwork>());
+        l.allowedNetworks(new ArrayList<CidrNetwork>());
         assertTrue(l.acceptConnection(new InetSocketAddress(InetAddress.getByName("203.0.113.9"), 1)));
     }
 }

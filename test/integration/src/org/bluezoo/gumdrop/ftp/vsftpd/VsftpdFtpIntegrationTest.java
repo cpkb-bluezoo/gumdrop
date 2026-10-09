@@ -22,6 +22,7 @@
 package org.bluezoo.gumdrop.ftp.vsftpd;
 
 import org.bluezoo.gumdrop.Endpoint;
+import org.bluezoo.gumdrop.tls.TlsConfig;
 import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.ftp.client.FtpClient;
@@ -189,7 +190,7 @@ public class VsftpdFtpIntegrationTest {
         X509Certificate serverCert = VsftpdTestSupport.loadServerCertificate();
 
         FtpClient client = new FtpClient(VsftpdTestSupport.HOST, VsftpdTestSupport.PORT);
-        client.setTrustManager(pinningTrustManager(serverCert));
+        client.tls(new TlsConfig().trustManager(pinningTrustManager(serverCert)));
 
         CountDownLatch doneLatch = new CountDownLatch(1);
         AtomicReference<Exception> error = new AtomicReference<>();

@@ -40,10 +40,10 @@ public class IMAPScriptedHandlerQuotaTest extends IMAPScriptedHandlerTest {
 
     @Override
     protected void configureListener(ImapListener l) {
-        l.setRealm(new AcceptingRealm("editor", "editor", true));
+        l.realm(new AcceptingRealm("editor", "editor", true));
         RoleBasedQuotaManager qm = new RoleBasedQuotaManager();
-        qm.setDefaultQuota("10MB");
-        l.setQuotaManager(qm);
+        qm.defaultQuota("10MB");
+        l.quotaManager(qm);
     }
 
     @Test(timeout = 30000)

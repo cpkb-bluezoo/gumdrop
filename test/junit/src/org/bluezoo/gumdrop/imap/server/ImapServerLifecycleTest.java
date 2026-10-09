@@ -149,8 +149,8 @@ public class ImapServerLifecycleTest {
                 .maxLiteralSize(654)
                 .allowPlaintextLogin(true)
                 .server();
-        s.setRealm(null);
-        s.setMailboxFactory(mf);
+        s.realm(null);
+        s.mailboxFactory(mf);
         s.start(gumdrop);
         assertSame(s, l.getServer());
         assertEquals(1234L, l.getLoginTimeoutMs());

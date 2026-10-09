@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.socks;
 
+import org.bluezoo.gumdrop.auth.SynchronousRealm;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
@@ -68,7 +69,7 @@ public class SocksProtocolHandlerExtraTest {
     public void setUp() {
         server = new SocksServer();
         listener = new SocksListener();
-        listener.setServer(server);
+        listener.server(server);
         Gumdrop g = TestGumdrop.create();
         g.telemetryConfig(telemetryConfig());
         listener.start(g);
@@ -117,7 +118,7 @@ public class SocksProtocolHandlerExtraTest {
         SocksListener same = l.port(1234);
         assertSame(l, same);
         assertEquals(1234, l.getPort());
-        l.setPort(4321);
+        l.port(4321);
         assertEquals(4321, l.getPort());
         same = l.bindWildcard();
         assertSame(l, same);
@@ -126,7 +127,7 @@ public class SocksProtocolHandlerExtraTest {
         assertNull(l.getRealm());
         assertNull(l.getGSSAPIServer());
         assertNull(l.getGumdrop());
-        l.setGSSAPIServer(null);
+        l.gssapiServer(null);
     }
 
     @Test(expected = IllegalStateException.class)
@@ -139,7 +140,7 @@ public class SocksProtocolHandlerExtraTest {
 
     @Test
     public void usernamePasswordSuccess() {
-        listener.setRealm(new TestRealm("alice", "secret"));
+        listener.realm(new TestRealm("alice", "secret"));
         offerMethods(SOCKS5_AUTH_USERNAME_PASSWORD);
         byte[] reply = endpoint.getLastSent();
         assertEquals(SOCKS5_AUTH_USERNAME_PASSWORD, reply[1]);
@@ -161,7 +162,7 @@ public class SocksProtocolHandlerExtraTest {
 
     @Test
     public void usernamePasswordFailure() {
-        listener.setRealm(new TestRealm("alice", "secret"));
+        listener.realm(new TestRealm("alice", "secret"));
         offerMethods(SOCKS5_AUTH_USERNAME_PASSWORD);
         endpoint.clearSent();
 
@@ -172,8 +173,32 @@ public class SocksProtocolHandlerExtraTest {
     }
 
     @Test
+    public void repeatedBadPasswordsLockTheClientOut() {
+        listener.realm(new TestRealm("alice", "secret"));
+        listener.maxAuthFailures(2);
+        for (int i = 0; i < 2; i++) {
+            handler = server.createProtocolHandler(listener);
+            endpoint = new StubEndpoint();
+            handler.connected(endpoint);
+            offerMethods(SOCKS5_AUTH_USERNAME_PASSWORD);
+            endpoint.clearSent();
+            handler.receive(userPass("alice", "wrong"));
+            assertEquals(SOCKS5_AUTH_USERPASS_FAILURE, endpoint.getLastSent()[1]);
+        }
+        handler = server.createProtocolHandler(listener);
+        endpoint = new StubEndpoint();
+        handler.connected(endpoint);
+        offerMethods(SOCKS5_AUTH_USERNAME_PASSWORD);
+        endpoint.clearSent();
+        handler.receive(userPass("alice", "secret"));
+        assertEquals("the right password is refused while locked out",
+                SOCKS5_AUTH_USERPASS_FAILURE, endpoint.getLastSent()[1]);
+        assertFalse(endpoint.isOpen());
+    }
+
+    @Test
     public void usernamePasswordBadSubnegotiationVersion() {
-        listener.setRealm(new TestRealm("alice", "secret"));
+        listener.realm(new TestRealm("alice", "secret"));
         offerMethods(SOCKS5_AUTH_USERNAME_PASSWORD);
         endpoint.clearSent();
 
@@ -191,7 +216,7 @@ public class SocksProtocolHandlerExtraTest {
 
     @Test
     public void usernamePasswordIncompleteIsBuffered() {
-        listener.setRealm(new TestRealm("alice", "secret"));
+        listener.realm(new TestRealm("alice", "secret"));
         offerMethods(SOCKS5_AUTH_USERNAME_PASSWORD);
         endpoint.clearSent();
 
@@ -227,7 +252,7 @@ public class SocksProtocolHandlerExtraTest {
 
     @Test
     public void realmWithoutOfferedUserPassRejected() {
-        listener.setRealm(new TestRealm("alice", "secret"));
+        listener.realm(new TestRealm("alice", "secret"));
         offerMethods(SOCKS5_AUTH_NONE);
         byte[] reply = endpoint.getLastSent();
         assertEquals(SOCKS5_AUTH_NO_ACCEPTABLE, reply[1]);
@@ -236,7 +261,7 @@ public class SocksProtocolHandlerExtraTest {
 
     @Test
     public void realmWithGssapiOfferButNoServerFallsBackToUserPass() {
-        listener.setRealm(new TestRealm("alice", "secret"));
+        listener.realm(new TestRealm("alice", "secret"));
         offerMethods(SOCKS5_AUTH_GSSAPI, SOCKS5_AUTH_USERNAME_PASSWORD);
         assertEquals(SOCKS5_AUTH_USERNAME_PASSWORD,
                 endpoint.getLastSent()[1]);
@@ -251,7 +276,7 @@ public class SocksProtocolHandlerExtraTest {
 
     @Test
     public void socks4RejectedWhenRealmConfigured() {
-        listener.setRealm(new TestRealm("alice", "secret"));
+        listener.realm(new TestRealm("alice", "secret"));
         handler.receive(socks4(SOCKS4_CMD_CONNECT, new byte[]{8, 8, 8, 8},
                 53, "u"));
         assertEquals(SOCKS4_REPLY_REJECTED, endpoint.getLastSent()[1]);
@@ -320,7 +345,7 @@ public class SocksProtocolHandlerExtraTest {
 
     @Test
     public void socks5Ipv6ConnectBlocked() {
-        server.setBlockedDestinations(CidrNetwork.parseList("::1/128"));
+        server.blockedDestinations(CidrNetwork.parseList("::1/128"));
         offerMethods(SOCKS5_AUTH_NONE);
         endpoint.clearSent();
         byte[] addr = new byte[18];
@@ -413,7 +438,7 @@ public class SocksProtocolHandlerExtraTest {
 
     @Test
     public void connectHandlerAllowProceedsToDestinationPolicy() {
-        server.setBlockedDestinations(CidrNetwork.parseList("8.8.8.0/24"));
+        server.blockedDestinations(CidrNetwork.parseList("8.8.8.0/24"));
         final List<SocksRequest> seen = new ArrayList<SocksRequest>();
         handler.setConnectHandler(new ConnectHandler() {
             @Override
@@ -428,6 +453,51 @@ public class SocksProtocolHandlerExtraTest {
         assertEquals(1, seen.size());
         assertEquals(SOCKS4_REPLY_REJECTED, endpoint.getLastSent()[1]);
         assertFalse(endpoint.isOpen());
+    }
+
+    private static final class FakeTls implements org.bluezoo.gumdrop.SecurityInfo {
+        public String getProtocol() { return "TLSv1.3"; }
+        public String getCipherSuite() { return "TLS_AES_128_GCM_SHA256"; }
+        public int getKeySize() { return 128; }
+        public java.security.cert.Certificate[] getPeerCertificates() { return null; }
+        public java.security.cert.Certificate[] getLocalCertificates() { return null; }
+        public String getApplicationProtocol() { return null; }
+        public long getHandshakeDurationMs() { return 0L; }
+        public boolean isSessionResumed() { return false; }
+    }
+
+    @Test
+    public void connectStateExposesTheClientsTlsSession() {
+        final FakeTls tls = new FakeTls();
+        endpoint.setSecurityInfo(tls);
+        final List<Object> seen = new ArrayList<Object>();
+        handler.setConnectHandler(new ConnectHandler() {
+            @Override
+            public void handleConnect(ConnectState state,
+                    SocksRequest request, Endpoint clientEndpoint) {
+                seen.add(state.getSecurityInfo());
+                state.deny(SOCKS5_REPLY_NOT_ALLOWED);
+            }
+        });
+        handler.receive(socks4(SOCKS4_CMD_CONNECT, new byte[]{8, 8, 8, 8}, 53, "u"));
+        assertEquals(1, seen.size());
+        assertSame(tls, seen.get(0));
+    }
+
+    @Test
+    public void connectStateHasNoTlsSessionForACleartextClient() {
+        final List<Object> seen = new ArrayList<Object>();
+        handler.setConnectHandler(new ConnectHandler() {
+            @Override
+            public void handleConnect(ConnectState state,
+                    SocksRequest request, Endpoint clientEndpoint) {
+                seen.add(state.getSecurityInfo());
+                state.deny(SOCKS5_REPLY_NOT_ALLOWED);
+            }
+        });
+        handler.receive(socks4(SOCKS4_CMD_CONNECT, new byte[]{8, 8, 8, 8}, 53, "u"));
+        assertEquals(1, seen.size());
+        assertNull(seen.get(0));
     }
 
     // ── BIND ──
@@ -466,7 +536,7 @@ public class SocksProtocolHandlerExtraTest {
 
     @Test
     public void bindHandlerAllowAppliesDestinationPolicy() {
-        server.setBlockedDestinations(CidrNetwork.parseList("10.0.0.0/8"));
+        server.blockedDestinations(CidrNetwork.parseList("10.0.0.0/8"));
         handler.setBindHandler(new BindHandler() {
             @Override
             public void handleBind(BindState state, SocksRequest request,
@@ -482,7 +552,7 @@ public class SocksProtocolHandlerExtraTest {
 
     @Test
     public void bindBlockedDestinationSocks5() {
-        server.setBlockedDestinations(CidrNetwork.parseList("10.0.0.0/8"));
+        server.blockedDestinations(CidrNetwork.parseList("10.0.0.0/8"));
         offerMethods(SOCKS5_AUTH_NONE);
         endpoint.clearSent();
         handler.receive(request(SOCKS5_CMD_BIND, SOCKS5_ATYP_IPV4,
@@ -493,7 +563,7 @@ public class SocksProtocolHandlerExtraTest {
 
     @Test
     public void bindRelayLimitReachedSocks5() {
-        server.setMaxRelays(1);
+        server.maxRelays(1);
         server.acquireRelay();
         offerMethods(SOCKS5_AUTH_NONE);
         endpoint.clearSent();
@@ -506,7 +576,7 @@ public class SocksProtocolHandlerExtraTest {
 
     @Test
     public void bindRelayLimitReachedSocks4() {
-        server.setMaxRelays(1);
+        server.maxRelays(1);
         server.acquireRelay();
         handler.receive(socks4(SOCKS4_CMD_BIND, new byte[]{0, 0, 0, 0},
                 0, "u"));
@@ -516,7 +586,7 @@ public class SocksProtocolHandlerExtraTest {
 
     @Test
     public void connectRelayLimitReachedSocks4() {
-        server.setMaxRelays(1);
+        server.maxRelays(1);
         server.acquireRelay();
         handler.receive(socks4(SOCKS4_CMD_CONNECT, new byte[]{(byte) 192, 0, 2, 1},
                 80, "u"));
@@ -526,7 +596,7 @@ public class SocksProtocolHandlerExtraTest {
 
     @Test
     public void connectRelayLimitReachedSocks5() {
-        server.setMaxRelays(1);
+        server.maxRelays(1);
         server.acquireRelay();
         offerMethods(SOCKS5_AUTH_NONE);
         endpoint.clearSent();
@@ -540,7 +610,7 @@ public class SocksProtocolHandlerExtraTest {
 
     @Test
     public void udpAssociateRelayLimitReached() {
-        server.setMaxRelays(1);
+        server.maxRelays(1);
         server.acquireRelay();
         offerMethods(SOCKS5_AUTH_NONE);
         endpoint.clearSent();
@@ -584,7 +654,7 @@ public class SocksProtocolHandlerExtraTest {
     @Test
     public void handlerWithoutListenerMetricsStillWorks() {
         SocksListener plain = new SocksListener();
-        plain.setServer(server);
+        plain.server(server);
         SocksProtocolHandler h = server.createProtocolHandler(plain);
         StubEndpoint ep = new StubEndpoint();
         h.connected(ep);
@@ -595,7 +665,7 @@ public class SocksProtocolHandlerExtraTest {
 
     @Test
     public void allowedDestinationsRestrictConnect() {
-        server.setAllowedDestinations(CidrNetwork.parseList("192.0.2.0/24"));
+        server.allowedDestinations(CidrNetwork.parseList("192.0.2.0/24"));
         handler.receive(socks4(SOCKS4_CMD_CONNECT, new byte[]{8, 8, 8, 8},
                 53, "u"));
         assertEquals(SOCKS4_REPLY_REJECTED, endpoint.getLastSent()[1]);
@@ -663,7 +733,7 @@ public class SocksProtocolHandlerExtraTest {
         return buf;
     }
 
-    private static final class TestRealm implements Realm {
+    private static final class TestRealm implements SynchronousRealm {
         private final String user;
         private final String pass;
         private static final Set<SaslMechanism> SUPPORTED =
@@ -675,10 +745,6 @@ public class SocksProtocolHandlerExtraTest {
             this.pass = pass;
         }
 
-        @Override
-        public Realm forSelectorLoop(SelectorLoop loop) {
-            return this;
-        }
 
         @Override
         public Set<SaslMechanism> getSupportedSASLMechanisms() {
@@ -695,11 +761,6 @@ public class SocksProtocolHandlerExtraTest {
             return null;
         }
 
-        @Override
-        @SuppressWarnings("deprecation")
-        public String getPassword(String username) {
-            return user.equals(username) ? pass : null;
-        }
 
         @Override
         public boolean isUserInRole(String username, String role) {

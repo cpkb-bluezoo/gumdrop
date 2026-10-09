@@ -22,6 +22,7 @@
 package org.bluezoo.gumdrop.ftp.server;
 
 import org.bluezoo.gumdrop.Endpoint;
+import org.bluezoo.gumdrop.auth.RealmCallback;
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.auth.Realm;
 import org.bluezoo.gumdrop.ftp.FtpAuthenticationResult;
@@ -89,9 +90,20 @@ public class DefaultFtpHandler implements ClientConnected, NotAuthenticatedHandl
     }
 
     @Override
-    public void user(LoginState state, String username) {
+    public void user(final LoginState state, String username) {
         pendingUser = username;
-        applyLoginResult(state, evaluateAuthentication(username, null, null));
+        evaluateAuthentication(username, null, null,
+                new RealmCallback<FtpAuthenticationResult>() {
+            @Override
+            public void completed(FtpAuthenticationResult result) {
+                applyLoginResult(state, result);
+            }
+
+            @Override
+            public void failed(Throwable cause) {
+                applyLoginResult(state, FtpAuthenticationResult.INVALID_USER);
+            }
+        });
     }
 
     @Override
@@ -100,50 +112,84 @@ public class DefaultFtpHandler implements ClientConnected, NotAuthenticatedHandl
     }
 
     @Override
-    public void password(PasswordState state, String password) {
-        applyPasswordResult(state,
-                evaluateAuthentication(pendingUser, password, null));
+    public void password(final PasswordState state, String password) {
+        evaluateAuthentication(pendingUser, password, null,
+                new RealmCallback<FtpAuthenticationResult>() {
+            @Override
+            public void completed(FtpAuthenticationResult result) {
+                applyPasswordResult(state, result);
+            }
+
+            @Override
+            public void failed(Throwable cause) {
+                applyPasswordResult(state, FtpAuthenticationResult.INVALID_PASSWORD);
+            }
+        });
     }
 
     @Override
-    public void account(AccountState state, String account) {
-        applyAccountResult(state,
-                evaluateAuthentication(pendingUser, null, account));
+    public void account(final AccountState state, String account) {
+        evaluateAuthentication(pendingUser, null, account,
+                new RealmCallback<FtpAuthenticationResult>() {
+            @Override
+            public void completed(FtpAuthenticationResult result) {
+                applyAccountResult(state, result);
+            }
+
+            @Override
+            public void failed(Throwable cause) {
+                applyAccountResult(state, FtpAuthenticationResult.INVALID_PASSWORD);
+            }
+        });
     }
 
     @Override
-    public FtpAuthenticationResult evaluateAuthentication(String username,
-            String password, String account) {
+    public void evaluateAuthentication(String username, String password,
+            String account, final RealmCallback<FtpAuthenticationResult> callback) {
         if (username == null || username.trim().isEmpty()) {
-            return FtpAuthenticationResult.INVALID_USER;
+            callback.completed(FtpAuthenticationResult.INVALID_USER);
+            return;
         }
 
         if (password == null && account == null) {
-            return FtpAuthenticationResult.NEED_PASSWORD;
+            callback.completed(FtpAuthenticationResult.NEED_PASSWORD);
+            return;
         }
 
-        try {
-            if (realm != null) {
-                if (password == null) {
-                    return FtpAuthenticationResult.NEED_PASSWORD;
-                }
-                if (realm.passwordMatch(username.trim(), password)) {
-                    authenticatedUser = username.trim();
-                    return FtpAuthenticationResult.SUCCESS;
-                }
-                return FtpAuthenticationResult.INVALID_PASSWORD;
+        final String trimmed = username.trim();
+        if (realm != null) {
+            if (password == null) {
+                callback.completed(FtpAuthenticationResult.NEED_PASSWORD);
+                return;
             }
+            // The realm answers without making this connection's loop wait.
+            realm.forSelectorLoop(endpoint != null ? endpoint.getSelectorLoop() : null)
+                    .passwordMatch(trimmed, password, new RealmCallback<Boolean>() {
+                @Override
+                public void completed(Boolean matched) {
+                    if (matched != null && matched.booleanValue()) {
+                        authenticatedUser = trimmed;
+                        callback.completed(FtpAuthenticationResult.SUCCESS);
+                    } else {
+                        callback.completed(FtpAuthenticationResult.INVALID_PASSWORD);
+                    }
+                }
 
-            if (password != null && password.trim().isEmpty()) {
-                return FtpAuthenticationResult.INVALID_PASSWORD;
-            }
-            authenticatedUser = username.trim();
-            return FtpAuthenticationResult.SUCCESS;
-
-        } catch (Exception e) {
-            events().warn("warn.ftp_authentication_error").thrown(e).emit();
-            return FtpAuthenticationResult.INVALID_PASSWORD;
+                @Override
+                public void failed(Throwable cause) {
+                    events().warn("warn.ftp_authentication_error").thrown(cause).emit();
+                    callback.completed(FtpAuthenticationResult.INVALID_PASSWORD);
+                }
+            });
+            return;
         }
+
+        if (password != null && password.trim().isEmpty()) {
+            callback.completed(FtpAuthenticationResult.INVALID_PASSWORD);
+            return;
+        }
+        authenticatedUser = trimmed;
+        callback.completed(FtpAuthenticationResult.SUCCESS);
     }
 
     private void applyLoginResult(LoginState state,

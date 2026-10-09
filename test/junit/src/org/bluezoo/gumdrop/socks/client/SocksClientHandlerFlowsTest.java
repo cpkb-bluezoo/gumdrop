@@ -308,13 +308,13 @@ public class SocksClientHandlerFlowsTest {
     // ── SOCKS4 / 4a ──
 
     private SocksClientConfig socks4() {
-        return new SocksClientConfig().setVersion(
+        return new SocksClientConfig().version(
                 SocksClientConfig.Version.SOCKS4);
     }
 
     @Test
     public void socks4RequestCarriesIpAndUserid() {
-        SocksClientConfig cfg = socks4().setUsername("al");
+        SocksClientConfig cfg = socks4().username("al");
         SocksClientHandler h = new SocksClientHandler("192.0.2.9", 25, cfg,
                 inner);
         h.connected(endpoint);

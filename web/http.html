@@ -36,7 +36,8 @@
 <p>
 Gumdrop provides a comprehensive HTTP implementation supporting HTTP/3,
 HTTP/2, and HTTP/1.x. Applications compose an <code>HttpServer</code> with
-listeners and an <code>HttpRequestHandler</code> — see
+listeners and an <code>HttpStreamHandler</code> that binds an
+<code>HttpRequestHandler</code> to each stream - see
 <a href="configuration.html">Application composition</a>.
 Higher-level stacks attach as handlers: <a href="servlet.html">servlet
 container</a> (<code>ServletRequestHandler</code>),
@@ -45,20 +46,21 @@ container</a> (<code>ServletRequestHandler</code>),
 
 <h3>Contents</h3>
 <ul>
-<li><a href="#versions">HTTP Versions</a></li>
+<li><a href="#versions">HTTP versions</a></li>
 <li><a href="#http3">HTTP/3 and QUIC</a></li>
-<li><a href="#http2">HTTP/2 Support</a></li>
-<li><a href="#server-handler">Server Handler API</a></li>
-<li><a href="websocket.html">WebSocket Service &amp; Client</a> (separate page)</li>
-<li><a href="microservices.html">Building Microservices</a> (custom HTTP services)</li>
-<li><a href="#upgrades">Protocol Upgrades</a></li>
-<li><a href="#connection-management">Connection Management</a></li>
-<li><a href="#configuration">Configuration</a></li>
-<li><a href="#client">HTTP Client</a></li>
-<li><a href="webdav.html">File Server &amp; WebDAV</a> (separate page)</li>
+<li><a href="#http2">HTTP/2</a></li>
+<li><a href="#server-handler">Server handler API</a></li>
+<li><a href="#upgrades">Protocol upgrades</a></li>
+<li><a href="#connection-management">Connection management</a></li>
+<li><a href="#configuration">Listener and server settings</a></li>
+<li><a href="#client">HTTP client</a></li>
+<li><a href="websocket.html">WebSocket service and client</a> (separate page)</li>
+<li><a href="masque.html">MASQUE: CONNECT-UDP and CONNECT-IP</a> (separate page)</li>
+<li><a href="microservices.html">Building microservices</a> (custom HTTP services)</li>
+<li><a href="webdav.html">File server and WebDAV</a> (separate page)</li>
 </ul>
 
-<h3 id="versions">HTTP Versions</h3>
+<h3 id="versions">HTTP versions</h3>
 
 <p>
 Gumdrop supports HTTP/3, HTTP/2, HTTP/1.1, and HTTP/1.0, with automatic
@@ -143,12 +145,20 @@ management, stream multiplexing, and congestion control, while HTTP/3 framing
 </p>
 
 <p>
-Only QUIC version&nbsp;1 is supported. A datagram of any other version that is
-large enough to start a connection (at least 1200 bytes) is answered with a
-Version Negotiation packet (RFC&nbsp;9000 section&nbsp;6.1) advertising
-version&nbsp;1, at most 100 per second; smaller datagrams are dropped silently.
-A client that receives a valid Version Negotiation packet listing no version it
-supports abandons the attempt with a <code>QuicVersionNegotiationException</code>.
+QUIC versions&nbsp;1 (RFC&nbsp;9000) and&nbsp;2 (RFC&nbsp;9369) are both
+supported. Version&nbsp;2 differs from version&nbsp;1 only in details such as the
+Initial salt and key-derivation labels, so that middleboxes cannot ossify on
+version&nbsp;1. A server accepts either, advertises both in its
+<code>version_information</code> transport parameter (RFC&nbsp;9368), and in
+compatible version negotiation moves a client to the first version in its own
+preference order that the client also offers. A client opens in version&nbsp;1,
+which servers most often parse, and offers version&nbsp;2 as a compatible
+version. A datagram of any other version that is large enough to start a
+connection (at least 1200 bytes) is answered with a Version Negotiation packet
+(RFC&nbsp;9000 section&nbsp;6.1) listing the supported versions, at most 100 per
+second; smaller datagrams are dropped silently. A client that receives a valid
+Version Negotiation packet listing no version it supports abandons the attempt
+with a <code>QuicVersionNegotiationException</code>.
 </p>
 
 <p>
@@ -160,26 +170,43 @@ is the HTTP version reported by
 </p>
 
 <p><em>Gumdrop 3 uses a single handler (or decorator chain) on
-<code>HttpServer</code>, not a handler factory — see
+<code>HttpServer</code>, not a handler factory - see
 <a href="configuration.html">Application composition</a>.</em></p>
 
 <h4>Configuration</h4>
 
 <p>
 HTTP/3 is configured by adding an <code>Http3Listener</code> to an
-HTTP service. Because QUIC uses UDP, the HTTP/3 listener is independent
-of the TCP-based <code>HttpListener</code> and can coexist with it:
+<code>HttpServer</code>. Because QUIC uses UDP, the HTTP/3 listener is independent
+of the TCP-based <code>Http2Listener</code> and can coexist with it:
 </p>
 
 <pre>
 TlsConfig tls = TlsConfig.pem(Path.of("etc/tls/cert.pem"), Path.of("etc/tls/key.pem"));
-// PKCS#12 / JKS: see security.html#keystores
+// PKCS#12 / JKS: see tls.html#keystores
 
 HttpServer server = HttpServer.compose()
     // Wires both HTTP/1.1 + HTTP/2 over TCP and HTTP/3 over QUIC on
     // the same port, sharing the same TLS material.
     .secureEndpoint(443, tls)
     .streamHandler(new ServletRequestHandler(container))
+    .server();
+
+Gumdrop gumdrop = Gumdrop.boot();
+gumdrop.addServer(server);
+</pre>
+
+<p>
+<code>secureEndpoint</code> is shorthand for adding a secure
+<code>Http2Listener</code> and an <code>Http3Listener</code> yourself, which you
+do when they need different settings:
+</p>
+
+<pre>
+HttpServer server = HttpServer.compose()
+    .listener(new Http2Listener().port(443).secure(true).tls(tls))
+    .listener(new Http3Listener().port(443).tls(tls).requireRetry(true))
+    .streamHandler(handler)
     .server();
 </pre>
 
@@ -191,26 +218,17 @@ conventional) because they use different transport protocols (TCP vs UDP).
 <h4>Server identity</h4>
 
 <p>
-All secure listeners use the same in-tree TLS stack and the same credential
-properties: a Java keystore (<code>keystore-file</code>,
-<code>keystore-pass</code>, optional <code>keystore-format</code>) or PEM files
-(<code>cert-file</code>, <code>key-file</code>). Use the <b>same identity</b> on
-co-located TCP and QUIC listeners so <code>Alt-Svc</code> upgrades do not trigger
-certificate warnings. See
-<a href="security.html#server-identity">Security &mdash; Server identity across transports</a>.
+All secure listeners use the same in-tree TLS stack and take their identity from
+a <code>TlsConfig</code>: PEM files with <code>TlsConfig.pem(cert, key)</code>, or
+a Java keystore with <code>TlsConfig.keystore(file, password)</code>. Use the
+<b>same identity</b> on co-located TCP and QUIC listeners so <code>Alt-Svc</code>
+upgrades do not trigger certificate warnings, which is what
+<code>secureEndpoint</code> does. See
+<a href="tls.html#colocated">TLS, DTLS and QUIC: co-located HTTPS and HTTP/3</a>
+and <a href="tls.html#keystores">using Java keystores</a>.
 </p>
 
-<p>
-PEM is an alternative, not a QUIC requirement. To export PEM from a PKCS#12
-keystore:
-</p>
-
-<pre>
-openssl pkcs12 -in keystore.p12 -nokeys -out cert.pem
-openssl pkcs12 -in keystore.p12 -nocerts -nodes -out key.pem
-</pre>
-
-<h4>Alt-Svc Discovery</h4>
+<h4>Alt-Svc advertisement</h4>
 
 <p>
 When an <code>HttpServer</code> has both TCP and QUIC listeners, it
@@ -220,17 +238,27 @@ clients that HTTP/3 is available:
 </p>
 
 <pre>
-alt-svc: h3=":443"
+alt-svc: h3=":443"; ma=86400
 </pre>
 
 <p>
+To advertise something else, set the value on a listener with
+<code>Http2Listener.altSvc(String)</code>.
+</p>
+
+<p>
 Clients that support HTTP/3 (all major browsers, curl, etc.) will attempt to
-use QUIC on subsequent requests. If the QUIC connection fails or is not
+use QUIC on subsequent requests. <code>Alt-Svc</code> is the fallback way to
+advertise HTTP/3, for first contact with clients that did not find a DNS HTTPS
+record (RFC 9460) with <code>alpn=h3,h2</code> for your host name; publish both
+where you can, since the HTTPS record lets a client use HTTP/3 from its very first
+request. Gumdrop's own client looks at the HTTPS record first (see
+<a href="#client-discovery">Choosing HTTP/3 or TCP</a>). If the QUIC connection fails or is not
 supported by the network, clients fall back to HTTP/2 or HTTP/1.1
 transparently.
 </p>
 
-<h4>Protocol Compliance</h4>
+<h4>Protocol compliance</h4>
 
 <p>
 The server validates incoming requests per RFC 9114:
@@ -269,29 +297,37 @@ a server GOAWAY is received, streams with IDs above the last-stream-ID
 are failed with a retryable error so the caller can reconnect.</li>
 </ul>
 
-<h4>Http3Listener Properties</h4>
+<h4>Http3Listener settings</h4>
+
+<p>
+Besides the common listener options (<code>port</code>, <code>addresses</code>,
+connection limits, timeouts, see <a href="security.html">Security</a>),
+<code>Http3Listener</code> has:
+</p>
 
 <ul>
-<li><code>port</code> &ndash; UDP listening port (default: 443)</li>
-<li><code>keystore-file</code> / <code>keystore-pass</code> &ndash; server identity (PKCS#12 or JKS), or use <code>cert-file</code> / <code>key-file</code> for PEM</li>
-<li><code>quic-max-idle-timeout</code> &ndash; QUIC max idle timeout in ms (RFC 9000 section 18)</li>
-<li><code>quic-max-data</code> &ndash; connection-level flow control limit in bytes</li>
-<li><code>quic-max-stream-data-bidi-local</code> &ndash; per-stream flow control for locally-initiated bidi streams (bytes)</li>
-<li><code>quic-max-stream-data-bidi-remote</code> &ndash; per-stream flow control for remotely-initiated bidi streams (bytes)</li>
-<li><code>quic-max-stream-data-uni</code> &ndash; per-stream flow control for unidirectional streams (bytes)</li>
-<li><code>quic-max-streams-bidi</code> &ndash; max concurrent bidirectional streams</li>
-<li><code>quic-max-streams-uni</code> &ndash; max concurrent unidirectional streams</li>
-<li><code>require-retry</code> &ndash; require RFC 9000 section 8.1.2 Retry before accepting a new connection (default: true; set false for a trusted network)</li>
+<li><code>.port(int)</code> - UDP listening port (default: 443)</li>
+<li><code>.tls(TlsConfig)</code> - server identity</li>
+<li><code>.quicMaxIdleTimeout(long)</code> - QUIC max idle timeout in ms (RFC 9000 section 18)</li>
+<li><code>.quicMaxData(long)</code> - connection-level flow control limit in bytes</li>
+<li><code>.quicMaxStreamDataBidiLocal(long)</code>, <code>.quicMaxStreamDataBidiRemote(long)</code>,
+<code>.quicMaxStreamDataUni(long)</code> - per-stream flow control limits in bytes</li>
+<li><code>.quicMaxStreamsBidi(long)</code>, <code>.quicMaxStreamsUni(long)</code> - maximum concurrent streams</li>
+<li><code>.requireRetry(boolean)</code> - require RFC 9000 section 8.1.2 Retry before accepting a new connection (default: true; set false for a trusted network)</li>
+<li><code>.quicLb(...)</code> and the other <code>quicLb*</code> methods - QUIC-LB connection ID routing for load balancers</li>
+<li><code>.streamHandler(HttpStreamHandler)</code>, <code>.authenticationProvider(...)</code>,
+HSTS, security headers and response compression, as for <code>Http2Listener</code>
+(see <a href="#configuration">Listener and server settings</a>)</li>
 </ul>
 
-<h3 id="http2">HTTP/2 Support</h3>
+<h3 id="http2">HTTP/2</h3>
 
 <p>
 Gumdrop's HTTP/2 implementation provides all mandatory features of
 RFC 7540 plus several optional features.
 </p>
 
-<h4>Frame Types</h4>
+<h4>Frame types</h4>
 
 <p>
 All HTTP/2 frame types are supported:
@@ -309,7 +345,7 @@ All HTTP/2 frame types are supported:
 <li><b>CONTINUATION</b> - header block continuation</li>
 </ul>
 
-<h4>HPACK Header Compression</h4>
+<h4>HPACK header compression</h4>
 
 <p>
 Gumdrop includes a complete HPACK implementation (RFC 7541) for HTTP/2
@@ -330,7 +366,7 @@ The HPACK encoder and decoder maintain separate dynamic tables for each
 direction of communication, with configurable maximum table sizes.
 </p>
 
-<h4>Frame Padding</h4>
+<h4>Frame padding</h4>
 
 <p>
 For security-sensitive applications, HTTP/2 frame padding can be enabled
@@ -339,16 +375,14 @@ HEADERS, and PUSH_PROMISE frames (RFC 7540 Section 6.1).
 </p>
 
 <pre>
-&lt;service class="org.bluezoo.gumdrop.http.HttpServer"&gt;
-  &lt;listener class="org.bluezoo.gumdrop.http.HttpListener"&gt;
-    &lt;property name="port"&gt;443&lt;/property&gt;
-    &lt;property name="secure"&gt;true&lt;/property&gt;
-    &lt;property name="frame-padding"&gt;64&lt;/property&gt;
-  &lt;/listener&gt;
-&lt;/service&gt;
+new Http2Listener().port(443).secure(true).tls(tls).framePadding(64);
 </pre>
 
-<h4>Connection Management (HTTP/2)</h4>
+<p>
+The value is the padding length in bytes (0 to 255, default 0, which disables it).
+</p>
+
+<h4>Connection management (HTTP/2)</h4>
 
 <ul>
 <li><b>Graceful GOAWAY</b> &ndash; two-phase shutdown sends an initial GOAWAY
@@ -368,7 +402,7 @@ TLS 1.2 are rejected with INADEQUATE_SECURITY
 (RFC 9113 section 9.2.2)</li>
 </ul>
 
-<h3 id="server-handler">Server Handler API</h3>
+<h3 id="server-handler">Server handler API</h3>
 
 <p>
 Gumdrop provides an event-driven, non-blocking API for building HTTP servers.
@@ -388,15 +422,15 @@ The server handler API centres on three interfaces:
 chunks, completion) for a single stream, and is given its
 <code>HttpResponse</code> when it is constructed; implement this or compose
 <code>ServletRequestHandler</code> / <code>WebDAVRequestHandler</code></li>
-<li><b>HttpResponse</b> — provided to handlers for sending responses
+<li><b>HttpResponse</b> - provided to handlers for sending responses
 (<code>org.bluezoo.gumdrop.http.server</code>)</li>
-<li><b>HttpStreamHandler</b> — one method, <code>openStream(HttpResponse)</code>,
+<li><b>HttpStreamHandler</b> - one method, <code>openStream(HttpResponse)</code>,
 called once per stream before headers arrive, to bind the
 <code>HttpRequestHandler</code> that will handle it; routing by path/method
 belongs in that handler's own <code>endHeaders()</code> event, not here</li>
 </ul>
 
-<h4>Event Sequence</h4>
+<h4>Event sequence</h4>
 
 <p>
 Request handlers receive events in a well-defined order:
@@ -431,7 +465,7 @@ copy them if you keep them. A response uses the same events, with
 <code>method()</code> and <code>target()</code>.
 </p>
 
-<h4>Trailer Fields</h4>
+<h4>Trailer fields</h4>
 
 <p>
 Trailer fields (RFC 9110 section 6.5) are not a separate event. They arrive as
@@ -449,7 +483,7 @@ pseudo-header in an HTTP/2 or HTTP/3 trailer section is malformed (reported as
 response trailers the same way.
 </p>
 
-<h4>Sending Responses</h4>
+<h4>Sending responses</h4>
 
 <p>
 The <code>HttpResponse</code> interface provides methods for building
@@ -510,7 +544,7 @@ it, the stream is reset with an internal error rather than finished as a
 malformed message. The length is not checked for HEAD, 204 or 304 responses.
 </p>
 
-<h4>Example: Hello World Handler</h4>
+<h4>Example: hello world handler</h4>
 
 <pre>
 public class HelloHandler extends DefaultHttpRequestHandler {
@@ -539,7 +573,7 @@ public class HelloHandler extends DefaultHttpRequestHandler {
 }
 </pre>
 
-<h4>Request Routing</h4>
+<h4 id="request-routing">Request routing</h4>
 
 <p>
 A single <code>HttpRequestHandler</code> sees the request line and header
@@ -600,7 +634,7 @@ public class RoutingHandler extends DefaultHttpRequestHandler {
 }
 </pre>
 
-<h4>Programmatic Setup</h4>
+<h4>Running the server</h4>
 
 <p>
 Compose the handler onto the server:
@@ -616,19 +650,25 @@ HttpServer server = HttpServer.compose()
             }
         })
         .server();
-server.start();
+
+Gumdrop gumdrop = Gumdrop.boot();
+gumdrop.addServer(server);
 </pre>
 
 <h4>Authentication</h4>
 
 <p>
-If a <code>Realm</code> is configured on the service, authentication is
-performed automatically before the factory is called. The authenticated
-principal is available via <code>HttpResponse.getPrincipal()</code>.
+If a <code>Realm</code> is configured with <code>HttpServer.compose().realm(realm)</code>,
+authentication is performed automatically before your handler sees the request,
+and failed attempts are counted towards the listener's lockout (see
+<a href="security.html">Security</a>). The authenticated principal is available
+via <code>HttpResponse.getPrincipal()</code>. A custom
+<code>HttpAuthenticationProvider</code> can be set on a listener with
+<code>.authenticationProvider(...)</code>.
 </p>
 
 <p>
-Alternatively, the factory can perform authentication manually:
+Alternatively, a handler can perform authentication itself:
 </p>
 
 <pre>
@@ -660,7 +700,7 @@ public class AuthHandler extends DefaultHttpRequestHandler {
 }
 </pre>
 
-<h4>HTTP/2 Server Push</h4>
+<h4>HTTP/2 server push</h4>
 
 <p>
 For HTTP/2 connections, handlers can initiate server push to proactively
@@ -683,7 +723,7 @@ public void endHeaders() {
     boolean pushed = response.endPushPromise();
     if (pushed) {
         // Push was accepted; the pushed stream will be processed
-        // through the factory like any other request
+        // by your HttpStreamHandler like any other request
     }
     
     // Continue with the normal response...
@@ -695,21 +735,22 @@ Server push returns <code>false</code> for HTTP/1.x connections or if
 the client has disabled push via settings.
 </p>
 
-<h4>Endpoint Information</h4>
+<h4>Connection information</h4>
 
 <p>
-The <code>HttpResponse</code> provides access to endpoint details:
+The <code>HttpResponse</code> provides access to connection details:
 </p>
 
 <ul>
-<li><code>getEndpoint()</code> - the underlying endpoint (remote/local addresses)</li>
-<li><code>getSecurityInfo()</code> - TLS session details (null if not secure)</li>
+<li><code>getRemoteAddress()</code>, <code>getLocalAddress()</code> - the peer and local socket addresses</li>
+<li><code>isSecure()</code> and <code>getSecurityInfo()</code> - whether TLS is in use, and the session details (null if not secure)</li>
 <li><code>getVersion()</code> - HTTP version (HTTP_3, HTTP_2, HTTP_1_1, HTTP_1_0)</li>
 <li><code>getScheme()</code> - URL scheme ("http" or "https")</li>
-<li><code>getPrincipal()</code> - authenticated user (if Realm configured)</li>
+<li><code>getPrincipal()</code> - authenticated user (if a Realm is configured)</li>
+<li><code>getSelectorLoop()</code> and <code>execute(Runnable)</code> - the connection's loop, and a way to run a task on it</li>
 </ul>
 
-<h4>Streaming Responses</h4>
+<h4>Streaming responses</h4>
 
 <p>
 For server-sent events or other streaming scenarios:
@@ -740,7 +781,7 @@ public class StreamHandler extends DefaultHttpRequestHandler {
 }
 </pre>
 
-<h4>Flow Control and Backpressure</h4>
+<h4>Flow control and backpressure</h4>
 
 <p>
 When a handler produces response data faster than the network can deliver it,
@@ -807,7 +848,7 @@ not affect other streams on the same connection. For HTTP/1.1, it operates
 at the connection level via TCP flow control.
 </p>
 
-<h4>Error Handling</h4>
+<h4>Error handling</h4>
 
 <p>
 Use <code>cancel()</code> to abort a stream on error:
@@ -824,9 +865,9 @@ public void bodyContent(ByteBuffer data) {
 }
 </pre>
 
-<h3 id="upgrades">Protocol Upgrades</h3>
+<h3 id="upgrades">Protocol upgrades</h3>
 
-<h4>HTTP/2 Cleartext Upgrade (h2c)</h4>
+<h4>HTTP/2 cleartext upgrade (h2c)</h4>
 
 <p>
 For non-TLS connections, HTTP/2 can be negotiated via the HTTP/1.1 Upgrade
@@ -858,25 +899,25 @@ frame payload, allowing the client to communicate initial settings before
 the upgrade completes.
 </p>
 
-<h3 id="connection-management">Connection Management</h3>
+<h3 id="connection-management">Connection management</h3>
 
 <p>
 Gumdrop provides several mechanisms for managing HTTP/1.1 persistent
 connections efficiently (RFC 9112 section 9):
 </p>
 
-<h4>Idle Connection Timeout</h4>
+<h4>Idle connection timeout</h4>
 
 <p>
-The <code>idle-timeout-ms</code> property configures how long a persistent
+<code>Http2Listener.idleTimeoutMs(long)</code> configures how long a persistent
 connection can remain idle before the server closes it (RFC 9112 section 9.8).
 The timer resets each time data is received. A value of 0 disables the timeout.
 </p>
 
-<h4>Graceful Shutdown</h4>
+<h4>Requests per connection</h4>
 
 <p>
-The <code>max-requests-per-connection</code> property limits how many requests
+<code>Http2Listener.maxRequestsPerConnection(int)</code> limits how many requests
 are served on a single persistent connection. When the limit is reached, the
 server adds a <code>Connection: close</code> header to the response, signalling
 the client to close the connection after the current exchange (RFC 9112
@@ -898,49 +939,38 @@ would ultimately reject (RFC 9110 section 10.1.1).
 The server handles <code>OPTIONS *</code> requests directly, returning a
 <code>200 OK</code> with an <code>Allow</code> header listing the supported
 methods (RFC 9110 section 9.3.7). The <code>TRACE</code> method is supported
-but disabled by default for security; set <code>trace-method-enabled</code> to
-<code>true</code> to enable it (RFC 9110 section 9.3.8).
+but disabled by default for security; call <code>traceMethodEnabled(true)</code> on the
+listener to enable it (RFC 9110 section 9.3.8).
 </p>
 
-<h3 id="configuration">Legacy XML configuration</h3>
-
-<p><em>Gumdrop 3 uses <a href="configuration.html">Java composition</a>. The
-following describes Gumdrop 2.x <code>HttpServer</code> / service properties
-for migration reference.</em></p>
-
-<h4>HttpServer properties</h4>
+<h3 id="configuration">Listener and server settings</h3>
 
 <p>
-Legacy Gumdrop 2.x HTTP services supported the following service-level
-properties:
+All settings are fluent methods. Server-wide ones are on
+<code>HttpServer.compose()</code> or the server; the rest are on the listener, and
+the listener value wins when both are set.
 </p>
 
+<h4>HttpServer settings</h4>
+
 <ul>
-<li><code>add-security-headers</code> &ndash; when true (default), adds
+<li><code>.realm(Realm)</code> - authenticate requests against a
+<a href="security.html">Realm</a></li>
+<li><code>.addSecurityHeaders(boolean)</code> - when true (default), adds
 <code>X-Frame-Options: SAMEORIGIN</code> and
 <code>X-Content-Type-Options: nosniff</code> to responses unless the
-application has already set them. Set to <code>false</code> to disable.
-Example:
-<pre>
-&lt;service id="web" class="..."&gt;
-  &lt;property name="add-security-headers" value="false"/&gt;
-  ...
-&lt;/service&gt;
-</pre>
-</li>
-<li><code>hsts-enabled</code>, <code>hsts-max-age</code>,
-<code>hsts-include-subdomains</code>, <code>hsts-preload</code> &ndash;
-RFC 6797 HTTP Strict Transport Security. When enabled, the server adds
+application has already set them</li>
+<li><code>.hsts(HstsPolicy)</code> on the composer, or <code>hstsEnabled</code>,
+<code>hstsMaxAge</code>, <code>hstsIncludeSubDomains</code> and
+<code>hstsPreload</code> on the server or a listener - RFC 6797 HTTP Strict
+Transport Security. When enabled, the server adds
 <code>Strict-Transport-Security</code> on responses sent over TLS (HTTPS
 and HTTP/3). It is never sent on plaintext HTTP (RFC 6797 section 7.2).
-The same properties can be set on an individual secure
-<code>Http2Listener</code> or <code>Http3Listener</code>. HSTS takes effect
-after the user agent has successfully loaded the site over HTTPS at least
-once; pair it with an initial redirect to HTTPS (for example servlet
-<code>&lt;transport-guarantee&gt;CONFIDENTIAL&lt;/transport-guarantee&gt;
+HSTS takes effect after the user agent has successfully loaded the site over HTTPS
+at least once; pair it with an initial redirect to HTTPS (for example servlet
+<code>&lt;transport-guarantee&gt;CONFIDENTIAL&lt;/transport-guarantee&gt;</code>
 with a configured secure host) so first-time visitors reach TLS before
-HSTS is stored.
-</li>
+HSTS is stored.</li>
 </ul>
 
 <h4>Origin caching (RFC 9111)</h4>
@@ -955,81 +985,52 @@ RFC 9111). Shared/intermediary cache behaviour is not implemented; this
 is origin-server correctness for conditional GET and HEAD.
 </p>
 
-<h4>Http2Listener Properties</h4>
+<h4>Http2Listener settings</h4>
 
 <p>
-<code>HttpListener</code> is the TCP listener for HTTP/1.1 and HTTP/2. It
-inherits standard listener properties and adds HTTP-specific options:
+<code>Http2Listener</code> is the TCP listener for HTTP/1.1 and HTTP/2. It has the
+common listener options (<code>port</code>, <code>addresses</code>, connection
+limits, timeouts; see <a href="security.html">Security</a>) and:
 </p>
 
 <ul>
-<li><code>port</code> &ndash; listening port (default: 80, or 443 for secure)</li>
-<li><code>secure</code> &ndash; enable implicit TLS</li>
-<li><code>keystore-file</code> &ndash; path to keystore for TLS</li>
-<li><code>keystore-pass</code> &ndash; keystore password</li>
-<li><code>keystore-format</code> &ndash; keystore format (default: PKCS12)</li>
-<li><code>need-client-auth</code> &ndash; require client certificates</li>
-<li><code>frame-padding</code> &ndash; HTTP/2 frame padding (0&ndash;255 bytes)</li>
-<li><code>max-concurrent-streams</code> &ndash; HTTP/2 maximum concurrent streams
-per connection (default: 100)</li>
-<li><code>idle-timeout-ms</code> &ndash; close connections that receive no data for
-this many milliseconds; 0 to disable (default: 0). See
-<a href="#connection-management">Connection Management</a>.</li>
-<li><code>max-requests-per-connection</code> &ndash; send <code>Connection:
-close</code> after this many requests on a persistent connection; 0 for unlimited
-(default: 0)</li>
-<li><code>trace-method-enabled</code> &ndash; enable the HTTP TRACE method
-(default: false, disabled for security)</li>
-<li><code>ping-interval-ms</code> &ndash; interval in milliseconds for server-initiated
-HTTP/2 PING keep-alive frames; 0 to disable (default: 0,
-RFC 9113 section 6.7)</li>
-<li><code>authentication-provider</code> &ndash; HTTP authentication configuration</li>
+<li><code>.port(int)</code> - listening port (default: 80, or 443 when secure)</li>
+<li><code>.secure(boolean)</code> and <code>.tls(TlsConfig)</code> - implicit TLS and
+the server identity. To require client certificates, set
+<code>requireClientAuth(true)</code> on the <code>TlsConfig</code></li>
+<li><code>.framePadding(int)</code> - HTTP/2 frame padding, 0 to 255 bytes (default 0)</li>
+<li><code>.maxConcurrentStreams(int)</code> - HTTP/2 concurrent streams per connection (default 100)</li>
+<li><code>.maxHeaderListSize(int)</code> - header list size advertised to clients (default 8192)</li>
+<li><code>.maxRequestBodySize(long)</code> - largest accepted request body in bytes (default 64 MB; 0 for unlimited)</li>
+<li><code>.idleTimeoutMs(long)</code> - close connections that receive no data for
+this many milliseconds; 0 to disable (default 0). See
+<a href="#connection-management">Connection management</a></li>
+<li><code>.maxRequestsPerConnection(int)</code> - send <code>Connection: close</code>
+after this many requests on a persistent connection; 0 for unlimited (default 0)</li>
+<li><code>.pingIntervalMs(long)</code> - interval for server-initiated HTTP/2 PING
+keep-alive frames; 0 to disable (default 0, RFC 9113 section 6.7)</li>
+<li><code>.traceMethodEnabled(boolean)</code> - enable the HTTP TRACE method (default false)</li>
+<li><code>.compressResponses(boolean)</code> - compress responses for clients that accept it</li>
+<li><code>.altSvc(String)</code> - override the <code>Alt-Svc</code> header value</li>
+<li><code>.streamHandler(HttpStreamHandler)</code> - bind a handler for this listener alone</li>
+<li><code>.authenticationProvider(HttpAuthenticationProvider)</code> - custom HTTP authentication</li>
 </ul>
 
-<h4>Http3Listener Properties</h4>
-
-<p>
-<code>Http3Listener</code> is the QUIC listener for HTTP/3. It accepts the
-same server-identity properties as <code>HttpListener</code> (keystore or PEM).
-</p>
-
-<ul>
-<li><code>port</code> &ndash; UDP listening port (default: 443)</li>
-<li><code>keystore-file</code> / <code>keystore-pass</code> &ndash; server identity (PKCS#12 or JKS), or use <code>cert-file</code> / <code>key-file</code> for PEM</li>
-<li><code>quic-max-idle-timeout</code> &ndash; QUIC idle timeout in ms (RFC 9000 section 18)</li>
-<li><code>quic-max-data</code> &ndash; connection-level flow control limit (bytes)</li>
-<li><code>quic-max-stream-data-bidi-local</code> &ndash; stream flow control, local bidi (bytes)</li>
-<li><code>quic-max-stream-data-bidi-remote</code> &ndash; stream flow control, remote bidi (bytes)</li>
-<li><code>quic-max-stream-data-uni</code> &ndash; stream flow control, unidirectional (bytes)</li>
-<li><code>quic-max-streams-bidi</code> &ndash; max concurrent bidi streams</li>
-<li><code>quic-max-streams-uni</code> &ndash; max concurrent uni streams</li>
-<li><code>require-retry</code> &ndash; require RFC 9000 section 8.1.2 Retry before accepting a new connection (default: true; set false for a trusted network)</li>
-</ul>
-
-<h4>Combined HTTP/3 + HTTP/2 + HTTP/1.1</h4>
+<h4>Combined HTTP/3, HTTP/2 and HTTP/1.1</h4>
 
 <p>
 A typical production configuration exposes both TCP (HTTP/1.1, HTTP/2) and
-QUIC (HTTP/3) on the same port number. The TCP listener handles traditional
-connections while the QUIC listener handles HTTP/3 connections on UDP. The
-service automatically sets the <code>Alt-Svc</code> header on TCP responses
-so that clients can discover and migrate to HTTP/3:
+QUIC (HTTP/3) on the same port number: the TCP listener handles traditional
+connections while the QUIC listener handles HTTP/3 on UDP. The server
+automatically sets the <code>Alt-Svc</code> header on TCP responses so clients can
+discover and migrate to HTTP/3:
 </p>
 
 <pre>
-&lt;service id="web" class="..."&gt;
-  &lt;listener class="org.bluezoo.gumdrop.http.HttpListener"&gt;
-    &lt;property name="port"&gt;443&lt;/property&gt;
-    &lt;property name="secure"&gt;true&lt;/property&gt;
-    &lt;property name="keystore-file"&gt;keystore.p12&lt;/property&gt;
-    &lt;property name="keystore-pass"&gt;changeit&lt;/property&gt;
-  &lt;/listener&gt;
-  &lt;listener class="org.bluezoo.gumdrop.http.h3.Http3Listener"&gt;
-    &lt;property name="port"&gt;443&lt;/property&gt;
-    &lt;property name="keystore-file"&gt;keystore.p12&lt;/property&gt;
-    &lt;property name="keystore-pass"&gt;changeit&lt;/property&gt;
-  &lt;/listener&gt;
-&lt;/service&gt;
+HttpServer server = HttpServer.compose()
+    .secureEndpoint(443, TlsConfig.keystore(Path.of("keystore.p12"), "changeit"))
+    .streamHandler(handler)
+    .server();
 </pre>
 
 <h4>Authentication</h4>
@@ -1052,7 +1053,7 @@ facility for managing authentication and authorisation across all services
 running in the framework.
 </p>
 
-<h3 id="client">HTTP Client</h3>
+<h3 id="client">HTTP client</h3>
 
 <p>
 Gumdrop includes a non-blocking HTTP client that shares the same event-driven
@@ -1060,7 +1061,7 @@ architecture as the server. The client supports HTTP/3, HTTP/2, and HTTP/1.1
 with automatic protocol negotiation.
 </p>
 
-<h4>SelectorLoop Affinity</h4>
+<h4>SelectorLoop affinity</h4>
 
 <p>
 When an HTTP client connection is initiated by a Gumdrop server connection,
@@ -1098,7 +1099,7 @@ non-blocking connections to them via this feature.
 
 <ul>
 <li><b>Asynchronous operation</b> &ndash; integrates with Gumdrop&rsquo;s SelectorLoop</li>
-<li><b>HTTP/3 support</b> &ndash; QUIC transport with ALPN &ldquo;h3&rdquo;</li>
+<li><b>HTTP/3 support</b> &ndash; QUIC transport with ALPN &ldquo;h3&rdquo;, discovered from DNS HTTPS records, then Alt-Svc (see <a href="#client-discovery">Choosing HTTP/3 or TCP</a>)</li>
 <li><b>HTTP/2 support</b> &ndash; ALPN negotiation for TLS, h2c upgrade for
 plaintext</li>
 <li><b>Stream multiplexing</b> &ndash; concurrent requests over a single HTTP/2
@@ -1107,7 +1108,7 @@ or HTTP/3 connection</li>
 <code>SETTINGS_MAX_CONCURRENT_STREAMS</code>; excess requests are queued and
 dispatched as capacity becomes available (RFC 9113 section 5.1.2)</li>
 <li><b>Idle connection timeout</b> &ndash; configurable via
-<code>setIdleTimeoutMs()</code>; on expiry, sends GOAWAY with NO_ERROR
+<code>idleTimeoutMs()</code>; on expiry, sends GOAWAY with NO_ERROR
 (RFC 9113 section 9.1)</li>
 <li><b>TLS cipher suite validation</b> &ndash; rejects non-AEAD cipher suites
 over TLS 1.2 with INADEQUATE_SECURITY (RFC 9113 section 9.2.2)</li>
@@ -1134,40 +1135,132 @@ Transfer-Encoding and Content-Length are handled safely with a warning
 section 5)</li>
 </ul>
 
-<h4>Connection Pooling</h4>
+<h4>Hostname resolution</h4>
 
 <p>
-<code>setConnectionPool(ClientEndpointPool)</code> enables endpoint reuse with
+Give the client a host name and it resolves it through Gumdrop's asynchronous
+<code>DnsResolver</code> on the connection's own selector loop; no blocking
+<code>InetAddress</code> lookup is made. Use <code>dnsResolver(DnsResolver)</code>
+to supply your own resolver, for example one using DNS over TLS. See
+<a href="dns.html#resolver-default">DNS: hostname resolution in every Gumdrop client</a>.
+Setting <code>blockPrivateAddresses(true)</code> refuses names that resolve to
+private addresses, which protects a server that fetches URLs on behalf of users
+from being pointed at internal services.
+</p>
+
+<h4>Connection pooling</h4>
+
+<p>
+<code>connectionPool(ClientEndpointPool)</code> enables endpoint reuse with
 SelectorLoop affinity. Pool targets are keyed by (host, port, secure, loop).
 When a pooled connection is available, the client skips the connect/TLS
 handshake and reuses the existing endpoint.
 </p>
 
-<h4>Certificate Pinning</h4>
+<h4>TLS and certificate pinning</h4>
 
 <p>
-<code>setTrustManager(X509TrustManager)</code> configures a custom trust manager
-for outbound TLS. Use <code>PinnedCertTrustManager</code> for SHA-256
-fingerprint pinning.
+<code>secure(true)</code> selects TLS over TCP, and HTTP/3 is always TLS 1.3.
+Pass trust material and any client certificate with <code>tls(TlsConfig)</code>.
+For SHA-256 fingerprint pinning, put a <code>PinnedCertTrustManager</code> in the
+config:
 </p>
 
-<h4>Alt-Svc Discovery</h4>
+<pre>
+HttpClient client = new HttpClient("example.com", 443)
+    .secure(true)
+    .tls(new TlsConfig().trustManager(new PinnedCertTrustManager("ab:cd:...")));
+</pre>
+
+<h4 id="client-discovery">Choosing HTTP/3 or TCP</h4>
 
 <p>
-<code>setAltSvcEnabled(true)</code> enables parsing of <code>Alt-Svc</code>
-response headers. The client can automatically upgrade to HTTP/3 when the server
-advertises QUIC availability.
+Unless you permit only HTTP/3 (see <a href="#client-versions">Permitted
+versions</a>), which goes straight to QUIC, the client chooses the transport
+automatically when it connects to a host name, in three steps:
 </p>
+
+<ol>
+<li><b>DNS HTTPS record (first choice).</b> The client asks the resolver for the
+host's HTTPS record (RFC 9460). If it advertises <code>h3</code> in its ALPN list,
+the client connects over QUIC, using the record's port if it has one. This costs
+one DNS lookup and no failed TCP connection, so HTTP/3 is used from the very first
+request. Any Encrypted Client Hello configuration in the record is picked up at
+the same time. Disable it with <code>dnsHttpsRecordEnabled(false)</code>. It is
+skipped for literal IP addresses and <code>localhost</code>, where there is
+nothing to look up.</li>
+<li><b>Cached Alt-Svc (fallback).</b> If there is no usable HTTPS record, the client
+checks an in-memory cache of <code>Alt-Svc</code> advertisements remembered from
+earlier responses from this origin, and uses HTTP/3 if one is still valid.</li>
+<li><b>TCP.</b> Otherwise it connects over TCP and negotiates HTTP/2 with ALPN
+(or h2c, or HTTP/1.1).</li>
+</ol>
+
+<p>
+If a QUIC attempt chosen in step 1 or 2 fails, or has not established within
+three seconds (<code>quicHandshakeTimeoutMs(long)</code>; 0 disables the
+deadline), the client abandons it and connects over TCP, so a network that blocks
+UDP, or a stale record, costs a delay and not a failed request. <code>WebSocketClient</code>,
+<code>ConnectIpClient</code> and <code>ConnectUdpClient</code> (see <a href="masque.html">MASQUE</a>) take the same
+<code>versions(...)</code> list and <code>quicHandshakeTimeoutMs(long)</code>, discover
+HTTP/3 the same way and fall back to TCP the same way. When only HTTP/3 is permitted
+there is nothing to fall back to, and a QUIC attempt that has not established within the
+deadline fails with an error instead of waiting indefinitely.
+</p>
+
+<p>
+Alt-Svc is also how a client learns about HTTP/3 when the origin publishes no
+HTTPS record: with <code>altSvcEnabled(true)</code> (the default), an
+<code>h3</code> <code>Alt-Svc</code> header on a response over HTTP/1.1 or HTTP/2
+is cached for later connections and, on the connection that received it, the
+client can move over to HTTP/3. This is why the
+<a href="#http3">server injects <code>Alt-Svc</code></a>, but publishing an HTTPS
+record with <code>alpn=h3,h2</code> in DNS gives clients, Gumdrop's included, a
+better first connection.
+</p>
+
+<h4 id="client-versions">Permitted versions</h4>
+
+<p>
+<code>versions(HttpVersion...)</code> sets which HTTP versions the client may use.
+The default is <code>HTTP_3</code>, <code>HTTP_2_0</code> and <code>HTTP_1_1</code>.
+The client always prefers the highest permitted version, so the order you list them
+in does not matter, and discovery only considers versions you permit:
+</p>
+
+<table border="1" cellpadding="5">
+<tr><th>Permitted</th><th>Behaviour</th></tr>
+<tr><td>default (all three)</td><td>discover HTTP/3, fall back to TCP, then HTTP/2 or HTTP/1.1 by ALPN</td></tr>
+<tr><td><code>HTTP_3</code> only</td><td>QUIC straight away: no discovery, no fallback</td></tr>
+<tr><td><code>HTTP_2_0, HTTP_1_1</code></td><td>never QUIC (the HTTPS record is still read for other parameters such as ECH)</td></tr>
+<tr><td><code>HTTP_2_0</code> only</td><td>TLS offers only <code>h2</code>; over cleartext, HTTP/2 with prior knowledge</td></tr>
+<tr><td><code>HTTP_1_1</code> only</td><td>HTTP/1.1; no <code>h2</code> offered, no h2c upgrade</td></tr>
+</table>
+
+<p>
+<code>HTTP_1_0</code> is not accepted: the client speaks HTTP/1.1.
+<code>h2WithPriorKnowledge(true)</code> makes a cleartext connection start HTTP/2
+without upgrading, and requires <code>HTTP_2_0</code> to be permitted.
+</p>
+
+<h4>Other settings</h4>
+
+<ul>
+<li><code>credentials(user, password)</code> - answer Basic and Digest challenges</li>
+<li><code>idleTimeoutMs(long)</code> - idle timeout for HTTP/2 and HTTP/3 connections</li>
+<li><code>sendAcceptEncodingHeader</code>, <code>decodeResponseContentCoding</code>,
+<code>encodeRequestBodyContentCoding</code> - content coding</li>
+<li><code>selectorLoop(SelectorLoop)</code> - run on a particular loop</li>
+</ul>
 
 <h4>Usage (HTTP/2 and HTTP/1.1)</h4>
 
 <p>
-In the client examples on this page, <code>gumdrop</code> is the runtime returned by <code>Gumdrop.boot()</code>; a client is given it when it connects.
+In the client examples on this page, <code>gumdrop</code> is the <code>Gumdrop</code> instance returned by <code>Gumdrop.boot()</code>; a client is given it when it connects.
 </p>
 
 <pre>
-HttpClient client = new HttpClient("example.com", 443);
-client.setSecure(true);
+final HttpClient client = new HttpClient("example.com", 443).secure(true);
 
 client.connect(gumdrop, new HttpClientHandler() {
     public void onConnected(Endpoint endpoint) {
@@ -1198,13 +1291,23 @@ client.connect(gumdrop, new HttpClientHandler() {
 <h4>Usage (HTTP/3)</h4>
 
 <p>
-To use HTTP/3, enable it on the client before connecting. The client uses
-QUIC with ALPN &ldquo;h3&rdquo; instead of TCP:
+There is nothing to enable: the example above uses HTTP/3 automatically whenever
+the host advertises it, through a DNS HTTPS record or a cached
+<code>Alt-Svc</code> (see <a href="#client-discovery">Choosing HTTP/3 or TCP</a>),
+and otherwise uses HTTP/2 or HTTP/1.1. The request and response code is the same
+either way. A host that publishes neither is reached over TCP, and the client moves
+to HTTP/3 only once a response has advertised it.
+</p>
+
+<p>
+Permit only HTTP/3 to force it when you already know the server speaks it, for
+example an internal service or a test. The client then skips discovery, connects
+with QUIC and ALPN &ldquo;h3&rdquo; straight away, and fails if the server does not
+answer, with no fallback to TCP:
 </p>
 
 <pre>
-HttpClient client = new HttpClient("example.com", 443);
-client.setH3Enabled(true);
+final HttpClient client = new HttpClient("example.com", 443).versions(HttpVersion.HTTP_3);
 
 client.connect(gumdrop, new HttpClientHandler() {
     public void onConnected(Endpoint endpoint) {
@@ -1218,7 +1321,7 @@ client.connect(gumdrop, new HttpClientHandler() {
 });
 </pre>
 
-<h4>Receiving Server Push (HTTP/2)</h4>
+<h4>Receiving server push (HTTP/2)</h4>
 
 <p>
 A server may promise to push a resource (RFC 9113 section 8.4). The promised
@@ -1274,7 +1377,7 @@ HttpRequest request = client.get("/index.html", new DefaultHttpResponseHandler()
 request.endMessage();
 </pre>
 
-<h4>Request Bodies and Trailers</h4>
+<h4>Request bodies and trailers</h4>
 
 <p>
 A request is built with the same calls and types as the events a server
@@ -1305,12 +1408,13 @@ to avoid blocking the SelectorLoop.
 
 <p>
 <a href="index.html">&larr; Back to Main Page</a> |
-<a href="webdav.html">File Server &amp; WebDAV</a> |
-<a href="websocket.html">WebSocket Service &amp; Client</a> |
+<a href="webdav.html">File server and WebDAV</a> |
+<a href="websocket.html">WebSocket service and client</a> |
+<a href="masque.html">MASQUE</a> |
 <a href="smtp.html">SMTP Server &amp; Client</a> |
 <a href="imap.html">IMAP Server</a> |
 <a href="pop3.html">POP3 Server</a> |
-<a href="dns.html">DNS Server</a> |
+<a href="dns.html">DNS</a> |
 <a href="telemetry.html">Telemetry</a>
 </p>
 

@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.pop3.client;
 
+import org.bluezoo.gumdrop.auth.SynchronousRealm;
 import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.ListenerBindCheck;
 import org.bluezoo.gumdrop.Gumdrop;
@@ -79,11 +80,11 @@ public class Pop3ClientEndToEndTest {
     public void setUp() throws Exception {
         mboxRoot = MailboxFixtures.copy("mbox");
         Pop3Listener server = new Pop3Listener();
-        server.setPort(PORT);
+        server.port(PORT);
         server.addresses(java.net.InetAddress.getByName(HOST));
-        server.setEnableAPOP(false);
-        server.setRealm(new TestRealm());
-        server.setMailboxFactory(new MboxMailboxFactory(mboxRoot));
+        server.enableAPOP(false);
+        server.realm(new TestRealm());
+        server.mailboxFactory(new MboxMailboxFactory(mboxRoot));
         gumdrop = Gumdrop.boot(GumdropConfig.create().workerThreads(1));
         gumdrop.addListener(server);
         ListenerBindCheck.assertBound(gumdrop);
@@ -424,16 +425,12 @@ public class Pop3ClientEndToEndTest {
         }
     }
 
-    private static class TestRealm implements Realm {
+    private static class TestRealm implements SynchronousRealm {
 
         private static final Set<SaslMechanism> SUPPORTED =
             Collections.unmodifiableSet(
                 EnumSet.of(SaslMechanism.PLAIN, SaslMechanism.LOGIN));
 
-        @Override
-        public Realm forSelectorLoop(SelectorLoop loop) {
-            return this;
-        }
 
         @Override
         public Set<SaslMechanism> getSupportedSASLMechanisms() {
@@ -450,11 +447,6 @@ public class Pop3ClientEndToEndTest {
             return null;
         }
 
-        @Override
-        @SuppressWarnings("deprecation")
-        public String getPassword(String username) {
-            throw new UnsupportedOperationException();
-        }
 
         @Override
         public boolean isUserInRole(String username, String role) {

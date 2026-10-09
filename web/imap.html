@@ -45,10 +45,12 @@ with minimal resource consumption.
 <li><a href="#protocol">Protocol Support</a></li>
 <li><a href="#extensions">Extensions</a></li>
 <li><a href="#authentication">Authentication</a></li>
+<li><a href="#handlers">Handlers</a></li>
 <li><a href="#mailbox">Mailbox Integration</a></li>
 <li><a href="#configuration">Configuration</a></li>
 <li><a href="#security">Security</a></li>
 <li><a href="#quota">Quota Management</a></li>
+<li><a href="#client">IMAP Client</a></li>
 </ul>
 
 <h3 id="protocol">Protocol Support</h3>
@@ -78,18 +80,20 @@ searches</li>
 <h4>Supported Commands</h4>
 
 <p>
-All standard IMAP4rev2 commands are implemented:
+All standard IMAP4rev2 commands are implemented, with the extension commands
+listed below:
 </p>
 
 <ul>
-<li><b>Any state:</b> CAPABILITY, NOOP, LOGOUT. When a mailbox is selected,
+<li><b>Any state:</b> CAPABILITY, NOOP, LOGOUT, ID. When a mailbox is selected,
 NOOP returns untagged <code>* N EXISTS</code> responses if the message count
 has changed since the last check.</li>
 <li><b>NOT_AUTHENTICATED:</b> STARTTLS, AUTHENTICATE, LOGIN</li>
 <li><b>AUTHENTICATED:</b> SELECT, EXAMINE, CREATE, DELETE, RENAME, SUBSCRIBE,
-UNSUBSCRIBE, LIST, LSUB, STATUS, APPEND</li>
-<li><b>SELECTED:</b> CHECK, CLOSE, UNSELECT, EXPUNGE, SEARCH, FETCH, STORE,
-COPY, UID</li>
+UNSUBSCRIBE, LIST, LSUB, STATUS, APPEND, NAMESPACE, ENABLE, IDLE, COMPRESS,
+NOTIFY, GETMETADATA, SETMETADATA, GETQUOTA, GETQUOTAROOT, SETQUOTA</li>
+<li><b>SELECTED:</b> CHECK, CLOSE, UNSELECT, EXPUNGE, SEARCH, SORT, THREAD,
+FETCH, STORE, COPY, MOVE, UID</li>
 </ul>
 
 <h3 id="extensions">Extensions</h3>
@@ -139,19 +143,47 @@ Storage quota reporting. Clients can query quota roots and current usage,
 enabling display of storage limits in mail client interfaces.
 </p>
 
-<h4>Additional Capabilities</h4>
+<h4>Capabilities</h4>
+
+<p>
+The server advertises these capabilities in its greeting and in reply to
+CAPABILITY. Those marked with a toggle can be switched off on the listener
+(see <a href="#configuration">Configuration</a>); all the toggles default to on.
+</p>
 
 <ul>
+<li><b>IDLE</b> (RFC 2177, <code>enableIDLE</code>), <b>NAMESPACE</b> (RFC 2342,
+<code>enableNAMESPACE</code>), <b>QUOTA</b> (RFC 9208, <code>enableQUOTA</code>)
+and <b>MOVE</b> (RFC 6851, <code>enableMOVE</code>)</li>
+<li><b>CONDSTORE</b> and <b>QRESYNC</b> (RFC 7162) - modification sequences and
+quick resynchronisation (<code>enableCONDSTORE</code>,
+<code>enableQRESYNC</code>)</li>
+<li><b>COMPRESS=DEFLATE</b> (RFC 4978, <code>enableCOMPRESS</code>) - advertised
+until compression is switched on</li>
+<li><b>UTF8=ACCEPT</b> (RFC 6855, <code>enableUTF8ACCEPT</code>)</li>
+<li><b>SORT</b> (RFC 5256) with <b>THREAD=ORDEREDSUBJECT</b> and
+<b>THREAD=REFERENCES</b> (<code>enableSORT</code>)</li>
+<li><b>OBJECTID</b> (RFC 8474, <code>enableOBJECTID</code>)</li>
+<li><b>NOTIFY</b> (RFC 5465, <code>enableNOTIFY</code>) and <b>METADATA</b>
+(RFC 5464, <code>enableMETADATA</code>)</li>
+<li><b>BINARY</b> (RFC 3516) and <b>PREVIEW</b> (RFC 8970)</li>
 <li><b>UIDPLUS</b> - extended UID responses for APPEND, COPY, MOVE</li>
 <li><b>CHILDREN</b> - mailbox \HasChildren and \HasNoChildren attributes</li>
 <li><b>UNSELECT</b> - unselect mailbox without expunge</li>
-<li><b>LIST-EXTENDED</b> - enhanced LIST command with selection options</li>
-<li><b>LIST-STATUS</b> - return STATUS data with LIST responses</li>
-<li><b>LITERAL-</b> (RFC 7888) - non-synchronizing literals up to 4096 bytes for
+<li><b>LIST-EXTENDED</b> and <b>LIST-STATUS</b> - enhanced LIST with selection
+options and STATUS data</li>
+<li><b>STATUS=SIZE</b> (RFC 8438)</li>
+<li><b>LITERAL-</b> (RFC 7888) - non-synchronising literals up to 4096 bytes for
 reduced round-trips on APPEND</li>
 <li><b>ID</b> (RFC 2971) - server identification; configurable via
-<code>setServerIdFields()</code></li>
+<code>serverIdFields()</code></li>
 </ul>
+
+<p>
+Both <code>IMAP4rev1</code> and <code>IMAP4rev2</code> are advertised, so
+clients that look only for <code>IMAP4rev1</code> will connect. The commands the
+server implements are those of IMAP4rev2 (RFC 9051).
+</p>
 
 <h3 id="authentication">Authentication</h3>
 
@@ -161,47 +193,18 @@ provides a unified credential store across all servers. The IMAP server supports
 multiple SASL mechanisms.
 </p>
 
-<h4>The Realm Interface</h4>
-
 <p>
-A <code>Realm</code> represents a collection of authenticatable principals with
-associated passwords and roles. The interface supports both plaintext password
-verification and pre-computed credential hashes for secure storage:
-</p>
-
-<ul>
-<li><code>passwordMatch(username, password)</code> - verifies credentials without
-exposing the stored password</li>
-<li><code>getDigestHA1(username, realmName)</code> - returns H(A1) for Digest
-authentication</li>
-<li><code>getCramMD5Response(username, challenge)</code> - computes CRAM-MD5
-response</li>
-<li><code>getScramCredentials(username)</code> - returns SCRAM-SHA-256 derived
-keys</li>
-<li><code>validateBearerToken(token)</code> - validates OAuth/Bearer tokens</li>
-<li><code>isMember(username, role)</code> - checks role membership</li>
-</ul>
-
-<p>
-The built-in <code>BasicRealm</code> reads users from an XML file:
-</p>
-
-<pre>
-&lt;realm&gt;
-  &lt;user name="alice" password="secret" roles="user,admin"/&gt;
-  &lt;user name="bob" password="password123" roles="user"/&gt;
-&lt;/realm&gt;
-</pre>
-
-<p>
-Custom realm implementations can integrate with LDAP, databases, or external
-identity providers.
+Pass the realm to the composer with <code>realm(...)</code>. See
+<a href="security.html#realm-wiring">Using a realm</a> and
+<a href="security.html#basicrealm">BasicRealm</a> for how to build one.
 </p>
 
 <h4>SASL Mechanisms</h4>
 
 <p>
-The server advertises available mechanisms in the CAPABILITY response:
+The server advertises the mechanisms the realm supports in the CAPABILITY
+response. Mechanisms marked as requiring TLS are advertised only on a secure
+connection:
 </p>
 
 <ul>
@@ -227,7 +230,109 @@ derived keys (StoredKey, ServerKey) without keeping the plaintext password.
 By default, the LOGIN command is disabled over unencrypted connections. The
 server advertises <code>LOGINDISABLED</code> in capabilities until TLS is
 established via STARTTLS or implicit IMAPS. This prevents credential exposure
-over plaintext connections.
+over plaintext connections. <code>allowPlaintextLogin(true)</code> lifts the
+restriction for testing.
+</p>
+
+<h3 id="handlers">Handlers</h3>
+
+<p>
+The protocol work (tags, CAPABILITY, NOOP, LOGOUT, STARTTLS, IDLE and the
+LOGIN and AUTHENTICATE exchanges) is handled for you. Your code decides policy
+through a staged handler, in the same style as the
+<a href="smtp.html#handler">SMTP server</a>. A server is assembled with
+<code>ImapServer.compose()</code>, which takes listeners and a <i>session
+provider</i>: a factory that returns a fresh <code>ClientConnected</code> handler
+for each connection.
+</p>
+
+<pre>
+ImapServer server = ImapServer.compose()
+        .listener(new ImapListener().port(143))
+        .sessionProvider(ImapServerSessionProviders.mailbox(mailboxFactory))
+        .realm(realm)
+        .server();
+
+Gumdrop gumdrop = Gumdrop.boot();
+gumdrop.addServer(server);
+gumdrop.join();
+</pre>
+
+<p>
+<code>ImapServerSessionProviders.mailbox(factory)</code> is the stock provider:
+it serves each authenticated user's mailboxes from a <code>MailboxFactory</code>
+and accepts every request. To add policy, supply your own provider that returns
+a handler.
+</p>
+
+<h4>Handler interfaces</h4>
+
+<ul>
+<li><code>ClientConnected</code> - <code>connected(ConnectedState, Endpoint)</code>
+accepts the connection with a greeting, or rejects it;
+<code>disconnected()</code> is called when it closes</li>
+<li><code>NotAuthenticatedHandler</code> -
+<code>authenticate(AuthenticateState, Principal, MailboxFactory)</code> is called
+once the client has proved its identity; accept or reject the login</li>
+<li><code>AuthenticatedHandler</code> - SELECT, EXAMINE, CREATE, DELETE, RENAME,
+SUBSCRIBE, UNSUBSCRIBE, LIST, LSUB, STATUS, APPEND and the quota commands, each
+with the <code>MailboxStore</code> and the command's arguments</li>
+<li><code>SelectedHandler</code> - the above plus CLOSE, UNSELECT, EXPUNGE, STORE,
+COPY, MOVE, FETCH and SEARCH, with the selected <code>Mailbox</code></li>
+</ul>
+
+<p>
+Each method receives a state object for that command. Calling
+<code>proceed(handler)</code> authorises it and lets the protocol do the work,
+and other methods refuse it with the appropriate response, for example
+<code>DeleteState.cannotDelete(message, handler)</code>,
+<code>SelectState.accessDenied(message, handler)</code> or
+<code>AuthenticatedStatusState.deny(message, handler)</code>. The handler passed
+in is the one that receives the next command. As with SMTP, a handler may keep
+the state and answer later; the answer must be made on the connection's
+<code>SelectorLoop</code> thread.
+</p>
+
+<p>
+<code>DefaultIMAPHandler</code> accepts everything, so a handler usually extends
+it and overrides the commands it wants to police. The compiled example in
+<code>examples/imap-server/ImapExample.java</code> logs every SELECT and refuses
+to delete INBOX:
+</p>
+
+<pre>
+private static final class PolicyHandler extends DefaultIMAPHandler {
+
+    &#64;Override
+    public void select(SelectState state, MailboxStore store, String mailboxName) {
+        System.out.println("SELECT " + mailboxName);
+        state.proceed(this);
+    }
+
+    &#64;Override
+    public void delete(DeleteState state, MailboxStore store, String mailboxName) {
+        if ("INBOX".equalsIgnoreCase(mailboxName)) {
+            state.cannotDelete("INBOX cannot be deleted", this);
+        } else {
+            state.proceed(this);
+        }
+    }
+}
+
+ImapServerSessionProvider provider = new ImapServerSessionProvider() {
+    &#64;Override
+    public ClientConnected openSession(TcpListener listener) {
+        ((ImapListener) listener).mailboxFactory(mailboxFactory);
+        return new PolicyHandler();
+    }
+};
+</pre>
+
+<p>
+A handler can also take over a command completely. For example,
+<code>SelectState.selectOk(...)</code> and <code>AppendState.readyForData(...)</code>
+let it serve a mailbox from its own storage instead of the
+<code>MailboxStore</code>.
 </p>
 
 <h3 id="mailbox">Mailbox Integration</h3>
@@ -238,16 +343,18 @@ API</a>. A <code>MailboxFactory</code> is configured to provide
 <code>MailboxStore</code> instances for authenticated users.
 </p>
 
-<h4>Store Lifecycle</h4>
+<h4>Store lifecycle</h4>
 
 <p>
 When a user authenticates successfully:
 </p>
 
 <ol>
-<li>The server calls <code>mailboxFactory.createStore()</code></li>
-<li>The store is opened with <code>store.open(username)</code></li>
-<li>Mailbox operations use the store throughout the session</li>
+<li>Your handler's <code>authenticate</code> method is called and calls
+<code>proceed</code> (or <code>accept</code> with a store of its own)</li>
+<li>The protocol creates and opens the user's <code>MailboxStore</code> from the
+<code>MailboxFactory</code>, off the I/O thread</li>
+<li>Each mailbox command is passed to your handler with that store</li>
 <li>On logout or disconnect, the store is closed</li>
 </ol>
 
@@ -266,88 +373,71 @@ each format's characteristics and configuration.
 
 <h3 id="configuration">Configuration</h3>
 
-<h4>IMAPServer Properties</h4>
-
 <p>
-<code>org.bluezoo.gumdrop.imap.IMAPServer</code> supports:
+Mail servers are configured in Java. The composer holds the settings shared by
+every listener, and each <code>ImapListener</code> holds its own transport
+settings and may override the shared ones.
 </p>
 
-<ul>
-<li><code>port</code> - listening port (default: 143, or 993 for secure)</li>
-<li><code>secure</code> - enable implicit TLS (IMAPS)</li>
-<li><code>keystoreFile</code> - keystore for TLS/STARTTLS</li>
-<li><code>keystorePass</code> - keystore password</li>
-<li><code>realm</code> - reference to a Realm for authentication</li>
-<li><code>mailboxFactory</code> - reference to a MailboxFactory</li>
-<li><code>gssapiServer</code> - reference to a GssapiServer for Kerberos auth (optional)</li>
-</ul>
-
-<h4>Extension Toggles</h4>
+<h4>ImapServer.compose() settings</h4>
 
 <ul>
-<li><code>enableIDLE</code> - enable IDLE extension (default: true)</li>
-<li><code>enableNAMESPACE</code> - enable NAMESPACE extension (default: true)</li>
-<li><code>enableQUOTA</code> - enable QUOTA extension (default: true)</li>
-<li><code>enableMOVE</code> - enable MOVE extension (default: true)</li>
-<li><code>serverIdFields</code> - map of key/value pairs returned by the ID
-command (RFC 2971). Default: name=gumdrop, version from package manifest.</li>
+<li><code>listener(ImapListener)</code> - add a listener; at least one is required</li>
+<li><code>sessionProvider(ImapServerSessionProvider)</code> - the handler factory</li>
+<li><code>realm(Realm)</code> - realm for authentication</li>
+<li><code>quotaManager(QuotaManager)</code> - quotas (see <a href="#quota">Quota Management</a>)</li>
+<li><code>loginTimeoutMs(long)</code> - maximum time for authentication (default: 60000)</li>
+<li><code>commandTimeoutMs(long)</code> - maximum time per command (default: 300000)</li>
+<li><code>maxLineLength(int)</code> - maximum command line length (default: 8192)</li>
+<li><code>maxLiteralSize(int)</code> - maximum literal size for APPEND (default: 25MB)</li>
+<li><code>allowPlaintextLogin(boolean)</code> - allow LOGIN over a non-TLS connection (default: false; <b>testing only</b>)</li>
+<li><code>enableIDLE</code>, <code>enableNAMESPACE</code>, <code>enableQUOTA</code>,
+<code>enableMOVE</code>, <code>enableCOMPRESS</code>, <code>enableUTF8ACCEPT</code>,
+<code>enableSORT</code> - extension toggles (default: true)</li>
 </ul>
 
-<h4>Timeouts</h4>
+<h4>ImapListener settings</h4>
 
 <ul>
-<li><code>loginTimeout</code> - maximum time for authentication (default: 60000ms)</li>
-<li><code>idleTimeout</code> - connection idle timeout (default: 1800000ms / 30 min)</li>
-<li><code>commandTimeout</code> - maximum time per command (default: 300000ms)</li>
+<li><code>port(int)</code> - listening port (default: 143, or 993 when <code>secure</code>)</li>
+<li><code>bindWildcard()</code> and <code>addresses(InetAddress...)</code> - where to bind</li>
+<li><code>secure(boolean)</code> - implicit TLS (IMAPS)</li>
+<li><code>tls(TlsConfig)</code> - certificate and key; also enables STARTTLS</li>
+<li><code>maxConnections(int)</code> and <code>maxConnectionsPerIP(int)</code> - connection caps</li>
+<li><code>rateLimit(String)</code>, <code>maxAuthFailures(int)</code>,
+<code>authLockoutTimeMs(long)</code> - abuse protection</li>
+<li><code>allowedNetworks</code> and <code>blockedNetworks</code> - CIDR allow and block lists</li>
+<li><code>idleTimeoutMs(long)</code> - connection idle timeout (default: 300000 / 5 minutes)</li>
+<li><code>readTimeoutMs</code>, <code>connectionTimeoutMs</code> - further timeouts</li>
+<li><code>configureGSSAPI(Path keytab, String principal)</code> - Kerberos for AUTH=GSSAPI</li>
+<li><code>serverIdFields(Map)</code> - key/value pairs returned by the ID command
+(RFC 2971). Default: name=gumdrop, version from package manifest.</li>
+<li>The extension toggles above, plus <code>enableCONDSTORE</code>,
+<code>enableQRESYNC</code>, <code>enableOBJECTID</code>, <code>enableNOTIFY</code>
+and <code>enableMETADATA</code>, which are set on the listener only</li>
 </ul>
 
-<h4>Limits</h4>
+<h4>Example configuration</h4>
 
-<ul>
-<li><code>maxLineLength</code> - maximum command line length (default: 8192)</li>
-<li><code>maxLiteralSize</code> - maximum literal size for APPEND (default: 25MB)</li>
-</ul>
-
-<h4>Security Options</h4>
-
-<ul>
-<li><code>allowPlaintextLogin</code> - allow LOGIN over non-TLS (default: false;
-<b>testing only</b>)</li>
-</ul>
-
-<h4>Example Configuration</h4>
+<p>
+Cleartext IMAP with STARTTLS on port 143 and IMAPS on port 993, sharing one
+realm and a Maildir store:
+</p>
 
 <pre>
-&lt;!-- Authentication realm --&gt;
-&lt;realm id="mailRealm" class="org.bluezoo.gumdrop.auth.BasicRealm"&gt;
-    &lt;property name="href"&gt;mail-users.xml&lt;/property&gt;
-&lt;/realm&gt;
+TlsConfig tls = TlsConfig.pem(Paths.get("cert.pem"), Paths.get("key.pem"));
+MailboxFactory maildir = new MaildirMailboxFactory(Paths.get("/var/mail"));
 
-&lt;!-- Maildir storage --&gt;
-&lt;mailboxFactory id="maildir"
-                class="org.bluezoo.gumdrop.mailbox.maildir.MaildirMailboxFactory"&gt;
-    &lt;property name="basedir"&gt;/var/mail&lt;/property&gt;
-&lt;/mailbox-factory&gt;
+ImapServer server = ImapServer.compose()
+        .listener(new ImapListener().port(143).tls(tls))
+        .listener(new ImapListener().port(993).secure(true).tls(tls))
+        .sessionProvider(ImapServerSessionProviders.mailbox(maildir))
+        .realm(realm)
+        .server();
 
-&lt;!-- IMAP server (port 143 with STARTTLS) --&gt;
-&lt;server id="imap" class="org.bluezoo.gumdrop.imap.IMAPServer"&gt;
-    &lt;property name="port"&gt;143&lt;/property&gt;
-    &lt;property name="keystore-file"&gt;keystore.p12&lt;/property&gt;
-    &lt;property name="keystore-pass"&gt;secret&lt;/property&gt;
-    &lt;property name="realm" ref="#mailRealm"/&gt;
-    &lt;property name="mailbox-factory" ref="#maildir"/&gt;
-    &lt;property name="idle-timeout"&gt;1800000&lt;/property&gt;
-&lt;/server&gt;
-
-&lt;!-- IMAPS server (port 993 with implicit TLS) --&gt;
-&lt;server id="imaps" class="org.bluezoo.gumdrop.imap.IMAPServer"&gt;
-    &lt;property name="port"&gt;993&lt;/property&gt;
-    &lt;property name="secure"&gt;true&lt;/property&gt;
-    &lt;property name="keystore-file"&gt;keystore.p12&lt;/property&gt;
-    &lt;property name="keystore-pass"&gt;secret&lt;/property&gt;
-    &lt;property name="realm" ref="#mailRealm"/&gt;
-    &lt;property name="mailbox-factory" ref="#maildir"/&gt;
-&lt;/server&gt;
+Gumdrop gumdrop = Gumdrop.boot();
+gumdrop.addServer(server);
+gumdrop.join();
 </pre>
 
 <h3 id="security">Security</h3>
@@ -368,15 +458,15 @@ TLS is required before credentials are transmitted. The server advertises
 <h4>Credential Protection</h4>
 
 <p>
-Challenge-response mechanisms (CRAM-MD5, SCRAM-SHA-256) never transmit the
-password, even over TLS. SCRAM additionally protects against server compromise
+Challenge-response mechanisms (CRAM-MD5, DIGEST-MD5, SCRAM-SHA-256) never
+transmit the password, even over cleartext. SCRAM additionally protects against server compromise
 by using derived keys.
 </p>
 
 <h4>Literal Size Limits</h4>
 
 <p>
-The <code>maxLiteralSize</code> setting prevents denial-of-service attacks via
+The <code>maxLiteralSize</code> setting (default 25MB) prevents denial-of-service attacks via
 oversized APPEND commands. The default 25MB limit can be adjusted based on
 expected message sizes.
 </p>
@@ -384,9 +474,13 @@ expected message sizes.
 <h4>Connection Limits</h4>
 
 <p>
-Timeouts prevent resource exhaustion from idle or slow connections. The
-30-minute idle timeout follows RFC 9051 recommendations while allowing
-reasonable IDLE sessions.
+Timeouts prevent resource exhaustion from idle or slow connections
+(<code>idleTimeoutMs</code>, <code>loginTimeoutMs</code> and
+<code>commandTimeoutMs</code>). RFC 9051 asks servers not to drop an
+authenticated session sooner than 30 minutes, so raise <code>idleTimeoutMs</code>
+for listeners that serve long-lived IDLE sessions. The listener also enforces
+<code>maxConnections</code>, <code>maxConnectionsPerIP</code>,
+<code>rateLimit</code> and an authentication lockout.
 </p>
 
 <h3 id="quota">Quota Management</h3>
@@ -406,7 +500,7 @@ Three commands provide quota functionality:
 <ul>
 <li><b>GETQUOTAROOT</b> - returns quota roots for a mailbox</li>
 <li><b>GETQUOTA</b> - returns quota limits and usage for a quota root</li>
-<li><b>SETQUOTA</b> - sets quota limits (administrators only)</li>
+<li><b>SETQUOTA</b> - sets quota limits (users in the <code>admin</code> role only)</li>
 </ul>
 
 <pre>
@@ -428,27 +522,31 @@ The STORAGE resource reports usage and limits in kilobytes.
 
 <p>
 Quotas are enforced through a <code>QuotaManager</code> configured on the
-IMAP server. The <code>RoleBasedQuotaManager</code> supports user-specific
+composer (or a listener). The <code>RoleBasedQuotaManager</code> supports user-specific
 overrides, role-based policies, and a system default:
 </p>
 
 <pre>
-&lt;!-- Quota manager with role-based policies --&gt;
-&lt;component id="mailQuota"
-              class="org.bluezoo.gumdrop.quota.RoleBasedQuotaManager"&gt;
-    &lt;property name="realm" ref="#mailRealm"/&gt;
-    &lt;property name="storage-dir"&gt;/var/mail/quota&lt;/property&gt;
-    &lt;property name="default-quota"&gt;100MB&lt;/property&gt;
-    &lt;property name="role-quota.premium"&gt;10GB&lt;/property&gt;
-    &lt;property name="role-quota.enterprise"&gt;unlimited&lt;/property&gt;
-&lt;/component&gt;
+RoleBasedQuotaManager mailQuota = new RoleBasedQuotaManager();
+mailQuota.realm(mailRealm);
+mailQuota.storageDir(Path.of("/var/mail/quota"));
+mailQuota.defaultQuota("100MB");
+mailQuota.addRoleQuota("premium", "10GB");
+mailQuota.addRoleQuota("enterprise", "unlimited");
 
-&lt;!-- Link to IMAP server --&gt;
-&lt;server id="imap" class="org.bluezoo.gumdrop.imap.IMAPServer"&gt;
-    &lt;property name="quota-manager" ref="#mailQuota"/&gt;
-    &lt;!-- ... other properties ... --&gt;
-&lt;/server&gt;
+ImapServer imap = ImapServer.compose()
+    .listener(new ImapListener().port(143))
+    .realm(mailRealm)
+    .sessionProvider(ImapServerSessionProviders.mailbox(maildirFactory))
+    .quotaManager(mailQuota)
+    .enableQUOTA(true)
+    .server();
 </pre>
+
+<p>
+See <a href="security.html#quota">Security - Storage quotas</a> for how quotas
+are resolved, persisted and enforced.
+</p>
 
 <h4>Quota Policy Hierarchy</h4>
 
@@ -458,7 +556,7 @@ When determining a user's quota, the manager checks in order:
 
 <ol>
 <li><b>User-specific quota</b> - set via SETQUOTA or direct configuration</li>
-<li><b>Role-based quota</b> - from the user's highest-priority role</li>
+<li><b>Role-based quota</b> - from the user's roles; the most generous wins</li>
 <li><b>System default</b> - fallback for users without role quotas</li>
 </ol>
 
@@ -480,24 +578,89 @@ C: A003 APPEND INBOX {1048576}
 S: A003 NO [OVERQUOTA] Quota exceeded
 </pre>
 
-<h4>Telemetry</h4>
-
-<p>
-Quota operations are integrated with Gumdrop's telemetry. Events include:
-</p>
-
-<ul>
-<li><code>QUOTA_CHECK</code> - GETQUOTA/GETQUOTAROOT queries</li>
-<li><code>QUOTA_SET</code> - administrator quota changes</li>
-<li><code>QUOTA_EXCEEDED</code> - APPEND denied due to quota</li>
-</ul>
-
 <h3 id="client">IMAP Client</h3>
 
 <p>
 Gumdrop includes a fully asynchronous IMAP client supporting IMAPS, STARTTLS,
 and the full range of RFC 9051 commands. The client uses a callback-driven
-design with typed reply handler interfaces for each command category.
+design with typed reply handler interfaces for each command category. Like the
+<a href="smtp.html#client">SMTP client</a>, it is driven by stages: you pass a
+<code>RemoteGreeting</code> to <code>ImapClient.connect(gumdrop, handler)</code>,
+and each stage hands you an interface offering only the commands that are legal
+at that point, together with a reply handler for the answer.
+</p>
+
+<ul>
+<li><code>ClientNotAuthenticatedState</code> - <code>capability</code>,
+<code>login</code>, <code>authenticate</code>, <code>authenticateWithAccessToken</code>,
+<code>starttls</code>, <code>logout</code></li>
+<li><code>ClientAuthenticatedState</code> - <code>select</code>, <code>examine</code>,
+<code>create</code>, <code>delete</code>, <code>rename</code>, <code>list</code>,
+<code>status</code>, <code>append</code>, <code>idle</code>, <code>namespace</code>,
+<code>enable</code>, <code>compress</code>, <code>getQuota</code>, and others</li>
+<li><code>ClientSelectedState</code> - <code>fetch</code>, <code>store</code>,
+<code>search</code>, <code>sort</code>, <code>thread</code>, <code>copy</code>,
+<code>move</code>, <code>expunge</code>, <code>close</code>, with UID variants</li>
+</ul>
+
+<p>
+A minimal session that connects over IMAPS, logs in, selects INBOX and logs out.
+In real code you would implement the reply handlers as named classes rather than
+nesting them; the nesting here shows the order of the stages:
+</p>
+
+<pre>
+ImapClient client = new ImapClient("imap.example.com", 993).secure(true);
+client.connect(gumdrop, new RemoteGreeting() {
+
+    public void handleGreeting(ClientNotAuthenticatedState auth,
+            String greeting, List&lt;String&gt; preAuthCapabilities) {
+        auth.login("alice", "secret", new LoginReplyHandler() {
+            public void handleAuthenticated(ClientAuthenticatedState session,
+                    List&lt;String&gt; capabilities) {
+                session.select("INBOX", new SelectReplyHandler() {
+                    public void handleSelected(ClientSelectedState selected,
+                            MailboxInfo info) {
+                        System.out.println(info.getExists() + " messages");
+                        selected.logout();
+                    }
+                    public void handleFailed(ClientAuthenticatedState session,
+                            String message) {
+                        session.logout();
+                    }
+                    public void handleServiceClosing(String message) { }
+                });
+            }
+            public void handleAuthFailed(ClientNotAuthenticatedState auth,
+                    String message) {
+                auth.logout();
+            }
+            public void handleServiceClosing(String message) { }
+        });
+    }
+
+    public void handlePreAuthenticated(ClientAuthenticatedState auth,
+            String greeting) { }
+    public void handleServiceUnavailable(String message) { }
+
+    // ClientHandler lifecycle
+    public void onConnected(Endpoint endpoint) { }
+    public void onSecurityEstablished(SecurityInfo info) { }
+    public void onError(Exception cause) { cause.printStackTrace(); }
+    public void onDisconnected() { }
+});
+</pre>
+
+<p>
+To upgrade a cleartext connection instead, call <code>auth.starttls(...)</code>
+in <code>handleGreeting</code>; on success the reply handler receives a
+<code>ClientPostStarttls</code> from which to log in. Message bodies from
+<code>fetch</code> arrive in pieces through the
+<code>handleFetchLiteralBegin</code>, <code>handleFetchLiteralContent</code> and
+<code>handleFetchLiteralEnd</code> methods of <code>FetchReplyHandler</code>, so a
+large message is never held in memory, and <code>wantsPause()</code> lets the
+handler apply back-pressure. <code>ImapClient.tls(TlsConfig)</code> configures
+the outbound TLS, including trust and certificate pinning.
 </p>
 
 <h4>Client QUOTA Support (RFC 9208)</h4>
@@ -505,7 +668,7 @@ design with typed reply handler interfaces for each command category.
 <p>
 The client provides <code>getQuota()</code> and <code>getQuotaRoot()</code>
 commands via the <code>ClientAuthenticatedState</code> interface. Responses
-are delivered through the <code>ServerQuotaReplyHandler</code> callback:
+are delivered through the <code>QuotaReplyHandler</code> callback:
 </p>
 
 <ul>

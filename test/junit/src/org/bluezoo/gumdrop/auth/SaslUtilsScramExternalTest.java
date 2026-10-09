@@ -134,27 +134,37 @@ public class SaslUtilsScramExternalTest {
         Endpoint secure = endpoint(true, new Certificate[] {cert});
         Realm.CertificateAuthenticationResult ok = Realm.CertificateAuthenticationResult.success("carol");
 
-        assertFalse(SaslUtils.authenticateExternal(secure, null, null).valid);
-        assertFalse(SaslUtils.authenticateExternal(endpoint(false, null), new CertRealm(ok, true), null).valid);
-        assertFalse(SaslUtils.authenticateExternal(endpoint(true, null), new CertRealm(ok, true), null).valid);
-        assertFalse(SaslUtils.authenticateExternal(endpoint(true, new Certificate[0]),
+        assertFalse(external(secure, null, null).valid);
+        assertFalse(external(endpoint(false, null), new CertRealm(ok, true), null).valid);
+        assertFalse(external(endpoint(true, null), new CertRealm(ok, true), null).valid);
+        assertFalse(external(endpoint(true, new Certificate[0]),
                 new CertRealm(ok, true), null).valid);
-        assertFalse(SaslUtils.authenticateExternal(endpoint(true, new Certificate[] {null}),
+        assertFalse(external(endpoint(true, new Certificate[] {null}),
                 new CertRealm(ok, true), null).valid);
-        assertFalse(SaslUtils.authenticateExternal(secure, new CertRealm(null, true), null).valid);
-        assertFalse(SaslUtils.authenticateExternal(secure,
+        assertFalse(external(secure, new CertRealm(null, true), null).valid);
+        assertFalse(external(secure,
                 new CertRealm(Realm.CertificateAuthenticationResult.failure(), true), null).valid);
 
-        Realm.CertificateAuthenticationResult r = SaslUtils.authenticateExternal(secure, new CertRealm(ok, true), null);
+        Realm.CertificateAuthenticationResult r = external(secure, new CertRealm(ok, true), null);
         assertTrue(r.valid);
         assertEquals("carol", r.username);
-        r = SaslUtils.authenticateExternal(secure, new CertRealm(ok, true), "");
+        r = external(secure, new CertRealm(ok, true), "");
         assertEquals("carol", r.username);
-        r = SaslUtils.authenticateExternal(secure, new CertRealm(ok, true), "dave");
+        r = external(secure, new CertRealm(ok, true), "dave");
         assertTrue(r.valid);
         assertEquals("dave", r.username);
-        r = SaslUtils.authenticateExternal(secure, new CertRealm(ok, false), "dave");
+        r = external(secure, new CertRealm(ok, false), "dave");
         assertFalse(r.valid);
+    }
+
+    private static Realm.CertificateAuthenticationResult external(final Endpoint endpoint,
+            final Realm realm, final String authzid) {
+        return CapturedCallback.await(new CapturedCallback.Call<Realm.CertificateAuthenticationResult>() {
+            @Override
+            public void invoke(RealmCallback<Realm.CertificateAuthenticationResult> cb) {
+                SaslUtils.authenticateExternal(endpoint, realm, authzid, cb);
+            }
+        });
     }
 
     private static byte[] pbkdf2(String password, byte[] salt, int iterations) throws Exception {

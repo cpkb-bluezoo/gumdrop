@@ -46,9 +46,9 @@ public class Http2ListenerConfigTest {
     @Test
     public void testDescriptionFollowsSecureFlag() {
         Http2Listener l = new Http2Listener();
-        l.setSecure(false);
+        l.secure(false);
         assertEquals("http", l.getDescription());
-        l.setSecure(true);
+        l.secure(true);
         assertEquals("https", l.getDescription());
     }
 
@@ -66,17 +66,17 @@ public class Http2ListenerConfigTest {
     @Test
     public void testFramePaddingBounds() {
         Http2Listener l = new Http2Listener();
-        l.setFramePadding(0);
-        l.setFramePadding(255);
+        l.framePadding(0);
+        l.framePadding(255);
         assertEquals(255, l.getFramePadding());
         try {
-            l.setFramePadding(-1);
+            l.framePadding(-1);
             fail();
         } catch (IllegalArgumentException expected) {
             assertNotNull(expected.getMessage());
         }
         try {
-            l.setFramePadding(256);
+            l.framePadding(256);
             fail();
         } catch (IllegalArgumentException expected) {
             assertNotNull(expected.getMessage());
@@ -86,10 +86,10 @@ public class Http2ListenerConfigTest {
     @Test
     public void testMaxConcurrentStreamsValidation() {
         Http2Listener l = new Http2Listener();
-        l.setMaxConcurrentStreams(7);
+        l.maxConcurrentStreams(7);
         assertEquals(7, l.getMaxConcurrentStreams());
         try {
-            l.setMaxConcurrentStreams(0);
+            l.maxConcurrentStreams(0);
             fail();
         } catch (IllegalArgumentException expected) {
             assertNotNull(expected.getMessage());
@@ -99,10 +99,10 @@ public class Http2ListenerConfigTest {
     @Test
     public void testMaxHeaderListSizeValidation() {
         Http2Listener l = new Http2Listener();
-        l.setMaxHeaderListSize(1234);
+        l.maxHeaderListSize(1234);
         assertEquals(1234, l.getMaxHeaderListSize());
         try {
-            l.setMaxHeaderListSize(0);
+            l.maxHeaderListSize(0);
             fail();
         } catch (IllegalArgumentException expected) {
             assertNotNull(expected.getMessage());
@@ -112,12 +112,12 @@ public class Http2ListenerConfigTest {
     @Test
     public void testMaxRequestBodySizeValidation() {
         Http2Listener l = new Http2Listener();
-        l.setMaxRequestBodySize(0);
+        l.maxRequestBodySize(0);
         assertEquals(0L, l.getMaxRequestBodySize());
-        l.setMaxRequestBodySize(99L);
+        l.maxRequestBodySize(99L);
         assertEquals(99L, l.getMaxRequestBodySize());
         try {
-            l.setMaxRequestBodySize(-1);
+            l.maxRequestBodySize(-1);
             fail();
         } catch (IllegalArgumentException expected) {
             assertNotNull(expected.getMessage());
@@ -127,19 +127,19 @@ public class Http2ListenerConfigTest {
     @Test
     public void testSimpleProperties() {
         Http2Listener l = new Http2Listener();
-        l.setAltSvc("h3=\":443\"");
+        l.altSvc("h3=\":443\"");
         assertEquals("h3=\":443\"", l.getAltSvc());
-        l.setIdleTimeoutMs(1500L);
+        l.idleTimeoutMs(1500L);
         assertEquals(1500L, l.getIdleTimeoutMs());
-        l.setMaxRequestsPerConnection(5);
+        l.maxRequestsPerConnection(5);
         assertEquals(5, l.getMaxRequestsPerConnection());
-        l.setTraceMethodEnabled(true);
+        l.traceMethodEnabled(true);
         assertTrue(l.isTraceMethodEnabled());
-        l.setPingIntervalMs(250L);
+        l.pingIntervalMs(250L);
         assertEquals(250L, l.getPingIntervalMs());
-        l.setCompressResponses(false);
+        l.compressResponses(false);
         assertFalse(l.getCompressResponses());
-        l.setAddSecurityHeaders(false);
+        l.addSecurityHeaders(false);
         assertFalse(l.getAddSecurityHeaders());
         assertNull(l.getAuthenticationProvider());
         assertNull(l.getStreamHandler());
@@ -151,11 +151,11 @@ public class Http2ListenerConfigTest {
     public void testHstsConfiguration() {
         Http2Listener l = new Http2Listener();
         assertFalse(l.isHstsEnabled());
-        l.setSecure(true);
-        l.setHstsEnabled(true);
-        l.setHstsMaxAge(3600L);
-        l.setHstsIncludeSubDomains(true);
-        l.setHstsPreload(true);
+        l.secure(true);
+        l.hstsEnabled(true);
+        l.hstsMaxAge(3600L);
+        l.hstsIncludeSubDomains(true);
+        l.hstsPreload(true);
         assertTrue(l.isHstsEnabled());
         String value = l.getStrictTransportSecurityHeaderValue();
         assertTrue(value, value.contains("max-age=3600"));
@@ -164,7 +164,7 @@ public class Http2ListenerConfigTest {
         HstsPolicy p = l.getHstsPolicy();
         assertEquals(3600L, p.getMaxAgeSeconds());
         try {
-            l.setHstsMaxAge(-1L);
+            l.hstsMaxAge(-1L);
             fail();
         } catch (IllegalArgumentException expected) {
             assertNotNull(expected.getMessage());
@@ -174,8 +174,8 @@ public class Http2ListenerConfigTest {
     @Test
     public void testHstsHeaderOnlyOverTls() {
         Http2Listener l = new Http2Listener();
-        l.setSecure(false);
-        l.setHstsEnabled(true);
+        l.secure(false);
+        l.hstsEnabled(true);
         assertNull(l.getStrictTransportSecurityHeaderValue());
     }
 
@@ -183,20 +183,20 @@ public class Http2ListenerConfigTest {
     public void testSetHstsPolicyEnabledAndDisabled() {
         Http2Listener l = new Http2Listener();
         HstsPolicy on = HstsPolicy.enabled(120L);
-        l.setHstsPolicy(on);
+        l.hstsPolicy(on);
         assertTrue(l.isHstsEnabled());
         assertEquals(120L, l.getHstsPolicy().getMaxAgeSeconds());
-        l.setHstsPolicy(HstsPolicy.disabled());
+        l.hstsPolicy(HstsPolicy.disabled());
         assertFalse(l.isHstsEnabled());
-        l.setHstsEnabled(true);
-        l.setHstsPolicy(null);
+        l.hstsEnabled(true);
+        l.hstsPolicy(null);
         assertFalse(l.isHstsEnabled());
     }
 
     @Test
     public void testCreateHandlerUsesConfiguration() {
         Http2Listener l = new Http2Listener();
-        l.setMaxConcurrentStreams(3);
+        l.maxConcurrentStreams(3);
         Object handler = l.createHandler();
         assertTrue(handler instanceof HttpProtocolHandler);
     }

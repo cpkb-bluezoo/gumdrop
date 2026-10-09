@@ -21,6 +21,8 @@
 
 package org.bluezoo.gumdrop.dns;
 
+import org.bluezoo.gumdrop.util.CidrNetwork;
+import java.util.List;
 import java.net.InetSocketAddress;
 import java.net.InetAddress;
 import java.net.SocketAddress;
@@ -71,15 +73,6 @@ public class DnsListener extends UdpListener {
         return port;
     }
 
-    /**
-     * Sets the port number this endpoint should bind to.
-     *
-     * @param port the port number (default 53)
-     */
-    public void setPort(int port) {
-        this.port = port;
-    }
-
     @Override
     public String getDescription() {
         return "dns";
@@ -90,9 +83,11 @@ public class DnsListener extends UdpListener {
      * during wiring.
      *
      * @param server the owning server
+     * @return this
      */
-    public void setServer(org.bluezoo.gumdrop.dns.server.DnsServer server) {
+    public DnsListener server(org.bluezoo.gumdrop.dns.server.DnsServer server) {
         this.server = server;
+        return this;
     }
 
     /**
@@ -192,7 +187,7 @@ public class DnsListener extends UdpListener {
      * Sets the UDP port. Returns {@code this} for fluent configuration.
      */
     public DnsListener port(int port) {
-        setPort(port);
+        this.port = port;
         return this;
     }
 
@@ -220,6 +215,90 @@ public class DnsListener extends UdpListener {
         return this;
     }
 
+    @Override
+    public DnsListener maxConnections(int max) {
+        super.maxConnections(max);
+        return this;
+    }
+
+    @Override
+    public DnsListener maxConnectionsPerIP(int max) {
+        super.maxConnectionsPerIP(max);
+        return this;
+    }
+
+    @Override
+    public DnsListener rateLimit(String rateLimit) {
+        super.rateLimit(rateLimit);
+        return this;
+    }
+
+    @Override
+    public DnsListener maxAuthFailures(int max) {
+        super.maxAuthFailures(max);
+        return this;
+    }
+
+    @Override
+    public DnsListener authLockoutTimeMs(long lockoutMs) {
+        super.authLockoutTimeMs(lockoutMs);
+        return this;
+    }
+
+    @Override
+    public DnsListener allowedNetworks(List<CidrNetwork> allowedNetworks) {
+        super.allowedNetworks(allowedNetworks);
+        return this;
+    }
+
+    @Override
+    public DnsListener blockedNetworks(List<CidrNetwork> blockedNetworks) {
+        super.blockedNetworks(blockedNetworks);
+        return this;
+    }
+
+    @Override
+    public DnsListener name(String name) {
+        super.name(name);
+        return this;
+    }
+
+    @Override
+    public DnsListener maxNetInSize(int size) {
+        super.maxNetInSize(size);
+        return this;
+    }
+
+    @Override
+    public DnsListener maxNetOutSize(int size) {
+        super.maxNetOutSize(size);
+        return this;
+    }
+
+    @Override
+    public DnsListener idleTimeoutMs(long idleTimeoutMs) {
+        super.idleTimeoutMs(idleTimeoutMs);
+        return this;
+    }
+
+    @Override
+    public DnsListener readTimeoutMs(long readTimeoutMs) {
+        super.readTimeoutMs(readTimeoutMs);
+        return this;
+    }
+
+    @Override
+    public DnsListener connectionTimeoutMs(long connectionTimeoutMs) {
+        super.connectionTimeoutMs(connectionTimeoutMs);
+        return this;
+    }
+
+    @Override
+    public DnsListener maxDtlsPeers(int max) {
+        super.maxDtlsPeers(max);
+        return this;
+    }
+
     /**
      * @deprecated use {@code new DnsListener().port(...)} fluent configuration.
      */
@@ -242,7 +321,7 @@ public class DnsListener extends UdpListener {
 
         public DnsListener build() {
             DnsListener listener = new DnsListener();
-            listener.setPort(port);
+            listener.port(port);
             return listener;
         }
     }

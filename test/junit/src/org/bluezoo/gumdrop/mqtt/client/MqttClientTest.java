@@ -27,6 +27,7 @@ import static org.junit.Assert.fail;
 import java.net.InetAddress;
 
 import org.bluezoo.gumdrop.mqtt.codec.MqttVersion;
+import org.bluezoo.gumdrop.tls.TlsConfig;
 import org.bluezoo.gumdrop.mqtt.codec.QoS;
 import org.bluezoo.gumdrop.mqtt.store.InMemoryMessageStore;
 import org.junit.Test;
@@ -42,10 +43,7 @@ public class MqttClientTest {
     public void fluentConfigurationReturnsSameInstance() throws Exception {
         MqttClient c = new MqttClient("localhost", 1883);
         assertSame(c, c.secure(false));
-        assertSame(c, c.keystoreFile(null));
-        assertSame(c, c.keystorePass("pw"));
-        assertSame(c, c.clientCredentials(null));
-        assertSame(c, c.trustManager(null));
+        assertSame(c, c.tls(new TlsConfig()));
         assertSame(c, c.host("example.org"));
         assertSame(c, c.host(InetAddress.getLoopbackAddress()));
         assertSame(c, c.port(1884));
@@ -57,19 +55,16 @@ public class MqttClientTest {
     @Test
     public void plainSettersAccepted() {
         MqttClient c = new MqttClient();
-        c.setVersion(MqttVersion.V5_0);
-        c.setClientId("id");
-        c.setCleanSession(false);
-        c.setKeepAlive(10);
-        c.setCredentials("user", "pass");
-        c.setCredentials("user", null);
-        c.setMessageStore(new InMemoryMessageStore());
-        c.setWill("t", new byte[] {1}, QoS.AT_LEAST_ONCE, true);
-        c.setSecure(true);
-        c.setKeystoreFile(null);
-        c.setKeystorePass(null);
-        c.setClientCredentials(null);
-        c.setTrustManager(null);
+        c.version(MqttVersion.V5_0);
+        c.clientId("id");
+        c.cleanSession(false);
+        c.keepAlive(10);
+        c.credentials("user", "pass");
+        c.credentials("user", null);
+        c.messageStore(new InMemoryMessageStore());
+        c.will("t", new byte[] {1}, QoS.AT_LEAST_ONCE, true);
+        c.secure(true);
+        c.tls(new TlsConfig());
     }
 
     @Test

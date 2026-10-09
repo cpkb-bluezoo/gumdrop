@@ -242,6 +242,29 @@ public class DnssecValidatorTest {
     }
 
     @Test
+    public void testNsec3IterationsAboveLimitAreNotHashed() {
+        // RFC 9276 section 3.2: above the limit the proof is not evaluated
+        byte[] salt = new byte[] {1, 2};
+        int iterations = DnssecValidator.MAX_NSEC3_ITERATIONS + 1;
+        byte[] high = new byte[20];
+        for (int i = 0; i < 20; i++) {
+            high[i] = (byte) 0xFF;
+        }
+        String lowOwner = DnssecValidator.base32HexEncode(new byte[20]) + ".example.com.";
+        DnsResourceRecord covering = nsec3(lowOwner, 1, iterations, salt, high,
+                new int[] {DnsType.A.getValue()});
+        List<DnsResourceRecord> list = list(covering);
+        assertFalse(DnssecValidator.verifyNSEC3("nope.example.com.", DnsType.A, list));
+        assertEquals(DnsMessage.RCODE_NXDOMAIN,
+                DnssecValidator.nsec3DenialRcode("nope.example.com.", list));
+        assertNull(DnssecValidator.nsec3Hash("nope.example.com.", 1, iterations, salt));
+        assertTrue(DnssecValidator.exceedsNsec3IterationLimit(list));
+        assertFalse(DnssecValidator.exceedsNsec3IterationLimit(
+                list(nsec3(lowOwner, 1, DnssecValidator.MAX_NSEC3_ITERATIONS, salt, high,
+                        new int[] {1}))));
+    }
+
+    @Test
     public void testBase32Hex() {
         assertEquals("", DnssecValidator.base32HexEncode(new byte[0]));
         assertEquals("CO", DnssecValidator.base32HexEncode("f".getBytes()));

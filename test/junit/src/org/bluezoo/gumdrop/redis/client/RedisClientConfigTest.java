@@ -28,6 +28,7 @@ import java.nio.file.Paths;
 import org.junit.Test;
 
 import org.bluezoo.gumdrop.tls.KeystoreFormat;
+import org.bluezoo.gumdrop.tls.TlsConfig;
 
 import static org.junit.Assert.*;
 
@@ -83,22 +84,14 @@ public class RedisClientConfigTest {
         assertSame(c, c.selectorLoop(null));
         assertSame(c, c.dnsResolver(null));
         assertSame(c, c.secure(true));
-        assertSame(c, c.clientCredentials(null));
-        assertSame(c, c.trustManager(null));
-        assertSame(c, c.keystoreFile(p));
-        assertSame(c, c.keystorePass("pw"));
-        assertSame(c, c.keystoreFormat(KeystoreFormat.values()[0]));
+        assertSame(c, c.tls(new TlsConfig()));
     }
 
     @Test
     public void beanSettersDoNotThrow() {
         RedisClient c = new RedisClient();
-        c.setSecure(true);
-        c.setClientCredentials(null);
-        c.setTrustManager(null);
-        c.setKeystoreFile(Paths.get("keystore.p12"));
-        c.setKeystorePass("pw");
-        c.setKeystoreFormat(KeystoreFormat.values()[0]);
+        c.secure(true);
+        c.tls(new TlsConfig());
     }
 
     @Test

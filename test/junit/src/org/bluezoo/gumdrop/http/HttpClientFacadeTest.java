@@ -188,10 +188,10 @@ public class HttpClientFacadeTest {
     @Test
     public void plainConnectSendsRequestAndCloses() {
         TestClient client = new TestClient("example.test", 80);
-        client.setDnsHttpsRecordEnabled(false);
+        client.dnsHttpsRecordEnabled(false);
         client.credentials("user", "pw");
-        client.setIdleTimeoutMs(5000L);
-        client.setTrace(null);
+        client.idleTimeoutMs(5000L);
+        client.trace(null);
         Events events = new Events();
         assertNull(client.getVersion());
         assertFalse(client.isOpen());
@@ -199,7 +199,7 @@ public class HttpClientFacadeTest {
         assertEquals(1, client.connects);
         assertTrue(events.calls.contains("connected"));
         assertTrue(client.isOpen());
-        client.setTrace(null);
+        client.trace(null);
         HttpRequest request = client.get("/hello", new DefaultHttpResponseHandler());
         assertNotNull(request);
         request.endMessage();
@@ -212,7 +212,7 @@ public class HttpClientFacadeTest {
     @Test
     public void requestFactoryMethodsUseTheirVerbs() {
         TestClient client = new TestClient("example.test", 80);
-        client.setDnsHttpsRecordEnabled(false);
+        client.dnsHttpsRecordEnabled(false);
         client.connect(null, new Events());
         assertNotNull(client.post("/p", null));
         assertNotNull(client.put("/p", null));
@@ -226,17 +226,16 @@ public class HttpClientFacadeTest {
     @Test
     public void secureH2ClientAdvertisesAlpnAndPriorKnowledgeIsApplied() {
         TestClient secure = new TestClient("example.test", 443);
-        secure.setDnsHttpsRecordEnabled(false);
-        secure.setSecure(true);
-        secure.setH2Enabled(true);
+        secure.dnsHttpsRecordEnabled(false);
+        secure.secure(true);
         secure.connect(null, new Events());
         assertEquals(1, secure.connects);
 
         TestClient prior = new TestClient("example.test", 80);
-        prior.setDnsHttpsRecordEnabled(false);
-        prior.setH2WithPriorKnowledge(true);
-        prior.setH2cUpgradeEnabled(false);
-        prior.setAltSvcEnabled(false);
+        prior.dnsHttpsRecordEnabled(false);
+        prior.versions(HttpVersion.HTTP_2_0);
+        prior.h2WithPriorKnowledge(true);
+        prior.altSvcEnabled(false);
         prior.connect(null, new Events());
         assertEquals(1, prior.connects);
         assertTrue(prior.endpoint.getAllBytes().length > 0);
@@ -254,7 +253,7 @@ public class HttpClientFacadeTest {
     @Test
     public void endpointCreationFailureIsReported() {
         TestClient client = new TestClient("example.test", 80);
-        client.setDnsHttpsRecordEnabled(false);
+        client.dnsHttpsRecordEnabled(false);
         client.failure = new IOException("no route");
         Events events = new Events();
         client.connect(null, events);
@@ -265,8 +264,12 @@ public class HttpClientFacadeTest {
 
     private static Events connectBlocked(String address, boolean h3) throws Exception {
         TestClient client = new TestClient(ip(address), 443);
-        client.setBlockPrivateAddresses(true);
-        client.setH3Enabled(h3);
+        client.blockPrivateAddresses(true);
+        if (h3) {
+            client.versions(HttpVersion.HTTP_3);
+        } else {
+            client.versions(HttpVersion.HTTP_2_0, HttpVersion.HTTP_1_1);
+        }
         Events events = new Events();
         client.connect(null, events);
         assertEquals(0, client.connects);
@@ -288,7 +291,7 @@ public class HttpClientFacadeTest {
     @Test
     public void publicAddressIsAllowedWhenBlockingEnabled() throws Exception {
         TestClient client = new TestClient(ip("8.8.8.8"), 80);
-        client.setBlockPrivateAddresses(true);
+        client.blockPrivateAddresses(true);
         client.connect(null, new Events());
         assertEquals(1, client.connects);
     }
@@ -306,7 +309,7 @@ public class HttpClientFacadeTest {
         TestClient client = new TestClient("origin.test", 443);
         client.selectorLoop(new InlineSelectorLoop());
         client.dnsResolver(resolver);
-        client.setBlockPrivateAddresses(true);
+        client.blockPrivateAddresses(true);
         return client;
     }
 
@@ -315,7 +318,7 @@ public class HttpClientFacadeTest {
         StubResolver resolver = new StubResolver();
         resolver.answer = ip("127.0.0.1");
         TestClient client = named(resolver);
-        client.setH3Enabled(true);
+        client.versions(HttpVersion.HTTP_3);
         Events events = new Events();
         client.connect(null, events);
         assertEquals(1, resolver.resolves);
@@ -327,7 +330,7 @@ public class HttpClientFacadeTest {
         StubResolver resolver = new StubResolver();
         resolver.resolveFails = true;
         TestClient client = named(resolver);
-        client.setH3Enabled(true);
+        client.versions(HttpVersion.HTTP_3);
         Events events = new Events();
         client.connect(null, events);
         assertTrue(events.error.getMessage().contains("DNS resolution failed for origin.test"));
@@ -426,7 +429,7 @@ public class HttpClientFacadeTest {
         StubResolver resolver = new StubResolver();
         resolver.answer = ip("127.0.0.1");
         TestClient client = named(resolver);
-        client.setDnsHttpsRecordEnabled(false);
+        client.dnsHttpsRecordEnabled(false);
         Events events = new Events();
         client.connect(null, events);
         assertEquals(1, client.connects);
@@ -442,7 +445,7 @@ public class HttpClientFacadeTest {
         StubResolver resolver = new StubResolver();
         resolver.resolveFails = true;
         TestClient client = named(resolver);
-        client.setDnsHttpsRecordEnabled(false);
+        client.dnsHttpsRecordEnabled(false);
         Events events = new Events();
         client.connect(null, events);
         client.altSvcReceived("h3=\":8443\"; ma=60");
@@ -457,7 +460,7 @@ public class HttpClientFacadeTest {
         ClientEndpointPool pool = new ClientEndpointPool();
         try {
             TestClient client = new TestClient(ip("127.0.0.1"), 8080);
-            client.setConnectionPool(pool);
+            client.connectionPool(pool);
             client.selectorLoop(new InlineSelectorLoop());
             Events events = new Events();
             client.connect(null, events);
@@ -475,7 +478,7 @@ public class HttpClientFacadeTest {
         ClientEndpointPool pool = new ClientEndpointPool();
         try {
             TestClient client = new TestClient("origin.test", 80);
-            client.setDnsHttpsRecordEnabled(false);
+            client.dnsHttpsRecordEnabled(false);
             client.connectionPool(pool);
             client.connect(null, new Events());
             assertEquals(0, pool.getTotalEndpointCount());
@@ -547,39 +550,26 @@ public class HttpClientFacadeTest {
     public void fluentAndSetterConfigurationRoundTrips() throws Exception {
         TestClient client = new TestClient("example.test", 80);
         TlsConfig other = new TlsConfig();
-        assertSame(client, client.importTls(other));
+        assertSame(client, client.tls(other));
         assertNotNull(client.getTls());
         client.setDnsDiscoveredEchConfigList(new byte[] {1, 2});
-        client.setSecure(true);
-        client.setH2Enabled(false);
-        client.setH2cUpgradeEnabled(false);
-        client.setH2WithPriorKnowledge(false);
-        client.setH3Enabled(false);
-        client.setAltSvcEnabled(false);
-        client.setDnsHttpsRecordEnabled(false);
-        client.setEarlyDataEnabled(true);
-        client.setVerifyPeer(false);
-        client.setBlockPrivateAddresses(false);
-        client.setIdleTimeoutMs(1L);
-        client.setSendAcceptEncodingHeader(false);
-        client.setDecodeResponseContentCoding(false);
-        client.setEncodeRequestBodyContentCoding(false);
-        client.setSendAcceptEncodingHeader(true);
-        client.setDecodeResponseContentCoding(true);
-        client.setEncodeRequestBodyContentCoding(true);
-        client.setKeystorePass("x");
-        client.setKeystoreFile(null);
-        client.setKeystoreFormat(null);
-        client.setCertFile(null);
-        client.setKeyFile(null);
-        client.setTrustManager(null);
-        client.setClientCredentials(null);
-        assertSame(client, client.host("h.test").port(8080).secure(true).trustJvm()
-                .trace(null).clientCredentials(null).trustManager(null)
-                .keystoreFile(null).keystorePass("p").keystoreFormat(null)
-                .h2Enabled(true).h2cUpgradeEnabled(true).h2WithPriorKnowledge(false)
-                .h3Enabled(false).altSvcEnabled(true).dnsHttpsRecordEnabled(true)
-                .earlyDataEnabled(false).certFile(null).keyFile(null).verifyPeer(true)
+        client.secure(true);
+        client.versions(HttpVersion.HTTP_1_1);
+        client.altSvcEnabled(false);
+        client.dnsHttpsRecordEnabled(false);
+        client.blockPrivateAddresses(false);
+        client.idleTimeoutMs(1L);
+        client.sendAcceptEncodingHeader(false);
+        client.decodeResponseContentCoding(false);
+        client.encodeRequestBodyContentCoding(false);
+        client.sendAcceptEncodingHeader(true);
+        client.decodeResponseContentCoding(true);
+        client.encodeRequestBodyContentCoding(true);
+        client.tls(new TlsConfig().earlyData(true).verifyPeer(false));
+        assertSame(client, client.host("h.test").port(8080).secure(true)
+                .tls(new TlsConfig().trustJvm()).trace(null)
+                .versions(HttpVersion.HTTP_2_0, HttpVersion.HTTP_1_1).h2WithPriorKnowledge(false)
+                .quicHandshakeTimeoutMs(1000L).altSvcEnabled(true).dnsHttpsRecordEnabled(true)
                 .blockPrivateAddresses(false).idleTimeoutMs(0L).sendAcceptEncodingHeader(true)
                 .decodeResponseContentCoding(true).encodeRequestBodyContentCoding(true)
                 .connectionPool(null).credentials("u", "p"));

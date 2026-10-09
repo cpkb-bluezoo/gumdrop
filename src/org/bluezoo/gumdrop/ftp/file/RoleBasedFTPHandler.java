@@ -22,8 +22,11 @@
 package org.bluezoo.gumdrop.ftp.file;
 
 import java.nio.ByteBuffer;
+import org.bluezoo.gumdrop.auth.RealmCallback;
 import java.text.MessageFormat;
+import java.util.HashSet;
 import java.util.ResourceBundle;
+import java.util.Set;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -139,48 +142,112 @@ public class RoleBasedFTPHandler implements FtpConnectionHandler {
     }
     
     @Override
-    public FtpAuthenticationResult authenticate(String username, String password,
-                                                 String account, FtpConnectionMetadata metadata) {
+    public void authenticate(String username, final String password, String account,
+            final FtpConnectionMetadata metadata,
+            final RealmCallback<FtpAuthenticationResult> callback) {
         if (username == null || username.trim().isEmpty()) {
-            return FtpAuthenticationResult.INVALID_USER;
+            callback.completed(FtpAuthenticationResult.INVALID_USER);
+            return;
         }
-        
+
         if (password == null) {
-            return FtpAuthenticationResult.NEED_PASSWORD;
+            callback.completed(FtpAuthenticationResult.NEED_PASSWORD);
+            return;
         }
-        
-        String trimmedUsername = username.trim();
-        
-        // Check if user exists
-        if (!realm.userExists(trimmedUsername)) {
-            logAuthFailure(trimmedUsername, metadata, "user not found");
-            return FtpAuthenticationResult.INVALID_USER;
-        }
-        
-        // Verify password
-        if (!realm.passwordMatch(trimmedUsername, password)) {
-            logAuthFailure(trimmedUsername, metadata, "invalid password");
-            return FtpAuthenticationResult.INVALID_PASSWORD;
-        }
-        
-        // Check that user has at least read access
-        if (!hasAnyFTPRole(trimmedUsername)) {
-            logAuthFailure(trimmedUsername, metadata, "no FTP roles assigned");
-            return FtpAuthenticationResult.INVALID_USER;
-        }
-        
-        logAuthSuccess(trimmedUsername, metadata);
-        return FtpAuthenticationResult.SUCCESS;
+
+        final String trimmedUsername = username.trim();
+        final Realm bound = realm.forSelectorLoop(metadata.getSelectorLoop());
+
+        // Check that the user exists, then verify the password, then ask
+        // for the user's FTP roles: each step is asked of the realm without
+        // waiting, and the next starts when it has answered.
+        bound.userExists(trimmedUsername, new RealmCallback<Boolean>() {
+            @Override
+            public void completed(Boolean exists) {
+                if (exists == null || !exists.booleanValue()) {
+                    logAuthFailure(trimmedUsername, metadata, "user not found");
+                    callback.completed(FtpAuthenticationResult.INVALID_USER);
+                    return;
+                }
+                bound.passwordMatch(trimmedUsername, password, new RealmCallback<Boolean>() {
+                    @Override
+                    public void completed(Boolean matched) {
+                        if (matched == null || !matched.booleanValue()) {
+                            logAuthFailure(trimmedUsername, metadata, "invalid password");
+                            callback.completed(FtpAuthenticationResult.INVALID_PASSWORD);
+                            return;
+                        }
+                        resolveRoles(bound, trimmedUsername, metadata, callback);
+                    }
+
+                    @Override
+                    public void failed(Throwable cause) {
+                        authError(trimmedUsername, metadata, cause, callback);
+                    }
+                });
+            }
+
+            @Override
+            public void failed(Throwable cause) {
+                authError(trimmedUsername, metadata, cause, callback);
+            }
+        });
     }
-    
+
+    /** A realm that cannot answer fails the login. */
+    private void authError(String username, FtpConnectionMetadata metadata,
+            Throwable cause, RealmCallback<FtpAuthenticationResult> callback) {
+        logAuthFailure(username, metadata, "realm error: " + cause.getMessage());
+        callback.completed(FtpAuthenticationResult.INVALID_PASSWORD);
+    }
+
     /**
-     * Checks if a user has any FTP role assigned.
+     * Asks the realm which FTP roles the user holds, and keeps the answer on
+     * the connection for the session. A user with none of them may not log in.
      */
-    private boolean hasAnyFTPRole(String username) {
-        return realm.isUserInRole(username, FtpRoles.ADMIN) ||
-               realm.isUserInRole(username, FtpRoles.DELETE) ||
-               realm.isUserInRole(username, FtpRoles.WRITE) ||
-               realm.isUserInRole(username, FtpRoles.READ);
+    private void resolveRoles(final Realm bound, final String username,
+            final FtpConnectionMetadata metadata,
+            final RealmCallback<FtpAuthenticationResult> callback) {
+        final String[] candidates = {
+            FtpRoles.ADMIN, FtpRoles.DELETE, FtpRoles.WRITE, FtpRoles.READ };
+        final Set<String> held = new HashSet<String>();
+        new Object() {
+            int next;
+
+            void ask() {
+                if (next == candidates.length) {
+                    rolesResolved();
+                    return;
+                }
+                final String role = candidates[next++];
+                bound.isUserInRole(username, role, new RealmCallback<Boolean>() {
+                    @Override
+                    public void completed(Boolean has) {
+                        if (has != null && has.booleanValue()) {
+                            held.add(role);
+                        }
+                        ask();
+                    }
+
+                    @Override
+                    public void failed(Throwable cause) {
+                        authError(username, metadata, cause, callback);
+                    }
+                });
+            }
+
+            void rolesResolved() {
+                // Check that user has at least read access
+                if (held.isEmpty()) {
+                    logAuthFailure(username, metadata, "no FTP roles assigned");
+                    callback.completed(FtpAuthenticationResult.INVALID_USER);
+                    return;
+                }
+                metadata.setRoles(held);
+                logAuthSuccess(username, metadata);
+                callback.completed(FtpAuthenticationResult.SUCCESS);
+            }
+        }.ask();
     }
     
     @Override
@@ -197,7 +264,7 @@ public class RoleBasedFTPHandler implements FtpConnectionHandler {
         }
         
         // Admins can do anything
-        if (realm.isUserInRole(username, FtpRoles.ADMIN)) {
+        if (metadata.hasRole(FtpRoles.ADMIN)) {
             return true;
         }
         
@@ -206,23 +273,23 @@ public class RoleBasedFTPHandler implements FtpConnectionHandler {
             case READ:
             case NAVIGATE:
                 // READ or higher required
-                authorized = realm.isUserInRole(username, FtpRoles.READ) ||
-                             realm.isUserInRole(username, FtpRoles.WRITE) ||
-                             realm.isUserInRole(username, FtpRoles.DELETE);
+                authorized = metadata.hasRole(FtpRoles.READ) ||
+                             metadata.hasRole(FtpRoles.WRITE) ||
+                             metadata.hasRole(FtpRoles.DELETE);
                 break;
                 
             case WRITE:
             case CREATE_DIR:
                 // WRITE or higher required
-                authorized = realm.isUserInRole(username, FtpRoles.WRITE) ||
-                             realm.isUserInRole(username, FtpRoles.DELETE);
+                authorized = metadata.hasRole(FtpRoles.WRITE) ||
+                             metadata.hasRole(FtpRoles.DELETE);
                 break;
                 
             case DELETE:
             case DELETE_DIR:
             case RENAME:
                 // DELETE required
-                authorized = realm.isUserInRole(username, FtpRoles.DELETE);
+                authorized = metadata.hasRole(FtpRoles.DELETE);
                 break;
                 
             case SITE_COMMAND:
@@ -283,14 +350,14 @@ public class RoleBasedFTPHandler implements FtpConnectionHandler {
         
         // SITE SETQUOTA - only admins can set quotas
         if (upperCommand.startsWith("SETQUOTA ")) {
-            if (!realm.isUserInRole(metadata.getAuthenticatedUser(), FtpRoles.ADMIN)) {
+            if (!metadata.hasRole(FtpRoles.ADMIN)) {
                 return FtpFileOperationResult.ACCESS_DENIED;
             }
             return handleSiteSetQuota(command, metadata);
         }
         
         // Other SITE commands require ADMIN role
-        if (!realm.isUserInRole(metadata.getAuthenticatedUser(), FtpRoles.ADMIN)) {
+        if (!metadata.hasRole(FtpRoles.ADMIN)) {
             return FtpFileOperationResult.ACCESS_DENIED;
         }
         return FtpFileOperationResult.NOT_SUPPORTED;
@@ -309,7 +376,7 @@ public class RoleBasedFTPHandler implements FtpConnectionHandler {
         
         // Admin can check other users' quotas: SITE QUOTA username
         String args = command.substring(5).trim(); // Remove "QUOTA"
-        if (!args.isEmpty() && realm.isUserInRole(metadata.getAuthenticatedUser(), FtpRoles.ADMIN)) {
+        if (!args.isEmpty() && metadata.hasRole(FtpRoles.ADMIN)) {
             targetUser = args;
         }
         

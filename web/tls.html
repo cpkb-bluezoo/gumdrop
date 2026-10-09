@@ -40,18 +40,32 @@ TCP listeners, UDP listeners, and QUIC all use this implementation &mdash; there
 is no dependency on JSSE <code>SSLEngine</code> or third-party TLS libraries on
 the data path. JCA is used only for primitive operations (signatures, key
 agreement, AEAD via <code>Cipher</code>, PKIX path validation).
+Everything is pure Java bytecode in the same JVM as the rest of the framework,
+with no native library build step. By contrast, Netty typically relies on the
+JDK's JSSE for TCP TLS, and its incubator QUIC and HTTP/3 transport uses
+<strong>native code</strong> (Cloudflare quiche with BoringSSL behind JNI),
+which adds platform-specific artifacts and deployment constraints.
+</p>
+
+<p>
+Cipher suites and protocol versions are curated for <strong>secure
+defaults</strong> rather than mirroring JSSE's permissive &ldquo;support
+everything&rdquo; posture. TLS is applied consistently across protocols together
+with IAM and rate limiting (see <a href="security.html">Security</a>).
 </p>
 
 <p>
 This page describes scope, deliberate design choices, security practices,
 configuration for protocol-handler authors, and pointers to RFC conformance
-matrices. For keystore setup, certificate pinning, IAM, and rate limiting, see
-<a href="security.html">Security</a>.
+matrices. For certificates, keystores and pinning see
+<a href="#certificates">Certificates and keystores</a>; for IAM, rate limiting
+and quotas see <a href="security.html">Security</a>.
 </p>
 
 <h3>Contents</h3>
 <ul>
 <li><a href="#architecture">Architecture</a></li>
+<li><a href="#java25">Java 25 baseline and post-quantum TLS</a></li>
 <li><a href="#versions">Protocol versions and deployment model</a></li>
 <li><a href="#tls13">TLS 1.3 engine</a></li>
 <li><a href="#tls12">TLS 1.2 engine</a></li>
@@ -60,11 +74,21 @@ matrices. For keystore setup, certificate pinning, IAM, and rate limiting, see
 <li><a href="#security">Security practices</a></li>
 <li><a href="#configuration">Configuration for implementers</a>
   <ul>
+  <li><a href="#transparent">Transparent TLS</a></li>
   <li><a href="#alpn">ALPN</a></li>
   <li><a href="#sni">SNI and server credentials</a></li>
   <li><a href="#mtls">Client certificates (mTLS)</a></li>
   <li><a href="#ciphers">Cipher suites</a></li>
   <li><a href="#groups">Named groups (TLS 1.3 / DTLS 1.3)</a></li>
+  </ul>
+</li>
+<li><a href="#certificates">Certificates and keystores</a>
+  <ul>
+  <li><a href="#tls-certificates">Certificates for local development</a></li>
+  <li><a href="#keystores">Java keystores and truststores</a></li>
+  <li><a href="#pem-format">PEM file format</a></li>
+  <li><a href="#colocated">Co-located HTTPS and HTTP/3</a></li>
+  <li><a href="#cert-pinning">Certificate pinning</a></li>
   </ul>
 </li>
 <li><a href="#handlers">Protocol handlers and SecurityInfo</a></li>
@@ -114,6 +138,22 @@ handshake always marshal back to the loop thread before touching connection
 state.
 </p>
 
+<h2 id="java25">Java 25 baseline and post-quantum TLS</h2>
+
+<p>
+<strong>Gumdrop 3 requires Java 25 (LTS) or newer.</strong> That bar is
+intentional: modern JDK cryptography exposes ML-KEM and ML-DSA through the
+standard JCA, which the in-tree TLS engine uses for hybrid post-quantum key
+exchange (RFC&nbsp;10024) and for PKIX validation of post-quantum certificates.
+Hybrid groups are offered by default in TLS&nbsp;1.3, DTLS, and QUIC; signature
+schemes include ML-DSA alongside classical algorithms. See
+<a href="#groups">Named groups</a> and
+<a href="#signatures">Signature schemes and certificate keys</a> for the
+details, and <code>SecurityInfo.getNamedGroup()</code> (see
+<a href="#security">Security practices</a>) to confirm what negotiated on a
+live connection.
+</p>
+
 <h2 id="versions">Protocol versions and deployment model</h2>
 
 <table border="1" cellpadding="5">
@@ -126,16 +166,16 @@ state.
 <tr>
   <td>TCP (HTTPS, SMTP, IMAP, &hellip;)</td>
   <td>TLS&nbsp;1.2, TLS&nbsp;1.3</td>
-  <td>TLS&nbsp;1.3</td>
-  <td><code>tls-version</code> on <code>TcpTransportFactory</code> /
-      <code>Listener</code> (<code>TLS_1_2</code> or <code>TLS_1_3</code>)</td>
+  <td>negotiate (prefers TLS&nbsp;1.3)</td>
+  <td><code>TlsConfig.tlsVersion()</code>
+      (<code>NEGOTIATE</code>, <code>TLS_1_2</code> or <code>TLS_1_3</code>)</td>
 </tr>
 <tr>
   <td>UDP (DNS, CoAP-style services, &hellip;)</td>
   <td>DTLS&nbsp;1.2, DTLS&nbsp;1.3</td>
-  <td>DTLS&nbsp;1.2</td>
-  <td><code>dtls-version</code> on <code>UdpTransportFactory</code> /
-      <code>Listener</code> (<code>DTLS_1_2</code> or <code>DTLS_1_3</code>)</td>
+  <td>negotiate (prefers DTLS&nbsp;1.3)</td>
+  <td><code>TlsConfig.dtlsVersion()</code>
+      (<code>NEGOTIATE</code>, <code>DTLS_1_2</code> or <code>DTLS_1_3</code>)</td>
 </tr>
 <tr>
   <td>QUIC (HTTP/3, DoQ, &hellip;)</td>
@@ -146,11 +186,16 @@ state.
 </table>
 
 <p>
-<b>Version pinning, not negotiation:</b> each listener is configured for exactly
-one TLS or DTLS protocol version. The engine does not downgrade based on a peer
-<code>ClientHello</code>. To offer both TLS&nbsp;1.2 and TLS&nbsp;1.3 (or both
-DTLS versions), run <b>two listeners on two ports</b>. This removes cross-version
-downgrade ambiguity at the deployment boundary.
+<b>One version per connection, chosen once.</b> The default, <code>NEGOTIATE</code>,
+inspects the peer&rsquo;s first handshake flight once and picks TLS&nbsp;1.3 if
+it is offered, otherwise TLS&nbsp;1.2 (DTLS likewise); a client in this mode
+offers TLS&nbsp;1.3 and keeps TLS&nbsp;1.2 as the fallback. A single record
+engine then runs for the whole connection. There is no version renegotiation,
+and the engines never switch mid-connection. To refuse the older version,
+<b>pin</b> the listener or client to <code>TLS_1_3</code> or
+<code>DTLS_1_3</code>; to serve only legacy peers, pin <code>TLS_1_2</code> or
+<code>DTLS_1_2</code>. A pinned endpoint rejects a peer that offers only the
+other version.
 </p>
 
 <p>
@@ -294,7 +339,7 @@ deliberately narrow profile.
 <tr><td>Renegotiation</td><td>Never performed (indication only)</td></tr>
 <tr><td>0-RTT / early data</td><td>TLS&nbsp;1.3 only</td></tr>
 <tr><td><code>KeyUpdate</code></td><td>TLS&nbsp;1.3 TCP mode only</td></tr>
-<tr><td><code>ClientAuthPolicy.REQUEST</code> (&ldquo;want&rdquo; client cert)</td><td>Factories map <code>need-client-auth</code> to <code>REQUIRE</code> only</td></tr>
+<tr><td><code>ClientAuthPolicy.REQUEST</code> (&ldquo;want&rdquo; client cert)</td><td><code>TlsConfig.requireClientAuth(true)</code> maps to <code>REQUIRE</code>; the optional policy is not exposed</td></tr>
 </table>
 
 <p>
@@ -310,7 +355,7 @@ certificate key type (EC vs RSA).
 </p>
 
 <p>
-On a TLS&nbsp;1.2 listener <code>named-groups</code> selects among
+On a TLS&nbsp;1.2 listener <code>namedGroups</code> selects among
 <code>x25519</code> and <code>secp256r1</code>, in the order given; when unset
 both are used, X25519 first. Hybrid post-quantum groups and other curves are
 TLS&nbsp;1.3 only: they are ignored with a warning, and a list with no usable
@@ -321,7 +366,7 @@ entry falls back to the default pair.
 
 <p>
 UDP endpoints select a DTLS version the same way TCP selects TLS:
-<code>dtls-version</code> pins <code>DTLS_1_2</code> or <code>DTLS_1_3</code>.
+<code>dtlsVersion</code> pins <code>DTLS_1_2</code> or <code>DTLS_1_3</code>.
 Each remote address gets its own session object on the shared datagram socket.
 </p>
 
@@ -330,11 +375,15 @@ Each remote address gets its own session object on the shared datagram socket.
 <ul>
 <li>Wraps <code>Tls12HandshakeEngine</code> with datagram reassembly, flight
     retransmission, replay windows, and epoch-aware keys</li>
-<li>Optional HelloVerifyRequest cookie exchange (<code>require-cookie</code>,
-    <code>cookie-secret</code>) for anti-amplification on servers</li>
+<li>Optional HelloVerifyRequest cookie exchange for anti-amplification on
+    servers: <code>TlsConfig.requireCookie(true)</code>. The cookie is computed
+    from <code>cookieSecret(byte[])</code>; leave it unset for a random secret
+    per listener, or give every instance behind one address the same secret so a
+    cookie issued by one is accepted by another</li>
 <li>Uses TLS&nbsp;1.2 cipher suite set and the same x25519 / secp256r1 ECDHE groups</li>
-<li><code>max-fragment-size</code> (default 1024) and
-    <code>max-dtls-peers</code> (default 4096; 0 = unlimited) bound memory</li>
+<li>Memory is bounded by <code>TlsConfig.maxFragmentSize(int)</code>
+    (default 1024) and, on any UDP listener, <code>maxDtlsPeers(int)</code>
+    (default 4096; 0 = unlimited)</li>
 </ul>
 
 <h3>DTLS&nbsp;1.3 (RFC&nbsp;9147)</h3>
@@ -342,7 +391,8 @@ Each remote address gets its own session object on the shared datagram socket.
 <ul>
 <li>Wraps <code>HandshakeEngine</code> in DTLS mode with unified headers,
     QUIC-style AEAD/header protection (<code>PacketProtection</code>), minimal
-    ACK (content type 26), and HelloRetryRequest cookie hook</li>
+    ACK (content type 26), and a HelloRetryRequest cookie exchange controlled by
+    the same <code>requireCookie</code> and <code>cookieSecret</code> settings</li>
 <li>Uses TLS&nbsp;1.3 cipher suites and configurable named groups</li>
 <li>Continuous transcript across cookie retry (no engine rebuild)</li>
 <li>Server-side Encrypted Client Hello (RFC&nbsp;9849) with the same
@@ -359,7 +409,23 @@ QUIC always uses TLS&nbsp;1.3. <code>QuicTlsClientEngine</code> and
 CRYPTO stream framing and RFC&nbsp;9001 key schedule labels. ALPN negotiates
 application protocols (<code>h3</code>, <code>doq</code>, etc.). Server
 identity uses the same keystore or PEM properties as TCP/TLS and DTLS listeners
-(see <a href="security.html#server-identity">Security &mdash; Server identity across transports</a>).
+(see <a href="#certificates">Certificates and keystores</a>).
+</p>
+
+<p>
+The QUIC transport itself is also in-tree, pure Java and event-driven: every
+connection is multiplexed on the same <code>SelectorLoop</code> threads as the
+rest of the framework and no thread is dedicated to a connection. As far as we
+know, Gumdrop is the only asynchronous pure-Java QUIC implementation. The one
+other pure-Java implementation we know of,
+<a href="https://github.com/ptrd/kwik">Kwik</a>, has client and server roles but a thread-based design:
+every connection, on the server as well as the client, gets its own receiver
+thread and its own sender thread (which sleeps in a <code>wait</code> loop),
+plus single-thread executors for callbacks and timers; application streams are
+read and written through blocking <code>java.io</code> streams, and on the
+server one shared thread reads the socket and queues each datagram to the
+receiver thread of the connection it belongs to. The remaining Java options (such as
+Netty&rsquo;s incubator codec) wrap native code.
 </p>
 
 <h2 id="security">Security practices</h2>
@@ -371,12 +437,13 @@ identity uses the same keystore or PEM properties as TCP/TLS and DTLS listeners
 <li><b>Forward secrecy</b> via ECDHE (TLS&nbsp;1.2 fixed curve; TLS&nbsp;1.3
     configurable groups)</li>
 <li><b>Extended Master Secret</b> mandatory on TLS&nbsp;1.2</li>
-<li><b>Version pinning</b> per listener (see above)</li>
+<li><b>Version policy</b> per listener or client: negotiate (prefer 1.3) or pin one version (see above)</li>
 <li><b>Hostname verification</b> enabled by default on clients
-    (<code>verify-hostname</code> / <code>HandshakeConfig</code>)</li>
+    (<code>HandshakeConfig.setVerifyHostname</code>); <code>TlsConfig.verifyPeer(false)</code>
+    turns off peer verification altogether and is for tests only</li>
 <li><b>Certificate validation</b> via PKIX (<code>CertificateVerifier</code>)
-    or custom <code>X509TrustManager</code>; optional SPKI pinning
-    (<code>pinned-cert-fingerprint</code>)</li>
+    or custom <code>X509TrustManager</code>; optional certificate or SPKI
+    pinning (see <a href="#cert-pinning">pinning</a>)</li>
 <li><b>DTLS amplification control</b> &mdash; cookie exchange, peer admission
     on listeners (CIDR/rate limits before new sessions), pending datagram caps</li>
 <li><b>Confidentiality limits</b> &mdash; AES-GCM record counts tracked; TLS&nbsp;1.3
@@ -405,64 +472,100 @@ identity uses the same keystore or PEM properties as TCP/TLS and DTLS listeners
 <p>
 Configuration flows: <b>Listener</b> &rarr;
 <b>TransportFactory</b> &rarr; <b>HandshakeConfig</b> (built per connection).
-Protocol services rarely touch handshake configs directly; they call
-listener setters or configure a factory in client code.
+Protocol services rarely touch handshake configs directly: you give a listener
+or client a <code>TlsConfig</code> and the framework configures the factory.
+</p>
+
+<h3 id="transparent">Transparent TLS</h3>
+
+<p>
+All endpoints support transparent TLS; protocol handlers never see records. The
+framework handles:
+</p>
+
+<ul>
+<li><b>Implicit TLS</b> - endpoint starts encrypted (HTTPS, IMAPS, POP3S)</li>
+<li><b>STARTTLS</b> - upgrade from cleartext to TLS mid-session</li>
+<li><b>Client authentication</b> - mutual TLS, with client certificates required</li>
+<li><b>SNI</b> - Server Name Indication for virtual hosting</li>
+<li><b>ALPN</b> - Application Layer Protocol Negotiation (HTTP/3, HTTP/2)</li>
+<li><b>DTLS</b> - TLS for UDP protocols</li>
+<li><b>QUIC</b> - always TLS 1.3 via the in-tree engine</li>
+</ul>
+
+<p>
+To enable TLS, configure the keystore on any listener:
+</p>
+
+<pre>
+TlsConfig tls = TlsConfig.keystore(Path.of("keystore.p12"), "secret");
+SmtpServer smtps = SmtpServer.compose()
+    .listener(new SmtpListener().port(465).secure(true).tls(tls))
+    .sessionProvider(SmtpServerSessionProviders.relay()
+        .hostname("relay.example.com"))
+    .server();
+</pre>
+
+<p>
+The sections below cover the underlying listener and factory properties in
+detail.
 </p>
 
 <h3>Listener (server)</h3>
 
-<pre>
-Map&lt;String, String&gt; sniHostnames = new HashMap&lt;&gt;();
-sniHostnames.put("example.com", "example-cert");
+<p>
+A listener takes all of its TLS settings from one <code>TlsConfig</code>:
+</p>
 
-Http2Listener listener = new Http2Listener().port(443).secure(true);
-listener.setTlsVersion(TlsVersion.TLS_1_3);
-listener.setKeystoreFile(Path.of("keystore.p12"));
-listener.setKeystorePass("secret");
-listener.setCipherSuites("TLS_AES_128_GCM_SHA256:TLS_CHACHA20_POLY1305_SHA256");
-listener.setNamedGroups("X25519:SECP256R1");
-listener.setNeedClientAuth(false);
-listener.setTrustManager((X509TrustManager)
-        TlsUtils.loadTrustManagers(Path.of("truststore.p12"), "secret", "PKCS12")[0]);
-listener.setSniHostnames(sniHostnames);
-listener.setSniDefaultAlias("default-cert");
+<pre>
+TlsConfig tls = TlsConfig.keystore(Path.of("keystore.p12"), "secret")
+    .tlsVersion(TlsVersion.TLS_1_3)
+    .cipherSuites("TLS_AES_128_GCM_SHA256:TLS_CHACHA20_POLY1305_SHA256")
+    .namedGroups("X25519:SECP256R1")
+    .requireClientAuth(false)
+    .trustManager((X509TrustManager)
+            TlsUtils.loadTrustManagers(Path.of("truststore.p12"), "secret", "PKCS12")[0])
+    .sni("example.com", "example-cert")
+    .sniDefaultAlias("default-cert");
+
+Http2Listener listener = new Http2Listener().port(443).secure(true).tls(tls);
 </pre>
 
 <p>
-UDP listeners call <code>setDtlsVersion(DtlsVersion)</code> instead of
-<code>setTlsVersion</code> and may set DTLS-specific options
-(<code>setRequireCookie</code>, <code>setMaxFragmentSize</code>,
-<code>setMaxDtlsPeers</code>). See <a href="dns.html">DNS</a> for DoT/DoQ
+Whether a listener uses TLS at all is decided by <code>secure(boolean)</code>.
+The configuration is copied when <code>tls()</code> is called. UDP listeners
+use <code>dtlsVersion(DtlsVersion)</code> on the <code>TlsConfig</code>
+instead of <code>tlsVersion</code> and may set DTLS-specific options
+(<code>requireCookie</code>, <code>cookieSecret</code>, <code>maxFragmentSize</code>
+on the <code>TlsConfig</code>, and <code>maxDtlsPeers</code> on the listener). See <a href="dns.html">DNS</a> for DoT/DoQ
 examples.
 </p>
 
-<h3>Programmatic client (factory)</h3>
+<h3>Programmatic client</h3>
 
 <p>
-In the client examples on this page, <code>gumdrop</code> is the runtime returned by <code>Gumdrop.boot()</code>; a client is given it when it connects.
+In the client examples on this page, <code>gumdrop</code> is the <code>Gumdrop</code> instance returned by <code>Gumdrop.boot()</code>; a client is given it when it connects.
+</p>
+
+<p>
+Every Gumdrop client takes a <code>TlsConfig</code> through
+<code>tls()</code>, and decides whether to use TLS with
+<code>secure(boolean)</code>:
 </p>
 
 <pre>
-TcpTransportFactory factory = new TcpTransportFactory();
-factory.setSecure(true);
-factory.setTlsVersion(TlsVersion.TLS_1_3);
-factory.setKeystoreFile(Path.of("client.p12"));
-factory.setKeystorePass("secret");
-factory.setTruststoreFile(Path.of("trust.p12"));
-factory.setTruststorePass("secret");
-factory.setApplicationProtocols("h2", "http/1.1");
-factory.setCipherSuites("TLS_AES_128_GCM_SHA256");
-factory.setNamedGroups("X25519");
-factory.start();
+TlsConfig tls = TlsConfig.keystore(Path.of("client.p12"), "secret")
+    .cipherSuites("TLS_AES_128_GCM_SHA256")
+    .namedGroups("X25519");
 
-ClientEndpoint endpoint = new ClientEndpoint(factory, "example.com", 443);
-endpoint.connect(gumdrop, new MyProtocolHandler());
+HttpClient client = new HttpClient("example.com", 443).secure(true).tls(tls);
+client.connect(gumdrop, new MyHttpClientHandler());
 </pre>
 
 <p>
-UDP clients mirror this with <code>UdpTransportFactory</code>,
-<code>setDtlsVersion(DtlsVersion.DTLS_1_3)</code>, and protocol-specific ALPN
-(e.g. <code>dot</code>, <code>doq</code>).
+UDP-based protocols (DoQ, DoT, DoH) are connected by the
+<a href="dns.html">DNS resolver</a>, which negotiates the protocol-specific
+ALPN (<code>dot</code>, <code>doq</code>) itself.
 </p>
 
 <h3 id="alpn">ALPN</h3>
@@ -490,9 +593,9 @@ Server Name Indication lets one IP/port serve multiple certificates:
 </p>
 
 <ul>
-<li><code>sni-hostnames</code> map (exact or <code>*.example.com</code> wildcards)
+<li><code>TlsConfig.sni(hostname, alias)</code> (exact or <code>*.example.com</code> wildcards)
     &rarr; keystore alias</li>
-<li><code>sni-default-alias</code> when no hostname matches</li>
+<li><code>TlsConfig.sniDefaultAlias()</code> when no hostname matches</li>
 <li>Programmatic: <code>setServerCredentialsResolver(ServerCredentialsResolver)</code>
     takes precedence over fixed <code>ServerCredentials</code></li>
 <li><b>Clients</b> set SNI automatically from the connect hostname (except UNIX
@@ -502,24 +605,28 @@ Server Name Indication lets one IP/port serve multiple certificates:
 <h3 id="mtls">Client certificates (mTLS)</h3>
 
 <pre>
-listener.setNeedClientAuth(true);
-listener.setTrustManager((X509TrustManager)
-        TlsUtils.loadTrustManagers(Path.of("client-ca.p12"), "secret", "PKCS12")[0]);
+TlsConfig tls = TlsConfig.keystore(Path.of("server.p12"), "secret")
+    .requireClientAuth(true)
+    .trustManager((X509TrustManager)
+            TlsUtils.loadTrustManagers(Path.of("client-ca.p12"), "secret", "PKCS12")[0]);
 </pre>
 
 <p>
-Clients present an identity via <code>setClientCredentials(ServerCredentials)</code>
-or by loading a client keystore into the factory. Server-side
-<code>setNeedClientAuth(true)</code> maps to <code>ClientAuthPolicy.REQUIRE</code>.
+Clients present an identity through their <code>TlsConfig</code>
+(<code>serverCredentials()</code>, or a keystore or PEM files). Server-side
+<code>requireClientAuth(true)</code> maps to <code>ClientAuthPolicy.REQUIRE</code>.
 </p>
 
 <h3 id="ciphers">Cipher suites</h3>
 
 <p>
-Colon-separated IANA names on <code>cipher-suites</code>. Unrecognized names are
-logged and skipped. Use TLS&nbsp;1.3 names when <code>tls-version</code> is
+Colon-separated IANA names on <code>cipherSuites</code>. Unrecognized names are
+logged and skipped. Use TLS&nbsp;1.3 names when <code>tlsVersion</code> is
 <code>TLS_1_3</code> (or DTLS&nbsp;1.3); use TLS&nbsp;1.2 names when pinned to
-TLS&nbsp;1.2 / DTLS&nbsp;1.2.
+TLS&nbsp;1.2 / DTLS&nbsp;1.2. In the default negotiate mode each engine takes the
+names of its own family from the list and logs a warning for the others, so a
+list of only TLS&nbsp;1.3 names leaves TLS&nbsp;1.2 on its defaults; set
+<code>tlsVersion</code> if you mean one family.
 </p>
 
 <h3 id="groups">Named groups (TLS 1.3 / DTLS 1.3)</h3>
@@ -568,6 +675,315 @@ Ed25519, and the post-quantum ML-DSA-44, ML-DSA-65 and ML-DSA-87 (FIPS&nbsp;204;
     (RFC&nbsp;9000 &sect;8.1), so the handshake can take an extra round trip.</li>
 </ul>
 
+<h2 id="certificates">Certificates and keystores</h2>
+
+<p>
+How a server gets its identity, and how a client decides whom to trust.
+Everything here is passed to a listener or client as a
+<code>TlsConfig</code>; the options it feeds are described under
+<a href="#configuration">Configuration for implementers</a>.
+</p>
+
+
+<p>
+All secure listeners (TCP/TLS, DTLS, and QUIC) use the same in-tree TLS
+stack and accept the same server-identity configuration, so the material
+below works for every transport. Certificate material is not checked in to
+the repository; you generate it once, locally.
+</p>
+
+<h4 id="pem-layout">The simplest form: three PEM files</h4>
+
+<p>
+The lowest-overhead way to give a listener an identity is plain PEM files. No
+keystore, no password, no format conversion, and the files are readable by
+<code>curl</code>, <code>openssl</code>, browsers and most other tools as they
+stand. Gumdrop&rsquo;s build, tests and documentation use one layout:
+</p>
+
+<table border="1" cellpadding="5">
+<tr><th>File</th><th>Holds</th><th>Used by</th></tr>
+<tr>
+  <td><code>key.pem</code></td>
+  <td>The server&rsquo;s private key (unencrypted PKCS#8)</td>
+  <td>The server: <code>key-file</code> / <code>TlsConfig.pem</code></td>
+</tr>
+<tr>
+  <td><code>cert.pem</code></td>
+  <td>The server&rsquo;s certificate (and any intermediates)</td>
+  <td>The server: <code>cert-file</code> / <code>TlsConfig.pem</code></td>
+</tr>
+<tr>
+  <td><code>ca.pem</code></td>
+  <td>The certificate of the CA that signed <code>cert.pem</code></td>
+  <td>Clients, as their trust anchor (<code>curl --cacert</code>,
+      <code>PemCredentials.loadTrustManager</code>)</td>
+</tr>
+</table>
+
+<p>
+Only <code>ca.pem</code> is ever given to clients. <code>key.pem</code> stays on
+the server.
+</p>
+
+<pre>
+// Server: the identity from two PEM files
+TlsConfig tls = TlsConfig.pem(Path.of("etc/tls/cert.pem"), Path.of("etc/tls/key.pem"));
+HttpServer http = HttpServer.compose()
+    .secureEndpoint(8443, tls)
+    .streamHandler(new MyStreamHandler())
+    .server();
+
+// Client: trust the CA in ca.pem, and nothing else
+X509TrustManager trust = PemCredentials.loadTrustManager(Path.of("etc/tls/ca.pem"));
+</pre>
+
+<p>
+In <code>server.xml</code> for the servlet container, the same identity is:
+</p>
+
+<pre>
+&lt;listener port="8443" secure="true" cert-file="tls/cert.pem" key-file="tls/key.pem"/&gt;
+</pre>
+
+<h4 id="generate-certificates">Generating them: <code>ant tls-certs</code></h4>
+
+<p>
+From a checkout, one command creates the three files in <code>etc/tls/</code>
+(gitignored), valid for <code>localhost</code>, <code>127.0.0.1</code> and
+<code>::1</code>:
+</p>
+
+<pre>
+ant tls-certs
+</pre>
+
+<p>
+It uses <a href="https://github.com/FiloSottile/mkcert">mkcert</a> when it is
+installed, and <code>openssl</code> with a private CA otherwise. If neither is
+found the build stops and tells you how to install them for your system:
+</p>
+
+<table border="1" cellpadding="5">
+<tr><th></th><th>mkcert (recommended)</th><th>openssl (fallback)</th></tr>
+<tr><td>macOS</td><td><code>brew install mkcert</code></td><td><code>brew install openssl</code></td></tr>
+<tr><td>Debian / Ubuntu</td><td><code>sudo apt install mkcert</code></td><td><code>sudo apt install openssl</code></td></tr>
+<tr><td>Fedora</td><td><code>sudo dnf install mkcert</code></td><td><code>sudo dnf install openssl</code></td></tr>
+<tr><td>Windows</td><td><code>winget install FiloSottile.mkcert</code></td>
+    <td><code>winget install ShiningLight.OpenSSL.Light</code>, or the copy that
+        comes with Git for Windows (found automatically)</td></tr>
+</table>
+
+<p>
+mkcert is preferred because its CA can be added to your operating system&rsquo;s
+trust store, which makes browsers and other tools trust the certificate with no
+further steps. With <code>openssl</code> you add <code>ca.pem</code> to the
+trust store yourself, or point a client at it directly. Programs installed
+somewhere unusual can be named with <code>-Dmkcert.executable=...</code> and
+<code>-Dopenssl.executable=...</code>.
+</p>
+
+<table border="1" cellpadding="5">
+<tr><th>Ant target</th><th>What it does</th></tr>
+<tr><td><code>tls-certs</code></td>
+    <td>Creates <code>key.pem</code>, <code>cert.pem</code> and <code>ca.pem</code>;
+        does nothing if they exist (<code>-Dtls.force=true</code> renews the
+        certificate, keeping the CA)</td></tr>
+<tr><td><code>tls-keystore</code></td>
+    <td>Also builds <code>keystore.p12</code> and <code>truststore.p12</code>
+        (see <a href="#keystores">below</a>)</td></tr>
+<tr><td><code>tls-trust-install</code></td>
+    <td>Adds the CA to the operating system trust store (mkcert only; may ask
+        for your password)</td></tr>
+<tr><td><code>tls-trust-uninstall</code></td>
+    <td>Removes it again</td></tr>
+<tr><td><code>tls-clean</code></td>
+    <td>Deletes everything generated, including the CA and its key</td></tr>
+</table>
+
+<p>
+Useful properties: <code>-Dtls.dir=</code> (output directory),
+<code>-Dtls.names="localhost example.test 10.0.0.5"</code> (host names and
+addresses), <code>-Dtls.keytype=rsa</code> (default is EC P-256) and
+<code>-Dtls.generator=openssl</code>. The header of
+<code>ant/tls.xml</code> lists them all.
+</p>
+
+<p>
+The CA is created inside the checkout (<code>etc/tls/ca/</code>), not in
+mkcert&rsquo;s per-user location, so nothing outside the checkout changes until
+you run <code>tls-trust-install</code>. After that, anyone who can read
+<code>etc/tls/ca/rootCA-key.pem</code> can create certificates your browser
+trusts: keep it private, and run <code>ant tls-trust-uninstall tls-clean</code>
+when you are finished with it.
+</p>
+
+<p>
+To check a running server without touching the trust store, give
+<code>curl</code> the CA:
+</p>
+
+<pre>
+curl --cacert etc/tls/ca.pem https://localhost:8443/
+</pre>
+
+<h4 id="without-ant">Without Ant</h4>
+
+<p>
+The files are ordinary PEM, so any tool can make them. With mkcert:
+</p>
+
+<pre>
+mkcert -ecdsa -cert-file cert.pem -key-file key.pem localhost 127.0.0.1 ::1
+cp "$(mkcert -CAROOT)/rootCA.pem" ca.pem
+</pre>
+
+<p>
+With only OpenSSL 1.1.1 or later, a self-signed certificate is a single command
+(it signs itself, so it is also its own trust anchor):
+</p>
+
+<pre>
+openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes -days 365 \
+    -keyout key.pem -out cert.pem -subj "/CN=localhost" \
+    -addext "subjectAltName=DNS:localhost,IP:127.0.0.1,IP:::1"
+cp cert.pem ca.pem
+</pre>
+
+<h4 id="keystores">Using Java keystores and truststores instead</h4>
+
+<p>
+Everything above also works with Java keystores, which suit deployments that
+already manage certificates that way. A keystore (PKCS#12, or JKS) holds the
+identity, and a truststore holds the trust anchors, in place of
+<code>key.pem</code> + <code>cert.pem</code> and <code>ca.pem</code>:
+</p>
+
+<table border="1" cellpadding="5">
+<tr><th></th><th>PEM</th><th>Java keystore</th></tr>
+<tr><td>Server identity</td>
+    <td><code>cert-file</code>, <code>key-file</code>;
+        <code>TlsConfig.pem(cert, key)</code></td>
+    <td><code>keystore-file</code>, <code>keystore-pass</code>,
+        optional <code>keystore-format</code> (<code>PKCS12</code> by default,
+        or <code>JKS</code>); <code>TlsConfig.keystore(path, pass)</code></td></tr>
+<tr><td>Trust anchors</td>
+    <td><code>PemCredentials.loadTrustManager(Path)</code></td>
+    <td><code>TlsUtils.loadTrustManagers(path, pass, format)</code></td></tr>
+<tr><td>Password</td><td>none</td><td>required</td></tr>
+<tr><td>Several identities in one file (SNI)</td><td>no, one pair per listener</td>
+    <td>yes, selected by alias</td></tr>
+</table>
+
+<p>
+A listener takes one form or the other, not both. To build the keystore and
+truststore from the PEM files:
+</p>
+
+<pre>
+ant tls-keystore          # etc/tls/keystore.p12 and etc/tls/truststore.p12, password "changeit"
+</pre>
+
+<p>
+or by hand:
+</p>
+
+<pre>
+# PKCS#12 keystore: the server key and certificate, with the CA in the chain
+openssl pkcs12 -export -in cert.pem -inkey key.pem -certfile ca.pem \
+    -name server -out keystore.p12 -passout pass:changeit
+
+# PKCS#12 truststore: the CA as a trust anchor (needs only the JDK)
+keytool -importcert -noprompt -alias ca -file ca.pem \
+    -keystore truststore.p12 -storetype PKCS12 -storepass changeit
+
+# JKS, if something still wants it
+keytool -importkeystore -srckeystore keystore.p12 -srcstoretype PKCS12 \
+    -destkeystore keystore.jks -deststoretype JKS
+</pre>
+
+<pre>
+TlsConfig tls = TlsConfig.keystore(Path.of("keystore.p12"), "changeit");
+X509TrustManager trust = (X509TrustManager)
+        TlsUtils.loadTrustManagers(Path.of("truststore.p12"), "changeit", "PKCS12")[0];
+</pre>
+
+<p>
+Going the other way, from an existing keystore back to PEM:
+</p>
+
+<pre>
+openssl pkcs12 -in keystore.p12 -nokeys -out cert.pem                 # certificate(s)
+openssl pkcs12 -in keystore.p12 -nocerts -nodes -out key.pem          # private key (PKCS#8)
+</pre>
+
+<h3 id="pem-format">PEM file format</h3>
+
+<p>
+With <code>cert-file</code> and <code>key-file</code> (or
+<code>TlsConfig.pem</code>) the certificate file must contain the full chain,
+leaf first and then intermediates. The private key file must be unencrypted
+PEM: a PKCS#8 <code>-----BEGIN PRIVATE KEY-----</code> block holding an RSA,
+EC, Ed25519 or ML-DSA key (the last two are for TLS&nbsp;1.3 only), or a SEC1
+<code>-----BEGIN EC PRIVATE KEY-----</code> block. The traditional RSA format
+(<code>-----BEGIN RSA PRIVATE KEY-----</code>) is not supported; convert it
+with <code>openssl pkcs8 -topk8 -nocrypt -in old.pem -out key.pem</code>. This
+applies on every transport.
+</p>
+
+<h3 id="colocated">Co-located HTTPS and HTTP/3</h3>
+
+<p>
+A typical deployment shares one port between an HTTPS listener on TCP and an
+HTTP/3 listener on UDP. <code>secureEndpoint()</code> pairs them and gives both
+the same identity:
+</p>
+
+<pre>
+TlsConfig tls = TlsConfig.keystore(Path.of("keystore.p12"), "secret");
+HttpServer http = HttpServer.compose()
+    .secureEndpoint(8443, tls)
+    .streamHandler(new ServletRequestHandler(container))
+    .server();
+</pre>
+
+<p>
+Both listeners must present the <b>same certificate identity</b> (same
+subject and SAN). A browser learns about HTTP/3 from the <code>Alt-Svc</code>
+header on the HTTP/2 connection and only tries QUIC if the certificate matches.
+</p>
+
+<h3 id="cert-pinning">Certificate pinning</h3>
+
+<p>
+Pinning adds a check on top of normal chain validation. Hand a pinning trust
+manager to <code>TlsConfig.trustManager()</code>; any client or listener that
+takes a <code>TlsConfig</code> can use it. All of them live in
+<code>org.bluezoo.gumdrop.util</code> unless noted, and take colon-separated
+lowercase SHA-256 hex fingerprints. With no delegate they validate the chain
+against the JVM's default trust first; pass an <code>X509TrustManager</code> as
+the first argument to validate against your own trust anchors instead.
+</p>
+
+<ul>
+<li><code>PinnedCertTrustManager</code> pins the whole leaf certificate. Give it
+    the fingerprints of both the current and the next certificate for
+    zero-downtime rotation.</li>
+<li><code>SpkiPinnedCertTrustManager</code> pins the SubjectPublicKeyInfo
+    instead, so a renewed certificate with the same key still matches (the
+    RFC&nbsp;7858 &sect;4.2 strict profile for DNS over TLS).</li>
+<li><code>org.bluezoo.gumdrop.dns.client.DaneTrustManager</code> authenticates a
+    server against DNSSEC-validated TLSA records (RFC&nbsp;6698, RFC&nbsp;7671).
+    The DNS resolver builds it when it finds secure TLSA records.</li>
+</ul>
+
+<pre>
+TlsConfig tls = new TlsConfig()
+    .trustManager(new PinnedCertTrustManager(
+        "ab:cd:ef:01:23:...", "12:34:56:78:..."));
+HttpClient client = new HttpClient("api.example.com", 443).secure(true).tls(tls);
+</pre>
+
 <h2 id="handlers">Protocol handlers and SecurityInfo</h2>
 
 <p>
@@ -614,13 +1030,13 @@ itself.
 Detailed requirement-by-requirement matrices for the in-tree TLS/DTLS
 implementation are maintained in
 <a href="../RFC-COMPLIANCE.md#tls-and-dtls">RFC-COMPLIANCE.md &sect; TLS and DTLS</a>
-in the source repository (also summarized for HTTP/2 cipher requirements and
+in the source repository (also summarised for HTTP/2 cipher requirements and
 QUIC-TLS integration in the HTTP and QUIC sections of that document).
 </p>
 
 <p>
-See also <a href="security.html#tls">Security &mdash; Transport Layer Security</a>
-for certificate generation, server identity configuration, and pinning.
+See also <a href="security.html">Security</a> for identity and access
+management, rate limiting and quotas.
 </p>
 
 </body>

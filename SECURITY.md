@@ -46,7 +46,7 @@ IMAP, FTP, DNS, MQTT, SOCKS, WebDAV, and a servlet container, plus a web
 based manager application, so reports of particular interest include (but
 are not limited to):
 
-- Authentication or authorization bypass in any protocol handler or in the
+- Authentication or authorisation bypass in any protocol handler or in the
   manager web application (e.g. realm/credential handling, servlet
   `<auth-constraint>` enforcement, SASL/SCRAM mechanisms)
 - Request smuggling, parser desync, or other protocol-framing issues in any

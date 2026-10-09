@@ -71,12 +71,12 @@ public class FtpMiscTest {
         assertSame(l, l.bindWildcard());
         assertSame(l, l.addresses(new java.net.InetAddress[0]));
         assertSame(l, l.secure(false));
-        l.setRequireTLSForData(true);
+        l.requireTLSForData(true);
         assertTrue(l.isRequireTLSForData());
-        l.setAllowActiveModeBounce(true);
+        l.allowActiveModeBounce(true);
         assertTrue(l.isAllowActiveModeBounce());
-        l.setPasvMinPort(5000);
-        l.setPasvMaxPort(5010);
+        l.pasvMinPort(5000);
+        l.pasvMaxPort(5010);
         assertEquals(5000, l.getPasvMinPort());
         assertEquals(5010, l.getPasvMaxPort());
         assertNull(l.getRealm());
@@ -85,7 +85,7 @@ public class FtpMiscTest {
         l.stop();
         assertNull(l.getServer());
         assertNull(l.getHandlerFactory());
-        l.setHandlerFactory(null);
+        l.handlerFactory(null);
     }
 
     @Test
@@ -113,7 +113,7 @@ public class FtpMiscTest {
         FtpServer server = FtpServer.compose().listener(l)
                 .sessionProvider(FtpServerSessionProviders.fileSystem())
                 .server();
-        l.setServer(server);
+        l.server(server);
         assertSame(server, l.getServer());
         ClientConnected c = l.openApplicationSession();
         assertNotNull(c);
@@ -130,7 +130,7 @@ public class FtpMiscTest {
                         throw new IllegalStateException("boom");
                     }
                 }).server();
-        l.setServer(server);
+        l.server(server);
         assertNull(l.openApplicationSession());
     }
 
@@ -138,14 +138,14 @@ public class FtpMiscTest {
     public void testCreateHandlerVariants() {
         FtpListener l = new FtpListener();
         assertNotNull(l.createHandler());
-        l.setHandlerFactory(new FtpConnectionHandlerFactory() {
+        l.handlerFactory(new FtpConnectionHandlerFactory() {
             @Override
             public FtpConnectionHandler createHandler() throws Exception {
                 return new StubHandler();
             }
         });
         assertNotNull(l.createHandler());
-        l.setHandlerFactory(new FtpConnectionHandlerFactory() {
+        l.handlerFactory(new FtpConnectionHandlerFactory() {
             @Override
             public FtpConnectionHandler createHandler() throws Exception {
                 throw new Exception("nope");
@@ -166,7 +166,7 @@ public class FtpMiscTest {
                                 return new StubHandler();
                             }
                         })).server();
-        l3.setServer(server);
+        l3.server(server);
         assertNotNull(l3.createHandler());
     }
 
@@ -296,9 +296,10 @@ public class FtpMiscTest {
 
     static class StubHandler implements FtpConnectionHandler {
         @Override public String connected(FtpConnectionMetadata m) { return null; }
-        @Override public FtpAuthenticationResult authenticate(String u, String p,
-                String a, FtpConnectionMetadata m) {
-            return FtpAuthenticationResult.SUCCESS;
+        @Override public void authenticate(String u, String p,
+                String a, FtpConnectionMetadata m,
+                org.bluezoo.gumdrop.auth.RealmCallback<FtpAuthenticationResult> cb) {
+            cb.completed(FtpAuthenticationResult.SUCCESS);
         }
         @Override public FtpFileSystem getFileSystem(FtpConnectionMetadata m) {
             return null;

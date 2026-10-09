@@ -33,6 +33,7 @@ import org.bluezoo.gumdrop.http.server.HttpStreamHandler;
 import org.bluezoo.gumdrop.mime.ContentDisposition;
 import org.bluezoo.gumdrop.mime.ContentType;
 import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
+import org.bluezoo.gumdrop.websocket.MessageSizeLimit;
 import org.bluezoo.gumdrop.websocket.PerMessageDeflateExtension;
 import org.bluezoo.gumdrop.websocket.WebSocketEventHandler;
 import org.bluezoo.gumdrop.websocket.WebSocketExtension;
@@ -178,6 +179,7 @@ public final class WebSocketRequestHandler implements HttpStreamHandler {
         private ConnectionHandlerFactory connectionHandlerFactory;
         private SubprotocolSelector subprotocolSelector;
         private boolean deflateEnabled = true;
+        private long maxMessageSize = -1L;
         private TelemetryConfig telemetryConfig;
 
         private Builder() {
@@ -214,6 +216,23 @@ public final class WebSocketRequestHandler implements HttpStreamHandler {
         }
 
         /**
+         * Sets the largest assembled message, in bytes, a connection accepts
+         * before it is closed with code 1009 (RFC 6455 section 7.4.1); 0
+         * means unlimited. Optional; connections default to {@link
+         * org.bluezoo.gumdrop.websocket.WebSocketConnection#DEFAULT_MAX_MESSAGE_SIZE}
+         * (64 MB).
+         *
+         * @throws IllegalArgumentException if the size is negative
+         */
+        public Builder maxMessageSize(long maxBytes) {
+            if (maxBytes < 0) {
+                throw new IllegalArgumentException("maxBytes must not be negative");
+            }
+            this.maxMessageSize = maxBytes;
+            return this;
+        }
+
+        /**
          * Enables {@link WebSocketServerMetrics} for connections upgraded
          * by the built handler. Optional; no metrics are recorded by
          * default.
@@ -238,8 +257,30 @@ public final class WebSocketRequestHandler implements HttpStreamHandler {
             SubprotocolSelector selector = subprotocolSelector != null
                     ? subprotocolSelector
                     : NO_SUBPROTOCOL;
+            ConnectionHandlerFactory factory = connectionHandlerFactory;
+            if (maxMessageSize >= 0) {
+                factory = new LimitedConnectionHandlerFactory(factory, maxMessageSize);
+            }
             return new WebSocketRequestHandler(
-                    connectionHandlerFactory, selector, extensions, wsMetrics);
+                    factory, selector, extensions, wsMetrics);
+        }
+
+        /** Wraps what a factory returns so the connection gets a message size limit. */
+        private static final class LimitedConnectionHandlerFactory
+                implements ConnectionHandlerFactory {
+            private final ConnectionHandlerFactory delegate;
+            private final long maxBytes;
+
+            LimitedConnectionHandlerFactory(ConnectionHandlerFactory delegate, long maxBytes) {
+                this.delegate = delegate;
+                this.maxBytes = maxBytes;
+            }
+
+            @Override
+            public WebSocketEventHandler create(String requestPath, UpgradeRequest request) {
+                WebSocketEventHandler handler = delegate.create(requestPath, request);
+                return handler == null ? null : new MessageSizeLimit(handler, maxBytes);
+            }
         }
 
         private static final SubprotocolSelector NO_SUBPROTOCOL =

@@ -91,7 +91,7 @@ public class FTPDataConnectionCoordinatorTest {
     @Test
     public void testSetupActiveModeAllowsBounceWhenConfigured() throws Exception {
         StubFTPListener listener = new StubFTPListener();
-        listener.setAllowActiveModeBounce(true);
+        listener.allowActiveModeBounce(true);
         FtpDataConnectionCoordinator coordinator =
                 new FtpDataConnectionCoordinator(
                         new StubControlConnection(listener));

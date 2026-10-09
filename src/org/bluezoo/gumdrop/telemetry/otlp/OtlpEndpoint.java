@@ -276,9 +276,9 @@ class OtlpEndpoint {
 
             client = new HttpClient(host, port);
             if (secure) {
-                client.setSecure(true);
+                client.secure(true);
                 if (tls != null) {
-                    client.importTls(tls);
+                    client.tls(tls);
                 }
             }
 

@@ -408,6 +408,11 @@ class WebSocketClientProtocolHandler extends HttpClientProtocolHandler {
         }
 
         @Override
+        public void setMaxMessageSize(long maxBytes) {
+            connection.setMaxMessageSize(maxBytes);
+        }
+
+        @Override
         public java.security.Principal getPrincipal() {
             return null;
         }

@@ -21,6 +21,8 @@
 
 package org.bluezoo.gumdrop.dns.client;
 
+import org.bluezoo.gumdrop.tls.TlsConfig;
+
 /**
  * SPI for creating a DNS-over-HTTPS (RFC 8484) {@link DnsClientTransport}.
  *
@@ -42,8 +44,9 @@ public interface DoHTransportFactory {
      *
      * @param path the RFC 8484 §4.1 URI template path to use (e.g.
      *             {@code "/dns-query"}), or null for the implementation's default
+     * @param tls the TLS settings for the HTTPS connection, or null for the defaults
      * @return a new transport instance
      */
-    DnsClientTransport createTransport(String path);
+    DnsClientTransport createTransport(String path, TlsConfig tls);
 
 }

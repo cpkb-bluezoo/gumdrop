@@ -55,7 +55,7 @@ public class SOCKSServiceTest {
     @Test
     public void testBlockedDestination() throws UnknownHostException {
         SocksServer service = createService();
-        service.setBlockedDestinations(CidrNetwork.parseList("10.0.0.0/8"));
+        service.blockedDestinations(CidrNetwork.parseList("10.0.0.0/8"));
 
         assertFalse(service.isDestinationAllowed(
                 InetAddress.getByName("10.1.2.3")));
@@ -66,7 +66,7 @@ public class SOCKSServiceTest {
     @Test
     public void testAllowedDestination() throws UnknownHostException {
         SocksServer service = createService();
-        service.setAllowedDestinations(CidrNetwork.parseList("192.168.0.0/16"));
+        service.allowedDestinations(CidrNetwork.parseList("192.168.0.0/16"));
 
         assertTrue(service.isDestinationAllowed(
                 InetAddress.getByName("192.168.1.1")));
@@ -77,8 +77,8 @@ public class SOCKSServiceTest {
     @Test
     public void testBlockedTakesPrecedence() throws UnknownHostException {
         SocksServer service = createService();
-        service.setBlockedDestinations(CidrNetwork.parseList("192.168.1.0/24"));
-        service.setAllowedDestinations(CidrNetwork.parseList("192.168.0.0/16"));
+        service.blockedDestinations(CidrNetwork.parseList("192.168.1.0/24"));
+        service.allowedDestinations(CidrNetwork.parseList("192.168.0.0/16"));
 
         assertFalse(service.isDestinationAllowed(
                 InetAddress.getByName("192.168.1.5")));
@@ -89,7 +89,7 @@ public class SOCKSServiceTest {
     @Test
     public void testMultipleBlockedRanges() throws UnknownHostException {
         SocksServer service = createService();
-        service.setBlockedDestinations(CidrNetwork.parseList("10.0.0.0/8,172.16.0.0/12"));
+        service.blockedDestinations(CidrNetwork.parseList("10.0.0.0/8,172.16.0.0/12"));
 
         assertFalse(service.isDestinationAllowed(
                 InetAddress.getByName("10.255.0.1")));
@@ -102,7 +102,7 @@ public class SOCKSServiceTest {
     @Test
     public void testEmptyBlockedString() throws UnknownHostException {
         SocksServer service = createService();
-        service.setBlockedDestinations(CidrNetwork.parseList(""));
+        service.blockedDestinations(CidrNetwork.parseList(""));
         assertTrue(service.isDestinationAllowed(
                 InetAddress.getByName("10.0.0.1")));
     }
@@ -110,7 +110,7 @@ public class SOCKSServiceTest {
     @Test
     public void testNullBlockedString() throws UnknownHostException {
         SocksServer service = createService();
-        service.setBlockedDestinations(null);
+        service.blockedDestinations(null);
         assertTrue(service.isDestinationAllowed(
                 InetAddress.getByName("10.0.0.1")));
     }
@@ -131,7 +131,7 @@ public class SOCKSServiceTest {
     @Test
     public void testAcquireRelayWithLimit() {
         SocksServer service = createService();
-        service.setMaxRelays(2);
+        service.maxRelays(2);
         assertEquals(2, service.getMaxRelays());
 
         assertTrue(service.acquireRelay());
@@ -143,7 +143,7 @@ public class SOCKSServiceTest {
     @Test
     public void testReleaseRelay() {
         SocksServer service = createService();
-        service.setMaxRelays(2);
+        service.maxRelays(2);
 
         assertTrue(service.acquireRelay());
         assertTrue(service.acquireRelay());
@@ -171,7 +171,7 @@ public class SOCKSServiceTest {
     @Test
     public void testSetRelayIdleTimeoutMs() {
         SocksServer service = createService();
-        service.setRelayIdleTimeoutMs(42_000);
+        service.relayIdleTimeoutMs(42_000);
         assertEquals(42_000, service.getRelayIdleTimeoutMs());
     }
 

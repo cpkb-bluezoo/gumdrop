@@ -166,8 +166,8 @@ public class MdnsServerTest {
     @Before
     public void setUp() throws Exception {
         server = new MdnsServer();
-        server.setHostname("box.example.org");
-        server.setAdvertiseServices(false);
+        server.hostname("box.example.org");
+        server.advertiseServices(false);
         listener = new MockListener();
         server.addListener(listener);
     }
@@ -240,19 +240,9 @@ public class MdnsServerTest {
     }
 
     @Test
-    public void setListenersKeepsOnlyMdnsListeners() {
-        MdnsServer s = new MdnsServer();
-        List<Object> items = new ArrayList<Object>();
-        items.add(new MdnsListener());
-        items.add("not a listener");
-        s.setListeners(items);
-        assertEquals(1, s.getListeners().size());
-    }
-
-    @Test
     public void excludedServicesAcceptsNullAndTokens() {
-        server.setExcludedServices("web ftp");
-        server.setExcludedServices(null);
+        server.excludedServices("web ftp");
+        server.excludedServices(null);
     }
 
     @Test
@@ -270,7 +260,7 @@ public class MdnsServerTest {
     @Test
     public void startWithoutListenersDoesNothing() {
         MdnsServer s = new MdnsServer();
-        s.setHostname("h");
+        s.hostname("h");
         s.start(null);
         assertFalse(s.isAnnounced());
         assertNull(s.getCurrentName());

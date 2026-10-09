@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.imap;
 
+import org.bluezoo.gumdrop.auth.SynchronousRealm;
 import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.ProtocolHandler;
 import org.bluezoo.gumdrop.SecurityInfo;
@@ -62,8 +63,8 @@ public class IMAPClientServerCompressTest {
                 new ImapClientProtocolHandler(greeting);
 
         ImapListener listener = new ImapListener();
-        listener.setRealm(new AcceptingRealm("alice", "secret"));
-        listener.setAllowPlaintextLogin(true);
+        listener.realm(new AcceptingRealm("alice", "secret"));
+        listener.allowPlaintextLogin(true);
         ImapProtocolHandler server = new ImapProtocolHandler(listener);
 
         client.connected(forwardingTo(server));
@@ -135,7 +136,7 @@ public class IMAPClientServerCompressTest {
         };
     }
 
-    private static final class AcceptingRealm implements Realm {
+    private static final class AcceptingRealm implements SynchronousRealm {
         private final String user;
         private final String pass;
         private static final Set<SaslMechanism> SUPPORTED =
@@ -147,10 +148,6 @@ public class IMAPClientServerCompressTest {
             this.pass = pass;
         }
 
-        @Override
-        public Realm forSelectorLoop(SelectorLoop loop) {
-            return this;
-        }
 
         @Override
         public Set<SaslMechanism> getSupportedSASLMechanisms() {
@@ -167,11 +164,6 @@ public class IMAPClientServerCompressTest {
             return null;
         }
 
-        @Override
-        @SuppressWarnings("deprecation")
-        public String getPassword(String username) {
-            return user.equals(username) ? pass : null;
-        }
 
         @Override
         public boolean isUserInRole(String username, String role) {

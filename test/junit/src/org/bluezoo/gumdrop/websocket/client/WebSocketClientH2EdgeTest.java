@@ -23,6 +23,7 @@
 package org.bluezoo.gumdrop.websocket.client;
 
 import java.io.IOException;
+import org.bluezoo.gumdrop.http.HttpVersion;
 import java.nio.ByteBuffer;
 
 import org.junit.After;
@@ -58,14 +59,14 @@ public class WebSocketClientH2EdgeTest {
 
         InMemoryClient(java.net.InetAddress address) {
             super(address, 80);
-            setDnsHttpsRecordEnabled(true);
+            dnsHttpsRecordEnabled(true);
         }
 
         InMemoryClient() {
             super("ws.example", 80);
-            setDnsHttpsRecordEnabled(false);
-            setH2Enabled(true);
-            setH2WithPriorKnowledge(true);
+            dnsHttpsRecordEnabled(false);
+            versions(HttpVersion.HTTP_2_0);
+            h2WithPriorKnowledge(true);
         }
 
         @Override
@@ -96,7 +97,7 @@ public class WebSocketClientH2EdgeTest {
     @Test
     public void extendedConnectWithoutSubprotocolOrExtensionsOffersNeitherHeader() {
         InMemoryClient c = new InMemoryClient();
-        c.setDeflateEnabled(false);
+        c.deflateEnabled(false);
         RecordingWebSocketEventHandler h = new RecordingWebSocketEventHandler();
         c.connect(null, "/ws", h);
         c.feed(settingsWithConnectProtocol());
@@ -111,8 +112,8 @@ public class WebSocketClientH2EdgeTest {
     @Test
     public void emptySubprotocolIsNotOffered() {
         InMemoryClient c = new InMemoryClient();
-        c.setDeflateEnabled(false);
-        c.setSubprotocol("");
+        c.deflateEnabled(false);
+        c.subprotocol("");
         RecordingWebSocketEventHandler h = new RecordingWebSocketEventHandler();
         c.connect(null, "/ws", h);
         c.feed(settingsWithConnectProtocol());

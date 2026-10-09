@@ -42,7 +42,7 @@ public class FTPListenerTest {
     public void testSecureDefaultPortIsFTPS() {
         // RFC 4217: implicit FTPS uses port 990
         FtpListener listener = new FtpListener();
-        listener.setSecure(true);
+        listener.secure(true);
         assertEquals("Secure listener should default to port 990",
                 990, listener.getPort());
     }
@@ -50,8 +50,8 @@ public class FTPListenerTest {
     @Test
     public void testExplicitPortOverridesSecureDefault() {
         FtpListener listener = new FtpListener();
-        listener.setSecure(true);
-        listener.setPort(2121);
+        listener.secure(true);
+        listener.port(2121);
         assertEquals("Explicitly set port should override FTPS default",
                 2121, listener.getPort());
     }
@@ -59,8 +59,8 @@ public class FTPListenerTest {
     @Test
     public void testExplicitPortNotOverriddenBySecure() {
         FtpListener listener = new FtpListener();
-        listener.setPort(8021);
-        listener.setSecure(true);
+        listener.port(8021);
+        listener.secure(true);
         assertEquals("Port set before setSecure should be preserved",
                 8021, listener.getPort());
     }
@@ -68,7 +68,7 @@ public class FTPListenerTest {
     @Test
     public void testNonSecureExplicitPort() {
         FtpListener listener = new FtpListener();
-        listener.setPort(2100);
+        listener.port(2100);
         assertEquals(2100, listener.getPort());
     }
 
@@ -81,7 +81,7 @@ public class FTPListenerTest {
     @Test
     public void testDescriptionFTPS() {
         FtpListener listener = new FtpListener();
-        listener.setSecure(true);
+        listener.secure(true);
         assertEquals("ftps", listener.getDescription());
     }
 }

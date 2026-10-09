@@ -22,7 +22,7 @@
 package org.bluezoo.gumdrop.amqp1.client;
 
 /**
- * Optional observer of {@link Amqp1ClientRecovery}'s reconnection
+ * Optional observer of {@link Amqp1Client}'s reconnection
  * progress. All methods do nothing by default. They are called from the
  * connection's event loop (or the retry timer), so must not block.
  *

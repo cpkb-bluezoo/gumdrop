@@ -23,7 +23,7 @@ package org.bluezoo.gumdrop.ldap.client;
 
 import java.util.Arrays;
 
-import org.bluezoo.gumdrop.ldap.asn1.BerEncoder;
+import org.bluezoo.gumdrop.asn1.BerEncoder;
 
 /**
  * The value of the Sync Request Control (RFC 4533 §2.2), attached to a

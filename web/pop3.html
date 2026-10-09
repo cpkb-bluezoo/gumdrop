@@ -36,7 +36,7 @@
 <p>
 Gumdrop provides a complete POP3 server implementation following RFC 1939 with
 modern extensions. POP3 (Post Office Protocol version 3) provides simple,
-download-oriented mailbox access—clients retrieve messages and optionally
+download-oriented mailbox access - clients retrieve messages and optionally
 delete them from the server. Like all Gumdrop protocol implementations, the
 POP3 server uses the event-driven, non-blocking architecture.
 </p>
@@ -46,6 +46,7 @@ POP3 server uses the event-driven, non-blocking architecture.
 <li><a href="#protocol">Protocol Support</a></li>
 <li><a href="#extensions">Extensions</a></li>
 <li><a href="#authentication">Authentication</a></li>
+<li><a href="#handlers">Handlers</a></li>
 <li><a href="#mailbox">Mailbox Integration</a></li>
 <li><a href="#configuration">Configuration</a></li>
 <li><a href="#security">Security</a></li>
@@ -95,25 +96,38 @@ mailbox lock</li>
 <li><b>UIDL</b> - returns unique identifiers for messages</li>
 </ul>
 
+<h4>Extension commands</h4>
+
+<ul>
+<li><b>CAPA</b> (RFC 2449) - lists the server's capabilities</li>
+<li><b>STLS</b> (RFC 2595) - upgrades the connection to TLS</li>
+<li><b>AUTH</b> (RFC 5034) - SASL authentication</li>
+<li><b>UTF8</b> (RFC 6816) - switches the session to UTF-8 mode</li>
+</ul>
+
 <h3 id="extensions">Extensions</h3>
 
 <h4>CAPA (RFC 2449)</h4>
 
 <p>
 The CAPA command allows clients to discover server capabilities. The server
-responds with a list of supported extensions:
+responds with a list of supported extensions. What it lists depends on the
+configuration: <code>SASL</code> names the mechanisms the realm supports (those
+that require TLS only once the connection is secure), <code>APOP</code> appears
+when APOP is enabled, <code>STLS</code> only on a cleartext connection with TLS
+configured, and <code>PIPELINING</code> only when enabled.
 </p>
 
 <pre>
 C: CAPA
 S: +OK Capability list follows
 S: USER
-S: STLS
 S: UIDL
 S: TOP
 S: SASL PLAIN LOGIN CRAM-MD5 SCRAM-SHA-256
+S: APOP
+S: STLS
 S: UTF8
-S: PIPELINING
 S: RESP-CODES
 S: AUTH-RESP-CODE
 S: EXPIRE NEVER
@@ -161,8 +175,9 @@ S: +OK UTF-8 mode enabled
 <h4>PIPELINING (RFC 2449)</h4>
 
 <p>
-When enabled, clients can send multiple commands without waiting for responses.
-This reduces round-trip latency for batch operations.
+When enabled with <code>enablePipelining(true)</code> (off by default), clients can
+send multiple commands without waiting for responses. This reduces round-trip
+latency for batch operations.
 </p>
 
 <h4>RESP-CODES (RFC 2449 section 8)</h4>
@@ -194,7 +209,7 @@ from server-side failures.
 
 <p>
 Declares the message retention policy. Configured via
-<code>setExpireDays(int)</code> on <code>Pop3Listener</code>:
+<code>expireDays(int)</code> on <code>Pop3Listener</code>:
 <code>0</code> means messages may be expired immediately, a positive value is
 the minimum retention in days, and <code>Integer.MAX_VALUE</code> advertises
 <code>EXPIRE NEVER</code>. Set to <code>-1</code> to suppress the capability.
@@ -211,16 +226,17 @@ Advertises the minimum delay between authentication attempts. When
 <h3 id="authentication">Authentication</h3>
 
 <p>
-Authentication uses Gumdrop's centralised <code>Realm</code> interface, shared
-with IMAP, SMTP, and other servers. Multiple authentication methods are
-supported.
+Authentication uses Gumdrop's centralised <code>Realm</code>, shared with IMAP,
+SMTP, and other servers; see <a href="security.html#realm-wiring">Using a
+realm</a> and pass it with <code>realm(...)</code>. Multiple authentication
+methods are supported.
 </p>
 
 <h4>Basic Authentication (USER/PASS)</h4>
 
 <p>
-The simplest method—client sends username and password in cleartext. Should
-only be used over TLS.
+The simplest method - the client sends its username and password in cleartext.
+Should only be used over TLS.
 </p>
 
 <pre>
@@ -279,6 +295,92 @@ C: (client final message, base64)
 S: +OK Authentication successful
 </pre>
 
+<h3 id="handlers">Handlers</h3>
+
+<p>
+The protocol work (CAPA, NOOP, STLS, the USER/PASS, APOP and AUTH exchanges)
+is handled for you. Your code decides policy through a staged handler, in the
+same style as the <a href="smtp.html#handler">SMTP</a> and
+<a href="imap.html#handlers">IMAP</a> servers. A server is assembled with
+<code>Pop3Server.compose()</code>:
+</p>
+
+<pre>
+Pop3Server server = Pop3Server.compose()
+        .listener(new Pop3Listener().port(110))
+        .sessionProvider(Pop3ServerSessionProviders.mailbox(mailboxFactory))
+        .realm(realm)
+        .enableAPOP(true)
+        .server();
+
+Gumdrop gumdrop = Gumdrop.boot();
+gumdrop.addServer(server);
+gumdrop.join();
+</pre>
+
+<p>
+<code>Pop3ServerSessionProviders.mailbox(factory)</code> is the stock provider:
+it serves each authenticated user's INBOX from a <code>MailboxFactory</code>
+and accepts every request. A complete, compiled example is in
+<code>examples/pop3-server/POP3Example.java</code>. To add policy, supply a
+provider that returns your own handler.
+</p>
+
+<h4>Handler interfaces</h4>
+
+<ul>
+<li><code>ClientConnected</code> - <code>connected(ConnectedState, Endpoint)</code>
+accepts the connection with a greeting (<code>acceptConnection</code>, or
+<code>acceptConnectionWithApop</code> to offer APOP) or rejects it;
+<code>disconnected()</code> is called when it closes</li>
+<li><code>AuthorizationHandler</code> -
+<code>authenticate(AuthenticateState, Principal, MailboxFactory)</code> is called
+once the client has proved its identity; <code>proceed</code> lets the protocol
+open the mailbox, <code>reject</code> refuses the login</li>
+<li><code>TransactionHandler</code> - <code>mailboxStatus</code> (STAT),
+<code>list</code>, <code>retrieveMessage</code>, <code>markDeleted</code>,
+<code>reset</code>, <code>top</code>, <code>uidl</code> and <code>quit</code>,
+each with the open <code>Mailbox</code> and the command's arguments</li>
+</ul>
+
+<p>
+Each method receives a state object for that command. A handler lets a command
+through with <code>proceed</code> where there is one, or answers it itself, and
+refuses it with <code>error(message, handler)</code> or a more specific method
+such as <code>noSuchMessage</code>. The handler passed in receives the next
+command. A handler may keep the state and answer later, but the answer must
+be made on the connection's <code>SelectorLoop</code> thread.
+</p>
+
+<p>
+<code>DefaultPOP3Handler</code> accepts everything, so a handler usually extends
+it and overrides the commands it wants to police. For example, to keep every
+message on the server by refusing DELE:
+</p>
+
+<pre>
+public class KeepMessagesHandler extends DefaultPOP3Handler {
+
+    public KeepMessagesHandler() {
+        super("Mail server ready");
+    }
+
+    &#64;Override
+    public void markDeleted(MarkDeletedState state, Mailbox mailbox,
+            int messageNumber) {
+        state.error("Messages are kept on the server", this);
+    }
+}
+
+Pop3ServerSessionProvider provider = new Pop3ServerSessionProvider() {
+    &#64;Override
+    public ClientConnected openSession(TcpListener listener) {
+        ((Pop3Listener) listener).mailboxFactory(mailboxFactory);
+        return new KeepMessagesHandler();
+    }
+};
+</pre>
+
 <h3 id="mailbox">Mailbox Integration</h3>
 
 <p>
@@ -287,24 +389,26 @@ API</a>. A <code>MailboxFactory</code> provides <code>MailboxStore</code>
 instances for authenticated users.
 </p>
 
-<h4>Store Lifecycle</h4>
+<h4>Store lifecycle</h4>
 
 <ol>
-<li>User authenticates successfully</li>
-<li>Server calls <code>mailboxFactory.createStore()</code></li>
-<li>Store is opened with <code>store.open(username)</code></li>
-<li>Server opens the user's INBOX mailbox</li>
+<li>User authenticates successfully and your handler's <code>authenticate</code>
+method calls <code>proceed</code></li>
+<li>The protocol creates the user's <code>MailboxStore</code> from the factory,
+opens it, and opens the user's INBOX, off the I/O thread</li>
 <li>Client retrieves messages, marks deletions</li>
-<li>On QUIT, server calls <code>mailbox.expunge()</code> to commit deletions</li>
-<li>Store is closed</li>
+<li>On QUIT, the deletions are committed (the mailbox is expunged)</li>
+<li>The store is closed</li>
 </ol>
 
-<h4>Mailbox Locking</h4>
+<h4>Mailbox locking</h4>
 
 <p>
-POP3 requires exclusive access to the mailbox during a session. The server
-acquires a lock when entering TRANSACTION state and releases it in UPDATE
-state. Concurrent POP3 connections to the same mailbox are rejected.
+POP3 expects exclusive access to the mailbox during a session. How that is
+achieved is up to the mailbox format: an mbox mailbox is held under a file lock
+for the session, and a second session on the same file waits for the first to
+finish, whereas Maildir has no whole-mailbox lock. See the
+<a href="mailbox.html">Mailbox API documentation</a>.
 </p>
 
 <h4>Message Identifiers</h4>
@@ -317,78 +421,72 @@ been downloaded.
 
 <h3 id="configuration">Configuration</h3>
 
-<h4>Pop3Listener Properties</h4>
-
 <p>
-<code>org.bluezoo.gumdrop.pop3.Pop3Listener</code> (transport configuration):
+Mail servers are configured in Java. The composer holds the settings shared by
+every listener, and each <code>Pop3Listener</code> holds its own transport
+settings and may override the shared ones.
 </p>
 
+<h4>Pop3Server.compose() settings</h4>
+
 <ul>
-<li><code>port</code> - listening port (default: 110, or 995 for secure)</li>
-<li><code>secure</code> - enable implicit TLS (POP3S)</li>
-<li><code>keystore-file</code> - keystore for TLS/STLS</li>
-<li><code>keystore-pass</code> - keystore password</li>
+<li><code>listener(Pop3Listener)</code> - add a listener; at least one is required</li>
+<li><code>sessionProvider(Pop3ServerSessionProvider)</code> - the handler factory</li>
+<li><code>realm(Realm)</code> - realm for authentication</li>
+<li><code>enableAPOP(boolean)</code> - enable APOP authentication (default: true)</li>
+<li><code>enableUTF8(boolean)</code> - enable UTF-8 support (default: true)</li>
+<li><code>enablePipelining(boolean)</code> - enable command pipelining (default: false)</li>
+<li><code>loginDelayMs(long)</code> - minimum delay between authentication
+attempts after a failure, in milliseconds (default: 0); helps mitigate
+brute-force attacks</li>
+<li><code>transactionTimeoutMs(long)</code> - session timeout in milliseconds
+(default: 600000 / 10 minutes); RFC 1939 requires at least 10 minutes</li>
 </ul>
 
-<h4>Pop3Server Properties</h4>
+<h4>Pop3Listener settings</h4>
+
+<ul>
+<li><code>port(int)</code> - listening port (default: 110, or 995 when <code>secure</code>)</li>
+<li><code>bindWildcard()</code> and <code>addresses(InetAddress...)</code> - where to bind</li>
+<li><code>secure(boolean)</code> - implicit TLS (POP3S)</li>
+<li><code>tls(TlsConfig)</code> - certificate and key; also enables STLS</li>
+<li><code>maxConnections(int)</code> and <code>maxConnectionsPerIP(int)</code> - connection caps</li>
+<li><code>rateLimit(String)</code>, <code>maxAuthFailures(int)</code>,
+<code>authLockoutTimeMs(long)</code> - abuse protection</li>
+<li><code>allowedNetworks</code> and <code>blockedNetworks</code> - CIDR allow and block lists</li>
+<li><code>idleTimeoutMs</code>, <code>readTimeoutMs</code>, <code>connectionTimeoutMs</code> - timeouts</li>
+<li><code>configureGSSAPI(Path keytab, String principal)</code> - Kerberos for AUTH GSSAPI</li>
+<li><code>expireDays(int)</code> - message retention policy advertised in CAPA:
+0 or more for days, <code>Integer.MAX_VALUE</code> for NEVER, -1 to suppress
+(default: -1); set on the listener only</li>
+<li>The composer's <code>enableAPOP</code>, <code>enableUTF8</code>,
+<code>enablePipelining</code>, <code>loginDelayMs</code> and
+<code>transactionTimeoutMs</code>, as per-listener overrides</li>
+</ul>
+
+<h4>Example configuration</h4>
 
 <p>
-<code>org.bluezoo.gumdrop.pop3.server.Pop3Server</code> (service logic):
+POP3 with STLS on port 110 and POP3S on port 995, sharing one realm and an mbox
+store:
 </p>
-
-<ul>
-<li><code>realm</code> - reference to a Realm for authentication</li>
-<li><code>mailbox-factory</code> - reference to a MailboxFactory</li>
-<li><code>enable-apop</code> - enable APOP authentication (default: true)</li>
-<li><code>enable-utf8</code> - enable UTF-8 support (default: true)</li>
-<li><code>enable-pipelining</code> - enable command pipelining (default: false)</li>
-<li><code>login-delay</code> - delay after failed authentication in milliseconds
-(default: 0); helps mitigate brute-force attacks</li>
-<li><code>transaction-timeout</code> - session timeout in milliseconds
-(default: 600000 / 10 minutes); RFC 1939 recommends at least 10 minutes</li>
-<li><code>expire-days</code> - message retention policy advertised in CAPA:
-0+ for days, <code>Integer.MAX_VALUE</code> for NEVER, -1 to suppress
-(default: -1)</li>
-</ul>
-
-<h4>Example Configuration</h4>
 
 <pre>
-&lt;!-- Authentication realm --&gt;
-&lt;realm id="mailRealm" class="org.bluezoo.gumdrop.auth.BasicRealm"&gt;
-    &lt;property name="href"&gt;mail-users.xml&lt;/property&gt;
-&lt;/realm&gt;
+TlsConfig tls = TlsConfig.pem(Paths.get("cert.pem"), Paths.get("key.pem"));
+MailboxFactory mbox = new MboxMailboxFactory(Paths.get("/var/mail"));
 
-&lt;!-- Mbox storage --&gt;
-&lt;mailbox-factory id="mbox"
-                 class="org.bluezoo.gumdrop.mailbox.mbox.MboxMailboxFactory"&gt;
-    &lt;property name="base-directory"&gt;/var/mail&lt;/property&gt;
-&lt;/mailbox-factory&gt;
+Pop3Server server = Pop3Server.compose()
+        .listener(new Pop3Listener().port(110).tls(tls))
+        .listener(new Pop3Listener().port(995).secure(true).tls(tls))
+        .sessionProvider(Pop3ServerSessionProviders.mailbox(mbox))
+        .realm(realm)
+        .enableAPOP(true)
+        .loginDelayMs(3000)
+        .server();
 
-&lt;!-- POP3 service (port 110 with STLS) --&gt;
-&lt;service id="pop3" class="org.bluezoo.gumdrop.pop3.server.Pop3Server"&gt;
-    &lt;property name="realm" ref="#mailRealm"/&gt;
-    &lt;property name="mailbox-factory" ref="#mbox"/&gt;
-    &lt;property name="enable-apop"&gt;true&lt;/property&gt;
-    &lt;property name="login-delay"&gt;3000&lt;/property&gt;
-    &lt;listener class="org.bluezoo.gumdrop.pop3.Pop3Listener"&gt;
-        &lt;property name="port"&gt;110&lt;/property&gt;
-        &lt;property name="keystore-file"&gt;keystore.p12&lt;/property&gt;
-        &lt;property name="keystore-pass"&gt;secret&lt;/property&gt;
-    &lt;/listener&gt;
-&lt;/service&gt;
-
-&lt;!-- POP3S service (port 995 with implicit TLS) --&gt;
-&lt;service id="pop3s" class="org.bluezoo.gumdrop.pop3.server.Pop3Server"&gt;
-    &lt;property name="realm" ref="#mailRealm"/&gt;
-    &lt;property name="mailbox-factory" ref="#mbox"/&gt;
-    &lt;listener class="org.bluezoo.gumdrop.pop3.Pop3Listener"&gt;
-        &lt;property name="port"&gt;995&lt;/property&gt;
-        &lt;property name="secure"&gt;true&lt;/property&gt;
-        &lt;property name="keystore-file"&gt;keystore.p12&lt;/property&gt;
-        &lt;property name="keystore-pass"&gt;secret&lt;/property&gt;
-    &lt;/listener&gt;
-&lt;/service&gt;
+Gumdrop gumdrop = Gumdrop.boot();
+gumdrop.addServer(server);
+gumdrop.join();
 </pre>
 
 <h3 id="security">Security</h3>
@@ -416,27 +514,27 @@ STLS remains available for compatibility with older clients.
 
 <p>
 USER/PASS and AUTH PLAIN transmit credentials in cleartext and should only be
-used over TLS. The server can be configured to reject these mechanisms without
-TLS.
+used over TLS. The server does not offer the SASL mechanisms that require TLS
+(PLAIN, LOGIN, OAUTHBEARER, EXTERNAL) until the connection is secure.
 </p>
 
 <h4>Brute-Force Mitigation</h4>
 
 <p>
-The <code>loginDelay</code> setting introduces a delay after failed
+The <code>loginDelayMs</code> setting introduces a delay after failed
 authentication attempts:
 </p>
 
 <ul>
 <li>Set to 3000 (3 seconds) to slow down automated attacks</li>
-<li>Applies per-connection; subsequent attempts within a session are delayed</li>
+<li>Applies per connection: after a failure, the next attempt on that connection is held back until the delay has passed</li>
 <li>Does not affect successful authentications</li>
 </ul>
 
 <h4>Session Timeout</h4>
 
 <p>
-The <code>transactionTimeout</code> setting closes idle connections:
+The <code>transactionTimeoutMs</code> setting closes idle connections:
 </p>
 
 <ul>
@@ -444,14 +542,6 @@ The <code>transactionTimeout</code> setting closes idle connections:
 <li>Prevents resource exhaustion from abandoned connections</li>
 <li>Timer resets on each client command</li>
 </ul>
-
-<h4>Mailbox Locking</h4>
-
-<p>
-Exclusive mailbox access prevents data corruption from concurrent modifications.
-If a mailbox is already locked by another session, authentication fails with an
-appropriate error.
-</p>
 
 <hr/>
 

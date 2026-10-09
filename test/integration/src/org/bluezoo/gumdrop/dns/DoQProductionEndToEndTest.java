@@ -171,8 +171,8 @@ public class DoQProductionEndToEndTest {
         // fixtures elsewhere in this codebase); trust the test cert
         // directly instead, the same way a real deployment would pin a
         // private CA via setCaFile.
-        firstTransport.setCaFile(certFile);
-        secondTransport.setCaFile(certFile);
+        firstTransport.caFile(certFile);
+        secondTransport.caFile(certFile);
         try {
             QuicTransportFactory serverFactory = new QuicTransportFactory();
             serverFactory.setApplicationProtocols("doq");
@@ -182,7 +182,7 @@ public class DoQProductionEndToEndTest {
             serverFactory.start();
 
             final DnsServer dnsService = new DnsServer();
-            dnsService.setHandler(new SyncDnsQueryHandler() {
+            dnsService.handler(new SyncDnsQueryHandler() {
                 @Override
                 protected DnsMessage resolveQuery(DnsMessage query) {
                     List<DnsResourceRecord> answers = new ArrayList<DnsResourceRecord>();
@@ -394,7 +394,7 @@ public class DoQProductionEndToEndTest {
         loop.start();
         QuicEngine serverEngine = null;
         final DoQClientTransport transport = new DoQClientTransport();
-        transport.setCaFile(certFile);
+        transport.caFile(certFile);
         final DnsResolver resolver = new DnsResolver();
         try {
             QuicTransportFactory serverFactory = new QuicTransportFactory();
@@ -404,7 +404,7 @@ public class DoQProductionEndToEndTest {
             serverFactory.start();
 
             final DnsServer dnsService = new DnsServer();
-            dnsService.setHandler(new SyncDnsQueryHandler() {
+            dnsService.handler(new SyncDnsQueryHandler() {
                 @Override
                 protected DnsMessage resolveQuery(DnsMessage query) {
                     DnsQuestion question = query.getQuestions().get(0);
@@ -430,14 +430,14 @@ public class DoQProductionEndToEndTest {
                     }, loop);
             int port = ((InetSocketAddress) serverEngine.getLocalAddress()).getPort();
 
-            resolver.setTransport(transport);
-            resolver.setSelectorLoop(loop);
+            resolver.transport(transport);
+            resolver.selectorLoop(loop);
             // Short timeout: pre-fix, both responses are silently dropped
             // (neither correlates to a pending query keyed by its real,
             // non-zero ID) and this test's failure should come from a
             // clear "query timed out" error well before any risk of the
             // test's own await() racing that timeout.
-            resolver.setTimeoutMs(2000);
+            resolver.timeoutMs(2000);
             resolver.addServer(InetAddress.getLoopbackAddress(), port);
             final CountDownLatch transportConnected = new CountDownLatch(1);
             DoQClientTransport.connectedObserver = new Runnable() {

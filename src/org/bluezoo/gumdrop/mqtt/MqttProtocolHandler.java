@@ -39,6 +39,7 @@ import org.bluezoo.gumdrop.ProtocolHandler;
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.TimerHandle;
 import org.bluezoo.gumdrop.auth.Realm;
+import org.bluezoo.gumdrop.auth.RealmCallback;
 import org.bluezoo.gumdrop.telemetry.Span;
 import org.bluezoo.gumdrop.telemetry.SpanKind;
 import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
@@ -270,30 +271,64 @@ public final class MqttProtocolHandler implements ProtocolHandler, MqttEventHand
             if (metrics != null) {
                 metrics.authAttempt();
             }
+            if (listener.isAuthLockedOut(endpoint.getRemoteAddress())) {
+                sendConnAck(false, CONNACK_NOT_AUTHORIZED);
+                endpoint.close();
+                return;
+            }
             String username = packet.getUsername();
             byte[] password = packet.getPassword();
             if (username == null || password == null) {
-                if (metrics != null) {
-                    metrics.authFailure();
-                }
-                sendConnAck(false, CONNACK_BAD_USERNAME_PASSWORD);
-                endpoint.close();
+                rejectCredentials();
                 return;
             }
-            if (!realm.passwordMatch(username,
-                    new String(password, StandardCharsets.UTF_8))) {
-                if (metrics != null) {
-                    metrics.authFailure();
+            // The realm answers without blocking this loop. The connect
+            // timer stays armed meanwhile, and the state refuses any other
+            // packet until the answer arrives.
+            state = State.AWAITING_CONNECT_AUTH;
+            final ConnectPacket connectPacket = packet;
+            final String connectClientId = clientId;
+            realm.forSelectorLoop(endpoint.getSelectorLoop()).passwordMatch(
+                    username, new String(password, StandardCharsets.UTF_8),
+                    new RealmCallback<Boolean>() {
+                @Override
+                public void completed(Boolean matched) {
+                    if (matched == null || !matched.booleanValue()) {
+                        rejectCredentials();
+                        return;
+                    }
+                    MqttServerMetrics m = getServerMetrics();
+                    if (m != null) {
+                        m.authSuccess();
+                    }
+                    listener.recordAuthSuccess(endpoint.getRemoteAddress(), connectPacket.getUsername());
+                    authenticated(connectPacket, connectClientId);
                 }
-                sendConnAck(false, CONNACK_BAD_USERNAME_PASSWORD);
-                endpoint.close();
-                return;
-            }
-            if (metrics != null) {
-                metrics.authSuccess();
-            }
-        }
 
+                @Override
+                public void failed(Throwable cause) {
+                    events().warn("log.connection_error").thrown(cause).emit();
+                    rejectCredentials();
+                }
+            });
+            return;
+        }
+        authenticated(packet, clientId);
+    }
+
+    /** CONNACK with a bad user name or password, then close. */
+    private void rejectCredentials() {
+        listener.recordAuthFailure(endpoint.getRemoteAddress(), null);
+        MqttServerMetrics metrics = getServerMetrics();
+        if (metrics != null) {
+            metrics.authFailure();
+        }
+        sendConnAck(false, CONNACK_BAD_USERNAME_PASSWORD);
+        endpoint.close();
+    }
+
+    /** Authentication (if any) is done: offers the connection to the ConnectHandler. */
+    private void authenticated(ConnectPacket packet, String clientId) {
         if (connectHandler != null) {
             state = State.AWAITING_CONNECT_AUTH;
             connectHandler.handleConnect(new ConnectStateImpl(packet, clientId),
@@ -325,7 +360,14 @@ public final class MqttProtocolHandler implements ProtocolHandler, MqttEventHand
 
         session = new MqttSession(clientId, version, packet.isCleanSession());
         session.setEndpoint(endpoint);
-        session.setKeepAlive(packet.getKeepAlive());
+        // A client that asks for no keep-alive (0) gets the listener's default
+        int keepAlive = packet.getKeepAlive();
+        boolean serverKeepAlive = false;
+        if (keepAlive <= 0 && listener.getDefaultKeepAlive() > 0) {
+            keepAlive = listener.getDefaultKeepAlive();
+            serverKeepAlive = true;
+        }
+        session.setKeepAlive(keepAlive);
         session.setUsername(packet.getUsername());
         subscriptionManager.registerSession(session);
 
@@ -347,7 +389,16 @@ public final class MqttProtocolHandler implements ProtocolHandler, MqttEventHand
             }
         }
 
-        sendConnAck(sessionPresent, CONNACK_ACCEPTED);
+        if (serverKeepAlive && version == MqttVersion.V5_0) {
+            // MQTT 5 section 3.2.2.3.14: tell the client the keep-alive it must honour
+            MqttProperties acceptedProperties = new MqttProperties();
+            acceptedProperties.setIntegerProperty(
+                    MqttProperties.SERVER_KEEP_ALIVE, keepAlive);
+            sendPacket(MqttPacketEncoder.encodeConnAck(
+                    sessionPresent, CONNACK_ACCEPTED, acceptedProperties, version));
+        } else {
+            sendConnAck(sessionPresent, CONNACK_ACCEPTED);
+        }
         state = State.CONNECTED;
 
         addSessionAttribute("mqtt.client_id", clientId);
@@ -359,8 +410,8 @@ public final class MqttProtocolHandler implements ProtocolHandler, MqttEventHand
             startAuthenticatedSpan(packet.getUsername());
         }
 
-        if (packet.getKeepAlive() > 0) {
-            long keepAliveMs = (long) (packet.getKeepAlive() * 1500);
+        if (keepAlive > 0) {
+            long keepAliveMs = (long) (keepAlive * 1500);
             keepAliveTimer = endpoint.scheduleTimer(keepAliveMs, new Runnable() {
                 @Override
                 public void run() {
@@ -684,6 +735,12 @@ public final class MqttProtocolHandler implements ProtocolHandler, MqttEventHand
         ConnectStateImpl(ConnectPacket packet, String clientId) {
             this.packet = packet;
             this.clientId = clientId;
+        }
+
+        @Override
+        public SecurityInfo getSecurityInfo() {
+            return endpoint != null && endpoint.isSecure()
+                    ? endpoint.getSecurityInfo() : null;
         }
 
         @Override

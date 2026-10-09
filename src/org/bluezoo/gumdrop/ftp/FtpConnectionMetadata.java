@@ -21,10 +21,14 @@
 
 package org.bluezoo.gumdrop.ftp;
 
+import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
 
 import java.net.InetSocketAddress;
 import java.security.cert.Certificate;
+import java.util.Collections;
+import java.util.HashSet;
+import java.util.Set;
 
 /**
  * Provides comprehensive metadata about an active FTP connection.
@@ -66,6 +70,14 @@ public class FtpConnectionMetadata {
     private int dataPort;
     private boolean passiveMode;
     
+    // The loop the connection runs on: the realm and the quota manager do
+    // their network work there, and call back there
+    private SelectorLoop selectorLoop;
+
+    // The roles the realm gave the user at login, so that authorisation
+    // checks during the session are in-memory lookups
+    private Set<String> roles = Collections.emptySet();
+
     // SITE command response (for multi-line responses)
     private String siteCommandResponse;
 
@@ -81,6 +93,51 @@ public class FtpConnectionMetadata {
      *
      * @return the configuration
      */
+    /**
+     * The loop this connection runs on, which handlers use to bind a
+     * {@link org.bluezoo.gumdrop.auth.Realm} for their lookups.
+     *
+     * @return the connection's loop
+     */
+    public SelectorLoop getSelectorLoop() {
+        return selectorLoop;
+    }
+
+    void setSelectorLoop(SelectorLoop selectorLoop) {
+        this.selectorLoop = selectorLoop;
+    }
+
+    /**
+     * The roles the realm gave the authenticated user at login.
+     *
+     * @return the roles, empty before login
+     */
+    public Set<String> getRoles() {
+        return roles;
+    }
+
+    /**
+     * Records the roles the realm gave the authenticated user, for the rest
+     * of the session; set by a handler during authentication.
+     *
+     * @param roles the user's roles
+     */
+    public void setRoles(Set<String> roles) {
+        this.roles = (roles == null)
+                ? Collections.<String>emptySet()
+                : Collections.unmodifiableSet(new HashSet<String>(roles));
+    }
+
+    /**
+     * Whether the authenticated user was given a role at login.
+     *
+     * @param role the role name
+     * @return true if the user holds it
+     */
+    public boolean hasRole(String role) {
+        return roles.contains(role);
+    }
+
     public synchronized TelemetryConfig getTelemetryConfig() {
         if (telemetryConfig == null) {
             telemetryConfig = new TelemetryConfig();

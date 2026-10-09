@@ -33,10 +33,14 @@ import java.nio.channels.WritableByteChannel;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.EnumSet;
 import java.util.List;
+import java.util.Set;
 import java.util.ResourceBundle;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -53,6 +57,7 @@ import org.bluezoo.gumdrop.GumdropConfig;
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.TcpTransportFactory;
+import org.bluezoo.gumdrop.TimerHandle;
 import org.bluezoo.gumdrop.dns.DnsMessage;
 import org.bluezoo.gumdrop.dns.HttpsRecordEch;
 import org.bluezoo.gumdrop.dns.DnsQueryCallback;
@@ -140,6 +145,17 @@ public class HttpClient implements AltSvcListener {
     private static final ResourceBundle L10N =
             ResourceBundle.getBundle("org.bluezoo.gumdrop.http.client.L10N");
 
+    /**
+     * How long a QUIC attempt chosen by discovery may take to establish
+     * before the client gives up on it and connects over TCP instead.
+     */
+    public static final long DEFAULT_QUIC_HANDSHAKE_TIMEOUT_MS = 3000L;
+
+    private static EnumSet<HttpVersion> defaultVersions() {
+        return EnumSet.of(HttpVersion.HTTP_3, HttpVersion.HTTP_2_0,
+                HttpVersion.HTTP_1_1);
+    }
+
     private String host;
     private int port;
     private String socketPath;
@@ -152,15 +168,13 @@ public class HttpClient implements AltSvcListener {
     private boolean secure;
     private String username;
     private String password;
-    private boolean h2Enabled = true;
-    private boolean h2cUpgradeEnabled = true;
+    private EnumSet<HttpVersion> versions = defaultVersions();
     private boolean h2WithPriorKnowledge;
-    private boolean h3Enabled;
+    private long quicHandshakeTimeoutMs = DEFAULT_QUIC_HANDSHAKE_TIMEOUT_MS;
     private boolean altSvcEnabled = true;
     private boolean dnsHttpsRecordEnabled = true;
     /** {@code ech} SvcParam from the last DNS HTTPS lookup, if any. */
     private byte[] dnsDiscoveredEchConfigList;
-    private boolean earlyDataEnabled;
     private boolean blockPrivateAddresses;
     private long idleTimeoutMs;
     private boolean sendAcceptEncodingHeader = ContentEncoding.isContentCodingEnabled();
@@ -301,83 +315,6 @@ public class HttpClient implements AltSvcListener {
     // ═══════════════════════════════════════════════════════════════════
 
     /**
-     * Sets whether this client uses TLS.
-     *
-     * @param secure true for TLS
-     */
-    public void setSecure(boolean secure) {
-        this.secure = secure;
-    }
-
-    /**
-     * Sets this client's own identity (certificate chain and private key)
-     * to present if the server requests client certificate authentication
-     * (mTLS).
-     *
-     * @param clientCredentials the client's own credentials
-     */
-    public void setClientCredentials(ServerCredentials clientCredentials) {
-        tls.serverCredentials(clientCredentials);
-    }
-
-    /**
-     * Sets a custom trust manager for TLS certificate verification.
-     *
-     * @param trustManager the trust manager, or null to use defaults
-     * @see org.bluezoo.gumdrop.util.PinnedCertTrustManager
-     * @see org.bluezoo.gumdrop.util.EmptyX509TrustManager
-     */
-    public void setTrustManager(X509TrustManager trustManager) {
-        tls.trustManager(trustManager);
-    }
-
-    /**
-     * Sets the trace context for automatic propagation of the traceparent
-     * header on outbound requests.
-     *
-     * <p>When making calls from within an HTTP request handler, pass
-     * {@code state.getTrace()} so that the distributed trace remains
-     * connected across service boundaries. If telemetry is configured
-     * and a trace exists, the traceparent header is added automatically
-     * to every request; callers need not add it manually.
-     *
-     * @param trace the trace to propagate, or null to disable
-     */
-    public void setTrace(Trace trace) {
-        this.traceContext = trace;
-        if (endpointHandler != null) {
-            endpointHandler.setTraceContext(trace);
-        }
-    }
-
-    /**
-     * Sets the keystore file for client certificate authentication.
-     *
-     * @param path the keystore file path
-     */
-    public void setKeystoreFile(Path path) {
-        tls.keystoreFile(path);
-    }
-
-    /**
-     * Sets the keystore password.
-     *
-     * @param password the keystore password
-     */
-    public void setKeystorePass(String password) {
-        tls.keystorePass(password);
-    }
-
-    /**
-     * Sets the keystore format (e.g. JKS, PKCS12).
-     *
-     * @param format the keystore format
-     */
-    public void setKeystoreFormat(KeystoreFormat format) {
-        tls.keystoreFormat(format);
-    }
-
-    /**
      * Sets HTTP Basic Authentication credentials.
      *
      * @param username the username
@@ -388,152 +325,6 @@ public class HttpClient implements AltSvcListener {
         this.username = username;
         this.password = password;
         return this;
-    }
-
-    /**
-     * Enables or disables HTTP/2 over TLS (h2).
-     *
-     * @param enabled true to enable HTTP/2
-     */
-    public void setH2Enabled(boolean enabled) {
-        this.h2Enabled = enabled;
-    }
-
-    /**
-     * Enables or disables HTTP/2 upgrade from HTTP/1.1 (h2c).
-     *
-     * <p>RFC 9113 section 3.1 deprecates this mechanism, but it is
-     * intentionally retained for backward compatibility.
-     *
-     * @param enabled true to enable h2c upgrade
-     */
-    public void setH2cUpgradeEnabled(boolean enabled) {
-        this.h2cUpgradeEnabled = enabled;
-    }
-
-    /**
-     * Enables or disables HTTP/2 with prior knowledge (no upgrade).
-     *
-     * <p>Per RFC 9113 section 3.3, the client sends the connection preface
-     * immediately without negotiation.
-     *
-     * @param enabled true to connect with prior knowledge of HTTP/2
-     */
-    public void setH2WithPriorKnowledge(boolean enabled) {
-        this.h2WithPriorKnowledge = enabled;
-    }
-
-    /**
-     * Forces HTTP/3 over QUIC, bypassing automatic transport negotiation.
-     *
-     * <p>By default (this not called), {@link #connect(Gumdrop, HttpClientHandler)}
-     * negotiates the transport automatically: a DNS HTTPS record
-     * advertising "h3" support (see {@link #setDnsHttpsRecordEnabled(boolean)}),
-     * then a cached Alt-Svc discovery ({@link AltSvcCache}), then plain TCP
-     * (HTTP/2 via ALPN/h2c, else HTTP/1.1). Calling this with {@code true}
-     * skips all of that and connects via QUIC with ALPN "h3" directly, with
-     * no fallback. HTTP/3 requires TLS 1.3 (built into QUIC), so
-     * the {@link #setSecure(boolean)} flag is implicitly true.
-     *
-     * <p>If PEM certificate/key files are needed for client authentication,
-     * set them via {@link #setCertFile(Path)} and
-     * {@link #setKeyFile(Path)}.
-     *
-     * @param enabled true to force HTTP/3
-     */
-    public void setH3Enabled(boolean enabled) {
-        this.h3Enabled = enabled;
-    }
-
-    /**
-     * Enables or disables Alt-Svc header discovery and automatic
-     * HTTP/3 upgrade.
-     *
-     * <p>When enabled (the default), the client inspects Alt-Svc
-     * response headers, may transparently open an HTTP/3 connection for
-     * this instance, and caches the discovery ({@link AltSvcCache}) for
-     * later connections to the same host. Disable this when a specific
-     * protocol version is required.
-     *
-     * @param enabled true to enable Alt-Svc discovery
-     */
-    public void setAltSvcEnabled(boolean enabled) {
-        this.altSvcEnabled = enabled;
-    }
-
-    /**
-     * Enables or disables DNS HTTPS-record discovery (RFC 9460) of HTTP/3
-     * support, checked before connecting.
-     *
-     * <p>When enabled (the default), {@link #connect(Gumdrop, HttpClientHandler)}
-     * queries an HTTPS record for the target host via gumdrop's async
-     * {@link DnsResolver} before choosing a transport; if it advertises
-     * "h3" ALPN support, the connection uses QUIC directly. This is the
-     * first tier of automatic negotiation, checked ahead of the
-     * {@link AltSvcCache}.
-     *
-     * @param enabled true to enable DNS HTTPS-record discovery
-     */
-    public void setDnsHttpsRecordEnabled(boolean enabled) {
-        this.dnsHttpsRecordEnabled = enabled;
-    }
-
-    /**
-     * Enables or disables QUIC 0-RTT early data (RFC 9001 section 4.6.1)
-     * for HTTP/3 connections.
-     *
-     * <p>When enabled, if a session ticket was cached from a previous
-     * connection to the same destination ({@link org.bluezoo.gumdrop.quic.SessionTicketCache}),
-     * a GET/HEAD/OPTIONS/TRACE request issued immediately after
-     * {@link #connect(Gumdrop, HttpClientHandler)} may ride the very first flight of
-     * packets, before the TLS handshake completes -- see
-     * {@link HttpMethodSafety}. Disabled by default: 0-RTT data has no
-     * anti-replay guarantee at the transport layer, so this is an explicit
-     * opt-in.
-     *
-     * @param enabled true to enable 0-RTT
-     */
-    public void setEarlyDataEnabled(boolean enabled) {
-        this.earlyDataEnabled = enabled;
-    }
-
-    /**
-     * Sets the PEM certificate chain file for QUIC client authentication.
-     *
-     * @param path the PEM file path
-     */
-    public void setCertFile(Path path) {
-        tls.certFile(path);
-    }
-
-    /**
-     * Sets the PEM private key file for QUIC client authentication.
-     *
-     * @param path the PEM file path
-     */
-    public void setKeyFile(Path path) {
-        tls.keyFile(path);
-    }
-
-    /**
-     * Sets whether to verify the peer's TLS certificate. Defaults to
-     * {@code true}. Applies to both TCP/TLS and QUIC/H3 connections.
-     *
-     * @param verify true to verify the peer certificate
-     */
-    public void setVerifyPeer(boolean verify) {
-        tls.verifyPeer(verify);
-    }
-
-    /**
-     * When {@code true}, connections to loopback, private, link-local, and
-     * cloud-metadata addresses (169.254.169.254) are rejected. Disabled by
-     * default. Enable when passing user-controlled URLs to guard against SSRF.
-     *
-     * @param block true to block private/internal addresses
-     */
-    public void setBlockPrivateAddresses(boolean block) {
-        this.blockPrivateAddresses = block;
     }
 
     private void checkNotPrivate(InetAddress addr) throws IOException {
@@ -558,70 +349,6 @@ public class HttpClient implements AltSvcListener {
         }
     }
 
-    /**
-     * Sets the idle connection timeout in milliseconds.
-     * When positive, the connection is closed after the specified
-     * period of inactivity (RFC 9113 section 9.1).
-     *
-     * @param ms timeout in milliseconds, 0 to disable
-     */
-    public void setIdleTimeoutMs(long ms) {
-        this.idleTimeoutMs = ms;
-    }
-
-    /**
-     * Enables or disables sending {@code Accept-Encoding: br, gzip, deflate}
-     * on outbound requests when the application has not set its own
-     * {@code Accept-Encoding} header.
-     *
-     * @param send true to advertise supported response codings (default)
-     */
-    public void setSendAcceptEncodingHeader(boolean send) {
-        this.sendAcceptEncodingHeader = send;
-        if (endpointHandler != null) {
-            endpointHandler.setSendAcceptEncodingHeader(send);
-        }
-        if (h3Handler != null) {
-            h3Handler.setSendAcceptEncodingHeader(send);
-        }
-    }
-
-    /**
-     * Enables or disables transparent decoding of {@code Content-Encoding}
-     * on response bodies. When enabled, decoded bytes are delivered to
-     * {@link org.bluezoo.gumdrop.http.client.HttpResponseHandler} and the
-     * {@code Content-Encoding} header is omitted.
-     *
-     * @param decode true to decode response bodies (default)
-     */
-    public void setDecodeResponseContentCoding(boolean decode) {
-        this.decodeResponseContentCoding = decode;
-        if (endpointHandler != null) {
-            endpointHandler.setDecodeResponseContentCoding(decode);
-        }
-        if (h3Handler != null) {
-            h3Handler.setDecodeResponseContentCoding(decode);
-        }
-    }
-
-    /**
-     * Enables or disables transparent compression of request bodies when
-     * {@code Content-Encoding} is set to {@code br}, {@code gzip}, or
-     * {@code deflate}. When disabled, body bytes are sent as supplied
-     * (for example already-compressed data).
-     *
-     * @param encode true to compress plaintext per {@code Content-Encoding}
-     */
-    public void setEncodeRequestBodyContentCoding(boolean encode) {
-        this.encodeRequestBodyContentCoding = encode;
-        if (endpointHandler != null) {
-            endpointHandler.setEncodeRequestBodyContentCoding(encode);
-        }
-        if (h3Handler != null) {
-            h3Handler.setEncodeRequestBodyContentCoding(encode);
-        }
-    }
-
     private void applyContentCodingSettings(HttpClientProtocolHandler handler) {
         handler.setSendAcceptEncodingHeader(sendAcceptEncodingHeader);
         handler.setDecodeResponseContentCoding(decodeResponseContentCoding);
@@ -632,23 +359,6 @@ public class HttpClient implements AltSvcListener {
         handler.setSendAcceptEncodingHeader(sendAcceptEncodingHeader);
         handler.setDecodeResponseContentCoding(decodeResponseContentCoding);
         handler.setEncodeRequestBodyContentCoding(encodeRequestBodyContentCoding);
-    }
-
-    /**
-     * Sets an optional connection pool for endpoint reuse.
-     *
-     * <p>When set, the client checks the pool for an idle endpoint
-     * before creating a new connection. On request completion with
-     * keep-alive, the endpoint is released back to the pool.
-     *
-     * <p>Pool targets include {@link SelectorLoop} affinity, so
-     * each I/O thread gets its own bucket of pooled connections.
-     *
-     * @param pool the connection pool, or null to disable pooling
-     * @see ClientEndpointPool
-     */
-    public void setConnectionPool(ClientEndpointPool pool) {
-        this.connectionPool = pool;
     }
 
     public HttpClient host(String host) {
@@ -702,148 +412,169 @@ public class HttpClient implements AltSvcListener {
      * configuration.
      */
     public HttpClient secure(boolean secure) {
-        setSecure(secure);
-        return this;
-    }
-
-    /** @return this client */
-    public HttpClient clientCredentials(ServerCredentials clientCredentials) {
-        setClientCredentials(clientCredentials);
-        return this;
-    }
-
-    /** @return this client */
-    public HttpClient trustManager(X509TrustManager trustManager) {
-        setTrustManager(trustManager);
-        return this;
-    }
-
-    /**
-     * Trust the JVM default CA store (required before {@link #secure(boolean)}
-     * can enable TLS).
-     */
-    public HttpClient trustJvm() {
-        tls.trustJvm();
+        this.secure = secure;
         return this;
     }
 
     /** @return this client */
     public HttpClient trace(Trace trace) {
-        setTrace(trace);
+        this.traceContext = trace;
+        if (endpointHandler != null) {
+            endpointHandler.setTraceContext(trace);
+        }
         return this;
     }
 
-    /** @return this client */
-    public HttpClient keystoreFile(Path path) {
-        setKeystoreFile(path);
+    /**
+     * Sets the HTTP versions this client may use. The client always prefers
+     * the highest permitted version, so the order of the arguments does not
+     * matter. The default is {@link HttpVersion#HTTP_3}, {@link
+     * HttpVersion#HTTP_2_0} and {@link HttpVersion#HTTP_1_1}.
+     *
+     * <p>When HTTP/3 and a TCP version are both permitted, the client
+     * discovers HTTP/3 (a DNS HTTPS record, then a cached {@code Alt-Svc})
+     * and falls back to TCP if the QUIC attempt fails or does not establish
+     * within {@link #quicHandshakeTimeoutMs(long)}. Permitting only
+     * {@code HTTP_3} connects over QUIC straight away, with no discovery
+     * and no fallback. Leaving out {@code HTTP_3} means QUIC is never used;
+     * leaving out {@code HTTP_2_0} stops {@code h2} being offered over TLS
+     * and the h2c upgrade being attempted over cleartext.
+     *
+     * @param permitted the permitted versions, at least one of
+     *        {@code HTTP_3}, {@code HTTP_2_0} and {@code HTTP_1_1}
+     * @return this client
+     * @throws IllegalArgumentException if the list is null, empty, contains
+     *         null, or contains a version this client cannot speak
+     */
+    public HttpClient versions(HttpVersion... permitted) {
+        this.versions = HttpVersion.clientVersions(permitted);
         return this;
     }
 
-    /** @return this client */
-    public HttpClient keystorePass(String password) {
-        setKeystorePass(password);
-        return this;
+    /**
+     * Returns the HTTP versions this client may use.
+     *
+     * @return an unmodifiable set
+     */
+    public Set<HttpVersion> getVersions() {
+        return Collections.unmodifiableSet(EnumSet.copyOf(versions));
     }
 
-    /** @return this client */
-    public HttpClient keystoreFormat(KeystoreFormat format) {
-        setKeystoreFormat(format);
-        return this;
-    }
-
-    /** @return this client */
-    public HttpClient h2Enabled(boolean enabled) {
-        setH2Enabled(enabled);
-        return this;
-    }
-
-    /** @return this client */
-    public HttpClient h2cUpgradeEnabled(boolean enabled) {
-        setH2cUpgradeEnabled(enabled);
-        return this;
-    }
-
-    /** @return this client */
+    /**
+     * Forces HTTP/2 over cleartext with no negotiation: the client sends the
+     * HTTP/2 connection preface immediately (RFC 9113 section 3.3). Requires
+     * {@link HttpVersion#HTTP_2_0} to be permitted by {@link
+     * #versions(HttpVersion...)}, and has no effect over TLS, where ALPN
+     * decides.
+     *
+     * @return this client
+     */
     public HttpClient h2WithPriorKnowledge(boolean enabled) {
-        setH2WithPriorKnowledge(enabled);
+        this.h2WithPriorKnowledge = enabled;
         return this;
     }
 
-    /** @return this client */
-    public HttpClient h3Enabled(boolean enabled) {
-        setH3Enabled(enabled);
+    /**
+     * Sets how long a QUIC attempt may take to establish. When discovery
+     * chose QUIC and TCP is permitted, the client then connects over TCP
+     * instead; when only HTTP/3 is permitted, the connection fails with an
+     * error. The default is three seconds; 0 disables the deadline, so only
+     * a prompt failure ends the attempt.
+     *
+     * @return this client
+     */
+    public HttpClient quicHandshakeTimeoutMs(long ms) {
+        if (ms < 0) {
+            throw new IllegalArgumentException("ms must not be negative");
+        }
+        this.quicHandshakeTimeoutMs = ms;
         return this;
+    }
+
+    private boolean permitsH3() {
+        return versions.contains(HttpVersion.HTTP_3);
+    }
+
+    private boolean permitsH2() {
+        return versions.contains(HttpVersion.HTTP_2_0);
+    }
+
+    private boolean permitsH11() {
+        return versions.contains(HttpVersion.HTTP_1_1);
+    }
+
+    private boolean permitsTcp() {
+        return permitsH2() || permitsH11();
+    }
+
+    /** Only HTTP/3 is permitted: connect over QUIC with no discovery and no fallback. */
+    private boolean forcesH3() {
+        return permitsH3() && !permitsTcp();
     }
 
     /** @return this client */
     public HttpClient altSvcEnabled(boolean enabled) {
-        setAltSvcEnabled(enabled);
+        this.altSvcEnabled = enabled;
         return this;
     }
 
     /** @return this client */
     public HttpClient dnsHttpsRecordEnabled(boolean enabled) {
-        setDnsHttpsRecordEnabled(enabled);
-        return this;
-    }
-
-    /** @return this client */
-    public HttpClient earlyDataEnabled(boolean enabled) {
-        setEarlyDataEnabled(enabled);
-        return this;
-    }
-
-    /** @return this client */
-    public HttpClient certFile(Path path) {
-        setCertFile(path);
-        return this;
-    }
-
-    /** @return this client */
-    public HttpClient keyFile(Path path) {
-        setKeyFile(path);
-        return this;
-    }
-
-    /** @return this client */
-    public HttpClient verifyPeer(boolean verify) {
-        setVerifyPeer(verify);
+        this.dnsHttpsRecordEnabled = enabled;
         return this;
     }
 
     /** @return this client */
     public HttpClient blockPrivateAddresses(boolean block) {
-        setBlockPrivateAddresses(block);
+        this.blockPrivateAddresses = block;
         return this;
     }
 
     /** @return this client */
     public HttpClient idleTimeoutMs(long ms) {
-        setIdleTimeoutMs(ms);
+        this.idleTimeoutMs = ms;
         return this;
     }
 
     /** @return this client */
     public HttpClient sendAcceptEncodingHeader(boolean send) {
-        setSendAcceptEncodingHeader(send);
+        this.sendAcceptEncodingHeader = send;
+        if (endpointHandler != null) {
+            endpointHandler.setSendAcceptEncodingHeader(send);
+        }
+        if (h3Handler != null) {
+            h3Handler.setSendAcceptEncodingHeader(send);
+        }
         return this;
     }
 
     /** @return this client */
     public HttpClient decodeResponseContentCoding(boolean decode) {
-        setDecodeResponseContentCoding(decode);
+        this.decodeResponseContentCoding = decode;
+        if (endpointHandler != null) {
+            endpointHandler.setDecodeResponseContentCoding(decode);
+        }
+        if (h3Handler != null) {
+            h3Handler.setDecodeResponseContentCoding(decode);
+        }
         return this;
     }
 
     /** @return this client */
     public HttpClient encodeRequestBodyContentCoding(boolean encode) {
-        setEncodeRequestBodyContentCoding(encode);
+        this.encodeRequestBodyContentCoding = encode;
+        if (endpointHandler != null) {
+            endpointHandler.setEncodeRequestBodyContentCoding(encode);
+        }
+        if (h3Handler != null) {
+            h3Handler.setEncodeRequestBodyContentCoding(encode);
+        }
         return this;
     }
 
     /** @return this client */
     public HttpClient connectionPool(ClientEndpointPool pool) {
-        setConnectionPool(pool);
+        this.connectionPool = pool;
         return this;
     }
 
@@ -858,8 +589,8 @@ public class HttpClient implements AltSvcListener {
      * endpoint, then initiates the connection. Lifecycle events are
      * forwarded to the given handler.
      *
-     * <p>If {@link #setH3Enabled(boolean)} is true, the connection uses
-     * QUIC with HTTP/3 instead of TCP.
+     * <p>Which transport and HTTP version is used follows {@link
+     * #versions(HttpVersion...)}.
      *
      * @param gumdrop the runtime this connection is made under
      * @param handler the handler to receive connection lifecycle events
@@ -878,8 +609,14 @@ public class HttpClient implements AltSvcListener {
                 + (socketPath != null ? socketPath : (host != null ? host : hostAddress) + ":" + port));
         }
 
+        if (h2WithPriorKnowledge && !permitsH2()) {
+            handler.onError(new IllegalStateException(
+                    "h2WithPriorKnowledge requires HTTP_2_0 in versions"));
+            return;
+        }
+
         if (socketPath != null) {
-            if (h3Enabled) {
+            if (forcesH3()) {
                 handler.onError(new IOException(
                         "HTTP/3 is not supported over a UNIX domain socket"));
                 return;
@@ -888,7 +625,7 @@ public class HttpClient implements AltSvcListener {
             return;
         }
 
-        if (h3Enabled) {
+        if (forcesH3()) {
             if (hostAddress != null) {
                 try {
                     checkNotPrivate(hostAddress);
@@ -896,9 +633,9 @@ public class HttpClient implements AltSvcListener {
                     handler.onError(e);
                     return;
                 }
-                connectH3(hostAddress, port, host, handler);
+                connectH3(hostAddress, port, host, handler, QUIC_FORCED);
             } else {
-                resolveAndConnectH3(host, port, handler);
+                resolveAndConnectH3(host, port, handler, QUIC_FORCED);
             }
             return;
         }
@@ -957,11 +694,10 @@ public class HttpClient implements AltSvcListener {
                     if (rr.getType() != DnsType.HTTPS || rr.isSVCBAliasForm()) {
                         continue;
                     }
-                    if (rr.getSVCBAlpnProtocols().contains("h3")) {
+                    if (permitsH3() && rr.getSVCBAlpnProtocols().contains("h3")) {
                         int svcbPort = rr.getSVCBPort();
                         int targetPort = svcbPort > 0 ? svcbPort : port;
-                        h3Enabled = true;
-                        resolveAndConnectH3(host, targetPort, handler);
+                        resolveAndConnectH3(host, targetPort, handler, QUIC_DISCOVERED);
                         return;
                     }
                 }
@@ -976,14 +712,13 @@ public class HttpClient implements AltSvcListener {
     }
 
     private void connectViaAltSvcCacheOrTcp(HttpClientHandler handler) {
-        AltSvcCache.Entry cached = AltSvcCache.get(host, port);
+        AltSvcCache.Entry cached = permitsH3() ? AltSvcCache.get(host, port) : null;
         if (cached != null) {
-            h3Enabled = true;
             String altHost = cached.getH3Host();
             if (altHost != null) {
-                resolveAndConnectH3(altHost, cached.getH3Port(), handler);
+                resolveAndConnectH3(altHost, cached.getH3Port(), handler, QUIC_DISCOVERED);
             } else {
-                resolveAndConnectH3(host, cached.getH3Port(), handler);
+                resolveAndConnectH3(host, cached.getH3Port(), handler, QUIC_DISCOVERED);
             }
             return;
         }
@@ -991,10 +726,14 @@ public class HttpClient implements AltSvcListener {
     }
 
     /**
-     * Copies TLS dial settings into this client (used when another facade
-     * delegates to {@link HttpClient} on the HTTP/3 path).
+     * Sets this client's TLS settings (certificates, trust, ECH and so on). The
+     * settings are copied, so later changes to {@code source} are not seen.
+     * Whether TLS is used at all is decided by {@link #secure(boolean)}.
+     *
+     * @param source the TLS configuration
+     * @return this client
      */
-    public HttpClient importTls(TlsConfig source) {
+    public HttpClient tls(TlsConfig source) {
         tls.copyFrom(source);
         return this;
     }
@@ -1026,8 +765,14 @@ public class HttpClient implements AltSvcListener {
         // mandatory fallback token. HttpClientProtocolHandler.securityEstablished()
         // adopts whichever protocol the server selects. (h2c prior knowledge is
         // a cleartext path and does not use ALPN.)
-        if (secure && h2Enabled && !h2WithPriorKnowledge) {
-            transportFactory.setApplicationProtocols("h2", "http/1.1");
+        final boolean priorKnowledge = permitsH2()
+                && (h2WithPriorKnowledge || (!secure && !permitsH11()));
+        if (secure && permitsH2() && !priorKnowledge) {
+            if (permitsH11()) {
+                transportFactory.setApplicationProtocols("h2", "http/1.1");
+            } else {
+                transportFactory.setApplicationProtocols("h2");
+            }
         }
 
         HttpClientHandler poolAwareHandler = connectionPool != null
@@ -1053,9 +798,9 @@ public class HttpClient implements AltSvcListener {
         if (username != null) {
             endpointHandler.credentials(username, password);
         }
-        endpointHandler.setH2Enabled(h2Enabled);
-        endpointHandler.setH2cUpgradeEnabled(h2cUpgradeEnabled);
-        if (h2WithPriorKnowledge) {
+        endpointHandler.setH2Enabled(permitsH2());
+        endpointHandler.setH2cUpgradeEnabled(permitsH2() && permitsH11());
+        if (priorKnowledge) {
             endpointHandler.setH2WithPriorKnowledge(true);
         }
         if (idleTimeoutMs > 0) {
@@ -1178,17 +923,25 @@ public class HttpClient implements AltSvcListener {
      * @param targetPort the port to connect to
      * @param serverName the TLS SNI hostname (the original origin)
      * @param handler the handler to receive connection lifecycle events
+     * @param mode {@link #QUIC_DISCOVERED} if discovery chose QUIC and TCP is
+     *        permitted, so that a failed or stalled attempt connects over TCP
+     *        instead of reporting an error; {@link #QUIC_FORCED} if only
+     *        HTTP/3 is permitted, where a stalled attempt is an error;
+     *        {@link #QUIC_UPGRADE} for the reactive Alt-Svc upgrade of a
+     *        connection that already works, which has no deadline
      */
     private void connectH3(final InetAddress targetAddress,
                            final int targetPort,
                            final String serverName,
-                           final HttpClientHandler handler) {
+                           final HttpClientHandler handler,
+                           final int mode) {
+        final boolean fallback = mode == QUIC_DISCOVERED;
         SelectorLoop loop = selectorLoop;
         if (loop == null) {
             loop = gumdrop.nextWorkerLoop();
         }
         if (loop == null) {
-            handler.onError(new IOException(
+            quicFailed(fallback, handler, new IOException(
                     "No SelectorLoop available for HTTP/3"));
             return;
         }
@@ -1197,24 +950,32 @@ public class HttpClient implements AltSvcListener {
         quicTransportFactory.setApplicationProtocols("h3");
         TlsConfig effective = ClientDefaults.effectiveTls(tls);
         ClientConnect.applyToQuicFactory(effective, quicTransportFactory);
-        quicTransportFactory.setEarlyDataEnabled(earlyDataEnabled);
+        quicTransportFactory.setEarlyDataEnabled(tls.isEarlyDataEnabled());
         ClientConnect.applyQuicClientEch(quicTransportFactory, dnsDiscoveredEchConfigList, effective);
 
         try {
             quicTransportFactory.start();
         } catch (RuntimeException e) {
-            handler.onError(new IOException(
+            quicFailed(fallback, handler, new IOException(
                     "Failed to start QUIC transport: " + e.getMessage()));
             return;
         }
 
+        // PENDING until the handshake (or 0-RTT) commits to QUIC, or the
+        // deadline abandons it for TCP; whichever comes first wins.
+        final AtomicInteger attempt = new AtomicInteger(QUIC_PENDING);
+        final AtomicReference<TimerHandle> deadline = new AtomicReference<TimerHandle>();
+
         try {
-            quicEngine = quicTransportFactory.connect(
+            quicEngine = openQuicForTesting(
                     targetAddress, targetPort,
                     new QuicEngine.ConnectionAcceptedHandler() {
                         @Override
                         public void connectionAccepted(
                                 QuicConnection connection) {
+                            if (!commitQuic(attempt, deadline)) {
+                                return;
+                            }
                             // Idempotent: if 0-RTT already constructed
                             // h3Handler and told the application the
                             // connection is ready (see EarlyDataHandler
@@ -1236,6 +997,9 @@ public class HttpClient implements AltSvcListener {
                     new QuicEngine.EarlyDataHandler() {
                         @Override
                         public void earlyDataReady(QuicConnection connection) {
+                            if (!commitQuic(attempt, deadline)) {
+                                return;
+                            }
                             // RFC 9001 section 4.6.1: 0-RTT send keys are
                             // ready, well before the handshake completes.
                             // Construct h3Handler and let the application
@@ -1251,13 +1015,106 @@ public class HttpClient implements AltSvcListener {
                     },
                     loop, serverName);
         } catch (IOException e) {
-            handler.onError(e);
+            quicFailed(fallback, handler, e);
+            return;
         }
+
+        if (mode != QUIC_UPGRADE && quicHandshakeTimeoutMs > 0
+                && attempt.get() == QUIC_PENDING) {
+            deadline.set(scheduleQuicDeadlineForTesting(loop, quicHandshakeTimeoutMs,
+                    new Runnable() {
+                        @Override
+                        public void run() {
+                            if (attempt.compareAndSet(QUIC_PENDING, QUIC_ABANDONED)) {
+                                abandonQuic();
+                                if (fallback) {
+                                    connectTcp(handler);
+                                } else {
+                                    handler.onError(new IOException(
+                                            "QUIC handshake did not complete within "
+                                            + quicHandshakeTimeoutMs + " ms"));
+                                }
+                            }
+                        }
+                    }));
+        }
+    }
+
+    /** QUIC chosen by discovery, TCP permitted: failure or a stall falls back to TCP. */
+    private static final int QUIC_DISCOVERED = 0;
+    /** Only HTTP/3 permitted: failure or a stall is an error. */
+    private static final int QUIC_FORCED = 1;
+    /** Reactive Alt-Svc upgrade of a working connection: no deadline. */
+    private static final int QUIC_UPGRADE = 2;
+
+    private static final int QUIC_PENDING = 0;
+    private static final int QUIC_COMMITTED = 1;
+    private static final int QUIC_ABANDONED = 2;
+
+    /**
+     * Marks the QUIC attempt as established, stopping its deadline. Returns
+     * false if the deadline already abandoned the attempt for TCP, in which
+     * case a late callback from the abandoned connection is ignored.
+     */
+    private static boolean commitQuic(AtomicInteger attempt,
+                                      AtomicReference<TimerHandle> deadline) {
+        if (attempt.get() == QUIC_ABANDONED) {
+            return false;
+        }
+        attempt.set(QUIC_COMMITTED);
+        TimerHandle timer = deadline.get();
+        if (timer != null) {
+            timer.cancel();
+        }
+        return true;
+    }
+
+    private void quicFailed(boolean fallback, HttpClientHandler handler,
+                            IOException cause) {
+        if (fallback) {
+            abandonQuic();
+            connectTcp(handler);
+        } else {
+            handler.onError(cause);
+        }
+    }
+
+    private void abandonQuic() {
+        QuicEngine engine = quicEngine;
+        quicEngine = null;
+        h3Handler = null;
+        if (engine != null) {
+            engine.close();
+        }
+    }
+
+    /**
+     * Test seam: opens the QUIC connection. Production behaviour opens a
+     * real datagram socket; unit tests override this to script the outcome.
+     */
+    QuicEngine openQuicForTesting(InetAddress target, int targetPort,
+            QuicEngine.ConnectionAcceptedHandler accepted,
+            QuicEngine.EarlyDataHandler early, SelectorLoop loop,
+            String serverName) throws IOException {
+        return quicTransportFactory.connect(target, targetPort, accepted, early,
+                loop, serverName);
+    }
+
+    /**
+     * Test seam: schedules the deadline for a QUIC attempt that has a TCP
+     * fallback. The task runs on the connection's loop thread.
+     */
+    TimerHandle scheduleQuicDeadlineForTesting(SelectorLoop loop, long delayMs,
+                                               Runnable task) {
+        QuicEngine engine = quicEngine;
+        return engine != null ? gumdrop.scheduleTimer(engine, delayMs, task) : null;
     }
 
     private void resolveAndConnectH3(final String targetHost,
                                      final int targetPort,
-                                     final HttpClientHandler handler) {
+                                     final HttpClientHandler handler,
+                                     final int mode) {
+        final boolean fallback = mode == QUIC_DISCOVERED;
         SelectorLoop loop = selectorLoop;
         if (loop == null) {
             loop = gumdrop.nextWorkerLoop();
@@ -1271,21 +1128,31 @@ public class HttpClient implements AltSvcListener {
         resolver.resolve(targetHost, new ResolveCallback() {
             @Override
             public void onResolved(List<InetAddress> addresses) {
-                hostAddress = addresses.get(0);
+                InetAddress resolved = addresses.get(0);
                 try {
-                    checkNotPrivate(hostAddress);
+                    checkNotPrivate(resolved);
                 } catch (IOException e) {
                     handler.onError(e);
                     return;
                 }
-                connectH3(hostAddress, targetPort, targetHost, handler);
+                // With a TCP fallback the origin is still to be dialled by
+                // name, so the alternative's address is not recorded.
+                if (!fallback) {
+                    hostAddress = resolved;
+                }
+                connectH3(resolved, targetPort, targetHost, handler, mode);
             }
 
             @Override
             public void onError(String error) {
-                handler.onError(new IOException(
+                IOException cause = new IOException(
                         "DNS resolution failed for " + targetHost
-                        + ": " + error));
+                        + ": " + error);
+                if (fallback) {
+                    connectTcp(handler);
+                } else {
+                    handler.onError(cause);
+                }
             }
         });
     }
@@ -1537,7 +1404,7 @@ public class HttpClient implements AltSvcListener {
             return;
         }
 
-        if (h3Handler != null || h3UpgradeInProgress) {
+        if (h3Handler != null || h3UpgradeInProgress || !permitsH3()) {
             return;
         }
 
@@ -1561,11 +1428,11 @@ public class HttpClient implements AltSvcListener {
         // still-in-flight request.
         HttpClientHandler upgradeHandler = new AltSvcUpgradeHandler(connectHandler);
         if (altHost != null) {
-            resolveAndConnectH3(altHost, altPort, upgradeHandler);
+            resolveAndConnectH3(altHost, altPort, upgradeHandler, QUIC_UPGRADE);
         } else if (hostAddress != null) {
-            connectH3(hostAddress, altPort, host, upgradeHandler);
+            connectH3(hostAddress, altPort, host, upgradeHandler, QUIC_UPGRADE);
         } else {
-            resolveAndConnectH3(host, altPort, upgradeHandler);
+            resolveAndConnectH3(host, altPort, upgradeHandler, QUIC_UPGRADE);
         }
     }
 
@@ -1842,30 +1709,25 @@ public class HttpClient implements AltSvcListener {
                 new HttpClient(loop, targetHost, targetPort);
 
         boolean isSecure = "https".equals(scheme);
-        client.setSecure(isSecure);
-        client.setVerifyPeer(!skipVerify);
-
+        TlsConfig clientTls = new TlsConfig().verifyPeer(!skipVerify);
         if (pemCert != null) {
-            client.setCertFile(Path.of(pemCert));
+            clientTls.certFile(Path.of(pemCert));
         }
         if (pemKey != null) {
-            client.setKeyFile(Path.of(pemKey));
+            clientTls.keyFile(Path.of(pemKey));
         }
+        client.secure(isSecure).tls(clientTls);
 
         if ("3".equals(forceVersion)) {
-            client.setH3Enabled(true);
+            client.versions(HttpVersion.HTTP_3);
         } else if ("2".equals(forceVersion)) {
-            if (isSecure) {
-                client.setH2Enabled(true);
-            } else {
-                client.setH2WithPriorKnowledge(true);
-            }
+            // over cleartext, HTTP/2 alone means prior knowledge
+            client.versions(HttpVersion.HTTP_2_0);
         } else if ("1.1".equals(forceVersion)) {
-            client.setH2Enabled(false);
-            client.setH2cUpgradeEnabled(false);
+            client.versions(HttpVersion.HTTP_1_1);
         }
 
-        client.setAltSvcEnabled(false);
+        client.altSvcEnabled(false);
 
         final CountDownLatch connectLatch = new CountDownLatch(1);
         final CountDownLatch doneLatch = new CountDownLatch(1);

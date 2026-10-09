@@ -78,7 +78,7 @@ public class DNSResolverDDRTest {
     @Test
     public void testDdrQueriesResolverArpaSvcb() throws Exception {
         TestableResolver resolver = new TestableResolver();
-        resolver.setDdrEnabled(true);
+        resolver.ddrEnabled(true);
         resolver.addServer("203.0.113.1");
         resolver.open();
 
@@ -96,7 +96,7 @@ public class DNSResolverDDRTest {
     @Test
     public void testSuccessfulDdrLearnsCapabilitiesAndUpgradesTransport() throws Exception {
         TestableResolver resolver = new TestableResolver();
-        resolver.setDdrEnabled(true);
+        resolver.ddrEnabled(true);
         resolver.addServer("203.0.113.1");
         resolver.open();
 
@@ -123,7 +123,7 @@ public class DNSResolverDDRTest {
     @Test
     public void testDohDiscoveryStripsUriTemplateAndDefaultsPath() throws Exception {
         TestableResolver resolver = new TestableResolver();
-        resolver.setDdrEnabled(true);
+        resolver.ddrEnabled(true);
         resolver.addServer("203.0.113.1");
         resolver.open();
 
@@ -145,7 +145,7 @@ public class DNSResolverDDRTest {
     @Test
     public void testNxdomainResponseFailsOpen() throws Exception {
         TestableResolver resolver = new TestableResolver();
-        resolver.setDdrEnabled(true);
+        resolver.ddrEnabled(true);
         resolver.addServer("203.0.113.1");
         resolver.open();
 
@@ -168,7 +168,7 @@ public class DNSResolverDDRTest {
     @Test
     public void testAliasFormRecordIsIgnored() throws Exception {
         TestableResolver resolver = new TestableResolver();
-        resolver.setDdrEnabled(true);
+        resolver.ddrEnabled(true);
         resolver.addServer("203.0.113.1");
         resolver.open();
 
@@ -185,7 +185,7 @@ public class DNSResolverDDRTest {
     @Test
     public void testDdrTimeoutFailsOpenWithoutAffectingCache() throws Exception {
         TestableResolver resolver = new TestableResolver();
-        resolver.setDdrEnabled(true);
+        resolver.ddrEnabled(true);
         resolver.addServer("203.0.113.1");
         resolver.open();
 
@@ -201,7 +201,7 @@ public class DNSResolverDDRTest {
     @Test
     public void testDdrNotAttemptedForWellKnownServer() throws Exception {
         TestableResolver resolver = new TestableResolver();
-        resolver.setDdrEnabled(true);
+        resolver.ddrEnabled(true);
         resolver.addServer("8.8.8.8"); // already known-good; nothing to discover
         resolver.open();
 
@@ -213,8 +213,8 @@ public class DNSResolverDDRTest {
     @Test
     public void testDdrNotAttemptedWithExplicitTransportOverride() throws Exception {
         TestableResolver resolver = new TestableResolver();
-        resolver.setDdrEnabled(true);
-        resolver.setTransport(new RecordingTransport());
+        resolver.ddrEnabled(true);
+        resolver.transport(new RecordingTransport());
         resolver.addServer("203.0.113.1");
         resolver.open();
 
@@ -226,7 +226,7 @@ public class DNSResolverDDRTest {
     @Test
     public void testPortsFromRecordsAndDefaultDohPath() throws Exception {
         TestableResolver resolver = new TestableResolver();
-        resolver.setDdrEnabled(true);
+        resolver.ddrEnabled(true);
         resolver.addServer("203.0.113.1");
         resolver.open();
 
@@ -261,7 +261,7 @@ public class DNSResolverDDRTest {
     @Test
     public void testNoErrorWithoutAnswersIsNothingUsable() throws Exception {
         TestableResolver resolver = new TestableResolver();
-        resolver.setDdrEnabled(true);
+        resolver.ddrEnabled(true);
         resolver.addServer("203.0.113.1");
         resolver.open();
         resolver.ddrTransport.handler.onReceive(ddrResponse().serialize());
@@ -274,7 +274,7 @@ public class DNSResolverDDRTest {
     @Test
     public void testSvcbWithoutKnownAlpnIsNothingUsable() throws Exception {
         TestableResolver resolver = new TestableResolver();
-        resolver.setDdrEnabled(true);
+        resolver.ddrEnabled(true);
         resolver.addServer("203.0.113.1");
         resolver.open();
         Map<Integer, byte[]> params = new LinkedHashMap<>();
@@ -289,7 +289,7 @@ public class DNSResolverDDRTest {
     @Test
     public void testMalformedResponseAndLateEventsAreIgnored() throws Exception {
         TestableResolver resolver = new TestableResolver();
-        resolver.setDdrEnabled(true);
+        resolver.ddrEnabled(true);
         resolver.addServer("203.0.113.1");
         resolver.open();
         resolver.ddrTransport.handler.onReceive(ByteBuffer.wrap(new byte[] {1, 2, 3}));
@@ -306,7 +306,7 @@ public class DNSResolverDDRTest {
     @Test
     public void testTransportErrorEndsDiscovery() throws Exception {
         TestableResolver resolver = new TestableResolver();
-        resolver.setDdrEnabled(true);
+        resolver.ddrEnabled(true);
         resolver.addServer("203.0.113.1");
         resolver.open();
         resolver.ddrTransport.handler.onError(new java.io.IOException("reset"));
@@ -317,7 +317,7 @@ public class DNSResolverDDRTest {
     @Test
     public void testUpgradeAfterCloseAndFailedUpgradeAreHarmless() throws Exception {
         TestableResolver resolver = new TestableResolver();
-        resolver.setDdrEnabled(true);
+        resolver.ddrEnabled(true);
         resolver.addServer("203.0.113.1");
         resolver.open();
         Map<Integer, byte[]> params = new LinkedHashMap<>();
@@ -331,7 +331,7 @@ public class DNSResolverDDRTest {
         resolver.close();
 
         TestableResolver closed = new TestableResolver();
-        closed.setDdrEnabled(true);
+        closed.ddrEnabled(true);
         closed.addServer("203.0.113.2");
         closed.open();
         closed.close();

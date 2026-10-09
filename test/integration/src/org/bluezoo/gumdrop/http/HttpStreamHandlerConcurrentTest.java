@@ -114,9 +114,9 @@ public class HttpStreamHandlerConcurrentTest {
 
     private static HttpClient connectH2(Gumdrop gumdrop, int port) throws Exception {
         HttpClient client = new HttpClient(TEST_HOST, port);
-        client.setAltSvcEnabled(false);
-        client.setH2WithPriorKnowledge(true);
-        client.setH2cUpgradeEnabled(false);
+        client.altSvcEnabled(false);
+        client.versions(HttpVersion.HTTP_2_0);
+        client.h2WithPriorKnowledge(true);
 
         CountDownLatch connected = new CountDownLatch(1);
         AtomicReference<Exception> error = new AtomicReference<Exception>();

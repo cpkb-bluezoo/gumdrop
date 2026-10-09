@@ -821,6 +821,10 @@
       <src path='examples/dns-authoritative'/>
       <src path='examples/http-client-test'/>
       <src path='examples/pop3-server'/>
+      <src path='examples/smtp-server'/>
+      <src path='examples/imap-server'/>
+      <src path='examples/p2p-mesh'/>
+      <src path='examples/microservices'/>
     </javac>
   </target>
 

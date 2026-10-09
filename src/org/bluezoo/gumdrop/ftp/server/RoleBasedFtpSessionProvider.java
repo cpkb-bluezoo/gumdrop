@@ -135,7 +135,7 @@ public final class RoleBasedFtpSessionProvider implements FtpServerSessionProvid
     public ClientConnected openSession(TcpListener listener) {
         FtpFileSystem fs = fileSystem;
         if (filesystemEnforcement) {
-            fs = new RoleAwareFTPFileSystem(fs, realm);
+            fs = new RoleAwareFTPFileSystem(fs);
         }
         RoleBasedFTPHandler handler = new RoleBasedFTPHandler(realm, fs);
         if (welcomeMessage != null) {

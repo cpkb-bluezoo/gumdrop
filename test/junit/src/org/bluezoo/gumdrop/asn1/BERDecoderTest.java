@@ -1,0 +1,556 @@
+/*
+ * BERDecoderTest.java
+ * Copyright (C) 2025 Chris Burdess
+ *
+ * This file is part of gumdrop, a multipurpose Java server.
+ * For more information please visit https://www.nongnu.org/gumdrop/
+ *
+ * gumdrop is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * gumdrop is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with gumdrop.  If not, see <http://www.gnu.org/licenses/>.
+ */
+
+package org.bluezoo.gumdrop.asn1;
+
+import org.junit.Test;
+import static org.junit.Assert.*;
+
+import java.lang.reflect.Field;
+import java.nio.ByteBuffer;
+import java.util.ArrayDeque;
+
+/**
+ * Unit tests for BerDecoder.
+ *
+ * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
+ */
+public class BERDecoderTest {
+
+    // Test decoding primitive types
+
+    @Test
+    public void testDecodeBoolean() throws Asn1Exception {
+        // Boolean TRUE: 01 01 FF
+        byte[] data = {0x01, 0x01, (byte) 0xFF};
+        
+        BerDecoder decoder = new BerDecoder();
+        decoder.receive(ByteBuffer.wrap(data));
+        
+        Asn1Element element = decoder.next();
+        assertNotNull(element);
+        assertEquals(Asn1Type.BOOLEAN, element.getTag());
+        assertTrue(element.asBoolean());
+    }
+
+    @Test
+    public void testDecodeBooleanFalse() throws Asn1Exception {
+        // Boolean FALSE: 01 01 00
+        byte[] data = {0x01, 0x01, 0x00};
+        
+        BerDecoder decoder = new BerDecoder();
+        decoder.receive(ByteBuffer.wrap(data));
+        
+        Asn1Element element = decoder.next();
+        assertNotNull(element);
+        assertFalse(element.asBoolean());
+    }
+
+    @Test
+    public void testDecodeIntegerSmall() throws Asn1Exception {
+        // Integer 42: 02 01 2A
+        byte[] data = {0x02, 0x01, 0x2A};
+        
+        BerDecoder decoder = new BerDecoder();
+        decoder.receive(ByteBuffer.wrap(data));
+        
+        Asn1Element element = decoder.next();
+        assertNotNull(element);
+        assertEquals(Asn1Type.INTEGER, element.getTag());
+        assertEquals(42, element.asInt());
+    }
+
+    @Test
+    public void testDecodeIntegerNegative() throws Asn1Exception {
+        // Integer -1: 02 01 FF
+        byte[] data = {0x02, 0x01, (byte) 0xFF};
+        
+        BerDecoder decoder = new BerDecoder();
+        decoder.receive(ByteBuffer.wrap(data));
+        
+        Asn1Element element = decoder.next();
+        assertEquals(-1, element.asInt());
+    }
+
+    @Test
+    public void testDecodeIntegerTwoBytes() throws Asn1Exception {
+        // Integer 256: 02 02 01 00
+        byte[] data = {0x02, 0x02, 0x01, 0x00};
+        
+        BerDecoder decoder = new BerDecoder();
+        decoder.receive(ByteBuffer.wrap(data));
+        
+        Asn1Element element = decoder.next();
+        assertEquals(256, element.asInt());
+    }
+
+    @Test
+    public void testDecodeOctetString() throws Asn1Exception {
+        // Octet string "test": 04 04 74 65 73 74
+        byte[] data = {0x04, 0x04, 0x74, 0x65, 0x73, 0x74};
+        
+        BerDecoder decoder = new BerDecoder();
+        decoder.receive(ByteBuffer.wrap(data));
+        
+        Asn1Element element = decoder.next();
+        assertNotNull(element);
+        assertEquals(Asn1Type.OCTET_STRING, element.getTag());
+        assertEquals("test", element.asString());
+    }
+
+    @Test
+    public void testDecodeNull() throws Asn1Exception {
+        // NULL: 05 00
+        byte[] data = {0x05, 0x00};
+        
+        BerDecoder decoder = new BerDecoder();
+        decoder.receive(ByteBuffer.wrap(data));
+        
+        Asn1Element element = decoder.next();
+        assertNotNull(element);
+        assertEquals(Asn1Type.NULL, element.getTag());
+        assertEquals(0, element.getValue().length);
+    }
+
+    @Test
+    public void testDecodeEnumerated() throws Asn1Exception {
+        // Enumerated 2: 0A 01 02
+        byte[] data = {0x0A, 0x01, 0x02};
+        
+        BerDecoder decoder = new BerDecoder();
+        decoder.receive(ByteBuffer.wrap(data));
+        
+        Asn1Element element = decoder.next();
+        assertEquals(Asn1Type.ENUMERATED, element.getTag());
+        assertEquals(2, element.asInt());
+    }
+
+    // Test constructed types
+
+    @Test
+    public void testDecodeSequence() throws Asn1Exception {
+        // Sequence containing integer 1: 30 03 02 01 01
+        byte[] data = {0x30, 0x03, 0x02, 0x01, 0x01};
+        
+        BerDecoder decoder = new BerDecoder();
+        decoder.receive(ByteBuffer.wrap(data));
+        
+        Asn1Element element = decoder.next();
+        assertNotNull(element);
+        assertEquals(Asn1Type.SEQUENCE, element.getTag());
+        assertTrue(element.isConstructed());
+        assertEquals(1, element.getChildCount());
+        
+        Asn1Element child = element.getChild(0);
+        assertEquals(1, child.asInt());
+    }
+
+    @Test
+    public void testDecodeNestedSequence() throws Asn1Exception {
+        // Sequence containing sequence containing integer
+        // 30 05 30 03 02 01 02
+        byte[] data = {0x30, 0x05, 0x30, 0x03, 0x02, 0x01, 0x02};
+        
+        BerDecoder decoder = new BerDecoder();
+        decoder.receive(ByteBuffer.wrap(data));
+        
+        Asn1Element outer = decoder.next();
+        assertNotNull(outer);
+        assertEquals(1, outer.getChildCount());
+        
+        Asn1Element inner = outer.getChild(0);
+        assertEquals(Asn1Type.SEQUENCE, inner.getTag());
+        assertEquals(1, inner.getChildCount());
+        
+        Asn1Element value = inner.getChild(0);
+        assertEquals(2, value.asInt());
+    }
+
+    // Test long-form length encoding
+
+    @Test
+    public void testDecodeLongFormLengthOneByte() throws Asn1Exception {
+        // Octet string with 200 bytes: 04 81 C8 ...
+        byte[] data = new byte[3 + 200];
+        data[0] = 0x04;
+        data[1] = (byte) 0x81;
+        data[2] = (byte) 200;
+        for (int i = 0; i < 200; i++) {
+            data[3 + i] = (byte) i;
+        }
+        
+        BerDecoder decoder = new BerDecoder();
+        decoder.receive(ByteBuffer.wrap(data));
+        
+        Asn1Element element = decoder.next();
+        assertNotNull(element);
+        assertEquals(200, element.getValue().length);
+    }
+
+    @Test
+    public void testDecodeLongFormLengthTwoBytes() throws Asn1Exception {
+        // Octet string with 1000 bytes: 04 82 03 E8 ...
+        byte[] data = new byte[4 + 1000];
+        data[0] = 0x04;
+        data[1] = (byte) 0x82;
+        data[2] = 0x03;
+        data[3] = (byte) 0xE8;
+        for (int i = 0; i < 1000; i++) {
+            data[4 + i] = (byte) i;
+        }
+        
+        BerDecoder decoder = new BerDecoder();
+        decoder.receive(ByteBuffer.wrap(data));
+        
+        Asn1Element element = decoder.next();
+        assertNotNull(element);
+        assertEquals(1000, element.getValue().length);
+    }
+
+    /**
+     * Regression test for issue #268 -- JQF/Zest fuzzing found that a
+     * 4-byte BER long-form length whose top bit is set overflows int
+     * during accumulation, producing a negative value that bypasses
+     * decodeLengthMulti/startValue's "too large" sanity check and
+     * reaches new byte[length], throwing an uncaught
+     * NegativeArraySizeException instead of the declared Asn1Exception.
+     */
+    @Test(expected = Asn1Exception.class)
+    public void testNegativeLongFormLengthThrowsASN1Exception() throws Asn1Exception {
+        // Octet string tag, 4-byte long-form length overflowing to
+        // Integer.MIN_VALUE: 04 84 80 00 00 00
+        byte[] data = { 0x04, (byte) 0x84, (byte) 0x80, 0x00, 0x00, 0x00 };
+
+        BerDecoder decoder = new BerDecoder();
+        decoder.receive(ByteBuffer.wrap(data));
+    }
+
+    /**
+     * Regression test for issue #268 -- the same overflow, but reached
+     * through the separate non-streaming recursive-descent parser
+     * (parseOneElement) used for a constructed element's children,
+     * rather than the top-level streaming state machine.
+     */
+    @Test(expected = Asn1Exception.class)
+    public void testNegativeLongFormLengthInConstructedChildThrowsASN1Exception() throws Asn1Exception {
+        // SEQUENCE (constructed, 6-byte value) containing an octet
+        // string with the same overflowing 4-byte long-form length:
+        // 30 06 04 84 80 00 00 00
+        byte[] data = {
+            0x30, 0x06,
+            0x04, (byte) 0x84, (byte) 0x80, 0x00, 0x00, 0x00,
+        };
+
+        BerDecoder decoder = new BerDecoder();
+        decoder.receive(ByteBuffer.wrap(data));
+    }
+
+    // Test streaming/incremental decoding
+
+    @Test
+    public void testIncrementalDecode() throws Asn1Exception {
+        // Send data in chunks
+        byte[] data = {0x02, 0x01, 0x2A};
+        
+        BerDecoder decoder = new BerDecoder();
+        
+        // Send one byte at a time
+        decoder.receive(ByteBuffer.wrap(new byte[] {data[0]}));
+        assertNull(decoder.next());
+        assertTrue(decoder.hasPartialData());
+        
+        decoder.receive(ByteBuffer.wrap(new byte[] {data[1]}));
+        assertNull(decoder.next());
+        
+        decoder.receive(ByteBuffer.wrap(new byte[] {data[2]}));
+        Asn1Element element = decoder.next();
+        
+        assertNotNull(element);
+        assertEquals(42, element.asInt());
+        assertFalse(decoder.hasPartialData());
+    }
+
+    @Test
+    public void testMultipleElements() throws Asn1Exception {
+        // Two integers: 02 01 01 02 01 02
+        byte[] data = {0x02, 0x01, 0x01, 0x02, 0x01, 0x02};
+        
+        BerDecoder decoder = new BerDecoder();
+        decoder.receive(ByteBuffer.wrap(data));
+        
+        Asn1Element elem1 = decoder.next();
+        assertNotNull(elem1);
+        assertEquals(1, elem1.asInt());
+        
+        Asn1Element elem2 = decoder.next();
+        assertNotNull(elem2);
+        assertEquals(2, elem2.asInt());
+        
+        assertNull(decoder.next());
+    }
+
+    // Test context-specific tags
+
+    @Test
+    public void testDecodeContextPrimitive() throws Asn1Exception {
+        // Context [0] primitive with value 0x01 0x02: 80 02 01 02
+        byte[] data = {(byte) 0x80, 0x02, 0x01, 0x02};
+        
+        BerDecoder decoder = new BerDecoder();
+        decoder.receive(ByteBuffer.wrap(data));
+        
+        Asn1Element element = decoder.next();
+        assertNotNull(element);
+        assertEquals(Asn1Type.CLASS_CONTEXT, element.getTagClass());
+        assertEquals(0, element.getTagNumber());
+        assertFalse(element.isConstructed());
+        assertEquals(2, element.getValue().length);
+    }
+
+    @Test
+    public void testDecodeContextConstructed() throws Asn1Exception {
+        // Context [3] constructed containing integer 1: A3 03 02 01 01
+        byte[] data = {(byte) 0xA3, 0x03, 0x02, 0x01, 0x01};
+        
+        BerDecoder decoder = new BerDecoder();
+        decoder.receive(ByteBuffer.wrap(data));
+        
+        Asn1Element element = decoder.next();
+        assertNotNull(element);
+        assertEquals(Asn1Type.CLASS_CONTEXT, element.getTagClass());
+        assertEquals(3, element.getTagNumber());
+        assertTrue(element.isConstructed());
+        assertEquals(1, element.getChildCount());
+    }
+
+    // Test application tags
+
+    @Test
+    public void testDecodeApplicationTag() throws Asn1Exception {
+        // Application [0] constructed (BindRequest-like): 60 03 02 01 03
+        byte[] data = {0x60, 0x03, 0x02, 0x01, 0x03};
+        
+        BerDecoder decoder = new BerDecoder();
+        decoder.receive(ByteBuffer.wrap(data));
+        
+        Asn1Element element = decoder.next();
+        assertNotNull(element);
+        assertEquals(Asn1Type.CLASS_APPLICATION, element.getTagClass());
+        assertEquals(0, element.getTagNumber());
+        assertTrue(element.isConstructed());
+    }
+
+    // Test reset
+
+    @Test
+    public void testReset() throws Asn1Exception {
+        BerDecoder decoder = new BerDecoder();
+        
+        // Partial data
+        decoder.receive(ByteBuffer.wrap(new byte[] {0x02, 0x01}));
+        assertTrue(decoder.hasPartialData());
+        
+        decoder.reset();
+        assertFalse(decoder.hasPartialData());
+        
+        // Now decode a complete element
+        decoder.receive(ByteBuffer.wrap(new byte[] {0x02, 0x01, 0x2A}));
+        Asn1Element element = decoder.next();
+        assertNotNull(element);
+        assertEquals(42, element.asInt());
+    }
+
+    // Test error handling
+
+    @Test(expected = Asn1Exception.class)
+    public void testIndefiniteLengthRejected() throws Asn1Exception {
+        // Indefinite length: 30 80 02 01 01 00 00
+        byte[] data = {0x30, (byte) 0x80, 0x02, 0x01, 0x01, 0x00, 0x00};
+        
+        BerDecoder decoder = new BerDecoder();
+        decoder.receive(ByteBuffer.wrap(data));
+    }
+
+    // Test round-trip with BerEncoder
+
+    @Test
+    public void testRoundTrip() throws Asn1Exception {
+        // Encode a structure
+        BerEncoder encoder = new BerEncoder();
+        encoder.beginSequence();
+        encoder.writeInteger(42);
+        encoder.writeOctetString("hello");
+        encoder.writeBoolean(true);
+        encoder.endSequence();
+        
+        byte[] encoded = encoder.toByteArray();
+        
+        // Decode it back
+        BerDecoder decoder = new BerDecoder();
+        decoder.receive(ByteBuffer.wrap(encoded));
+        
+        Asn1Element seq = decoder.next();
+        assertNotNull(seq);
+        assertEquals(Asn1Type.SEQUENCE, seq.getTag());
+        assertEquals(3, seq.getChildCount());
+        
+        assertEquals(42, seq.getChild(0).asInt());
+        assertEquals("hello", seq.getChild(1).asString());
+        assertTrue(seq.getChild(2).asBoolean());
+    }
+
+    @Test
+    public void testRoundTripNestedStructure() throws Asn1Exception {
+        // Encode nested structure
+        BerEncoder encoder = new BerEncoder();
+        encoder.beginSequence();
+        encoder.writeInteger(1);
+        encoder.beginSequence();
+        encoder.writeInteger(2);
+        encoder.writeInteger(3);
+        encoder.endSequence();
+        encoder.endSequence();
+        
+        byte[] encoded = encoder.toByteArray();
+        
+        // Decode
+        BerDecoder decoder = new BerDecoder();
+        decoder.receive(ByteBuffer.wrap(encoded));
+        
+        Asn1Element outer = decoder.next();
+        assertEquals(2, outer.getChildCount());
+        assertEquals(1, outer.getChild(0).asInt());
+        
+        Asn1Element inner = outer.getChild(1);
+        assertEquals(2, inner.getChildCount());
+        assertEquals(2, inner.getChild(0).asInt());
+        assertEquals(3, inner.getChild(1).asInt());
+    }
+
+    // ===== Deep nesting (issue #195) =====
+    //
+    // parseChildren() used to construct a whole new BerDecoder (with its
+    // own ByteBufferPool-backed scratch buffer) per level of constructed
+    // nesting; it's now a plain recursive-descent walk over the already-
+    // received bytes with no per-level allocation of that kind. These
+    // tests aren't a microbenchmark -- they lock in that decoding still
+    // produces the correct tree (and still rejects malformed input) at a
+    // nesting depth deep enough that the old approach would have created
+    // dozens of decoder/buffer pairs for a single top-level element.
+
+    /**
+     * Builds {@code depth} levels of SEQUENCE (0x30) wrapping a single
+     * INTEGER leaf (value {@code leafValue}, encoded as one byte), all
+     * within short-form (single-byte) length encoding.
+     */
+    private static byte[] buildNestedSequence(int depth, int leafValue) {
+        byte[] leaf = {0x02, 0x01, (byte) leafValue}; // INTEGER, length 1, value
+        byte[] current = leaf;
+        for (int i = 0; i < depth; i++) {
+            byte[] wrapped = new byte[2 + current.length];
+            wrapped[0] = 0x30; // SEQUENCE
+            wrapped[1] = (byte) current.length;
+            System.arraycopy(current, 0, wrapped, 2, current.length);
+            current = wrapped;
+        }
+        return current;
+    }
+
+    @Test
+    public void testDeeplyNestedSequenceDecodesToCorrectLeafValue() throws Asn1Exception {
+        int depth = 50; // keeps every level's length within the short-form (<128) range
+        byte[] data = buildNestedSequence(depth, 42);
+
+        BerDecoder decoder = new BerDecoder();
+        decoder.receive(ByteBuffer.wrap(data));
+
+        Asn1Element element = decoder.next();
+        assertNotNull(element);
+        for (int i = 0; i < depth; i++) {
+            assertTrue("level " + i + " should be constructed", element.isConstructed());
+            assertEquals(1, element.getChildCount());
+            element = element.getChild(0);
+        }
+        assertFalse("innermost element should be primitive", element.isConstructed());
+        assertEquals(42, element.asInt());
+    }
+
+    @Test(expected = Asn1Exception.class)
+    public void testTruncatedNestedElementStillRejected() throws Asn1Exception {
+        // Outer SEQUENCE (tag 0x30, length 2) is itself complete -- its
+        // whole 2-byte value (0x02, 0x03) is received, so the top-level
+        // decoder finishes it and hands off to parseChildren(). Within
+        // that value, though, the child claims tag INTEGER (0x02) with
+        // length 3 but the parent only has 0 bytes left for it: this is
+        // the "child's own declared length overruns the parent's
+        // already-fully-received value" case parseOneElement's pos +
+        // elementLength > end check exists for -- distinct from simply
+        // not having received enough top-level bytes yet, which the
+        // streaming decoder correctly just waits out rather than
+        // rejecting.
+        byte[] data = {0x30, 0x02, 0x02, 0x03};
+
+        BerDecoder decoder = new BerDecoder();
+        decoder.receive(ByteBuffer.wrap(data));
+    }
+
+    @Test(expected = Asn1Exception.class)
+    public void testNestedIndefiniteLengthStillRejected() throws Asn1Exception {
+        // SEQUENCE (length 2) whose sole child claims indefinite-length
+        // encoding (0x80) -- unsupported both at the top level and,
+        // after this change, at any nesting depth.
+        byte[] data = {0x30, 0x02, 0x02, (byte) 0x80};
+
+        BerDecoder decoder = new BerDecoder();
+        decoder.receive(ByteBuffer.wrap(data));
+    }
+
+    // ===== Pipelined message dequeue (issue #325) =====
+
+    @Test
+    public void testCompletedQueueUsesArrayDequeFifo() throws Exception {
+        Field completedField = BerDecoder.class.getDeclaredField("completed");
+        completedField.setAccessible(true);
+        Object completed = completedField.get(new BerDecoder());
+        assertTrue("completed messages must dequeue in O(1) via ArrayDeque",
+                completed instanceof ArrayDeque);
+    }
+
+    @Test
+    public void testPipelinedMessagesDequeueInOrder() throws Asn1Exception {
+        byte[] one = {0x02, 0x01, 0x01};
+        int count = 128;
+        byte[] batch = new byte[count * one.length];
+        for (int i = 0; i < count; i++) {
+            System.arraycopy(one, 0, batch, i * one.length, one.length);
+        }
+
+        BerDecoder decoder = new BerDecoder();
+        decoder.receive(ByteBuffer.wrap(batch));
+
+        for (int i = 0; i < count; i++) {
+            Asn1Element element = decoder.next();
+            assertNotNull("message " + i, element);
+            assertEquals(1, element.asInt());
+        }
+        assertNull(decoder.next());
+    }
+}

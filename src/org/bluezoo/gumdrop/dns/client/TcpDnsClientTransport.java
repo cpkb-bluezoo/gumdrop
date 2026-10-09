@@ -22,6 +22,9 @@
 package org.bluezoo.gumdrop.dns.client;
 
 import java.io.IOException;
+import org.bluezoo.gumdrop.client.ClientDefaults;
+import org.bluezoo.gumdrop.client.ClientConnect;
+import org.bluezoo.gumdrop.tls.TlsConfig;
 import java.net.InetAddress;
 import java.nio.ByteBuffer;
 import java.util.Set;
@@ -52,7 +55,7 @@ import org.bluezoo.gumdrop.TimerHandle;
  * JVM's default WebPKI trust store unless overridden with {@link
  * #setTrustManager} (an arbitrary {@code X509TrustManager}, e.g. {@link
  * org.bluezoo.gumdrop.dns.client.DaneTrustManager}) or {@link
- * #setPinnedSPKIFingerprints} (RFC 7858 section 4.2's Strict usage
+ * #pinnedSpkiFingerprints} (RFC 7858 section 4.2's Strict usage
  * profile); when both are set, the trust manager is used as the SPKI
  * check's delegate rather than being replaced by it.
  *
@@ -84,19 +87,19 @@ public class TcpDnsClientTransport implements DnsClientTransport {
     private Set<String> spkiFingerprints;
 
     /**
-     * A custom trust manager for TLS certificate verification, used in
-     * preference to the JVM's default WebPKI trust store. Combined with
-     * {@link #spkiFingerprints}, when both are set, as the delegate for
+     * TLS settings for DNS-over-TLS (trust material, client identity), used
+     * in preference to the JVM defaults. A trust manager in it is combined
+     * with {@link #spkiFingerprints}, when both are set, as the delegate for
      * the SPKI pin check rather than being replaced by it.
      */
-    private X509TrustManager trustManager;
+    private TlsConfig tls;
 
     /**
      * Returns a transport configured for DNS-over-TLS (port 853, TLS enabled).
      */
     public static TcpDnsClientTransport createDoT() {
         TcpDnsClientTransport transport = new TcpDnsClientTransport();
-        transport.setSecure(true);
+        transport.secure(true);
         return transport;
     }
 
@@ -106,9 +109,10 @@ public class TcpDnsClientTransport implements DnsClientTransport {
      *
      * @param secure true for TLS
      */
-    public void setSecure(boolean secure) {
+    public TcpDnsClientTransport secure(boolean secure) {
         this.secure = secure;
         this.defaultPort = secure ? DEFAULT_DOT_PORT : DEFAULT_TCP_PORT;
+        return this;
     }
 
     /**
@@ -120,22 +124,25 @@ public class TcpDnsClientTransport implements DnsClientTransport {
      * @param fingerprints the SPKI SHA-256 fingerprints
      *                     (colon-separated lowercase hex)
      */
-    public void setPinnedSPKIFingerprints(Set<String> fingerprints) {
+    public TcpDnsClientTransport pinnedSpkiFingerprints(Set<String> fingerprints) {
         this.spkiFingerprints = fingerprints;
+        return this;
     }
 
     /**
-     * Sets a custom trust manager for TLS certificate verification, in
-     * preference to the JVM's default WebPKI trust store -- e.g. a
-     * {@link org.bluezoo.gumdrop.dns.client.DaneTrustManager} to authenticate
-     * this resolver's upstream against TLSA records, or a private CA.
-     * If {@link #setPinnedSPKIFingerprints} is also set, this trust
-     * manager is used as its delegate rather than being replaced by it.
+     * Sets the TLS settings for DNS-over-TLS, in preference to the JVM
+     * defaults: for example a trust manager such as a
+     * {@link org.bluezoo.gumdrop.dns.client.DaneTrustManager} to
+     * authenticate this resolver's upstream against TLSA records, or a
+     * private CA. If {@link #pinnedSpkiFingerprints} is also set, the
+     * trust manager is used as its delegate rather than being replaced by it.
+     * Only applies when {@link #secure(boolean) secure}.
      *
-     * @param trustManager the trust manager, or null to use JVM defaults
+     * @param tls the TLS configuration, or null for the JVM defaults
      */
-    public void setTrustManager(X509TrustManager trustManager) {
-        this.trustManager = trustManager;
+    public TcpDnsClientTransport tls(TlsConfig tls) {
+        this.tls = tls;
+        return this;
     }
 
     /**
@@ -143,8 +150,9 @@ public class TcpDnsClientTransport implements DnsClientTransport {
      *
      * @param port the default port to use when the caller passes port &lt;= 0
      */
-    public void setDefaultPort(int port) {
+    public TcpDnsClientTransport defaultPort(int port) {
         this.defaultPort = port;
+        return this;
     }
 
     /**
@@ -155,7 +163,7 @@ public class TcpDnsClientTransport implements DnsClientTransport {
         copy.secure = secure;
         copy.defaultPort = defaultPort;
         copy.spkiFingerprints = spkiFingerprints;
-        copy.trustManager = trustManager;
+        copy.tls = tls;
         return copy;
     }
 
@@ -215,6 +223,12 @@ public class TcpDnsClientTransport implements DnsClientTransport {
             // RFC 7858 section 3.1: the "dot" ALPN identifier MUST be
             // used for DNS-over-TLS.
             factory.setApplicationProtocols(DOT_ALPN_PROTOCOL);
+        }
+        X509TrustManager trustManager = null;
+        if (secure && tls != null) {
+            TlsConfig effective = ClientDefaults.effectiveTls(tls);
+            ClientConnect.applyToTcpFactory(effective, factory);
+            trustManager = effective.getTrustManager();
         }
         // RFC 7858 section 4.2: SPKI fingerprint verification
         if (spkiFingerprints != null && !spkiFingerprints.isEmpty()) {

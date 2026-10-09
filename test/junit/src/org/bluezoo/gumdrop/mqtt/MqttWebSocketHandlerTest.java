@@ -51,7 +51,7 @@ import org.junit.Test;
  */
 public class MqttWebSocketHandlerTest {
 
-    private static final class StubSession implements WebSocketSession {
+    private static class StubSession implements WebSocketSession {
         final List<byte[]> binary = new ArrayList<byte[]>();
         boolean open = true;
         boolean failSend;
@@ -171,6 +171,32 @@ public class MqttWebSocketHandlerTest {
         a.close();
         assertFalse(a.isOpen());
         assertEquals(1, session.closes);
+    }
+
+    private static final class FakeTls implements org.bluezoo.gumdrop.SecurityInfo {
+        public String getProtocol() { return "TLSv1.3"; }
+        public String getCipherSuite() { return "TLS_AES_128_GCM_SHA256"; }
+        public int getKeySize() { return 128; }
+        public java.security.cert.Certificate[] getPeerCertificates() { return null; }
+        public java.security.cert.Certificate[] getLocalCertificates() { return null; }
+        public String getApplicationProtocol() { return null; }
+        public long getHandshakeDurationMs() { return 0L; }
+        public boolean isSessionResumed() { return false; }
+    }
+
+    @Test
+    public void adapterReportsTheHttpConnectionsTlsSession() {
+        final FakeTls tls = new FakeTls();
+        WebSocketSession secure = new StubSession() {
+            @Override
+            public org.bluezoo.gumdrop.SecurityInfo getSecurityInfo() {
+                return tls;
+            }
+        };
+        MqttWebSocketHandler.WebSocketEndpointAdapter a =
+                new MqttWebSocketHandler.WebSocketEndpointAdapter(secure);
+        assertTrue(a.isSecure());
+        org.junit.Assert.assertSame(tls, a.getSecurityInfo());
     }
 
     @Test

@@ -135,7 +135,7 @@ public class SocksBindRelayTest {
 
     @Test
     public void blockedPeerIsRejected() throws IOException {
-        server.setBlockedDestinations(
+        server.blockedDestinations(
                 CidrNetwork.parseList("127.0.0.0/8, ::1/128"));
         SocksBindRelay relay = new SocksBindRelay(endpoint, server, 0L,
                 null, recorder);

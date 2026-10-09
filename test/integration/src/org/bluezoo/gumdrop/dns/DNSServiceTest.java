@@ -348,7 +348,7 @@ public class DNSServiceTest {
     public void testCookieOnlyResponseWithoutServerCookie() throws Exception {
         CapturingDNSListener listener = new CapturingDNSListener();
         DnsServer service = new DnsServer();
-        listener.setServer(service);
+        listener.server(service);
 
         DnsCookie clientCookie = new DnsCookie();
         byte[] cc = clientCookie.getClientCookie();
@@ -383,7 +383,7 @@ public class DNSServiceTest {
     public void testDefaultNonQueryOpcodeReturnsNotimp() throws Exception {
         CapturingDNSListener listener = new CapturingDNSListener();
         DnsServer service = new DnsServer();
-        listener.setServer(service);
+        listener.server(service);
 
         DnsMessage notify = buildOpcodeQuery(11, DnsMessage.OPCODE_NOTIFY,
                 "example.com", DnsType.SOA);
@@ -405,7 +405,7 @@ public class DNSServiceTest {
     public void testHandleNonQueryOpcodeHandler() throws Exception {
         CapturingDNSListener listener = new CapturingDNSListener();
         DnsServer service = new DnsServer();
-        service.setHandler(new DnsQueryHandler() {
+        service.handler(new DnsQueryHandler() {
             @Override
             public void handleQuery(DnsMessage query, SelectorLoop loop,
                                     DnsQueryCallback callback) {
@@ -424,7 +424,7 @@ public class DNSServiceTest {
                 return false;
             }
         });
-        listener.setServer(service);
+        listener.server(service);
 
         DnsMessage notify = buildOpcodeQuery(12, DnsMessage.OPCODE_NOTIFY,
                 "example.com", DnsType.SOA);
@@ -482,7 +482,7 @@ public class DNSServiceTest {
             // start() creates -- unlike testCookieOnlyResponseWithoutServerCookie,
             // this test's second query actually reaches proxyToUpstream.
             service.start(gumdrop);
-            listener.setServer(service);
+            listener.server(service);
 
             DnsCookie clientCookie = new DnsCookie();
             byte[] cc = clientCookie.getClientCookie();
@@ -568,7 +568,7 @@ public class DNSServiceTest {
     @Test
     public void testMQTypeExcludesTypeWithMismatchedRcode() throws Exception {
         DnsServer service = new DnsServer();
-        service.setHandler(new SyncDnsQueryHandler() {
+        service.handler(new SyncDnsQueryHandler() {
             @Override
             protected DnsMessage resolveQuery(DnsMessage query) {
                 DnsQuestion q = query.getQuestions().get(0);
@@ -659,13 +659,13 @@ public class DNSServiceTest {
             builder.upstreamServers(upstreamServers);
         }
         DnsServer service = new DnsServer();
-        service.setHandler(builder.build());
+        service.handler(builder.build());
         return service;
     }
 
     private static DnsServer serviceAnsweringPerType(final Map<DnsType, InetAddress> perType) {
         DnsServer service = new DnsServer();
-        service.setHandler(new SyncDnsQueryHandler() {
+        service.handler(new SyncDnsQueryHandler() {
             @Override
             protected DnsMessage resolveQuery(DnsMessage query) {
                 DnsQuestion q = query.getQuestions().get(0);

@@ -250,7 +250,7 @@ public final class SimpleRelaySessionProvider implements SmtpServerSessionProvid
         // supplies in the real composed-server path.
         if (gumdrop != null) {
             try {
-                dnsResolver.setSelectorLoop(gumdrop.nextWorkerLoop());
+                dnsResolver.selectorLoop(gumdrop.nextWorkerLoop());
                 dnsResolver.open();
             } catch (IOException e) {
                 events().error("err.dns_resolver_init_failed").thrown(e).emit();

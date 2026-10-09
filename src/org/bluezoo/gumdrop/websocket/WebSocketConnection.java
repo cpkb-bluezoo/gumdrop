@@ -193,6 +193,16 @@ public abstract class WebSocketConnection {
     }
 
     /**
+     * Returns the maximum assembled message size in bytes, 0 meaning unlimited.
+     * The default is {@link #DEFAULT_MAX_MESSAGE_SIZE}.
+     *
+     * @return the limit
+     */
+    public long getMaxMessageSize() {
+        return maxMessageSize;
+    }
+
+    /**
      * Returns the maximum payload length permitted for the next frame parse.
      * During fragmented-message assembly, subtracts bytes already buffered.
      */

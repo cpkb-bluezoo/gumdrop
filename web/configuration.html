@@ -34,145 +34,185 @@
 <p class="back-link"><a href="index.html">&larr; Back to Main Page</a></p>
 
 <p>
-<strong>Gumdrop 3</strong> applications are assembled in <strong>Java</strong>:
-an explicit <code>Runtime</code>, transport <code>Listener</code>s, and
-<strong>handler</strong> implementations. There is no <code>gumdroprc</code>
-XML configuration in 3.0 — composition is the only supported way to deploy
-and document servers and clients.
-</p>
-
-<p>
-This page is the canonical composition reference for Gumdrop 3.0. Moving
-from 2.x? See the <a href="../docs/MIGRATING-TO-3.md">migration guide</a>.
-Protocol-specific listener and handler detail lives under
-<a href="http.html">HTTP</a>, <a href="smtp.html">SMTP</a>, and the other
-protocol guides linked from the <a href="index.html">main page</a>.
+A Gumdrop 3 application is assembled in Java: you boot a <code>Gumdrop</code>
+instance, build protocol servers (and clients) from <strong>listeners</strong>
+and <strong>handlers</strong>, and give them to it. There is no general
+configuration file; <code>Gumdrop</code> is the one object that owns the
+reactor loops, timers and executors that everything shares. This page is about
+that composition and the instance's lifecycle. What a particular protocol's
+listeners and handlers look like is on its own page, linked from the
+<a href="index.html">main page</a>.
 </p>
 
 <h3>Contents</h3>
 <ul>
 <li><a href="#model">Composition model</a></li>
-<li><a href="#http">HTTP server</a></li>
-<li><a href="#servlet">Servlet container</a></li>
-<li><a href="#webdav">File server and WebDAV</a></li>
-<li><a href="#runtime">Runtime and lifecycle</a></li>
-<li><a href="#legacy">Gumdrop 2.x XML (removed)</a></li>
+<li><a href="#fluent">Composers and fluent configuration</a></li>
+<li><a href="#gumdrop">The Gumdrop instance</a></li>
+<li><a href="#lifecycle">Lifecycle</a></li>
+<li><a href="#declarative">Declarative configuration</a></li>
+<li><a href="#legacy">Moving from Gumdrop 2.x</a></li>
 </ul>
 
 <h3 id="model">Composition model</h3>
 
 <ol>
-<li>Create a <code>Runtime</code> (reactor loops, timers, executors).</li>
-<li>Build protocol servers with <strong>listeners</strong> (port, TLS, …) and
-    a <strong>handler</strong> (application logic).</li>
-<li>Register servers on the runtime and call <code>start()</code>.</li>
+<li>Boot a <code>Gumdrop</code> instance.</li>
+<li>Build each protocol server from its <strong>listeners</strong> (port, TLS,
+    limits) and a <strong>handler</strong> or <strong>session provider</strong>
+    (the application logic).</li>
+<li>Add the servers to the instance. Clients are given the instance when they
+    connect.</li>
 </ol>
 
-<p>
-Implement <code>HttpRequestHandler</code> (or protocol-specific staged handlers
-for SMTP, IMAP, etc.). Do <em>not</em> subclass <code>HttpServer</code> for
-application code — servlet and WebDAV applications compose
-<code>ServletRequestHandler</code> / <code>WebDAVRequestHandler</code> onto
-a plain <code>HttpServer</code> instead.
-</p>
-
-<h3 id="http">HTTP server</h3>
-
 <pre>
-Runtime rt = Runtime.start(RuntimeConfig.builder().server());
+Gumdrop gumdrop = Gumdrop.boot();       // worker loops, timers, executors
 
-HttpServer server = HttpServer.compose()
-    .listener(new Http2Listener().port(8080))
-    .handler(new MyRequestHandler())
-    .server();
+Server server = ...;                    // composed as described on the protocol's page
+gumdrop.addServer(server);              // started now, since the instance is running
 
-rt.addServer(server);
-server.start(rt);
+SomeClient client = ...;
+client.connect(gumdrop, handler);       // a client dials on the same instance
+
+gumdrop.awaitShutdown();                // block until shut down
 </pre>
 
 <p>
-See <a href="http.html">HTTP</a> for listeners (HTTP/1.1, HTTP/2, HTTP/3),
-TLS, and handler callbacks.
+Application logic is never put in a server subclass. A server delegates each
+decision to the handler you compose onto it, usually as a chain of
+<em>staged</em> handlers, each handed a state object whose methods are the valid
+responses (accept, reject, and so on). The answer may be given later, from a
+callback, which is how a decision can wait for a database or a directory
+without blocking a loop. See <a href="design.html">Design</a>.
 </p>
 
-<h3 id="servlet">Servlet container</h3>
+<h3 id="fluent">Composers and fluent configuration</h3>
 
 <p>
-The servlet stack is a <code>ServletRequestHandler</code> composed onto a
-plain <code>HttpServer</code>, not a separate server type:
+Wiring is done with fluent methods that are named for the setting and return
+the object, so a server, a listener or a client reads as one expression.
+A server is built with its <code>compose()</code> method, which returns a
+composer; <code>server()</code> validates it and returns the server:
+</p>
+
+<ul>
+<li><code>listener(...)</code> adds a listener. A listener is configured the
+same way (<code>port</code>, <code>secure</code>, <code>tls</code>,
+<code>bindWildcard</code>, timeouts, connection limits) and returns itself, so
+the settings chain after the constructor.</li>
+<li>The handler or session provider, and settings that apply to the whole
+server such as the realm, are further composer methods.</li>
+<li>TLS is always one <code>TlsConfig</code>, given to a listener or client with
+<code>tls(...)</code> and switched on with <code>secure(true)</code>; see
+<a href="tls.html">TLS &amp; DTLS</a>.</li>
+<li>Clients are plain fluent objects: configure, then <code>connect</code>.</li>
+</ul>
+
+<p>
+The exceptions are objects that follow someone else's convention, such as the
+JavaBean-style classes of the Servlet API and the JNDI resources of a servlet
+container, which keep their <code>setXxx</code> methods.
+</p>
+
+<h3 id="gumdrop">The Gumdrop instance</h3>
+
+<p>
+<code>Gumdrop.boot()</code> creates and starts an instance;
+<code>Gumdrop.boot(GumdropConfig)</code> does so with settings:
 </p>
 
 <pre>
-Container container = new Container();
-container.addContext(new Context(container, "", new File("web")));
-
-HttpServer server = HttpServer.compose()
-    .listener(new Http2Listener().port(8080))
-    .streamHandler(new ServletRequestHandler(container))
-    .server();
+Gumdrop gumdrop = Gumdrop.boot(GumdropConfig.create()
+        .workerThreads(8)
+        .drainTimeoutMs(15000));
 </pre>
 
-<p>
-Contexts, realms, clustering, and worker pools are configured on the
-<code>Container</code> / handler builders. See
-<a href="servlet.html#composition">Servlet — composition</a>.
-</p>
-
-<h3 id="webdav">File server and WebDAV</h3>
-
-<p>
-Static files and WebDAV (RFC 4918) use <code>WebDAVRequestHandler</code>
-(<strong>WebDAV</strong> is a tradename — not <code>Webdav</code>):
-</p>
-
-<pre>
-HttpServer server = HttpServer.compose()
-    .listener(new Http2Listener().port(8080))
-    .streamHandler(WebDAVRequestHandler.builder()
-        .rootPath(Path.of("/var/www/html"))
-        .welcomeFile("index.html")
-        .allowWrite(false)
-        .webdavEnabled(true)
-        .build())
-    .server();
-</pre>
+<table border="1" cellpadding="5">
+<tr><th>Setting</th><th>Default</th><th>Meaning</th></tr>
+<tr><td><code>workerThreads</code></td>
+<td>twice the processors (system property <code>gumdrop.workers</code>)</td>
+<td>Number of <code>SelectorLoop</code> worker threads</td></tr>
+<tr><td><code>drainTimeoutMs</code></td>
+<td>25000 (system property <code>gumdrop.drainTimeoutMs</code>, or the
+environment variable <code>GUMDROP_DRAIN_TIMEOUT_MS</code>)</td>
+<td>How long shutdown waits for in-flight connections; 0 closes at once</td></tr>
+</table>
 
 <p>
-See <a href="webdav.html#composition">File Server &amp; WebDAV — composition</a>.
+The instance owns the worker loops, the accept loop for TCP listeners, the
+shared timer, the storage executor (for blocking disk work off the loops) and
+the crypto executor. It also holds the one <code>TelemetryConfig</code> that
+every listener, endpoint and client on it reports to; set it with
+<code>telemetryConfig(...)</code> before adding servers (see
+<a href="telemetry.html">Telemetry</a>). A process normally has one instance,
+and every server and client in it shares the same threads, which is what lets a
+peer listen and dial on one (see <a href="p2p.html">Peer-to-peer</a>).
 </p>
-
-<h3 id="runtime">Runtime and lifecycle</h3>
 
 <p>
-<code>Runtime</code> replaces the Gumdrop 2.x process singleton. Mail, FTP,
-DNS, and other protocols follow the same pattern: build a <code>*Server</code>
-(or client), register on the runtime, start. Complex stacks (mailbox +
-local delivery + SMTP) are wired in one Java <code>main</code> method.
+For a host that supplies its own event loop, and for unit tests,
+<code>Gumdrop.embedded(loop, executor)</code> returns an instance that starts no
+threads: you own the loop, the executor runs the storage and crypto work, and
+there is no accept loop, shared timer or shutdown hook.
 </p>
 
-<h3 id="legacy">Gumdrop 2.x XML (removed)</h3>
+<h3 id="lifecycle">Lifecycle</h3>
+
+<ul>
+<li><b>Adding servers.</b> <code>addServer</code> on a running instance starts
+the server at once and registers its TCP listeners with the accept loop;
+<code>removeServer</code> stops it. Listeners bind on the accept loop, so a port
+that cannot be bound is reported after <code>addServer</code> returns, not
+thrown from it.</li>
+<li><b>Running.</b> <code>awaitShutdown()</code> blocks the calling thread until
+shutdown has finished; an interrupt (Ctrl+C) counts as a request to shut down.
+<code>Gumdrop.serve(servers...)</code> is <code>boot</code>, add the servers,
+and <code>awaitShutdown</code> in one call.</li>
+<li><b>Shutting down.</b> <code>shutdown()</code> is graceful: the instance stops
+accepting connections, waits up to the drain timeout for in-flight ones to
+finish, lets each protocol say goodbye, flushes telemetry, and stops the loops.
+It is idempotent, and it also runs from a JVM shutdown hook, so
+<code>SIGTERM</code> shuts the instance down in the same way.
+<code>shutdownNow()</code> skips the drain and the goodbyes, for a second
+Ctrl+C. The instance also shuts down by itself when no listener and no active
+connection or client remains, and can be started again with
+<code>start()</code>.</li>
+<li><b>Readiness.</b> <code>isReady()</code> is true once every listener has
+bound and the instance is not draining, <code>isDraining()</code> is true during
+a graceful shutdown, and <code>getBindFailures()</code> lists listeners that
+could not bind (for example because the port is in use). They are meant for a
+health or readiness probe.</li>
+</ul>
+
+<h3 id="declarative">Declarative configuration</h3>
+
+<p>
+The one declarative file is the servlet container's <code>server.xml</code>,
+read by its launcher (<code>bin/gumdrop.sh</code>) and turned into the same
+composition: a <code>Container</code> with its realms and contexts on an
+<code>HttpServer</code>. It covers only the container, its contexts and its HTTP
+listeners; everything else is composed in Java. See
+<a href="servlet.html#server-xml">Servlet container &mdash; server.xml</a>.
+</p>
+
+<h3 id="legacy">Moving from Gumdrop 2.x</h3>
 
 <p>
 Gumdrop 2.x used <code>gumdroprc</code> XML with reflective dependency
-injection (<code>ComponentRegistry</code>, <code>&lt;service&gt;</code>,
-<code>&lt;property&gt;</code>, <code>&lt;ref&gt;</code>). That path has been
-<strong>removed in Gumdrop 3.0</strong> — <code>ConfigurationParser</code>,
-<code>ComponentRegistry</code>, and the example <code>etc/gumdroprc.*</code>
-files are gone from the tree entirely; there is no XML fallback of any kind.
-</p>
-
-<p>
-A future declarative configuration format is <em>not</em> planned until there
-is a concrete design. Do not maintain XML in parallel while the composition
-API is still evolving.
+injection. That has been removed: <code>ConfigurationParser</code>,
+<code>ComponentRegistry</code> and the example <code>etc/gumdroprc.*</code>
+files are gone, and there is no XML fallback. The
+<a href="../docs/MIGRATING-TO-3.md">migration guide</a> maps 2.x names and
+patterns to 3.0.
 </p>
 
 <footer>
 <p>
 <a href="index.html">Main Page</a> |
+<a href="design.html">Design</a> |
 <a href="http.html">HTTP</a> |
 <a href="servlet.html">Servlet</a> |
-<a href="webdav.html">WebDAV</a>
+<a href="telemetry.html">Telemetry</a>
 </p>
 </footer>
 

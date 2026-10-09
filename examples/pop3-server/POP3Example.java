@@ -4,9 +4,8 @@
  */
 
 import org.bluezoo.gumdrop.Gumdrop;
-import org.bluezoo.gumdrop.SelectorLoop;
-import org.bluezoo.gumdrop.auth.Realm;
 import org.bluezoo.gumdrop.auth.SaslMechanism;
+import org.bluezoo.gumdrop.auth.SynchronousRealm;
 import org.bluezoo.gumdrop.mailbox.mbox.MboxMailboxFactory;
 import org.bluezoo.gumdrop.pop3.Pop3Listener;
 import org.bluezoo.gumdrop.pop3.server.Pop3Server;
@@ -182,7 +181,7 @@ public class POP3Example {
     /**
      * Minimal realm for the fixture user.
      */
-    static final class DemoRealm implements Realm {
+    static final class DemoRealm implements SynchronousRealm {
 
         private static final Set<SaslMechanism> MECHANISMS =
                 EnumSet.of(SaslMechanism.PLAIN, SaslMechanism.LOGIN);
@@ -212,20 +211,6 @@ public class POP3Example {
 
         @Override
         public String getDigestHA1(String user, String realmName) {
-            return null;
-        }
-
-        @Override
-        public Realm forSelectorLoop(SelectorLoop loop) {
-            return this;
-        }
-
-        @Override
-        @SuppressWarnings("deprecation")
-        public String getPassword(String user) {
-            if (username.equals(user)) {
-                return password;
-            }
             return null;
         }
 

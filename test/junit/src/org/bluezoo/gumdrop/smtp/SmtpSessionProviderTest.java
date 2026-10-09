@@ -56,7 +56,7 @@ public class SmtpSessionProviderTest {
     public void testLocalDeliverySessionProviderUsesListenerMailboxFactory() {
         MailboxFactory factory = new StubMailboxFactory();
         SmtpListener listener = new SmtpListener();
-        listener.setMailboxFactory(factory);
+        listener.mailboxFactory(factory);
 
         LocalDeliverySessionProvider provider = SmtpServerSessionProviders
                 .localDelivery()

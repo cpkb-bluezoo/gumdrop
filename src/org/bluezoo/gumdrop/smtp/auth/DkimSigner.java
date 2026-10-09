@@ -102,38 +102,45 @@ public class DkimSigner {
     }
 
     /** Sets the signing algorithm: "rsa-sha256" (default) or "ed25519-sha256". */
-    public void setAlgorithm(String algorithm) {
+    public DkimSigner algorithm(String algorithm) {
         this.algorithm = algorithm;
+        return this;
     }
 
     /** Sets header canonicalization: "simple" or "relaxed" (default). */
-    public void setHeaderCanonicalization(String canon) {
+    public DkimSigner headerCanonicalization(String canon) {
         this.headerCanonicalization = canon;
+        return this;
     }
 
     /** Sets body canonicalization: "simple" or "relaxed" (default). */
-    public void setBodyCanonicalization(String canon) {
+    public DkimSigner bodyCanonicalization(String canon) {
         this.bodyCanonicalization = canon;
+        return this;
     }
 
     /** RFC 6376 §5.4 — sets the list of header names to sign (lowercase). */
-    public void setSignedHeaders(List<String> headers) {
+    public DkimSigner signedHeaders(List<String> headers) {
         this.signedHeaders = headers;
+        return this;
     }
 
     /** RFC 6376 §3.5 — sets the signature timestamp (t= tag, Unix seconds). */
-    public void setTimestamp(long timestamp) {
+    public DkimSigner timestamp(long timestamp) {
         this.signatureTimestamp = timestamp;
+        return this;
     }
 
     /** RFC 6376 §3.5 — sets the signature expiration (x= tag, Unix seconds). */
-    public void setExpiration(long expiration) {
+    public DkimSigner expiration(long expiration) {
         this.signatureExpiration = expiration;
+        return this;
     }
 
     /** RFC 6376 §3.5 — sets the agent/user identity (i= tag). */
-    public void setIdentity(String identity) {
+    public DkimSigner identity(String identity) {
         this.identity = identity;
+        return this;
     }
 
     /**

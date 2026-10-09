@@ -22,7 +22,9 @@
 package org.bluezoo.gumdrop.websocket.client;
 
 import java.nio.file.Path;
+import org.bluezoo.gumdrop.http.HttpVersion;
 import org.bluezoo.gumdrop.tls.KeystoreFormat;
+import org.bluezoo.gumdrop.tls.TlsConfig;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
@@ -68,25 +70,19 @@ public class WebSocketClientTest {
         assertSame(c, c.selectorLoop(null));
         assertSame(c, c.dnsResolver(null));
         assertSame(c, c.secure(true));
-        assertSame(c, c.trustJvm());
+        assertSame(c, c.tls(new TlsConfig()));
     }
 
     @Test
     public void plainSettersAccepted() {
         WebSocketClient c = new WebSocketClient("example.org", 443);
-        c.setSecure(true);
-        c.setClientCredentials(null);
-        c.setVerifyPeer(false);
-        c.setTrustManager(null);
-        c.setKeystoreFile(Path.of("/tmp/none.p12"));
-        c.setKeystorePass("pw");
-        c.setKeystoreFormat(KeystoreFormat.PKCS12);
-        c.setSubprotocol("chat");
-        c.setDeflateEnabled(false);
-        c.setH3Enabled(true);
-        c.setH2Enabled(false);
-        c.setH2WithPriorKnowledge(true);
-        c.setDnsHttpsRecordEnabled(false);
+        c.secure(true);
+        c.tls(new TlsConfig());
+        c.subprotocol("chat");
+        c.deflateEnabled(false);
+        c.versions(HttpVersion.HTTP_2_0);
+        c.h2WithPriorKnowledge(true);
+        c.dnsHttpsRecordEnabled(false);
         c.addExtension(new PerMessageDeflateExtension());
     }
 
@@ -132,7 +128,7 @@ public class WebSocketClientTest {
     @Test
     public void h3OverUnixSocketReportsError() {
         WebSocketClient c = new WebSocketClient("/tmp/none.sock");
-        c.setH3Enabled(true);
+        c.versions(HttpVersion.HTTP_3);
         RecordingWebSocketEventHandler h = new RecordingWebSocketEventHandler();
         c.connect(null, "/", h);
         assertEquals(1, h.errors.size());
@@ -186,8 +182,8 @@ public class WebSocketClientTest {
 
         InMemoryClient() {
             super("ws.example", 80);
-            setDnsHttpsRecordEnabled(false);
-            setH2Enabled(false);
+            dnsHttpsRecordEnabled(false);
+            versions(HttpVersion.HTTP_1_1);
         }
 
         @Override
@@ -248,7 +244,7 @@ public class WebSocketClientTest {
     public void connectSendsUpgradeRequestAndOpensOnValidResponse()
             throws Exception {
         InMemoryClient c = new InMemoryClient();
-        c.setSubprotocol("chat");
+        c.subprotocol("chat");
         RecordingWebSocketEventHandler h = new RecordingWebSocketEventHandler();
         c.connect(null, "/socket", h);
         String req = c.sentRequest();
@@ -267,9 +263,40 @@ public class WebSocketClientTest {
     }
 
     @Test
+    public void maxMessageSizeIsAppliedWhenTheConnectionOpens() throws Exception {
+        InMemoryClient c = new InMemoryClient();
+        assertSame(c, c.maxMessageSize(2048L));
+        RecordingWebSocketEventHandler h = new RecordingWebSocketEventHandler();
+        c.connect(null, "/socket", h);
+        c.acceptUpgrade();
+        assertEquals(1, h.openedCount);
+        assertEquals(2048L, c.getConnection().getMaxMessageSize());
+    }
+
+    @Test
+    public void connectionKeepsTheBuiltInLimitUnlessOneIsSet() throws Exception {
+        InMemoryClient c = new InMemoryClient();
+        RecordingWebSocketEventHandler h = new RecordingWebSocketEventHandler();
+        c.connect(null, "/socket", h);
+        c.acceptUpgrade();
+        assertEquals(org.bluezoo.gumdrop.websocket.WebSocketConnection.DEFAULT_MAX_MESSAGE_SIZE,
+                c.getConnection().getMaxMessageSize());
+    }
+
+    @Test
+    public void negativeMaxMessageSizeIsRejected() {
+        try {
+            new InMemoryClient().maxMessageSize(-1L);
+            fail();
+        } catch (IllegalArgumentException expected) {
+            assertNotNull(expected.getMessage());
+        }
+    }
+
+    @Test
     public void upgradeRequestCarriesTheHandshakeFields() throws Exception {
         InMemoryClient c = new InMemoryClient();
-        c.setSubprotocol(" chat ");
+        c.subprotocol(" chat ");
         RecordingWebSocketEventHandler h = new RecordingWebSocketEventHandler();
         c.connect(null, "/socket", h);
         String req = c.sentRequest().toLowerCase();
@@ -286,7 +313,7 @@ public class WebSocketClientTest {
     @Test
     public void upgradeRequestOmitsOptionalFieldsWhenUnset() throws Exception {
         InMemoryClient c = new InMemoryClient();
-        c.setDeflateEnabled(false);
+        c.deflateEnabled(false);
         RecordingWebSocketEventHandler h = new RecordingWebSocketEventHandler();
         c.connect(null, "/socket", h);
         String req = c.sentRequest().toLowerCase();
@@ -298,7 +325,7 @@ public class WebSocketClientTest {
     public void frameSentInSameBufferAsUpgradeResponseIsDelivered()
             throws Exception {
         InMemoryClient c = new InMemoryClient();
-        c.setDeflateEnabled(false);
+        c.deflateEnabled(false);
         RecordingWebSocketEventHandler h = new RecordingWebSocketEventHandler();
         c.connect(null, "/", h);
         ByteBuffer frame = WebSocketFrame.createTextFrame("early", false)
@@ -314,7 +341,7 @@ public class WebSocketClientTest {
     @Test
     public void deflateOfferOmittedWhenDisabled() {
         InMemoryClient c = new InMemoryClient();
-        c.setDeflateEnabled(false);
+        c.deflateEnabled(false);
         c.connect(null, "/", new RecordingWebSocketEventHandler());
         assertFalse(c.sentRequest().toLowerCase()
                 .contains("permessage-deflate"));
@@ -366,8 +393,7 @@ public class WebSocketClientTest {
     @Test
     public void secureH2WithoutPriorKnowledgeRequestsAlpn() {
         InMemoryClient c = new InMemoryClient();
-        c.setSecure(true);
-        c.setH2Enabled(true);
+        c.secure(true);
         RecordingWebSocketEventHandler h = new RecordingWebSocketEventHandler();
         c.connect(null, "/", h);
         assertNotNull(c.handler);

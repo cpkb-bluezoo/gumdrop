@@ -21,6 +21,8 @@
 
 package org.bluezoo.gumdrop.mqtt;
 
+import org.bluezoo.gumdrop.util.CidrNetwork;
+import java.util.List;
 import java.util.ResourceBundle;
 
 import org.bluezoo.gumdrop.ProtocolHandler;
@@ -90,9 +92,6 @@ public class MqttListener extends TcpListener {
         return port;
     }
 
-    public void setPort(int port) {
-        this.port = port;
-    }
     /**
      * Sets the port. Returns {@code this} for fluent configuration.
      *
@@ -100,7 +99,7 @@ public class MqttListener extends TcpListener {
      * @return this listener
      */
     public MqttListener port(int port) {
-        setPort(port);
+        this.port = port;
         return this;
     }
 
@@ -128,36 +127,124 @@ public class MqttListener extends TcpListener {
         return this;
     }
 
+    @Override
+    public MqttListener maxConnections(int max) {
+        super.maxConnections(max);
+        return this;
+    }
+
+    @Override
+    public MqttListener maxConnectionsPerIP(int max) {
+        super.maxConnectionsPerIP(max);
+        return this;
+    }
+
+    @Override
+    public MqttListener rateLimit(String rateLimit) {
+        super.rateLimit(rateLimit);
+        return this;
+    }
+
+    @Override
+    public MqttListener maxAuthFailures(int max) {
+        super.maxAuthFailures(max);
+        return this;
+    }
+
+    @Override
+    public MqttListener authLockoutTimeMs(long lockoutMs) {
+        super.authLockoutTimeMs(lockoutMs);
+        return this;
+    }
+
+    @Override
+    public MqttListener allowedNetworks(List<CidrNetwork> allowedNetworks) {
+        super.allowedNetworks(allowedNetworks);
+        return this;
+    }
+
+    @Override
+    public MqttListener blockedNetworks(List<CidrNetwork> blockedNetworks) {
+        super.blockedNetworks(blockedNetworks);
+        return this;
+    }
+
+    @Override
+    public MqttListener name(String name) {
+        super.name(name);
+        return this;
+    }
+
+    @Override
+    public MqttListener maxNetInSize(int size) {
+        super.maxNetInSize(size);
+        return this;
+    }
+
+    @Override
+    public MqttListener maxNetOutSize(int size) {
+        super.maxNetOutSize(size);
+        return this;
+    }
+
+    @Override
+    public MqttListener idleTimeoutMs(long idleTimeoutMs) {
+        super.idleTimeoutMs(idleTimeoutMs);
+        return this;
+    }
+
+    @Override
+    public MqttListener readTimeoutMs(long readTimeoutMs) {
+        super.readTimeoutMs(readTimeoutMs);
+        return this;
+    }
+
+    @Override
+    public MqttListener connectionTimeoutMs(long connectionTimeoutMs) {
+        super.connectionTimeoutMs(connectionTimeoutMs);
+        return this;
+    }
+
+    @Override
+    public MqttListener maxDtlsPeers(int max) {
+        super.maxDtlsPeers(max);
+        return this;
+    }
+
     public int getMaxPacketSize() {
         return maxPacketSize;
     }
 
-    public void setMaxPacketSize(int maxPacketSize) {
+    public MqttListener maxPacketSize(int maxPacketSize) {
         this.maxPacketSize = maxPacketSize;
+        return this;
     }
 
     public int getDefaultKeepAlive() {
         return defaultKeepAlive;
     }
 
-    public void setDefaultKeepAlive(int defaultKeepAlive) {
+    public MqttListener defaultKeepAlive(int defaultKeepAlive) {
         this.defaultKeepAlive = defaultKeepAlive;
+        return this;
     }
 
     public Realm getRealm() {
         return realm;
     }
 
-    public void setRealm(Realm realm) {
+    public MqttListener realm(Realm realm) {
         this.realm = realm;
+        return this;
     }
 
     public org.bluezoo.gumdrop.mqtt.server.MqttServer getServer() {
         return server;
     }
 
-    public void setServer(org.bluezoo.gumdrop.mqtt.server.MqttServer server) {
+    public MqttListener server(org.bluezoo.gumdrop.mqtt.server.MqttServer server) {
         this.server = server;
+        return this;
     }
 
     @Override

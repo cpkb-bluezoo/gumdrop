@@ -22,11 +22,12 @@
 package org.bluezoo.gumdrop.http.client;
 
 import org.bluezoo.gumdrop.http.HttpMethod;
-import org.bluezoo.gumdrop.tls.KeystoreFormat;
 import java.io.IOException;
 import java.net.InetAddress;
 import java.nio.ByteBuffer;
 import java.nio.file.Path;
+import java.util.EnumSet;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import javax.net.ssl.X509TrustManager;
 
@@ -48,7 +49,6 @@ import org.bluezoo.gumdrop.http.ConnectUdpTarget;
 import org.bluezoo.gumdrop.http.HttpClient;
 import org.bluezoo.gumdrop.http.HttpVersion;
 import org.bluezoo.gumdrop.client.ClientConnect;
-import org.bluezoo.gumdrop.tls.ServerCredentials;
 import org.bluezoo.gumdrop.tls.TlsConfig;
 import org.bluezoo.gumdrop.util.EmptyX509TrustManager;
 
@@ -69,7 +69,7 @@ import org.bluezoo.gumdrop.util.EmptyX509TrustManager;
  * <h4>Basic Usage</h4>
  * <pre>{@code
  * ConnectUdpClient client = new ConnectUdpClient("proxy.example.com", 443);
- * client.setSecure(true);
+ * client.secure(true);
  * client.connect("target.example.com", 53, new ConnectUdpEventHandler() {
  *
  *     public void opened(ConnectUdpSession session) {
@@ -104,16 +104,13 @@ public class ConnectUdpClient implements AltSvcListener {
     private final SelectorLoop selectorLoop;
 
     // Configuration (set before connect)
+    private final TlsConfig tls = new TlsConfig();
     private boolean secure;
-    private boolean verifyPeer = true;
-    private ServerCredentials clientCredentials;
-    private X509TrustManager trustManager;
-    private Path keystoreFile;
-    private String keystorePass;
-    private KeystoreFormat keystoreFormat;
-    private boolean h3Enabled;
-    private boolean h2Enabled = true;
+    private EnumSet<HttpVersion> versions = EnumSet.of(
+            HttpVersion.HTTP_3, HttpVersion.HTTP_2_0, HttpVersion.HTTP_1_1);
     private boolean h2WithPriorKnowledge;
+    private DnsResolver dnsResolver;
+    private long quicHandshakeTimeoutMs = HttpClient.DEFAULT_QUIC_HANDSHAKE_TIMEOUT_MS;
     private boolean dnsHttpsRecordEnabled = true;
     private byte[] dnsDiscoveredEchConfigList;
 
@@ -195,7 +192,7 @@ public class ConnectUdpClient implements AltSvcListener {
      * {@link #connect}) is always a network host/port, per RFC 9298.
      *
      * <p>Uses the next available worker loop from the global {@link
-     * Gumdrop} instance. Incompatible with {@link #setH3Enabled(boolean)}
+     * Gumdrop} instance. Incompatible with a version list permitting only HTTP/3
      * -- HTTP/3 is inherently QUIC/UDP and has no filesystem-socket
      * equivalent -- and with DNS/Alt-Svc transport negotiation, both
      * skipped entirely for a path-based client.
@@ -237,108 +234,62 @@ public class ConnectUdpClient implements AltSvcListener {
      * Sets whether this client uses TLS.
      *
      * @param secure true for TLS
+     * @return this client
      */
-    public void setSecure(boolean secure) {
+    public ConnectUdpClient secure(boolean secure) {
         this.secure = secure;
+        return this;
     }
 
     /**
-     * Sets the credentials presented to the server for client authentication.
+     * Sets this client's TLS settings (certificates, trust, ECH and so on). The
+     * settings are copied, so later changes to {@code source} are not seen.
+     * Whether TLS is used at all is decided by {@link #secure(boolean)}.
      *
-     * @param clientCredentials the credentials, or null for none
+     * @param source the TLS configuration
+     * @return this client
      */
-    public void setClientCredentials(ServerCredentials clientCredentials) {
-        this.clientCredentials = clientCredentials;
+    public ConnectUdpClient tls(TlsConfig source) {
+        tls.copyFrom(source);
+        return this;
     }
 
     /**
-     * Sets whether the proxy's TLS certificate is verified. Verified by
-     * default; disabling this accepts any certificate (e.g. for a
-     * self-signed test proxy) unless a specific {@link #setTrustManager}
-     * is also set, which always takes precedence.
+     * Sets the HTTP versions this client may use for the CONNECT-UDP tunnel, as
+     * {@link HttpClient#versions(HttpVersion...)} does for requests. The
+     * default is HTTP/3, HTTP/2 and HTTP/1.1, negotiated automatically: a
+     * DNS HTTPS record advertising "h3" (see {@link
+     * #dnsHttpsRecordEnabled(boolean)}), then a cached Alt-Svc discovery
+     * ({@link AltSvcCache}), then TCP, where HTTP/2 Extended CONNECT is
+     * offered via ALPN and the HTTP/1.1 Upgrade handshake is the fallback.
+     * The event handler and session contract {@link #connect} hands the
+     * application is identical whichever is used.
      *
-     * @param verify false to accept any certificate
+     * <p>Permitting only {@code HTTP_3} uses Extended CONNECT over QUIC
+     * directly, skipping discovery. Leaving out {@code HTTP_3} means QUIC
+     * is never tried; leaving out {@code HTTP_2_0} means {@code h2} is not
+     * offered.
+     *
+     * @param permitted the permitted versions
+     * @return this client
+     * @throws IllegalArgumentException if the list is invalid, see {@link
+     *         HttpVersion#clientVersions}
      */
-    public void setVerifyPeer(boolean verify) {
-        this.verifyPeer = verify;
+    public ConnectUdpClient versions(HttpVersion... permitted) {
+        this.versions = HttpVersion.clientVersions(permitted);
+        return this;
     }
 
-    /**
-     * Sets a custom trust manager for TLS certificate verification.
-     *
-     * @param trustManager the trust manager, or null to use defaults
-     */
-    public void setTrustManager(X509TrustManager trustManager) {
-        this.trustManager = trustManager;
+    private boolean permitsH3() {
+        return versions.contains(HttpVersion.HTTP_3);
     }
 
-    /**
-     * Sets the keystore file for client certificate authentication.
-     *
-     * @param path the keystore file path
-     */
-    public void setKeystoreFile(Path path) {
-        this.keystoreFile = path;
+    private boolean permitsH2() {
+        return versions.contains(HttpVersion.HTTP_2_0);
     }
 
-    /**
-     * Sets the keystore password.
-     *
-     * @param password the keystore password
-     */
-    public void setKeystorePass(String password) {
-        this.keystorePass = password;
-    }
-
-    /**
-     * Sets the keystore format (e.g. JKS, PKCS12).
-     *
-     * @param format the keystore format
-     */
-    public void setKeystoreFormat(KeystoreFormat format) {
-        this.keystoreFormat = format;
-    }
-
-    /**
-     * RFC 9298 -- forces CONNECT-UDP-over-HTTP/3 (Extended CONNECT over
-     * QUIC), bypassing automatic transport negotiation.
-     *
-     * <p>By default (this not called), {@link #connect} negotiates the
-     * transport automatically: a DNS HTTPS record advertising "h3" support
-     * (see {@link #setDnsHttpsRecordEnabled(boolean)}), then a cached
-     * Alt-Svc discovery ({@link AltSvcCache}), then HTTP/2 Extended CONNECT
-     * or the RFC 9110 section 7.8 HTTP/1.1 Upgrade handshake, whichever
-     * the connection negotiates. Calling this with {@code true} skips all
-     * of that and uses Extended CONNECT directly, with no fallback. The
-     * {@link ConnectUdpEventHandler}/{@link ConnectUdpSession} contract
-     * {@link #connect} hands the application is identical either way.
-     *
-     * @param enabled true to force HTTP/3
-     */
-    public void setH3Enabled(boolean enabled) {
-        this.h3Enabled = enabled;
-    }
-
-    /**
-     * RFC 9298 -- enables or disables attempting CONNECT-UDP-over-HTTP/2
-     * (Extended CONNECT) when the underlying TCP+TLS connection negotiates
-     * "h2" via ALPN. Enabled by default.
-     *
-     * <p>Unlike {@link #setH3Enabled(boolean)}, this is not a forcing
-     * override: h2 rides the same TCP+TLS connection attempt as HTTP/1.1
-     * (there is no separate transport to discover in advance, unlike h3's
-     * QUIC/UDP), so this only controls whether "h2" is offered in the ALPN
-     * list at all. If the proxy doesn't support h2 (or this is disabled),
-     * the connection falls back to the RFC 9110 section 7.8 HTTP/1.1
-     * Upgrade handshake automatically. Has no effect when {@link
-     * #setH3Enabled(boolean)} is set, or for cleartext (non-secure)
-     * connections, which have no ALPN step at all -- see {@link
-     * #setH2WithPriorKnowledge(boolean)} for h2 over cleartext.
-     *
-     * @param enabled true to allow CONNECT-UDP-over-HTTP/2
-     */
-    public void setH2Enabled(boolean enabled) {
-        this.h2Enabled = enabled;
+    private boolean forcesH3() {
+        return permitsH3() && !permitsH2() && !versions.contains(HttpVersion.HTTP_1_1);
     }
 
     /**
@@ -346,20 +297,23 @@ public class ConnectUdpClient implements AltSvcListener {
      * connection with no negotiation at all: the client sends the h2
      * connection preface immediately and assumes the proxy already speaks
      * h2, by prior arrangement (matching {@link
-     * HttpClient#setH2WithPriorKnowledge(boolean)}, the equivalent
+     * HttpClient#h2WithPriorKnowledge(boolean)}, the equivalent
      * setting for plain HTTP requests, and {@code
-     * WebSocketClient#setH2WithPriorKnowledge}, the equivalent for
-     * WebSocket). Combined with {@link #setSecure(boolean)}{@code
+     * WebSocketClient#h2WithPriorKnowledge}, the equivalent for
+     * WebSocket). Combined with {@link #secure(boolean)}{@code
      * (false)}, this is what enables CONNECT-UDP-over-h2c.
      *
-     * <p>Has no effect when {@link #setH3Enabled(boolean)} is set, or for
-     * secure connections (which negotiate h2 via ALPN instead, see
-     * {@link #setH2Enabled(boolean)}).
+     * <p>Has no effect when only HTTP/3 is permitted, or for secure
+     * connections (which negotiate h2 via ALPN instead, see {@link
+     * #versions(HttpVersion...)}). Requires {@code HTTP_2_0} to be
+     * permitted.
      *
      * @param enabled true to force HTTP/2 over cleartext with no negotiation
+     * @return this client
      */
-    public void setH2WithPriorKnowledge(boolean enabled) {
+    public ConnectUdpClient h2WithPriorKnowledge(boolean enabled) {
         this.h2WithPriorKnowledge = enabled;
+        return this;
     }
 
     /**
@@ -374,9 +328,11 @@ public class ConnectUdpClient implements AltSvcListener {
      * AltSvcCache}.
      *
      * @param enabled true to enable DNS HTTPS-record discovery
+     * @return this client
      */
-    public void setDnsHttpsRecordEnabled(boolean enabled) {
+    public ConnectUdpClient dnsHttpsRecordEnabled(boolean enabled) {
         this.dnsHttpsRecordEnabled = enabled;
+        return this;
     }
 
     // ═══════════════════════════════════════════════════════════════════
@@ -398,7 +354,7 @@ public class ConnectUdpClient implements AltSvcListener {
     public void connect(Gumdrop gumdrop, String targetHost, int targetPort, final ConnectUdpEventHandler handler) {
         this.gumdrop = gumdrop;
         if (socketPath != null) {
-            if (h3Enabled) {
+            if (forcesH3()) {
                 handler.error(new IOException(
                         "CONNECT-UDP-over-HTTP/3 is not supported over a UNIX domain socket"));
                 return;
@@ -406,8 +362,8 @@ public class ConnectUdpClient implements AltSvcListener {
             connectTcp(targetHost, targetPort, handler);
             return;
         }
-        if (h3Enabled) {
-            connectH3(targetHost, targetPort, handler);
+        if (forcesH3()) {
+            connectH3(targetHost, targetPort, handler, false);
             return;
         }
         discoverAndConnect(targetHost, targetPort, handler);
@@ -457,8 +413,8 @@ public class ConnectUdpClient implements AltSvcListener {
                     if (rr.getType() != DnsType.HTTPS || rr.isSVCBAliasForm()) {
                         continue;
                     }
-                    if (rr.getSVCBAlpnProtocols().contains("h3")) {
-                        connectH3(targetHost, targetPort, handler);
+                    if (permitsH3() && rr.getSVCBAlpnProtocols().contains("h3")) {
+                        connectH3(targetHost, targetPort, handler, true);
                         return;
                     }
                 }
@@ -477,12 +433,33 @@ public class ConnectUdpClient implements AltSvcListener {
      * can substitute a resolver with canned answers.
      */
     DnsResolver resolverFor(SelectorLoop loop) {
-        return DnsResolver.forLoop(loop);
+        return dnsResolver != null ? dnsResolver : DnsResolver.forLoop(loop);
+    }
+
+    /**
+     * Sets the resolver used to look up the proxy's host name and its DNS
+     * HTTPS record, for TCP and HTTP/3 alike. When unset, the resolver of
+     * the connection's selector loop ({@link DnsResolver#forLoop}) is used.
+     *
+     * @param dnsResolver the resolver, or {@code null} for the default
+     * @return this client
+     */
+    public ConnectUdpClient dnsResolver(DnsResolver dnsResolver) {
+        this.dnsResolver = dnsResolver;
+        return this;
+    }
+
+    /**
+     * Returns the configured DNS resolver, or {@code null} if the default
+     * will be used.
+     */
+    public DnsResolver getDnsResolver() {
+        return dnsResolver;
     }
 
     private void connectViaAltSvcCacheOrTcp(String targetHost, int targetPort, ConnectUdpEventHandler handler) {
-        if (AltSvcCache.get(host, port) != null) {
-            connectH3(targetHost, targetPort, handler);
+        if (permitsH3() && AltSvcCache.get(host, port) != null) {
+            connectH3(targetHost, targetPort, handler, true);
             return;
         }
         connectTcp(targetHost, targetPort, handler);
@@ -491,7 +468,7 @@ public class ConnectUdpClient implements AltSvcListener {
 
     /**
      * The TCP+TLS path. Negotiates HTTP/2 via ALPN when {@link
-     * #setH2Enabled(boolean)} allows it (the default) and the connection
+     * #versions(HttpVersion...)} permits it (the default) and the connection
      * is secure, and uses RFC 9298 Extended CONNECT over it; otherwise
      * falls back to the RFC 9110 section 7.8 HTTP/1.1 Upgrade handshake.
      * Both outcomes are decided from {@code onConnected}, once {@code
@@ -513,32 +490,14 @@ public class ConnectUdpClient implements AltSvcListener {
         final String path = ConnectUdpTarget.encode(targetHost, targetPort);
 
         transportFactory = newTransportFactory();
-        transportFactory.setSecure(secure);
-        if (clientCredentials != null) {
-            transportFactory.setClientCredentials(clientCredentials);
-        }
-        if (trustManager != null) {
-            transportFactory.setTrustManager(trustManager);
-        } else if (!verifyPeer) {
-            transportFactory.setTrustManager(new EmptyX509TrustManager());
-        }
-        if (keystoreFile != null) {
-            transportFactory.setKeystoreFile(keystoreFile);
-        }
-        if (keystorePass != null) {
-            transportFactory.setKeystorePass(keystorePass);
-        }
-        if (keystoreFormat != null) {
-            transportFactory.setKeystoreFormat(keystoreFormat);
-        }
         // RFC 9298's Extended CONNECT rides the same TCP+TLS attempt as
         // HTTP/1.1 -- offer h2 via ALPN so the already-negotiated version
         // is known by the time onConnected fires below.
-        if (secure && h2Enabled && !h2WithPriorKnowledge) {
+        if (secure && permitsH2() && !h2WithPriorKnowledge) {
             transportFactory.setApplicationProtocols("h2", "http/1.1");
         }
         ClientConnect.applyTcpClientEch(transportFactory, dnsDiscoveredEchConfigList, new TlsConfig());
-        transportFactory.start();
+        ClientConnect.prepareTls(secure, tls, transportFactory);
 
         HttpClientHandler internalHandler = new HttpClientHandler() {
 
@@ -596,8 +555,8 @@ public class ConnectUdpClient implements AltSvcListener {
                 : new ConnectUdpClientProtocolHandler(
                         internalHandler, handler, cacheKeyHost(), port, secure);
 
-        protocolHandler.setH2Enabled(h2Enabled);
-        if (h2WithPriorKnowledge) {
+        protocolHandler.setH2Enabled(permitsH2());
+        if (h2WithPriorKnowledge && permitsH2()) {
             protocolHandler.setH2WithPriorKnowledge(true);
         }
         // RFC 9113 section 3.1's HTTP/1.1-Upgrade-header h2c bootstrap has
@@ -652,6 +611,9 @@ public class ConnectUdpClient implements AltSvcListener {
                 clientEndpoint = new ClientEndpoint(
                         transportFactory, hostAddress, port);
             }
+        }
+        if (dnsResolver != null) {
+            clientEndpoint.setDnsResolver(dnsResolver);
         }
         clientEndpoint.connect(gumdrop, ph);
     }
@@ -742,40 +704,79 @@ public class ConnectUdpClient implements AltSvcListener {
     }
 
     /**
+     * Test seam: creates the internal client used for the HTTP/3 attempt.
+     */
+    HttpClient createH3ClientForTesting() {
+        if (host != null) {
+            return (selectorLoop != null)
+                    ? new HttpClient(selectorLoop, host, port) : new HttpClient(host, port);
+        }
+        return (selectorLoop != null)
+                ? new HttpClient(selectorLoop, hostAddress, port) : new HttpClient(hostAddress, port);
+    }
+
+    /** Gives up the HTTP/3 attempt, ahead of connecting over TCP instead. */
+    private void abandonH3() {
+        HttpClient abandoned = httpClient;
+        httpClient = null;
+        if (abandoned != null) {
+            abandoned.close();
+        }
+    }
+
+    /**
+     * Sets how long an HTTP/3 attempt may take to establish. When discovery
+     * chose HTTP/3 and TCP is permitted, the client then connects over TCP
+     * instead; when only HTTP/3 is permitted, it reports an error. The
+     * default is three seconds; 0 disables the deadline.
+     *
+     * @param ms the deadline in milliseconds
+     * @return this client
+     */
+    public ConnectUdpClient quicHandshakeTimeoutMs(long ms) {
+        if (ms < 0) {
+            throw new IllegalArgumentException("ms must not be negative");
+        }
+        this.quicHandshakeTimeoutMs = ms;
+        return this;
+    }
+
+    /**
      * RFC 9298 section 3 -- connects and requests the CONNECT-UDP tunnel
      * over HTTP/3 Extended CONNECT, via an internally-managed {@link
      * HttpClient}.
      */
-    private void connectH3(final String targetHost, final int targetPort, final ConnectUdpEventHandler handler) {
-        if (host != null) {
-            httpClient = (selectorLoop != null)
-                    ? new HttpClient(selectorLoop, host, port) : new HttpClient(host, port);
-        } else {
-            httpClient = (selectorLoop != null)
-                    ? new HttpClient(selectorLoop, hostAddress, port) : new HttpClient(hostAddress, port);
+    private void connectH3(final String targetHost, final int targetPort, final ConnectUdpEventHandler handler, final boolean fallback) {
+        httpClient = createH3ClientForTesting();
+        httpClient.quicHandshakeTimeoutMs(quicHandshakeTimeoutMs);
+        final AtomicBoolean h3Established = new AtomicBoolean(false);
+        httpClient.versions(HttpVersion.HTTP_3);
+        if (dnsResolver != null) {
+            httpClient.dnsResolver(dnsResolver);
         }
-        httpClient.setH3Enabled(true);
         httpClient.setDnsDiscoveredEchConfigList(dnsDiscoveredEchConfigList);
-        // Note: HttpClient's QUIC/H3 path (unlike its TCP/H1.1 path)
-        // doesn't consult a custom X509TrustManager at all today, only
-        // verifyPeer -- trustManager/keystoreFile are therefore not wired
-        // through here; matches the same, pre-existing gap in
-        // WebSocketClient#connectH3.
-        httpClient.setVerifyPeer(verifyPeer);
+        httpClient.tls(tls);
 
         httpClient.connect(gumdrop, new HttpClientHandler() {
             @Override
             public void onConnected(Endpoint endpoint) {
+                h3Established.set(true);
             }
 
             @Override
             public void onSecurityEstablished(SecurityInfo info) {
+                h3Established.set(true);
                 httpClient.connectUdp(targetHost, targetPort,
                         new H3ConnectUdpEventHandlerBridge(handler));
             }
 
             @Override
             public void onError(Exception cause) {
+                if (fallback && !h3Established.get()) {
+                    abandonH3();
+                    connectTcp(targetHost, targetPort, handler);
+                    return;
+                }
                 handler.error(cause);
             }
 

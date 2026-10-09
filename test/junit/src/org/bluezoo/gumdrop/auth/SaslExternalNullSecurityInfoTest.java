@@ -37,14 +37,9 @@ public class SaslExternalNullSecurityInfoTest {
 
     @Test
     public void nullSecurityInfoFailsAuthentication() {
-        RecordingStubEndpoint endpoint = new RecordingStubEndpoint(143);
+        final RecordingStubEndpoint endpoint = new RecordingStubEndpoint(143);
         endpoint.setSecure(true);
-        Realm realm = new Realm() {
-            @Override
-            public Realm forSelectorLoop(org.bluezoo.gumdrop.SelectorLoop loop) {
-                return this;
-            }
-
+        final Realm realm = new SynchronousRealm() {
             @Override
             public java.util.Set<SaslMechanism> getSupportedSASLMechanisms() {
                 return java.util.Collections.emptySet();
@@ -61,18 +56,17 @@ public class SaslExternalNullSecurityInfoTest {
             }
 
             @Override
-            @SuppressWarnings("deprecation")
-            public String getPassword(String username) {
-                return null;
-            }
-
-            @Override
             public boolean isUserInRole(String username, String role) {
                 return false;
             }
         };
         Realm.CertificateAuthenticationResult result =
-                SaslUtils.authenticateExternal(endpoint, realm, null);
+                CapturedCallback.await(new CapturedCallback.Call<Realm.CertificateAuthenticationResult>() {
+                    @Override
+                    public void invoke(RealmCallback<Realm.CertificateAuthenticationResult> cb) {
+                        SaslUtils.authenticateExternal(endpoint, realm, null, cb);
+                    }
+                });
         assertFalse(result.valid);
     }
 }

@@ -181,7 +181,7 @@ public class FtpDataCoordinatorEdgeTest {
 
     @Test
     public void activeModeBounceIsAllowedWhenConfiguredEvenWithoutControlClient() {
-        listener.setAllowActiveModeBounce(true);
+        listener.allowActiveModeBounce(true);
         assertTrue(coordinator.setupActiveMode("192.0.2.1", 50000));
         assertEquals(FtpDataConnectionCoordinator.DataConnectionMode.ACTIVE, coordinator.getMode());
     }

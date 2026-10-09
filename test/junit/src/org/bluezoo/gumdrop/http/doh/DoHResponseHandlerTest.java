@@ -28,6 +28,7 @@ import java.net.InetAddress;
 import java.nio.ByteBuffer;
 
 import org.bluezoo.gumdrop.dns.client.DnsClientTransportHandler;
+import org.bluezoo.gumdrop.tls.TlsConfig;
 import org.bluezoo.gumdrop.http.HttpStatus;
 import org.bluezoo.gumdrop.http.client.HttpResponseHandler;
 import org.bluezoo.gumdrop.testsupport.MessageEvents;
@@ -142,8 +143,7 @@ public class DoHResponseHandlerTest {
     @Test
     public void testSettersAccepted() {
         DoHClientTransport t = new DoHClientTransport();
-        t.setClientCredentials(null);
-        t.setTrustManager(null);
+        t.tls(new TlsConfig());
         t.close();
     }
 }

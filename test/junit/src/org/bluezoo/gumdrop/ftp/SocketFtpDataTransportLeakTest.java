@@ -77,8 +77,8 @@ public class SocketFtpDataTransportLeakTest {
     @Test
     public void exhaustedPortRangeClosesTheChannel() {
         FtpListener listener = new FtpListener();
-        listener.setPasvMinPort(4000);
-        listener.setPasvMaxPort(4002);
+        listener.pasvMinPort(4000);
+        listener.pasvMaxPort(4002);
         assertBindFailsAndClosesTheChannel(listener, 0);
         assertEquals(3, channel.getBindCount());
     }

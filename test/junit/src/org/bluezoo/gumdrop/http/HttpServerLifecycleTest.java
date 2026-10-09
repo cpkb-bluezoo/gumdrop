@@ -106,8 +106,8 @@ public class HttpServerLifecycleTest {
 
     private static Http3Listener h3(int port) {
         Http3Listener l = new Http3Listener();
-        l.setPort(port);
-        l.setSelectorLoop(new InlineSelectorLoop());
+        l.port(port);
+        l.selectorLoop(new InlineSelectorLoop());
         return l;
     }
 
@@ -115,27 +115,27 @@ public class HttpServerLifecycleTest {
     public void hstsConfigurationRoundTrips() {
         Bare s = new Bare();
         assertFalse(s.getHstsPolicy().isEnabled());
-        s.setHstsPolicy(HstsPolicy.enabled(77L).includeSubDomains(true).preload(true));
+        s.hstsPolicy(HstsPolicy.enabled(77L).includeSubDomains(true).preload(true));
         HstsPolicy p = s.getHstsPolicy();
         assertTrue(p.isEnabled());
         assertEquals(77L, p.getMaxAgeSeconds());
         assertTrue(p.isIncludeSubDomains());
         assertTrue(p.isPreload());
-        s.setHstsPolicy(null);
+        s.hstsPolicy(null);
         assertFalse(s.getHstsPolicy().isEnabled());
-        s.setHstsPolicy(HstsPolicy.enabled(5L));
-        s.setHstsPolicy(HstsPolicy.disabled());
+        s.hstsPolicy(HstsPolicy.enabled(5L));
+        s.hstsPolicy(HstsPolicy.disabled());
         assertFalse(s.getHstsPolicy().isEnabled());
-        s.setHstsEnabled(true);
-        s.setHstsMaxAge(600L);
-        s.setHstsIncludeSubDomains(true);
-        s.setHstsPreload(false);
+        s.hstsEnabled(true);
+        s.hstsMaxAge(600L);
+        s.hstsIncludeSubDomains(true);
+        s.hstsPreload(false);
         p = s.getHstsPolicy();
         assertEquals(600L, p.getMaxAgeSeconds());
         assertTrue(p.isIncludeSubDomains());
         assertFalse(p.isPreload());
         try {
-            s.setHstsMaxAge(-1L);
+            s.hstsMaxAge(-1L);
             fail();
         } catch (IllegalArgumentException expected) {
             assertNotNull(expected.getMessage());
@@ -147,14 +147,15 @@ public class HttpServerLifecycleTest {
         Bare s = new Bare();
         assertNull(s.getRealm());
         assertTrue(s.isAddSecurityHeaders());
-        s.setAddSecurityHeaders(false);
+        s.addSecurityHeaders(false);
         assertFalse(s.isAddSecurityHeaders());
         Realm realm = new org.bluezoo.gumdrop.auth.BasicRealm();
-        s.setRealm(realm);
+        s.realm(realm);
         assertSame(realm, s.getRealm());
         Http2Listener a = new Http2Listener();
         Http3Listener b = new Http3Listener();
-        s.setListeners(Arrays.asList(a, "ignored", b));
+        s.addListener(a);
+        s.addListener(b);
         assertEquals(2, s.getListeners().size());
         try {
             s.getListeners().clear();
@@ -170,7 +171,7 @@ public class HttpServerLifecycleTest {
     public void startWiresListenersAndAdvertisesAltSvc() {
         Hook hook = new Hook();
         Http2Listener secure = new Http2Listener();
-        secure.setSecure(true);
+        secure.secure(true);
         Http2Listener plain = new Http2Listener();
         Http3Listener quicA = h3(4443);
         Http3Listener quicB = h3(5443);

@@ -116,7 +116,7 @@ public class DnsServerQueryTest {
         listener = new RecordingListener();
         server = new DnsServer();
         handler = new TableHandler();
-        server.setHandler(handler);
+        server.handler(handler);
         source = new InetSocketAddress(InetAddress.getByName("192.0.2.50"), 5353);
     }
 
@@ -313,7 +313,7 @@ public class DnsServerQueryTest {
     @Test
     public void testMqtypeSubHandlerErrorIsNotCovered() throws Exception {
         final DnsMessage aAnswer = answerOf(DnsType.A, "www.example.com.", "192.0.2.1");
-        server.setHandler(new DnsQueryHandler() {
+        server.handler(new DnsQueryHandler() {
             @Override
             public void handleQuery(DnsMessage query, SelectorLoop loop, DnsQueryCallback cb) {
                 if (query.getQuestions().get(0).getType() == DnsType.A) {
@@ -346,14 +346,14 @@ public class DnsServerQueryTest {
         send(mq(5, DnsType.A));
         assertEquals(DnsMessage.RCODE_FORMERR, lastResponse().getRcode());
         // over the configured cap
-        server.setMaxMQTypes(1);
+        server.maxMQTypes(1);
         send(mq(6, DnsType.A, DnsType.AAAA, DnsType.MX));
         assertEquals(DnsMessage.RCODE_FORMERR, lastResponse().getRcode());
     }
 
     @Test
     public void testMqtypeIgnoredForTruncatedPrimary() throws Exception {
-        server.setHandler(new DnsQueryHandler() {
+        server.handler(new DnsQueryHandler() {
             @Override
             public void handleQuery(DnsMessage query, SelectorLoop loop, DnsQueryCallback cb) {
                 DnsMessage full = query.createResponse(Collections.<DnsResourceRecord>emptyList());
@@ -384,8 +384,7 @@ public class DnsServerQueryTest {
         DnsServer s = new DnsServer();
         assertTrue(s.getListeners().isEmpty());
         s.addListener(listener);
-        s.setListeners(Collections.singletonList(listener));
-        s.setListeners(Collections.singletonList("ignored"));
+        s.addListener(listener);
         assertEquals(2, s.getListeners().size());
         assertNull(s.getMetrics());
         try {

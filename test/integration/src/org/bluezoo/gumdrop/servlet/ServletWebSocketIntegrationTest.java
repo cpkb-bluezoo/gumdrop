@@ -70,7 +70,7 @@ public class ServletWebSocketIntegrationTest extends AbstractServerIntegrationTe
     @Override
     protected Collection<? extends Server> buildServers() throws Exception {
         Container container = new Container();
-        container.setBufferSize(8192);
+        container.bufferSize(8192);
         container.addContext(new Context(container, "",
                 new File("test/integration/webapp")));
 

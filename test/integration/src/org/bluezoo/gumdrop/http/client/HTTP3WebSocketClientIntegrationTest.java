@@ -22,7 +22,9 @@
 package org.bluezoo.gumdrop.http.client;
 
 import java.util.List;
+import org.bluezoo.gumdrop.http.HttpVersion;
 import org.bluezoo.gumdrop.http.HeaderFields;
+import org.bluezoo.gumdrop.tls.TlsConfig;
 import org.bluezoo.gumdrop.http.Header;
 import org.bluezoo.gumdrop.testsupport.CollectingRequestHandler;
 import java.nio.file.Path;
@@ -100,11 +102,10 @@ public class HTTP3WebSocketClientIntegrationTest {
         System.setProperty("gumdrop.workers", "2");
 
         listener = new Http3Listener();
-        listener.setPort(H3_PORT);
+        listener.port(H3_PORT);
         listener.addresses(java.net.InetAddress.getByName(TEST_HOST));
-        listener.setCertFile(Path.of(pemCert.getAbsolutePath()));
-        listener.setKeyFile(Path.of(pemKey.getAbsolutePath()));
-        listener.setStreamHandler(new EchoWebSocketHandlerFactory());
+        listener.tls(TlsConfig.pem(Path.of(pemCert.getAbsolutePath()), Path.of(pemKey.getAbsolutePath())));
+        listener.streamHandler(new EchoWebSocketHandlerFactory());
 
         gumdrop = Gumdrop.boot(GumdropConfig.create().workerThreads(2));
         gumdrop.addListener(listener);
@@ -139,10 +140,10 @@ public class HTTP3WebSocketClientIntegrationTest {
         final AtomicReference<WebSocketSession> sessionRef = new AtomicReference<>();
 
         WebSocketClient client = new WebSocketClient(TEST_HOST, H3_PORT);
-        client.setH3Enabled(true);
+        client.versions(HttpVersion.HTTP_3);
         // The test server presents a certificate signed by our throwaway
         // test CA, which nothing here trusts by default.
-        client.setVerifyPeer(false);
+        client.tls(new TlsConfig().verifyPeer(false));
 
         try {
             client.connect(gumdrop, "/ws", new DefaultWebSocketEventHandler() {

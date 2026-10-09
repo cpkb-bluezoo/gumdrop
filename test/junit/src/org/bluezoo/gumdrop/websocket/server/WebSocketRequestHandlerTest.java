@@ -377,6 +377,44 @@ public class WebSocketRequestHandlerTest {
     }
 
     @Test
+    public void withoutAMessageSizeTheApplicationHandlerIsUsedAsIs() {
+        open(builder(appHandler).build(), upgradeRequest());
+        assertSame(appHandler, state.handler);
+    }
+
+    /** A connection that is also its own session. */
+    private static final class SessionConnection
+            extends org.bluezoo.gumdrop.websocket.WebSocketConnection
+            implements org.bluezoo.gumdrop.websocket.WebSocketSession {
+        @Override protected void opened() { }
+        @Override protected void textMessageReceived(String m) { }
+        @Override protected void binaryMessageReceived(ByteBuffer d) { }
+        @Override protected void closed(int c, String r) { }
+        @Override protected void error(Throwable t) { }
+        @Override public Principal getPrincipal() { return null; }
+    }
+
+    @Test
+    public void messageSizeIsAppliedWhenTheConnectionOpens() {
+        open(builder(appHandler).maxMessageSize(1234L).build(), upgradeRequest());
+        assertNotNull(state.handler);
+        org.junit.Assert.assertNotSame(appHandler, state.handler);
+        SessionConnection connection = new SessionConnection();
+        state.handler.opened(connection);
+        assertEquals(1234L, connection.getMaxMessageSize());
+    }
+
+    @Test
+    public void negativeMessageSizeIsRejected() {
+        try {
+            builder(appHandler).maxMessageSize(-1L);
+            fail();
+        } catch (IllegalArgumentException expected) {
+            assertNotNull(expected.getMessage());
+        }
+    }
+
+    @Test
     public void failedUpgradeGets400() {
         state.failUpgrade = true;
         open(builder(appHandler).build(), upgradeRequest());

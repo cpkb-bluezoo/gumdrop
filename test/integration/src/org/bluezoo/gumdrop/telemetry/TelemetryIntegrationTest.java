@@ -131,12 +131,12 @@ public class TelemetryIntegrationTest {
 
         // Create HTTP server with telemetry enabled
         httpServer = new Http2Listener();
-        httpServer.setPort(HTTP_PORT);
+        httpServer.port(HTTP_PORT);
         httpServer.addresses(java.net.InetAddress.getByName("::1"));
 
         // Create SMTP server with telemetry enabled
         smtpServer = new SmtpListener();
-        smtpServer.setPort(SMTP_PORT);
+        smtpServer.port(SMTP_PORT);
         smtpServer.addresses(java.net.InetAddress.getByName("::1"));
 
         // Start both servers using their own dedicated runtime

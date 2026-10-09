@@ -33,7 +33,7 @@ import org.bluezoo.gumdrop.amqp.client.CloseHandler;
 
 /**
  * A {@link ClientConnection} whose channels survive reconnects — see
- * {@link AmqpClientRecovery}.
+ * {@link AmqpClient}.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */

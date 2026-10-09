@@ -21,11 +21,13 @@
 
 package org.bluezoo.gumdrop.servlet;
 
+import org.bluezoo.gumdrop.auth.SynchronousRealm;
 import java.util.Collections;
 import java.util.EnumSet;
 import java.util.Set;
 
 import org.bluezoo.gumdrop.SelectorLoop;
+import org.bluezoo.gumdrop.auth.CapturedCallback;
 import org.bluezoo.gumdrop.auth.Realm;
 import org.bluezoo.gumdrop.auth.SaslMechanism;
 
@@ -47,17 +49,13 @@ import static org.junit.Assert.assertTrue;
 public class ServletAuthenticationProviderTest {
 
     /** Realm with configurable digest support and token handling. */
-    private static final class TestRealm implements Realm {
+    private static final class TestRealm implements SynchronousRealm {
         final Set<SaslMechanism> mechanisms;
 
         TestRealm(Set<SaslMechanism> mechanisms) {
             this.mechanisms = mechanisms;
         }
 
-        @Override
-        public Realm forSelectorLoop(SelectorLoop loop) {
-            return this;
-        }
 
         @Override
         public Set<SaslMechanism> getSupportedSASLMechanisms() {
@@ -74,10 +72,6 @@ public class ServletAuthenticationProviderTest {
             return "ha1-" + username;
         }
 
-        @Override
-        public String getPassword(String username) {
-            return "pw";
-        }
 
         @Override
         public boolean isUserInRole(String username, String role) {
@@ -113,6 +107,37 @@ public class ServletAuthenticationProviderTest {
         context.setLoginConfig(config);
     }
 
+    // The test realm answers inline, so every lookup completes before it returns.
+
+    private boolean pm(String realm, String user, String password) {
+        CapturedCallback<Boolean> cb = new CapturedCallback<Boolean>();
+        provider.passwordMatch(null, realm, user, password, cb);
+        return Boolean.TRUE.equals(cb.value()) && cb.isDone();
+    }
+
+    private String ha1(String realm, String user) {
+        CapturedCallback<String> cb = new CapturedCallback<String>();
+        provider.getDigestHA1(null, realm, user, cb);
+        assertTrue(cb.isDone());
+        return cb.value();
+    }
+
+    private Realm.TokenValidationResult bearer(String token) {
+        CapturedCallback<Realm.TokenValidationResult> cb =
+                new CapturedCallback<Realm.TokenValidationResult>();
+        provider.validateBearerToken(null, token, cb);
+        assertTrue(cb.isDone());
+        return cb.value();
+    }
+
+    private Realm.TokenValidationResult oauth(String token) {
+        CapturedCallback<Realm.TokenValidationResult> cb =
+                new CapturedCallback<Realm.TokenValidationResult>();
+        provider.validateOAuthToken(null, token, cb);
+        assertTrue(cb.isDone());
+        return cb.value();
+    }
+
     @Test
     public void testLoginConfigIsExposed() {
         login("BASIC", "main");
@@ -123,21 +148,21 @@ public class ServletAuthenticationProviderTest {
     @Test
     public void testCredentialChecksDelegateToRealm() {
         context.addRealm("main", new TestRealm(Collections.<SaslMechanism>emptySet()));
-        assertTrue(provider.passwordMatch("main", "u", "p"));
-        assertFalse(provider.passwordMatch("main", "u", "bad"));
-        assertEquals("ha1-u", provider.getDigestHA1("main", "u"));
-        assertFalse(provider.passwordMatch("absent", "u", "p"));
+        assertTrue(pm("main", "u", "p"));
+        assertFalse(pm("main", "u", "bad"));
+        assertEquals("ha1-u", ha1("main", "u"));
+        assertFalse(pm("absent", "u", "p"));
     }
 
     @Test
     public void testUnconfiguredRealmAnswersConservatively() {
         assertFalse(provider.supportsDigestAuth());
-        assertNull(provider.validateBearerToken("t"));
-        assertNull(provider.validateOAuthToken("t"));
+        assertNull(bearer("t"));
+        assertNull(oauth("t"));
         login("DIGEST", "ghost");
         assertFalse(provider.supportsDigestAuth());
-        assertNull(provider.validateBearerToken("t"));
-        assertNull(provider.validateOAuthToken("t"));
+        assertNull(bearer("t"));
+        assertNull(oauth("t"));
     }
 
     @Test
@@ -153,7 +178,7 @@ public class ServletAuthenticationProviderTest {
     public void testTokensAreValidatedByTheRealm() {
         login("BEARER", "main");
         context.addRealm("main", new TestRealm(Collections.<SaslMechanism>emptySet()));
-        assertEquals("bearer-abc", provider.validateBearerToken("abc").username);
-        assertEquals("oauth-xyz", provider.validateOAuthToken("xyz").username);
+        assertEquals("bearer-abc", bearer("abc").username);
+        assertEquals("oauth-xyz", oauth("xyz").username);
     }
 }

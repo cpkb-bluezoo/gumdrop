@@ -22,6 +22,8 @@
 package org.bluezoo.gumdrop.http.client;
 
 import org.bluezoo.gumdrop.AbstractServerIntegrationTest;
+import org.bluezoo.gumdrop.http.HttpVersion;
+import org.bluezoo.gumdrop.tls.TlsConfig;
 import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.ProtocolHandler;
 import org.bluezoo.gumdrop.SecurityInfo;
@@ -129,11 +131,10 @@ public class ConnectUdpClientIntegrationTest extends AbstractServerIntegrationTe
     public void testCleartextH2PriorKnowledgeRelaysDatagram() throws Exception {
         EventSink events = new EventSink();
         ConnectUdpClient client = new ConnectUdpClient(TEST_HOST, HTTP_PROXY_PORT);
-        client.setSecure(false);
-        client.setH3Enabled(false);
-        client.setDnsHttpsRecordEnabled(false);
-        client.setH2Enabled(true);
-        client.setH2WithPriorKnowledge(true);
+        client.secure(false);
+        client.versions(HttpVersion.HTTP_2_0, HttpVersion.HTTP_1_1);
+        client.dnsHttpsRecordEnabled(false);
+        client.h2WithPriorKnowledge(true);
         client.connect(gumdrop, "127.0.0.1", udpEchoPort, events);
 
         assertTrue(events.opened.await(TIMEOUT_SECONDS, TimeUnit.SECONDS));
@@ -173,14 +174,13 @@ public class ConnectUdpClientIntegrationTest extends AbstractServerIntegrationTe
 
     private ConnectUdpClient newClient(int port, boolean secure) throws Exception {
         ConnectUdpClient client = new ConnectUdpClient(TEST_HOST, port);
-        client.setSecure(secure);
-        client.setH3Enabled(false);
-        client.setDnsHttpsRecordEnabled(false);
+        client.secure(secure);
+        client.versions(HttpVersion.HTTP_2_0, HttpVersion.HTTP_1_1);
+        client.dnsHttpsRecordEnabled(false);
         if (secure) {
-            client.setTrustManager(TestTlsFiles.trustManager());
-            client.setH2Enabled(true);
+            client.tls(new TlsConfig().trustManager(TestTlsFiles.trustManager()));
         } else {
-            client.setH2Enabled(false);
+            client.versions(HttpVersion.HTTP_1_1);
         }
         return client;
     }

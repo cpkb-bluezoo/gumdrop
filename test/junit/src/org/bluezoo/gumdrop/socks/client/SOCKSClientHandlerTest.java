@@ -73,7 +73,7 @@ public class SOCKSClientHandlerTest {
 
     @Test
     public void testConnectSocks4Success() {
-        SocksClientConfig config = new SocksClientConfig().setVersion(SocksClientConfig.Version.SOCKS4);
+        SocksClientConfig config = new SocksClientConfig().version(SocksClientConfig.Version.SOCKS4);
         SocksClientHandler handler = new SocksClientHandler("192.168.0.5", 25, config, innerHandler);
         handler.connected(endpoint);
 
@@ -168,7 +168,7 @@ public class SOCKSClientHandlerTest {
 
     @Test
     public void testBindSocks4FullSequence() {
-        SocksClientConfig config = new SocksClientConfig().setVersion(SocksClientConfig.Version.SOCKS4);
+        SocksClientConfig config = new SocksClientConfig().version(SocksClientConfig.Version.SOCKS4);
         SocksClientHandler handler = new SocksClientHandler(
                 "10.0.0.1", 21, config, bindListener, innerHandler);
         handler.connected(endpoint);
@@ -183,7 +183,7 @@ public class SOCKSClientHandlerTest {
 
     @Test
     public void testBindSocks4Reply1Rejected() {
-        SocksClientConfig config = new SocksClientConfig().setVersion(SocksClientConfig.Version.SOCKS4);
+        SocksClientConfig config = new SocksClientConfig().version(SocksClientConfig.Version.SOCKS4);
         SocksClientHandler handler = new SocksClientHandler(
                 "10.0.0.1", 21, config, bindListener, innerHandler);
         handler.connected(endpoint);
@@ -288,7 +288,7 @@ public class SOCKSClientHandlerTest {
 
     @Test
     public void testUDPAssociateConstructorRejectsSocks4() {
-        SocksClientConfig config = new SocksClientConfig().setVersion(SocksClientConfig.Version.SOCKS4);
+        SocksClientConfig config = new SocksClientConfig().version(SocksClientConfig.Version.SOCKS4);
         try {
             new SocksClientHandler(config, new org.bluezoo.gumdrop.UdpTransportFactory(), udpListener);
             fail("expected IllegalArgumentException");

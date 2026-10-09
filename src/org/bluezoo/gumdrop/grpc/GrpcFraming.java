@@ -133,13 +133,13 @@ public final class GrpcFraming {
                 | ((long) (buffer.get() & 0xFF) << 8)
                 | (buffer.get() & 0xFF);
         if (length > Integer.MAX_VALUE) {
-            throw new GrpcException("gRPC message length exceeds maximum "
-                    + Integer.MAX_VALUE);
+            throw new GrpcException(GrpcStatus.RESOURCE_EXHAUSTED,
+                    "message length exceeds maximum " + Integer.MAX_VALUE);
         }
         int messageLength = (int) length;
         if (maxMessageLength > 0 && messageLength > maxMessageLength) {
-            throw new GrpcException("gRPC message length " + messageLength
-                    + " exceeds maximum " + maxMessageLength);
+            throw new GrpcException(GrpcStatus.RESOURCE_EXHAUSTED,
+                    "message length " + messageLength + " exceeds maximum " + maxMessageLength);
         }
         return messageLength;
     }

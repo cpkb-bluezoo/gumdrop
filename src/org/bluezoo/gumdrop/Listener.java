@@ -103,6 +103,9 @@ public abstract class Listener {
     protected ServerCredentials serverCredentials;
     protected TlsVersion tlsVersion = TlsVersion.NEGOTIATE;
     protected DtlsVersion dtlsVersion = DtlsVersion.NEGOTIATE;
+    private boolean dtlsRequireCookie;
+    private byte[] dtlsCookieSecret;
+    private int dtlsMaxFragmentSize;
     protected Path keystoreFile;
     protected String keystorePass;
     protected KeystoreFormat keystoreFormat = KeystoreFormat.PKCS12;
@@ -181,9 +184,11 @@ public abstract class Listener {
      * Sets the name of this listener endpoint.
      *
      * @param name the listener name
+     * @return this
      */
-    public void setName(String name) {
+    public Listener name(String name) {
         this.name = name;
+        return this;
     }
 
     // ═══════════════════════════════════════════════════════════════════
@@ -233,24 +238,22 @@ public abstract class Listener {
         return maxNetInSize;
     }
 
-    public void setMaxNetInSize(int size) {
+    public Listener maxNetInSize(int size) {
         this.maxNetInSize = size;
+        return this;
     }
 
     public int getMaxNetOutSize() {
         return maxNetOutSize;
     }
 
-    public void setMaxNetOutSize(int size) {
+    public Listener maxNetOutSize(int size) {
         this.maxNetOutSize = size;
+        return this;
     }
 
     public boolean isSecure() {
         return secure;
-    }
-
-    public void setSecure(boolean flag) {
-        secure = flag;
     }
 
     /**
@@ -268,36 +271,36 @@ public abstract class Listener {
         return this;
     }
 
-    public void setKeystoreFile(Path file) {
+    protected void setKeystoreFile(Path file) {
         keystoreFile = file;
     }
 
-    public void setKeystorePass(String pass) {
+    protected void setKeystorePass(String pass) {
         keystorePass = pass;
     }
 
-    public void setKeystoreFormat(KeystoreFormat format) {
+    protected void setKeystoreFormat(KeystoreFormat format) {
         keystoreFormat = format;
     }
 
     /**
      * Sets the {@code ECHConfigList} file for server-side ECH (HTTP/3 / QUIC).
      */
-    public void setEchConfigListFile(Path echConfigListFile) {
+    protected void setEchConfigListFile(Path echConfigListFile) {
         this.echConfigListFile = echConfigListFile;
     }
 
     /**
      * Sets the X25519 ECH private key file (32 raw bytes or hex).
      */
-    public void setEchPrivateKeyFile(Path echPrivateKeyFile) {
+    protected void setEchPrivateKeyFile(Path echPrivateKeyFile) {
         this.echPrivateKeyFile = echPrivateKeyFile;
     }
 
     /**
      * Requires clients to offer ECH on this listener.
      */
-    public void setEchServerRequired(boolean echServerRequired) {
+    protected void setEchServerRequired(boolean echServerRequired) {
         this.echServerRequired = echServerRequired;
     }
 
@@ -306,7 +309,7 @@ public abstract class Listener {
      *
      * @param file the certificate chain PEM file path
      */
-    public void setCertFile(Path file) {
+    protected void setCertFile(Path file) {
         certFile = file;
     }
 
@@ -315,7 +318,7 @@ public abstract class Listener {
      *
      * @param file the private key PEM file path
      */
-    public void setKeyFile(Path file) {
+    protected void setKeyFile(Path file) {
         keyFile = file;
     }
 
@@ -325,7 +328,7 @@ public abstract class Listener {
      * @param cipherSuites colon-separated cipher suite names, or null
      *                     to use the default set
      */
-    public void setCipherSuites(String cipherSuites) {
+    protected void setCipherSuites(String cipherSuites) {
         this.cipherSuites = cipherSuites;
     }
 
@@ -336,7 +339,7 @@ public abstract class Listener {
      * @param namedGroups colon-separated group names, or null to use
      *                    the default set
      */
-    public void setNamedGroups(String namedGroups) {
+    protected void setNamedGroups(String namedGroups) {
         this.namedGroups = namedGroups;
     }
 
@@ -346,7 +349,7 @@ public abstract class Listener {
      *
      * @param serverCredentials the server credentials
      */
-    public void setServerCredentials(ServerCredentials serverCredentials) {
+    protected void setServerCredentials(ServerCredentials serverCredentials) {
         this.serverCredentials = serverCredentials;
     }
 
@@ -378,7 +381,7 @@ public abstract class Listener {
      *
      * @param tlsVersion the TLS version
      */
-    public void setTlsVersion(TlsVersion tlsVersion) {
+    protected void setTlsVersion(TlsVersion tlsVersion) {
         this.tlsVersion = (tlsVersion != null) ? tlsVersion : TlsVersion.NEGOTIATE;
     }
 
@@ -396,7 +399,19 @@ public abstract class Listener {
      *
      * @param dtlsVersion the DTLS version
      */
-    public void setDtlsVersion(DtlsVersion dtlsVersion) {
+    protected void setDtlsRequireCookie(boolean require) {
+        this.dtlsRequireCookie = require;
+    }
+
+    protected void setDtlsCookieSecret(byte[] secret) {
+        this.dtlsCookieSecret = secret != null ? secret.clone() : null;
+    }
+
+    protected void setDtlsMaxFragmentSize(int bytes) {
+        this.dtlsMaxFragmentSize = bytes;
+    }
+
+    protected void setDtlsVersion(DtlsVersion dtlsVersion) {
         this.dtlsVersion = (dtlsVersion != null) ? dtlsVersion : DtlsVersion.NEGOTIATE;
     }
 
@@ -420,13 +435,13 @@ public abstract class Listener {
                 || (certFile != null && keyFile != null);
     }
 
-    public void setSniHostnames(Map<String, String> hostnames) {
+    protected void setSniHostnames(Map<String, String> hostnames) {
         this.sniHostnameToAlias = hostnames != null
                 ? new LinkedHashMap<String, String>(hostnames)
                 : null;
     }
 
-    public void setSniDefaultAlias(String alias) {
+    protected void setSniDefaultAlias(String alias) {
         this.sniDefaultAlias = alias;
     }
 
@@ -442,18 +457,6 @@ public abstract class Listener {
     // ═══════════════════════════════════════════════════════════════════
     // Server-level setters
     // ═══════════════════════════════════════════════════════════════════
-
-    /**
-     * Enables or disables binding to a single wildcard socket
-     * ({@code 0.0.0.0} / {@code ::}) instead of enumerating every local
-     * NIC address. Recommended for container deployments, where per-NIC
-     * enumeration is brittle. Defaults to false.
-     *
-     * @param wildcard true to bind the wildcard address
-     */
-    public void setWildcard(boolean wildcard) {
-        this.wildcard = wildcard;
-    }
 
     /**
      * Binds the wildcard address ({@code 0.0.0.0} / {@code ::}, dual-stack
@@ -515,7 +518,7 @@ public abstract class Listener {
         return wildcard;
     }
 
-    public void setNeedClientAuth(boolean flag) {
+    protected void setNeedClientAuth(boolean flag) {
         needClientAuth = flag;
     }
 
@@ -527,7 +530,7 @@ public abstract class Listener {
      *
      * @param trustManager the trust manager, or null to use JVM defaults
      */
-    public void setTrustManager(X509TrustManager trustManager) {
+    protected void setTrustManager(X509TrustManager trustManager) {
         this.trustManager = trustManager;
     }
 
@@ -535,29 +538,41 @@ public abstract class Listener {
         return idleTimeoutMs;
     }
 
-    public void setIdleTimeoutMs(long idleTimeoutMs) {
+    public Listener idleTimeoutMs(long idleTimeoutMs) {
         this.idleTimeoutMs = idleTimeoutMs;
+        return this;
     }
 
     public long getReadTimeoutMs() {
         return readTimeoutMs;
     }
 
-    public void setReadTimeoutMs(long readTimeoutMs) {
+    public Listener readTimeoutMs(long readTimeoutMs) {
         this.readTimeoutMs = readTimeoutMs;
+        return this;
     }
 
     public long getConnectionTimeoutMs() {
         return connectionTimeoutMs;
     }
 
-    public void setConnectionTimeoutMs(long connectionTimeoutMs) {
+    public Listener connectionTimeoutMs(long connectionTimeoutMs) {
         this.connectionTimeoutMs = connectionTimeoutMs;
+        return this;
     }
 
-    public void setMaxConnectionsPerIP(int max) {
+    /**
+     * Limits the simultaneous connections accepted from one address. Turns on
+     * per-address limiting (with the defaults for
+     * {@link #rateLimit(String)} if it is not set).
+     *
+     * @param max the maximum concurrent connections per address (0 to disable)
+     * @return this listener
+     */
+    public Listener maxConnectionsPerIP(int max) {
         ensureConnectionRateLimiter();
         connectionRateLimiter.setMaxConcurrentPerIP(max);
+        return this;
     }
 
     /**
@@ -578,9 +593,11 @@ public abstract class Listener {
      * independently.
      *
      * @param max the maximum concurrent connections (0 to disable)
+     * @return this listener
      */
-    public void setMaxConnections(int max) {
+    public Listener maxConnections(int max) {
         this.maxConnections = max;
+        return this;
     }
 
     /**
@@ -598,9 +615,11 @@ public abstract class Listener {
      * listener socket. {@code 0} disables the limit.
      *
      * @param max the DTLS peer cap
+     * @return this
      */
-    public void setMaxDtlsPeers(int max) {
+    public Listener maxDtlsPeers(int max) {
         this.maxDtlsPeers = max;
+        return this;
     }
 
     /**
@@ -659,19 +678,47 @@ public abstract class Listener {
         connectionClosed((SocketAddress) remoteAddress);
     }
 
-    public void setRateLimit(String rateLimit) {
+    /**
+     * Limits new connections from one address per time window. Turns on
+     * per-address limiting (with the default concurrent-connection cap if
+     * {@link #maxConnectionsPerIP(int)} is not set).
+     *
+     * @param rateLimit {@code count/duration}, for example {@code 100/60s};
+     *        the units are {@code ms}, {@code s}, {@code m} and {@code h}
+     * @return this listener
+     * @throws IllegalArgumentException if the format is invalid
+     */
+    public Listener rateLimit(String rateLimit) {
         ensureConnectionRateLimiter();
         connectionRateLimiter.setRateLimit(rateLimit);
+        return this;
     }
 
-    public void setMaxAuthFailures(int max) {
+    /**
+     * Sets how many failed authentications from one client address are
+     * allowed before it is locked out. Setting this (or
+     * {@link #authLockoutTimeMs(long)}) turns lockout on; the protocol
+     * handlers then refuse a locked-out client without consulting the realm.
+     *
+     * @param max the failure threshold
+     * @return this listener
+     */
+    public Listener maxAuthFailures(int max) {
         ensureAuthRateLimiter();
         authRateLimiter.setMaxFailures(max);
+        return this;
     }
 
-    public void setAuthLockoutTimeMs(long lockoutMs) {
+    /**
+     * Sets the base lockout duration after too many failed authentications.
+     *
+     * @param lockoutMs the duration in milliseconds
+     * @return this listener
+     */
+    public Listener authLockoutTimeMs(long lockoutMs) {
         ensureAuthRateLimiter();
         authRateLimiter.setLockoutDuration(lockoutMs);
+        return this;
     }
 
     /**
@@ -679,10 +726,12 @@ public abstract class Listener {
      * {@code null} allows every client that is not blocked.
      *
      * @param allowedNetworks the networks clients must be in, or null
+     * @return this listener
      */
-    public void setAllowedNetworks(List<CidrNetwork> allowedNetworks) {
+    public Listener allowedNetworks(List<CidrNetwork> allowedNetworks) {
         this.allowedNetworks = allowedNetworks == null || allowedNetworks.isEmpty()
                 ? null : new ArrayList<CidrNetwork>(allowedNetworks);
+        return this;
     }
 
     /**
@@ -690,10 +739,12 @@ public abstract class Listener {
      * networks are consulted.
      *
      * @param blockedNetworks the networks to refuse, or null
+     * @return this listener
      */
-    public void setBlockedNetworks(List<CidrNetwork> blockedNetworks) {
+    public Listener blockedNetworks(List<CidrNetwork> blockedNetworks) {
         this.blockedNetworks = blockedNetworks == null || blockedNetworks.isEmpty()
                 ? null : new ArrayList<CidrNetwork>(blockedNetworks);
+        return this;
     }
 
     // ═══════════════════════════════════════════════════════════════════
@@ -840,6 +891,15 @@ public abstract class Listener {
             }
             udpFactory.setDtlsVersion(dtlsVersion);
             udpFactory.setMaxDtlsPeers(maxDtlsPeers);
+            if (dtlsRequireCookie) {
+                udpFactory.setRequireCookie(true);
+            }
+            if (dtlsCookieSecret != null) {
+                udpFactory.setCookieSecret(dtlsCookieSecret);
+            }
+            if (dtlsMaxFragmentSize > 0) {
+                udpFactory.setMaxFragmentSize(dtlsMaxFragmentSize);
+            }
             if (needClientAuth) {
                 udpFactory.setNeedClientAuth(true);
             }
@@ -1003,6 +1063,57 @@ public abstract class Listener {
      */
     public TransportFactory getTransportFactory() {
         return transportFactory;
+    }
+
+    /**
+     * Whether authentication attempts from this client are locked out because
+     * of too many recent failures. A protocol handler asks before it starts to
+     * check credentials, and refuses the attempt (without consulting the
+     * realm) when this is true. Always false unless
+     * {@link #maxAuthFailures(int)} or {@link #authLockoutTimeMs(long)} was set.
+     *
+     * @param remoteAddress the client's address
+     * @return true if the client may not try to authenticate now
+     */
+    public boolean isAuthLockedOut(SocketAddress remoteAddress) {
+        AuthenticationRateLimiter limiter = authRateLimiter;
+        InetAddress ip = ipOf(remoteAddress);
+        return limiter != null && ip != null && limiter.isLocked(ip);
+    }
+
+    /**
+     * Records a failed authentication attempt by this client, towards its
+     * lockout. Does nothing unless authentication lockout is configured.
+     *
+     * @param remoteAddress the client's address
+     * @param username the user name tried, or null if not known
+     */
+    public void recordAuthFailure(SocketAddress remoteAddress, String username) {
+        AuthenticationRateLimiter limiter = authRateLimiter;
+        InetAddress ip = ipOf(remoteAddress);
+        if (limiter != null && ip != null) {
+            limiter.recordFailure(ip, username);
+        }
+    }
+
+    /**
+     * Records a successful authentication by this client, clearing its
+     * failure count.
+     *
+     * @param remoteAddress the client's address
+     * @param username the authenticated user, or null if not known
+     */
+    public void recordAuthSuccess(SocketAddress remoteAddress, String username) {
+        AuthenticationRateLimiter limiter = authRateLimiter;
+        InetAddress ip = ipOf(remoteAddress);
+        if (limiter != null && ip != null) {
+            limiter.recordSuccess(ip, username);
+        }
+    }
+
+    private static InetAddress ipOf(SocketAddress remoteAddress) {
+        return remoteAddress instanceof InetSocketAddress
+                ? ((InetSocketAddress) remoteAddress).getAddress() : null;
     }
 
     /**

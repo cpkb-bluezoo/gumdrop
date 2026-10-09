@@ -24,9 +24,9 @@ package org.bluezoo.gumdrop.ldap.client;
 import java.nio.ByteBuffer;
 import java.util.List;
 
-import org.bluezoo.gumdrop.ldap.asn1.Asn1Exception;
-import org.bluezoo.gumdrop.ldap.asn1.BerDecoder;
-import org.bluezoo.gumdrop.ldap.asn1.BerEncoder;
+import org.bluezoo.gumdrop.asn1.Asn1Exception;
+import org.bluezoo.gumdrop.asn1.BerDecoder;
+import org.bluezoo.gumdrop.asn1.BerEncoder;
 import org.bluezoo.gumdrop.testsupport.TruncationSweep;
 import org.junit.Test;
 

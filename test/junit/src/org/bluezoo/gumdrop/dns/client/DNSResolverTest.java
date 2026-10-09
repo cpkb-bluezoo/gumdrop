@@ -105,7 +105,7 @@ public class DNSResolverTest {
 
         MockTransport mockTransport = new MockTransport();
         DnsResolver resolver = new DnsResolver();
-        resolver.setTransport(mockTransport);
+        resolver.transport(mockTransport);
         resolver.addServer("127.0.0.1");
         resolver.open();
 
@@ -136,7 +136,7 @@ public class DNSResolverTest {
 
         MockTransport mockTransport = new MockTransport();
         DnsResolver resolver = new DnsResolver();
-        resolver.setTransport(mockTransport);
+        resolver.transport(mockTransport);
         resolver.addServer("127.0.0.1");
         resolver.open();
 
@@ -166,7 +166,7 @@ public class DNSResolverTest {
     public void testResponseDeliveredViaTransport() throws Exception {
         MockTransport mockTransport = new MockTransport();
         DnsResolver resolver = new DnsResolver();
-        resolver.setTransport(mockTransport);
+        resolver.transport(mockTransport);
         resolver.addServer("127.0.0.1");
         resolver.open();
 
@@ -203,9 +203,9 @@ public class DNSResolverTest {
     public void testDnssecAwareCallbackReceivesValidationStatus() throws Exception {
         MockTransport mockTransport = new MockTransport();
         DnsResolver resolver = new DnsResolver();
-        resolver.setTransport(mockTransport);
+        resolver.transport(mockTransport);
         resolver.addServer("127.0.0.1");
-        resolver.setDnssecEnabled(true);
+        resolver.dnssecEnabled(true);
         resolver.open();
 
         final AtomicReference<DnsMessage> result = new AtomicReference<>();
@@ -248,9 +248,9 @@ public class DNSResolverTest {
     public void testPlainCallbackStillDeliveredWhenDnssecEnabled() throws Exception {
         MockTransport mockTransport = new MockTransport();
         DnsResolver resolver = new DnsResolver();
-        resolver.setTransport(mockTransport);
+        resolver.transport(mockTransport);
         resolver.addServer("127.0.0.1");
-        resolver.setDnssecEnabled(true);
+        resolver.dnssecEnabled(true);
         resolver.open();
 
         final AtomicReference<DnsMessage> result = new AtomicReference<>();
@@ -288,7 +288,7 @@ public class DNSResolverTest {
             throws Exception {
         MockTransport mockTransport = new MockTransport();
         DnsResolver resolver = new DnsResolver();
-        resolver.setTransport(mockTransport);
+        resolver.transport(mockTransport);
         resolver.addServer("127.0.0.1");
         resolver.open();
 
@@ -326,7 +326,7 @@ public class DNSResolverTest {
         MockTcpTransport mockTcp = new MockTcpTransport();
 
         DnsResolver resolver = new TestableResolver(mockTcp);
-        resolver.setTransport(mockUdp);
+        resolver.transport(mockUdp);
         resolver.addServer("127.0.0.1");
         resolver.open();
 
@@ -391,7 +391,7 @@ public class DNSResolverTest {
 
         DnsResolver resolver = new TestableResolver(mockTcp);
         MockTransport mockUdp = new MockTransport();
-        resolver.setTransport(mockUdp);
+        resolver.transport(mockUdp);
         resolver.addServer("127.0.0.1");
         resolver.open();
 
@@ -428,7 +428,7 @@ public class DNSResolverTest {
 
         DnsResolver resolver = new TestableResolver(mockTcp);
         MockTransport mockUdp = new MockTransport();
-        resolver.setTransport(mockUdp);
+        resolver.transport(mockUdp);
         resolver.addServer("127.0.0.1");
         resolver.open();
 
@@ -470,7 +470,7 @@ public class DNSResolverTest {
 
         DnsResolver resolver = new TestableResolver(mockTcp);
         MockTransport mockUdp = new MockTransport();
-        resolver.setTransport(mockUdp);
+        resolver.transport(mockUdp);
         resolver.addServer("127.0.0.1");
         resolver.open();
 
@@ -514,7 +514,7 @@ public class DNSResolverTest {
 
         DnsResolver resolver = new TestableResolver(mockTcp);
         MockTransport mockUdp = new MockTransport();
-        resolver.setTransport(mockUdp);
+        resolver.transport(mockUdp);
         resolver.addServer("127.0.0.1");
         resolver.open();
 
@@ -556,7 +556,7 @@ public class DNSResolverTest {
     public void testQueryIdsAreNotSequential() throws Exception {
         MockTransport mockTransport = new MockTransport();
         DnsResolver resolver = new DnsResolver();
-        resolver.setTransport(mockTransport);
+        resolver.transport(mockTransport);
         resolver.addServer("127.0.0.1");
         resolver.open();
 
@@ -590,7 +590,7 @@ public class DNSResolverTest {
     public void testBatchMergedResponseSingleExchange() throws Exception {
         MockTransport mockTransport = new MockTransport();
         DnsResolver resolver = new DnsResolver();
-        resolver.setTransport(mockTransport);
+        resolver.transport(mockTransport);
         resolver.addServer("127.0.0.1");
         resolver.open();
 
@@ -640,7 +640,7 @@ public class DNSResolverTest {
     public void testBatchPartialMQTypeResponseFallsBackForMissingType() throws Exception {
         MockTransport mockTransport = new MockTransport();
         DnsResolver resolver = new DnsResolver();
-        resolver.setTransport(mockTransport);
+        resolver.transport(mockTransport);
         resolver.addServer("127.0.0.1");
         resolver.open();
 
@@ -695,7 +695,7 @@ public class DNSResolverTest {
     public void testBatchUnsupportedServerFallsBackForAllAdditionalTypes() throws Exception {
         MockTransport mockTransport = new MockTransport();
         DnsResolver resolver = new DnsResolver();
-        resolver.setTransport(mockTransport);
+        resolver.transport(mockTransport);
         resolver.addServer("127.0.0.1");
         resolver.open();
 
@@ -751,7 +751,7 @@ public class DNSResolverTest {
 
         MockTransport mockTransport = new MockTransport();
         DnsResolver resolver = new DnsResolver();
-        resolver.setTransport(mockTransport);
+        resolver.transport(mockTransport);
         resolver.addServer("127.0.0.1");
         resolver.open();
 

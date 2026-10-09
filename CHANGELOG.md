@@ -13,6 +13,135 @@ user-visible themes since 2.2.x.
 
 ### Added
 
+- **IMAP server example**: `examples/imap-server/ImapExample.java` serves the mbox
+  fixture and shows a `DefaultIMAPHandler` subclass adding policy (it logs SELECT
+  and refuses to delete INBOX). It is built by `examples-compile`.
+
+- **SMTP server example**: `examples/smtp-server/SmtpExample.java` accepts mail
+  for one domain, runs SPF, DKIM and DMARC through `AuthPipeline`, holds the final
+  reply for the DMARC verdict and spools accepted messages. It is built by
+  `examples-compile`.
+
+- **WebSocket maximum message size is configurable**:
+  `WebSocketRequestHandler.Builder.maxMessageSize(long)` and
+  `WebSocketClient.maxMessageSize(long)` set the largest assembled message
+  (default 64 MB, 0 for unlimited); `WebSocketSession.setMaxMessageSize(long)`
+  changes it for one session, and `MessageSizeLimit` wraps a handler to apply it
+  on any upgrade path. `WebSocketClient.addExtension` now returns the client.
+
+- **DTLS cookie exchange is configurable through `TlsConfig`**: `requireCookie`,
+  `cookieSecret` and `maxFragmentSize` reach a UDP listener (they were only
+  reachable by configuring a `UdpTransportFactory` by hand). A server that
+  requires cookies and is given no secret now generates a random one instead of
+  failing every handshake.
+- **SOCKS**: `ConnectState.getSecurityInfo()` and `BindState.getSecurityInfo()`
+  give a handler the TLS session of the client, including its certificate
+  chain under mutual TLS. `SocksClientConfig` is fluent (`version`, `username`,
+  `password`, `handshakeTimeoutMs`), and `SocksListener.configureGSSAPI`
+  returns the listener.
+- **`ConnectState.getSecurityInfo()`** (MQTT): a `ConnectHandler` can read the
+  TLS session of the connecting client, including its certificate chain under
+  mutual TLS, from the state it is given. It is `null` for a cleartext
+  connection. `WebSocketSession` gains `isSecure()` and `getSecurityInfo()`,
+  which a server session answers from the HTTP/1.1, HTTP/2 or HTTP/3
+  connection it was upgraded on, so MQTT over WebSocket sees the same TLS
+  details (the WebSocket client's sessions do not expose them yet).
+- **`AmqpClientRecovery` and `Amqp1ClientRecovery` are renamed `AmqpClient`
+  and `Amqp1Client`** (breaking): they are the AMQP 0-9-1 and AMQP 1.0 clients,
+  and the old names described one of their features rather than what they are.
+  Behaviour is unchanged.
+- **Authentication lockout is enforced**: `Listener.maxAuthFailures` and
+  `authLockoutTimeMs` configured a limiter that no protocol consulted. SMTP,
+  IMAP, POP3, FTP, HTTP (1.1, 2 and 3, so WebDAV and the servlet container
+  too), MQTT and SOCKS now refuse a locked-out client before asking the realm
+  (`Listener.isAuthLockedOut`, `recordAuthFailure`, `recordAuthSuccess`) and
+  clear its count on a successful login. HTTP answers `429`.
+- **`MqttListener.defaultKeepAlive` is applied**: a client that asks for no
+  keep-alive gets the listener's default (60 seconds), and an MQTT 5 client is
+  told through the CONNACK Server Keep Alive property.
+- **Component wiring is fluent throughout** (breaking): the remaining `setXxx`
+  methods on listeners, servers and policy objects become methods named for
+  the setting that return the object, in line with the composition pattern.
+  `Listener`: `name`, `maxNetInSize`, `maxNetOutSize`, `idleTimeoutMs`,
+  `readTimeoutMs`, `connectionTimeoutMs`, `maxDtlsPeers` (and `path` on
+  `TcpListener`). The protocol listeners (`SmtpListener`, `ImapListener`,
+  `Pop3Listener`, `FtpListener`, `MqttListener`, `SocksListener`,
+  `Http2Listener`, `Http3Listener`, `DnsListener`, `DoTListener`,
+  `DoQListener`, `MdnsListener`) return their own type, so calls chain after
+  `port()`; each protocol setting is renamed the same way (`setRealm` to
+  `realm`, `setEnableIDLE` to `enableIDLE`, `setPasvMinPort` to `pasvMinPort`,
+  `setGSSAPIServer` to `gssapiServer`, and so on), and `configureGSSAPI`
+  returns the listener. The servers (`ImapServer`, `Pop3Server`,
+  `SmtpServer`, `HttpServer`, `FtpServer`, `MqttServer`, `SocksServer`,
+  `DnsServer`, `MdnsServer`), `RoleBasedQuotaManager`,
+  `RoleAwareFTPFileSystem`, `DkimSigner`, `ArcSealer` and
+  `DnssecTrustAnchorUpdater` follow. Removed rather than renamed:
+  `setPort` (use `port`), `Listener.wildcard` / `setWildcard` (use
+  `bindWildcard`), `setListeners(List)` on every server (use `addListener`),
+  and `RoleBasedQuotaManager.setRoleQuota` (use `addRoleQuota`).
+- **Listener connection limits are fluent** (breaking): `setMaxConnections`,
+  `setMaxConnectionsPerIP`, `setRateLimit`, `setMaxAuthFailures`,
+  `setAuthLockoutTimeMs`, `setAllowedNetworks` and `setBlockedNetworks` on
+  `Listener` become `maxConnections`, `maxConnectionsPerIP`, `rateLimit`,
+  `maxAuthFailures`, `authLockoutTimeMs`, `allowedNetworks` and
+  `blockedNetworks`, each returning the listener (the concrete listeners
+  return their own type, so calls chain after `port()`).
+- **The ASN.1 BER codec moves to `org.bluezoo.gumdrop.asn1`** (breaking): it
+  is no longer a subpackage of `ldap`. Update imports of `BerDecoder`,
+  `BerEncoder`, `Asn1Element`, `Asn1Type` and `Asn1Exception`.
+- **`Realm` is fully asynchronous** (breaking): no `Realm` method blocks the
+  calling thread. Every lookup (`passwordMatch`, `getDigestHA1`,
+  `isUserInRole`, `userExists`, SCRAM, APOP and CRAM-MD5 secrets, token
+  validation, certificate authentication, `authorizeAs`,
+  `mapKerberosPrincipal`) takes a `RealmCallback<T>` that is completed
+  exactly once on the loop the realm was bound to with
+  `Realm.forSelectorLoop`, possibly before the call returns. `getPassword`
+  is removed. Realms whose answers are in-memory implement the new
+  `SynchronousRealm`, which supplies the callback adapters. `LdapRealm`
+  and `OAuthRealm` are genuinely non-blocking (one connection or request
+  per operation, with a timeout), and `BasicRealm` moves slow hashed
+  password checks and first SCRAM derivations to the storage executor.
+  `SMTP`, `IMAP`, `POP3`, `FTP`, `MQTT`, `SOCKS`, HTTP (HTTP/1.1, HTTP/2
+  and HTTP/3), WebDAV and the servlet container all wait for realm answers
+  without blocking: `HttpAuthenticationProvider.authenticate` and its
+  hooks take callbacks, `FtpConnectionHandler.authenticate` and
+  `AuthenticatingHandler.evaluateAuthentication` report through a
+  `RealmCallback`, FTP resolves roles once at login into
+  `FtpConnectionMetadata` (`RoleAwareFTPFileSystem` no longer takes a
+  realm), and `QuotaManager.prepare` resolves quota roles at login.
+  Previously `LdapRealm` always failed on the FTP, MQTT, SOCKS and HTTP
+  Basic paths and stalled the loop in WebDAV.
+- **TLS is configured on `TlsConfig` only** (breaking): clients and listeners
+  no longer take TLS settings piecemeal. Every client (`HttpClient`,
+  `SmtpClient`, `ImapClient`, `Pop3Client`, `FtpClient`, `RedisClient`,
+  `MqttClient`, `LdapClient`, `WebSocketClient`, `ConnectIpClient`,
+  `ConnectUdpClient`, `AmqpClient`, `Amqp1Client`) and
+  `LdapRealm` has `secure(boolean)` and `tls(TlsConfig)` in place of
+  `clientCredentials`, `trustManager`, `keystoreFile`, `keystorePass`,
+  `keystoreFormat`, `certFile`, `keyFile`, `verifyPeer`, `trustJvm` and
+  `earlyDataEnabled` (`HttpClient.importTls` becomes `tls`). Listeners take
+  `secure(boolean)` and `tls(TlsConfig)`; the public `setKeystoreFile`,
+  `setCertFile`, `setServerCredentials`, `setTrustManager`, `setCipherSuites`,
+  `setNamedGroups`, `setTlsVersion`, `setDtlsVersion`, `setSniHostnames`,
+  `setSniDefaultAlias`, `setNeedClientAuth` and ECH setters on `Listener` are
+  no longer public. `TlsConfig` gains `cipherSuites`, `namedGroups`,
+  `tlsVersion`, `dtlsVersion`, `sni`, `sniDefaultAlias`, `requireClientAuth`
+  and `earlyData`; client-side cipher suites, groups and version now apply to
+  TCP clients too. The remaining setter-only clients (`MqttClient`,
+  `WebSocketClient`, `DnsResolver`, `ConnectIpClient`, `ConnectUdpClient`) are
+  fluent, and the deprecated `SmtpClient.builder()` is removed.
+- **`<container>` element in `server.xml`**: the stock servlet container can
+  now set `hot-deploy`, `buffer-size`, `worker-core-pool-size`,
+  `worker-maximum-pool-size` and `worker-keep-alive` (seconds) without code.
+  `Container.isHotDeploy()` is added to read the hot deploy setting.
+- **TLS options on `server.xml` listeners**: `tls-version`, `cipher-suites`,
+  `named-groups` and mutual TLS with `client-auth="required"`, trusting a PEM
+  CA bundle (`ca-file`) or a Java truststore (`truststore-file`,
+  `truststore-pass`, `truststore-format`). Server identity can come from PEM
+  files or a keystore, as before. A keystore listener can also serve several
+  certificates by SNI with `sni-default-alias` and nested
+  `<sni host="..." alias="..."/>` elements.
+
 - **Structured log events and composable exporters** (#551): operational
   logging is now a stream of `LogRecord`s with a level (`INFO`, `WARN`,
   `ERROR`, plus `ACCESS` and `QLOG`), a stable key and named attributes,
@@ -81,7 +210,7 @@ user-visible themes since 2.2.x.
   directions without buffering it whole, explicit dispositions with
   unsettled and pre-settled deliveries, and idle-timeout keepalives. Typed
   state interfaces make out-of-order calls fail to compile.
-  `Amqp1ClientRecovery` reconnects with exponential backoff and re-attaches
+  `Amqp1Client` reconnects with exponential backoff and re-attaches
   the application's links. Verified against RabbitMQ 4.3 (plaintext and TLS);
   see the integration test README.
 - **IMAP `STATUS=SIZE` (RFC 8438)**, **`COMPRESS=DEFLATE` (RFC 4978)**, and
@@ -145,6 +274,72 @@ user-visible themes since 2.2.x.
   also published to Maven Central.
 
 ### Changed
+
+- **IMAP advertises `IMAP4rev1` as well as `IMAP4rev2`**: clients such as Python's
+  `imaplib` that look only for `IMAP4rev1` refused to connect to a server that
+  advertised `IMAP4rev2` alone.
+
+- **gRPC API shaped for streaming**: `GrpcResponseSender` is now `GrpcCall`
+  (with `getRpc()`), `GrpcServer.startUnaryCall` is `startCall`, and
+  `GrpcClient.unaryCall` is `call`, returning a `GrpcClientCall` with
+  `cancel()`, so streaming, metadata and deadlines can be added later without
+  changing them. An RPC declared with `stream` is refused: `UNIMPLEMENTED` from
+  the server, a `GrpcException` from the client. `startMessage` and
+  `endMessage` on a `ProtoMessageHandler` now bracket only the whole message;
+  a nested message is the content between `startField` and `endField`.
+  `GrpcException` carries a status (`getStatus()`), and `GrpcStatus` holds the
+  codes.
+
+- **HTTP clients take a list of permitted versions**: `versions(HttpVersion...)`
+  replaces `h2Enabled`, `h2cUpgradeEnabled` and `h3Enabled` on `HttpClient`,
+  `WebSocketClient`, `ConnectIpClient` and `ConnectUdpClient`. `h3Enabled` really
+  meant "force HTTP/3"; the new list says which versions may be used and the
+  client tries the highest first. All four now fall back to TCP when
+  a QUIC attempt chosen by DNS HTTPS record or `Alt-Svc` fails or does not
+  establish within `quicHandshakeTimeoutMs` (default 3 seconds). Permitting only
+  `HTTP_3` still connects over QUIC with no discovery and no fallback, but a
+  handshake that does not complete within the deadline is now an error instead of
+  a wait with no end.
+  `ConnectIpClient` and `ConnectUdpClient` also gain `dnsResolver(DnsResolver)`,
+  as `HttpClient` and `WebSocketClient` already had.
+
+- **DNSSEC validation runs off the selector loop and bounds NSEC3 work**:
+  `DnssecChainValidator` verifies signatures and DS digests on the crypto pool
+  and resumes on the resolver's loop (a saturated pool gives `INDETERMINATE`).
+  A denial proof using NSEC3 with more than `DnssecValidator.MAX_NSEC3_ITERATIONS`
+  (50) iterations is `INSECURE` and is not hashed (RFC 9276 section 3.2).
+
+- **DNS client transports are configured fluently**: `TcpDnsClientTransport`
+  (`secure`, `pinnedSpkiFingerprints`, `defaultPort`, `tls`),
+  `DoQClientTransport` (`pinnedCertFingerprint`, `caFile`, `tls`) and
+  `DoHClientTransport` (`path`, `tls`) return the transport so that calls chain.
+  `DnsServer.compose()` accepts a `DnsTcpListener`, and a `DnsTcpListener` is now
+  wired to its server when the server starts.
+
+- **`Container` is configured by composition**: the servlet `Container` setters
+  are now named for the setting and return the container so that calls chain:
+  `hotDeploy`, `clusterPort`, `clusterGroupAddress`, `clusterKey`,
+  `replicationAllowedClasses`, `bufferSize`, `workerCorePoolSize`,
+  `workerMaximumPoolSize`, `workerKeepAlive`, `contexts`, `realms` and
+  `resources`; `addContext`, `addRealm` and `addResource` return the container
+  too. The getters are unchanged. The same applies to the rest of the gumdrop
+  composition wiring around it: `Context.distributable` and
+  `Context.secureHost`, `BasicRealm.href`, and the `LdapRealm` settings
+  (`host`, `port`, `secure`, `startTLS`, `keystoreFile`, `keystorePass`,
+  `keystoreFormat`, `baseDN`, `bindDN`, `bindPassword`, `userFilter`,
+  `roleAttribute`, `rolePrefix`, `timeout`, `saslMechanism`, `selectorLoop`,
+  `certLookupMode`, `certUsernameAttribute`, `certSubjectFilter`). `LdapClient`
+  loses its duplicate `setSecure`, `setClientCredentials`, `setTrustManager`,
+  `setKeystoreFile`, `setKeystorePass` and `setKeystoreFormat`; use the fluent
+  `secure`, `clientCredentials`, `trustManager`, `keystoreFile`,
+  `keystorePass` and `keystoreFormat`. The same duplicate setters are removed
+  from `HttpClient`, `SmtpClient`, `RedisClient`, `Pop3Client`, `ImapClient`,
+  `FtpClient`, `MqttClient` (TLS settings) and `DnsResolver` (`timeoutMs`,
+  `dnssecEnabled`), each of which already had the fluent form. The
+  servlet-specification JNDI resource classes keep their JavaBean setters.
+  `Context` loses its no-argument constructor and the `setContainer`,
+  `setPath`, `setRoot` and `setCommonDir` methods: a context is created with
+  its container, path and root.
 
 - **One `TelemetryConfig` per runtime** (#551): telemetry is configured with
   `Gumdrop.telemetryConfig` and reached through the runtime by every
@@ -244,6 +439,54 @@ user-visible themes since 2.2.x.
   a `keepContentLength` flag.
 
 ### Fixed
+
+- **SMTP EHLO and HELO named the server by its socket address**: the first line
+  read like `/[0:0:0:0:0:0:0:1]:2525 Hello client`, and the same string was used in
+  CRAM-MD5 and DIGEST-MD5 challenges and in the default greeting. The server now
+  announces the domain at the start of the 220 greeting the handler supplied
+  (RFC 5321 section 4.2), or its address as an address literal (`[192.0.2.1]`,
+  `[IPv6:::1]`) when the greeting names none.
+- **SMTP per-recipient DSN parameters were unreachable**: NOTIFY and ORCPT were
+  parsed and then discarded. `RecipientState.getRecipientDsnParameters()` now
+  returns them to the handler in `rcptTo`.
+
+- **SMTP DATA never ended the message on the pipeline**: `SmtpPipeline.endData()`
+  was only called for messages sent with BDAT, so `AuthPipeline` never ran DKIM,
+  ARC or DMARC for ordinary DATA mail and its DKIM and DMARC callbacks never
+  fired. It is now called for both, just before `messageComplete`.
+- **`AuthPipeline` failed when an SPF answer arrived after a reset**: a DNS answer
+  that came back once the transaction had ended or the connection had closed
+  threw a `NullPointerException` on the I/O thread. Late results are now
+  discarded.
+
+- **Cleartext HTTP/2 (h2c) upgrade answers on HTTP/2 stream 1**: a request with
+  `Upgrade: h2c` was given to the application before the connection had
+  switched, so a handler that replied from `endHeaders()` sent an HTTP/1.1
+  response ahead of the `101`, and the `101` followed it. The request is now
+  held (with its body) until HTTP/2 is established and then delivered as stream
+  1. The connection was also still treated as HTTP/1.1 after the switch, so the
+  upgrade request's response body went out as HTTP/1.1 chunked framing inside
+  HTTP/2 DATA frames; it is now framed as HTTP/2.
+
+- **gRPC server responses are valid for other gRPC clients**: a successful call
+  now ends with the `grpc-status: 0` trailer that gRPC requires (clients other
+  than Gumdrop's own treat a response without it as a failed call), and
+  `grpc-message` is percent-encoded as the protocol specifies.
+
+- **WebDAV responses are streamed instead of buffered**: PROPFIND, PROPPATCH,
+  LOCK and collection DELETE multi-status responses were assembled whole in a
+  `ByteArrayOutputStream` and sent with a `Content-Length`, and PROPFIND first
+  gathered every resource, attribute, lock and dead property of the tree in
+  memory. Responses now go out in chunks as they are written, PROPFIND walks
+  the tree a batch at a time and waits for the transport between batches, and
+  a failed connection stops the walk. A `Depth: infinity` PROPFIND also no
+  longer lists each subdirectory twice.
+
+- **`LdapRealm.startTLS(true)` now upgrades the realm's connections**: it was
+  stored but never applied, so a realm configured for STARTTLS bound in the
+  clear. Each connection is now upgraded before any bind; if the upgrade
+  fails the operation fails closed without sending credentials. It has no
+  effect with `secure(true)`.
 
 - **PEM private keys in SEC1 form** (`-----BEGIN EC PRIVATE KEY-----`, as
   written by `openssl ecparam -genkey` and `openssl ec`) are now accepted
@@ -606,7 +849,7 @@ user-visible themes since 2.2.x.
   warnings across ~70 files): raw-type collection usages parameterised,
   deprecated `Class.newInstance()` calls replaced with
   `getDeclaredConstructor().newInstance()`, missing `serialVersionUID` added
-  to serializable exception classes, unnecessary `this`-escape risk removed
+  to serialisable exception classes, unnecessary `this`-escape risk removed
   by marking non-subclassed classes `final`, auxiliary classes split into
   their own source files, and narrowly-scoped `@SuppressWarnings` added
   (with an explanatory comment) only where a real fix wasn't appropriate
@@ -733,7 +976,7 @@ user-visible themes since 2.2.x.
 - **AMQP client documentation** and general documentation pass across
   changed areas.
 - Large **coding-standards compliance pass** (#187): removed lambdas,
-  method references, and Streams API usage from main source in favor of the
+  method references, and Streams API usage from main source in favour of the
   project's traditional procedural style; added missing file headers,
   `@author` tags, and brace-delimited conditional blocks; converted
   hardcoded log/response strings across the codebase to the L10N resource
@@ -798,12 +1041,12 @@ user-visible themes since 2.2.x.
 
 ### Security
 
-- **Servlet role authorization bypass (High)**: In
+- **Servlet role authorisation bypass (High)**: In
   `ContextRequestDispatcher.authorize()`, an authenticated user who lacked a
   required role was re-authenticated (which succeeds for any valid
   credentials) instead of being denied, so `<auth-constraint>` role checks
   were never enforced. Any authenticated user could reach role-protected
-  resources, including the `manager` admin application. Authorization now:
+  resources, including the `manager` admin application. Authorisation now:
   - denies with `403 Forbidden` when the user is authenticated but not in a
     permitted role (it no longer re-invokes authentication);
   - honors an empty `<auth-constraint/>` as deny-all (the deployment
@@ -831,11 +1074,11 @@ user-visible themes since 2.2.x.
   response verification in `SaslUtils`, `ImapProtocolHandler`,
   `Pop3ProtocolHandler`, and `SmtpProtocolHandler`.
 
-- **Strict allowlist for replicated session deserialization**: 
-  `SessionSerializer` now validates deserialized cluster-session
+- **Strict allowlist for replicated session deserialisation**: 
+  `SessionSerializer` now validates deserialised cluster-session
   class names against a strict allowlist in `Container`/`ServletServer`
-  instead of deserializing arbitrary classes, closing an insecure
-  deserialization vector in cluster session replication.
+  instead of deserialising arbitrary classes, closing an insecure
+  deserialisation vector in cluster session replication.
 
 - **Conflicting `Content-Length` headers not rejected on HTTP/1**: 
   `HttpProtocolHandler`, `Stream`, and
@@ -1060,11 +1303,11 @@ user-visible themes since 2.2.x.
 - **Open-by-default trust model on SOCKS/MQTT/SMTP relay undocumented**: 
   clarified that SOCKS, MQTT, and
   SMTP relay are open-by-default and must be explicitly restricted by the
-  operator; no code behavior change.
+  operator; no code behaviour change.
 
 - **Hardcoded DMARC TLD set replaced with a real Public Suffix List**: 
   `DmarcValidator` replaces a hardcoded TLD set with a
-  proper `PublicSuffixList` implementation for organizational-domain
+  proper `PublicSuffixList` implementation for organisational-domain
   determination.
 
 ## [2.0] - 2026-03-22
@@ -1220,7 +1463,7 @@ user-visible themes since 2.2.x.
   - Use `gumdrop-container.jar` for immediate deployment as a servlet container
 
 - **All XML parsing now uses Gonzalez**: Replaced blocking SAX parser with the Gonzalez
-  streaming XML parser throughout the codebase for consistent non-blocking behavior:
+  streaming XML parser throughout the codebase for consistent non-blocking behaviour:
   - `ConfigurationParser` - gumdroprc configuration files
   - `DeploymentDescriptorParser` - web.xml and web-fragment.xml
   - `TldParser` - Tag Library Descriptor files
@@ -1234,7 +1477,7 @@ user-visible themes since 2.2.x.
 - **Java 8 API compliance enforced**: Fixed several Java 9+ APIs that had crept into
   the codebase. The `-release 8` flag now properly validates API usage at compile time:
   - Replaced `ObjectInputFilter` with `resolveClass()` override in `SessionSerializer`
-  - Replaced `Set.of()` with `Collections.emptySet()` and static initializer blocks
+  - Replaced `Set.of()` with `Collections.emptySet()` and static initialiser blocks
   - Replaced `ProcessHandle.current().pid()` with `ManagementFactory.getRuntimeMXBean()`
   - Replaced `URLDecoder.decode(String, Charset)` with `URLDecoder.decode(String, String)`
   - Replaced `SSLEngineResult.HandshakeStatus.NEED_UNWRAP_AGAIN` with default case handling

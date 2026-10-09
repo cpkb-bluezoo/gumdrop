@@ -24,7 +24,7 @@ package org.bluezoo.gumdrop.amqp1.client;
 import org.bluezoo.gumdrop.amqp1.codec.Attach;
 
 /**
- * The session managed by {@link Amqp1ClientRecovery}. It outlives any one
+ * The session managed by {@link Amqp1Client}. It outlives any one
  * connection: links attached through it are recorded, and attached again
  * on the new session each time the connection is re-established.
  *
@@ -54,7 +54,7 @@ import org.bluezoo.gumdrop.amqp1.codec.Attach;
  *
  * <p>Attach links, and use them, from a handler callback, which runs on the
  * connection's event loop. From any other thread, submit the call with
- * {@link Amqp1ClientRecovery#execute}.
+ * {@link Amqp1Client#execute}.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */

@@ -221,7 +221,7 @@ public class MqttServerCompositionTest {
         List<String> calls = new ArrayList<String>();
         StubListener l = new StubListener(calls, false, false);
         BasicRealm own = new BasicRealm();
-        l.setRealm(own);
+        l.realm(own);
         MqttServer server = MqttServer.compose().listener(l).realm(new BasicRealm())
                 .maxPacketSize(0).server();
         server.start(null);
@@ -242,16 +242,13 @@ public class MqttServerCompositionTest {
     }
 
     @Test
-    public void setListenersFiltersNonListenerObjects() {
+    public void realmAndPacketSizeAreSettableAfterConstruction() {
         MqttServer server = new MqttServer();
-        List<Object> items = new ArrayList<Object>();
-        items.add("not a listener");
-        items.add(new MqttListener());
-        server.setListeners(items);
+        server.addListener(new MqttListener());
         assertEquals(1, server.getListeners().size());
-        server.setRealm(null);
+        server.realm(null);
         assertNull(server.getRealm());
-        server.setMaxPacketSize(10);
+        server.maxPacketSize(10);
         assertEquals(10, server.getMaxPacketSize());
     }
 

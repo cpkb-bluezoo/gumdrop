@@ -182,7 +182,7 @@ public class UdpEndpointAdmissionTest {
         for (int v = 0; v < VERSIONS.length; v++) {
             String label = VERSIONS[v].toString();
             CountingUdpListener listener = new CountingUdpListener();
-            listener.setMaxConnections(1);
+            listener.maxConnections(1);
             listener.connectionOpened(new InetSocketAddress("127.0.0.1", 6000));
             Peer serverPeer = new Peer();
             Peer clientPeer = new Peer();

@@ -38,6 +38,7 @@ import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
 
 import org.bluezoo.gumdrop.auth.Realm;
+import org.bluezoo.gumdrop.auth.RealmCalls;
 import org.bluezoo.gumdrop.auth.SaslMechanism;
 import org.junit.Test;
 
@@ -109,14 +110,8 @@ public class OAuthRealmConfigAndCacheTest {
     @Test
     public void basicRealmContract() {
         OAuthRealm realm = new OAuthRealm(base());
-        assertFalse(realm.passwordMatch("u", "p"));
-        assertNull(realm.getDigestHA1("u", "r"));
-        try {
-            realm.getPassword("u");
-            fail("expected UnsupportedOperationException");
-        } catch (UnsupportedOperationException expected) {
-            // expected
-        }
+        assertFalse(RealmCalls.passwordMatch(realm, "u", "p"));
+        assertNull(RealmCalls.getDigestHA1(realm, "u", "r"));
         Set<SaslMechanism> mechs = realm.getSupportedSASLMechanisms();
         assertEquals(1, mechs.size());
         assertTrue(mechs.contains(SaslMechanism.OAUTHBEARER));
@@ -163,24 +158,24 @@ public class OAuthRealmConfigAndCacheTest {
     @Test
     public void validateRejectsEmptyTokens() {
         OAuthRealm realm = new OAuthRealm(base());
-        assertFalse(realm.validateOAuthToken(null).valid);
-        assertFalse(realm.validateOAuthToken("   ").valid);
-        assertFalse(realm.validateBearerToken("").valid);
+        assertFalse(RealmCalls.validateOAuthToken(realm, null).valid);
+        assertFalse(RealmCalls.validateOAuthToken(realm, "   ").valid);
+        assertFalse(RealmCalls.validateBearerToken(realm, "").valid);
     }
 
     @Test
     public void opaqueTokenWithoutSelectorLoopFails() {
         OAuthRealm realm = new OAuthRealm(base());
-        assertFalse(realm.validateOAuthToken("opaque-token").valid);
+        assertFalse(RealmCalls.validateOAuthToken(realm, "opaque-token").valid);
         OAuthRealm jwtRealm = new OAuthRealm(jwtProps());
-        assertFalse(jwtRealm.validateOAuthToken("opaque-token").valid);
+        assertFalse(RealmCalls.validateOAuthToken(jwtRealm, "opaque-token").valid);
     }
 
     @Test
     public void invalidJwtDoesNotFallBackToIntrospection() throws Exception {
         OAuthRealm realm = new OAuthRealm(jwtProps());
         String expired = jwt("{\"sub\":\"u\",\"exp\":1}");
-        assertFalse(realm.validateOAuthToken(expired).valid);
+        assertFalse(RealmCalls.validateOAuthToken(realm, expired).valid);
     }
 
     @Test
@@ -190,13 +185,13 @@ public class OAuthRealmConfigAndCacheTest {
         p.setProperty("oauth.scope.mapping.empty", "");
         OAuthRealm realm = new OAuthRealm(p);
         String token = jwt("{\"sub\":\"alice\",\"scope\":\"a:admin read\",\"exp\":" + future() + "}");
-        Realm.TokenValidationResult r = realm.validateBearerToken(token);
+        Realm.TokenValidationResult r = RealmCalls.validateBearerToken(realm, token);
         assertTrue(r.valid);
         assertEquals("alice", r.username);
-        assertTrue(realm.isUserInRole("alice", "admin"));
-        assertFalse(realm.isUserInRole("alice", "unmapped"));
-        assertFalse(realm.isUserInRole("alice", "empty"));
-        assertFalse(realm.isUserInRole("bob", "admin"));
+        assertTrue(RealmCalls.isUserInRole(realm, "alice", "admin"));
+        assertFalse(RealmCalls.isUserInRole(realm, "alice", "unmapped"));
+        assertFalse(RealmCalls.isUserInRole(realm, "alice", "empty"));
+        assertFalse(RealmCalls.isUserInRole(realm, "bob", "admin"));
     }
 
     @Test
@@ -207,9 +202,9 @@ public class OAuthRealmConfigAndCacheTest {
         OAuthRealm realm = new OAuthRealm(p);
         String token = jwt("{\"sub\":\"alice\",\"scope\":\"a:admin\",\"exp\":"
                 + (System.currentTimeMillis() / 1000 - 10) + "}");
-        Realm.TokenValidationResult r = realm.validateOAuthToken(token);
+        Realm.TokenValidationResult r = RealmCalls.validateOAuthToken(realm, token);
         assertTrue(r.valid);
-        assertFalse(realm.isUserInRole("alice", "admin"));
+        assertFalse(RealmCalls.isUserInRole(realm, "alice", "admin"));
     }
 
     @Test
@@ -218,8 +213,8 @@ public class OAuthRealmConfigAndCacheTest {
         p.setProperty("oauth.cache.enabled", "true");
         OAuthRealm realm = new OAuthRealm(p);
         String token = jwt("{\"sub\":\"alice\",\"exp\":" + future() + "}");
-        Realm.TokenValidationResult first = realm.validateOAuthToken(token);
-        Realm.TokenValidationResult second = realm.validateOAuthToken(token);
+        Realm.TokenValidationResult first = RealmCalls.validateOAuthToken(realm, token);
+        Realm.TokenValidationResult second = RealmCalls.validateOAuthToken(realm, token);
         assertTrue(first.valid);
         assertSame(first, second);
     }
@@ -233,7 +228,7 @@ public class OAuthRealmConfigAndCacheTest {
         OAuthRealm realm = new OAuthRealm(p);
         for (int i = 0; i < 6; i++) {
             String token = jwt("{\"sub\":\"user" + i + "\",\"exp\":" + future() + "}");
-            Realm.TokenValidationResult r = realm.validateOAuthToken(token);
+            Realm.TokenValidationResult r = RealmCalls.validateOAuthToken(realm, token);
             assertNotNull(r);
             assertTrue(r.valid);
         }
@@ -248,7 +243,7 @@ public class OAuthRealmConfigAndCacheTest {
         OAuthRealm realm = new OAuthRealm(p);
         for (int i = 0; i < 6; i++) {
             String token = jwt("{\"sub\":\"user" + i + "\",\"exp\":" + future() + "}");
-            assertTrue(realm.validateOAuthToken(token).valid);
+            assertTrue(RealmCalls.validateOAuthToken(realm, token).valid);
         }
     }
 
@@ -292,9 +287,9 @@ public class OAuthRealmConfigAndCacheTest {
     @Test
     public void jwtShapeCheckDoesNotAttemptIntrospectionForJwtLikeTokens() {
         OAuthRealm realm = new OAuthRealm(jwtProps());
-        assertFalse(realm.validateOAuthToken("a.b.c").valid);
-        assertFalse(realm.validateOAuthToken(".b.c").valid);
-        assertFalse(realm.validateOAuthToken("a..c").valid);
-        assertFalse(realm.validateOAuthToken("a.b.c.d").valid);
+        assertFalse(RealmCalls.validateOAuthToken(realm, "a.b.c").valid);
+        assertFalse(RealmCalls.validateOAuthToken(realm, ".b.c").valid);
+        assertFalse(RealmCalls.validateOAuthToken(realm, "a..c").valid);
+        assertFalse(RealmCalls.validateOAuthToken(realm, "a.b.c.d").valid);
     }
 }

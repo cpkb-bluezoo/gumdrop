@@ -47,11 +47,11 @@ public class ImapQuotaAuthBranchTest extends ImapSessionHarness {
 
     @Override
     protected void configureListener(ImapListener l) {
-        l.setRealm(new IMAPSessionCoverageTest.AcceptingRealm(
+        l.realm(new IMAPSessionCoverageTest.AcceptingRealm(
                 "editor", "editor", true));
         RoleBasedQuotaManager qm = new RoleBasedQuotaManager();
-        qm.setDefaultQuota("10MB");
-        l.setQuotaManager(qm);
+        qm.defaultQuota("10MB");
+        l.quotaManager(qm);
     }
 
     @Test(timeout = 30000)
@@ -131,7 +131,7 @@ public class ImapQuotaAuthBranchTest extends ImapSessionHarness {
     public void externalAuthenticationUsesTheCertificateIdentity()
             throws Exception {
         CertificateRealm realm = new CertificateRealm();
-        listener.setRealm(realm);
+        listener.realm(realm);
         reconnect();
         endpoint.setSecure(true);
         MockSecurityInfo info = new MockSecurityInfo();

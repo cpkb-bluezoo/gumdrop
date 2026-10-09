@@ -89,10 +89,10 @@ public class HTTP2H2CWebSocketClientIntegrationTest {
         System.setProperty("gumdrop.workers", "2");
 
         listener = new Http2Listener();
-        listener.setPort(PORT);
+        listener.port(PORT);
         listener.addresses(java.net.InetAddress.getByName(TEST_HOST));
         // No setSecure/keystore at all -- plain cleartext TCP.
-        listener.setStreamHandler(new H2cEchoWebSocketHandlerFactory());
+        listener.streamHandler(new H2cEchoWebSocketHandlerFactory());
 
         gumdrop = Gumdrop.boot(GumdropConfig.create().workerThreads(2));
         gumdrop.addListener(listener);
@@ -127,7 +127,7 @@ public class HTTP2H2CWebSocketClientIntegrationTest {
 
         WebSocketClient client = new WebSocketClient(TEST_HOST, PORT);
         // Deliberately not calling setSecure -- defaults to false (cleartext).
-        client.setH2WithPriorKnowledge(true);
+        client.h2WithPriorKnowledge(true);
 
         try {
             client.connect(gumdrop, "/ws", new DefaultWebSocketEventHandler() {

@@ -52,7 +52,7 @@ import org.junit.Before;
 import org.junit.Test;
 
 /**
- * End-to-end tests of {@link Amqp1ClientRecovery} (and so of
+ * End-to-end tests of {@link Amqp1Client} (and so of
  * {@link Amqp1ClientProtocolHandler}, the session and link classes and the
  * codec) against {@link MockAmqp1Broker} over a real loopback socket:
  * SASL, publishing and consuming with credit and settlement, streaming a
@@ -70,7 +70,7 @@ public class Amqp1ClientIntegrationTest {
     private static final long TIMEOUT_SECONDS = 10;
 
     private MockAmqp1Broker broker;
-    private Amqp1ClientRecovery client;
+    private Amqp1Client client;
     private Gumdrop gumdrop;
 
     @Before
@@ -91,15 +91,15 @@ public class Amqp1ClientIntegrationTest {
         gumdrop.join();
     }
 
-    private Amqp1ClientRecovery newClient() {
-        return new Amqp1ClientRecovery("localhost", broker.getPort())
+    private Amqp1Client newClient() {
+        return new Amqp1Client("localhost", broker.getPort())
                 .recoveryPolicy(new Amqp1RecoveryPolicy().withInitialDelayMs(50).withMaxDelayMs(200));
     }
 
     /**
      * Runs {@code task} on the client's event loop and waits for it: the
      * client's links are not thread-safe, so the test thread goes through
-     * {@link Amqp1ClientRecovery#execute} rather than calling them directly.
+     * {@link Amqp1Client#execute} rather than calling them directly.
      */
     private void onLoop(final Runnable task) throws InterruptedException {
         final CountDownLatch done = new CountDownLatch(1);
@@ -431,7 +431,7 @@ public class Amqp1ClientIntegrationTest {
         broker.close(); // nothing is listening on the port any more
         final CountDownLatch failed = new CountDownLatch(1);
         final AtomicInteger attempts = new AtomicInteger();
-        client = new Amqp1ClientRecovery("localhost", port)
+        client = new Amqp1Client("localhost", port)
                 .recoveryPolicy(new Amqp1RecoveryPolicy().withInitialDelayMs(30).withMaxAttempts(3))
                 .recoveryListener(new Amqp1RecoveryListener() {
                     @Override

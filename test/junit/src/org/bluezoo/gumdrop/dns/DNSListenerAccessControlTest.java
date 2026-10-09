@@ -39,7 +39,7 @@ public class DNSListenerAccessControlTest {
     @Test
     public void testBlockedNetworkRejectsSource() throws Exception {
         DnsListener listener = new DnsListener();
-        listener.setBlockedNetworks(CidrNetwork.parseList("10.0.0.0/8"));
+        listener.blockedNetworks(CidrNetwork.parseList("10.0.0.0/8"));
 
         InetSocketAddress blocked =
                 new InetSocketAddress("10.1.2.3", 12345);
@@ -53,7 +53,7 @@ public class DNSListenerAccessControlTest {
     @Test
     public void testAllowedNetworkRestrictsSource() throws Exception {
         DnsListener listener = new DnsListener();
-        listener.setAllowedNetworks(CidrNetwork.parseList("192.168.0.0/16"));
+        listener.allowedNetworks(CidrNetwork.parseList("192.168.0.0/16"));
 
         InetSocketAddress allowed =
                 new InetSocketAddress("192.168.1.50", 53);
@@ -67,7 +67,7 @@ public class DNSListenerAccessControlTest {
     @Test
     public void testRateLimitRejectsExcessDatagrams() throws Exception {
         DnsListener listener = new DnsListener();
-        listener.setRateLimit("1/60s");
+        listener.rateLimit("1/60s");
 
         InetAddress ip = InetAddress.getByName("192.168.1.1");
         InetSocketAddress source = new InetSocketAddress(ip, 1234);

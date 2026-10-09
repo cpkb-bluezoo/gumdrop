@@ -22,6 +22,7 @@
 package org.bluezoo.gumdrop.mqtt.mosquitto;
 
 import org.bluezoo.gumdrop.Gumdrop;
+import org.bluezoo.gumdrop.tls.TlsConfig;
 import org.bluezoo.gumdrop.mqtt.client.MqttClient;
 import org.bluezoo.gumdrop.mqtt.client.MqttClientCallback;
 import org.bluezoo.gumdrop.mqtt.client.MqttMessageListener;
@@ -78,8 +79,8 @@ public class MosquittoClientIntegrationTest {
 
     private MqttClient newClient(String clientIdSuffix) {
         MqttClient client = new MqttClient(MosquittoTestSupport.HOST, MosquittoTestSupport.PORT);
-        client.setClientId("gumdrop-test-" + clientIdSuffix + "-" + System.nanoTime());
-        client.setCredentials(MosquittoTestSupport.USERNAME, MosquittoTestSupport.PASSWORD);
+        client.clientId("gumdrop-test-" + clientIdSuffix + "-" + System.nanoTime());
+        client.credentials(MosquittoTestSupport.USERNAME, MosquittoTestSupport.PASSWORD);
         return client;
     }
 
@@ -171,10 +172,10 @@ public class MosquittoClientIntegrationTest {
         String payload = "hello over tls";
 
         MqttClient client = new MqttClient(MosquittoTestSupport.HOST, MosquittoTestSupport.TLS_PORT);
-        client.setClientId("gumdrop-test-tls-" + System.nanoTime());
-        client.setCredentials(MosquittoTestSupport.USERNAME, MosquittoTestSupport.PASSWORD);
-        client.setSecure(true);
-        client.setTrustManager(pinningTrustManager(serverCert));
+        client.clientId("gumdrop-test-tls-" + System.nanoTime());
+        client.credentials(MosquittoTestSupport.USERNAME, MosquittoTestSupport.PASSWORD);
+        client.secure(true);
+        client.tls(new TlsConfig().trustManager(pinningTrustManager(serverCert)));
 
         CountDownLatch doneLatch = new CountDownLatch(1);
         AtomicReference<Exception> error = new AtomicReference<>();
@@ -218,8 +219,8 @@ public class MosquittoClientIntegrationTest {
     @Test
     public void testWrongPasswordRejected() throws Exception {
         MqttClient client = new MqttClient(MosquittoTestSupport.HOST, MosquittoTestSupport.PORT);
-        client.setClientId("gumdrop-test-badauth-" + System.nanoTime());
-        client.setCredentials(MosquittoTestSupport.USERNAME, "wrong-password");
+        client.clientId("gumdrop-test-badauth-" + System.nanoTime());
+        client.credentials(MosquittoTestSupport.USERNAME, "wrong-password");
 
         CountDownLatch doneLatch = new CountDownLatch(1);
         AtomicReference<Exception> error = new AtomicReference<>();

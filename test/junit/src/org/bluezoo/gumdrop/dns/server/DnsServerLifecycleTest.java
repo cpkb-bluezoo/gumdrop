@@ -176,16 +176,31 @@ public class DnsServerLifecycleTest {
     @Test
     public void setListenersAcceptsKnownTypesAndSkipsOthers() {
         DnsServer server = new DnsServer();
-        List<Object> items = new ArrayList<Object>();
-        items.add(new MockListener());
-        items.add(new DoTListener());
-        items.add(new DoQListener());
-        items.add(new org.bluezoo.gumdrop.dns.DnsTcpListener());
-        items.add("not a listener");
-        server.setListeners(items);
+        server.addListener(new MockListener());
+        server.addListener(new DoTListener());
+        server.addListener(new DoQListener());
+        server.addListener(new org.bluezoo.gumdrop.dns.DnsTcpListener());
         assertEquals(4, server.getListeners().size());
         server.addListener(new MockListener());
         assertEquals(5, server.getListeners().size());
+    }
+
+    @Test
+    public void composedTcpListenerIsWiredToItsServerOnStart() {
+        org.bluezoo.gumdrop.dns.DnsTcpListener tcp =
+                new org.bluezoo.gumdrop.dns.DnsTcpListener() {
+                    @Override
+                    public void start(Gumdrop gumdrop) {
+                    }
+
+                    @Override
+                    public void stop() {
+                    }
+                };
+        DnsServer server = DnsServer.compose().listener(tcp).server();
+        server.start((Gumdrop) null);
+        assertSame(server, tcp.getServer());
+        server.stop();
     }
 
     @Test
@@ -196,7 +211,7 @@ public class DnsServerLifecycleTest {
         failing.failStop = true;
         LifeHandler handler = new LifeHandler();
         DnsServer server = new DnsServer();
-        server.setHandler(handler);
+        server.handler(handler);
         server.addListener(ok);
         server.addListener(failing);
         server.start((Gumdrop) null);
@@ -237,7 +252,7 @@ public class DnsServerLifecycleTest {
         MockListener l = new MockListener();
         DnsServer server = new DnsServer();
         server.addListener(l);
-        server.setMaxMQTypes(2);
+        server.maxMQTypes(2);
         server.start((Gumdrop) null);
         CaptureCallback cb = new CaptureCallback();
         server.processQuery(query(), null, cb);

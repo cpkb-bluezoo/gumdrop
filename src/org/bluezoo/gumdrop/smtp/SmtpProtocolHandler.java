@@ -24,6 +24,7 @@ package org.bluezoo.gumdrop.smtp;
 import java.io.IOException;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
+import java.net.SocketAddress;
 import java.net.UnknownHostException;
 import java.nio.ByteBuffer;
 import java.nio.channels.WritableByteChannel;
@@ -67,6 +68,7 @@ import org.bluezoo.gumdrop.StorageExecutor;
 import org.bluezoo.gumdrop.TokenErrorRecovery;
 import org.bluezoo.gumdrop.auth.GssapiServer;
 import org.bluezoo.gumdrop.auth.Realm;
+import org.bluezoo.gumdrop.auth.RealmCallback;
 import org.bluezoo.gumdrop.auth.SaslMechanism;
 import org.bluezoo.gumdrop.auth.SaslUtils;
 import org.bluezoo.gumdrop.mime.HeaderLineTooLongException;
@@ -224,6 +226,9 @@ public final class SmtpProtocolHandler
     private RecipientHandler recipientHandler;
     private MessageDataHandler messageHandler;
     private SmtpPipeline currentPipeline;
+
+    /** Domain this server announced in its greeting, or null if none. */
+    private String greetingDomain;
 
     private SmtpState state = SmtpState.INITIAL;
     private String heloName;
@@ -742,12 +747,48 @@ public final class SmtpProtocolHandler
         sessionSpan.end();
     }
 
+    /**
+     * The name this server gives itself in EHLO/HELO replies and SASL
+     * challenges (RFC 5321 section 4.1.1.1). It is the domain the handler
+     * put first in its 220 greeting, which RFC 5321 section 4.2 defines as
+     * the server's domain. When the greeting names none, the local address
+     * is given as an address literal (section 4.1.3).
+     */
+    private String localName() {
+        if (greetingDomain != null) {
+            return greetingDomain;
+        }
+        SocketAddress local = endpoint.getLocalAddress();
+        if (local instanceof InetSocketAddress
+                && ((InetSocketAddress) local).getAddress() != null) {
+            String host = ((InetSocketAddress) local).getAddress().getHostAddress();
+            int zone = host.indexOf('%');
+            if (zone >= 0) {
+                host = host.substring(0, zone);
+            }
+            return host.indexOf(':') >= 0 ? "[IPv6:" + host + "]" : "[" + host + "]";
+        }
+        return "localhost";
+    }
+
+    private static String greetingDomainOf(String greeting) {
+        if (greeting == null) {
+            return null;
+        }
+        int space = greeting.indexOf(' ');
+        String first = space < 0 ? greeting : greeting.substring(0, space);
+        if (first.isEmpty() || !first.matches("[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?")) {
+            return null;
+        }
+        return first;
+    }
+
     private void sendGreeting() {
         if (connectedHandler != null) {
             connectedHandler.connected(this, endpoint);
         } else {
             startSessionSpan();
-            reply(220, endpoint.getLocalAddress().toString() + " ESMTP Service ready");
+            reply(220, localName() + " ESMTP Service ready");
         }
     }
 
@@ -1152,6 +1193,9 @@ public final class SmtpProtocolHandler
                         if (metrics != null) {
                             metrics.messageReceived(messageSize, recipientCount);
                         }
+                        if (currentPipeline != null) {
+                            currentPipeline.endData();
+                        }
                         if (messageHandler != null) {
                             beginDelivery();
                             messageHandler.messageComplete(this);
@@ -1308,7 +1352,7 @@ public final class SmtpProtocolHandler
             helloHandler.hello(this, false, this.heloName);
         } else {
             this.state = SmtpState.READY;
-            String localHostname = endpoint.getLocalAddress().toString();
+            String localHostname = localName();
             reply(250, localHostname + " Hello " + hostname);
         }
     }
@@ -1337,7 +1381,7 @@ public final class SmtpProtocolHandler
      * Each keyword references its defining RFC.
      */
     private void sendEhloResponse() {
-        String localHostname = endpoint.getLocalAddress().toString();
+        String localHostname = localName();
         replyMultiline(250, localHostname + " Hello " + heloName);
         replyMultiline(250, "SIZE " + server.getMaxMessageSize());     // RFC 1870
         replyMultiline(250, "PIPELINING");                              // RFC 2920
@@ -1450,6 +1494,10 @@ public final class SmtpProtocolHandler
             reply(503, "5.0.0 Already authenticated");
             return;
         }
+        if (server.isAuthLockedOut(endpoint.getRemoteAddress())) {
+            reply(454, "4.7.0 Too many failed authentication attempts, try again later");
+            return;
+        }
         if (!endpoint.isSecure() && !server.isSTARTTLSAvailable()) {
             reply(538, "5.7.11 Encryption required for requested authentication mechanism");
             return;
@@ -1517,14 +1565,14 @@ public final class SmtpProtocolHandler
             int secondNull = (firstNull >= 0) ? authString.indexOf('\0', firstNull + 1) : -1;
             if (firstNull < 0 || secondNull < 0
                     || authString.indexOf('\0', secondNull + 1) >= 0) {
-                reply(535, "5.7.8 Authentication credentials invalid");
+                rejectCredentials();
                 resetAuthState();
                 return;
             }
             final String username = authString.substring(firstNull + 1, secondNull);
             String password = authString.substring(secondNull + 1);
             if (username.isEmpty() || password.isEmpty()) {
-                reply(535, "5.7.8 Authentication credentials invalid");
+                rejectCredentials();
                 resetAuthState();
                 return;
             }
@@ -1547,7 +1595,7 @@ public final class SmtpProtocolHandler
                 }
             });
         } catch (Exception e) {
-            reply(535, "5.7.8 Authentication credentials invalid");
+            rejectCredentials();
             resetAuthState();
             events().warn("warn.auth_plain_error").thrown(e).emit();
         }
@@ -1570,16 +1618,25 @@ public final class SmtpProtocolHandler
             }
         }
 
-        Realm.CertificateAuthenticationResult result =
-                SaslUtils.authenticateExternal(
-                        endpoint, getRealm(), authzid);
-        if (result == null || !result.valid) {
-            notifyAuthenticationFailure(authzid, "EXTERNAL");
-            return;
-        }
+        final String requestedAuthzid = authzid;
+        SaslUtils.authenticateExternal(endpoint, getRealm(), authzid,
+                new RealmCallback<Realm.CertificateAuthenticationResult>() {
+            @Override
+            public void completed(Realm.CertificateAuthenticationResult result) {
+                if (result == null || !result.valid) {
+                    notifyAuthenticationFailure(requestedAuthzid, "EXTERNAL");
+                    return;
+                }
+                notifyAuthenticationSuccess(result.username, "EXTERNAL");
+                resetAuthState();
+            }
 
-        notifyAuthenticationSuccess(result.username, "EXTERNAL");
-        resetAuthState();
+            @Override
+            public void failed(Throwable cause) {
+                events().warn("warn.auth_external_error").thrown(cause).emit();
+                notifyAuthenticationFailure(requestedAuthzid, "EXTERNAL");
+            }
+        });
     }
 
     /** draft-murchison-sasl-login — SASL LOGIN mechanism (username/password). */
@@ -1589,7 +1646,7 @@ public final class SmtpProtocolHandler
                 byte[] decoded = Base64.getDecoder().decode(initialResponse);
                 String username = new String(decoded, US_ASCII);
                 if (username.isEmpty()) {
-                    reply(535, "5.7.8 Authentication credentials invalid");
+                    rejectCredentials();
                     resetAuthState();
                     return;
                 }
@@ -1607,7 +1664,7 @@ public final class SmtpProtocolHandler
                 reply(334, usernamePrompt);
             }
         } catch (Exception e) {
-            reply(535, "5.7.8 Authentication credentials invalid");
+            rejectCredentials();
             resetAuthState();
             events().warn("warn.auth_login_error").thrown(e).emit();
         }
@@ -1619,7 +1676,7 @@ public final class SmtpProtocolHandler
      */
     private void handleAuthCramMD5(String initialResponse) {
         try {
-            String hostname = endpoint.getLocalAddress().toString();
+            String hostname = localName();
             authChallenge = SaslUtils.generateCramMD5Challenge(hostname);
             String encoded = Base64.getEncoder()
                     .encodeToString(authChallenge.getBytes(US_ASCII));
@@ -1641,7 +1698,7 @@ public final class SmtpProtocolHandler
     private void handleAuthDigestMD5(String initialResponse) {
         try {
             authNonce = SaslUtils.generateNonce(16);
-            String realmName = endpoint.getLocalAddress().toString();
+            String realmName = localName();
             authChallenge = SaslUtils.generateDigestMD5Challenge(realmName, authNonce);
             String encoded = Base64.getEncoder()
                     .encodeToString(authChallenge.getBytes(UTF_8));
@@ -1669,7 +1726,7 @@ public final class SmtpProtocolHandler
                 authMechanism = "SCRAM-SHA-256";
             }
         } catch (Exception e) {
-            reply(535, "5.7.8 Authentication credentials invalid");
+            rejectCredentials();
             resetAuthState();
             events().warn("warn.auth_scram_sha256_error").thrown(e).emit();
         }
@@ -1706,19 +1763,19 @@ public final class SmtpProtocolHandler
                 }
             }
             if (usernameParsed == null || clientNonceParsed == null) {
-                reply(535, "5.7.8 Authentication credentials invalid");
+                rejectCredentials();
                 resetAuthState();
                 return;
             }
             username = usernameParsed;
             clientNonce = clientNonceParsed;
             if (getRealm() == null) {
-                reply(535, "5.7.8 Authentication credentials invalid");
+                rejectCredentials();
                 resetAuthState();
                 return;
             }
         } catch (Exception e) {
-            reply(535, "5.7.8 Authentication credentials invalid");
+            rejectCredentials();
             resetAuthState();
             events().warn("warn.auth_scram_sha256_error").thrown(e).emit();
             return;
@@ -1728,7 +1785,7 @@ public final class SmtpProtocolHandler
             @Override
             public void completed(Realm.ScramCredentials creds) {
                 if (creds == null) {
-                    reply(535, "5.7.8 Authentication credentials invalid");
+                    rejectCredentials();
                     resetAuthState();
                     return;
                 }
@@ -1755,7 +1812,7 @@ public final class SmtpProtocolHandler
 
             @Override
             public void failed(Throwable error) {
-                reply(535, "5.7.8 Authentication credentials invalid");
+                rejectCredentials();
                 resetAuthState();
                 events().warn("warn.auth_scram_sha256_error").thrown(error).emit();
             }
@@ -1768,12 +1825,12 @@ public final class SmtpProtocolHandler
         try {
             clientFinal = new String(Base64.getDecoder().decode(encoded), UTF_8);
             if (getRealm() == null) {
-                reply(535, "5.7.8 Authentication credentials invalid");
+                rejectCredentials();
                 resetAuthState();
                 return;
             }
         } catch (Exception e) {
-            reply(535, "5.7.8 Authentication credentials invalid");
+            rejectCredentials();
             resetAuthState();
             events().warn("warn.auth_scram_sha256_error").thrown(e).emit();
             return;
@@ -1784,7 +1841,7 @@ public final class SmtpProtocolHandler
             @Override
             public void completed(Realm.ScramCredentials creds) {
                 if (creds == null) {
-                    reply(535, "5.7.8 Authentication credentials invalid");
+                    rejectCredentials();
                     resetAuthState();
                     return;
                 }
@@ -1804,7 +1861,7 @@ public final class SmtpProtocolHandler
 
             @Override
             public void failed(Throwable error) {
-                reply(535, "5.7.8 Authentication credentials invalid");
+                rejectCredentials();
                 resetAuthState();
                 events().warn("warn.auth_scram_sha256_error").thrown(error).emit();
             }
@@ -1825,7 +1882,7 @@ public final class SmtpProtocolHandler
                 authMechanism = "OAUTHBEARER";
             }
         } catch (Exception e) {
-            reply(535, "5.7.8 Authentication credentials invalid");
+            rejectCredentials();
             resetAuthState();
             events().warn("warn.auth_oauthbearer_error").thrown(e).emit();
         }
@@ -1838,30 +1895,43 @@ public final class SmtpProtocolHandler
         String token = oauthParams.get("token");
         String user = oauthParams.get("user");
         if (token == null || token.isEmpty()) {
-            reply(535, "5.7.8 Authentication credentials invalid");
+            rejectCredentials();
             resetAuthState();
             return;
         }
-        Realm.TokenValidationResult result = getRealm().validateBearerToken(token);
-        if (result == null || !result.valid || result.isExpired()) {
-            // RFC 7628 §3.2.2 — server sends JSON error on failure
-            String errorJson = "{\"status\":\"invalid_token\"}";
-            String errorEncoded = Base64.getEncoder()
-                    .encodeToString(errorJson.getBytes(UTF_8));
-            reply(334, errorEncoded);
-            // Client must send empty response (^A) to acknowledge, then 535
-            authState = AuthState.OAUTH_RESPONSE;
-            authMechanism = "OAUTHBEARER";
-            return;
-        }
-        if (user != null && !user.isEmpty()
-                && !user.equals(result.username)) {
-            reply(535, "5.7.8 Authentication credentials invalid");
-            resetAuthState();
-            return;
-        }
-        notifyAuthenticationSuccess(result.username, "OAUTHBEARER");
-        resetAuthState();
+        final String expectedUser = user;
+        getRealm().validateBearerToken(token,
+                awaiting(new StorageExecutor.Callback<Realm.TokenValidationResult>() {
+            @Override
+            public void completed(Realm.TokenValidationResult result) {
+                if (result == null || !result.valid || result.isExpired()) {
+                    // RFC 7628 §3.2.2 — server sends JSON error on failure
+                    String errorJson = "{\"status\":\"invalid_token\"}";
+                    String errorEncoded = Base64.getEncoder()
+                            .encodeToString(errorJson.getBytes(UTF_8));
+                    reply(334, errorEncoded);
+                    // Client must send empty response (^A) to acknowledge, then 535
+                    authState = AuthState.OAUTH_RESPONSE;
+                    authMechanism = "OAUTHBEARER";
+                    return;
+                }
+                if (expectedUser != null && !expectedUser.isEmpty()
+                        && !expectedUser.equals(result.username)) {
+                    rejectCredentials();
+                    resetAuthState();
+                    return;
+                }
+                notifyAuthenticationSuccess(result.username, "OAUTHBEARER");
+                resetAuthState();
+            }
+
+            @Override
+            public void failed(Throwable cause) {
+                events().warn("warn.auth_oauthbearer_error").thrown(cause).emit();
+                rejectCredentials();
+                resetAuthState();
+            }
+        }));
     }
 
     /** RFC 4752 — SASL GSSAPI mechanism (Kerberos V5). */
@@ -1911,10 +1981,10 @@ public final class SmtpProtocolHandler
             }
         } catch (IOException e) {
             LOGGER.log(Level.FINE, L10N.getString("debug.gssapi_token_rejected"), e);
-            reply(535, "5.7.8 Authentication credentials invalid");
+            rejectCredentials();
             resetAuthState();
         } catch (IllegalArgumentException e) {
-            reply(535, "5.7.8 Authentication credentials invalid");
+            rejectCredentials();
             resetAuthState();
         }
     }
@@ -1925,27 +1995,47 @@ public final class SmtpProtocolHandler
             byte[] wrapped = Base64.getDecoder().decode(line);
             String gssName =
                     gssapiExchange.validateSecurityLayerResponse(wrapped);
+            final String principal = gssName;
             Realm realm = getRealm();
-            String localUser = null;
-            if (realm != null) {
-                localUser = realm.mapKerberosPrincipal(gssName);
+            if (realm == null) {
+                gssapiAuthenticated(null, principal);
+                return;
             }
-            if (localUser == null) {
-                localUser = gssName;
-                int atIndex = localUser.indexOf('@');
-                if (atIndex > 0) {
-                    localUser = localUser.substring(0, atIndex);
+            realm.mapKerberosPrincipal(gssName,
+                    awaiting(new StorageExecutor.Callback<String>() {
+                @Override
+                public void completed(String localUser) {
+                    gssapiAuthenticated(localUser, principal);
                 }
-            }
-            notifyAuthenticationSuccess(localUser, "GSSAPI");
+
+                @Override
+                public void failed(Throwable cause) {
+                    LOGGER.log(Level.FINE, L10N.getString("debug.gssapi_security_layer_failed"), cause);
+                    rejectCredentials();
+                    resetAuthState();
+                }
+            }));
         } catch (IOException e) {
             LOGGER.log(Level.FINE, L10N.getString("debug.gssapi_security_layer_failed"), e);
-            reply(535, "5.7.8 Authentication credentials invalid");
+            rejectCredentials();
+            resetAuthState();
         } catch (IllegalArgumentException e) {
-            reply(535, "5.7.8 Authentication credentials invalid");
-        } finally {
+            rejectCredentials();
             resetAuthState();
         }
+    }
+
+    /** GSSAPI succeeded; {@code localUser} is the realm's mapping, or null to strip the Kerberos realm. */
+    private void gssapiAuthenticated(String localUser, String gssName) {
+        if (localUser == null) {
+            localUser = gssName;
+            int atIndex = localUser.indexOf('@');
+            if (atIndex > 0) {
+                localUser = localUser.substring(0, atIndex);
+            }
+        }
+        notifyAuthenticationSuccess(localUser, "GSSAPI");
+        resetAuthState();
     }
 
     /**
@@ -1968,7 +2058,7 @@ public final class SmtpProtocolHandler
                     byte[] decoded = Base64.getDecoder().decode(data);
                     String username = new String(decoded, US_ASCII);
                     if (username.isEmpty()) {
-                        reply(535, "5.7.8 Authentication credentials invalid");
+                        rejectCredentials();
                         resetAuthState();
                         return;
                     }
@@ -1983,7 +2073,7 @@ public final class SmtpProtocolHandler
                     byte[] decoded = Base64.getDecoder().decode(data);
                     String password = new String(decoded, US_ASCII);
                     if (password.isEmpty()) {
-                        reply(535, "5.7.8 Authentication credentials invalid");
+                        rejectCredentials();
                         resetAuthState();
                         return;
                     }
@@ -2056,7 +2146,7 @@ public final class SmtpProtocolHandler
                     resetAuthState();
             }
         } catch (Exception e) {
-            reply(535, "5.7.8 Authentication credentials invalid");
+            rejectCredentials();
             resetAuthState();
             events().warn("warn.auth_data_handling_error").thrown(e).emit();
         }
@@ -2067,22 +2157,33 @@ public final class SmtpProtocolHandler
         String response = new String(Base64.getDecoder().decode(encodedData), US_ASCII);
         int spaceIdx = response.lastIndexOf(' ');
         if (spaceIdx <= 0) {
-            reply(535, "5.7.8 Authentication credentials invalid");
+            rejectCredentials();
             resetAuthState();
             return;
         }
-        String username = response.substring(0, spaceIdx);
-        String expectedResponse = getRealm().getCramMD5Response(username, authChallenge);
-        String clientDigest = response.substring(spaceIdx + 1).toLowerCase(Locale.ENGLISH);
-        if (expectedResponse != null
-                && MessageDigest.isEqual(
-                        clientDigest.getBytes(US_ASCII),
-                        expectedResponse.toLowerCase(Locale.ENGLISH).getBytes(US_ASCII))) {
-            notifyAuthenticationSuccess(username, "CRAM-MD5");
-        } else {
-            notifyAuthenticationFailure(username, "CRAM-MD5");
-        }
-        resetAuthState();
+        final String username = response.substring(0, spaceIdx);
+        final String clientDigest = response.substring(spaceIdx + 1).toLowerCase(Locale.ENGLISH);
+        getRealm().getCramMD5Response(username, authChallenge,
+                awaiting(new StorageExecutor.Callback<String>() {
+            @Override
+            public void completed(String expectedResponse) {
+                if (expectedResponse != null
+                        && MessageDigest.isEqual(
+                                clientDigest.getBytes(US_ASCII),
+                                expectedResponse.toLowerCase(Locale.ENGLISH).getBytes(US_ASCII))) {
+                    notifyAuthenticationSuccess(username, "CRAM-MD5");
+                } else {
+                    notifyAuthenticationFailure(username, "CRAM-MD5");
+                }
+                resetAuthState();
+            }
+
+            @Override
+            public void failed(Throwable cause) {
+                notifyAuthenticationFailure(username, "CRAM-MD5");
+                resetAuthState();
+            }
+        }));
     }
 
     /** RFC 2831 §2.1.2 — verify DIGEST-MD5 response. */
@@ -2092,27 +2193,40 @@ public final class SmtpProtocolHandler
         String username = params.get("username");
 
         if (username == null) {
-            reply(535, "5.7.8 Authentication credentials invalid");
+            rejectCredentials();
             resetAuthState();
             return;
         }
         String realmName = params.get("realm");
         if (realmName == null) {
-            realmName = endpoint.getLocalAddress().toString();
+            realmName = localName();
         }
-        String ha1 = getRealm().getDigestHA1(username, realmName);
-        String rspAuth = SaslUtils.verifyDigestMD5ClientResponse(
-                ha1, authNonce, params);
+        final Map<String, String> digestParams = params;
+        final String digestUser = username;
+        getRealm().getDigestHA1(username, realmName,
+                awaiting(new StorageExecutor.Callback<String>() {
+            @Override
+            public void completed(String ha1) {
+                String rspAuth = SaslUtils.verifyDigestMD5ClientResponse(
+                        ha1, authNonce, digestParams);
 
-        if (rspAuth != null) {
-            String rspEncoded = Base64.getEncoder()
-                    .encodeToString(("rspauth=" + rspAuth).getBytes(US_ASCII));
-            reply(334, rspEncoded);
-            notifyAuthenticationSuccess(username, "DIGEST-MD5");
-        } else {
-            notifyAuthenticationFailure(username, "DIGEST-MD5");
-        }
-        resetAuthState();
+                if (rspAuth != null) {
+                    String rspEncoded = Base64.getEncoder()
+                            .encodeToString(("rspauth=" + rspAuth).getBytes(US_ASCII));
+                    reply(334, rspEncoded);
+                    notifyAuthenticationSuccess(digestUser, "DIGEST-MD5");
+                } else {
+                    notifyAuthenticationFailure(digestUser, "DIGEST-MD5");
+                }
+                resetAuthState();
+            }
+
+            @Override
+            public void failed(Throwable cause) {
+                notifyAuthenticationFailure(digestUser, "DIGEST-MD5");
+                resetAuthState();
+            }
+        }));
     }
 
     /** RFC 7628 §3.2.2 — handle OAUTHBEARER continuation (either initial or error ack). */
@@ -2120,7 +2234,7 @@ public final class SmtpProtocolHandler
         // After an error challenge (334), client sends empty response to acknowledge
         String decoded = new String(Base64.getDecoder().decode(data), UTF_8);
         if (decoded.isEmpty() || decoded.equals("\u0001")) {
-            reply(535, "5.7.8 Authentication credentials invalid");
+            rejectCredentials();
             resetAuthState();
             return;
         }
@@ -2128,17 +2242,10 @@ public final class SmtpProtocolHandler
     }
 
     /**
-     * Verifies a username/password off the SelectorLoop thread.
-     *
-     * <p>{@link Realm#passwordMatch} blocks synchronously for LDAP/OAuth
-     * realms (network round trip to the directory/token server). Calling
-     * it directly from the loop thread would stall every other
-     * connection multiplexed on this loop for the duration, and since the
-     * realm's own client connection is bound to this same loop, could
-     * self-deadlock outright: the loop thread would block waiting for a
-     * response only that same (blocked) loop thread can deliver. Running
-     * the check on {@link StorageExecutor} instead means the loop thread
-     * is never the one waiting (issue #122).
+     * Verifies a username/password with the realm, without waiting for it.
+     * The realm (bound to this connection's loop) calls back on that loop
+     * when it has answered: an LDAP realm does so when its directory
+     * exchange completes, a local realm at once.
      *
      * @param callback receives the result on the loop thread
      */
@@ -2150,26 +2257,37 @@ public final class SmtpProtocolHandler
             callback.completed(Boolean.FALSE);
             return;
         }
-        submitStorage(new Callable<Boolean>() {
-            @Override
-            public Boolean call() {
-                return realm.passwordMatch(username, password);
-            }
-        }, callback);
+        realm.passwordMatch(username, password, awaiting(callback));
     }
 
     /**
-     * Derives (or fetches already-cached) SCRAM credentials off the
-     * SelectorLoop thread. For {@link org.bluezoo.gumdrop.auth.BasicRealm},
-     * a cache miss here runs a 210,000-iteration PBKDF2-HMAC-SHA256
-     * derivation -- genuinely CPU-bound work, but this still goes through
-     * {@link StorageExecutor} rather than the CPU-tuned {@code
-     * CryptoExecutor} (see issues #262/#274), since {@link
-     * Realm#getScramCredentials} is a generic {@link Realm} method that an
-     * LDAP/OAuth-backed realm could equally implement with a blocking
-     * network round trip; routing that onto a small, CPU-sized pool shared
-     * with TLS/QUIC handshake crypto would let a slow directory server
-     * starve unrelated connections' handshakes. Mirrors {@link
+     * Pauses reads while the realm answers, so that a pipelined command
+     * cannot race the result, and resumes them before the callback runs.
+     * The realm calls back on this connection's loop, without having made
+     * the loop wait.
+     */
+    private <T> RealmCallback<T> awaiting(final StorageExecutor.Callback<T> callback) {
+        endpoint.pauseRead();
+        return new RealmCallback<T>() {
+            @Override
+            public void completed(T result) {
+                endpoint.resumeRead();
+                callback.completed(result);
+            }
+
+            @Override
+            public void failed(Throwable cause) {
+                endpoint.resumeRead();
+                callback.failed(cause);
+            }
+        };
+    }
+
+    /**
+     * Fetches the user's SCRAM credentials from the realm without waiting
+     * for it. For {@link org.bluezoo.gumdrop.auth.BasicRealm}, a cache miss
+     * runs a 210,000-iteration PBKDF2-HMAC-SHA256 derivation, which the
+     * realm moves off the loop itself. Mirrors {@link
      * #authenticateUserAsync}, which makes the same call for {@link
      * Realm#passwordMatch}.
      *
@@ -2184,51 +2302,7 @@ public final class SmtpProtocolHandler
             callback.completed(null);
             return;
         }
-        submitStorage(new Callable<Realm.ScramCredentials>() {
-            @Override
-            public Realm.ScramCredentials call() {
-                return realm.getScramCredentials(username);
-            }
-        }, callback);
-    }
-
-    /**
-     * Runs blocking auth/storage work off the SelectorLoop and delivers
-     * the outcome on this connection's loop thread.
-     */
-    private <T> void submitStorage(final Callable<T> op,
-            final StorageExecutor.Callback<T> callback) {
-        SelectorLoop loop = (endpoint != null) ? endpoint.getSelectorLoop() : null;
-        Gumdrop gumdrop = (loop != null) ? loop.getGumdrop() : null;
-        StorageExecutor exec =
-                (gumdrop != null) ? gumdrop.getStorageExecutor() : null;
-        if (exec == null || endpoint == null) {
-            T result;
-            try {
-                result = op.call();
-            } catch (Throwable t) {
-                callback.failed(t);
-                return;
-            }
-            callback.completed(result);
-            return;
-        }
-        // Pause reads while the check is in flight so a pipelined command
-        // cannot race the result; resumed before the callback runs.
-        endpoint.pauseRead();
-        exec.submit(endpoint, op, new StorageExecutor.Callback<T>() {
-            @Override
-            public void completed(T result) {
-                endpoint.resumeRead();
-                callback.completed(result);
-            }
-
-            @Override
-            public void failed(Throwable t) {
-                endpoint.resumeRead();
-                callback.failed(t);
-            }
-        });
+        realm.getScramCredentials(username, awaiting(callback));
     }
 
     private void resetAuthState() {
@@ -2284,6 +2358,13 @@ public final class SmtpProtocolHandler
             metrics.authAttempt(mechanism);
             metrics.authFailure(mechanism);
         }
+        server.recordAuthFailure(endpoint.getRemoteAddress(), username);
+        reply(535, "5.7.8 Authentication credentials invalid");
+    }
+
+    /** Counts a failed attempt towards the client's lockout, then answers 535. */
+    private void rejectCredentials() {
+        server.recordAuthFailure(endpoint.getRemoteAddress(), null);
         reply(535, "5.7.8 Authentication credentials invalid");
     }
 
@@ -2827,11 +2908,34 @@ public final class SmtpProtocolHandler
                 return;
             }
         }
-        String fromAddr = (sender != null) ? sender.getEnvelopeAddress() : "";
-        if (authenticated && !isAuthorizedSender(fromAddr, authenticatedUser)) {
-            reply(550, "5.7.1 Not authorized to send from this address");
+        final String fromAddr = (sender != null) ? sender.getEnvelopeAddress() : "";
+        final EmailAddress envelopeSender = sender;
+        final boolean utf8 = smtputf8;
+        if (!authenticated) {
+            acceptMailFrom(envelopeSender, utf8);
             return;
         }
+        isAuthorizedSender(fromAddr, authenticatedUser,
+                awaiting(new StorageExecutor.Callback<Boolean>() {
+            @Override
+            public void completed(Boolean allowed) {
+                if (allowed == null || !allowed.booleanValue()) {
+                    reply(550, "5.7.1 Not authorized to send from this address");
+                    return;
+                }
+                acceptMailFrom(envelopeSender, utf8);
+            }
+
+            @Override
+            public void failed(Throwable cause) {
+                events().warn("warn.sender_authorization_failed").thrown(cause).emit();
+                reply(451, "4.3.0 Unable to check the sender, try again later");
+            }
+        }));
+    }
+
+    /** The envelope sender is acceptable: starts the transaction. */
+    private void acceptMailFrom(EmailAddress sender, boolean smtputf8) {
         this.mailFrom = sender;
         this.recipients.clear();
         this.dsnRecipients.clear();
@@ -2846,28 +2950,49 @@ public final class SmtpProtocolHandler
         }
     }
 
-    private boolean isAuthorizedSender(String fromAddress, String authenticatedUser) {
+    /**
+     * Whether the authenticated user may use the address as envelope
+     * sender: it is their own, or they are an admin or postmaster. The
+     * first two are decided here; the roles are asked of the realm.
+     */
+    private void isAuthorizedSender(String fromAddress, final String authenticatedUser,
+            final RealmCallback<Boolean> callback) {
         if (fromAddress == null || authenticatedUser == null) {
-            return false;
+            callback.completed(Boolean.FALSE);
+            return;
         }
         if (authenticatedUser.equalsIgnoreCase(fromAddress)) {
-            return true;
+            callback.completed(Boolean.TRUE);
+            return;
         }
         int atIndex = fromAddress.indexOf('@');
         if (atIndex > 0) {
             String localPart = fromAddress.substring(0, atIndex);
             if (authenticatedUser.equalsIgnoreCase(localPart)) {
-                return true;
+                callback.completed(Boolean.TRUE);
+                return;
             }
         }
-        Realm r = getRealm();
-        if (r != null) {
-            if (r.isUserInRole(authenticatedUser, "admin")
-                    || r.isUserInRole(authenticatedUser, "postmaster")) {
-                return true;
-            }
+        final Realm r = getRealm();
+        if (r == null) {
+            callback.completed(Boolean.FALSE);
+            return;
         }
-        return false;
+        r.isUserInRole(authenticatedUser, "admin", new RealmCallback<Boolean>() {
+            @Override
+            public void completed(Boolean admin) {
+                if (admin != null && admin.booleanValue()) {
+                    callback.completed(Boolean.TRUE);
+                    return;
+                }
+                r.isUserInRole(authenticatedUser, "postmaster", callback);
+            }
+
+            @Override
+            public void failed(Throwable cause) {
+                callback.failed(cause);
+            }
+        });
     }
 
     /**
@@ -3188,6 +3313,7 @@ public final class SmtpProtocolHandler
     @Override
     public void acceptConnection(String greeting, HelloHandler handler) {
         this.helloHandler = handler;
+        this.greetingDomain = greetingDomainOf(greeting);
         startSessionSpan();
         reply(220, greeting);
     }
@@ -3264,6 +3390,7 @@ public final class SmtpProtocolHandler
             metrics.authAttempt(authMechanism);
             metrics.authFailure(authMechanism);
         }
+        server.recordAuthFailure(endpoint.getRemoteAddress(), null);
         reply(535, "5.7.8 Authentication rejected");
     }
 
@@ -3274,6 +3401,7 @@ public final class SmtpProtocolHandler
             metrics.authAttempt(authMechanism);
             metrics.authFailure(authMechanism);
         }
+        server.recordAuthFailure(endpoint.getRemoteAddress(), null);
         reply(535, "5.7.8 Authentication rejected");
         closeEndpoint();
     }
@@ -3349,6 +3477,11 @@ public final class SmtpProtocolHandler
     // ── RecipientState implementation (RFC 5321 §4.1.1.3) ──
 
     /** RFC 5321 §4.1.1.3 — 250 recipient accepted. */
+    @Override
+    public DsnRecipientParameters getRecipientDsnParameters() {
+        return pendingRecipientDSN;
+    }
+
     @Override
     public void acceptRecipient(RecipientHandler handler) {
         this.recipientHandler = handler;
@@ -3596,6 +3729,7 @@ public final class SmtpProtocolHandler
     }
 
     private void recordAuthenticationSuccess(String username, String mechanism) {
+        server.recordAuthSuccess(endpoint.getRemoteAddress(), username);
         addSessionAttribute("smtp.authenticated", true);
         addSessionAttribute("smtp.auth_user", username);
         addSessionAttribute("smtp.auth_mechanism", mechanism);

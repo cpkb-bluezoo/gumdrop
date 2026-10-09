@@ -24,6 +24,8 @@ package org.bluezoo.gumdrop.servlet;
 import java.util.Set;
 
 import org.bluezoo.gumdrop.auth.Realm;
+import org.bluezoo.gumdrop.auth.RealmCallback;
+import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.auth.SaslMechanism;
 import org.bluezoo.gumdrop.http.server.HttpAuthenticationProvider;
 
@@ -60,13 +62,25 @@ public class ServletAuthenticationProvider extends HttpAuthenticationProvider {
     }
 
     @Override
-    protected boolean passwordMatch(String realm, String username, String password) {
-        return context.passwordMatch(realm, username, password);
+    protected void passwordMatch(SelectorLoop loop, String realm, String username,
+                                 String password, RealmCallback<Boolean> callback) {
+        Realm resolved = context.getRealm(realm);
+        if (resolved == null) {
+            callback.completed(Boolean.FALSE);
+            return;
+        }
+        resolved.forSelectorLoop(loop).passwordMatch(username, password, callback);
     }
 
     @Override
-    protected String getDigestHA1(String realm, String username) {
-        return context.getDigestHA1(realm, username);
+    protected void getDigestHA1(SelectorLoop loop, String realm, String username,
+                                RealmCallback<String> callback) {
+        Realm resolved = context.getRealm(realm);
+        if (resolved == null) {
+            callback.completed(null);
+            return;
+        }
+        resolved.forSelectorLoop(loop).getDigestHA1(username, realm, callback);
     }
 
     @Override
@@ -75,44 +89,42 @@ public class ServletAuthenticationProvider extends HttpAuthenticationProvider {
         if (realmName == null) {
             return false;
         }
-        
+
         Realm realm = context.getRealm(realmName);
         if (realm == null) {
             return false;
         }
-        
+
         // HTTP Digest requires the same HA1 computation as SASL DIGEST-MD5
         Set<SaslMechanism> supported = realm.getSupportedSASLMechanisms();
         return supported.contains(SaslMechanism.DIGEST_MD5);
     }
 
     @Override
-    protected Realm.TokenValidationResult validateBearerToken(String token) {
-        String realmName = getRealmName();
-        if (realmName == null) {
-            return null;
-        }
-        
-        Realm realm = context.getRealm(realmName);
+    protected void validateBearerToken(SelectorLoop loop, String token,
+            RealmCallback<Realm.TokenValidationResult> callback) {
+        Realm realm = contextRealm();
         if (realm == null) {
-            return null;
+            callback.completed(null);
+            return;
         }
-        
-        return realm.validateBearerToken(token);
+        realm.forSelectorLoop(loop).validateBearerToken(token, callback);
     }
 
     @Override
-    protected Realm.TokenValidationResult validateOAuthToken(String accessToken) {
-        String realmName = getRealmName();
-        if (realmName == null) {
-            return null;
-        }
-        
-        Realm realm = context.getRealm(realmName);
+    protected void validateOAuthToken(SelectorLoop loop, String accessToken,
+            RealmCallback<Realm.TokenValidationResult> callback) {
+        Realm realm = contextRealm();
         if (realm == null) {
-            return null;
+            callback.completed(null);
+            return;
         }
-        
-        return realm.validateOAuthToken(accessToken);
+        realm.forSelectorLoop(loop).validateOAuthToken(accessToken, callback);
+    }
+
+    /** The context's configured realm, or null. */
+    private Realm contextRealm() {
+        String realmName = getRealmName();
+        return (realmName == null) ? null : context.getRealm(realmName);
     }
 }

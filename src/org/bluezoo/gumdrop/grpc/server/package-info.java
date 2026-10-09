@@ -31,7 +31,7 @@
  * so gRPC's message framing and deframing ({@link
  * org.bluezoo.gumdrop.grpc}) sits directly on top of ordinary HTTP
  * request/response handling rather than a separate connection type.
- * {@link org.bluezoo.gumdrop.grpc.server.GrpcResponseSender} sends a
+ * {@link org.bluezoo.gumdrop.grpc.server.GrpcCall} sends a
  * {@link org.bluezoo.gumdrop.grpc.server.GrpcResponseMessage} back,
  * applying the gRPC wire framing.
  *

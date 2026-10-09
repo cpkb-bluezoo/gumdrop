@@ -43,7 +43,7 @@ public class HttpProtocolHandlerBodylessResponseTest {
 
     private String exchange(final String status, final boolean startBody) {
         Http2Listener listener = new Http2Listener();
-        listener.setStreamHandler(new HttpStreamHandler() {
+        listener.streamHandler(new HttpStreamHandler() {
             @Override
             public HttpRequestHandler openStream(HttpResponse state) {
                 return new CollectingRequestHandler(state) {
@@ -99,7 +99,7 @@ public class HttpProtocolHandlerBodylessResponseTest {
     @Test
     public void secondBodylessResponseOnKeepAliveConnectionIsDelimited() {
         Http2Listener listener = new Http2Listener();
-        listener.setStreamHandler(new HttpStreamHandler() {
+        listener.streamHandler(new HttpStreamHandler() {
             @Override
             public HttpRequestHandler openStream(HttpResponse state) {
                 return new CollectingRequestHandler(state) {

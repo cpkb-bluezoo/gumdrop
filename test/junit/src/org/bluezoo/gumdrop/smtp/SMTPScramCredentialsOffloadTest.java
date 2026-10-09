@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.smtp;
 
+import org.bluezoo.gumdrop.testsupport.OffloadingSynchronousRealm;
 import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.StorageExecutor;
@@ -88,7 +89,7 @@ public class SMTPScramCredentialsOffloadTest {
     @Test(timeout = 20000)
     public void scramCredentialDerivationRunsOffSelectorLoopThread() throws Exception {
         SmtpListener listener = new SmtpListener();
-        listener.setRealm(new Pbkdf2ScramRealm(USERNAME, PASSWORD));
+        listener.realm(new Pbkdf2ScramRealm(USERNAME, PASSWORD));
 
         SmtpProtocolHandler handler = new SmtpProtocolHandler(listener, null);
         RecordingStubEndpoint endpoint = new RecordingStubEndpoint(25);
@@ -190,7 +191,7 @@ public class SMTPScramCredentialsOffloadTest {
      * doesn't depend on {@code BasicRealm}'s internal caching to exercise
      * the offload at both the client-first and client-final call sites.
      */
-    private static final class Pbkdf2ScramRealm implements Realm {
+    private static final class Pbkdf2ScramRealm extends OffloadingSynchronousRealm {
         private final String user;
         private final String password;
         private static final Set<SaslMechanism> SUPPORTED =
@@ -201,10 +202,6 @@ public class SMTPScramCredentialsOffloadTest {
             this.password = password;
         }
 
-        @Override
-        public Realm forSelectorLoop(SelectorLoop loop) {
-            return this;
-        }
 
         @Override
         public Set<SaslMechanism> getSupportedSASLMechanisms() {
@@ -221,11 +218,6 @@ public class SMTPScramCredentialsOffloadTest {
             return null;
         }
 
-        @Override
-        @SuppressWarnings("deprecation")
-        public String getPassword(String username) {
-            return null;
-        }
 
         @Override
         public boolean isUserInRole(String username, String role) {

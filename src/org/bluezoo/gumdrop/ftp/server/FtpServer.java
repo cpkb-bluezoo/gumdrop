@@ -99,21 +99,6 @@ public class FtpServer implements Server, FtpServerSessionProvider {
         listeners.add(endpoint);
     }
 
-    /**
-     * Sets the listeners from a configuration list. Each item in the
-     * list must be an {@link FtpListener}.
-     *
-     * @param list the list of listener endpoints
-     */
-    public void setListeners(List<?> list) {
-        for (int i = 0; i < list.size(); i++) {
-            Object item = list.get(i);
-            if (item instanceof FtpListener) {
-                addListener((FtpListener) item);
-            }
-        }
-    }
-
     @Override
     public List<Listener> getListeners() {
         List<Listener> all = new ArrayList<Listener>(listeners);
@@ -168,9 +153,11 @@ public class FtpServer implements Server, FtpServerSessionProvider {
      * Sets whether TLS is required for data connections.
      *
      * @param require true to require TLS for data connections
+     * @return this
      */
-    public void setRequireTLSForData(boolean require) {
+    public FtpServer requireTLSForData(boolean require) {
         this.requireTLSForData = require;
+        return this;
     }
 
     /**
@@ -188,9 +175,11 @@ public class FtpServer implements Server, FtpServerSessionProvider {
      * Sets the authentication realm for this service.
      *
      * @param realm the realm
+     * @return this
      */
-    public void setRealm(Realm realm) {
+    public FtpServer realm(Realm realm) {
         this.realm = realm;
+        return this;
     }
 
     // ── Session pipeline ──
@@ -261,9 +250,9 @@ public class FtpServer implements Server, FtpServerSessionProvider {
                 wireEndpoint(ep);
                 FtpServerSessionProvider provider = getSessionProvider();
                 if (provider != null) {
-                    ep.setSessionProvider(provider);
+                    ep.sessionProvider(provider);
                 }
-                ep.setServer(this);
+                ep.server(this);
             }
             startListener(gumdrop, listener);
         }
@@ -284,9 +273,9 @@ public class FtpServer implements Server, FtpServerSessionProvider {
      * Pushes service-level configuration into a control listener.
      */
     private void wireEndpoint(FtpListener ep) {
-        ep.setRequireTLSForData(requireTLSForData);
+        ep.requireTLSForData(requireTLSForData);
         if (realm != null) {
-            ep.setRealm(realm);
+            ep.realm(realm);
         }
     }
 
@@ -399,9 +388,9 @@ public class FtpServer implements Server, FtpServerSessionProvider {
             FtpServer server = new FtpServer();
             server.setComposedSessionProvider(provider);
             if (realm != null) {
-                server.setRealm(realm);
+                server.realm(realm);
             }
-            server.setRequireTLSForData(requireTLSForData);
+            server.requireTLSForData(requireTLSForData);
             for (int i = 0; i < listeners.size(); i++) {
                 server.addListener(listeners.get(i));
             }

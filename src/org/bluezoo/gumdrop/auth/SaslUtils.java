@@ -571,43 +571,68 @@ public final class SaslUtils {
      * @param endpoint the TLS endpoint with peer certificates
      * @param realm the realm to authenticate against
      * @param authzid the requested authorization identity, or null
-     * @return the authentication result
+     * @param callback receives the authentication result; a realm that
+     *        cannot answer is reported to {@code failed}
      */
-    public static CertificateAuthenticationResult authenticateExternal(
-            Endpoint endpoint, Realm realm, String authzid) {
-        if (realm == null) {
-            return CertificateAuthenticationResult.failure();
-        }
-        if (!endpoint.isSecure()) {
-            return CertificateAuthenticationResult.failure();
+    public static void authenticateExternal(Endpoint endpoint, Realm realm,
+            final String authzid,
+            final RealmCallback<CertificateAuthenticationResult> callback) {
+        if (realm == null || !endpoint.isSecure()) {
+            callback.completed(CertificateAuthenticationResult.failure());
+            return;
         }
         SecurityInfo securityInfo = endpoint.getSecurityInfo();
         if (securityInfo == null) {
-            return CertificateAuthenticationResult.failure();
+            callback.completed(CertificateAuthenticationResult.failure());
+            return;
         }
         Certificate[] certs = securityInfo.getPeerCertificates();
-        if (certs == null || certs.length == 0) {
-            return CertificateAuthenticationResult.failure();
-        }
-        if (!(certs[0] instanceof X509Certificate)) {
-            return CertificateAuthenticationResult.failure();
+        if (certs == null || certs.length == 0
+                || !(certs[0] instanceof X509Certificate)) {
+            callback.completed(CertificateAuthenticationResult.failure());
+            return;
         }
 
         X509Certificate clientCert = (X509Certificate) certs[0];
-        CertificateAuthenticationResult result =
-                realm.authenticateCertificate(clientCert);
-        if (result == null || !result.valid) {
-            return CertificateAuthenticationResult.failure();
-        }
+        final Realm authRealm = realm;
+        realm.authenticateCertificate(clientCert,
+                new RealmCallback<CertificateAuthenticationResult>() {
+            @Override
+            public void completed(final CertificateAuthenticationResult result) {
+                if (result == null || !result.valid) {
+                    callback.completed(CertificateAuthenticationResult.failure());
+                    return;
+                }
+                if (authzid == null || authzid.isEmpty()) {
+                    callback.completed(CertificateAuthenticationResult.success(
+                            result.username));
+                    return;
+                }
+                authRealm.authorizeAs(result.username, authzid,
+                        new RealmCallback<Boolean>() {
+                    @Override
+                    public void completed(Boolean allowed) {
+                        if (allowed != null && allowed.booleanValue()) {
+                            callback.completed(
+                                    CertificateAuthenticationResult.success(authzid));
+                        } else {
+                            callback.completed(
+                                    CertificateAuthenticationResult.failure());
+                        }
+                    }
 
-        String targetUser = result.username;
-        if (authzid != null && !authzid.isEmpty()) {
-            if (!realm.authorizeAs(result.username, authzid)) {
-                return CertificateAuthenticationResult.failure();
+                    @Override
+                    public void failed(Throwable cause) {
+                        callback.failed(cause);
+                    }
+                });
             }
-            targetUser = authzid;
-        }
-        return CertificateAuthenticationResult.success(targetUser);
+
+            @Override
+            public void failed(Throwable cause) {
+                callback.failed(cause);
+            }
+        });
     }
 
     /**

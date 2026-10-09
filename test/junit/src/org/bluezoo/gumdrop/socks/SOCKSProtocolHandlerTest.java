@@ -55,7 +55,7 @@ public class SOCKSProtocolHandlerTest {
     public void setUp() {
         service = new SocksServer();
         listener = new SocksListener();
-        listener.setServer(service);
+        listener.server(service);
         handler = service.createProtocolHandler(listener);
         endpoint = new StubEndpoint();
         handler.connected(endpoint);
@@ -373,10 +373,10 @@ public class SOCKSProtocolHandlerTest {
 
     @Test
     public void testSOCKS5ConnectWhenRelayLimitReached() {
-        service.setMaxRelays(0);
+        service.maxRelays(0);
         // With maxRelays=0, acquireRelay always succeeds (unlimited)
         // Set to 1 and consume it
-        service.setMaxRelays(1);
+        service.maxRelays(1);
         service.acquireRelay();
 
         negotiateSOCKS5NoAuth();
@@ -405,7 +405,7 @@ public class SOCKSProtocolHandlerTest {
 
     @Test
     public void testSOCKS4ConnectBlockedDestination() {
-        service.setBlockedDestinations(CidrNetwork.parseList("10.0.0.0/8"));
+        service.blockedDestinations(CidrNetwork.parseList("10.0.0.0/8"));
 
         ByteBuffer buf = buildSOCKS4Connect(
                 new byte[]{10, 1, 2, 3}, 80, "user");
@@ -418,7 +418,7 @@ public class SOCKSProtocolHandlerTest {
 
     @Test
     public void testSOCKS5ConnectBlockedDestination() {
-        service.setBlockedDestinations(CidrNetwork.parseList("192.168.0.0/16"));
+        service.blockedDestinations(CidrNetwork.parseList("192.168.0.0/16"));
 
         negotiateSOCKS5NoAuth();
         endpoint.clearSent();

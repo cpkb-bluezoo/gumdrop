@@ -21,20 +21,27 @@
 
 package org.bluezoo.gumdrop.ftp.server;
 
+import org.bluezoo.gumdrop.auth.RealmCallback;
 import org.bluezoo.gumdrop.ftp.FtpAuthenticationResult;
 
 /**
- * Optional capability for handlers whose authentication may block (e.g. realm
- * password verification). The protocol handler may evaluate this off the
- * selector loop.
+ * Optional capability for handlers whose authentication has to wait for
+ * something (for example a realm backed by a directory server). The result is
+ * delivered to a callback, so the connection's loop never waits for it.
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 public interface AuthenticatingHandler {
 
     /**
-     * Evaluates USER/PASS/ACCT credentials.
+     * Evaluates USER/PASS/ACCT credentials without blocking.
+     *
+     * @param username the user name
+     * @param password the password, or null
+     * @param account the account, or null
+     * @param callback receives the result, on the connection's loop when the
+     *        handler had to wait for a realm
      */
-    FtpAuthenticationResult evaluateAuthentication(String username,
-            String password, String account);
+    void evaluateAuthentication(String username, String password,
+            String account, RealmCallback<FtpAuthenticationResult> callback);
 
 }

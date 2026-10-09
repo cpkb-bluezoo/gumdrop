@@ -30,6 +30,7 @@ import java.security.cert.X509Certificate;
 
 import javax.net.ssl.X509TrustManager;
 
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
@@ -60,6 +61,45 @@ public class TlsConfigTest {
         TcpTransportFactory factory = new TcpTransportFactory();
         ClientConnect.prepareTls(true, tls, factory);
         assertTrue(factory.isSecure());
+    }
+
+    @Test
+    public void dtlsCookieSettingsDefaultToOff() {
+        TlsConfig tls = new TlsConfig();
+        assertFalse(tls.isRequireCookie());
+        assertNull(tls.getCookieSecret());
+        assertEquals(0, tls.getMaxFragmentSize());
+    }
+
+    @Test
+    public void dtlsCookieSecretIsCopiedInAndOut() {
+        byte[] secret = new byte[] {1, 2, 3, 4};
+        TlsConfig tls = new TlsConfig().requireCookie(true).cookieSecret(secret).maxFragmentSize(1200);
+        secret[0] = 99;
+        byte[] out = tls.getCookieSecret();
+        assertEquals(1, out[0]);
+        out[1] = 99;
+        assertEquals(2, tls.getCookieSecret()[1]);
+        assertTrue(tls.isRequireCookie());
+        assertEquals(1200, tls.getMaxFragmentSize());
+    }
+
+    @Test
+    public void dtlsCookieSettingsSurviveCopyAndMerge() {
+        TlsConfig source = new TlsConfig().requireCookie(true)
+                .cookieSecret(new byte[] {7}).maxFragmentSize(900);
+        TlsConfig copy = new TlsConfig().copyFrom(source);
+        assertTrue(copy.isRequireCookie());
+        assertEquals(7, copy.getCookieSecret()[0]);
+        assertEquals(900, copy.getMaxFragmentSize());
+
+        TlsConfig merged = TlsConfig.effective(new TlsConfig(), source);
+        assertTrue(merged.isRequireCookie());
+        assertEquals(7, merged.getCookieSecret()[0]);
+        assertEquals(900, merged.getMaxFragmentSize());
+
+        TlsConfig overridden = TlsConfig.effective(new TlsConfig().maxFragmentSize(500), source);
+        assertEquals(500, overridden.getMaxFragmentSize());
     }
 
     @Test
@@ -119,5 +159,54 @@ public class TlsConfigTest {
         assertTrue(TlsConfig.effective(new TlsConfig(), required).isClientEchRequired());
         assertTrue(new TlsConfig().copyFrom(required).isClientEchRequired());
     }
-}
 
+    @Test
+    public void listenerAndHandshakeSettingsDefaultToUnset() {
+        TlsConfig tls = new TlsConfig();
+        assertNull(tls.getCipherSuites());
+        assertNull(tls.getNamedGroups());
+        assertNull(tls.getTlsVersion());
+        assertNull(tls.getDtlsVersion());
+        assertTrue(tls.getSniHostnames().isEmpty());
+        assertNull(tls.getSniDefaultAlias());
+        assertFalse(tls.isClientAuthRequired());
+        assertFalse(tls.isEarlyDataEnabled());
+    }
+
+    @Test
+    public void copyFromCopiesListenerAndHandshakeSettings() {
+        TlsConfig source = new TlsConfig().cipherSuites("TLS_AES_128_GCM_SHA256")
+                .namedGroups("X25519").tlsVersion(TlsVersion.TLS_1_2)
+                .dtlsVersion(DtlsVersion.DTLS_1_3).sni("a.example", "a")
+                .sniDefaultAlias("d").requireClientAuth(true).earlyData(true);
+        TlsConfig copy = new TlsConfig().copyFrom(source);
+        assertEquals("TLS_AES_128_GCM_SHA256", copy.getCipherSuites());
+        assertEquals("X25519", copy.getNamedGroups());
+        assertEquals(TlsVersion.TLS_1_2, copy.getTlsVersion());
+        assertEquals(DtlsVersion.DTLS_1_3, copy.getDtlsVersion());
+        assertEquals("a", copy.getSniHostnames().get("a.example"));
+        assertEquals("d", copy.getSniDefaultAlias());
+        assertTrue(copy.isClientAuthRequired());
+        assertTrue(copy.isEarlyDataEnabled());
+        source.sni("b.example", "b");
+        assertNull("the copy is independent", copy.getSniHostnames().get("b.example"));
+    }
+
+    @Test
+    public void effectiveMergesSniAndPrefersLocalSettings() {
+        TlsConfig local = new TlsConfig().cipherSuites("L").sni("a.example", "local");
+        TlsConfig fallback = new TlsConfig().cipherSuites("F").namedGroups("G")
+                .sni("a.example", "fallback").sni("b.example", "b").requireClientAuth(true);
+        TlsConfig out = TlsConfig.effective(local, fallback);
+        assertEquals("L", out.getCipherSuites());
+        assertEquals("G", out.getNamedGroups());
+        assertEquals("local", out.getSniHostnames().get("a.example"));
+        assertEquals("b", out.getSniHostnames().get("b.example"));
+        assertTrue(out.isClientAuthRequired());
+    }
+
+    @Test(expected = NullPointerException.class)
+    public void sniRejectsNullAlias() {
+        new TlsConfig().sni("a.example", null);
+    }
+}

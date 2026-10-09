@@ -319,7 +319,7 @@ public class TcpEndpointEdgeTest {
         ep.setSelectorLoop(loop);
         ep.init();
         Counting listener = new Counting();
-        listener.setConnectionTimeoutMs(5000L);
+        listener.connectionTimeoutMs(5000L);
         ep.setListener(listener, REMOTE);
         ep.connected();
         ep.connected();

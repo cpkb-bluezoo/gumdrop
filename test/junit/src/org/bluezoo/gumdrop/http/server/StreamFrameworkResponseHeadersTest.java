@@ -55,8 +55,8 @@ public class StreamFrameworkResponseHeadersTest {
         // Default true, but explicit so this test keeps exercising the
         // X-Frame-Options/X-Content-Type-Options branch even if that
         // default ever changes.
-        listener.setAddSecurityHeaders(true);
-        listener.setStreamHandler(new HttpStreamHandler() {
+        listener.addSecurityHeaders(true);
+        listener.streamHandler(new HttpStreamHandler() {
             @Override
             public HttpRequestHandler openStream(HttpResponse state) {
                 return new DefaultHttpRequestHandler();

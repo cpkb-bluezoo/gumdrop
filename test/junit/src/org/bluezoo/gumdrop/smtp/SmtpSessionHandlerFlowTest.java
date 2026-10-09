@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.smtp;
 
+import org.bluezoo.gumdrop.auth.SynchronousRealm;
 import java.io.ByteArrayOutputStream;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
@@ -359,7 +360,7 @@ public class SmtpSessionHandlerFlowTest {
 
     @Test
     public void testMaxTransactionsPerSessionEnforced() {
-        listener.setMaxTransactionsPerSession(2);
+        listener.maxTransactionsPerSession(2);
         toHello();
         for (int i = 0; i < 2; i++) {
             expect("MAIL FROM:<a@example.com>", "250");
@@ -563,7 +564,7 @@ public class SmtpSessionHandlerFlowTest {
     @Test
     public void testHelpMentionsXclientAndAuth() {
         XclientListener xl = new XclientListener();
-        xl.setRealm(new SimpleRealm());
+        xl.realm(new SimpleRealm());
         handler = new SmtpProtocolHandler(xl, script);
         connect();
         endpoint.sentData.clear();
@@ -582,7 +583,7 @@ public class SmtpSessionHandlerFlowTest {
 
     @Test
     public void testAuthAcceptedByHandler() {
-        listener.setRealm(new SimpleRealm());
+        listener.realm(new SimpleRealm());
         endpoint.secure = true;
         handler = new SmtpProtocolHandler(listener, script);
         handler.connected(endpoint);
@@ -598,7 +599,7 @@ public class SmtpSessionHandlerFlowTest {
 
     @Test
     public void testAuthRejectedByHandler() {
-        listener.setRealm(new SimpleRealm());
+        listener.realm(new SimpleRealm());
         endpoint.secure = true;
         handler = new SmtpProtocolHandler(listener, script);
         handler.connected(endpoint);
@@ -619,7 +620,7 @@ public class SmtpSessionHandlerFlowTest {
 
     @Test
     public void testLoginAcceptedByHandler() {
-        listener.setRealm(new SimpleRealm());
+        listener.realm(new SimpleRealm());
         endpoint.secure = true;
         handler = new SmtpProtocolHandler(listener, script);
         handler.connected(endpoint);
@@ -666,11 +667,7 @@ public class SmtpSessionHandlerFlowTest {
     }
 
     /** Realm accepting user "u" with password "p". */
-    private static final class SimpleRealm implements Realm {
-        @Override
-        public Realm forSelectorLoop(SelectorLoop loop) {
-            return this;
-        }
+    private static final class SimpleRealm implements SynchronousRealm {
 
         @Override
         public java.util.Set<SaslMechanism> getSupportedSASLMechanisms() {
@@ -687,11 +684,6 @@ public class SmtpSessionHandlerFlowTest {
             return null;
         }
 
-        @Override
-        @SuppressWarnings("deprecation")
-        public String getPassword(String username) {
-            return null;
-        }
 
         @Override
         public boolean isUserInRole(String username, String role) {
@@ -700,6 +692,113 @@ public class SmtpSessionHandlerFlowTest {
     }
 
     /** Session handler whose behaviour at each stage is set by mode fields. */
+    private String ehloFirstLine() {
+        endpoint.sentData.clear();
+        send("EHLO client.example.com");
+        return endpoint.getResponses().get(0);
+    }
+
+    @Test
+    public void ehloNamesTheServerByTheDomainInItsGreeting() {
+        script.greeting = "mail.example.com ESMTP ready";
+        connect();
+        assertEquals("250-mail.example.com Hello client.example.com",
+                ehloFirstLine());
+    }
+
+    @Test
+    public void ehloUsesAnAddressLiteralWhenTheGreetingNamesNoDomain() {
+        script.greeting = "(ready)";
+        connect();
+        String line = ehloFirstLine();
+        assertEquals("250-[127.0.0.1] Hello client.example.com", line);
+    }
+
+    @Test
+    public void recipientDsnParametersReachTheHandler() {
+        toMail();
+        expect("RCPT TO:<b@example.com> NOTIFY=SUCCESS,FAILURE"
+                + " ORCPT=rfc822;orig@example.com", "250");
+        assertNotNull(script.lastRcptDsn);
+        assertTrue(script.lastRcptDsn.isNotifySuccess());
+        assertTrue(script.lastRcptDsn.isNotifyFailure());
+        assertFalse(script.lastRcptDsn.isNotifyDelay());
+        assertEquals("rfc822", script.lastRcptDsn.getOrcptType());
+        assertEquals("orig@example.com", script.lastRcptDsn.getOrcptAddress());
+        expect("RCPT TO:<c@example.com>", "250");
+        assertNull(script.lastRcptDsn);
+    }
+
+    /** Records the calls the protocol handler makes on a pipeline. */
+    private static final class RecordingPipeline implements SmtpPipeline {
+        final List<String> calls = new ArrayList<String>();
+        final ByteArrayOutputStream body = new ByteArrayOutputStream();
+
+        @Override
+        public void mailFrom(EmailAddress sender) {
+            calls.add("mailFrom");
+        }
+
+        @Override
+        public void rcptTo(EmailAddress recipient) {
+            calls.add("rcptTo");
+        }
+
+        @Override
+        public java.nio.channels.WritableByteChannel getMessageChannel() {
+            return new java.nio.channels.WritableByteChannel() {
+                @Override
+                public int write(ByteBuffer src) {
+                    int n = src.remaining();
+                    byte[] b = new byte[n];
+                    src.get(b);
+                    body.write(b, 0, n);
+                    return n;
+                }
+
+                @Override
+                public boolean isOpen() {
+                    return true;
+                }
+
+                @Override
+                public void close() {
+                }
+            };
+        }
+
+        @Override
+        public void endData() {
+            calls.add("endData:" + body.size());
+        }
+
+        @Override
+        public void reset() {
+            calls.add("reset");
+        }
+    }
+
+    @Test
+    public void dataEndsTheMessageOnThePipelineBeforeCompletion() {
+        RecordingPipeline recording = new RecordingPipeline();
+        script.pipeline = recording;
+        toRcpt();
+        expect("DATA", "354");
+        raw("Subject: x\r\n\r\nbody\r\n.\r\n");
+        assertTrue("completion reply sent: " + last(), last().startsWith("250"));
+        assertTrue("the pipeline is told the message ended: " + recording.calls,
+                recording.calls.contains("endData:" + recording.body.size()));
+        assertTrue("with the whole message already written",
+                recording.body.size() > 0);
+        int ends = 0;
+        for (int i = 0; i < recording.calls.size(); i++) {
+            if (recording.calls.get(i).startsWith("endData")) {
+                ends++;
+            }
+        }
+        assertEquals(1, ends);
+    }
+
     static final class Script implements ClientConnected, HelloHandler,
             MailFromHandler, RecipientHandler, MessageDataHandler {
 
@@ -715,6 +814,8 @@ public class SmtpSessionHandlerFlowTest {
         boolean holdCompletion;
         SmtpPipeline pipeline;
         MessageEndState heldEnd;
+        String greeting = "test ESMTP ready";
+        DsnRecipientParameters lastRcptDsn;
 
         boolean connected;
         boolean disconnected;
@@ -747,7 +848,7 @@ public class SmtpSessionHandlerFlowTest {
                     state.serverShuttingDown();
                     break;
                 default:
-                    state.acceptConnection("test ESMTP ready", this);
+                    state.acceptConnection(greeting, this);
                     break;
             }
         }
@@ -864,6 +965,7 @@ public class SmtpSessionHandlerFlowTest {
         public void rcptTo(RecipientState state, EmailAddress recipient,
                 MailboxFactory factory) {
             lastRecipient = recipient.getEnvelopeAddress();
+            lastRcptDsn = state.getRecipientDsnParameters();
             switch (rcptMode) {
                 case 1:
                     lastForward = "fwd@example.net";

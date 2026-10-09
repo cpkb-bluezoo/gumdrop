@@ -92,7 +92,7 @@ public class DnsStreamHandlersTest {
     public void setUp() throws Exception {
         server = new DnsServer();
         handler = new ScriptHandler();
-        server.setHandler(handler);
+        server.handler(handler);
         endpoint = new BinaryRecordingEndpoint();
     }
 

@@ -43,6 +43,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import org.bluezoo.gumdrop.testsupport.TestCertificates;
+import org.bluezoo.gumdrop.tls.TlsConfig;
 import org.bluezoo.gumdrop.tls.KeystoreFormat;
 import org.bluezoo.gumdrop.tls.TlsVersion;
 import org.bluezoo.gumdrop.util.CidrNetwork;
@@ -279,9 +280,7 @@ public class GumdropLiveConnectionIntegrationTest {
         Path cert = TestCertificates.writeCertificatePem(dir, "s.crt", id);
         Path key = TestCertificates.writePrivateKeyPem(dir, "s.key", id);
         TestListener l = new TestListener(false);
-        l.setSecure(true);
-        l.setCertFile(cert);
-        l.setKeyFile(key);
+        l.secure(true).tls(TlsConfig.pem(cert, key));
         startListener(l);
         Handler client = new Handler(false, false);
         client.sendWhenSecure = "secret";
@@ -300,9 +299,7 @@ public class GumdropLiveConnectionIntegrationTest {
         Path dir = tmp.getRoot().toPath();
         Path store = TestCertificates.writeKeyStore(dir, "s.p12", id, "srv", PW.toCharArray());
         TestListener l = new TestListener(false);
-        l.setSecure(true);
-        l.setKeystoreFile(store);
-        l.setKeystorePass(PW);
+        l.secure(true).tls(TlsConfig.keystore(store, PW));
         l.setKeystoreFormat(KeystoreFormat.PKCS12);
         l.setTlsVersion(TlsVersion.TLS_1_2);
         startListener(l);
@@ -324,14 +321,8 @@ public class GumdropLiveConnectionIntegrationTest {
         Path dir = tmp.getRoot().toPath();
         Path store = TestCertificates.writeKeyStore(dir, "sni.p12", id, "srv", PW.toCharArray());
         TestListener l = new TestListener(false);
-        l.setSecure(true);
-        l.setKeystoreFile(store);
-        l.setKeystorePass(PW);
-        l.setKeystoreFormat(KeystoreFormat.PKCS12);
-        java.util.Map<String, String> sni = new java.util.HashMap<String, String>();
-        sni.put("localhost", "srv");
-        l.setSniHostnames(sni);
-        l.setSniDefaultAlias("srv");
+        l.secure(true).tls(TlsConfig.keystore(store, PW, KeystoreFormat.PKCS12)
+                .sni("localhost", "srv").sniDefaultAlias("srv"));
         startListener(l);
         Handler client = new Handler(false, false);
         client.sendWhenSecure = "sni";
@@ -369,7 +360,7 @@ public class GumdropLiveConnectionIntegrationTest {
     @Test
     public void connectionCapRefusesTheSecondConnection() throws Exception {
         TestListener l = new TestListener(false);
-        l.setMaxConnections(1);
+        l.maxConnections(1);
         startListener(l);
         Handler first = new Handler(false, false);
         connect(plainClientFactory(), l.boundPort, first);
@@ -391,7 +382,7 @@ public class GumdropLiveConnectionIntegrationTest {
         List<CidrNetwork> blocked = new ArrayList<CidrNetwork>();
         blocked.add(new CidrNetwork("127.0.0.0/8"));
         blocked.add(new CidrNetwork("::1/128"));
-        l.setBlockedNetworks(blocked);
+        l.blockedNetworks(blocked);
         startListener(l);
         SocketChannel raw = SocketChannel.open(new InetSocketAddress(InetAddress.getLoopbackAddress(),
                 l.boundPort));
@@ -405,7 +396,7 @@ public class GumdropLiveConnectionIntegrationTest {
         TestListener refused = new TestListener(false);
         List<CidrNetwork> elsewhere = new ArrayList<CidrNetwork>();
         elsewhere.add(new CidrNetwork("10.99.0.0/16"));
-        refused.setAllowedNetworks(elsewhere);
+        refused.allowedNetworks(elsewhere);
         startListener(refused);
         SocketChannel raw = SocketChannel.open(new InetSocketAddress(InetAddress.getLoopbackAddress(),
                 refused.boundPort));
@@ -418,7 +409,7 @@ public class GumdropLiveConnectionIntegrationTest {
         List<CidrNetwork> here = new ArrayList<CidrNetwork>();
         here.add(new CidrNetwork("127.0.0.0/8"));
         here.add(new CidrNetwork("::1/128"));
-        served.setAllowedNetworks(here);
+        served.allowedNetworks(here);
         startListener(served);
         Handler client = new Handler(false, false);
         connect(plainClientFactory(), served.boundPort, client);
@@ -432,7 +423,7 @@ public class GumdropLiveConnectionIntegrationTest {
     @Test
     public void connectionRateLimitRefusesBurst() throws Exception {
         TestListener l = new TestListener(false);
-        l.setRateLimit("1/1h");
+        l.rateLimit("1/1h");
         startListener(l);
         Handler first = new Handler(false, false);
         connect(plainClientFactory(), l.boundPort, first);

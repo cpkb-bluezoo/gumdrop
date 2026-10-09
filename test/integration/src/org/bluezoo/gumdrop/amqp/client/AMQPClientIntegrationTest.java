@@ -53,7 +53,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import static org.junit.Assert.*;
 
 /**
- * End-to-end tests of {@link AmqpClientRecovery} (and transitively
+ * End-to-end tests of {@link AmqpClient} (and transitively
  * {@link AmqpClientProtocolHandler}) against {@link MockAMQPBroker} over a
  * real loopback socket — exercising connect, channel open, exchange/queue
  * declare, bind, publish, consume, ack, publisher confirms, and a forced
@@ -70,7 +70,7 @@ public class AMQPClientIntegrationTest {
     private static final long TIMEOUT_SECONDS = 10;
 
     private MockAMQPBroker broker;
-    private AmqpClientRecovery client;
+    private AmqpClient client;
     private Gumdrop gumdrop;
 
     @Before
@@ -98,7 +98,7 @@ public class AMQPClientIntegrationTest {
 
     @Test
     public void testConnectAndOpenChannel() throws Exception {
-        client = new AmqpClientRecovery("localhost", broker.getPort()).credentials("guest", "guest");
+        client = new AmqpClient("localhost", broker.getPort()).credentials("guest", "guest");
 
         final CountDownLatch latch = new CountDownLatch(1);
         final AtomicReference<ClientChannel> channelRef = new AtomicReference<>();
@@ -123,7 +123,7 @@ public class AMQPClientIntegrationTest {
     @Test
     public void testConnectWithAMQPLainMechanism() throws Exception {
         broker.requireCredentials("appuser", "s3cret");
-        client = new AmqpClientRecovery("localhost", broker.getPort())
+        client = new AmqpClient("localhost", broker.getPort())
                 .credentials("appuser", "s3cret")
                 .mechanism("AMQPLAIN");
 
@@ -149,7 +149,7 @@ public class AMQPClientIntegrationTest {
     /** Issue #188 — a mechanism the broker never advertises fails fast rather than silently falling back to PLAIN. */
     @Test
     public void testUnofferedMechanismDoesNotSilentlyFallBackToPlain() throws Exception {
-        client = new AmqpClientRecovery("localhost", broker.getPort())
+        client = new AmqpClient("localhost", broker.getPort())
                 .credentials("guest", "guest")
                 .mechanism("X-NOT-OFFERED")
                 .recoveryPolicy(new RecoveryPolicy().withMaxAttempts(1));
@@ -174,7 +174,7 @@ public class AMQPClientIntegrationTest {
 
     @Test
     public void testDeclareBindPublishConsumeRoundTrip() throws Exception {
-        client = new AmqpClientRecovery("localhost", broker.getPort()).credentials("guest", "guest");
+        client = new AmqpClient("localhost", broker.getPort()).credentials("guest", "guest");
 
         final CountDownLatch deliveredLatch = new CountDownLatch(1);
         final AtomicReference<String> deliveredBody = new AtomicReference<>();
@@ -253,7 +253,7 @@ public class AMQPClientIntegrationTest {
 
     @Test
     public void testDefaultExchangeRoutesByQueueName() throws Exception {
-        client = new AmqpClientRecovery("localhost", broker.getPort()).credentials("guest", "guest");
+        client = new AmqpClient("localhost", broker.getPort()).credentials("guest", "guest");
 
         final CountDownLatch deliveredLatch = new CountDownLatch(1);
         final AtomicReference<String> deliveredBody = new AtomicReference<>();
@@ -290,7 +290,7 @@ public class AMQPClientIntegrationTest {
 
     @Test
     public void testPublisherConfirmsAckedByBroker() throws Exception {
-        client = new AmqpClientRecovery("localhost", broker.getPort()).credentials("guest", "guest");
+        client = new AmqpClient("localhost", broker.getPort()).credentials("guest", "guest");
 
         final CountDownLatch confirmLatch = new CountDownLatch(1);
         final AtomicReference<Long> ackedSeq = new AtomicReference<>();
@@ -330,7 +330,7 @@ public class AMQPClientIntegrationTest {
 
     @Test
     public void testForcedDisconnectTriggersReconnectAndTopologyReplay() throws Exception {
-        client = new AmqpClientRecovery("localhost", broker.getPort())
+        client = new AmqpClient("localhost", broker.getPort())
                 .credentials("guest", "guest")
                 .recoveryPolicy(new RecoveryPolicy().withInitialDelayMs(200L).withMaxDelayMs(500L));
 

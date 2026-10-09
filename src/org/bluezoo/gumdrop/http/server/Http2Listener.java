@@ -22,6 +22,8 @@
 package org.bluezoo.gumdrop.http.server;
 
 
+import org.bluezoo.gumdrop.util.CidrNetwork;
+import java.util.List;
 import org.bluezoo.gumdrop.Listener;
 import org.bluezoo.gumdrop.ProtocolHandler;
 import org.bluezoo.gumdrop.TcpListener;
@@ -167,10 +169,6 @@ public class Http2Listener extends TcpListener {
         return port;
     }
 
-    public void setPort(int port) {
-        this.port = port;
-    }
-
     @Override
     protected void applyBoundTcpPort(int boundPort) {
         if (port == 0) {
@@ -185,7 +183,7 @@ public class Http2Listener extends TcpListener {
      * @return this listener
      */
     public Http2Listener port(int port) {
-        setPort(port);
+        this.port = port;
         return this;
     }
 
@@ -210,6 +208,84 @@ public class Http2Listener extends TcpListener {
     @Override
     public Http2Listener tls(TlsConfig tls) {
         super.tls(tls);
+        return this;
+    }
+
+    @Override
+    public Http2Listener maxConnections(int max) {
+        super.maxConnections(max);
+        return this;
+    }
+
+    @Override
+    public Http2Listener maxConnectionsPerIP(int max) {
+        super.maxConnectionsPerIP(max);
+        return this;
+    }
+
+    @Override
+    public Http2Listener rateLimit(String rateLimit) {
+        super.rateLimit(rateLimit);
+        return this;
+    }
+
+    @Override
+    public Http2Listener maxAuthFailures(int max) {
+        super.maxAuthFailures(max);
+        return this;
+    }
+
+    @Override
+    public Http2Listener authLockoutTimeMs(long lockoutMs) {
+        super.authLockoutTimeMs(lockoutMs);
+        return this;
+    }
+
+    @Override
+    public Http2Listener allowedNetworks(List<CidrNetwork> allowedNetworks) {
+        super.allowedNetworks(allowedNetworks);
+        return this;
+    }
+
+    @Override
+    public Http2Listener blockedNetworks(List<CidrNetwork> blockedNetworks) {
+        super.blockedNetworks(blockedNetworks);
+        return this;
+    }
+
+    @Override
+    public Http2Listener name(String name) {
+        super.name(name);
+        return this;
+    }
+
+    @Override
+    public Http2Listener maxNetInSize(int size) {
+        super.maxNetInSize(size);
+        return this;
+    }
+
+    @Override
+    public Http2Listener maxNetOutSize(int size) {
+        super.maxNetOutSize(size);
+        return this;
+    }
+
+    @Override
+    public Http2Listener readTimeoutMs(long readTimeoutMs) {
+        super.readTimeoutMs(readTimeoutMs);
+        return this;
+    }
+
+    @Override
+    public Http2Listener connectionTimeoutMs(long connectionTimeoutMs) {
+        super.connectionTimeoutMs(connectionTimeoutMs);
+        return this;
+    }
+
+    @Override
+    public Http2Listener maxDtlsPeers(int max) {
+        super.maxDtlsPeers(max);
         return this;
     }
 
@@ -276,14 +352,16 @@ public class Http2Listener extends TcpListener {
      * XML property name: {@code max-concurrent-streams}
      *
      * @param maxConcurrentStreams the limit (must be positive)
+     * @return this
      */
-    public void setMaxConcurrentStreams(int maxConcurrentStreams) {
+    public Http2Listener maxConcurrentStreams(int maxConcurrentStreams) {
         if (maxConcurrentStreams < 1) {
             throw new IllegalArgumentException(
                     "maxConcurrentStreams must be positive, got: "
                             + maxConcurrentStreams);
         }
         this.maxConcurrentStreams = maxConcurrentStreams;
+        return this;
     }
 
     /**
@@ -297,14 +375,16 @@ public class Http2Listener extends TcpListener {
      * Sets the maximum HTTP/2 header list size advertised via
      * SETTINGS_MAX_HEADER_LIST_SIZE.
      * XML property name: {@code max-header-list-size}
+     * @return this
      */
-    public void setMaxHeaderListSize(int maxHeaderListSize) {
+    public Http2Listener maxHeaderListSize(int maxHeaderListSize) {
         if (maxHeaderListSize < 1) {
             throw new IllegalArgumentException(
                     "maxHeaderListSize must be positive, got: "
                             + maxHeaderListSize);
         }
         this.maxHeaderListSize = maxHeaderListSize;
+        return this;
     }
 
     /**
@@ -320,36 +400,41 @@ public class Http2Listener extends TcpListener {
      * XML property name: {@code max-request-body-size}
      *
      * @param maxRequestBodySize the limit in bytes, or {@code 0} for unlimited
+     * @return this
      */
-    public void setMaxRequestBodySize(long maxRequestBodySize) {
+    public Http2Listener maxRequestBodySize(long maxRequestBodySize) {
         if (maxRequestBodySize < 0) {
             throw new IllegalArgumentException(
                     "maxRequestBodySize must not be negative, got: "
                             + maxRequestBodySize);
         }
         this.maxRequestBodySize = maxRequestBodySize;
+        return this;
     }
 
-    public void setFramePadding(int framePadding) {
+    public Http2Listener framePadding(int framePadding) {
         if (framePadding < 0 || framePadding > 255) {
             throw new IllegalArgumentException(
                     "Frame padding must be between 0-255 bytes, got: "
                             + framePadding);
         }
         this.framePadding = framePadding;
+        return this;
     }
 
     /**
      * Sets the authentication provider for this endpoint.
      *
      * @param provider the authentication provider, or null to disable
+     * @return this
      */
-    public void setAuthenticationProvider(
+    public Http2Listener authenticationProvider(
             HttpAuthenticationProvider provider) {
         this.authenticationProvider = provider;
         if (provider != null) {
             provider.attach(getTelemetryConfig());
         }
+        return this;
     }
 
     /**
@@ -361,8 +446,9 @@ public class Http2Listener extends TcpListener {
         return authenticationProvider;
     }
 
-    public void setStreamHandler(HttpStreamHandler streamHandler) {
+    public Http2Listener streamHandler(HttpStreamHandler streamHandler) {
         this.streamHandler = streamHandler;
+        return this;
     }
 
     public HttpStreamHandler getStreamHandler() {
@@ -372,9 +458,11 @@ public class Http2Listener extends TcpListener {
     /**
      * Sets whether to add default security headers to responses.
      * XML property: {@code add-security-headers}
+     * @return this
      */
-    public void setAddSecurityHeaders(boolean addSecurityHeaders) {
+    public Http2Listener addSecurityHeaders(boolean addSecurityHeaders) {
         this.addSecurityHeaders = addSecurityHeaders;
+        return this;
     }
 
     /**
@@ -390,15 +478,16 @@ public class Http2Listener extends TcpListener {
      *
      * @param hstsPolicy the policy, or {@code null} for disabled
      */
-    public void setHstsPolicy(HstsPolicy hstsPolicy) {
+    public Http2Listener hstsPolicy(HstsPolicy hstsPolicy) {
         if (hstsPolicy == null || !hstsPolicy.isEnabled()) {
             hstsEnabled = false;
-            return;
+            return this;
         }
         hstsEnabled = true;
         hstsMaxAge = hstsPolicy.getMaxAgeSeconds();
         hstsIncludeSubDomains = hstsPolicy.isIncludeSubDomains();
         hstsPreload = hstsPolicy.isPreload();
+        return this;
     }
 
     /**
@@ -410,9 +499,11 @@ public class Http2Listener extends TcpListener {
 
     /**
      * Enables or disables HSTS. XML property: {@code hsts-enabled}
+     * @return this
      */
-    public void setHstsEnabled(boolean enabled) {
+    public Http2Listener hstsEnabled(boolean enabled) {
         hstsEnabled = enabled;
+        return this;
     }
 
     /**
@@ -424,26 +515,32 @@ public class Http2Listener extends TcpListener {
 
     /**
      * Sets {@code max-age} for HSTS. XML property: {@code hsts-max-age}
+     * @return this
      */
-    public void setHstsMaxAge(long maxAgeSeconds) {
+    public Http2Listener hstsMaxAge(long maxAgeSeconds) {
         if (maxAgeSeconds < 0) {
             throw new IllegalArgumentException("max-age must be non-negative");
         }
         hstsMaxAge = maxAgeSeconds;
+        return this;
     }
 
     /**
      * XML property: {@code hsts-include-subdomains}
+     * @return this
      */
-    public void setHstsIncludeSubDomains(boolean includeSubDomains) {
+    public Http2Listener hstsIncludeSubDomains(boolean includeSubDomains) {
         hstsIncludeSubDomains = includeSubDomains;
+        return this;
     }
 
     /**
      * XML property: {@code hsts-preload}
+     * @return this
      */
-    public void setHstsPreload(boolean preload) {
+    public Http2Listener hstsPreload(boolean preload) {
         hstsPreload = preload;
+        return this;
     }
 
     private HstsPolicy buildHstsPolicy() {
@@ -469,9 +566,11 @@ public class Http2Listener extends TcpListener {
     /**
      * Sets whether response bodies may be compressed via {@code Content-Encoding}.
      * XML property: {@code compress-responses}
+     * @return this
      */
-    public void setCompressResponses(boolean compressResponses) {
+    public Http2Listener compressResponses(boolean compressResponses) {
         this.compressResponses = compressResponses;
+        return this;
     }
 
     /**
@@ -486,9 +585,11 @@ public class Http2Listener extends TcpListener {
      * Typically set by the owning service to advertise HTTP/3.
      *
      * @param altSvc the Alt-Svc header value, or null to disable
+     * @return this
      */
-    public void setAltSvc(String altSvc) {
+    public Http2Listener altSvc(String altSvc) {
         this.altSvc = altSvc;
+        return this;
     }
 
     /**
@@ -512,9 +613,11 @@ public class Http2Listener extends TcpListener {
      * Sets the idle connection timeout.
      * XML property name: {@code idle-timeout-ms}
      * @param idleTimeoutMs timeout in milliseconds, 0 to disable
+     * @return this
      */
-    public void setIdleTimeoutMs(long idleTimeoutMs) {
+    public Http2Listener idleTimeoutMs(long idleTimeoutMs) {
         this.idleTimeoutMs = idleTimeoutMs;
+        return this;
     }
 
     /**
@@ -529,9 +632,11 @@ public class Http2Listener extends TcpListener {
      * Sets the maximum requests per persistent connection.
      * XML property name: {@code max-requests-per-connection}
      * @param maxRequestsPerConnection the limit, 0 for unlimited
+     * @return this
      */
-    public void setMaxRequestsPerConnection(int maxRequestsPerConnection) {
+    public Http2Listener maxRequestsPerConnection(int maxRequestsPerConnection) {
         this.maxRequestsPerConnection = maxRequestsPerConnection;
+        return this;
     }
 
     /**
@@ -546,9 +651,11 @@ public class Http2Listener extends TcpListener {
      * Enables or disables the TRACE method.
      * XML property name: {@code trace-method-enabled}
      * @param traceMethodEnabled true to enable
+     * @return this
      */
-    public void setTraceMethodEnabled(boolean traceMethodEnabled) {
+    public Http2Listener traceMethodEnabled(boolean traceMethodEnabled) {
         this.traceMethodEnabled = traceMethodEnabled;
+        return this;
     }
 
     /**
@@ -563,9 +670,11 @@ public class Http2Listener extends TcpListener {
      * Sets the PING keep-alive interval for HTTP/2 connections.
      * XML property name: {@code ping-interval-ms}
      * @param pingIntervalMs interval in milliseconds, 0 to disable
+     * @return this
      */
-    public void setPingIntervalMs(long pingIntervalMs) {
+    public Http2Listener pingIntervalMs(long pingIntervalMs) {
         this.pingIntervalMs = pingIntervalMs;
+        return this;
     }
 
     @Override
@@ -655,11 +764,11 @@ public class Http2Listener extends TcpListener {
 
         public Http2Listener build() {
             Http2Listener listener = new Http2Listener();
-            listener.setPort(port);
+            listener.port(port);
             if (addresses != null) {
                 listener.addresses(addresses);
             }
-            listener.setSecure(secure);
+            listener.secure(secure);
             if (tls != null) {
                 TlsConfigSupport.apply(tls, listener);
             }

@@ -25,10 +25,10 @@ import java.nio.ByteBuffer;
 import java.util.Arrays;
 import java.util.List;
 
-import org.bluezoo.gumdrop.ldap.asn1.Asn1Element;
-import org.bluezoo.gumdrop.ldap.asn1.Asn1Exception;
-import org.bluezoo.gumdrop.ldap.asn1.Asn1Type;
-import org.bluezoo.gumdrop.ldap.asn1.BerDecoder;
+import org.bluezoo.gumdrop.asn1.Asn1Element;
+import org.bluezoo.gumdrop.asn1.Asn1Exception;
+import org.bluezoo.gumdrop.asn1.Asn1Type;
+import org.bluezoo.gumdrop.asn1.BerDecoder;
 
 /**
  * The value of the Sync Done Control (RFC 4533 §2.4), attached to

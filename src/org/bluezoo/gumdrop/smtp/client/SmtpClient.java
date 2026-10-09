@@ -67,7 +67,7 @@ import org.bluezoo.gumdrop.tls.ServerCredentials;
  * <h4>Plaintext with STARTTLS (submission)</h4>
  * <pre>{@code
  * SmtpClient client = new SmtpClient(selectorLoop, "smtp.example.com", 587);
- * client.setClientCredentials(clientCredentials);
+ * client.tls(TlsConfig.keystore(Path.of("client.p12"), "changeit"));
  * client.connect(gumdrop, new RemoteGreeting() {
  *     public void handleGreeting(ClientHelloState hello,
  *                                String message, boolean esmtp) {
@@ -80,15 +80,14 @@ import org.bluezoo.gumdrop.tls.ServerCredentials;
  * <h4>Implicit TLS (SMTPS)</h4>
  * <pre>{@code
  * SmtpClient client = new SmtpClient("smtp.example.com", 465);
- * client.setSecure(true);
- * client.setClientCredentials(clientCredentials);
+ * client.secure(true).tls(TlsConfig.keystore(Path.of("client.p12"), "changeit"));
  * client.connect(gumdrop, greetingHandler);
  * }</pre>
  *
  * <h4>Opportunistic DANE (RFC 7672)</h4>
  * <pre>{@code
  * SmtpClient client = new SmtpClient("mail.example.com", 25);
- * client.setDaneResolver(myResolver); // a DNSSEC-enabled DnsResolver
+ * client.daneResolver(myResolver); // a DNSSEC-enabled DnsResolver
  * client.connect(gumdrop, greetingHandler);
  * }</pre>
  *
@@ -201,100 +200,6 @@ public class SmtpClient {
     // ═══════════════════════════════════════════════════════════════════
 
     /**
-     * Sets whether this client uses implicit TLS (SMTPS).
-     *
-     * <p>When true, the connection starts with TLS immediately (port 465).
-     * When false, the connection starts plaintext and STARTTLS can be
-     * used to upgrade if client credentials are configured.
-     *
-     * @param secure true for implicit TLS
-     * @see <a href="https://www.rfc-editor.org/rfc/rfc8314">RFC 8314</a> — implicit TLS (port 465)
-     */
-    public void setSecure(boolean secure) {
-        this.secure = secure;
-    }
-
-    /**
-     * Sets client certificate credentials for TLS connections.
-     *
-     * <p>Required for both implicit TLS ({@code setSecure(true)}) and
-     * explicit TLS via STARTTLS. When set without {@code setSecure(true)},
-     * the in-tree TLS engine is configured but not started until the
-     * protocol handler calls {@code endpoint.startTLS()}.
-     *
-     * @param clientCredentials the client certificate credentials, if any
-     */
-    public void setClientCredentials(ServerCredentials clientCredentials) {
-        tls.serverCredentials(clientCredentials);
-    }
-
-    /**
-     * Sets a custom trust manager for TLS certificate verification.
-     *
-     * @param trustManager the trust manager, or null to use defaults
-     * @see org.bluezoo.gumdrop.util.PinnedCertTrustManager
-     * @see org.bluezoo.gumdrop.util.EmptyX509TrustManager
-     */
-    public void setTrustManager(X509TrustManager trustManager) {
-        tls.trustManager(trustManager);
-    }
-
-    /**
-     * Enables opportunistic DANE authentication (RFC 7672) of the
-     * destination's certificate, using the given resolver to look up
-     * TLSA records for {@code _<port>._tcp.<host>} before connecting.
-     *
-     * <p>DANE only takes effect when the lookup itself comes back
-     * DNSSEC-secure (RFC 7672 section 3.1.3) and returns at least one
-     * TLSA record -- otherwise {@code connect} proceeds exactly as it
-     * would without this call. When it does take effect, any trust
-     * manager set via {@link #setTrustManager} is used as the DANE
-     * PKIX-TA/PKIX-EE delegate rather than being replaced outright.
-     * Requires a hostname (not an address or UNIX socket) target.
-     *
-     * @param resolver the resolver to use for the TLSA lookup, or
-     *                 null to disable DANE
-     */
-    public void setDaneResolver(DnsResolver resolver) {
-        this.daneResolver = resolver;
-    }
-
-    /**
-     * Sets the DNS resolver used for hostname lookup at connect. When
-     * unset, {@link ClientEndpoint} uses {@link DnsResolver#forLoop}.
-     */
-    public void setDnsResolver(DnsResolver resolver) {
-        dial.dnsResolver(resolver);
-    }
-
-    /**
-     * Sets the keystore file for client certificate authentication.
-     *
-     * @param path the keystore file path
-     */
-    public void setKeystoreFile(Path path) {
-        tls.keystoreFile(path);
-    }
-
-    /**
-     * Sets the keystore password.
-     *
-     * @param password the keystore password
-     */
-    public void setKeystorePass(String password) {
-        tls.keystorePass(password);
-    }
-
-    /**
-     * Sets the keystore format (e.g. JKS, PKCS12).
-     *
-     * @param format the keystore format
-     */
-    public void setKeystoreFormat(KeystoreFormat format) {
-        tls.keystoreFormat(format);
-    }
-
-    /**
      * Sets the remote hostname. Resolved via {@link DnsResolver} at
      * {@link #connect()}.
      *
@@ -361,63 +266,16 @@ public class SmtpClient {
         return this;
     }
 
-    public SmtpClient trustJvm() {
-        tls.trustJvm();
-        return this;
-    }
-
     /**
-     * Sets client TLS credentials.
+     * Sets this client's TLS settings (certificates, trust, ECH and so on). The
+     * settings are copied, so later changes to {@code source} are not seen.
+     * Whether TLS is used at all is decided by {@link #secure(boolean)}.
      *
-     * @param clientCredentials the credentials
+     * @param source the TLS configuration
      * @return this client
      */
-    public SmtpClient clientCredentials(ServerCredentials clientCredentials) {
-        tls.serverCredentials(clientCredentials);
-        return this;
-    }
-
-    /**
-     * Sets a custom trust manager.
-     *
-     * @param trustManager the trust manager
-     * @return this client
-     */
-    public SmtpClient trustManager(X509TrustManager trustManager) {
-        tls.trustManager(trustManager);
-        return this;
-    }
-
-    /**
-     * Sets the keystore file for client certificate authentication.
-     *
-     * @param path the keystore path
-     * @return this client
-     */
-    public SmtpClient keystoreFile(Path path) {
-        tls.keystoreFile(path);
-        return this;
-    }
-
-    /**
-     * Sets the keystore password.
-     *
-     * @param password the password
-     * @return this client
-     */
-    public SmtpClient keystorePass(String password) {
-        tls.keystorePass(password);
-        return this;
-    }
-
-    /**
-     * Sets the keystore format.
-     *
-     * @param format the format
-     * @return this client
-     */
-    public SmtpClient keystoreFormat(KeystoreFormat format) {
-        tls.keystoreFormat(format);
+    public SmtpClient tls(TlsConfig source) {
+        tls.copyFrom(source);
         return this;
     }
 
@@ -428,7 +286,7 @@ public class SmtpClient {
      * @return this client
      */
     public SmtpClient daneResolver(DnsResolver resolver) {
-        setDaneResolver(resolver);
+        this.daneResolver = resolver;
         return this;
     }
 
@@ -541,149 +399,6 @@ public class SmtpClient {
         }
         if (clientEndpoint != null) {
             clientEndpoint.close();
-        }
-    }
-
-    /**
-     * @deprecated use {@code new SmtpClient().host(...).port(...)} fluent
-     * configuration instead.
-     */
-    @Deprecated
-    public static Builder builder() {
-        return new Builder();
-    }
-
-    /**
-     * @deprecated use fluent methods on {@link SmtpClient} instead.
-     */
-    @Deprecated
-    public static final class Builder {
-
-        private SelectorLoop selectorLoop;
-        private String host;
-        private InetAddress hostAddress;
-        private int port = 25;
-        private String socketPath;
-        private boolean secure;
-        private ServerCredentials clientCredentials;
-        private X509TrustManager trustManager;
-        private Path keystoreFile;
-        private String keystorePass;
-        private KeystoreFormat keystoreFormat;
-        private DnsResolver daneResolver;
-
-        private Builder() {
-        }
-
-        public Builder selectorLoop(SelectorLoop selectorLoop) {
-            this.selectorLoop = selectorLoop;
-            return this;
-        }
-
-        public Builder host(String host) {
-            this.host = host;
-            this.hostAddress = null;
-            this.socketPath = null;
-            return this;
-        }
-
-        public Builder host(InetAddress hostAddress) {
-            this.hostAddress = hostAddress;
-            this.host = null;
-            this.socketPath = null;
-            return this;
-        }
-
-        public Builder port(int port) {
-            this.port = port;
-            return this;
-        }
-
-        public Builder socketPath(String socketPath) {
-            this.socketPath = socketPath;
-            this.host = null;
-            this.hostAddress = null;
-            return this;
-        }
-
-        public Builder secure(boolean secure) {
-            this.secure = secure;
-            return this;
-        }
-
-        public Builder clientCredentials(ServerCredentials clientCredentials) {
-            this.clientCredentials = clientCredentials;
-            return this;
-        }
-
-        public Builder trustManager(X509TrustManager trustManager) {
-            this.trustManager = trustManager;
-            return this;
-        }
-
-        public Builder keystoreFile(Path keystoreFile) {
-            this.keystoreFile = keystoreFile;
-            return this;
-        }
-
-        public Builder keystorePass(String keystorePass) {
-            this.keystorePass = keystorePass;
-            return this;
-        }
-
-        public Builder keystoreFormat(KeystoreFormat keystoreFormat) {
-            this.keystoreFormat = keystoreFormat;
-            return this;
-        }
-
-        public Builder daneResolver(DnsResolver daneResolver) {
-            this.daneResolver = daneResolver;
-            return this;
-        }
-
-        /**
-         * Builds the client. A host (or socket path) is required; call
-         * {@link SmtpClient#connect(Gumdrop, RemoteGreeting)} on the result to
-         * connect.
-         */
-        public SmtpClient build() {
-            final SmtpClient client;
-            if (socketPath != null) {
-                client = (selectorLoop != null)
-                        ? new SmtpClient(selectorLoop, socketPath)
-                        : new SmtpClient(socketPath);
-            } else if (host != null) {
-                client = (selectorLoop != null)
-                        ? new SmtpClient(selectorLoop, host, port)
-                        : new SmtpClient(host, port);
-            } else if (hostAddress != null) {
-                client = (selectorLoop != null)
-                        ? new SmtpClient(selectorLoop, hostAddress, port)
-                        : new SmtpClient(hostAddress, port);
-            } else {
-                throw new IllegalStateException(
-                        "host, host address, or socketPath is required");
-            }
-            client.setSecure(secure);
-            if (clientCredentials != null) {
-                client.setClientCredentials(clientCredentials);
-            }
-            if (trustManager != null) {
-                client.setTrustManager(trustManager);
-            }
-            if (keystoreFile != null) {
-                client.setKeystoreFile(keystoreFile);
-            }
-            if (keystorePass != null) {
-                client.setKeystorePass(keystorePass);
-            }
-            if (keystoreFormat != null) {
-                client.setKeystoreFormat(keystoreFormat);
-            }
-            if (daneResolver != null) {
-                client.setDaneResolver(daneResolver);
-            }
-            return client;
         }
     }
 

@@ -26,19 +26,30 @@ import org.bluezoo.gumdrop.grpc.proto.ProtoMessageHandler;
 /**
  * Interface for handling gRPC RPC calls.
  *
- * <p>Implementations receive request protobuf events through a
- * {@link ProtoMessageHandler} and send responses via {@link GrpcResponseSender}.
+ * <p>Implementations receive the request message as events through a
+ * {@link ProtoMessageHandler} and answer through the {@link GrpcCall}.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 public interface GrpcServer {
 
     /**
-     * Called when a unary RPC request body begins.
+     * Called when a call to an RPC of the {@code .proto} file begins.
+     *
+     * <p>Only unary RPCs reach this method for now: the framework answers a
+     * call to an RPC that streams with {@code UNIMPLEMENTED} (12) itself. Other
+     * kinds of RPC will be delivered here too once they are supported, and the
+     * RPC's kind is available from {@link GrpcCall#getRpc()}; dispatch on the
+     * path as you do now and you will only ever see the RPCs you implement.
+     *
+     * <p>The request message is delivered to the returned handler as events,
+     * {@code endMessage()} marking the end of the whole message. Answer through
+     * the call.
      *
      * @param path the gRPC path ({@code /package.Service/Method})
-     * @param response sender for the response message
-     * @return handler for request protobuf events, or {@code null} if unimplemented
+     * @param call the call, to answer through
+     * @return handler for the request message events, or {@code null} for an
+     *         RPC you do not implement, which the caller is told is unimplemented
      */
-    ProtoMessageHandler startUnaryCall(String path, GrpcResponseSender response);
+    ProtoMessageHandler startCall(String path, GrpcCall call);
 }

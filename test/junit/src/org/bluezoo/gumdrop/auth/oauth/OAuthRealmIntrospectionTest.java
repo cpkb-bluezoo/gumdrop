@@ -39,8 +39,12 @@ import java.util.Map;
 import java.util.Properties;
 
 import org.bluezoo.gumdrop.Gumdrop;
+import org.bluezoo.gumdrop.SelectorLoop;
+import org.bluezoo.gumdrop.TimerHandle;
 import org.bluezoo.gumdrop.SecurityInfo;
+import org.bluezoo.gumdrop.auth.CapturedCallback;
 import org.bluezoo.gumdrop.auth.Realm;
+import org.bluezoo.gumdrop.auth.RealmCalls;
 import org.bluezoo.gumdrop.http.HttpClient;
 import org.bluezoo.gumdrop.http.HttpStatus;
 import org.bluezoo.gumdrop.http.client.HttpClientHandler;
@@ -127,6 +131,8 @@ public class OAuthRealmIntrospectionTest {
         Exception connectError;
         Exception requestFailure;
         boolean silent;
+        Runnable timeoutTask;
+        boolean timeoutCancelled;
         boolean tls;
 
         void respond(int code, String... parts) {
@@ -189,7 +195,25 @@ public class OAuthRealmIntrospectionTest {
                 });
             }
             handler.onConnected(endpoint);
-            handler.onDisconnected();
+            if (!silent) {
+                handler.onDisconnected();
+            }
+        }
+
+        @Override
+        public TimerHandle schedule(SelectorLoop loop, long delayMs, Runnable task) {
+            timeoutTask = task;
+            return new TimerHandle() {
+                @Override
+                public void cancel() {
+                    timeoutCancelled = true;
+                }
+
+                @Override
+                public boolean isCancelled() {
+                    return timeoutCancelled;
+                }
+            };
         }
 
         @Override
@@ -230,8 +254,8 @@ public class OAuthRealmIntrospectionTest {
         config.setProperty("oauth.authorization.server.url", url);
         config.setProperty("oauth.client.id", "cid");
         config.setProperty("oauth.client.secret", "sec");
-        // zero: a reply that is not already in hand counts as a timeout, with no waiting
-        config.setProperty("oauth.http.timeout", "0");
+        // the timer is the scripted exchange's: tests fire it by hand
+        config.setProperty("oauth.http.timeout", "30");
         config.setProperty("oauth.cache.enabled", Boolean.toString(cache));
         config.setProperty("oauth.scope.mapping.reader", "read");
         return config;
@@ -255,7 +279,7 @@ public class OAuthRealmIntrospectionTest {
         ex.respond(200, "{\"active\":true,\"username\":\"alice\",\"scope\":\"  read   write \","
                 + "\"exp\":4102444800,\"client_id\":\"x\",\"nested\":{\"exp\":1}}");
         OAuthRealm realm = realm(false, ex);
-        Realm.TokenValidationResult r = realm.validateOAuthToken("tok+en");
+        Realm.TokenValidationResult r = RealmCalls.validateOAuthToken(realm, "tok+en");
         assertNotNull(r);
         assertTrue(r.valid);
         assertEquals("alice", r.username);
@@ -263,8 +287,8 @@ public class OAuthRealmIntrospectionTest {
         assertEquals("read", r.scopes[0]);
         assertEquals("write", r.scopes[1]);
         assertEquals(4102444800L, r.expirationTime);
-        assertTrue(realm.isUserInRole("alice", "reader"));
-        assertFalse(realm.isUserInRole("alice", "unmapped"));
+        assertTrue(RealmCalls.isUserInRole(realm, "alice", "reader"));
+        assertFalse(RealmCalls.isUserInRole(realm, "alice", "unmapped"));
         assertEquals(1, ex.requests.size());
         assertEquals("/oauth/introspect", ex.paths.get(0));
         MockRequest req = ex.requests.get(0);
@@ -279,7 +303,7 @@ public class OAuthRealmIntrospectionTest {
         ScriptedExchange ex = new ScriptedExchange();
         ex.respond(200, "{\"act", "ive\":tr", "ue,\"user", "name\":\"car", "ol\"}");
         OAuthRealm realm = realm(false, ex);
-        Realm.TokenValidationResult r = realm.validateOAuthToken("t");
+        Realm.TokenValidationResult r = RealmCalls.validateOAuthToken(realm, "t");
         assertTrue(r.valid);
         assertEquals("carol", r.username);
     }
@@ -291,7 +315,7 @@ public class OAuthRealmIntrospectionTest {
         ScriptedExchange ex = new ScriptedExchange();
         ex.respond(200, "{\"active\":true,\"username\":\"u\"}");
         OAuthRealm realm = realm(config, ex);
-        assertTrue(realm.validateBearerToken("t").valid);
+        assertTrue(RealmCalls.validateBearerToken(realm, "t").valid);
         assertEquals("/custom/check", ex.paths.get(0));
     }
 
@@ -299,7 +323,7 @@ public class OAuthRealmIntrospectionTest {
     public void subjectIsUsedWhenUsernameMissing() {
         ScriptedExchange ex = new ScriptedExchange();
         ex.respond(200, "{\"active\":true,\"sub\":\"subject-1\",\"scope\":\"\"}");
-        Realm.TokenValidationResult r = realm(false, ex).validateOAuthToken("t");
+        Realm.TokenValidationResult r = RealmCalls.validateOAuthToken(realm(false, ex), "t");
         assertTrue(r.valid);
         assertEquals("subject-1", r.username);
         assertEquals(0, r.scopes.length);
@@ -309,7 +333,7 @@ public class OAuthRealmIntrospectionTest {
     public void activeTokenWithoutAnyIdentityIsRejected() {
         ScriptedExchange ex = new ScriptedExchange();
         ex.respond(200, "{\"active\":true,\"username\":\"\"}");
-        assertFalse(realm(false, ex).validateOAuthToken("t").valid);
+        assertFalse(RealmCalls.validateOAuthToken(realm(false, ex), "t").valid);
     }
 
     @Test
@@ -318,10 +342,10 @@ public class OAuthRealmIntrospectionTest {
         OAuthRealm realm = realm(false, ex);
         ex.respond(200, "{\"active\":false,\"ext\":{\"active\":true,\"username\":\"mallory\"},"
                 + "\"list\":[{\"active\":true}]}");
-        assertFalse(realm.validateOAuthToken("t").valid);
+        assertFalse(RealmCalls.validateOAuthToken(realm, "t").valid);
         ex.respond(200, "{\"active\":true,\"username\":\"alice\",\"ext\":{\"username\":\"mallory\","
                 + "\"scope\":\"admin\"},\"scope\":\"read\"}");
-        Realm.TokenValidationResult r = realm.validateOAuthToken("t2");
+        Realm.TokenValidationResult r = RealmCalls.validateOAuthToken(realm, "t2");
         assertTrue(r.valid);
         assertEquals("alice", r.username);
         assertEquals(1, r.scopes.length);
@@ -332,37 +356,37 @@ public class OAuthRealmIntrospectionTest {
     public void inactiveTokenIsRejected() {
         ScriptedExchange ex = new ScriptedExchange();
         ex.respond(200, "{\"active\":false}");
-        assertFalse(realm(false, ex).validateOAuthToken("t").valid);
+        assertFalse(RealmCalls.validateOAuthToken(realm(false, ex), "t").valid);
     }
 
     @Test
     public void errorStatusIsRejectedEvenWithActiveBody() {
         ScriptedExchange ex = new ScriptedExchange();
         ex.respond(401, "{\"active\":true,\"username\":\"mallory\"}");
-        assertFalse(realm(false, ex).validateOAuthToken("t").valid);
+        assertFalse(RealmCalls.validateOAuthToken(realm(false, ex), "t").valid);
         ex.respond(500, "");
-        assertFalse(realm(false, ex).validateOAuthToken("t").valid);
+        assertFalse(RealmCalls.validateOAuthToken(realm(false, ex), "t").valid);
     }
 
     @Test
     public void malformedJsonIsRejected() {
         ScriptedExchange ex = new ScriptedExchange();
         ex.respond(200, "{\"active\": tru");
-        assertFalse(realm(false, ex).validateOAuthToken("t").valid);
+        assertFalse(RealmCalls.validateOAuthToken(realm(false, ex), "t").valid);
     }
 
     @Test
     public void garbageAfterParseErrorIsIgnored() {
         ScriptedExchange ex = new ScriptedExchange();
         ex.respond(200, "{]", "more", "{\"active\":true,\"username\":\"x\"}");
-        assertFalse(realm(false, ex).validateOAuthToken("t").valid);
+        assertFalse(RealmCalls.validateOAuthToken(realm(false, ex), "t").valid);
     }
 
     @Test
     public void emptyBodyOnSuccessIsRejected() {
         ScriptedExchange ex = new ScriptedExchange();
         ex.respond(200);
-        assertFalse(realm(false, ex).validateOAuthToken("t").valid);
+        assertFalse(RealmCalls.validateOAuthToken(realm(false, ex), "t").valid);
     }
 
     @Test
@@ -370,7 +394,7 @@ public class OAuthRealmIntrospectionTest {
         ScriptedExchange ex = new ScriptedExchange();
         ex.connectError = new IOException("refused");
         OAuthRealm realm = realm(false, ex);
-        assertFalse(realm.validateOAuthToken("t").valid);
+        assertFalse(RealmCalls.validateOAuthToken(realm, "t").valid);
         assertTrue(ex.requests.isEmpty());
     }
 
@@ -378,7 +402,7 @@ public class OAuthRealmIntrospectionTest {
     public void requestFailureIsRejected() {
         ScriptedExchange ex = new ScriptedExchange();
         ex.requestFailure = new IOException("reset");
-        assertFalse(realm(false, ex).validateOAuthToken("t").valid);
+        assertFalse(RealmCalls.validateOAuthToken(realm(false, ex), "t").valid);
     }
 
     @Test
@@ -386,7 +410,13 @@ public class OAuthRealmIntrospectionTest {
         ScriptedExchange ex = new ScriptedExchange();
         ex.silent = true;
         OAuthRealm realm = realm(false, ex);
-        assertFalse(realm.validateOAuthToken("t").valid);
+        CapturedCallback<Realm.TokenValidationResult> cb =
+                new CapturedCallback<Realm.TokenValidationResult>();
+        realm.validateOAuthToken("t", cb);
+        assertFalse("must wait for the server", cb.isDone());
+        ex.timeoutTask.run();
+        assertTrue(cb.isDone());
+        assertNotNull(cb.failure());
         assertEquals(1, ex.requests.size());
     }
 
@@ -396,7 +426,7 @@ public class OAuthRealmIntrospectionTest {
         ex.tls = true;
         ex.respond(200, "{\"active\":true,\"username\":\"tls-user\"}");
         OAuthRealm realm = realm(config("https://auth.test", false), ex);
-        assertTrue(realm.validateOAuthToken("t").valid);
+        assertTrue(RealmCalls.validateOAuthToken(realm, "t").valid);
         assertEquals(1, ex.requests.size());
     }
 
@@ -405,8 +435,8 @@ public class OAuthRealmIntrospectionTest {
         ScriptedExchange ex = new ScriptedExchange();
         ex.respond(200, "{\"active\":true,\"username\":\"bob\",\"scope\":\"read\"}");
         OAuthRealm realm = realm(true, ex);
-        Realm.TokenValidationResult first = realm.validateOAuthToken("same");
-        Realm.TokenValidationResult second = realm.validateOAuthToken("same");
+        Realm.TokenValidationResult first = RealmCalls.validateOAuthToken(realm, "same");
+        Realm.TokenValidationResult second = RealmCalls.validateOAuthToken(realm, "same");
         assertTrue(first.valid);
         assertSame(first, second);
         assertEquals(1, ex.requests.size());
@@ -417,9 +447,9 @@ public class OAuthRealmIntrospectionTest {
         ScriptedExchange ex = new ScriptedExchange();
         ex.respond(200, "{\"active\":false}");
         OAuthRealm realm = realm(true, ex);
-        assertFalse(realm.validateOAuthToken("same").valid);
+        assertFalse(RealmCalls.validateOAuthToken(realm, "same").valid);
         ex.respond(200, "{\"active\":true,\"username\":\"late\"}");
-        assertTrue(realm.validateOAuthToken("same").valid);
+        assertTrue(RealmCalls.validateOAuthToken(realm, "same").valid);
         assertEquals(2, ex.requests.size());
     }
 
@@ -432,7 +462,7 @@ public class OAuthRealmIntrospectionTest {
         ex.respond(200, "{\"active\":true,\"username\":\"u\"}");
         OAuthRealm realm = realm(config, ex);
         for (int i = 0; i < 6; i++) {
-            assertTrue(realm.validateOAuthToken("token-" + i).valid);
+            assertTrue(RealmCalls.validateOAuthToken(realm, "token-" + i).valid);
         }
         assertEquals(6, ex.requests.size());
     }
@@ -441,9 +471,9 @@ public class OAuthRealmIntrospectionTest {
     public void blankTokenNeverContactsServer() {
         ScriptedExchange ex = new ScriptedExchange();
         OAuthRealm realm = realm(false, ex);
-        assertFalse(realm.validateOAuthToken(null).valid);
-        assertFalse(realm.validateOAuthToken("   ").valid);
-        assertFalse(realm.validateBearerToken("").valid);
+        assertFalse(RealmCalls.validateOAuthToken(realm, null).valid);
+        assertFalse(RealmCalls.validateOAuthToken(realm, "   ").valid);
+        assertFalse(RealmCalls.validateBearerToken(realm, "").valid);
         assertTrue(ex.events.isEmpty());
     }
 
@@ -462,7 +492,7 @@ public class OAuthRealmIntrospectionTest {
         ScriptedExchange ex = new ScriptedExchange();
         OAuthRealm unbound = new OAuthRealm(config("http://auth.test", false));
         unbound.exchange = ex;
-        assertFalse(unbound.validateOAuthToken("t").valid);
+        assertFalse(RealmCalls.validateOAuthToken(unbound, "t").valid);
         assertTrue(ex.events.isEmpty());
     }
 }

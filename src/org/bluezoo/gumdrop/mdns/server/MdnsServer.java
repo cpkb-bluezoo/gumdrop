@@ -180,21 +180,6 @@ public class MdnsServer implements Server {
         listeners.add(listener);
     }
 
-    /**
-     * Sets the listeners from a configuration list. Each item must be
-     * an {@link MdnsListener}.
-     *
-     * @param list the list of listener endpoints
-     */
-    public void setListeners(List<?> list) {
-        for (int i = 0; i < list.size(); i++) {
-            Object item = list.get(i);
-            if (item instanceof MdnsListener) {
-                addListener((MdnsListener) item);
-            }
-        }
-    }
-
     @Override
     public List<Listener> getListeners() {
         return Collections.<Listener>unmodifiableList(listeners);
@@ -209,9 +194,11 @@ public class MdnsServer implements Server {
      * {@code "gumdrop"} if that can't be determined.
      *
      * @param hostname the hostname label (no trailing ".local")
+     * @return this
      */
-    public void setHostname(String hostname) {
+    public MdnsServer hostname(String hostname) {
         this.hostname = hostname;
+        return this;
     }
 
     /**
@@ -227,9 +214,11 @@ public class MdnsServer implements Server {
      * this runs.
      *
      * @param advertiseServices true to auto-advertise
+     * @return this
      */
-    public void setAdvertiseServices(boolean advertiseServices) {
+    public MdnsServer advertiseServices(boolean advertiseServices) {
         this.advertiseServices = advertiseServices;
+        return this;
     }
 
     /**
@@ -240,15 +229,16 @@ public class MdnsServer implements Server {
      *
      * @param descriptions space-separated listener descriptions to exclude
      */
-    public void setExcludedServices(String descriptions) {
+    public MdnsServer excludedServices(String descriptions) {
         excludedDescriptions.clear();
         if (descriptions == null) {
-            return;
+            return this;
         }
         StringTokenizer st = new StringTokenizer(descriptions);
         while (st.hasMoreTokens()) {
             excludedDescriptions.add(st.nextToken());
         }
+        return this;
     }
 
     /**
@@ -329,7 +319,7 @@ public class MdnsServer implements Server {
         boolean anyBound = false;
         for (int i = 0; i < listeners.size(); i++) {
             MdnsListener l = listeners.get(i);
-            l.setServer(this);
+            l.server(this);
             try {
                 l.start(gumdrop);
             } catch (Exception e) {
@@ -821,11 +811,11 @@ public class MdnsServer implements Server {
             }
             MdnsServer server = new MdnsServer();
             if (hostname != null) {
-                server.setHostname(hostname);
+                server.hostname(hostname);
             }
-            server.setAdvertiseServices(advertiseServices);
+            server.advertiseServices(advertiseServices);
             if (excludedServices != null) {
-                server.setExcludedServices(excludedServices);
+                server.excludedServices(excludedServices);
             }
             for (int i = 0; i < listeners.size(); i++) {
                 server.addListener(listeners.get(i));

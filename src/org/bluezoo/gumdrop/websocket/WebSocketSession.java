@@ -25,6 +25,8 @@ import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.security.Principal;
 
+import org.bluezoo.gumdrop.SecurityInfo;
+
 /**
  * A WebSocket session for sending messages to the peer (RFC 6455).
  *
@@ -90,6 +92,17 @@ public interface WebSocketSession {
     boolean isOpen();
 
     /**
+     * Sets the largest assembled message, in bytes, this session accepts
+     * before the connection is closed with code 1009 (RFC 6455 section
+     * 7.4.1); 0 means unlimited. Sessions backed by a connection apply it
+     * to the next frame read; the default does nothing.
+     *
+     * @param maxBytes the limit in bytes
+     */
+    default void setMaxMessageSize(long maxBytes) {
+    }
+
+    /**
      * Returns the authenticated principal for this session, or
      * {@code null} if the connection was not authenticated.
      *
@@ -102,5 +115,33 @@ public interface WebSocketSession {
      * @return the authenticated principal, or null
      */
     Principal getPrincipal();
+
+    /**
+     * Returns whether the connection this session runs over is encrypted.
+     * For a server session that is the TLS (or QUIC) of the HTTP connection
+     * the WebSocket was upgraded on.
+     *
+     * @return true if the connection is encrypted; false by default
+     */
+    default boolean isSecure() {
+        return getSecurityInfo() != null;
+    }
+
+    /**
+     * Returns the TLS session details of the connection this session runs
+     * over: negotiated protocol and cipher suite, ALPN protocol, and the
+     * peer's certificate chain when mutual TLS was used (which a handler can
+     * use to identify the client without a password).
+     *
+     * <p>Server sessions (WebSocket over HTTP/1.1, HTTP/2 or HTTP/3) report
+     * the details of the HTTP connection. Sessions of the WebSocket client
+     * do not expose them yet.
+     *
+     * @return the TLS session details, or {@code null} if the connection is
+     *         not encrypted or the details are not available
+     */
+    default SecurityInfo getSecurityInfo() {
+        return null;
+    }
 
 }

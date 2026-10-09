@@ -152,7 +152,7 @@ Gumdrop is level with or ahead of Netty on plaintext HTTP/1.1, JSON and TLS keep
         - Spanish
         - German
     - centralized and secure realm interface for authentication and
-      authorization, usable by multiple services, with mTLS and SASL mechanisms
+      authorisation, usable by multiple services, with mTLS and SASL mechanisms
     - CIDR connection filtering, rate limiting, quota features
     - lightweight, simple dependency injection framework
     - client framework for creating clients to communicate with other servers
@@ -211,8 +211,8 @@ Gumdrop is level with or ahead of Netty on plaintext HTTP/1.1, JSON and TLS keep
             - AES-256-GCM encryption with shared secret
             - replay protection via sequence numbers and timestamps
             - per-node sequence tracking with sliding window
-            - protobuf serialization for session attributes
-            - deserialization filtering for complex objects
+            - protobuf serialisation for session attributes
+            - deserialisation filtering for complex objects
             - cluster node telemetry metrics
 - SMTP
     - SMTPS and STARTTLS support
@@ -276,7 +276,7 @@ Gumdrop is level with or ahead of Netty on plaintext HTTP/1.1, JSON and TLS keep
         - STATUS=SIZE (RFC 8438) - mailbox total size in STATUS
         - COMPRESS=DEFLATE (RFC 4978) - zlib compression after authentication
         - UTF8=ACCEPT (RFC 6855) - UTF-8 mailbox names after ENABLE
-        - LITERAL- (RFC 7888) - non-synchronizing literals
+        - LITERAL- (RFC 7888) - non-synchronising literals
         - ID (RFC 2971) - server identification
         - CONDSTORE (RFC 7162) - per-message modification sequences
             - MODSEQ in FETCH, SEARCH, and STORE responses
@@ -290,7 +290,7 @@ Gumdrop is level with or ahead of Netty on plaintext HTTP/1.1, JSON and TLS keep
         - flag, date, size, header, body, and MODSEQ searches
         - boolean operators (AND, OR, NOT)
         - sequence sets and UID sets
-    - pluggable mailbox backend via standardized API
+    - pluggable mailbox backend via standardised API
     - IMAP client with IMAPS and STARTTLS support
         - COMPRESS=DEFLATE (RFC 4978) - `compress()` on authenticated sessions
         - UTF8=ACCEPT (RFC 6855) - `enable(new String[]{"UTF8=ACCEPT"}, …)` for UTF-8 on the wire
@@ -310,7 +310,7 @@ Gumdrop is level with or ahead of Netty on plaintext HTTP/1.1, JSON and TLS keep
         - RESP-CODES (RFC 2449) - extended error response codes
         - AUTH-RESP-CODE (RFC 3206) - authentication error codes
         - EXPIRE, LOGIN-DELAY (RFC 2449) - policy advertisement
-    - pluggable mailbox backend via standardized API
+    - pluggable mailbox backend via standardised API
     - exclusive mailbox locking for session isolation
     - POP3 client with POP3S and STLS support
 - mailbox API
@@ -338,7 +338,7 @@ Gumdrop is level with or ahead of Netty on plaintext HTTP/1.1, JSON and TLS keep
     - quota support
         - SITE QUOTA command
         - SITE SETQUOTA command
-    - pluggable realm authentication via standardized mechanism
+    - pluggable realm authentication via standardised mechanism
     - extensible, customizable virtual filesystem
         - local filesystem implementation provided with secure chroot, cross
           platform, configurable read/write permissions
@@ -380,7 +380,7 @@ Gumdrop is level with or ahead of Netty on plaintext HTTP/1.1, JSON and TLS keep
     - MQTT 5.0 properties (user properties, content type, message expiry,
       authentication method/data, reason codes)
     - staged handler pattern for async connection, publish, and subscribe
-      authorization
+      authorisation
     - default service accepts all connections (with optional realm authentication)
     - broker components: SubscriptionManager, RetainedMessageStore, WillManager, QoSManager
     - fully asynchronous MQTT client with SelectorLoop affinity
@@ -427,8 +427,8 @@ Gumdrop is level with or ahead of Netty on plaintext HTTP/1.1, JSON and TLS keep
         - no authentication
         - username/password (RFC 1929)
         - GSSAPI/Kerberos (RFC 1961) via existing SASL infrastructure
-    - pluggable realm authentication via standardized mechanism
-    - async connect authorization handler for custom policies
+    - pluggable realm authentication via standardised mechanism
+    - async connect authorisation handler for custom policies
     - CIDR-based destination allow/block filtering
     - bidirectional TCP relay with transport-level backpressure
     - SelectorLoop affinity — upstream connections share the client's
@@ -457,7 +457,7 @@ Gumdrop is level with or ahead of Netty on plaintext HTTP/1.1, JSON and TLS keep
     - custom instrumentation API for application-level tracing
 - SASL authentication
     - centralized, extensible realm interface
-        - decouples credentials, authentication, authorization from
+        - decouples credentials, authentication, authorisation from
           protocols
         - does not expose passwords by default
         - extensible for LDAP, identity providers, databases
@@ -489,7 +489,7 @@ Gumdrop is level with or ahead of Netty on plaintext HTTP/1.1, JSON and TLS keep
       brokers such as RabbitMQ
     - exchange/queue declaration, binding, publish, and consume
     - publisher confirms and classic transactions (tx.select/commit/rollback)
-    - streaming, chunked message body publishing (no full-buffer materialization)
+    - streaming, chunked message body publishing (no full-buffer materialisation)
     - automatic connection recovery with configurable exponential backoff,
       and transparent replay of exchanges, queues, bindings, and consumers
     - implicit TLS (AMQPS) and SASL PLAIN, AMQPLAIN, EXTERNAL, and GSSAPI

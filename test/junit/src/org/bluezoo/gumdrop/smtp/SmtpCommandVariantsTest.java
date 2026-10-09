@@ -186,7 +186,7 @@ public class SmtpCommandVariantsTest {
 
     @Test
     public void testMailSizeExceedsMaximum() {
-        listener.setMaxMessageSize(1000);
+        listener.maxMessageSize(1000);
         ehlo();
         expect("MAIL FROM:<a@example.com> SIZE=5000", "552");
     }
@@ -200,7 +200,7 @@ public class SmtpCommandVariantsTest {
 
     @Test
     public void testAuthRequired() {
-        listener.setAuthRequired(true);
+        listener.authRequired(true);
         ehlo();
         expect("MAIL FROM:<a@example.com>", "530");
         expect("RCPT TO:<a@example.com>", "503");
@@ -241,7 +241,7 @@ public class SmtpCommandVariantsTest {
 
     @Test
     public void testTooManyRecipients() {
-        listener.setMaxRecipients(1);
+        listener.maxRecipients(1);
         rcpt();
         expect("RCPT TO:<c@example.com>", "452");
     }
@@ -279,7 +279,7 @@ public class SmtpCommandVariantsTest {
 
     @Test
     public void testBdatSizeExceedsMaximum() {
-        listener.setMaxMessageSize(100);
+        listener.maxMessageSize(100);
         rcpt();
         expect("BDAT 500", "552");
     }

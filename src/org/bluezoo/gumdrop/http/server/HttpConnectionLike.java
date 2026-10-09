@@ -91,6 +91,54 @@ abstract class HttpConnectionLike {
     abstract HttpAuthenticationProvider getAuthenticationProvider();
 
     /**
+     * Whether this request asks to switch the connection to HTTP/2 (RFC 9113
+     * section 3.1, {@code Upgrade: h2c}) and the connection will do so. The
+     * request is then answered as HTTP/2 stream 1, so it must not reach the
+     * application until the switch is complete: anything it wrote sooner would
+     * be an HTTP/1.1 response sent before the {@code 101}.
+     *
+     * @param stream the request
+     * @return true if the connection will become HTTP/2 for this request;
+     *         false by default
+     */
+    boolean upgradesToHttp2(Stream stream) {
+        return false;
+    }
+
+    /**
+     * Runs {@code release} once this connection has become HTTP/2, or not at
+     * all if the connection ends first.
+     *
+     * @param release what to run
+     */
+    void whenHttp2Established(Runnable release) {
+        release.run();
+    }
+
+    /**
+     * Whether this client is locked out of authenticating after too many
+     * failed attempts (see {@code Listener#maxAuthFailures}). A request that
+     * carries credentials is then refused without consulting the realm.
+     *
+     * @return true if the client is locked out; false by default
+     */
+    boolean isAuthLockedOut() {
+        return false;
+    }
+
+    /** Counts a failed authentication towards this client's lockout. */
+    void recordAuthFailure() {
+    }
+
+    /**
+     * Records a successful authentication, clearing this client's failure count.
+     *
+     * @param username the authenticated user
+     */
+    void recordAuthSuccess(String username) {
+    }
+
+    /**
      * Registers a one-shot callback invoked when the transport is ready
      * for more data on the given stream.
      *

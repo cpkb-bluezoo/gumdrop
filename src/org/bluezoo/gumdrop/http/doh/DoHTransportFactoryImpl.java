@@ -22,6 +22,7 @@
 package org.bluezoo.gumdrop.http.doh;
 
 import org.bluezoo.gumdrop.dns.client.DnsClientTransport;
+import org.bluezoo.gumdrop.tls.TlsConfig;
 import org.bluezoo.gumdrop.dns.client.DoHTransportFactory;
 
 /**
@@ -35,10 +36,13 @@ import org.bluezoo.gumdrop.dns.client.DoHTransportFactory;
 public final class DoHTransportFactoryImpl implements DoHTransportFactory {
 
     @Override
-    public DnsClientTransport createTransport(String path) {
+    public DnsClientTransport createTransport(String path, TlsConfig tls) {
         DoHClientTransport transport = new DoHClientTransport();
+        if (tls != null) {
+            transport.tls(tls);
+        }
         if (path != null) {
-            transport.setPath(path);
+            transport.path(path);
         }
         return transport;
     }

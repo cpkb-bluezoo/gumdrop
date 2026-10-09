@@ -49,12 +49,8 @@ public class DnsTcpListener extends TcpListener {
         return port;
     }
 
-    public void setPort(int port) {
-        this.port = port;
-    }
-
     public DnsTcpListener port(int port) {
-        setPort(port);
+        this.port = port;
         return this;
     }
 
@@ -75,8 +71,9 @@ public class DnsTcpListener extends TcpListener {
         return "dns-tcp";
     }
 
-    public void setServer(org.bluezoo.gumdrop.dns.server.DnsServer server) {
+    public DnsTcpListener server(org.bluezoo.gumdrop.dns.server.DnsServer server) {
         this.server = server;
+        return this;
     }
 
     public org.bluezoo.gumdrop.dns.server.DnsServer getServer() {

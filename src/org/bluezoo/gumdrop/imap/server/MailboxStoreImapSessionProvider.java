@@ -83,7 +83,7 @@ public class MailboxStoreImapSessionProvider implements ImapServerSessionProvide
         if (listener instanceof ImapListener) {
             ImapListener imapListener = (ImapListener) listener;
             if (mailboxFactory != null) {
-                imapListener.setMailboxFactory(mailboxFactory);
+                imapListener.mailboxFactory(mailboxFactory);
             }
         }
         return new DefaultIMAPHandler();

@@ -90,7 +90,7 @@ public class ConnectClientDiscoveryTest {
         UdpClient(String host, Resolver resolver) {
             super(new InlineSelectorLoop(), host, 443);
             this.resolver = resolver;
-            setDnsHttpsRecordEnabled(true);
+            dnsHttpsRecordEnabled(true);
         }
 
         @Override
@@ -111,7 +111,7 @@ public class ConnectClientDiscoveryTest {
         IpClient(String host, Resolver resolver) {
             super(new InlineSelectorLoop(), host, 443);
             this.resolver = resolver;
-            setDnsHttpsRecordEnabled(true);
+            dnsHttpsRecordEnabled(true);
         }
 
         @Override

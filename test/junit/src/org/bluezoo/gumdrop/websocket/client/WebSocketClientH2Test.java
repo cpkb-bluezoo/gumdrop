@@ -22,6 +22,7 @@
 package org.bluezoo.gumdrop.websocket.client;
 
 import static org.junit.Assert.assertEquals;
+import org.bluezoo.gumdrop.http.HttpVersion;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
@@ -64,7 +65,7 @@ public class WebSocketClientH2Test {
 
         InMemoryClient(String host) {
             super(host, 80);
-            setDnsHttpsRecordEnabled(false);
+            dnsHttpsRecordEnabled(false);
         }
 
         InMemoryClient(String socketPath, boolean unused) {
@@ -117,8 +118,8 @@ public class WebSocketClientH2Test {
 
     private InMemoryClient h2Client() {
         InMemoryClient c = new InMemoryClient("ws.example");
-        c.setH2Enabled(true);
-        c.setH2WithPriorKnowledge(true);
+        c.versions(HttpVersion.HTTP_2_0, HttpVersion.HTTP_1_1);
+        c.h2WithPriorKnowledge(true);
         return c;
     }
 
@@ -136,7 +137,7 @@ public class WebSocketClientH2Test {
     @Test
     public void extendedConnectOpensWebSocketAndDeliversMessages() throws IOException {
         InMemoryClient c = h2Client();
-        c.setSubprotocol("chat");
+        c.subprotocol("chat");
         RecordingWebSocketEventHandler h = new RecordingWebSocketEventHandler();
         c.connect(null, "/ws", h);
         c.feed(settingsWithConnectProtocol());
@@ -195,7 +196,7 @@ public class WebSocketClientH2Test {
     @Test
     public void literalHostSkipsDiscovery() {
         InMemoryClient c = new InMemoryClient("127.0.0.1");
-        c.setDnsHttpsRecordEnabled(true);
+        c.dnsHttpsRecordEnabled(true);
         c.connect(null, "/", new RecordingWebSocketEventHandler());
         assertEquals(1, c.connects);
     }
@@ -228,7 +229,7 @@ public class WebSocketClientH2Test {
     @Test
     public void dnsErrorFallsBackToTcp() {
         InMemoryClient c = new InMemoryClient("ws.example");
-        c.setDnsHttpsRecordEnabled(true);
+        c.dnsHttpsRecordEnabled(true);
         StubResolver resolver = new StubResolver(true);
         c.dnsResolver(resolver);
         c.selectorLoop(new InlineSelectorLoop());
@@ -240,7 +241,7 @@ public class WebSocketClientH2Test {
     @Test
     public void dnsAnswerWithoutH3FallsBackToTcp() {
         InMemoryClient c = new InMemoryClient("ws.example");
-        c.setDnsHttpsRecordEnabled(true);
+        c.dnsHttpsRecordEnabled(true);
         StubResolver resolver = new StubResolver(false);
         c.dnsResolver(resolver);
         c.selectorLoop(new InlineSelectorLoop());
@@ -252,7 +253,7 @@ public class WebSocketClientH2Test {
     @Test
     public void localhostSkipsDiscovery() {
         InMemoryClient c = new InMemoryClient("localhost");
-        c.setDnsHttpsRecordEnabled(true);
+        c.dnsHttpsRecordEnabled(true);
         c.connect(null, "/", new RecordingWebSocketEventHandler());
         assertEquals(1, c.connects);
     }

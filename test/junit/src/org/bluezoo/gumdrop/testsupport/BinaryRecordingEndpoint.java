@@ -88,6 +88,13 @@ public final class BinaryRecordingEndpoint implements Endpoint {
         this.secure = secure;
     }
 
+    private SecurityInfo securityInfo;
+
+    /** The TLS session details this endpoint reports when secure. */
+    public void setSecurityInfo(SecurityInfo securityInfo) {
+        this.securityInfo = securityInfo;
+    }
+
     /** Returns each write as a separate array, in send order. */
     public List<byte[]> getWrites() {
         return new ArrayList<byte[]>(writes);
@@ -165,7 +172,7 @@ public final class BinaryRecordingEndpoint implements Endpoint {
         return new InetSocketAddress("127.0.0.1", 54321);
     }
     @Override public boolean isSecure() { return secure; }
-    @Override public SecurityInfo getSecurityInfo() { return null; }
+    @Override public SecurityInfo getSecurityInfo() { return securityInfo; }
     @Override public void startTLS() { startTlsCalled = true; }
     @Override public SelectorLoop getSelectorLoop() { return selectorLoop; }
     @Override public void execute(Runnable task) { task.run(); }

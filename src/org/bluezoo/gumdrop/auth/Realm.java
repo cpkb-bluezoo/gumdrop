@@ -39,28 +39,50 @@ import javax.crypto.spec.SecretKeySpec;
  * These principals have passwords, and may be organised into
  * groups or roles.
  *
+ * <h3>Asynchronous by design</h3>
+ * <p>Every operation that looks something up about a principal is
+ * asynchronous: it takes a {@link RealmCallback} and returns immediately.
+ * A realm backed by a directory server or a token service has to talk to
+ * the network to answer, and a server must never make a
+ * {@link org.bluezoo.gumdrop.SelectorLoop SelectorLoop} thread wait while it
+ * does. A protocol handler calls the realm, records that it is waiting, and
+ * carries on when the callback fires.
+ *
+ * <p>The callback is invoked exactly once. A realm bound to a loop with
+ * {@link #forSelectorLoop(SelectorLoop)} delivers it on that loop's thread,
+ * so the handler may touch its connection state directly. A realm whose
+ * answer is already in memory (see {@link SynchronousRealm}) may invoke it
+ * before the method returns, so a handler must record that it is waiting
+ * <em>before</em> calling the realm, never after.
+ *
+ * <p>The application must not block a loop thread waiting for a realm. The
+ * Servlet API is the one place that needs a blocking answer; the servlet
+ * container bridges it on its own worker threads.
+ *
  * <p>Realm implementations declare which SASL mechanisms they support
  * via {@link #getSupportedSASLMechanisms()}. Servers should query this
  * method and only advertise mechanisms that the configured realm supports.
  *
  * <h3>SelectorLoop Affinity</h3>
- * <p>Some realm implementations (e.g., LDAP) need to make client connections
- * to perform authentication. To ensure these connections share affinity with
- * the server's event loop, use {@link #forSelectorLoop(SelectorLoop)} to obtain
- * a realm instance bound to a specific loop:</p>
+ * <p>Realms that make client connections (for example LDAP) run them on the
+ * loop of the connection being authenticated. A server obtains a realm bound
+ * to that loop with {@link #forSelectorLoop(SelectorLoop)} before using it:</p>
  *
  * <pre>{@code
- * // In server initialization
- * Realm configuredRealm = ...;
- * Realm boundRealm = configuredRealm.forSelectorLoop(selectorLoop);
- * server.setRealm(boundRealm);
+ * Realm bound = configuredRealm.forSelectorLoop(endpoint.getSelectorLoop());
+ * bound.passwordMatch(user, password, new RealmCallback<Boolean>() {
+ *     public void completed(Boolean matched) {
+ *         // on the connection's loop thread
+ *     }
+ *     public void failed(Throwable cause) {
+ *         // the realm could not answer
+ *     }
+ * });
  * }</pre>
  *
- * <p>For simple synchronous realms like {@link BasicRealm}, this method
- * simply returns {@code this}. For async realms, it returns a new instance
- * with a client connection bound to the specified loop.
- *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
+ * @see RealmCallback
+ * @see SynchronousRealm
  * @see SaslMechanism
  * @see <a href="https://www.rfc-editor.org/rfc/rfc4422">RFC 4422: SASL Framework</a>
  */
@@ -69,24 +91,16 @@ public interface Realm {
     /**
      * Returns a Realm instance bound to the specified SelectorLoop.
      *
-     * <p>This method allows realm implementations that need to make client
-     * connections (e.g., LDAP, database) to share the same event loop as
-     * the server using them. This ensures proper thread affinity and
-     * efficient I/O multiplexing.
-     *
-     * <p>For synchronous realms that don't require client connections
-     * (like {@link BasicRealm}), this method should simply return {@code this}.
-     *
-     * <p>For async realms, this method should return a new (or pooled) instance
-     * with a client connection bound to the specified loop. The returned realm
-     * may be a lightweight wrapper that shares configuration with the original
-     * but has its own connection state.
+     * <p>Callbacks of the returned realm are delivered on that loop's
+     * thread, and any client connection the realm makes (to an LDAP server,
+     * a token service) runs on that loop. A realm with no need of a loop may
+     * return {@code this}.
      *
      * @param loop the SelectorLoop to bind to
      * @return a realm instance bound to the specified loop
      */
     Realm forSelectorLoop(SelectorLoop loop);
-    
+
     /**
      * RFC 4422 — returns the set of SASL mechanisms this realm supports.
      *
@@ -96,17 +110,17 @@ public interface Realm {
      *
      * <p>The relationship between mechanisms and realm methods:
      * <ul>
-     *   <li>{@link SaslMechanism#PLAIN}, {@link SaslMechanism#LOGIN} - 
+     *   <li>{@link SaslMechanism#PLAIN}, {@link SaslMechanism#LOGIN} -
      *       require {@link #passwordMatch}</li>
-     *   <li>{@link SaslMechanism#CRAM_MD5} - 
+     *   <li>{@link SaslMechanism#CRAM_MD5} -
      *       requires {@link #getCramMD5Response}</li>
-     *   <li>{@link SaslMechanism#DIGEST_MD5} - 
+     *   <li>{@link SaslMechanism#DIGEST_MD5} -
      *       requires {@link #getDigestHA1}</li>
-     *   <li>{@link SaslMechanism#SCRAM_SHA_256} - 
+     *   <li>{@link SaslMechanism#SCRAM_SHA_256} -
      *       requires {@link #getScramCredentials}</li>
-     *   <li>{@link SaslMechanism#EXTERNAL} - 
+     *   <li>{@link SaslMechanism#EXTERNAL} -
      *       requires {@link #authenticateCertificate}</li>
-     *   <li>{@link SaslMechanism#OAUTHBEARER} - 
+     *   <li>{@link SaslMechanism#OAUTHBEARER} -
      *       requires {@link #validateBearerToken}</li>
      * </ul>
      *
@@ -120,94 +134,91 @@ public interface Realm {
      *
      * @param username the username to authenticate
      * @param password the password to verify
-     * @return true if the password matches, false if the password is incorrect or user doesn't exist
+     * @param callback receives {@code true} if the password matches and
+     *        {@code false} if it is incorrect or the user does not exist
      */
-    boolean passwordMatch(String username, String password);
+    void passwordMatch(String username, String password,
+                       RealmCallback<Boolean> callback);
 
     /**
      * RFC 2617 / RFC 2831 — computes the H(A1) hash for HTTP Digest / DIGEST-MD5.
      * H(A1) = MD5(username:realm:password)
-     * 
-     * This allows realm implementations to either:
-     * - Store plaintext passwords and compute H(A1) on demand
-     * - Pre-compute and store H(A1) hashes directly (more secure)
-     * 
+     *
+     * <p>This allows realm implementations to either store plaintext
+     * passwords and compute H(A1) on demand, or pre-compute and store H(A1)
+     * hashes directly (more secure).
+     *
      * @param username the username
      * @param realmName the realm name used in the digest computation
-     * @return the H(A1) hash as a lowercase hex string, or null if user doesn't exist
+     * @param callback receives the H(A1) hash as a lowercase hex string, or
+     *        null if the user does not exist or the realm cannot supply it
      */
-    String getDigestHA1(String username, String realmName);
-
-    /**
-     * Returns the password for the given user, or null if the user does not exist.
-     * 
-     * @deprecated Exposes plaintext passwords. Use {@link #passwordMatch} (RFC 4616)
-     * or {@link #getDigestHA1} (RFC 2617) instead.
-     * 
-     * @param username the username
-     * @return the plaintext password, or null if the user does not exist
-     * @throws UnsupportedOperationException if this realm only supports hashed passwords
-     */
-    @Deprecated
-    String getPassword(String username) throws UnsupportedOperationException;
+    void getDigestHA1(String username, String realmName,
+                      RealmCallback<String> callback);
 
     /**
      * Indicates whether the specified user has the given role.
-     * 
+     *
      * <p>This is a standard security concept used for authorization decisions.
-     * Role names are defined by the application (e.g., "admin", "user", 
-     * "ftp-read", "ftp-write").</p>
-     * 
+     * Role names are defined by the application (e.g., "admin", "user",
+     * "ftp-read", "ftp-write").
+     *
      * @param username the username to check
      * @param role the role name to check for
-     * @return true if the user has the specified role, false otherwise
+     * @param callback receives {@code true} if the user has the role
      */
-    boolean isUserInRole(String username, String role);
+    void isUserInRole(String username, String role,
+                      RealmCallback<Boolean> callback);
 
     /**
-     * Checks whether a user exists in this realm.
-     * This is useful for authentication mechanisms that need to verify user
-     * existence without checking a password (e.g., certificate-based auth).
-     * 
+     * Checks whether a user exists in this realm. This is useful for
+     * authentication mechanisms that need to verify user existence without
+     * checking a password (e.g., certificate-based auth).
+     *
      * @param username the username to check
-     * @return true if the user exists, false otherwise
+     * @param callback receives {@code true} if the user exists. The default
+     *        implementation reports {@code false}.
      */
-    default boolean userExists(String username) {
-        // Default implementation - try passwordMatch with empty string
-        // Subclasses should override if they have a more efficient check
-        return false;
+    default void userExists(String username, RealmCallback<Boolean> callback) {
+        callback.completed(Boolean.FALSE);
     }
 
     /**
      * RFC 2195 — computes the expected CRAM-MD5 response for a user.
      * CRAM-MD5 uses HMAC-MD5(password, challenge) where password is the key.
-     * 
+     *
      * <p>Implementing this method allows realm implementations to support
      * CRAM-MD5 authentication without exposing the plaintext password.
-     * 
+     *
      * @param username the username
      * @param challenge the server's challenge string
-     * @return the expected HMAC-MD5 digest as lowercase hex, or null if user doesn't exist
-     * @throws UnsupportedOperationException if this realm cannot compute CRAM-MD5 responses
+     * @param callback receives the expected HMAC-MD5 digest as lowercase
+     *        hex, or null if the user does not exist. The default
+     *        implementation fails with {@link UnsupportedOperationException}.
      */
-    default String getCramMD5Response(String username, String challenge) {
-        throw new UnsupportedOperationException("CRAM-MD5 not supported by this realm");
+    default void getCramMD5Response(String username, String challenge,
+                                    RealmCallback<String> callback) {
+        callback.failed(new UnsupportedOperationException(
+                "CRAM-MD5 not supported by this realm"));
     }
 
     /**
      * RFC 1939 — computes the expected APOP response for a user.
      * APOP uses MD5(timestamp + password).
-     * 
+     *
      * <p>Implementing this method allows realm implementations to support
      * APOP authentication without exposing the plaintext password.
-     * 
+     *
      * @param username the username
      * @param timestamp the server's APOP timestamp (e.g., "&lt;1234.5678@hostname&gt;")
-     * @return the expected MD5 digest as lowercase hex, or null if user doesn't exist
-     * @throws UnsupportedOperationException if this realm cannot compute APOP responses
+     * @param callback receives the expected MD5 digest as lowercase hex, or
+     *        null if the user does not exist. The default implementation
+     *        fails with {@link UnsupportedOperationException}.
      */
-    default String getApopResponse(String username, String timestamp) {
-        throw new UnsupportedOperationException("APOP not supported by this realm");
+    default void getApopResponse(String username, String timestamp,
+                                 RealmCallback<String> callback) {
+        callback.failed(new UnsupportedOperationException(
+                "APOP not supported by this realm"));
     }
 
     /**
@@ -219,15 +230,18 @@ public interface Realm {
      *   <li>StoredKey = H(ClientKey)</li>
      *   <li>ServerKey = HMAC(SaltedPassword, "Server Key")</li>
      * </ul>
-     * 
+     *
      * <p>The realm stores StoredKey and ServerKey, never the password.
-     * 
+     *
      * @param username the username
-     * @return the SCRAM credentials, or null if user doesn't exist
-     * @throws UnsupportedOperationException if this realm doesn't support SCRAM
+     * @param callback receives the SCRAM credentials, or null if the user
+     *        does not exist. The default implementation fails with
+     *        {@link UnsupportedOperationException}.
      */
-    default ScramCredentials getScramCredentials(String username) {
-        throw new UnsupportedOperationException("SCRAM not supported by this realm");
+    default void getScramCredentials(String username,
+                                     RealmCallback<ScramCredentials> callback) {
+        callback.failed(new UnsupportedOperationException(
+                "SCRAM not supported by this realm"));
     }
 
     /**
@@ -294,23 +308,29 @@ public interface Realm {
     /**
      * RFC 6750 §2.1 / RFC 7628 — validates a Bearer token and returns the
      * associated principal information.
-     * 
+     *
      * @param token the bearer token to validate
-     * @return a TokenValidationResult containing the username, scopes, and validity, or null if token is invalid
+     * @param callback receives a TokenValidationResult containing the
+     *        username, scopes, and validity, or null if bearer tokens are
+     *        not supported. The default implementation reports null.
      */
-    default TokenValidationResult validateBearerToken(String token) {
-        return null; // Default implementation returns null (not supported)
+    default void validateBearerToken(String token,
+            RealmCallback<TokenValidationResult> callback) {
+        callback.completed(null);
     }
 
     /**
      * RFC 6749 — validates an OAuth access token and returns the associated
      * principal information.
-     * 
+     *
      * @param accessToken the OAuth access token to validate
-     * @return a TokenValidationResult containing the username, scopes, and validity, or null if token is invalid
+     * @param callback receives a TokenValidationResult containing the
+     *        username, scopes, and validity, or null if OAuth tokens are
+     *        not supported. The default implementation reports null.
      */
-    default TokenValidationResult validateOAuthToken(String accessToken) {
-        return null; // Default implementation returns null (not supported)
+    default void validateOAuthToken(String accessToken,
+            RealmCallback<TokenValidationResult> callback) {
+        callback.completed(null);
     }
 
     /**
@@ -325,12 +345,13 @@ public interface Realm {
      * whether a trusted certificate corresponds to a known user.
      *
      * @param certificate the client's X.509 certificate
-     * @return a result indicating success (with username) or failure,
-     *         or null if certificate authentication is not supported
+     * @param callback receives a result indicating success (with username)
+     *        or failure, or null if certificate authentication is not
+     *        supported. The default implementation reports null.
      */
-    default CertificateAuthenticationResult authenticateCertificate(
-            X509Certificate certificate) {
-        return null;
+    default void authenticateCertificate(X509Certificate certificate,
+            RealmCallback<CertificateAuthenticationResult> callback) {
+        callback.completed(null);
     }
 
     /**
@@ -343,11 +364,13 @@ public interface Realm {
      *
      * @param authenticatedUser the identity established by authentication
      * @param requestedUser the identity the client wants to act as
-     * @return true if the authenticated user may act as the requested user
+     * @param callback receives {@code true} if the authenticated user may
+     *        act as the requested user
      */
-    default boolean authorizeAs(String authenticatedUser,
-                                String requestedUser) {
-        return authenticatedUser.equals(requestedUser);
+    default void authorizeAs(String authenticatedUser, String requestedUser,
+                             RealmCallback<Boolean> callback) {
+        callback.completed(Boolean.valueOf(
+                authenticatedUser.equals(requestedUser)));
     }
 
     /**
@@ -363,19 +386,23 @@ public interface Realm {
      * by Kerberos principal).
      *
      * @param gssName the GSS-API principal name
-     * @return the local username, or null if the principal cannot be mapped
+     * @param callback receives the local username, or null if the
+     *        principal cannot be mapped
      * @see <a href="https://www.rfc-editor.org/rfc/rfc4752#section-3.1">
      *      RFC 4752 §3.1</a>
      */
-    default String mapKerberosPrincipal(String gssName) {
+    default void mapKerberosPrincipal(String gssName,
+                                      RealmCallback<String> callback) {
         if (gssName == null) {
-            return null;
+            callback.completed(null);
+            return;
         }
         int atIndex = gssName.indexOf('@');
         if (atIndex > 0) {
-            return gssName.substring(0, atIndex);
+            callback.completed(gssName.substring(0, atIndex));
+            return;
         }
-        return gssName;
+        callback.completed(gssName);
     }
 
     /**

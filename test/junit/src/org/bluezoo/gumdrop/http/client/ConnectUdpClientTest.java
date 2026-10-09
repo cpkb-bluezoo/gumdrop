@@ -22,6 +22,7 @@
 package org.bluezoo.gumdrop.http.client;
 
 import java.net.InetAddress;
+import org.bluezoo.gumdrop.http.HttpVersion;
 import java.util.concurrent.atomic.AtomicReference;
 
 import org.junit.After;
@@ -83,7 +84,7 @@ public class ConnectUdpClientTest {
     @Test
     public void h3EnabledOnUnixSocketReportsErrorWithoutConnecting() {
         ConnectUdpClient client = new ConnectUdpClient("/tmp/connect-udp.sock");
-        client.setH3Enabled(true);
+        client.versions(HttpVersion.HTTP_3);
         final AtomicReference<Throwable> failure = new AtomicReference<Throwable>();
         client.connect(null, "example.test", 53,
                 new ConnectUdpEventHandler() {

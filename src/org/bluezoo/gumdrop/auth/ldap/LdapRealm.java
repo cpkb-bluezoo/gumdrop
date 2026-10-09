@@ -22,6 +22,7 @@
 package org.bluezoo.gumdrop.auth.ldap;
 
 import org.bluezoo.gumdrop.tls.KeystoreFormat;
+import org.bluezoo.gumdrop.tls.TlsConfig;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -35,24 +36,24 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.ResourceBundle;
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicReference;
 import java.util.logging.Logger;
 
 import javax.security.auth.x500.X500Principal;
 
 import org.bluezoo.gumdrop.auth.Realm;
+import org.bluezoo.gumdrop.auth.RealmCallback;
 import org.bluezoo.gumdrop.auth.SaslClientMechanism;
 import org.bluezoo.gumdrop.auth.SaslMechanism;
 import org.bluezoo.gumdrop.auth.SaslUtils;
 import org.bluezoo.gumdrop.Endpoint;
+import org.bluezoo.gumdrop.Gumdrop;
+import org.bluezoo.gumdrop.TimerHandle;
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.ldap.client.BindResultHandler;
 import org.bluezoo.gumdrop.ldap.client.LdapClient;
 import org.bluezoo.gumdrop.ldap.client.LdapConnected;
+import org.bluezoo.gumdrop.ldap.client.LdapPostTLS;
 import org.bluezoo.gumdrop.ldap.client.LdapConnectionReady;
 import org.bluezoo.gumdrop.ldap.client.LdapConstants;
 import org.bluezoo.gumdrop.ldap.client.LdapResult;
@@ -62,6 +63,7 @@ import org.bluezoo.gumdrop.ldap.client.SearchRequest;
 import org.bluezoo.gumdrop.ldap.client.SearchResultEntry;
 import org.bluezoo.gumdrop.ldap.client.SearchResultHandler;
 import org.bluezoo.gumdrop.ldap.client.SearchScope;
+import org.bluezoo.gumdrop.ldap.client.StartTLSResultHandler;
 import org.bluezoo.gumdrop.telemetry.EventLogger;
 import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
 
@@ -74,15 +76,14 @@ import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
  *
  * <h3>Configuration</h3>
  * <pre>{@code
- * <realm class="org.bluezoo.gumdrop.auth.ldap.LdapRealm">
- *   <host>ldap.example.com</host>
- *   <port>389</port>
- *   <baseDN>dc=example,dc=com</baseDN>
- *   <bindDN>cn=service,dc=example,dc=com</bindDN>
- *   <bindPassword>secret</bindPassword>
- *   <userFilter>(uid={0})</userFilter>
- *   <roleAttribute>memberOf</roleAttribute>
- * </realm>
+ * LdapRealm realm = new LdapRealm()
+ *     .host("ldap.example.com")
+ *     .port(389)
+ *     .baseDN("dc=example,dc=com")
+ *     .bindDN("cn=service,dc=example,dc=com")
+ *     .bindPassword("secret")
+ *     .userFilter("(uid={0})")
+ *     .roleAttribute("memberOf");
  * }</pre>
  *
  * <h3>Authentication Flow</h3>
@@ -95,14 +96,18 @@ import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
  *
  * <h3>SASL Bind (RFC 4513 §5.2)</h3>
  * <p>Optionally set {@code saslMechanism} to use SASL instead of simple bind.
- * Supported mechanisms: PLAIN, CRAM-MD5, DIGEST-MD5, EXTERNAL — implemented
- * via {@link SaslUtils#createClient} using gumdrop's own cryptographic
- * primitives (non-blocking, no JDK SASL dependency).
+ * Any mechanism {@link SaslUtils#createClient} can create may be named, for
+ * example PLAIN, CRAM-MD5, DIGEST-MD5, EXTERNAL or GSSAPI; they are
+ * implemented using gumdrop's own cryptographic primitives (no JDK SASL
+ * dependency).
  *
  * <h3>TLS Support</h3>
  * <ul>
- *   <li>LDAPS (port 636): Set {@code secure="true"} and configure {@code sslContext}</li>
- *   <li>STARTTLS: Set {@code startTLS="true"} and configure {@code sslContext}</li>
+ *   <li>LDAPS (port 636): call {@code secure(true)} and, to trust a private CA
+ *       or present a client certificate, {@link #tls(TlsConfig)}</li>
+ *   <li>STARTTLS (port 389): call {@code startTLS(true)}; each connection is
+ *       upgraded before any bind, and if the upgrade fails the operation
+ *       fails without sending credentials</li>
  * </ul>
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
@@ -127,9 +132,7 @@ public class LdapRealm implements Realm {
     private int port = LdapConstants.DEFAULT_PORT;
     private boolean secure = false;
     private boolean startTLS = false;
-    private Path keystoreFile;
-    private String keystorePass;
-    private KeystoreFormat keystoreFormat = KeystoreFormat.PKCS12;
+    private TlsConfig tls = new TlsConfig();
     private String baseDN = "";
     private String bindDN;
     private String bindPassword;
@@ -172,9 +175,7 @@ public class LdapRealm implements Realm {
         this.port = source.port;
         this.secure = source.secure;
         this.startTLS = source.startTLS;
-        this.keystoreFile = source.keystoreFile;
-        this.keystorePass = source.keystorePass;
-        this.keystoreFormat = source.keystoreFormat;
+        this.tls = new TlsConfig().copyFrom(source.tls);
         this.baseDN = source.baseDN;
         this.bindDN = source.bindDN;
         this.bindPassword = source.bindPassword;
@@ -191,61 +192,74 @@ public class LdapRealm implements Realm {
 
     // Configuration setters
 
-    public void setHost(String host) {
+    public LdapRealm host(String host) {
         this.host = host;
+        return this;
     }
 
-    public void setPort(int port) {
+    public LdapRealm port(int port) {
         this.port = port;
+        return this;
     }
 
-    public void setSecure(boolean secure) {
+    public LdapRealm secure(boolean secure) {
         this.secure = secure;
+        return this;
     }
 
-    public void setStartTLS(boolean startTLS) {
+    /**
+     * Sets the TLS settings used for the realm's LDAP connections: trust
+     * material for verifying the server, and a client identity if the server
+     * wants one. The settings are copied. Whether TLS is used is decided by
+     * {@link #secure(boolean)} (LDAPS) or {@link #startTLS(boolean)}.
+     *
+     * @param tls the TLS configuration
+     * @return this realm
+     */
+    public LdapRealm tls(TlsConfig tls) {
+        this.tls = new TlsConfig().copyFrom(tls);
+        return this;
+    }
+
+    public LdapRealm startTLS(boolean startTLS) {
         this.startTLS = startTLS;
+        return this;
     }
 
-    public void setKeystoreFile(Path keystoreFile) {
-        this.keystoreFile = keystoreFile;
-    }
-
-    public void setKeystorePass(String keystorePass) {
-        this.keystorePass = keystorePass;
-    }
-
-    public void setKeystoreFormat(KeystoreFormat keystoreFormat) {
-        this.keystoreFormat = keystoreFormat;
-    }
-
-    public void setBaseDN(String baseDN) {
+    public LdapRealm baseDN(String baseDN) {
         this.baseDN = baseDN;
+        return this;
     }
 
-    public void setBindDN(String bindDN) {
+    public LdapRealm bindDN(String bindDN) {
         this.bindDN = bindDN;
+        return this;
     }
 
-    public void setBindPassword(String bindPassword) {
+    public LdapRealm bindPassword(String bindPassword) {
         this.bindPassword = bindPassword;
+        return this;
     }
 
     /** @see <a href="https://www.rfc-editor.org/rfc/rfc4515">RFC 4515: LDAP Search Filters</a> */
-    public void setUserFilter(String userFilter) {
+    public LdapRealm userFilter(String userFilter) {
         this.userFilter = userFilter;
+        return this;
     }
 
-    public void setRoleAttribute(String roleAttribute) {
+    public LdapRealm roleAttribute(String roleAttribute) {
         this.roleAttribute = roleAttribute;
+        return this;
     }
 
-    public void setRolePrefix(String rolePrefix) {
+    public LdapRealm rolePrefix(String rolePrefix) {
         this.rolePrefix = rolePrefix;
+        return this;
     }
 
-    public void setTimeout(int timeout) {
+    public LdapRealm timeout(int timeout) {
         this.timeout = timeout;
+        return this;
     }
 
     /**
@@ -258,13 +272,16 @@ public class LdapRealm implements Realm {
      *
      * @param mechanism the SASL mechanism name, or null for simple bind
      * @see <a href="https://www.rfc-editor.org/rfc/rfc4513#section-5.2">RFC 4513 §5.2</a>
+     * @return this realm
      */
-    public void setSaslMechanism(String mechanism) {
+    public LdapRealm saslMechanism(String mechanism) {
         this.saslMechanism = mechanism;
+        return this;
     }
 
-    public void setSelectorLoop(SelectorLoop selectorLoop) {
+    public LdapRealm selectorLoop(SelectorLoop selectorLoop) {
         this.selectorLoop = selectorLoop;
+        return this;
     }
 
     /** How a client certificate is matched to a directory entry. */
@@ -282,9 +299,11 @@ public class LdapRealm implements Realm {
      *             certificate, or {@link CertLookupMode#SUBJECT} to extract
      *             CN from the certificate's
      *             Subject DN
+     * @return this realm
      */
-    public void setCertLookupMode(CertLookupMode mode) {
+    public LdapRealm certLookupMode(CertLookupMode mode) {
         this.certLookupMode = mode;
+        return this;
     }
 
     /**
@@ -292,9 +311,11 @@ public class LdapRealm implements Realm {
      * certificate entry.
      *
      * @param attribute the LDAP attribute name (default: "uid")
+     * @return this realm
      */
-    public void setCertUsernameAttribute(String attribute) {
+    public LdapRealm certUsernameAttribute(String attribute) {
         this.certUsernameAttribute = attribute;
+        return this;
     }
 
     /**
@@ -303,9 +324,11 @@ public class LdapRealm implements Realm {
      * the corresponding RDN values from the certificate's Subject DN.
      *
      * @param filter the filter template, e.g. "(uid={CN})"
+     * @return this realm
      */
-    public void setCertSubjectFilter(String filter) {
+    public LdapRealm certSubjectFilter(String filter) {
         this.certSubjectFilter = filter;
+        return this;
     }
 
     // Realm interface implementation
@@ -320,469 +343,382 @@ public class LdapRealm implements Realm {
         return SUPPORTED_MECHANISMS;
     }
 
-    /** RFC 4513 §5.1/§5.2 — authenticate via simple or SASL bind. */
+    /**
+     * RFC 4513 §5.1/§5.2 — authenticates via simple or SASL bind: binds as
+     * the service account, finds the user's DN, then re-binds as that DN with
+     * the password, all on one connection. A wrong password or unknown user
+     * completes with {@code false}; an unreachable or slow directory fails.
+     */
     @Override
-    public boolean passwordMatch(String username, String password) {
+    public void passwordMatch(String username, String password,
+                              RealmCallback<Boolean> callback) {
         if (username == null || password == null) {
-            return false;
+            callback.completed(Boolean.FALSE);
+            return;
         }
+        new PasswordMatch(username, password, callback).start();
+    }
 
-        try {
-            // First, find the user's DN
-            String userDN = findUserDN(username);
-            if (userDN == null) {
-                LOGGER.fine(MessageFormat.format(
-                        L10N.getString("debug.ldap_user_not_found"), username));
-                return false;
-            }
-
-            // Now try to bind as the user
-            return attemptBind(userDN, password);
-        } catch (Exception e) {
-            events().warn("warn.ldap_auth_error").attr("username", username).thrown(e).emit();
-            return false;
-        }
+    /** LDAP cannot supply H(A1) without the plaintext password. */
+    @Override
+    public void getDigestHA1(String username, String realmName,
+                             RealmCallback<String> callback) {
+        callback.completed(null);
     }
 
     @Override
-    public String getDigestHA1(String username, String realmName) {
-        // LDAP realm cannot provide H(A1) without plaintext password
-        return null;
-    }
-
-    @Override
-    @Deprecated
-    public String getPassword(String username) {
-        throw new UnsupportedOperationException("LDAP realm does not support password retrieval");
-    }
-
-    @Override
-    public boolean isUserInRole(String username, String role) {
+    public void isUserInRole(String username, String role,
+                             RealmCallback<Boolean> callback) {
         if (username == null || role == null) {
-            return false;
+            callback.completed(Boolean.FALSE);
+            return;
         }
-
-        try {
-            return checkUserRole(username, role);
-        } catch (Exception e) {
-            events().warn("warn.ldap_role_error").attr("username", username).thrown(e).emit();
-            return false;
-        }
+        new RoleCheck(username, role, callback).start();
     }
 
     @Override
-    public boolean userExists(String username) {
+    public void userExists(String username, RealmCallback<Boolean> callback) {
         if (username == null) {
-            return false;
+            callback.completed(Boolean.FALSE);
+            return;
         }
-
-        try {
-            return findUserDN(username) != null;
-        } catch (Exception e) {
-            events().warn("warn.ldap_user_error").attr("username", username).thrown(e).emit();
-            return false;
-        }
+        new UserLookup(username, callback).start();
     }
 
     /** Certificate-to-user mapping via LDAP search. */
     @Override
-    public CertificateAuthenticationResult authenticateCertificate(
-            X509Certificate certificate) {
+    public void authenticateCertificate(X509Certificate certificate,
+            RealmCallback<CertificateAuthenticationResult> callback) {
         if (certLookupMode == null) {
-            return null;
+            callback.completed(null);
+            return;
         }
-
+        String filter;
         try {
-            String username;
             if (certLookupMode == CertLookupMode.BINARY) {
-                username = findUserByBinaryCert(certificate);
+                filter = "(&(userCertificate;binary="
+                        + toLDAPBinaryEscape(certificate.getEncoded())
+                        + ")(objectClass=person))";
             } else {
-                username = findUserBySubjectDN(certificate);
+                if (certSubjectFilter == null) {
+                    events().warn("warn.cert_subject_filter_not_configured").emit();
+                    callback.completed(CertificateAuthenticationResult.failure());
+                    return;
+                }
+                String dn = certificate.getSubjectX500Principal()
+                        .getName(X500Principal.RFC2253);
+                filter = replaceRDNPlaceholders(certSubjectFilter, dn);
             }
-
-            if (username != null) {
-                return CertificateAuthenticationResult.success(username);
-            }
-            return CertificateAuthenticationResult.failure();
         } catch (Exception e) {
             events().warn("warn.certificate_authentication_error").thrown(e).emit();
-            return CertificateAuthenticationResult.failure();
+            callback.failed(e);
+            return;
         }
+        new CertificateLookup(filter, callback).start();
     }
 
     // LDAP operations
+    //
+    // Each realm operation is a small state machine driven by the LDAP
+    // client's callbacks, all of which run on this realm's selector loop:
+    // connect, bind as the service account, do the search, and complete.
+    // Nothing waits. A timer started with the operation fails it if the
+    // directory is too slow.
 
-    /**
-     * Finds the DN for a username by searching LDAP.
-     */
-    private String findUserDN(String username) throws Exception {
-        final String filter = userFilter.replace("{0}", escapeLDAPFilter(username));
+    /** One realm operation on one LDAP connection. */
+    private abstract class Operation<T> implements LdapConnectionReady {
 
-        final AtomicReference<String> foundDN = new AtomicReference<>();
-        final AtomicReference<Exception> error = new AtomicReference<>();
-        final CountDownLatch latch = new CountDownLatch(1);
+        private final RealmCallback<T> callback;
+        private final String warnKey;
+        private boolean done;
+        private TimerHandle timeoutHandle;
+        private LdapConnected connection;
+        private LdapSession session;
 
-        connectClientForTesting(new LdapConnectionReady() {
-            @Override
-            public void handleReady(LdapConnected connection) {
-                BindResultHandler bindHandler = new BindResultHandler() {
-                    @Override
-                    public void handleBindSuccess(LdapSession session) {
-                        // Service bind succeeded, now search for user
-                        SearchRequest search = new SearchRequest();
-                        search.setBaseDN(baseDN);
-                        search.setScope(SearchScope.SUBTREE);
-                        search.setFilter(filter);
-                        search.setAttributes("dn");
-                        search.setSizeLimit(1);
-                        session.search(search, new SearchResultHandler() {
-                            @Override
-                            public void handleEntry(SearchResultEntry entry) {
-                                foundDN.set(entry.getDN());
-                            }
-
-                            @Override
-                            public void handleReference(String[] referralUrls) {
-                                // Ignore referrals
-                            }
-
-                            @Override
-                            public void handleDone(LdapResult result, LdapSession sess) {
-                                sess.unbind();
-                                latch.countDown();
-                            }
-                        });
-                    }
-
-                    @Override
-                    public void handleBindFailure(LdapResult result, LdapConnected conn) {
-                        String msg = MessageFormat.format(L10N.getString("err.ldap_bind"), result);
-                        error.set(new Exception(msg));
-                        conn.unbind();
-                        latch.countDown();
-                    }
-                };
-                
-                performServiceBind(connection, bindHandler);
-            }
-
-            @Override
-            public void onConnected(Endpoint endpoint) {
-                // Connection established
-            }
-
-            @Override
-            public void onError(Exception cause) {
-                error.set(cause);
-                latch.countDown();
-            }
-
-            @Override
-            public void onDisconnected() {
-                latch.countDown();
-            }
-
-            @Override
-            public void onSecurityEstablished(SecurityInfo info) {
-                // Security established
-            }
-        });
-
-        if (!latch.await(timeout, TimeUnit.SECONDS)) {
-            throw new Exception(L10N.getString("err.ldap_timeout"));
+        Operation(RealmCallback<T> callback, String warnKey) {
+            this.callback = callback;
+            this.warnKey = warnKey;
         }
 
-        if (error.get() != null) {
-            throw error.get();
+        /** Called once bound as the service account. */
+        abstract void bound(LdapSession session);
+
+        final void start() {
+            timeoutHandle = scheduleTimeout(timeout * 1000L, new Runnable() {
+                @Override
+                public void run() {
+                    fail(new IOException(L10N.getString("err.ldap_timeout")));
+                }
+            });
+            connectClientForTesting(this);
         }
 
-        return foundDN.get();
+        @Override
+        public void handleReady(LdapConnected ready) {
+            if (done) {
+                ready.unbind();
+                return;
+            }
+            connection = ready;
+            performServiceBind(ready, new BindResultHandler() {
+                @Override
+                public void handleBindSuccess(LdapSession bound) {
+                    session = bound;
+                    connection = null;
+                    if (!done) {
+                        bound(bound);
+                    }
+                }
+
+                @Override
+                public void handleBindFailure(LdapResult result, LdapConnected conn) {
+                    fail(new IOException(MessageFormat.format(
+                            L10N.getString("err.ldap_bind"), result)));
+                }
+            });
+        }
+
+        @Override
+        public void onConnected(Endpoint endpoint) {
+        }
+
+        @Override
+        public void onSecurityEstablished(SecurityInfo info) {
+        }
+
+        @Override
+        public void onError(Exception cause) {
+            fail(cause);
+        }
+
+        @Override
+        public void onDisconnected() {
+            fail(new IOException("LDAP connection closed"));
+        }
+
+        /** Searches the subtree below the base DN, for at most one entry. */
+        final void search(LdapSession on, String filter, String attribute,
+                          SearchResultHandler handler) {
+            SearchRequest search = new SearchRequest();
+            search.setBaseDN(baseDN);
+            search.setScope(SearchScope.SUBTREE);
+            search.setFilter(filter);
+            search.setAttributes(attribute);
+            search.setSizeLimit(1);
+            on.search(search, handler);
+        }
+
+        final LdapSession session() {
+            return session;
+        }
+
+        final void succeed(T result) {
+            if (done) {
+                return;
+            }
+            finish();
+            callback.completed(result);
+        }
+
+        final void fail(Throwable cause) {
+            if (done) {
+                return;
+            }
+            finish();
+            events().warn(warnKey).thrown(cause).emit();
+            callback.failed(cause);
+        }
+
+        private void finish() {
+            done = true;
+            if (timeoutHandle != null) {
+                timeoutHandle.cancel();
+            }
+            LdapSession s = session;
+            LdapConnected c = connection;
+            session = null;
+            connection = null;
+            if (s != null) {
+                s.unbind();
+            } else if (c != null) {
+                c.unbind();
+            }
+        }
     }
 
-    /**
-     * Attempts to bind to LDAP with the given DN and password.
-     */
-    private boolean attemptBind(String dn, String password) throws Exception {
-        final AtomicBoolean success = new AtomicBoolean(false);
-        final AtomicReference<Exception> error = new AtomicReference<>();
-        final CountDownLatch latch = new CountDownLatch(1);
-
-        connectClientForTesting(new LdapConnectionReady() {
-            @Override
-            public void handleReady(LdapConnected connection) {
-                performUserBind(connection, dn, password, new BindResultHandler() {
-                    @Override
-                    public void handleBindSuccess(LdapSession session) {
-                        success.set(true);
-                        session.unbind();
-                        latch.countDown();
-                    }
-
-                    @Override
-                    public void handleBindFailure(LdapResult result, LdapConnected conn) {
-                        success.set(false);
-                        conn.unbind();
-                        latch.countDown();
-                    }
-                });
-            }
-
-            @Override
-            public void onConnected(Endpoint endpoint) {
-                // Connection established
-            }
-
-            @Override
-            public void onError(Exception cause) {
-                error.set(cause);
-                latch.countDown();
-            }
-
-            @Override
-            public void onDisconnected() {
-                latch.countDown();
-            }
-
-            @Override
-            public void onSecurityEstablished(SecurityInfo info) {
-                // Security established
-            }
-        });
-
-        if (!latch.await(timeout, TimeUnit.SECONDS)) {
-            throw new Exception(L10N.getString("err.ldap_timeout"));
+    /** Ignores referrals and finishes with the entries seen so far. */
+    private abstract class SearchHandler implements SearchResultHandler {
+        @Override
+        public void handleReference(String[] referralUrls) {
         }
-
-        if (error.get() != null) {
-            throw error.get();
-        }
-
-        return success.get();
     }
 
-    /**
-     * Checks if a user has a specific role by querying their memberOf attribute.
-     */
-    private boolean checkUserRole(String username, String role) throws Exception {
-        final String filter = userFilter.replace("{0}", escapeLDAPFilter(username));
-        final String targetRole = rolePrefix + role;
+    private final class PasswordMatch extends Operation<Boolean> {
 
-        final AtomicBoolean hasRole = new AtomicBoolean(false);
-        final AtomicReference<Exception> error = new AtomicReference<>();
-        final CountDownLatch latch = new CountDownLatch(1);
+        private final String username;
+        private final String password;
+        private String userDN;
 
-        connectClientForTesting(new LdapConnectionReady() {
-            @Override
-            public void handleReady(LdapConnected connection) {
-                BindResultHandler bindHandler = new BindResultHandler() {
-                    @Override
-                    public void handleBindSuccess(LdapSession session) {
-                        SearchRequest search = new SearchRequest();
-                        search.setBaseDN(baseDN);
-                        search.setScope(SearchScope.SUBTREE);
-                        search.setFilter(filter);
-                        search.setAttributes(roleAttribute);
-                        search.setSizeLimit(1);
-                        session.search(search, new SearchResultHandler() {
-                            @Override
-                            public void handleEntry(SearchResultEntry entry) {
-                                // Check if user has the role
-                                for (String value : entry.getAttributeStringValues(roleAttribute)) {
-                                    // memberOf typically contains full DNs like "cn=admins,ou=groups,dc=example,dc=com"
-                                    // We check if the role name appears in the value
-                                    if (value.toLowerCase().contains(targetRole.toLowerCase())) {
-                                        hasRole.set(true);
-                                        break;
-                                    }
-                                }
-                            }
-
-                            @Override
-                            public void handleReference(String[] referralUrls) {
-                                // Ignore referrals
-                            }
-
-                            @Override
-                            public void handleDone(LdapResult result, LdapSession sess) {
-                                sess.unbind();
-                                latch.countDown();
-                            }
-                        });
-                    }
-
-                    @Override
-                    public void handleBindFailure(LdapResult result, LdapConnected conn) {
-                        String msg = MessageFormat.format(L10N.getString("err.ldap_bind"), result);
-                        error.set(new Exception(msg));
-                        conn.unbind();
-                        latch.countDown();
-                    }
-                };
-
-                performServiceBind(connection, bindHandler);
-            }
-
-            @Override
-            public void onConnected(Endpoint endpoint) {
-                // Connection established
-            }
-
-            @Override
-            public void onError(Exception cause) {
-                error.set(cause);
-                latch.countDown();
-            }
-
-            @Override
-            public void onDisconnected() {
-                latch.countDown();
-            }
-
-            @Override
-            public void onSecurityEstablished(SecurityInfo info) {
-                // Security established
-            }
-        });
-
-        if (!latch.await(timeout, TimeUnit.SECONDS)) {
-            throw new Exception(L10N.getString("err.ldap_timeout"));
+        PasswordMatch(String username, String password, RealmCallback<Boolean> callback) {
+            super(callback, "warn.ldap_auth_error");
+            this.username = username;
+            this.password = password;
         }
 
-        if (error.get() != null) {
-            throw error.get();
+        @Override
+        void bound(LdapSession on) {
+            String filter = userFilter.replace("{0}", escapeLDAPFilter(username));
+            search(on, filter, "dn", new SearchHandler() {
+                @Override
+                public void handleEntry(SearchResultEntry entry) {
+                    if (userDN == null) {
+                        userDN = entry.getDN();
+                    }
+                }
+
+                @Override
+                public void handleDone(LdapResult result, LdapSession sess) {
+                    if (userDN == null) {
+                        succeed(Boolean.FALSE);
+                        return;
+                    }
+                    bindAsUser(sess);
+                }
+            });
         }
 
-        return hasRole.get();
+        /** Re-binds the connection as the user: success means the password is right. */
+        private void bindAsUser(LdapSession on) {
+            BindResultHandler handler = new BindResultHandler() {
+                @Override
+                public void handleBindSuccess(LdapSession bound) {
+                    succeed(Boolean.TRUE);
+                }
+
+                @Override
+                public void handleBindFailure(LdapResult result, LdapConnected conn) {
+                    LdapResultCode code = result.getResultCode();
+                    if (code == LdapResultCode.UNAVAILABLE || code == LdapResultCode.BUSY) {
+                        fail(new IOException(MessageFormat.format(
+                                L10N.getString("err.ldap_bind"), result)));
+                        return;
+                    }
+                    succeed(Boolean.FALSE);
+                }
+            };
+            if (saslMechanism == null) {
+                on.rebind(userDN, password, handler);
+                return;
+            }
+            SaslClientMechanism mechanism =
+                    SaslUtils.createClient(saslMechanism, userDN, password, host);
+            if (mechanism == null) {
+                fail(new IllegalStateException(
+                        "SASL mechanism not available: " + saslMechanism));
+                return;
+            }
+            on.rebindSASL(mechanism, handler);
+        }
     }
 
-    /**
-     * Finds a username by searching LDAP for an entry whose
-     * {@code userCertificate;binary} attribute matches the
-     * DER encoding of the presented certificate.
-     */
-    private String findUserByBinaryCert(X509Certificate certificate)
-            throws Exception {
-        byte[] der = certificate.getEncoded();
-        String derHex = toLDAPBinaryEscape(der);
-        String filter = "(&(userCertificate;binary=" + derHex
-                + ")(objectClass=person))";
+    private final class RoleCheck extends Operation<Boolean> {
 
-        return searchForUsername(filter);
+        private final String username;
+        private final String targetRole;
+        private boolean hasRole;
+
+        RoleCheck(String username, String role, RealmCallback<Boolean> callback) {
+            super(callback, "warn.ldap_role_error");
+            this.username = username;
+            this.targetRole = rolePrefix + role;
+        }
+
+        @Override
+        void bound(LdapSession on) {
+            String filter = userFilter.replace("{0}", escapeLDAPFilter(username));
+            search(on, filter, roleAttribute, new SearchHandler() {
+                @Override
+                public void handleEntry(SearchResultEntry entry) {
+                    // memberOf typically holds full DNs such as
+                    // "cn=admins,ou=groups,dc=example,dc=com": the role
+                    // matches if its name appears in a value
+                    for (String value : entry.getAttributeStringValues(roleAttribute)) {
+                        if (value.toLowerCase().contains(targetRole.toLowerCase())) {
+                            hasRole = true;
+                            break;
+                        }
+                    }
+                }
+
+                @Override
+                public void handleDone(LdapResult result, LdapSession sess) {
+                    succeed(Boolean.valueOf(hasRole));
+                }
+            });
+        }
     }
 
-    /**
-     * Finds a username by extracting RDN components from the
-     * certificate's Subject DN and searching LDAP with a configured
-     * filter template.
-     */
-    private String findUserBySubjectDN(X509Certificate certificate)
-            throws Exception {
-        if (certSubjectFilter == null) {
-            events().warn("warn.cert_subject_filter_not_configured").emit();
-            return null;
+    private final class UserLookup extends Operation<Boolean> {
+
+        private final String username;
+        private boolean found;
+
+        UserLookup(String username, RealmCallback<Boolean> callback) {
+            super(callback, "warn.ldap_user_error");
+            this.username = username;
         }
 
-        String dn = certificate.getSubjectX500Principal()
-                .getName(X500Principal.RFC2253);
-        String filter = certSubjectFilter;
-        // Replace {CN}, {O}, {OU} etc. with RDN values
-        filter = replaceRDNPlaceholders(filter, dn);
+        @Override
+        void bound(LdapSession on) {
+            String filter = userFilter.replace("{0}", escapeLDAPFilter(username));
+            search(on, filter, "dn", new SearchHandler() {
+                @Override
+                public void handleEntry(SearchResultEntry entry) {
+                    found = true;
+                }
 
-        return searchForUsername(filter);
+                @Override
+                public void handleDone(LdapResult result, LdapSession sess) {
+                    succeed(Boolean.valueOf(found));
+                }
+            });
+        }
     }
 
-    /**
-     * Searches LDAP with the given filter and returns the value of
-     * the certUsernameAttribute from the first matched entry.
-     */
-    private String searchForUsername(String filter) throws Exception {
-        final AtomicReference<String> foundUsername =
-                new AtomicReference<>();
-        final AtomicReference<Exception> error = new AtomicReference<>();
-        final CountDownLatch latch = new CountDownLatch(1);
+    private final class CertificateLookup
+            extends Operation<CertificateAuthenticationResult> {
 
-        connectClientForTesting(new LdapConnectionReady() {
-            @Override
-            public void handleReady(LdapConnected connection) {
-                BindResultHandler bindHandler = new BindResultHandler() {
-                    @Override
-                    public void handleBindSuccess(LdapSession session) {
-                        SearchRequest search = new SearchRequest();
-                        search.setBaseDN(baseDN);
-                        search.setScope(SearchScope.SUBTREE);
-                        search.setFilter(filter);
-                        search.setAttributes(certUsernameAttribute);
-                        search.setSizeLimit(1);
-                        session.search(search,
-                                new SearchResultHandler() {
-                            @Override
-                            public void handleEntry(
-                                    SearchResultEntry entry) {
-                                List<String> vals =
-                                        entry.getAttributeStringValues(
-                                                certUsernameAttribute);
-                                if (vals != null && !vals.isEmpty()) {
-                                    foundUsername.set(vals.get(0));
-                                }
-                            }
+        private final String filter;
+        private String foundUsername;
 
-                            @Override
-                            public void handleReference(
-                                    String[] referralUrls) {
-                            }
-
-                            @Override
-                            public void handleDone(LdapResult result,
-                                                   LdapSession sess) {
-                                sess.unbind();
-                                latch.countDown();
-                            }
-                        });
-                    }
-
-                    @Override
-                    public void handleBindFailure(LdapResult result,
-                                                  LdapConnected conn) {
-                        String msg = MessageFormat.format(
-                                L10N.getString("err.ldap_bind"), result);
-                        error.set(new Exception(msg));
-                        conn.unbind();
-                        latch.countDown();
-                    }
-                };
-
-                performServiceBind(connection, bindHandler);
-            }
-
-            @Override
-            public void onConnected(Endpoint endpoint) {
-            }
-
-            @Override
-            public void onError(Exception cause) {
-                error.set(cause);
-                latch.countDown();
-            }
-
-            @Override
-            public void onDisconnected() {
-                latch.countDown();
-            }
-
-            @Override
-            public void onSecurityEstablished(SecurityInfo info) {
-            }
-        });
-
-        if (!latch.await(timeout, TimeUnit.SECONDS)) {
-            throw new Exception(L10N.getString("err.ldap_timeout"));
+        CertificateLookup(String filter,
+                          RealmCallback<CertificateAuthenticationResult> callback) {
+            super(callback, "warn.certificate_authentication_error");
+            this.filter = filter;
         }
 
-        if (error.get() != null) {
-            throw error.get();
-        }
+        @Override
+        void bound(LdapSession on) {
+            search(on, filter, certUsernameAttribute, new SearchHandler() {
+                @Override
+                public void handleEntry(SearchResultEntry entry) {
+                    List<String> values =
+                            entry.getAttributeStringValues(certUsernameAttribute);
+                    if (values != null && !values.isEmpty()) {
+                        foundUsername = values.get(0);
+                    }
+                }
 
-        return foundUsername.get();
+                @Override
+                public void handleDone(LdapResult result, LdapSession sess) {
+                    if (foundUsername != null) {
+                        succeed(CertificateAuthenticationResult.success(foundUsername));
+                    } else {
+                        succeed(CertificateAuthenticationResult.failure());
+                    }
+                }
+            });
+        }
     }
 
     /**
@@ -883,34 +819,90 @@ public class LdapRealm implements Realm {
     }
 
     // Bind helpers — choose between simple bind and SASL bind
-    // based on the saslMechanism configuration property.
+    // based on the saslMechanism configuration property, upgrading the
+    // connection with STARTTLS first when startTLS is configured.
 
-    private void performServiceBind(LdapConnected connection,
-                                    BindResultHandler handler) {
-        if (bindDN != null && !bindDN.isEmpty()) {
-            if (saslMechanism != null) {
-                performSASLBind(connection, bindDN, bindPassword, handler);
-            } else {
-                connection.bind(bindDN, bindPassword, handler);
+    /** The bind operations common to a fresh and a TLS-upgraded connection. */
+    private interface Binder {
+        void bind(String dn, String password, BindResultHandler handler);
+
+        void bindSASL(SaslClientMechanism mechanism, BindResultHandler handler);
+
+        void bindAnonymous(BindResultHandler handler);
+    }
+
+    /** A step to run once the connection is ready to bind. */
+    private interface BindStep {
+        void run(Binder binder, LdapConnected connection);
+    }
+
+    private static Binder binderFor(final LdapConnected connection) {
+        return new Binder() {
+            @Override
+            public void bind(String dn, String password, BindResultHandler handler) {
+                connection.bind(dn, password, handler);
             }
-        } else {
-            connection.bindAnonymous(handler);
-        }
+
+            @Override
+            public void bindSASL(SaslClientMechanism mechanism, BindResultHandler handler) {
+                connection.bindSASL(mechanism, handler);
+            }
+
+            @Override
+            public void bindAnonymous(BindResultHandler handler) {
+                connection.bindAnonymous(handler);
+            }
+        };
     }
 
-    private void performUserBind(LdapConnected connection,
-                                 String dn, String password,
-                                 BindResultHandler handler) {
-        if (saslMechanism != null) {
-            performSASLBind(connection, dn, password, handler);
-        } else {
-            connection.bind(dn, password, handler);
-        }
+    private static Binder binderFor(final LdapPostTLS connection) {
+        return new Binder() {
+            @Override
+            public void bind(String dn, String password, BindResultHandler handler) {
+                connection.bind(dn, password, handler);
+            }
+
+            @Override
+            public void bindSASL(SaslClientMechanism mechanism, BindResultHandler handler) {
+                connection.bindSASL(mechanism, handler);
+            }
+
+            @Override
+            public void bindAnonymous(BindResultHandler handler) {
+                connection.bindAnonymous(handler);
+            }
+        };
     }
 
-    private void performSASLBind(LdapConnected connection,
-                                 String username, String password,
-                                 BindResultHandler handler) {
+    /**
+     * Runs {@code step} once the connection can bind: immediately, or after
+     * a STARTTLS upgrade when {@link #startTLS} is set and the connection is
+     * not already secure. If the upgrade fails the step is never run, so no
+     * credentials are sent in the clear, and {@code handler} receives the
+     * failure.
+     */
+    private void whenReady(final LdapConnected connection, final BindResultHandler handler,
+                           final BindStep step) {
+        if (!startTLS || secure) {
+            step.run(binderFor(connection), connection);
+            return;
+        }
+        connection.startTLS(new StartTLSResultHandler() {
+            @Override
+            public void handleTLSEstablished(LdapPostTLS secured) {
+                step.run(binderFor(secured), connection);
+            }
+
+            @Override
+            public void handleStartTLSFailure(LdapResult result, LdapConnected conn) {
+                handler.handleBindFailure(result, conn);
+            }
+        });
+    }
+
+    private void performSASLBind(Binder binder, LdapConnected connection,
+                                  String username, String password,
+                                  BindResultHandler handler) {
         SaslClientMechanism mechanism =
                 SaslUtils.createClient(saslMechanism, username, password, host);
         if (mechanism == null) {
@@ -922,7 +914,56 @@ public class LdapRealm implements Realm {
                     connection);
             return;
         }
-        connection.bindSASL(mechanism, handler);
+        binder.bindSASL(mechanism, handler);
+    }
+
+    private void performServiceBind(LdapConnected connection,
+                                    final BindResultHandler handler) {
+        whenReady(connection, handler, new BindStep() {
+            @Override
+            public void run(Binder binder, LdapConnected connection) {
+                if (bindDN != null && !bindDN.isEmpty()) {
+                    if (saslMechanism != null) {
+                        performSASLBind(binder, connection, bindDN, bindPassword, handler);
+                    } else {
+                        binder.bind(bindDN, bindPassword, handler);
+                    }
+                } else {
+                    binder.bindAnonymous(handler);
+                }
+            }
+        });
+    }
+
+    /**
+     * Test seam: starts the operation's timeout. The timer fires on this
+     * realm's loop. Unit tests override this to fire it by hand.
+     *
+     * @param delayMs the delay in milliseconds
+     * @param task what to run on timeout
+     * @return a handle that cancels the timer
+     */
+    TimerHandle scheduleTimeout(long delayMs, final Runnable task) {
+        final SelectorLoop loop = selectorLoop;
+        Gumdrop gumdrop = (loop != null) ? loop.getGumdrop() : null;
+        if (gumdrop == null) {
+            return new TimerHandle() {
+                @Override
+                public void cancel() {
+                }
+
+                @Override
+                public boolean isCancelled() {
+                    return false;
+                }
+            };
+        }
+        return gumdrop.scheduleTimer(null, delayMs, new Runnable() {
+            @Override
+            public void run() {
+                loop.invokeLater(task);
+            }
+        });
     }
 
     /**
@@ -937,21 +978,18 @@ public class LdapRealm implements Realm {
      * @param ready receives the connection, or the connection error
      */
     void connectClientForTesting(LdapConnectionReady ready) {
-        LdapClient client = createClient();
-        client.connect(selectorLoop.getGumdrop(), ready);
+        if (selectorLoop == null) {
+            ready.onError(new IllegalStateException(
+                    L10N.getString("err.ldap_no_selectorloop")));
+            return;
+        }
+        createClient().connect(selectorLoop.getGumdrop(), ready);
     }
 
     private LdapClient createClient() {
-        if (selectorLoop == null) {
-            throw new IllegalStateException(L10N.getString("err.ldap_no_selectorloop"));
-        }
         LdapClient client = new LdapClient(selectorLoop, host, port);
-        client.setSecure(secure);
-        if (keystoreFile != null) {
-            client.setKeystoreFile(keystoreFile);
-            client.setKeystorePass(keystorePass);
-            client.setKeystoreFormat(keystoreFormat);
-        }
+        client.secure(secure);
+        client.tls(tls);
         return client;
     }
 

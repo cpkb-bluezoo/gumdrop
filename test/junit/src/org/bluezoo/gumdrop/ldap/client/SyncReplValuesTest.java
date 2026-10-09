@@ -25,8 +25,8 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 
-import org.bluezoo.gumdrop.ldap.asn1.Asn1Exception;
-import org.bluezoo.gumdrop.ldap.asn1.BerEncoder;
+import org.bluezoo.gumdrop.asn1.Asn1Exception;
+import org.bluezoo.gumdrop.asn1.BerEncoder;
 import org.junit.Test;
 
 import static org.junit.Assert.assertArrayEquals;

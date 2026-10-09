@@ -56,8 +56,8 @@ public class StreamWellKnownHeaderValuesTest {
     @Test
     public void testFrameworkHeaderValuesAreTheSharedConstants() throws Exception {
         Http2Listener listener = new Http2Listener();
-        listener.setAddSecurityHeaders(true);
-        listener.setStreamHandler(new HttpStreamHandler() {
+        listener.addSecurityHeaders(true);
+        listener.streamHandler(new HttpStreamHandler() {
             @Override
             public HttpRequestHandler openStream(HttpResponse state) {
                 return new DefaultHttpRequestHandler();

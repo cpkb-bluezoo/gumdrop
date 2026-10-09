@@ -91,7 +91,7 @@ public class MailboxStorePop3SessionProvider implements Pop3ServerSessionProvide
         if (listener instanceof Pop3Listener) {
             Pop3Listener pop3Listener = (Pop3Listener) listener;
             if (mailboxFactory != null) {
-                pop3Listener.setMailboxFactory(mailboxFactory);
+                pop3Listener.mailboxFactory(mailboxFactory);
             }
         }
         return new DefaultPOP3Handler(greeting);

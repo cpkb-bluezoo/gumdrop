@@ -32,8 +32,8 @@ import java.util.Base64;
 import java.util.EnumSet;
 import java.util.Set;
 
-import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.auth.Realm;
+import org.bluezoo.gumdrop.auth.SynchronousRealm;
 import org.bluezoo.gumdrop.auth.SaslMechanism;
 import org.junit.Test;
 
@@ -45,14 +45,13 @@ import org.junit.Test;
  */
 public class DefaultHttpAuthenticationProviderTest {
 
-    private static final class StubRealm implements Realm {
+    private static final class StubRealm implements SynchronousRealm {
         final Set<SaslMechanism> mechanisms;
 
         StubRealm(Set<SaslMechanism> mechanisms) {
             this.mechanisms = mechanisms;
         }
 
-        @Override public Realm forSelectorLoop(SelectorLoop loop) { return this; }
         @Override public Set<SaslMechanism> getSupportedSASLMechanisms() { return mechanisms; }
         @Override public boolean passwordMatch(String username, String password) {
             return "u".equals(username) && "p".equals(password);
@@ -60,7 +59,6 @@ public class DefaultHttpAuthenticationProviderTest {
         @Override public String getDigestHA1(String username, String realmName) {
             return "ha1-" + username + "-" + realmName;
         }
-        @Override public String getPassword(String username) { return null; }
         @Override public boolean isUserInRole(String username, String role) { return false; }
         @Override public Realm.TokenValidationResult validateBearerToken(String token) {
             if ("good".equals(token)) {
@@ -73,15 +71,30 @@ public class DefaultHttpAuthenticationProviderTest {
         }
     }
 
+    /** Runs the provider's authentication; a synchronous realm answers inline. */
+    private static HttpAuthenticationProvider.AuthenticationResult authenticate(
+            HttpAuthenticationProvider p, String header) {
+        final HttpAuthenticationProvider.AuthenticationResult[] out =
+                new HttpAuthenticationProvider.AuthenticationResult[1];
+        p.authenticate(null, header, "GET", "/", new HttpAuthenticationProvider.AuthenticationCallback() {
+            @Override
+            public void completed(HttpAuthenticationProvider.AuthenticationResult result) {
+                out[0] = result;
+            }
+        });
+        assertNotNull("authentication should complete inline", out[0]);
+        return out[0];
+    }
+
     @Test
     public void testBasicWhenNoSpecialMechanisms() {
         Set<SaslMechanism> none = EnumSet.noneOf(SaslMechanism.class);
         DefaultHttpAuthenticationProvider p = new DefaultHttpAuthenticationProvider(new StubRealm(none));
         assertEquals("Basic realm=\"gumdrop\"", p.generateChallenge());
         String creds = Base64.getEncoder().encodeToString("u:p".getBytes(StandardCharsets.US_ASCII));
-        assertTrue(p.authenticate("Basic " + creds).success);
+        assertTrue(authenticate(p, "Basic " + creds).success);
         String bad = Base64.getEncoder().encodeToString("u:x".getBytes(StandardCharsets.US_ASCII));
-        assertFalse(p.authenticate("Basic " + bad).success);
+        assertFalse(authenticate(p, "Basic " + bad).success);
     }
 
     @Test
@@ -89,10 +102,10 @@ public class DefaultHttpAuthenticationProviderTest {
         Set<SaslMechanism> m = EnumSet.of(SaslMechanism.OAUTHBEARER);
         DefaultHttpAuthenticationProvider p = new DefaultHttpAuthenticationProvider(new StubRealm(m), "myrealm");
         assertEquals("Bearer realm=\"myrealm\"", p.generateChallenge());
-        HttpAuthenticationProvider.AuthenticationResult ok = p.authenticate("Bearer good");
+        HttpAuthenticationProvider.AuthenticationResult ok = authenticate(p, "Bearer good");
         assertTrue(ok.success);
         assertEquals("tokuser", ok.username);
-        assertFalse(p.authenticate("Bearer bad").success);
+        assertFalse(authenticate(p, "Bearer bad").success);
     }
 
     @Test

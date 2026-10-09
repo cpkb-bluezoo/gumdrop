@@ -168,9 +168,11 @@ public class DnssecTrustAnchorUpdater {
      * lower values are only for testing.
      *
      * @param ms the hold-down time in milliseconds
+     * @return this
      */
-    public void setAddHoldDownMs(long ms) {
+    public DnssecTrustAnchorUpdater addHoldDownMs(long ms) {
         this.addHoldDownMs = ms;
+        return this;
     }
 
     public long getAddHoldDownMs() {
@@ -184,9 +186,11 @@ public class DnssecTrustAnchorUpdater {
      * gumdrop defaults it to the same 30 days as the Add hold-down.
      *
      * @param ms the hold-down time in milliseconds
+     * @return this
      */
-    public void setRemoveHoldDownMs(long ms) {
+    public DnssecTrustAnchorUpdater removeHoldDownMs(long ms) {
         this.removeHoldDownMs = ms;
+        return this;
     }
 
     public long getRemoveHoldDownMs() {
@@ -198,9 +202,11 @@ public class DnssecTrustAnchorUpdater {
      * {@link #DEFAULT_CHECK_INTERVAL_MS}.
      *
      * @param ms the check interval in milliseconds
+     * @return this
      */
-    public void setCheckIntervalMs(long ms) {
+    public DnssecTrustAnchorUpdater checkIntervalMs(long ms) {
         this.checkIntervalMs = ms;
+        return this;
     }
 
     public long getCheckIntervalMs() {
@@ -217,10 +223,12 @@ public class DnssecTrustAnchorUpdater {
      * startup, per RFC 5011 section 2.3.
      *
      * @param file the state file (need not exist yet)
+     * @return this
      */
-    public void setStateFile(Path file) {
+    public DnssecTrustAnchorUpdater stateFile(Path file) {
         this.stateFile = file;
         loadState();
+        return this;
     }
 
     // ── Trust point management ──

@@ -223,6 +223,81 @@ public class FileHandlerAclTest {
                 body.contains("<D:write/>") || body.contains(":write/>"));
     }
 
+    /** A realm whose role answers are held until the test releases them. */
+    private static final class DeferringRealm extends BasicRealm {
+        final List<Runnable> held = new ArrayList<Runnable>();
+        boolean failAnswers;
+
+        @Override
+        public void isUserInRole(final String username, final String role,
+                final org.bluezoo.gumdrop.auth.RealmCallback<Boolean> callback) {
+            held.add(new Runnable() {
+                @Override
+                public void run() {
+                    if (failAnswers) {
+                        callback.failed(new java.io.IOException("directory down"));
+                    } else {
+                        callback.completed(Boolean.valueOf(isUserInRole(username, role)));
+                    }
+                }
+            });
+        }
+
+        void release() {
+            while (!held.isEmpty()) {
+                held.remove(0).run();
+            }
+        }
+    }
+
+    private RecordingState startPropfindWithSlowRealm(DeferringRealm slow, Principal who)
+            throws Exception {
+        FileHandler h = newHandler(slow);
+        byte[] body = ("<?xml version=\"1.0\"?><D:propfind xmlns:D=\"DAV:\"><D:prop><D:"
+                + DavConstants.PROP_CURRENT_USER_PRIVILEGE_SET + "/></D:prop></D:propfind>")
+                .getBytes(StandardCharsets.UTF_8);
+        List<Header> req = new ArrayList<Header>();
+        HeaderFields.add(req, ":method", "PROPFIND");
+        HeaderFields.add(req, ":path", "/hello.txt");
+        HeaderFields.add(req, DavConstants.HEADER_DEPTH, "0");
+        RecordingState st = new RecordingState(who);
+        respondTo(h, st);
+        MessageEvents.headers(h, req);
+        // The whole body arrives while the realm is still thinking.
+        h.bodyContent(ByteBuffer.wrap(body));
+        h.endMessage();
+        return st;
+    }
+
+    @Test
+    public void testSlowRealmHoldsRequestAndReplaysBodyWhenAnswered() throws Exception {
+        DeferringRealm slow = new DeferringRealm();
+        slow.addToRole("alice", "webdav:read");
+        slow.addToRole("alice", "webdav:write");
+        RecordingState st = startPropfindWithSlowRealm(slow, new TestPrincipal("alice"));
+        assertFalse("no answer until the realm has answered", st.await(100, TimeUnit.MILLISECONDS));
+        assertFalse(slow.held.isEmpty());
+        slow.release();
+        assertTrue(st.await(5, TimeUnit.SECONDS));
+        assertEquals(HttpStatus.MULTI_STATUS.code, st.status());
+        String body = new String(st.body(), StandardCharsets.UTF_8);
+        assertTrue(body, body.contains(":read/>"));
+        assertTrue(body, body.contains(":write/>"));
+    }
+
+    @Test
+    public void testRealmFailureGrantsNoPrivileges() throws Exception {
+        DeferringRealm slow = new DeferringRealm();
+        slow.addToRole("alice", "webdav:all");
+        slow.failAnswers = true;
+        RecordingState st = startPropfindWithSlowRealm(slow, new TestPrincipal("alice"));
+        slow.release();
+        assertTrue(st.await(5, TimeUnit.SECONDS));
+        String body = new String(st.body(), StandardCharsets.UTF_8);
+        assertFalse("a failed lookup must fail closed: " + body,
+                body.contains(":read/>") || body.contains(":write/>") || body.contains(":all/>"));
+    }
+
     @Test
     public void testCurrentUserPrivilegeSetEmptyForUnauthenticated() throws Exception {
         RecordingState st = propfind(newHandler(realm), "/hello.txt", null,

@@ -86,7 +86,7 @@ public class SocksTransferMockTest {
         gumdrop = TestGumdrop.create();
         server = new SocksServer();
         listener = new SocksListener();
-        listener.setServer(server);
+        listener.server(server);
         gumdrop.telemetryConfig(telemetryConfig());
         listener.start(gumdrop);
         newSession(gumdrop.nextWorkerLoop());
@@ -256,7 +256,7 @@ public class SocksTransferMockTest {
 
     @Test
     public void socks5DomainResolvedToBlockedAddressIsRejected() throws Exception {
-        server.setBlockedDestinations(CidrNetwork.parseList("10.0.0.0/8"));
+        server.blockedDestinations(CidrNetwork.parseList("10.0.0.0/8"));
         greet5();
         feed(domain5(SOCKS5_CMD_CONNECT, "internal.example", 80));
         List<InetAddress> found = new ArrayList<InetAddress>();
@@ -270,7 +270,7 @@ public class SocksTransferMockTest {
 
     @Test
     public void socks4aResolvedToBlockedAddressIsRejected() throws Exception {
-        server.setBlockedDestinations(CidrNetwork.parseList("10.0.0.0/8"));
+        server.blockedDestinations(CidrNetwork.parseList("10.0.0.0/8"));
         feed(request4a("internal.example", 80));
         List<InetAddress> found = new ArrayList<InetAddress>();
         found.add(addr(10, 1, 2, 3));
@@ -399,7 +399,7 @@ public class SocksTransferMockTest {
 
     @Test
     public void bindFromBlockedPeerIsRejected() throws Exception {
-        server.setBlockedDestinations(CidrNetwork.parseList("127.0.0.0/8"));
+        server.blockedDestinations(CidrNetwork.parseList("127.0.0.0/8"));
         greet5();
         feed(request5(SOCKS5_CMD_BIND, new byte[4], 0));
         transport.lastListener().accept(peerChannel("127.0.0.1"));
@@ -541,7 +541,7 @@ public class SocksTransferMockTest {
 
     @Test
     public void udpFragmentedBlockedEmptyAndForeignDatagramsAreDropped() throws Exception {
-        server.setBlockedDestinations(CidrNetwork.parseList("10.0.0.0/8"));
+        server.blockedDestinations(CidrNetwork.parseList("10.0.0.0/8"));
         associate();
         transport.clientPort().deliver(
                 udpHeader((byte) 1, ip(192, 0, 2, 50), 9, new byte[] {'f'}), clientSource());
@@ -580,7 +580,7 @@ public class SocksTransferMockTest {
 
     @Test
     public void udpDomainResolvedToBlockedAddressIsDropped() throws Exception {
-        server.setBlockedDestinations(CidrNetwork.parseList("10.0.0.0/8"));
+        server.blockedDestinations(CidrNetwork.parseList("10.0.0.0/8"));
         associate();
         transport.clientPort().deliver(
                 udpDomain("internal.example", 53, new byte[] {'n'}), clientSource());

@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.http.h3;
 
+import org.bluezoo.gumdrop.SelectorLoop;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
@@ -476,23 +477,27 @@ public class H3ServerFlowTest {
             }
 
             @Override
-            protected boolean passwordMatch(String realm, String username, String password) {
-                return "pw".equals(password);
+            protected void passwordMatch(SelectorLoop loop, String realm, String username,
+                    String password, org.bluezoo.gumdrop.auth.RealmCallback<Boolean> callback) {
+                callback.completed(Boolean.valueOf("pw".equals(password)));
             }
 
             @Override
-            protected String getDigestHA1(String realm, String username) {
-                return null;
+            protected void getDigestHA1(SelectorLoop loop, String realm, String username,
+                    org.bluezoo.gumdrop.auth.RealmCallback<String> callback) {
+                callback.completed(null);
             }
 
             @Override
-            protected org.bluezoo.gumdrop.auth.Realm.TokenValidationResult validateBearerToken(String token) {
-                return null;
+            protected void validateBearerToken(SelectorLoop loop, String token,
+                    org.bluezoo.gumdrop.auth.RealmCallback<org.bluezoo.gumdrop.auth.Realm.TokenValidationResult> callback) {
+                callback.completed(null);
             }
 
             @Override
-            protected org.bluezoo.gumdrop.auth.Realm.TokenValidationResult validateOAuthToken(String token) {
-                return null;
+            protected void validateOAuthToken(SelectorLoop loop, String token,
+                    org.bluezoo.gumdrop.auth.RealmCallback<org.bluezoo.gumdrop.auth.Realm.TokenValidationResult> callback) {
+                callback.completed(null);
             }
 
             @Override

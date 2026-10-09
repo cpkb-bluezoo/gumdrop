@@ -150,9 +150,11 @@ public abstract class HttpServer implements Server {
      * automatically to bridge the realm to HTTP authentication.
      *
      * @param realm the realm
+     * @return this
      */
-    public void setRealm(Realm realm) {
+    public HttpServer realm(Realm realm) {
         this.realm = realm;
+        return this;
     }
 
     /**
@@ -160,9 +162,11 @@ public abstract class HttpServer implements Server {
      * X-Content-Type-Options) to responses. Default: true.
      *
      * @param addSecurityHeaders true to add headers (unless app sets them)
+     * @return this
      */
-    public void setAddSecurityHeaders(boolean addSecurityHeaders) {
+    public HttpServer addSecurityHeaders(boolean addSecurityHeaders) {
         this.addSecurityHeaders = addSecurityHeaders;
+        return this;
     }
 
     /**
@@ -177,15 +181,16 @@ public abstract class HttpServer implements Server {
      * HTTP/3. XML property: {@code hsts-enabled} and related names on
      * the service.
      */
-    public void setHstsPolicy(HstsPolicy hstsPolicy) {
+    public HttpServer hstsPolicy(HstsPolicy hstsPolicy) {
         if (hstsPolicy == null || !hstsPolicy.isEnabled()) {
             hstsEnabled = false;
-            return;
+            return this;
         }
         hstsEnabled = true;
         hstsMaxAge = hstsPolicy.getMaxAgeSeconds();
         hstsIncludeSubDomains = hstsPolicy.isIncludeSubDomains();
         hstsPreload = hstsPolicy.isPreload();
+        return this;
     }
 
     public HstsPolicy getHstsPolicy() {
@@ -193,26 +198,30 @@ public abstract class HttpServer implements Server {
     }
 
     /** XML property: {@code hsts-enabled} */
-    public void setHstsEnabled(boolean enabled) {
+    public HttpServer hstsEnabled(boolean enabled) {
         hstsEnabled = enabled;
+        return this;
     }
 
     /** XML property: {@code hsts-max-age} */
-    public void setHstsMaxAge(long maxAgeSeconds) {
+    public HttpServer hstsMaxAge(long maxAgeSeconds) {
         if (maxAgeSeconds < 0) {
             throw new IllegalArgumentException("max-age must be non-negative");
         }
         hstsMaxAge = maxAgeSeconds;
+        return this;
     }
 
     /** XML property: {@code hsts-include-subdomains} */
-    public void setHstsIncludeSubDomains(boolean includeSubDomains) {
+    public HttpServer hstsIncludeSubDomains(boolean includeSubDomains) {
         hstsIncludeSubDomains = includeSubDomains;
+        return this;
     }
 
     /** XML property: {@code hsts-preload} */
-    public void setHstsPreload(boolean preload) {
+    public HttpServer hstsPreload(boolean preload) {
         hstsPreload = preload;
+        return this;
     }
 
     private HstsPolicy buildHstsPolicy() {
@@ -249,23 +258,6 @@ public abstract class HttpServer implements Server {
      *
      * <p>Returns all current listeners, both TCP and QUIC.
      */
-    /**
-     * Sets the listeners from a configuration list. Each item must be
-     * an {@link Http2Listener} or {@link Http3Listener}.
-     *
-     * @param list the list of listener endpoints
-     */
-    public void setListeners(List<?> list) {
-        for (int i = 0; i < list.size(); i++) {
-            Object item = list.get(i);
-            if (item instanceof Http3Listener) {
-                addListener((Http3Listener) item);
-            } else if (item instanceof Http2Listener) {
-                addListener((Http2Listener) item);
-            }
-        }
-    }
-
     @Override
     public List<? extends Listener> getListeners() {
         return Collections.unmodifiableList(listeners);
@@ -377,22 +369,22 @@ public abstract class HttpServer implements Server {
                               String altSvc) {
         if (listener instanceof Http2Listener) {
             Http2Listener tcp = (Http2Listener) listener;
-            tcp.setStreamHandler(streamHandler);
-            tcp.setAuthenticationProvider(authProvider);
-            tcp.setAddSecurityHeaders(addSecurityHeaders);
+            tcp.streamHandler(streamHandler);
+            tcp.authenticationProvider(authProvider);
+            tcp.addSecurityHeaders(addSecurityHeaders);
             if (tcp.isSecure() && hstsEnabled) {
-                tcp.setHstsPolicy(buildHstsPolicy());
+                tcp.hstsPolicy(buildHstsPolicy());
             }
             if (altSvc != null) {
-                tcp.setAltSvc(altSvc);
+                tcp.altSvc(altSvc);
             }
         } else if (listener instanceof Http3Listener) {
             Http3Listener quic = (Http3Listener) listener;
-            quic.setStreamHandler(streamHandler);
-            quic.setAuthenticationProvider(authProvider);
-            quic.setAddSecurityHeaders(addSecurityHeaders);
+            quic.streamHandler(streamHandler);
+            quic.authenticationProvider(authProvider);
+            quic.addSecurityHeaders(addSecurityHeaders);
             if (hstsEnabled) {
-                quic.setHstsPolicy(buildHstsPolicy());
+                quic.hstsPolicy(buildHstsPolicy());
             }
         }
     }
@@ -404,7 +396,7 @@ public abstract class HttpServer implements Server {
         if (listener instanceof Http3Listener) {
             Http3Listener h3 = (Http3Listener) listener;
             if (h3.getSelectorLoop() == null) {
-                h3.setSelectorLoop(gumdrop.nextWorkerLoop());
+                h3.selectorLoop(gumdrop.nextWorkerLoop());
             }
         }
         if (listener instanceof Listener) {
@@ -592,10 +584,10 @@ public abstract class HttpServer implements Server {
                 server.addListener(quicListeners.get(i));
             }
             if (realm != null) {
-                server.setRealm(realm);
+                server.realm(realm);
             }
-            server.setAddSecurityHeaders(addSecurityHeaders);
-            server.setHstsPolicy(hstsPolicy);
+            server.addSecurityHeaders(addSecurityHeaders);
+            server.hstsPolicy(hstsPolicy);
             return server;
         }
 

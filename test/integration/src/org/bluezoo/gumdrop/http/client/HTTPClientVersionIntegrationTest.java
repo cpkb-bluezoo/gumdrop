@@ -22,6 +22,7 @@
 package org.bluezoo.gumdrop.http.client;
 
 import org.bluezoo.gumdrop.http.HttpMethod;
+import org.bluezoo.gumdrop.tls.TlsConfig;
 import org.bluezoo.gumdrop.AbstractServerIntegrationTest;
 import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.SecurityInfo;
@@ -356,14 +357,13 @@ public class HTTPClientVersionIntegrationTest extends AbstractServerIntegrationT
         HttpClient client = new HttpClient(gumdrop.nextWorkerLoop(), TEST_HOST, port);
         // Keep the negotiated version deterministic: never let Alt-Svc silently
         // migrate the connection to h3 mid-test.
-        client.setAltSvcEnabled(false);
+        client.altSvcEnabled(false);
         if (secure) {
-            client.setSecure(true);
-            client.setTrustManager(TestTlsFiles.trustManager());
+            client.secure(true);
+            client.tls(new TlsConfig().trustManager(TestTlsFiles.trustManager()));
         }
         if (forceHttp11) {
-            client.setH2Enabled(false);
-            client.setH2cUpgradeEnabled(false);
+            client.versions(HttpVersion.HTTP_1_1);
         }
 
         final boolean isSecure = secure;

@@ -54,9 +54,9 @@ import org.bluezoo.gumdrop.tls.ServerCredentials;
  *
  * <h4>Plaintext with STARTTLS</h4>
  * <pre>{@code
- * ImapClient client = new ImapClient(selectorLoop, "imap.example.com", 143);
- * client.setClientCredentials(clientCredentials);
- * client.connect(new RemoteGreeting() {
+ * ImapClient client = new ImapClient("imap.example.com", 143)
+ *         .tls(tlsConfig);
+ * client.connect(gumdrop, new RemoteGreeting() {
  *     public void handleGreeting(ClientNotAuthenticatedState auth,
  *                                String greeting,
  *                                List<String> preAuthCapabilities) {
@@ -68,10 +68,10 @@ import org.bluezoo.gumdrop.tls.ServerCredentials;
  *
  * <h4>Implicit TLS (IMAPS)</h4>
  * <pre>{@code
- * ImapClient client = new ImapClient("imap.example.com", 993);
- * client.setSecure(true);
- * client.setClientCredentials(clientCredentials);
- * client.connect(greetingHandler);
+ * ImapClient client = new ImapClient("imap.example.com", 993)
+ *         .secure(true)
+ *         .tls(tlsConfig);
+ * client.connect(gumdrop, greetingHandler);
  * }</pre>
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
@@ -180,75 +180,6 @@ public class ImapClient {
     // ═══════════════════════════════════════════════════════════════════
 
     /**
-     * Sets whether this client uses implicit TLS (IMAPS).
-     *
-     * <p>When true, the connection starts with TLS immediately (port 993).
-     * When false, the connection starts plaintext and STARTTLS can be
-     * used to upgrade if client credentials are configured.
-     *
-     * @param secure true for implicit TLS
-     */
-    public void setSecure(boolean secure) {
-        this.secure = secure;
-    }
-
-    /**
-     * Sets client certificate credentials for TLS connections.
-     *
-     * <p>Required for both implicit TLS ({@code setSecure(true)}) and
-     * explicit TLS via STARTTLS. When set without {@code setSecure(true)},
-     * the in-tree TLS engine is configured but not started until the
-     * handler calls {@code endpoint.startTLS()}.
-     *
-     * @param clientCredentials the client certificate credentials, if any
-     */
-    public void setClientCredentials(ServerCredentials clientCredentials) {
-        tls.serverCredentials(clientCredentials);
-    }
-
-    /**
-     * Sets a custom trust manager for TLS certificate verification.
-     *
-     * <p>When set, the trust manager is injected into the transport
-     * factory's SSL context. Useful for certificate pinning
-     * ({@link org.bluezoo.gumdrop.util.PinnedCertTrustManager}) or
-     * disabling verification in dev/test
-     * ({@link org.bluezoo.gumdrop.util.EmptyX509TrustManager}).
-     *
-     * @param trustManager the trust manager, or null to use defaults
-     */
-    public void setTrustManager(X509TrustManager trustManager) {
-        tls.trustManager(trustManager);
-    }
-
-    /**
-     * Sets the keystore file for client certificate authentication.
-     *
-     * @param path the keystore file path
-     */
-    public void setKeystoreFile(Path path) {
-        tls.keystoreFile(path);
-    }
-
-    /**
-     * Sets the keystore password.
-     *
-     * @param password the keystore password
-     */
-    public void setKeystorePass(String password) {
-        tls.keystorePass(password);
-    }
-
-    /**
-     * Sets the keystore format (e.g. JKS, PKCS12).
-     *
-     * @param format the keystore format
-     */
-    public void setKeystoreFormat(KeystoreFormat format) {
-        tls.keystoreFormat(format);
-    }
-
-    /**
      * Sets the listener for unsolicited mailbox events.
      *
      * <p>Can be called before or after {@link #connect}. If called after,
@@ -270,38 +201,16 @@ public class ImapClient {
         return this;
     }
 
-    public ImapClient trustJvm() {
-        tls.trustJvm();
-        return this;
-    }
-
-    /** @return this client */
-    public ImapClient clientCredentials(ServerCredentials clientCredentials) {
-        tls.serverCredentials(clientCredentials);
-        return this;
-    }
-
-    /** @return this client */
-    public ImapClient trustManager(X509TrustManager trustManager) {
-        tls.trustManager(trustManager);
-        return this;
-    }
-
-    /** @return this client */
-    public ImapClient keystoreFile(Path path) {
-        tls.keystoreFile(path);
-        return this;
-    }
-
-    /** @return this client */
-    public ImapClient keystorePass(String password) {
-        tls.keystorePass(password);
-        return this;
-    }
-
-    /** @return this client */
-    public ImapClient keystoreFormat(KeystoreFormat format) {
-        tls.keystoreFormat(format);
+    /**
+     * Sets this client's TLS settings (certificates, trust, ECH and so on). The
+     * settings are copied, so later changes to {@code source} are not seen.
+     * Whether TLS is used at all is decided by {@link #secure(boolean)}.
+     *
+     * @param source the TLS configuration
+     * @return this client
+     */
+    public ImapClient tls(TlsConfig source) {
+        tls.copyFrom(source);
         return this;
     }
 

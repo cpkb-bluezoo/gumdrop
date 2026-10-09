@@ -73,20 +73,20 @@ public class ImapServerTest {
         assertNull(s.getQuotaManager());
         assertTrue(s.getListeners().isEmpty());
 
-        s.setLoginTimeoutMs(1L);
-        s.setCommandTimeoutMs(2L);
-        s.setEnableIDLE(false);
-        s.setEnableNAMESPACE(false);
-        s.setEnableQUOTA(false);
-        s.setEnableMOVE(false);
-        s.setEnableCOMPRESS(false);
-        s.setEnableUTF8ACCEPT(false);
-        s.setEnableSORT(false);
-        s.setAllowPlaintextLogin(true);
-        s.setMaxLineLength(100);
-        s.setMaxLiteralSize(200);
+        s.loginTimeoutMs(1L);
+        s.commandTimeoutMs(2L);
+        s.enableIDLE(false);
+        s.enableNAMESPACE(false);
+        s.enableQUOTA(false);
+        s.enableMOVE(false);
+        s.enableCOMPRESS(false);
+        s.enableUTF8ACCEPT(false);
+        s.enableSORT(false);
+        s.allowPlaintextLogin(true);
+        s.maxLineLength(100);
+        s.maxLiteralSize(200);
         RoleBasedQuotaManager qm = new RoleBasedQuotaManager();
-        s.setQuotaManager(qm);
+        s.quotaManager(qm);
         assertEquals(1L, s.getLoginTimeoutMs());
         assertEquals(2L, s.getCommandTimeoutMs());
         assertFalse(s.isEnableIDLE());
@@ -103,19 +103,6 @@ public class ImapServerTest {
     }
 
     @Test
-    public void testSetListenersFiltersNonImap() {
-        ImapServer s = new ImapServer();
-        List<Object> mixed = new ArrayList<Object>();
-        mixed.add(new ImapListener());
-        mixed.add("not a listener");
-        mixed.add(new ImapListener());
-        s.setListeners(mixed);
-        assertEquals(2, s.getListeners().size());
-        s.addListener(new ImapListener());
-        assertEquals(3, s.getListeners().size());
-    }
-
-    @Test
     public void testOpenSessionWithoutProviderIsNull() {
         ImapServer s = new ImapServer();
         TcpListener l = new ImapListener();
@@ -126,15 +113,15 @@ public class ImapServerTest {
     @Test
     public void testSetMailboxFactoryCreatesProvider() {
         ImapServer s = new ImapServer();
-        s.setMailboxFactory(null);
+        s.mailboxFactory(null);
         assertNull(s.getMailboxFactory());
         assertNull(s.openSession(new ImapListener()));
         MailboxFactory f = factory();
-        s.setMailboxFactory(f);
+        s.mailboxFactory(f);
         assertSame(f, s.getMailboxFactory());
         assertNotNull(s.openSession(new ImapListener()));
         MailboxFactory g = factory();
-        s.setMailboxFactory(g);
+        s.mailboxFactory(g);
         assertSame(g, s.getMailboxFactory());
     }
 
@@ -149,7 +136,7 @@ public class ImapServerTest {
                         return custom;
                     }
                 }).server();
-        s.setMailboxFactory(factory());
+        s.mailboxFactory(factory());
         assertSame(custom, s.openSession(new ImapListener()));
     }
 

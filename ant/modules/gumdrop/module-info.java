@@ -94,7 +94,7 @@ module org.bluezoo.gumdrop {
     exports org.bluezoo.gumdrop.mime.rfc2231;
     exports org.bluezoo.gumdrop.mime.rfc5322;
     exports org.bluezoo.gumdrop.ldap.client;
-    exports org.bluezoo.gumdrop.ldap.asn1;
+    exports org.bluezoo.gumdrop.asn1;
     exports org.bluezoo.gumdrop.redis.client;
     exports org.bluezoo.gumdrop.redis.codec;
     exports org.bluezoo.gumdrop.telemetry;

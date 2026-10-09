@@ -22,6 +22,9 @@
 package org.bluezoo.gumdrop.dns.client;
 
 import java.io.ByteArrayOutputStream;
+import org.bluezoo.gumdrop.client.ClientDefaults;
+import org.bluezoo.gumdrop.client.ClientConnect;
+import org.bluezoo.gumdrop.tls.TlsConfig;
 import java.io.IOException;
 import java.net.InetAddress;
 import java.nio.ByteBuffer;
@@ -70,6 +73,7 @@ public class DoQClientTransport implements DnsClientTransport {
     private SelectorLoop loop;
     private DnsClientTransportHandler handler;
     private String pinnedCertFingerprint;
+    private TlsConfig tls;
     private Path caFile;
 
     // Set from whichever of ConnectionAcceptedHandler/EarlyDataHandler
@@ -109,8 +113,9 @@ public class DoQClientTransport implements DnsClientTransport {
      *                    "SHA-256:" prefix
      * @see org.bluezoo.gumdrop.TransportFactory#setPinnedCertFingerprint
      */
-    public void setPinnedCertFingerprint(String fingerprint) {
+    public DoQClientTransport pinnedCertFingerprint(String fingerprint) {
         this.pinnedCertFingerprint = fingerprint;
+        return this;
     }
 
     /**
@@ -120,8 +125,20 @@ public class DoQClientTransport implements DnsClientTransport {
      * @param caFile the CA certificate file path
      * @see org.bluezoo.gumdrop.quic.QuicTransportFactory#setCaFile(Path)
      */
-    public void setCaFile(Path caFile) {
+    public DoQClientTransport caFile(Path caFile) {
         this.caFile = caFile;
+        return this;
+    }
+
+    /**
+     * Sets the TLS settings for the QUIC connection (trust material, client
+     * identity). Must be called before {@link #open}.
+     *
+     * @param tls the TLS configuration, or null for the JVM defaults
+     */
+    public DoQClientTransport tls(TlsConfig tls) {
+        this.tls = tls;
+        return this;
     }
 
     @Override
@@ -144,6 +161,9 @@ public class DoQClientTransport implements DnsClientTransport {
         // SPKI-pinning-as-alternative precedent for DNS-over-TLS clients
         // in the same situation.
         factory.setVerifyHostname(false);
+        if (tls != null) {
+            ClientConnect.applyToQuicFactory(ClientDefaults.effectiveTls(tls), factory);
+        }
         if (pinnedCertFingerprint != null) {
             factory.setPinnedCertFingerprint(pinnedCertFingerprint);
         }

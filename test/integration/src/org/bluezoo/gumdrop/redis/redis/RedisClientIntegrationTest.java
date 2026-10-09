@@ -22,6 +22,7 @@
 package org.bluezoo.gumdrop.redis.redis;
 
 import org.bluezoo.gumdrop.Endpoint;
+import org.bluezoo.gumdrop.tls.TlsConfig;
 import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.redis.client.BulkResultHandler;
@@ -240,8 +241,8 @@ public class RedisClientIntegrationTest {
         X509Certificate serverCert = RedisTestSupport.loadServerCertificate();
 
         RedisClient client = new RedisClient(RedisTestSupport.HOST, RedisTestSupport.TLS_PORT);
-        client.setSecure(true);
-        client.setTrustManager(pinningTrustManager(serverCert));
+        client.secure(true);
+        client.tls(new TlsConfig().trustManager(pinningTrustManager(serverCert)));
 
         String key = "gumdrop-tls-test-" + System.nanoTime();
         CountDownLatch doneLatch = new CountDownLatch(1);

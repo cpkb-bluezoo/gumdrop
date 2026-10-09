@@ -212,7 +212,7 @@ public class UpstreamRelayHandlerTransportTest {
     @Test
     public void testExistingOptIsKeptAndDnssecSetsDoBit() throws Exception {
         handler.setUpstreamServers("192.0.2.1");
-        handler.setDnssecEnabled(true);
+        handler.dnssecEnabled(true);
         List<DnsResourceRecord> adds = new ArrayList<DnsResourceRecord>();
         adds.add(DnsResourceRecord.opt(1400));
         Capture c = new Capture();

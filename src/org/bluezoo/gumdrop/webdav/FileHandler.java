@@ -27,6 +27,7 @@ import org.bluezoo.util.ByteArrays;
 import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.auth.Realm;
+import org.bluezoo.gumdrop.auth.RealmCallback;
 import org.bluezoo.gumdrop.StorageExecutor;
 import org.bluezoo.gumdrop.http.server.DefaultHttpRequestHandler;
 import org.bluezoo.gumdrop.util.AsyncFile;
@@ -43,13 +44,13 @@ import org.bluezoo.gumdrop.quota.QuotaPolicy;
 import org.bluezoo.gumdrop.telemetry.EventLogger;
 import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
 
-import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.UnsupportedEncodingException;
 import java.net.URI;
 import java.net.URLDecoder;
 import java.nio.ByteBuffer;
 import java.nio.channels.CompletionHandler;
+import java.nio.channels.WritableByteChannel;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.FileVisitResult;
 import java.nio.file.DirectoryIteratorException;
@@ -71,6 +72,7 @@ import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.ResourceBundle;
@@ -131,7 +133,7 @@ class FileHandler extends DefaultHttpRequestHandler {
     private final Map<String, String> contentTypes;
     private final WebDAVLockManager lockManager;
 
-    /** The locks covering each PROPFIND resource, read off the loop by {@link #gatherPropfindData}. */
+    /** The locks covering the resources of the PROPFIND batch being written, read off the loop with the batch. */
     private Map<Path, List<WebDAVLock>> propfindLocks;
     private final DeadPropertyStore deadPropertyStore;
 
@@ -154,6 +156,10 @@ class FileHandler extends DefaultHttpRequestHandler {
      * by this class.
      */
     private Principal principal;
+    /** Roles the principal holds among the {@code webdav:} privilege roles, resolved before the request is processed. */
+    private final Set<String> grantedRoles = new HashSet<String>();
+    /** Body events received while privilege roles are being resolved; null once resolved. */
+    private List<Runnable> heldEvents;
 
     // Request state
     private String method;
@@ -316,7 +322,29 @@ class FileHandler extends DefaultHttpRequestHandler {
             // its own.
             principal = response.getPrincipal();
             realm = (loop != null) ? serverRealm.forSelectorLoop(loop) : serverRealm;
+            if (principal != null) {
+                // Realm lookups are asynchronous (an LDAP realm talks to
+                // a directory), so resolve every privilege role up front;
+                // body events arriving meanwhile are held and replayed.
+                heldEvents = new ArrayList<Runnable>();
+                resolvePrivilegeRoles(principal.getName(), new Runnable() {
+                    @Override
+                    public void run() {
+                        startRequest();
+                        List<Runnable> held = heldEvents;
+                        heldEvents = null;
+                        for (Runnable event : held) {
+                            event.run();
+                        }
+                    }
+                });
+                return;
+            }
         }
+        startRequest();
+    }
+
+    private void startRequest() {
         // Extract request info from headers
         this.requestHeaders = headers;
         method = HeaderFields.getValue(headers, ":method");
@@ -369,6 +397,18 @@ class FileHandler extends DefaultHttpRequestHandler {
 
     @Override
     public void bodyContent(ByteBuffer data) {
+        if (heldEvents != null) {
+            final ByteBuffer copy = ByteBuffer.allocate(data.remaining());
+            copy.put(data);
+            copy.flip();
+            heldEvents.add(new Runnable() {
+                @Override
+                public void run() {
+                    bodyContent(copy);
+                }
+            });
+            return;
+        }
         // A real body is confirmed to be arriving -- see the
         // pendingNoBodyAction field comment.
         bodyReceived = true;
@@ -482,6 +522,15 @@ class FileHandler extends DefaultHttpRequestHandler {
 
     @Override
     public void endMessage() {
+        if (heldEvents != null) {
+            heldEvents.add(new Runnable() {
+                @Override
+                public void run() {
+                    endMessage();
+                }
+            });
+            return;
+        }
         if (bodyReceived) {
             endRequestBody();
         }
@@ -1000,8 +1049,7 @@ class FileHandler extends DefaultHttpRequestHandler {
      */
     private void sendDeleteMultiStatus(HttpResponse response, List<String[]> errors)
             throws IOException {
-        ByteArrayOutputStream baos = new ByteArrayOutputStream();
-        XMLWriter xml = new XMLWriter(baos);
+        XMLWriter xml = startXmlResponse(response, HttpStatus.MULTI_STATUS);
 
         davStart(xml, DavConstants.ELEM_MULTISTATUS);
         xml.writeNamespace(DavConstants.PREFIX, DavConstants.NAMESPACE);
@@ -1023,11 +1071,6 @@ class FileHandler extends DefaultHttpRequestHandler {
         davEnd(xml, DavConstants.ELEM_MULTISTATUS);
         xml.close();
 
-        byte[] body = baos.toByteArray();
-        response.status(HttpStatus.MULTI_STATUS.code);
-        response.header("Content-Type", DavConstants.CONTENT_TYPE_XML);
-        response.longHeader("Content-Length", body.length);
-        response.bodyContent(ByteBuffer.wrap(body));
         response.endMessage();
     }
 
@@ -1656,186 +1699,475 @@ class FileHandler extends DefaultHttpRequestHandler {
     // ─────────────────────────────────────────────────────────────────────────
 
     /**
-     * RFC 4918 section 9.1 -- 207 Multi-Status PROPFIND response.
-     * Pre-loads dead properties for all resources (async), then
-     * builds the XML response synchronously.
+     * RFC 4918 section 9.1 -- 207 Multi-Status PROPFIND response, streamed.
+     *
+     * <p>The tree is walked a batch of resources at a time, off the loop;
+     * each batch is written as XML and sent as it is produced, and the next
+     * batch is not read until the transport can take more. Neither the walk
+     * nor the response is ever held whole in memory, whatever the size of
+     * the tree.
      */
     private void sendPropfindResponse(final HttpResponse response,
             final WebDAVRequestParser.PropfindType type,
             final List<WebDAVRequestParser.PropertyRef> requestedProps,
             final List<WebDAVRequestParser.PropertyRef> include) {
+        propfindStream = new PropfindStream(response, type, requestedProps);
+        propfindStream.begin();
+    }
 
-        offload(response, new Callable<PropfindData>() {
-            @Override
-            public PropfindData call() throws IOException {
-                return gatherPropfindData();
-            }
-        }, new StorageExecutor.Callback<PropfindData>() {
-            @Override
-            public void completed(PropfindData data) {
-                if (data.error != null) {
-                    sendError(response, data.error);
-                    return;
-                }
-                if (deadPropertyStore != null
-                        && deadPropertyStore.getMode()
-                                != DeadPropertyStore.Mode.NONE) {
-                    loadDeadPropertiesParallel(data.resources,
-                            new HashMap<Path, Map<String, DeadProperty>>(),
-                            response, type, requestedProps, data.attrs);
-                } else {
-                    buildPropfindResponse(response, data.resources, type,
-                            requestedProps,
-                            new HashMap<Path, Map<String, DeadProperty>>(),
-                            data.attrs);
-                }
-            }
+    /** How many resources a PROPFIND reads, writes and then waits to send at a time. */
+    static final int PROPFIND_BATCH_SIZE = 64;
 
-            @Override
-            public void failed(Throwable error) {
-                events().error("severe.propfind_enumeration_error").thrown(error).emit();
-                sendError(response, HttpStatus.INTERNAL_SERVER_ERROR);
+    /** Size of the XML writer's buffer: the largest chunk it sends on its own. */
+    static final int XML_BUFFER_SIZE = 16 * 1024;
+
+    /** The PROPFIND being streamed, so that a failed connection can stop it. */
+    private PropfindStream propfindStream;
+
+    /**
+     * Stops a streamed response whose connection has failed: nothing more is
+     * read from the file system or written.
+     */
+    @Override
+    public void failed(Exception cause) {
+        closeReadChannel();
+        PropfindStream stream = propfindStream;
+        if (stream != null) {
+            stream.abort();
+        }
+    }
+
+    /** A {@link WritableByteChannel} whose writes are body chunks of a response. */
+    private static final class ChunkChannel implements WritableByteChannel {
+
+        private final HttpResponse response;
+        private boolean open = true;
+
+        ChunkChannel(HttpResponse response) {
+            this.response = response;
+        }
+
+        @Override
+        public int write(ByteBuffer src) {
+            int n = src.remaining();
+            if (n == 0) {
+                return 0;
             }
-        });
+            byte[] copy = new byte[n];
+            src.get(copy);
+            response.bodyContent(ByteBuffer.wrap(copy));
+            return n;
+        }
+
+        @Override
+        public boolean isOpen() {
+            return open;
+        }
+
+        @Override
+        public void close() {
+            open = false;
+        }
     }
 
     /**
-     * Enumerated PROPFIND resources plus their pre-fetched attributes, gathered
-     * off the loop so the XML response can be built without per-resource stats.
+     * Starts an XML response whose body is sent in chunks as the writer fills
+     * its buffer, with no Content-Length. Headers may still be added until the
+     * first chunk goes out, which is not before the buffer is full or the
+     * writer is closed.
      */
-    private static final class PropfindData {
+    private static XMLWriter startXmlResponse(HttpResponse response, HttpStatus status)
+            throws IOException {
+        response.status(status.code);
+        response.header("Content-Type", DavConstants.CONTENT_TYPE_XML);
+        return new XMLWriter(new ChunkChannel(response), XML_BUFFER_SIZE);
+    }
+
+    /** One batch of PROPFIND resources, with what is read for them off the loop. */
+    private static final class PropfindBatch {
         HttpStatus error;
-        List<Path> resources;
-        Map<Path, BasicFileAttributes> attrs;
+        final List<Path> resources = new ArrayList<Path>();
+        final Map<Path, BasicFileAttributes> attrs = new HashMap<Path, BasicFileAttributes>();
+        final Map<Path, List<WebDAVLock>> locks = new HashMap<Path, List<WebDAVLock>>();
+        boolean done;
     }
 
     /**
-     * Performs the blocking PROPFIND enumeration off the loop: walks the tree
-     * (bounded by Depth) and reads each resource's attributes up front.
-     * Resources that vanish or become unreadable mid-walk are dropped rather
-     * than aborting the whole Multi-Status.
+     * A depth-first walk of a PROPFIND tree that is advanced a batch at a
+     * time, holding one open directory per level and nothing else. Resources
+     * come out parent first, each once, in directory order; hidden entries
+     * and links that lead out of the tree are left out. Used from the
+     * storage pool, one batch at a time.
      */
-    private PropfindData gatherPropfindData() throws IOException {
-        PropfindData data = new PropfindData();
-        if (path == null || !bindCanonicalPath() || !Files.exists(path)) {
-            data.error = HttpStatus.NOT_FOUND;
-            return data;
+    private final class PropfindWalker {
+
+        private final class Frame {
+            final DirectoryStream<Path> stream;
+            final Iterator<Path> children;
+            final int depthLeft;
+
+            Frame(DirectoryStream<Path> stream, int depthLeft) {
+                this.stream = stream;
+                this.children = stream.iterator();
+                this.depthLeft = depthLeft;
+            }
         }
-        List<Path> resources = collectResources(path, depth);
-        Map<Path, BasicFileAttributes> attrs =
-                new HashMap<Path, BasicFileAttributes>();
-        List<Path> usable = new ArrayList<Path>(resources.size());
-        for (int i = 0; i < resources.size(); i++) {
-            Path resource = resources.get(i);
+
+        private final Path root;
+        private final int depth;
+        private final List<Path> ancestors = new ArrayList<Path>();
+        private final List<Frame> stack = new ArrayList<Frame>();
+        private boolean rootReturned;
+        private Path toDescend;
+        private int toDescendDepth;
+        private Path lookahead;
+        private boolean closed;
+
+        PropfindWalker(Path root, int depth) throws IOException {
+            this.root = root;
+            this.depth = depth;
+            ancestors.add(root.toRealPath());
+        }
+
+        private void push(Path dir, int depthLeft) throws IOException {
+            if (!dir.equals(root)) {
+                ancestors.add(dir.toRealPath());
+            }
+            stack.add(new Frame(Files.newDirectoryStream(dir), depthLeft));
+        }
+
+        private void pop() throws IOException {
+            Frame frame = stack.remove(stack.size() - 1);
+            ancestors.remove(ancestors.size() - 1);
+            frame.stream.close();
+        }
+
+        private Path advance() throws IOException {
             try {
-                attrs.put(resource, Files.readAttributes(resource,
-                        BasicFileAttributes.class));
-                usable.add(resource);
-            } catch (IOException e) {
-                LOGGER.log(Level.FINE, MessageFormat.format(
-                        L10N.getString("fine.propfind_skip_unreadable"), resource), e);
+                if (!rootReturned) {
+                    rootReturned = true;
+                    if (depth > 0 && Files.isDirectory(root)) {
+                        toDescend = root;
+                        toDescendDepth = depth;
+                    }
+                    return root;
+                }
+                while (true) {
+                    if (toDescend != null) {
+                        Path dir = toDescend;
+                        toDescend = null;
+                        push(dir, toDescendDepth);
+                    }
+                    if (stack.isEmpty()) {
+                        return null;
+                    }
+                    Frame top = stack.get(stack.size() - 1);
+                    if (!top.children.hasNext()) {
+                        pop();
+                        continue;
+                    }
+                    Path child = top.children.next();
+                    if (child.getFileName().toString().startsWith(".")) {
+                        continue; // hidden
+                    }
+                    if (Files.isSymbolicLink(child)
+                            && !isSafeToFollowLink(child, ancestors, null)) {
+                        logLinkLeftOut(child);
+                        continue;
+                    }
+                    if (top.depthLeft > 1 && Files.isDirectory(child)) {
+                        toDescend = child;
+                        toDescendDepth = top.depthLeft - 1;
+                    }
+                    return child;
+                }
+            } catch (DirectoryIteratorException e) {
+                throw e.getCause();
             }
         }
-        data.resources = usable;
-        data.attrs = attrs;
-        // Read the locks here: with a shared lock root each lookup is file
-        // I/O, and the response is built on the loop.
-        Map<Path, List<WebDAVLock>> locks = new HashMap<Path, List<WebDAVLock>>();
-        if (lockManager != null) {
-            for (int i = 0; i < usable.size(); i++) {
-                locks.put(usable.get(i), lockManager.getCoveringLocks(usable.get(i)));
+
+        /** Reads up to {@code max} more resources, with their attributes and locks. */
+        synchronized PropfindBatch nextBatch(int max) throws IOException {
+            PropfindBatch batch = new PropfindBatch();
+            if (closed) {
+                batch.done = true;
+                return batch;
+            }
+            while (batch.resources.size() < max) {
+                Path resource = lookahead != null ? lookahead : advance();
+                lookahead = null;
+                if (resource == null) {
+                    batch.done = true;
+                    break;
+                }
+                try {
+                    batch.attrs.put(resource,
+                            Files.readAttributes(resource, BasicFileAttributes.class));
+                    batch.resources.add(resource);
+                } catch (IOException e) {
+                    LOGGER.log(Level.FINE, MessageFormat.format(
+                            L10N.getString("fine.propfind_skip_unreadable"), resource), e);
+                    continue;
+                }
+                // Read the locks here: with a shared lock root each lookup is
+                // file I/O, and the response is written on the loop.
+                if (lockManager != null) {
+                    batch.locks.put(resource, lockManager.getCoveringLocks(resource));
+                }
+            }
+            if (!batch.done) {
+                lookahead = advance();
+                batch.done = lookahead == null;
+            }
+            if (batch.done) {
+                closeStreams();
+            }
+            return batch;
+        }
+
+        private void closeStreams() {
+            while (!stack.isEmpty()) {
+                try {
+                    pop();
+                } catch (IOException e) {
+                    LOGGER.log(Level.FINE, L10N.getString("fine.propfind_close_directory"), e);
+                }
             }
         }
-        propfindLocks = locks;
-        return data;
+
+        synchronized void close() {
+            closed = true;
+            closeStreams();
+        }
     }
 
-    /**
-     * Loads dead properties for all PROPFIND resources in parallel via
-     * {@link DeadPropertyStore}, then builds the XML response when every
-     * submission has completed.
-     */
-    private void loadDeadPropertiesParallel(
-            final List<Path> resources,
-            final Map<Path, Map<String, DeadProperty>> allDeadProps,
-            final HttpResponse response,
-            final WebDAVRequestParser.PropfindType type,
-            final List<WebDAVRequestParser.PropertyRef> requestedProps,
-            final Map<Path, BasicFileAttributes> attrsMap) {
-        if (resources.isEmpty()) {
-            buildPropfindResponse(response, resources, type,
-                    requestedProps, allDeadProps, attrsMap);
-            return;
+    /** One streamed PROPFIND response, driven from the loop a batch at a time. */
+    private final class PropfindStream {
+
+        private final HttpResponse response;
+        private final WebDAVRequestParser.PropfindType type;
+        private final List<WebDAVRequestParser.PropertyRef> requestedProps;
+        private PropfindWalker walker;
+        private XMLWriter xml;
+        private boolean aborted;
+        private boolean pumping;
+        private boolean again;
+
+        PropfindStream(HttpResponse response, WebDAVRequestParser.PropfindType type,
+                List<WebDAVRequestParser.PropertyRef> requestedProps) {
+            this.response = response;
+            this.type = type;
+            this.requestedProps = requestedProps;
         }
 
-        final AtomicInteger remaining = new AtomicInteger(resources.size());
+        void begin() {
+            offload(response, new Callable<PropfindBatch>() {
+                @Override
+                public PropfindBatch call() throws IOException {
+                    if (path == null || !bindCanonicalPath() || !Files.exists(path)) {
+                        PropfindBatch missing = new PropfindBatch();
+                        missing.error = HttpStatus.NOT_FOUND;
+                        return missing;
+                    }
+                    walker = new PropfindWalker(path, depth);
+                    return walker.nextBatch(PROPFIND_BATCH_SIZE);
+                }
+            }, new StorageExecutor.Callback<PropfindBatch>() {
+                @Override
+                public void completed(PropfindBatch batch) {
+                    if (aborted) {
+                        release();
+                        return;
+                    }
+                    if (batch.error != null) {
+                        propfindStream = null;
+                        sendError(response, batch.error);
+                        return;
+                    }
+                    try {
+                        xml = startXmlResponse(response, HttpStatus.MULTI_STATUS);
+                        davStart(xml, DavConstants.ELEM_MULTISTATUS);
+                        xml.writeNamespace(DavConstants.PREFIX, DavConstants.NAMESPACE);
+                    } catch (IOException e) {
+                        fail(e);
+                        return;
+                    }
+                    accept(batch);
+                }
 
-        for (int i = 0; i < resources.size(); i++) {
-            final Path resource = resources.get(i);
-            BasicFileAttributes attrs = attrsMap.get(resource);
-            boolean isDir = attrs != null && attrs.isDirectory();
-            deadPropertyStore.getProperties(resource,
-                    Boolean.valueOf(isDir),
-                    new DeadPropertyCallback() {
-                        @Override
-                        public void onProperties(
-                                Map<String, DeadProperty> props) {
-                            if (props != null && !props.isEmpty()) {
-                                synchronized (allDeadProps) {
-                                    allDeadProps.put(resource, props);
+                @Override
+                public void failed(Throwable error) {
+                    events().error("severe.propfind_enumeration_error").thrown(error).emit();
+                    release();
+                    propfindStream = null;
+                    sendError(response, HttpStatus.INTERNAL_SERVER_ERROR);
+                }
+            });
+        }
+
+        /** Reads the next batch, once the transport can take more. */
+        private void next() {
+            if (aborted) {
+                release();
+                return;
+            }
+            if (pumping) {
+                // reached again from inside a read that finished at once:
+                // the loop below carries on, so the stack does not grow
+                again = true;
+                return;
+            }
+            pumping = true;
+            try {
+                do {
+                    again = false;
+                    fetch();
+                } while (again && !aborted);
+            } finally {
+                pumping = false;
+            }
+        }
+
+        private void fetch() {
+            offload(response, new Callable<PropfindBatch>() {
+                @Override
+                public PropfindBatch call() throws IOException {
+                    return walker.nextBatch(PROPFIND_BATCH_SIZE);
+                }
+            }, new StorageExecutor.Callback<PropfindBatch>() {
+                @Override
+                public void completed(PropfindBatch batch) {
+                    accept(batch);
+                }
+
+                @Override
+                public void failed(Throwable error) {
+                    fail(error);
+                }
+            });
+        }
+
+        private void accept(final PropfindBatch batch) {
+            if (aborted) {
+                release();
+                return;
+            }
+            final Map<Path, Map<String, DeadProperty>> dead =
+                    new HashMap<Path, Map<String, DeadProperty>>();
+            loadDeadProperties(batch, dead, new Runnable() {
+                @Override
+                public void run() {
+                    write(batch, dead);
+                }
+            });
+        }
+
+        /** Loads the dead properties of a batch, in parallel, then runs {@code done} on the loop. */
+        private void loadDeadProperties(PropfindBatch batch,
+                final Map<Path, Map<String, DeadProperty>> dead, final Runnable done) {
+            if (deadPropertyStore == null
+                    || deadPropertyStore.getMode() == DeadPropertyStore.Mode.NONE
+                    || batch.resources.isEmpty()) {
+                done.run();
+                return;
+            }
+            final AtomicInteger remaining = new AtomicInteger(batch.resources.size());
+            for (int i = 0; i < batch.resources.size(); i++) {
+                final Path resource = batch.resources.get(i);
+                BasicFileAttributes attrs = batch.attrs.get(resource);
+                boolean isDir = attrs != null && attrs.isDirectory();
+                deadPropertyStore.getProperties(resource, Boolean.valueOf(isDir),
+                        new DeadPropertyCallback() {
+                            @Override
+                            public void onProperties(Map<String, DeadProperty> props) {
+                                if (props != null && !props.isEmpty()) {
+                                    synchronized (dead) {
+                                        dead.put(resource, props);
+                                    }
+                                }
+                                if (remaining.decrementAndGet() == 0) {
+                                    response.execute(done);
                                 }
                             }
-                            if (remaining.decrementAndGet() == 0) {
-                                buildPropfindResponse(response, resources, type,
-                                        requestedProps, allDeadProps, attrsMap);
+
+                            @Override
+                            public void onError(String error) {
+                                if (remaining.decrementAndGet() == 0) {
+                                    response.execute(done);
+                                }
                             }
-                        }
-
-                        @Override
-                        public void onError(String error) {
-                            if (remaining.decrementAndGet() == 0) {
-                                buildPropfindResponse(response, resources, type,
-                                        requestedProps, allDeadProps, attrsMap);
-                            }
-                        }
-                    });
-        }
-    }
-
-    private void buildPropfindResponse(HttpResponse response,
-            List<Path> resources,
-            WebDAVRequestParser.PropfindType type,
-            List<WebDAVRequestParser.PropertyRef> requestedProps,
-            Map<Path, Map<String, DeadProperty>> allDeadProps,
-            Map<Path, BasicFileAttributes> attrsMap) {
-        try {
-            ByteArrayOutputStream baos = new ByteArrayOutputStream();
-            XMLWriter xml = new XMLWriter(baos);
-
-            davStart(xml, DavConstants.ELEM_MULTISTATUS);
-            xml.writeNamespace(DavConstants.PREFIX,
-                    DavConstants.NAMESPACE);
-
-            for (int i = 0; i < resources.size(); i++) {
-                Path resource = resources.get(i);
-                Map<String, DeadProperty> deadProps =
-                        allDeadProps.get(resource);
-                writeResourceResponse(xml, resource, type,
-                        requestedProps, deadProps, attrsMap);
+                        });
             }
+        }
 
-            davEnd(xml, DavConstants.ELEM_MULTISTATUS);
-            xml.close();
+        private void write(PropfindBatch batch, Map<Path, Map<String, DeadProperty>> dead) {
+            if (aborted) {
+                release();
+                return;
+            }
+            try {
+                propfindLocks = batch.locks;
+                for (int i = 0; i < batch.resources.size(); i++) {
+                    Path resource = batch.resources.get(i);
+                    writeResourceResponse(xml, resource, type, requestedProps,
+                            dead.get(resource), batch.attrs);
+                }
+                propfindLocks = null;
+                if (batch.done) {
+                    davEnd(xml, DavConstants.ELEM_MULTISTATUS);
+                    xml.close();
+                    propfindStream = null;
+                    response.endMessage();
+                    return;
+                }
+            } catch (IOException e) {
+                fail(e);
+                return;
+            }
+            response.onWritable(new Runnable() {
+                @Override
+                public void run() {
+                    next();
+                }
+            });
+        }
 
-            byte[] body = baos.toByteArray();
-            response.status(HttpStatus.MULTI_STATUS.code);
-            response.header("Content-Type",
-                    DavConstants.CONTENT_TYPE_XML);
-            response.longHeader("Content-Length", body.length);
-            response.bodyContent(ByteBuffer.wrap(body));
-            response.endMessage();
-        } catch (IOException e) {
-            events().error("severe.propfind_response_error").thrown(e).emit();
+        /** The response has begun, so an error can only end it abruptly. */
+        private void fail(Throwable error) {
+            events().error("severe.propfind_response_error").thrown(error).emit();
+            release();
+            propfindStream = null;
+            response.cancel();
+        }
+
+        void abort() {
+            aborted = true;
+            propfindStream = null;
+            release();
+        }
+
+        /** Closes the walk's open directories, off the loop. */
+        private void release() {
+            final PropfindWalker w = walker;
+            if (w == null) {
+                return;
+            }
+            walker = null;
+            offload(response, new Callable<Void>() {
+                @Override
+                public Void call() {
+                    w.close();
+                    return null;
+                }
+            }, new StorageExecutor.Callback<Void>() {
+                @Override
+                public void completed(Void result) {
+                }
+
+                @Override
+                public void failed(Throwable error) {
+                }
+            });
         }
     }
 
@@ -2266,8 +2598,7 @@ class FileHandler extends DefaultHttpRequestHandler {
             WebDAVRequestParser.ProppatchRequest proppatch,
             List<Boolean> results) {
         try {
-            ByteArrayOutputStream baos = new ByteArrayOutputStream();
-            XMLWriter xml = new XMLWriter(baos);
+            XMLWriter xml = startXmlResponse(response, HttpStatus.MULTI_STATUS);
 
             davStart(xml, DavConstants.ELEM_MULTISTATUS);
             xml.writeNamespace(DavConstants.PREFIX,
@@ -2319,12 +2650,6 @@ class FileHandler extends DefaultHttpRequestHandler {
             davEnd(xml, DavConstants.ELEM_MULTISTATUS);
             xml.close();
 
-            byte[] body = baos.toByteArray();
-            response.status(HttpStatus.MULTI_STATUS.code);
-            response.header("Content-Type",
-                    DavConstants.CONTENT_TYPE_XML);
-            response.longHeader("Content-Length", body.length);
-            response.bodyContent(ByteBuffer.wrap(body));
             response.endMessage();
         } catch (IOException e) {
             events().error("severe.proppatch_response_error").thrown(e).emit();
@@ -2352,8 +2677,7 @@ class FileHandler extends DefaultHttpRequestHandler {
     private void sendProppatchForbidden(HttpResponse response,
             WebDAVRequestParser.ProppatchRequest proppatch)
             throws IOException {
-        ByteArrayOutputStream baos = new ByteArrayOutputStream();
-        XMLWriter xml = new XMLWriter(baos);
+        XMLWriter xml = startXmlResponse(response, HttpStatus.MULTI_STATUS);
 
         davStart(xml, DavConstants.ELEM_MULTISTATUS);
         xml.writeNamespace(DavConstants.PREFIX,
@@ -2377,11 +2701,6 @@ class FileHandler extends DefaultHttpRequestHandler {
         davEnd(xml, DavConstants.ELEM_MULTISTATUS);
         xml.close();
 
-        byte[] body = baos.toByteArray();
-        response.status(HttpStatus.MULTI_STATUS.code);
-        response.header("Content-Type", DavConstants.CONTENT_TYPE_XML);
-        response.longHeader("Content-Length", body.length);
-        response.bodyContent(ByteBuffer.wrap(body));
         response.endMessage();
     }
 
@@ -2463,8 +2782,8 @@ class FileHandler extends DefaultHttpRequestHandler {
 
     private void sendLockResponse(HttpResponse response, WebDAVLock lock,
             boolean created, boolean isDirectory) throws IOException {
-        ByteArrayOutputStream baos = new ByteArrayOutputStream();
-        XMLWriter xml = new XMLWriter(baos);
+        XMLWriter xml = startXmlResponse(response, (created ? HttpStatus.CREATED : HttpStatus.OK));
+        response.header(DavConstants.HEADER_LOCK_TOKEN, "<" + lock.getToken() + ">");
         
         davStart(xml, DavConstants.ELEM_PROP);
         xml.writeNamespace(DavConstants.PREFIX, DavConstants.NAMESPACE);
@@ -2508,12 +2827,6 @@ class FileHandler extends DefaultHttpRequestHandler {
         davEnd(xml, DavConstants.ELEM_PROP);
         xml.close();
         
-        byte[] body = baos.toByteArray();
-        response.status((created ? HttpStatus.CREATED : HttpStatus.OK).code);
-        response.header("Content-Type", DavConstants.CONTENT_TYPE_XML);
-        response.longHeader("Content-Length", body.length);
-        response.header(DavConstants.HEADER_LOCK_TOKEN, "<" + lock.getToken() + ">");
-        response.bodyContent(ByteBuffer.wrap(body));
         response.endMessage();
         events().info("info.locked")
                 .attr("path", String.valueOf(path))
@@ -2572,13 +2885,54 @@ class FileHandler extends DefaultHttpRequestHandler {
      * specific privilege was asked about.
      */
     private boolean hasPrivilege(String username, String privilegeLocalName) {
-        if (username == null || realm == null) {
+        if (username == null) {
             return false;
         }
-        if (realm.isUserInRole(username, DavConstants.ROLE_PREFIX + DavConstants.ELEM_ALL)) {
-            return true;
+        return grantedRoles.contains(DavConstants.ELEM_ALL)
+                || grantedRoles.contains(privilegeLocalName);
+    }
+
+    /**
+     * Asks the realm, one role at a time, which of the {@code webdav:}
+     * privilege roles {@code username} holds, recording the local names in
+     * {@link #grantedRoles}, then runs {@code done}. Fails closed: a failed
+     * lookup grants nothing.
+     */
+    private void resolvePrivilegeRoles(final String username, final Runnable done) {
+        final List<String> names = new ArrayList<String>();
+        names.add(DavConstants.ELEM_ALL);
+        names.add(DavConstants.ELEM_WRITE);
+        for (String privilege : LEAF_PRIVILEGES) {
+            names.add(privilege);
         }
-        return realm.isUserInRole(username, DavConstants.ROLE_PREFIX + privilegeLocalName);
+        new Runnable() {
+            private int next;
+
+            @Override
+            public void run() {
+                if (next >= names.size()) {
+                    done.run();
+                    return;
+                }
+                final String name = names.get(next++);
+                final Runnable step = this;
+                realm.isUserInRole(username, DavConstants.ROLE_PREFIX + name,
+                        new RealmCallback<Boolean>() {
+                    @Override
+                    public void completed(Boolean result) {
+                        if (Boolean.TRUE.equals(result)) {
+                            grantedRoles.add(name);
+                        }
+                        step.run();
+                    }
+
+                    @Override
+                    public void failed(Throwable cause) {
+                        step.run();
+                    }
+                });
+            }
+        }.run();
     }
 
     /**
@@ -2744,47 +3098,6 @@ class FileHandler extends DefaultHttpRequestHandler {
         // collection (there's no way to address a Realm's users as
         // WebDAV resources).
         davEmpty(xml, DavConstants.PROP_PRINCIPAL_COLLECTION_SET);
-    }
-
-    private List<Path> collectResources(Path root, int depth) throws IOException {
-        List<Path> ancestors = new ArrayList<Path>();
-        ancestors.add(root.toRealPath());
-        return collectResources(root, depth, ancestors);
-    }
-
-    /**
-     * Enumerates a collection to the given depth. {@code ancestors} holds
-     * the canonical paths of the directories being walked, so that a
-     * symbolic link back over the walk is not followed.
-     */
-    private List<Path> collectResources(Path root, int depth, List<Path> ancestors)
-            throws IOException {
-        List<Path> result = new ArrayList<Path>();
-        result.add(root);
-        
-        if (depth > 0 && Files.isDirectory(root)) {
-            for (Path child : listChildren(root)) {
-                if (child.getFileName().toString().startsWith(".")) {
-                    continue; // Skip hidden files
-                }
-                if (Files.isSymbolicLink(child)
-                        && !isSafeToFollowLink(child, ancestors, null)) {
-                    logLinkLeftOut(child);
-                    continue;
-                }
-                result.add(child);
-                if (depth > 1 && Files.isDirectory(child)) {
-                    ancestors.add(child.toRealPath());
-                    try {
-                        result.addAll(collectResources(child, depth - 1, ancestors));
-                    } finally {
-                        ancestors.remove(ancestors.size() - 1);
-                    }
-                }
-            }
-        }
-        
-        return result;
     }
 
     private void logLinkLeftOut(Path link) {

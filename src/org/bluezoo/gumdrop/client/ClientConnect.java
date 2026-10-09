@@ -190,6 +190,15 @@ public final class ClientConnect {
         if (tls.getKeyFile() != null) {
             factory.setKeyFile(tls.getKeyFile());
         }
+        if (tls.getCipherSuites() != null) {
+            factory.setCipherSuites(tls.getCipherSuites());
+        }
+        if (tls.getNamedGroups() != null) {
+            factory.setNamedGroups(tls.getNamedGroups());
+        }
+        if (tls.getTlsVersion() != null) {
+            factory.setTlsVersion(tls.getTlsVersion());
+        }
         applyTcpClientEch(factory, null, tls);
     }
 

@@ -44,6 +44,7 @@ import org.junit.Before;
 import org.junit.Test;
 
 import org.bluezoo.gumdrop.ClientEndpoint;
+import org.bluezoo.gumdrop.tls.TlsConfig;
 import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.GumdropConfig;
@@ -766,7 +767,7 @@ public class FtpClientTransferIntegrationTest {
         final CountDownLatch greeted = new CountDownLatch(1);
         final List<String> greetings = Collections.synchronizedList(new ArrayList<String>());
         FtpClient client = new FtpClient(loopback(), ss.getLocalPort())
-                .secure(false).trustJvm().dnsResolver(null);
+                .secure(false).tls(new TlsConfig().trustJvm()).dnsResolver(null);
         client.connect(gumdrop, new RemoteGreeting() {
             @Override
             public void handleGreeting(ClientLoginState login, String message) {
@@ -808,15 +809,10 @@ public class FtpClientTransferIntegrationTest {
     @Test
     public void facadeFluentAndPlainSettersAcceptValues() {
         FtpClient client = new FtpClient("ftp.example.com", 2121);
-        client.setSecure(true);
-        client.setClientCredentials(null);
-        client.setTrustManager(null);
-        client.setKeystoreFile(null);
-        client.setKeystorePass("x");
-        client.setKeystoreFormat(null);
+        client.secure(true);
+        client.tls(new TlsConfig().keystorePass("x"));
         client.selectorLoop(loop).host("other.example.com").port(990).secure(false);
-        client.clientCredentials(null).trustManager(null).keystoreFile(null)
-                .keystorePass("y").keystoreFormat(null);
+        client.tls(new TlsConfig().keystorePass("y"));
         client.host(InetAddress.getLoopbackAddress()).socketPath("/tmp/ftp.sock");
         new FtpClient(loop, "h.example", 21);
         new FtpClient(loop, InetAddress.getLoopbackAddress(), 21);

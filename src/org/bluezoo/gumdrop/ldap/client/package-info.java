@@ -43,7 +43,7 @@
  * negotiated in-band via STARTTLS.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see org.bluezoo.gumdrop.ldap.asn1
+ * @see org.bluezoo.gumdrop.asn1
  * @see org.bluezoo.gumdrop.auth.Realm
  * @see <a href="https://www.rfc-editor.org/rfc/rfc4511">RFC 4511 - LDAP Protocol</a>
  * @see <a href="https://www.rfc-editor.org/rfc/rfc4513">RFC 4513 - LDAP Authentication</a>

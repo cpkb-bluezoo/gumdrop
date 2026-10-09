@@ -69,10 +69,10 @@ class ImapSessionHarness {
         Files.createDirectories(userDir.resolve("tmp"));
         mock = new ImapMockMailboxFactory(new MaildirMailboxFactory(mailRoot));
         listener = new ImapListener();
-        listener.setRealm(new IMAPSessionCoverageTest.AcceptingRealm(
+        listener.realm(new IMAPSessionCoverageTest.AcceptingRealm(
                 "editor", "editor"));
-        listener.setMailboxFactory(mock);
-        listener.setAllowPlaintextLogin(true);
+        listener.mailboxFactory(mock);
+        listener.allowPlaintextLogin(true);
         configureListener(listener);
         handler = new ImapProtocolHandler(listener);
         endpoint = new RecordingStubEndpoint(143);

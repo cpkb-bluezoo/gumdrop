@@ -24,6 +24,7 @@ package org.bluezoo.gumdrop.servlet;
 import org.bluezoo.gumdrop.ContainerClassLoader;
 import org.bluezoo.gumdrop.DependencyClassLoader;
 import org.bluezoo.gumdrop.Gumdrop;
+import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.TimerHandle;
 import org.bluezoo.gumdrop.auth.Realm;
 import org.bluezoo.gumdrop.servlet.jndi.AdministeredObject;
@@ -391,6 +392,7 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
     }
     private TelemetryConfig standaloneTelemetry;
 
+    String secureHost;
     boolean distributable;
     boolean initialized;
 
@@ -459,8 +461,6 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
     private volatile FilterMappingIndex filterMappingIndex;
     private volatile SecurityConstraintIndex securityConstraintIndex;
 
-    String secureHost;
-    String commonDir;
 
     HitStatisticsImpl hitStatistics = new HitStatisticsImpl();
 
@@ -488,74 +488,8 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
     }
 
     /**
-     * No-arg constructor for dependency injection.
-     * After construction, set {@link #setPath(String)} and {@link #setRoot(File)}.
-     * The container, load, and init lifecycle is handled by
-     * {@link Container#initContexts(Gumdrop)} during service startup.
-     */
-    public Context() {
-    }
-
-    /**
-     * Sets the container for this context.
-     * Must be called before {@link #load()} when using the no-arg constructor.
-     * A no-op when {@code container} is already this context's container
-     * (as when {@link #Context(Container, String, File)} already assigned
-     * it and {@link Container#start(Gumdrop)} re-asserts it during {@code
-     * initContexts()}); throws if reassigning to a different container.
-     *
-     * @param container the parent container
-     */
-    public void setContainer(Container container) {
-        if (this.container != null && this.container != container) {
-            throw new IllegalStateException("Container already set");
-        }
-        this.container = container;
-    }
-
-    /**
-     * Sets the context path for this context.
-     * Must be called before {@link #load()} when using the no-arg constructor.
-     *
-     * @param path the context path (e.g., "" for root, "/app" for an application)
-     */
-    public void setPath(String path) {
-        if (this.contextPath != null) {
-            throw new IllegalStateException("Context path already set");
-        }
-        if (path.endsWith("/")) {
-            throw new IllegalArgumentException("Illegal context path: " + path);
-        }
-        this.contextPath = path;
-    }
-
-    /**
-     * Sets the root directory for this context.
-     * Must be called before {@link #load()} when using the no-arg constructor.
-     *
-     * @param root the root directory or WAR file
-     */
-    public void setRoot(File root) {
-        setRoot((root == null) ? null : root.toPath());
-    }
-
-    /**
-     * Sets the root of this context as a path on any file system (a
-     * package-private seam so that tests can use an in-memory file system).
-     *
-     * @param root the root directory or WAR file
-     */
-    void setRoot(Path root) {
-        if (this.root != null) {
-            throw new IllegalStateException("Root already set");
-        }
-        this.root = root;
-    }
-
-    /**
      * Initializes internal state after container, path, and root are set.
-     * Called automatically by the 3-arg constructor, or must be called
-     * explicitly after using setters with the no-arg constructor.
+     * Called by the constructor.
      */
     private void initializeInternal() {
         if (container == null || contextPath == null || root == null) {
@@ -637,7 +571,7 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
     }
 
     @Override public void setWorkerKeepAlive(Duration val) {
-        container.setWorkerKeepAlive(val);
+        container.workerKeepAlive(val);
     }
 
     @Override public HitStatistics getHitStatistics() {
@@ -648,19 +582,25 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
         return root.toString();
     }
 
-    public void setSecureHost(String value) {
+    /**
+     * Sets the host (and optional port) that requests to a resource with a
+     * confidential transport guarantee are redirected to over HTTPS. Without
+     * it such a request over plain HTTP is answered with a 500 error.
+     *
+     * @param value the secure host, for example {@code example.com:8443}
+     * @return this context
+     */
+    public Context secureHost(String value) {
         secureHost = value;
+        return this;
     }
 
-    public void setCommonDir(String value) {
-        commonDir = value;
-    }
-
-    public void setDistributable(boolean flag) {
+    public Context distributable(boolean flag) {
         if (initialized) {
             throw new IllegalStateException();
         }
         distributable = flag;
+        return this;
     }
 
     void reset() {
@@ -1875,49 +1815,66 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
     }
 
     /**
-     * Verifies a password against the realm (preferred method).
+     * The loop servlet-initiated realm calls run on. A realm that talks to a
+     * directory needs one; the servlet worker that asks waits for the answer
+     * (see {@link RealmAwait}), the loop never does.
+     */
+    SelectorLoop realmLoop() {
+        Gumdrop runtime = gumdrop;
+        return (runtime != null) ? runtime.nextWorkerLoop() : null;
+    }
+
+    /** The named realm bound to a loop for a call from a servlet worker, or null. */
+    private Realm realmForServlet(String realmName) {
+        Realm realm = getRealm(realmName);
+        if (realm == null) {
+            return null;
+        }
+        return realm.forSelectorLoop(realmLoop());
+    }
+
+    /**
+     * Verifies a password against the realm (preferred method). The calling
+     * servlet worker waits for the realm's answer.
      */
     boolean passwordMatch(String realmName, String username, String password) {
-        Realm realm = getRealm(realmName);
-        if (realm != null) {
-            return realm.passwordMatch(username, password);
+        Realm realm = realmForServlet(realmName);
+        if (realm == null) {
+            return false;
         }
-        return false;
+        RealmAwait<Boolean> answer = new RealmAwait<Boolean>();
+        realm.passwordMatch(username, password, answer);
+        Boolean matched = answer.await();
+        return matched != null && matched.booleanValue();
     }
 
     /**
-     * Gets the H(A1) hash for HTTP Digest Authentication.
+     * Gets the H(A1) hash for HTTP Digest Authentication. The calling
+     * servlet worker waits for the realm's answer.
      */
     String getDigestHA1(String realmName, String username) {
-        Realm realm = getRealm(realmName);
-        if (realm != null) {
-            return realm.getDigestHA1(username, realmName);
+        Realm realm = realmForServlet(realmName);
+        if (realm == null) {
+            return null;
         }
-        return null;
+        RealmAwait<String> answer = new RealmAwait<String>();
+        realm.getDigestHA1(username, realmName, answer);
+        return answer.await();
     }
 
     /**
-     * Used during authentication to determine the password for a user.
-     * @deprecated Use passwordMatch() or getDigestHA1() instead
-     */
-    @Deprecated
-    String getPassword(String realmName, String username) {
-        Realm realm = getRealm(realmName);
-        if (realm != null) {
-            return realm.getPassword(username);
-        }
-        return null;
-    }
-
-    /**
-     * Used by the request (principal) to determine role membership.
+     * Used by the request (principal) to determine role membership. The
+     * calling servlet worker waits for the realm's answer.
      */
     boolean isUserInRole(String realmName, String username, String roleName) {
-        Realm realm = getRealm(realmName);
-        if (realm != null) {
-            return realm.isUserInRole(username, roleName);
+        Realm realm = realmForServlet(realmName);
+        if (realm == null) {
+            return false;
         }
-        return false;
+        RealmAwait<Boolean> answer = new RealmAwait<Boolean>();
+        realm.isUserInRole(username, roleName, answer);
+        Boolean has = answer.await();
+        return has != null && has.booleanValue();
     }
 
     /**

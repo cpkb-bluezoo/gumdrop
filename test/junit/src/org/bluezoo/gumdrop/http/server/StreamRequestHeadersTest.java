@@ -22,6 +22,7 @@
 
 package org.bluezoo.gumdrop.http.server;
 
+import org.bluezoo.gumdrop.testsupport.InlineHttpAuthenticationProvider;
 import org.bluezoo.gumdrop.http.HeaderFields;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
@@ -135,7 +136,7 @@ public class StreamRequestHeadersTest {
         }
     }
 
-    private static class Provider extends HttpAuthenticationProvider {
+    private static class Provider extends InlineHttpAuthenticationProvider {
         boolean required = true;
 
         @Override protected String getAuthMethod() { return "BASIC"; }

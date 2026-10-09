@@ -45,7 +45,7 @@ that enables high concurrency with minimal resource consumption.
 <li><a href="#protocol">Protocol Support</a></li>
 <li><a href="#security">Security Extensions</a></li>
 <li><a href="#authentication">Authentication</a></li>
-<li><a href="#filesystem">File System Handler</a></li>
+<li><a href="#filesystem">Handlers and File Systems</a></li>
 <li><a href="#rbac">Role-Based Access Control</a></li>
 <li><a href="#configuration">Configuration</a></li>
 <li><a href="#quota">Quota Management</a></li>
@@ -65,7 +65,7 @@ All standard FTP commands are implemented:
 </p>
 
 <ul>
-<li><b>Access Control:</b> USER, PASS, ACCT, CWD, CDUP, QUIT, REIN</li>
+<li><b>Access Control:</b> USER, PASS, ACCT, CWD, CDUP, SMNT, QUIT, REIN</li>
 <li><b>Transfer Parameters:</b> PORT, PASV, TYPE, STRU, MODE</li>
 <li><b>Service Commands:</b> RETR, STOR, STOU, APPE, ALLO, REST, RNFR, RNTO,
 ABOR, DELE, RMD, MKD, PWD, LIST, NLST, SITE, SYST, STAT, HELP, NOOP</li>
@@ -83,6 +83,8 @@ UTC (RFC 3659 section 3)</li>
 standardised facts (size, modify, type, perm) per RFC 3659 section 7.
 MLST sends a single entry over the control connection; MLSD sends the
 full directory over the data connection.</li>
+<li><b>AUTH, PBSZ, PROT, CCC</b> &ndash; TLS negotiation and data protection
+(RFC 4217), described below</li>
 <li><b>OPTS UTF8 ON</b> &ndash; switches the control connection to UTF-8
 encoding for non-ASCII pathnames (RFC 2640)</li>
 <li><b>STAT</b> with directory path &ndash; directory listing over the control
@@ -125,8 +127,8 @@ C: USER alice
 <h4>Implicit FTPS</h4>
 
 <p>
-When configured with <code>secure="true"</code>, the server expects TLS from
-connection establishment. The listening port automatically defaults to 990
+When the listener is configured with <code>secure(true)</code>, the server
+expects TLS from connection establishment. The listening port automatically defaults to 990
 (per RFC 4217) unless an explicit port is set.
 </p>
 
@@ -139,7 +141,7 @@ connection establishment. The listening port automatically defaults to 990
 </ul>
 
 <p>
-Use <code>requireTLSForData="true"</code> to mandate encrypted data transfers.
+Use <code>requireTLSForData(true)</code> to mandate encrypted data transfers. It can be set on the listener or on the composer.
 </p>
 
 <h4>Data Connection Security (RFC 4217 section 10)</h4>
@@ -154,9 +156,8 @@ client, blocking FTP bounce and port-scanning abuse.
 
 <p>
 To restore legacy active-mode behaviour (server connects to any address given
-in PORT/EPRT), set the listener property
-<code>allow-active-mode-bounce</code> to <code>true</code>. This should be used
-only in explicitly trusted deployments.
+in PORT/EPRT), call <code>allowActiveModeBounce(true)</code> on the listener.
+This should be used only in explicitly trusted deployments.
 </p>
 
 <h3 id="authentication">Authentication</h3>
@@ -173,61 +174,99 @@ C: PASS secret123
 S: 230 User logged in
 </pre>
 
-<h4>The Realm Interface</h4>
+<p>
+Pass the realm to the composer with <code>realm(...)</code>. See
+<a href="security.html#realm-wiring">Using a realm</a> for how to build one,
+and <a href="security.html#rbac">Role-based access control</a> for how groups
+become the roles described below.
+</p>
+
+<h3 id="filesystem">Handlers and File Systems</h3>
 
 <p>
-A <code>Realm</code> represents a collection of authenticatable principals. The
-built-in <code>BasicRealm</code> reads users from an XML file:
+A server is assembled with <code>FtpServer.compose()</code>, which takes
+listeners and a <i>session provider</i>: a factory that returns a fresh
+handler for each connection. <code>FtpServerSessionProviders</code> offers three
+ready-made providers:
+</p>
+
+<ul>
+<li><code>fileSystem()</code> - serves a directory (<code>rootDirectory</code>),
+optionally <code>readOnly</code>, authenticating against a <code>realm</code>,
+with an optional <code>quotaManager</code> and <code>welcomeMessage</code></li>
+<li><code>anonymous()</code> - read-only anonymous access to a
+<code>rootDirectory</code></li>
+<li><code>roleBased()</code> - as <code>fileSystem()</code> but enforcing the FTP
+roles described <a href="#rbac">below</a></li>
+</ul>
+
+<h4>Custom handlers</h4>
+
+<p>
+To add policy or serve something other than a local directory, supply your own
+provider. The protocol is staged, as in the <a href="smtp.html#handler">SMTP</a>
+server: each stage gives you an interface offering only what is legal at that
+point, and a state object to accept or reject.
+</p>
+
+<ul>
+<li><code>ClientConnected</code> - <code>connected(ConnectedState, Endpoint)</code>
+accepts the connection with a greeting, or rejects it</li>
+<li><code>NotAuthenticatedHandler</code> - <code>user(LoginState, username)</code>
+asks for a password or an account, or logs in; <code>tlsEstablished</code> is
+called after AUTH TLS</li>
+<li><code>PasswordHandler</code> and <code>AccountHandler</code> - receive PASS and
+ACCT, and log the user in or refuse</li>
+<li><code>AuthenticatedHandler</code> - the logged-in session. It supplies the
+<code>FtpFileSystem</code> (<code>getFileSystem()</code>) and has hooks you
+override: <code>isAuthorized(operation, path)</code> to allow or refuse a
+command, <code>transferStarting</code>, <code>transferProgress</code> and
+<code>transferCompleted</code> to observe transfers,
+<code>handleSiteCommand</code> for SITE, and the quota methods</li>
+</ul>
+
+<p>
+<code>DefaultFtpHandler</code> implements the whole login pipeline (with an
+optional <code>Realm</code>), so a handler usually extends it and overrides the
+hooks it wants. For example, to refuse uploads of Windows executables:
 </p>
 
 <pre>
-&lt;realm&gt;
-  &lt;group id="readers" name="ftp-read"/&gt;
-  &lt;group id="writers" name="ftp-read ftp-write"/&gt;
-  &lt;group id="admins" name="ftp-admin"/&gt;
-  
-  &lt;user name="alice" password="secret" groups="#writers"/&gt;
-  &lt;user name="bob" password="password123" groups="#readers"/&gt;
-  &lt;user name="admin" password="admin123" groups="#admins"/&gt;
-&lt;/realm&gt;
+public class NoExecutablesHandler extends DefaultFtpHandler {
+
+    public NoExecutablesHandler(FtpFileSystem fileSystem, Realm realm) {
+        super(fileSystem, realm);
+    }
+
+    &#64;Override
+    public boolean isAuthorized(FtpOperation operation, String path) {
+        if (operation == FtpOperation.WRITE && path != null
+                && path.toLowerCase().endsWith(".exe")) {
+            return false;
+        }
+        return true;
+    }
+}
+
+FtpServerSessionProvider provider = new FtpServerSessionProvider() {
+    &#64;Override
+    public ClientConnected openSession(TcpListener listener) {
+        return new NoExecutablesHandler(
+                new BasicFTPFileSystem("/srv/ftp"), realm);
+    }
+};
 </pre>
 
 <p>
-Custom realm implementations can integrate with LDAP, databases, or external
-identity providers.
+<code>BasicFTPFileSystem</code> is the local-directory <code>FtpFileSystem</code>;
+implement the interface to serve files from elsewhere.
 </p>
-
-<h3 id="filesystem">File System Handler</h3>
-
-<p>
-File operations are delegated to an <code>FtpConnectionHandler</code>, which
-provides access to the underlying storage:
-</p>
-
-<h4>FtpConnectionHandler Interface</h4>
-
-<p>
-The handler interface defines methods for all file operations:
-</p>
-
-<ul>
-<li><code>getFileSystem()</code> - returns the FtpFileSystem for the session</li>
-<li><code>isAuthorized(operation, path, metadata)</code> - checks access rights</li>
-<li><code>handleSiteCommand(command, metadata)</code> - processes SITE commands</li>
-</ul>
-
-<h4>Built-in Handlers</h4>
-
-<ul>
-<li><b>DefaultFTPHandler</b> - local filesystem access with configurable root</li>
-<li><b>RoleBasedFTPHandler</b> - adds role-based access control</li>
-</ul>
 
 <h3 id="rbac">Role-Based Access Control</h3>
 
 <p>
-The <code>RoleBasedFTPHandler</code> enforces fine-grained access control
-based on user roles defined in the realm.
+The <code>roleBased()</code> provider enforces fine-grained access control
+based on user roles defined in the realm, through <code>RoleBasedFTPHandler</code>.
 </p>
 
 <h4>FTP Roles</h4>
@@ -277,52 +316,51 @@ complementing the command-level checks in <code>RoleBasedFTPHandler</code>.
 
 <h3 id="configuration">Configuration</h3>
 
-<h4>FtpListener Properties</h4>
-
-<p>
-<code>org.bluezoo.gumdrop.ftp.FtpListener</code> (transport configuration):
-</p>
+<h4>FtpServer.compose() settings</h4>
 
 <ul>
-<li><code>port</code> - listening port (default: 21, or 990 for FTPS)</li>
-<li><code>secure</code> - enable implicit TLS (FTPS)</li>
-<li><code>keystore-file</code> - keystore for TLS</li>
-<li><code>keystore-pass</code> - keystore password</li>
-<li><code>require-tls-for-data</code> - mandate TLS for data connections</li>
-<li><code>allow-active-mode-bounce</code> - permit PORT/EPRT data addresses
-    other than the control client IP (default: false; enables legacy FTP bounce
-    when true)</li>
+<li><code>listener(FtpListener)</code> - add a listener; at least one is required</li>
+<li><code>sessionProvider(FtpServerSessionProvider)</code> - the handler factory</li>
+<li><code>realm(Realm)</code> - realm for authentication</li>
+<li><code>requireTLSForData(boolean)</code> - mandate TLS for data connections</li>
 </ul>
 
-<h4>RoleBasedFtpSessionProvider Methods</h4>
+<h4>FtpListener settings</h4>
+
+<ul>
+<li><code>port(int)</code> - listening port (default: 21, or 990 when <code>secure</code>)</li>
+<li><code>bindWildcard()</code> and <code>addresses(InetAddress...)</code> - where to bind</li>
+<li><code>secure(boolean)</code> - implicit TLS (FTPS)</li>
+<li><code>tls(TlsConfig)</code> - certificate and key; also enables AUTH TLS</li>
+<li><code>requireTLSForData(boolean)</code> - mandate TLS for data connections</li>
+<li><code>allowActiveModeBounce(boolean)</code> - permit PORT/EPRT data addresses
+other than the control client IP (default: false; enables legacy FTP bounce
+when true)</li>
+<li><code>pasvMinPort(int)</code> and <code>pasvMaxPort(int)</code> - port range for
+passive data connections (default: 0, any free port); open this range in your
+firewall</li>
+<li><code>maxConnections(int)</code> and <code>maxConnectionsPerIP(int)</code> - connection caps</li>
+<li><code>rateLimit(String)</code>, <code>maxAuthFailures(int)</code>,
+<code>authLockoutTimeMs(long)</code> - abuse protection</li>
+<li><code>allowedNetworks</code> and <code>blockedNetworks</code> - CIDR allow and block lists</li>
+<li><code>idleTimeoutMs</code>, <code>readTimeoutMs</code>, <code>connectionTimeoutMs</code> - timeouts</li>
+</ul>
+
+<h4>Session provider settings</h4>
 
 <p>
-<code>org.bluezoo.gumdrop.ftp.server.RoleBasedFtpSessionProvider</code>
-(session/authorization logic):
+<code>RoleBasedFtpSessionProvider</code> (from
+<code>FtpServerSessionProviders.roleBased()</code>):
 </p>
 
 <ul>
 <li><code>realm(Realm)</code> - realm for authentication and RBAC</li>
 <li><code>rootDirectory(Path)</code> - filesystem root for FTP access</li>
+<li><code>fileSystem(FtpFileSystem)</code> - serve a custom file system instead</li>
+<li><code>readOnly(boolean)</code> - refuse every write</li>
 <li><code>welcomeMessage(String)</code> - greeting banner text</li>
 <li><code>quotaManager(QuotaManager)</code> - quota manager</li>
 <li><code>filesystemEnforcement(boolean)</code> - wrap filesystem in RoleAwareFTPFileSystem (default: false)</li>
-</ul>
-
-<h4>Passive Mode Configuration</h4>
-
-<ul>
-<li><code>passive-port-min</code> - minimum port for passive data connections</li>
-<li><code>passive-port-max</code> - maximum port for passive data connections</li>
-<li><code>passive-address</code> - external IP for passive mode (for NAT)</li>
-</ul>
-
-<h4>Timeouts</h4>
-
-<ul>
-<li><code>login-timeout</code> - maximum time for authentication</li>
-<li><code>idle-timeout</code> - control connection idle timeout</li>
-<li><code>data-timeout</code> - data transfer timeout</li>
 </ul>
 
 <h4>Example Configuration</h4>
@@ -332,9 +370,9 @@ TlsConfig tls = TlsConfig.keystore(Path.of("keystore.p12"), "secret");
 
 // FTP with explicit TLS (port 21 + AUTH TLS)
 FtpListener explicitTls = new FtpListener().port(21).bindWildcard().tls(tls);
-explicitTls.setPasvMinPort(50000);
-explicitTls.setPasvMaxPort(50100);
-explicitTls.setRequireTLSForData(true);
+explicitTls.pasvMinPort(50000);
+explicitTls.pasvMaxPort(50100);
+explicitTls.requireTLSForData(true);
 
 FtpServer server = FtpServer.compose()
         .listener(explicitTls)
@@ -424,11 +462,11 @@ session provider:
 
 <pre>
 RoleBasedQuotaManager ftpQuota = new RoleBasedQuotaManager();
-ftpQuota.setRealm(ftpRealm);
-ftpQuota.setStorageDir(Path.of("/var/ftp/quota"));
-ftpQuota.setDefaultQuota("100MB");
-ftpQuota.setRoleQuota("premium", "10GB");
-ftpQuota.setRoleQuota("enterprise", "unlimited");
+ftpQuota.realm(ftpRealm);
+ftpQuota.storageDir(Path.of("/var/ftp/quota"));
+ftpQuota.defaultQuota("100MB");
+ftpQuota.addRoleQuota("premium", "10GB");
+ftpQuota.addRoleQuota("enterprise", "unlimited");
 
 FtpServer server = FtpServer.compose()
         .listener(new FtpListener().port(21).bindWildcard())
@@ -448,8 +486,8 @@ The <code>RoleBasedQuotaManager</code> determines a user's quota by checking:
 
 <ol>
 <li><b>User-specific quota</b> - set via SITE SETQUOTA</li>
-<li><b>Role-based quota</b> - from <code>roleQuota.{rolename}</code> properties</li>
-<li><b>System default</b> - from <code>defaultQuota</code> property</li>
+<li><b>Role-based quota</b> - from <code>addRoleQuota(role, size)</code>; the most generous of the user's roles wins</li>
+<li><b>System default</b> - from <code>defaultQuota(size)</code></li>
 </ol>
 
 <h4>Telemetry</h4>

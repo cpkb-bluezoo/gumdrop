@@ -40,7 +40,8 @@ import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.TimerHandle;
-import org.bluezoo.gumdrop.auth.Realm;
+import org.bluezoo.gumdrop.auth.CapturedCallback;
+import org.bluezoo.gumdrop.auth.SynchronousRealm;
 import org.bluezoo.gumdrop.auth.SaslMechanism;
 import org.bluezoo.gumdrop.ftp.FtpAuthenticationResult;
 import org.bluezoo.gumdrop.ftp.FtpFileOperationResult;
@@ -144,20 +145,29 @@ public class FtpStagedSessionTest {
         handler.disconnected();
     }
 
+    /** Runs the handler's authentication, which completes inline here. */
+    private static FtpAuthenticationResult evaluate(DefaultFtpHandler h, String user,
+            String password, String account) {
+        CapturedCallback<FtpAuthenticationResult> cb =
+                new CapturedCallback<FtpAuthenticationResult>();
+        h.evaluateAuthentication(user, password, account, cb);
+        return cb.get();
+    }
+
     @Test
     public void testEvaluateAuthentication() {
         assertEquals(FtpAuthenticationResult.INVALID_USER,
-                session.evaluateAuthentication(null, null, null));
+                evaluate(session, null, null, null));
         assertEquals(FtpAuthenticationResult.INVALID_USER,
-                session.evaluateAuthentication("  ", "x", null));
+                evaluate(session, "  ", "x", null));
         assertEquals(FtpAuthenticationResult.NEED_PASSWORD,
-                session.evaluateAuthentication("bob", null, null));
+                evaluate(session, "bob", null, null));
         assertEquals(FtpAuthenticationResult.INVALID_PASSWORD,
-                session.evaluateAuthentication("bob", "  ", null));
+                evaluate(session, "bob", "  ", null));
         assertEquals(FtpAuthenticationResult.SUCCESS,
-                session.evaluateAuthentication("bob", "pw", null));
+                evaluate(session, "bob", "pw", null));
         assertEquals(FtpAuthenticationResult.SUCCESS,
-                session.evaluateAuthentication("bob", null, "acct"));
+                evaluate(session, "bob", null, "acct"));
     }
 
     @Test
@@ -189,7 +199,7 @@ public class FtpStagedSessionTest {
                 new AuthenticatedHandlerConnectionAdapter(session, md);
         assertNull(adapter.connected(md));
         assertEquals(FtpAuthenticationResult.SUCCESS,
-                adapter.authenticate("u", "p", null, md));
+                org.bluezoo.gumdrop.ftp.FtpFileHandlersTest.auth(adapter, "u", "p", null, md));
         assertSame(fs, adapter.getFileSystem(md));
         adapter.transferStarting("/x", true, 1, md);
         adapter.transferProgress("/x", true, ByteBuffer.allocate(1), 1, md);
@@ -294,11 +304,11 @@ public class FtpStagedSessionTest {
     public void testRealmEvaluate() {
         DefaultFtpHandler h = new DefaultFtpHandler(fs, new TinyRealm());
         assertEquals(FtpAuthenticationResult.NEED_PASSWORD,
-                h.evaluateAuthentication("alice", null, "acct"));
+                evaluate(h, "alice", null, "acct"));
         assertEquals(FtpAuthenticationResult.INVALID_PASSWORD,
-                h.evaluateAuthentication("alice", "bad", null));
+                evaluate(h, "alice", "bad", null));
         assertEquals(FtpAuthenticationResult.SUCCESS,
-                h.evaluateAuthentication(" alice ", "wonderland", null));
+                evaluate(h, " alice ", "wonderland", null));
         assertNull(h.getQuota("alice"));
         assertTrue(h.canStore("alice", 1));
     }
@@ -336,15 +346,12 @@ public class FtpStagedSessionTest {
                 .server();
         assertTrue(server.isRequireTLSForData());
         assertNotNull(server.getRealm());
-        server.setRequireTLSForData(false);
+        server.requireTLSForData(false);
         assertFalse(server.isRequireTLSForData());
-        server.setRealm(null);
+        server.realm(null);
         assertNull(server.getRealm());
         assertEquals(1, server.getListeners().size());
-        List<Object> extra = new ArrayList<Object>();
-        extra.add(new FtpListener());
-        extra.add("not a listener");
-        server.setListeners(extra);
+        server.addListener(new FtpListener());
         assertEquals(2, server.getListeners().size());
         FtpListener dyn = new FtpListener();
         server.addDynamicListener(dyn);
@@ -390,8 +397,7 @@ public class FtpStagedSessionTest {
         assertNotNull(s2.openSession(null));
     }
 
-    static class TinyRealm implements Realm {
-        @Override public Realm forSelectorLoop(SelectorLoop loop) { return this; }
+    static class TinyRealm implements SynchronousRealm {
         @Override public Set<SaslMechanism> getSupportedSASLMechanisms() {
             return new HashSet<SaslMechanism>();
         }
@@ -399,7 +405,6 @@ public class FtpStagedSessionTest {
             return "alice".equals(u) && "wonderland".equals(p);
         }
         @Override public String getDigestHA1(String u, String r) { return null; }
-        @Override public String getPassword(String u) { return null; }
         @Override public boolean isUserInRole(String u, String r) { return true; }
     }
 

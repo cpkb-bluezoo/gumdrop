@@ -21,7 +21,6 @@
 
 package org.bluezoo.gumdrop.auth;
 
-import org.bluezoo.gumdrop.SelectorLoop;
 import org.junit.Test;
 
 import java.nio.charset.StandardCharsets;
@@ -33,18 +32,14 @@ import java.util.Set;
 import static org.junit.Assert.*;
 
 /**
- * Unit tests for the default methods and result types of {@link Realm}.
+ * Unit tests for the default methods of {@link SynchronousRealm} (and the
+ * asynchronous adapters over them) and the result types of {@link Realm}.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 public class RealmDefaultsTest {
 
-    private static final class BareRealm implements Realm {
-        @Override
-        public Realm forSelectorLoop(SelectorLoop loop) {
-            return this;
-        }
-
+    private static final class BareRealm implements SynchronousRealm {
         @Override
         public Set<SaslMechanism> getSupportedSASLMechanisms() {
             return Collections.emptySet();
@@ -61,19 +56,52 @@ public class RealmDefaultsTest {
         }
 
         @Override
-        public String getPassword(String username) {
-            throw new UnsupportedOperationException();
-        }
-
-        @Override
         public boolean isUserInRole(String username, String role) {
             return false;
         }
     }
 
     @Test
+    public void asyncAdaptersReportSynchronousAnswersInline() {
+        final Realm realm = new BareRealm().forSelectorLoop(null);
+        assertFalse(CapturedCallback.await(new CapturedCallback.Call<Boolean>() {
+            @Override
+            public void invoke(RealmCallback<Boolean> cb) {
+                realm.passwordMatch("u", "p", cb);
+            }
+        }));
+        assertFalse(CapturedCallback.await(new CapturedCallback.Call<Boolean>() {
+            @Override
+            public void invoke(RealmCallback<Boolean> cb) {
+                realm.isUserInRole("u", "r", cb);
+            }
+        }));
+        assertTrue(CapturedCallback.await(new CapturedCallback.Call<Boolean>() {
+            @Override
+            public void invoke(RealmCallback<Boolean> cb) {
+                realm.authorizeAs("alice", "alice", cb);
+            }
+        }));
+        assertNull(CapturedCallback.await(new CapturedCallback.Call<Realm.TokenValidationResult>() {
+            @Override
+            public void invoke(RealmCallback<Realm.TokenValidationResult> cb) {
+                realm.validateBearerToken("t", cb);
+            }
+        }));
+    }
+
+    @Test
+    public void asyncAdapterReportsUnsupportedAsFailure() {
+        Realm realm = new BareRealm().forSelectorLoop(null);
+        CapturedCallback<String> cb = new CapturedCallback<String>();
+        realm.getCramMD5Response("u", "c", cb);
+        assertTrue(cb.isDone());
+        assertTrue(cb.failure() instanceof UnsupportedOperationException);
+    }
+
+    @Test
     public void optionalFeaturesDefaultToUnsupported() {
-        Realm realm = new BareRealm();
+        SynchronousRealm realm = new BareRealm();
         assertFalse(realm.userExists("x"));
         assertNull(realm.validateBearerToken("t"));
         assertNull(realm.validateOAuthToken("t"));
@@ -97,14 +125,14 @@ public class RealmDefaultsTest {
 
     @Test
     public void authorizeAsRequiresIdentity() {
-        Realm realm = new BareRealm();
+        SynchronousRealm realm = new BareRealm();
         assertTrue(realm.authorizeAs("alice", "alice"));
         assertFalse(realm.authorizeAs("alice", "bob"));
     }
 
     @Test
     public void kerberosPrincipalMapping() {
-        Realm realm = new BareRealm();
+        SynchronousRealm realm = new BareRealm();
         assertNull(realm.mapKerberosPrincipal(null));
         assertEquals("alice", realm.mapKerberosPrincipal("alice@EXAMPLE.COM"));
         assertEquals("alice", realm.mapKerberosPrincipal("alice"));

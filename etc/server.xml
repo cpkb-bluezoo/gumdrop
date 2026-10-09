@@ -40,6 +40,11 @@
   <realm name="myRealm,Gumdrop Manager" class="org.bluezoo.gumdrop.auth.BasicRealm"
          href="realm-servlet.xml"/>
 
+  <!-- Optional container settings. hot-deploy redeploys webapps when their
+       files change (default off unless GUMDROP_HOT_DEPLOY=true).
+  <container hot-deploy="true"/>
+  -->
+
   <context path="" root="../webapps/ROOT" distributable="true"/>
   <context path="/manager" root="../webapps/manager.war"/>
 

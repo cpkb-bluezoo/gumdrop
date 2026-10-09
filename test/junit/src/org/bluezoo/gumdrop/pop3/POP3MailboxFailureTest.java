@@ -63,9 +63,9 @@ public class POP3MailboxFailureTest {
         POP3ProtocolHandlerTest.StubMailboxFactory factory = new MockFactory();
         listener = new POP3ProtocolHandlerTest.TestPOP3Listener();
         realm = new POP3ProtocolHandlerTest.StubRealm();
-        listener.setRealm(realm);
-        listener.setMailboxFactory(factory);
-        listener.setEnableAPOP(false);
+        listener.realm(realm);
+        listener.mailboxFactory(factory);
+        listener.enableAPOP(false);
         endpoint = new POP3AuthFlowsTest.TimerEndpoint();
     }
 
@@ -179,8 +179,8 @@ public class POP3MailboxFailureTest {
 
     @Test
     public void testCapaListsPipeliningAndApopWhenEnabled() {
-        listener.setEnableAPOP(true);
-        listener.setEnablePipelining(true);
+        listener.enableAPOP(true);
+        listener.enablePipelining(true);
         handler = new Pop3ProtocolHandler(listener);
         handler.connected(endpoint);
         endpoint.sentData.clear();
@@ -192,7 +192,7 @@ public class POP3MailboxFailureTest {
 
     @Test
     public void testCapaOmitsPipeliningByDefault() {
-        listener.setEnablePipelining(false);
+        listener.enablePipelining(false);
         handler = new Pop3ProtocolHandler(listener);
         handler.connected(endpoint);
         endpoint.sentData.clear();

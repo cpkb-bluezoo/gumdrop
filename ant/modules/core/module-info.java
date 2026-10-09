@@ -30,7 +30,7 @@ module org.bluezoo.gumdrop.core {
     exports org.bluezoo.gumdrop.dns;
     exports org.bluezoo.gumdrop.dns.client;
     exports org.bluezoo.gumdrop.ldap.client;
-    exports org.bluezoo.gumdrop.ldap.asn1;
+    exports org.bluezoo.gumdrop.asn1;
     exports org.bluezoo.gumdrop.telemetry;
     exports org.bluezoo.gumdrop.telemetry.access;
     exports org.bluezoo.gumdrop.telemetry.metrics;

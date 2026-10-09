@@ -22,7 +22,7 @@
 package org.bluezoo.gumdrop.amqp1.client;
 
 /**
- * Entry point for a connection made through {@link Amqp1ClientRecovery}.
+ * Entry point for a connection made through {@link Amqp1Client}.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */

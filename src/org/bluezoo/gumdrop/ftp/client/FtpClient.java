@@ -79,62 +79,21 @@ public class FtpClient {
         dial.selectorLoop(selectorLoop).socketPath(socketPath);
     }
 
-    public void setSecure(boolean secure) {
-        this.secure = secure;
-    }
-
-    public void setClientCredentials(ServerCredentials clientCredentials) {
-        tls.serverCredentials(clientCredentials);
-    }
-
-    public void setTrustManager(X509TrustManager trustManager) {
-        tls.trustManager(trustManager);
-    }
-
-    public void setKeystoreFile(Path path) {
-        tls.keystoreFile(path);
-    }
-
-    public void setKeystorePass(String password) {
-        tls.keystorePass(password);
-    }
-
-    public void setKeystoreFormat(KeystoreFormat format) {
-        tls.keystoreFormat(format);
-    }
-
     public FtpClient secure(boolean secure) {
         this.secure = secure;
         return this;
     }
 
-    public FtpClient trustJvm() {
-        tls.trustJvm();
-        return this;
-    }
-
-    public FtpClient clientCredentials(ServerCredentials clientCredentials) {
-        tls.serverCredentials(clientCredentials);
-        return this;
-    }
-
-    public FtpClient trustManager(X509TrustManager trustManager) {
-        tls.trustManager(trustManager);
-        return this;
-    }
-
-    public FtpClient keystoreFile(Path path) {
-        tls.keystoreFile(path);
-        return this;
-    }
-
-    public FtpClient keystorePass(String password) {
-        tls.keystorePass(password);
-        return this;
-    }
-
-    public FtpClient keystoreFormat(KeystoreFormat format) {
-        tls.keystoreFormat(format);
+    /**
+     * Sets this client's TLS settings (certificates, trust, ECH and so on). The
+     * settings are copied, so later changes to {@code source} are not seen.
+     * Whether TLS is used at all is decided by {@link #secure(boolean)}.
+     *
+     * @param source the TLS configuration
+     * @return this client
+     */
+    public FtpClient tls(TlsConfig source) {
+        tls.copyFrom(source);
         return this;
     }
 

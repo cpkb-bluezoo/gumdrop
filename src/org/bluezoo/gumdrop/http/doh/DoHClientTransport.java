@@ -40,6 +40,7 @@ import org.bluezoo.gumdrop.http.client.HttpRequest;
 import org.bluezoo.gumdrop.http.HttpStatus;
 import org.bluezoo.gumdrop.http.client.HttpResponseHandler;
 import org.bluezoo.gumdrop.tls.ServerCredentials;
+import org.bluezoo.gumdrop.tls.TlsConfig;
 import javax.net.ssl.X509TrustManager;
 
 /**
@@ -88,8 +89,7 @@ public class DoHClientTransport implements DnsClientTransport {
     private final CountDownLatch connectedLatch = new CountDownLatch(1);
 
     private String path = DEFAULT_PATH;
-    private ServerCredentials clientCredentials;
-    private X509TrustManager trustManager;
+    private TlsConfig tls;
 
     /**
      * Sets the URI path for DoH queries.
@@ -97,8 +97,9 @@ public class DoHClientTransport implements DnsClientTransport {
      *
      * @param path the path (default {@code /dns-query})
      */
-    public void setPath(String path) {
+    public DoHClientTransport path(String path) {
         this.path = path;
+        return this;
     }
 
     /**
@@ -111,26 +112,16 @@ public class DoHClientTransport implements DnsClientTransport {
     }
 
     /**
-     * Sets this client's own identity (certificate chain and private key)
-     * to present if the server requests client certificate authentication
-     * (mTLS) on the underlying HTTPS connection. Must be called before
-     * {@link #open}.
+     * Sets the TLS settings for the underlying HTTPS connection: trust
+     * material, and this client's own identity to present if the server
+     * requests client certificate authentication (mTLS). Must be called
+     * before {@link #open}.
      *
-     * @param clientCredentials the client's own credentials
+     * @param tls the TLS configuration, or null for the defaults
      */
-    public void setClientCredentials(ServerCredentials clientCredentials) {
-        this.clientCredentials = clientCredentials;
-    }
-
-    /**
-     * Sets a custom trust manager for TLS certificate verification on
-     * the underlying HTTPS connection. Must be called before {@link
-     * #open}.
-     *
-     * @param trustManager the trust manager, or null to use defaults
-     */
-    public void setTrustManager(X509TrustManager trustManager) {
-        this.trustManager = trustManager;
+    public DoHClientTransport tls(TlsConfig tls) {
+        this.tls = tls;
+        return this;
     }
 
     @Override
@@ -146,12 +137,9 @@ public class DoHClientTransport implements DnsClientTransport {
         }
         String hostAddress = server.getHostAddress();
         httpClient = newHttpClient(loop, hostAddress, port);
-        httpClient.setSecure(true);
-        if (clientCredentials != null) {
-            httpClient.setClientCredentials(clientCredentials);
-        }
-        if (trustManager != null) {
-            httpClient.setTrustManager(trustManager);
+        httpClient.secure(true);
+        if (tls != null) {
+            httpClient.tls(tls);
         }
         httpClient.connect(loop.getGumdrop(), new HttpClientHandler() {
             @Override

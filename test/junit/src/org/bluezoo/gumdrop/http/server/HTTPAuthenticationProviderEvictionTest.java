@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.http.server;
 
+import org.bluezoo.gumdrop.testsupport.InlineHttpAuthenticationProvider;
 import org.bluezoo.gumdrop.auth.Realm;
 import org.junit.Test;
 
@@ -43,7 +44,7 @@ import static org.junit.Assert.*;
 public class HTTPAuthenticationProviderEvictionTest {
 
     /** Minimal Digest provider for exercising nonce issuance directly. */
-    private static final class TestProvider extends HttpAuthenticationProvider {
+    private static final class TestProvider extends InlineHttpAuthenticationProvider {
         @Override protected String getAuthMethod() {
             return HttpServletRequest.DIGEST_AUTH;
         }

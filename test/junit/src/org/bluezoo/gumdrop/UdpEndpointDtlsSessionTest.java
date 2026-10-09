@@ -272,16 +272,15 @@ public class UdpEndpointDtlsSessionTest {
     }
 
     @Test
-    public void cookieRequiredWithoutSecretFailsServerSession() throws Exception {
+    public void cookieRequiredWithoutSecretUsesARandomOne() throws Exception {
         for (int v = 0; v < VERSIONS.length; v++) {
             UdpTransportFactory f = serverFactory();
             f.setRequireCookie(true);
             Link link = new Link(VERSIONS[v], f, TestCertificates.trustAll(), CLIENT_ADDR);
             link.handshake();
             String label = VERSIONS[v].toString();
-            assertFalse(label, link.clientPeer.secure);
-            assertFalse(label, link.serverPeer.secure);
-            assertTrue(label, link.serverPeer.received.isEmpty());
+            assertTrue(label, link.clientPeer.secure);
+            assertTrue(label, link.serverPeer.secure);
         }
     }
 

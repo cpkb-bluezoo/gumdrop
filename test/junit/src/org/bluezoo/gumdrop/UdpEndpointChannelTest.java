@@ -305,7 +305,7 @@ public class UdpEndpointChannelTest {
             Counting listener = new Counting();
             List<CidrNetwork> blocked = new ArrayList<CidrNetwork>();
             blocked.add(new CidrNetwork("127.0.0.0/8"));
-            listener.setBlockedNetworks(blocked);
+            listener.blockedNetworks(blocked);
             ep.setListener(listener);
             byte[] hello = new byte[] {22, (byte) 0xfe, (byte) 0xfd, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1};
             ep.netReceive(ByteBuffer.wrap(hello), PEER);

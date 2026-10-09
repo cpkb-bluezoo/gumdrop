@@ -57,7 +57,7 @@ public class GrpcRequestHandlerTest {
     private static final ProtoFile PROTO = ProtoFile.builder().build();
     private static final GrpcServer NOOP_SERVICE = new GrpcServer() {
         @Override
-        public ProtoMessageHandler startUnaryCall(String path, GrpcResponseSender response) {
+        public ProtoMessageHandler startCall(String path, GrpcCall response) {
             return null;
         }
     };

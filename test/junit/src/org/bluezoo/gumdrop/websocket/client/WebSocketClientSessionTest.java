@@ -23,6 +23,7 @@
 package org.bluezoo.gumdrop.websocket.client;
 
 import static org.junit.Assert.assertEquals;
+import org.bluezoo.gumdrop.http.HttpVersion;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
@@ -71,9 +72,9 @@ public class WebSocketClientSessionTest {
 
         MemClient() {
             super("ws.example", 80);
-            setDnsHttpsRecordEnabled(false);
-            setH2Enabled(false);
-            setDeflateEnabled(false);
+            dnsHttpsRecordEnabled(false);
+            versions(HttpVersion.HTTP_1_1);
+            deflateEnabled(false);
         }
 
         @Override
@@ -215,7 +216,7 @@ public class WebSocketClientSessionTest {
         byte[] alpnH2AndEch = {0, 1, 0, 3, 2, 'h', '2', 0, 5, 0, 3, 'e', 'c', 'h'};
         answers.add(httpsRecord(1, alpnH2AndEch));
         MemClient c = new MemClient();
-        c.setDnsHttpsRecordEnabled(true);
+        c.dnsHttpsRecordEnabled(true);
         c.dnsResolver(new AnswerResolver(answers));
         c.selectorLoop(new InlineSelectorLoop());
         RecordingWebSocketEventHandler h = new RecordingWebSocketEventHandler();

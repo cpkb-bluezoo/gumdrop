@@ -82,7 +82,7 @@ public class Http3ListenerConfigTest {
         assertSame(l, l.requireRetry(false));
         assertFalse(l.isRequireRetry());
         assertTrue(l.getAddSecurityHeaders());
-        l.setAddSecurityHeaders(false);
+        l.addSecurityHeaders(false);
         assertFalse(l.getAddSecurityHeaders());
         HttpStreamHandler sh = new HttpStreamHandler() {
             @Override
@@ -90,15 +90,15 @@ public class Http3ListenerConfigTest {
                 return new DefaultHttpRequestHandler();
             }
         };
-        l.setStreamHandler(sh);
+        l.streamHandler(sh);
         assertSame(sh, l.getStreamHandler());
         assertNull(l.getAuthenticationProvider());
         assertNull(l.getMetrics());
         assertNull(l.getSelectorLoop());
-        l.setSelectorLoop(null);
-        l.setCompressResponses(true);
+        l.selectorLoop(null);
+        l.compressResponses(true);
         assertTrue(l.getCompressResponses());
-        l.setCompressResponses(false);
+        l.compressResponses(false);
         assertFalse(l.getCompressResponses());
     }
 
@@ -107,21 +107,21 @@ public class Http3ListenerConfigTest {
         Http3Listener l = new Http3Listener();
         assertFalse(l.isHstsEnabled());
         assertNull(l.getStrictTransportSecurityHeaderValue());
-        l.setHstsEnabled(true);
-        l.setHstsMaxAge(100L);
-        l.setHstsIncludeSubDomains(true);
-        l.setHstsPreload(true);
+        l.hstsEnabled(true);
+        l.hstsMaxAge(100L);
+        l.hstsIncludeSubDomains(true);
+        l.hstsPreload(true);
         String value = l.getStrictTransportSecurityHeaderValue();
         assertTrue(value, value.contains("max-age=100"));
         assertTrue(value.contains("includeSubDomains"));
         assertTrue(value.contains("preload"));
         HstsPolicy p = l.getHstsPolicy();
         assertTrue(p.isEnabled());
-        l.setHstsPolicy(HstsPolicy.enabled(5L).includeSubDomains(false).preload(false));
+        l.hstsPolicy(HstsPolicy.enabled(5L).includeSubDomains(false).preload(false));
         assertEquals(5L, l.getHstsPolicy().getMaxAgeSeconds());
-        l.setHstsPolicy(null);
+        l.hstsPolicy(null);
         assertFalse(l.isHstsEnabled());
-        l.setHstsPolicy(HstsPolicy.disabled());
+        l.hstsPolicy(HstsPolicy.disabled());
         assertFalse(l.isHstsEnabled());
     }
 
@@ -133,13 +133,13 @@ public class Http3ListenerConfigTest {
         try {
             l.setCertFile(cert);
             l.setKeyFile(key);
-            l.setQuicMaxIdleTimeout(1000);
-            l.setQuicMaxData(2000);
-            l.setQuicMaxStreamDataBidiLocal(3000);
-            l.setQuicMaxStreamDataBidiRemote(4000);
-            l.setQuicMaxStreamDataUni(5000);
-            l.setQuicMaxStreamsBidi(6);
-            l.setQuicMaxStreamsUni(7);
+            l.quicMaxIdleTimeout(1000);
+            l.quicMaxData(2000);
+            l.quicMaxStreamDataBidiLocal(3000);
+            l.quicMaxStreamDataBidiRemote(4000);
+            l.quicMaxStreamDataUni(5000);
+            l.quicMaxStreamsBidi(6);
+            l.quicMaxStreamsUni(7);
             assertNotNull(factory(l));
         } finally {
             Files.deleteIfExists(cert);
@@ -154,24 +154,24 @@ public class Http3ListenerConfigTest {
         byte[] key = new byte[16];
         assertSame(l, l.quicLb(1, serverId, 8, key, false));
         assertNotNull(factory(l));
-        l.setQuicLbServerIdLength(3);
+        l.quicLbServerIdLength(3);
         assertNotNull(factory(l));
-        l.setQuicLbServerIdLength(4);
+        l.quicLbServerIdLength(4);
         try {
             factory(l);
             fail("expected exception");
         } catch (java.lang.reflect.InvocationTargetException expected) {
             assertTrue(expected.getCause() instanceof IllegalArgumentException);
         }
-        l.setQuicLbServerIdLength(-1);
-        l.setRequireRetry(false);
+        l.quicLbServerIdLength(-1);
+        l.requireRetry(false);
         try {
             factory(l);
             fail("expected exception");
         } catch (java.lang.reflect.InvocationTargetException expected) {
             assertTrue(expected.getCause() instanceof IllegalStateException);
         }
-        l.setRequireRetry(true);
+        l.requireRetry(true);
         Path keyFile = memFile("/lbkey.hex");
         try {
             StringBuilder hex = new StringBuilder();
@@ -179,10 +179,10 @@ public class Http3ListenerConfigTest {
                 hex.append('a');
             }
             Files.write(keyFile, hex.toString().getBytes(StandardCharsets.US_ASCII));
-            l.setQuicLbCidKeyFile(keyFile);
-            l.setQuicLbConfigId(2);
-            l.setQuicLbNonceLength(10);
-            l.setQuicLbFirstOctetEncodesCidLength(true);
+            l.quicLbCidKeyFile(keyFile);
+            l.quicLbConfigId(2);
+            l.quicLbNonceLength(10);
+            l.quicLbFirstOctetEncodesCidLength(true);
             assertNotNull(factory(l));
             Files.write(keyFile, new byte[16]);
             assertNotNull(factory(l));
@@ -190,18 +190,18 @@ public class Http3ListenerConfigTest {
             Files.deleteIfExists(keyFile);
         }
         Http3Listener none = new Http3Listener();
-        none.setQuicLbServerId("");
+        none.quicLbServerId("");
         assertNotNull(factory(none));
         Http3Listener hexId = new Http3Listener();
-        hexId.setQuicLbServerId("0102");
-        hexId.setQuicLbCidKeyFile(null);
+        hexId.quicLbServerId("0102");
+        hexId.quicLbCidKeyFile(null);
         assertNotNull(hexId);
     }
 
     @Test
     public void testConnectionAccepted() throws Exception {
         Http3Listener l = new Http3Listener();
-        l.setStreamHandler(new HttpStreamHandler() {
+        l.streamHandler(new HttpStreamHandler() {
             @Override
             public HttpRequestHandler openStream(HttpResponse stream) {
                 return null;

@@ -60,6 +60,7 @@ import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.TokenErrorRecovery;
 import org.bluezoo.gumdrop.auth.GssapiServer;
 import org.bluezoo.gumdrop.auth.Realm;
+import org.bluezoo.gumdrop.auth.RealmCallback;
 import org.bluezoo.gumdrop.auth.SaslMechanism;
 import org.bluezoo.gumdrop.auth.SaslUtils;
 import org.bluezoo.gumdrop.mime.HeaderLineTooLongException;
@@ -807,6 +808,11 @@ public final class Pop3ProtocolHandler
             return;
         }
 
+        if (server.isAuthLockedOut(endpoint.getRemoteAddress())) {
+            sendERR(L10N.getString("pop3.err.auth_locked"));
+            return;
+        }
+
         final String passUsername = username;
         enforceLoginDelay(new Runnable() {
             @Override
@@ -828,12 +834,7 @@ public final class Pop3ProtocolHandler
                 // loop, could self-deadlock outright (issue #122). Offload
                 // it to StorageExecutor so the loop thread is never the one
                 // waiting.
-                submitStorage(new Callable<Boolean>() {
-                    @Override
-                    public Boolean call() {
-                        return realm.passwordMatch(passUsername, args);
-                    }
-                }, new StorageExecutor.Callback<Boolean>() {
+                passwordMatchAsync(realm, passUsername, args, new StorageExecutor.Callback<Boolean>() {
                     @Override
                     public void completed(Boolean authenticated) {
                         try {
@@ -888,13 +889,18 @@ public final class Pop3ProtocolHandler
             return;
         }
 
+        if (server.isAuthLockedOut(endpoint.getRemoteAddress())) {
+            sendERR(L10N.getString("pop3.err.auth_locked"));
+            return;
+        }
+
         final String user = args.substring(0, spaceIndex);
         final String clientDigest = args.substring(spaceIndex + 1);
 
         enforceLoginDelay(new Runnable() {
             @Override
             public void run() {
-                try {
+                {
                     Realm realm = getRealm();
                     if (realm == null) {
                         sendERR(L10N.getString(
@@ -903,45 +909,56 @@ public final class Pop3ProtocolHandler
                         return;
                     }
 
-                    try {
-                        String expected =
-                                realm.getApopResponse(user,
-                                        apopTimestamp);
-                        if (expected != null
-                                && ByteArrays.equalsConstantTime(
-                                        ByteArrays.toByteArray(expected),
-                                        ByteArrays.toByteArray(clientDigest.toLowerCase()))) {
-                            username = user;
-                            openMailboxAsync(username, new Runnable() {
-                                @Override
-                                public void run() {
-                                    state = Pop3State.TRANSACTION;
-                                    events().info("log.apop_auth_successful")
-                                            .attr("username", user).emit();
-                                    recordAuthenticationSuccess("APOP");
-                                    sendOK(L10N.getString(
-                                            "pop3.mailbox_opened"));
+                    realm.getApopResponse(user, apopTimestamp,
+                            awaiting(new StorageExecutor.Callback<String>() {
+                        @Override
+                        public void completed(String expected) {
+                            try {
+                                if (expected != null
+                                        && ByteArrays.equalsConstantTime(
+                                                ByteArrays.toByteArray(expected),
+                                                ByteArrays.toByteArray(clientDigest.toLowerCase()))) {
+                                    username = user;
+                                    openMailboxAsync(username, new Runnable() {
+                                        @Override
+                                        public void run() {
+                                            state = Pop3State.TRANSACTION;
+                                            events().info("log.apop_auth_successful")
+                                                    .attr("username", user).emit();
+                                            recordAuthenticationSuccess("APOP");
+                                            sendOK(L10N.getString(
+                                                    "pop3.mailbox_opened"));
+                                        }
+                                    });
+                                    return;
                                 }
-                            });
-                            return;
+
+                                failedAuthAttempts++;
+                                lastFailedAuthTime =
+                                        System.currentTimeMillis();
+                                events().warn("log.apop_auth_failed").attr("username", user).emit();
+                                recordAuthenticationFailure("APOP", user);
+                                sendERR(L10N.getString(
+                                        "pop3.err.auth_failed"));
+                            } catch (IOException e) {
+                                events().error("warn.error_during_apop_authentication").thrown(e).emit();
+                                closeEndpoint();
+                            }
                         }
 
-                        failedAuthAttempts++;
-                        lastFailedAuthTime =
-                                System.currentTimeMillis();
-                        events().warn("log.apop_auth_failed").attr("username", user).emit();
-                        recordAuthenticationFailure("APOP", user);
-                        sendERR(L10N.getString(
-                                "pop3.err.auth_failed"));
-
-                    } catch (UnsupportedOperationException e) {
-                        events().warn("log.apop_not_supported").emit();
-                        sendERR(L10N.getString(
-                                "pop3.err.apop_not_available"));
-                    }
-                } catch (IOException e) {
-                    events().error("warn.error_during_apop_authentication").thrown(e).emit();
-                    closeEndpoint();
+                        @Override
+                        public void failed(Throwable cause) {
+                            if (cause instanceof UnsupportedOperationException) {
+                                events().warn("log.apop_not_supported").emit();
+                                sendERR(L10N.getString(
+                                        "pop3.err.apop_not_available"));
+                            } else {
+                                events().error("warn.error_during_apop_authentication").thrown(cause).emit();
+                                sendERR(L10N.getString(
+                                        "pop3.err.auth_failed"));
+                            }
+                        }
+                    }));
                 }
             }
         });
@@ -1011,6 +1028,11 @@ public final class Pop3ProtocolHandler
                 sendERR(L10N.getString(
                         "pop3.err.auth_not_configured"));
             }
+            return;
+        }
+
+        if (server.isAuthLockedOut(endpoint.getRemoteAddress())) {
+            sendERR(L10N.getString("pop3.err.auth_locked"));
             return;
         }
 
@@ -1235,21 +1257,48 @@ public final class Pop3ProtocolHandler
     private void processGSSAPISecurityLayer(String line) throws IOException {
         try {
             byte[] wrapped = SaslUtils.decodeBase64(line);
-            String gssName =
+            final String gssName =
                     gssapiExchange.validateSecurityLayerResponse(wrapped);
             Realm realm = getRealm();
-            String localUser = null;
-            if (realm != null) {
-                localUser = realm.mapKerberosPrincipal(gssName);
+            if (realm == null) {
+                gssapiAuthenticated(null, gssName);
+                return;
             }
-            if (localUser == null) {
-                localUser = gssName;
-                int atIndex = localUser.indexOf('@');
-                if (atIndex > 0) {
-                    localUser = localUser.substring(0, atIndex);
+            realm.mapKerberosPrincipal(gssName,
+                    awaiting(new StorageExecutor.Callback<String>() {
+                @Override
+                public void completed(String localUser) {
+                    gssapiAuthenticated(localUser, gssName);
                 }
+
+                @Override
+                public void failed(Throwable cause) {
+                    LOGGER.log(Level.FINE, L10N.getString("debug.gssapi_security_layer_failed"), cause);
+                    sendERRQuietly("pop3.err.auth_failed");
+                    resetAuthState();
+                }
+            }));
+        } catch (IOException e) {
+            LOGGER.log(Level.FINE, L10N.getString("debug.gssapi_security_layer_failed"), e);
+            sendERR(L10N.getString("pop3.err.auth_failed"));
+            resetAuthState();
+        } catch (IllegalArgumentException e) {
+            sendERR(L10N.getString("pop3.err.invalid_base64"));
+            resetAuthState();
+        }
+    }
+
+    /** GSSAPI succeeded; {@code localUser} is the realm's mapping, or null to strip the Kerberos realm. */
+    private void gssapiAuthenticated(String localUser, String gssName) {
+        if (localUser == null) {
+            localUser = gssName;
+            int atIndex = localUser.indexOf('@');
+            if (atIndex > 0) {
+                localUser = localUser.substring(0, atIndex);
             }
-            final String gssUser = localUser;
+        }
+        final String gssUser = localUser;
+        try {
             openMailboxAsync(gssUser, new Runnable() {
                 @Override
                 public void run() {
@@ -1260,12 +1309,19 @@ public final class Pop3ProtocolHandler
                 }
             });
         } catch (IOException e) {
-            LOGGER.log(Level.FINE, L10N.getString("debug.gssapi_security_layer_failed"), e);
-            sendERR(L10N.getString("pop3.err.auth_failed"));
-        } catch (IllegalArgumentException e) {
-            sendERR(L10N.getString("pop3.err.invalid_base64"));
+            events().warn("warn.failed_complete_gssapi").thrown(e).emit();
+            sendERRQuietly("pop3.err.auth_failed");
         } finally {
             resetAuthState();
+        }
+    }
+
+    /** -ERR for a callback, which cannot throw. */
+    private void sendERRQuietly(String key) {
+        try {
+            sendERR(L10N.getString(key));
+        } catch (RuntimeException e) {
+            events().warn("warn.failed_send_err").thrown(e).emit();
         }
     }
 
@@ -1289,23 +1345,39 @@ public final class Pop3ProtocolHandler
             }
         }
 
-        Realm.CertificateAuthenticationResult result =
-                SaslUtils.authenticateExternal(
-                        endpoint, getRealm(), authzid);
-        if (result == null || !result.valid) {
-            recordAuthenticationFailure("AUTH EXTERNAL", authzid);
-            sendERR(L10N.getString("pop3.err.auth_failed"));
-            return;
-        }
-
-        final String extUser = result.username;
-        openMailboxAsync(extUser, new Runnable() {
+        final String requestedAuthzid = authzid;
+        SaslUtils.authenticateExternal(endpoint, getRealm(), authzid,
+                new RealmCallback<Realm.CertificateAuthenticationResult>() {
             @Override
-            public void run() {
-                username = extUser;
-                state = Pop3State.TRANSACTION;
-                recordAuthenticationSuccess("AUTH EXTERNAL");
-                sendOK(L10N.getString("pop3.mailbox_opened"));
+            public void completed(Realm.CertificateAuthenticationResult result) {
+                if (result == null || !result.valid) {
+                    recordAuthenticationFailure("AUTH EXTERNAL", requestedAuthzid);
+                    sendERRQuietly("pop3.err.auth_failed");
+                    return;
+                }
+
+                final String extUser = result.username;
+                try {
+                    openMailboxAsync(extUser, new Runnable() {
+                        @Override
+                        public void run() {
+                            username = extUser;
+                            state = Pop3State.TRANSACTION;
+                            recordAuthenticationSuccess("AUTH EXTERNAL");
+                            sendOK(L10N.getString("pop3.mailbox_opened"));
+                        }
+                    });
+                } catch (IOException e) {
+                    events().warn("warn.failed_complete_external").thrown(e).emit();
+                    sendERRQuietly("pop3.err.auth_failed");
+                }
+            }
+
+            @Override
+            public void failed(Throwable cause) {
+                events().warn("warn.auth_external_error").thrown(cause).emit();
+                recordAuthenticationFailure("AUTH EXTERNAL", requestedAuthzid);
+                sendERRQuietly("pop3.err.auth_failed");
             }
         });
     }
@@ -1435,8 +1507,8 @@ public final class Pop3ProtocolHandler
                 resetAuthState();
                 return;
             }
-            String user = response.substring(0, spaceIndex);
-            String clientDigest = response.substring(spaceIndex + 1);
+            final String user = response.substring(0, spaceIndex);
+            final String clientDigest = response.substring(spaceIndex + 1);
 
             Realm realm = getRealm();
             if (realm == null) {
@@ -1446,38 +1518,51 @@ public final class Pop3ProtocolHandler
                 return;
             }
 
-            try {
-                String expected =
-                        realm.getCramMD5Response(user, authChallenge);
-                if (expected != null
-                        && ByteArrays.equalsConstantTime(
-                                ByteArrays.toByteArray(expected),
-                                ByteArrays.toByteArray(clientDigest.toLowerCase()))) {
-                    openMailboxAsync(user, new Runnable() {
-                        @Override
-                        public void run() {
-                            username = user;
-                            state = Pop3State.TRANSACTION;
-                            recordAuthenticationSuccess("AUTH CRAM-MD5");
-                            sendOK(L10N.getString("pop3.mailbox_opened"));
+            realm.getCramMD5Response(user, authChallenge,
+                    awaiting(new StorageExecutor.Callback<String>() {
+                @Override
+                public void completed(String expected) {
+                    try {
+                        if (expected != null
+                                && ByteArrays.equalsConstantTime(
+                                        ByteArrays.toByteArray(expected),
+                                        ByteArrays.toByteArray(clientDigest.toLowerCase()))) {
+                            openMailboxAsync(user, new Runnable() {
+                                @Override
+                                public void run() {
+                                    username = user;
+                                    state = Pop3State.TRANSACTION;
+                                    recordAuthenticationSuccess("AUTH CRAM-MD5");
+                                    sendOK(L10N.getString("pop3.mailbox_opened"));
+                                }
+                            });
+                            return;
                         }
-                    });
-                    return;
+                        failedAuthAttempts++;
+                        lastFailedAuthTime = System.currentTimeMillis();
+                        recordAuthenticationFailure("AUTH CRAM-MD5", user);
+                        sendERR(L10N.getString("pop3.err.auth_failed"));
+                    } catch (IOException e) {
+                        events().warn("warn.failed_complete_cram_md5").thrown(e).emit();
+                        closeEndpoint();
+                    } finally {
+                        resetAuthState();
+                    }
                 }
-            } catch (UnsupportedOperationException e) {
-                sendERR(L10N.getString(
-                        "pop3.err.crammd5_not_available"));
-                resetAuthState();
-                return;
-            }
 
-            failedAuthAttempts++;
-            lastFailedAuthTime = System.currentTimeMillis();
-            recordAuthenticationFailure("AUTH CRAM-MD5", user);
-            sendERR(L10N.getString("pop3.err.auth_failed"));
+                @Override
+                public void failed(Throwable cause) {
+                    if (cause instanceof UnsupportedOperationException) {
+                        sendERRQuietly("pop3.err.crammd5_not_available");
+                    } else {
+                        events().warn("warn.auth_cram_md5_error").thrown(cause).emit();
+                        sendERRQuietly("pop3.err.auth_failed");
+                    }
+                    resetAuthState();
+                }
+            }));
         } catch (IllegalArgumentException e) {
             sendERR(L10N.getString("pop3.err.invalid_base64"));
-        } finally {
             resetAuthState();
         }
     }
@@ -1489,8 +1574,8 @@ public final class Pop3ProtocolHandler
                     SaslUtils.decodeBase64ToString(data);
             Map<String, String> params =
                     SaslUtils.parseOAuthBearerCredentials(credentials);
-            String user = params.get("user");
-            String token = params.get("token");
+            final String user = params.get("user");
+            final String token = params.get("token");
 
             if (user == null || token == null) {
                 sendERR(L10N.getString(
@@ -1499,35 +1584,72 @@ public final class Pop3ProtocolHandler
                 return;
             }
 
-            Realm realm = getRealm();
-            if (realm != null) {
-                Realm.TokenValidationResult result =
-                        realm.validateBearerToken(token);
-                if (result == null) {
-                    result = realm.validateOAuthToken(token);
-                }
-                if (result != null && result.valid
-                        && user.equals(result.username)) {
-                    openMailboxAsync(user, new Runnable() {
-                        @Override
-                        public void run() {
-                            username = user;
-                            state = Pop3State.TRANSACTION;
-                            recordAuthenticationSuccess(
-                                    "AUTH OAUTHBEARER");
-                            sendOK(L10N.getString("pop3.mailbox_opened"));
-                        }
-                    });
-                    return;
-                }
+            final Realm realm = getRealm();
+            if (realm == null) {
+                oauthBearerResult(user, null);
+                return;
             }
+            // Bearer tokens first; a realm that has none tries OAuth.
+            realm.validateBearerToken(token,
+                    awaiting(new StorageExecutor.Callback<Realm.TokenValidationResult>() {
+                @Override
+                public void completed(Realm.TokenValidationResult result) {
+                    if (result != null) {
+                        oauthBearerResult(user, result);
+                        return;
+                    }
+                    realm.validateOAuthToken(token,
+                            awaiting(new StorageExecutor.Callback<Realm.TokenValidationResult>() {
+                        @Override
+                        public void completed(Realm.TokenValidationResult oauth) {
+                            oauthBearerResult(user, oauth);
+                        }
 
+                        @Override
+                        public void failed(Throwable cause) {
+                            oauthBearerFailed(user, cause);
+                        }
+                    }));
+                }
+
+                @Override
+                public void failed(Throwable cause) {
+                    oauthBearerFailed(user, cause);
+                }
+            }));
+        } catch (IllegalArgumentException e) {
+            sendERR(L10N.getString("pop3.err.invalid_base64"));
+            resetAuthState();
+        }
+    }
+
+    private void oauthBearerFailed(String user, Throwable cause) {
+        events().warn("warn.auth_oauthbearer_error").thrown(cause).emit();
+        oauthBearerResult(user, null);
+    }
+
+    /** Completes AUTH OAUTHBEARER with the realm's verdict on the token. */
+    private void oauthBearerResult(final String user, Realm.TokenValidationResult result) {
+        try {
+            if (result != null && result.valid && user.equals(result.username)) {
+                openMailboxAsync(user, new Runnable() {
+                    @Override
+                    public void run() {
+                        username = user;
+                        state = Pop3State.TRANSACTION;
+                        recordAuthenticationSuccess("AUTH OAUTHBEARER");
+                        sendOK(L10N.getString("pop3.mailbox_opened"));
+                    }
+                });
+                return;
+            }
             failedAuthAttempts++;
             lastFailedAuthTime = System.currentTimeMillis();
             recordAuthenticationFailure("AUTH OAUTHBEARER", user);
             sendERR(L10N.getString("pop3.err.auth_failed"));
-        } catch (IllegalArgumentException e) {
-            sendERR(L10N.getString("pop3.err.invalid_base64"));
+        } catch (IOException e) {
+            events().warn("warn.failed_complete_oauthbearer").thrown(e).emit();
+            closeEndpoint();
         } finally {
             resetAuthState();
         }
@@ -1538,23 +1660,31 @@ public final class Pop3ProtocolHandler
         try {
             String digestResponse =
                     SaslUtils.decodeBase64ToString(data);
-            Map<String, String> params =
+            final Map<String, String> params =
                     SaslUtils.parseDigestParams(digestResponse);
-            String digestUsername = params.get("username");
+            final String digestUsername = params.get("username");
 
-            if (digestUsername != null) {
-                Realm realm = getRealm();
-                if (realm != null) {
-                    String realmName = params.get("realm");
-                    if (realmName == null) {
-                        realmName = ((InetSocketAddress)
-                                endpoint.getLocalAddress()).getHostString();
-                    }
-                    String ha1 = realm.getDigestHA1(
-                            digestUsername, realmName);
+            Realm realm = getRealm();
+            if (digestUsername == null || realm == null) {
+                digestFailed(digestUsername);
+                return;
+            }
+            String realmName = params.get("realm");
+            if (realmName == null) {
+                realmName = ((InetSocketAddress)
+                        endpoint.getLocalAddress()).getHostString();
+            }
+            realm.getDigestHA1(digestUsername, realmName,
+                    awaiting(new StorageExecutor.Callback<String>() {
+                @Override
+                public void completed(String ha1) {
                     String rspAuth = SaslUtils.verifyDigestMD5ClientResponse(
                             ha1, authNonce, params);
-                    if (rspAuth != null) {
+                    if (rspAuth == null) {
+                        digestFailed(digestUsername);
+                        return;
+                    }
+                    try {
                         openMailboxAsync(digestUsername, new Runnable() {
                             @Override
                             public void run() {
@@ -1566,21 +1696,33 @@ public final class Pop3ProtocolHandler
                                         "pop3.mailbox_opened"));
                             }
                         });
-                        return;
+                    } catch (IOException e) {
+                        events().warn("warn.failed_complete_digest_md5").thrown(e).emit();
+                        closeEndpoint();
+                    } finally {
+                        resetAuthState();
                     }
                 }
-            }
 
-            failedAuthAttempts++;
-            lastFailedAuthTime = System.currentTimeMillis();
-            recordAuthenticationFailure(
-                    "AUTH DIGEST-MD5", digestUsername);
-            sendERR(L10N.getString("pop3.err.auth_failed"));
+                @Override
+                public void failed(Throwable cause) {
+                    events().warn("warn.auth_digest_md5_error").thrown(cause).emit();
+                    digestFailed(digestUsername);
+                }
+            }));
         } catch (IllegalArgumentException e) {
             sendERR(L10N.getString("pop3.err.invalid_base64"));
-        } finally {
             resetAuthState();
         }
+    }
+
+    /** Completes AUTH DIGEST-MD5 as a failure. */
+    private void digestFailed(String digestUsername) {
+        failedAuthAttempts++;
+        lastFailedAuthTime = System.currentTimeMillis();
+        recordAuthenticationFailure("AUTH DIGEST-MD5", digestUsername);
+        sendERRQuietly("pop3.err.auth_failed");
+        resetAuthState();
     }
 
     private void processScramClientFirst(String data)
@@ -1788,12 +1930,7 @@ public final class Pop3ProtocolHandler
                 // loop, could self-deadlock outright (issue #122). Offload
                 // it to StorageExecutor so the loop thread is never the one
                 // waiting.
-                submitStorage(new Callable<Boolean>() {
-                    @Override
-                    public Boolean call() {
-                        return realm.passwordMatch(user, password);
-                    }
-                }, new StorageExecutor.Callback<Boolean>() {
+                passwordMatchAsync(realm, user, password, new StorageExecutor.Callback<Boolean>() {
                     @Override
                     public void completed(Boolean authenticated) {
                         try {
@@ -2787,12 +2924,7 @@ public final class Pop3ProtocolHandler
             callback.completed(null);
             return;
         }
-        submitStorage(new Callable<Realm.ScramCredentials>() {
-            @Override
-            public Realm.ScramCredentials call() {
-                return realm.getScramCredentials(username);
-            }
-        }, callback);
+        realm.getScramCredentials(username, awaiting(callback));
     }
 
     /**
@@ -2802,6 +2934,35 @@ public final class Pop3ProtocolHandler
     private <T> void submitStorage(final Callable<T> op,
             final StorageExecutor.Callback<T> callback) {
         submitStorage(op, callback, true);
+    }
+
+    /**
+     * Pauses reads while the realm answers, so that a pipelined command
+     * cannot race the result, and resumes them before the callback runs. The
+     * realm calls back on this connection's loop without having made the
+     * loop wait.
+     */
+    private <T> RealmCallback<T> awaiting(final StorageExecutor.Callback<T> callback) {
+        endpoint.pauseRead();
+        return new RealmCallback<T>() {
+            @Override
+            public void completed(T result) {
+                endpoint.resumeRead();
+                callback.completed(result);
+            }
+
+            @Override
+            public void failed(Throwable cause) {
+                endpoint.resumeRead();
+                callback.failed(cause);
+            }
+        };
+    }
+
+    /** Verifies a password with the realm without waiting for it. */
+    private void passwordMatchAsync(Realm realm, String user, String password,
+            StorageExecutor.Callback<Boolean> callback) {
+        realm.passwordMatch(user, password, awaiting(callback));
     }
 
     private <T> void submitStorage(final Callable<T> op,
@@ -3391,6 +3552,7 @@ public final class Pop3ProtocolHandler
     }
 
     private void recordAuthenticationSuccess(String mechanism) {
+        server.recordAuthSuccess(endpoint.getRemoteAddress(), username);
         if (sessionSpan != null && !sessionSpan.isEnded()) {
             sessionSpan.addAttribute(
                     "pop3.auth.mechanism", mechanism);
@@ -3402,6 +3564,7 @@ public final class Pop3ProtocolHandler
 
     private void recordAuthenticationFailure(
             String mechanism, String user) {
+        server.recordAuthFailure(endpoint.getRemoteAddress(), user);
         if (sessionSpan != null && !sessionSpan.isEnded()) {
             sessionSpan.addAttribute(
                     "pop3.auth.mechanism", mechanism);

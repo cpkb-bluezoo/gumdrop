@@ -182,7 +182,7 @@ public class SocksLiveLoopIntegrationTest {
     public void setUp() {
         server = new SocksServer();
         listener = new SocksListener();
-        listener.setServer(server);
+        listener.server(server);
         listener.start(gumdrop);
         handler = server.createProtocolHandler(listener);
         endpoint = new LiveEndpoint(gumdrop.nextWorkerLoop());
@@ -308,7 +308,7 @@ public class SocksLiveLoopIntegrationTest {
     @Test
     public void socks5DomainResolvedToBlockedAddressIsRejected()
             throws Exception {
-        server.setBlockedDestinations(CidrNetwork.parseList("127.0.0.0/8"));
+        server.blockedDestinations(CidrNetwork.parseList("127.0.0.0/8"));
         greet5();
         byte[] name = "localhost".getBytes("US-ASCII");
         byte[] req = new byte[5 + name.length + 2];
@@ -431,7 +431,7 @@ public class SocksLiveLoopIntegrationTest {
     @Test
     public void udpAssociateForwardsAndFilters() throws Exception {
         endpoint.setRemoteAddress(new InetSocketAddress("127.0.0.1", 40000));
-        server.setBlockedDestinations(CidrNetwork.parseList("10.0.0.0/8"));
+        server.blockedDestinations(CidrNetwork.parseList("10.0.0.0/8"));
         greet5();
         feed(buf(request5(SOCKS5_CMD_UDP_ASSOCIATE, new byte[4],
                 0)));

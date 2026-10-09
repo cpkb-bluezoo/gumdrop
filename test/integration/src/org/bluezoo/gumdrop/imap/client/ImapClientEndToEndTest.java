@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.imap.client;
 
+import org.bluezoo.gumdrop.auth.SynchronousRealm;
 import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.ListenerBindCheck;
 import org.bluezoo.gumdrop.Gumdrop;
@@ -79,11 +80,11 @@ public class ImapClientEndToEndTest {
     public void setUp() throws Exception {
         maildirRoot = MailboxFixtures.copy("maildir");
         ImapListener server = new ImapListener();
-        server.setPort(PORT);
+        server.port(PORT);
         server.addresses(java.net.InetAddress.getByName(HOST));
-        server.setRealm(new TestRealm());
-        server.setMailboxFactory(new MaildirMailboxFactory(maildirRoot));
-        server.setAllowPlaintextLogin(true);
+        server.realm(new TestRealm());
+        server.mailboxFactory(new MaildirMailboxFactory(maildirRoot));
+        server.allowPlaintextLogin(true);
         gumdrop = Gumdrop.boot(GumdropConfig.create().workerThreads(1).drainTimeoutMs(0));
         gumdrop.addListener(server);
         ListenerBindCheck.assertBound(gumdrop);
@@ -610,16 +611,12 @@ public class ImapClientEndToEndTest {
         }
     }
 
-    private static class TestRealm implements Realm {
+    private static class TestRealm implements SynchronousRealm {
 
         private static final Set<SaslMechanism> SUPPORTED =
             Collections.unmodifiableSet(
                 EnumSet.of(SaslMechanism.PLAIN, SaslMechanism.LOGIN));
 
-        @Override
-        public Realm forSelectorLoop(SelectorLoop loop) {
-            return this;
-        }
 
         @Override
         public Set<SaslMechanism> getSupportedSASLMechanisms() {
@@ -636,11 +633,6 @@ public class ImapClientEndToEndTest {
             return null;
         }
 
-        @Override
-        @SuppressWarnings("deprecation")
-        public String getPassword(String username) {
-            throw new UnsupportedOperationException();
-        }
 
         @Override
         public boolean isUserInRole(String username, String role) {

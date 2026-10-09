@@ -114,7 +114,7 @@ public class HTTPProtocolHandlerH2FlushCoalescingTest {
     @Before
     public void setUp() {
         Http2Listener listener = new Http2Listener();
-        listener.setStreamHandler(new HttpStreamHandler() {
+        listener.streamHandler(new HttpStreamHandler() {
             @Override
             public HttpRequestHandler openStream(HttpResponse state) {
                 return CollectingRequestHandler.bind(new SynchronousGetHandler(), state);

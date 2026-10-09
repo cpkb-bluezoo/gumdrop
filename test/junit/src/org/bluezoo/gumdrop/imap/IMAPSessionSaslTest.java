@@ -111,7 +111,7 @@ public class IMAPSessionSaslTest extends IMAPSessionCoverageTest {
 
     @Override
     protected void configureListener(ImapListener l) {
-        l.setRealm(new SaslRealm());
+        l.realm(new SaslRealm());
     }
 
     private static String b64(String s) {

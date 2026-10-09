@@ -22,6 +22,7 @@
 package org.bluezoo.gumdrop.http.client;
 
 import java.io.ByteArrayOutputStream;
+import org.bluezoo.gumdrop.http.HttpVersion;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -41,6 +42,7 @@ import org.junit.Before;
 import org.junit.Test;
 
 import org.bluezoo.gumdrop.ClientEndpoint;
+import org.bluezoo.gumdrop.tls.TlsConfig;
 import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.testsupport.RefusingTransportFactory;
 import org.bluezoo.gumdrop.GumdropConfig;
@@ -305,8 +307,8 @@ public class ConnectTunnelLoopbackIntegrationTest {
                 return refusing;
             }
         };
-        client.setDnsHttpsRecordEnabled(false);
-        client.setH2Enabled(false);
+        client.dnsHttpsRecordEnabled(false);
+        client.versions(HttpVersion.HTTP_1_1);
         client.connect(gumdrop, "h", 1, new UdpEvents());
         await(finished);
         assertTrue(events.toString(), events.get(0).startsWith("error:"));
@@ -316,17 +318,11 @@ public class ConnectTunnelLoopbackIntegrationTest {
     @Test
     public void udpConfigurationSettersAreAccepted() throws Exception {
         ConnectUdpClient client = new ConnectUdpClient("proxy.example", 443);
-        client.setSecure(true);
-        client.setVerifyPeer(false);
-        client.setTrustManager(null);
-        client.setClientCredentials(null);
-        client.setKeystoreFile(null);
-        client.setKeystorePass("x");
-        client.setKeystoreFormat(null);
-        client.setH2Enabled(false);
-        client.setH2WithPriorKnowledge(true);
-        client.setDnsHttpsRecordEnabled(false);
-        client.setH3Enabled(false);
+        client.secure(true);
+        client.tls(new TlsConfig().verifyPeer(false).keystorePass("x"));
+        client.versions(HttpVersion.HTTP_2_0);
+        client.h2WithPriorKnowledge(true);
+        client.dnsHttpsRecordEnabled(false);
         assertFalse(client.isOpen());
         client.close();
     }
@@ -395,7 +391,7 @@ public class ConnectTunnelLoopbackIntegrationTest {
                 return refusing;
             }
         };
-        client.setDnsHttpsRecordEnabled(false);
+        client.dnsHttpsRecordEnabled(false);
         client.connect(gumdrop, "*", "*", new IpEvents());
         await(finished);
         assertTrue(events.toString(), events.get(0).startsWith("error:"));
@@ -405,7 +401,7 @@ public class ConnectTunnelLoopbackIntegrationTest {
     @Test
     public void ipH3OverUnixSocketIsRejected() throws Exception {
         ConnectIpClient client = new ConnectIpClient("/tmp/connect-ip.sock");
-        client.setH3Enabled(true);
+        client.versions(HttpVersion.HTTP_3);
         client.connect(gumdrop, "*", "*", new IpEvents());
         assertTrue(events.toString(), events.get(0).startsWith("error:"));
         assertTrue(events.toString(), events.get(0).contains("HTTP/3"));
@@ -414,17 +410,11 @@ public class ConnectTunnelLoopbackIntegrationTest {
     @Test
     public void ipConfigurationSettersAreAccepted() {
         ConnectIpClient client = new ConnectIpClient("proxy.example", 443);
-        client.setSecure(true);
-        client.setVerifyPeer(false);
-        client.setTrustManager(null);
-        client.setClientCredentials(null);
-        client.setKeystoreFile(null);
-        client.setKeystorePass("x");
-        client.setKeystoreFormat(null);
-        client.setH2Enabled(false);
-        client.setH2WithPriorKnowledge(true);
-        client.setDnsHttpsRecordEnabled(false);
-        client.setH3Enabled(false);
+        client.secure(true);
+        client.tls(new TlsConfig().verifyPeer(false).keystorePass("x"));
+        client.versions(HttpVersion.HTTP_2_0);
+        client.h2WithPriorKnowledge(true);
+        client.dnsHttpsRecordEnabled(false);
         assertFalse(client.isOpen());
         client.close();
         client.altSvcReceived("h3=\":443\"");

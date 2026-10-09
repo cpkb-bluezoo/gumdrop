@@ -48,9 +48,10 @@ public class DefaultFtpHandlerResultsTest {
         }
 
         @Override
-        public FtpAuthenticationResult evaluateAuthentication(String username,
-                String password, String account) {
-            return result;
+        public void evaluateAuthentication(String username,
+                String password, String account,
+                org.bluezoo.gumdrop.auth.RealmCallback<FtpAuthenticationResult> callback) {
+            callback.completed(result);
         }
     }
 

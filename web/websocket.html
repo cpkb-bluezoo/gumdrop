@@ -49,17 +49,18 @@ either role or both.
 <h3>Contents</h3>
 <ul>
 <li><a href="#overview">Overview</a></li>
-<li><a href="#service">WebSocket Service</a></li>
-<li><a href="#handler">Event Handler API</a></li>
-<li><a href="#subprotocols">Subprotocol Negotiation</a></li>
-<li><a href="#extensions">Extensions &amp; permessage-deflate</a></li>
-<li><a href="#max-message-size">Maximum Message Size</a></li>
-<li><a href="#close-codes">Close Code Validation</a></li>
-<li><a href="#client">WebSocket Client</a></li>
-<li><a href="#use-cases">Use Cases</a></li>
+<li><a href="#service">WebSocket service</a></li>
+<li><a href="#handler">Event handler API</a></li>
+<li><a href="#subprotocols">Subprotocol negotiation</a></li>
+<li><a href="#extensions">Extensions and permessage-deflate</a></li>
+<li><a href="#max-message-size">Maximum message size</a></li>
+<li><a href="#close-codes">Close code validation</a></li>
+<li><a href="#client">WebSocket client</a></li>
+<li><a href="#use-cases">Use cases</a></li>
 <li><a href="#configuration">Configuration</a></li>
-<li><a href="#http-upgrade">Manual HTTP Upgrade</a></li>
-<li><a href="#servlet">Servlet Container Integration</a></li>
+<li><a href="#metrics">Metrics</a></li>
+<li><a href="#http-upgrade">Manual HTTP upgrade</a></li>
+<li><a href="#servlet">Servlet container integration</a></li>
 </ul>
 
 <h3 id="overview">Overview</h3>
@@ -94,7 +95,14 @@ server and client.</li>
 used for sending messages and closing the connection.</li>
 </ul>
 
-<h3 id="service">WebSocket Service</h3>
+<h3 id="service">WebSocket service</h3>
+
+<p>
+The service accepts WebSockets over every HTTP version the server speaks: the
+RFC 6455 upgrade handshake on HTTP/1.1, and Extended CONNECT on HTTP/2 (RFC 8441)
+and HTTP/3 (RFC 9220), where the upgrade header is not allowed. The handler code
+is the same for all three.
+</p>
 
 <p>
 To create a WebSocket server, compose a <code>WebSocketRequestHandler</code>
@@ -170,7 +178,7 @@ request.replay(new DefaultHttpRequestHandler() {
 });
 </pre>
 
-<h3 id="handler">Event Handler API</h3>
+<h3 id="handler">Event handler API</h3>
 
 <p>
 The <code>WebSocketEventHandler</code> interface provides five callbacks:
@@ -193,7 +201,7 @@ closed</li>
 methods for convenience.
 </p>
 
-<h4>WebSocket Session Methods</h4>
+<h4>WebSocket session methods</h4>
 
 <p>
 The <code>WebSocketSession</code> interface is provided to the handler in
@@ -209,9 +217,14 @@ responds with pong automatically)</li>
 <li><code>close(int code, String reason)</code> &ndash; close with a specific
 status code</li>
 <li><code>isOpen()</code> &ndash; check if the session is still active</li>
+<li><code>getPrincipal()</code> &ndash; the authenticated user, if any</li>
+<li><code>isSecure()</code> and <code>getSecurityInfo()</code> &ndash; whether the
+connection is encrypted, and the TLS session details (null if not secure)</li>
+<li><code>setMaxMessageSize(long)</code> &ndash; the largest message to accept
+(see <a href="#max-message-size">Maximum message size</a>)</li>
 </ul>
 
-<h4>Close Codes</h4>
+<h4>Close codes</h4>
 
 <p>
 Standard close codes are defined in <code>WebSocketConnection.CloseCodes</code>:
@@ -223,10 +236,11 @@ Standard close codes are defined in <code>WebSocketConnection.CloseCodes</code>:
 <li><code>1002</code> &ndash; Protocol error</li>
 <li><code>1003</code> &ndash; Unsupported data type</li>
 <li><code>1009</code> &ndash; Message too big</li>
+<li><code>1010</code> &ndash; Missing extension</li>
 <li><code>1011</code> &ndash; Internal server error</li>
 </ul>
 
-<h3 id="subprotocols">Subprotocol Negotiation</h3>
+<h3 id="subprotocols">Subprotocol negotiation</h3>
 
 <p>
 WebSocket supports application-level subprotocol negotiation via the
@@ -255,12 +269,12 @@ WebSocketRequestHandler.builder()
         .build();
 </pre>
 
-<h3 id="extensions">Extensions &amp; permessage-deflate</h3>
+<h3 id="extensions">Extensions and permessage-deflate</h3>
 
 <p>
 RFC 6455 &sect;9 defines an extension negotiation mechanism via the
 <code>Sec-WebSocket-Extensions</code> header. Extensions can augment the
-protocol &mdash; for example by compressing message payloads.
+protocol - for example by compressing message payloads.
 </p>
 
 <p>
@@ -315,11 +329,15 @@ To disable it on the client:
 </p>
 
 <pre>
-WebSocketClient client = new WebSocketClient("example.com", 443);
-client.setDeflateEnabled(false);
+WebSocketClient client = new WebSocketClient("example.com", 443)
+        .deflateEnabled(false);
 </pre>
 
-<h4>Custom Extensions</h4>
+<p>
+Custom extensions are offered by the client with <code>addExtension(...)</code>.
+</p>
+
+<h4>Custom extensions</h4>
 
 <p>
 Implement the <code>WebSocketExtension</code> interface to create a custom
@@ -333,35 +351,46 @@ extension. Key methods:
 <li><code>generateOffer()</code> &ndash; client-side offer parameters</li>
 <li><code>acceptResponse(params)</code> &ndash; client-side acceptance of server response</li>
 <li><code>encode(payload)</code> / <code>decode(payload)</code> &ndash; payload transforms</li>
+<li><code>close()</code> &ndash; release the extension's resources when the connection ends</li>
 </ul>
 
-<h3 id="max-message-size">Maximum Message Size</h3>
+<h3 id="max-message-size">Maximum message size</h3>
 
 <p>
-RFC 6455 &sect;7.4.1 defines close code 1009 (Message Too Big) for when a
-received message exceeds the endpoint&rsquo;s capacity. Gumdrop enforces a
-configurable maximum message size on each <code>WebSocketConnection</code>:
+RFC 6455 section 7.4.1 defines close code 1009 (Message Too Big) for when a
+received message exceeds the endpoint&rsquo;s capacity. Every connection enforces
+a maximum assembled message size, <b>64 MB by default</b>, which bounds the memory
+a peer can make the connection use by sending an endless stream of continuation
+frames. Set it on the server handler or the client, in bytes (0 means unlimited):
 </p>
 
 <pre>
-// Set on the connection (e.g. from an event handler)
-// 0 = unlimited (default)
-connection.setMaxMessageSize(1024 * 1024);  // 1 MB limit
+WebSocketRequestHandler.builder()
+        .onConnect(connectionHandlerFactory)
+        .maxMessageSize(1024 * 1024)          // 1 MB
+        .build();
+
+WebSocketClient client = new WebSocketClient("example.com", 443)
+        .maxMessageSize(1024 * 1024);
 </pre>
 
 <p>
-When a single-frame message or a fragmented message assembly exceeds this
-limit, the connection is proactively closed with code 1009. This prevents
-memory exhaustion from malicious or misbehaving peers.
+When a single-frame message or a fragmented message assembly exceeds the limit,
+the connection is closed with code 1009. The limit is applied when the connection
+opens, before any frame is read. A handler can also change it for one session with
+<code>session.setMaxMessageSize(long)</code>, and
+<code>MessageSizeLimit</code> wraps any <code>WebSocketEventHandler</code> to apply
+a limit where a handler is supplied some other way, such as the
+<a href="#http-upgrade">manual upgrade</a>.
 </p>
 
-<h3 id="close-codes">Close Code Validation</h3>
+<h3 id="close-codes">Close code validation</h3>
 
 <p>
 RFC 6455 &sect;7.4 defines rules for close codes that appear on the wire.
 Codes 1004, 1005, 1006, and 1015 are reserved and <strong>MUST NOT</strong>
 appear in close frames; codes outside the 1000&ndash;4999 range are also
-invalid. Gumdrop now validates received close codes and rejects invalid ones
+invalid. Gumdrop validates received close codes and rejects invalid ones
 with a protocol error (close code 1002):
 </p>
 
@@ -370,7 +399,7 @@ with a protocol error (close code 1002):
 <li><strong>Invalid:</strong> 1004, 1005, 1006, 1015, and anything outside 1000&ndash;4999</li>
 </ul>
 
-<h3 id="client">WebSocket Client</h3>
+<h3 id="client">WebSocket client</h3>
 
 <p>
 The <code>WebSocketClient</code> class provides a high-level facade for
@@ -380,12 +409,12 @@ be reused in both roles.
 </p>
 
 <p>
-In the client examples on this page, <code>gumdrop</code> is the runtime returned by <code>Gumdrop.boot()</code>; a client is given it when it connects.
+In the client examples on this page, <code>gumdrop</code> is the <code>Gumdrop</code> instance returned by <code>Gumdrop.boot()</code>; a client is given it when it connects.
 </p>
 
 <pre>
 WebSocketClient client = new WebSocketClient("echo.example.com", 443);
-client.setSecure(true);
+client.secure(true);
 
 client.connect(gumdrop, "/ws", new DefaultWebSocketEventHandler() {
 
@@ -416,16 +445,55 @@ client.connect(gumdrop, "/ws", new DefaultWebSocketEventHandler() {
 });
 </pre>
 
-<h4>Client Configuration</h4>
+<h4>Client configuration</h4>
 
 <ul>
-<li><code>setSecure(boolean)</code> &ndash; use TLS (wss:// scheme)</li>
-<li><code>setTrustManager(X509TrustManager)</code> &ndash; custom certificate verification</li>
-<li><code>setSubprotocol(String)</code> &ndash; request a specific subprotocol
+<li><code>secure(boolean)</code> &ndash; use TLS (wss:// scheme)</li>
+<li><code>tls(TlsConfig)</code> &ndash; trust material, client certificate and other TLS
+settings, for example a custom <code>X509TrustManager</code></li>
+<li><code>subprotocol(String)</code> &ndash; request a specific subprotocol
 during the handshake</li>
+<li><code>deflateEnabled(boolean)</code> and <code>addExtension(WebSocketExtension)</code>
+&ndash; the <a href="#extensions">extensions</a> to offer</li>
+<li><code>maxMessageSize(long)</code> &ndash; see
+<a href="#max-message-size">Maximum message size</a></li>
+<li><code>versions(HttpVersion...)</code> &ndash; the HTTP versions that may carry the
+connection (below)</li>
+<li><code>dnsResolver(DnsResolver)</code>, <code>dnsHttpsRecordEnabled(boolean)</code>
+&ndash; hostname resolution and HTTP/3 discovery (below)</li>
+<li><code>selectorLoop(SelectorLoop)</code> &ndash; run on a particular loop (next section)</li>
 </ul>
 
-<h4>SelectorLoop Affinity</h4>
+<h4>Transport negotiation</h4>
+
+<p>
+Like the <a href="http.html#client-discovery">HTTP client</a>, the WebSocket client
+chooses the transport when it connects to a host name. It tries WebSocket over
+HTTP/3 (RFC 9220) first if a DNS HTTPS record advertises <code>h3</code>, then
+if a cached <code>Alt-Svc</code> does; otherwise it connects over TCP and offers
+<code>h2</code> by ALPN, using WebSocket over HTTP/2 (RFC 8441 Extended CONNECT)
+if the server selects it and the RFC 6455 HTTP/1.1 upgrade if not. If the HTTP/3
+attempt fails, or has not established within <code>quicHandshakeTimeoutMs(long)</code>
+(default 3 seconds), it falls back to TCP. The handler and session you are given are
+the same whichever is used.
+</p>
+
+<p>
+<code>versions(HttpVersion...)</code> restricts the choice exactly as for
+<code>HttpClient</code>: <code>versions(HttpVersion.HTTP_3)</code> uses HTTP/3 only,
+with no discovery and no fallback, and leaving out <code>HTTP_2_0</code> stops
+<code>h2</code> being offered. For WebSocket over cleartext HTTP/2 (h2c), permit
+<code>HTTP_2_0</code> and set <code>h2WithPriorKnowledge(true)</code>; the
+HTTP/1.1 <code>Upgrade: h2c</code> bootstrap is not supported for WebSocket.
+</p>
+
+<p>
+As with every Gumdrop client, a host name is resolved asynchronously through
+<code>DnsResolver</code>, never with a blocking <code>InetAddress</code> lookup; see
+<a href="dns.html#resolver-default">DNS: hostname resolution in every Gumdrop client</a>.
+</p>
+
+<h4>SelectorLoop affinity</h4>
 
 <p>
 Like the <a href="http.html#client">HTTP client</a>, the WebSocket client can
@@ -437,7 +505,7 @@ with server-side code:
 // Use the same event loop as the server connection
 WebSocketClient client = new WebSocketClient(selectorLoop,
         "upstream.example.com", 443);
-client.setSecure(true);
+client.secure(true);
 client.connect(gumdrop, "/events", handler);
 </pre>
 
@@ -447,9 +515,9 @@ maintain a WebSocket connection to an upstream service (for example, subscribing
 to a Nostr relay from within a server handler).
 </p>
 
-<h3 id="use-cases">Use Cases</h3>
+<h3 id="use-cases">Use cases</h3>
 
-<h4>Nostr Relay</h4>
+<h4>Nostr relay</h4>
 
 <p>
 <a href="https://github.com/nostr-protocol/nostr">Nostr</a> is a decentralised
@@ -519,7 +587,7 @@ HttpServer server = HttpServer.compose()
         .server();
 </pre>
 
-<h4>Live Dashboard</h4>
+<h4>Live dashboard</h4>
 
 <p>
 Push server-side metrics to browser clients in real time:
@@ -572,7 +640,7 @@ public class DashboardService
 }
 </pre>
 
-<h4>IoT / Sensor Gateway</h4>
+<h4>IoT and sensor gateway</h4>
 
 <p>
 Binary WebSocket messages are well suited for compact sensor data formats.
@@ -599,7 +667,7 @@ an additional <code>textMessageReceived</code> handler that calls
 
 <h3 id="configuration">Configuration</h3>
 
-<h4>Basic WebSocket Service</h4>
+<h4>Basic WebSocket service</h4>
 
 <pre>
 HttpServer server = HttpServer.compose()
@@ -624,7 +692,7 @@ HttpServer server = HttpServer.compose()
         .server();
 </pre>
 
-<h4>Multiple Listeners</h4>
+<h4>Multiple listeners</h4>
 
 <p>
 A <code>WebSocketRequestHandler</code> is stateless and reusable across
@@ -645,33 +713,31 @@ HttpServer server = HttpServer.compose()
         .server();
 </pre>
 
-<h4>Nostr Relay Entry Point</h4>
+<h4>Nostr relay entry point</h4>
 
 <pre>
 public static void main(String[] args) throws Exception {
-    System.setProperty("gumdrop.workers", "4");
-
     HttpServer server = HttpServer.compose()
             .secureEndpoint(443, TlsConfig.keystore(
                     Path.of("/etc/gumdrop/keystore.p12"), "changeit"))
             .streamHandler(new NostrRelayService().toHandler())
             .server();
 
-    Gumdrop gumdrop = Gumdrop.boot();
+    Gumdrop gumdrop = Gumdrop.boot(GumdropConfig.create().workerThreads(4));
     gumdrop.addServer(server);
     gumdrop.join();
 }
 </pre>
 
-<h4>Listener Properties</h4>
+<h4>Listener settings</h4>
 
 <p>
 A <code>WebSocketRequestHandler</code> composes onto ordinary
 <code>Http2Listener</code> / <code>Http3Listener</code> instances, so all
-the usual listener properties apply &mdash; see
+the usual listener properties apply - see
 <a href="http.html#configuration">HTTP listener configuration</a> for
-<code>port</code>, <code>secure</code>, keystore/PEM identity,
-<code>needClientAuth</code>, and TLS settings.
+<code>port</code>, <code>secure</code>, the TLS identity and
+<code>requireClientAuth</code> on its <code>TlsConfig</code>, timeouts and limits.
 </p>
 
 <h3 id="metrics">Metrics</h3>
@@ -685,6 +751,7 @@ following OpenTelemetry metrics:
 <table border="1" cellpadding="5">
 <tr><th>Metric</th><th>Type</th><th>Description</th></tr>
 <tr><td><code>websocket.server.connections</code></td><td>Counter</td><td>Total WebSocket connections</td></tr>
+<tr><td><code>websocket.server.active_connections</code></td><td>Up-down counter</td><td>Currently open WebSocket connections</td></tr>
 <tr><td><code>websocket.server.session.duration</code></td><td>Histogram</td><td>Session duration (ms)</td></tr>
 <tr><td><code>websocket.server.messages.received</code></td><td>Counter</td><td>Messages received (by type)</td></tr>
 <tr><td><code>websocket.server.messages.sent</code></td><td>Counter</td><td>Messages sent (by type)</td></tr>
@@ -693,7 +760,7 @@ following OpenTelemetry metrics:
 <tr><td><code>websocket.server.errors</code></td><td>Counter</td><td>WebSocket errors</td></tr>
 </table>
 
-<h3 id="http-upgrade">Manual HTTP Upgrade</h3>
+<h3 id="http-upgrade">Manual HTTP upgrade</h3>
 
 <p>
 If you are building an HTTP service with
@@ -756,7 +823,7 @@ model described above is preferred because the HTTP upgrade is handled
 automatically.
 </p>
 
-<h3 id="servlet">Servlet Container Integration</h3>
+<h3 id="servlet">Servlet container integration</h3>
 
 <p>
 The <a href="servlet.html">servlet container</a>
@@ -771,9 +838,10 @@ initiated.
 
 <p>
 For applications using the servlet container, WebSocket support is available
-through the standard Java WebSocket API (JSR 356) or by calling
-<code>HttpServletRequest.upgrade()</code> directly. For applications that do
-not need the servlet programming model, composing
+by calling <code>HttpServletRequest.upgrade()</code> with an
+<code>HttpUpgradeHandler</code>; the Java WebSocket API (JSR 356) is not
+implemented. For applications that do not need the servlet programming model,
+composing
 <code>WebSocketRequestHandler</code> directly provides a simpler, more direct API.
 </p>
 
@@ -784,7 +852,7 @@ not need the servlet programming model, composing
 <a href="http.html">HTTP Server &amp; Client</a> |
 <a href="servlet.html">Servlet Container</a> |
 <a href="smtp.html">SMTP Server &amp; Client</a> |
-<a href="dns.html">DNS Server</a> |
+<a href="dns.html">DNS</a> |
 <a href="telemetry.html">Telemetry</a>
 </p>
 

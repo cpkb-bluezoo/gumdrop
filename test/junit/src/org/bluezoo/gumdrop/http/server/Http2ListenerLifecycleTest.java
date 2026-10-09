@@ -43,12 +43,12 @@ public class Http2ListenerLifecycleTest {
     @Test
     public void boundPortIsAdoptedOnlyWhenNoneWasConfigured() {
         Http2Listener unset = new Http2Listener();
-        unset.setPort(0);
+        unset.port(0);
         unset.applyBoundTcpPort(4711);
         assertEquals(4711, unset.getPort());
 
         Http2Listener fixed = new Http2Listener();
-        fixed.setPort(8080);
+        fixed.port(8080);
         fixed.applyBoundTcpPort(4711);
         assertEquals(8080, fixed.getPort());
     }
@@ -56,7 +56,7 @@ public class Http2ListenerLifecycleTest {
     @Test
     public void secureListenersAdvertiseH2ThenHttp11() {
         Http2Listener secure = new Http2Listener();
-        secure.setSecure(true);
+        secure.secure(true);
         TcpTransportFactory factory = new TcpTransportFactory();
         secure.configureTransportFactory(factory);
         assertArrayEquals(new String[] {"h2", "http/1.1"}, factory.getApplicationProtocols());

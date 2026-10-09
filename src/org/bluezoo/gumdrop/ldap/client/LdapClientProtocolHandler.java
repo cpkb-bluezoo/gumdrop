@@ -39,11 +39,11 @@ import org.bluezoo.gumdrop.auth.GssapiClientMechanism;
 import org.bluezoo.gumdrop.auth.SaslClientMechanism;
 import org.bluezoo.gumdrop.ProtocolHandler;
 import org.bluezoo.gumdrop.SecurityInfo;
-import org.bluezoo.gumdrop.ldap.asn1.Asn1Element;
-import org.bluezoo.gumdrop.ldap.asn1.Asn1Exception;
-import org.bluezoo.gumdrop.ldap.asn1.Asn1Type;
-import org.bluezoo.gumdrop.ldap.asn1.BerDecoder;
-import org.bluezoo.gumdrop.ldap.asn1.BerEncoder;
+import org.bluezoo.gumdrop.asn1.Asn1Element;
+import org.bluezoo.gumdrop.asn1.Asn1Exception;
+import org.bluezoo.gumdrop.asn1.Asn1Type;
+import org.bluezoo.gumdrop.asn1.BerDecoder;
+import org.bluezoo.gumdrop.asn1.BerEncoder;
 import org.bluezoo.gumdrop.telemetry.EventLogger;
 import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
 

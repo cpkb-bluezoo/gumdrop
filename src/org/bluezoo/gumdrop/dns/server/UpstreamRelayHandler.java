@@ -128,7 +128,7 @@ public final class UpstreamRelayHandler implements DnsQueryHandler {
         return new Builder();
     }
 
-    public void setUpstreamServers(String servers) {
+    void setUpstreamServers(String servers) {
         upstreamServers.clear();
         if (servers == null || servers.trim().isEmpty()) {
             return;
@@ -146,52 +146,53 @@ public final class UpstreamRelayHandler implements DnsQueryHandler {
         }
     }
 
-    public void setUseSystemResolvers(boolean useSystemResolvers) {
+    void setUseSystemResolvers(boolean useSystemResolvers) {
         this.useSystemResolvers = useSystemResolvers;
     }
 
-    public void setCacheEnabled(boolean cacheEnabled) {
+    void setCacheEnabled(boolean cacheEnabled) {
         this.cacheEnabled = cacheEnabled;
     }
 
-    public void setServeStaleEnabled(boolean serveStaleEnabled) {
+    void setServeStaleEnabled(boolean serveStaleEnabled) {
         this.serveStaleEnabled = serveStaleEnabled;
     }
 
-    public void setStaleRetentionSeconds(int staleRetentionSeconds) {
+    void setStaleRetentionSeconds(int staleRetentionSeconds) {
         this.staleRetentionSeconds = staleRetentionSeconds;
     }
 
-    public void setStaleAnswerTtl(int staleAnswerTtl) {
+    void setStaleAnswerTtl(int staleAnswerTtl) {
         this.staleAnswerTtl = staleAnswerTtl;
     }
 
-    public void setServeStalePolicy(ServeStalePolicy serveStalePolicy) {
+    void setServeStalePolicy(ServeStalePolicy serveStalePolicy) {
         this.serveStalePolicy = serveStalePolicy != null
                 ? serveStalePolicy : ServeStalePolicy.DISABLED;
     }
 
-    public void setNxDomainCutPolicy(NxDomainCutPolicy nxDomainCutPolicy) {
+    void setNxDomainCutPolicy(NxDomainCutPolicy nxDomainCutPolicy) {
         this.nxDomainCutPolicy = nxDomainCutPolicy != null
                 ? nxDomainCutPolicy : NxDomainCutPolicy.DISABLED;
     }
 
-    public void setMinimalAnyPolicy(MinimalAnyPolicy minimalAnyPolicy) {
+    void setMinimalAnyPolicy(MinimalAnyPolicy minimalAnyPolicy) {
         this.minimalAnyPolicy = minimalAnyPolicy != null
                 ? minimalAnyPolicy : MinimalAnyPolicy.DISABLED;
     }
 
-    public void setAggressiveNsecEnabled(boolean aggressiveNsecEnabled) {
+    void setAggressiveNsecEnabled(boolean aggressiveNsecEnabled) {
         this.aggressiveNsecEnabled = aggressiveNsecEnabled;
     }
 
-    public void setAggressiveNsecPolicy(AggressiveNsecPolicy aggressiveNsecPolicy) {
+    void setAggressiveNsecPolicy(AggressiveNsecPolicy aggressiveNsecPolicy) {
         this.aggressiveNsecPolicy = aggressiveNsecPolicy != null
                 ? aggressiveNsecPolicy : AggressiveNsecPolicy.DISABLED;
     }
 
-    public void setDnssecEnabled(boolean dnssecEnabled) {
+    public UpstreamRelayHandler dnssecEnabled(boolean dnssecEnabled) {
         this.dnssecEnabled = dnssecEnabled;
+        return this;
     }
 
     /**
@@ -200,11 +201,11 @@ public final class UpstreamRelayHandler implements DnsQueryHandler {
      *
      * @param trustAnchor anchor store, or null to use a default empty store
      */
-    public void setTrustAnchor(DnssecTrustAnchor trustAnchor) {
+    void setTrustAnchor(DnssecTrustAnchor trustAnchor) {
         this.trustAnchor = trustAnchor;
     }
 
-    public void setMetrics(DnsServerMetrics metrics) {
+    void setMetrics(DnsServerMetrics metrics) {
         this.metrics = metrics;
     }
 
@@ -368,8 +369,8 @@ public final class UpstreamRelayHandler implements DnsQueryHandler {
             trustAnchor = new DnssecTrustAnchor();
         }
         validationResolver = new DnsResolver();
-        validationResolver.setDnssecEnabled(false);
-        validationResolver.setTrustAnchor(trustAnchor);
+        validationResolver.dnssecEnabled(false);
+        validationResolver.trustAnchor(trustAnchor);
         for (int i = 0; i < upstreamServers.size(); i++) {
             InetSocketAddress addr = upstreamServers.get(i);
             try {
@@ -403,7 +404,7 @@ public final class UpstreamRelayHandler implements DnsQueryHandler {
             return;
         }
         if (validationResolver != null && loop != null) {
-            validationResolver.setSelectorLoop(loop);
+            validationResolver.selectorLoop(loop);
         }
         chainValidator.validate(upstreamResponse,
                 new DnssecValidationCallback() {
@@ -1102,7 +1103,7 @@ public final class UpstreamRelayHandler implements DnsQueryHandler {
         }
 
         public Builder dnssecEnabled(boolean enabled) {
-            handler.setDnssecEnabled(enabled);
+            handler.dnssecEnabled(enabled);
             return this;
         }
 

@@ -44,7 +44,9 @@ public interface ConnectHandler {
      *
      * <p>The handler should evaluate the connection (client ID,
      * credentials, TLS state, source address) and call the
-     * appropriate method on the state interface when ready.
+     * appropriate method on the state interface when ready. The TLS session
+     * details, including a client certificate under mutual TLS, are on
+     * {@link ConnectState#getSecurityInfo()}.
      * This call may be asynchronous.
      *
      * @param state operations for accepting or rejecting

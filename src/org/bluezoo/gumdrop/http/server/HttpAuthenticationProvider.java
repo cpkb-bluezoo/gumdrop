@@ -21,7 +21,9 @@
 
 package org.bluezoo.gumdrop.http.server;
 
+import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.auth.Realm;
+import org.bluezoo.gumdrop.auth.RealmCallback;
 import org.bluezoo.util.ByteArrays;
 import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
 import org.bluezoo.gumdrop.telemetry.EventLogger;
@@ -79,8 +81,9 @@ import java.util.concurrent.atomic.AtomicInteger;
  *         return "MyApp";
  *     }
  *     
- *     protected boolean passwordMatch(String realm, String username, String password) {
- *         return this.realm.passwordMatch(username, password);
+ *     protected void passwordMatch(SelectorLoop loop, String realm, String username,
+ *             String password, RealmCallback<Boolean> callback) {
+ *         this.realm.forSelectorLoop(loop).passwordMatch(username, password, callback);
  *     }
  *     
  *     // ... other abstract method implementations
@@ -262,12 +265,15 @@ public abstract class HttpAuthenticationProvider {
      * <p>This method is called for Basic authentication and may also be used
      * by other authentication mechanisms that require password verification.</p>
      * 
+     * @param loop the loop of the connection being authenticated, which a
+     *        realm that makes network calls is to run them on
      * @param realm the realm name for credential lookup
      * @param username the username to verify
      * @param password the password to verify
-     * @return true if the credentials are valid, false otherwise
+     * @param callback receives {@code true} if the credentials are valid
      */
-    protected abstract boolean passwordMatch(String realm, String username, String password);
+    protected abstract void passwordMatch(SelectorLoop loop, String realm,
+            String username, String password, RealmCallback<Boolean> callback);
 
     /**
      * Gets the precomputed H(A1) hash for Digest authentication.
@@ -276,11 +282,14 @@ public abstract class HttpAuthenticationProvider {
      * Implementations may store this precomputed hash for security, avoiding
      * the need to store plaintext passwords.</p>
      * 
+     * @param loop the loop of the connection being authenticated
      * @param realm the realm name
      * @param username the username
-     * @return the H(A1) hash as a lowercase hexadecimal string, or null if the user doesn't exist
+     * @param callback receives the H(A1) hash as a lowercase hexadecimal
+     *        string, or null if the user doesn't exist
      */
-    protected abstract String getDigestHA1(String realm, String username);
+    protected abstract void getDigestHA1(SelectorLoop loop, String realm,
+            String username, RealmCallback<String> callback);
 
     /**
      * Validates a Bearer token for token-based authentication.
@@ -288,11 +297,14 @@ public abstract class HttpAuthenticationProvider {
      * <p>Called for Bearer authentication (RFC 6750). Implementations should
      * verify the token's signature, expiration, and associated claims.</p>
      * 
+     * @param loop the loop of the connection being authenticated
      * @param token the bearer token to validate
-     * @return a {@link Realm.TokenValidationResult} with validation outcome,
-     *         or null if Bearer authentication is not supported
+     * @param callback receives a {@link Realm.TokenValidationResult} with
+     *        validation outcome, or null if Bearer authentication is not
+     *        supported
      */
-    protected abstract Realm.TokenValidationResult validateBearerToken(String token);
+    protected abstract void validateBearerToken(SelectorLoop loop, String token,
+            RealmCallback<Realm.TokenValidationResult> callback);
 
     /**
      * Validates an OAuth 2.0 access token.
@@ -300,17 +312,20 @@ public abstract class HttpAuthenticationProvider {
      * <p>Called for OAuth authentication (RFC 6749). Implementations should
      * verify the token against the authorization server or introspection endpoint.</p>
      * 
+     * @param loop the loop of the connection being authenticated
      * @param accessToken the OAuth access token to validate
-     * @return a {@link Realm.TokenValidationResult} with validation outcome,
-     *         or null if OAuth authentication is not supported
+     * @param callback receives a {@link Realm.TokenValidationResult} with
+     *        validation outcome, or null if OAuth authentication is not
+     *        supported
      */
-    protected abstract Realm.TokenValidationResult validateOAuthToken(String accessToken);
+    protected abstract void validateOAuthToken(SelectorLoop loop, String accessToken,
+            RealmCallback<Realm.TokenValidationResult> callback);
 
     /**
      * Checks if the underlying Realm supports HTTP Digest authentication.
      * 
      * <p>HTTP Digest authentication requires the Realm to provide the H(A1) hash
-     * via {@link #getDigestHA1(String, String)}. Some Realm implementations 
+     * via {@link #getDigestHA1}. Some Realm implementations 
      * (e.g., LDAP with hashed passwords) cannot support this.</p>
      * 
      * <p>The default implementation returns true, assuming Digest is supported.
@@ -323,47 +338,57 @@ public abstract class HttpAuthenticationProvider {
         return true; // Default: assume supported
     }
 
-    /**
-     * Authenticates a request using the Authorization header value.
-     * 
-     * <p>This method parses the Authorization header, determines the
-     * authentication scheme, and delegates to the appropriate authentication
-     * method based on the configured {@link #getAuthMethod()}.</p>
-     * 
-     * @param authorizationHeader the Authorization header value from the HTTP request,
-     *        in the format "Scheme credentials" (e.g., "Basic dXNlcjpwYXNz")
-     * @return an {@link AuthenticationResult} indicating success or failure with details
-     */
-    public final AuthenticationResult authenticate(String authorizationHeader) {
-        return authenticate(authorizationHeader, null, null);
+    /** Receives the outcome of {@link #authenticate}. */
+    public interface AuthenticationCallback {
+
+        /**
+         * Authentication is decided. A failure to reach the realm is a failed
+         * {@link AuthenticationResult}, never an exception.
+         *
+         * @param result the outcome
+         */
+        void completed(AuthenticationResult result);
     }
 
     /**
-     * Authenticates a request using the Authorization header and request target.
+     * Authenticates a request using the Authorization header and request target,
+     * without waiting for the realm: the callback is called when the answer is
+     * known, on {@code loop} when the realm had to be asked over the network
+     * and possibly before this method returns when it did not.
+     *
+     * <p>This method parses the Authorization header, determines the
+     * authentication scheme, and delegates to the appropriate authentication
+     * method based on the configured {@link #getAuthMethod()}.</p>
      *
      * <p>For Digest authentication, {@code requestMethod} and {@code digestUri}
      * must be the effective HTTP method and request URI so the response can be
      * bound to the request per RFC 7616.</p>
      *
+     * @param loop the loop of the connection being authenticated
      * @param authorizationHeader the Authorization header value
      * @param requestMethod the HTTP request method, or {@code null} for non-Digest schemes
      * @param digestUri the request URI used in Digest H(A2), or {@code null} for non-Digest schemes
-     * @return an {@link AuthenticationResult} indicating success or failure with details
+     * @param callback receives an {@link AuthenticationResult} indicating
+     *        success or failure with details
      */
-    public final AuthenticationResult authenticate(String authorizationHeader,
-            String requestMethod, String digestUri) {
+    public final void authenticate(SelectorLoop loop, String authorizationHeader,
+            String requestMethod, String digestUri,
+            AuthenticationCallback callback) {
         String authMethod = getAuthMethod();
         if (authMethod == null) {
-            return AuthenticationResult.failure(L10N.getString("auth.err.no_method_configured"));
+            callback.completed(AuthenticationResult.failure(L10N.getString("auth.err.no_method_configured")));
+            return;
         }
 
         if (authorizationHeader == null) {
-            return AuthenticationResult.failure(L10N.getString("auth.err.no_authorization_header"));
+            callback.completed(AuthenticationResult.failure(L10N.getString("auth.err.no_authorization_header")));
+            return;
         }
 
         int spaceIndex = authorizationHeader.indexOf(' ');
         if (spaceIndex < 1) {
-            return AuthenticationResult.failure(L10N.getString("auth.err.invalid_header_format"));
+            callback.completed(AuthenticationResult.failure(L10N.getString("auth.err.invalid_header_format")));
+            return;
         }
 
         String scheme = authorizationHeader.substring(0, spaceIndex);
@@ -374,42 +399,47 @@ public abstract class HttpAuthenticationProvider {
             switch (authMethod) {
                 case HttpAuthenticationMethods.BASIC_AUTH:
                     if ("Basic".equalsIgnoreCase(scheme)) {
-                        return authenticateBasic(credentials);
+                        authenticateBasic(loop, credentials, callback);
+                        return;
                     }
                     break;
                 case HttpAuthenticationMethods.DIGEST_AUTH:
                     if ("Digest".equalsIgnoreCase(scheme)) {
-                        return authenticateDigest(credentials, requestMethod, digestUri);
+                        authenticateDigest(loop, credentials, requestMethod, digestUri, callback);
+                        return;
                     }
                     break;
                 case HttpAuthenticationMethods.BEARER_AUTH:
                     if ("Bearer".equalsIgnoreCase(scheme)) {
-                        return authenticateBearer(credentials);
+                        authenticateToken(loop, credentials, "Bearer", callback);
+                        return;
                     }
                     break;
                 case HttpAuthenticationMethods.OAUTH_AUTH:
                     if ("Bearer".equalsIgnoreCase(scheme)) {
-                        return authenticateOAuth(credentials);
+                        authenticateToken(loop, credentials, "OAuth", callback);
+                        return;
                     }
                     break;
                 case HttpAuthenticationMethods.JWT_AUTH:
                     if ("Bearer".equalsIgnoreCase(scheme)) {
-                        return authenticateJWT(credentials);
+                        authenticateToken(loop, credentials, "JWT", callback);
+                        return;
                     }
                     break;
             }
 
-            return AuthenticationResult.failure(
-                MessageFormat.format(L10N.getString("auth.err.scheme_mismatch"), authMethod, scheme));
+            callback.completed(AuthenticationResult.failure(
+                MessageFormat.format(L10N.getString("auth.err.scheme_mismatch"), authMethod, scheme)));
 
         } catch (Exception e) {
             String message = MessageFormat.format(L10N.getString("auth.err.authentication_failed"), e.getMessage());
             events().warn("auth.err.authentication_failed")
                     .attr("reason", e.getMessage()).thrown(e).emit();
-            return AuthenticationResult.failure(message);
+            callback.completed(AuthenticationResult.failure(message));
         }
     }
-    
+
     /**
      * Generates a WWW-Authenticate challenge header value for 401 responses.
      * 
@@ -528,205 +558,210 @@ public abstract class HttpAuthenticationProvider {
 
     /**
      * Authenticates using HTTP Basic authentication (RFC 7617).
-     * 
+     *
      * @param credentials the Base64-encoded username:password string
-     * @return the authentication result
      */
-    private AuthenticationResult authenticateBasic(String credentials) {
+    private void authenticateBasic(SelectorLoop loop, String credentials,
+            final AuthenticationCallback callback) {
+        final String username;
+        String password;
         try {
             byte[] base64UserPass = credentials.getBytes("US-ASCII");
             String userPass = new String(Base64.getDecoder().decode(base64UserPass), "US-ASCII");
             int ci = userPass.indexOf(COLON);
             if (ci < 1) {
-                return AuthenticationResult.failure(L10N.getString("auth.err.invalid_basic_format"));
+                callback.completed(AuthenticationResult.failure(L10N.getString("auth.err.invalid_basic_format")));
+                return;
             }
-
-            String username = userPass.substring(0, ci);
-            String password = userPass.substring(ci + 1);
-
-            if (passwordMatch(getRealmName(), username, password)) {
-                return AuthenticationResult.success(username, getRealmName(), "Basic");
-            } else {
-                events().warn("auth.warn.auth_failed_for_user").attr("username", username).emit();
-                return AuthenticationResult.failure(
-                    MessageFormat.format(L10N.getString("auth.err.invalid_credentials"), username));
-            }
-
+            username = userPass.substring(0, ci);
+            password = userPass.substring(ci + 1);
         } catch (Exception e) {
-            return AuthenticationResult.failure(
-                MessageFormat.format(L10N.getString("auth.err.basic_failed"), e.getMessage()));
+            callback.completed(AuthenticationResult.failure(
+                MessageFormat.format(L10N.getString("auth.err.basic_failed"), e.getMessage())));
+            return;
         }
+        passwordMatch(loop, getRealmName(), username, password, new RealmCallback<Boolean>() {
+            @Override
+            public void completed(Boolean matched) {
+                if (matched != null && matched.booleanValue()) {
+                    callback.completed(AuthenticationResult.success(username, getRealmName(), "Basic"));
+                } else {
+                    events().warn("auth.warn.auth_failed_for_user").attr("username", username).emit();
+                    callback.completed(AuthenticationResult.failure(
+                        MessageFormat.format(L10N.getString("auth.err.invalid_credentials"), username)));
+                }
+            }
+
+            @Override
+            public void failed(Throwable cause) {
+                callback.completed(AuthenticationResult.failure(
+                    MessageFormat.format(L10N.getString("auth.err.basic_failed"), cause.getMessage())));
+            }
+        });
     }
 
     /**
      * Authenticates using HTTP Digest authentication (RFC 7616).
-     * 
+     *
      * @param credentials the Digest challenge response parameters
-     * @return the authentication result
      */
-    private AuthenticationResult authenticateDigest(String credentials,
-            String requestMethod, String digestUri) {
+    private void authenticateDigest(SelectorLoop loop, String credentials,
+            final String requestMethod, final String digestUri,
+            final AuthenticationCallback callback) {
         // Check if the Realm supports Digest authentication
         if (!supportsDigestAuth()) {
             events().error("auth.err.digest_not_supported_by_realm").emit();
-            return AuthenticationResult.failure("Digest", getRealmName(),
-                L10N.getString("auth.err.digest_not_supported_by_realm"));
+            callback.completed(AuthenticationResult.failure("Digest", getRealmName(),
+                L10N.getString("auth.err.digest_not_supported_by_realm")));
+            return;
         }
 
         if (requestMethod == null || digestUri == null) {
+            callback.completed(AuthenticationResult.failure(L10N.getString("auth.err.invalid_digest_format")));
+            return;
+        }
+
+        final Map<String, String> digestResponse;
+        try {
+            digestResponse = parseDigestResponse(credentials);
+        } catch (Exception e) {
+            callback.completed(AuthenticationResult.failure(
+                MessageFormat.format(L10N.getString("auth.err.digest_failed"), e.getMessage())));
+            return;
+        }
+        final String username = digestResponse.get("username");
+        final String realm = digestResponse.get("realm");
+        getDigestHA1(loop, realm, username, new RealmCallback<String>() {
+            @Override
+            public void completed(String ha1Hex) {
+                try {
+                    callback.completed(verifyDigest(ha1Hex, digestResponse,
+                            requestMethod, digestUri));
+                } catch (Exception e) {
+                    callback.completed(AuthenticationResult.failure(
+                        MessageFormat.format(L10N.getString("auth.err.digest_failed"), e.getMessage())));
+                }
+            }
+
+            @Override
+            public void failed(Throwable cause) {
+                callback.completed(AuthenticationResult.failure(
+                    MessageFormat.format(L10N.getString("auth.err.digest_failed"), cause.getMessage())));
+            }
+        });
+    }
+
+    /** The Digest checks that follow once the realm has supplied H(A1). */
+    private AuthenticationResult verifyDigest(String ha1Hex,
+            Map<String, String> digestResponse, String requestMethod,
+            String digestUri) throws Exception {
+        String username = digestResponse.get("username");
+        String realm = digestResponse.get("realm");
+        if (ha1Hex == null) {
+            return AuthenticationResult.failure(
+                MessageFormat.format(L10N.getString("auth.err.no_such_user"), username));
+        }
+
+        String nonce = digestResponse.get("nonce");
+        String requestDigest = digestResponse.get("response");
+        String qop = digestResponse.get("qop");
+        String algorithm = digestResponse.get("algorithm");
+        String cnonce = digestResponse.get("cnonce");
+        String nc = digestResponse.get("nc");
+        String responseUri = digestResponse.get("uri");
+
+        if (username == null || realm == null || requestDigest == null || nonce == null || cnonce == null || nc == null) {
             return AuthenticationResult.failure(L10N.getString("auth.err.invalid_digest_format"));
         }
 
+        if (responseUri != null && !responseUri.equals(digestUri)) {
+            return AuthenticationResult.failure(L10N.getString("auth.err.invalid_digest_format"));
+        }
+
+        // Check nonce
         try {
-            Map<String, String> digestResponse = parseDigestResponse(credentials);
-            String username = digestResponse.get("username");
-            String realm = digestResponse.get("realm");
-            String ha1Hex = getDigestHA1(realm, username);
-
-            if (ha1Hex == null) {
-                return AuthenticationResult.failure(
-                    MessageFormat.format(L10N.getString("auth.err.no_such_user"), username));
+            int clientNonceCount = Integer.parseInt(nc, 16); // hexadecimal
+            int serverNonceCount = getNonceCount(nonce);
+            if (clientNonceCount != serverNonceCount || serverNonceCount < 1
+                    || !seenCnonce(cnonce + nc)) {
+                return AuthenticationResult.failure(L10N.getString("auth.err.nonce_invalid"));
             }
+        } catch (Exception e) {
+            return AuthenticationResult.failure(L10N.getString("auth.err.invalid_digest_format"));
+        }
 
-            String nonce = digestResponse.get("nonce");
-            String requestDigest = digestResponse.get("response");
-            String qop = digestResponse.get("qop");
-            String algorithm = digestResponse.get("algorithm");
-            String cnonce = digestResponse.get("cnonce");
-            String nc = digestResponse.get("nc");
-            String responseUri = digestResponse.get("uri");
+        if (algorithm == null) {
+            algorithm = "MD5";
+        }
 
-            if (username == null || realm == null || requestDigest == null || nonce == null || cnonce == null || nc == null) {
-                return AuthenticationResult.failure(L10N.getString("auth.err.invalid_digest_format"));
-            }
+        // Verify digest response
+        if (verifyDigestResponse(ha1Hex, algorithm, nonce, qop, nc, cnonce,
+                requestMethod, digestUri, requestDigest)) {
+            return AuthenticationResult.success(username, realm, "Digest");
+        }
+        events().warn("auth.warn.digest_verification_failed")
+                .attr("username", username).emit();
+        return AuthenticationResult.failure(
+            MessageFormat.format(L10N.getString("auth.err.digest_verification_failed"), username));
+    }
 
-            if (responseUri != null && !responseUri.equals(digestUri)) {
-                return AuthenticationResult.failure(L10N.getString("auth.err.invalid_digest_format"));
-            }
-
-            // Check nonce
-            try {
-                int clientNonceCount = Integer.parseInt(nc, 16); // hexadecimal
-                int serverNonceCount = getNonceCount(nonce);
-                if (clientNonceCount != serverNonceCount || serverNonceCount < 1
-                        || !seenCnonce(cnonce + nc)) {
-                    return AuthenticationResult.failure(L10N.getString("auth.err.nonce_invalid"));
+    /**
+     * Authenticates using a Bearer, OAuth or JWT token (RFC 6750, RFC 6749).
+     * The three differ only in which realm hook validates the token and in
+     * the wording of their failures.
+     *
+     * @param token the token
+     * @param scheme "Bearer", "OAuth" or "JWT"
+     */
+    private void authenticateToken(SelectorLoop loop, String token,
+            final String scheme, final AuthenticationCallback callback) {
+        final String unsupported;
+        final String invalid;
+        final String expired;
+        final String failure;
+        if ("OAuth".equals(scheme)) {
+            unsupported = L10N.getString("auth.err.oauth_not_supported");
+            invalid = L10N.getString("auth.err.invalid_oauth_token");
+            expired = L10N.getString("auth.err.oauth_expired");
+            failure = L10N.getString("auth.err.oauth_failed");
+        } else if ("JWT".equals(scheme)) {
+            unsupported = L10N.getString("auth.err.jwt_not_supported");
+            invalid = L10N.getString("auth.err.invalid_jwt_token");
+            expired = L10N.getString("auth.err.jwt_expired");
+            failure = L10N.getString("auth.err.jwt_failed");
+        } else {
+            unsupported = L10N.getString("auth.err.bearer_not_supported");
+            invalid = L10N.getString("auth.err.invalid_bearer_token");
+            expired = L10N.getString("auth.err.bearer_expired");
+            failure = L10N.getString("auth.err.bearer_failed");
+        }
+        RealmCallback<Realm.TokenValidationResult> validated =
+                new RealmCallback<Realm.TokenValidationResult>() {
+            @Override
+            public void completed(Realm.TokenValidationResult result) {
+                if (result == null) {
+                    callback.completed(AuthenticationResult.failure(unsupported));
+                } else if (!result.valid) {
+                    callback.completed(AuthenticationResult.failure(invalid));
+                } else if (result.isExpired()) {
+                    callback.completed(AuthenticationResult.failure(expired));
+                } else {
+                    callback.completed(AuthenticationResult.success(
+                            result.username, getRealmName(), scheme));
                 }
-            } catch (Exception e) {
-                return AuthenticationResult.failure(L10N.getString("auth.err.invalid_digest_format"));
             }
 
-            if (algorithm == null) {
-                algorithm = "MD5";
+            @Override
+            public void failed(Throwable cause) {
+                callback.completed(AuthenticationResult.failure(
+                    MessageFormat.format(failure, cause.getMessage())));
             }
-
-            // Verify digest response
-            if (verifyDigestResponse(ha1Hex, algorithm, nonce, qop, nc, cnonce,
-                    requestMethod, digestUri, requestDigest)) {
-                return AuthenticationResult.success(username, realm, "Digest");
-            } else {
-                events().warn("auth.warn.digest_verification_failed")
-                        .attr("username", username).emit();
-                return AuthenticationResult.failure(
-                    MessageFormat.format(L10N.getString("auth.err.digest_verification_failed"), username));
-            }
-
-        } catch (Exception e) {
-            return AuthenticationResult.failure(
-                MessageFormat.format(L10N.getString("auth.err.digest_failed"), e.getMessage()));
-        }
-    }
-
-    /**
-     * Authenticates using Bearer token authentication (RFC 6750).
-     * 
-     * @param token the Bearer token
-     * @return the authentication result
-     */
-    private AuthenticationResult authenticateBearer(String token) {
-        try {
-            Realm.TokenValidationResult result = validateBearerToken(token);
-            
-            if (result == null) {
-                return AuthenticationResult.failure(L10N.getString("auth.err.bearer_not_supported"));
-            }
-            
-            if (!result.valid) {
-                return AuthenticationResult.failure(L10N.getString("auth.err.invalid_bearer_token"));
-            }
-            
-            if (result.isExpired()) {
-                return AuthenticationResult.failure(L10N.getString("auth.err.bearer_expired"));
-            }
-            
-            return AuthenticationResult.success(result.username, getRealmName(), "Bearer");
-            
-        } catch (Exception e) {
-            return AuthenticationResult.failure(
-                MessageFormat.format(L10N.getString("auth.err.bearer_failed"), e.getMessage()));
-        }
-    }
-
-    /**
-     * Authenticates using OAuth 2.0 access token (RFC 6749).
-     * 
-     * @param accessToken the OAuth access token
-     * @return the authentication result
-     */
-    private AuthenticationResult authenticateOAuth(String accessToken) {
-        try {
-            Realm.TokenValidationResult result = validateOAuthToken(accessToken);
-            
-            if (result == null) {
-                return AuthenticationResult.failure(L10N.getString("auth.err.oauth_not_supported"));
-            }
-            
-            if (!result.valid) {
-                return AuthenticationResult.failure(L10N.getString("auth.err.invalid_oauth_token"));
-            }
-            
-            if (result.isExpired()) {
-                return AuthenticationResult.failure(L10N.getString("auth.err.oauth_expired"));
-            }
-            
-            return AuthenticationResult.success(result.username, getRealmName(), "OAuth");
-            
-        } catch (Exception e) {
-            return AuthenticationResult.failure(
-                MessageFormat.format(L10N.getString("auth.err.oauth_failed"), e.getMessage()));
-        }
-    }
-
-    /**
-     * Authenticates using JWT token.
-     * 
-     * <p>This is essentially Bearer authentication with JWT-specific validation.</p>
-     * 
-     * @param jwtToken the JWT token
-     * @return the authentication result
-     */
-    private AuthenticationResult authenticateJWT(String jwtToken) {
-        try {
-            // For JWT, we use Bearer token validation with JWT-specific checks
-            Realm.TokenValidationResult result = validateBearerToken(jwtToken);
-            
-            if (result == null) {
-                return AuthenticationResult.failure(L10N.getString("auth.err.jwt_not_supported"));
-            }
-            
-            if (!result.valid) {
-                return AuthenticationResult.failure(L10N.getString("auth.err.invalid_jwt_token"));
-            }
-            
-            if (result.isExpired()) {
-                return AuthenticationResult.failure(L10N.getString("auth.err.jwt_expired"));
-            }
-            
-            return AuthenticationResult.success(result.username, getRealmName(), "JWT");
-            
-        } catch (Exception e) {
-            return AuthenticationResult.failure(
-                MessageFormat.format(L10N.getString("auth.err.jwt_failed"), e.getMessage()));
+        };
+        if ("OAuth".equals(scheme)) {
+            validateOAuthToken(loop, token, validated);
+        } else {
+            // For JWT, Bearer validation with JWT-specific checks
+            validateBearerToken(loop, token, validated);
         }
     }
 

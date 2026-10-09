@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.pop3;
 
+import org.bluezoo.gumdrop.testsupport.OffloadingSynchronousRealm;
 import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.StorageExecutor;
@@ -100,8 +101,8 @@ public class POP3ScramCredentialsOffloadTest {
         Files.createDirectories(userDir.resolve("tmp"));
 
         TestPOP3Listener listener = new TestPOP3Listener();
-        listener.setRealm(new Pbkdf2ScramRealm(USERNAME, PASSWORD));
-        listener.setMailboxFactory(new MaildirMailboxFactory(mailRoot));
+        listener.realm(new Pbkdf2ScramRealm(USERNAME, PASSWORD));
+        listener.mailboxFactory(new MaildirMailboxFactory(mailRoot));
 
         Pop3ProtocolHandler handler = new Pop3ProtocolHandler(listener);
         RecordingStubEndpoint endpoint = new RecordingStubEndpoint(110);
@@ -198,7 +199,7 @@ public class POP3ScramCredentialsOffloadTest {
      * doesn't depend on {@code BasicRealm}'s internal caching to exercise
      * the offload at both the client-first and client-final call sites.
      */
-    private static final class Pbkdf2ScramRealm implements Realm {
+    private static final class Pbkdf2ScramRealm extends OffloadingSynchronousRealm {
         private final String user;
         private final String password;
         private static final Set<SaslMechanism> SUPPORTED =
@@ -209,10 +210,6 @@ public class POP3ScramCredentialsOffloadTest {
             this.password = password;
         }
 
-        @Override
-        public Realm forSelectorLoop(SelectorLoop loop) {
-            return this;
-        }
 
         @Override
         public Set<SaslMechanism> getSupportedSASLMechanisms() {
@@ -229,11 +226,6 @@ public class POP3ScramCredentialsOffloadTest {
             return null;
         }
 
-        @Override
-        @SuppressWarnings("deprecation")
-        public String getPassword(String username) {
-            return null;
-        }
 
         @Override
         public boolean isUserInRole(String username, String role) {

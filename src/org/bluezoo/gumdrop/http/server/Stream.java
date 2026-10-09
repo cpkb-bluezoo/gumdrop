@@ -252,6 +252,46 @@ class Stream implements HttpResponse {
     private final CapsuleParser capsuleParser = new CapsuleParser();
 
     /**
+     * True while the realm is deciding whether the request is authenticated.
+     * The realm may have to ask a directory or token server, so the answer
+     * comes later, on this connection's loop; whatever the peer sends for
+     * this stream meanwhile waits in {@link #deferredWhileAuthenticating}.
+     */
+    private boolean authPending;
+
+    /** Request events received while {@link #authPending}, replayed in order. */
+    private List<Runnable> deferredWhileAuthenticating;
+
+    /**
+     * Holds an event of this request until authentication has been decided.
+     *
+     * @return true if the event was held and the caller must stop
+     */
+    private boolean deferUntilAuthenticated(Runnable replay) {
+        if (!authPending) {
+            return false;
+        }
+        if (deferredWhileAuthenticating == null) {
+            deferredWhileAuthenticating = new ArrayList<Runnable>();
+        }
+        deferredWhileAuthenticating.add(replay);
+        return true;
+    }
+
+    /** Authentication is decided: lets the held events through, in order. */
+    private void releaseDeferredEvents() {
+        authPending = false;
+        List<Runnable> held = deferredWhileAuthenticating;
+        deferredWhileAuthenticating = null;
+        if (held == null) {
+            return;
+        }
+        for (int i = 0; i < held.size(); i++) {
+            held.get(i).run();
+        }
+    }
+
+    /**
      * Binds the application {@link HttpRequestHandler} for this stream via
      * {@link HttpConnectionLike#getStreamHandler()}, if configured.
      */
@@ -289,6 +329,19 @@ class Stream implements HttpResponse {
 
     /** A trailer field from the HTTP/1.x parser, which sends them as they are read. */
     void trailerField(String name, ByteBuffer value) {
+        if (authPending) {
+            final String fieldName = name;
+            final ByteBuffer copy = ByteBuffer.allocate(value.remaining());
+            copy.put(value.duplicate());
+            copy.flip();
+            deferUntilAuthenticated(new Runnable() {
+                @Override
+                public void run() {
+                    trailerField(fieldName, copy);
+                }
+            });
+            return;
+        }
         if (handler != null && messageEvents) {
             handler.header(name, value);
         }
@@ -538,6 +591,14 @@ class Stream implements HttpResponse {
     }
 
     void streamEndHeaders() {
+        if (deferUntilAuthenticated(new Runnable() {
+            @Override
+            public void run() {
+                streamEndHeaders();
+            }
+        })) {
+            return;
+        }
         if (headerBlock != null) {
             headerBlock.flip();
             // RFC 7541: HPACK decompression of the header block. The decoder
@@ -776,24 +837,91 @@ class Stream implements HttpResponse {
         // RFC 9110 section 11: HTTP authentication on the first header block
         // for this stream (handler may already be bound via {@link #openApplicationHandler}).
         if (!requestHeadersDispatched) {
-            HttpAuthenticationProvider authProvider = connection.getAuthenticationProvider();
+            final HttpAuthenticationProvider authProvider = connection.getAuthenticationProvider();
             if (authProvider != null) {
-                String authHeader = headers != null ? HeaderFields.getValue(headers, "authorization") : null;
-                HttpAuthenticationProvider.AuthenticationResult result =
-                        authProvider.authenticate(authHeader, method, requestTarget);
-                if (result.success) {
-                    authenticatedPrincipal = new HttpPrincipal(result.username);
-                } else if (authProvider.isAuthenticationRequired()) {
+                final String authHeader = headers != null ? HeaderFields.getValue(headers, "authorization") : null;
+                if (authHeader != null && connection.isAuthLockedOut()) {
+                    // too many failed attempts: refuse without asking the realm
                     try {
-                        sendUnauthorized(authProvider);
+                        sendError(429);
                     } catch (ProtocolException e) {
                         events().warn("warn.unauthorized_response_failed")
                                 .attr("reason", e.getMessage()).emit();
                     }
                     return;
                 }
+                authPending = true;
+                authProvider.authenticate(connection.getSelectorLoop(), authHeader,
+                        method, requestTarget,
+                        new HttpAuthenticationProvider.AuthenticationCallback() {
+                    @Override
+                    public void completed(HttpAuthenticationProvider.AuthenticationResult result) {
+                        if (state == State.CLOSED) {
+                            // the peer went away while the realm was deciding
+                            authPending = false;
+                            deferredWhileAuthenticating = null;
+                            return;
+                        }
+                        if (result.success) {
+                            connection.recordAuthSuccess(result.username);
+                        } else if (authHeader != null) {
+                            connection.recordAuthFailure();
+                        }
+                        if (result.success) {
+                            authenticatedPrincipal = new HttpPrincipal(result.username);
+                        } else if (authProvider.isAuthenticationRequired()) {
+                            authPending = false;
+                            deferredWhileAuthenticating = null;
+                            try {
+                                sendUnauthorized(authProvider);
+                            } catch (ProtocolException e) {
+                                events().warn("warn.unauthorized_response_failed")
+                                        .attr("reason", e.getMessage()).emit();
+                            }
+                            return;
+                        }
+                        dispatchOrAwaitHttp2();
+                    }
+                });
+                return;
             }
         }
+        dispatchOrAwaitHttp2();
+    }
+
+    /**
+     * Hands the request to the application, unless it asks to switch the
+     * connection to HTTP/2 (RFC 9113 section 3.1): that request is answered as
+     * HTTP/2 stream 1, so it is held, with the rest of its events, until the
+     * connection has switched.
+     */
+    private void dispatchOrAwaitHttp2() {
+        if (connection.upgradesToHttp2(this)) {
+            authPending = true;
+            connection.whenHttp2Established(new Runnable() {
+                @Override
+                public void run() {
+                    if (state == State.CLOSED) {
+                        authPending = false;
+                        deferredWhileAuthenticating = null;
+                        return;
+                    }
+                    dispatchAuthenticatedRequest();
+                    releaseDeferredEvents();
+                }
+            });
+            return;
+        }
+        dispatchAuthenticatedRequest();
+        releaseDeferredEvents();
+    }
+
+    /**
+     * The request's headers are complete and, where the server authenticates
+     * requests, authentication has been decided: starts the telemetry span
+     * and hands the request to its application handler.
+     */
+    private void dispatchAuthenticatedRequest() {
         // Initialize telemetry span if enabled
         initTelemetrySpan();
 
@@ -931,6 +1059,19 @@ class Stream implements HttpResponse {
      * <p>This method consumes all data in the buffer (advances position to limit).
      */
     void receiveRequestBody(ByteBuffer buf) {
+        if (authPending) {
+            // the connection reuses its buffer once this returns
+            final ByteBuffer copy = ByteBuffer.allocate(buf.remaining());
+            copy.put(buf);
+            copy.flip();
+            deferUntilAuthenticated(new Runnable() {
+                @Override
+                public void run() {
+                    receiveRequestBody(copy);
+                }
+            });
+            return;
+        }
         if (rejectedByFramework) {
             // Discarded, but still counted: HTTP/1.x framing finishes the
             // request (streamEndRequest, and the deferred Connection: close)
@@ -1068,6 +1209,14 @@ class Stream implements HttpResponse {
     }
 
     void streamEndRequest() {
+        if (deferUntilAuthenticated(new Runnable() {
+            @Override
+            public void run() {
+                streamEndRequest();
+            }
+        })) {
+            return;
+        }
         // RFC 9113 section 5.1: a stream is closed once both endpoints have
         // sent END_STREAM. The response side reaches HALF_CLOSED_LOCAL when
         // a handler completes the response entirely from within its
@@ -2008,6 +2157,16 @@ class Stream implements HttpResponse {
         @Override
         public Principal getPrincipal() {
             return authenticatedPrincipal;
+        }
+
+        @Override
+        public boolean isSecure() {
+            return Stream.this.isSecure();
+        }
+
+        @Override
+        public SecurityInfo getSecurityInfo() {
+            return Stream.this.isSecure() ? Stream.this.getSecurityInfo() : null;
         }
 
         void notifyTransportClosed(int code, String reason) {

@@ -68,6 +68,34 @@ public final class TlsConfigSupport {
             listener.setEchPrivateKeyFile(tls.getEchPrivateKeyFile());
         }
         listener.setEchServerRequired(tls.isEchServerRequired());
+        if (tls.getCipherSuites() != null) {
+            listener.setCipherSuites(tls.getCipherSuites());
+        }
+        if (tls.getNamedGroups() != null) {
+            listener.setNamedGroups(tls.getNamedGroups());
+        }
+        if (tls.getTlsVersion() != null) {
+            listener.setTlsVersion(tls.getTlsVersion());
+        }
+        if (tls.getDtlsVersion() != null) {
+            listener.setDtlsVersion(tls.getDtlsVersion());
+        }
+        if (!tls.getSniHostnames().isEmpty()) {
+            listener.setSniHostnames(tls.getSniHostnames());
+        }
+        if (tls.getSniDefaultAlias() != null) {
+            listener.setSniDefaultAlias(tls.getSniDefaultAlias());
+        }
+        listener.setNeedClientAuth(tls.isClientAuthRequired());
+        if (tls.isRequireCookie()) {
+            listener.setDtlsRequireCookie(true);
+        }
+        if (tls.getCookieSecret() != null) {
+            listener.setDtlsCookieSecret(tls.getCookieSecret());
+        }
+        if (tls.getMaxFragmentSize() > 0) {
+            listener.setDtlsMaxFragmentSize(tls.getMaxFragmentSize());
+        }
     }
 
 }

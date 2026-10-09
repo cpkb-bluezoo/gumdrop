@@ -54,16 +54,16 @@ architecture rather than pulling in a separate client thread model.
 <h3>Contents</h3>
 <ul>
 <li><a href="#architecture">Architecture</a></li>
-<li><a href="#basic-usage">Basic Usage</a></li>
-<li><a href="#selector-affinity">SelectorLoop Affinity</a></li>
-<li><a href="#operations">Supported Operations</a></li>
+<li><a href="#basic-usage">Basic usage</a></li>
+<li><a href="#selector-affinity">SelectorLoop affinity</a></li>
+<li><a href="#operations">Supported operations</a></li>
 <li><a href="#publishing">Publishing</a></li>
 <li><a href="#consuming">Consuming</a></li>
-<li><a href="#transactions">Transactions &amp; Confirms</a></li>
-<li><a href="#tls">TLS Connections</a></li>
+<li><a href="#transactions">Transactions &amp; confirms</a></li>
+<li><a href="#tls">TLS connections</a></li>
 <li><a href="#authentication">Authentication</a></li>
-<li><a href="#recovery">Automatic Connection Recovery</a></li>
-<li><a href="#examples">Server Integration Examples</a></li>
+<li><a href="#recovery">Automatic connection recovery</a></li>
+<li><a href="#examples">Server integration examples</a></li>
 </ul>
 
 <h3 id="architecture">Architecture</h3>
@@ -71,33 +71,36 @@ architecture rather than pulling in a separate client thread model.
 <p>
 The AMQP client follows the same patterns as other Gumdrop clients (Redis,
 LDAP, SMTP). It uses AMQP 0-9-1 framing for wire-level communication, with a
-streaming, no-copy frame parser (<code>AmqpFrameParser</code>) modeled on
+streaming, no-copy frame parser (<code>AmqpFrameParser</code>) modelled on
 Gumdrop's HTTP/2 frame parser, so it never assumes a full frame or message
 body has arrived in a single read.
 </p>
 
-<h4>Key Components</h4>
+<h4>Key components</h4>
+
+<p>
+The client classes are in <code>org.bluezoo.gumdrop.amqp.client</code>; the
+wire codec is in <code>org.bluezoo.gumdrop.amqp</code>.
+</p>
 
 <ul>
-<li><code>org.bluezoo.gumdrop.amqp.client.AmqpClientRecovery</code> - the
-recommended entry point: wraps a connection with automatic reconnection and
-topology/consumer replay</li>
-<li><code>org.bluezoo.gumdrop.amqp.client.AmqpClientProtocolHandler</code> -
-low-level endpoint handler implementing the AMQP 0-9-1 protocol for a single
-connection (no auto-reconnect)</li>
-<li><code>org.bluezoo.gumdrop.amqp.client.handler.ClientConnection</code> -
-interface for opening channels and closing the connection</li>
-<li><code>org.bluezoo.gumdrop.amqp.client.handler.ClientChannel</code> -
-interface exposing exchange/queue declaration, binding, publish, consume,
-ack/nack/reject, transactions, flow control, and publisher confirms</li>
-<li><code>org.bluezoo.gumdrop.amqp.client.handler.RecoveryHandler</code> -
-entry point callback fired once, on the first successful connection</li>
-<li><code>org.bluezoo.gumdrop.amqp.client.handler.RecoveryListener</code> -
-optional callback for connection-lost/reconnecting/recovered lifecycle events</li>
-<li><code>org.bluezoo.gumdrop.amqp.client.handler.ClientHandshake</code> -
-sends credentials via <code>start-ok</code>, either as a PLAIN username/password
-convenience or as an arbitrary <code>SaslClientMechanism</code> (AMQPLAIN,
-EXTERNAL, GSSAPI)</li>
+<li><code>AmqpClient</code> - the recommended entry point: wraps a connection
+with automatic reconnection and topology/consumer replay</li>
+<li><code>AmqpClientProtocolHandler</code> - low-level endpoint handler
+implementing the AMQP 0-9-1 protocol for a single connection (no
+auto-reconnect)</li>
+<li><code>ClientConnection</code> - interface for opening channels and closing
+the connection</li>
+<li><code>ClientChannel</code> - interface exposing exchange/queue declaration,
+binding, publish, consume, ack/nack/reject, transactions, flow control, and
+publisher confirms</li>
+<li><code>RecoveryHandler</code> - entry point callback fired once, on the
+first successful connection</li>
+<li><code>RecoveryListener</code> - optional callback for connection-lost,
+reconnecting and recovered lifecycle events</li>
+<li><code>ClientHandshake</code> - sends credentials via <code>start-ok</code>,
+either as a PLAIN username/password convenience or as an arbitrary
+<code>SaslClientMechanism</code> (AMQPLAIN, EXTERNAL, GSSAPI)</li>
 <li>Codec classes (<code>AmqpFrame</code>, <code>AmqpMethod</code>,
 <code>FieldTable</code>, <code>BasicProperties</code>, and per-class method
 codecs such as <code>ExchangeMethods</code>, <code>QueueMethods</code>,
@@ -114,7 +117,7 @@ declaration, and routing-key bindings to exchanges (including the default
 exchange <code>""</code>, which routes by queue name) are fully supported.
 </p>
 
-<h4>Asynchronous Model</h4>
+<h4>Asynchronous model</h4>
 
 <p>
 All AMQP operations are asynchronous. When you call an operation such as
@@ -124,19 +127,19 @@ broker's reply arrives, your callback is invoked on the connection's
 SelectorLoop thread.
 </p>
 
-<h3 id="basic-usage">Basic Usage</h3>
+<h3 id="basic-usage">Basic usage</h3>
 
 <p>
 Connect to a broker and declare a queue, then start consuming from it, using
-<code>AmqpClientRecovery</code>:
+<code>AmqpClient</code>:
 </p>
 
 <p>
-In the client examples on this page, <code>gumdrop</code> is the runtime returned by <code>Gumdrop.boot()</code>; a client is given it when it connects.
+In the client examples on this page, <code>gumdrop</code> is the <code>Gumdrop</code> instance returned by <code>Gumdrop.boot()</code>; a client is given it when it connects.
 </p>
 
 <pre>
-AmqpClientRecovery client = new AmqpClientRecovery("broker.example.com", 5672)
+AmqpClient client = new AmqpClient("broker.example.com", 5672)
         .credentials("guest", "guest")
         .virtualHost("/")
         .recoveryListener(myListener); // optional
@@ -161,26 +164,26 @@ client.connect(gumdrop, new RecoveryHandler() {
 </pre>
 
 <p>
-<code>AmqpClientRecovery</code> hides the full connection handshake
+<code>AmqpClient</code> hides the full connection handshake
 (protocol header, <code>connection.start</code>/<code>start-ok</code>,
 <code>tune</code>/<code>tune-ok</code>, <code>open</code>/<code>open-ok</code>)
 behind the stored host, port, credentials, virtual host, and TLS
 configuration. <code>onFirstConnect</code> fires exactly once, only for the
 initial successful connection - subsequent reconnects go straight to replay
-(see <a href="#recovery">Automatic Connection Recovery</a>).
+(see <a href="#recovery">Automatic connection recovery</a>).
 </p>
 
-<h3 id="selector-affinity">SelectorLoop Affinity</h3>
+<h3 id="selector-affinity">SelectorLoop affinity</h3>
 
 <p>
-Like other Gumdrop clients, <code>AmqpClientRecovery</code> can be pinned to
+Like other Gumdrop clients, <code>AmqpClient</code> can be pinned to
 a specific worker <code>SelectorLoop</code> so that connection I/O runs on
 the same event-loop thread as the code driving it:
 </p>
 
 <pre>
-SelectorLoop loop = ((Request) req).getEndpoint().getSelectorLoop();
-AmqpClientRecovery client = new AmqpClientRecovery(loop, "broker.example.com", 5672)
+SelectorLoop loop = gumdrop.nextWorkerLoop();
+AmqpClient client = new AmqpClient(loop, "broker.example.com", 5672)
         .credentials("guest", "guest");
 </pre>
 
@@ -197,7 +200,7 @@ attempt itself still goes through the normal <code>ClientEndpoint.connect</code>
 path on the configured <code>SelectorLoop</code>.
 </p>
 
-<h3 id="operations">Supported Operations</h3>
+<h3 id="operations">Supported operations</h3>
 
 <p>
 Operations exposed on <code>ClientConnection</code>:
@@ -238,44 +241,65 @@ extension) and <code>setConfirmListener(ConfirmListener)</code></li>
 
 <p>
 <code>basicPublish</code> returns a streaming body writer, so message bodies
-are sent as a sequence of chunked frames rather than materialized as a
+are sent as a sequence of chunked frames rather than materialised as a
 single buffer - useful for large payloads:
 </p>
 
 <pre>
 PublishBody body = channel.basicPublish("my-exchange", "routing.key",
         false, properties, payload.length);
-body.write(ByteBuffer.wrap(payload));
-body.finish();
+body.writeBody(ByteBuffer.wrap(payload));
+body.complete();
 </pre>
 
 <p>
-The returned <code>PublishBody</code> also exposes
+The total written across all <code>writeBody</code> calls must equal the
+<code>bodySize</code> given to <code>basicPublish</code>, and
+<code>onWriteReady(Runnable)</code> tells a writer of a large body when the
+transport can take more. The returned <code>PublishBody</code> also exposes
 <code>getSequenceNumber()</code>, which correlates the publish with the
-delivery tag reported by a subsequent publisher confirm (see
-<a href="#transactions">Transactions &amp; Confirms</a>).
+sequence number reported by a subsequent publisher confirm (see
+<a href="#transactions">Transactions &amp; confirms</a>).
 </p>
 
 <h3 id="consuming">Consuming</h3>
 
 <p>
 Register a <code>DeliveryHandler</code> with <code>basicConsume</code> to
-receive messages for the lifetime of the consumer. Deliveries stream to the
-handler as they arrive; call <code>basicAck</code>,
-<code>basicNack</code>, or <code>basicReject</code> from within the handler
-once a message has been processed (unless the consumer was declared with
-<code>noAck</code>):
+receive messages for the lifetime of the consumer. A message is delivered in
+four calls, in order: <code>onDeliveryStart</code>,
+<code>onDeliveryProperties</code>, <code>onDeliveryBodyChunk</code> (zero or
+more times, as body frames arrive; the buffer is only valid during the call)
+and <code>onDeliveryComplete</code>. The body is never buffered whole by the
+client, so a handler that needs all of it collects the chunks. Acknowledge
+with <code>basicAck</code>, <code>basicNack</code> or <code>basicReject</code>
+only after <code>onDeliveryComplete</code> (unless the consumer was declared
+with <code>noAck</code>):
 </p>
 
 <pre>
 channel.basicConsume("my-queue", "", false, false, null,
         new DeliveryHandler() {
-            @Override
-            public void handleDelivery(String consumerTag, long deliveryTag,
-                    boolean redelivered, String exchange, String routingKey,
-                    BasicProperties properties, byte[] body) {
+            private long deliveryTag;
+            private final ByteArrayOutputStream body = new ByteArrayOutputStream();
+
+            public void onDeliveryStart(String consumerTag, long deliveryTag,
+                    boolean redelivered, String exchange, String routingKey) {
+                this.deliveryTag = deliveryTag;
+                body.reset();
+            }
+
+            public void onDeliveryProperties(BasicProperties properties, long bodySize) { }
+
+            public void onDeliveryBodyChunk(ByteBuffer chunk) {
+                byte[] copy = new byte[chunk.remaining()];
+                chunk.get(copy);
+                body.write(copy, 0, copy.length);
+            }
+
+            public void onDeliveryComplete() {
                 try {
-                    process(body);
+                    process(body.toByteArray());
                     channel.basicAck(deliveryTag, false);
                 } catch (Exception e) {
                     channel.basicNack(deliveryTag, false, true);
@@ -283,12 +307,11 @@ channel.basicConsume("my-queue", "", false, false, null,
             }
         },
         new ConsumeHandler() {
-            @Override
             public void handleConsumeOk(String consumerTag) { }
         });
 </pre>
 
-<h3 id="transactions">Transactions &amp; Confirms</h3>
+<h3 id="transactions">Transactions &amp; confirms</h3>
 
 <p>
 The channel supports both classic AMQP transactions
@@ -305,38 +328,37 @@ channel.confirmSelect(new ConfirmSelectHandler() {
     public void handleConfirmSelectOk() {
         channel.setConfirmListener(new ConfirmListener() {
             @Override
-            public void handleAck(long deliveryTag, boolean multiple) {
-                // message(s) up to deliveryTag confirmed by the broker
+            public void onAck(long sequenceNumber, boolean multiple) {
+                // publish(es) up to sequenceNumber confirmed by the broker
             }
 
             @Override
-            public void handleNack(long deliveryTag, boolean multiple) {
-                // message(s) up to deliveryTag rejected by the broker
+            public void onNack(long sequenceNumber, boolean multiple) {
+                // publish(es) up to sequenceNumber rejected by the broker
             }
         });
     }
 });
 </pre>
 
-<h3 id="tls">TLS Connections</h3>
+<h3 id="tls">TLS connections</h3>
 
 <p>
 The client supports implicit TLS (AMQPS, typically port 5671), configured on
-<code>AmqpClientRecovery</code> before connecting:
+<code>AmqpClient</code> before connecting:
 </p>
 
 <pre>
-AmqpClientRecovery client = new AmqpClientRecovery("broker.example.com", 5671)
+AmqpClient client = new AmqpClient("broker.example.com", 5671)
         .credentials("guest", "guest")
-        .setSecure(true)
-        .setKeystoreFile(Path.of("/path/to/keystore.p12"))
-        .setKeystorePass("changeit")
-        .setKeystoreFormat(KeystoreFormat.PKCS12);
+        .secure(true)
+        .tls(TlsConfig.keystore(Path.of("/path/to/keystore.p12"), "changeit",
+                KeystoreFormat.PKCS12));
 </pre>
 
 <p>
-A custom <code>TrustManager</code> may be supplied via
-<code>setTrustManager</code>
+A custom <code>X509TrustManager</code> may be supplied on the
+<code>TlsConfig</code> (<code>trustManager()</code>)
 for full control over certificate validation. There is no STARTTLS-equivalent
 negotiation; TLS is established at connect time.
 </p>
@@ -353,22 +375,21 @@ choice fails clearly rather than silently falling back to <code>PLAIN</code>:
 </p>
 
 <pre>
-AmqpClientRecovery client = new AmqpClientRecovery("broker.example.com", 5672)
+AmqpClient client = new AmqpClient("broker.example.com", 5672)
         .credentials("appuser", "s3cret")
         .mechanism("AMQPLAIN");
 </pre>
 
 <p>
 <code>EXTERNAL</code> relies on the client certificate presented during the
-TLS handshake (see <a href="#tls">TLS Connections</a>) and ignores
+TLS handshake (see <a href="#tls">TLS connections</a>) and ignores
 credentials:
 </p>
 
 <pre>
-AmqpClientRecovery client = new AmqpClientRecovery("broker.example.com", 5671)
-        .setSecure(true)
-        .setKeystoreFile(Paths.get("/path/to/client-cert.p12"))
-        .setKeystorePass("changeit")
+AmqpClient client = new AmqpClient("broker.example.com", 5671)
+        .secure(true)
+        .tls(TlsConfig.keystore(Path.of("/path/to/client-cert.p12"), "changeit"))
         .mechanism("EXTERNAL");
 </pre>
 
@@ -383,7 +404,7 @@ contact, so it must never run on the connection's own event-loop thread:
 Subject subject = loginWithKeytab("amqp-client@EXAMPLE.COM", "/etc/keytabs/amqp-client.keytab");
 ExecutorService kerberosExecutor = Executors.newSingleThreadExecutor();
 
-AmqpClientRecovery client = new AmqpClientRecovery("broker.example.com", 5672)
+AmqpClient client = new AmqpClient("broker.example.com", 5672)
         .mechanism("GSSAPI")
         .gssapiCredentials(subject, "amqp@broker.example.com", kerberosExecutor);
 </pre>
@@ -399,10 +420,10 @@ the client responds to as many <code>connection.secure</code> challenges as
 the broker sends before <code>connection.tune</code>.
 </p>
 
-<h3 id="recovery">Automatic Connection Recovery</h3>
+<h3 id="recovery">Automatic connection recovery</h3>
 
 <p>
-<code>AmqpClientRecovery</code> automatically reconnects when the connection
+<code>AmqpClient</code> automatically reconnects when the connection
 is lost - whether from a broker-initiated close, a transport error, or an
 <code>IOException</code> at connect time:
 </p>
@@ -410,35 +431,39 @@ is lost - whether from a broker-initiated close, a transport error, or an
 <ul>
 <li>Reconnect delays follow a configurable <code>RecoveryPolicy</code>:
 exponential backoff, 1 second initial delay by default, doubling each
-attempt, capped at 30 seconds, with unlimited attempts unless a maximum is
-set via <code>withMaxAttempts</code></li>
+attempt (<code>withMultiplier</code>), capped at 30 seconds, with unlimited
+attempts (<code>0</code>) unless a maximum number of consecutive failed
+attempts is set via <code>withMaxAttempts</code>; the other settings are
+<code>withInitialDelayMs</code> and <code>withMaxDelayMs</code></li>
 <li>On a successful reconnect (not the first connect), every exchange,
 queue, and binding that had been declared is redeclared, and every consumer
 is re-registered in its original order, so <code>ClientChannel</code>
 references the application already holds become live again with no code
 changes required</li>
-<li>An optional <code>RecoveryListener</code> surfaces lifecycle events:
-<code>onConnectionLost(cause)</code>, <code>onReconnecting(attempt, delay)</code>,
+<li>An optional <code>RecoveryListener</code> (all its methods are defaults, so
+implement only those you want) surfaces lifecycle events:
+<code>onConnectionLost(cause)</code>, <code>onReconnecting(attempt, delayMs)</code>,
 <code>onRecovered()</code>, and <code>onRecoveryFailed(cause)</code></li>
 <li><code>close()</code> stops further reconnect attempts and closes the
 current endpoint</li>
 </ul>
 
 <pre>
-AmqpClientRecovery client = new AmqpClientRecovery("broker.example.com", 5672)
+AmqpClient client = new AmqpClient("broker.example.com", 5672)
         .credentials("guest", "guest")
-        .recoveryPolicy(RecoveryPolicy.exponentialBackoff()
-                .withInitialDelay(1000)
-                .withMaxDelay(30000)
-                .withMaxAttempts(-1)) // unlimited
+        .recoveryPolicy(new RecoveryPolicy()
+                .withInitialDelayMs(1000)
+                .withMaxDelayMs(30000)
+                .withMultiplier(2.0)
+                .withMaxAttempts(0)) // 0 = unlimited
         .recoveryListener(new RecoveryListener() {
             @Override
-            public void onConnectionLost(Throwable cause) {
+            public void onConnectionLost(Exception cause) {
                 LOGGER.warning("AMQP connection lost: " + cause);
             }
 
             @Override
-            public void onReconnecting(int attempt, long delayMillis) {
+            public void onReconnecting(int attempt, long delayMs) {
                 LOGGER.info("Reconnecting to broker, attempt " + attempt);
             }
 
@@ -448,24 +473,24 @@ AmqpClientRecovery client = new AmqpClientRecovery("broker.example.com", 5672)
             }
 
             @Override
-            public void onRecoveryFailed(Throwable cause) {
+            public void onRecoveryFailed(Exception cause) {
                 LOGGER.severe("AMQP recovery failed: " + cause);
             }
         });
 </pre>
 
-<h3 id="examples">Server Integration Examples</h3>
+<h3 id="examples">Server integration examples</h3>
 
-<h4>Publishing Events from a Servlet</h4>
+<h4>Publishing events from a servlet</h4>
 
 <pre>
 public class OrderServlet extends HttpServlet {
 
-    private final AmqpClientRecovery amqp;
+    private final AmqpClient amqp;
     private volatile ClientChannel channel;
 
     public OrderServlet() {
-        amqp = new AmqpClientRecovery("broker.example.com", 5672)
+        amqp = new AmqpClient("broker.example.com", 5672)
                 .credentials("app", "secret")
                 .virtualHost("/orders");
         amqp.connect(gumdrop, new RecoveryHandler() {
@@ -476,7 +501,7 @@ public class OrderServlet extends HttpServlet {
                     public void handleChannelOpenOk(ClientChannel ch) {
                         channel = ch;
                         channel.exchangeDeclare("orders", "topic", true, false,
-                                false, null, new ExchangeDeclareHandler() {
+                                null, new ExchangeDeclareHandler() {
                                     @Override
                                     public void handleExchangeDeclareOk() { }
                                 });
@@ -490,26 +515,25 @@ public class OrderServlet extends HttpServlet {
     protected void doPost(HttpServletRequest req, HttpServletResponse resp)
             throws IOException {
         byte[] payload = toJson(req).getBytes(UTF_8);
-        BasicProperties props = new BasicProperties.Builder()
-                .contentType("application/json")
-                .deliveryMode(2) // persistent
-                .build();
+        BasicProperties props = new BasicProperties()
+                .withContentType("application/json")
+                .withDeliveryMode((byte) 2); // persistent
         PublishBody body = channel.basicPublish("orders", "order.created",
                 false, props, payload.length);
-        body.write(ByteBuffer.wrap(payload));
-        body.finish();
+        body.writeBody(ByteBuffer.wrap(payload));
+        body.complete();
         resp.setStatus(202);
     }
 }
 </pre>
 
-<h4>Worker Queue Consumer with Confirms</h4>
+<h4>Worker queue consumer</h4>
 
 <pre>
 public class OrderWorker {
 
     public void start() {
-        AmqpClientRecovery amqp = new AmqpClientRecovery("broker.example.com", 5672)
+        AmqpClient amqp = new AmqpClient("broker.example.com", 5672)
                 .credentials("worker", "secret")
                 .virtualHost("/orders");
 
@@ -540,15 +564,34 @@ public class OrderWorker {
         });
     }
 
-    private void consume(ClientChannel channel) {
+    private void consume(final ClientChannel channel) {
         channel.basicConsume("order-processing", "", false, false, null,
                 new DeliveryHandler() {
+                    private long deliveryTag;
+                    private final ByteArrayOutputStream body = new ByteArrayOutputStream();
+
                     @Override
-                    public void handleDelivery(String consumerTag, long deliveryTag,
-                            boolean redelivered, String exchange, String routingKey,
-                            BasicProperties properties, byte[] body) {
+                    public void onDeliveryStart(String consumerTag, long deliveryTag,
+                            boolean redelivered, String exchange, String routingKey) {
+                        this.deliveryTag = deliveryTag;
+                        body.reset();
+                    }
+
+                    @Override
+                    public void onDeliveryProperties(BasicProperties properties,
+                            long bodySize) { }
+
+                    @Override
+                    public void onDeliveryBodyChunk(ByteBuffer chunk) {
+                        byte[] copy = new byte[chunk.remaining()];
+                        chunk.get(copy);
+                        body.write(copy, 0, copy.length);
+                    }
+
+                    @Override
+                    public void onDeliveryComplete() {
                         try {
-                            processOrder(body);
+                            processOrder(body.toByteArray());
                             channel.basicAck(deliveryTag, false);
                         } catch (Exception e) {
                             channel.basicNack(deliveryTag, false, true);

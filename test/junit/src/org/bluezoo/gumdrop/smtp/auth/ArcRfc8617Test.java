@@ -424,7 +424,7 @@ public class ArcRfc8617Test {
 
     private ArcSealer newSealer() {
         ArcSealer sealer = new ArcSealer(keys.getPrivate(), "example.org", "arc");
-        sealer.setAuthservId("mx1.example.org");
+        sealer.authservId("mx1.example.org");
         return sealer;
     }
 

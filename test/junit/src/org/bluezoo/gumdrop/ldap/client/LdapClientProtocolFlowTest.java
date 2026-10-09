@@ -23,7 +23,7 @@ package org.bluezoo.gumdrop.ldap.client;
 
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.auth.SaslClientMechanism;
-import org.bluezoo.gumdrop.ldap.asn1.BerEncoder;
+import org.bluezoo.gumdrop.asn1.BerEncoder;
 import org.junit.Before;
 import org.junit.Test;
 

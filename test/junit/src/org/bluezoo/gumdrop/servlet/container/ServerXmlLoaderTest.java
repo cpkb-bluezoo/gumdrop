@@ -22,11 +22,16 @@
 package org.bluezoo.gumdrop.servlet.container;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
 import java.io.File;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import org.bluezoo.gumdrop.Listener;
+import org.bluezoo.gumdrop.testsupport.TestCertificates;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 
@@ -51,7 +56,11 @@ public class ServerXmlLoaderTest {
     }
 
     private void load(String xml) {
-        ServerXmlLoader.loadFromMemoryForTesting(new File("/nonexistent-base"),
+        loadIn(new File("/nonexistent-base"), xml);
+    }
+
+    private void loadIn(File baseDir, String xml) {
+        ServerXmlLoader.loadFromMemoryForTesting(baseDir,
                 ByteBuffer.wrap(xml.getBytes(StandardCharsets.UTF_8)),
                 new ServerXmlLoader.Callback() {
                     @Override
@@ -64,6 +73,235 @@ public class ServerXmlLoaderTest {
                         error = e;
                     }
                 });
+    }
+
+    private org.bluezoo.gumdrop.servlet.Container loadedContainer() throws Exception {
+        java.lang.reflect.Method m = HttpServer.class.getDeclaredMethod("getStreamHandler");
+        m.setAccessible(true);
+        return ((org.bluezoo.gumdrop.servlet.server.ServletRequestHandler) m.invoke(server))
+                .getContainer();
+    }
+
+    @Test
+    public void containerElementConfiguresHotDeployAndPools() throws Exception {
+        load("<server><container hot-deploy='true' buffer-size='4096' "
+                + "worker-core-pool-size='3' worker-maximum-pool-size='9' "
+                + "worker-keep-alive='45'/><listener port='1'/></server>");
+        assertNull(error, error);
+        org.bluezoo.gumdrop.servlet.Container container = loadedContainer();
+        assertTrue(container.isHotDeploy());
+        assertEquals(4096, container.getBufferSize());
+        assertEquals(3, container.getWorkerThreadPool().getCorePoolSize());
+        assertEquals(9, container.getWorkerThreadPool().getMaximumPoolSize());
+        assertEquals(java.time.Duration.ofSeconds(45), container.getWorkerKeepAlive());
+    }
+
+    @Test
+    public void containerElementCanTurnHotDeployOff() throws Exception {
+        load("<server><container hot-deploy='false'/><listener port='1'/></server>");
+        assertNull(error, error);
+        assertFalse(loadedContainer().isHotDeploy());
+    }
+
+    @Test
+    public void containerElementRejectsNonNumericBufferSize() {
+        load("<server><container buffer-size='big'/><listener port='1'/></server>");
+        assertError("buffer-size");
+    }
+
+    private static Object field(Object target, String name) throws Exception {
+        java.lang.reflect.Field f = Listener.class.getDeclaredField(name);
+        f.setAccessible(true);
+        return f.get(target);
+    }
+
+    private Listener listener(int index) {
+        return (Listener) server.getListeners().get(index);
+    }
+
+    private static final String SECURE = "<listener port='8443' secure='true' cert-file='c.pem' key-file='k.pem' ";
+
+    @Test
+    public void cipherSuitesAndNamedGroupsApplyToTcpAndQuicListeners() throws Exception {
+        load("<server>" + SECURE + "cipher-suites='TLS_AES_128_GCM_SHA256' "
+                + "named-groups='X25519:SECP256R1'/></server>");
+        assertNull(error, error);
+        assertEquals(2, server.getListeners().size());
+        for (int i = 0; i < 2; i++) {
+            assertEquals("TLS_AES_128_GCM_SHA256", field(listener(i), "cipherSuites"));
+            assertEquals("X25519:SECP256R1", field(listener(i), "namedGroups"));
+        }
+    }
+
+    @Test
+    public void tlsVersionAppliesToTheTcpListener() {
+        load("<server>" + SECURE + "tls-version='TLS_1_2'/></server>");
+        assertNull(error, error);
+        assertEquals(org.bluezoo.gumdrop.tls.TlsVersion.TLS_1_2, listener(0).getTlsVersion());
+    }
+
+    @Test
+    public void unknownTlsVersionIsRejected() {
+        load("<server>" + SECURE + "tls-version='SSL_3'/></server>");
+        assertError("tls-version");
+    }
+
+    @Test
+    public void clientAuthIsOffByDefaultAndMustBeNoneOrRequired() throws Exception {
+        load("<server>" + SECURE + "/></server>");
+        assertNull(error, error);
+        assertEquals(Boolean.FALSE, field(listener(0), "needClientAuth"));
+        server = null;
+        load("<server>" + SECURE + "client-auth='sometimes'/></server>");
+        assertError("client-auth");
+    }
+
+    @Test
+    public void clientAuthWithPemCaBundleTrustsThatCa() throws Exception {
+        Path dir = Files.createTempDirectory("server-xml-test");
+        TestCertificates.Identity ca = TestCertificates.newCa(TestCertificates.KeyKind.EC_P256, "Test CA");
+        TestCertificates.writeCertificatePem(dir, "ca.pem", ca);
+        loadIn(dir.toFile(), "<server>" + SECURE + "client-auth='required' ca-file='ca.pem'/></server>");
+        assertNull(error, error);
+        for (int i = 0; i < 2; i++) {
+            assertEquals(Boolean.TRUE, field(listener(i), "needClientAuth"));
+            assertNotNull(field(listener(i), "trustManager"));
+        }
+    }
+
+    @Test
+    public void clientAuthWithTruststoreTrustsThatStore() throws Exception {
+        Path dir = Files.createTempDirectory("server-xml-test");
+        TestCertificates.Identity ca = TestCertificates.newCa(TestCertificates.KeyKind.EC_P256, "Test CA");
+        TestCertificates.writeKeyStore(dir, "trust.p12", ca, "ca", "pw".toCharArray());
+        loadIn(dir.toFile(), "<server>" + SECURE + "client-auth='required' "
+                + "truststore-file='trust.p12' truststore-pass='pw'/></server>");
+        assertNull(error, error);
+        assertEquals(Boolean.TRUE, field(listener(0), "needClientAuth"));
+        assertNotNull(field(listener(0), "trustManager"));
+    }
+
+    @Test
+    public void missingCaFileIsReportedByName() {
+        load("<server>" + SECURE + "client-auth='required' ca-file='absent.pem'/></server>");
+        assertError("ca-file");
+    }
+
+    @Test
+    public void caFileAndTruststoreAreMutuallyExclusive() {
+        load("<server>" + SECURE + "client-auth='required' ca-file='ca.pem' "
+                + "truststore-file='t.p12' truststore-pass='pw'/></server>");
+        assertError("ca-file");
+    }
+
+    @Test
+    public void trustMaterialWithoutClientAuthIsRejected() {
+        load("<server>" + SECURE + "ca-file='ca.pem'/></server>");
+        assertError("client-auth");
+    }
+
+    @Test
+    public void pemIdentityFilesAreWiredToTheListeners() throws Exception {
+        Path dir = Files.createTempDirectory("server-xml-test");
+        TestCertificates.Identity id = TestCertificates.newEc256("pem.example");
+        TestCertificates.writeCertificatePem(dir, "cert.pem", id);
+        TestCertificates.writePrivateKeyPem(dir, "key.pem", id);
+        loadIn(dir.toFile(), "<server><listener port='8443' secure='true' "
+                + "cert-file='cert.pem' key-file='key.pem'/></server>");
+        assertNull(error, error);
+        // the HTTP/3 listener keeps its own copy of the PEM paths
+        assertEquals(dir.resolve("cert.pem"), field(listener(0), "certFile"));
+        assertEquals(dir.resolve("key.pem"), field(listener(0), "keyFile"));
+        for (String name : new String[] { "certFile", "keyFile" }) {
+            java.lang.reflect.Field f =
+                    org.bluezoo.gumdrop.http.h3.Http3Listener.class.getDeclaredField(name);
+            f.setAccessible(true);
+            assertEquals(dir.resolve(name.equals("certFile") ? "cert.pem" : "key.pem"),
+                    f.get(listener(1)));
+        }
+        assertNotNull(org.bluezoo.gumdrop.quic.tls.PemCredentials.loadServerCredentials(
+                dir.resolve("cert.pem"), dir.resolve("key.pem")));
+    }
+
+    @Test
+    public void keystoreIdentityIsWiredToTheListeners() throws Exception {
+        Path dir = Files.createTempDirectory("server-xml-test");
+        TestCertificates.Identity id = TestCertificates.newEc256("ks.example");
+        TestCertificates.writeKeyStore(dir, "ks.p12", id, "server", "pw".toCharArray());
+        loadIn(dir.toFile(), "<server><listener port='8443' secure='true' "
+                + "keystore-file='ks.p12' keystore-pass='pw'/></server>");
+        assertNull(error, error);
+        for (int i = 0; i < 2; i++) {
+            assertEquals(dir.resolve("ks.p12"), field(listener(i), "keystoreFile"));
+            assertEquals("pw", field(listener(i), "keystorePass"));
+        }
+    }
+
+    private static final String KEYSTORE = "<listener port='8443' secure='true' "
+            + "keystore-file='ks.p12' keystore-pass='pw' ";
+
+    @Test
+    public void sniElementsMapHostnamesToKeystoreAliasesOnBothListeners() throws Exception {
+        load("<server>" + KEYSTORE + "sni-default-alias='fallback'>"
+                + "<sni host='example.com' alias='example-cert'/>"
+                + "<sni host='*.example.org' alias='wild-cert'/>"
+                + "</listener></server>");
+        assertNull(error, error);
+        assertEquals(2, server.getListeners().size());
+        for (int i = 0; i < 2; i++) {
+            java.util.Map<?, ?> map = (java.util.Map<?, ?>) field(listener(i), "sniHostnameToAlias");
+            assertEquals(2, map.size());
+            assertEquals("example-cert", map.get("example.com"));
+            assertEquals("wild-cert", map.get("*.example.org"));
+            assertEquals("fallback", field(listener(i), "sniDefaultAlias"));
+        }
+    }
+
+    @Test
+    public void sniRequiresAKeystoreIdentity() {
+        load("<server>" + SECURE + "><sni host='a.example' alias='a'/></listener></server>");
+        assertError("keystore");
+    }
+
+    @Test
+    public void sniDefaultAliasRequiresAKeystoreIdentity() {
+        load("<server>" + SECURE + "sni-default-alias='a'/></server>");
+        assertError("keystore");
+    }
+
+    @Test
+    public void sniRequiresASecureListener() {
+        load("<server><listener port='8080'><sni host='a.example' alias='a'/></listener></server>");
+        assertError("secure listener");
+    }
+
+    @Test
+    public void sniNeedsHostAndAlias() {
+        load("<server>" + KEYSTORE + "><sni alias='a'/></listener></server>");
+        assertError("requires a host");
+        server = null;
+        load("<server>" + KEYSTORE + "><sni host='a.example'/></listener></server>");
+        assertError("requires a alias");
+    }
+
+    @Test
+    public void duplicateSniHostIsRejected() {
+        load("<server>" + KEYSTORE + "><sni host='a.example' alias='a'/>"
+                + "<sni host='a.example' alias='b'/></listener></server>");
+        assertError("a.example");
+    }
+
+    @Test
+    public void sniOutsideAListenerIsRejected() {
+        load("<server><sni host='a.example' alias='a'/><listener port='1'/></server>");
+        assertError("inside a listener");
+    }
+
+    @Test
+    public void listenersWithoutSniLeaveItDisabled() throws Exception {
+        load("<server>" + KEYSTORE + "/></server>");
+        assertNull(error, error);
+        assertEquals(Boolean.FALSE, listener(0).isSNIEnabled());
     }
 
     private static final String HEX_63 = "123456789012345678901234567890123456789012345678901234567890123";
@@ -306,7 +544,7 @@ public class ServerXmlLoaderTest {
         byte[] given = new byte[32];
         given[0] = (byte) 0xff;
         given[31] = (byte) 0xee;
-        container.setClusterKey(given);
+        container.clusterKey(given);
         byte[] key = container.getClusterKey();
         assertEquals(32, key.length);
         assertEquals((byte) 0xff, key[0]);
@@ -317,12 +555,12 @@ public class ServerXmlLoaderTest {
 
     @Test(expected = IllegalArgumentException.class)
     public void clusterKeyOfWrongLengthIsRejected() {
-        new org.bluezoo.gumdrop.servlet.Container().setClusterKey(new byte[16]);
+        new org.bluezoo.gumdrop.servlet.Container().clusterKey(new byte[16]);
     }
 
     @Test(expected = IllegalArgumentException.class)
     public void clusterGroupAddressMustBeMulticast() throws Exception {
-        new org.bluezoo.gumdrop.servlet.Container().setClusterGroupAddress(
+        new org.bluezoo.gumdrop.servlet.Container().clusterGroupAddress(
                 java.net.InetAddress.getByAddress(new byte[] { 10, 0, 0, 1 }));
     }
 

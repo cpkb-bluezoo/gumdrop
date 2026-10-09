@@ -126,9 +126,10 @@ public class ProtoModelAdapterTest {
         parser.close();
         adapter.endRootMessage();
 
-        assertEquals(2, handler.starts.size());
+        // nested messages are conveyed by startField/endField alone: only the
+        // root message has startMessage/endMessage
+        assertEquals(1, handler.starts.size());
         assertEquals("example.v1.Outer", handler.starts.get(0));
-        assertEquals("example.v1.Inner", handler.starts.get(1));
         assertEquals(1, handler.fieldStarts.size());
         assertEquals("inner", handler.fieldStarts.get(0).name);
         assertEquals("example.v1.Inner", handler.fieldStarts.get(0).typeName);
@@ -140,7 +141,45 @@ public class ProtoModelAdapterTest {
         assertNotNull(valueField);
         assertEquals("nested", valueField.value);
         assertEquals(1, handler.fieldEnds);
-        assertEquals(2, handler.ends);
+        assertEquals(1, handler.ends);
+    }
+
+    @Test
+    public void testNestedEventOrder() throws Exception {
+        ProtoFile protoFile = ProtoFileParser.parse(PROTO_NESTED);
+        ByteBuffer serialized = serialize(protoFile, "example.v1.Outer", new SerializeCallback() {
+            @Override
+            public void serialize(ProtoModelSerializer s, ProtobufWriter w) throws Exception {
+                s.startMessage(w, "example.v1.Outer");
+                s.field(w, "id", 1);
+                s.messageField(w, "inner", "example.v1.Inner", new ProtoModelSerializer.MessageContent() {
+                    @Override
+                    public void writeTo(ProtoModelSerializer s2, ProtobufWriter w2) throws IOException {
+                        s2.startMessage(w2, "example.v1.Inner");
+                        s2.field(w2, "value", "nested");
+                        s2.endMessage();
+                    }
+                });
+                s.endMessage();
+            }
+        });
+        final List<String> events = new ArrayList<>();
+        ProtoDefaultHandler log = new ProtoDefaultHandler() {
+            @Override public void startMessage(String t) { events.add("startMessage " + t); }
+            @Override public void endMessage() { events.add("endMessage"); }
+            @Override public void field(String n, Object v) { events.add("field " + n + "=" + v); }
+            @Override public void startField(String n, String t) { events.add("startField " + n + " " + t); }
+            @Override public void endField() { events.add("endField"); }
+        };
+        ProtoModelAdapter adapter = new ProtoModelAdapter(protoFile, log);
+        ProtobufParser parser = new ProtobufParser(adapter);
+        adapter.startRootMessage("example.v1.Outer");
+        parser.receive(serialized);
+        parser.close();
+        adapter.endRootMessage();
+        assertEquals("[startMessage example.v1.Outer, field id=1, "
+                + "startField inner example.v1.Inner, field value=nested, endField, "
+                + "endMessage]", events.toString());
     }
 
     @Test

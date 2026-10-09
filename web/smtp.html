@@ -44,11 +44,11 @@ resource consumption.
 <h3>Contents</h3>
 <ul>
 <li><a href="#architecture">Architecture</a></li>
-<li><a href="#handler">Connection Handler</a></li>
+<li><a href="#handler">Handlers</a></li>
 <li><a href="#pipeline">Processing Pipelines</a></li>
 <li><a href="#email-auth">Email Authentication (SPF/DKIM/DMARC/ARC)</a></li>
-<li><a href="#policy">Security Policies</a></li>
-<li><a href="#authentication">SMTP Authentication</a></li>
+<li><a href="#policy">Accepting and rejecting</a></li>
+<li><a href="#authentication">Authentication and TLS</a></li>
 <li><a href="#extensions">SMTP Extensions</a></li>
 <li><a href="#configuration">Configuration</a></li>
 <li><a href="#client">SMTP Client</a></li>
@@ -59,32 +59,36 @@ resource consumption.
 
 <p>
 The SMTP server follows an "event-driven first" design philosophy. Rather than
-allocating a thread per connection—a model that limits scalability to the
-thousands—Gumdrop multiplexes all SMTP connections across a small pool of
+allocating a thread per connection - a model that limits scalability to the
+thousands - Gumdrop multiplexes all SMTP connections across a small pool of
 worker threads using Java NIO selectors. This approach has been proven in
 production since 2005 and enables a single server to handle tens of thousands
 of concurrent connections.
 </p>
 
-<h4>Protocol State Machine</h4>
+<h4>Protocol flow</h4>
 
 <p>
-Each SMTP connection maintains a finite state machine that tracks its progress
-through the protocol:
+The protocol is modelled as a sequence of stages. At each stage the
+application is handed a handler interface that receives only the commands
+that are legal at that point, together with a state object that can accept or
+reject the command. Out-of-order replies cannot be written, because the
+method for the next stage only exists on the state object returned for the
+current one:
 </p>
 
 <ul>
-<li><b>INITIAL</b> - connection established, awaiting HELO/EHLO</li>
-<li><b>READY</b> - after successful greeting, ready for mail transaction</li>
-<li><b>MAIL</b> - after MAIL FROM accepted</li>
-<li><b>RCPT</b> - after one or more RCPT TO accepted</li>
-<li><b>DATA</b> - receiving message content</li>
-<li><b>QUIT</b> - connection closing</li>
+<li><b>ClientConnected</b> - a connection arrived; accept it with a greeting
+or reject it</li>
+<li><b>HelloHandler</b> - HELO/EHLO, STARTTLS completion and AUTH</li>
+<li><b>MailFromHandler</b> - MAIL FROM, RSET and QUIT between transactions</li>
+<li><b>RecipientHandler</b> - RCPT TO, then the start of DATA or BDAT</li>
+<li><b>MessageDataHandler</b> - message content, then completion</li>
 </ul>
 
 <p>
-State transitions are validated strictly according to RFC 5321, with appropriate
-error responses for out-of-sequence commands.
+State transitions are validated strictly according to RFC 5321, with
+appropriate error responses for out-of-sequence commands.
 </p>
 
 <h4>Non-Blocking DATA Processing</h4>
@@ -96,103 +100,165 @@ normalisation, and termination detection (<code>CRLF.CRLF</code>) incrementally
 as data arrives, allowing arbitrarily large messages to be processed efficiently.
 </p>
 
-<h3 id="handler">Connection Handler</h3>
+<h3 id="handler">Handlers</h3>
 
 <p>
-Gumdrop separates protocol mechanics from business logic through the
-<code>SMTPConnectionHandler</code> interface. The handler receives high-level
-events about the SMTP session and makes policy decisions without dealing with
-protocol syntax, response codes, or network I/O.
-</p>
-
-<h4>Handler Interface</h4>
-
-<p>
-Key handler methods:
-</p>
-
-<ul>
-<li><code>connected(SmtpConnectionMetadata)</code> - connection established,
-return false to reject early</li>
-<li><code>hello(extended, clientDomain, HelloCallback)</code> - HELO/EHLO received</li>
-<li><code>tlsStarted(SmtpConnectionMetadata)</code> - STARTTLS completed</li>
-<li><code>authenticated(user, method)</code> - AUTH succeeded</li>
-<li><code>mailFrom(senderAddress, MailFromCallback)</code> - sender evaluation</li>
-<li><code>rcptTo(recipientAddress, RcptToCallback)</code> - recipient validation</li>
-<li><code>startData(SmtpConnectionMetadata, DataStartCallback)</code> - DATA initiation</li>
-<li><code>messageContent(ByteBuffer)</code> - streaming message data</li>
-<li><code>endData(SmtpConnectionMetadata, DataEndCallback)</code> - message complete</li>
-<li><code>reset()</code> - RSET command, clear transaction state</li>
-<li><code>disconnected()</code> - connection closed</li>
-</ul>
-
-<h4>Asynchronous Callbacks</h4>
-
-<p>
-Policy methods use callbacks rather than return values, enabling asynchronous
-evaluation. A handler can consult external services—databases, reputation
-systems, content filters—without blocking the I/O thread. The callback must
-be invoked on the connection's SelectorLoop thread:
+Gumdrop separates protocol mechanics from business logic. Your handler
+receives high-level events about the session and makes policy decisions
+without dealing with protocol syntax, reply codes or network I/O. A server is
+assembled with <code>SmtpServer.compose()</code>, which takes one or more
+listeners and a <i>session provider</i>: a factory that returns a fresh
+<code>ClientConnected</code> handler for every connection, so per-connection
+state needs no locking.
 </p>
 
 <pre>
-@Override
-public void mailFrom(final String sender, final MailFromCallback callback) {
-    final SelectorLoop loop = connection.getSelectorLoop();
-    
-    // Offload reputation check to worker thread
-    executor.submit(new Runnable() {
-        @Override
-        public void run() {
-            final SenderPolicyResult result = reputationService.checkSender(sender);
-            
-            // Re-dispatch callback to the connection's SelectorLoop thread
-            loop.invokeLater(new Runnable() {
-                @Override
-                public void run() {
-                    callback.mailFromReply(result);
-                }
-            });
-        }
-    });
+SmtpServer server = SmtpServer.compose()
+        .listener(new SmtpListener().port(2525))
+        .sessionProvider(provider)
+        .maxMessageSize(10L * 1024 * 1024)
+        .maxRecipients(50)
+        .server();
+
+Gumdrop gumdrop = Gumdrop.boot();
+gumdrop.addServer(server);
+gumdrop.join();
+</pre>
+
+<p>
+A complete, compiled example lives in
+<code>examples/smtp-server/SmtpExample.java</code>. It accepts mail for one
+domain, refuses relaying, runs SPF, DKIM and DMARC checks and spools accepted
+messages to a directory. The session provider is a small factory:
+</p>
+
+<pre>
+SmtpServerSessionProvider provider = new SmtpServerSessionProvider() {
+    &#64;Override
+    public ClientConnected openSession(TcpListener listener) {
+        return new SpoolHandler(spoolDir);
+    }
+};
+</pre>
+
+<p>
+For handlers that need no setup,
+<code>SmtpServerSessionProviders.perSession(Supplier)</code> wraps a
+supplier of <code>ClientConnected</code> in a provider.
+</p>
+
+<h4>Handler interfaces</h4>
+
+<p>
+One object can implement every stage, as the example does, or each stage can
+be a separate class. The methods are:
+</p>
+
+<ul>
+<li><code>ClientConnected.connected(ConnectedState, Endpoint)</code> - a
+client connected; call <code>acceptConnection(greeting, helloHandler)</code>
+(the first word of the greeting should be your domain, such as
+<code>mail.example.com ESMTP ready</code>, because the server announces it in
+its EHLO reply; without one the server uses its address as an address literal),
+<code>rejectConnection()</code> or <code>serverShuttingDown()</code>.
+<code>disconnected()</code> is called when the connection closes</li>
+<li><code>HelloHandler.hello(HelloState, extended, hostname)</code> -
+HELO/EHLO received; <code>acceptHello</code> moves to the mail stage, or reject
+it (<code>rejectHello</code>, <code>rejectHelloTemporary</code>,
+<code>rejectHelloAndClose</code>)</li>
+<li><code>HelloHandler.tlsEstablished(SecurityInfo)</code> - STARTTLS
+completed</li>
+<li><code>HelloHandler.authenticated(AuthenticateState, Principal)</code> -
+AUTH succeeded; <code>accept</code> or <code>reject</code> it</li>
+<li><code>MailFromHandler.mailFrom(MailFromState, EmailAddress, smtputf8,
+DeliveryRequirements)</code> - sender evaluation</li>
+<li><code>MailFromHandler.getPipeline()</code> - optionally supply an
+<code>SmtpPipeline</code> for this transaction (see below)</li>
+<li><code>MailFromHandler.reset(ResetState)</code> and <code>quit()</code> -
+RSET and QUIT</li>
+<li><code>RecipientHandler.rcptTo(RecipientState, EmailAddress,
+MailboxFactory)</code> - recipient validation</li>
+<li><code>RecipientHandler.startMessage(MessageStartState)</code> - DATA or
+BDAT initiation</li>
+<li><code>MessageDataHandler.messageContent(ByteBuffer)</code> - streaming
+message data</li>
+<li><code>MessageDataHandler.messageComplete(MessageEndState)</code> - the
+whole message has arrived; accept or reject it</li>
+<li><code>MessageDataHandler.messageAborted()</code> - the client went away
+mid-message</li>
+</ul>
+
+<h4>Asynchronous decisions</h4>
+
+<p>
+A handler answers by calling a method on the state object it was given, and
+it need not do so before returning. It can keep the state, consult an
+external service (a database, a reputation list, a content filter) and
+answer later without blocking the I/O thread. The connection holds back
+further input until the reply has been sent. The reply must be made on the
+connection's <code>SelectorLoop</code> thread, so a handler that did the work
+elsewhere hands the answer back with
+<code>endpoint.getSelectorLoop().invokeLater(Runnable)</code>. The example
+replies from a DNS callback, which already runs on that thread, because the
+end of the message has to wait for the DMARC verdict:
+</p>
+
+<pre>
+&#64;Override
+public void messageComplete(MessageEndState state) {
+    pendingEnd = state;
+    finishMessage();            // replies now if the verdict is already in
 }
 </pre>
 
 <p>
-The SMTP connection automatically sends the appropriate protocol response when
-the callback is invoked. Invoking the callback on the correct thread ensures
-thread safety for all subsequent protocol operations.
+For back-pressure, <code>wantsPause()</code> and
+<code>setResumeCallback(Runnable)</code> on <code>MessageDataHandler</code>
+let a handler that cannot keep up with the incoming data pause the read side
+and resume it when it can.
 </p>
 
-<h4>Connection Metadata</h4>
+<h4>Connection information</h4>
 
 <p>
-Handlers receive rich context through <code>SmtpConnectionMetadata</code>:
+The <code>Endpoint</code> passed to <code>connected</code> gives the remote
+and local socket addresses, whether the connection is TLS-secured
+(<code>isSecure()</code>) and its <code>SecurityInfo</code> (protocol, cipher
+suite, peer certificates). <code>tlsEstablished</code> is called with the same
+information after STARTTLS. The authenticated identity arrives in
+<code>authenticated</code> as a <code>Principal</code>.
+</p>
+
+<h4>Stock session providers</h4>
+
+<p>
+<code>SmtpServerSessionProviders</code> offers two ready-made providers for
+simple cases:
 </p>
 
 <ul>
-<li><b>Network information</b> - client IP, server address</li>
-<li><b>Security context</b> - TLS status, cipher suite, protocol version</li>
-<li><b>Client certificates</b> - X.509 certificates if provided</li>
-<li><b>Authentication state</b> - authenticated user and mechanism</li>
-<li><b>Connection timing</b> - establishment time, duration</li>
+<li><code>relay()</code> - a <code>SimpleRelaySessionProvider</code> that
+accepts mail and forwards it to the recipient domain's MX hosts using
+Gumdrop's SMTP client. <b>It is an open relay</b>: it accepts any sender to
+any recipient with no authentication, so use it only for development, testing
+and closed internal networks. Configure it with <code>hostname</code>,
+<code>server(address)</code> or <code>servers(...)</code> (to bypass MX
+lookup), <code>deliveryPort</code>, <code>dnsResolver</code> and
+<code>timeoutMs</code></li>
+<li><code>localDelivery()</code> - a <code>LocalDeliverySessionProvider</code>
+that accepts mail for one <code>localDomain</code> and delivers it into
+mailboxes through a <code>MailboxFactory</code></li>
 </ul>
 
-<h4>Handler Factory</h4>
-
-<p>
-Handlers are created per-connection via a factory, ensuring thread safety and
-state isolation:
-</p>
-
 <pre>
-SMTPServer server = new SMTPServer();
-server.setHandlerFactory(new SMTPConnectionHandlerFactory() {
-    @Override
-    public SMTPConnectionHandler createHandler() {
-        return new MyMailHandler(config, dependencies);
-    }
-});
+SmtpServer server = SmtpServer.compose()
+        .listener(new SmtpListener().port(25))
+        .sessionProvider(SmtpServerSessionProviders.localDelivery()
+                .localDomain("example.com")
+                .hostname("mail.example.com")
+                .mailboxFactory(mailboxFactory))
+        .realm(realm)
+        .server();
 </pre>
 
 <h3 id="pipeline">Processing Pipelines</h3>
@@ -220,13 +286,17 @@ public interface SmtpPipeline {
 </pre>
 
 <p>
-When a pipeline is associated with an SMTPConnection:
+A handler supplies a pipeline by returning it from
+<code>MailFromHandler.getPipeline()</code>, which is called for each
+transaction. While the pipeline is in place:
 </p>
 
 <ul>
 <li>Raw message bytes are written to the <code>WritableByteChannel</code> as they arrive</li>
-<li>The channel is closed at end of DATA transfer</li>
-<li><code>endData()</code> is called for final processing</li>
+<li><code>endData()</code> is called when the message ends, whether it was sent
+with DATA or with BDAT, just before <code>messageComplete</code></li>
+<li><code>reset()</code> is called when the transaction ends, is reset or
+the connection closes</li>
 </ul>
 
 <p>
@@ -271,12 +341,13 @@ Received Chain (ARC) validation and sealing for forwarded mail.
 <h4>How It Works</h4>
 
 <p>
-When associated with a connection, AuthPipeline automatically:
+When returned from <code>MailFromHandler.getPipeline()</code>, AuthPipeline
+automatically:
 </p>
 
 <ol>
 <li><b>SPF check</b> - runs asynchronously when MAIL FROM is received,
-using DNS TXT record lookup to validate sender authorization</li>
+using DNS TXT record lookup to validate sender authorisation</li>
 <li><b>Header parsing</b> - as message bytes stream in, headers are parsed
 to collect DKIM-Signature and extract the From domain; when ARC is enabled,
 <code>ArcHeaderParser</code> delivers ARC header events to the validator as
@@ -310,81 +381,83 @@ DATA (optional ARC, then DKIM + DMARC verification).
 </figcaption>
 </figure>
 
-<h4>Callback-Based Results</h4>
+<h4>Callback-based results</h4>
 
 <p>
-Configure the pipeline with callbacks for the checks you care about:
+Create the pipeline in <code>getPipeline()</code> with a builder and register
+callbacks for the checks you care about. It needs a <code>DnsResolver</code>
+(the one for the connection's loop is
+<code>DnsResolver.forLoop(endpoint.getSelectorLoop())</code>), the client's
+address and the HELO name:
 </p>
 
 <pre>
-AuthPipeline.Builder builder = new AuthPipeline.Builder(resolver, clientIP, heloHost);
+&#64;Override
+public SmtpPipeline getPipeline() {
+    InetAddress clientIp =
+            ((InetSocketAddress) endpoint.getRemoteAddress()).getAddress();
+    DnsResolver resolver = DnsResolver.forLoop(endpoint.getSelectorLoop());
+    pipeline = new AuthPipeline.Builder(resolver, clientIp, heloHost)
+            .onSPF(new SpfCallback() {
+                &#64;Override
+                public void spfResult(SpfResult result, String explanation) {
+                    // invoked during MAIL FROM processing
+                }
+            })
+            .onDKIM(new DkimCallback() {
+                &#64;Override
+                public void dkimResult(DkimResult result,
+                        String signingDomain, String selector) {
+                    // invoked at end of data
+                }
+            })
+            .onDMARC(new DmarcCallback() {
+                &#64;Override
+                public void dmarcResult(DmarcResult result, DmarcPolicy policy,
+                        String fromDomain, AuthVerdict verdict) {
+                    // the last result: the message can now be accepted or refused
+                    finishMessage(verdict);
+                }
+            })
+            .build();
+    return pipeline;
+}
+</pre>
 
-// SPF callback - invoked during MAIL FROM processing
-builder.onSPF(new SpfCallback() {
-    @Override
-    public void onResult(SpfResult result, String explanation) {
-        if (result == SpfResult.FAIL) {
-            mailFromCallback.mailFromReply(SenderPolicyResult.REJECT);
-        } else {
-            mailFromCallback.mailFromReply(SenderPolicyResult.ACCEPT);
-        }
-    }
-});
+<p>
+The results are asynchronous, because each check is a DNS lookup. SPF
+usually completes while the message is still arriving, but DKIM and DMARC are
+evaluated at the end of the data and answer a little later. A handler that
+wants to refuse a message on DMARC policy therefore keeps the
+<code>MessageEndState</code> it gets in <code>messageComplete</code> and
+replies when the DMARC callback fires, as <code>SmtpExample</code> does with
+<code>state.rejectMessagePermanent(...)</code>. A result that arrives after
+the transaction has been reset, or the connection closed, is discarded.
+</p>
 
-// DKIM callback - invoked at end-of-data
-builder.onDKIM(new DkimCallback() {
-    @Override
-    public void onResult(DkimResult result, String domain, String selector) {
-        // Store result for logging
-    }
-});
+<p>
+Two further options cover forwarded mail:
+</p>
 
-// DMARC callback - invoked after DKIM
-builder.onDMARC(new DmarcCallback() {
-    @Override
-    public void onResult(DmarcResult result, DmarcPolicy policy, String domain) {
-        // Can now respond to DATA command
-        if (result == DmarcResult.FAIL &amp;&amp; policy == DmarcPolicy.REJECT) {
-            dataEndCallback.reply(DataEndReply.REJECT);
-        } else {
-            dataEndCallback.reply(DataEndReply.ACCEPT);
-        }
-    }
-});
-
-// Optional ARC chain validation (RFC 8617) - before DKIM at end-of-data
+<pre>
+// Optional ARC chain validation (RFC 8617), before DKIM at end of data
 builder.onARC(new ArcCallback() {
-    @Override
+    &#64;Override
     public void arcResult(ArcValidationResult result) {
-        // Log chain cv= outcome; result is also passed to DmarcValidator
+        // Log the chain's cv= outcome; the result is also given to DMARC
     }
 });
 
-// Optional: trust validated ARC for DMARC alignment (RFC 8617 §4.2)
+// Optional: trust a validated ARC chain for DMARC alignment (RFC 8617 &sect;4.2)
 builder.arcDmarcPolicy(new ArcDmarcPolicy() {
-    @Override
+    &#64;Override
     public ArcAuthSnapshot authSnapshot(ArcValidationResult chain,
             String fromDomain, SpfResult localSpf, String localSpfDomain,
             DkimResult localDkim, String localDkimDomain) {
-        // Return snapshot with trusted SPF/DKIM from an earlier hop, or null
+        // Return a snapshot with trusted SPF/DKIM from an earlier hop, or null
         return null;
     }
 });
-
-// Or use combined result callback
-builder.onComplete(new AuthResultCallback() {
-    @Override
-    public void onResult(AuthResult result) {
-        if (result.shouldReject()) {
-            dataEndCallback.reply(DataEndReply.REJECT);
-        } else {
-            dataEndCallback.reply(DataEndReply.ACCEPT);
-        }
-    }
-});
-
-// Associate with connection
-connection.setPipeline(builder.build());
 </pre>
 
 <h4>Organizational Domain Alignment (RFC 7489 &sect;3.1, &sect;3.2)</h4>
@@ -453,29 +526,28 @@ a record; <code>DmarcValidator</code> discards any record where it is
 missing or not first, matching a malformed record.
 </p>
 
-<h4>Message Handler Integration</h4>
+<h4>Message handler integration</h4>
 
 <p>
-To process message content while authentication runs in parallel, register
-a <code>MessageHandler</code>:
+To process message headers while authentication runs in parallel, register a
+<code>MessageHandler</code> (a <code>MimeHandler</code> with the RFC 5322
+header events):
 </p>
 
 <pre>
 builder.messageHandler(new MessageHandler() {
-    @Override
-    public void header(String name, String value) {
+    &#64;Override
+    public void header(String name, String value) throws MimeParseException {
         // Receive parsed headers
     }
-    
-    @Override
-    public void addressHeader(String name, List&lt;EmailAddress&gt; addresses) {
+
+    &#64;Override
+    public void addressHeader(String name, List&lt;EmailAddress&gt; addresses)
+            throws MimeParseException {
         // Receive parsed address headers (From, To, Cc, etc.)
     }
-    
-    @Override
-    public void bodyContent(ByteBuffer data) {
-        // Receive decoded body content
-    }
+
+    // ... the remaining MessageHandler and MimeHandler events
 });
 </pre>
 
@@ -485,11 +557,11 @@ authentication checks. This avoids parsing the message twice while allowing
 your application to process content.
 </p>
 
-<h4>AuthResult and Verdict</h4>
+<h4>AuthVerdict</h4>
 
 <p>
-<code>AuthResult</code> contains individual SPF, DKIM, and DMARC results plus
-a combined <code>AuthVerdict</code>:
+The DMARC callback receives the individual DMARC result and policy, plus a
+combined <code>AuthVerdict</code>:
 </p>
 
 <ul>
@@ -498,11 +570,6 @@ a combined <code>AuthVerdict</code>:
 <li><b>QUARANTINE</b> - DMARC policy is quarantine, deliver to spam folder</li>
 <li><b>NONE</b> - no authentication info or DMARC policy is none</li>
 </ul>
-
-<p>
-Convenience methods: <code>result.passed()</code>, <code>result.shouldReject()</code>,
-<code>result.shouldQuarantine()</code>.
-</p>
 
 <h4>Authenticated Received Chain (RFC 8617)</h4>
 
@@ -524,7 +591,7 @@ signing keys and canonicalization options as <code>DkimSigner</code>):
 </p>
 
 <pre><code>ArcSealer sealer = new ArcSealer(privateKey, "example.com", "arcsel");
-sealer.setAuthservId("mx.example.com");
+sealer.authservId("mx.example.com");
 // Feed the same body bytes as for DKIM hashing
 sealer.bodyLine(bodyBytes, 0, bodyBytes.length);
 sealer.endBody();
@@ -553,10 +620,10 @@ canonicalization (simple or relaxed).
 </p>
 
 <pre><code>DkimSigner signer = new DkimSigner(privateKey, "example.com", "sel1");
-signer.setAlgorithm("rsa-sha256");
-signer.setHeaderCanonicalization("relaxed");
-signer.setBodyCanonicalization("relaxed");
-signer.setSignedHeaders(Arrays.asList("from", "to", "subject", "date"));
+signer.algorithm("rsa-sha256");
+signer.headerCanonicalization("relaxed");
+signer.bodyCanonicalization("relaxed");
+signer.signedHeaders(Arrays.asList("from", "to", "subject", "date"));
 
 // Feed body lines in wire format
 signer.bodyLine(bodyBytes, 0, bodyBytes.length);
@@ -599,7 +666,7 @@ report.addResult(sourceIP, headerFrom, policy, adkim, aspf,
     validator.getLastDiscoveryMethod());
 
 // Write the XML report
-report.writeXML(outputStream);</code></pre>
+report.writeXML(channel);   // a WritableByteChannel</code></pre>
 
 <p>
 The <code>DmarcValidator</code> parses the <code>rua=</code>,
@@ -613,12 +680,12 @@ records. After evaluation, call <code>getLastRua()</code> /
 RFC 9990 adds <code>np</code>, <code>testing</code>, and
 <code>discovery_method</code> to <code>policy_published</code>, and an
 optional <code>report_metadata/generator</code>. <code>DmarcAggregateReport</code>
-also now enforces RFC 9990's requirement that a single report cover
+also enforces RFC 9990's requirement that a single report cover
 exactly one Policy Domain - a second, distinct <code>headerFrom</code>
 passed to <code>addResult</code> throws <code>IllegalStateException</code>
 rather than silently producing a multi-domain report; use a separate
 <code>DmarcAggregateReport</code> instance per domain. <code>selector</code>
-is now always emitted for a reported DKIM signature (empty if unknown)
+is always emitted for a reported DKIM signature (empty if unknown)
 rather than omitted, per RFC 9990 making it required. <code>pct</code> is
 retained for RFC 7489 backward compatibility even though RFC 9990 drops
 it - existing report consumers may still expect it, and it costs nothing
@@ -641,7 +708,7 @@ String fo = validator.getLastFo();
 if (DmarcForensicReport.shouldReport(fo, spfResult, dkimResult, dmarcResult)) {
     DmarcForensicReport report = new DmarcForensicReport();
     report.setReporterDomain("receiver.example.com");
-    report.setSourceIP(clientIP);
+    report.setSourceIP(clientIP.getHostAddress());
     report.setHeaderFrom(fromDomain);
     report.setDmarcResult(dmarcResult);
     report.setDmarcPolicy(policy);
@@ -653,7 +720,7 @@ if (DmarcForensicReport.shouldReport(fo, spfResult, dkimResult, dmarcResult)) {
     report.setDkimAligned(validator.isLastDkimAligned());
     report.setOriginalHeaders(messageHeaders);
 
-    report.writeMIME(outputStream, boundary);
+    report.writeMIME(channel, boundary);   // a WritableByteChannel
 }</code></pre>
 
 <p>
@@ -676,77 +743,89 @@ it's approximated from the raw SPF/DKIM pass/fail, which is only accurate
 when alignment isn't being checked separately.
 </p>
 
-<h3 id="policy">Security Policies</h3>
+<h3 id="policy">Accepting and rejecting</h3>
 
 <p>
-Gumdrop provides comprehensive policy evaluation through typed result enums
-that abstract SMTP response codes.
+Every decision is a method call on the state object for that stage. Each
+rejection names the condition and the server chooses the matching reply code
+and enhanced status code, so a handler never writes a number.
 </p>
 
-<h4>Sender Policy Results</h4>
-
-<p>
-<code>SenderPolicyResult</code> for MAIL FROM evaluation:
-</p>
+<h4>Sender (MailFromState)</h4>
 
 <ul>
-<li><b>ACCEPT</b> - sender is valid (250)</li>
-<li><b>TEMP_REJECT_GREYLIST</b> - greylisting delay (450)</li>
-<li><b>TEMP_REJECT_RATE_LIMIT</b> - rate limit exceeded (450)</li>
-<li><b>REJECT_BLOCKED_DOMAIN</b> - domain on blocklist (550)</li>
-<li><b>REJECT_INVALID_DOMAIN</b> - domain does not exist (550)</li>
-<li><b>REJECT_POLICY_VIOLATION</b> - business rule violation (553)</li>
-<li><b>REJECT_SPAM_REPUTATION</b> - known spam source (554)</li>
-<li><b>REJECT_SYNTAX_ERROR</b> - malformed address (501)</li>
-<li><b>REJECT_RELAY_DENIED</b> - relaying not permitted (551)</li>
-<li><b>REJECT_STORAGE_FULL</b> - system storage unavailable (452)</li>
+<li><code>acceptSender(handler)</code> - sender is valid (250)</li>
+<li><code>rejectSenderGreylist</code> - greylisting delay (450)</li>
+<li><code>rejectSenderRateLimit</code> - rate limit exceeded (450)</li>
+<li><code>rejectSenderStorageFull</code> - system storage unavailable (452)</li>
+<li><code>rejectSenderBlockedDomain</code> - domain on blocklist (550)</li>
+<li><code>rejectSenderInvalidDomain</code> - domain does not exist (550)</li>
+<li><code>rejectSenderPolicy(message, handler)</code> - business rule
+violation, with your own text (553)</li>
+<li><code>rejectSenderSpam</code> - known spam source (554)</li>
+<li><code>rejectSenderSyntax</code> - malformed address (501)</li>
 </ul>
 
-<h4>Recipient Policy Results</h4>
-
-<p>
-<code>RecipientPolicyResult</code> for RCPT TO evaluation:
-</p>
+<h4>Recipient (RecipientState)</h4>
 
 <ul>
-<li><b>ACCEPT</b> - recipient is valid (250)</li>
-<li><b>ACCEPT_FORWARD</b> - will forward to another host (251)</li>
-<li><b>TEMP_REJECT_UNAVAILABLE</b> - mailbox temporarily unavailable (450)</li>
-<li><b>TEMP_REJECT_SYSTEM_ERROR</b> - local processing error (451)</li>
-<li><b>TEMP_REJECT_STORAGE_FULL</b> - insufficient storage (452)</li>
-<li><b>REJECT_MAILBOX_UNAVAILABLE</b> - mailbox does not exist (550)</li>
-<li><b>REJECT_USER_NOT_LOCAL</b> - user not handled here (551)</li>
-<li><b>REJECT_QUOTA_EXCEEDED</b> - user quota full (552)</li>
-<li><b>REJECT_INVALID_MAILBOX</b> - mailbox name not allowed (553)</li>
-<li><b>REJECT_TRANSACTION_FAILED</b> - transaction failure (554)</li>
-<li><b>REJECT_SYNTAX_ERROR</b> - malformed address (501)</li>
-<li><b>REJECT_RELAY_DENIED</b> - relaying not permitted (551)</li>
-<li><b>REJECT_POLICY_VIOLATION</b> - policy violation (553)</li>
+<li><code>acceptRecipient(handler)</code> - recipient is valid (250)</li>
+<li><code>acceptRecipientForward(forwardPath, handler)</code> - will forward
+to another host (251)</li>
+<li><code>rejectRecipientUnavailable</code> - mailbox temporarily
+unavailable (450)</li>
+<li><code>rejectRecipientSystemError</code> - local processing error (451)</li>
+<li><code>rejectRecipientStorageFull</code> - insufficient storage (452)</li>
+<li><code>rejectRecipientNotFound</code> - mailbox does not exist (550)</li>
+<li><code>rejectRecipientNotLocal</code> - user not handled here (551)</li>
+<li><code>rejectRecipientRelayDenied</code> - relaying not permitted (551)</li>
+<li><code>rejectRecipientQuota</code> - user quota full (552)</li>
+<li><code>rejectRecipientInvalid</code> - mailbox name not allowed (553)</li>
+<li><code>rejectRecipientPolicy(message, handler)</code> - policy violation,
+with your own text (553)</li>
 </ul>
 
-<h4>Connection-Level Filtering</h4>
+<h4>Message</h4>
+
+<ul>
+<li><code>MessageStartState.acceptMessage(handler)</code> to proceed to
+the content, or <code>rejectMessageStorageFull</code> /
+<code>rejectMessageProcessingError</code> /
+<code>rejectMessage(message, handler)</code> (550)</li>
+<li><code>MessageEndState.acceptMessageDelivery(queueId, handler)</code> to
+accept the message, quoting your queue identifier in the reply, or
+<code>rejectMessageTemporary</code> (450), <code>rejectMessagePermanent</code>
+(550) and <code>rejectMessagePolicy</code> (553)</li>
+</ul>
+
+<h4>Connection-level filtering</h4>
 
 <p>
-The SMTP server performs connection-level filtering before any protocol
-exchange:
+The SMTP listener performs connection-level filtering before any protocol
+exchange, configured on <code>SmtpListener</code>:
 </p>
 
 <ul>
-<li><b>CIDR allow/block lists</b> - fast network matching with pre-parsed
-CIDR blocks supporting both IPv4 and IPv6</li>
-<li><b>Concurrent connection limits</b> - per-IP connection cap prevents
-resource exhaustion</li>
-<li><b>Rate limiting</b> - sliding window rate limits per IP address</li>
+<li><b>CIDR allow/block lists</b> - <code>allowedNetworks</code> and
+<code>blockedNetworks</code>, with pre-parsed blocks for both IPv4 and
+IPv6</li>
+<li><b>Concurrent connection limits</b> - <code>maxConnections</code> and
+<code>maxConnectionsPerIP</code> prevent resource exhaustion</li>
+<li><b>Rate limiting</b> - <code>rateLimit</code> applies a sliding window
+per IP address</li>
+<li><b>Authentication lockout</b> - <code>maxAuthFailures</code> and
+<code>authLockoutTimeMs</code></li>
 </ul>
 
 <p>
 Blocked connections are rejected immediately without consuming handler resources.
 </p>
 
-<h3 id="authentication">Authentication</h3>
+<h3 id="authentication">Authentication and TLS</h3>
 
 <p>
-Gumdrop supports the full range of SMTP AUTH mechanisms:
+Gumdrop supports the full range of SMTP AUTH mechanisms, and advertises those
+the configured <code>Realm</code> can verify:
 </p>
 
 <ul>
@@ -771,23 +850,68 @@ the server cancels the attempt and responds with 501 (RFC 4954 §4).
 <p>
 Authentication integrates with Gumdrop's centralised
 <code>org.bluezoo.gumdrop.auth.Realm</code> facility for unified credential
-management across all servers.
+management across all servers. Set it with <code>realm(...)</code> on the
+composer or the listener, and require it with <code>authRequired(true)</code>
+(for example on a submission port). A successful AUTH reaches your handler
+through <code>HelloHandler.authenticated</code>, where you accept or reject it.
+GSSAPI additionally needs a keytab, configured on the listener:
 </p>
+
+<pre>
+new SmtpListener().port(587)
+        .configureGSSAPI(Paths.get("/etc/krb5.keytab"),
+                "smtp/mail.example.com@EXAMPLE.COM");
+</pre>
 
 <h4>STARTTLS</h4>
 
 <p>
 The server supports opportunistic TLS upgrade via STARTTLS (RFC 3207). When
-a keystore is configured, STARTTLS is advertised in EHLO responses. After
-successful TLS negotiation, the SMTP session resets and the client must
-re-issue EHLO.
+the listener has a <code>TlsConfig</code>, STARTTLS is advertised in EHLO
+responses. After successful TLS negotiation, the SMTP session resets and the
+client must re-issue EHLO. For implicit TLS (SMTPS) use
+<code>secure(true)</code>:
 </p>
+
+<pre>
+new SmtpListener().port(465)
+        .secure(true)
+        .tls(TlsConfig.pem(Paths.get("cert.pem"), Paths.get("key.pem")));
+</pre>
 
 <h3 id="extensions">SMTP Extensions</h3>
 
 <p>
-Beyond the standard ESMTP capabilities, Gumdrop supports several extensions
-for enhanced functionality:
+The server advertises these extensions in its EHLO reply:
+</p>
+
+<ul>
+<li><b>SIZE</b> (RFC 1870) - the maximum message size, from
+<code>maxMessageSize</code>; a larger declared or actual size is refused
+with 552</li>
+<li><b>PIPELINING</b> (RFC 2920) - several commands may be sent without
+waiting for each reply</li>
+<li><b>8BITMIME</b> (RFC 6152) and <b>SMTPUTF8</b> (RFC 6531)</li>
+<li><b>ENHANCEDSTATUSCODES</b> (RFC 2034) - replies carry an enhanced status
+code such as <code>5.7.1</code></li>
+<li><b>CHUNKING</b> and <b>BINARYMIME</b> (RFC 3030)</li>
+<li><b>DSN</b> (RFC 3461)</li>
+<li><b>LIMITS</b> (RFC 9422) - <code>RCPTMAX</code> and <code>MAILMAX</code>,
+when configured</li>
+<li><b>REQUIRETLS</b> (RFC 8689) - on TLS connections only</li>
+<li><b>MT-PRIORITY</b> (RFC 6710), <b>FUTURERELEASE</b> (RFC 4865) and
+<b>DELIVERBY</b> (RFC 2852)</li>
+<li><b>STARTTLS</b> (RFC 3207) and <b>AUTH</b> (RFC 4954), as described above</li>
+<li><b>XCLIENT</b> - only to authorised clients</li>
+</ul>
+
+<p>
+Of the other commands, <code>VRFY</code> answers 252 without revealing
+whether a mailbox exists (RFC 5321 &sect;7.3), <code>EXPN</code> is refused
+with 502, <code>HELP</code> lists the supported commands, and
+<code>ETRN</code> (RFC 1985) is not advertised and is answered with 458
+because this server does not start on-demand queue runs. The extensions with
+behaviour you control are described below.
 </p>
 
 <h4>CHUNKING (RFC 3030)</h4>
@@ -818,8 +942,8 @@ unmodified</li>
 
 <p>
 The handler receives message content through the same <code>messageContent()</code>
-method regardless of whether DATA or BDAT was used—the protocol difference is
-handled entirely by SMTPConnection.
+method regardless of whether DATA or BDAT was used - the protocol difference is
+handled entirely by the protocol layer.
 </p>
 
 <h4>BINARYMIME (RFC 3030)</h4>
@@ -836,7 +960,7 @@ MAIL FROM:&lt;sender@example.com&gt; BODY=BINARYMIME
 <p>
 When BODY=BINARYMIME is declared, the message MUST be transmitted using BDAT
 because the DATA command's dot-stuffing could corrupt binary data. The server
-enforces this—if a client attempts to use DATA after declaring BINARYMIME,
+enforces this - if a client attempts to use DATA after declaring BINARYMIME,
 the server rejects with a 503 error.
 </p>
 
@@ -851,8 +975,8 @@ The BODY parameter supports three values:
 </ul>
 
 <p>
-The handler does not need to know about BODY type—the difference is entirely
-a transport concern handled by SMTPConnection.
+The handler does not need to know about BODY type - the difference is entirely
+a transport concern handled by the protocol layer.
 </p>
 
 <h4>SMTPUTF8 (RFC 6531)</h4>
@@ -878,7 +1002,7 @@ parsing appropriately. The <code>MessageParser</code> class provides
 <h4>XCLIENT (Postfix Extension)</h4>
 
 <p>
-XCLIENT allows authorized mail proxies and content filters to pass original
+XCLIENT allows authorised mail proxies and content filters to pass original
 client connection information to the MTA. This is essential when mail passes
 through intermediary systems that need to preserve the original client's
 identity for logging, policy evaluation, and authentication checks.
@@ -901,23 +1025,26 @@ Supported XCLIENT attributes:
 
 <p>
 After XCLIENT, the session resets to the greeting state and the client must
-re-issue EHLO. The overridden values are reflected in
-<code>SmtpConnectionMetadata</code> for policy decisions.
+re-issue EHLO. The overridden values are reflected in the connection
+information your handler sees for policy decisions.
 </p>
 
 <p>
-XCLIENT is only available to authorized clients. The handler controls
-authorization through the <code>isXclientAuthorized(InetAddress)</code> method,
-which returns <code>false</code> by default. Enable it only for trusted hosts:
+XCLIENT is only available to authorised clients. Authorisation is decided
+by <code>isXclientAuthorized(InetAddress)</code> on <code>SmtpListener</code>,
+which returns <code>false</code> by default. Override it in a subclass of the
+listener, and enable it only for trusted hosts:
 </p>
 
 <pre>
-&#64;Override
-public boolean isXclientAuthorized(InetAddress clientAddress) {
-    // Allow localhost and internal mail gateways
-    return clientAddress.isLoopbackAddress() ||
-           clientAddress.getHostAddress().startsWith("10.0.1.");
-}
+SmtpListener listener = new SmtpListener() {
+    &#64;Override
+    protected boolean isXclientAuthorized(InetAddress clientAddress) {
+        // Allow localhost and internal mail gateways
+        return clientAddress.isLoopbackAddress() ||
+               clientAddress.getHostAddress().startsWith("10.0.1.");
+    }
+}.port(25);
 </pre>
 
 <h4>DSN - Delivery Status Notifications (RFC 3461)</h4>
@@ -956,13 +1083,25 @@ RCPT TO:&lt;user@example.org&gt; NOTIFY=SUCCESS,FAILURE ORCPT=rfc822;user@exampl
 </pre>
 
 <p>
-The DSN parameters are accessible through <code>SmtpConnectionMetadata</code>:
+The envelope parameters are available to the handler in
+<code>mailFrom</code> through <code>DeliveryRequirements</code>:
 </p>
 
 <ul>
-<li><code>getDSNEnvelopeParameters()</code> - returns RET and ENVID</li>
-<li><code>getDSNRecipientParameters(EmailAddress)</code> - returns NOTIFY and ORCPT for a recipient</li>
+<li><code>getDsnReturn()</code> - the RET value (<code>FULL</code> or
+<code>HDRS</code>)</li>
+<li><code>getDsnEnvelopeId()</code> - the ENVID value</li>
 </ul>
+
+<p>
+The per-recipient parameters are available in <code>rcptTo</code> from
+<code>RecipientState.getRecipientDsnParameters()</code>, which returns a
+<code>DsnRecipientParameters</code> (or <code>null</code> when the command gave
+none) with <code>getNotify()</code>, <code>isNotifySuccess()</code>,
+<code>isNotifyFailure()</code>, <code>isNotifyDelay()</code>,
+<code>isNotifyNever()</code>, <code>getOrcptType()</code> and
+<code>getOrcptAddress()</code>. Keep them with the recipient you accept.
+</p>
 
 <p>
 The MTA is responsible for generating actual DSN messages based on these
@@ -995,12 +1134,12 @@ Example EHLO response with LIMITS:
 </pre>
 
 <p>
-Configuration via <code>SMTPServer</code>:
+Configuration on the composer (or on a listener, for that listener alone):
 </p>
 
 <ul>
-<li><code>setMaxRecipients(int)</code> - set RCPTMAX limit</li>
-<li><code>setMaxTransactionsPerSession(int)</code> - set MAILMAX limit (0 = unlimited)</li>
+<li><code>maxRecipients(int)</code> - set RCPTMAX limit</li>
+<li><code>maxTransactionsPerSession(int)</code> - set MAILMAX limit (0 = unlimited)</li>
 </ul>
 
 <p>
@@ -1017,7 +1156,7 @@ When limits are exceeded:
 <p>
 Several SMTP extensions allow senders to specify requirements for how messages
 should be delivered. These are collected in the <code>DeliveryRequirements</code>
-interface, which is passed to the handler's <code>mailFrom()</code> callback:
+interface, which is passed to the handler's <code>mailFrom()</code> method:
 </p>
 
 <h5>REQUIRETLS (RFC 8689)</h5>
@@ -1041,7 +1180,7 @@ TLS connection</code>.
 
 <p>
 Specifies message transfer priority from -9 (lowest) to +9 (highest), with 0
-being normal priority. MTAs may use this to prioritize queue processing.
+being normal priority. MTAs may use this to prioritise queue processing.
 </p>
 
 <pre>
@@ -1076,7 +1215,7 @@ MAIL FROM:&lt;sender@example.com&gt; BY=86400;R
 MAIL FROM:&lt;sender@example.com&gt; BY=86400;N
 </pre>
 
-<h5>Handler Usage</h5>
+<h5>Handler usage</h5>
 
 <p>
 All delivery requirements are available via <code>DeliveryRequirements</code>:
@@ -1084,8 +1223,8 @@ All delivery requirements are available via <code>DeliveryRequirements</code>:
 
 <pre>
 &#64;Override
-public void mailFrom(EmailAddress sender, boolean smtputf8,
-                     DeliveryRequirements delivery, MailFromCallback callback) {
+public void mailFrom(MailFromState state, EmailAddress sender,
+                     boolean smtputf8, DeliveryRequirements delivery) {
     if (delivery.isRequireTls()) {
         // Must relay over TLS only
     }
@@ -1103,73 +1242,78 @@ public void mailFrom(EmailAddress sender, boolean smtputf8,
         DsnReturn ret = delivery.getDsnReturn();
         String envid = delivery.getDsnEnvelopeId();
     }
-    callback.mailFromReply(SenderPolicyResult.ACCEPT);
+    state.acceptSender(this);
 }
 </pre>
 
 <h3 id="configuration">Configuration</h3>
 
-<h4>SmtpServer Properties</h4>
-
 <p>
-SMTP services (<code>org.bluezoo.gumdrop.smtp.server.SmtpServer</code> subclasses) support:
+Mail servers are configured in Java. The composer holds the settings shared
+by every listener, and each <code>SmtpListener</code> holds its own transport
+settings.
 </p>
 
+<h4>SmtpServer.compose() settings</h4>
+
 <ul>
-<li><code>realm</code> &ndash; reference to a Realm for authentication</li>
-<li><code>mailbox-factory</code> &ndash; reference to a MailboxFactory (for local delivery)</li>
-<li><code>max-message-size</code> &ndash; maximum message size in bytes (default: ~35MB)</li>
-<li><code>max-recipients</code> &ndash; maximum recipients per transaction (default: 100)</li>
-<li><code>max-transactions-per-session</code> &ndash; maximum MAIL FROM commands per session (default: 0/unlimited)</li>
-<li><code>auth-required</code> &ndash; require authentication (for submission port)</li>
+<li><code>listener(SmtpListener)</code> - add a listener; at least one is required</li>
+<li><code>sessionProvider(SmtpServerSessionProvider)</code> - the handler
+factory; required here or on a sole listener</li>
+<li><code>realm(Realm)</code> - realm for authentication</li>
+<li><code>mailboxFactory(MailboxFactory)</code> - passed to
+<code>rcptTo</code> for local delivery</li>
+<li><code>maxMessageSize(long)</code> - maximum message size in bytes (default: 35,882,577, about 35MB)</li>
+<li><code>maxRecipients(int)</code> - maximum recipients per transaction (default: 100)</li>
+<li><code>maxTransactionsPerSession(int)</code> - maximum MAIL FROM commands per session (default: 0, unlimited)</li>
+<li><code>authRequired(boolean)</code> - require authentication (for a submission port)</li>
 </ul>
 
-<h4>SmtpListener Properties</h4>
+<h4>SmtpListener settings</h4>
+
+<ul>
+<li><code>port(int)</code> - listening port (default: 25, or 465 when <code>secure</code>)</li>
+<li><code>bindWildcard()</code> and <code>addresses(InetAddress...)</code> - where to bind</li>
+<li><code>secure(boolean)</code> - implicit TLS (SMTPS)</li>
+<li><code>tls(TlsConfig)</code> - certificate and key; also enables STARTTLS</li>
+<li><code>maxConnections(int)</code> and <code>maxConnectionsPerIP(int)</code> - connection caps</li>
+<li><code>rateLimit(String)</code> - sliding-window rate limit per IP</li>
+<li><code>maxAuthFailures(int)</code> and <code>authLockoutTimeMs(long)</code> - brute-force protection</li>
+<li><code>allowedNetworks(List&lt;CidrNetwork&gt;)</code> and
+<code>blockedNetworks(List&lt;CidrNetwork&gt;)</code> - CIDR allow and block lists</li>
+<li><code>idleTimeoutMs</code>, <code>readTimeoutMs</code>, <code>connectionTimeoutMs</code> - timeouts</li>
+<li><code>maxNetInSize(int)</code> and <code>maxNetOutSize(int)</code> - network buffer sizes</li>
+<li><code>realm</code>, <code>mailboxFactory</code>, <code>authRequired</code>,
+<code>maxMessageSize</code>, <code>maxRecipients</code>,
+<code>maxTransactionsPerSession</code> - per-listener overrides of the
+composer's settings</li>
+<li><code>configureGSSAPI(Path keytab, String principal)</code> - Kerberos for AUTH GSSAPI</li>
+<li><code>name(String)</code> - a name for logs and metrics</li>
+</ul>
+
+<h4>Example configuration</h4>
 
 <p>
-Each <code>&lt;listener&gt;</code> element within the service configures a listener:
+An MX listener on port 25 and a submission listener on port 587 that
+requires authentication, sharing one handler and realm:
 </p>
-
-<ul>
-<li><code>port</code> &ndash; listening port (default: 25, or 465 for secure)</li>
-<li><code>secure</code> &ndash; enable implicit TLS (SMTPS)</li>
-<li><code>keystore-file</code> &ndash; keystore for TLS/STARTTLS</li>
-<li><code>keystore-pass</code> &ndash; keystore password</li>
-<li><code>max-connections-per-ip</code> &ndash; concurrent connection limit per IP (default: 10)</li>
-<li><code>allowed-networks</code> &ndash; CIDR networks to allow (e.g., "192.168.0.0/16")</li>
-<li><code>blocked-networks</code> &ndash; CIDR networks to block</li>
-</ul>
-
-<h4>Example Configuration</h4>
 
 <pre>
-&lt;!-- Authentication realm --&gt;
-&lt;realm id="mailRealm" class="org.bluezoo.gumdrop.auth.BasicRealm"&gt;
-    &lt;property name="href"&gt;mail-users.xml&lt;/property&gt;
-&lt;/realm&gt;
+TlsConfig tls = TlsConfig.pem(Paths.get("cert.pem"), Paths.get("key.pem"));
 
-&lt;!-- SMTP service with MX and submission listeners --&gt;
-&lt;service class="com.example.MyMailService"&gt;
-    &lt;property name="realm" ref="#mailRealm"/&gt;
-    &lt;property name="max-message-size"&gt;52428800&lt;/property&gt;
+SmtpServer server = SmtpServer.compose()
+        .listener(new SmtpListener().name("mx").port(25).tls(tls)
+                .maxConnectionsPerIP(20))
+        .listener(new SmtpListener().name("submission").port(587).tls(tls)
+                .authRequired(true))
+        .sessionProvider(provider)
+        .realm(realm)
+        .maxMessageSize(50L * 1024 * 1024)
+        .server();
 
-    &lt;!-- MX listener (port 25) --&gt;
-    &lt;listener class="org.bluezoo.gumdrop.smtp.SmtpListener"
-            name="mx" port="25"
-            keystore-file="keystore.p12" keystore-pass="secret"
-            max-connections-per-ip="20"
-            blocked-networks="10.0.0.0/8"/&gt;
-
-    &lt;!-- Submission listener (port 587, auth required) --&gt;
-    &lt;listener class="org.bluezoo.gumdrop.smtp.SmtpListener"
-            name="submission" port="587"
-            keystore-file="keystore.p12" keystore-pass="secret"
-            auth-required="true"/&gt;
-
-    &lt;!-- UNIX domain socket for local delivery agents --&gt;
-    &lt;listener class="org.bluezoo.gumdrop.smtp.SmtpListener"
-            name="local" path="/var/run/smtp.sock"/&gt;
-&lt;/service&gt;
+Gumdrop gumdrop = Gumdrop.boot();
+gumdrop.addServer(server);
+gumdrop.join();
 </pre>
 
 <h3 id="client">SMTP Client</h3>
@@ -1184,7 +1328,7 @@ forward delivery components and service-to-service communication.
 
 <p>
 When an SMTP client connection is initiated from within a Gumdrop server
-context—such as a mail relay or gateway—it can be assigned to the same
+context - such as a mail relay or gateway - it can be assigned to the same
 SelectorLoop as the originating server connection. This provides the same
 benefits described for the <a href="http.html#client">HTTP client</a>:
 </p>
@@ -1215,9 +1359,9 @@ executes entirely within the I/O worker without blocking.
 including 8BITMIME, SMTPUTF8, DSN, ENHANCEDSTATUSCODES, BINARYMIME, REQUIRETLS,
 MT-PRIORITY, FUTURERELEASE, DELIVERBY, LIMITS)</li>
 <li><b>STARTTLS</b> - opportunistic TLS upgrade</li>
-<li><b>Certificate pinning</b> - <code>setTrustManager(X509TrustManager)</code>
-for outbound TLS; use <code>PinnedCertTrustManager</code> for SHA-256
-fingerprint pinning</li>
+<li><b>Certificate pinning</b> - <code>tls(TlsConfig)</code> configures
+outbound TLS; give the <code>TlsConfig</code> a <code>trustManager(...)</code>
+such as <code>PinnedCertTrustManager</code> for SHA-256 fingerprint pinning</li>
 <li><b>Streaming DATA</b> - dot-stuffing handled automatically without buffering</li>
 <li><b>Pipelining</b> - multiple commands in flight (when server supports)</li>
 <li><b>MAIL FROM extensions</b> - BODY, SMTPUTF8, RET/ENVID, REQUIRETLS,
@@ -1369,12 +1513,14 @@ Session spans capture:
 
 <ul>
 <li><code>smtp.session_number</code> - session index within connection</li>
-<li><code>smtp.client_hostname</code> - HELO/EHLO hostname</li>
-<li><code>smtp.esmtp_mode</code> - EHLO vs HELO</li>
+<li><code>smtp.helo</code> or <code>smtp.ehlo</code> - the client's HELO/EHLO
+hostname, with <code>smtp.esmtp</code> set for EHLO</li>
 <li><code>smtp.mail_from</code> - sender address</li>
-<li><code>smtp.auth.mechanism</code> - authentication method if used</li>
-<li><code>smtp.auth.user</code> - authenticated username</li>
-<li>Events for RCPT TO recipients, STARTTLS, message acceptance</li>
+<li><code>smtp.rcpt_count</code> - accepted recipients</li>
+<li><code>smtp.starttls</code> - set when STARTTLS completed</li>
+<li><code>smtp.auth_mechanism</code> and <code>smtp.auth_user</code> -
+authentication method and username, if used</li>
+<li>Events for HELO/EHLO, MAIL FROM, RCPT TO, STARTTLS, AUTH, and data completion</li>
 </ul>
 
 <p>

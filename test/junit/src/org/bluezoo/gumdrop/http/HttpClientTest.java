@@ -50,7 +50,7 @@ public class HttpClientTest {
     @Test
     public void fluentConfigurationReturnsSameInstance() {
         HttpClient client = new HttpClient("example.com", 443);
-        assertSame(client, client.secure(true).h2Enabled(true).h3Enabled(false));
+        assertSame(client, client.secure(true).versions(HttpVersion.HTTP_2_0, HttpVersion.HTTP_1_1));
     }
 
     @Test
@@ -88,7 +88,7 @@ public class HttpClientTest {
     public void h3OverUnixSocketIsRejected() {
         final AtomicReference<Exception> err = new AtomicReference<Exception>();
         HttpClient client = new HttpClient("/tmp/http.sock");
-        client.setH3Enabled(true);
+        client.versions(HttpVersion.HTTP_3);
         client.connect(null, new HttpClientHandler() {
             @Override
             public void onConnected(org.bluezoo.gumdrop.Endpoint endpoint) {

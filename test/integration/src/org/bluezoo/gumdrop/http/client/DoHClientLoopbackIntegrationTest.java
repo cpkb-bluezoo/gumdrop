@@ -22,6 +22,7 @@
 package org.bluezoo.gumdrop.http.client;
 
 import java.util.List;
+import org.bluezoo.gumdrop.tls.TlsConfig;
 import org.bluezoo.gumdrop.http.HeaderFields;
 import org.bluezoo.gumdrop.http.Header;
 import org.bluezoo.gumdrop.AbstractServerIntegrationTest;
@@ -108,11 +109,11 @@ public class DoHClientLoopbackIntegrationTest extends AbstractServerIntegrationT
     @Test
     public void testDnsResolverOverDoh() throws Exception {
         DoHClientTransport transport = new DoHClientTransport();
-        transport.setTrustManager(TestTlsFiles.trustManager());
+        transport.tls(new TlsConfig().trustManager(TestTlsFiles.trustManager()));
 
         DnsResolver resolver = new DnsResolver();
-        resolver.setSelectorLoop(gumdrop.nextWorkerLoop());
-        resolver.setTransport(transport);
+        resolver.selectorLoop(gumdrop.nextWorkerLoop());
+        resolver.transport(transport);
         resolver.addServer(InetAddress.getByName(TEST_HOST), HTTPS_PORT);
         resolver.open();
         waitForDohConnected(transport);
@@ -154,7 +155,7 @@ public class DoHClientLoopbackIntegrationTest extends AbstractServerIntegrationT
     @Test
     public void testDohTransportPostRoundTrip() throws Exception {
         DoHClientTransport transport = new DoHClientTransport();
-        transport.setTrustManager(TestTlsFiles.trustManager());
+        transport.tls(new TlsConfig().trustManager(TestTlsFiles.trustManager()));
 
         CountDownLatch doneLatch = new CountDownLatch(1);
         AtomicReference<DnsMessage> responseMessage = new AtomicReference<DnsMessage>();

@@ -47,7 +47,7 @@ public class DoQListenerTest {
     @Test
     public void testSetRequireRetry() {
         DoQListener listener = new DoQListener();
-        listener.setRequireRetry(false);
+        listener.requireRetry(false);
         assertFalse(listener.isRequireRetry());
     }
 
@@ -61,7 +61,7 @@ public class DoQListenerTest {
     @Test
     public void testCreateTransportFactoryHonoursRetryOptOut() throws Exception {
         DoQListener listener = new DoQListener();
-        listener.setRequireRetry(false);
+        listener.requireRetry(false);
         QuicTransportFactory factory = invokeCreateTransportFactory(listener);
         assertFalse(factory.isRequireRetry());
     }

@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.imap;
 
+import org.bluezoo.gumdrop.auth.SynchronousRealm;
 import java.net.InetAddress;
 import java.util.Collections;
 import java.util.EnumSet;
@@ -59,7 +60,7 @@ import static org.junit.Assert.*;
  */
 public class ImapListenerCoverageTest {
 
-    private static final class MechRealm implements Realm {
+    private static final class MechRealm implements SynchronousRealm {
         private final Set<SaslMechanism> mechs;
 
         MechRealm(SaslMechanism... m) {
@@ -70,10 +71,6 @@ public class ImapListenerCoverageTest {
             this.mechs = Collections.unmodifiableSet(set);
         }
 
-        @Override
-        public Realm forSelectorLoop(SelectorLoop loop) {
-            return this;
-        }
 
         @Override
         public Set<SaslMechanism> getSupportedSASLMechanisms() {
@@ -90,11 +87,6 @@ public class ImapListenerCoverageTest {
             return null;
         }
 
-        @Override
-        @SuppressWarnings("deprecation")
-        public String getPassword(String username) {
-            return null;
-        }
 
         @Override
         public boolean isUserInRole(String username, String role) {
@@ -114,7 +106,7 @@ public class ImapListenerCoverageTest {
         assertEquals("imaps", l.getDescription());
         assertSame(l, l.tls(TlsConfig.credentials(
                 TestCertificates.ec256().credentials())));
-        l.setPort(993);
+        l.port(993);
         assertEquals(993, l.getPort());
     }
 
@@ -147,9 +139,9 @@ public class ImapListenerCoverageTest {
         assertEquals(25 * 1024 * 1024, l.getMaxLiteralSize());
 
         Realm realm = new MechRealm();
-        l.setRealm(realm);
+        l.realm(realm);
         assertSame(realm, l.getRealm());
-        l.setGSSAPIServer(null);
+        l.gssapiServer(null);
         assertNull(l.getGSSAPIServer());
         MailboxFactory f = new MailboxFactory() {
             @Override
@@ -157,28 +149,28 @@ public class ImapListenerCoverageTest {
                 return null;
             }
         };
-        l.setMailboxFactory(f);
+        l.mailboxFactory(f);
         assertSame(f, l.getMailboxFactory());
         RoleBasedQuotaManager qm = new RoleBasedQuotaManager();
-        l.setQuotaManager(qm);
+        l.quotaManager(qm);
         assertSame(qm, l.getQuotaManager());
-        l.setLoginTimeoutMs(1L);
-        l.setCommandTimeoutMs(2L);
-        l.setEnableIDLE(false);
-        l.setEnableNAMESPACE(false);
-        l.setEnableQUOTA(false);
-        l.setEnableMOVE(false);
-        l.setEnableCOMPRESS(false);
-        l.setEnableUTF8ACCEPT(false);
-        l.setEnableSORT(false);
-        l.setEnableCONDSTORE(false);
-        l.setEnableQRESYNC(false);
-        l.setEnableOBJECTID(false);
-        l.setEnableNOTIFY(false);
-        l.setEnableMETADATA(false);
-        l.setAllowPlaintextLogin(true);
-        l.setMaxLineLength(10);
-        l.setMaxLiteralSize(20);
+        l.loginTimeoutMs(1L);
+        l.commandTimeoutMs(2L);
+        l.enableIDLE(false);
+        l.enableNAMESPACE(false);
+        l.enableQUOTA(false);
+        l.enableMOVE(false);
+        l.enableCOMPRESS(false);
+        l.enableUTF8ACCEPT(false);
+        l.enableSORT(false);
+        l.enableCONDSTORE(false);
+        l.enableQRESYNC(false);
+        l.enableOBJECTID(false);
+        l.enableNOTIFY(false);
+        l.enableMETADATA(false);
+        l.allowPlaintextLogin(true);
+        l.maxLineLength(10);
+        l.maxLiteralSize(20);
         assertEquals(1L, l.getLoginTimeoutMs());
         assertEquals(2L, l.getCommandTimeoutMs());
         assertFalse(l.isEnableIDLE());
@@ -198,7 +190,7 @@ public class ImapListenerCoverageTest {
         assertEquals(20, l.getMaxLiteralSize());
         Map<String, String> ids = new HashMap<String, String>();
         ids.put("name", "x");
-        l.setServerIdFields(ids);
+        l.serverIdFields(ids);
         assertEquals("x", l.getServerIdFields().get("name"));
     }
 
@@ -225,9 +217,9 @@ public class ImapListenerCoverageTest {
     @Test
     public void testStartKeepsExplicitPortAndIdleTimeout() {
         ImapListener l = new ImapListener();
-        l.setRealm(new MechRealm(SaslMechanism.PLAIN));
+        l.realm(new MechRealm(SaslMechanism.PLAIN));
         l.port(2143);
-        l.setIdleTimeoutMs(12345L);
+        l.idleTimeoutMs(12345L);
         l.start();
         assertEquals(2143, l.getPort());
         assertEquals(12345L, l.getIdleTimeoutMs());
@@ -247,7 +239,7 @@ public class ImapListenerCoverageTest {
     @Test
     public void testUnauthenticatedCapabilities() {
         ImapListener l = new ImapListener();
-        l.setRealm(new MechRealm(SaslMechanism.PLAIN,
+        l.realm(new MechRealm(SaslMechanism.PLAIN,
                 SaslMechanism.CRAM_MD5));
         String clear = l.getCapabilities(false, false);
         assertTrue(clear, clear.contains("AUTH=CRAM-MD5"));
@@ -257,27 +249,27 @@ public class ImapListenerCoverageTest {
         String tls = l.getCapabilities(false, true);
         assertTrue(tls, tls.contains("AUTH=PLAIN"));
         assertFalse(tls, tls.contains("LOGINDISABLED"));
-        l.setAllowPlaintextLogin(true);
+        l.allowPlaintextLogin(true);
         assertFalse(l.getCapabilities(false, false).contains("LOGINDISABLED"));
-        l.setRealm(null);
+        l.realm(null);
         assertFalse(l.getCapabilities(false, false).contains("AUTH="));
     }
 
     @Test
     public void testAuthenticatedCapabilitiesAllDisabled() {
         ImapListener l = new ImapListener();
-        l.setEnableIDLE(false);
-        l.setEnableNAMESPACE(false);
-        l.setEnableQUOTA(false);
-        l.setEnableMOVE(false);
-        l.setEnableCOMPRESS(false);
-        l.setEnableUTF8ACCEPT(false);
-        l.setEnableSORT(false);
-        l.setEnableCONDSTORE(false);
-        l.setEnableQRESYNC(false);
-        l.setEnableOBJECTID(false);
-        l.setEnableNOTIFY(false);
-        l.setEnableMETADATA(false);
+        l.enableIDLE(false);
+        l.enableNAMESPACE(false);
+        l.enableQUOTA(false);
+        l.enableMOVE(false);
+        l.enableCOMPRESS(false);
+        l.enableUTF8ACCEPT(false);
+        l.enableSORT(false);
+        l.enableCONDSTORE(false);
+        l.enableQRESYNC(false);
+        l.enableOBJECTID(false);
+        l.enableNOTIFY(false);
+        l.enableMETADATA(false);
         String caps = l.getCapabilities(true, true, false);
         String[] absent = {"IDLE", "NAMESPACE", "QUOTA", "MOVE", "CONDSTORE",
                 "QRESYNC", "COMPRESS=DEFLATE", "UTF8=ACCEPT", "SORT",
@@ -307,7 +299,7 @@ public class ImapListenerCoverageTest {
     public void testOpenApplicationSessionPrefersSessionProvider() {
         final ClientConnected expected = new DefaultIMAPHandler();
         ImapListener l = new ImapListener();
-        l.setSessionProvider(new ImapServerSessionProvider() {
+        l.sessionProvider(new ImapServerSessionProvider() {
             @Override
             public ClientConnected openSession(TcpListener listener) {
                 return expected;
@@ -320,7 +312,7 @@ public class ImapListenerCoverageTest {
     public void testOpenApplicationSessionFallsBackWhenProviderThrows() {
         final ClientConnected fromServer = new DefaultIMAPHandler();
         ImapListener l = new ImapListener();
-        l.setSessionProvider(new ImapServerSessionProvider() {
+        l.sessionProvider(new ImapServerSessionProvider() {
             @Override
             public ClientConnected openSession(TcpListener listener) {
                 throw new IllegalStateException("provider down");
@@ -332,7 +324,7 @@ public class ImapListenerCoverageTest {
                 return fromServer;
             }
         };
-        l.setServer(server);
+        l.server(server);
         assertSame(server, l.getServer());
         assertSame(fromServer, l.openApplicationSession());
     }
@@ -341,13 +333,13 @@ public class ImapListenerCoverageTest {
     public void testOpenApplicationSessionNullWhenEverythingFails() {
         ImapListener l = new ImapListener();
         assertNull(l.openApplicationSession());
-        l.setSessionProvider(new ImapServerSessionProvider() {
+        l.sessionProvider(new ImapServerSessionProvider() {
             @Override
             public ClientConnected openSession(TcpListener listener) {
                 throw new IllegalStateException("provider down");
             }
         });
-        l.setServer(new ImapServer() {
+        l.server(new ImapServer() {
             @Override
             public ClientConnected openSession(TcpListener listener) {
                 throw new IllegalStateException("server down");

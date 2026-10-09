@@ -238,6 +238,49 @@ class H3Stream implements ProtocolHandler, H3FrameHandler, HttpResponse {
         }
     }
 
+    /**
+     * True while the realm is deciding whether the request is authenticated.
+     * The realm may have to ask a directory or token server, so the answer
+     * comes later, on this connection's loop; what the peer sends on this
+     * stream meanwhile waits in {@link #deferredWhileAuthenticating}.
+     */
+    private boolean authPending;
+
+    /** Request events received while {@link #authPending}, replayed in order. */
+    private List<Runnable> deferredWhileAuthenticating;
+
+    /** @return true if the event was held until authentication is decided */
+    private boolean deferUntilAuthenticated(Runnable replay) {
+        if (!authPending) {
+            return false;
+        }
+        if (deferredWhileAuthenticating == null) {
+            deferredWhileAuthenticating = new ArrayList<Runnable>();
+        }
+        deferredWhileAuthenticating.add(replay);
+        return true;
+    }
+
+    /** Authentication is decided: lets the held events through, in order. */
+    private void releaseDeferredEvents() {
+        authPending = false;
+        List<Runnable> held = deferredWhileAuthenticating;
+        deferredWhileAuthenticating = null;
+        if (held == null) {
+            return;
+        }
+        for (int i = 0; i < held.size(); i++) {
+            held.get(i).run();
+        }
+    }
+
+    private static ByteBuffer copyOf(ByteBuffer source) {
+        ByteBuffer copy = ByteBuffer.allocate(source.remaining());
+        copy.put(source.duplicate());
+        copy.flip();
+        return copy;
+    }
+
     void openApplicationHandler() {
         if (applicationHandlerOpened || handler != null || connection == null) {
             return;
@@ -289,6 +332,14 @@ class H3Stream implements ProtocolHandler, H3FrameHandler, HttpResponse {
 
     @Override
     public void readFinished() {
+        if (deferUntilAuthenticated(new Runnable() {
+            @Override
+            public void run() {
+                handlePeerSendFinished();
+            }
+        })) {
+            return;
+        }
         handlePeerSendFinished();
     }
 
@@ -296,6 +347,14 @@ class H3Stream implements ProtocolHandler, H3FrameHandler, HttpResponse {
     public void disconnected() {
         // RESET_STREAM or connection teardown -- endpoint is no longer
         // usable; still treat as a finish for request/response handling.
+        if (deferUntilAuthenticated(new Runnable() {
+            @Override
+            public void run() {
+                handlePeerSendFinished();
+            }
+        })) {
+            return;
+        }
         handlePeerSendFinished();
     }
 
@@ -358,6 +417,16 @@ class H3Stream implements ProtocolHandler, H3FrameHandler, HttpResponse {
      */
     @Override
     public void headersFrameReceived(ByteBuffer encodedFieldSection) {
+        if (authPending) {
+            final ByteBuffer held = copyOf(encodedFieldSection);
+            deferUntilAuthenticated(new Runnable() {
+                @Override
+                public void run() {
+                    headersFrameReceived(held);
+                }
+            });
+            return;
+        }
         // The decoder pushes the fields into an adapter that applies the
         // HTTP/3 rules (RFC 9114 section 4.2 and 4.3) and produces the message
         // events; the same fields, as the exact octets, go to a collector for
@@ -460,19 +529,61 @@ class H3Stream implements ProtocolHandler, H3FrameHandler, HttpResponse {
 
             HeaderFields.stripHttp1FramingHeaders(headers, false);
 
-            HttpAuthenticationProvider authProvider = connection.getAuthenticationProvider();
+            final HttpAuthenticationProvider authProvider = connection.getAuthenticationProvider();
             if (authProvider != null) {
-                String authHeader = HeaderFields.getValue(headers, "authorization");
-                HttpAuthenticationProvider.AuthenticationResult result =
-                        authProvider.authenticate(authHeader, method, requestTarget);
-                if (result.success) {
-                    authenticatedPrincipal = new HttpPrincipal(result.username);
-                } else if (authProvider.isAuthenticationRequired()) {
-                    sendUnauthorized(authProvider);
+                final String authHeader = HeaderFields.getValue(headers, "authorization");
+                final List<Header> requestFields = headers;
+                if (authHeader != null && connection.isAuthLockedOut()) {
+                    // too many failed attempts: refuse without asking the realm
+                    sendErrorResponse(429);
                     return;
                 }
+                authPending = true;
+                authProvider.authenticate(connection.getSelectorLoop(), authHeader,
+                        method, requestTarget,
+                        new HttpAuthenticationProvider.AuthenticationCallback() {
+                    @Override
+                    public void completed(HttpAuthenticationProvider.AuthenticationResult result) {
+                        if (state == State.CLOSED) {
+                            // the stream went away while the realm was deciding
+                            authPending = false;
+                            deferredWhileAuthenticating = null;
+                            return;
+                        }
+                        if (result.success) {
+                            connection.recordAuthSuccess(result.username);
+                        } else if (authHeader != null) {
+                            connection.recordAuthFailure();
+                        }
+                        if (result.success) {
+                            authenticatedPrincipal = new HttpPrincipal(result.username);
+                        } else if (authProvider.isAuthenticationRequired()) {
+                            authPending = false;
+                            deferredWhileAuthenticating = null;
+                            sendUnauthorized(authProvider);
+                            return;
+                        }
+                        dispatchAuthenticatedRequest(requestFields);
+                        releaseDeferredEvents();
+                    }
+                });
+                return;
             }
+            dispatchAuthenticatedRequest(headers);
+        } else if (state == State.RECEIVING_BODY || state == State.HALF_CLOSED_REMOTE) {
+            if (handler != null) {
+                replayRecordedEvents();
+            }
+        }
+    }
 
+    /**
+     * The request's headers are complete and, where the server authenticates
+     * requests, authentication has been decided: hands the request to its
+     * application handler.
+     */
+    private void dispatchAuthenticatedRequest(List<Header> headers) {
+        {
             openApplicationHandler();
             if (handler == null) {
                 sendErrorResponse(404);
@@ -492,15 +603,21 @@ class H3Stream implements ProtocolHandler, H3FrameHandler, HttpResponse {
                 return;
             }
             replayRecordedEvents();
-        } else if (state == State.RECEIVING_BODY || state == State.HALF_CLOSED_REMOTE) {
-            if (handler != null) {
-                replayRecordedEvents();
-            }
         }
     }
 
     @Override
-    public void dataFrameReceived(ByteBuffer data, boolean endOfFrame) {
+    public void dataFrameReceived(ByteBuffer data, final boolean endOfFrame) {
+        if (authPending) {
+            final ByteBuffer held = copyOf(data);
+            deferUntilAuthenticated(new Runnable() {
+                @Override
+                public void run() {
+                    dataFrameReceived(held, endOfFrame);
+                }
+            });
+            return;
+        }
         if (H3Qlog.on(endpoint)) {
             H3Qlog.frameParsed(endpoint, streamId, H3Qlog.dataFrame(data.remaining()));
         }
@@ -1268,6 +1385,16 @@ class H3Stream implements ProtocolHandler, H3FrameHandler, HttpResponse {
         @Override
         public Principal getPrincipal() {
             return authenticatedPrincipal;
+        }
+
+        @Override
+        public boolean isSecure() {
+            return true;
+        }
+
+        @Override
+        public SecurityInfo getSecurityInfo() {
+            return H3Stream.this.getSecurityInfo();
         }
 
         void notifyError(Throwable cause) {

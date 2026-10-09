@@ -642,7 +642,7 @@ public class TcpTransportFactory extends TransportFactory {
             // broker/server would connect but never progress).
             //
             // This connect() method can itself be called off the
-            // SelectorLoop thread (e.g. AmqpClientRecovery's reconnect
+            // SelectorLoop thread (e.g. AmqpClient's reconnect
             // runs on its own scheduled-executor thread, not any
             // SelectorLoop), so the ProtocolHandler callbacks below --
             // which the framework's contract guarantees always run on the

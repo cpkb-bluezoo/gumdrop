@@ -22,6 +22,7 @@
 package org.bluezoo.gumdrop.ftp.file;
 
 import org.bluezoo.gumdrop.auth.Realm;
+import org.bluezoo.gumdrop.auth.RealmCallback;
 import org.bluezoo.gumdrop.ftp.FtpAuthenticationResult;
 import org.bluezoo.gumdrop.ftp.FtpConnectionHandler;
 import org.bluezoo.gumdrop.ftp.FtpConnectionMetadata;
@@ -81,53 +82,63 @@ public class SimpleFTPHandler implements FtpConnectionHandler {
     }
     
     @Override
-    public FtpAuthenticationResult authenticate(String username, String password, 
-                                              String account, FtpConnectionMetadata metadata) {
-        
+    public void authenticate(String username, String password, String account,
+            final FtpConnectionMetadata metadata,
+            final RealmCallback<FtpAuthenticationResult> callback) {
+
         if (username == null || username.trim().isEmpty()) {
-            return FtpAuthenticationResult.INVALID_USER;
+            callback.completed(FtpAuthenticationResult.INVALID_USER);
+            return;
         }
-        
+
         if (password == null) {
-            return FtpAuthenticationResult.NEED_PASSWORD;
+            callback.completed(FtpAuthenticationResult.NEED_PASSWORD);
+            return;
         }
-        
-        String clientHost = metadata.getClientAddress() != null ? 
+
+        final String user = username;
+        final String clientHost = metadata.getClientAddress() != null ?
                            metadata.getClientAddress().getHostString() : "unknown";
-        
-        try {
-            if (realm != null) {
-                // Use Realm-based authentication
-                boolean authenticated = realm.passwordMatch(username.trim(), password);
-                
-                if (authenticated) {
-                    events(metadata).info("info.simple_ftp_realm_auth_success")
-                            .attr("username", username)
-                            .attr("client_host", clientHost).emit();
-                    return FtpAuthenticationResult.SUCCESS;
-                } else {
-                    events(metadata).warn("warn.simple_ftp_auth_failed")
-                            .attr("client_host", clientHost).emit();
-                    return FtpAuthenticationResult.INVALID_PASSWORD;
-                }
-            } else {
-                // Simple authentication - accept any non-empty password
-                if (password.trim().isEmpty()) {
-                    return FtpAuthenticationResult.INVALID_PASSWORD;
+
+        if (realm != null) {
+            // Use Realm-based authentication, without waiting for the realm
+            realm.forSelectorLoop(metadata.getSelectorLoop()).passwordMatch(
+                    username.trim(), password, new RealmCallback<Boolean>() {
+                @Override
+                public void completed(Boolean authenticated) {
+                    if (authenticated != null && authenticated.booleanValue()) {
+                        events(metadata).info("info.simple_ftp_realm_auth_success")
+                                .attr("username", user)
+                                .attr("client_host", clientHost).emit();
+                        callback.completed(FtpAuthenticationResult.SUCCESS);
+                    } else {
+                        events(metadata).warn("warn.simple_ftp_auth_failed")
+                                .attr("client_host", clientHost).emit();
+                        callback.completed(FtpAuthenticationResult.INVALID_PASSWORD);
+                    }
                 }
 
-                events(metadata).info("info.simple_ftp_simple_auth_success")
-                        .attr("username", username)
-                        .attr("client_host", clientHost).emit();
-                return FtpAuthenticationResult.SUCCESS;
-            }
-
-        } catch (Exception e) {
-            events(metadata).warn("warn.simple_ftp_auth_error")
-                    .attr("client_host", clientHost)
-                    .thrown(e).emit();
-            return FtpAuthenticationResult.INVALID_PASSWORD;
+                @Override
+                public void failed(Throwable cause) {
+                    events(metadata).warn("warn.simple_ftp_auth_error")
+                            .attr("client_host", clientHost)
+                            .thrown(cause).emit();
+                    callback.completed(FtpAuthenticationResult.INVALID_PASSWORD);
+                }
+            });
+            return;
         }
+
+        // Simple authentication - accept any non-empty password
+        if (password.trim().isEmpty()) {
+            callback.completed(FtpAuthenticationResult.INVALID_PASSWORD);
+            return;
+        }
+
+        events(metadata).info("info.simple_ftp_simple_auth_success")
+                .attr("username", user)
+                .attr("client_host", clientHost).emit();
+        callback.completed(FtpAuthenticationResult.SUCCESS);
     }
     
     @Override

@@ -32,6 +32,7 @@ import java.net.InetSocketAddress;
 import java.net.SocketException;
 
 import org.bluezoo.gumdrop.Gumdrop;
+import org.bluezoo.gumdrop.tls.TlsConfig;
 import org.bluezoo.gumdrop.GumdropConfig;
 import org.bluezoo.gumdrop.testsupport.RecordingSelectorLoop;
 import org.bluezoo.gumdrop.testsupport.TestCertificates;
@@ -92,10 +93,10 @@ public class DoQListenerStopIntegrationTest {
         int port = freeUdpPort();
         RecordingSelectorLoop loop = new RecordingSelectorLoop();
         DoQListener listener = new DoQListener();
-        listener.setServerCredentials(TestCertificates.ec256().credentials());
-        listener.setPort(port);
+        listener.tls(TlsConfig.credentials(TestCertificates.ec256().credentials()));
+        listener.port(port);
         listener.addresses(InetAddress.getLoopbackAddress());
-        listener.setSelectorLoop(loop);
+        listener.selectorLoop(loop);
         listener.start(gumdrop);
         assertTrue("engine bound", portIsBound(port));
 

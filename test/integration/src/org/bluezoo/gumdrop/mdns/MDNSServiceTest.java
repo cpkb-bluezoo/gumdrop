@@ -134,7 +134,7 @@ public class MDNSServiceTest {
         CapturingMDNSListener listener = new CapturingMDNSListener();
         MdnsServer service = new MdnsServer();
         service.addListener(listener);
-        service.setHostname("testhost");
+        service.hostname("testhost");
 
         service.start(gumdrop);
         settle(service, listener);
@@ -159,7 +159,7 @@ public class MDNSServiceTest {
         CapturingMDNSListener listener = new CapturingMDNSListener();
         MdnsServer service = new MdnsServer();
         service.addListener(listener);
-        service.setHostname("testhost");
+        service.hostname("testhost");
 
         service.start(gumdrop);
         listener.fireTimer(); // first probe only
@@ -180,7 +180,7 @@ public class MDNSServiceTest {
         CapturingMDNSListener listener = new CapturingMDNSListener();
         MdnsServer service = new MdnsServer();
         service.addListener(listener);
-        service.setHostname("testhost");
+        service.hostname("testhost");
 
         service.start(gumdrop);
         listener.fireTimer(); // one probe sent, still probing
@@ -210,7 +210,7 @@ public class MDNSServiceTest {
         CapturingMDNSListener listener = new CapturingMDNSListener();
         MdnsServer service = new MdnsServer();
         service.addListener(listener);
-        service.setHostname("testhost");
+        service.hostname("testhost");
 
         service.start(gumdrop);
         listener.fireTimer(); // one probe sent
@@ -236,7 +236,7 @@ public class MDNSServiceTest {
         CapturingMDNSListener listener = new CapturingMDNSListener();
         MdnsServer service = new MdnsServer();
         service.addListener(listener);
-        service.setHostname("testhost");
+        service.hostname("testhost");
 
         service.start(gumdrop);
         listener.fireTimer(); // one probe sent, still probing
@@ -271,7 +271,7 @@ public class MDNSServiceTest {
         CapturingMDNSListener listener = new CapturingMDNSListener();
         MdnsServer service = new MdnsServer();
         service.addListener(listener);
-        service.setHostname("testhost");
+        service.hostname("testhost");
 
         service.start(gumdrop);
         settle(service, listener);
@@ -305,7 +305,7 @@ public class MDNSServiceTest {
         CapturingMDNSListener listener = new CapturingMDNSListener();
         MdnsServer service = new MdnsServer();
         service.addListener(listener);
-        service.setHostname("testhost");
+        service.hostname("testhost");
 
         service.start(gumdrop);
         settle(service, listener);
@@ -336,7 +336,7 @@ public class MDNSServiceTest {
         CapturingMDNSListener listener = new CapturingMDNSListener();
         MdnsServer service = new MdnsServer();
         service.addListener(listener);
-        service.setHostname("testhost");
+        service.hostname("testhost");
 
         service.start(gumdrop);
         settle(service, listener);
@@ -368,7 +368,7 @@ public class MDNSServiceTest {
         CapturingMDNSListener listener = new CapturingMDNSListener();
         MdnsServer service = new MdnsServer();
         service.addListener(listener);
-        service.setHostname("testhost");
+        service.hostname("testhost");
 
         service.start(gumdrop);
         settle(service, listener);
@@ -396,7 +396,7 @@ public class MDNSServiceTest {
         CapturingMDNSListener listener = new CapturingMDNSListener();
         MdnsServer service = new MdnsServer();
         service.addListener(listener);
-        service.setHostname("testhost");
+        service.hostname("testhost");
 
         service.start(gumdrop);
         settle(service, listener);
@@ -419,7 +419,7 @@ public class MDNSServiceTest {
         CapturingMDNSListener listener = new CapturingMDNSListener();
         MdnsServer service = new MdnsServer();
         service.addListener(listener);
-        service.setHostname("testhost");
+        service.hostname("testhost");
 
         service.start(gumdrop);
         settle(service, listener);
@@ -447,7 +447,7 @@ public class MDNSServiceTest {
         CapturingMDNSListener listener = new CapturingMDNSListener();
         MdnsServer service = new MdnsServer();
         service.addListener(listener);
-        service.setHostname("testhost");
+        service.hostname("testhost");
 
         service.start(gumdrop);
         settle(service, listener);
@@ -474,8 +474,8 @@ public class MDNSServiceTest {
         CapturingMDNSListener listener = new CapturingMDNSListener();
         MdnsServer service = new MdnsServer();
         service.addListener(listener);
-        service.setHostname("testhost");
-        service.setAdvertiseServices(false);
+        service.hostname("testhost");
+        service.advertiseServices(false);
 
         service.start(gumdrop);
         settle(service, listener);
@@ -497,7 +497,7 @@ public class MDNSServiceTest {
         CapturingMDNSListener listener = new CapturingMDNSListener();
         MdnsServer service = new MdnsServer();
         service.addListener(listener);
-        service.setHostname("testhost");
+        service.hostname("testhost");
 
         service.start(gumdrop);
         settle(service, listener);

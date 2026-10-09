@@ -100,15 +100,6 @@ public class MqttServer implements Server, MqttServerSessionProvider {
     // instanceof - the parameter can't be generically typed since the
     // parser has no compile-time knowledge of the target element type.
     @SuppressWarnings("rawtypes")
-    public void setListeners(List list) {
-        for (int i = 0; i < list.size(); i++) {
-            Object item = list.get(i);
-            if (item instanceof MqttListener) {
-                addListener((MqttListener) item);
-            }
-        }
-    }
-
     @Override
     public List<MqttListener> getListeners() {
         return Collections.unmodifiableList(listeners);
@@ -120,16 +111,18 @@ public class MqttServer implements Server, MqttServerSessionProvider {
         return realm;
     }
 
-    public void setRealm(Realm realm) {
+    public MqttServer realm(Realm realm) {
         this.realm = realm;
+        return this;
     }
 
     public int getMaxPacketSize() {
         return maxPacketSize;
     }
 
-    public void setMaxPacketSize(int maxPacketSize) {
+    public MqttServer maxPacketSize(int maxPacketSize) {
         this.maxPacketSize = maxPacketSize;
+        return this;
     }
 
     // ── Broker components ──
@@ -222,7 +215,7 @@ public class MqttServer implements Server, MqttServerSessionProvider {
 
         for (MqttListener ep : listeners) {
             wireListener(ep);
-            ep.setServer(this);
+            ep.server(this);
             try {
                 ep.start(gumdrop);
             } catch (Exception e) {
@@ -245,10 +238,10 @@ public class MqttServer implements Server, MqttServerSessionProvider {
 
     private void wireListener(MqttListener ep) {
         if (realm != null && ep.getRealm() == null) {
-            ep.setRealm(realm);
+            ep.realm(realm);
         }
         if (maxPacketSize > 0) {
-            ep.setMaxPacketSize(maxPacketSize);
+            ep.maxPacketSize(maxPacketSize);
         }
     }
 
@@ -320,9 +313,9 @@ public class MqttServer implements Server, MqttServerSessionProvider {
             MqttServer server = new MqttServer();
             server.setComposedSessionProvider(sessionProvider);
             if (realm != null) {
-                server.setRealm(realm);
+                server.realm(realm);
             }
-            server.setMaxPacketSize(maxPacketSize);
+            server.maxPacketSize(maxPacketSize);
             for (int i = 0; i < listeners.size(); i++) {
                 server.addListener(listeners.get(i));
             }

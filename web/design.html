@@ -37,6 +37,13 @@
 <ul>
 <li><a href="#history">History</a></li>
 <li><a href="#reactor">Reactor callbacks, not futures</a></li>
+<li><a href="#listeners">Servers and listeners</a></li>
+<li><a href="#clients">Clients, servers, and peers</a></li>
+<li><a href="#endpoints">Endpoints and handlers</a></li>
+<li><a href="#staged">Staged handler pattern</a></li>
+<li><a href="#builtin">Built-in servers</a></li>
+<li><a href="#datagram">Datagram facilities</a></li>
+<li><a href="#lifecycle">Endpoint lifecycle</a></li>
 <li><a href="#buffers">Standard NIO buffers</a></li>
 <li><a href="#crypto">In-tree TLS, DTLS, and QUIC</a></li>
 <li><a href="#parsing">Push parsing and streaming codecs</a></li>
@@ -87,13 +94,76 @@ after two decades of refinement on the same event-driven foundation.
 <p>
 Netty's programming model is built around channels, pipelines, and
 <code>Future</code>/<code>Promise</code> completion. Gumdrop is
-<strong>reactor-based</strong>: a small pool of <code>SelectorLoop</code>
-threads multiplex I/O with <code>java.nio.channels.Selector</code>, and
-application code implements <code>ProtocolHandler</code> (or protocol-specific
-handler interfaces) that receive synchronous callbacks on that thread:
-<code>connected</code>, <code>receive(ByteBuffer)</code>,
+<strong>reactor-based</strong>: a fixed set of loops runs the hot path (accept,
+read, write, and handler callbacks) without blocking. Application code
+implements <code>ProtocolHandler</code> (or protocol-specific handler
+interfaces) that receive synchronous callbacks on a <code>SelectorLoop</code>
+thread: <code>connected</code>, <code>receive(ByteBuffer)</code>,
 <code>securityEstablished</code>, <code>disconnected</code>, and so on.
 </p>
+
+<p style="text-align:center">
+<img src="architecture.svg" alt="Gumdrop Architecture Diagram" style="max-width:100%"/>
+</p>
+
+<h4>Asynchronous vs synchronous</h4>
+
+<p>
+Traditional synchronous servers allocate one thread per connection. A thread
+blocks on socket read, processes the request, blocks on socket write, and
+repeats. This model is simple but has fundamental scalability limitations:
+</p>
+
+<ul>
+<li><b>Thread overhead</b> - each thread consumes stack memory (typically 1MB)
+and kernel resources; 10,000 connections require 10,000 threads</li>
+<li><b>Context switching</b> - the OS scheduler must switch between thousands
+of threads, consuming CPU cycles</li>
+<li><b>Blocking I/O waste</b> - threads spend most time waiting for network I/O,
+not doing useful work</li>
+<li><b>Thundering herd</b> - bursts of activity can exhaust thread pools</li>
+</ul>
+
+<p>
+Gumdrop's reactor inverts this model. A small, fixed pool of worker threads
+(default: 2× CPU cores) runs the event loop for every connection, inbound or
+outbound:
+</p>
+
+<ul>
+<li><b>Minimal threads</b> - 10,000 connections can be served by 16 threads</li>
+<li><b>No blocking</b> - workers never block; when data isn't available, they
+move to the next ready connection</li>
+<li><b>Efficient multiplexing</b> - the OS <code>Selector</code> notifies
+workers when connections are ready</li>
+<li><b>Predictable resource usage</b> - memory and CPU scale with traffic, not
+connection count</li>
+</ul>
+
+<h4>One reactor for every role</h4>
+
+<p>
+The reactor pattern fits any network role. Servers accept many idle connections;
+clients and relays wait on upstream responses; peer nodes do both at once. In each
+case the worker thread never blocks on the socket: when one endpoint has no data,
+the loop services the next ready connection or datagram. That is why Gumdrop uses
+one architectural style for SMTP relays, HTTP microservices, MQTT brokers, and
+<a href="p2p.html">mesh peers</a> instead of one stack for servers and another
+for clients.
+</p>
+
+<h4>SelectorLoop architecture</h4>
+
+<p>
+A single <code>AcceptSelectorLoop</code> thread handles accepting new
+connections on all server ports. When a connection is accepted, the resulting
+endpoint is assigned to one of a pool of worker <code>SelectorLoop</code>
+threads using round-robin distribution. Each endpoint is bound to a single
+worker for its entire lifetime, eliminating race conditions and simplifying
+state management.
+</p>
+
+<h4>Callbacks, not future pipelines</h4>
 
 <p>
 There is no second style of concurrency to learn for the hot path: you do not
@@ -101,16 +171,356 @@ compose <code>ChannelFuture</code> chains or hop executor pools for each read.
 The model is closer to <strong>nginx</strong> or classic C event loops than to
 Netty's async/await ergonomics. That keeps relay and proxy code straightforward
 (server and client endpoints on the same selector thread, with
-<a href="index.html#clients">SelectorLoop affinity</a>) and makes backpressure
+<a href="#clients">SelectorLoop affinity</a>) and makes backpressure
 explicit via <code>Endpoint</code> primitives such as
-<code>pauseRead()</code> and <code>onWriteReady(Runnable)</code>.
+<code>pauseRead()</code> and <code>onWriteReady(Runnable)</code>
+(see <a href="#endpoints">Endpoints and handlers</a>).
 </p>
 
 <p>
 Stateful wire protocols (SMTP, IMAP, POP3) use a
-<a href="index.html#staged">staged handler pattern</a> on top of the same
+<a href="#staged">staged handler pattern</a> on top of the same
 reactor: typed stages instead of a single giant switch, still entirely
 callback-driven.
+</p>
+
+<h3 id="listeners">Servers and listeners</h3>
+
+<p>
+Gumdrop separates <em>what</em> a protocol server does from <em>where</em> it
+listens. A <code>Server</code> (such as <code>HttpServer</code>,
+<code>SmtpServer</code>, or <code>FtpServer</code>) owns application wiring:
+request or stream handlers, session providers, authentication, and lifecycle.
+Each server holds one or more <code>Listener</code>s that bind to ports, UNIX
+sockets, or UDP/QUIC endpoints and accept or receive traffic.
+</p>
+
+<p>
+Listeners carry transport configuration: address, TLS or DTLS, ALPN, CIDR
+filtering, rate limits, and timeouts. Subclasses choose TCP, UDP, or QUIC via
+<code>createTransportFactory()</code>. One server often has several listeners
+(for example SMTP on port 25 and 465, or HTTP on TCP 80 and 443 and also QUIC).
+</p>
+
+<p>
+Listeners can be <em>static</em> (declared when you compose the server) or
+<em>dynamic</em> (created at runtime). FTP data channels are the classic
+example: PASV/EPSV opens a short-lived listener registered on the
+<code>FtpServer</code> via <code>addDynamicListener()</code> and removed when
+the transfer ends. <code>Server</code> lifecycle stops static and dynamic
+listeners together on shutdown.
+</p>
+
+<p>
+When <code>AcceptSelectorLoop</code> accepts a connection, the listener's
+<code>createHandler()</code> builds a <code>ProtocolHandler</code> (or a
+protocol-specific staged handler). Composition APIs attach session providers or
+handlers per listener so submission and relay ports can differ without
+duplicate server instances. See
+<a href="configuration.html">Application composition</a>.
+</p>
+
+<h4>UNIX domain sockets</h4>
+
+<p>
+Any TCP-based listener can also bind to a UNIX domain socket by specifying a
+<code>path</code> instead of a <code>port</code>. This uses the standard NIO
+UNIX domain socket support (JEP 380, available on Java 25+). Once accepted,
+UNIX domain socket connections behave identically to TCP connections &mdash; the
+same <code>SocketChannel</code>, <code>TcpEndpoint</code>, and
+<code>ProtocolHandler</code> infrastructure is used unchanged.
+</p>
+
+<p>
+UNIX domain sockets are useful for local inter-process communication where
+network overhead is unnecessary and filesystem permissions provide the security
+boundary. A common pattern is to expose a service on both TCP (for remote
+clients) and a UNIX socket (for local tools or reverse proxies):
+</p>
+
+<pre>
+// TCP listener for remote clients
+SmtpListener tcpListener = new SmtpListener().port(25);
+
+// UNIX domain socket for local delivery
+SmtpListener unixListener = new SmtpListener();
+unixListener.path("/var/run/smtp.sock");
+
+SmtpServer smtp = SmtpServer.compose()
+    .listener(tcpListener)
+    .listener(unixListener)
+    .mailboxFactory(mbox)
+    .sessionProvider(SmtpServerSessionProviders.localDelivery()
+        .localDomain("example.com"))
+    .server();
+</pre>
+
+<p>
+Calling both <code>path</code> and <code>port(...)</code> on the same
+listener is a configuration error &mdash; they're mutually exclusive. Stale
+socket files from previous runs are automatically removed on bind, and the
+socket file is deleted on shutdown.
+</p>
+
+<h3 id="clients">Clients, servers, and peers</h3>
+
+<p>
+Outbound work uses the same reactor as inbound work. <code>ClientEndpoint</code>
+dials peers; <code>ClientHandler</code> receives the same style of lifecycle
+callbacks as server-side handlers (connected, data, security established,
+disconnected). <code>ClientEndpointPool</code> reuses connections with
+<code>SelectorLoop</code> affinity. Nothing about the API treats clients as a
+secondary concern: protocol client libraries (HTTP, SMTP, DNS, MQTT, and others)
+are built on these primitives alongside the server implementations.
+</p>
+
+<p>
+<a href="p2p.html">Peer-to-peer</a> nodes register listeners and create client
+endpoints on one <code>Gumdrop</code> instance, which is the intended way to build mesh
+or symmetric protocols. When a client is opened from an existing server
+connection (for example an SMTP relay), it can share the server's
+<code>SelectorLoop</code>. That <i>SelectorLoop affinity</i> provides:
+</p>
+
+<ul>
+<li><b>Unified I/O</b> - server and client I/O multiplexed on the same thread</li>
+<li><b>No context switching</b> - data flows without thread handoffs</li>
+<li><b>Simplified state</b> - no synchronisation needed between endpoints</li>
+<li><b>Efficient relay</b> - proxies and gateways operate entirely within
+their worker thread</li>
+<li><b>Zero copy</b> - no need to make copies of data to transfer between threads</li>
+</ul>
+
+<p>
+Performing hot-path work on the selector thread is efficient but requires
+non-blocking code. Gumdrop supplies reactor-safe clients and push parsers for
+DNS, databases, message buses, and bodies of arbitrary size so server, client,
+and peer handlers can stay on the loop without ad hoc thread pools.
+</p>
+
+<h3 id="endpoints">Endpoints and handlers</h3>
+
+<p>
+The architecture decouples transport I/O from protocol logic.
+<code>Endpoint</code> is the transport-agnostic I/O interface, providing:
+</p>
+
+<ul>
+<li><code>send(ByteBuffer)</code> - queues data for transmission</li>
+<li><code>startTLS()</code> - initiates STARTTLS upgrade</li>
+<li><code>close()</code> - closes the endpoint</li>
+<li><code>isOpen()</code> - tests whether the endpoint is active</li>
+<li><code>getRemoteAddress()</code>, <code>getLocalAddress()</code> - peer
+addresses</li>
+<li><code>pauseRead()</code>, <code>resumeRead()</code> - flow control for
+incoming data</li>
+<li><code>onWriteReady(Runnable)</code> - callback when the write buffer has
+drained</li>
+</ul>
+
+<p>
+<code>ProtocolHandler</code> is the callback interface for protocol logic:
+</p>
+
+<ul>
+<li><code>connected(Endpoint)</code> - called when the endpoint is ready</li>
+<li><code>receive(ByteBuffer)</code> - called when data arrives</li>
+<li><code>securityEstablished(SecurityInfo)</code> - called after TLS
+handshake</li>
+<li><code>disconnected()</code> - called when the connection or stream is closed</li>
+<li><code>error(Exception)</code> - called on unrecoverable I/O or TLS failures</li>
+</ul>
+
+<p>
+Protocol implementations (HTTP, SMTP, IMAP, etc.) implement
+<code>ProtocolHandler</code> rather than extending a base class.
+<code>LineParser</code> replaces the former <code>LineBasedConnection</code>
+for line-oriented protocols, using composition instead of inheritance. The
+framework handles read/write buffering, TLS encryption/decryption, and
+endpoint lifecycle.
+</p>
+
+<h4>Flow control</h4>
+
+<p>
+The <code>Endpoint</code> interface provides transport-level flow control that
+gives protocol handlers explicit control over the rate of data transfer. This
+is a simpler, more efficient alternative to the Reactive Streams specification:
+instead of introducing <code>Publisher</code>/<code>Subscriber</code>
+abstractions and demand-based signalling, Gumdrop exposes three primitives
+directly on the transport &mdash; <code>pauseRead()</code>,
+<code>resumeRead()</code>, and <code>onWriteReady(Runnable)</code> &mdash; that
+manipulate the underlying I/O interest set. This provides complete
+backpressure with zero object allocation overhead and no additional threading.
+</p>
+
+<p>
+On TCP endpoints, <code>pauseRead()</code> clears the <code>OP_READ</code>
+interest on the <code>SelectionKey</code>, causing the selector to stop
+delivering data from that connection. The kernel TCP receive buffer fills,
+the TCP window shrinks, and the remote peer naturally slows down. Calling
+<code>resumeRead()</code> reverses this. For writes,
+<code>onWriteReady(Runnable)</code> registers a one-shot callback that fires
+when the transport has drained its write buffer, allowing protocol handlers
+to feed data in chunks without unbounded memory growth. All TCP-based protocols
+(SMTP, IMAP, POP3, FTP) and their client counterparts use these primitives for
+large transfers such as message retrieval, uploads, and file downloads.
+</p>
+
+<h3 id="staged">Staged handler pattern</h3>
+
+<p>
+Stateful protocols such as SMTP, IMAP, and POP3 present a particular challenge:
+tracking the current protocol state and understanding what operations are valid
+at any given moment. This difficulty is compounded by event-driven architectures
+like Gumdrop, where the complexity of asynchronous callbacks can be bewildering.
+</p>
+
+<p>
+Gumdrop addresses this with a <b>staged handler pattern</b> that compartmentalises
+protocol processing into discrete stages, each with clear goals and decisions:
+</p>
+
+<ul>
+<li><b>Handler interfaces</b> define callbacks for each protocol stage—the events
+your code receives at that point in the conversation</li>
+<li><b>State interfaces</b> define the operations available to respond—the valid
+transitions from that stage</li>
+<li><b>Type safety</b> ensures you can only perform operations valid for the
+current protocol state</li>
+<li><b>Clear flow</b> makes it obvious what decisions need to be made and what
+information is available</li>
+</ul>
+
+<p>
+For example, an SMTP handler progresses through well-defined stages:
+</p>
+
+<pre>
+ClientConnected → HelloHandler → MailFromHandler → RecipientHandler → MessageDataHandler
+</pre>
+
+<p>
+At each stage, the handler receives protocol events (EHLO, MAIL FROM, RCPT TO)
+and uses the provided state interface to accept, reject, or make policy
+decisions. The protocol handler manages all protocol mechanics &mdash; SASL
+authentication challenges, TLS negotiation, command parsing &mdash; leaving
+your session provider or handler to focus on business logic without managing
+sockets or framing.
+</p>
+
+<h4>Inbound and outbound handlers</h4>
+
+<p>
+The same staged pattern applies on the client side. An SMTP client handler
+receives events from the remote server (greeting, EHLO response,
+authentication challenges) and uses state interfaces to drive the conversation
+forward. That symmetry is deliberate: relays, gateways, and P2P nodes pair an
+inbound staged handler with an outbound one on the same reactor thread.
+</p>
+
+<h3 id="builtin">Built-in servers</h3>
+
+<p>
+Gumdrop ships ready-to-use <code>Server</code> compositions as
+<strong>embeddable, plug-in services</strong>. Register them on the same
+<code>Gumdrop</code> instance as your own handlers to stand up real protocol behaviour in
+integration tests, local development, or production (for example a DNS
+forwarder, MQTT broker, or mail sink beside your application). They are part of
+the framework, not separate products. In many deployments, composing a built-in
+server with the right session provider or request handler is enough without
+writing low-level protocol code, and each implementation doubles as a reference
+for your own handlers.
+</p>
+
+<ul>
+<li><a href="webdav.html"><b>WebDAV</b></a> - <code>WebDAVRequestHandler</code>
+serves static files over HTTP from a filesystem root, with optional WebDAV
+(RFC 4918) authoring and locking</li>
+<li><a href="servlet.html"><b>Servlet container</b></a> -
+<code>ServletRequestHandler</code> hosts JSP and servlet applications with
+clustering and deployment</li>
+<li><a href="ftp.html"><b>FTP</b></a> - <code>FtpServer.compose()</code>
+with <code>FileSystemFtpSessionProvider</code> (optionally read-only),
+<code>RoleBasedFtpSessionProvider</code> (roles and quotas), or
+<code>AnonymousFtpSessionProvider</code> (public read-only distribution)</li>
+<li><a href="smtp.html"><b>SMTP</b></a> - <code>SmtpServer.compose()</code>
+with <code>LocalDeliverySessionProvider</code> for mailbox delivery or
+<code>SimpleRelaySessionProvider</code> for MX forwarding</li>
+<li><a href="imap.html"><b>IMAP</b></a> and <a href="pop3.html"><b>POP3</b></a>
+- <code>ImapServer</code> and <code>Pop3Server</code> with the mailbox
+session provider, using the configured Realm and
+<a href="mailbox.html">MailboxFactory</a></li>
+<li><a href="dns.html"><b>DNS</b></a> - <code>DnsServer</code> with a
+caching forwarder (<code>UpstreamRelayHandler</code>) and/or authoritative zones
+(<code>AuthoritativeZoneHandler</code>); see <code>examples/dns-authoritative/</code></li>
+<li><a href="mqtt.html"><b>MQTT</b></a> - <code>MqttServer.compose()</code>
+with no session provider is a complete MQTT 3.1.1/5.0 broker using the
+configured Realm</li>
+<li><a href="socks.html"><b>SOCKS</b></a> - <code>SocksServer.compose()</code>
+with no session provider is a SOCKS4/4a/5 proxy with destination filtering and
+relay limits, and an optional Realm for SOCKS5 authentication</li>
+</ul>
+
+<p>
+Handlers in your own <a href="microservices.html">HTTP microservices</a> can
+call other Gumdrop clients on the inbound request's worker thread via
+<a href="#clients">SelectorLoop affinity</a>, which keeps gateway and BFF-style
+chains on the reactor.
+</p>
+
+<h3 id="datagram">Datagram facilities</h3>
+
+<p>
+For UDP-based protocols, <code>UdpEndpoint</code> (via
+<code>UdpTransportFactory</code>) provides the same event-driven model. The
+<code>ProtocolHandler</code> interface is reused: <code>receive()</code>
+delivers individual datagrams and <code>sendTo()</code> addresses responses to
+the source.
+</p>
+
+<p>
+The DNS server demonstrates this abstraction, providing a complete DNS proxy
+that can be subclassed for custom name resolution. DTLS (TLS for UDP) is
+supported transparently, with per-remote-address session management handled
+automatically.
+</p>
+
+<h3 id="lifecycle">Endpoint lifecycle</h3>
+
+<p>
+Servers provide configurable endpoint lifecycle management:
+</p>
+
+<ul>
+<li><b>Idle timeout</b> - close endpoints with no activity (default: 5 minutes)</li>
+<li><b>Read timeout</b> - maximum wait for data during active read (default: 30 seconds)</li>
+<li><b>Connection timeout</b> - time allowed for initial connection and TLS handshake
+(default: 60 seconds)</li>
+</ul>
+
+<p>
+Timeouts can be configured with time unit suffixes (<code>ms</code>, <code>s</code>,
+<code>m</code>, <code>h</code>):
+</p>
+
+<pre>
+ImapListener listener = new ImapListener();
+listener.idleTimeoutMs(30 * 60 * 1000L);
+listener.setReadTimeout("60s");
+listener.setConnectionTimeout("2m");
+ImapServer imap = ImapServer.compose()
+    .listener(listener)
+    .realm(realm)
+    .sessionProvider(ImapServerSessionProviders.mailbox(maildirFactory))
+    .server();
+</pre>
+
+<p>
+Endpoints track timestamps for creation, last activity, and connection establishment
+(after TLS handshake for secure endpoints). These are accessible via
+<code>getTimestampCreated()</code>, <code>getTimestampLastActivity()</code>, and
+<code>getTimestampConnected()</code>.
 </p>
 
 <h3 id="buffers">Standard NIO buffers</h3>
@@ -129,48 +539,24 @@ If you already work with Java NIO, or you integrate with libraries that consume
 incremental <code>receive(ByteBuffer)</code> feeds.
 </p>
 
+
 <h3 id="crypto">In-tree TLS, DTLS, and QUIC</h3>
 
 <p>
-Gumdrop ships a <strong>pure Java</strong> TLS 1.2/1.3 and DTLS stack, plus a
-QUIC implementation used for HTTP/3. Cipher suites and protocol versions are
-curated for <strong>secure defaults</strong> rather than mirroring JSSE's
-permissive "support everything" posture. Details are on the
-<a href="tls.html">TLS &amp; DTLS</a> page.
-</p>
-
-<p>
-Netty typically relies on the JDK's JSSE for TCP TLS. For QUIC and HTTP/3,
-Netty's incubator transport uses <strong>native code</strong> (Cloudflare
-quiche with BoringSSL behind JNI), which adds platform-specific artifacts and
-deployment constraints. Gumdrop's QUIC/TLS path stays in the same JVM bytecode
-as the rest of the framework, with no native library build step.
-</p>
-
-<h4>Java 25 baseline and post-quantum TLS</h4>
-
-<p>
-<strong>Gumdrop 3 requires Java 25 (LTS) or newer.</strong> That bar is
-intentional: modern JDK cryptography exposes ML-KEM and ML-DSA through the
-standard JCA, which Gumdrop's in-tree TLS engine uses for hybrid post-quantum
-key exchange (RFC&nbsp;10024) and for PKIX validation of post-quantum
-certificates. Hybrid groups are offered by default in TLS&nbsp;1.3, DTLS, and
-QUIC; signature schemes include ML-DSA alongside classical algorithms. See
-<a href="tls.html">TLS &amp; DTLS</a> for cipher profiles, named groups, and
-how to confirm what negotiated on a live connection.
-</p>
-
-<p>
-Staying on a current LTS with first-class post-quantum primitives is part of
-Gumdrop's broader security posture: curated protocol versions and ciphers
-rather than JSSE's permissive defaults, plus TLS, IAM, and rate limiting
-applied consistently across protocols (<a href="security.html">Security</a>).
+Gumdrop ships a <strong>pure Java</strong> TLS 1.2/1.3 and DTLS stack, plus the
+QUIC implementation used for HTTP/3, all with curated secure defaults and no
+native libraries. TLS is transparent to protocol handlers: any endpoint can run
+implicit TLS, STARTTLS, DTLS, or QUIC. Gumdrop 3 requires Java 25 (LTS) so the
+stack can use the JDK's ML-KEM and ML-DSA for post-quantum key exchange and
+certificates. See <a href="tls.html">QUIC, TLS &amp; DTLS</a> for the
+architecture, the Java 25 baseline, cipher profiles, configuration, and RFC
+conformance.
 </p>
 
 <h3 id="parsing">Push parsing and streaming codecs</h3>
 
 <p>
-From the bottom up, Gumdrop favors <strong>push parsers</strong>: data arrives
+From the bottom up, Gumdrop favours <strong>push parsers</strong>: data arrives
 in <code>ByteBuffer</code> chunks and codecs emit events as they go. The goal
 is <strong>constant memory</strong> and full streaming for large payloads, not
 buffer-then-parse workflows.
@@ -199,32 +585,49 @@ materialising the full body first.
 
 <p>
 Netty's ecosystem is centred on HTTP; other protocols usually mean additional
-libraries or your own codecs. Gumdrop ships a coherent set of
-<strong>first-party implementations</strong> on the same reactor, sharing
-authentication (<a href="security.html">Security</a>), transport configuration,
-and the built-in asynchronous DNS client that outbound connections use.
-</p>
-
-<p>
-That includes HTTP/1.x, HTTP/2, and HTTP/3, mail (SMTP, IMAP, POP3), FTP,
-DNS (forwarding, authoritative zones, mDNS), MQTT, SOCKS, WebSocket, gRPC,
-LDAP, AMQP, and Redis clients, plus a <strong>full servlet container</strong>
-that scales on the same event-driven core (see
-<a href="servlet.html">Servlet Container</a>). OpenTelemetry tracing and
-metrics are integrated in-tree with OTLP export (see
-<a href="telemetry.html">Telemetry</a>), without requiring a separate Java
-agent.
+libraries or your own codecs. Gumdrop instead ships first-party protocol
+implementations on the same reactor, sharing authentication
+(<a href="security.html">Security</a>), transport configuration, and the
+built-in asynchronous DNS client that outbound connections use. The
+<a href="index.html">main page</a> lists them all, from HTTP/1.x through HTTP/3
+to mail, FTP, DNS, MQTT, SOCKS, WebSocket, gRPC, LDAP, AMQP, and Redis, plus a
+<a href="servlet.html">full servlet container</a> on the same core.
+OpenTelemetry tracing and metrics are integrated in-tree with OTLP export (see
+<a href="telemetry.html">Telemetry</a>), with no separate Java agent.
 </p>
 
 <h3 id="performance">Performance and deployment size</h3>
 
 <p>
 Gumdrop's core is intentionally smaller than a typical Netty HTTP stack: fewer
-pipeline layers and no parallel buffer abstraction. The main
-<code>gumdrop.jar</code> artifact is on the order of 2.5&nbsp;MB; a
-self-contained servlet fat JAR is about 5.2&nbsp;MB (see
-<code>docs/FRAMEWORK-COMPARISON.md</code> in the source tree for measured
-sizes versus Netty, Jetty, Tomcat, and Spring Boot).
+pipeline layers and no parallel buffer abstraction. It ships as modules, so a
+deployment includes only the protocols it uses. A typical complete HTTP
+microservice needs <code>gumdrop-core</code> (1.6&nbsp;MB),
+<code>gumdrop-http</code> (0.7&nbsp;MB), <code>gumdrop-mime</code>
+(0.1&nbsp;MB), and <code>gumdrop-telemetry</code> (0.1&nbsp;MB), about
+2.5&nbsp;MB in all.
+</p>
+
+<p>
+Those modules depend on four small libraries:
+<a href="https://github.com/cpkb-bluezoo/gonzalez">Gonzalez</a> (XML, 150&nbsp;KB),
+<a href="https://github.com/cpkb-bluezoo/jsonparser">jsonparser</a> (JSON,
+31&nbsp;KB), <a href="https://github.com/cpkb-bluezoo/jprotobuf">jprotobuf</a>
+(protobuf for OTLP export, 15&nbsp;KB), and
+<a href="https://github.com/cpkb-bluezoo/micula">micula</a> (Brotli, used for
+HTTP content encoding and TLS certificate compression, 437&nbsp;KB). That brings
+the complete deployment to about 3.1&nbsp;MB. The servlet container is a separate
+<code>gumdrop-servlet</code> module (0.6&nbsp;MB), and the self-contained
+servlet fat JAR (<code>gumdrop-container.jar</code>) is about 7.3&nbsp;MB with
+its bundled dependencies. See <code>docs/FRAMEWORK-COMPARISON.md</code> in the
+source tree for sizes versus Netty, Jetty, Tomcat, and Spring Boot. Matched
+feature for feature (HTTP/1.x to HTTP/3, Brotli, XML and JSON parsing, and
+OpenTelemetry), the equivalent Netty deployment is about 13.6&nbsp;MB, because
+HTTP/3 needs the native quiche addon, Brotli needs native brotli4j, and the
+OpenTelemetry SDK brings OkHttp and the Kotlin runtime. Neither total
+includes asynchronous DNS resolution, which is built into Gumdrop's core but
+an extra add-on in Netty, since it mainly matters for inter-service client
+calls.
 </p>
 
 <p>
@@ -307,9 +710,11 @@ servlet containers for capability, not for every workload.
 </table>
 
 <p>
-For selector loops, services, listeners, endpoints, and staged protocols, continue
-with the <a href="index.html#architecture">architecture sections on the main
-page</a> and the protocol guides linked from there.
+Per-protocol guides are linked from the <a href="index.html">main page</a>, and
+<a href="configuration.html">Application composition</a> shows how servers,
+listeners, and handlers are wired together in Java. (Gumdrop 3 has removed the
+legacy <code>gumdroprc</code> XML and its reflective dependency-injection
+container entirely.)
 </p>
 
 <p class="server-info">Gumdrop</p>

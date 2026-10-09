@@ -190,44 +190,56 @@ public class Container implements ManagerContainerServer, ClusterContainer {
         return null;
     }
 
-    public void addContext(Context context) {
+    public Container addContext(Context context) {
         contexts.add(context);
         contextsByPath.put(context.contextPath, context);
+        return this;
     }
 
-    public void setContexts(List<Context> contextList) {
+    public Container contexts(List<Context> contextList) {
         contexts.clear();
         contexts.addAll(contextList);
         contextsByPath.clear();
         for (Context context : contextList) {
             contextsByPath.put(context.contextPath, context);
         }
+        return this;
     }
 
-    public void addRealm(String name, Realm realm) {
+    public Container addRealm(String name, Realm realm) {
         realms.put(name, realm);
+        return this;
     }
     
-    public void setRealms(Map<String, Realm> realmMap) {
+    public Container realms(Map<String, Realm> realmMap) {
         realms.clear();
         realms.putAll(realmMap);
+        return this;
     }
 
-    public void addResource(Resource resource) {
+    public Container addResource(Resource resource) {
         resources.add(resource);
+        return this;
     }
     
-    public void setResources(List<Resource> resourceList) {
+    public Container resources(List<Resource> resourceList) {
         resources.clear();
         resources.addAll(resourceList);
+        return this;
     }
 
-    public void setHotDeploy(boolean flag) {
+    public boolean isHotDeploy() {
+        return hotDeploy;
+    }
+
+    public Container hotDeploy(boolean flag) {
         hotDeploy = flag;
+        return this;
     }
 
-    public void setClusterPort(int value) {
+    public Container clusterPort(int value) {
         clusterPort = value;
+        return this;
     }
 
     /**
@@ -242,11 +254,12 @@ public class Container implements ManagerContainerServer, ClusterContainer {
      * @param address a multicast address, or {@code null} for the defaults
      * @throws IllegalArgumentException if the address is not a multicast address
      */
-    public void setClusterGroupAddress(InetAddress address) {
+    public Container clusterGroupAddress(InetAddress address) {
         if (address != null && !address.isMulticastAddress()) {
             throw new IllegalArgumentException("cluster group address must be a multicast address: " + address);
         }
         clusterGroupAddress = address;
+        return this;
     }
 
     /**
@@ -255,11 +268,12 @@ public class Container implements ManagerContainerServer, ClusterContainer {
      * @param key the 32 raw key bytes; copied
      * @throws IllegalArgumentException if it is not exactly 32 bytes
      */
-    public void setClusterKey(byte[] key) {
+    public Container clusterKey(byte[] key) {
         if (key == null || key.length != 32) {
             throw new IllegalArgumentException("cluster key must be exactly 32 bytes");
         }
         clusterKey = key.clone();
+        return this;
     }
 
     /**
@@ -268,9 +282,10 @@ public class Container implements ManagerContainerServer, ClusterContainer {
      *
      * @param classNames fully qualified class names
      */
-    public void setReplicationAllowedClasses(Set<String> classNames) {
+    public Container replicationAllowedClasses(Set<String> classNames) {
         this.replicationAllowedClasses = classNames == null
                 ? null : new HashSet<String>(classNames);
+        return this;
     }
 
     // ── Servlet runtime (worker pool, auth) ──
@@ -279,8 +294,9 @@ public class Container implements ManagerContainerServer, ClusterContainer {
         return bufferSize;
     }
 
-    public void setBufferSize(int bufferSize) {
+    public Container bufferSize(int bufferSize) {
         this.bufferSize = Math.max(bufferSize, 1024);
+        return this;
     }
 
     public AsyncTimeoutScheduler getAsyncTimeoutScheduler() {
@@ -291,20 +307,23 @@ public class Container implements ManagerContainerServer, ClusterContainer {
         return workerThreadPool;
     }
 
-    public void setWorkerCorePoolSize(int corePoolSize) {
+    public Container workerCorePoolSize(int corePoolSize) {
         workerThreadPool.setCorePoolSize(corePoolSize);
+        return this;
     }
 
-    public void setWorkerMaximumPoolSize(int maximumPoolSize) {
+    public Container workerMaximumPoolSize(int maximumPoolSize) {
         workerThreadPool.setMaximumPoolSize(maximumPoolSize);
+        return this;
     }
 
     public Duration getWorkerKeepAlive() {
         return Duration.ofNanos(workerThreadPool.getKeepAliveTime(TimeUnit.NANOSECONDS));
     }
 
-    public void setWorkerKeepAlive(Duration keepAlive) {
+    public Container workerKeepAlive(Duration keepAlive) {
         workerThreadPool.setKeepAliveTime(keepAlive.toNanos(), TimeUnit.NANOSECONDS);
+        return this;
     }
 
     /**
@@ -405,7 +424,10 @@ public class Container implements ManagerContainerServer, ClusterContainer {
                 events().error("err.init_resource").thrown(e).emit();
             }
             for (Context context : contexts) {
-                context.setContainer(this);
+                if (context.container != this) {
+                    throw new IllegalStateException("Context " + context.contextPath
+                            + " was created for a different Container");
+                }
                 try {
                     context.load();
                 } catch (Exception e) {

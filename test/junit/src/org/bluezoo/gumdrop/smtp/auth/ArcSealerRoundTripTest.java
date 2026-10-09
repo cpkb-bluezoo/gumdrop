@@ -188,7 +188,7 @@ public class ArcSealerRoundTripTest {
         byte[] body = "Hello ARC\r\n".getBytes(StandardCharsets.US_ASCII);
 
         ArcSealer sealer = new ArcSealer(kp.getPrivate(), "example.com", "arcsel");
-        sealer.setAuthservId("mx.example.com");
+        sealer.authservId("mx.example.com");
         sealer.bodyLine(body, 0, body.length);
         sealer.endBody();
 

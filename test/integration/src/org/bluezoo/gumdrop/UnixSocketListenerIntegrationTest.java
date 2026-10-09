@@ -128,7 +128,7 @@ public class UnixSocketListenerIntegrationTest {
             Files.delete(socketPath);
         }
         UnixListener listener = new UnixListener();
-        listener.setPath(socketPath);
+        listener.path(socketPath);
         gumdrop = Gumdrop.boot(GumdropConfig.create().workerThreads(1));
         gumdrop.addListener(listener);
         assertTrue(gumdrop.awaitStartupComplete(HANG_GUARD_MS));

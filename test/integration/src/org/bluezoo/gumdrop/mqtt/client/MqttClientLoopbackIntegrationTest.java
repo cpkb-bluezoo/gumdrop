@@ -157,9 +157,9 @@ public class MqttClientLoopbackIntegrationTest {
         Events events = new Events();
         MqttClient client = new MqttClient(
                 InetAddress.getByName("127.0.0.1"), broker.getLocalPort());
-        client.setClientId("loop");
-        client.setCredentials("user", "pw");
-        client.setWill("will/t", new byte[] {1}, QoS.AT_LEAST_ONCE, true);
+        client.clientId("loop");
+        client.credentials("user", "pw");
+        client.will("will/t", new byte[] {1}, QoS.AT_LEAST_ONCE, true);
         client.connect(gumdrop, events, events);
         acceptClient();
 

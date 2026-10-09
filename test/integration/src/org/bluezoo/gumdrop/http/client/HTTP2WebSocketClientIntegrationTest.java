@@ -23,6 +23,7 @@ package org.bluezoo.gumdrop.http.client;
 
 import java.util.List;
 import org.bluezoo.gumdrop.http.HeaderFields;
+import org.bluezoo.gumdrop.tls.TlsConfig;
 import org.bluezoo.gumdrop.http.Header;
 import org.bluezoo.gumdrop.http.HttpMethod;
 import org.bluezoo.gumdrop.testsupport.CollectingRequestHandler;
@@ -106,12 +107,10 @@ public class HTTP2WebSocketClientIntegrationTest {
         System.setProperty("gumdrop.workers", "2");
 
         listener = new Http2Listener();
-        listener.setPort(PORT);
+        listener.port(PORT);
         listener.addresses(java.net.InetAddress.getByName(TEST_HOST));
-        listener.setSecure(true);
-        listener.setKeystoreFile(Path.of(keystore.getAbsolutePath()));
-        listener.setKeystorePass("testpass");
-        listener.setStreamHandler(new H2EchoWebSocketHandlerFactory());
+        listener.secure(true).tls(TlsConfig.keystore(Path.of(keystore.getAbsolutePath()), "testpass"));
+        listener.streamHandler(new H2EchoWebSocketHandlerFactory());
 
         gumdrop = Gumdrop.boot(GumdropConfig.create().workerThreads(2));
         gumdrop.addListener(listener);
@@ -145,12 +144,12 @@ public class HTTP2WebSocketClientIntegrationTest {
         final AtomicReference<WebSocketSession> sessionRef = new AtomicReference<>();
 
         WebSocketClient client = new WebSocketClient(TEST_HOST, PORT);
-        client.setSecure(true);
+        client.secure(true);
         // No setH3Enabled/setH2Enabled call -- h2Enabled defaults to true,
         // and this is exactly the "just connect" application code path;
         // the server only understands h2 or h1.1 here (no h3 listener),
         // so a successful connection here proves h2 was actually used.
-        client.setVerifyPeer(false);
+        client.tls(new TlsConfig().verifyPeer(false));
 
         try {
             client.connect(gumdrop, "/ws", new DefaultWebSocketEventHandler() {
@@ -232,12 +231,12 @@ public class HTTP2WebSocketClientIntegrationTest {
         final AtomicReference<WebSocketSession> sessionRef = new AtomicReference<>();
 
         WebSocketClient wsClient = new WebSocketClient(TEST_HOST, PORT);
-        wsClient.setSecure(true);
-        wsClient.setVerifyPeer(false);
+        wsClient.secure(true);
+        wsClient.tls(new TlsConfig().verifyPeer(false));
 
         HttpClient httpClient = new HttpClient(TEST_HOST, PORT);
-        httpClient.setSecure(true);
-        httpClient.setVerifyPeer(false);
+        httpClient.secure(true);
+        httpClient.tls(new TlsConfig().verifyPeer(false));
 
         try {
             wsClient.connect(gumdrop, "/ws", new DefaultWebSocketEventHandler() {

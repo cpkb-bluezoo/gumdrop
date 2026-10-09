@@ -21,6 +21,8 @@
 
 package org.bluezoo.gumdrop.smtp;
 
+import org.bluezoo.gumdrop.util.CidrNetwork;
+import java.util.List;
 import java.io.IOException;
 import java.net.InetAddress;
 import java.nio.file.Path;
@@ -119,20 +121,13 @@ public class SmtpListener extends TcpListener {
     }
 
     /**
-     * Sets the port number this endpoint should bind to.
-     * @param port the port number
-     */
-    public void setPort(int port) {
-        this.port = port;
-    }
-    /**
      * Sets the port. Returns {@code this} for fluent configuration.
      *
      * @param port the port number
      * @return this listener
      */
     public SmtpListener port(int port) {
-        setPort(port);
+        this.port = port;
         return this;
     }
 
@@ -160,6 +155,90 @@ public class SmtpListener extends TcpListener {
         return this;
     }
 
+    @Override
+    public SmtpListener maxConnections(int max) {
+        super.maxConnections(max);
+        return this;
+    }
+
+    @Override
+    public SmtpListener maxConnectionsPerIP(int max) {
+        super.maxConnectionsPerIP(max);
+        return this;
+    }
+
+    @Override
+    public SmtpListener rateLimit(String rateLimit) {
+        super.rateLimit(rateLimit);
+        return this;
+    }
+
+    @Override
+    public SmtpListener maxAuthFailures(int max) {
+        super.maxAuthFailures(max);
+        return this;
+    }
+
+    @Override
+    public SmtpListener authLockoutTimeMs(long lockoutMs) {
+        super.authLockoutTimeMs(lockoutMs);
+        return this;
+    }
+
+    @Override
+    public SmtpListener allowedNetworks(List<CidrNetwork> allowedNetworks) {
+        super.allowedNetworks(allowedNetworks);
+        return this;
+    }
+
+    @Override
+    public SmtpListener blockedNetworks(List<CidrNetwork> blockedNetworks) {
+        super.blockedNetworks(blockedNetworks);
+        return this;
+    }
+
+    @Override
+    public SmtpListener name(String name) {
+        super.name(name);
+        return this;
+    }
+
+    @Override
+    public SmtpListener maxNetInSize(int size) {
+        super.maxNetInSize(size);
+        return this;
+    }
+
+    @Override
+    public SmtpListener maxNetOutSize(int size) {
+        super.maxNetOutSize(size);
+        return this;
+    }
+
+    @Override
+    public SmtpListener idleTimeoutMs(long idleTimeoutMs) {
+        super.idleTimeoutMs(idleTimeoutMs);
+        return this;
+    }
+
+    @Override
+    public SmtpListener readTimeoutMs(long readTimeoutMs) {
+        super.readTimeoutMs(readTimeoutMs);
+        return this;
+    }
+
+    @Override
+    public SmtpListener connectionTimeoutMs(long connectionTimeoutMs) {
+        super.connectionTimeoutMs(connectionTimeoutMs);
+        return this;
+    }
+
+    @Override
+    public SmtpListener maxDtlsPeers(int max) {
+        super.maxDtlsPeers(max);
+        return this;
+    }
+
     /**
      * Returns the maximum message size in bytes.
      * @return the maximum message size
@@ -171,9 +250,11 @@ public class SmtpListener extends TcpListener {
     /**
      * Sets the maximum message size in bytes.
      * @param maxMessageSize the maximum message size
+     * @return this
      */
-    public void setMaxMessageSize(long maxMessageSize) {
+    public SmtpListener maxMessageSize(long maxMessageSize) {
         this.maxMessageSize = maxMessageSize;
+        return this;
     }
 
     /**
@@ -195,9 +276,11 @@ public class SmtpListener extends TcpListener {
      * violates the specification and may cause interoperability issues.
      *
      * @param maxRecipients the maximum recipients (should be at least 100)
+     * @return this
      */
-    public void setMaxRecipients(int maxRecipients) {
+    public SmtpListener maxRecipients(int maxRecipients) {
         this.maxRecipients = maxRecipients;
+        return this;
     }
 
     /**
@@ -219,9 +302,11 @@ public class SmtpListener extends TcpListener {
      * where a single connection sends many separate messages.
      *
      * @param maxTransactions the maximum transactions, or 0 for unlimited
+     * @return this
      */
-    public void setMaxTransactionsPerSession(int maxTransactions) {
+    public SmtpListener maxTransactionsPerSession(int maxTransactions) {
         this.maxTransactionsPerSession = maxTransactions;
+        return this;
     }
 
     /**
@@ -235,9 +320,11 @@ public class SmtpListener extends TcpListener {
     /**
      * Sets the authentication realm for SMTP AUTH.
      * @param realm the realm to use for authentication
+     * @return this
      */
-    public void setRealm(Realm realm) {
+    public SmtpListener realm(Realm realm) {
         this.realm = realm;
+        return this;
     }
 
     /**
@@ -254,9 +341,11 @@ public class SmtpListener extends TcpListener {
      * Sets the GSSAPI server for Kerberos authentication (RFC 4752).
      *
      * @param gssapiServer the GSSAPI server
+     * @return this
      */
-    public void setGSSAPIServer(GssapiServer gssapiServer) {
+    public SmtpListener gssapiServer(GssapiServer gssapiServer) {
         this.gssapiServer = gssapiServer;
+        return this;
     }
 
     /**
@@ -270,9 +359,10 @@ public class SmtpListener extends TcpListener {
      * @throws IOException if the keytab cannot be read or credentials
      *         cannot be acquired
      */
-    public void configureGSSAPI(Path keytabPath, String servicePrincipal)
+    public SmtpListener configureGSSAPI(Path keytabPath, String servicePrincipal)
             throws IOException {
         this.gssapiServer = new GssapiServer(keytabPath, servicePrincipal);
+        return this;
     }
 
     /**
@@ -283,9 +373,11 @@ public class SmtpListener extends TcpListener {
      * have local mailboxes.
      *
      * @param factory the mailbox factory, or null if not doing local delivery
+     * @return this
      */
-    public void setMailboxFactory(MailboxFactory factory) {
+    public SmtpListener mailboxFactory(MailboxFactory factory) {
         this.mailboxFactory = factory;
+        return this;
     }
 
     /**
@@ -308,9 +400,11 @@ public class SmtpListener extends TcpListener {
      * Sets whether authentication is required.
      * This should be true for Message Submission (port 587), false for MTA (port 25).
      * @param authRequired true to require AUTH command before accepting mail
+     * @return this
      */
-    public void setAuthRequired(boolean authRequired) {
+    public SmtpListener authRequired(boolean authRequired) {
         this.authRequired = authRequired;
+        return this;
     }
 
     /**
@@ -350,9 +444,11 @@ public class SmtpListener extends TcpListener {
      * wiring.
      *
      * @param server the owning server
+     * @return this
      */
-    public void setServer(org.bluezoo.gumdrop.smtp.server.SmtpServer server) {
+    public SmtpListener server(org.bluezoo.gumdrop.smtp.server.SmtpServer server) {
         this.server = server;
+        return this;
     }
 
     /**
@@ -362,19 +458,6 @@ public class SmtpListener extends TcpListener {
      */
     public org.bluezoo.gumdrop.smtp.server.SmtpServer getServer() {
         return server;
-    }
-
-    /**
-     * Sets the session provider that mints handler pipelines for accepted
-     * connections. When set, {@link #createHandler()} uses
-     * {@link org.bluezoo.gumdrop.smtp.server.SmtpServerSessionProvider#openSession}
-     * instead of {@link org.bluezoo.gumdrop.smtp.server.SmtpServer#openSession}.
-     *
-     * @param sessionProvider the session provider
-     */
-    public void setSessionProvider(
-            org.bluezoo.gumdrop.smtp.server.SmtpServerSessionProvider sessionProvider) {
-        this.sessionProvider = sessionProvider;
     }
 
     /**
@@ -392,7 +475,7 @@ public class SmtpListener extends TcpListener {
      */
     public SmtpListener sessionProvider(
             org.bluezoo.gumdrop.smtp.server.SmtpServerSessionProvider sessionProvider) {
-        setSessionProvider(sessionProvider);
+        this.sessionProvider = sessionProvider;
         return this;
     }
 

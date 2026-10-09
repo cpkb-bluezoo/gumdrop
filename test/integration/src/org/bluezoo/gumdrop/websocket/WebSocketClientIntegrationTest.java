@@ -22,6 +22,7 @@
 package org.bluezoo.gumdrop.websocket;
 
 import static org.junit.Assert.assertEquals;
+import org.bluezoo.gumdrop.http.HttpVersion;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
@@ -125,8 +126,8 @@ public class WebSocketClientIntegrationTest extends AbstractServerIntegrationTes
 
     private WebSocketClient newClient() {
         WebSocketClient c = new WebSocketClient("localhost", PORT);
-        c.setH2Enabled(false);
-        c.setDnsHttpsRecordEnabled(false);
+        c.versions(HttpVersion.HTTP_1_1);
+        c.dnsHttpsRecordEnabled(false);
         return c;
     }
 
@@ -183,8 +184,8 @@ public class WebSocketClientIntegrationTest extends AbstractServerIntegrationTes
     public void subprotocolAndExtensionsNegotiationDoesNotBreakEcho()
             throws Exception {
         WebSocketClient client = newClient();
-        client.setSubprotocol("chat");
-        client.setDeflateEnabled(true);
+        client.subprotocol("chat");
+        client.deflateEnabled(true);
         Collector c = new Collector();
         client.connect(gumdrop, "/deflate", c);
         assertTrue(c.opened.await(10, TimeUnit.SECONDS));
@@ -198,8 +199,8 @@ public class WebSocketClientIntegrationTest extends AbstractServerIntegrationTes
     @Test
     public void connectionRefusedReportsError() throws Exception {
         WebSocketClient client = new WebSocketClient("localhost", 1);
-        client.setH2Enabled(false);
-        client.setDnsHttpsRecordEnabled(false);
+        client.versions(HttpVersion.HTTP_1_1);
+        client.dnsHttpsRecordEnabled(false);
         Collector c = new Collector();
         client.connect(gumdrop, "/", c);
         assertTrue("error", c.failed.await(10, TimeUnit.SECONDS));

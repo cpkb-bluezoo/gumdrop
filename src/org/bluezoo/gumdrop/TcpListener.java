@@ -93,9 +93,11 @@ public abstract class TcpListener extends Listener {
      * with {@code port}.
      *
      * @param path the socket path
+     * @return this
      */
-    public void setPath(Path path) {
+    public TcpListener path(Path path) {
         this.path = path;
+        return this;
     }
 
     // ═══════════════════════════════════════════════════════════════════

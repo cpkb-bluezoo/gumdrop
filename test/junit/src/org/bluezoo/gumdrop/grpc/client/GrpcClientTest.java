@@ -26,6 +26,7 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
@@ -33,7 +34,9 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 
+import org.bluezoo.gumdrop.grpc.GrpcException;
 import org.bluezoo.gumdrop.grpc.GrpcFraming;
+import org.bluezoo.gumdrop.grpc.GrpcStatus;
 import org.bluezoo.gumdrop.grpc.proto.ProtoDefaultHandler;
 import org.bluezoo.gumdrop.grpc.proto.ProtoFile;
 import org.bluezoo.gumdrop.grpc.proto.ProtoFileParser;
@@ -91,7 +94,8 @@ public class GrpcClientTest {
             return b.length;
         }
         @Override public void endMessage() { ended = true; }
-        @Override public void cancel() { }
+        boolean cancelled;
+        @Override public void cancel() { cancelled = true; }
     }
 
     private static final class StubHttpClient extends HttpClient {
@@ -176,7 +180,7 @@ public class GrpcClientTest {
     }
 
     private void call() {
-        client.unaryCall(http, PATH, request(), handler);
+        client.call(http, PATH, request(), handler);
     }
 
     @Test
@@ -231,7 +235,7 @@ public class GrpcClientTest {
     @Test
     public void convenienceOverloadUsesGivenResponseType() throws Exception {
         Recorder rec = new Recorder();
-        client.unaryCall(http, PATH, request(), "example.v1.Res", rec);
+        client.call(http, PATH, request(), "example.v1.Res", rec);
         HttpResponseHandler r = http.request.handler;
         r.endHeaders();
         r.bodyContent(response(3, "x"));
@@ -242,7 +246,7 @@ public class GrpcClientTest {
 
     @Test
     public void unknownPathStartsMessageWithoutType() {
-        client.unaryCall(http, "/unknown.Service/Method", request(), handler);
+        client.call(http, "/unknown.Service/Method", request(), handler);
         http.request.handler.endHeaders();
         http.request.handler.bodyContent(ByteBuffer.allocate(0));
         assertEquals(1, handler.requestedTypes.size());
@@ -254,7 +258,9 @@ public class GrpcClientTest {
         call();
         http.request.handler.status(HttpStatus.BAD_GATEWAY.code);
         assertEquals(1, handler.errors.size());
-        assertTrue(handler.errors.get(0).getMessage().contains("gRPC error"));
+        GrpcException e = (GrpcException) handler.errors.get(0);
+        assertEquals(GrpcStatus.UNAVAILABLE, e.getStatus());
+        assertTrue(e.getMessage(), e.getMessage().contains("502"));
         http.request.handler.failed(new IOException("second"));
         assertEquals(1, handler.errors.size());
     }
@@ -279,7 +285,7 @@ public class GrpcClientTest {
         r.endMessage();
         assertEquals(1, handler.errors.size());
         String m = handler.errors.get(0).getMessage();
-        assertTrue(m, m.contains("gRPC error 5"));
+        assertEquals(GrpcStatus.NOT_FOUND, ((GrpcException) handler.errors.get(0)).getStatus());
         assertTrue(m, m.contains("not found%zz✓"));
     }
 
@@ -289,7 +295,8 @@ public class GrpcClientTest {
         HttpResponseHandler r = http.request.handler;
         r.header("grpc-status", MessageEvents.octets("13"));
         r.endMessage();
-        assertEquals("gRPC error 13", handler.errors.get(0).getMessage());
+        assertEquals(GrpcStatus.INTERNAL, ((GrpcException) handler.errors.get(0)).getStatus());
+        assertEquals("gRPC INTERNAL", handler.errors.get(0).getMessage());
     }
 
     @Test
@@ -324,7 +331,9 @@ public class GrpcClientTest {
         r.bodyContent(ByteBuffer.wrap(bytes, 0, bytes.length - 2));
         r.endMessage();
         assertEquals(1, handler.errors.size());
-        assertTrue(handler.errors.get(0).getMessage().contains("Incomplete"));
+        GrpcException e = (GrpcException) handler.errors.get(0);
+        assertEquals(GrpcStatus.INTERNAL, e.getStatus());
+        assertTrue(e.getMessage(), e.getMessage().contains("incomplete"));
     }
 
     @Test
@@ -347,5 +356,60 @@ public class GrpcClientTest {
                 new byte[] {0, 0, 0, 0, 3, (byte) 0xff, (byte) 0xff,
                         (byte) 0xff}));
         assertFalse(handler.errors.isEmpty());
+    }
+
+    @Test
+    public void callReturnsAHandleThatCancelsTheRequest() {
+        GrpcClientCall call = client.call(http, PATH, request(), handler);
+        assertNotNull(call);
+        assertFalse(http.request.cancelled);
+        call.cancel();
+        assertTrue(http.request.cancelled);
+    }
+
+    @Test
+    public void streamingRpcIsRefusedBeforeAnythingIsSent() throws Exception {
+        ProtoFile streaming = ProtoFileParser.parse(""
+                + "syntax = \"proto3\";\n"
+                + "package example.v1;\n"
+                + "message Req { string name = 1; }\n"
+                + "message Res { int32 code = 1; }\n"
+                + "service Feed {\n"
+                + "  rpc Watch (Req) returns (stream Res);\n"
+                + "  rpc Collect (stream Req) returns (Res);\n"
+                + "  rpc Chat (stream Req) returns (stream Res);\n"
+                + "}\n");
+        GrpcClient streamingClient = new GrpcClient(streaming);
+        String[] paths = {"/example.v1.Feed/Watch", "/example.v1.Feed/Collect",
+            "/example.v1.Feed/Chat"};
+        for (int i = 0; i < paths.length; i++) {
+            try {
+                streamingClient.call(http, paths[i], request(), handler);
+                fail(paths[i]);
+            } catch (GrpcException e) {
+                assertEquals(paths[i], GrpcStatus.UNIMPLEMENTED, e.getStatus());
+            }
+            try {
+                streamingClient.call(http, paths[i], request(), "example.v1.Res", new Recorder());
+                fail(paths[i]);
+            } catch (GrpcException e) {
+                assertEquals(paths[i], GrpcStatus.UNIMPLEMENTED, e.getStatus());
+            }
+        }
+        assertNull(http.postedPath);
+    }
+
+    @Test
+    public void failedCallsReportTheGrpcStatus() throws Exception {
+        call();
+        HttpResponseHandler r = http.request.handler;
+        r.status(200);
+        r.header("grpc-status", MessageEvents.octets("5"));
+        r.header("grpc-message", MessageEvents.octets("no%20such%20user"));
+        r.endMessage();
+        assertEquals(1, handler.errors.size());
+        GrpcException e = (GrpcException) handler.errors.get(0);
+        assertEquals(GrpcStatus.NOT_FOUND, e.getStatus());
+        assertTrue(e.getMessage(), e.getMessage().contains("no such user"));
     }
 }

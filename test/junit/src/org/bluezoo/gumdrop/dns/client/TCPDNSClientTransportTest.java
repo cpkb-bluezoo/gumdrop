@@ -22,6 +22,7 @@
 package org.bluezoo.gumdrop.dns.client;
 
 import org.bluezoo.gumdrop.ProtocolHandler;
+import org.bluezoo.gumdrop.tls.TlsConfig;
 import org.bluezoo.gumdrop.TcpTransportFactory;
 import org.bluezoo.gumdrop.dns.DnsMessage;
 import org.bluezoo.gumdrop.dns.DnsType;
@@ -73,15 +74,15 @@ public class TCPDNSClientTransportTest {
     @Test
     public void testSetSecureChangesDefaults() {
         TcpDnsClientTransport transport = new TcpDnsClientTransport();
-        transport.setSecure(true);
-        transport.setSecure(false);
+        transport.secure(true);
+        transport.secure(false);
         transport.close();
     }
 
     @Test
     public void testSetDefaultPort() {
         TcpDnsClientTransport transport = new TcpDnsClientTransport();
-        transport.setDefaultPort(5353);
+        transport.defaultPort(5353);
         transport.close();
     }
 
@@ -135,7 +136,7 @@ public class TCPDNSClientTransportTest {
                 return new X509Certificate[0];
             }
         };
-        transport.setTrustManager(custom);
+        transport.tls(new TlsConfig().trustManager(custom));
 
         TcpTransportFactory factory = transport.createTransportFactory();
         assertSame(custom, factory.getTrustManager());
@@ -174,11 +175,11 @@ public class TCPDNSClientTransportTest {
                 return new X509Certificate[0];
             }
         };
-        transport.setTrustManager(custom);
+        transport.tls(new TlsConfig().trustManager(custom));
         Set<String> pins = new HashSet<>(Arrays.asList(
                 "aa:bb:cc:dd:ee:ff:00:11:22:33:44:55:66:77:88:99"
                         + ":aa:bb:cc:dd:ee:ff:00:11:22:33:44:55:66:77:88:99"));
-        transport.setPinnedSPKIFingerprints(pins);
+        transport.pinnedSpkiFingerprints(pins);
 
         TcpTransportFactory factory = transport.createTransportFactory();
         X509TrustManager wrapped = factory.getTrustManager();
@@ -206,7 +207,7 @@ public class TCPDNSClientTransportTest {
     public void testSpkiPinningWithoutCustomTrustManagerUsesJvmDefault()
             throws Exception {
         TcpDnsClientTransport transport = TcpDnsClientTransport.createDoT();
-        transport.setPinnedSPKIFingerprints(new HashSet<>(Arrays.asList(
+        transport.pinnedSpkiFingerprints(new HashSet<>(Arrays.asList(
                 "aa:bb:cc:dd:ee:ff:00:11:22:33:44:55:66:77:88:99"
                         + ":aa:bb:cc:dd:ee:ff:00:11:22:33:44:55:66:77:88:99")));
 

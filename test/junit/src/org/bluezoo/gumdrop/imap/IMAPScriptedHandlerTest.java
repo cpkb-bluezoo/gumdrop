@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.imap;
 
+import org.bluezoo.gumdrop.auth.SynchronousRealm;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
@@ -117,12 +118,12 @@ public class IMAPScriptedHandlerTest {
         Files.createDirectories(userDir.resolve("new"));
         Files.createDirectories(userDir.resolve("tmp"));
         listener = new ImapListener();
-        listener.setRealm(new AcceptingRealm("editor", "editor"));
-        listener.setMailboxFactory(new MaildirMailboxFactory(mailRoot));
-        listener.setAllowPlaintextLogin(true);
+        listener.realm(new AcceptingRealm("editor", "editor"));
+        listener.mailboxFactory(new MaildirMailboxFactory(mailRoot));
+        listener.allowPlaintextLogin(true);
         configureListener(listener);
         script = new ScriptHandler();
-        listener.setSessionProvider(new ScriptProvider(script));
+        listener.sessionProvider(new ScriptProvider(script));
     }
 
     /** Lets a subclass adjust the listener before any handler is created. */
@@ -1301,7 +1302,7 @@ public class IMAPScriptedHandlerTest {
         }
     }
 
-    static final class AcceptingRealm implements Realm {
+    static final class AcceptingRealm implements SynchronousRealm {
         private final String user;
         private final String pass;
         private final boolean admin;
@@ -1319,10 +1320,6 @@ public class IMAPScriptedHandlerTest {
             this.admin = admin;
         }
 
-        @Override
-        public Realm forSelectorLoop(SelectorLoop loop) {
-            return this;
-        }
 
         @Override
         public Set<SaslMechanism> getSupportedSASLMechanisms() {
@@ -1339,11 +1336,6 @@ public class IMAPScriptedHandlerTest {
             return null;
         }
 
-        @Override
-        @SuppressWarnings("deprecation")
-        public String getPassword(String username) {
-            return user.equals(username) ? pass : null;
-        }
 
         @Override
         public boolean isUserInRole(String username, String role) {

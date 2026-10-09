@@ -39,10 +39,10 @@ public class IMAPSessionQuotaTest extends IMAPSessionCoverageTest {
 
     @Override
     protected void configureListener(ImapListener l) {
-        l.setRealm(new AcceptingRealm("editor", "editor", true));
+        l.realm(new AcceptingRealm("editor", "editor", true));
         RoleBasedQuotaManager qm = new RoleBasedQuotaManager();
-        qm.setDefaultQuota("10MB");
-        l.setQuotaManager(qm);
+        qm.defaultQuota("10MB");
+        l.quotaManager(qm);
     }
 
     @Test(timeout = 30000)
@@ -86,7 +86,7 @@ public class IMAPSessionQuotaTest extends IMAPSessionCoverageTest {
 
     @Test(timeout = 30000)
     public void testNonAdministratorIsDenied() throws Exception {
-        listener.setRealm(new AcceptingRealm("editor", "editor", false));
+        listener.realm(new AcceptingRealm("editor", "editor", false));
         login();
         ok("GETQUOTA \"user.editor\"");
         no("GETQUOTA \"user.someoneelse\"");
@@ -95,7 +95,7 @@ public class IMAPSessionQuotaTest extends IMAPSessionCoverageTest {
 
     @Test(timeout = 30000)
     public void testQuotaDisabledOnListener() throws Exception {
-        listener.setEnableQUOTA(false);
+        listener.enableQUOTA(false);
         login();
         bad("GETQUOTA \"\"");
         bad("GETQUOTAROOT INBOX");
@@ -104,7 +104,7 @@ public class IMAPSessionQuotaTest extends IMAPSessionCoverageTest {
 
     @Test(timeout = 30000)
     public void testQuotaManagerMissing() throws Exception {
-        listener.setQuotaManager(null);
+        listener.quotaManager(null);
         login();
         no("GETQUOTA \"\"");
         no("GETQUOTAROOT INBOX");

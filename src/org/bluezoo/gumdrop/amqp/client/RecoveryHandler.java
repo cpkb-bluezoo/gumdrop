@@ -22,7 +22,7 @@
 package org.bluezoo.gumdrop.amqp.client;
 
 /**
- * Entry point for {@link org.bluezoo.gumdrop.amqp.client.AmqpClientRecovery}.
+ * Entry point for {@link org.bluezoo.gumdrop.amqp.client.AmqpClient}.
  *
  * <p>Unlike {@link ConnectionReady} (the raw, non-recovering protocol
  * handler's entry point), this is called exactly <strong>once</strong>,
@@ -33,7 +33,7 @@ package org.bluezoo.gumdrop.amqp.client;
  * never needs to repeat its setup.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see org.bluezoo.gumdrop.amqp.client.AmqpClientRecovery
+ * @see org.bluezoo.gumdrop.amqp.client.AmqpClient
  */
 public interface RecoveryHandler {
 

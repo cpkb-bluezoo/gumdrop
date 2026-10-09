@@ -24,6 +24,7 @@ package org.bluezoo.gumdrop.ftp;
 import java.nio.ByteBuffer;
 
 import org.bluezoo.gumdrop.quota.Quota;
+import org.bluezoo.gumdrop.auth.RealmCallback;
 import org.bluezoo.gumdrop.quota.QuotaManager;
 
 /**
@@ -55,12 +56,14 @@ import org.bluezoo.gumdrop.quota.QuotaManager;
  *     }
  *
  *     &#64;Override
- *     public FtpAuthenticationResult authenticate(String user, String password, 
- *                                               String account, FtpConnectionMetadata metadata) {
+ *     public void authenticate(String user, String password, String account,
+ *                              FtpConnectionMetadata metadata,
+ *                              RealmCallback<FtpAuthenticationResult> callback) {
  *         if (userDb.validateCredentials(user, password)) {
- *             return FtpAuthenticationResult.SUCCESS;
+ *             callback.completed(FtpAuthenticationResult.SUCCESS);
+ *             return;
  *         }
- *         return FtpAuthenticationResult.INVALID_PASSWORD;
+ *         callback.completed(FtpAuthenticationResult.INVALID_PASSWORD);
  *     }
  *
  *     &#64;Override
@@ -95,7 +98,8 @@ public interface FtpConnectionHandler {
     String connected(FtpConnectionMetadata metadata);
 
     /**
-     * Handles FTP authentication (USER/PASS/ACCT command sequence).
+     * Handles FTP authentication (USER/PASS/ACCT command sequence), without
+     * blocking the connection's loop.
      * <p>
 	 * This method is called to authenticate a user with the provided credentials.
      * The implementation should validate the user against whatever authentication
@@ -114,10 +118,17 @@ public interface FtpConnectionHandler {
      * @param password the password from PASS command (can be null if not provided yet)
      * @param account the account from ACCT command (can be null if not provided)
      * @param metadata complete connection context
-     * @return authentication result indicating success, failure, or need for more information
+     * @param callback receives the authentication result, indicating success,
+     *        failure, or need for more information. It is called on the
+     *        connection's loop when the handler answers without waiting (a
+     *        realm bound to {@link FtpConnectionMetadata#getSelectorLoop()}
+     *        does), or possibly before this method returns. A handler that has
+     *        to wait for a database must move that wait off the loop itself
+     *        and call back from the loop.
      */
-    FtpAuthenticationResult authenticate(String username, String password, 
-                                       String account, FtpConnectionMetadata metadata);
+    void authenticate(String username, String password, String account,
+                      FtpConnectionMetadata metadata,
+                      RealmCallback<FtpAuthenticationResult> callback);
 
     /**
      * Provides the file system implementation for this connection.

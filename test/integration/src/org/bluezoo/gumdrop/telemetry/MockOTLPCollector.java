@@ -22,6 +22,7 @@
 package org.bluezoo.gumdrop.telemetry;
 
 import org.bluezoo.gumdrop.http.HeaderFields;
+import org.bluezoo.gumdrop.tls.TlsConfig;
 import org.bluezoo.gumdrop.http.Header;
 import org.bluezoo.gumdrop.testsupport.CollectingRequestHandler;
 import java.nio.file.Path;
@@ -114,7 +115,7 @@ public class MockOTLPCollector {
         LOGGER.info("Starting MockOTLPCollector on port " + port + (secure ? " (HTTPS)" : " (HTTP)"));
         
         server = new OTLPCollectorServer(this);
-        server.setPort(port);
+        server.port(port);
         server.addresses(java.net.InetAddress.getByName("::1"));
 
         if (secure) {
@@ -130,9 +131,8 @@ public class MockOTLPCollector {
             }
             
             // Configure server TLS
-            server.setKeystoreFile(Path.of(certManager.getSharedKeystoreFile().getPath()));
-            server.setKeystorePass(password);
-            server.setSecure(true);
+            server.secure(true).tls(TlsConfig.keystore(
+                    Path.of(certManager.getSharedKeystoreFile().getPath()), password));
         }
 
         gumdrop = Gumdrop.boot(GumdropConfig.create().workerThreads(2));
@@ -339,7 +339,7 @@ public class MockOTLPCollector {
     static class OTLPCollectorServer extends Http2Listener {
 
         OTLPCollectorServer(MockOTLPCollector collector) {
-            setStreamHandler(new OTLPHandlerFactory(collector));
+            streamHandler(new OTLPHandlerFactory(collector));
         }
     }
 

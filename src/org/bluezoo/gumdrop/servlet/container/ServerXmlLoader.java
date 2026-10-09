@@ -29,7 +29,10 @@ import org.xml.sax.SAXNotSupportedException;
 import org.bluezoo.gumdrop.auth.BasicRealm;
 import org.bluezoo.gumdrop.auth.Realm;
 import org.bluezoo.gumdrop.http.HttpServer;
+import org.bluezoo.gumdrop.quic.tls.PemCredentials;
 import org.bluezoo.gumdrop.tls.KeystoreFormat;
+import org.bluezoo.gumdrop.tls.TlsVersion;
+import org.bluezoo.gumdrop.util.TlsUtils;
 import org.bluezoo.gumdrop.http.h3.Http3Listener;
 import org.bluezoo.gumdrop.http.server.Http2Listener;
 import org.bluezoo.gumdrop.servlet.Container;
@@ -40,6 +43,11 @@ import org.bluezoo.gumdrop.util.AbstractXMLHandler;
 import org.bluezoo.gumdrop.util.XMLParseUtils;
 
 import java.net.InetAddress;
+import java.security.GeneralSecurityException;
+import java.util.Locale;
+import javax.net.ssl.TrustManager;
+import javax.net.ssl.X509TrustManager;
+import java.time.Duration;
 import java.io.File;
 import java.io.IOException;
 import java.nio.ByteBuffer;
@@ -49,8 +57,8 @@ import java.nio.file.StandardOpenOption;
 
 /**
  * Reads the servlet container's own minimal {@code server.xml} — realm,
- * session-cluster settings, webapp contexts, and HTTP listeners — and
- * composes an {@link HttpServer} from it.
+ * container settings, session-cluster settings, webapp contexts, and HTTP
+ * listeners — and composes an {@link HttpServer} from it.
  *
  * <p>Parsing is entirely non-blocking: the file is read with an
  * {@link AsynchronousFileChannel} and fed chunk by chunk into the Gonzalez
@@ -74,6 +82,10 @@ import java.nio.file.StandardOpenOption;
  *   <realm name="myRealm,Gumdrop Manager" class="org.bluezoo.gumdrop.auth.BasicRealm"
  *          href="realm-servlet.xml"/>
  *
+ *   <container hot-deploy="true" buffer-size="8192"
+ *              worker-core-pool-size="8" worker-maximum-pool-size="64"
+ *              worker-keep-alive="60"/>
+ *
  *   <cluster port="4001" group-address="228.0.0.4" key="64-hex-characters"/>
  *
  *   <context path="" root="../webapps/ROOT" distributable="true"/>
@@ -85,11 +97,38 @@ import java.nio.file.StandardOpenOption;
  * </server>
  * }</pre>
  *
+ * <p>{@code container} is optional and all of its attributes are optional:
+ * {@code hot-deploy} turns automatic redeployment on or off (otherwise the
+ * {@code GUMDROP_HOT_DEPLOY} environment variable decides, default off),
+ * {@code buffer-size} is the I/O buffer size in bytes, {@code
+ * worker-core-pool-size} and {@code worker-maximum-pool-size} bound the
+ * servlet worker pool, and {@code worker-keep-alive} is the idle timeout of
+ * excess workers in seconds.
+ *
  * <p>A secure listener takes its TLS identity either from PEM files
  * ({@code cert-file} and {@code key-file}, the simplest form) or from a Java
  * keystore ({@code keystore-file} and {@code keystore-pass}, PKCS#12 unless
  * {@code keystore-format} says otherwise, for example {@code JKS}), but not
  * both.
+ *
+ * <p>A secure listener also accepts {@code tls-version} ({@code NEGOTIATE},
+ * {@code TLS_1_2} or {@code TLS_1_3}, applied to the TCP listener; HTTP/3 is
+ * always TLS 1.3), {@code cipher-suites} and {@code named-groups}
+ * (colon-separated, applied to both the TCP and HTTP/3 listeners), and
+ * {@code client-auth} ({@code none}, the default, or {@code required} for
+ * mutual TLS). Under {@code client-auth="required"} the trust anchors for
+ * client certificates are a PEM CA bundle ({@code ca-file}) or a Java
+ * truststore ({@code truststore-file}, {@code truststore-pass} and an
+ * optional {@code truststore-format}), not both; without either the JVM
+ * default trust store is used. Those files are read when {@code server.xml}
+ * is loaded, so a missing or unreadable one is reported immediately.
+ *
+ * <p>A secure listener with a keystore identity may also serve several
+ * certificates by Server Name Indication: {@code sni-default-alias} names the
+ * keystore alias used when no host matches, and nested
+ * {@code <sni host="example.com" alias="example-cert"/>} elements map a host
+ * name (exact, or {@code *.example.org}) to a keystore alias. SNI selects
+ * keystore aliases, so it is not available with a single PEM identity.
  *
  * <p>{@code realm}'s {@code name} may be a comma-separated list of aliases
  * for the same realm instance, since a webapp's {@code web.xml
@@ -98,7 +137,7 @@ import java.nio.file.StandardOpenOption;
  * {@code "Gumdrop Manager"}.
  *
  * <p>Relative {@code href}, {@code root}, {@code cert-file}, {@code key-file},
- * and {@code keystore-file} paths
+ * {@code keystore-file}, {@code ca-file}, {@code truststore-file} and ECH paths
  * resolve against the directory containing {@code server.xml} (typically
  * {@code conf/}), not the process's working directory.
  *
@@ -340,6 +379,12 @@ public final class ServerXmlLoader {
         private final Container container = new Container();
         private final HttpServer.Composer composer = HttpServer.compose();
         private boolean haveListener;
+        // the listener element being read, composed when it ends so that
+        // its sni children can be applied first
+        private boolean listenerOpen;
+        private int openPort;
+        private boolean openWildcard;
+        private TlsConfig openTls;
 
         Handler(File baseDir) {
             this.baseDir = baseDir;
@@ -357,6 +402,9 @@ public final class ServerXmlLoader {
                 case "realm":
                     startRealm(attrs);
                     break;
+                case "container":
+                    startContainer(attrs);
+                    break;
                 case "cluster":
                     startCluster(attrs);
                     break;
@@ -365,6 +413,9 @@ public final class ServerXmlLoader {
                     break;
                 case "listener":
                     startListener(attrs);
+                    break;
+                case "sni":
+                    startSni(attrs);
                     break;
                 case "server":
                     break;
@@ -389,7 +440,7 @@ public final class ServerXmlLoader {
                     throw new SAXException(
                             "realm href is only supported for BasicRealm, not " + className);
                 }
-                ((BasicRealm) realm).setHref(resolve(href).toPath());
+                ((BasicRealm) realm).href(resolve(href).toPath());
             }
             // A webapp's web.xml <realm-name> is a per-application label, so
             // the same realm is commonly registered under more than one name
@@ -405,21 +456,45 @@ public final class ServerXmlLoader {
             }
         }
 
+        private void startContainer(Attributes attrs) throws SAXException {
+            String hotDeploy = attrs.getValue("hot-deploy");
+            if (hotDeploy != null) {
+                container.hotDeploy(Boolean.parseBoolean(hotDeploy.trim()));
+            }
+            String bufferSize = attrs.getValue("buffer-size");
+            if (bufferSize != null) {
+                container.bufferSize(parseInt(bufferSize, "container buffer-size"));
+            }
+            String core = attrs.getValue("worker-core-pool-size");
+            if (core != null) {
+                container.workerCorePoolSize(parseInt(core, "container worker-core-pool-size"));
+            }
+            String max = attrs.getValue("worker-maximum-pool-size");
+            if (max != null) {
+                container.workerMaximumPoolSize(parseInt(max, "container worker-maximum-pool-size"));
+            }
+            String keepAlive = attrs.getValue("worker-keep-alive");
+            if (keepAlive != null) {
+                container.workerKeepAlive(Duration.ofSeconds(
+                        parseInt(keepAlive, "container worker-keep-alive")));
+            }
+        }
+
         private void startCluster(Attributes attrs) throws SAXException {
             String port = require(attrs, "port", "cluster");
-            container.setClusterPort(parsePort(port, "cluster port"));
+            container.clusterPort(parsePort(port, "cluster port"));
             String groupAddress = attrs.getValue("group-address");
             if (groupAddress != null) {
                 try {
                     // a literal only: never a name lookup
-                    container.setClusterGroupAddress(InetAddress.ofLiteral(groupAddress.trim()));
+                    container.clusterGroupAddress(InetAddress.ofLiteral(groupAddress.trim()));
                 } catch (IllegalArgumentException e) {
                     throw new SAXException("cluster group-address must be a multicast IP address literal: "
                             + groupAddress, e);
                 }
             }
             String key = require(attrs, "key", "cluster");
-            container.setClusterKey(decodeClusterKey(key));
+            container.clusterKey(decodeClusterKey(key));
         }
 
         private byte[] decodeClusterKey(String key) throws SAXException {
@@ -447,7 +522,7 @@ public final class ServerXmlLoader {
             Context context = new Context(container, path, resolve(root));
             String distributable = attrs.getValue("distributable");
             if (distributable != null) {
-                context.setDistributable(Boolean.parseBoolean(distributable));
+                context.distributable(Boolean.parseBoolean(distributable));
             }
             container.addContext(context);
         }
@@ -458,10 +533,10 @@ public final class ServerXmlLoader {
             boolean secure = Boolean.parseBoolean(attrs.getValue("secure"));
             boolean bindWildcard = Boolean.parseBoolean(attrs.getValue("bind-wildcard"));
 
-            Http2Listener http2 = new Http2Listener().port(port);
-            if (bindWildcard) {
-                http2.bindWildcard();
-            }
+            listenerOpen = true;
+            openPort = port;
+            openWildcard = bindWildcard;
+            openTls = null;
             if (secure) {
                 TlsConfig tls = identity(attrs);
                 String echConfigList = attrs.getValue("ech-config-list-file");
@@ -475,18 +550,148 @@ public final class ServerXmlLoader {
                 if (Boolean.parseBoolean(attrs.getValue("ech-required"))) {
                     tls.echServerRequired(true);
                 }
-                http2.secure(true).tls(tls);
-                composer.listener(http2);
+                boolean clientAuth = clientAuthRequired(attrs);
+                if (clientAuth) {
+                    X509TrustManager trust = clientTrust(attrs);
+                    if (trust != null) {
+                        tls.trustManager(trust);
+                    }
+                } else if (attrs.getValue("ca-file") != null
+                        || attrs.getValue("truststore-file") != null
+                        || attrs.getValue("truststore-pass") != null
+                        || attrs.getValue("truststore-format") != null) {
+                    throw new SAXException("ca-file and truststore-file only apply "
+                            + "with client-auth=\"required\"");
+                }
+                tls.requireClientAuth(clientAuth).tlsVersion(tlsVersion(attrs));
+                String cipherSuites = attrs.getValue("cipher-suites");
+                if (cipherSuites != null) {
+                    tls.cipherSuites(cipherSuites.trim());
+                }
+                String namedGroups = attrs.getValue("named-groups");
+                if (namedGroups != null) {
+                    tls.namedGroups(namedGroups.trim());
+                }
+                String defaultAlias = attrs.getValue("sni-default-alias");
+                if (defaultAlias != null) {
+                    if (tls.getKeystoreFile() == null) {
+                        throw new SAXException("sni-default-alias requires a keystore identity "
+                                + "(keystore-file), because SNI selects keystore aliases");
+                    }
+                    tls.sniDefaultAlias(defaultAlias.trim());
+                }
+                openTls = tls;
+            }
+            haveListener = true;
+        }
 
-                Http3Listener http3 = new Http3Listener().port(port).tls(tls);
-                if (bindWildcard) {
+        private void startSni(Attributes attrs) throws SAXException {
+            if (!listenerOpen) {
+                throw new SAXException("sni must be inside a listener");
+            }
+            if (openTls == null) {
+                throw new SAXException("sni requires a secure listener");
+            }
+            if (openTls.getKeystoreFile() == null) {
+                throw new SAXException("sni requires a keystore identity (keystore-file), "
+                        + "because it selects keystore aliases; PEM files hold a single identity");
+            }
+            String host = require(attrs, "host", "sni").trim();
+            String alias = require(attrs, "alias", "sni").trim();
+            if (openTls.getSniHostnames().containsKey(host)) {
+                throw new SAXException("sni host listed twice: " + host);
+            }
+            openTls.sni(host, alias);
+        }
+
+        @Override
+        protected void endElement(String uri, String localName, String qName)
+                throws SAXException {
+            if (!"listener".equals(qName)) {
+                return;
+            }
+            Http2Listener http2 = new Http2Listener().port(openPort);
+            if (openWildcard) {
+                http2.bindWildcard();
+            }
+            if (openTls != null) {
+                http2.secure(true).tls(openTls);
+                Http3Listener http3 = new Http3Listener().port(openPort).tls(openTls);
+                if (openWildcard) {
                     http3.bindWildcard();
                 }
+                composer.listener(http2);
                 composer.listener(http3);
             } else {
                 composer.listener(http2);
             }
-            haveListener = true;
+            listenerOpen = false;
+            openTls = null;
+        }
+
+        private static boolean clientAuthRequired(Attributes attrs) throws SAXException {
+            String value = attrs.getValue("client-auth");
+            if (value == null || value.trim().equals("none")) {
+                return false;
+            }
+            if (value.trim().equals("required")) {
+                return true;
+            }
+            throw new SAXException("client-auth must be none or required: " + value);
+        }
+
+        private static TlsVersion tlsVersion(Attributes attrs) throws SAXException {
+            String value = attrs.getValue("tls-version");
+            if (value == null) {
+                return TlsVersion.NEGOTIATE;
+            }
+            try {
+                return TlsVersion.valueOf(value.trim().toUpperCase(Locale.ROOT));
+            } catch (IllegalArgumentException e) {
+                throw new SAXException("tls-version must be NEGOTIATE, TLS_1_2 or TLS_1_3: "
+                        + value, e);
+            }
+        }
+
+        /**
+         * The trust anchors for client certificates under mutual TLS: a PEM
+         * CA bundle ({@code ca-file}) or a Java truststore
+         * ({@code truststore-file} and {@code truststore-pass}), or
+         * {@code null} for the JVM default trust store.
+         */
+        private X509TrustManager clientTrust(Attributes attrs) throws SAXException {
+            String caFile = attrs.getValue("ca-file");
+            String trustFile = attrs.getValue("truststore-file");
+            if (caFile != null && trustFile != null) {
+                throw new SAXException("client trust takes ca-file or truststore-file, not both");
+            }
+            try {
+                if (caFile != null) {
+                    return PemCredentials.loadTrustManager(resolve(caFile).toPath());
+                }
+                if (trustFile == null) {
+                    return null;
+                }
+                String pass = require(attrs, "truststore-pass", "secure listener");
+                String format = attrs.getValue("truststore-format");
+                KeystoreFormat keystoreFormat = format == null
+                        ? KeystoreFormat.PKCS12 : KeystoreFormat.parse(format);
+                TrustManager[] managers = TlsUtils.loadTrustManagers(
+                        resolve(trustFile).toPath(), pass, keystoreFormat);
+                for (TrustManager manager : managers) {
+                    if (manager instanceof X509TrustManager) {
+                        return (X509TrustManager) manager;
+                    }
+                }
+                throw new SAXException("truststore-file " + trustFile + " has no X.509 trust anchors");
+            } catch (IllegalArgumentException e) {
+                throw new SAXException("truststore-format must be PKCS12, JKS or JCEKS: "
+                        + attrs.getValue("truststore-format"), e);
+            } catch (IOException | GeneralSecurityException e) {
+                throw new SAXException("Cannot load client trust from "
+                        + (caFile != null ? "ca-file " + caFile : "truststore-file " + trustFile)
+                        + ": " + e.getMessage(), e);
+            }
         }
 
         /**
@@ -530,6 +735,10 @@ public final class ServerXmlLoader {
         }
 
         private static int parsePort(String value, String what) throws SAXException {
+            return parseInt(value, what);
+        }
+
+        private static int parseInt(String value, String what) throws SAXException {
             try {
                 return Integer.parseInt(value.trim());
             } catch (NumberFormatException e) {

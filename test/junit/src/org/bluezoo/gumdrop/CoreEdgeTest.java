@@ -185,7 +185,7 @@ public class CoreEdgeTest {
     @Test
     public void listenerRejectsPathTogetherWithPort() {
         StubListener l = new StubListener();
-        l.setPath(Paths.get("/tmp/never-created.sock"));
+        l.path(Paths.get("/tmp/never-created.sock"));
         try {
             l.start();
             fail("expected IllegalStateException");

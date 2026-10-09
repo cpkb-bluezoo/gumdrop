@@ -83,7 +83,7 @@ public final class SocksClientConfig {
      * @param version the version preference
      * @return this config for chaining
      */
-    public SocksClientConfig setVersion(Version version) {
+    public SocksClientConfig version(Version version) {
         this.version = version;
         return this;
     }
@@ -105,7 +105,7 @@ public final class SocksClientConfig {
      * @param username the username
      * @return this config for chaining
      */
-    public SocksClientConfig setUsername(String username) {
+    public SocksClientConfig username(String username) {
         this.username = username;
         return this;
     }
@@ -127,7 +127,7 @@ public final class SocksClientConfig {
      * @param password the password
      * @return this config for chaining
      */
-    public SocksClientConfig setPassword(String password) {
+    public SocksClientConfig password(String password) {
         this.password = password;
         return this;
     }
@@ -147,7 +147,7 @@ public final class SocksClientConfig {
      * @param timeoutMs the timeout in milliseconds
      * @return this config for chaining
      */
-    public SocksClientConfig setHandshakeTimeoutMs(long timeoutMs) {
+    public SocksClientConfig handshakeTimeoutMs(long timeoutMs) {
         this.handshakeTimeoutMs = timeoutMs;
         return this;
     }

@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.pop3;
 
+import org.bluezoo.gumdrop.auth.SynchronousRealm;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.net.InetSocketAddress;
@@ -95,11 +96,11 @@ public class POP3ProtocolHandlerTest {
         mailboxFactory = new StubMailboxFactory();
 
         listener = new TestPOP3Listener();
-        listener.setRealm(realm);
-        listener.setMailboxFactory(mailboxFactory);
-        listener.setEnableAPOP(false);
-        listener.setEnableUTF8(true);
-        listener.setEnablePipelining(false);
+        listener.realm(realm);
+        listener.mailboxFactory(mailboxFactory);
+        listener.enableAPOP(false);
+        listener.enableUTF8(true);
+        listener.enablePipelining(false);
 
         handler = new Pop3ProtocolHandler(listener);
         endpoint = new StubEndpoint();
@@ -180,7 +181,7 @@ public class POP3ProtocolHandlerTest {
 
     @Test
     public void testPlaintextGreetingWithAPOP() {
-        listener.setEnableAPOP(true);
+        listener.enableAPOP(true);
         handler = new Pop3ProtocolHandler(listener);
         connectPlaintext();
         String response = lastResponse();
@@ -237,11 +238,11 @@ public class POP3ProtocolHandlerTest {
     public void testCommandWithArgsSlicedAtEveryChunkSize() {
         for (int chunkSize = 1; chunkSize <= 12; chunkSize++) {
             listener = new TestPOP3Listener();
-            listener.setRealm(realm);
-            listener.setMailboxFactory(mailboxFactory);
-            listener.setEnableAPOP(false);
-            listener.setEnableUTF8(true);
-            listener.setEnablePipelining(false);
+            listener.realm(realm);
+            listener.mailboxFactory(mailboxFactory);
+            listener.enableAPOP(false);
+            listener.enableUTF8(true);
+            listener.enablePipelining(false);
             handler = new Pop3ProtocolHandler(listener);
             endpoint = new StubEndpoint();
 
@@ -366,7 +367,7 @@ public class POP3ProtocolHandlerTest {
 
     @Test
     public void testCAPAExcludesUTF8WhenDisabled() {
-        listener.setEnableUTF8(false);
+        listener.enableUTF8(false);
         handler = new Pop3ProtocolHandler(listener);
         connectPlaintext();
         endpoint.sentData.clear();
@@ -443,7 +444,7 @@ public class POP3ProtocolHandlerTest {
 
     @Test
     public void testCAPAIncludesExpireWhenConfigured() {
-        listener.setExpireDays(7);
+        listener.expireDays(7);
         handler = new Pop3ProtocolHandler(listener);
         connectPlaintext();
         endpoint.sentData.clear();
@@ -455,7 +456,7 @@ public class POP3ProtocolHandlerTest {
 
     @Test
     public void testCAPAIncludesExpireNever() {
-        listener.setExpireDays(Integer.MAX_VALUE);
+        listener.expireDays(Integer.MAX_VALUE);
         handler = new Pop3ProtocolHandler(listener);
         connectPlaintext();
         endpoint.sentData.clear();
@@ -483,7 +484,7 @@ public class POP3ProtocolHandlerTest {
 
     @Test
     public void testCAPAIncludesLoginDelay() {
-        listener.setLoginDelayMs(5000);
+        listener.loginDelayMs(5000);
         handler = new Pop3ProtocolHandler(listener);
         connectPlaintext();
         endpoint.sentData.clear();
@@ -581,8 +582,24 @@ public class POP3ProtocolHandlerTest {
     }
 
     @Test
+    public void testRepeatedPassFailuresLockTheClientOut() {
+        listener.maxAuthFailures(2);
+        connectPlaintext();
+        endpoint.sentData.clear();
+        sendCommand("USER testuser");
+        sendCommand("PASS wrongpass");
+        sendCommand("USER testuser");
+        sendCommand("PASS wrongpass");
+        sendCommand("USER testuser");
+        sendCommand("PASS testpass");
+        assertTrue(lastResponse().startsWith("-ERR"));
+        assertTrue(lastResponse().contains("Too many failed"));
+        assertTrue(lastResponse().contains("[SYS/TEMP]"));
+    }
+
+    @Test
     public void testPASSWithNoRealm() {
-        listener.setRealm(null);
+        listener.realm(null);
         handler = new Pop3ProtocolHandler(listener);
         connectPlaintext();
         endpoint.sentData.clear();
@@ -605,7 +622,7 @@ public class POP3ProtocolHandlerTest {
 
     @Test
     public void testAPOPRequiresArguments() {
-        listener.setEnableAPOP(true);
+        listener.enableAPOP(true);
         handler = new Pop3ProtocolHandler(listener);
         connectPlaintext();
         endpoint.sentData.clear();
@@ -664,7 +681,7 @@ public class POP3ProtocolHandlerTest {
 
     @Test
     public void testUTF8Disabled() {
-        listener.setEnableUTF8(false);
+        listener.enableUTF8(false);
         handler = new Pop3ProtocolHandler(listener);
         connectPlaintext();
         endpoint.sentData.clear();
@@ -1722,14 +1739,10 @@ public class POP3ProtocolHandlerTest {
         @Override public boolean isSessionResumed() { return false; }
     }
 
-    static class StubRealm implements Realm {
+    static class StubRealm implements SynchronousRealm {
         Set<SaslMechanism> supportedMechanisms =
                 new HashSet<SaslMechanism>();
 
-        @Override
-        public Realm forSelectorLoop(SelectorLoop loop) {
-            return this;
-        }
 
         @Override
         public Set<SaslMechanism> getSupportedSASLMechanisms() {
@@ -1747,14 +1760,6 @@ public class POP3ProtocolHandlerTest {
             return null;
         }
 
-        @Override
-        @SuppressWarnings("deprecation")
-        public String getPassword(String username) {
-            if ("testuser".equals(username)) {
-                return "testpass";
-            }
-            return null;
-        }
 
         @Override
         public boolean isUserInRole(String username, String role) {

@@ -22,6 +22,7 @@
 
 package org.bluezoo.gumdrop.http.server;
 
+import org.bluezoo.gumdrop.testsupport.InlineHttpAuthenticationProvider;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
@@ -47,7 +48,7 @@ import jakarta.servlet.http.HttpServletRequest;
  */
 public class HttpAuthenticationProviderSchemesTest {
 
-    private static final class P extends HttpAuthenticationProvider {
+    private static final class P extends InlineHttpAuthenticationProvider {
         String method;
         String realm = "r";
         boolean digest = true;

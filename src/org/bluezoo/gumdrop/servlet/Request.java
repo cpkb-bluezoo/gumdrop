@@ -603,8 +603,12 @@ class Request implements HttpServletRequest {
         // Create an authentication provider for this context and use it directly
         ServletAuthenticationProvider authProvider = new ServletAuthenticationProvider(context);
         String authHeader = getHeader("Authorization");
-        HttpAuthenticationProvider.AuthenticationResult result = authProvider.authenticate(
-                authHeader, getMethod(), getRequestURI());
+        // The servlet worker waits for the answer; the realm works on a loop.
+        RealmAwait<HttpAuthenticationProvider.AuthenticationResult> answer =
+                new RealmAwait<HttpAuthenticationProvider.AuthenticationResult>();
+        authProvider.authenticate(context.realmLoop(), authHeader,
+                getMethod(), getRequestURI(), answer);
+        HttpAuthenticationProvider.AuthenticationResult result = answer.await();
 
         if (!result.success) {
             // Generate the authentication challenge
@@ -696,8 +700,11 @@ class Request implements HttpServletRequest {
 
         Realm realm = context.getRealm(realmName);
         if (realm != null) {
-            Realm.CertificateAuthenticationResult result =
-                    realm.authenticateCertificate(x509);
+            RealmAwait<Realm.CertificateAuthenticationResult> answer =
+                    new RealmAwait<Realm.CertificateAuthenticationResult>();
+            realm.forSelectorLoop(context.realmLoop())
+                    .authenticateCertificate(x509, answer);
+            Realm.CertificateAuthenticationResult result = answer.await();
             if (result != null && result.valid) {
                 userPrincipal = new ServletPrincipal(
                         context, realmName, result.username);

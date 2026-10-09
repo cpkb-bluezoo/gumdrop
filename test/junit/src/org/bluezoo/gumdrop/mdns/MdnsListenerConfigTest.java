@@ -55,9 +55,9 @@ public class MdnsListenerConfigTest {
         assertSame(l, l.bindWildcard());
         assertSame(l, l.addresses(InetAddress.getLoopbackAddress()));
         assertSame(l, l.secure(false));
-        l.setPort(1234);
+        l.port(1234);
         assertEquals(1234, l.getPort());
-        l.setServer(null);
+        l.server(null);
         assertNull(l.getServer());
     }
 }

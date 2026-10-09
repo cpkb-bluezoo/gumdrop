@@ -29,7 +29,7 @@ import org.bluezoo.gumdrop.amqp1.codec.Attach;
  * credit the receiver has granted.
  *
  * <p>Not thread-safe: use a receiver from the connection's event loop (any
- * handler callback), or through {@link Amqp1ClientRecovery#execute}.
+ * handler callback), or through {@link Amqp1Client#execute}.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */

@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.ftp;
 
+import org.bluezoo.gumdrop.testsupport.OffloadingSynchronousRealm;
 import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.GumdropConfig;
 import org.bluezoo.gumdrop.SelectorLoop;
@@ -167,7 +168,7 @@ public class FTPPasswordOffloadTest {
      * test speed) on every call -- i.e. with no cache, so this test
      * exercises the offload at the {@code PASS} call site.
      */
-    private static final class Pbkdf2PasswordRealm implements Realm {
+    private static final class Pbkdf2PasswordRealm extends OffloadingSynchronousRealm {
         private final String user;
         private final byte[] salt;
         private final byte[] expectedHash;
@@ -183,10 +184,6 @@ public class FTPPasswordOffloadTest {
             expectedHash = pbkdf2(password, salt, TEST_ITERATIONS);
         }
 
-        @Override
-        public Realm forSelectorLoop(SelectorLoop loop) {
-            return this;
-        }
 
         @Override
         public Set<SaslMechanism> getSupportedSASLMechanisms() {
@@ -211,11 +208,6 @@ public class FTPPasswordOffloadTest {
             return null;
         }
 
-        @Override
-        @SuppressWarnings("deprecation")
-        public String getPassword(String username) {
-            return null;
-        }
 
         @Override
         public boolean isUserInRole(String username, String role) {

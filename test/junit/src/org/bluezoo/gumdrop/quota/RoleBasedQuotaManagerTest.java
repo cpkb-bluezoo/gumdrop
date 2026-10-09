@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.quota;
 
+import org.bluezoo.gumdrop.auth.SynchronousRealm;
 import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.auth.Realm;
 import org.bluezoo.gumdrop.auth.SaslMechanism;
@@ -43,7 +44,7 @@ import static org.junit.Assert.*;
  */
 public class RoleBasedQuotaManagerTest {
 
-    private static final class StubRealm implements Realm {
+    private static final class StubRealm implements SynchronousRealm {
         private final Map<String, Set<String>> roles = new HashMap<String, Set<String>>();
 
         void grant(String user, String role) {
@@ -55,10 +56,6 @@ public class RoleBasedQuotaManagerTest {
             set.add(role);
         }
 
-        @Override
-        public Realm forSelectorLoop(SelectorLoop loop) {
-            return this;
-        }
 
         @Override
         public Set<SaslMechanism> getSupportedSASLMechanisms() {
@@ -75,10 +72,6 @@ public class RoleBasedQuotaManagerTest {
             return null;
         }
 
-        @Override
-        public String getPassword(String username) {
-            throw new UnsupportedOperationException();
-        }
 
         @Override
         public boolean isUserInRole(String username, String role) {
@@ -94,12 +87,25 @@ public class RoleBasedQuotaManagerTest {
     public void setUp() {
         manager = new RoleBasedQuotaManager();
         realm = new StubRealm();
-        manager.setRealm(realm);
+        manager.realm(realm);
+    }
+
+    /** Resolves the user's roles as a login would, then reads the quota. */
+    private Quota quotaOf(String user) {
+        final boolean[] ready = new boolean[1];
+        manager.prepare(user, null, new Runnable() {
+            @Override
+            public void run() {
+                ready[0] = true;
+            }
+        });
+        assertTrue("an in-memory realm resolves roles inline", ready[0]);
+        return manager.getQuota(user);
     }
 
     @Test
     public void unlimitedWhenNothingConfigured() {
-        Quota quota = manager.getQuota("nobody");
+        Quota quota = quotaOf("nobody");
         assertTrue(quota.isStorageUnlimited());
         assertTrue(manager.canStore("nobody", Long.MAX_VALUE / 2));
         assertTrue(manager.canStoreMessage("nobody"));
@@ -107,8 +113,8 @@ public class RoleBasedQuotaManagerTest {
 
     @Test
     public void defaultQuotaApplies() {
-        manager.setDefaultQuota("1KB");
-        Quota quota = manager.getQuota("bob");
+        manager.defaultQuota("1KB");
+        Quota quota = quotaOf("bob");
         assertEquals(1024L, quota.getStorageLimit());
         assertEquals(QuotaSource.DEFAULT, quota.getSource());
         assertTrue(manager.canStore("bob", 1024L));
@@ -117,21 +123,21 @@ public class RoleBasedQuotaManagerTest {
 
     @Test
     public void defaultPolicyObjectApplies() {
-        manager.setDefaultPolicy(new QuotaPolicy("d", 500L, 2L));
-        Quota quota = manager.getQuota("bob");
+        manager.defaultPolicy(new QuotaPolicy("d", 500L, 2L));
+        Quota quota = quotaOf("bob");
         assertEquals(500L, quota.getStorageLimit());
         assertEquals(2L, quota.getMessageLimit());
     }
 
     @Test
     public void mostGenerousRoleWins() {
-        manager.setDefaultQuota("1KB");
+        manager.defaultQuota("1KB");
         manager.addRoleQuota("standard", "1MB", "10");
         manager.addRoleQuota("premium", "10MB", "100");
         realm.grant("carol", "standard");
         realm.grant("carol", "premium");
 
-        Quota quota = manager.getQuota("carol");
+        Quota quota = quotaOf("carol");
         assertEquals(10L * 1024L * 1024L, quota.getStorageLimit());
         assertEquals(100L, quota.getMessageLimit());
         assertEquals(QuotaSource.ROLE, quota.getSource());
@@ -141,20 +147,20 @@ public class RoleBasedQuotaManagerTest {
     @Test
     public void unlimitedRoleBeatsLimitedRole() {
         manager.addRoleQuota("standard", "1MB", "10");
-        manager.setRoleQuota("admin", "unlimited");
+        manager.addRoleQuota("admin", "unlimited");
         realm.grant("dave", "standard");
         realm.grant("dave", "admin");
 
-        Quota quota = manager.getQuota("dave");
+        Quota quota = quotaOf("dave");
         assertTrue(quota.isStorageUnlimited());
         assertTrue(quota.isMessageUnlimited());
     }
 
     @Test
     public void userWithoutMatchingRoleFallsBackToDefault() {
-        manager.setDefaultQuota("2KB");
+        manager.defaultQuota("2KB");
         manager.addRoleQuota("premium", "10MB");
-        Quota quota = manager.getQuota("erin");
+        Quota quota = quotaOf("erin");
         assertEquals(2048L, quota.getStorageLimit());
         assertEquals(QuotaSource.DEFAULT, quota.getSource());
     }
@@ -167,51 +173,132 @@ public class RoleBasedQuotaManagerTest {
         manager.setUserQuota("frank", 100L, 3L);
         assertTrue(manager.hasUserQuota("frank"));
 
-        Quota quota = manager.getQuota("frank");
+        Quota quota = quotaOf("frank");
         assertEquals(100L, quota.getStorageLimit());
         assertEquals(3L, quota.getMessageLimit());
         assertEquals(QuotaSource.USER, quota.getSource());
 
         manager.clearUserQuota("frank");
         assertFalse(manager.hasUserQuota("frank"));
-        Quota after = manager.getQuota("frank");
+        Quota after = quotaOf("frank");
         assertEquals(QuotaSource.ROLE, after.getSource());
     }
 
     @Test
     public void quotaIsCachedUntilRecalculated() {
-        manager.setDefaultQuota("1KB");
-        Quota first = manager.getQuota("gina");
-        assertSame(first, manager.getQuota("gina"));
+        manager.defaultQuota("1KB");
+        Quota first = quotaOf("gina");
+        assertSame(first, quotaOf("gina"));
         manager.recalculateUsage("gina");
-        assertNotSame(first, manager.getQuota("gina"));
+        assertNotSame(first, quotaOf("gina"));
     }
 
     @Test
     public void bytesAndMessagesAreAccounted() {
-        manager.setDefaultPolicy(new QuotaPolicy("d", 1000L, 2L));
+        manager.defaultPolicy(new QuotaPolicy("d", 1000L, 2L));
         manager.recordBytesAdded("hal", 400L);
-        assertEquals(400L, manager.getQuota("hal").getStorageUsed());
+        assertEquals(400L, quotaOf("hal").getStorageUsed());
         manager.recordBytesRemoved("hal", 100L);
-        assertEquals(300L, manager.getQuota("hal").getStorageUsed());
+        assertEquals(300L, quotaOf("hal").getStorageUsed());
 
         manager.recordMessageAdded("hal", 50L);
-        assertEquals(350L, manager.getQuota("hal").getStorageUsed());
-        assertEquals(1L, manager.getQuota("hal").getMessageCount());
+        assertEquals(350L, quotaOf("hal").getStorageUsed());
+        assertEquals(1L, quotaOf("hal").getMessageCount());
         assertTrue(manager.canStoreMessage("hal"));
         manager.recordMessageAdded("hal", 50L);
         assertFalse(manager.canStoreMessage("hal"));
         manager.recordMessageRemoved("hal", 50L);
-        assertEquals(1L, manager.getQuota("hal").getMessageCount());
+        assertEquals(1L, quotaOf("hal").getMessageCount());
         assertTrue(manager.canStoreMessage("hal"));
     }
 
     @Test
     public void persistenceIsNoOpWithoutStorageDir() {
-        manager.setDefaultQuota("1KB");
+        manager.defaultQuota("1KB");
         manager.recordBytesAdded("ivy", 10L);
         manager.saveUsageData();
         manager.loadUsageData();
-        assertEquals(10L, manager.getQuota("ivy").getStorageUsed());
+        assertEquals(10L, quotaOf("ivy").getStorageUsed());
+    }
+
+    @Test
+    public void prepareWaitsForASlowRealmThenQuotaUsesItsRoles() {
+        manager.defaultQuota("1KB");
+        manager.addRoleQuota("premium", "10MB", "100");
+        final java.util.List<Runnable> held = new java.util.ArrayList<Runnable>();
+        manager.realm(new SynchronousRealm() {
+            @Override
+            public Set<SaslMechanism> getSupportedSASLMechanisms() {
+                return Collections.emptySet();
+            }
+
+            @Override
+            public boolean passwordMatch(String username, String password) {
+                return false;
+            }
+
+            @Override
+            public String getDigestHA1(String username, String realmName) {
+                return null;
+            }
+
+            @Override
+            public boolean isUserInRole(String username, String role) {
+                return "premium".equals(role);
+            }
+
+            @Override
+            public void isUserInRole(final String username, final String role,
+                    final org.bluezoo.gumdrop.auth.RealmCallback<Boolean> callback) {
+                held.add(new Runnable() {
+                    @Override
+                    public void run() {
+                        callback.completed(Boolean.valueOf(isUserInRole(username, role)));
+                    }
+                });
+            }
+        });
+        final boolean[] ready = new boolean[1];
+        manager.prepare("zoe", null, new Runnable() {
+            @Override
+            public void run() {
+                ready[0] = true;
+            }
+        });
+        assertFalse("must not report ready before the realm answers", ready[0]);
+        while (!held.isEmpty()) {
+            held.remove(0).run();
+        }
+        assertTrue(ready[0]);
+        assertEquals(10L * 1024L * 1024L, manager.getQuota("zoe").getStorageLimit());
+    }
+
+    @Test
+    public void prepareWithFailingRealmGrantsNoRoleQuota() {
+        manager.defaultQuota("1KB");
+        manager.addRoleQuota("premium", "10MB", "100");
+        manager.realm(new SynchronousRealm() {
+            @Override
+            public Set<SaslMechanism> getSupportedSASLMechanisms() {
+                return Collections.emptySet();
+            }
+
+            @Override
+            public boolean passwordMatch(String username, String password) {
+                return false;
+            }
+
+            @Override
+            public String getDigestHA1(String username, String realmName) {
+                return null;
+            }
+
+            @Override
+            public boolean isUserInRole(String username, String role) {
+                throw new IllegalStateException("realm down");
+            }
+        });
+        Quota quota = quotaOf("yan");
+        assertEquals(1024L, quota.getStorageLimit());
     }
 }

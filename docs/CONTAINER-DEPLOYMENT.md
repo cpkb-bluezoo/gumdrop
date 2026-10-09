@@ -260,7 +260,7 @@ In `server.xml`, use `bind-wildcard="true"` on listeners where supported.
 
 Servlet hot deploy uses filesystem `WatchService` (inotify), which is a poor fit
 on immutable overlay roots. **Off by default.** Enable with
-`container.setHotDeploy(true)` or `GUMDROP_HOT_DEPLOY=true` when you deliberately
+`container.hotDeploy(true)` or `GUMDROP_HOT_DEPLOY=true` when you deliberately
 mount mutable webapp directories.
 
 ---

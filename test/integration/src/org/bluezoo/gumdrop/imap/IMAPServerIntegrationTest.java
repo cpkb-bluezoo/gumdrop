@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.imap;
 
+import org.bluezoo.gumdrop.auth.SynchronousRealm;
 import org.bluezoo.gumdrop.ListenerBindCheck;
 import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.GumdropConfig;
@@ -96,11 +97,11 @@ public class IMAPServerIntegrationTest {
         
         // Create IMAP server
         imapServer = new ImapListener();
-        imapServer.setPort(IMAP_PORT);
+        imapServer.port(IMAP_PORT);
         imapServer.addresses(java.net.InetAddress.getByName("::1"));
-        imapServer.setRealm(realm);
-        imapServer.setMailboxFactory(new MboxMailboxFactory(mboxRoot));
-        imapServer.setAllowPlaintextLogin(true); // Allow plaintext login for testing
+        imapServer.realm(realm);
+        imapServer.mailboxFactory(new MboxMailboxFactory(mboxRoot));
+        imapServer.allowPlaintextLogin(true); // Allow plaintext login for testing
         
         // Start server using its own dedicated runtime
         gumdrop = Gumdrop.boot(GumdropConfig.create().workerThreads(1).drainTimeoutMs(0));
@@ -721,7 +722,7 @@ public class IMAPServerIntegrationTest {
     /**
      * Test realm that accepts editor/editor credentials.
      */
-    private static class TestRealm implements Realm {
+    private static class TestRealm implements SynchronousRealm {
         
         private static final Set<SaslMechanism> SUPPORTED = 
             Collections.unmodifiableSet(EnumSet.of(SaslMechanism.PLAIN, SaslMechanism.LOGIN));
@@ -746,11 +747,6 @@ public class IMAPServerIntegrationTest {
             return null;
         }
         
-        @Override
-        @SuppressWarnings("deprecation")
-        public String getPassword(String username) {
-            throw new UnsupportedOperationException("getPassword is deprecated");
-        }
         
         @Override
         public boolean isUserInRole(String username, String role) {

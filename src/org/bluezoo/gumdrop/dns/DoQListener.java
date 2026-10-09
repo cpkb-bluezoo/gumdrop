@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.dns;
 
+import org.bluezoo.gumdrop.util.CidrNetwork;
 import java.io.IOException;
 import java.net.InetAddress;
 import java.util.ResourceBundle;
@@ -100,21 +101,13 @@ public class DoQListener extends TcpListener
     }
 
     /**
-     * Sets the port number this endpoint should bind to.
-     *
-     * @param port the port number (default 853)
-     */
-    public void setPort(int port) {
-        this.port = port;
-    }
-    /**
      * Sets the port. Returns {@code this} for fluent configuration.
      *
      * @param port the port number
      * @return this listener
      */
     public DoQListener port(int port) {
-        setPort(port);
+        this.port = port;
         return this;
     }
 
@@ -143,6 +136,90 @@ public class DoQListener extends TcpListener
     }
 
     @Override
+    public DoQListener maxConnections(int max) {
+        super.maxConnections(max);
+        return this;
+    }
+
+    @Override
+    public DoQListener maxConnectionsPerIP(int max) {
+        super.maxConnectionsPerIP(max);
+        return this;
+    }
+
+    @Override
+    public DoQListener rateLimit(String rateLimit) {
+        super.rateLimit(rateLimit);
+        return this;
+    }
+
+    @Override
+    public DoQListener maxAuthFailures(int max) {
+        super.maxAuthFailures(max);
+        return this;
+    }
+
+    @Override
+    public DoQListener authLockoutTimeMs(long lockoutMs) {
+        super.authLockoutTimeMs(lockoutMs);
+        return this;
+    }
+
+    @Override
+    public DoQListener allowedNetworks(List<CidrNetwork> allowedNetworks) {
+        super.allowedNetworks(allowedNetworks);
+        return this;
+    }
+
+    @Override
+    public DoQListener blockedNetworks(List<CidrNetwork> blockedNetworks) {
+        super.blockedNetworks(blockedNetworks);
+        return this;
+    }
+
+    @Override
+    public DoQListener name(String name) {
+        super.name(name);
+        return this;
+    }
+
+    @Override
+    public DoQListener maxNetInSize(int size) {
+        super.maxNetInSize(size);
+        return this;
+    }
+
+    @Override
+    public DoQListener maxNetOutSize(int size) {
+        super.maxNetOutSize(size);
+        return this;
+    }
+
+    @Override
+    public DoQListener idleTimeoutMs(long idleTimeoutMs) {
+        super.idleTimeoutMs(idleTimeoutMs);
+        return this;
+    }
+
+    @Override
+    public DoQListener readTimeoutMs(long readTimeoutMs) {
+        super.readTimeoutMs(readTimeoutMs);
+        return this;
+    }
+
+    @Override
+    public DoQListener connectionTimeoutMs(long connectionTimeoutMs) {
+        super.connectionTimeoutMs(connectionTimeoutMs);
+        return this;
+    }
+
+    @Override
+    public DoQListener maxDtlsPeers(int max) {
+        super.maxDtlsPeers(max);
+        return this;
+    }
+
+    @Override
     public String getDescription() {
         return "dns-quic";
     }
@@ -151,9 +228,11 @@ public class DoQListener extends TcpListener
      * Sets the owning DNS server.
      *
      * @param server the owning server
+     * @return this
      */
-    public void setServer(org.bluezoo.gumdrop.dns.server.DnsServer server) {
+    public DoQListener server(org.bluezoo.gumdrop.dns.server.DnsServer server) {
         this.server = server;
+        return this;
     }
 
     /**
@@ -170,7 +249,7 @@ public class DoQListener extends TcpListener
      *
      * @param path the PEM file path
      */
-    public void setCertFile(Path path) {
+    protected void setCertFile(Path path) {
         this.certFile = path;
     }
 
@@ -179,7 +258,7 @@ public class DoQListener extends TcpListener
      *
      * @param path the PEM file path
      */
-    public void setKeyFile(Path path) {
+    protected void setKeyFile(Path path) {
         this.keyFile = path;
     }
 
@@ -190,9 +269,11 @@ public class DoQListener extends TcpListener
      * XML: {@code require-retry}
      *
      * @param requireRetry whether to send Retry to unvalidated Initials
+     * @return this
      */
-    public void setRequireRetry(boolean requireRetry) {
+    public DoQListener requireRetry(boolean requireRetry) {
         this.requireRetry = requireRetry;
+        return this;
     }
 
     /**
@@ -218,9 +299,11 @@ public class DoQListener extends TcpListener
      * Sets the SelectorLoop used for QUIC datagram I/O.
      *
      * @param loop the selector loop
+     * @return this
      */
-    public void setSelectorLoop(SelectorLoop loop) {
+    public DoQListener selectorLoop(SelectorLoop loop) {
         this.selectorLoop = loop;
+        return this;
     }
 
     // ── Lifecycle ──

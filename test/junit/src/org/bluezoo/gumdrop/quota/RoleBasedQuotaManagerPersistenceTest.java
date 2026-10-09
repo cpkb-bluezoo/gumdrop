@@ -54,7 +54,7 @@ public class RoleBasedQuotaManagerPersistenceTest {
 
     private RoleBasedQuotaManager manager() {
         RoleBasedQuotaManager m = new RoleBasedQuotaManager();
-        m.setStorageDir(dir);
+        m.storageDir(dir);
         return m;
     }
 
@@ -66,7 +66,7 @@ public class RoleBasedQuotaManagerPersistenceTest {
     public void setStorageDirCreatesMissingDirectory() {
         Path sub = dir.resolve("a").resolve("b");
         RoleBasedQuotaManager m = new RoleBasedQuotaManager();
-        m.setStorageDir(sub);
+        m.storageDir(sub);
         assertTrue(Files.isDirectory(sub));
     }
 
@@ -181,7 +181,7 @@ public class RoleBasedQuotaManagerPersistenceTest {
     public void loadUsageDataWithRemovedDirectoryIsNoOp() throws IOException {
         Path sub = dir.resolve("gone");
         RoleBasedQuotaManager m = new RoleBasedQuotaManager();
-        m.setStorageDir(sub);
+        m.storageDir(sub);
         Files.delete(sub);
         m.loadUsageData();
     }
@@ -208,8 +208,8 @@ public class RoleBasedQuotaManagerPersistenceTest {
     public void addRoleQuotaWithMessageLimit() {
         RoleBasedQuotaManager m = new RoleBasedQuotaManager();
         m.addRoleQuota("staff", "1KB", "5");
-        m.setRoleQuota("plain", "2KB");
-        m.setDefaultQuota("1KB");
+        m.addRoleQuota("plain", "2KB");
+        m.defaultQuota("1KB");
         Quota q = m.getQuota("x");
         assertEquals(1024L, q.getStorageLimit());
     }

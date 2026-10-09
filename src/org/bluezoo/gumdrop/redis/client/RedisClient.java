@@ -106,30 +106,6 @@ public class RedisClient {
         dial.selectorLoop(selectorLoop).socketPath(socketPath);
     }
 
-    public void setSecure(boolean secure) {
-        this.secure = secure;
-    }
-
-    public void setClientCredentials(ServerCredentials clientCredentials) {
-        tls.serverCredentials(clientCredentials);
-    }
-
-    public void setTrustManager(X509TrustManager trustManager) {
-        tls.trustManager(trustManager);
-    }
-
-    public void setKeystoreFile(Path path) {
-        tls.keystoreFile(path);
-    }
-
-    public void setKeystorePass(String password) {
-        tls.keystorePass(password);
-    }
-
-    public void setKeystoreFormat(KeystoreFormat format) {
-        tls.keystoreFormat(format);
-    }
-
     public RedisClient host(String host) {
         dial.host(host);
         return this;
@@ -165,28 +141,16 @@ public class RedisClient {
         return this;
     }
 
-    public RedisClient clientCredentials(ServerCredentials clientCredentials) {
-        tls.serverCredentials(clientCredentials);
-        return this;
-    }
-
-    public RedisClient trustManager(X509TrustManager trustManager) {
-        tls.trustManager(trustManager);
-        return this;
-    }
-
-    public RedisClient keystoreFile(Path path) {
-        tls.keystoreFile(path);
-        return this;
-    }
-
-    public RedisClient keystorePass(String password) {
-        tls.keystorePass(password);
-        return this;
-    }
-
-    public RedisClient keystoreFormat(KeystoreFormat format) {
-        tls.keystoreFormat(format);
+    /**
+     * Sets this client's TLS settings (certificates, trust, ECH and so on). The
+     * settings are copied, so later changes to {@code source} are not seen.
+     * Whether TLS is used at all is decided by {@link #secure(boolean)}.
+     *
+     * @param source the TLS configuration
+     * @return this client
+     */
+    public RedisClient tls(TlsConfig source) {
+        tls.copyFrom(source);
         return this;
     }
 

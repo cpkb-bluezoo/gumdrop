@@ -22,6 +22,7 @@
 package org.bluezoo.gumdrop.http.client;
 
 import java.net.InetAddress;
+import org.bluezoo.gumdrop.http.HttpVersion;
 import java.util.concurrent.atomic.AtomicReference;
 
 import org.bluezoo.gumdrop.http.ConnectIpTarget;
@@ -86,7 +87,7 @@ public class ConnectIpClientTest {
     @Test
     public void h3EnabledOnUnixSocketReportsErrorWithoutConnecting() {
         ConnectIpClient client = new ConnectIpClient("/tmp/connect-ip.sock");
-        client.setH3Enabled(true);
+        client.versions(HttpVersion.HTTP_3);
         final AtomicReference<Throwable> failure = new AtomicReference<Throwable>();
         client.connect(null, ConnectIpTarget.WILDCARD, ConnectIpTarget.WILDCARD,
                 new ConnectIpEventHandler() {

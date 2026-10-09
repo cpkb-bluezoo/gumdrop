@@ -43,6 +43,7 @@ import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.auth.GssapiServer;
 import org.bluezoo.gumdrop.auth.Realm;
+import org.bluezoo.gumdrop.auth.RealmCallback;
 import org.bluezoo.gumdrop.dns.client.ResolveCallback;
 import org.bluezoo.gumdrop.util.JulWarnings;
 import org.bluezoo.gumdrop.socks.server.BindHandler;
@@ -93,6 +94,7 @@ public class SocksProtocolHandler implements ProtocolHandler {
         SOCKS4_REQUEST,
         SOCKS5_METHOD_NEGOTIATION,
         SOCKS5_AUTH_USERNAME_PASSWORD,
+        SOCKS5_AUTHENTICATING,
         SOCKS5_AUTH_GSSAPI,
         SOCKS5_REQUEST,
         CONNECT_AUTHORIZE,
@@ -243,6 +245,7 @@ public class SocksProtocolHandler implements ProtocolHandler {
                     // RFC 1928 §7: TCP control connection is idle
                     // while UDP association is active; ignore TCP data
                     break;
+                case SOCKS5_AUTHENTICATING:
                 case CONNECT_AUTHORIZE:
                 case CONNECTING_UPSTREAM:
                     // Data arrived while waiting for async operations;
@@ -474,12 +477,45 @@ public class SocksProtocolHandler implements ProtocolHandler {
         String password = new String(pBytes, StandardCharsets.UTF_8);
 
         Realm realm = listener.getRealm();
-        SocksServerMetrics metrics = getServerMetrics();
+        final SocksServerMetrics metrics = getServerMetrics();
         if (metrics != null) {
             metrics.authAttempt("username_password");
         }
-        if (realm != null && realm.passwordMatch(username, password)) {
+        if (realm == null) {
+            authenticationFinished(username, false);
+            return;
+        }
+        if (listener.isAuthLockedOut(endpoint.getRemoteAddress())) {
+            sendSOCKS5AuthResult(SOCKS5_AUTH_USERPASS_FAILURE);
+            close();
+            return;
+        }
+        // The realm answers without blocking this loop; whatever else the
+        // client sends meanwhile is ignored until it has been answered.
+        state = State.SOCKS5_AUTHENTICATING;
+        final String user = username;
+        realm.forSelectorLoop(endpoint.getSelectorLoop()).passwordMatch(
+                username, password, new RealmCallback<Boolean>() {
+            @Override
+            public void completed(Boolean matched) {
+                authenticationFinished(user,
+                        matched != null && matched.booleanValue());
+            }
+
+            @Override
+            public void failed(Throwable cause) {
+                LOGGER.log(Level.WARNING, L10N.getString("log.protocol_error"), cause);
+                authenticationFinished(user, false);
+            }
+        });
+    }
+
+    /** RFC 1929 §2: replies to the username/password sub-negotiation. */
+    private void authenticationFinished(String username, boolean success) {
+        SocksServerMetrics metrics = getServerMetrics();
+        if (success) {
             authenticatedUser = username;
+            listener.recordAuthSuccess(endpoint.getRemoteAddress(), username);
             if (metrics != null) {
                 metrics.authSuccess();
             }
@@ -490,6 +526,7 @@ public class SocksProtocolHandler implements ProtocolHandler {
                         L10N.getString("log.auth_success"), username));
             }
         } else {
+            listener.recordAuthFailure(endpoint.getRemoteAddress(), username);
             if (metrics != null) {
                 metrics.authFailure();
             }
@@ -558,25 +595,43 @@ public class SocksProtocolHandler implements ProtocolHandler {
                 // layer provides equivalent confidentiality and
                 // integrity protection.
                 Realm realm = listener.getRealm();
+                String gssPrincipal = null;
                 if (realm != null) {
-                    String gssPrincipal = gssapiExchange
+                    gssPrincipal = gssapiExchange
                             .validateSecurityLayerResponse(
                                     gssapiExchange
                                             .generateSecurityLayerChallenge());
-                    authenticatedUser =
-                            realm.mapKerberosPrincipal(gssPrincipal);
                 }
                 gssapiExchange.dispose();
                 gssapiExchange = null;
-                state = State.SOCKS5_REQUEST;
-                if (metrics != null) {
-                    metrics.authSuccess();
+                if (realm == null) {
+                    gssapiAuthenticated();
+                    return;
                 }
-                if (LOGGER.isLoggable(Level.FINE)) {
-                    LOGGER.fine(MessageFormat.format(
-                            L10N.getString("log.gssapi_auth_success"),
-                            authenticatedUser));
-                }
+                // The realm maps the Kerberos principal to a user without
+                // making this loop wait; the client's next bytes are ignored
+                // until it has.
+                state = State.SOCKS5_AUTHENTICATING;
+                realm.forSelectorLoop(endpoint.getSelectorLoop())
+                        .mapKerberosPrincipal(gssPrincipal,
+                                new RealmCallback<String>() {
+                    @Override
+                    public void completed(String user) {
+                        authenticatedUser = user;
+                        gssapiAuthenticated();
+                    }
+
+                    @Override
+                    public void failed(Throwable cause) {
+                        SocksServerMetrics m = getServerMetrics();
+                        if (m != null) {
+                            m.authFailure();
+                        }
+                        events().warn("log.gssapi_auth_failed").thrown(cause).emit();
+                        sendSOCKS5GSSAPIFailure();
+                        close();
+                    }
+                });
             } else {
                 if (serverToken != null && serverToken.length > 0) {
                     sendSOCKS5GSSAPIToken(serverToken);
@@ -589,6 +644,20 @@ public class SocksProtocolHandler implements ProtocolHandler {
             events().warn("log.gssapi_auth_failed").thrown(e).emit();
             sendSOCKS5GSSAPIFailure();
             close();
+        }
+    }
+
+    /** The GSSAPI context is established and the user known: the request follows. */
+    private void gssapiAuthenticated() {
+        state = State.SOCKS5_REQUEST;
+        SocksServerMetrics metrics = getServerMetrics();
+        if (metrics != null) {
+            metrics.authSuccess();
+        }
+        if (LOGGER.isLoggable(Level.FINE)) {
+            LOGGER.fine(MessageFormat.format(
+                    L10N.getString("log.gssapi_auth_success"),
+                    authenticatedUser));
         }
     }
 
@@ -1344,6 +1413,12 @@ public class SocksProtocolHandler implements ProtocolHandler {
         }
 
         @Override
+        public org.bluezoo.gumdrop.SecurityInfo getSecurityInfo() {
+            return endpoint != null && endpoint.isSecure()
+                    ? endpoint.getSecurityInfo() : null;
+        }
+
+        @Override
         public void allow() {
             authorizeAndConnect(request);
         }
@@ -1369,6 +1444,12 @@ public class SocksProtocolHandler implements ProtocolHandler {
 
         BindStateImpl(SocksRequest request) {
             this.request = request;
+        }
+
+        @Override
+        public org.bluezoo.gumdrop.SecurityInfo getSecurityInfo() {
+            return endpoint != null && endpoint.isSecure()
+                    ? endpoint.getSecurityInfo() : null;
         }
 
         @Override

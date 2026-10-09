@@ -353,6 +353,9 @@ public class HttpProtocolHandler extends HttpConnectionLike
     private final Set<Integer> activeStreams = new HashSet<Integer>();
 
     private boolean h2cUpgradePending;
+
+    /** Delivers the h2c upgrade request to the application once HTTP/2 is established. */
+    private Runnable http2Established;
     /**
      * Set when a bodyless h2c upgrade ({@link #completeH2cUpgrade()}) is
      * committed before {@link Stream#streamEndRequest()} ran, so the
@@ -1290,6 +1293,21 @@ public class HttpProtocolHandler extends HttpConnectionLike
         return authenticationProvider;
     }
 
+    @Override
+    boolean isAuthLockedOut() {
+        return server.isAuthLockedOut(getRemoteSocketAddress());
+    }
+
+    @Override
+    void recordAuthFailure() {
+        server.recordAuthFailure(getRemoteSocketAddress(), null);
+    }
+
+    @Override
+    void recordAuthSuccess(String username) {
+        server.recordAuthSuccess(getRemoteSocketAddress(), username);
+    }
+
     private void checkContinuationLimit() {
         continuationFramesInBlock++;
         if (continuationFramesInBlock > MAX_CONTINUATION_FRAMES_PER_BLOCK) {
@@ -2187,7 +2205,7 @@ public class HttpProtocolHandler extends HttpConnectionLike
         }
         long contentLength = stream.getContentLength();
         boolean chunked = stream.isChunked();
-        if (stream.upgrade != null && stream.upgrade.contains("h2c") && stream.h2cSettings != null) {
+        if (upgradesToHttp2(stream)) {
             if (contentLength == 0L && !chunked) {
                 h2cBodylessUpgradeNeedsRequestComplete = true;
                 completeH2cUpgrade();
@@ -2307,6 +2325,9 @@ public class HttpProtocolHandler extends HttpConnectionLike
             for (Integer existingStreamId : streams.keySet()) {
                 h2FlowControl.openStream(existingStreamId.intValue());
             }
+            // from here the connection is HTTP/2: the upgrade request's own
+            // response is stream 1, framed as HTTP/2 and not as chunked HTTP/1.1
+            version = HttpVersion.HTTP_2_0;
             state = State.PRI_SETTINGS;
             Map<Integer, Integer> initialSettings = new LinkedHashMap<Integer, Integer>();
             initialSettings.put(H2FrameHandler.SETTINGS_MAX_CONCURRENT_STREAMS,
@@ -2320,6 +2341,17 @@ public class HttpProtocolHandler extends HttpConnectionLike
             sendSettingsFrame(false, initialSettings);
             startSettingsTimeout();
         }
+    }
+
+    @Override
+    boolean upgradesToHttp2(Stream stream) {
+        return state != State.HTTP2 && stream.upgrade != null
+                && stream.upgrade.contains("h2c") && stream.h2cSettings != null;
+    }
+
+    @Override
+    void whenHttp2Established(Runnable release) {
+        http2Established = release;
     }
 
     private void completeH2cUpgrade() {
@@ -2839,6 +2871,13 @@ public class HttpProtocolHandler extends HttpConnectionLike
             state = State.HTTP2;
             // RFC 9113 section 6.7: start PING keep-alive if configured
             startPingKeepAlive();
+            // RFC 9113 section 3.1: the request that asked for the upgrade is
+            // answered as stream 1, so the application sees it only now
+            Runnable release = http2Established;
+            http2Established = null;
+            if (release != null) {
+                release.run();
+            }
             if (h2cBodylessUpgradeNeedsRequestComplete) {
                 h2cBodylessUpgradeNeedsRequestComplete = false;
                 Stream h2cStream = getStream(1);

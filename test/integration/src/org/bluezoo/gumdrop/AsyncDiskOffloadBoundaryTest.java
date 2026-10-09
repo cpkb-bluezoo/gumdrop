@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop;
 
+import org.bluezoo.gumdrop.auth.SynchronousRealm;
 import java.util.ArrayList;
 import java.util.List;
 import org.bluezoo.gumdrop.http.HeaderFields;
@@ -207,9 +208,9 @@ public class AsyncDiskOffloadBoundaryTest {
                 msg.getBytes(StandardCharsets.US_ASCII));
 
         ImapListener listener = new ImapListener();
-        listener.setRealm(new AcceptingRealm("editor", "editor"));
-        listener.setMailboxFactory(new MaildirMailboxFactory(mailRoot));
-        listener.setAllowPlaintextLogin(true);
+        listener.realm(new AcceptingRealm("editor", "editor"));
+        listener.mailboxFactory(new MaildirMailboxFactory(mailRoot));
+        listener.allowPlaintextLogin(true);
 
         ImapProtocolHandler handler = new ImapProtocolHandler(listener);
         RecordingStubEndpoint endpoint = new RecordingStubEndpoint(143);
@@ -274,8 +275,8 @@ public class AsyncDiskOffloadBoundaryTest {
                 msg.getBytes(StandardCharsets.US_ASCII));
 
         Pop3Listener listener = new Pop3Listener();
-        listener.setRealm(new AcceptingRealm("editor", "editor"));
-        listener.setMailboxFactory(new MaildirMailboxFactory(mailRoot));
+        listener.realm(new AcceptingRealm("editor", "editor"));
+        listener.mailboxFactory(new MaildirMailboxFactory(mailRoot));
 
         Pop3ProtocolHandler handler = new Pop3ProtocolHandler(listener);
         RecordingStubEndpoint endpoint = new RecordingStubEndpoint(110);
@@ -513,7 +514,7 @@ public class AsyncDiskOffloadBoundaryTest {
     }
 
     /** Minimal realm that accepts a single username/password pair. */
-    private static final class AcceptingRealm implements Realm {
+    private static final class AcceptingRealm implements SynchronousRealm {
         private final String user;
         private final String pass;
         private static final Set<SaslMechanism> SUPPORTED =
@@ -525,10 +526,6 @@ public class AsyncDiskOffloadBoundaryTest {
             this.pass = pass;
         }
 
-        @Override
-        public Realm forSelectorLoop(SelectorLoop loop) {
-            return this;
-        }
 
         @Override
         public Set<SaslMechanism> getSupportedSASLMechanisms() {
@@ -545,11 +542,6 @@ public class AsyncDiskOffloadBoundaryTest {
             return null;
         }
 
-        @Override
-        @SuppressWarnings("deprecation") // mandated override of Realm's deprecated interface method
-        public String getPassword(String username) {
-            return user.equals(username) ? pass : null;
-        }
 
         @Override
         public boolean isUserInRole(String username, String role) {

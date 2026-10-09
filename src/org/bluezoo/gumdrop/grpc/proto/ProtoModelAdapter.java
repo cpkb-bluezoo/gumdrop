@@ -205,7 +205,6 @@ public class ProtoModelAdapter implements ProtobufHandler {
 
         try {
             handler.startField(fd.getName(), typeName);
-            handler.startMessage(typeName);
         } catch (ProtoParseException e) {
             throw new RuntimeException(e);
         }
@@ -220,7 +219,6 @@ public class ProtoModelAdapter implements ProtobufHandler {
 
         MessageContext ctx = messageStack.pop();
         try {
-            handler.endMessage();
             if (ctx.fieldName != null) {
                 handler.endField();
             }

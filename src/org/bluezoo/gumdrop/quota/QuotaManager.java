@@ -68,6 +68,25 @@ public interface QuotaManager {
      * @return the user's effective quota (never null)
      */
     Quota getQuota(String username);
+
+    /**
+     * Resolves, without blocking, whatever {@link #getQuota(String)} needs to
+     * know about a user, so that later quota calls are plain in-memory
+     * lookups. A server calls this once a user has authenticated, before the
+     * session uses its quota. A quota manager that already has everything
+     * calls {@code done} at once, which is the default.
+     *
+     * <p>{@code done} runs on {@code loop}'s thread, or before this method
+     * returns when there is nothing to wait for.
+     *
+     * @param username the authenticated user
+     * @param loop the loop of the user's connection
+     * @param done run when the user's quota can be read
+     */
+    default void prepare(String username,
+            org.bluezoo.gumdrop.SelectorLoop loop, Runnable done) {
+        done.run();
+    }
     
     /**
      * Recalculates and updates the current usage for a user.

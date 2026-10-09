@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.smtp.server;
 
+import org.bluezoo.gumdrop.auth.SynchronousRealm;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
@@ -131,7 +132,7 @@ public class SmtpServerEdgeBranchesTest {
         RecordingListener listener = new RecordingListener();
         MockRealm realm = new MockRealm();
         server.addListener(listener);
-        server.setRealm(realm);
+        server.realm(realm);
         server.start(null);
         assertSame(realm, listener.getRealm());
         server.stop();
@@ -296,11 +297,7 @@ public class SmtpServerEdgeBranchesTest {
     }
 
     /** Realm that authenticates nobody. */
-    private static final class MockRealm implements Realm {
-        @Override
-        public Realm forSelectorLoop(SelectorLoop loop) {
-            return this;
-        }
+    private static final class MockRealm implements SynchronousRealm {
 
         @Override
         public Set<SaslMechanism> getSupportedSASLMechanisms() {
@@ -317,11 +314,6 @@ public class SmtpServerEdgeBranchesTest {
             return null;
         }
 
-        @Override
-        @SuppressWarnings("deprecation")
-        public String getPassword(String username) {
-            return null;
-        }
 
         @Override
         public boolean isUserInRole(String username, String role) {

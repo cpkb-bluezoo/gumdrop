@@ -140,11 +140,11 @@ public class MqttClientConnectTest {
     @Test
     public void connectSendsConnectWithConfiguredFields() throws Exception {
         StubClient c = new StubClient();
-        c.setClientId("client-1");
-        c.setKeepAlive(45);
-        c.setCleanSession(false);
-        c.setCredentials("alice", "secret");
-        c.setWill("will/topic", new byte[] {1, 2}, QoS.AT_LEAST_ONCE, true);
+        c.clientId("client-1");
+        c.keepAlive(45);
+        c.cleanSession(false);
+        c.credentials("alice", "secret");
+        c.will("will/topic", new byte[] {1, 2}, QoS.AT_LEAST_ONCE, true);
         Events events = new Events();
         c.connect(TestGumdrop.create(), events, events);
 
@@ -171,7 +171,7 @@ public class MqttClientConnectTest {
     @Test
     public void willWithoutQosDefaultsToAtMostOnce() throws Exception {
         StubClient c = new StubClient();
-        c.setWill("w", new byte[0], null, false);
+        c.will("w", new byte[0], null, false);
         Events events = new Events();
         c.connect(TestGumdrop.create(), events, events);
         assertTrue(sentText(c).contains("w"));
@@ -241,7 +241,7 @@ public class MqttClientConnectTest {
     public void publishQoS1CompletesOnPubAck() throws Exception {
         StubClient c = new StubClient();
         Events events = new Events();
-        c.setMessageStore(new InMemoryMessageStore());
+        c.messageStore(new InMemoryMessageStore());
         c.connect(TestGumdrop.create(), events, events);
         brokerAccepts(c);
         int id = c.publish("t", new byte[] {7}, QoS.AT_LEAST_ONCE, true);
@@ -298,7 +298,7 @@ public class MqttClientConnectTest {
     @Test
     public void keepAliveTimerPingsThroughTheFacade() throws Exception {
         StubClient c = new StubClient();
-        c.setKeepAlive(5);
+        c.keepAlive(5);
         Events events = new Events();
         c.connect(TestGumdrop.create(), events, events);
         brokerAccepts(c);

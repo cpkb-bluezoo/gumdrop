@@ -57,11 +57,11 @@
 
 | Requirement | Section | Status | Notes |
 |-------------|---------|--------|-------|
-| Header format (12 octets: ID, FLAGS, counts) | 4.1.1 | Compliant | All fields parsed/serialized correctly |
+| Header format (12 octets: ID, FLAGS, counts) | 4.1.1 | Compliant | All fields parsed/serialised correctly |
 | QR flag (bit 15) | 4.1.1 | Compliant | `FLAG_QR = 0x8000` |
 | OPCODE (bits 14-11) | 4.1.1 | Compliant | Extracted correctly via shift |
 | AA, TC, RD, RA flags | 4.1.1 | Compliant | All defined and tested |
-| Z bits MUST be zero | 4.1.1 | Compliant | Masked on parse (lenient), cleared on serialization |
+| Z bits MUST be zero | 4.1.1 | Compliant | Masked on parse (lenient), cleared on serialisation |
 | RCODE (bits 3-0) | 4.1.1 | Compliant | All standard codes defined |
 | Question section format (QNAME, QTYPE, QCLASS) | 4.1.2 | Compliant | |
 | Resource record format | 4.1.3 | Compliant | |
@@ -122,7 +122,7 @@
 | Requirement | Section | Status | Notes |
 |-------------|---------|--------|-------|
 | Connection reuse for multiple queries | 6.2.1 | Compliant | `TCPDNSConnectionPool` maintains persistent connections per server |
-| Idle connection timeout | 6.2.3 | Compliant | `setIdleTimeoutMs()` (default 30s) |
+| Idle connection timeout | 6.2.3 | Compliant | `idleTimeoutMs()` (default 30s) |
 | Maximum connection lifetime | 7 | Compliant | `setMaxLifetimeMs()` (default 5 min) |
 
 ---
@@ -218,7 +218,7 @@
 | Requirement | Section | Status | Notes |
 |-------------|---------|--------|-------|
 | Cache validated NSEC/NSEC3 proofs | 5 | Compliant | `DnsNsecProofCache` keyed by signer zone; populated after `DnssecChainValidator` reports SECURE |
-| Synthesize NXDOMAIN/NODATA before upstream | 5 | Compliant | `UpstreamRelayHandler.tryAggressiveNsec()`; `DnsNsecSynthesisCollector` builds wire response from events |
+| Synthesise NXDOMAIN/NODATA before upstream | 5 | Compliant | `UpstreamRelayHandler.tryAggressiveNsec()`; `DnsNsecSynthesisCollector` builds wire response from events |
 | Requires DNSSEC validation | 5 | Compliant | Only when `dnssecEnabled`; proofs ingested via `DnsNsecProofIngester` |
 | Configurable policy | — | Compliant | `AggressiveNsecPolicy`, builder toggles; metric `dns.server.cache.aggressive_nsec` |
 
@@ -431,7 +431,7 @@ practices.
 | USER command | 4.1.1 | Compliant | `doUser()` delegates to `FtpConnectionHandler` |
 | PASS command | 4.1.1 | Compliant | `doPass()` requires prior USER |
 | ACCT command | 4.1.1 | Compliant | `doAcct()` supports 3-stage authentication |
-| CWD command | 4.1.1 | Compliant | `doCwd()` with authorization check |
+| CWD command | 4.1.1 | Compliant | `doCwd()` with authorisation check |
 | CDUP command | 4.1.1 | Compliant | `doCdup()` delegates to CWD ".." |
 | SMNT command (optional) | 4.1.1 | Not implemented | 502 correct for optional command |
 | REIN command | 4.1.1 | Compliant | Resets all session state and replies 220 |
@@ -830,7 +830,7 @@ practices.
 | Requirement | Section | Status | Notes |
 |-------------|---------|--------|-------|
 | Request-line format: method SP request-target SP HTTP-version | 9112 s3.1 | Compliant | `sendHTTP11Request()` |
-| Host header required | 9112 s3.2 / 9110 s7.2 | Compliant | Always emitted with port normalization |
+| Host header required | 9112 s3.2 / 9110 s7.2 | Compliant | Always emitted with port normalisation |
 | Chunked transfer coding for request body | 9112 s7.1 | Compliant | `sendHTTP11Data()` / `endHTTP11Data()` |
 | Final zero-length chunk terminates body | 9112 s7.1 | Compliant | `endHTTP11Data()` sends `0\r\n\r\n` |
 | Connection: keep-alive header | 9112 s9.6 | Compliant | Sent when no explicit Connection header |
@@ -1030,7 +1030,7 @@ with TLS 1.3 handled by the in-tree `org.bluezoo.gumdrop.tls` engine via
 | DATA frames for request body | 4.1 | Compliant | `sendRequestBody()` via `H3Stream.sendBody()`; buffers in `PendingWrite` when send window is exhausted and drains in `resumePendingWrites()` |
 | FIN to complete request | 4.1 | Compliant | `H3Request.endMessage()` sends the last body piece (or an empty buffer) with fin=true, after any trailer HEADERS |
 | GOAWAY rejection of new requests | 5.2 | Compliant | `sendRequest()` returns -1 with IOException when goaway is set |
-| Priority (RFC 9218) | RFC 9218 4, 5, 7, 10 | Compliant | `Priority` header and `PRIORITY_UPDATE` frames; HTTP/2 advertises `SETTINGS_NO_RFC7540_PRIORITIES`; response DATA scheduled by urgency with non-incremental serialization |
+| Priority (RFC 9218) | RFC 9218 4, 5, 7, 10 | Compliant | `Priority` header and `PRIORITY_UPDATE` frames; HTTP/2 advertises `SETTINGS_NO_RFC7540_PRIORITIES`; response DATA scheduled by urgency with non-incremental serialisation |
 
 ### HTTP/3 Client Response Parsing — RFC 9114 section 4
 
@@ -1240,7 +1240,7 @@ The draft is not an RFC. Codepoints are kept in `AckFrequencyDraft`. The sender 
 | LIST-EXTENDED | RFC 5258 | Compliant | Always advertised |
 | LIST-STATUS | RFC 5819 | Compliant | Always advertised |
 | LITERAL- | RFC 7888 | Compliant | `LITERAL-` advertised; non-sync literals ({N+}) up to 4096 bytes accepted in all commands; `processLine()` buffers partial commands and consumes literal data; APPEND uses its own specialized binary path |
-| ID | RFC 2971 | Compliant | `handleId()`, configurable server fields via `setServerIdFields()` |
+| ID | RFC 2971 | Compliant | `handleId()`, configurable server fields via `serverIdFields()` |
 | CONDSTORE/QRESYNC | RFC 7162 | Implemented | Per-message MODSEQ via `Mailbox`, ENABLE CONDSTORE/QRESYNC, HIGHESTMODSEQ in SELECT, MODSEQ in FETCH/SEARCH/STORE (UNCHANGEDSINCE), VANISHED (EARLIER) on QRESYNC SELECT, session-wide VANISHED instead of EXPUNGE |
 | STATUS=SIZE | RFC 8438 | Compliant | Advertised; STATUS returns SIZE from `Mailbox.getMailboxSize()` |
 | COMPRESS=DEFLATE | RFC 4978 | Compliant | Advertised when authenticated; `COMPRESS DEFLATE` enables `ImapDeflateLayer` on send/receive |
@@ -1401,7 +1401,7 @@ The draft is not an RFC. Codepoints are kept in `AckFrequencyDraft`. The sender 
 | IMPLEMENTATION capability | 2449 §6.9 | Compliant | "gumdrop" |
 | RESP-CODES capability | 2449 §8 | Compliant | `[AUTH]`, `[SYS/TEMP]`, `[SYS/PERM]` codes in -ERR replies |
 | AUTH-RESP-CODE capability | 3206 | Compliant | `[AUTH]` code for authentication failures |
-| EXPIRE capability | 2449 §6.5 | Compliant | Configurable via `setExpireDays()` (NEVER, 0+, or suppressed) |
+| EXPIRE capability | 2449 §6.5 | Compliant | Configurable via `expireDays()` (NEVER, 0+, or suppressed) |
 | LOGIN-DELAY capability | 2449 §6.6 | Compliant | Computed from `loginDelayMs`, advertised in seconds |
 
 ### Security
@@ -1423,7 +1423,7 @@ The draft is not an RFC. Codepoints are kept in `AckFrequencyDraft`. The sender 
 |---|---|---|---|
 | Parse server greeting (+OK / -ERR) | 1939 §4 | Compliant | `dispatchGreeting()` |
 | Extract APOP timestamp from greeting | 1939 §7 | Compliant | `parseApopTimestamp()` |
-| Implicit TLS (POP3S, port 995) | 8314 §3.3 | Compliant | `Pop3Client.setSecure(true)` |
+| Implicit TLS (POP3S, port 995) | 8314 §3.3 | Compliant | `Pop3Client.secure(true)` |
 | STLS upgrade (STARTTLS) | 2595 §4 | Compliant | `stls()` → `endpoint.startTLS()` |
 
 ### Authentication
@@ -1474,7 +1474,7 @@ The draft is not an RFC. Codepoints are kept in `AckFrequencyDraft`. The sender 
 | LDAPMessage envelope (messageID + protocolOp) | 4511 §4.2 | Compliant | `processMessage()` — decode sequence, extract messageID and tag |
 | Message ID correlation | 4511 §4.1.1 | Compliant | `pendingCallbacks` map keyed by messageID |
 | Incremental message IDs | 4511 §4.1.1.1 | Compliant | `AtomicInteger nextMessageId` |
-| LDAPS (implicit TLS, port 636) | 4513 §3.1.3 | Compliant | `LdapClient.setSecure(true)` → `TcpTransportFactory.setSecure()` |
+| LDAPS (implicit TLS, port 636) | 4513 §3.1.3 | Compliant | `LdapClient.secure(true)` → `TcpTransportFactory.setSecure()` |
 | STARTTLS extended operation | 4511 §4.14, 4513 §3 | Compliant | `startTLS()` sends ExtendedRequest with OID `1.3.6.1.4.1.1466.20037` |
 | TLS handshake after STARTTLS | 4513 §3 | Compliant | `securityEstablished()` → `handleTLSEstablished()` callback |
 
@@ -1590,7 +1590,7 @@ The draft is not an RFC. Codepoints are kept in `AckFrequencyDraft`. The sender 
 | SELECT (database index) | Redis command — SELECT | Compliant | `select(index, handler)` |
 | ECHO | Redis command — ECHO | Compliant | `echo(message, handler)` |
 | QUIT | Redis command — QUIT | Compliant | `quit()` — sends QUIT then closes |
-| TLS connection | Redis 6+ TLS | Compliant | `RedisClient.setSecure(true)` → `TcpTransportFactory.setSecure()` |
+| TLS connection | Redis 6+ TLS | Compliant | `RedisClient.secure(true)` → `TcpTransportFactory.setSecure()` |
 | HELLO (RESP3 negotiation) | Redis 6+ — HELLO | Compliant | `hello(protover, handler)` and `hello(protover, user, pass, handler)` |
 | CLIENT SETNAME | Redis command — CLIENT SETNAME | Compliant | `clientSetName(name, handler)` |
 | CLIENT GETNAME | Redis command — CLIENT GETNAME | Compliant | `clientGetName(handler)` |
@@ -1759,7 +1759,7 @@ The draft is not an RFC. Codepoints are kept in `AckFrequencyDraft`. The sender 
 | Implicit TLS (SMTPS) | RFC 8314 | **Compliant** | Port 465, greeting after TLS |
 | Message Submission | RFC 6409 | **Compliant** | Port 587, auth required mode |
 | XCLIENT | Postfix | **Compliant** | NAME, ADDR, PORT, PROTO, HELO, LOGIN, DESTADDR, DESTPORT |
-| ETRN | RFC 1985 | **Compliant** | Recognized command, returns 458 (no relay queue) |
+| ETRN | RFC 1985 | **Compliant** | Recognised command, returns 458 (no relay queue) |
 
 ---
 
@@ -2138,7 +2138,7 @@ The draft is not an RFC. Codepoints are kept in `AckFrequencyDraft`. The sender 
 | OAUTHBEARER mechanism | RFC 7628 §3.1 | **Compliant** | `SaslUtils.parseOAuthBearerCredentials()` — GS2 header + Bearer token |
 | EXTERNAL mechanism | RFC 4422 Appendix A | **Compliant** | `SaslUtils.authenticateExternal()` — certificate extraction + authzid handling |
 | APOP mechanism | RFC 1939 | **Compliant** | `Realm.getApopResponse()` |
-| Proxy authorization (authzid) | RFC 4422 §4.2 | **Compliant** | `Realm.authorizeAs()` |
+| Proxy authorisation (authzid) | RFC 4422 §4.2 | **Compliant** | `Realm.authorizeAs()` |
 
 ### Cryptographic Primitives
 
@@ -2156,8 +2156,8 @@ The draft is not an RFC. Codepoints are kept in `AckFrequencyDraft`. The sender 
 |---|---|---|---|
 | BasicRealm — XML-based credential store | — | **Compliant** | Supports PLAIN, LOGIN, CRAM-MD5, DIGEST-MD5, SCRAM-SHA-256, EXTERNAL |
 | LdapRealm — LDAP simple bind | RFC 4513 §5.1.1 | **Compliant** | `LdapRealm.passwordMatch()` performs search-then-bind |
-| LdapRealm — LDAP search filter | RFC 4515 | **Compliant** | `LdapRealm.setUserFilter()` with placeholder substitution |
-| LdapRealm — SASL bind | RFC 4513 §5.2 | **Compliant** | `setSaslMechanism()` enables SASL for service and user binds via `SaslUtils.createClient()` (PLAIN, CRAM-MD5, DIGEST-MD5, EXTERNAL, GSSAPI) |
+| LdapRealm — LDAP search filter | RFC 4515 | **Compliant** | `LdapRealm.userFilter()` with placeholder substitution |
+| LdapRealm — SASL bind | RFC 4513 §5.2 | **Compliant** | `saslMechanism()` enables SASL for service and user binds via `SaslUtils.createClient()` (PLAIN, CRAM-MD5, DIGEST-MD5, EXTERNAL, GSSAPI) |
 
 ---
 
@@ -2177,13 +2177,13 @@ The draft is not an RFC. Codepoints are kept in `AckFrequencyDraft`. The sender 
 ### Out of scope (documented non-goals)
 
 Gumdrop validates bearer access tokens as a **resource server** only. It is
-not an OAuth 2.0 authorization server and does not implement the grants or
+not an OAuth 2.0 authorisation server and does not implement the grants or
 extensions below. This is intentional; see `web/security.html#oauth-non-goals`.
 
 | RFC | Title | Status | Notes |
 |-----|-------|--------|-------|
-| RFC 6749 §4.1 | Authorization code grant (issuer) | N/A | No in-tree authorize/token endpoints; use an external AS |
-| RFC 7636 | PKCE | Won't implement | No authorization-code issuance in gumdrop |
+| RFC 6749 §4.1 | Authorisation code grant (issuer) | N/A | No in-tree authorise/token endpoints; use an external AS |
+| RFC 7636 | PKCE | Won't implement | No authorisation-code issuance in gumdrop |
 | RFC 9449 | DPoP | Won't implement | No planned sender-constrained bearer expansion |
 
 ---
@@ -2334,7 +2334,7 @@ extensions below. This is intentional; see `web/security.html#oauth-non-goals`.
 | CD=1 CONNECT | §Request | **Compliant** | Full CONNECT flow supported |
 | CD=2 BIND | §Request | **Compliant** | `SocksProtocolHandler.handleBind()` creates `SocksBindRelay` with `RawAcceptHandler`; two-reply flow with peer validation |
 | USERID null-terminated | §Request | **Compliant** | `readNullTerminatedString()` in ISO 8859-1 encoding |
-| USERID passed through in `SocksRequest` | §Request | **Compliant** | Available to `ConnectHandler` for custom authorization |
+| USERID passed through in `SocksRequest` | §Request | **Compliant** | Available to `ConnectHandler` for custom authorisation |
 
 #### Reply Format
 

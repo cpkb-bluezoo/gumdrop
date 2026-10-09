@@ -103,9 +103,9 @@ public class MdnsListenerLifecycleIntegrationTest {
 
     private MdnsListener started(RecordingServer server) {
         MdnsListener l = new MdnsListener();
-        l.setPort(0);
+        l.port(0);
         if (server != null) {
-            l.setServer(server);
+            l.server(server);
         }
         l.start(gumdrop);
         return l;
@@ -182,7 +182,7 @@ public class MdnsListenerLifecycleIntegrationTest {
         assertFalse(bare.isBound());
         RecordingServer server = new RecordingServer();
         MdnsListener wired = new MdnsListener();
-        wired.setServer(server);
+        wired.server(server);
         wired.stop();
         assertEquals(1, server.goodbyes);
         assertSame(Thread.currentThread(), server.goodbyeThread.get());

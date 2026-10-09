@@ -30,14 +30,17 @@ package org.bluezoo.gumdrop.grpc.proto;
  * The application implements this interface to process messages without
  * building in-memory structures.
  *
+ * <p>{@link #startMessage} and {@link #endMessage} bracket a whole message as
+ * it is received, so a handler can treat {@code endMessage()} as "this message
+ * is complete" without tracking depth. A nested message is not bracketed by
+ * them: it is the content between {@link #startField} and {@link #endField}.
+ *
  * <h3>Example event sequence</h3>
  * <pre>
  * startMessage("GetUserRequest")
  * field("user_id", 42)
  * startField("address", "Address")
- *   startMessage("Address")
  *   field("street", "123 Main")
- *   endMessage()
  * endField()
  * endMessage()
  * </pre>
@@ -54,7 +57,8 @@ public interface ProtoMessageHandler {
     void setLocator(ProtoLocator locator);
 
     /**
-     * Start of a message (root or nested).
+     * Start of a message. Called once for each message received, not for
+     * messages nested inside it.
      *
      * @param typeName the fully qualified message type name
      * @throws ProtoParseException if processing fails
@@ -62,7 +66,8 @@ public interface ProtoMessageHandler {
     void startMessage(String typeName) throws ProtoParseException;
 
     /**
-     * End of the current message.
+     * End of the message: it has been received in full. Not called for
+     * nested messages.
      *
      * @throws ProtoParseException if processing fails
      */
@@ -78,7 +83,8 @@ public interface ProtoMessageHandler {
     void field(String name, Object value) throws ProtoParseException;
 
     /**
-     * Start of a nested message field.
+     * Start of a nested message field; the fields of the nested message
+     * follow, up to {@link #endField}.
      *
      * @param name the field name
      * @param typeName the nested message type name

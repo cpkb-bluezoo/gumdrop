@@ -83,8 +83,9 @@ port:
 </p>
 
 <pre>
-java -cp "build/*:lib/*" Peer alice 9001 localhost 9002
-java -cp "build/*:lib/*" Peer bob   9002 localhost 9001
+ant jar examples-compile
+java -cp "build/examples:dist/gumdrop.jar:lib/*" Peer alice 9001 localhost 9002
+java -cp "build/examples:dist/gumdrop.jar:lib/*" Peer bob   9002 localhost 9001
 </pre>
 
 <p>Each prints the other&rsquo;s greeting (for example
@@ -231,7 +232,7 @@ public final class Peer {
 <p>
 The example uses cleartext HTTP to stay short. For a real mesh use
 <code>secureEndpoint(port, TlsConfig.pem(cert, key))</code> on the server
-and <code>client.setSecure(true)</code> on the client; see
+and <code>client.secure(true)</code> on the client; see
 <a href="tls.html">TLS</a>.
 </p>
 
@@ -244,8 +245,9 @@ follows, following the approach of RFC 8305 (Happy Eyeballs):
 </p>
 
 <ul>
-<li>IPv6 addresses are preferred, and the address list is interleaved so
-that families alternate (RFC 8305 section 4).</li>
+<li>The resolver lists IPv6 addresses first while the host can reach IPv6,
+and the address list is interleaved so that families alternate (RFC 8305
+section 4).</li>
 <li>If a connection attempt fails, the next address is tried. The
 handler&rsquo;s error callback fires only once every address has failed, so
 a host with a broken IPv6 route and a working IPv4 route still connects.</li>
@@ -256,13 +258,21 @@ parallel.</li>
 protocol client gets it; protocol clients do not carry their own copies.</li>
 </ul>
 
+<p>
+Name resolution never blocks a SelectorLoop. Gumdrop uses its own asynchronous resolver, which
+answers address literals, <code>localhost</code> and the hosts file without any network traffic,
+caches results, and can use DNS over TLS, QUIC or HTTPS; see
+<a href="dns.html#resolver-default">DNS: hostname resolution in every Gumdrop client</a>.
+</p>
+
 <h3 id="listening">How a node listens</h3>
 
 <p>
 <code>Listener.bindWildcard()</code> binds the wildcard address as a single
 dual-stack socket where the platform allows, so one listener accepts both
-IPv6 and IPv4. Bind explicit addresses with the listener&rsquo;s address
-setters when a node should only be reachable on a particular interface.
+IPv6 and IPv4. Bind explicit addresses with the listener&rsquo;s
+<code>addresses(InetAddress...)</code> when a node should only be reachable on a
+particular interface.
 </p>
 
 <h3 id="security">Security defaults</h3>
@@ -273,8 +283,9 @@ requires it, restricted to ECDHE key exchange with AEAD ciphers (AES-GCM and
 ChaCha20-Poly1305); CBC and other legacy suites are not offered. See
 <a href="tls.html">TLS</a>.</li>
 <li>HTTP/3 (QUIC) is available on the same port as HTTPS when a server uses
-<code>secureEndpoint</code>, and a client can use it with
-<code>setH3Enabled(true)</code>.</li>
+<code>secureEndpoint</code>. A client uses it automatically when the peer advertises it in a
+DNS HTTPS record or <code>Alt-Svc</code>, and falls back to TCP if it cannot connect; see
+<a href="http.html#client-discovery">choosing HTTP/3 or TCP</a>.</li>
 <li>Mutual TLS is supported for peer authentication; see
 <a href="tls.html#mtls">client certificates (mTLS)</a>.</li>
 </ul>
@@ -285,6 +296,7 @@ ChaCha20-Poly1305); CBC and other legacy suites are not offered. See
 <a href="index.html">&larr; Back to Main Page</a> |
 <a href="configuration.html">Configuration</a> |
 <a href="http.html">HTTP Server &amp; Client</a> |
+<a href="dns.html">DNS</a> |
 <a href="tls.html">TLS</a>
 </p>
 

@@ -22,6 +22,7 @@
 package org.bluezoo.gumdrop.smtp.postfix;
 
 import org.bluezoo.gumdrop.Gumdrop;
+import org.bluezoo.gumdrop.tls.TlsConfig;
 import org.bluezoo.gumdrop.mime.rfc5322.EmailAddress;
 import org.bluezoo.gumdrop.smtp.client.SmtpClient;
 import org.bluezoo.gumdrop.smtp.client.ClientEnvelope;
@@ -429,7 +430,7 @@ public class PostfixSmtpIntegrationTest {
         X509TrustManager trustManager = pinningTrustManager(serverCert);
 
         SmtpClient client = new SmtpClient(PostfixTestSupport.HOST, PostfixTestSupport.PORT);
-        client.setTrustManager(trustManager);
+        client.tls(new TlsConfig().trustManager(trustManager));
 
         CountDownLatch doneLatch = new CountDownLatch(1);
         AtomicReference<Exception> error = new AtomicReference<>();

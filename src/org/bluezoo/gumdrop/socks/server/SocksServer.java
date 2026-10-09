@@ -115,15 +115,6 @@ public class SocksServer implements Server, SocksServerSessionProvider {
     // instanceof - the parameter can't be generically typed since the
     // parser has no compile-time knowledge of the target element type.
     @SuppressWarnings("rawtypes")
-    public void setListeners(List list) {
-        for (int i = 0; i < list.size(); i++) {
-            Object item = list.get(i);
-            if (item instanceof SocksListener) {
-                addListener((SocksListener) item);
-            }
-        }
-    }
-
     @Override
     public List<SocksListener> getListeners() {
         return Collections.unmodifiableList(listeners);
@@ -147,9 +138,11 @@ public class SocksServer implements Server, SocksServerSessionProvider {
      * are not affected (the userid is passed through in the request).
      *
      * @param realm the realm
+     * @return this
      */
-    public void setRealm(Realm realm) {
+    public SocksServer realm(Realm realm) {
         this.realm = realm;
+        return this;
     }
 
     /**
@@ -158,10 +151,12 @@ public class SocksServer implements Server, SocksServerSessionProvider {
      * be permitted.
      *
      * @param allowed the permitted destination networks, or null
+     * @return this
      */
-    public void setAllowedDestinations(List<CidrNetwork> allowed) {
+    public SocksServer allowedDestinations(List<CidrNetwork> allowed) {
         this.allowedDestinations = allowed == null || allowed.isEmpty()
                 ? null : new ArrayList<CidrNetwork>(allowed);
+        return this;
     }
 
     /**
@@ -170,10 +165,12 @@ public class SocksServer implements Server, SocksServerSessionProvider {
      * Block rules are evaluated before allow rules.
      *
      * @param blocked the denied destination networks, or null
+     * @return this
      */
-    public void setBlockedDestinations(List<CidrNetwork> blocked) {
+    public SocksServer blockedDestinations(List<CidrNetwork> blocked) {
         this.blockedDestinations = blocked == null || blocked.isEmpty()
                 ? null : new ArrayList<CidrNetwork>(blocked);
+        return this;
     }
 
     /**
@@ -181,9 +178,11 @@ public class SocksServer implements Server, SocksServerSessionProvider {
      * value of 0 means unlimited.
      *
      * @param maxRelays the maximum relay count
+     * @return this
      */
-    public void setMaxRelays(int maxRelays) {
+    public SocksServer maxRelays(int maxRelays) {
         this.maxRelays = maxRelays;
+        return this;
     }
 
     /**
@@ -201,9 +200,11 @@ public class SocksServer implements Server, SocksServerSessionProvider {
      * closed.
      *
      * @param timeoutMs the timeout in milliseconds
+     * @return this
      */
-    public void setRelayIdleTimeoutMs(long timeoutMs) {
+    public SocksServer relayIdleTimeoutMs(long timeoutMs) {
         this.relayIdleTimeoutMs = timeoutMs;
+        return this;
     }
 
     /**
@@ -357,7 +358,7 @@ public class SocksServer implements Server, SocksServerSessionProvider {
 
         for (SocksListener ep : listeners) {
             wireListener(ep);
-            ep.setServer(this);
+            ep.server(this);
             try {
                 ep.start(gumdrop);
             } catch (Exception e) {
@@ -380,7 +381,7 @@ public class SocksServer implements Server, SocksServerSessionProvider {
 
     private void wireListener(SocksListener ep) {
         if (realm != null && ep.getRealm() == null) {
-            ep.setRealm(realm);
+            ep.realm(realm);
         }
     }
 
@@ -471,16 +472,16 @@ public class SocksServer implements Server, SocksServerSessionProvider {
             SocksServer server = new SocksServer();
             server.setComposedSessionProvider(sessionProvider);
             if (realm != null) {
-                server.setRealm(realm);
+                server.realm(realm);
             }
             if (allowedDestinations != null) {
-                server.setAllowedDestinations(allowedDestinations);
+                server.allowedDestinations(allowedDestinations);
             }
             if (blockedDestinations != null) {
-                server.setBlockedDestinations(blockedDestinations);
+                server.blockedDestinations(blockedDestinations);
             }
-            server.setMaxRelays(maxRelays);
-            server.setRelayIdleTimeoutMs(relayIdleTimeoutMs);
+            server.maxRelays(maxRelays);
+            server.relayIdleTimeoutMs(relayIdleTimeoutMs);
             for (int i = 0; i < listeners.size(); i++) {
                 server.addListener(listeners.get(i));
             }

@@ -53,7 +53,7 @@ public class HttpProtocolHandlerHeaderValueTest {
     public void setUp() {
         received = null;
         Http2Listener listener = new Http2Listener();
-        listener.setStreamHandler(new HttpStreamHandler() {
+        listener.streamHandler(new HttpStreamHandler() {
             @Override
             public HttpRequestHandler openStream(HttpResponse state) {
                 return new CollectingRequestHandler(state) {

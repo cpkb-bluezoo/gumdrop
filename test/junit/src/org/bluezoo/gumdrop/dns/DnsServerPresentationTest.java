@@ -154,7 +154,7 @@ public class DnsServerPresentationTest {
 
     private UpstreamRelayHandler dnssecRelayWithCache() throws Exception {
         UpstreamRelayHandler relay = UpstreamRelayHandler.builder().useSystemResolvers(false).build();
-        relay.setDnssecEnabled(true);
+        relay.dnssecEnabled(true);
         DnsCache cache = new DnsCache();
         DnsQuestion q = new DnsQuestion("www.example.com", DnsType.A, DnsClass.IN);
         cache.cache(q, mixedAnswers());
@@ -166,7 +166,7 @@ public class DnsServerPresentationTest {
 
     @Test
     public void testDnssecRecordsStrippedWithoutDoBit() throws Exception {
-        server.setHandler(dnssecRelayWithCache());
+        server.handler(dnssecRelayWithCache());
         server.handleDatagram(listener,
                 DnsMessage.createQuery(1, "www.example.com.", DnsType.A).serialize(), source, done);
         DnsMessage r = lastResponse();
@@ -177,7 +177,7 @@ public class DnsServerPresentationTest {
 
     @Test
     public void testDnssecRecordsKeptWithDoBit() throws Exception {
-        server.setHandler(dnssecRelayWithCache());
+        server.handler(dnssecRelayWithCache());
         List<DnsResourceRecord> adds = new ArrayList<DnsResourceRecord>();
         adds.add(DnsResourceRecord.opt(4096, DnsResourceRecord.EDNS_FLAG_DO, new byte[0]));
         DnsMessage q = DnsMessage.createQuery(2, "www.example.com.", DnsType.A, adds);
@@ -188,8 +188,8 @@ public class DnsServerPresentationTest {
     @Test
     public void testRelayWithoutDnssecKeepsRecords() throws Exception {
         UpstreamRelayHandler relay = dnssecRelayWithCache();
-        relay.setDnssecEnabled(false);
-        server.setHandler(relay);
+        relay.dnssecEnabled(false);
+        server.handler(relay);
         server.handleDatagram(listener,
                 DnsMessage.createQuery(3, "www.example.com.", DnsType.A).serialize(), source, done);
         assertEquals(7, lastResponse().getAnswers().size());
@@ -202,7 +202,7 @@ public class DnsServerPresentationTest {
             big.add(DnsResourceRecord.txt("www.example.com.", 60,
                     "padding-padding-padding-padding-padding-" + i));
         }
-        server.setHandler(new DnsQueryHandler() {
+        server.handler(new DnsQueryHandler() {
             @Override
             public void handleQuery(DnsMessage query, SelectorLoop loop, DnsQueryCallback cb) {
                 DnsType type = query.getQuestions().get(0).getType();
@@ -252,7 +252,7 @@ public class DnsServerPresentationTest {
 
     @Test
     public void testCookieMergedIntoExistingOptOfResponse() throws Exception {
-        server.setHandler(new DnsQueryHandler() {
+        server.handler(new DnsQueryHandler() {
             @Override
             public void handleQuery(DnsMessage query, SelectorLoop loop, DnsQueryCallback cb) {
                 List<DnsResourceRecord> adds = new ArrayList<DnsResourceRecord>();
@@ -309,7 +309,7 @@ public class DnsServerPresentationTest {
         tc.metricsEnabled(true);
         listener.telemetry = tc;
         server.addListener(listener);
-        server.setHandler(new DnsQueryHandler() {
+        server.handler(new DnsQueryHandler() {
             @Override
             public void handleQuery(DnsMessage query, SelectorLoop loop, DnsQueryCallback cb) {
                 cb.onResponse(query.createResponse(Collections.<DnsResourceRecord>emptyList()));

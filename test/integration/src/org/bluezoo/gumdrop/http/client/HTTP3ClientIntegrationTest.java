@@ -23,6 +23,7 @@ package org.bluezoo.gumdrop.http.client;
 
 import java.nio.file.Path;
 import org.bluezoo.gumdrop.http.HttpMethod;
+import org.bluezoo.gumdrop.tls.TlsConfig;
 import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.GumdropConfig;
@@ -92,11 +93,10 @@ public class HTTP3ClientIntegrationTest {
         System.setProperty("gumdrop.workers", "2");
 
         listener = new Http3Listener();
-        listener.setPort(H3_PORT);
+        listener.port(H3_PORT);
         listener.addresses(java.net.InetAddress.getByName(TEST_HOST));
-        listener.setCertFile(Path.of(TestTlsFiles.certFile().toString()));
-        listener.setKeyFile(Path.of(TestTlsFiles.keyFile().toString()));
-        listener.setStreamHandler(new EchoHandlerFactory());
+        listener.tls(TlsConfig.pem(Path.of(TestTlsFiles.certFile().toString()), Path.of(TestTlsFiles.keyFile().toString())));
+        listener.streamHandler(new EchoHandlerFactory());
 
         gumdrop = Gumdrop.boot(GumdropConfig.create().workerThreads(2));
         gumdrop.addListener(listener);
@@ -277,10 +277,9 @@ public class HTTP3ClientIntegrationTest {
 
     private HttpClient connect() throws Exception {
         HttpClient client = new HttpClient(TEST_HOST, H3_PORT);
-        client.setH3Enabled(true);
-        client.setTrustManager(TestTlsFiles.trustManager());
-        client.setVerifyPeer(true);
-        client.setAltSvcEnabled(false);
+        client.versions(HttpVersion.HTTP_3);
+        client.tls(new TlsConfig().trustManager(TestTlsFiles.trustManager()).verifyPeer(true));
+        client.altSvcEnabled(false);
 
         final CountDownLatch connected = new CountDownLatch(1);
         final AtomicReference<Exception> error = new AtomicReference<>();

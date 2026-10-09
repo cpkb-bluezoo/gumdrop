@@ -112,21 +112,6 @@ public class ImapServer implements Server, ImapServerSessionProvider {
         listeners.add(endpoint);
     }
 
-    /**
-     * Sets the listeners from a configuration list. Each item in the
-     * list must be an {@link ImapListener}.
-     *
-     * @param list the list of listener endpoints
-     */
-    public void setListeners(List<?> list) {
-        for (int i = 0; i < list.size(); i++) {
-            Object item = list.get(i);
-            if (item instanceof ImapListener) {
-                addListener((ImapListener) item);
-            }
-        }
-    }
-
     @Override
     public List<Listener> getListeners() {
         return Collections.unmodifiableList(listeners);
@@ -138,15 +123,16 @@ public class ImapServer implements Server, ImapServerSessionProvider {
         return realm;
     }
 
-    public void setRealm(Realm realm) {
+    public ImapServer realm(Realm realm) {
         this.realm = realm;
+        return this;
     }
 
     public MailboxFactory getMailboxFactory() {
         return mailboxFactory;
     }
 
-    public void setMailboxFactory(MailboxFactory factory) {
+    public ImapServer mailboxFactory(MailboxFactory factory) {
         if (factory != null) {
             ImapServerSessionProvider provider = sessionProvider;
             if (provider instanceof MailboxStoreImapSessionProvider) {
@@ -156,110 +142,124 @@ public class ImapServer implements Server, ImapServerSessionProvider {
             }
         }
         this.mailboxFactory = factory;
+        return this;
     }
 
     public QuotaManager getQuotaManager() {
         return quotaManager;
     }
 
-    public void setQuotaManager(QuotaManager quotaManager) {
+    public ImapServer quotaManager(QuotaManager quotaManager) {
         this.quotaManager = quotaManager;
+        return this;
     }
 
     public long getLoginTimeoutMs() {
         return loginTimeoutMs;
     }
 
-    public void setLoginTimeoutMs(long loginTimeoutMs) {
+    public ImapServer loginTimeoutMs(long loginTimeoutMs) {
         this.loginTimeoutMs = loginTimeoutMs;
+        return this;
     }
 
     public long getCommandTimeoutMs() {
         return commandTimeoutMs;
     }
 
-    public void setCommandTimeoutMs(long commandTimeoutMs) {
+    public ImapServer commandTimeoutMs(long commandTimeoutMs) {
         this.commandTimeoutMs = commandTimeoutMs;
+        return this;
     }
 
     public boolean isEnableIDLE() {
         return enableIDLE;
     }
 
-    public void setEnableIDLE(boolean enableIDLE) {
+    public ImapServer enableIDLE(boolean enableIDLE) {
         this.enableIDLE = enableIDLE;
+        return this;
     }
 
     public boolean isEnableNAMESPACE() {
         return enableNAMESPACE;
     }
 
-    public void setEnableNAMESPACE(boolean enableNAMESPACE) {
+    public ImapServer enableNAMESPACE(boolean enableNAMESPACE) {
         this.enableNAMESPACE = enableNAMESPACE;
+        return this;
     }
 
     public boolean isEnableQUOTA() {
         return enableQUOTA;
     }
 
-    public void setEnableQUOTA(boolean enableQUOTA) {
+    public ImapServer enableQUOTA(boolean enableQUOTA) {
         this.enableQUOTA = enableQUOTA;
+        return this;
     }
 
     public boolean isEnableMOVE() {
         return enableMOVE;
     }
 
-    public void setEnableMOVE(boolean enableMOVE) {
+    public ImapServer enableMOVE(boolean enableMOVE) {
         this.enableMOVE = enableMOVE;
+        return this;
     }
 
     public boolean isEnableCOMPRESS() {
         return enableCOMPRESS;
     }
 
-    public void setEnableCOMPRESS(boolean enableCOMPRESS) {
+    public ImapServer enableCOMPRESS(boolean enableCOMPRESS) {
         this.enableCOMPRESS = enableCOMPRESS;
+        return this;
     }
 
     public boolean isEnableUTF8ACCEPT() {
         return enableUTF8ACCEPT;
     }
 
-    public void setEnableUTF8ACCEPT(boolean enableUTF8ACCEPT) {
+    public ImapServer enableUTF8ACCEPT(boolean enableUTF8ACCEPT) {
         this.enableUTF8ACCEPT = enableUTF8ACCEPT;
+        return this;
     }
 
     public boolean isEnableSORT() {
         return enableSORT;
     }
 
-    public void setEnableSORT(boolean enableSORT) {
+    public ImapServer enableSORT(boolean enableSORT) {
         this.enableSORT = enableSORT;
+        return this;
     }
 
     public int getMaxLineLength() {
         return maxLineLength;
     }
 
-    public void setMaxLineLength(int maxLineLength) {
+    public ImapServer maxLineLength(int maxLineLength) {
         this.maxLineLength = maxLineLength;
+        return this;
     }
 
     public int getMaxLiteralSize() {
         return maxLiteralSize;
     }
 
-    public void setMaxLiteralSize(int maxLiteralSize) {
+    public ImapServer maxLiteralSize(int maxLiteralSize) {
         this.maxLiteralSize = maxLiteralSize;
+        return this;
     }
 
     public boolean isAllowPlaintextLogin() {
         return allowPlaintextLogin;
     }
 
-    public void setAllowPlaintextLogin(boolean allow) {
+    public ImapServer allowPlaintextLogin(boolean allow) {
         this.allowPlaintextLogin = allow;
+        return this;
     }
 
     // ── Handler creation ──
@@ -342,9 +342,9 @@ public class ImapServer implements Server, ImapServerSessionProvider {
                 wireEndpoint(ep);
                 ImapServerSessionProvider provider = getSessionProvider();
                 if (provider != null) {
-                    ep.setSessionProvider(provider);
+                    ep.sessionProvider(provider);
                 }
-                ep.setServer(this);
+                ep.server(this);
             }
             startListener(gumdrop, listener);
         }
@@ -365,26 +365,26 @@ public class ImapServer implements Server, ImapServerSessionProvider {
      */
     private void wireEndpoint(ImapListener ep) {
         if (realm != null) {
-            ep.setRealm(realm);
+            ep.realm(realm);
         }
         if (mailboxFactory != null) {
-            ep.setMailboxFactory(mailboxFactory);
+            ep.mailboxFactory(mailboxFactory);
         }
         if (quotaManager != null) {
-            ep.setQuotaManager(quotaManager);
+            ep.quotaManager(quotaManager);
         }
-        ep.setLoginTimeoutMs(loginTimeoutMs);
-        ep.setCommandTimeoutMs(commandTimeoutMs);
-        ep.setEnableIDLE(enableIDLE);
-        ep.setEnableNAMESPACE(enableNAMESPACE);
-        ep.setEnableQUOTA(enableQUOTA);
-        ep.setEnableMOVE(enableMOVE);
-        ep.setEnableCOMPRESS(enableCOMPRESS);
-        ep.setEnableUTF8ACCEPT(enableUTF8ACCEPT);
-        ep.setEnableSORT(enableSORT);
-        ep.setMaxLineLength(maxLineLength);
-        ep.setMaxLiteralSize(maxLiteralSize);
-        ep.setAllowPlaintextLogin(allowPlaintextLogin);
+        ep.loginTimeoutMs(loginTimeoutMs);
+        ep.commandTimeoutMs(commandTimeoutMs);
+        ep.enableIDLE(enableIDLE);
+        ep.enableNAMESPACE(enableNAMESPACE);
+        ep.enableQUOTA(enableQUOTA);
+        ep.enableMOVE(enableMOVE);
+        ep.enableCOMPRESS(enableCOMPRESS);
+        ep.enableUTF8ACCEPT(enableUTF8ACCEPT);
+        ep.enableSORT(enableSORT);
+        ep.maxLineLength(maxLineLength);
+        ep.maxLiteralSize(maxLiteralSize);
+        ep.allowPlaintextLogin(allowPlaintextLogin);
     }
 
     private void startListener(Gumdrop gumdrop, Object listener) {
@@ -578,23 +578,23 @@ public class ImapServer implements Server, ImapServerSessionProvider {
             ImapServer server = new ImapServer();
             server.setComposedSessionProvider(provider);
             if (realm != null) {
-                server.setRealm(realm);
+                server.realm(realm);
             }
             if (quotaManager != null) {
-                server.setQuotaManager(quotaManager);
+                server.quotaManager(quotaManager);
             }
-            server.setLoginTimeoutMs(loginTimeoutMs);
-            server.setCommandTimeoutMs(commandTimeoutMs);
-            server.setEnableIDLE(enableIDLE);
-            server.setEnableNAMESPACE(enableNAMESPACE);
-            server.setEnableQUOTA(enableQUOTA);
-            server.setEnableMOVE(enableMOVE);
-            server.setEnableCOMPRESS(enableCOMPRESS);
-            server.setEnableUTF8ACCEPT(enableUTF8ACCEPT);
-            server.setEnableSORT(enableSORT);
-            server.setMaxLineLength(maxLineLength);
-            server.setMaxLiteralSize(maxLiteralSize);
-            server.setAllowPlaintextLogin(allowPlaintextLogin);
+            server.loginTimeoutMs(loginTimeoutMs);
+            server.commandTimeoutMs(commandTimeoutMs);
+            server.enableIDLE(enableIDLE);
+            server.enableNAMESPACE(enableNAMESPACE);
+            server.enableQUOTA(enableQUOTA);
+            server.enableMOVE(enableMOVE);
+            server.enableCOMPRESS(enableCOMPRESS);
+            server.enableUTF8ACCEPT(enableUTF8ACCEPT);
+            server.enableSORT(enableSORT);
+            server.maxLineLength(maxLineLength);
+            server.maxLiteralSize(maxLiteralSize);
+            server.allowPlaintextLogin(allowPlaintextLogin);
             for (int i = 0; i < listeners.size(); i++) {
                 server.addListener(listeners.get(i));
             }

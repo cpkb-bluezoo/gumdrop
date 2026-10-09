@@ -29,16 +29,16 @@ import java.nio.charset.StandardCharsets;
  * runtime and its SelectorLoops, and neither is a "library" in any sense
  * the other is not.
  *
- * <p>Run two nodes from the gumdrop tree after {@code ant build}, each
- * pointing at the other's port:
+ * <p>Run two nodes from the gumdrop tree after {@code ant jar examples-compile},
+ * each pointing at the other's port:
  * <pre>{@code
- * java -cp "build/*:lib/*" examples.p2p-mesh.Peer alice 9001 localhost 9002
- * java -cp "build/*:lib/*" examples.p2p-mesh.Peer bob   9002 localhost 9001
+ * java -cp "build/examples:dist/gumdrop.jar:lib/*" Peer alice 9001 localhost 9002
+ * java -cp "build/examples:dist/gumdrop.jar:lib/*" Peer bob   9002 localhost 9001
  * }</pre>
  *
  * <p>Cleartext HTTP keeps the example short. A real mesh would use
  * {@code secureEndpoint(port, TlsConfig.pem(cert, key))} on the server
- * side and {@code client.setSecure(true)} on the client side; see
+ * side and {@code client.secure(true)} on the client side; see
  * web/tls.html.
  */
 public final class Peer {

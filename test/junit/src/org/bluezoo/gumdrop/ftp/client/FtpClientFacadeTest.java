@@ -26,6 +26,7 @@ import java.net.InetAddress;
 import org.junit.Test;
 
 import org.bluezoo.gumdrop.Endpoint;
+import org.bluezoo.gumdrop.tls.TlsConfig;
 import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.SelectorLoop;
@@ -89,12 +90,8 @@ public class FtpClientFacadeTest {
     @Test
     public void plainSettersAcceptValues() {
         FtpClient client = new FtpClient("ftp.example.com", 2121);
-        client.setSecure(true);
-        client.setClientCredentials(null);
-        client.setTrustManager(null);
-        client.setKeystoreFile(null);
-        client.setKeystorePass("x");
-        client.setKeystoreFormat(null);
+        client.secure(true);
+        client.tls(new TlsConfig());
         assertFalse(client.isOpen());
     }
 
@@ -107,12 +104,7 @@ public class FtpClientFacadeTest {
         assertSame(client, client.host("other.example.com"));
         assertSame(client, client.port(990));
         assertSame(client, client.secure(false));
-        assertSame(client, client.trustJvm());
-        assertSame(client, client.clientCredentials(null));
-        assertSame(client, client.trustManager(null));
-        assertSame(client, client.keystoreFile(null));
-        assertSame(client, client.keystorePass("y"));
-        assertSame(client, client.keystoreFormat(null));
+        assertSame(client, client.tls(new TlsConfig()));
         assertSame(client, client.host(InetAddress.getLoopbackAddress()));
         assertSame(client, client.socketPath("/tmp/ftp.sock"));
         assertSame(client, client.dnsResolver(null));

@@ -68,7 +68,7 @@ public class MqttProtocolHandlerTest {
 
     @Before
     public void setUp() {
-        listener = new MqttListener();
+        listener = new MqttListener().defaultKeepAlive(0);
         subs = new SubscriptionManager();
         wills = new WillManager();
         handler = newHandler(listener);
@@ -174,7 +174,7 @@ public class MqttProtocolHandlerTest {
 
     @Test
     public void realmRejectsMissingCredentials() {
-        listener.setRealm(new BasicRealm());
+        listener.realm(new BasicRealm());
         send(MqttPacketEncoder.encodeConnect(connectPacket("c1", true, 0)));
         assertEquals(4, endpoint.getWrites().get(0)[3]);
         assertFalse(endpoint.isOpen());
@@ -182,13 +182,34 @@ public class MqttProtocolHandlerTest {
 
     @Test
     public void realmRejectsWrongPassword() {
-        listener.setRealm(new BasicRealm());
+        listener.realm(new BasicRealm());
         ConnectPacket p = connectPacket("c1", true, 0);
         p.setUsername("nobody");
         p.setPassword(bytes("bad"));
         send(MqttPacketEncoder.encodeConnect(p));
         assertEquals(4, endpoint.getWrites().get(0)[3]);
         assertFalse(endpoint.isOpen());
+    }
+
+    private int connackAfterBadLogin(String user) {
+        MqttProtocolHandler h = newHandler(listener);
+        BinaryRecordingEndpoint ep = new BinaryRecordingEndpoint();
+        h.connected(ep);
+        ConnectPacket p = connectPacket("c-" + user, true, 0);
+        p.setUsername(user);
+        p.setPassword(bytes("bad"));
+        h.receive(MqttPacketEncoder.encodeConnect(p));
+        return ep.getWrites().get(0)[3];
+    }
+
+    @Test
+    public void repeatedBadLoginsLockTheClientOut() {
+        listener.realm(new BasicRealm());
+        listener.maxAuthFailures(2);
+        assertEquals(4, connackAfterBadLogin("nobody"));
+        assertEquals(4, connackAfterBadLogin("nobody"));
+        assertEquals("locked out: not authorized, and the realm is not asked",
+                5, connackAfterBadLogin("nobody"));
     }
 
     @Test
@@ -482,6 +503,36 @@ public class MqttProtocolHandlerTest {
                 String clientId, String topicFilter, QoS requestedQoS) {
             subscribeState = state;
         }
+    }
+
+    private static final class FakeTls implements org.bluezoo.gumdrop.SecurityInfo {
+        public String getProtocol() { return "TLSv1.3"; }
+        public String getCipherSuite() { return "TLS_AES_128_GCM_SHA256"; }
+        public int getKeySize() { return 128; }
+        public java.security.cert.Certificate[] getPeerCertificates() { return null; }
+        public java.security.cert.Certificate[] getLocalCertificates() { return null; }
+        public String getApplicationProtocol() { return null; }
+        public long getHandshakeDurationMs() { return 0L; }
+        public boolean isSessionResumed() { return false; }
+    }
+
+    @Test
+    public void connectStateExposesTheTlsSession() {
+        FakeTls tls = new FakeTls();
+        endpoint.setSecure(true);
+        endpoint.setSecurityInfo(tls);
+        Recorder r = new Recorder();
+        handler.setConnectHandler(r);
+        send(MqttPacketEncoder.encodeConnect(connectPacket("a", true, 0)));
+        org.junit.Assert.assertSame(tls, r.connectState.getSecurityInfo());
+    }
+
+    @Test
+    public void connectStateHasNoTlsSessionOnACleartextConnection() {
+        Recorder r = new Recorder();
+        handler.setConnectHandler(r);
+        send(MqttPacketEncoder.encodeConnect(connectPacket("a", true, 0)));
+        assertNull(r.connectState.getSecurityInfo());
     }
 
     @Test

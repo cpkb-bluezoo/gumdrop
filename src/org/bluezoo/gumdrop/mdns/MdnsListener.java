@@ -21,6 +21,8 @@
 
 package org.bluezoo.gumdrop.mdns;
 
+import org.bluezoo.gumdrop.util.CidrNetwork;
+import java.util.List;
 import java.io.IOException;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
@@ -104,21 +106,13 @@ public class MdnsListener extends Listener {
     }
 
     /**
-     * Sets the port number this endpoint should bind to.
-     *
-     * @param port the port number (default 5353)
-     */
-    public void setPort(int port) {
-        this.port = port;
-    }
-    /**
      * Sets the port. Returns {@code this} for fluent configuration.
      *
      * @param port the port number
      * @return this listener
      */
     public MdnsListener port(int port) {
-        setPort(port);
+        this.port = port;
         return this;
     }
 
@@ -147,6 +141,90 @@ public class MdnsListener extends Listener {
     }
 
     @Override
+    public MdnsListener maxConnections(int max) {
+        super.maxConnections(max);
+        return this;
+    }
+
+    @Override
+    public MdnsListener maxConnectionsPerIP(int max) {
+        super.maxConnectionsPerIP(max);
+        return this;
+    }
+
+    @Override
+    public MdnsListener rateLimit(String rateLimit) {
+        super.rateLimit(rateLimit);
+        return this;
+    }
+
+    @Override
+    public MdnsListener maxAuthFailures(int max) {
+        super.maxAuthFailures(max);
+        return this;
+    }
+
+    @Override
+    public MdnsListener authLockoutTimeMs(long lockoutMs) {
+        super.authLockoutTimeMs(lockoutMs);
+        return this;
+    }
+
+    @Override
+    public MdnsListener allowedNetworks(List<CidrNetwork> allowedNetworks) {
+        super.allowedNetworks(allowedNetworks);
+        return this;
+    }
+
+    @Override
+    public MdnsListener blockedNetworks(List<CidrNetwork> blockedNetworks) {
+        super.blockedNetworks(blockedNetworks);
+        return this;
+    }
+
+    @Override
+    public MdnsListener name(String name) {
+        super.name(name);
+        return this;
+    }
+
+    @Override
+    public MdnsListener maxNetInSize(int size) {
+        super.maxNetInSize(size);
+        return this;
+    }
+
+    @Override
+    public MdnsListener maxNetOutSize(int size) {
+        super.maxNetOutSize(size);
+        return this;
+    }
+
+    @Override
+    public MdnsListener idleTimeoutMs(long idleTimeoutMs) {
+        super.idleTimeoutMs(idleTimeoutMs);
+        return this;
+    }
+
+    @Override
+    public MdnsListener readTimeoutMs(long readTimeoutMs) {
+        super.readTimeoutMs(readTimeoutMs);
+        return this;
+    }
+
+    @Override
+    public MdnsListener connectionTimeoutMs(long connectionTimeoutMs) {
+        super.connectionTimeoutMs(connectionTimeoutMs);
+        return this;
+    }
+
+    @Override
+    public MdnsListener maxDtlsPeers(int max) {
+        super.maxDtlsPeers(max);
+        return this;
+    }
+
+    @Override
     public String getDescription() {
         return "mdns";
     }
@@ -156,9 +234,11 @@ public class MdnsListener extends Listener {
      * during wiring.
      *
      * @param server the owning server
+     * @return this
      */
-    public void setServer(org.bluezoo.gumdrop.mdns.server.MdnsServer server) {
+    public MdnsListener server(org.bluezoo.gumdrop.mdns.server.MdnsServer server) {
         this.server = server;
+        return this;
     }
 
     /**

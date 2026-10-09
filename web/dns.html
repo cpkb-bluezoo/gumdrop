@@ -22,417 +22,139 @@
 <link href="main.css" rel="stylesheet" type="text/css"/>
 <link rel="icon" href="favicon.ico"/>
 <link rel="SHORTCUT ICON" href="favicon.ico"/>
-<title>DNS Server - Gumdrop</title>
+<title>DNS - Gumdrop</title>
 </head>
 <body>
 
 <header>
 <img src="gumdrop.png" alt="Gumdrop" />
-<h1>Gumdrop DNS Server</h1>
+<h1>Gumdrop DNS</h1>
 </header>
 
 <p class="back-link"><a href="index.html">&larr; Back to Main Page</a></p>
 
 <p>
-Gumdrop includes a DNS server that demonstrates the framework's UDP protocol
-support. <code>DnsServer</code> is the transport and protocol shell (listeners,
-validation, cookies, MQTYPE); it does <b>not</b> forward or serve zones by
-itself. You attach one composed <code>DnsQueryHandler</code> (or a chain) for
-application logic. Gumdrop includes two sibling built-in handlers for common
-cases — <code>AuthoritativeZoneHandler</code> and
-<code>UpstreamRelayHandler</code> — plus support for your own handlers. It
-serves as a practical DNS service and as a reference for
-UDP-based protocols.
+Gumdrop includes a complete, asynchronous DNS implementation: a server, a client
+resolver, and multicast DNS. The server offers plain DNS over UDP and TCP, DNS
+over DTLS, DNS over TLS (DoT) and DNS over QUIC (DoQ). The client resolver speaks
+UDP with TCP fallback, DoT, DoQ and DNS over HTTPS (DoH), and is what every
+Gumdrop client uses to look up host names.
 </p>
 
 <p>
-Gumdrop also includes a separate <a href="#mdns">multicast DNS (mDNS, RFC
-6762) and DNS-SD (RFC 6763)</a> implementation in the
+<code>DnsServer</code> is the transport and protocol shell (listeners, validation,
+cookies); it does <b>not</b> forward or serve zones by itself. You attach one
+<code>DnsQueryHandler</code> (or a chain) for the application logic. Gumdrop
+provides two built-in handlers, <code>AuthoritativeZoneHandler</code> and
+<code>UpstreamRelayHandler</code>, and you can write your own.
+</p>
+
+<p>
+Gumdrop also includes a separate <a href="#mdns">multicast DNS (mDNS, RFC 6762)
+and DNS-SD (RFC 6763)</a> implementation in the
 <code>org.bluezoo.gumdrop.mdns</code> package: it claims and defends a
 <code>.local</code> hostname on the local network, can query for other hosts'
-records, and can auto-advertise Gumdrop's own configured services (mail, web,
-DNS, etc.) so they're discoverable via Bonjour/Avahi/<code>dns-sd -B</code>.
+records, and can auto-advertise Gumdrop's own configured services so they are
+discoverable via Bonjour, Avahi or <code>dns-sd -B</code>.
 </p>
 
 <h3>Contents</h3>
 <ul>
 <li><a href="#architecture">Architecture</a></li>
-<li><a href="#features">Features</a></li>
-<li><a href="#dnssec">DNSSEC Validation</a></li>
-<li><a href="#protocol">Protocol Compliance</a></li>
-<li><a href="#records">Record Types</a></li>
-<li><a href="#metrics">Metrics</a></li>
 <li><a href="#query-handlers">Query handlers</a>
 <ul>
 <li><a href="#authoritative">AuthoritativeZoneHandler</a></li>
 <li><a href="#upstream-relay">UpstreamRelayHandler</a></li>
-<li><a href="#custom-handlers">Custom handlers</a></li>
+<li><a href="#custom-handlers">Custom handlers</a> (and chaining)</li>
 <li><a href="#authoritative-deployment">Authoritative deployment patterns</a></li>
 </ul></li>
-<li><a href="#configuration">Configuration</a></li>
-<li><a href="#listeners">Listeners</a></li>
-<li><a href="#resolver">DNS Resolver (Client)</a></li>
-<li><a href="#mdns">Multicast DNS &amp; DNS-SD</a></li>
-<li><a href="#mdns-architecture">mDNS Architecture</a></li>
-<li><a href="#mdns-lifecycle">Probing, Announcing &amp; Withdrawal</a></li>
-<li><a href="#mdns-wire">Wire Format Extensions</a></li>
-<li><a href="#mdns-query">Querying &amp; the Record Cache</a></li>
-<li><a href="#dnssd">DNS-SD Service Advertisement</a></li>
-<li><a href="#mdns-config">mDNS Configuration</a></li>
-<li><a href="#udp">UDP Protocol Support</a></li>
+<li><a href="#server-transports">Server transports</a>
+<ul>
+<li><a href="#server-udp">UDP with TCP fallback</a></li>
+<li><a href="#server-dtls">DNS over DTLS</a></li>
+<li><a href="#server-dot">DNS over TLS (DoT)</a></li>
+<li><a href="#server-doq">DNS over QUIC (DoQ)</a></li>
+<li><a href="#server-example">Serving every transport</a></li>
+</ul></li>
+<li><a href="#metrics">Metrics</a></li>
+<li><a href="#resolver">DNS resolver (client)</a>
+<ul>
+<li><a href="#resolver-default">Hostname resolution in every Gumdrop client</a></li>
+<li><a href="#resolver-usage">Using DnsResolver directly</a></li>
+<li><a href="#resolver-affinity">Selector loop affinity</a></li>
+<li><a href="#client-transports">Client transports</a>
+<ul>
+<li><a href="#client-udp">UDP with TCP fallback</a></li>
+<li><a href="#client-dot">DNS over TLS (DoT)</a></li>
+<li><a href="#client-doq">DNS over QUIC (DoQ)</a></li>
+<li><a href="#client-doh">DNS over HTTPS (DoH)</a></li>
+</ul></li>
+<li><a href="#zone-client">Zone operations</a></li>
+<li><a href="#srv">SRV queries</a></li>
+</ul></li>
+<li><a href="#dnssec">DNSSEC</a></li>
+<li><a href="#records">Record types</a></li>
+<li><a href="#mdns">Multicast DNS and DNS-SD</a>
+<ul>
+<li><a href="#mdns-architecture">Architecture</a></li>
+<li><a href="#mdns-lifecycle">Probing, announcing and withdrawal</a></li>
+<li><a href="#mdns-wire">Wire format extensions</a></li>
+<li><a href="#mdns-query">Querying and the record cache</a></li>
+<li><a href="#dnssd">DNS-SD service advertisement</a></li>
+<li><a href="#mdns-config">Configuration</a></li>
+</ul></li>
+<li><a href="#udp">UDP protocol support</a></li>
 </ul>
 
 <h3 id="architecture">Architecture</h3>
 
 <p>
-The DNS server is built on Gumdrop's <code>UdpEndpoint</code> abstraction,
-which provides non-blocking UDP I/O using the same SelectorLoop architecture as
-TCP servers. Each DNS query arrives as a datagram, is parsed, processed, and
-the response is sent back—all within the event-driven framework.
+The DNS server is built on Gumdrop's <code>UdpEndpoint</code> abstraction for
+datagram transports, and on the usual TCP and QUIC listeners for the stream
+transports. All of them run on the same selector loops as every other Gumdrop
+protocol, so a query is parsed, answered and sent back without blocking a thread.
 </p>
 
-<h4>Query Processing Flow</h4>
+<h4>Query processing flow</h4>
 
 <ol>
-<li><b>Receive</b> - UDP datagram arrives, parsed into <code>DnsMessage</code></li>
+<li><b>Receive</b> - a datagram, TLS record or QUIC stream arrives and is parsed into a <code>DnsMessage</code></li>
 <li><b>Validate</b> - cookies, EDNS, opcode dispatch</li>
 <li><b>Handler</b> - your <code>DnsQueryHandler</code> (authoritative, relay, or custom)</li>
 <li><b>MQTYPE merge</b> - optional RFC 10029 multi-type merge</li>
-<li><b>Send</b> - serialize response and send UDP datagram back to client</li>
+<li><b>Send</b> - the response is serialised and written back on the same transport</li>
 </ol>
 
-<h4>Core Components</h4>
+<h4>Core components</h4>
 
 <ul>
 <li><code>DnsServer</code> - protocol shell; delegates to your <code>DnsQueryHandler</code></li>
 <li><code>DnsQueryHandler</code> - pluggable logic; see <a href="#query-handlers">query handlers</a></li>
-<li><code>DnsListener</code>, <code>DoTListener</code>, <code>DoQListener</code> - transport listeners (see <a href="#listeners">Listeners</a>)</li>
-<li><code>DnsMessage</code> - parses and serializes DNS wire format</li>
-<li><code>DnsQuestion</code> - represents a query question</li>
-<li><code>DnsResourceRecord</code> - represents answer records</li>
-<li><code>DnsCache</code> - TTL-aware cache used by <code>UpstreamRelayHandler</code> (not by the bare <code>DnsServer</code> shell)</li>
+<li><code>DnsListener</code>, <code>DnsTcpListener</code>, <code>DoTListener</code>, <code>DoQListener</code> - server transports (see <a href="#server-transports">Server transports</a>)</li>
+<li><code>DnsResolver</code> - the asynchronous client (see <a href="#resolver">DNS resolver</a>)</li>
+<li><code>DnsMessage</code>, <code>DnsQuestion</code>, <code>DnsResourceRecord</code> - wire format parsing and serialisation</li>
+<li><code>DnsCache</code> - TTL-aware cache used by <code>UpstreamRelayHandler</code> and the resolver</li>
 </ul>
-
-<h3 id="features">Features</h3>
-
-<p>
-The <code>DnsServer</code> shell handles listeners, wire format, cookies, and
-metrics for every deployment. What happens inside a query — zones, forwarding,
-caching, or custom policy — is entirely your
-<a href="#query-handlers"><code>DnsQueryHandler</code></a>. Outbound lookups from
-SMTP, HTTP, and other services use <code>DnsResolver</code>
-(<a href="#resolver">client</a>), which is separate from <code>DnsServer</code>.
-</p>
-
-<h4>DnsServer shell</h4>
-
-<ul>
-<li>UDP, DoT, and DoQ listeners sharing one <code>DnsQueryHandler</code></li>
-<li>Wire parse/serialize, opcode dispatch, optional RFC 10029 MQTYPE merge</li>
-<li>RFC 7873 DNS cookies at the protocol edge (see <a href="#protocol">Protocol compliance</a>)</li>
-<li><code>DnsServerMetrics</code> query/response counters for every deployment</li>
-<li>Default handler when none is set: empty <code>NOERROR</code> (no upstream, no zones)</li>
-</ul>
-
-<h4>DTLS on DnsListener</h4>
-
-<p>
-For secure DNS (DNS over DTLS, RFC 8094), <code>DnsServer</code> can be configured with
-TLS credentials via the same <code>secure</code>/<code>keystore-file</code>/
-<code>keystore-pass</code> properties used for DoT, and optional
-<code>dtls-version</code> / <code>cipher-suites</code> as documented in
-<a href="tls.html">TLS &amp; DTLS</a>. DTLS session state (one
-in-tree DTLS session per peer) is maintained per remote address on
-the shared UDP socket, so a single <code>DnsListener</code> serves many
-concurrent DTLS clients without one client's handshake interfering with
-another's. Handshake flights are retransmitted with exponential backoff
-(RFC 6347 &sect;4.2.4) when a client is slow or a packet is lost, and a
-handshake that never completes is dropped without affecting any other
-client's session.
-</p>
-
-<h3 id="protocol">Protocol Compliance</h3>
-
-<p>
-Gumdrop's DNS implementation goes beyond basic query/response handling with
-comprehensive protocol compliance across multiple RFCs.
-</p>
-
-<h4>EDNS0 (RFC 6891)</h4>
-
-<p>
-<code>UpstreamRelayHandler</code> and <code>DnsResolver</code> advertise EDNS0
-by including an OPT pseudo-record in outgoing upstream queries. This signals
-the maximum UDP payload size (4096 bytes by default), allowing larger responses
-without TCP fallback. EDNS0 options also carry DNS cookies and padding.
-<code>AuthoritativeZoneHandler</code> answers from zone data; EDNS0 on responses
-follows what the handler and wire code attach for each query.
-</p>
-
-<h4 id="dnssec">DNSSEC Validation (RFC 4033–4035, RFC 5155)</h4>
-
-<p>
-DNSSEC validation is optional and configured separately for the outbound
-client and for the upstream relay:
-</p>
-
-<ul>
-<li><code>DnsResolver</code> — <code>setDnssecEnabled(true)</code> validates
-answers from configured resolvers (see below).</li>
-<li><code>UpstreamRelayHandler</code> — <code>dnssecEnabled(true)</code> validates
-upstream answers before returning them to clients of your
-<code>DnsServer</code>.</li>
-</ul>
-
-<p>
-When validation is enabled, the component sets DO in EDNS0 queries, fetches
-DNSSEC records as needed, and checks the chain of trust to configured trust
-anchors. The bare <code>DnsServer</code> shell does not validate DNSSEC by itself.
-</p>
-
-<p>Supported algorithms (per RFC 8624):</p>
-<ul>
-<li>RSA/SHA-256 (algorithm 8)</li>
-<li>RSA/SHA-512 (algorithm 10)</li>
-<li>ECDSA P-256/SHA-256 (algorithm 13)</li>
-<li>ECDSA P-384/SHA-384 (algorithm 14)</li>
-<li>Ed25519 (algorithm 15)</li>
-<li>Ed448 (algorithm 16)</li>
-</ul>
-
-<p>Supported DS digest types: SHA-1 (1), SHA-256 (2), SHA-384 (4).</p>
-
-<p>
-All cryptographic operations use <code>java.security</code> from the
-<code>java.base</code> module and are purely CPU-bound — no blocking I/O,
-fully safe for the NIO event loop. DNSKEY and DS records needed for
-chain-of-trust validation are fetched asynchronously through the existing
-resolver callback model.
-</p>
-
-<p>Configuration:</p>
-<pre>
-// Enable DNSSEC on the client resolver
-DnsResolver resolver = new DnsResolver();
-resolver.setDnssecEnabled(true);
-resolver.addServer("8.8.8.8");
-resolver.open();
-
-// DNSSEC validation on upstream answers (UpstreamRelayHandler)
-DnsServer service = DnsServer.compose()
-    .listener(new DnsListener())
-    .handler(UpstreamRelayHandler.builder()
-        .upstreamServers("8.8.8.8")
-        .dnssecEnabled(true)
-        .build())
-    .server();
-</pre>
-
-<p>
-When <code>UpstreamRelayHandler</code> has DNSSEC enabled, it sets DO on
-upstream queries and strips DNSSEC records from responses to clients that did
-not request them (no DO bit). The AD (Authenticated Data) flag is preserved from
-validated upstream responses.
-</p>
-
-<h4>DNS Message Compression (RFC 1035 section 4.1.4)</h4>
-
-<p>
-Outgoing DNS messages use name compression as specified in RFC 1035 section
-4.1.4. Repeated domain name suffixes are replaced with pointers to earlier
-occurrences, reducing message size on the wire. This is especially effective
-for responses containing multiple records with shared suffixes.
-</p>
-
-<h4>DNS Cookies (RFC 7873)</h4>
-
-<p>
-<code>DnsServer</code> (all handlers) and <code>DnsResolver</code> support DNS
-cookies as an EDNS0 option for lightweight source verification.
-<code>DnsServer</code> validates or generates server cookies on ingress before
-calling your handler. <code>DnsResolver</code> stores server cookies per upstream
-for reuse on later queries. This is independent of upstream forwarding: an
-authoritative-only server still benefits from cookie handling at the shell.
-</p>
-
-<h4>DNS over TLS — DoT (RFC 7858)</h4>
-
-<p>
-The DoT client transport includes several optimizations and security features:
-</p>
-
-<ul>
-<li><b>TLS session resumption (RFC 5077)</b> — the TLS session cache is
-configured to allow session tickets, reducing handshake latency on
-reconnections</li>
-<li><b>TCP Fast Open (RFC 7413)</b> — when available, DoT connections use
-TCP Fast Open to send data during the TCP handshake, saving a round trip</li>
-<li><b>SPKI fingerprint verification (RFC 7858 section 4.2)</b> — for the
-Strict privacy profile, the client can be configured with SHA-256 hashes of
-the server's Subject Public Key Info (SPKI). After the TLS handshake, the
-server's leaf certificate public key is verified against the configured pins
-via <code>SpkiPinnedCertTrustManager</code></li>
-<li><b>Connection pooling (RFC 7766)</b> — <code>TCPDNSConnectionPool</code>
-maintains persistent TCP connections to upstream servers with configurable
-maximum connections, idle timeout, and connection lifetime</li>
-</ul>
-
-<h4>DNS over QUIC — DoQ (RFC 9250)</h4>
-
-<p>
-DoQ support includes error handling, session resumption, and connection reuse:
-</p>
-
-<ul>
-<li><b>Error codes (RFC 9250 section 4.3)</b> — the DoQ listener sends proper DoQ
-application error codes (<code>DOQ_NO_ERROR</code> through
-<code>DOQ_EXCESSIVE_LOAD</code>) via QUIC RESET_STREAM frames for malformed
-queries, oversized messages, and server errors</li>
-<li><b>0-RTT early data (RFC 9250 section 4.5)</b> — the QUIC transport
-enables early data, allowing QUERY and NOTIFY messages to be sent during
-session resumption without waiting for the full handshake. Session tickets
-are cached per server</li>
-<li><b>Connection reuse (RFC 9250 section 5.5.1)</b> —
-<code>DoQConnectionPool</code> maintains persistent QUIC connections per
-upstream server. Subsequent queries open new streams on the existing
-connection rather than establishing new QUIC sessions, with automatic eviction
-of idle connections</li>
-<li><b>Padding (RFC 9250 section 5.4)</b> — all DoQ messages include EDNS(0)
-padding aligned to 128-byte blocks (RFC 8467) to mitigate traffic analysis</li>
-<li><b>Zone transfers</b> — AXFR/IXFR use the same multi-message length-prefixed
-framing as DoT/TCP on a single QUIC stream; the client reads until STREAM FIN.
-<code>DoQClientTransport</code> delivers multiple answers via
-<code>onReceiveSequence</code>.</li>
-</ul>
-
-<h4>DNS over HTTPS — DoH (RFC 8484)</h4>
-
-<p>
-<code>DoHClientTransport</code> provides DNS resolution over HTTPS, sending
-queries as HTTP POST requests with <code>application/dns-message</code>
-content type. The response body contains the raw DNS wire-format answer.
-</p>
-
-<ul>
-<li>Uses Gumdrop's existing <code>HttpClient</code> infrastructure (HTTP/2
-with TLS)</li>
-<li>Configurable URI path (default <code>/dns-query</code>)</li>
-<li>Default port 443 with HTTPS</li>
-<li>Works through HTTP proxies and CDNs — useful in environments where
-UDP and port 853 are blocked</li>
-</ul>
-
-<h3 id="records">Record Types</h3>
-
-<p>
-The <code>DnsResourceRecord</code> class provides factory methods for common
-record types:
-</p>
-
-<table border="1" cellpadding="5">
-<tr><th>Type</th><th>Factory Method</th><th>Description</th></tr>
-<tr><td>A</td><td><code>DnsResourceRecord.a(name, ttl, address)</code></td>
-<td>IPv4 address</td></tr>
-<tr><td>AAAA</td><td><code>DnsResourceRecord.aaaa(name, ttl, address)</code></td>
-<td>IPv6 address</td></tr>
-<tr><td>CNAME</td><td><code>DnsResourceRecord.cname(name, ttl, canonical)</code></td>
-<td>Canonical name (alias)</td></tr>
-<tr><td>MX</td><td><code>DnsResourceRecord.mx(name, ttl, priority, exchange)</code></td>
-<td>Mail exchange</td></tr>
-<tr><td>NS</td><td><code>DnsResourceRecord.ns(name, ttl, nameserver)</code></td>
-<td>Authoritative name server</td></tr>
-<tr><td>PTR</td><td><code>DnsResourceRecord.ptr(name, ttl, hostname)</code></td>
-<td>Pointer (reverse DNS)</td></tr>
-<tr><td>SOA</td><td><code>DnsResourceRecord.soa(...)</code></td>
-<td>Start of authority</td></tr>
-<tr><td>TXT</td><td><code>DnsResourceRecord.txt(name, ttl, text)</code></td>
-<td>Text record</td></tr>
-<tr><td>SRV</td><td><code>DnsResourceRecord.srv(name, ttl, priority, weight, port, target)</code></td>
-<td>Service location</td></tr>
-<tr><td>HTTPS</td><td><code>DnsResourceRecord.https(name, ttl, priority, target, params)</code></td>
-<td>HTTPS service binding (RFC 9460)</td></tr>
-<tr><td>SVCB</td><td><code>DnsResourceRecord.svcb(name, ttl, priority, target, params)</code></td>
-<td>General service binding (RFC 9460)</td></tr>
-</table>
-
-<p>
-HTTPS and SVCB share the same RDATA shape (priority, target name, and a map
-of SvcParamKey &rarr; value); <code>params</code> is a
-<code>Map&lt;Integer, byte[]&gt;</code> keyed by SvcParamKey, e.g.
-<code>DnsResourceRecord.SVCB_PARAM_ALPN</code> or
-<code>SVCB_PARAM_PORT</code>, with <code>encodeSVCBAlpn(List&lt;String&gt;)</code>
-and <code>encodeSVCBPort(int)</code> helpers to build the corresponding
-values; <code>params</code> may be <code>null</code>/empty. A
-<code>priority</code> of 0 is "AliasForm" (target is an alias, no params
-expected); any other value is "ServiceForm". Read a parsed record back
-with <code>getSVCBPriority()</code>,
-<code>getSVCBTargetName()</code>, and <code>getSVCBParams()</code>, or the
-convenience accessors <code>getSVCBAlpnProtocols()</code> and
-<code>getSVCBPort()</code>.
-</p>
-
-<h4>DNSSEC Record Types</h4>
-
-<p>
-DNSSEC record types (RFC 4034, RFC 5155) are parsed from wire format and
-provide RDATA accessor methods:
-</p>
-
-<table border="1" cellpadding="5">
-<tr><th>Type</th><th>Value</th><th>Description</th></tr>
-<tr><td>DS</td><td>43</td><td>Delegation signer — links child DNSKEY to parent zone</td></tr>
-<tr><td>RRSIG</td><td>46</td><td>DNSSEC signature — covers an RRset</td></tr>
-<tr><td>NSEC</td><td>47</td><td>Next secure record — denial of existence</td></tr>
-<tr><td>DNSKEY</td><td>48</td><td>DNS public key — zone signing key or key signing key</td></tr>
-<tr><td>NSEC3</td><td>50</td><td>Hashed denial of existence (RFC 5155)</td></tr>
-<tr><td>NSEC3PARAM</td><td>51</td><td>NSEC3 parameters (RFC 5155)</td></tr>
-</table>
-
-<h3 id="metrics">Metrics</h3>
-
-<p>
-When the runtime has a <code>TelemetryConfig</code> (see <a href="telemetry.html#configuration">Telemetry and logging</a>), <code>DnsServerMetrics</code>
-records OpenTelemetry metrics for the <code>DnsServer</code> listener pipeline.
-Each metric includes a <code>dns.transport</code> attribute (<code>udp</code>,
-<code>dot</code>, or <code>doq</code>). Query and response counters apply to any
-handler; cache and upstream counters are emitted when
-<code>UpstreamRelayHandler</code> is installed (they stay at zero for
-authoritative-only or empty handlers).
-</p>
-
-<table border="1" cellpadding="5">
-<tr><th>Metric</th><th>Type</th><th>Description</th></tr>
-<tr><td><code>dns.server.queries</code></td><td>Counter</td><td>Queries received (by <code>dns.question.type</code>, <code>dns.transport</code>)</td></tr>
-<tr><td><code>dns.server.responses</code></td><td>Counter</td><td>Responses sent (by <code>dns.response.code</code>, <code>dns.transport</code>)</td></tr>
-<tr><td><code>dns.server.query.duration</code></td><td>Histogram</td><td>End-to-end query processing time (ms)</td></tr>
-<tr><td><code>dns.server.cache.hits</code></td><td>Counter</td><td><code>UpstreamRelayHandler</code> cache hits</td></tr>
-<tr><td><code>dns.server.cache.misses</code></td><td>Counter</td><td><code>UpstreamRelayHandler</code> cache misses</td></tr>
-<tr><td><code>dns.server.cache.stale_served</code></td><td>Counter</td><td>RFC 8767 stale answers (relay)</td></tr>
-<tr><td><code>dns.server.cache.aggressive_nsec</code></td><td>Counter</td><td>RFC 8198 synthesized answers (relay)</td></tr>
-<tr><td><code>dns.server.upstream.queries</code></td><td>Counter</td><td>Queries forwarded upstream (relay)</td></tr>
-<tr><td><code>dns.server.upstream.duration</code></td><td>Histogram</td><td>Upstream query duration (ms, relay)</td></tr>
-<tr><td><code>dns.server.upstream.failures</code></td><td>Counter</td><td>Upstream query failures (relay)</td></tr>
-</table>
 
 <h3 id="query-handlers">Query handlers</h3>
 
 <p>
 Every query reaches your logic through the <code>DnsQueryHandler</code>
 interface. Gumdrop provides two full built-in implementations as
-<b>sibling</b> classes — neither is part of <code>DnsServer</code>, and neither
+<b>sibling</b> classes - neither is part of <code>DnsServer</code>, and neither
 wraps or requires the other:
 </p>
 
 <ul>
-<li><a href="#authoritative"><code>AuthoritativeZoneHandler</code></a> — serve your
+<li><a href="#authoritative"><code>AuthoritativeZoneHandler</code></a> - serve your
 own zones (primary/secondary, UPDATE, transfers).</li>
-<li><a href="#upstream-relay"><code>UpstreamRelayHandler</code></a> — forward to
+<li><a href="#upstream-relay"><code>UpstreamRelayHandler</code></a> - forward to
 resolvers with caching and optional DNSSEC validation.</li>
 </ul>
 
 <p>
-For anything else — split horizon, blocklists, dynamic SRV, integration with
-your app — implement <code>DnsQueryHandler</code> yourself or subclass
+For anything else - split horizon, blocklists, dynamic SRV, integration with
+your app - implement <code>DnsQueryHandler</code> yourself or subclass
 <code>SyncDnsQueryHandler</code>; see <a href="#custom-handlers">Custom
 handlers</a>. You can also compose handlers with
 <code>DnsQueryHandlers.chain(first, second)</code>: when the first handler returns
@@ -444,7 +166,7 @@ relay).
 Without <code>.handler(...)</code>, <code>DnsServer.compose()</code> uses
 <code>EmptyDnsQueryHandler</code> (empty <code>NOERROR</code>). Attach exactly
 one handler instance (or a chain) with <code>.handler(...)</code>; all
-<a href="#listeners">listeners</a> on that server share it.
+<a href="#server-transports">listeners</a> on that server share it.
 </p>
 
 <table border="1" cellpadding="5">
@@ -569,8 +291,8 @@ never forwards by itself. Install with
 <li><code>minimalAnyPolicy(MinimalAnyPolicy)</code> - RFC 8482: answer ANY with a minimal HINFO record (default: enabled)</li>
 <li><code>dnssecEnabled(boolean)</code> - validate upstream responses (sets DO on upstream queries; BOGUS answers → SERVFAIL; SECURE answers get AD)</li>
 <li><code>trustAnchor(DnssecTrustAnchor)</code> - trust anchor for validation; defaults to an empty store unless you add anchors</li>
-<li><code>aggressiveNsecEnabled(boolean)</code> - RFC 8198: synthesize NXDOMAIN/NODATA from validated NSEC/NSEC3 proofs before upstream (default: true when DNSSEC is on)</li>
-<li><code>aggressiveNsecPolicy(AggressiveNsecPolicy)</code> - override or disable per-query aggressive synthesis (default: synthesize when a proof covers the QNAME)</li>
+<li><code>aggressiveNsecEnabled(boolean)</code> - RFC 8198: synthesise NXDOMAIN/NODATA from validated NSEC/NSEC3 proofs before upstream (default: true when DNSSEC is on)</li>
+<li><code>aggressiveNsecPolicy(AggressiveNsecPolicy)</code> - override or disable per-query aggressive synthesis (default: synthesise when a proof covers the QNAME)</li>
 </ul>
 
 <p>
@@ -802,94 +524,186 @@ authority section</td></tr>
 ACL in the handler (use network policy until one exists); IXFR journal is
 in-memory and capped (restart or old serials fall back to AXFR); concurrent
 UPDATE, queries, and AXFR share one in-memory zone without explicit locking
-(keep change rate modest or serialize writers); NOTIFY and built-in secondary
+(keep change rate modest or serialise writers); NOTIFY and built-in secondary
 refresh are unsigned cleartext TCP AXFR unless you replace refresh with your
 own code. For resolver-only deployments, ignore this section and use
 <a href="#resolver">DNS Resolver (Client)</a>.
 </p>
 
-<h3 id="configuration">Configuration</h3>
+
+<h3 id="server-transports">Server transports</h3>
 
 <p>
-<code>DnsServer.compose()</code> wires listeners, optional TLS, and your
-<a href="#query-handlers">query handler</a>. Handler choice is independent of
-transport: the same <code>AuthoritativeZoneHandler</code>,
-<code>UpstreamRelayHandler</code>, or custom handler can serve UDP, DoT, and DoQ
-together.
-</p>
-
-<h4 id="listeners">Listeners</h4>
-
-<p>
-A <code>DnsServer</code> can have <b>multiple listeners</b>. Each listener invokes
-the same <code>DnsQueryHandler</code> over a different transport. You can combine
-any of the following:
+A <code>DnsServer</code> is a shell around one or more <em>listeners</em>. Each
+listener speaks one transport and hands parsed queries to the same
+<a href="#query-handlers">query handler</a>, so a single server can offer plain
+DNS, DNS over TLS and DNS over QUIC side by side. Attach listeners with
+<code>.listener(...)</code> on <code>DnsServer.compose()</code>.
 </p>
 
 <table border="1" cellpadding="5">
-<tr><th>Listener</th><th>Class</th><th>Transport</th><th>Description</th></tr>
-<tr><td>DnsListener</td><td><code>org.bluezoo.gumdrop.dns.DnsListener</code></td><td>UDP</td><td>Standard DNS over UDP, default port 53</td></tr>
-<tr><td>DoTListener</td><td><code>org.bluezoo.gumdrop.dns.DoTListener</code></td><td>TCP + TLS</td><td>DNS over TLS (DoT), default port 853</td></tr>
-<tr><td>DoQListener</td><td><code>org.bluezoo.gumdrop.dns.DoQListener</code></td><td>QUIC</td><td>DNS over QUIC (DoQ), default port 853</td></tr>
+<tr><th>Transport</th><th>Listener</th><th>Standard</th><th>Default port</th></tr>
+<tr><td><a href="#server-udp">UDP with TCP fallback</a></td>
+<td><code>DnsListener</code> + <code>DnsTcpListener</code></td><td>RFC 1035</td><td>53</td></tr>
+<tr><td><a href="#server-dtls">DNS over DTLS</a></td>
+<td><code>DnsListener</code> with <code>.secure(true)</code></td><td>RFC 8094</td><td>853 (set explicitly)</td></tr>
+<tr><td><a href="#server-dot">DNS over TLS (DoT)</a></td>
+<td><code>DoTListener</code></td><td>RFC 7858</td><td>853</td></tr>
+<tr><td><a href="#server-doq">DNS over QUIC (DoQ)</a></td>
+<td><code>DoQListener</code></td><td>RFC 9250</td><td>853</td></tr>
 </table>
 
 <p>
-Attach one or more listeners per server with <code>.listener(...)</code>. For
-example, you can serve plain DNS on 5353 and DoT on 853 from the same server.
-All listeners on one <code>DnsServer</code> share the same
-<code>DnsQueryHandler</code> instance you pass to <code>.handler(...)</code>.
+There is no DNS over HTTPS (DoH) listener: DoH is a <a href="#client-doh">client
+transport</a> only. All listeners share these fluent options, inherited from
+Gumdrop's common <code>Listener</code>:
 </p>
 
-<h4>Listener options</h4>
-
 <ul>
-<li><code>.port(int)</code> - listening port (optional). If omitted, defaults are:
-    <code>DnsListener</code> 53, <code>DoTListener</code> 853, <code>DoQListener</code> 853.</li>
-<li><code>.addresses(InetAddress...)</code> - bind addresses (default: all interfaces)</li>
+<li><code>.port(int)</code> - listening port (defaults above)</li>
+<li><code>.addresses(InetAddress...)</code> / <code>.bindWildcard()</code> - bind addresses (default: all interfaces)</li>
+<li><code>.maxConnections(int)</code>, <code>.maxConnectionsPerIP(int)</code>,
+<code>.rateLimit(String)</code>, <code>.allowedNetworks(List)</code>,
+<code>.blockedNetworks(List)</code> - connection limits and CIDR filtering, as
+described in <a href="security.html">Security</a></li>
+<li><code>.idleTimeoutMs(long)</code>, <code>.readTimeoutMs(long)</code>,
+<code>.connectionTimeoutMs(long)</code> - timeouts</li>
 </ul>
-
-<h4>TLS/DTLS/QUIC Options (DoTListener, DoQListener)</h4>
 
 <p>
-DoT (TCP+TLS) and DoQ (QUIC) use the same in-tree TLS stack and the same
-<code>TlsConfig</code> as other listeners. DTLS on <code>DnsListener</code>
-follows the same rules when <code>.secure(true)</code> is set:
+The secure listeners (<code>DoTListener</code>, <code>DoQListener</code> and
+<code>DnsListener</code> with <code>.secure(true)</code>) take their identity from
+<code>.tls(TlsConfig)</code>, the same class used by every other Gumdrop
+listener. Client certificate authentication, protocol versions and ciphers are all
+settings on the <code>TlsConfig</code>; see <a href="tls.html">TLS, DTLS and
+QUIC</a>.
 </p>
 
-<ul>
-<li><code>.secure(boolean)</code> - enable DTLS/TLS (default: false; DoTListener is always secure)</li>
-<li><code>.tls(TlsConfig)</code> - keystore, PEM, or <code>ServerCredentials</code> identity material</li>
-<li><code>setNeedClientAuth(boolean)</code> - require client certificates (default: false)</li>
-<li><code>setRequireRetry(boolean)</code> - (DoQ only) require RFC 9000 section 8.1.2 Retry before accepting a new connection (default: true; set false for a trusted network)</li>
-</ul>
+<h4 id="server-udp">UDP with TCP fallback</h4>
 
-<h4>Example Composition</h4>
+<p>
+Classic DNS runs over UDP, with TCP used when a response does not fit in a
+datagram (the client sees the TC bit and retries over TCP) and for zone transfers.
+A conforming server therefore needs both a <code>DnsListener</code> (UDP) and a
+<code>DnsTcpListener</code> on the same port. They are separate listeners, so you
+can also run UDP only, for example on a trusted network.
+</p>
 
 <pre>
-// DNS proxy on non-privileged port
 DnsServer dns = DnsServer.compose()
-    .listener(new DnsListener().port(5353))
+    .listener(new DnsListener().port(53))
+    .listener(new DnsTcpListener().port(53))
     .handler(UpstreamRelayHandler.builder()
         .upstreamServers("8.8.8.8 1.1.1.1")
         .cacheEnabled(true)
         .build())
     .server();
 
-// DNS with DoT listener (same TlsConfig as HTTP/SMTP)
-TlsConfig tls = TlsConfig.keystore(Path.of("keystore.p12"), "secret");
-DnsServer dnsSecure = DnsServer.compose()
-    .listener(new DnsListener().port(53))
-    .listener(new DoTListener().port(853).secure(true).tls(tls))
-    .handler(UpstreamRelayHandler.builder()
-        .upstreamServers("8.8.8.8")
-        .build())
-    .server();
+Gumdrop gumdrop = Gumdrop.boot();
+gumdrop.addServer(dns);
+</pre>
 
-// DNS with UDP, DoT, and DoQ listeners (same keystore on DoT and DoQ)
-DnsServer dnsFull = DnsServer.compose()
-    .listener(new DnsListener().port(5353))
-    .listener(new DoTListener().port(853).secure(true).tls(tls))
-    .listener(new DoQListener().port(853).secure(true).tls(tls))
+<p>
+<code>DnsListener</code> additionally supports <code>.maxNetInSize(int)</code>,
+<code>.maxNetOutSize(int)</code> and <code>.maxDtlsPeers(int)</code>.
+<code>DnsTcpListener</code> only has the common address and port options.
+</p>
+
+<h4 id="server-dtls">DNS over DTLS</h4>
+
+<p>
+Setting <code>.secure(true)</code> on a <code>DnsListener</code> turns the UDP
+socket into a DTLS endpoint (RFC 8094). One in-tree DTLS session is kept per
+remote address on the shared socket, so a single listener serves many concurrent
+clients without one client's handshake interfering with another's. Handshake
+flights are retransmitted with exponential backoff (RFC 6347 section 4.2.4), and a
+handshake that never completes is dropped without affecting any other peer. The
+stateless cookie exchange, fragment size and protocol version are settings on the
+<code>TlsConfig</code>; see <a href="tls.html">TLS, DTLS and QUIC</a>.
+</p>
+
+<pre>
+TlsConfig tls = TlsConfig.pem(Path.of("fullchain.pem"), Path.of("privkey.pem"));
+
+DnsServer dns = DnsServer.compose()
+    .listener(new DnsListener().port(853).secure(true).tls(tls).maxDtlsPeers(1000))
+    .handler(relay)
+    .server();
+</pre>
+
+<p>
+DTLS DNS and DoT share the number 853 but different IP protocols (UDP and TCP), so
+they can use the same port on one host.
+</p>
+
+<h4 id="server-dot">DNS over TLS (DoT)</h4>
+
+<p>
+<code>DoTListener</code> serves length-prefixed DNS over a TLS connection. It is
+always secure; there is no plaintext mode, so <code>.tls(TlsConfig)</code> is
+required.
+</p>
+
+<pre>
+TlsConfig tls = TlsConfig.keystore(Path.of("keystore.p12"), "secret");
+
+DnsServer dns = DnsServer.compose()
+    .listener(new DoTListener().port(853).tls(tls))
+    .handler(relay)
+    .server();
+</pre>
+
+<p>
+To require clients to present a certificate (for example for a private resolver
+that only your own hosts may use), set <code>requireClientAuth(true)</code> on
+the <code>TlsConfig</code> together with the trust material for the client CA.
+</p>
+
+<h4 id="server-doq">DNS over QUIC (DoQ)</h4>
+
+<p>
+<code>DoQListener</code> serves DNS over Gumdrop's in-tree QUIC stack (RFC 9250).
+Each query uses its own bidirectional QUIC stream, so there is no head-of-line
+blocking between queries on one connection. Malformed or oversized queries are
+rejected with the DoQ application error codes of RFC 9250 section 4.3 on a reset
+stream. Zone transfers use the same multi-message framing as DoT on a single
+stream.
+</p>
+
+<pre>
+DnsServer dns = DnsServer.compose()
+    .listener(new DoQListener().port(853).tls(tls).requireRetry(true))
+    .handler(relay)
+    .server();
+</pre>
+
+<p>
+DoQ-specific options:
+</p>
+
+<ul>
+<li><code>.requireRetry(boolean)</code> - send a QUIC Retry (RFC 9000 section
+8.1.2) to validate the client's address before committing any state. Default
+<code>true</code>; set it to <code>false</code> only on a loopback or trusted
+network that already prevents source spoofing</li>
+<li><code>.selectorLoop(SelectorLoop)</code> - pin the listener to a specific
+loop (default: the next worker loop)</li>
+</ul>
+
+<h4 id="server-example">Serving every transport</h4>
+
+<p>
+Listeners can be combined freely. All of them share the one handler instance:
+</p>
+
+<pre>
+TlsConfig tls = TlsConfig.keystore(Path.of("keystore.p12"), "secret");
+
+DnsServer dns = DnsServer.compose()
+    .listener(new DnsListener().port(53))
+    .listener(new DnsTcpListener().port(53))
+    .listener(new DoTListener().port(853).tls(tls))
+    .listener(new DoQListener().port(853).tls(tls))
     .handler(UpstreamRelayHandler.builder()
         .upstreamServers("8.8.8.8 1.1.1.1")
         .cacheEnabled(true)
@@ -897,166 +711,506 @@ DnsServer dnsFull = DnsServer.compose()
     .server();
 </pre>
 
-<h3 id="resolver">DNS Resolver (Client)</h3>
-
 <p>
-<code>DnsResolver</code> is an <b>asynchronous DNS client</b> for outbound lookups.
-It uses non-blocking I/O and delivers results via the
-<code>DnsQueryCallback</code> interface. Use it when your Gumdrop service needs to resolve names (e.g. MX
-lookups for SMTP, TXT for SPF/DKIM/DMARC, or A/AAAA for connecting to backends).
+Without a <code>.handler(...)</code>, queries receive an empty <code>NOERROR</code>
+answer.
 </p>
 
-<h4>Using DnsResolver Inside Gumdrop Services</h4>
+<h4>What the server shell does for every transport</h4>
+
+<ul>
+<li>Wire parsing and serialisation, with name compression (RFC 1035 section 4.1.4)</li>
+<li>Opcode dispatch: QUERY goes to the handler's query path, NOTIFY and UPDATE to
+its <code>handleNonQueryOpcode</code>, and <code>NOTIMP</code> is returned when
+nothing claims them</li>
+<li>EDNS0 (RFC 6891). <code>UpstreamRelayHandler</code> and
+<code>DnsResolver</code> advertise a 4096-byte UDP payload size and carry cookies
+and padding as EDNS0 options</li>
+<li>DNS cookies (RFC 7873): the shell validates or generates server cookies
+before your handler runs, so even an authoritative-only server gets
+lightweight source verification</li>
+<li>Optional RFC 10029 multiple-QTYPE merging, capped by
+<code>DnsServer.maxMQTypes(int)</code> (requests above the cap are answered
+<code>FORMERR</code>)</li>
+<li><a href="#metrics">Metrics</a> when telemetry is enabled</li>
+</ul>
+
+<h3 id="metrics">Metrics</h3>
 
 <p>
-You can configure a <code>DnsResolver</code> as a component and inject it into
-services that need DNS. The resolver runs on the event loop. When you set the
-resolver's SelectorLoop to match the handler's endpoint (see
-<b>SelectorLoop Affinity</b> below), callbacks are invoked on the same thread as
-the handler, so you can safely update handler state from the callback without
-extra locking.
+When the runtime has a <code>TelemetryConfig</code> (see <a href="telemetry.html#configuration">Telemetry and logging</a>), <code>DnsServerMetrics</code>
+records OpenTelemetry metrics for the <code>DnsServer</code> listener pipeline.
+Each metric includes a <code>dns.transport</code> attribute (<code>udp</code>,
+<code>dot</code>, or <code>doq</code>). Query and response counters apply to any
+handler; cache and upstream counters are emitted when
+<code>UpstreamRelayHandler</code> is installed (they stay at zero for
+authoritative-only or empty handlers).
+</p>
+
+<table border="1" cellpadding="5">
+<tr><th>Metric</th><th>Type</th><th>Description</th></tr>
+<tr><td><code>dns.server.queries</code></td><td>Counter</td><td>Queries received (by <code>dns.question.type</code>, <code>dns.transport</code>)</td></tr>
+<tr><td><code>dns.server.responses</code></td><td>Counter</td><td>Responses sent (by <code>dns.response.code</code>, <code>dns.transport</code>)</td></tr>
+<tr><td><code>dns.server.query.duration</code></td><td>Histogram</td><td>End-to-end query processing time (ms)</td></tr>
+<tr><td><code>dns.server.cache.hits</code></td><td>Counter</td><td><code>UpstreamRelayHandler</code> cache hits</td></tr>
+<tr><td><code>dns.server.cache.misses</code></td><td>Counter</td><td><code>UpstreamRelayHandler</code> cache misses</td></tr>
+<tr><td><code>dns.server.cache.stale_served</code></td><td>Counter</td><td>RFC 8767 stale answers (relay)</td></tr>
+<tr><td><code>dns.server.cache.aggressive_nsec</code></td><td>Counter</td><td>RFC 8198 synthesised answers (relay)</td></tr>
+<tr><td><code>dns.server.upstream.queries</code></td><td>Counter</td><td>Queries forwarded upstream (relay)</td></tr>
+<tr><td><code>dns.server.upstream.duration</code></td><td>Histogram</td><td>Upstream query duration (ms, relay)</td></tr>
+<tr><td><code>dns.server.upstream.failures</code></td><td>Counter</td><td>Upstream query failures (relay)</td></tr>
+</table>
+
+
+<h3 id="resolver">DNS resolver (client)</h3>
+
+<p>
+<code>DnsResolver</code> is Gumdrop's asynchronous stub resolver. It uses
+non-blocking I/O on the selector loops and delivers results through callbacks
+(<code>DnsQueryCallback</code> for raw queries, <code>ResolveCallback</code> for
+address lookups). It is separate from <code>DnsServer</code>: you use it
+whenever a service needs to look something up, such as MX records for SMTP,
+TXT for SPF, DKIM and DMARC, or SRV for service discovery.
+</p>
+
+<h4 id="resolver-default">Hostname resolution in every Gumdrop client</h4>
+
+<p>
+Every Gumdrop client resolves hostnames through <code>DnsResolver</code>
+by default. When you give an <code>HttpClient</code>, <code>SmtpClient</code>,
+<code>ImapClient</code>, <code>LdapClient</code>, <code>RedisClient</code>,
+<code>MqttClient</code> or any other client a host name instead of an IP address,
+it asks the resolver for the address on the connection's own selector loop and
+then connects. Gumdrop never makes a blocking <code>InetAddress</code> lookup
+(<code>getByName</code>, <code>getAllByName</code>) on a selector thread, so a
+slow or unreachable nameserver cannot stall other connections.
+</p>
+
+<p>
+Without any configuration, each selector loop gets its own resolver (created
+lazily by <code>DnsResolver.forLoop(loop)</code>) that:
 </p>
 
 <ul>
-<li><b>SMTP</b> – resolve MX records, TXT for SPF/DKIM/DMARC</li>
-<li><b>HTTP</b> – resolve backends, certificate hostnames</li>
-<li><b>Custom protocols</b> – any service that needs name resolution</li>
+<li>answers address literals and <code>localhost</code> without any network
+traffic, and consults the hosts file before the network</li>
+<li>uses the nameservers in <code>/etc/resolv.conf</code>, falling back to
+Cloudflare, Quad9 and Google public resolvers if there are none</li>
+<li>shares one process-wide TTL-aware cache between all loops</li>
+<li>queries AAAA and A together and prefers IPv6 while the host can reach it,
+with the IPv4 attempt following after a short head start (RFC 8305)</li>
+<li>connects to nameservers only when a name actually needs one</li>
+<li>picks the best <a href="#client-transports">transport</a> it knows each
+server supports</li>
 </ul>
 
 <p>
-Configure upstream servers (e.g. <code>upstream-servers</code> or
-<code>use-system-resolvers</code>), then call <code>queryA</code>,
-<code>queryTXT</code>, <code>queryMX</code>, etc. with a
-<code>DnsQueryCallback</code>. Results and errors are delivered asynchronously.
-</p>
-
-<h4>SelectorLoop Affinity</h4>
-
-<p>
-When a <code>DnsResolver</code> is used from a Gumdrop service (e.g. an HTTP
-or SMTP handler), set the resolver's <b>SelectorLoop</b> to the same loop as the
-connection's endpoint. That way all DNS callbacks run on the same thread as the
-handler, avoiding cross-thread coordination.
-</p>
-
-<p>
-Call <code>setSelectorLoop(SelectorLoop)</code> with the endpoint's loop
-<em>before</em> calling <code>open()</code>. If you do not set a SelectorLoop,
-the resolver uses an arbitrary Gumdrop worker loop; callbacks will still be
-correct but may run on a different thread than the handler that started the
-query.
+All of this is configurable. To change the resolver for one client, build a
+<code>DnsResolver</code> and pass it with the client's
+<code>dnsResolver(...)</code> method:
 </p>
 
 <pre>
-// In a handler that has access to the endpoint's SelectorLoop:
-SelectorLoop loop = endpoint.getSelectorLoop();
-resolver.setSelectorLoop(loop);
+DnsResolver resolver = new DnsResolver()
+    .server(InetAddress.getByAddress(new byte[] {10, 0, 0, 53}))
+    .timeoutMs(2000)
+    .tls(clientTls);
 resolver.open();
 
-resolver.queryTXT("_dmarc.example.com", new DnsQueryCallback() {
+HttpClient client = new HttpClient()
+    .host("api.example.com")
+    .dnsResolver(resolver);
+</pre>
+
+<p>
+To change the transports or DNSSEC behaviour of the resolver every client
+without an explicit resolver uses, call the static
+<code>DnsResolver.setDefaultDnssecEnabled(boolean)</code> before the first
+connection, or replace the shared cache with
+<code>DnsResolver.setCache(DnsCache)</code>.
+</p>
+
+<h4 id="resolver-usage">Using DnsResolver directly</h4>
+
+<p>
+Create a resolver, add one or more servers (or call
+<code>useSystemResolvers()</code>), open it and issue queries. The fluent
+configuration methods return the resolver; <code>addServer(String)</code>
+and <code>open()</code> throw checked exceptions.
+</p>
+
+<pre>
+DnsResolver resolver = new DnsResolver()
+    .timeoutMs(3000)
+    .dnssecEnabled(false);
+resolver.addServer("1.1.1.1");              // throws UnknownHostException
+resolver.addServer("2606:4700:4700::1111");
+resolver.open();                            // throws IOException
+
+resolver.queryMX("example.com", new DnsQueryCallback() {
     public void onResponse(DnsMessage response) {
-        // Runs on the same SelectorLoop thread as the handler
         for (DnsResourceRecord rr : response.getAnswers()) {
-            if (rr.getType() == DnsType.TXT) {
-                String txt = rr.getTxtData();
-                // Use result...
+            if (rr.getType() == DnsType.MX) {
+                // rr.getMXExchange(), rr.getMXPreference()
             }
         }
     }
     public void onError(String error) {
-        // Handle timeout or error
+        // timeout, SERVFAIL or transport failure
+    }
+});
+
+resolver.resolve("mail.example.com", new ResolveCallback() {
+    public void onResolved(List&lt;InetAddress&gt; addresses) {
+        // addresses in connection-attempt order
+    }
+    public void onError(String error) {
     }
 });
 </pre>
 
 <p>
-In configuration, if your service obtains the resolver by reference (e.g. from
-the registry), the service's <code>init()</code> or the code that wires the
-resolver to the handler should set the SelectorLoop from the handler's
-endpoint when the first request arrives, or use a shared loop if your design
-assigns one loop per service.
+Convenience methods exist for the common types: <code>queryA</code>,
+<code>queryAAAA</code>, <code>queryMX</code>, <code>queryTXT</code>,
+<code>queryPTR</code>, <code>querySRV</code>, <code>queryHTTPS</code> and
+<code>queryTLSA</code>, plus <code>query(name, DnsType, callback)</code> for any
+other type and <code>queryBatch</code> for several types in one call. Call
+<code>close()</code> when you are finished with a resolver you created yourself.
 </p>
 
-<h4>Client Transports</h4>
+<h4 id="resolver-affinity">Selector loop affinity</h4>
 
 <p>
-The resolver uses a pluggable <code>DnsClientTransport</code> interface.
-The default is plain UDP, but you can select any of the following:
-</p>
-
-<table border="1" cellpadding="5">
-<tr><th>Transport</th><th>Class</th><th>RFC</th><th>Default Port</th></tr>
-<tr><td>UDP</td><td><code>UdpDnsClientTransport</code></td>
-<td>RFC 1035</td><td>53</td></tr>
-<tr><td>TCP</td><td><code>TcpDnsClientTransport</code></td>
-<td>RFC 1035</td><td>53</td></tr>
-<tr><td>DoT</td><td><code>TcpDnsClientTransport</code> (secure)</td>
-<td>RFC 7858</td><td>853</td></tr>
-<tr><td>DoQ</td><td><code>DoQClientTransport</code></td>
-<td>RFC 9250</td><td>853</td></tr>
-<tr><td>DoH</td><td><code>DoHClientTransport</code></td>
-<td>RFC 8484</td><td>443</td></tr>
-</table>
-
-<p>
-To use DoT, create a <code>TcpDnsClientTransport</code> with
-<code>setSecure(true)</code> and optionally configure SPKI fingerprints
-for the Strict privacy profile. For DoQ, use <code>DoQClientTransport</code>
-or <code>DoQConnectionPool</code> for persistent connections. For DoH, use
-<code>DoHClientTransport</code> and optionally set a custom URI path.
-</p>
-
-<h4>Truncated Response Retry</h4>
-
-<p>
-When a UDP response has the TC (truncated) flag set, <code>DnsResolver</code>
-automatically retries over TCP using standard DNS-over-TCP framing (2-byte
-length prefix, RFC 1035 section 4.2.2). The retry is transparent to the caller.
-</p>
-
-<h4>Async zone operations (<code>DnsZoneClient</code>)</h4>
-
-<p>
-For RFC 2136 updates, RFC 1996 NOTIFY, and RFC 5936 zone transfers (e.g.
-secondary refresh), use <code>DnsZoneClient</code> on a Gumdrop
-<code>SelectorLoop</code>. <code>axfr</code> tries UDP first and retries with
-<code>axfrOverTcp</code> when the response is truncated. <code>ixfr</code> sends
-the slave SOA in the authority section (RFC 1995) and retries over TCP when
-truncated. TCP transfers use RFC 1035 framing and complete when the server
-closes the connection (multi-message AXFR/IXFR). Pass an optional
-<code>TsigKey</code> to sign requests and verify responses (including chained TSIG
-on multi-message TCP transfers). For DNS-over-TLS, pass a configured
-<code>TcpDnsClientTransport</code> (e.g. <code>TcpDnsClientTransport.createDoT()</code>)
-to <code>axfrOverTcp</code> / <code>ixfrOverTcp</code>, or use
-<code>axfrOverTls</code>. Message construction helpers live on
-<code>DnsZoneOperations</code>.
-</p>
-
-<h4>SRV Record Queries</h4>
-
-<p>
-<code>DnsResolver</code> provides a convenience method for SRV lookups
-(RFC 2782) commonly used for service discovery:
+Inside a Gumdrop service, set the resolver's selector loop to the loop of the
+connection's endpoint with <code>selectorLoop(SelectorLoop)</code> before
+<code>open()</code>. Callbacks then run on the same thread as your handler, so
+you can update handler state without locking. Without it the resolver uses an
+arbitrary worker loop and callbacks may run on a different thread than the
+handler that issued the query. The resolvers you get from
+<code>DnsResolver.forLoop(loop)</code> are already bound to their loop.
 </p>
 
 <pre>
-resolver.querySRV("_xmpp-server._tcp.example.com",
-        new DnsQueryCallback() {
+DnsResolver resolver = DnsResolver.forLoop(endpoint.getSelectorLoop());
+resolver.queryTXT("_dmarc.example.com", callback);   // callback runs on that loop
+</pre>
+
+<h4 id="client-transports">Client transports</h4>
+
+<p>
+The resolver talks to each server through a pluggable
+<code>DnsClientTransport</code>. Left alone, it chooses a transport per server in
+descending preference: DoQ, then DoT, then DoH, then plain UDP. It only picks an
+encrypted transport for a server it already knows supports it: the well-known
+public resolvers (Cloudflare, Quad9, Google) are built in, and with
+<code>ddrEnabled(true)</code> the resolver discovers other servers' encrypted
+endpoints with a single extra query using Discovery of Designated Resolvers (RFC
+9462). It never probes arbitrary servers, because most home and ISP resolvers
+support none of them and a failed connection attempt would cost a timeout on every
+lookup. A transport that fails is remembered as failing for a while and the next
+one is tried.
+</p>
+
+<p>
+To take control, give the resolver a transport prototype with
+<code>transport(DnsClientTransport)</code>. It then uses that transport for every
+server, with no automatic selection and no DDR. Configure the transport before
+<code>open()</code>.
+</p>
+
+<table border="1" cellpadding="5">
+<tr><th>Transport</th><th>Class</th><th>Standard</th><th>Default port</th></tr>
+<tr><td><a href="#client-udp">UDP with TCP fallback</a></td><td><code>UdpDnsClientTransport</code> (TCP retry built in)</td><td>RFC 1035</td><td>53</td></tr>
+<tr><td><a href="#client-dot">DoT</a></td><td><code>TcpDnsClientTransport.createDoT()</code></td><td>RFC 7858</td><td>853</td></tr>
+<tr><td><a href="#client-doq">DoQ</a></td><td><code>DoQClientTransport</code></td><td>RFC 9250</td><td>853</td></tr>
+<tr><td><a href="#client-doh">DoH</a></td><td><code>DoHClientTransport</code></td><td>RFC 8484</td><td>443</td></tr>
+</table>
+
+<p>
+Trust material and the client's own identity for the encrypted transports come
+from a <code>TlsConfig</code>. Set it on the resolver with
+<code>tls(TlsConfig)</code> to apply it to automatically chosen transports, or on
+the transport itself when you supply one.
+</p>
+
+<h4 id="client-udp">UDP with TCP fallback</h4>
+
+<p>
+Plain DNS is the default for servers not known to support anything better. Queries
+go out as UDP datagrams, and when a response arrives with the TC (truncated) flag
+set, the resolver retries that query over TCP with RFC 1035 length-prefix framing
+(section 4.2.2). The retry is transparent to the caller.
+</p>
+
+<pre>
+DnsResolver resolver = new DnsResolver()
+    .transport(new UdpDnsClientTransport())
+    .timeoutMs(2000);
+resolver.addServer("192.0.2.53");
+resolver.open();
+</pre>
+
+<p>
+For TCP-only operation, for example through a network that blocks UDP port 53,
+use <code>new TcpDnsClientTransport()</code> as the transport instead.
+</p>
+
+<h4 id="client-dot">DNS over TLS (DoT)</h4>
+
+<p>
+<code>TcpDnsClientTransport.createDoT()</code> returns a TCP transport with TLS
+enabled and default port 853. It uses TCP Fast Open where the platform offers it
+and TLS session resumption to cut reconnection cost. For the Strict usage profile
+(RFC 7858 section 4.2) pin the server's public key: after the handshake the leaf
+certificate's SubjectPublicKeyInfo is hashed with SHA-256 and compared with your
+pins.
+</p>
+
+<pre>
+TcpDnsClientTransport dot = TcpDnsClientTransport.createDoT()
+    .pinnedSpkiFingerprints(Set.of("ab:cd:...:ef"))  // colon-separated lowercase SHA-256
+    .tls(privateCaTls);                              // optional: private CA, client identity
+
+DnsResolver resolver = new DnsResolver().transport(dot);
+resolver.addServer("1.1.1.1", 853);   // throws UnknownHostException
+resolver.open();
+</pre>
+
+<p>
+A trust manager in the <code>TlsConfig</code> is combined with the pins rather than
+replaced by them, so you can, for example, authenticate the server against TLSA
+records with a <code>DaneTrustManager</code> as well.
+</p>
+
+<h4 id="client-doq">DNS over QUIC (DoQ)</h4>
+
+<p>
+<code>DoQClientTransport</code> opens one QUIC connection to the server and sends
+each query on its own stream, with EDNS(0) padding to 128-byte blocks (RFC 9250
+section 5.4, RFC 8467) to mitigate traffic analysis. Session tickets are cached,
+so reconnections can send queries as 0-RTT early data. A
+<code>DoQConnectionPool</code> transport shares one connection per server between
+queries; <code>DoQConnectionPool.setMaxIdleTimeMs(long)</code> sets how long idle
+connections are kept.
+</p>
+
+<pre>
+DoQClientTransport doq = new DoQClientTransport()
+    .caFile(Path.of("private-ca.pem"));
+// or: .pinnedCertFingerprint("SHA-256:ab:cd:...")
+// or: .tls(clientTls)
+
+DnsResolver resolver = new DnsResolver().transport(doq);
+resolver.addServer("9.9.9.9", 853);
+resolver.open();
+</pre>
+
+<h4 id="client-doh">DNS over HTTPS (DoH)</h4>
+
+<p>
+<code>DoHClientTransport</code> sends queries as HTTP POST requests with the
+<code>application/dns-message</code> content type (RFC 8484) over Gumdrop's own
+<code>HttpClient</code>. It is useful where UDP and port 853 are blocked, because
+it looks like ordinary HTTPS and passes through proxies and CDNs. The default path
+is <code>/dns-query</code>.
+</p>
+
+<p>
+DoH lives in the HTTP module (<code>gumdrop-http.jar</code>) because it is built
+on the HTTP client. The resolver finds it through the service loader, so in a
+core-only deployment it simply skips DoH when choosing transports.
+</p>
+
+<pre>
+DoHClientTransport doh = new DoHClientTransport()
+    .path("/dns-query")
+    .tls(clientTls);                  // optional
+
+DnsResolver resolver = new DnsResolver().transport(doh);
+resolver.addServer("1.1.1.1", 443);
+resolver.open();
+</pre>
+
+<h4 id="zone-client">Zone operations</h4>
+
+<p>
+For RFC 2136 updates, RFC 1996 NOTIFY and RFC 5936 zone transfers (for example a
+secondary's refresh), use the static methods of <code>DnsZoneClient</code> on a
+Gumdrop <code>SelectorLoop</code>. <code>axfr</code> tries UDP first and retries
+with <code>axfrOverTcp</code> when the response is truncated; <code>ixfr</code>
+sends the secondary's SOA in the authority section (RFC 1995) and does the same.
+TCP transfers complete when the server closes the connection after the last
+message. Pass an optional <code>TsigKey</code> to sign requests and verify
+responses, including chained TSIG across a multi-message transfer. For DNS over
+TLS, pass a configured <code>TcpDnsClientTransport</code> (such as
+<code>TcpDnsClientTransport.createDoT()</code>) to <code>axfrOverTcp</code> or
+<code>ixfrOverTcp</code>, or use <code>axfrOverTls</code>. Message construction
+helpers are on <code>DnsZoneOperations</code>.
+</p>
+
+<h4 id="srv">SRV queries</h4>
+
+<pre>
+resolver.querySRV("_xmpp-server._tcp.example.com", new DnsQueryCallback() {
     public void onResponse(DnsMessage response) {
         for (DnsResourceRecord rr : response.getAnswers()) {
-            System.out.println(rr.getSRVTarget() + ":"
-                + rr.getSRVPort()
+            System.out.println(rr.getSRVTarget() + ":" + rr.getSRVPort()
                 + " (priority=" + rr.getSRVPriority()
                 + ", weight=" + rr.getSRVWeight() + ")");
         }
     }
     public void onError(String error) {
-        // Handle error
     }
 });
 </pre>
 
-<h3 id="mdns">Multicast DNS &amp; DNS-SD</h3>
+<h3 id="dnssec">DNSSEC</h3>
+
+<p>
+Validation is optional and configured separately for the outbound
+client and for the upstream relay:
+</p>
+
+<ul>
+<li><code>DnsResolver</code> - <code>dnssecEnabled(true)</code> validates
+answers from configured resolvers (see below).</li>
+<li><code>UpstreamRelayHandler</code> - <code>dnssecEnabled(true)</code> validates
+upstream answers before returning them to clients of your
+<code>DnsServer</code>.</li>
+</ul>
+
+<p>
+When validation is enabled, the component sets DO in EDNS0 queries, fetches
+DNSSEC records as needed, and checks the chain of trust to configured trust
+anchors. The bare <code>DnsServer</code> shell does not validate DNSSEC by itself.
+</p>
+
+<p>Supported algorithms (per RFC 8624):</p>
+<ul>
+<li>RSA/SHA-256 (algorithm 8)</li>
+<li>RSA/SHA-512 (algorithm 10)</li>
+<li>ECDSA P-256/SHA-256 (algorithm 13)</li>
+<li>ECDSA P-384/SHA-384 (algorithm 14)</li>
+<li>Ed25519 (algorithm 15)</li>
+<li>Ed448 (algorithm 16)</li>
+</ul>
+
+<p>Supported DS digest types: SHA-1 (1), SHA-256 (2), SHA-384 (4).</p>
+
+<p>
+Cryptographic operations use <code>java.security</code> from the
+<code>java.base</code> module and never block on I/O. Signature verification
+(RSA, ECDSA, EdDSA) and DS digest checks are CPU-bound and can take a noticeable
+fraction of a millisecond or more, so they run on Gumdrop's crypto thread pool,
+the same one used by the TLS and QUIC handshakes, and the chain walk resumes on
+the resolver's selector loop when each result is ready. If the pool is saturated
+the result is <code>INDETERMINATE</code>, not <code>BOGUS</code>, since that says
+nothing about the data. DNSKEY and DS records needed for chain-of-trust
+validation are fetched asynchronously through the resolver callback model.
+</p>
+
+<p>
+Following RFC 9276 section 3.2, a negative answer proved with NSEC3 records whose
+iteration count is above 50 is treated as <code>INSECURE</code> (no AD flag) and
+is not hashed at all. The iteration count is chosen by the zone owner, and every
+iteration is more CPU spent on each validation, so an unbounded count would let a
+signed zone drive the validator's load. Zones should publish an iteration count of
+0.
+</p>
+
+<p>Configuration:</p>
+<pre>
+// Enable DNSSEC on the client resolver
+DnsResolver resolver = new DnsResolver().dnssecEnabled(true);
+resolver.addServer("8.8.8.8");   // throws UnknownHostException
+resolver.open();                 // throws IOException
+
+// DNSSEC validation on upstream answers (UpstreamRelayHandler)
+DnsServer service = DnsServer.compose()
+    .listener(new DnsListener())
+    .handler(UpstreamRelayHandler.builder()
+        .upstreamServers("8.8.8.8")
+        .dnssecEnabled(true)
+        .build())
+    .server();
+</pre>
+
+<p>
+When <code>UpstreamRelayHandler</code> has DNSSEC enabled, it sets DO on
+upstream queries and strips DNSSEC records from responses to clients that did
+not request them (no DO bit). The AD (Authenticated Data) flag is preserved from
+validated upstream responses.
+</p>
+
+
+<h3 id="records">Record types</h3>
+
+<p>
+The <code>DnsResourceRecord</code> class provides factory methods for common
+record types:
+</p>
+
+<table border="1" cellpadding="5">
+<tr><th>Type</th><th>Factory Method</th><th>Description</th></tr>
+<tr><td>A</td><td><code>DnsResourceRecord.a(name, ttl, address)</code></td>
+<td>IPv4 address</td></tr>
+<tr><td>AAAA</td><td><code>DnsResourceRecord.aaaa(name, ttl, address)</code></td>
+<td>IPv6 address</td></tr>
+<tr><td>CNAME</td><td><code>DnsResourceRecord.cname(name, ttl, canonical)</code></td>
+<td>Canonical name (alias)</td></tr>
+<tr><td>MX</td><td><code>DnsResourceRecord.mx(name, ttl, priority, exchange)</code></td>
+<td>Mail exchange</td></tr>
+<tr><td>NS</td><td><code>DnsResourceRecord.ns(name, ttl, nameserver)</code></td>
+<td>Authoritative name server</td></tr>
+<tr><td>PTR</td><td><code>DnsResourceRecord.ptr(name, ttl, hostname)</code></td>
+<td>Pointer (reverse DNS)</td></tr>
+<tr><td>SOA</td><td><code>DnsResourceRecord.soa(...)</code></td>
+<td>Start of authority</td></tr>
+<tr><td>TXT</td><td><code>DnsResourceRecord.txt(name, ttl, text)</code></td>
+<td>Text record</td></tr>
+<tr><td>SRV</td><td><code>DnsResourceRecord.srv(name, ttl, priority, weight, port, target)</code></td>
+<td>Service location</td></tr>
+<tr><td>HTTPS</td><td><code>DnsResourceRecord.https(name, ttl, priority, target, params)</code></td>
+<td>HTTPS service binding (RFC 9460)</td></tr>
+<tr><td>SVCB</td><td><code>DnsResourceRecord.svcb(name, ttl, priority, target, params)</code></td>
+<td>General service binding (RFC 9460)</td></tr>
+</table>
+
+<p>
+HTTPS and SVCB share the same RDATA shape (priority, target name, and a map
+of SvcParamKey &rarr; value); <code>params</code> is a
+<code>Map&lt;Integer, byte[]&gt;</code> keyed by SvcParamKey, e.g.
+<code>DnsResourceRecord.SVCB_PARAM_ALPN</code> or
+<code>SVCB_PARAM_PORT</code>, with <code>encodeSVCBAlpn(List&lt;String&gt;)</code>
+and <code>encodeSVCBPort(int)</code> helpers to build the corresponding
+values; <code>params</code> may be <code>null</code>/empty. A
+<code>priority</code> of 0 is "AliasForm" (target is an alias, no params
+expected); any other value is "ServiceForm". Read a parsed record back
+with <code>getSVCBPriority()</code>,
+<code>getSVCBTargetName()</code>, and <code>getSVCBParams()</code>, or the
+convenience accessors <code>getSVCBAlpnProtocols()</code> and
+<code>getSVCBPort()</code>.
+</p>
+
+<h4>DNSSEC Record Types</h4>
+
+<p>
+DNSSEC record types (RFC 4034, RFC 5155) are parsed from wire format and
+provide RDATA accessor methods:
+</p>
+
+<table border="1" cellpadding="5">
+<tr><th>Type</th><th>Value</th><th>Description</th></tr>
+<tr><td>DS</td><td>43</td><td>Delegation signer - links child DNSKEY to parent zone</td></tr>
+<tr><td>RRSIG</td><td>46</td><td>DNSSEC signature - covers an RRset</td></tr>
+<tr><td>NSEC</td><td>47</td><td>Next secure record - denial of existence</td></tr>
+<tr><td>DNSKEY</td><td>48</td><td>DNS public key - zone signing key or key signing key</td></tr>
+<tr><td>NSEC3</td><td>50</td><td>Hashed denial of existence (RFC 5155)</td></tr>
+<tr><td>NSEC3PARAM</td><td>51</td><td>NSEC3 parameters (RFC 5155)</td></tr>
+</table>
+
+
+<h3 id="mdns">Multicast DNS and DNS-SD</h3>
 
 <p>
 The <code>org.bluezoo.gumdrop.mdns</code> package implements multicast DNS
@@ -1086,13 +1240,12 @@ for this Gumdrop instance's own configured services</li>
 </ul>
 
 <p>
-mDNS reuses the standard DNS wire format almost entirely &mdash;
-<code>DnsMessage</code>, <code>DnsQuestion</code>, <code>DnsResourceRecord</code>,
+mDNS reuses the standard DNS wire format almost entirely - <code>DnsMessage</code>, <code>DnsQuestion</code>, <code>DnsResourceRecord</code>,
 <code>DnsType</code>, and <code>DnsClass</code> from the <code>dns</code>
 package are shared as-is between both packages (see
-<a href="#mdns-wire">Wire Format Extensions</a> below for the two small
-additions mDNS needed). Everything else &mdash; the probing/announcing
-state machine, the active-refresh cache, and DNS-SD &mdash; is specific to
+<a href="#mdns-wire">Wire format extensions</a> below for the two small
+additions mDNS needed). Everything else - the probing/announcing
+state machine, the active-refresh cache, and DNS-SD - is specific to
 the <code>mdns</code> package: mDNS is a continuous, stateful peer rather
 than the unicast proxy's largely stateless per-request model, so it needed
 its own cache and its own service/listener pair rather than extending
@@ -1103,10 +1256,10 @@ its own cache and its own service/listener pair rather than extending
 All mutable mDNS state (probe/announce state, the cache, pending timers) is
 touched only from datagram handling and timer callbacks, both of which are
 always invoked on the owning <code>MdnsListener</code>'s single transport
-thread &mdash; there is no separate synchronization anywhere in the package.
+thread - there is no separate synchronisation anywhere in the package.
 </p>
 
-<h4 id="mdns-lifecycle">Probing, Announcing &amp; Withdrawal</h4>
+<h4 id="mdns-lifecycle">Probing, announcing and withdrawal</h4>
 
 <p>
 On <code>start()</code>, <code>MdnsServer</code> runs the RFC 6762 section 8
@@ -1131,7 +1284,7 @@ the cache-flush bit set so other hosts atomically replace anything they had
 cached under the old address</li>
 <li><b>Answering</b> &ndash; while announced, answers matching queries from
 other hosts, honouring RFC 6762 section 7.1 known-answer suppression and the
-"QU" unicast-response-requested bit, and randomizing multicast replies by
+"QU" unicast-response-requested bit, and randomising multicast replies by
 20&ndash;120ms to avoid many responders answering in lockstep (section 6)</li>
 <li><b>Withdrawal</b> (section 10.1) &ndash; on <code>stop()</code>, sends a
 "goodbye" packet: the same records with TTL 0, telling other hosts to remove
@@ -1144,7 +1297,7 @@ true) to find out what name was actually claimed, since it may not be the
 configured <code>hostname</code> verbatim if a rename happened.
 </p>
 
-<h4 id="mdns-wire">Wire Format Extensions</h4>
+<h4 id="mdns-wire">Wire format extensions</h4>
 
 <p>
 mDNS repurposes the top bit (<code>0x8000</code>) of two wire-format fields
@@ -1175,7 +1328,7 @@ from the existing single-string <code>txt(name, ttl, String)</code> which
 splits one long value across the 255-byte character-string boundary instead</li>
 </ul>
 
-<h4 id="mdns-query">Querying &amp; the Record Cache</h4>
+<h4 id="mdns-query">Querying and the record cache</h4>
 
 <p>
 Besides answering for its own hostname, <code>MdnsServer</code> can query
@@ -1202,7 +1355,7 @@ gets the same one-second grace removal as a cache-flush eviction (section
 10.1).
 </p>
 
-<h4 id="dnssd">DNS-SD Service Advertisement</h4>
+<h4 id="dnssd">DNS-SD service advertisement</h4>
 
 <p>
 Once announced, <code>MdnsServer</code> (by default) also publishes RFC
@@ -1210,7 +1363,7 @@ Once announced, <code>MdnsServer</code> (by default) also publishes RFC
 so they're discoverable via <code>dns-sd -B _services._dns-sd._udp local.</code>
 or a Bonjour/Avahi browser. This reads <code>gumdrop.getServers()</code> at
 announce time, so <b>the <code>mdns</code> server must be added to the
-<code>Gumdrop</code> instance last</b> — call <code>gumdrop.addServer(...)</code>
+<code>Gumdrop</code> instance last</b> - call <code>gumdrop.addServer(...)</code>
 for every other server first; a server added after <code>mdns</code> won't
 have its listener ports picked up yet.
 </p>
@@ -1218,8 +1371,7 @@ have its listener ports picked up yet.
 <p>
 For each listener across every service, <code>DnssdAdvertiser</code> maps
 its <code>getDescription()</code> value to a DNS-SD service type using a
-deliberately conservative table of long-established Bonjour service types
-&mdash; not the full IANA registry, and not a guess at every protocol
+deliberately conservative table of long-established Bonjour service types - not the full IANA registry, and not a guess at every protocol
 Gumdrop can serve:
 </p>
 
@@ -1236,11 +1388,10 @@ Gumdrop can serve:
 </table>
 
 <p>
-A listener whose description isn't in this table &mdash; including
+A listener whose description isn't in this table - including
 internal-only listeners like <code>cluster</code>,
 and protocols without a clearly-established DNS-SD type such as
-<code>mqtt</code>, <code>socks</code>, or the WebSocket/HTTP3/DoQ variants
-&mdash; is silently skipped rather than treated as an error, so adding a new
+<code>mqtt</code>, <code>socks</code>, or the WebSocket/HTTP3/DoQ variants - is silently skipped rather than treated as an error, so adding a new
 protocol listener elsewhere in Gumdrop never needs a matching change here
 just to avoid breaking. Use <code>excluded-services</code> (see
 <a href="#mdns-config">Configuration</a>) to also skip a normally-mapped one,
@@ -1262,35 +1413,35 @@ per-instance records and do.
 
 <h4 id="mdns-config">Configuration</h4>
 
-<h4>MdnsServer Setters</h4>
+<h4>MdnsServer settings</h4>
 
 <ul>
-<li><code>setHostname(String)</code> &ndash; the label to probe for and advertise as
+<li><code>hostname(String)</code> &ndash; the label to probe for and advertise as
 <code>&lt;hostname&gt;.local</code> (optional). If omitted, the JVM's local
 hostname (domain suffix stripped) is used, falling back to
 <code>"gumdrop"</code></li>
-<li><code>setAdvertiseServices(boolean)</code> &ndash; auto-advertise this instance's
+<li><code>advertiseServices(boolean)</code> &ndash; auto-advertise this instance's
 other configured services via DNS-SD (default: true)</li>
-<li><code>setExcludedServices(String)</code> &ndash; space-separated
+<li><code>excludedServices(String)</code> &ndash; space-separated
 <code>Listener.getDescription()</code> values to never advertise via DNS-SD
 even if otherwise eligible (e.g. <code>"dns"</code>)</li>
 </ul>
 
-<h4>MdnsListener Options</h4>
+<h4>MdnsListener options</h4>
 
 <ul>
 <li><code>.port(int)</code> &ndash; UDP port (default: 5353). mDNS's port isn't
-meaningfully configurable in practice &mdash; it's part of the protocol, and
+meaningfully configurable in practice - it's part of the protocol, and
 changing it means real mDNS clients on the network can no longer find this
 host; the setter exists mainly for testing</li>
 </ul>
 
-<h4>Example Composition</h4>
+<h4>Example</h4>
 
 <pre>
-MdnsServer mdns = new MdnsServer();
-mdns.setHostname("gumdrop");
-mdns.setAdvertiseServices(true);
+MdnsServer mdns = new MdnsServer()
+    .hostname("gumdrop")
+    .advertiseServices(true);
 mdns.addListener(new MdnsListener());
 
 // mDNS + DNS-SD auto-advertisement. Must be added to the Gumdrop
@@ -1302,14 +1453,12 @@ gumdrop.addServer(mdns);
 </pre>
 
 <p>
-Note: mDNS's UDP port 5353 is the same port the DNS proxy example above
-uses for its non-privileged <code>DnsListener</code> (see
-<a href="#configuration">Configuration</a>) &mdash; running both on the same
-host collides. Use a different port for the unicast <code>DnsListener</code>,
-or omit it, if running both.
+Note: mDNS's UDP port 5353 is also a common choice for a non-privileged
+unicast <code>DnsListener</code>; running both on the same host collides. Use a
+different port for the unicast listener if running both.
 </p>
 
-<h4>Known Limitations</h4>
+<h4>Known limitations</h4>
 
 <ul>
 <li>IPv4 only &ndash; no <code>ff02::fb</code> IPv6 multicast group support
@@ -1322,7 +1471,8 @@ case)</li>
 unlike the host's own address record(s)</li>
 </ul>
 
-<h3 id="udp">UDP Protocol Support</h3>
+
+<h3 id="udp">UDP protocol support</h3>
 
 <p>
 The DNS server showcases Gumdrop's UDP protocol support through the
@@ -1334,7 +1484,7 @@ This demonstrates how to build UDP-based services within the event-driven framew
 
 <p>
 <code>UdpEndpoint</code> is the UDP equivalent of <code>TcpEndpoint</code>.
-Unlike TCP, there are no per-client endpoint objects—the server receives
+Unlike TCP, there are no per-client endpoint objects, the server receives
 datagrams directly and sends responses to the source address. A
 <code>UdpEndpoint</code> is created by adding a <code>UdpTransportFactory</code>
 to a <code>UdpListener</code>.
@@ -1351,7 +1501,7 @@ public abstract class UdpEndpoint extends Endpoint {
 }
 </pre>
 
-<h4>Key Differences from TCP</h4>
+<h4>Key differences from TCP</h4>
 
 <table border="1" cellpadding="5">
 <tr><th>Aspect</th><th>TCP (TcpListener)</th><th>UDP (UdpEndpoint)</th></tr>
@@ -1365,42 +1515,53 @@ public abstract class UdpEndpoint extends Endpoint {
 <td>DTLS</td></tr>
 </table>
 
-<h4>Building Custom UDP Services</h4>
+<h4>Building custom UDP services</h4>
 
 <p>
-The DNS server serves as a template for building other UDP-based services.
-Create a <code>UdpListener</code> with a <code>UdpTransportFactory</code>
-and provide an <code>ProtocolHandler</code> to process datagrams:
+<code>DnsListener</code> is a template for other datagram protocols. Subclass
+<code>UdpListener</code>, return a <code>ProtocolHandler</code> from
+<code>createProtocolHandler()</code> (one handler receives every datagram), and
+reply with <code>sendTo</code> on the listener's endpoint:
 </p>
 
 <pre>
-UdpListener server = new UdpListener();
-server.setPort(9000);
-server.setDescription("my-service");
-server.setTransportFactory(new UdpTransportFactory());
-server.setHandlerFactory(new ProtocolHandlerFactory() {
-    public ProtocolHandler createHandler() {
-        return new MyUDPHandler();
-    }
-});
+public class EchoListener extends UdpListener {
 
-public class MyUDPHandler implements ProtocolHandler {
-    
-    @Override
-    public void receive(ByteBuffer data, Endpoint endpoint) {
-        // Parse the datagram
-        MyProtocolMessage request = MyProtocolMessage.parse(data);
-        
-        // Process and generate response
-        MyProtocolMessage response = process(request);
-        
-        // Send response back
-        endpoint.write(response.serialize());
+    protected ProtocolHandler createProtocolHandler() {
+        return new ProtocolHandler() {
+            public void connected(Endpoint ep) {
+            }
+
+            public void receive(ByteBuffer data) {
+                InetSocketAddress source =
+                    (InetSocketAddress) getEndpoint().getRemoteAddress();
+                getEndpoint().sendTo(data, source);
+            }
+
+            public void disconnected() {
+            }
+
+            public void securityEstablished(SecurityInfo info) {
+            }
+
+            public void error(Exception cause) {
+            }
+        };
+    }
+
+    public String getDescription() {
+        return "echo";
     }
 }
 </pre>
 
-<h4>Use Cases</h4>
+<p>
+Port, addresses and limits are the usual fluent <code>Listener</code> options. Add
+<code>.secure(true)</code> and <code>.tls(TlsConfig)</code> to serve the protocol
+over DTLS.
+</p>
+
+<h4>Use cases</h4>
 
 <p>
 The DNS server demonstrates patterns applicable to other UDP protocols:

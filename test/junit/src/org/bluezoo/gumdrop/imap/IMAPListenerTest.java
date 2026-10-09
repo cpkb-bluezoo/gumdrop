@@ -65,7 +65,7 @@ public class IMAPListenerTest {
 
     @Test
     public void testCapabilitiesExcludeQuotaWhenDisabled() {
-        listener.setEnableQUOTA(false);
+        listener.enableQUOTA(false);
         String caps = listener.getCapabilities(true, true);
         assertFalse("QUOTA should not be advertised when disabled",
                 caps.contains("QUOTA"));
@@ -83,7 +83,7 @@ public class IMAPListenerTest {
         fields.put("name", "TestServer");
         fields.put("version", "2.0");
         fields.put("vendor", "Test Corp");
-        listener.setServerIdFields(fields);
+        listener.serverIdFields(fields);
 
         Map<String, String> result = listener.getServerIdFields();
         assertNotNull(result);
@@ -115,7 +115,7 @@ public class IMAPListenerTest {
 
     @Test
     public void testCapabilitiesExcludeNamespaceWhenDisabled() {
-        listener.setEnableNAMESPACE(false);
+        listener.enableNAMESPACE(false);
         String caps = listener.getCapabilities(true, true);
         assertFalse("NAMESPACE should not appear when disabled",
                 caps.contains("NAMESPACE"));
@@ -151,7 +151,7 @@ public class IMAPListenerTest {
 
     @Test
     public void testCapabilitiesExcludeCompressWhenDisabled() {
-        listener.setEnableCOMPRESS(false);
+        listener.enableCOMPRESS(false);
         String caps = listener.getCapabilities(true, true);
         assertFalse("COMPRESS=DEFLATE should not appear when disabled",
                 caps.contains("COMPRESS=DEFLATE"));
@@ -166,7 +166,7 @@ public class IMAPListenerTest {
 
     @Test
     public void testCapabilitiesExcludeUtf8AcceptWhenDisabled() {
-        listener.setEnableUTF8ACCEPT(false);
+        listener.enableUTF8ACCEPT(false);
         String caps = listener.getCapabilities(true, true);
         assertFalse("UTF8=ACCEPT should not appear when disabled",
                 caps.contains("UTF8=ACCEPT"));
@@ -187,7 +187,7 @@ public class IMAPListenerTest {
 
     @Test
     public void testCapabilitiesExcludeSortWhenDisabled() {
-        listener.setEnableSORT(false);
+        listener.enableSORT(false);
         String caps = listener.getCapabilities(true, true);
         assertFalse("SORT should not appear when disabled",
                 caps.contains(" SORT"));
@@ -212,7 +212,7 @@ public class IMAPListenerTest {
 
     @Test
     public void testCapabilitiesExcludeObjectIdWhenDisabled() {
-        listener.setEnableOBJECTID(false);
+        listener.enableOBJECTID(false);
         String caps = listener.getCapabilities(true, true);
         assertFalse("OBJECTID should not appear when disabled",
                 caps.contains(" OBJECTID"));
@@ -221,5 +221,14 @@ public class IMAPListenerTest {
     @Test
     public void testEnableOBJECTIDDefaultsTrue() {
         assertTrue(listener.isEnableOBJECTID());
+    }
+
+    @Test
+    public void testCapabilitiesAdvertiseRev1AndRev2() {
+        java.util.List<String> tokens = java.util.Arrays.asList(
+                listener.getCapabilities(false, true).split(" "));
+        assertTrue("IMAP4rev1 for clients that look only for it",
+                tokens.contains("IMAP4rev1"));
+        assertTrue(tokens.contains("IMAP4rev2"));
     }
 }

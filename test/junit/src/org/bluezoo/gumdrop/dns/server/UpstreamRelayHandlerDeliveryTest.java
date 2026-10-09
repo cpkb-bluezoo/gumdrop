@@ -177,7 +177,7 @@ public class UpstreamRelayHandlerDeliveryTest {
         handler.setAggressiveNsecEnabled(true);
         handler.setMetrics(null);
         handler.setTrustAnchor(null);
-        handler.setDnssecEnabled(true);
+        handler.dnssecEnabled(true);
         assertTrue(handler.isDnssecEnabled());
         assertNotNull(handler.getCache());
         assertNull(handler.getNsecProofCache());
@@ -215,7 +215,7 @@ public class UpstreamRelayHandlerDeliveryTest {
         resolver = new CannedResolver();
         anchors = new DnssecTrustAnchor();
         anchors.clear();
-        handler.setDnssecEnabled(true);
+        handler.dnssecEnabled(true);
         set(handler, "chainValidator", new DnssecChainValidator(resolver, anchors));
         set(handler, "nsecProofCache", new DnsNsecProofCache());
     }

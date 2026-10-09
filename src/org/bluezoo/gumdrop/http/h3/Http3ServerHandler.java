@@ -699,6 +699,33 @@ public final class Http3ServerHandler implements StreamAcceptHandler, H3ControlS
     }
 
     /**
+     * The listener whose authentication lockout applies to this connection,
+     * or null for none.
+     */
+    private org.bluezoo.gumdrop.Listener lockoutSource;
+
+    void authLockoutFrom(org.bluezoo.gumdrop.Listener listener) {
+        this.lockoutSource = listener;
+    }
+
+    /** Whether this client is locked out of authenticating; see {@code Listener#maxAuthFailures}. */
+    boolean isAuthLockedOut() {
+        return lockoutSource != null && lockoutSource.isAuthLockedOut(getRemoteAddress());
+    }
+
+    void recordAuthFailure() {
+        if (lockoutSource != null) {
+            lockoutSource.recordAuthFailure(getRemoteAddress(), null);
+        }
+    }
+
+    void recordAuthSuccess(String username) {
+        if (lockoutSource != null) {
+            lockoutSource.recordAuthSuccess(getRemoteAddress(), username);
+        }
+    }
+
+    /**
      * Returns the telemetry configuration: the one this handler was given,
      * else one of its own, which prints log events through
      * {@code java.util.logging}. Never null.

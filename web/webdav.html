@@ -34,13 +34,12 @@
 <p class="back-link"><a href="index.html">&larr; Back to Main Page</a></p>
 
 <p>
-Gumdrop 3 serves static files and WebDAV through an
+Gumdrop serves static files and WebDAV through an
 <code>HttpServer</code> composed with a
-<strong><code>WebDAVRequestHandler</code></strong> (WebDAV is a tradename —
-use <strong>WebDAV</strong>, not <code>Webdav</code>, in public API names).
-It is a complete, production-ready HTTP file server: it serves static files
-from a filesystem directory with high performance, and optionally provides
-full WebDAV (RFC 4918) distributed authoring support.
+<strong><code>WebDAVRequestHandler</code></strong>. It serves files
+from a filesystem directory without blocking the event loop, and optionally
+provides WebDAV (RFC 4918, compliance classes 1 and 2) distributed authoring and
+RFC 3744 access control reporting.
 </p>
 
 <p>
@@ -49,7 +48,7 @@ any combination of HTTP/3, HTTP/2, and HTTP/1.1 listeners can be attached to
 the same <code>HttpServer</code>.
 </p>
 
-<h3 id="composition">Composition (Gumdrop 3)</h3>
+<h3 id="composition">Composition</h3>
 
 <pre>
 HttpServer server = HttpServer.compose()
@@ -61,6 +60,9 @@ HttpServer server = HttpServer.compose()
         .webdavEnabled(true)
         .build())
     .server();
+
+Gumdrop gumdrop = Gumdrop.boot();
+gumdrop.addServer(server);
 </pre>
 
 <p>
@@ -69,32 +71,43 @@ See <a href="configuration.html">Application composition</a>.
 
 <h3>Contents</h3>
 <ul>
-<li><a href="#composition">Composition (Gumdrop 3)</a></li>
-<li><a href="#file-server">File Server</a></li>
-<li><a href="#webdav">WebDAV Support</a></li>
-<li><a href="#webdav-methods">WebDAV Methods</a></li>
-<li><a href="#live-properties">Live Properties</a></li>
-<li><a href="#dead-properties">Dead Properties</a></li>
+<li><a href="#composition">Composition</a></li>
+<li><a href="#file-server">File server</a></li>
+<li><a href="#webdav">WebDAV support</a></li>
+<li><a href="#webdav-methods">WebDAV methods</a></li>
+<li><a href="#live-properties">Live properties</a></li>
+<li><a href="#dead-properties">Dead properties</a></li>
 <li><a href="#storage-roots">Content, lock and sidecar roots</a></li>
 <li><a href="#locking">Locking</a></li>
-<li><a href="#examples">Protocol Examples</a></li>
+<li><a href="#acl">Access control (RFC 3744)</a></li>
+<li><a href="#examples">Protocol examples</a></li>
 </ul>
 
-<h3 id="file-server">File Server</h3>
+<h3 id="file-server">File server</h3>
 
 <h4>Features</h4>
 
 <ul>
-<li><b>NIO-based transfers</b> - uses Java NIO for efficient file-to-socket
-data transfer</li>
-<li><b>Content type detection</b> - automatic MIME type detection based on
-file extension</li>
-<li><b>Directory listings</b> - configurable welcome file for directory requests</li>
-<li><b>HTTP methods</b> - GET, HEAD, and optionally PUT/DELETE for writes</li>
-<li><b>Range requests</b> - partial content delivery for large files</li>
-<li><b>Conditional requests</b> - ETag and Last-Modified support</li>
-<li><b>Path security</b> - prevents directory traversal attacks</li>
+<li><b>Non-blocking file access</b> - file metadata and directory work runs on
+the shared storage thread pool, and file bodies are read with positional,
+callback-completed reads (<code>AsyncFile</code>) and sent as the connection can
+take them, so a slow disk or a slow client never stalls a selector loop</li>
+<li><b>Content type detection</b> - from the file extension, using a built-in table
+of common types; anything else is <code>application/octet-stream</code></li>
+<li><b>Welcome files and directory listings</b> - a request for a directory serves
+the first welcome file that exists, otherwise an HTML listing</li>
+<li><b>HTTP methods</b> - GET and HEAD, and PUT and DELETE when writes are enabled</li>
+<li><b>Conditional requests</b> - <code>ETag</code> and <code>Last-Modified</code>
+validators, with <code>304 Not Modified</code> for <code>If-None-Match</code> and
+<code>If-Modified-Since</code></li>
+<li><b>Path security</b> - requests cannot leave the root, and symbolic links are
+resolved before access checks</li>
 </ul>
+
+<p>
+Range requests (<code>206 Partial Content</code>) are not supported: a request with a
+<code>Range</code> header is answered with the whole file.
+</p>
 
 <h4>Configuration</h4>
 
@@ -115,28 +128,48 @@ Builder methods:
 <ul>
 <li><code>rootPath(Path)</code> - filesystem directory to serve (required)</li>
 <li><code>welcomeFile(String)</code> - default file for directory requests (default:
-<code>index.html</code>)</li>
+<code>index.html</code>); a comma-separated list is tried in order</li>
 <li><code>allowWrite(boolean)</code> - enable PUT and DELETE methods (default:
-<code>false</code>)</li>
+<code>false</code>); without it they, and every WebDAV method that modifies
+anything, answer 405</li>
+<li><code>webdavEnabled(boolean)</code> - enable the <a href="#webdav">WebDAV methods</a>
+(default: <code>false</code>)</li>
+<li><code>deadPropertyStorage(String)</code> - see <a href="#dead-properties">dead
+properties</a></li>
+<li><code>lockRoot(Path)</code>, <code>sidecarRoot(Path)</code> - see
+<a href="#storage-roots">content, lock and sidecar roots</a></li>
+<li><code>realm(Realm)</code> - enables <a href="#acl">RFC 3744 access control</a>
+reporting</li>
 </ul>
+
+<p>
+The builder checks the root when it builds: it must be a readable directory, and a
+warning is logged if writes are enabled and it is not writable.
+</p>
 
 <h4>Security</h4>
 
 <p>
 The file server validates all paths to ensure they remain within the
 configured root directory. Symbolic links are resolved to their real
-paths before access checks. The root path must be a readable directory;
-if write operations are enabled, the server logs a warning if the directory
-is not writable.
+paths before access checks. Property sidecar files are never served or listed.
 </p>
 
-<h4>Performance</h4>
+<p>
+The handler does no authentication itself. To require a login, set a
+<code>Realm</code> on the <code>HttpServer</code> or listener, as for any other
+handler; see <a href="http.html#server-handler">the HTTP authentication notes</a>
+and <a href="security.html">Security</a>. Leave <code>allowWrite</code> off for
+anything that is not meant to be modified.
+</p>
+
+<h4>Performance and memory</h4>
 
 <p>
-File transfers use Java NIO's <code>FileChannel.transferTo()</code> where
-possible, enabling zero-copy transfers directly from the filesystem to the
-socket. This minimises memory allocation and CPU usage for large file
-transfers.
+A file is read in chunks into pooled buffers, and each chunk is written to the
+connection only when the transport is ready for more (write backpressure), so a
+large download uses a small, fixed amount of memory however slow the client is.
+Nothing is cached in memory.
 </p>
 
 <p>
@@ -144,7 +177,7 @@ For HTTP/3 and HTTP/2 connections, the file server benefits from stream
 multiplexing when serving mixed content (HTML, CSS, JavaScript, images).
 </p>
 
-<h4>HTTP/3 Support</h4>
+<h4>HTTP/3 support</h4>
 
 <p>
 To serve files over HTTP/3 as well as HTTP/2 and HTTP/1.1, use
@@ -168,13 +201,29 @@ The service automatically advertises HTTP/3 availability via the
 <code>Alt-Svc</code> response header on TCP connections.
 </p>
 
-<h3 id="webdav">WebDAV Support</h3>
+<h3 id="webdav">WebDAV support</h3>
 
 <p>
-The file server supports WebDAV (RFC 2518) distributed authoring when
-enabled via the <code>webdavEnabled</code> property. This allows WebDAV
+The file server supports WebDAV (RFC 4918) distributed authoring when
+enabled with <code>webdavEnabled(true)</code>. This allows WebDAV
 clients such as Windows Explorer, macOS Finder, or dedicated clients like
 Cyberduck to access the file server as a network drive.
+</p>
+
+<h4>XML processing</h4>
+
+<p>
+WebDAV request bodies (PROPFIND, PROPPATCH and LOCK) are parsed with
+<a href="https://github.com/cpkb-bluezoo/gonzalez">Gonzalez</a>, Gumdrop's streaming XML push
+parser. The parser is fed each chunk of the body as it arrives from the network and
+builds no document tree, so the memory a request needs depends on what it asks for and
+not on how large its XML is. Multi-status and lock responses are written with
+Gonzalez's <code>XMLWriter</code>, which also builds no tree, and are streamed: sent in
+chunks as they are written, with no <code>Content-Length</code>. A PROPFIND walks the
+tree 64 resources at a time, writes each batch, and does not read the next until the
+transport can take more, so a <code>Depth: infinity</code> PROPFIND over a very large
+collection uses a small, fixed amount of memory, and stops walking if the client goes
+away. Dead property sidecar files are read with the same parser.
 </p>
 
 <h4>Enabling WebDAV</h4>
@@ -192,10 +241,11 @@ HttpServer server = HttpServer.compose()
 
 <p>
 When WebDAV is enabled, the server advertises <code>DAV: 1,2</code> in
-OPTIONS responses and supports the following additional HTTP methods:
+OPTIONS responses (<code>DAV: 1,2,access-control</code> when a
+<a href="#acl">realm</a> is set) and supports the following additional HTTP methods:
 </p>
 
-<h3 id="webdav-methods">WebDAV Methods</h3>
+<h3 id="webdav-methods">WebDAV methods</h3>
 
 <ul>
 <li><b>PROPFIND</b> - Query properties of resources. Supports
@@ -226,9 +276,13 @@ that must be included in subsequent modifying requests.</li>
 
 <li><b>UNLOCK</b> - Release a lock using its token. The token is passed
 in the <code>Lock-Token</code> header.</li>
+
+<li><b>ACL</b> - only with a realm; always answered 403, because the
+privileges come from the realm and there is no per-resource ACL to change. See
+<a href="#acl">Access control</a>.</li>
 </ul>
 
-<h3 id="live-properties">Live Properties</h3>
+<h3 id="live-properties">Live properties</h3>
 
 <p>
 The following live properties are computed from the filesystem and returned
@@ -249,7 +303,12 @@ for directories</li>
 write locks)</li>
 </ul>
 
-<h3 id="dead-properties">Dead Properties</h3>
+<p>
+With a realm configured there are also the RFC 3744 properties described under
+<a href="#acl">Access control</a>.
+</p>
+
+<h3 id="dead-properties">Dead properties</h3>
 
 <p>
 Dead (custom) properties are arbitrary name/value pairs stored on resources
@@ -264,9 +323,9 @@ stored as filesystem extended attributes with names prefixed
 and are deleted automatically. Requires filesystem xattr support.</li>
 <li><b>Sidecar files</b> - Fallback for filesystems without xattr support
 or when a value exceeds the xattr size limit. Sidecar files are named
-<code>.webdav_<i>filename</i></code> and contain XML serialized with the
-Gonzalez library. Sidecar I/O is fully non-blocking via
-<code>AsynchronousFileChannel</code>.</li>
+<code>.webdav_<i>filename</i></code> and contain XML serialised with the
+Gonzalez library. Sidecar I/O uses the same non-blocking <code>AsyncFile</code>
+access as file bodies.</li>
 </ul>
 
 <h4>Configuration</h4>
@@ -400,7 +459,7 @@ require a valid lock token in the <code>If</code> or <code>Lock-Token</code>
 header.
 </p>
 
-<h4>Collection DELETE (RFC 4918 §9.6.1)</h4>
+<h4>Collection DELETE (RFC 4918 section 9.6.1)</h4>
 
 <p>
 DELETE on a collection (directory) recursively deletes all member resources
@@ -425,10 +484,10 @@ Content-Type: application/xml
 &lt;/D:multistatus&gt;
 </pre>
 
-<h4>If Header (RFC 4918 §10.4)</h4>
+<h4>If header (RFC 4918 section 10.4)</h4>
 
 <p>
-The <code>If</code> header supports the full grammar defined in RFC 4918 §10.4,
+The <code>If</code> header supports the full grammar defined in RFC 4918 section 10.4,
 including tagged-list and no-tag-list syntax with ETag conditions and
 <code>Not</code> negation. Multiple lists for the same resource are OR'd;
 conditions within a list are AND'd.
@@ -448,9 +507,49 @@ If: (Not &lt;opaquelocktoken:old-token&gt;)
 If: (&lt;token-a&gt;) (&lt;token-b&gt;)
 </pre>
 
-<h3 id="examples">Protocol Examples</h3>
+<h3 id="acl">Access control (RFC 3744)</h3>
 
-<h4>PROPFIND Request</h4>
+<p>
+Setting <code>realm(Realm)</code> on the builder turns on WebDAV Access Control
+<em>reporting</em>. The handler then asks the realm, as roles, which privileges
+the authenticated user holds: <code>webdav:all</code>, <code>webdav:read</code>,
+<code>webdav:write</code>, <code>webdav:write-properties</code>,
+<code>webdav:write-content</code>, <code>webdav:bind</code>,
+<code>webdav:unbind</code>, <code>webdav:unlock</code>,
+<code>webdav:read-acl</code>, <code>webdav:write-acl</code> and
+<code>webdav:read-current-user-privilege-set</code>. The user comes from whatever
+HTTP authentication the listener performs; the handler does not authenticate
+anyone. The lookups are asynchronous and a failed lookup grants nothing.
+</p>
+
+<pre>
+WebDAVRequestHandler.builder()
+    .rootPath(Path.of("/var/www/dav"))
+    .allowWrite(true)
+    .webdavEnabled(true)
+    .realm(realm)
+    .build()
+</pre>
+
+<p>
+PROPFIND then also returns <code>owner</code>, <code>group</code>,
+<code>supported-privilege-set</code>, <code>current-user-privilege-set</code>,
+<code>acl</code> and <code>principal-collection-set</code>. The <code>acl</code> of a
+resource is a single entry for <code>DAV:authenticated</code> listing what the
+requesting user may do, since a realm cannot enumerate other principals. The
+<code>ACL</code> method is refused with 403, which RFC 3744 allows.
+</p>
+
+<p>
+These privileges are <b>reported, not enforced</b>: a client that sees
+<code>webdav:write</code> missing is told so, but the handler's own checks are
+<code>allowWrite</code>, locks and the HTTP authentication in front of it. Enforce
+access with the server's <code>Realm</code> and listener authentication.
+</p>
+
+<h3 id="examples">Protocol examples</h3>
+
+<h4>PROPFIND request</h4>
 
 <pre>
 PROPFIND /documents/ HTTP/1.1
@@ -498,7 +597,7 @@ Response (207 Multi-Status):
 &lt;/D:multistatus&gt;
 </pre>
 
-<h4>LOCK Request</h4>
+<h4>LOCK request</h4>
 
 <pre>
 LOCK /documents/report.pdf HTTP/1.1
@@ -546,7 +645,7 @@ Content-Type: application/xml
 <a href="index.html">&larr; Back to Main Page</a> |
 <a href="http.html">HTTP Server &amp; Client</a> |
 <a href="servlet.html">Servlet Container</a> |
-<a href="websocket.html">WebSocket Service &amp; Client</a> |
+<a href="websocket.html">WebSocket service and client</a> |
 <a href="ftp.html">FTP Server</a> |
 <a href="telemetry.html">Telemetry</a>
 </p>

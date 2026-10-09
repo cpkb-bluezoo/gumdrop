@@ -141,7 +141,7 @@ public class DnsResolverResolveTest {
 
     @Test
     public void testLiteralDeliveredOnSelectorLoop() {
-        resolver.setSelectorLoop(new InlineSelectorLoop());
+        resolver.selectorLoop(new InlineSelectorLoop());
         assertNotNull(resolver.getSelectorLoop());
         Result r = new Result();
         resolver.resolve("192.0.2.6", r);
@@ -283,7 +283,7 @@ public class DnsResolverResolveTest {
         DnsResolver r = new DnsResolver();
         r.timeoutMs(1234).dnssecEnabled(true);
         assertTrue(r.isDnssecEnabled());
-        r.setDdrEnabled(false);
+        r.ddrEnabled(false);
         assertFalse(r.isDdrEnabled());
         r.servers(InetAddress.getByName("192.0.2.1"), InetAddress.getByName("2001:db8::1"));
         r.server(InetAddress.getByName("192.0.2.2"));

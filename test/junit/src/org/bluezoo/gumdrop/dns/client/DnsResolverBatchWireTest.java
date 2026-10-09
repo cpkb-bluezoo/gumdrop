@@ -131,7 +131,7 @@ public class DnsResolverBatchWireTest {
         DnsMultiQTypeCache.clear();
         transport = new Mock();
         resolver = new DnsResolver();
-        resolver.setTransport(transport);
+        resolver.transport(transport);
         resolver.addServer("127.0.0.1");
         resolver.open();
     }

@@ -50,6 +50,7 @@ import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.StorageExecutor;
 import org.bluezoo.gumdrop.TokenErrorRecovery;
 import org.bluezoo.gumdrop.auth.Realm;
+import org.bluezoo.gumdrop.auth.RealmCallback;
 import org.bluezoo.gumdrop.auth.SaslUtils;
 import org.bluezoo.gumdrop.ftp.server.AuthenticatedHandlerConnectionAdapter;
 import org.bluezoo.gumdrop.ftp.server.AccountHandler;
@@ -221,6 +222,7 @@ public final class FtpProtocolHandler
     public void connected(Endpoint ep) {
         this.endpoint = ep;
         metadata.setTelemetryConfig(ep.getTelemetryConfig());
+        metadata.setSelectorLoop(ep.getSelectorLoop());
 
         if (endpoint.getRemoteAddress() != null) {
             InetSocketAddress clientAddr = (InetSocketAddress) endpoint.getRemoteAddress();
@@ -305,22 +307,36 @@ public final class FtpProtocolHandler
         if (!authenticated && endpoint != null) {
             Realm realm = server.getRealm();
             if (realm != null) {
-                Realm.CertificateAuthenticationResult result =
-                        SaslUtils.authenticateExternal(
-                                endpoint, realm, null);
-                if (result != null && result.valid) {
-                    user = result.username;
-                    authenticated = true;
-                    metadata.setAuthenticated(true);
-                    metadata.setAuthenticatedUser(user);
-                    recordAuthenticationSuccess("CERT");
-                    try {
-                        reply(232,
-                            L10N.getString("ftp.login_successful"));
-                    } catch (IOException e) {
-                        events().warn("warn.failed_send_cert_auto_login_reply").thrown(e).emit();
+                SaslUtils.authenticateExternal(endpoint, realm, null,
+                        new RealmCallback<Realm.CertificateAuthenticationResult>() {
+                    @Override
+                    public void completed(Realm.CertificateAuthenticationResult result) {
+                        if (result == null || !result.valid || authenticated) {
+                            return;
+                        }
+                        user = result.username;
+                        authenticated = true;
+                        metadata.setAuthenticated(true);
+                        metadata.setAuthenticatedUser(user);
+                        recordAuthenticationSuccess("CERT");
+                        prepareQuotaThen(new Runnable() {
+                            @Override
+                            public void run() {
+                                try {
+                                    reply(232,
+                                        L10N.getString("ftp.login_successful"));
+                                } catch (IOException e) {
+                                    events().warn("warn.failed_send_cert_auto_login_reply").thrown(e).emit();
+                                }
+                            }
+                        });
                     }
-                }
+
+                    @Override
+                    public void failed(Throwable cause) {
+                        events().warn("warn.cert_auto_login_failed").thrown(cause).emit();
+                    }
+                });
             }
         }
     }
@@ -791,7 +807,12 @@ public final class FtpProtocolHandler
                 metadata.setAuthenticated(true);
                 metadata.setAuthenticatedUser(user);
                 recordAuthenticationSuccess("USER/PASS");
-                reply(230, L10N.getString("ftp.login_successful"));
+                prepareQuotaThen(new Runnable() {
+                    @Override
+                    public void run() {
+                        replyQuietly(230, L10N.getString("ftp.login_successful"));
+                    }
+                });
                 break;
             case NEED_PASSWORD:
                 reply(331, L10N.getString("ftp.user_ok_need_password"));
@@ -843,55 +864,66 @@ public final class FtpProtocolHandler
     }
 
     /**
-     * Runs blocking FTP authentication off the SelectorLoop and delivers
-     * the outcome on this connection's loop thread.
+     * Authenticates with the handler without waiting for it, and delivers the
+     * outcome on this connection's loop. Reads are paused until the handler
+     * has answered, so that a pipelined command cannot race the result.
      *
-     * <p>{@link FtpConnectionHandler#authenticate} may call
-     * {@link org.bluezoo.gumdrop.auth.Realm#passwordMatch}, which for a
-     * PBKDF2-backed realm runs a 210,000-iteration derivation -- genuinely
-     * CPU-bound work that must not block the loop (issue #344).
+     * <p>A realm-backed handler (see {@link AuthenticatingHandler}, and the
+     * asynchronous {@link FtpConnectionHandler#authenticate}) answers when its
+     * directory exchange completes; none of them ever makes the loop wait.
      */
     private void authenticateAsync(
             final StorageExecutor.Callback<FtpAuthenticationResult> callback) {
+        final String authUser = user;
+        final String authPassword = password;
+        final String authAccount = account;
+        RealmCallback<FtpAuthenticationResult> awaiting =
+                new RealmCallback<FtpAuthenticationResult>() {
+            @Override
+            public void completed(FtpAuthenticationResult result) {
+                endpoint.resumeRead();
+                callback.completed(result);
+            }
+
+            @Override
+            public void failed(Throwable cause) {
+                endpoint.resumeRead();
+                callback.failed(cause);
+            }
+        };
         if (passwordHandler instanceof AuthenticatingHandler) {
-            submitStagedAuthentication((AuthenticatingHandler) passwordHandler,
-                    callback);
+            endpoint.pauseRead();
+            ((AuthenticatingHandler) passwordHandler).evaluateAuthentication(
+                    authUser, authPassword, authAccount, awaiting);
             return;
         }
         if (accountHandler instanceof AuthenticatingHandler) {
-            submitStagedAuthentication((AuthenticatingHandler) accountHandler,
-                    callback);
+            endpoint.pauseRead();
+            ((AuthenticatingHandler) accountHandler).evaluateAuthentication(
+                    authUser, authPassword, authAccount, awaiting);
             return;
         }
         if (handler == null) {
             callback.completed(null);
             return;
         }
-        final String authUser = user;
-        final String authPassword = password;
-        final String authAccount = account;
-        submitStorage(new Callable<FtpAuthenticationResult>() {
-            @Override
-            public FtpAuthenticationResult call() {
-                return handler.authenticate(
-                        authUser, authPassword, authAccount, metadata);
-            }
-        }, callback);
+        endpoint.pauseRead();
+        handler.authenticate(authUser, authPassword, authAccount, metadata, awaiting);
     }
 
-    private void submitStagedAuthentication(
-            final AuthenticatingHandler authHandler,
-            final StorageExecutor.Callback<FtpAuthenticationResult> callback) {
-        final String authUser = user;
-        final String authPassword = password;
-        final String authAccount = account;
-        submitStorage(new Callable<FtpAuthenticationResult>() {
-            @Override
-            public FtpAuthenticationResult call() {
-                return authHandler.evaluateAuthentication(
-                        authUser, authPassword, authAccount);
-            }
-        }, callback);
+    /**
+     * Once the user has logged in, lets the quota manager (if any) find out
+     * what it needs about the user, which for a role-based manager means
+     * asking the realm, and then continues. Quota calls during the session
+     * are in-memory lookups.
+     */
+    private void prepareQuotaThen(final Runnable next) {
+        QuotaManager quotaManager = getQuotaManager();
+        if (quotaManager == null) {
+            next.run();
+            return;
+        }
+        quotaManager.prepare(user, endpoint.getSelectorLoop(), next);
     }
 
     private void handleFileOperationResult(FtpFileOperationResult result, String path) throws IOException {
@@ -1147,8 +1179,19 @@ public final class FtpProtocolHandler
         }
 
         if (handler != null) {
-            FtpAuthenticationResult result = handler.authenticate(user, null, null, metadata);
-            handleAuthenticationResult(result);
+            authenticateAsync(new StorageExecutor.Callback<FtpAuthenticationResult>() {
+                @Override
+                public void completed(FtpAuthenticationResult result) {
+                    handleAuthenticationResultQuietly(result);
+                }
+
+                @Override
+                public void failed(Throwable error) {
+                    events().warn("warn.ftp_user_auth_check_failed").thrown(error).emit();
+                    handleAuthenticationResultQuietly(
+                            FtpAuthenticationResult.INVALID_USER);
+                }
+            });
         } else {
             reply(331, L10N.getString("ftp.user_ok_need_password"));
         }
@@ -1158,6 +1201,11 @@ public final class FtpProtocolHandler
     private void doPass(String args) throws IOException {
         if (user == null) {
             reply(503, L10N.getString("ftp.err.bad_sequence"));
+            return;
+        }
+
+        if (server.isAuthLockedOut(endpoint.getRemoteAddress())) {
+            reply(421, L10N.getString("ftp.err.too_many_attempts"));
             return;
         }
 
@@ -3255,6 +3303,7 @@ public final class FtpProtocolHandler
     }
 
     private void recordAuthenticationSuccess(String mechanism) {
+        server.recordAuthSuccess(endpoint.getRemoteAddress(), user);
         addSessionAttribute("ftp.auth.mechanism", mechanism);
         addSessionAttribute("enduser.id", user);
         addSessionEvent("AUTH_SUCCESS");
@@ -3262,6 +3311,7 @@ public final class FtpProtocolHandler
     }
 
     private void recordAuthenticationFailure(String mechanism, String attemptedUser) {
+        server.recordAuthFailure(endpoint.getRemoteAddress(), attemptedUser);
         addSessionAttribute("ftp.auth.mechanism", mechanism);
         if (attemptedUser != null) {
             addSessionAttribute("ftp.auth.attempted_user", attemptedUser);
@@ -3370,12 +3420,17 @@ public final class FtpProtocolHandler
 
     @Override
     public void loggedIn(AuthenticatedHandler authHandler) {
-        try {
-            completeLogin(authHandler);
-            reply(230, L10N.getString("ftp.login_successful"));
-        } catch (IOException e) {
-            events().warn("warn.failed_send_login_successful").thrown(e).emit();
-        }
+        completeLogin(authHandler);
+        prepareQuotaThen(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    reply(230, L10N.getString("ftp.login_successful"));
+                } catch (IOException e) {
+                    events().warn("warn.failed_send_login_successful").thrown(e).emit();
+                }
+            }
+        });
     }
 
     @Override

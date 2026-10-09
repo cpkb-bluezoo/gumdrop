@@ -50,6 +50,7 @@ import org.junit.Test;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 
 /**
@@ -72,6 +73,9 @@ public class GrpcHandlerTest {
                     + "}\n"
                     + "service Echo {\n"
                     + "  rpc SayEcho(EchoRequest) returns (EchoResponse);\n"
+                    + "  rpc Watch(EchoRequest) returns (stream EchoResponse);\n"
+                    + "  rpc Collect(stream EchoRequest) returns (EchoResponse);\n"
+                    + "  rpc Chat(stream EchoRequest) returns (stream EchoResponse);\n"
                     + "}\n";
 
     private static final String RPC_PATH = "/gumdroptest.Echo/SayEcho";
@@ -132,6 +136,93 @@ public class GrpcHandlerTest {
     }
 
     @Test
+    public void successfulUnaryCallEndsWithGrpcStatusZeroTrailer() throws Exception {
+        // gRPC clients other than Gumdrop's treat a response with no
+        // grpc-status trailer as a failed call
+        CapturingState state = new CapturingState();
+        GrpcHandler handler = new GrpcHandler(protoFile, ECHO_SERVER, state, RPC_PATH,
+                GrpcFraming.DEFAULT_MAX_MESSAGE_SIZE, sayEchoRpc);
+        handler.endHeaders();
+        handler.bodyContent(encodeEchoRequest("hello", 1));
+        handler.endMessage();
+
+        assertEquals("[grpc-status: 0]", state.trailers.toString());
+        assertEquals(1, state.completeCount);
+    }
+
+    @Test
+    public void grpcMessageIsPercentEncoded() throws Exception {
+        // gRPC HTTP/2 protocol: grpc-message is printable ASCII with
+        // everything else, and "%", escaped as UTF-8 %XX
+        CapturingState state = new CapturingState();
+        final GrpcCall[] sender = new GrpcCall[1];
+        GrpcServer server = new GrpcServer() {
+            public ProtoMessageHandler startCall(String path, GrpcCall response) {
+                sender[0] = response;
+                return new ProtoDefaultHandler();
+            }
+        };
+        GrpcHandler handler = new GrpcHandler(protoFile, server, state, RPC_PATH,
+                GrpcFraming.DEFAULT_MAX_MESSAGE_SIZE, sayEchoRpc);
+        handler.endHeaders();
+        sender[0].sendError(3, "bad value caf\u00e9 100%");
+        assertEquals("bad value caf%C3%A9 100%25", state.headers.getValue("grpc-message"));
+    }
+
+    @Test
+    public void streamingRpcsAreUnimplementedAndNeverReachTheServer() throws Exception {
+        String[] paths = {"/gumdroptest.Echo/Watch", "/gumdroptest.Echo/Collect",
+            "/gumdroptest.Echo/Chat"};
+        for (int i = 0; i < paths.length; i++) {
+            CapturingState state = new CapturingState();
+            final int[] calls = new int[1];
+            GrpcServer server = new GrpcServer() {
+                public ProtoMessageHandler startCall(String path, GrpcCall call) {
+                    calls[0]++;
+                    return new ProtoDefaultHandler();
+                }
+            };
+            GrpcHandler handler = new GrpcHandler(protoFile, server, state, paths[i],
+                    GrpcFraming.DEFAULT_MAX_MESSAGE_SIZE, protoFile.getRpcByPath(paths[i]));
+            handler.endHeaders();
+            assertEquals(paths[i], HttpStatus.OK, statusOf(state.headers));
+            assertEquals(paths[i], "12", state.headers.getValue("grpc-status"));
+            assertEquals(paths[i], 0, calls[0]);
+            assertEquals(paths[i], 0, state.body.size());
+        }
+    }
+
+    @Test
+    public void callExposesTheRpcBeingServed() throws Exception {
+        CapturingState state = new CapturingState();
+        final GrpcCall[] seen = new GrpcCall[1];
+        GrpcServer server = new GrpcServer() {
+            public ProtoMessageHandler startCall(String path, GrpcCall call) {
+                seen[0] = call;
+                return new ProtoDefaultHandler();
+            }
+        };
+        GrpcHandler handler = new GrpcHandler(protoFile, server, state, RPC_PATH,
+                GrpcFraming.DEFAULT_MAX_MESSAGE_SIZE, sayEchoRpc);
+        handler.endHeaders();
+        assertSame(sayEchoRpc, seen[0].getRpc());
+        assertEquals("SayEcho", seen[0].getRpc().getName());
+        assertEquals(false, seen[0].getRpc().isClientStreaming());
+        assertEquals(false, seen[0].getRpc().isServerStreaming());
+    }
+
+    @Test
+    public void errorsAreTrailersOnlyWithNoBody() throws Exception {
+        CapturingState state = new CapturingState();
+        GrpcHandler handler = new GrpcHandler(protoFile, NOOP_SERVER, state, RPC_PATH,
+                GrpcFraming.DEFAULT_MAX_MESSAGE_SIZE, sayEchoRpc);
+        handler.endHeaders();
+        assertEquals("12", state.headers.getValue("grpc-status"));
+        assertTrue(state.trailers.isEmpty());
+        assertEquals(0, state.body.size());
+    }
+
+    @Test
     public void truncatedFrameReturnsBadRequest() throws Exception {
         CapturingState state = new CapturingState();
         GrpcHandler handler = new GrpcHandler(protoFile, ECHO_SERVER, state, RPC_PATH,
@@ -161,14 +252,14 @@ public class GrpcHandlerTest {
 
     private static final GrpcServer NOOP_SERVER = new GrpcServer() {
         @Override
-        public ProtoMessageHandler startUnaryCall(String path, GrpcResponseSender response) {
+        public ProtoMessageHandler startCall(String path, GrpcCall response) {
             return null;
         }
     };
 
     private static final GrpcServer ECHO_SERVER = new GrpcServer() {
         @Override
-        public ProtoMessageHandler startUnaryCall(String path, GrpcResponseSender response) {
+        public ProtoMessageHandler startCall(String path, GrpcCall response) {
             return new ProtoDefaultHandler() {
                 @Override
                 public void endMessage() throws ProtoParseException {
@@ -192,6 +283,8 @@ public class GrpcHandlerTest {
     private static final class CapturingState implements HttpResponse {
         final ResponseRecorder headers = new ResponseRecorder();
         final ByteArrayOutputStream body = new ByteArrayOutputStream();
+        final java.util.List<String> trailers = new java.util.ArrayList<String>();
+        boolean bodySeen;
         int completeCount;
 
         @Override
@@ -203,6 +296,9 @@ public class GrpcHandlerTest {
         public void header(String name, ByteBuffer rawValue) {
             String value = java.nio.charset.StandardCharsets.ISO_8859_1.decode(rawValue.duplicate()).toString();
             headers.header(name, value);
+            if (bodySeen) {
+                trailers.add(name + ": " + value);
+            }
         }
 
         @Override
@@ -212,6 +308,7 @@ public class GrpcHandlerTest {
 
         @Override
         public void bodyContent(ByteBuffer data) {
+            bodySeen = true;
             headers.bodyContent();
             if (data.hasRemaining()) {
                 byte[] chunk = new byte[data.remaining()];

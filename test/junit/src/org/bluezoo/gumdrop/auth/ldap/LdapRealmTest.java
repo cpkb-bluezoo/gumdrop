@@ -22,6 +22,7 @@
 package org.bluezoo.gumdrop.auth.ldap;
 
 import org.bluezoo.gumdrop.tls.KeystoreFormat;
+import org.bluezoo.gumdrop.tls.TlsConfig;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
@@ -53,9 +54,11 @@ import java.util.Set;
 
 import javax.security.auth.x500.X500Principal;
 
+import org.bluezoo.gumdrop.auth.CapturedCallback;
 import org.bluezoo.gumdrop.auth.Realm;
 import org.bluezoo.gumdrop.auth.SaslClientMechanism;
 import org.bluezoo.gumdrop.auth.SaslMechanism;
+import org.bluezoo.gumdrop.TimerHandle;
 import org.bluezoo.gumdrop.ldap.client.AddResultHandler;
 import org.bluezoo.gumdrop.ldap.client.BindResultHandler;
 import org.bluezoo.gumdrop.ldap.client.CompareResultHandler;
@@ -63,6 +66,7 @@ import org.bluezoo.gumdrop.ldap.client.Control;
 import org.bluezoo.gumdrop.ldap.client.DeleteResultHandler;
 import org.bluezoo.gumdrop.ldap.client.ExtendedResultHandler;
 import org.bluezoo.gumdrop.ldap.client.LdapConnected;
+import org.bluezoo.gumdrop.ldap.client.LdapPostTLS;
 import org.bluezoo.gumdrop.ldap.client.LdapConnectionReady;
 import org.bluezoo.gumdrop.ldap.client.LdapResult;
 import org.bluezoo.gumdrop.ldap.client.LdapResultCode;
@@ -94,7 +98,11 @@ public class LdapRealmTest {
     private static final class Script {
         boolean connectError;
         boolean neverReady;
+        Runnable timeoutTask;
+        boolean timeoutCancelled;
         boolean serviceBindOk = true;
+        boolean startTlsOk = true;
+        int startTlsCalls;
         final Map<String, String> passwords = new HashMap<String, String>();
         final List<SearchResultEntry> results =
                 new ArrayList<SearchResultEntry>();
@@ -135,9 +143,19 @@ public class LdapRealmTest {
         @Override public void extended(String oid, byte[] value,
                 ExtendedResultHandler cb) { }
         @Override public void rebind(String dn, String password,
-                BindResultHandler cb) { }
+                BindResultHandler cb) {
+            script.binds.add("simple:" + dn + ":" + password);
+            if (password.equals(script.passwords.get(dn))) {
+                cb.handleBindSuccess(this);
+            } else {
+                cb.handleBindFailure(DENIED, new MockConnection(script));
+            }
+        }
         @Override public void rebindSASL(SaslClientMechanism c,
-                BindResultHandler cb) { }
+                BindResultHandler cb) {
+            script.binds.add("sasl");
+            cb.handleBindSuccess(this);
+        }
         @Override public void abandon(int messageId) { }
         @Override public void setRequestControls(List<Control> controls) { }
         @Override public void unbind() {
@@ -186,11 +204,43 @@ public class LdapRealmTest {
         }
 
         @Override
-        public void startTLS(StartTLSResultHandler cb) { }
+        public void startTLS(StartTLSResultHandler cb) {
+            script.startTlsCalls++;
+            script.binds.add("starttls");
+            if (script.startTlsOk) {
+                cb.handleTLSEstablished(new MockPostTls());
+            } else {
+                cb.handleStartTLSFailure(DENIED, this);
+            }
+        }
 
         @Override
         public void unbind() {
             script.unbinds++;
+        }
+
+        /** The same server after a successful STARTTLS upgrade. */
+        private final class MockPostTls implements LdapPostTLS {
+            @Override
+            public void bind(String dn, String password, BindResultHandler cb) {
+                MockConnection.this.bind(dn, password, cb);
+            }
+
+            @Override
+            public void bindSASL(SaslClientMechanism mechanism,
+                    BindResultHandler cb) {
+                MockConnection.this.bindSASL(mechanism, cb);
+            }
+
+            @Override
+            public void bindAnonymous(BindResultHandler cb) {
+                MockConnection.this.bindAnonymous(cb);
+            }
+
+            @Override
+            public void unbind() {
+                MockConnection.this.unbind();
+            }
         }
     }
 
@@ -199,6 +249,22 @@ public class LdapRealmTest {
 
         ScriptedRealm(Script script) {
             this.script = script;
+        }
+
+        @Override
+        TimerHandle scheduleTimeout(long delayMs, Runnable task) {
+            script.timeoutTask = task;
+            return new TimerHandle() {
+                @Override
+                public void cancel() {
+                    script.timeoutCancelled = true;
+                }
+
+                @Override
+                public boolean isCancelled() {
+                    return script.timeoutCancelled;
+                }
+            };
         }
 
         @Override
@@ -280,7 +346,7 @@ public class LdapRealmTest {
     public void setUp() {
         script = new Script();
         realm = new ScriptedRealm(script);
-        realm.setBaseDN("dc=example,dc=com");
+        realm.baseDN("dc=example,dc=com");
     }
 
     private static SearchResultEntry entry(String dn, String attribute,
@@ -300,12 +366,90 @@ public class LdapRealmTest {
         script.passwords.put(dn, password);
     }
 
+    // The mock server answers inline, so every call completes before it
+    // returns; a failed lookup counts as rejection (the realm fails closed).
+
+    private static boolean passwordMatch(final Realm r, final String user, final String pw) {
+        CapturedCallback<Boolean> cb = new CapturedCallback<Boolean>();
+        r.passwordMatch(user, pw, cb);
+        assertTrue(cb.isDone());
+        return Boolean.TRUE.equals(cb.value());
+    }
+
+    private static boolean userExists(Realm r, String user) {
+        CapturedCallback<Boolean> cb = new CapturedCallback<Boolean>();
+        r.userExists(user, cb);
+        assertTrue(cb.isDone());
+        return Boolean.TRUE.equals(cb.value());
+    }
+
+    private static boolean isUserInRole(Realm r, String user, String role) {
+        CapturedCallback<Boolean> cb = new CapturedCallback<Boolean>();
+        r.isUserInRole(user, role, cb);
+        assertTrue(cb.isDone());
+        return Boolean.TRUE.equals(cb.value());
+    }
+
+    private static Realm.CertificateAuthenticationResult authenticateCertificate(
+            Realm r, X509Certificate cert) {
+        CapturedCallback<Realm.CertificateAuthenticationResult> cb =
+                new CapturedCallback<Realm.CertificateAuthenticationResult>();
+        r.authenticateCertificate(cert, cb);
+        assertTrue(cb.isDone());
+        if (cb.failure() != null) {
+            return Realm.CertificateAuthenticationResult.failure();
+        }
+        return cb.value();
+    }
+
+    // ── STARTTLS ──
+
+    @Test
+    public void startTlsIsNegotiatedBeforeAnyBind() {
+        realm.startTLS(true);
+        addUser("alice", "secret");
+        assertTrue(passwordMatch(realm, "alice", "secret"));
+        assertEquals("starttls", script.binds.get(0));
+        assertEquals("anonymous", script.binds.get(1));
+        assertEquals("simple:uid=alice,dc=example,dc=com:secret",
+                script.binds.get(2));
+        assertEquals("the operation's one connection is upgraded", 1, script.startTlsCalls);
+    }
+
+    @Test
+    public void startTlsIsNotAttemptedByDefault() {
+        addUser("alice", "secret");
+        assertTrue(passwordMatch(realm, "alice", "secret"));
+        assertEquals(0, script.startTlsCalls);
+    }
+
+    @Test
+    public void startTlsIsNotAttemptedOverLdaps() {
+        realm.secure(true).startTLS(true);
+        addUser("alice", "secret");
+        assertTrue(passwordMatch(realm, "alice", "secret"));
+        assertEquals("TLS is already established", 0, script.startTlsCalls);
+    }
+
+    @Test
+    public void failedStartTlsFailsClosedWithoutSendingCredentials() {
+        realm.startTLS(true);
+        script.startTlsOk = false;
+        addUser("alice", "secret");
+        assertFalse(passwordMatch(realm, "alice", "secret"));
+        assertFalse(isUserInRole(realm, "alice", "admins"));
+        assertFalse(userExists(realm, "alice"));
+        for (String bind : script.binds) {
+            assertEquals("no bind may follow a failed STARTTLS", "starttls", bind);
+        }
+    }
+
     // ── passwordMatch ──
 
     @Test
     public void correctPasswordAuthenticates() {
         addUser("alice", "secret");
-        assertTrue(realm.passwordMatch("alice", "secret"));
+        assertTrue(passwordMatch(realm, "alice", "secret"));
         assertEquals("anonymous", script.binds.get(0));
         assertEquals("simple:uid=alice,dc=example,dc=com:secret",
                 script.binds.get(1));
@@ -313,49 +457,49 @@ public class LdapRealmTest {
         assertEquals("(uid=alice)", search.getFilter());
         assertEquals("dc=example,dc=com", search.getBaseDN());
         assertEquals(1, search.getSizeLimit());
-        assertTrue(script.unbinds >= 2);
+        assertEquals("one connection per operation, closed afterwards", 1, script.unbinds);
     }
 
     @Test
     public void wrongPasswordRejected() {
         addUser("alice", "secret");
-        assertFalse(realm.passwordMatch("alice", "guess"));
+        assertFalse(passwordMatch(realm, "alice", "guess"));
     }
 
     @Test
     public void unknownUserRejectedWithoutUserBind() {
-        assertFalse(realm.passwordMatch("nobody", "x"));
+        assertFalse(passwordMatch(realm, "nobody", "x"));
         assertEquals(1, script.binds.size());
     }
 
     @Test
     public void nullCredentialsRejectedWithoutConnecting() {
-        assertFalse(realm.passwordMatch(null, "x"));
-        assertFalse(realm.passwordMatch("alice", null));
+        assertFalse(passwordMatch(realm, null, "x"));
+        assertFalse(passwordMatch(realm, "alice", null));
         assertEquals(0, script.connects);
     }
 
     @Test
     public void filterMetacharactersEscaped() {
-        realm.passwordMatch("a*(b)\\c" + (char) 0, "x");
+        passwordMatch(realm, "a*(b)\\c" + (char) 0, "x");
         assertEquals("(uid=a\\2a\\28b\\29\\5cc\\00)",
                 script.searches.get(0).getFilter());
     }
 
     @Test
     public void customUserFilterUsed() {
-        realm.setUserFilter("(&(objectClass=person)(mail={0}))");
-        realm.passwordMatch("a@b.c", "x");
+        realm.userFilter("(&(objectClass=person)(mail={0}))");
+        passwordMatch(realm, "a@b.c", "x");
         assertEquals("(&(objectClass=person)(mail=a@b.c))",
                 script.searches.get(0).getFilter());
     }
 
     @Test
     public void serviceAccountBindUsedWhenConfigured() {
-        realm.setBindDN("cn=svc,dc=example,dc=com");
-        realm.setBindPassword("svcpw");
+        realm.bindDN("cn=svc,dc=example,dc=com");
+        realm.bindPassword("svcpw");
         addUser("alice", "secret");
-        assertTrue(realm.passwordMatch("alice", "secret"));
+        assertTrue(passwordMatch(realm, "alice", "secret"));
         assertEquals("simple:cn=svc,dc=example,dc=com:svcpw",
                 script.binds.get(0));
     }
@@ -364,68 +508,81 @@ public class LdapRealmTest {
     public void serviceBindFailureRejects() {
         script.serviceBindOk = false;
         addUser("alice", "secret");
-        assertFalse(realm.passwordMatch("alice", "secret"));
+        assertFalse(passwordMatch(realm, "alice", "secret"));
     }
 
     @Test
     public void connectionErrorRejects() {
         script.connectError = true;
-        assertFalse(realm.passwordMatch("alice", "secret"));
-        assertFalse(realm.userExists("alice"));
-        assertFalse(realm.isUserInRole("alice", "admin"));
+        assertFalse(passwordMatch(realm, "alice", "secret"));
+        assertFalse(userExists(realm, "alice"));
+        assertFalse(isUserInRole(realm, "alice", "admin"));
     }
 
     @Test
     public void timeoutRejects() {
         script.neverReady = true;
-        realm.setTimeout(0);
-        assertFalse(realm.passwordMatch("alice", "secret"));
+        CapturedCallback<Boolean> cb = new CapturedCallback<Boolean>();
+        realm.passwordMatch("alice", "secret", cb);
+        assertFalse("must wait for the directory", cb.isDone());
+        script.timeoutTask.run();
+        assertTrue(cb.isDone());
+        assertNotNull("a slow directory is a failure, not a rejection", cb.failure());
+        script.timeoutTask.run();
+        assertNotNull(cb.failure());
+    }
+
+    @Test
+    public void completedOperationCancelsItsTimeout() {
+        addUser("alice", "secret");
+        assertTrue(passwordMatch(realm, "alice", "secret"));
+        assertTrue(script.timeoutCancelled);
     }
 
     @Test
     public void saslBindUsedWhenMechanismConfigured() {
-        realm.setSaslMechanism("PLAIN");
-        realm.setBindDN("cn=svc,dc=example,dc=com");
-        realm.setBindPassword("svcpw");
+        realm.saslMechanism("PLAIN");
+        realm.bindDN("cn=svc,dc=example,dc=com");
+        realm.bindPassword("svcpw");
         addUser("alice", "secret");
-        realm.passwordMatch("alice", "secret");
+        passwordMatch(realm, "alice", "secret");
         assertEquals("sasl", script.binds.get(0));
     }
 
     @Test
     public void unknownSaslMechanismFailsBind() {
-        realm.setSaslMechanism("NOT-A-MECHANISM");
-        realm.setBindDN("cn=svc,dc=example,dc=com");
+        realm.saslMechanism("NOT-A-MECHANISM");
+        realm.bindDN("cn=svc,dc=example,dc=com");
         addUser("alice", "secret");
-        assertFalse(realm.passwordMatch("alice", "secret"));
+        assertFalse(passwordMatch(realm, "alice", "secret"));
         assertTrue(script.binds.isEmpty());
     }
 
     @Test
     public void unconfiguredRealmWithoutRuntimeRejects() {
         LdapRealm bare = new LdapRealm();
-        assertFalse(bare.passwordMatch("alice", "x"));
-        assertFalse(bare.userExists("alice"));
-        assertFalse(bare.isUserInRole("alice", "r"));
+        assertFalse(passwordMatch(bare, "alice", "x"));
+        assertFalse(userExists(bare, "alice"));
+        assertFalse(isUserInRole(bare, "alice", "r"));
     }
 
     // ── userExists / roles ──
 
     @Test
     public void userExistsReflectsSearchResult() {
-        assertFalse(realm.userExists("alice"));
+        assertFalse(userExists(realm, "alice"));
         addUser("alice", "x");
-        assertTrue(realm.userExists("alice"));
-        assertFalse(realm.userExists(null));
+        assertTrue(userExists(realm, "alice"));
+        assertFalse(userExists(realm, null));
     }
 
     @Test
     public void roleMatchedCaseInsensitivelyWithPrefix() {
-        realm.setRolePrefix("cn=");
+        realm.rolePrefix("cn=");
         script.results.add(entry("uid=alice,dc=example,dc=com", "memberOf",
                 "CN=Admins,ou=groups", "cn=users,ou=groups"));
-        assertTrue(realm.isUserInRole("alice", "admins"));
-        assertFalse(realm.isUserInRole("alice", "staff"));
+        assertTrue(isUserInRole(realm, "alice", "admins"));
+        assertFalse(isUserInRole(realm, "alice", "staff"));
         assertEquals("(uid=alice)", script.searches.get(0).getFilter());
         assertEquals(Arrays.asList("memberOf"),
                 script.searches.get(0).getAttributes());
@@ -433,49 +590,49 @@ public class LdapRealmTest {
 
     @Test
     public void customRoleAttributeQueried() {
-        realm.setRoleAttribute("groups");
+        realm.roleAttribute("groups");
         script.results.add(entry("uid=alice,dc=example,dc=com", "groups",
                 "staff"));
-        assertTrue(realm.isUserInRole("alice", "staff"));
+        assertTrue(isUserInRole(realm, "alice", "staff"));
         assertEquals(Arrays.asList("groups"),
                 script.searches.get(0).getAttributes());
     }
 
     @Test
     public void roleCheckWithNullArgumentsIsFalse() {
-        assertFalse(realm.isUserInRole(null, "r"));
-        assertFalse(realm.isUserInRole("u", null));
+        assertFalse(isUserInRole(realm, null, "r"));
+        assertFalse(isUserInRole(realm, "u", null));
         assertEquals(0, script.connects);
     }
 
     @Test
     public void roleCheckServiceBindFailureIsFalse() {
         script.serviceBindOk = false;
-        assertFalse(realm.isUserInRole("alice", "r"));
+        assertFalse(isUserInRole(realm, "alice", "r"));
     }
 
     // ── certificate authentication ──
 
     @Test
     public void certificateAuthenticationDisabledByDefault() {
-        assertNull(realm.authenticateCertificate(new MockCert(
+        assertNull(authenticateCertificate(realm, new MockCert(
                 new byte[] {1}, "CN=alice")));
         assertEquals(0, script.connects);
     }
 
     @Test
     public void noCertificateModeYieldsNull() {
-        assertNull(realm.authenticateCertificate(new MockCert(
+        assertNull(authenticateCertificate(realm, new MockCert(
                 new byte[] {1}, "CN=alice")));
     }
 
     @Test
     public void binaryModeSearchesEscapedDerAndReturnsUsername() {
-        realm.setCertLookupMode(LdapRealm.CertLookupMode.BINARY);
+        realm.certLookupMode(LdapRealm.CertLookupMode.BINARY);
         script.results.add(entry("uid=alice,dc=example,dc=com", "uid",
                 "alice"));
         Realm.CertificateAuthenticationResult r =
-                realm.authenticateCertificate(new MockCert(
+                authenticateCertificate(realm, new MockCert(
                         new byte[] {1, (byte) 0xab}, "CN=alice"));
         assertTrue(r.valid);
         assertEquals("alice", r.username);
@@ -488,20 +645,20 @@ public class LdapRealmTest {
 
     @Test
     public void binaryModeNoMatchFails() {
-        realm.setCertLookupMode(LdapRealm.CertLookupMode.BINARY);
-        assertFalse(realm.authenticateCertificate(new MockCert(
+        realm.certLookupMode(LdapRealm.CertLookupMode.BINARY);
+        assertFalse(authenticateCertificate(realm, new MockCert(
                 new byte[] {1}, "CN=alice")).valid);
     }
 
     @Test
     public void subjectModeSubstitutesRdnPlaceholders() {
-        realm.setCertLookupMode(LdapRealm.CertLookupMode.SUBJECT);
-        realm.setCertSubjectFilter("(&(cn={CN})(o={O}))");
-        realm.setCertUsernameAttribute("mail");
+        realm.certLookupMode(LdapRealm.CertLookupMode.SUBJECT);
+        realm.certSubjectFilter("(&(cn={CN})(o={O}))");
+        realm.certUsernameAttribute("mail");
         script.results.add(entry("uid=alice,dc=example,dc=com", "mail",
                 "alice@example.com"));
         Realm.CertificateAuthenticationResult r =
-                realm.authenticateCertificate(new MockCert(new byte[] {1},
+                authenticateCertificate(realm, new MockCert(new byte[] {1},
                         "CN=alice,O=Acme\\, Inc"));
         assertTrue(r.valid);
         assertEquals("alice@example.com", r.username);
@@ -513,27 +670,27 @@ public class LdapRealmTest {
 
     @Test
     public void subjectModeUnescapesSpecialCharactersInRdnValues() {
-        realm.setCertLookupMode(LdapRealm.CertLookupMode.SUBJECT);
-        realm.setCertSubjectFilter("(cn={CN})");
+        realm.certLookupMode(LdapRealm.CertLookupMode.SUBJECT);
+        realm.certSubjectFilter("(cn={CN})");
         script.results.add(entry("uid=x,dc=example,dc=com", "uid", "x"));
-        realm.authenticateCertificate(new MockCert(new byte[] {1},
+        authenticateCertificate(realm, new MockCert(new byte[] {1},
                 "CN=a\\+b"));
         assertEquals("(cn=a+b)", script.searches.get(0).getFilter());
     }
 
     @Test
     public void subjectModeWithoutFilterFails() {
-        realm.setCertLookupMode(LdapRealm.CertLookupMode.SUBJECT);
-        assertFalse(realm.authenticateCertificate(new MockCert(
+        realm.certLookupMode(LdapRealm.CertLookupMode.SUBJECT);
+        assertFalse(authenticateCertificate(realm, new MockCert(
                 new byte[] {1}, "CN=alice")).valid);
         assertEquals(0, script.connects);
     }
 
     @Test
     public void certificateLookupErrorFails() {
-        realm.setCertLookupMode(LdapRealm.CertLookupMode.BINARY);
+        realm.certLookupMode(LdapRealm.CertLookupMode.BINARY);
         script.connectError = true;
-        assertFalse(realm.authenticateCertificate(new MockCert(
+        assertFalse(authenticateCertificate(realm, new MockCert(
                 new byte[] {1}, "CN=alice")).valid);
     }
 
@@ -541,7 +698,10 @@ public class LdapRealmTest {
 
     @Test
     public void staticCapabilities() {
-        assertNull(realm.getDigestHA1("alice", "realm"));
+        CapturedCallback<String> ha1 = new CapturedCallback<String>();
+        realm.getDigestHA1("alice", "realm", ha1);
+        assertTrue(ha1.isDone());
+        assertNull(ha1.value());
         Set<SaslMechanism> mechanisms = realm.getSupportedSASLMechanisms();
         assertTrue(mechanisms.contains(SaslMechanism.PLAIN));
         assertTrue(mechanisms.contains(SaslMechanism.LOGIN));
@@ -550,19 +710,8 @@ public class LdapRealmTest {
     }
 
     @Test
-    @SuppressWarnings("deprecation")
-    public void passwordRetrievalUnsupported() {
-        try {
-            realm.getPassword("alice");
-            fail("expected UnsupportedOperationException");
-        } catch (UnsupportedOperationException expected) {
-            // LDAP cannot reveal passwords
-        }
-    }
-
-    @Test
     public void forSelectorLoopReturnsIndependentCopy() {
-        realm.setHost("ldap.example.org");
+        realm.host("ldap.example.org");
         Realm copy = realm.forSelectorLoop(null);
         assertNotNull(copy);
         assertNotSame(realm, copy);
@@ -572,17 +721,15 @@ public class LdapRealmTest {
     @Test
     public void settersAcceptAllConfiguration() {
         LdapRealm r = new LdapRealm();
-        r.setHost("h");
-        r.setPort(1389);
-        r.setSecure(true);
-        r.setStartTLS(true);
-        r.setKeystoreFile(Path.of("/tmp/none.p12"));
-        r.setKeystoreFile(Path.of("/tmp/none.p12"));
-        r.setKeystorePass("pw");
-        r.setKeystoreFormat(KeystoreFormat.JKS);
-        r.setBindDN("cn=x");
-        r.setBindPassword("p");
-        r.setSelectorLoop(null);
+        r.host("h");
+        r.port(1389);
+        r.secure(true);
+        r.startTLS(true);
+        r.tls(new TlsConfig().keystoreFile(Path.of("/tmp/none.p12"))
+                .keystorePass("pw").keystoreFormat(KeystoreFormat.JKS));
+        r.bindDN("cn=x");
+        r.bindPassword("p");
+        r.selectorLoop(null);
         assertNotNull(r.forSelectorLoop(null));
     }
 

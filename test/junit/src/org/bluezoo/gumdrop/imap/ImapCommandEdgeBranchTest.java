@@ -78,7 +78,7 @@ public class ImapCommandEdgeBranchTest extends ImapSessionHarness {
 
     @Test(timeout = 30000)
     public void moveWhenDisabledIsUnknown() throws Exception {
-        listener.setEnableMOVE(false);
+        listener.enableMOVE(false);
         reconnect();
         selectedInbox();
         bad("MOVE 1 INBOX");
@@ -100,7 +100,7 @@ public class ImapCommandEdgeBranchTest extends ImapSessionHarness {
 
     @Test(timeout = 30000)
     public void sortAndThreadDisabledAreUnknown() throws Exception {
-        listener.setEnableSORT(false);
+        listener.enableSORT(false);
         reconnect();
         selectedInbox();
         bad("SORT (SUBJECT) UTF-8 ALL");
@@ -110,7 +110,7 @@ public class ImapCommandEdgeBranchTest extends ImapSessionHarness {
     @Test(timeout = 30000)
     public void namespaceDisabledIsUnknownAndListArgumentsValidated()
             throws Exception {
-        listener.setEnableNAMESPACE(false);
+        listener.enableNAMESPACE(false);
         reconnect();
         login();
         bad("NAMESPACE");
@@ -124,11 +124,11 @@ public class ImapCommandEdgeBranchTest extends ImapSessionHarness {
 
     @Test(timeout = 30000)
     public void compressValidatedAndNotRepeated() throws Exception {
-        listener.setEnableCOMPRESS(false);
+        listener.enableCOMPRESS(false);
         reconnect();
         login();
         bad("COMPRESS DEFLATE");
-        listener.setEnableCOMPRESS(true);
+        listener.enableCOMPRESS(true);
         reconnect();
         login();
         bad("COMPRESS");
@@ -181,7 +181,7 @@ public class ImapCommandEdgeBranchTest extends ImapSessionHarness {
 
     @Test(timeout = 30000)
     public void overlongLineIsRejectedAndSessionRecovers() throws Exception {
-        listener.setMaxLineLength(64);
+        listener.maxLineLength(64);
         reconnect();
         endpoint.clearResponses();
         StringBuilder sb = new StringBuilder("t1 NOOP ");
@@ -223,7 +223,7 @@ public class ImapCommandEdgeBranchTest extends ImapSessionHarness {
 
     @Test(timeout = 30000)
     public void overlongLineIsTaggedWithTheOffendingCommand() throws Exception {
-        listener.setMaxLineLength(64);
+        listener.maxLineLength(64);
         reconnect();
         ok("NOOP");
         endpoint.clearResponses();
@@ -240,7 +240,7 @@ public class ImapCommandEdgeBranchTest extends ImapSessionHarness {
 
     @Test(timeout = 30000)
     public void overlongContinuationIsTaggedWithItsCommand() throws Exception {
-        listener.setMaxLineLength(64);
+        listener.maxLineLength(64);
         reconnect();
         ok("NOOP");
         endpoint.clearResponses();
@@ -260,7 +260,7 @@ public class ImapCommandEdgeBranchTest extends ImapSessionHarness {
     @Test(timeout = 30000)
     public void oversizedLiteralIsTaggedWithTheOffendingCommand()
             throws Exception {
-        listener.setMaxLiteralSize(4);
+        listener.maxLiteralSize(4);
         reconnect();
         ok("NOOP");
         endpoint.clearResponses();
@@ -271,7 +271,7 @@ public class ImapCommandEdgeBranchTest extends ImapSessionHarness {
 
     @Test(timeout = 30000)
     public void oversizedGeneralLiteralIsRefused() throws Exception {
-        listener.setMaxLiteralSize(4);
+        listener.maxLiteralSize(4);
         reconnect();
         tagCounter++;
         String tag = "t" + tagCounter;

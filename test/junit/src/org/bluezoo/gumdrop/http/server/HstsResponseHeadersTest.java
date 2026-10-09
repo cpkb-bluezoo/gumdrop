@@ -40,9 +40,9 @@ public class HstsResponseHeadersTest {
     @Test
     public void testHstsOnSecureListenerWhenEnabled() throws Exception {
         Http2Listener listener = new Http2Listener().secure(true);
-        listener.setHstsPolicy(HstsPolicy.enabled(3600).includeSubDomains(true));
-        listener.setAddSecurityHeaders(false);
-        listener.setStreamHandler(new HttpStreamHandler() {
+        listener.hstsPolicy(HstsPolicy.enabled(3600).includeSubDomains(true));
+        listener.addSecurityHeaders(false);
+        listener.streamHandler(new HttpStreamHandler() {
             @Override
             public HttpRequestHandler openStream(HttpResponse state) {
                 return new DefaultHttpRequestHandler();
@@ -67,9 +67,9 @@ public class HstsResponseHeadersTest {
     @Test
     public void testNoHstsOnPlaintextEvenWhenConfigured() throws Exception {
         Http2Listener listener = new Http2Listener().secure(false);
-        listener.setHstsPolicy(HstsPolicy.enabled(3600));
-        listener.setAddSecurityHeaders(false);
-        listener.setStreamHandler(new HttpStreamHandler() {
+        listener.hstsPolicy(HstsPolicy.enabled(3600));
+        listener.addSecurityHeaders(false);
+        listener.streamHandler(new HttpStreamHandler() {
             @Override
             public HttpRequestHandler openStream(HttpResponse state) {
                 return new DefaultHttpRequestHandler();

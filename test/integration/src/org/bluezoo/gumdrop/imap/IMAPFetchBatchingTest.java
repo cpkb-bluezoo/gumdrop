@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.imap;
 
+import org.bluezoo.gumdrop.auth.SynchronousRealm;
 import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.GumdropConfig;
 import org.bluezoo.gumdrop.SelectorLoop;
@@ -108,9 +109,9 @@ public class IMAPFetchBatchingTest {
         }
 
         ImapListener listener = new ImapListener();
-        listener.setRealm(new AcceptingRealm("editor", "editor"));
-        listener.setMailboxFactory(new MaildirMailboxFactory(mailRoot));
-        listener.setAllowPlaintextLogin(true);
+        listener.realm(new AcceptingRealm("editor", "editor"));
+        listener.mailboxFactory(new MaildirMailboxFactory(mailRoot));
+        listener.allowPlaintextLogin(true);
 
         ImapProtocolHandler handler = new ImapProtocolHandler(listener);
         RecordingStubEndpoint endpoint = new RecordingStubEndpoint(143);
@@ -181,7 +182,7 @@ public class IMAPFetchBatchingTest {
     }
 
     /** Minimal realm that accepts a single username/password pair. */
-    private static final class AcceptingRealm implements Realm {
+    private static final class AcceptingRealm implements SynchronousRealm {
         private final String user;
         private final String pass;
         private static final Set<SaslMechanism> SUPPORTED =
@@ -193,10 +194,6 @@ public class IMAPFetchBatchingTest {
             this.pass = pass;
         }
 
-        @Override
-        public Realm forSelectorLoop(SelectorLoop loop) {
-            return this;
-        }
 
         @Override
         public Set<SaslMechanism> getSupportedSASLMechanisms() {
@@ -213,11 +210,6 @@ public class IMAPFetchBatchingTest {
             return null;
         }
 
-        @Override
-        @SuppressWarnings("deprecation")
-        public String getPassword(String username) {
-            return user.equals(username) ? pass : null;
-        }
 
         @Override
         public boolean isUserInRole(String username, String role) {

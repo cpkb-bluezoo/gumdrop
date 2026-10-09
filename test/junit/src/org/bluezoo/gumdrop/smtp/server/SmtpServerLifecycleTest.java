@@ -75,10 +75,10 @@ public class SmtpServerLifecycleTest {
         BareServer server = new BareServer();
         RecordingListener listener = new RecordingListener();
         server.addListener(listener);
-        server.setMaxRecipients(7);
-        server.setMaxTransactionsPerSession(3);
-        server.setAuthRequired(true);
-        server.setMaxMessageSize(1234L);
+        server.maxRecipients(7);
+        server.maxTransactionsPerSession(3);
+        server.authRequired(true);
+        server.maxMessageSize(1234L);
         server.start(null);
         assertEquals(7, listener.getMaxRecipients());
         assertEquals(3, listener.getMaxTransactionsPerSession());
@@ -91,19 +91,6 @@ public class SmtpServerLifecycleTest {
         server.stop();
         assertEquals(2, listener.events.size());
         assertEquals("stop", listener.events.get(1));
-    }
-
-    @Test
-    public void setListenersKeepsOnlySmtpListeners() {
-        BareServer server = new BareServer();
-        RecordingListener listener = new RecordingListener();
-        List<Object> mixed = new ArrayList<Object>();
-        mixed.add("not a listener");
-        mixed.add(listener);
-        mixed.add(Integer.valueOf(1));
-        server.setListeners(mixed);
-        assertEquals(1, server.getListeners().size());
-        assertSame(listener, server.getListeners().get(0));
     }
 
     @Test

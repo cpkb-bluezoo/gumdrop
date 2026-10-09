@@ -123,10 +123,10 @@ public class ImapSessionBranchTest extends ImapSessionHarness {
 
     @Test(timeout = 30000)
     public void enableHonoursDisabledExtensions() throws Exception {
-        listener.setEnableCONDSTORE(false);
-        listener.setEnableQRESYNC(false);
-        listener.setEnableUTF8ACCEPT(false);
-        listener.setEnableNOTIFY(false);
+        listener.enableCONDSTORE(false);
+        listener.enableQRESYNC(false);
+        listener.enableUTF8ACCEPT(false);
+        listener.enableNOTIFY(false);
         reconnect();
         login();
         ok("ENABLE CONDSTORE QRESYNC UTF8=ACCEPT NOTIFY");
@@ -224,11 +224,11 @@ public class ImapSessionBranchTest extends ImapSessionHarness {
         fields.put("name", "mock");
         fields.put("support-url", null);
         fields.put("version", "9");
-        listener.setServerIdFields(fields);
+        listener.serverIdFields(fields);
         reconnect();
         ok("ID (\"name\" \"client\")");
         assertSaw("* ID (\"name\" \"mock\" \"support-url\" NIL \"version\" \"9\")");
-        listener.setServerIdFields(new LinkedHashMap<String, String>());
+        listener.serverIdFields(new LinkedHashMap<String, String>());
         reconnect();
         ok("ID NIL");
         assertSaw("* ID (\"name\" \"gumdrop\" \"version\" \"");
@@ -256,7 +256,7 @@ public class ImapSessionBranchTest extends ImapSessionHarness {
     @Test(timeout = 30000)
     public void failingSessionProvidersFallBackToDefaultBehaviour()
             throws Exception {
-        listener.setSessionProvider(new ImapServerSessionProvider() {
+        listener.sessionProvider(new ImapServerSessionProvider() {
             @Override
             public ClientConnected openSession(TcpListener l) {
                 throw new IllegalStateException("provider down");
@@ -268,7 +268,7 @@ public class ImapSessionBranchTest extends ImapSessionHarness {
                 throw new IllegalStateException("server provider down");
             }
         };
-        listener.setServer(server);
+        listener.server(server);
         reconnect();
         ok("LOGIN editor editor");
         ok("NOOP");

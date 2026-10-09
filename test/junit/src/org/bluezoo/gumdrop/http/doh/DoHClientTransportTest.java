@@ -45,7 +45,7 @@ public class DoHClientTransportTest {
     @Test
     public void testSetPath() {
         DoHClientTransport transport = new DoHClientTransport();
-        transport.setPath("/custom-dns");
+        transport.path("/custom-dns");
         assertEquals("/custom-dns", transport.getPath());
     }
 

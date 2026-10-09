@@ -59,9 +59,9 @@ public class POP3AuthFlowsTest {
         realm = new CapableRealm();
         factory = new POP3ProtocolHandlerTest.StubMailboxFactory();
         listener = new POP3ProtocolHandlerTest.TestPOP3Listener();
-        listener.setRealm(realm);
-        listener.setMailboxFactory(factory);
-        listener.setEnableAPOP(false);
+        listener.realm(realm);
+        listener.mailboxFactory(factory);
+        listener.enableAPOP(false);
         endpoint = new TimerEndpoint();
     }
 
@@ -96,7 +96,7 @@ public class POP3AuthFlowsTest {
 
     @Test
     public void testApopSuccess() {
-        listener.setEnableAPOP(true);
+        listener.enableAPOP(true);
         connect();
         String ts = apopTimestamp();
         String digest = SaslUtils.md5Hex((ts + "testpass").getBytes(StandardCharsets.US_ASCII));
@@ -106,7 +106,7 @@ public class POP3AuthFlowsTest {
 
     @Test
     public void testApopWrongDigestAndUnsupportedRealm() {
-        listener.setEnableAPOP(true);
+        listener.enableAPOP(true);
         connect();
         send("APOP testuser 00000000000000000000000000000000");
         assertTrue(last().startsWith("-ERR"));
@@ -120,8 +120,8 @@ public class POP3AuthFlowsTest {
 
     @Test
     public void testApopWithoutRealmClosesConnection() {
-        listener.setEnableAPOP(true);
-        listener.setRealm(null);
+        listener.enableAPOP(true);
+        listener.realm(null);
         connect();
         send("APOP testuser abc");
         assertTrue(last().startsWith("-ERR"));
@@ -132,7 +132,7 @@ public class POP3AuthFlowsTest {
 
     @Test
     public void testPassWithoutMailboxFactory() {
-        listener.setMailboxFactory(null);
+        listener.mailboxFactory(null);
         connect();
         send("USER testuser");
         send("PASS testpass");
@@ -141,7 +141,7 @@ public class POP3AuthFlowsTest {
 
     @Test
     public void testPassWhenMailboxOpenFails() {
-        listener.setMailboxFactory(new FailingFactory());
+        listener.mailboxFactory(new FailingFactory());
         connect();
         send("USER testuser");
         send("PASS testpass");
@@ -150,7 +150,7 @@ public class POP3AuthFlowsTest {
 
     @Test
     public void testLoginDelayDefersSecondAttemptUntilTimerFires() {
-        listener.setLoginDelayMs(Long.MAX_VALUE / 4);
+        listener.loginDelayMs(Long.MAX_VALUE / 4);
         connect();
         send("USER testuser");
         send("PASS wrong");
@@ -177,7 +177,7 @@ public class POP3AuthFlowsTest {
 
     @Test
     public void testAuthListWithoutRealm() {
-        listener.setRealm(null);
+        listener.realm(null);
         connect();
         send("AUTH");
         assertTrue(last().startsWith("-ERR"));
@@ -236,7 +236,7 @@ public class POP3AuthFlowsTest {
 
     @Test
     public void testCramMd5WithoutRealm() {
-        listener.setRealm(null);
+        listener.realm(null);
         connect();
         send("AUTH CRAM-MD5");
         assertTrue(last().startsWith("-ERR"));
@@ -267,7 +267,7 @@ public class POP3AuthFlowsTest {
 
     @Test
     public void testDigestMd5WithoutRealm() {
-        listener.setRealm(null);
+        listener.realm(null);
         connect();
         send("AUTH DIGEST-MD5");
         assertTrue(last().startsWith("-ERR"));
@@ -350,7 +350,7 @@ public class POP3AuthFlowsTest {
 
     @Test
     public void testScramWithoutRealm() {
-        listener.setRealm(null);
+        listener.realm(null);
         connect();
         send("AUTH SCRAM-SHA-256");
         assertTrue(last().startsWith("-ERR"));

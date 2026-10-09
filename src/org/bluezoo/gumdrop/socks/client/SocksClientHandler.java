@@ -89,7 +89,11 @@ import static org.bluezoo.gumdrop.socks.SocksConstants.*;
  * // the remote peer (e.g. via an FTP PORT command) before it connects
  * client.connect(new SocksClientHandler(
  *     "ftp.example.com", 0, config,
- *     boundAddress -> sendPortCommandToPeer(boundAddress),
+ *     new SocksClientHandler.BindListener() {
+ *         public void bound(InetSocketAddress boundAddress) {
+ *             sendPortCommandToPeer(boundAddress);
+ *         }
+ *     },
  *     new MyPeerProtocolHandler(callback)));
  *
  * // UDP ASSOCIATE: exchange datagrams with arbitrary destinations

@@ -44,8 +44,8 @@ configuration, and features of the servlet container.
 <li><a href="#architecture">Architecture</a></li>
 <li><a href="#async">Asynchronous Processing</a></li>
 <li><a href="#features">HTTP and Servlet Features</a></li>
-<li><a href="#composition">Composition (Gumdrop 3)</a></li>
-<li><a href="#configuration">Legacy XML configuration</a></li>
+<li><a href="#composition">Composition</a></li>
+<li><a href="#server-xml">Declarative configuration (server.xml)</a></li>
 <li><a href="#clustering">Cluster Session Replication</a></li>
 <li><a href="#hot-deploy">Hot Deployment</a></li>
 <li><a href="#deployment-descriptors">Deployment Descriptors</a></li>
@@ -53,12 +53,12 @@ configuration, and features of the servlet container.
 <li><a href="#jaxws-jaxrs">JAX-WS and JAX-RS</a></li>
 <li><a href="#jsp">JavaServer Pages</a>
   <ul>
-  <li><a href="#jsp">Compilation Architecture</a></li>
-  <li><a href="#jsp">Dependency Tracking and Hot Reload</a></li>
-  <li><a href="#jsp">Expression Language (EL)</a></li>
-  <li><a href="#jsp">Tag Libraries</a></li>
-  <li><a href="#jsp">JSP Configuration</a></li>
-  <li><a href="#jsp">Precompilation</a></li>
+  <li><a href="#jsp-compilation">Compilation Architecture</a></li>
+  <li><a href="#jsp-reload">Dependency Tracking and Recompilation</a></li>
+  <li><a href="#jsp-el">Expression Language (EL)</a></li>
+  <li><a href="#jsp-taglibs">Tag Libraries</a></li>
+  <li><a href="#jsp-config">JSP Configuration</a></li>
+  <li><a href="#jsp-precompile">Precompilation</a></li>
   </ul>
 </li>
 </ul>
@@ -156,7 +156,8 @@ to the pool immediately after the <code>service()</code> method completes,
 freeing it to handle other requests.</li>
 <li><b>Schedules a timeout</b> - A configurable timeout (default 30 seconds)
 is set. If the async context is not completed before timeout, listeners
-are notified and an error response is sent.</li>
+are notified; if none handles the timeout, a 500 error response is sent and
+the context is completed.</li>
 <li><b>Maintains the connection</b> - The underlying I/O connection remains
 open and managed by the SelectorLoop, ready to send the response when
 the application completes processing.</li>
@@ -174,8 +175,9 @@ re-dispatching the request:
 pool, not on the calling thread.</li>
 <li><code>complete()</code> - Flushes the response, notifies listeners, and
 ends the request/response cycle.</li>
-<li><code>dispatch()</code> - Re-invokes the servlet on a servlet worker
-pool thread, useful for completing processing after an async operation.</li>
+<li><code>dispatch()</code> - Dispatches the request URI again through the
+container on a servlet worker pool thread, useful for completing processing
+after an async operation.</li>
 <li><code>dispatch(path)</code> - Forwards to a different servlet path for
 completion.</li>
 <li><code>setTimeout(long)</code> - Sets the timeout in milliseconds.</li>
@@ -206,10 +208,13 @@ the SelectorLoop thread.</li>
 </ul>
 
 <pre>
-// Example: Non-blocking read
+// Example: Non-blocking read. startAsync() must be called first,
+// otherwise setReadListener() throws IllegalStateException.
+final AsyncContext asyncContext = req.startAsync();
+final ServletInputStream input = req.getInputStream();
 input.setReadListener(new ReadListener() {
     public void onDataAvailable() throws IOException {
-        while (input.isReady()) {
+        while (input.isReady() &amp;&amp; !input.isFinished()) {
             int b = input.read();
             // process byte
         }
@@ -225,23 +230,20 @@ input.setReadListener(new ReadListener() {
 });
 </pre>
 
-<h4>Error Handling and Telemetry</h4>
+<h4>Error Handling</h4>
 
 <p>
-Async processing integrates with Gumdrop's telemetry system. Errors during
-async processing are recorded in OpenTelemetry spans with appropriate
-<code>ErrorCategory</code> classification:
+Errors during asynchronous processing are delivered to the registered
+<code>AsyncListener</code>s:
 </p>
 
 <ul>
-<li><b>Timeout</b> - If the async context times out, <code>ErrorCategory.TIMEOUT</code>
-is recorded and listeners receive <code>onTimeout()</code> callbacks.</li>
-<li><b>Connection close</b> - If the TCP connection closes unexpectedly during
-async processing, <code>onError()</code> is called with an IOException and
-the error is recorded in the span.</li>
+<li><b>Timeout</b> - If the async context times out, listeners receive
+<code>onTimeout()</code>. If none handles it, a 500 error response is sent
+and the context is completed.</li>
 <li><b>Application errors</b> - Exceptions thrown from <code>start()</code>
-runnables are caught, logged, and propagated to <code>onError()</code>
-listeners.</li>
+runnables, or from a failed <code>dispatch()</code>, are caught, logged, and
+propagated to <code>onError()</code> listeners.</li>
 </ul>
 
 <h4>Async Processing Flow</h4>
@@ -270,13 +272,18 @@ in the deployment descriptor or use the <code>@WebServlet</code> annotation:
 <pre>
 @WebServlet(urlPatterns = "/async", asyncSupported = true)
 public class AsyncServlet extends HttpServlet {
-    protected void doGet(HttpServletRequest req, HttpServletResponse resp) {
-        AsyncContext ctx = req.startAsync();
+    protected void doGet(HttpServletRequest req, final HttpServletResponse resp) {
+        final AsyncContext ctx = req.startAsync();
         ctx.start(new Runnable() {
             public void run() {
-                // Perform async work
-                resp.getWriter().println("Async response");
-                ctx.complete();
+                try {
+                    // Perform async work
+                    resp.getWriter().println("Async response");
+                } catch (IOException e) {
+                    throw new UncheckedIOException(e);
+                } finally {
+                    ctx.complete();
+                }
             }
         });
     }
@@ -350,19 +357,11 @@ public class PageServlet extends HttpServlet {
 </pre>
 
 <p>
-The <code>newPushBuilder()</code> method returns <code>null</code> if:
-</p>
-
-<ul>
-<li>The connection is HTTP/1.x (push requires HTTP/2)</li>
-<li>The client has disabled server push via HTTP/2 SETTINGS</li>
-<li>The request method is not cacheable (only GET/HEAD support push)</li>
-</ul>
-
-<p>
-When a push promise is sent, the pushed resource is processed through the
-same servlet container pipeline as a normal request, allowing the pushed
-response to benefit from filters, security constraints, and caching.
+<code>newPushBuilder()</code> always returns a builder. If the connection is
+HTTP/1.x, or the client has disabled push through the HTTP/2
+<code>SETTINGS_ENABLE_PUSH</code> setting, the push is silently dropped.
+<code>PushBuilder.method()</code> accepts only <code>GET</code> and
+<code>HEAD</code> and throws <code>IllegalArgumentException</code> otherwise.
 </p>
 
 <h4>HTTP Trailer Headers</h4>
@@ -371,7 +370,8 @@ response to benefit from filters, security constraints, and caching.
 HTTP trailers are headers sent after the message body. They are useful for
 sending metadata that is computed during body transmission, such as checksums
 or signatures. Gumdrop supports trailers for both HTTP/1.1 (chunked encoding)
-and HTTP/2.
+and HTTP/2. Trailers are sent only once the response body has started, and
+fields that are forbidden in trailers are silently dropped.
 </p>
 
 <pre>
@@ -381,9 +381,14 @@ public class UploadServlet extends HttpServlet {
     protected void doPost(HttpServletRequest req, HttpServletResponse resp) 
             throws ServletException, IOException {
         
-        MessageDigest digest = MessageDigest.getInstance("SHA-256");
+        final MessageDigest digest;
+        try {
+            digest = MessageDigest.getInstance("SHA-256");
+        } catch (NoSuchAlgorithmException e) {
+            throw new ServletException(e);
+        }
         
-        // Declare which trailers will be sent
+        // Register a supplier that provides the trailers when the response completes
         resp.setTrailerFields(new Supplier&lt;Map&lt;String, String&gt;&gt;() {
             public Map&lt;String, String&gt; get() {
                 Map&lt;String, String&gt; trailers = new HashMap&lt;&gt;();
@@ -490,12 +495,12 @@ This is particularly useful for servlets mapped with wildcards that need
 to determine which specific resource was requested.
 </p>
 
-<h3 id="composition">Composition (Gumdrop 3)</h3>
+<h3 id="composition">Composition</h3>
 
 <p>
 The servlet container is a <strong><code>ServletRequestHandler</code></strong>
 (an <code>HttpStreamHandler</code>) wired onto a plain
-<code>HttpServer</code>, not a separate server subclass. A
+<code>HttpServer</code>. A
 <code>Container</code> owns its worker pool, realms, and web application
 <code>Context</code>s; the handler is created once per container and
 installed on however many listeners the deployment needs:
@@ -515,11 +520,11 @@ server.start();
 </pre>
 
 <p>
-Because the servlet container is a plain <code>HttpServer</code>, it
+Because the servlet container sits on a plain <code>HttpServer</code>, it
 inherits Gumdrop&rsquo;s full transport and protocol independence layer.
 Serving applications over <a href="http.html#http3">HTTP/3</a> (QUIC),
 <a href="http.html#http2">HTTP/2</a>, and HTTP/1.1 is a matter of adding
-the appropriate listeners, as above &mdash; no reverse proxy is required to
+the appropriate listeners, as above - no reverse proxy is required to
 terminate QUIC, unlike mainstream servlet containers such as Apache Tomcat,
 GlassFish, and Undertow. Servlets, filters, and JSP pages operate
 identically regardless of the underlying HTTP version, benefiting from
@@ -535,30 +540,32 @@ HTTP implementation.
 <h4>Container Configuration</h4>
 
 <p>
-<code>Container</code> exposes fluent setters for the servlet worker pool,
-clustering, and operational settings:
+<code>Container</code> is configured by composition: each method is named for
+the setting and returns the container, so calls chain. It covers the servlet
+worker pool, clustering, and operational settings:
 </p>
 
 <ul>
-<li><code>setHotDeploy(boolean)</code> - enable automatic redeployment when files
-change (default: <code>true</code>)</li>
-<li><code>setClusterPort(int)</code> - UDP port for session replication multicast</li>
-<li><code>setClusterGroupAddress(InetAddress)</code> - multicast group for clustering, as an
+<li><code>hotDeploy(boolean)</code> - enable automatic redeployment when files
+change (default: <code>false</code>, unless the <code>GUMDROP_HOT_DEPLOY</code>
+environment variable is <code>true</code>)</li>
+<li><code>clusterPort(int)</code> - UDP port for session replication multicast</li>
+<li><code>clusterGroupAddress(InetAddress)</code> - multicast group for clustering, as an
 address literal. When it is not set the cluster joins <code>224.0.80.80</code> and, where an
 interface has an IPv6 address, <code>ff12::8080</code>, and sends every message to each group
 it joined. An explicit group replaces both</li>
-<li><code>setClusterKey(byte[])</code> - shared secret key for cluster encryption
-(32 bytes, 256 bits; <code>server.xml</code> takes it as 64 hexadecimal characters)</li>
-<li><code>setReplicationAllowedClasses(Set&lt;String&gt;)</code> - fully qualified
-class names permitted in Java-serialized replicated session attributes, in
+<li><code>clusterKey(byte[])</code> - shared secret key for cluster encryption
+(32 bytes, 256 bits)</li>
+<li><code>replicationAllowedClasses(Set&lt;String&gt;)</code> - fully qualified
+class names permitted in Java-serialised replicated session attributes, in
 addition to the built-in JDK allowlist (webapp class loaders are never
 blanket-allowed)</li>
-<li><code>addRealm(String, Realm)</code> / <code>setRealms(Map)</code> - named realms available to contexts</li>
-<li><code>setBufferSize(int)</code> - I/O buffer size for request/response streams in bytes
+<li><code>addRealm(String, Realm)</code> / <code>realms(Map)</code> - named realms available to contexts</li>
+<li><code>bufferSize(int)</code> - I/O buffer size for request/response streams in bytes
 (default: 8192, minimum: 1024)</li>
-<li><code>setWorkerCorePoolSize(int)</code> - minimum servlet worker pool size (virtual threads)</li>
-<li><code>setWorkerMaximumPoolSize(int)</code> - maximum servlet worker pool size (virtual threads)</li>
-<li><code>setWorkerKeepAlive(Duration)</code> - idle timeout for excess pool workers</li>
+<li><code>workerCorePoolSize(int)</code> - minimum servlet worker pool size (virtual threads)</li>
+<li><code>workerMaximumPoolSize(int)</code> - maximum servlet worker pool size (virtual threads)</li>
+<li><code>workerKeepAlive(Duration)</code> - idle timeout for excess pool workers</li>
 </ul>
 
 <p>
@@ -587,7 +594,7 @@ Container container = new Container();
 container.addContext(new Context(container, "", new File("web")));
 
 Context app = new Context(container, "/app", new File("myapp.war"));
-app.setDistributable(true);
+app.distributable(true);
 container.addContext(app);
 </pre>
 
@@ -607,7 +614,7 @@ application <code>login-config</code> elements:
 
 <pre>
 BasicRealm realm = new BasicRealm();
-realm.setHref("myRealm.xml");
+realm.href("myRealm.xml");
 
 Container container = new Container();
 container.addRealm("myRealm", realm);
@@ -618,6 +625,107 @@ container.addContext(new Context(container, "", new File("web")));
 The <code>BasicRealm</code> reads users, passwords, and roles from an XML file.
 Custom realm implementations can integrate with LDAP, databases, or other
 authentication backends.
+</p>
+
+<h3 id="server-xml">Declarative configuration (server.xml)</h3>
+
+<p>
+Embedding the container in Java, as above, is the full-featured way to
+configure it. For deployments in the style of Tomcat, where you download a
+distribution and run a script without writing or compiling code, the stock
+launcher (<code>bin/gumdrop.sh</code>, via <code>ContainerMain</code>) reads a
+minimal <code>conf/server.xml</code> and converts it into the same composition
+wiring: a <code>Container</code> with its realms, contexts and cluster
+settings, installed as the <code>ServletRequestHandler</code> of an
+<code>HttpServer</code>. It deliberately covers only the container, its
+contexts, and HTTP listeners including TLS; it is not a general configuration
+system, and every other protocol, or a more elaborate servlet deployment, is
+composed in Java. The file location can be given on the command line or in
+<code>GUMDROP_CONFIG</code> (see
+<code>docs/CONTAINER-DEPLOYMENT.md</code> in the source tree).
+</p>
+
+<pre>
+&lt;server&gt;
+  &lt;realm name="myRealm,Gumdrop Manager" class="org.bluezoo.gumdrop.auth.BasicRealm"
+         href="realm-servlet.xml"/&gt;
+
+  &lt;container hot-deploy="true" buffer-size="8192"
+             worker-core-pool-size="8" worker-maximum-pool-size="64"
+             worker-keep-alive="60"/&gt;
+
+  &lt;cluster port="4001" group-address="224.0.80.80" key="64-hex-characters"/&gt;
+
+  &lt;context path="" root="../webapps/ROOT" distributable="true"/&gt;
+  &lt;context path="/manager" root="../webapps/manager.war"/&gt;
+
+  &lt;listener port="8080"/&gt;
+  &lt;listener port="8443" secure="true" cert-file="tls/cert.pem"
+            key-file="tls/key.pem" bind-wildcard="true"
+            client-auth="required" ca-file="tls/ca.pem"/&gt;
+&lt;/server&gt;
+</pre>
+
+<ul>
+<li><code>realm</code> - <code>name</code> (a comma-separated list of aliases for
+one realm, since a web application's <code>realm-name</code> is a
+per-application label), <code>class</code> (a <code>Realm</code> with a public
+no-argument constructor), and, for <code>BasicRealm</code>, <code>href</code>
+(the users file).</li>
+<li><code>container</code> (optional, as are all its attributes) -
+<code>hot-deploy</code>, <code>buffer-size</code> (bytes),
+<code>worker-core-pool-size</code>, <code>worker-maximum-pool-size</code>, and
+<code>worker-keep-alive</code> (seconds). These correspond to the
+<code>Container</code> methods described above.</li>
+<li><code>cluster</code> - <code>port</code> and <code>key</code> (exactly 64
+hexadecimal characters, the 32-byte AES-256 key) are required;
+<code>group-address</code> is an optional multicast address literal.</li>
+<li><code>context</code> - <code>path</code> (empty for the root) and
+<code>root</code> (a directory or WAR file) are required;
+<code>distributable</code> enables session replication.</li>
+<li><code>listener</code> - <code>port</code> is required;
+<code>bind-wildcard</code> binds all addresses. A <code>secure</code> listener
+takes its TLS identity from PEM files (<code>cert-file</code> and
+<code>key-file</code>) or from a Java keystore (<code>keystore-file</code>,
+<code>keystore-pass</code>, and optionally <code>keystore-format</code> of
+<code>PKCS12</code>, <code>JKS</code> or <code>JCEKS</code>), not both. PEM
+files are the preferred form; keystores are supported for the standard Java
+ecosystem. Further optional TLS attributes:
+<ul>
+<li><code>tls-version</code> - <code>NEGOTIATE</code> (the default),
+<code>TLS_1_2</code> or <code>TLS_1_3</code>, for the TCP listener (HTTP/3 is
+always TLS 1.3).</li>
+<li><code>cipher-suites</code> and <code>named-groups</code> - colon-separated
+lists, applied to both the TCP and HTTP/3 listeners. See
+<a href="tls.html#configuration">TLS &amp; DTLS</a>.</li>
+<li><code>client-auth</code> - <code>none</code> (the default) or
+<code>required</code> for mutual TLS. Under <code>required</code>, client
+certificates are verified against a PEM CA bundle (<code>ca-file</code>) or a
+Java truststore (<code>truststore-file</code>, <code>truststore-pass</code>,
+and optionally <code>truststore-format</code>), not both; with neither, the JVM
+default trust store is used. These attributes are rejected without
+<code>client-auth="required"</code>.</li>
+<li><code>sni-default-alias</code> and nested
+<code>&lt;sni host="example.com" alias="example-cert"/&gt;</code> elements -
+serve several certificates from one port by Server Name Indication. Each
+<code>sni</code> maps a host name (exact, or a wildcard such as
+<code>*.example.org</code>) to a keystore alias, and the default alias is used
+when no host matches. SNI selects keystore aliases, so it needs
+<code>keystore-file</code> and is not available with a single PEM identity.</li>
+<li><code>ech-config-list-file</code>, <code>ech-private-key-file</code> and
+<code>ech-required</code> for Encrypted Client Hello.</li>
+</ul>
+Each secure listener serves HTTP/2 over TLS and HTTP/3 over QUIC on the same
+port. At least one listener is required.</li>
+</ul>
+
+<p>
+Relative <code>href</code>, <code>root</code>, <code>cert-file</code>,
+<code>key-file</code>, <code>keystore-file</code>, <code>ca-file</code>,
+<code>truststore-file</code> and ECH paths resolve against the
+directory containing <code>server.xml</code>, not the working directory.
+Unrecognised elements are rejected, and the file is read with external
+entities disabled.
 </p>
 
 <h3 id="clustering">Cluster Session Replication</h3>
@@ -637,7 +745,7 @@ Gumdrop uses a UDP multicast protocol to replicate session data:
 
 <ol>
 <li>When <code>setAttribute</code> is called on a distributed session, the
-container serializes the session attribute and broadcasts it to the cluster
+container serialises the session attribute and broadcasts it to the cluster
 multicast group.</li>
 <li>Other nodes receive the message, authenticate and decrypt it, then
 update their local copy of the session.</li>
@@ -656,13 +764,14 @@ All cluster traffic is authenticated and encrypted. The protocol includes:
 Each node tracks per-peer sequence states using a sliding window to detect
 replayed or reordered messages. Messages with timestamps more than 30 seconds
 from current time are rejected.</li>
-<li><b>Protobuf serialization</b> - Session attributes are serialized using a
+<li><b>Protobuf serialisation</b> - Session attributes are serialised using a
 binary protobuf format. Primitive types (String, Boolean, Long, Double) are
-encoded directly. Complex objects use Java serialization with strict
-deserialization filtering.</li>
-<li><b>Deserialization filtering</b> - For complex session attributes, a filter
-restricts deserialization to known-safe JDK classes and classes from the
-webapp's classloader. Known gadget classes are explicitly blocked.</li>
+encoded directly. Complex objects use Java serialisation with strict
+deserialisation filtering.</li>
+<li><b>Deserialisation filtering</b> - For complex session attributes, a filter
+restricts deserialisation to a built-in allowlist of JDK classes plus any
+classes named with <code>Container.replicationAllowedClasses()</code>.
+Webapp classes are not allowed unless listed explicitly.</li>
 </ul>
 
 <h4>Network Considerations</h4>
@@ -671,7 +780,7 @@ webapp's classloader. Known gadget classes are explicitly blocked.</li>
 Multicast traffic respects network boundaries but relies on proper network
 segmentation. Cluster nodes should be deployed on an isolated network
 segment or VLAN. The shared secret key must be distributed securely to all
-nodes via the <code>cluster-key</code> service property.
+nodes and configured identically with <code>Container.clusterKey()</code>.
 </p>
 
 <h4>Telemetry</h4>
@@ -683,8 +792,10 @@ The cluster node will publish telemetry metrics if telemetry is enabled.
 <h3 id="hot-deploy">Hot Deployment</h3>
 
 <p>
-Unless disabled, the servlet container monitors web applications for changes
-and automatically redeploys them when modifications are detected. This
+When hot deployment is enabled (see
+<code>Container.hotDeploy()</code>), the servlet container monitors web
+applications for changes and automatically redeploys them when modifications
+are detected. This
 enables rapid development cycles without manual server restarts.
 </p>
 
@@ -713,15 +824,16 @@ When a change is detected:
 </p>
 
 <ol>
-<li>Active requests are allowed to complete</li>
-<li>The context's classloader is closed, releasing loaded classes</li>
-<li>The deployment descriptor is re-parsed</li>
-<li>A new classloader is created for the context</li>
+<li>The context is destroyed (servlets, filters, and listeners)</li>
+<li>Its state and classloader are reset, releasing loaded classes</li>
+<li>The deployment descriptor is re-parsed and a new classloader is created</li>
 <li>Servlets, filters, and listeners are re-initialised</li>
 </ol>
 
 <p>
-Session data is preserved across redeployments when possible.
+The session manager is retained across a reload, so unexpired sessions are
+generally kept, but attributes whose classes came from the old classloader may
+no longer be compatible.
 </p>
 
 <h3 id="deployment-descriptors">Deployment Descriptors</h3>
@@ -833,7 +945,7 @@ resources in their deployment descriptors using <code>resource-ref</code>,
 <h4>DataSource (JDBC Connection Pooling)</h4>
 
 <p>
-The <code>data-source</code> element defines a JDBC DataSource with built-in
+<code>DataSourceDef</code> defines a JDBC DataSource with built-in
 connection pooling. Gumdrop manages a pool of database connections that
 are reused across requests, reducing connection overhead.
 </p>
@@ -892,7 +1004,7 @@ SQLite, and H2.
 <p>Usage in servlet code:</p>
 
 <pre>
-Context ctx = new InitialContext();
+javax.naming.Context ctx = new InitialContext();
 DataSource ds = (DataSource) ctx.lookup("java:comp/env/jdbc/myDB");
 Connection conn = ds.getConnection();
 try {
@@ -905,7 +1017,7 @@ try {
 <h4>Mail Session (JavaMail)</h4>
 
 <p>
-The <code>mail-session</code> element defines a JavaMail Session for sending
+<code>MailSession</code> defines a JavaMail Session for sending
 and receiving email. The session is pre-configured with server details and
 authentication credentials.
 </p>
@@ -947,7 +1059,7 @@ enablement, port numbers, and SSL configuration.
 <p>Usage in servlet code:</p>
 
 <pre>
-Context ctx = new InitialContext();
+javax.naming.Context ctx = new InitialContext();
 Session session = (Session) ctx.lookup("java:comp/env/mail/smtp");
 MimeMessage msg = new MimeMessage(session);
 msg.setRecipients(Message.RecipientType.TO, "user@example.com");
@@ -959,7 +1071,7 @@ Transport.send(msg);
 <h4>JMS Connection Factory</h4>
 
 <p>
-The <code>jms-connection-factory</code> element defines a JMS ConnectionFactory
+<code>JmsConnectionFactory</code> defines a JMS ConnectionFactory
 for messaging. This requires a JMS provider implementation in the classpath.
 </p>
 
@@ -993,13 +1105,13 @@ container.addResource(jmsFactory);
 
 <pre>
 JmsDestination orderQueue = new JmsDestination();
-orderQueue.setName("jms/queue/OrderQueue");
+orderQueue.setName("queue/OrderQueue");
 orderQueue.setClassName("org.apache.activemq.command.ActiveMQQueue");
 orderQueue.addProperty("physicalName", "OrderQueue");
 container.addResource(orderQueue);
 
 JmsDestination notifications = new JmsDestination();
-notifications.setName("jms/topic/Notifications");
+notifications.setName("topic/Notifications");
 notifications.setClassName("org.apache.activemq.command.ActiveMQTopic");
 notifications.addProperty("physicalName", "Notifications");
 container.addResource(notifications);
@@ -1007,8 +1119,10 @@ container.addResource(notifications);
 
 <p>
 The interface type (<code>javax.jms.Queue</code> or <code>javax.jms.Topic</code>)
-is inferred from the JNDI name prefix (<code>queue/</code> or <code>topic/</code>)
-if not explicitly specified.
+is inferred when the JNDI name begins with <code>queue/</code> or
+<code>topic/</code> (after any <code>java:comp/env/</code>); otherwise call
+<code>setInterfaceName()</code> explicitly. Instantiation fails with an
+<code>IllegalStateException</code> if the interface cannot be determined.
 </p>
 
 <h4>Environment Entries</h4>
@@ -1035,7 +1149,8 @@ not composed in Java like other resources.
 
 <p>
 Supported types include <code>java.lang.String</code>, <code>java.lang.Integer</code>,
-<code>java.lang.Long</code>, <code>java.lang.Double</code>, <code>java.lang.Float</code>,
+<code>java.lang.Long</code>, <code>java.lang.Short</code>, <code>java.lang.Byte</code>,
+<code>java.lang.Double</code>, <code>java.lang.Float</code>,
 <code>java.lang.Boolean</code>, and <code>java.lang.Character</code>.
 </p>
 
@@ -1175,7 +1290,7 @@ and its dependencies from Maven Central). Configure the servlet:
   &lt;servlet-name&gt;JerseyServlet&lt;/servlet-name&gt;
   &lt;servlet-class&gt;org.glassfish.jersey.servlet.ServletContainer&lt;/servlet-class&gt;
   &lt;init-param&gt;
-    &lt;param-name&gt;javax.ws.rs.Application&lt;/param-name&gt;
+    &lt;param-name&gt;jakarta.ws.rs.Application&lt;/param-name&gt;
     &lt;param-value&gt;com.example.MyApplication&lt;/param-value&gt;
   &lt;/init-param&gt;
 &lt;/servlet&gt;
@@ -1237,13 +1352,13 @@ clients.</li>
 <h3 id="jsp">JavaServer Pages</h3>
 
 <p>
-Gumdrop includes a comprehensive JSP 2.0+ implementation providing
-server-side template rendering for web applications. The implementation
-supports the complete JSP specification including scripting elements,
-directives, standard actions, expression language, and custom tag libraries.
+Gumdrop includes a JSP implementation (the <code>jakarta.servlet.jsp</code>
+API, at JSP 2.3 level) providing server-side template rendering for web
+applications. It supports scripting elements, directives, standard actions,
+expression language, and custom tag libraries.
 </p>
 
-<h4>Compilation Architecture</h4>
+<h4 id="jsp-compilation">Compilation Architecture</h4>
 
 <p>
 JSP pages are compiled to Java servlets on first access and cached for
@@ -1272,32 +1387,32 @@ writes, and simplifies deployment since no writable temporary directory
 is required.
 </p>
 
-<h4>Dependency Tracking and Hot Reload</h4>
+<h4 id="jsp-reload">Dependency Tracking and Recompilation</h4>
 
 <p>
-In development mode, Gumdrop monitors JSP files for changes and automatically
-recompiles them when modifications are detected. The dependency tracker
-maintains relationships between JSP files and their includes:
+Gumdrop tracks the relationships between JSP files and their includes, and
+detects stale pages by file modification time:
 </p>
 
 <ul>
 <li><b>Static includes</b> - Files included via <code>&lt;%@ include file="..." %&gt;</code>
 are tracked as compile-time dependencies.</li>
-<li><b>Tag libraries</b> - TLD files and tag files are monitored for changes.</li>
 <li><b>Cascade invalidation</b> - When a dependency changes, all JSP files
 that include it are marked for recompilation.</li>
 </ul>
 
 <p>
-The hot reload feature uses Java NIO's <code>WatchService</code> for efficient
-filesystem monitoring without polling.
+Changes to tag library descriptors are not tracked. A <code>WatchService</code>-based
+<code>JspHotReloader</code> class exists but is not currently started by the
+container.
 </p>
 
-<h4>Expression Language (EL)</h4>
+<h4 id="jsp-el">Expression Language (EL)</h4>
 
 <p>
-Gumdrop implements EL 3.0 for accessing application data within JSP pages.
-The expression evaluator supports:
+Gumdrop implements a subset of the Expression Language (EL 2.x style, with
+the <code>#{}</code> deferred syntax parsed) for accessing application data
+within JSP pages. The expression evaluator supports:
 </p>
 
 <ul>
@@ -1310,7 +1425,8 @@ map entries (<code>${map['key']}</code>), list/array elements (<code>${list[0]}<
 <li><b>Operators</b> - Arithmetic (<code>+ - * / div % mod</code>), comparison
 (<code>== != &lt; &gt; &lt;= &gt;= eq ne lt gt le ge</code>), logical
 (<code>&amp;&amp; || ! and or not</code>), empty, ternary (<code>? :</code>)</li>
-<li><b>Method invocation</b> - <code>${bean.method(arg)}</code></li>
+<li><b>Method invocation</b> - <code>${bean.method(arg)}</code>, on the
+bean's own declared type</li>
 </ul>
 
 <p>
@@ -1324,7 +1440,7 @@ where the same expression (e.g. <code>${item.name}</code>) would otherwise
 be re-parsed from scratch on every row of every request.
 </p>
 
-<h4>Tag Libraries</h4>
+<h4 id="jsp-taglibs">Tag Libraries</h4>
 
 <p>
 Custom tag libraries extend JSP functionality through reusable components.
@@ -1335,8 +1451,8 @@ Gumdrop supports:
 <li><b>Classic tags</b> - Tags implementing <code>Tag</code>, <code>IterationTag</code>,
 or <code>BodyTag</code> interfaces</li>
 <li><b>Simple tags</b> - Tags extending <code>SimpleTagSupport</code></li>
-<li><b>Tag files</b> - JSP-based custom tags in <code>.tag</code> files</li>
-<li><b>JSTL</b> - Standard Tag Library support when JSTL JARs are present</li>
+<li><b>JSTL</b> - not bundled; add a JSTL implementation to
+<code>WEB-INF/lib</code> and its TLDs are discovered from <code>META-INF</code></li>
 </ul>
 
 <p>
@@ -1345,7 +1461,7 @@ Tag libraries are discovered from TLD files in <code>WEB-INF</code>,
 declarations in the deployment descriptor.
 </p>
 
-<h4>JSP Configuration</h4>
+<h4 id="jsp-config">JSP Configuration</h4>
 
 <p>
 The <code>jsp-config</code> element in <code>web.xml</code> controls JSP
@@ -1380,16 +1496,20 @@ processing for groups of pages:
 <li><code>url-pattern</code> - URL patterns this group applies to</li>
 <li><code>page-encoding</code> - character encoding for JSP source</li>
 <li><code>scripting-invalid</code> - disable scriptlets, expressions, declarations</li>
-<li><code>el-ignored</code> - treat EL expressions as literal text</li>
+<li><code>el-ignored</code> - treat EL expressions as literal text
+(parsed but not yet applied)</li>
 <li><code>is-xml</code> - parse JSP as XML document (JSPX)</li>
-<li><code>include-prelude</code> - files to include at start of each page</li>
-<li><code>include-coda</code> - files to include at end of each page</li>
-<li><code>trim-directive-whitespaces</code> - remove whitespace around directives</li>
+<li><code>include-prelude</code> - files to include at start of each page
+(parsed but not yet applied)</li>
+<li><code>include-coda</code> - files to include at end of each page
+(parsed but not yet applied)</li>
+<li><code>trim-directive-whitespaces</code> - remove whitespace around directives
+(parsed but not yet applied)</li>
 <li><code>default-content-type</code> - default response content type</li>
 <li><code>buffer</code> - output buffer size</li>
 </ul>
 
-<h4>Precompilation</h4>
+<h4 id="jsp-precompile">Precompilation</h4>
 
 <p>
 For production deployments, JSP pages can be precompiled at build time
@@ -1416,8 +1536,8 @@ for large applications.
 
 <p>
 When JSP compilation fails, Gumdrop maps Java compilation errors back to
-the original JSP source locations. Error messages include the JSP filename,
-line number, and column position, making it easy to locate and fix problems.
+the original JSP source locations. Error messages include the JSP filename
+and line number, making it easy to locate and fix problems.
 </p>
 
 <h4>Examples</h4>

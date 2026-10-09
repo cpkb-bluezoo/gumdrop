@@ -144,20 +144,18 @@ public class SmtpServerCompositionTest {
                 .listener(new SmtpListener())
                 .sessionPerConnection(supplier())
                 .server();
-        server.setMaxMessageSize(10L);
-        server.setMaxRecipients(2);
-        server.setMaxTransactionsPerSession(3);
-        server.setAuthRequired(true);
-        server.setMailboxFactory(null);
-        server.setRealm(null);
+        server.maxMessageSize(10L);
+        server.maxRecipients(2);
+        server.maxTransactionsPerSession(3);
+        server.authRequired(true);
+        server.mailboxFactory(null);
+        server.realm(null);
         assertEquals(10L, server.getMaxMessageSize());
         assertEquals(2, server.getMaxRecipients());
         assertEquals(3, server.getMaxTransactionsPerSession());
         server.addListener(new SmtpListener());
         assertEquals(2, server.getListeners().size());
-        List<Object> more = new ArrayList<Object>();
-        more.add(new SmtpListener());
-        server.setListeners(more);
+        server.addListener(new SmtpListener());
         assertEquals(3, server.getListeners().size());
     }
 

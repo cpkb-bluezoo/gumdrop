@@ -340,7 +340,7 @@ public class MqttProtocolHandlerStreamingTest {
                 return username.equals("u") && password.equals("p");
             }
         };
-        listener.setRealm(realm);
+        listener.realm(realm);
 
         BinaryRecordingEndpoint raw = new BinaryRecordingEndpoint();
         TelemetryHandler th = new TelemetryHandler(raw, tc);

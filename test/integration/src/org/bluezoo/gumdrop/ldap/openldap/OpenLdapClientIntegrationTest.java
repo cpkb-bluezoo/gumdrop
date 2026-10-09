@@ -22,6 +22,7 @@
 package org.bluezoo.gumdrop.ldap.openldap;
 
 import org.bluezoo.gumdrop.Endpoint;
+import org.bluezoo.gumdrop.tls.TlsConfig;
 import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.ldap.client.AddResultHandler;
@@ -222,7 +223,7 @@ public class OpenLdapClientIntegrationTest {
         X509Certificate serverCert = OpenLdapTestSupport.loadServerCertificate();
 
         LdapClient client = newClient();
-        client.setTrustManager(pinningTrustManager(serverCert));
+        client.tls(new TlsConfig().trustManager(pinningTrustManager(serverCert)));
 
         CountDownLatch doneLatch = new CountDownLatch(1);
         AtomicReference<Exception> error = new AtomicReference<>();

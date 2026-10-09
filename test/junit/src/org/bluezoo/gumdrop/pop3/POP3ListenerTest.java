@@ -45,14 +45,14 @@ public class POP3ListenerTest {
     @Test
     public void testSetExpireDays() {
         Pop3Listener listener = new Pop3Listener();
-        listener.setExpireDays(30);
+        listener.expireDays(30);
         assertEquals(30, listener.getExpireDays());
     }
 
     @Test
     public void testSetExpireNever() {
         Pop3Listener listener = new Pop3Listener();
-        listener.setExpireDays(Integer.MAX_VALUE);
+        listener.expireDays(Integer.MAX_VALUE);
         assertEquals(Integer.MAX_VALUE, listener.getExpireDays());
     }
 
@@ -65,7 +65,7 @@ public class POP3ListenerTest {
     @Test
     public void testSetLoginDelay() {
         Pop3Listener listener = new Pop3Listener();
-        listener.setLoginDelayMs(5000);
+        listener.loginDelayMs(5000);
         assertEquals(5000, listener.getLoginDelayMs());
     }
 
@@ -78,20 +78,20 @@ public class POP3ListenerTest {
     @Test
     public void testSetPipelining() {
         Pop3Listener listener = new Pop3Listener();
-        listener.setEnablePipelining(true);
+        listener.enablePipelining(true);
         assertTrue(listener.isEnablePipelining());
     }
 
     @Test
     public void testSessionProviderFailureFallsBackToServerThenNull() {
         Pop3Listener listener = new Pop3Listener();
-        listener.setSessionProvider(new Pop3ServerSessionProvider() {
+        listener.sessionProvider(new Pop3ServerSessionProvider() {
             @Override
             public ClientConnected openSession(TcpListener l) {
                 throw new IllegalStateException("provider failed");
             }
         });
-        listener.setServer(new Pop3Server() {
+        listener.server(new Pop3Server() {
             @Override
             public ClientConnected openSession(TcpListener l) {
                 throw new IllegalStateException("server failed");
@@ -113,13 +113,13 @@ public class POP3ListenerTest {
             }
         };
         Pop3Listener listener = new Pop3Listener();
-        listener.setSessionProvider(new Pop3ServerSessionProvider() {
+        listener.sessionProvider(new Pop3ServerSessionProvider() {
             @Override
             public ClientConnected openSession(TcpListener l) {
                 throw new IllegalStateException("provider failed");
             }
         });
-        listener.setServer(new Pop3Server() {
+        listener.server(new Pop3Server() {
             @Override
             public ClientConnected openSession(TcpListener l) {
                 return expected;

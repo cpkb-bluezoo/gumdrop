@@ -118,27 +118,27 @@ public class ListenerConfigTest {
     public void defaultsAndSimpleSetters() {
         PlainListener l = new PlainListener();
         assertNull(l.getName());
-        l.setName("n");
+        l.name("n");
         assertEquals("n", l.getName());
         assertEquals(Listener.DEFAULT_MAX_NET_IN_SIZE, l.getMaxNetInSize());
         assertEquals(Listener.DEFAULT_MAX_NET_OUT_SIZE, l.getMaxNetOutSize());
-        l.setMaxNetInSize(10);
-        l.setMaxNetOutSize(20);
+        l.maxNetInSize(10);
+        l.maxNetOutSize(20);
         assertEquals(10, l.getMaxNetInSize());
         assertEquals(20, l.getMaxNetOutSize());
         assertEquals(Listener.DEFAULT_IDLE_TIMEOUT_MS, l.getIdleTimeoutMs());
         assertEquals(Listener.DEFAULT_READ_TIMEOUT_MS, l.getReadTimeoutMs());
         assertEquals(Listener.DEFAULT_CONNECTION_TIMEOUT_MS, l.getConnectionTimeoutMs());
-        l.setIdleTimeoutMs(1);
-        l.setReadTimeoutMs(2);
-        l.setConnectionTimeoutMs(3);
+        l.idleTimeoutMs(1);
+        l.readTimeoutMs(2);
+        l.connectionTimeoutMs(3);
         assertEquals(1, l.getIdleTimeoutMs());
         assertEquals(2, l.getReadTimeoutMs());
         assertEquals(3, l.getConnectionTimeoutMs());
         assertEquals(-1, l.getPort());
         assertNull(l.getPath());
         assertFalse(l.isSecure());
-        l.setSecure(true);
+        l.secure(true);
         assertTrue(l.isSecure());
         assertSame(l, l.secure(false));
         assertFalse(l.isSecure());
@@ -154,9 +154,9 @@ public class ListenerConfigTest {
         l.setDtlsVersion(null);
         assertEquals(DtlsVersion.NEGOTIATE, l.getDtlsVersion());
         assertEquals(0, l.getMaxConnections());
-        l.setMaxConnections(5);
+        l.maxConnections(5);
         assertEquals(5, l.getMaxConnections());
-        l.setMaxDtlsPeers(7);
+        l.maxDtlsPeers(7);
         assertEquals(7, l.getMaxDtlsPeers());
         assertNull(l.getTransportFactory());
         assertNull(l.getAuthRateLimiter());
@@ -215,17 +215,17 @@ public class ListenerConfigTest {
         } catch (NullPointerException expected) {
             // expected
         }
-        l.setWildcard(true);
+        l.bindWildcard();
         assertTrue(l.isWildcard());
         TestTcpListener tcp = new TestTcpListener();
-        tcp.setPath(Paths.get("/tmp/x.sock"));
+        tcp.path(Paths.get("/tmp/x.sock"));
         assertTrue(tcp.getAddresses().isEmpty());
     }
 
     @Test
     public void connectionCapAndCounters() throws Exception {
         PlainListener l = new PlainListener();
-        l.setMaxConnections(2);
+        l.maxConnections(2);
         SocketAddress a = addr("10.0.0.1");
         assertTrue(l.acceptConnection(a));
         l.connectionOpened(a);
@@ -243,7 +243,7 @@ public class ListenerConfigTest {
     @Test
     public void nonInetAddressesAlwaysPassNetworkChecks() {
         PlainListener l = new PlainListener();
-        l.setBlockedNetworks(CidrNetwork.parseList("0.0.0.0/0"));
+        l.blockedNetworks(CidrNetwork.parseList("0.0.0.0/0"));
         SocketAddress unix = java.net.UnixDomainSocketAddress.of("/tmp/some.sock");
         assertTrue(l.acceptConnection(unix));
     }
@@ -251,23 +251,23 @@ public class ListenerConfigTest {
     @Test
     public void blockedAndAllowedNetworks() throws Exception {
         PlainListener l = new PlainListener();
-        l.setBlockedNetworks(CidrNetwork.parseList("10.0.0.0/8"));
+        l.blockedNetworks(CidrNetwork.parseList("10.0.0.0/8"));
         assertFalse(l.acceptConnection(addr("10.1.2.3")));
         assertTrue(l.acceptConnection(addr("192.168.1.1")));
-        l.setBlockedNetworks(null);
+        l.blockedNetworks(null);
         assertTrue(l.acceptConnection(addr("10.1.2.3")));
-        l.setBlockedNetworks(new ArrayList<CidrNetwork>());
-        l.setAllowedNetworks(CidrNetwork.parseList("192.168.0.0/16"));
+        l.blockedNetworks(new ArrayList<CidrNetwork>());
+        l.allowedNetworks(CidrNetwork.parseList("192.168.0.0/16"));
         assertTrue(l.acceptConnection(addr("192.168.1.1")));
         assertFalse(l.acceptConnection(addr("172.16.0.1")));
-        l.setAllowedNetworks(null);
+        l.allowedNetworks(null);
         assertTrue(l.acceptConnection(addr("172.16.0.1")));
     }
 
     @Test
     public void connectionRateLimiting() throws Exception {
         PlainListener l = new PlainListener();
-        l.setRateLimit("2/60s");
+        l.rateLimit("2/60s");
         SocketAddress a = addr("10.9.9.9");
         assertTrue(l.acceptConnection(a));
         l.connectionOpened(a);
@@ -275,9 +275,9 @@ public class ListenerConfigTest {
         l.connectionOpened(a);
         assertFalse(l.acceptConnection(a));
         l.connectionClosed(a);
-        l.setMaxConnectionsPerIP(5);
+        l.maxConnectionsPerIP(5);
         try {
-            l.setRateLimit("garbage");
+            l.rateLimit("garbage");
             fail("expected IllegalArgumentException");
         } catch (IllegalArgumentException expected) {
             // expected
@@ -287,10 +287,51 @@ public class ListenerConfigTest {
     @Test
     public void authRateLimiterCreatedOnDemand() {
         PlainListener l = new PlainListener();
-        l.setMaxAuthFailures(3);
+        l.maxAuthFailures(3);
         assertNotNull(l.getAuthRateLimiter());
-        l.setAuthLockoutTimeMs(1000);
+        l.authLockoutTimeMs(1000);
         assertNotNull(l.getAuthRateLimiter());
+    }
+
+    @Test
+    public void authLockoutFollowsFailuresAndClearsOnSuccess() {
+        PlainListener l = new PlainListener();
+        java.net.SocketAddress client = new java.net.InetSocketAddress("192.0.2.7", 40000);
+        java.net.SocketAddress other = new java.net.InetSocketAddress("192.0.2.8", 40000);
+        assertFalse("nothing is locked out until lockout is configured",
+                l.isAuthLockedOut(client));
+        l.recordAuthFailure(client, "alice");
+        assertFalse(l.isAuthLockedOut(client));
+
+        l.maxAuthFailures(3);
+        l.recordAuthFailure(client, "alice");
+        l.recordAuthFailure(client, "alice");
+        assertFalse(l.isAuthLockedOut(client));
+        l.recordAuthFailure(client, "alice");
+        assertTrue(l.isAuthLockedOut(client));
+        assertFalse("another address is unaffected", l.isAuthLockedOut(other));
+    }
+
+    @Test
+    public void authSuccessResetsTheFailureCount() {
+        PlainListener l = new PlainListener();
+        java.net.SocketAddress client = new java.net.InetSocketAddress("192.0.2.7", 40000);
+        l.maxAuthFailures(3);
+        l.recordAuthFailure(client, "alice");
+        l.recordAuthFailure(client, "alice");
+        l.recordAuthSuccess(client, "alice");
+        l.recordAuthFailure(client, "alice");
+        assertFalse(l.isAuthLockedOut(client));
+    }
+
+    @Test
+    public void authLockoutIgnoresAddressesWithoutAnIp() {
+        PlainListener l = new PlainListener();
+        l.maxAuthFailures(1);
+        java.net.SocketAddress unix = java.net.UnixDomainSocketAddress.of("/tmp/x.sock");
+        l.recordAuthFailure(unix, "alice");
+        assertFalse(l.isAuthLockedOut(unix));
+        assertFalse(l.isAuthLockedOut(null));
     }
 
     @Test
@@ -337,6 +378,37 @@ public class ListenerConfigTest {
         }
     }
 
+    @Test
+    public void tlsConfigCarriesCipherSuitesVersionSniAndClientAuthToTheListener() throws Exception {
+        PlainListener l = new PlainListener();
+        l.tls(TlsConfig.keystore(Paths.get("x.p12"), "pw")
+                .cipherSuites("TLS_AES_128_GCM_SHA256").namedGroups("X25519")
+                .tlsVersion(TlsVersion.TLS_1_3).dtlsVersion(DtlsVersion.DTLS_1_3)
+                .sni("h.example", "a").sniDefaultAlias("d").requireClientAuth(true));
+        assertEquals(TlsVersion.TLS_1_3, l.getTlsVersion());
+        assertEquals(DtlsVersion.DTLS_1_3, l.getDtlsVersion());
+        assertTrue(l.isSNIEnabled());
+        assertTrue(l.needClientAuth);
+        assertEquals("TLS_AES_128_GCM_SHA256", privateField(l, "cipherSuites"));
+        assertEquals("X25519", privateField(l, "namedGroups"));
+        assertEquals("d", privateField(l, "sniDefaultAlias"));
+    }
+
+    @Test
+    public void tlsConfigWithoutOptionalSettingsLeavesListenerDefaults() {
+        PlainListener l = new PlainListener();
+        l.tls(TlsConfig.keystore(Paths.get("x.p12"), "pw"));
+        assertEquals(TlsVersion.NEGOTIATE, l.getTlsVersion());
+        assertFalse(l.isSNIEnabled());
+        assertFalse(l.needClientAuth);
+    }
+
+    private static Object privateField(Listener l, String name) throws Exception {
+        java.lang.reflect.Field f = Listener.class.getDeclaredField(name);
+        f.setAccessible(true);
+        return f.get(l);
+    }
+
     private static void fullyConfigure(Listener l) {
         Path p = Paths.get("x");
         l.setKeystoreFile(p);
@@ -355,9 +427,9 @@ public class ListenerConfigTest {
         sni.put("h", "a");
         l.setSniHostnames(sni);
         l.setSniDefaultAlias("a");
-        l.setSecure(true);
-        l.setMaxNetInSize(111);
-        l.setMaxNetOutSize(222);
+        l.secure(true);
+        l.maxNetInSize(111);
+        l.maxNetOutSize(222);
     }
 
     @Test
@@ -388,6 +460,44 @@ public class ListenerConfigTest {
     }
 
     @Test
+    public void tlsConfigDtlsCookieSettingsReachTheUdpFactory() {
+        TestUdpListener l = new TestUdpListener();
+        l.tls(TlsConfig.pem(Paths.get("c.pem"), Paths.get("k.pem"))
+                .requireCookie(true)
+                .cookieSecret(new byte[] {5, 6, 7})
+                .maxFragmentSize(1100));
+        UdpTransportFactory f = new UdpTransportFactory();
+        l.configureTransportFactory(f);
+        assertTrue(f.isRequireCookie());
+        assertEquals(1100, f.getMaxFragmentSize());
+        org.junit.Assert.assertArrayEquals(new byte[] {5, 6, 7}, f.effectiveCookieSecret());
+    }
+
+    @Test
+    public void cookiesNeedNoConfigurationByDefault() {
+        TestUdpListener l = new TestUdpListener();
+        l.tls(TlsConfig.pem(Paths.get("c.pem"), Paths.get("k.pem")));
+        UdpTransportFactory f = new UdpTransportFactory();
+        l.configureTransportFactory(f);
+        assertFalse(f.isRequireCookie());
+        assertEquals(1024, f.getMaxFragmentSize());
+        assertNull(f.effectiveCookieSecret());
+    }
+
+    @Test
+    public void requiredCookiesGetARandomSecretWhenNoneIsGiven() {
+        UdpTransportFactory f = new UdpTransportFactory();
+        f.setRequireCookie(true);
+        byte[] first = f.effectiveCookieSecret();
+        assertNotNull(first);
+        assertEquals(32, first.length);
+        assertSame("one secret per factory", first, f.effectiveCookieSecret());
+        UdpTransportFactory other = new UdpTransportFactory();
+        other.setRequireCookie(true);
+        assertFalse(java.util.Arrays.equals(first, other.effectiveCookieSecret()));
+    }
+
+    @Test
     public void configureQuicFactory() {
         PlainListener l = new PlainListener();
         fullyConfigure(l);
@@ -409,7 +519,7 @@ public class ListenerConfigTest {
     public void tcpListenerPathAndPortAreMutuallyExclusive() {
         TestTcpListener l = new TestTcpListener();
         assertNull(l.getPath());
-        l.setPath(Paths.get("/tmp/gumdrop-test.sock"));
+        l.path(Paths.get("/tmp/gumdrop-test.sock"));
         assertEquals(Paths.get("/tmp/gumdrop-test.sock"), l.getPath());
         l.closeServerChannels();
         assertTrue(l.getAddresses().isEmpty());

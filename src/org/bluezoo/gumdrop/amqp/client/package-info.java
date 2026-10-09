@@ -47,7 +47,7 @@
  *      --(open-ok)--&gt; ClientChannel
  * </pre>
  *
- * <p>{@link org.bluezoo.gumdrop.amqp.client.AmqpClientRecovery} is the
+ * <p>{@link org.bluezoo.gumdrop.amqp.client.AmqpClient} is the
  * facade most applications should use: automatic reconnect with
  * exponential backoff ({@link
  * org.bluezoo.gumdrop.amqp.client.RecoveryPolicy}), replaying recorded

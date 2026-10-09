@@ -22,6 +22,7 @@
 
 package org.bluezoo.gumdrop.servlet;
 
+import org.bluezoo.gumdrop.auth.SynchronousRealm;
 import org.junit.AfterClass;
 import org.junit.BeforeClass;
 import org.bluezoo.gumdrop.testsupport.MessageEvents;
@@ -798,16 +799,14 @@ public class ServletEndToEndMoreTest {
 
     // ===== Fixtures =====
 
-    private static final class CertRealm implements Realm {
+    private static final class CertRealm implements SynchronousRealm {
         String grant;
 
-        @Override public Realm forSelectorLoop(org.bluezoo.gumdrop.SelectorLoop loop) { return this; }
         @Override public java.util.Set<org.bluezoo.gumdrop.auth.SaslMechanism> getSupportedSASLMechanisms() {
             return Collections.<org.bluezoo.gumdrop.auth.SaslMechanism>emptySet();
         }
         @Override public boolean passwordMatch(String username, String password) { return false; }
         @Override public String getDigestHA1(String username, String realmName) { return null; }
-        @Override public String getPassword(String username) { return null; }
         @Override public boolean isUserInRole(String username, String role) { return false; }
         @Override public CertificateAuthenticationResult authenticateCertificate(X509Certificate c) {
             if (grant == null) {

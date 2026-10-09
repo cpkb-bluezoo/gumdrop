@@ -228,6 +228,37 @@ public final class DnssecValidator {
     // -- NSEC3 denial-of-existence (RFC 5155 section 8) --
 
     /**
+     * The largest NSEC3 iteration count this validator will evaluate.
+     * RFC 9276 section 3.2: the iteration count is chosen by the zone
+     * owner and each iteration is another hash computed for every
+     * validation, so a validating resolver sets a limit and treats a
+     * denial proof above it as insecure rather than spending the CPU
+     * (or returning bogus, which would make a zone's choice a way to
+     * fail resolution). Zones should publish 0.
+     */
+    public static final int MAX_NSEC3_ITERATIONS = 50;
+
+    /**
+     * Returns true if any NSEC3 record in the list has an iteration count
+     * above {@link #MAX_NSEC3_ITERATIONS}, so that the denial proof must
+     * be treated as insecure (RFC 9276 section 3.2) without hashing.
+     *
+     * @param nsec3Records NSEC3 records from a negative response
+     * @return true if the proof exceeds the iteration limit
+     */
+    public static boolean exceedsNsec3IterationLimit(
+            List<DnsResourceRecord> nsec3Records) {
+        for (int i = 0; i < nsec3Records.size(); i++) {
+            DnsResourceRecord rr = nsec3Records.get(i);
+            if (rr.getType() == DnsType.NSEC3
+                    && rr.getNSEC3Iterations() > MAX_NSEC3_ITERATIONS) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
      * Verifies that NSEC3 records prove the non-existence of a name.
      * RFC 5155 section 8: the hashed owner name must fall in the gap
      * between two consecutive NSEC3 records.
@@ -606,11 +637,12 @@ public final class DnssecValidator {
      * @param hashAlg the hash algorithm (1 = SHA-1)
      * @param iterations the iteration count
      * @param salt the salt bytes
-     * @return the hash, or null if the algorithm is unsupported
+     * @return the hash, or null if the algorithm is unsupported or the
+     *         iteration count exceeds {@link #MAX_NSEC3_ITERATIONS}
      */
     static byte[] nsec3Hash(String name, int hashAlg,
                             int iterations, byte[] salt) {
-        if (hashAlg != 1) {
+        if (hashAlg != 1 || iterations > MAX_NSEC3_ITERATIONS) {
             return null;
         }
         try {

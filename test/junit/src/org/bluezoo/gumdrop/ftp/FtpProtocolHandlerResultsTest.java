@@ -119,6 +119,27 @@ public class FtpProtocolHandlerResultsTest {
     }
 
     @Test
+    public void testRepeatedBadPasswordsLockTheClientOut() {
+        FtpListener listener = new FtpListener();
+        listener.maxAuthFailures(2);
+        scripted.authResult = FtpAuthenticationResult.NEED_PASSWORD;
+        handler = new FtpProtocolHandler(listener, scripted);
+        endpoint = new FTPProtocolHandlerTest.StubEndpoint();
+        handler.connected(endpoint);
+        for (int i = 0; i < 2; i++) {
+            scripted.authResult = FtpAuthenticationResult.NEED_PASSWORD;
+            cmd("USER alice");
+            scripted.authResult = FtpAuthenticationResult.INVALID_PASSWORD;
+            assertTrue(cmd("PASS bad").startsWith("530"));
+        }
+        scripted.authResult = FtpAuthenticationResult.NEED_PASSWORD;
+        cmd("USER alice");
+        scripted.authResult = FtpAuthenticationResult.SUCCESS;
+        String r = cmd("PASS good");
+        assertTrue("locked out even with the right password: " + r, r.startsWith("421"));
+    }
+
+    @Test
     public void testAccountFlow() {
         scripted.authResult = FtpAuthenticationResult.NEED_ACCOUNT;
         start(scripted);
@@ -363,12 +384,14 @@ public class FtpProtocolHandlerResultsTest {
         }
 
         @Override
-        public FtpAuthenticationResult authenticate(String u, String p,
-                String a, FtpConnectionMetadata m) {
+        public void authenticate(String u, String p,
+                String a, FtpConnectionMetadata m,
+                org.bluezoo.gumdrop.auth.RealmCallback<FtpAuthenticationResult> cb) {
             if (p == null && authResult == FtpAuthenticationResult.SUCCESS) {
-                return FtpAuthenticationResult.NEED_PASSWORD;
+                cb.completed(FtpAuthenticationResult.NEED_PASSWORD);
+                return;
             }
-            return authResult;
+            cb.completed(authResult);
         }
 
         @Override

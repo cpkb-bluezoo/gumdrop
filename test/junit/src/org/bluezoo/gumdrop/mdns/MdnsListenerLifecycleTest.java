@@ -97,7 +97,7 @@ public class MdnsListenerLifecycleTest {
     private StubListener started(RecordingServer server) {
         StubListener l = new StubListener();
         if (server != null) {
-            l.setServer(server);
+            l.server(server);
         }
         l.start(gumdrop);
         return l;
@@ -187,7 +187,7 @@ public class MdnsListenerLifecycleTest {
     public void beginShutdownBeforeStartIsNoOp() {
         RecordingServer server = new RecordingServer();
         MdnsListener l = new MdnsListener();
-        l.setServer(server);
+        l.server(server);
         l.beginShutdown();
         assertEquals(0, server.goodbyes);
     }
@@ -199,7 +199,7 @@ public class MdnsListenerLifecycleTest {
         assertFalse(bare.isBound());
         RecordingServer server = new RecordingServer();
         MdnsListener wired = new MdnsListener();
-        wired.setServer(server);
+        wired.server(server);
         wired.stop();
         assertEquals(1, server.goodbyes);
         wired.stop();

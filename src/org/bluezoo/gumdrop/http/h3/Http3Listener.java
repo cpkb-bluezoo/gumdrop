@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.http.h3;
 
+import org.bluezoo.gumdrop.util.CidrNetwork;
 import java.io.IOException;
 import java.net.InetAddress;
 import java.nio.file.Path;
@@ -141,19 +142,10 @@ public class Http3Listener extends TcpListener
     }
 
     /**
-     * Sets the port to listen on.
-     *
-     * @param port the UDP port number
-     */
-    public void setPort(int port) {
-        this.port = port;
-    }
-
-    /**
      * Sets the UDP port. Returns {@code this} for fluent configuration.
      */
     public Http3Listener port(int port) {
-        setPort(port);
+        this.port = port;
         return this;
     }
 
@@ -181,12 +173,96 @@ public class Http3Listener extends TcpListener
         return this;
     }
 
+    @Override
+    public Http3Listener maxConnections(int max) {
+        super.maxConnections(max);
+        return this;
+    }
+
+    @Override
+    public Http3Listener maxConnectionsPerIP(int max) {
+        super.maxConnectionsPerIP(max);
+        return this;
+    }
+
+    @Override
+    public Http3Listener rateLimit(String rateLimit) {
+        super.rateLimit(rateLimit);
+        return this;
+    }
+
+    @Override
+    public Http3Listener maxAuthFailures(int max) {
+        super.maxAuthFailures(max);
+        return this;
+    }
+
+    @Override
+    public Http3Listener authLockoutTimeMs(long lockoutMs) {
+        super.authLockoutTimeMs(lockoutMs);
+        return this;
+    }
+
+    @Override
+    public Http3Listener allowedNetworks(List<CidrNetwork> allowedNetworks) {
+        super.allowedNetworks(allowedNetworks);
+        return this;
+    }
+
+    @Override
+    public Http3Listener blockedNetworks(List<CidrNetwork> blockedNetworks) {
+        super.blockedNetworks(blockedNetworks);
+        return this;
+    }
+
+    @Override
+    public Http3Listener name(String name) {
+        super.name(name);
+        return this;
+    }
+
+    @Override
+    public Http3Listener maxNetInSize(int size) {
+        super.maxNetInSize(size);
+        return this;
+    }
+
+    @Override
+    public Http3Listener maxNetOutSize(int size) {
+        super.maxNetOutSize(size);
+        return this;
+    }
+
+    @Override
+    public Http3Listener idleTimeoutMs(long idleTimeoutMs) {
+        super.idleTimeoutMs(idleTimeoutMs);
+        return this;
+    }
+
+    @Override
+    public Http3Listener readTimeoutMs(long readTimeoutMs) {
+        super.readTimeoutMs(readTimeoutMs);
+        return this;
+    }
+
+    @Override
+    public Http3Listener connectionTimeoutMs(long connectionTimeoutMs) {
+        super.connectionTimeoutMs(connectionTimeoutMs);
+        return this;
+    }
+
+    @Override
+    public Http3Listener maxDtlsPeers(int max) {
+        super.maxDtlsPeers(max);
+        return this;
+    }
+
     /**
      * Sets whether RFC 9000 Retry-based address validation is required.
      * Default {@code true}.
      */
     public Http3Listener requireRetry(boolean requireRetry) {
-        setRequireRetry(requireRetry);
+        this.requireRetry = requireRetry;
         return this;
     }
 
@@ -195,7 +271,7 @@ public class Http3Listener extends TcpListener
      *
      * @param path the PEM file path
      */
-    public void setCertFile(Path path) {
+    protected void setCertFile(Path path) {
         this.certFile = path;
     }
 
@@ -204,7 +280,7 @@ public class Http3Listener extends TcpListener
      *
      * @param path the PEM file path
      */
-    public void setKeyFile(Path path) {
+    protected void setKeyFile(Path path) {
         this.keyFile = path;
     }
 
@@ -212,9 +288,11 @@ public class Http3Listener extends TcpListener
      * Sets the stream handler for this endpoint.
      *
      * @param streamHandler the stream handler, or null
+     * @return this
      */
-    public void setStreamHandler(HttpStreamHandler streamHandler) {
+    public Http3Listener streamHandler(HttpStreamHandler streamHandler) {
         this.streamHandler = streamHandler;
+        return this;
     }
 
     public HttpStreamHandler getStreamHandler() {
@@ -225,18 +303,22 @@ public class Http3Listener extends TcpListener
      * Sets the authentication provider for this endpoint.
      *
      * @param provider the authentication provider, or null to disable
+     * @return this
      */
-    public void setAuthenticationProvider(
+    public Http3Listener authenticationProvider(
             HttpAuthenticationProvider provider) {
         this.authenticationProvider = provider;
+        return this;
     }
 
     /**
      * Sets whether to add default security headers to responses.
      * XML property: {@code add-security-headers}
+     * @return this
      */
-    public void setAddSecurityHeaders(boolean addSecurityHeaders) {
+    public Http3Listener addSecurityHeaders(boolean addSecurityHeaders) {
         this.addSecurityHeaders = addSecurityHeaders;
+        return this;
     }
 
     /**
@@ -246,15 +328,16 @@ public class Http3Listener extends TcpListener
         return addSecurityHeaders;
     }
 
-    public void setHstsPolicy(HstsPolicy hstsPolicy) {
+    public Http3Listener hstsPolicy(HstsPolicy hstsPolicy) {
         if (hstsPolicy == null || !hstsPolicy.isEnabled()) {
             hstsEnabled = false;
-            return;
+            return this;
         }
         hstsEnabled = true;
         hstsMaxAge = hstsPolicy.getMaxAgeSeconds();
         hstsIncludeSubDomains = hstsPolicy.isIncludeSubDomains();
         hstsPreload = hstsPolicy.isPreload();
+        return this;
     }
 
     public HstsPolicy getHstsPolicy() {
@@ -262,8 +345,9 @@ public class Http3Listener extends TcpListener
     }
 
     /** XML property: {@code hsts-enabled} */
-    public void setHstsEnabled(boolean enabled) {
+    public Http3Listener hstsEnabled(boolean enabled) {
         hstsEnabled = enabled;
+        return this;
     }
 
     public boolean isHstsEnabled() {
@@ -271,21 +355,24 @@ public class Http3Listener extends TcpListener
     }
 
     /** XML property: {@code hsts-max-age} */
-    public void setHstsMaxAge(long maxAgeSeconds) {
+    public Http3Listener hstsMaxAge(long maxAgeSeconds) {
         if (maxAgeSeconds < 0) {
             throw new IllegalArgumentException("max-age must be non-negative");
         }
         hstsMaxAge = maxAgeSeconds;
+        return this;
     }
 
     /** XML property: {@code hsts-include-subdomains} */
-    public void setHstsIncludeSubDomains(boolean includeSubDomains) {
+    public Http3Listener hstsIncludeSubDomains(boolean includeSubDomains) {
         hstsIncludeSubDomains = includeSubDomains;
+        return this;
     }
 
     /** XML property: {@code hsts-preload} */
-    public void setHstsPreload(boolean preload) {
+    public Http3Listener hstsPreload(boolean preload) {
         hstsPreload = preload;
+        return this;
     }
 
     public String getStrictTransportSecurityHeaderValue() {
@@ -304,9 +391,11 @@ public class Http3Listener extends TcpListener
     /**
      * Sets whether response body compression is allowed when handlers opt in.
      * XML property: {@code compress-responses}
+     * @return this
      */
-    public void setCompressResponses(boolean compressResponses) {
+    public Http3Listener compressResponses(boolean compressResponses) {
         this.compressResponses = compressResponses;
+        return this;
     }
 
     public boolean getCompressResponses() {
@@ -345,21 +434,11 @@ public class Http3Listener extends TcpListener
      * Sets the SelectorLoop used for QUIC datagram I/O.
      *
      * @param loop the selector loop
+     * @return this
      */
-    public void setSelectorLoop(SelectorLoop loop) {
+    public Http3Listener selectorLoop(SelectorLoop loop) {
         this.selectorLoop = loop;
-    }
-
-    /**
-     * Sets whether this listener requires RFC 9000 section 8.1.2 Retry
-     * before accepting a new connection. Default {@code true}. Set
-     * {@code false} for lab / loopback / already-anti-spoofed paths.
-     * XML: {@code require-retry}
-     *
-     * @param requireRetry whether to send Retry to unvalidated Initials
-     */
-    public void setRequireRetry(boolean requireRetry) {
-        this.requireRetry = requireRetry;
+        return this;
     }
 
     /**
@@ -377,8 +456,9 @@ public class Http3Listener extends TcpListener
     /**
      * Sets the QUIC-LB config id, 0 to 6. Default 0.
      * XML: {@code quic-lb-config-id}
+     * @return this
      */
-    public void setQuicLbConfigId(int configId) { this.quicLbConfigId = configId; }
+    public Http3Listener quicLbConfigId(int configId) { this.quicLbConfigId = configId; return this; }
 
     /**
      * Sets this replica's QUIC-LB server ID as hexadecimal. It differs on
@@ -386,36 +466,42 @@ public class Http3Listener extends TcpListener
      * the {@code QUIC_LB_SERVER_ID} environment variable is used. Setting
      * either turns QUIC-LB connection ID encoding on.
      * XML: {@code quic-lb-server-id}
+     * @return this
      */
-    public void setQuicLbServerId(String hex) { this.quicLbServerId = hex; }
+    public Http3Listener quicLbServerId(String hex) { this.quicLbServerId = hex; return this; }
 
     /**
      * Sets the QUIC-LB server ID length in octets. Optional; when set it
      * must equal the length of the server ID.
      * XML: {@code quic-lb-server-id-length}
+     * @return this
      */
-    public void setQuicLbServerIdLength(int length) { this.quicLbServerIdLength = length; }
+    public Http3Listener quicLbServerIdLength(int length) { this.quicLbServerIdLength = length; return this; }
 
     /**
      * Sets the QUIC-LB nonce length in octets, at least 4. Default 8.
      * XML: {@code quic-lb-nonce-length}
+     * @return this
      */
-    public void setQuicLbNonceLength(int length) { this.quicLbNonceLength = length; }
+    public Http3Listener quicLbNonceLength(int length) { this.quicLbNonceLength = length; return this; }
 
     /**
      * Sets the file holding the 16-octet QUIC-LB key (raw or 32 hex
      * digits). Without a key the server ID is sent in plaintext.
      * XML: {@code quic-lb-cid-key-file}
+     * @return this
      */
-    public void setQuicLbCidKeyFile(Path path) { this.quicLbCidKeyFile = path; }
+    public Http3Listener quicLbCidKeyFile(Path path) { this.quicLbCidKeyFile = path; return this; }
 
     /**
      * Sets whether the first octet of each connection ID self-describes
      * its length. Default false.
      * XML: {@code quic-lb-first-octet-encodes-cid-length}
+     * @return this
      */
-    public void setQuicLbFirstOctetEncodesCidLength(boolean encodes) {
+    public Http3Listener quicLbFirstOctetEncodesCidLength(boolean encodes) {
         this.quicLbFirstOctetEncodesCidLength = encodes;
+        return this;
     }
 
     /**
@@ -470,19 +556,19 @@ public class Http3Listener extends TcpListener
     // ── RFC 9000 section 18: QUIC transport parameter setters ──
 
     /** XML: {@code quic-max-idle-timeout} (milliseconds) */
-    public void setQuicMaxIdleTimeout(long ms) { this.quicMaxIdleTimeout = ms; }
+    public Http3Listener quicMaxIdleTimeout(long ms) { this.quicMaxIdleTimeout = ms; return this; }
     /** XML: {@code quic-max-data} (bytes) */
-    public void setQuicMaxData(long bytes) { this.quicMaxData = bytes; }
+    public Http3Listener quicMaxData(long bytes) { this.quicMaxData = bytes; return this; }
     /** XML: {@code quic-max-stream-data-bidi-local} (bytes) */
-    public void setQuicMaxStreamDataBidiLocal(long bytes) { this.quicMaxStreamDataBidiLocal = bytes; }
+    public Http3Listener quicMaxStreamDataBidiLocal(long bytes) { this.quicMaxStreamDataBidiLocal = bytes; return this; }
     /** XML: {@code quic-max-stream-data-bidi-remote} (bytes) */
-    public void setQuicMaxStreamDataBidiRemote(long bytes) { this.quicMaxStreamDataBidiRemote = bytes; }
+    public Http3Listener quicMaxStreamDataBidiRemote(long bytes) { this.quicMaxStreamDataBidiRemote = bytes; return this; }
     /** XML: {@code quic-max-stream-data-uni} (bytes) */
-    public void setQuicMaxStreamDataUni(long bytes) { this.quicMaxStreamDataUni = bytes; }
+    public Http3Listener quicMaxStreamDataUni(long bytes) { this.quicMaxStreamDataUni = bytes; return this; }
     /** XML: {@code quic-max-streams-bidi} (count) */
-    public void setQuicMaxStreamsBidi(long count) { this.quicMaxStreamsBidi = count; }
+    public Http3Listener quicMaxStreamsBidi(long count) { this.quicMaxStreamsBidi = count; return this; }
     /** XML: {@code quic-max-streams-uni} (count) */
-    public void setQuicMaxStreamsUni(long count) { this.quicMaxStreamsUni = count; }
+    public Http3Listener quicMaxStreamsUni(long count) { this.quicMaxStreamsUni = count; return this; }
 
     // ── Lifecycle ──
 
@@ -637,10 +723,11 @@ public class Http3Listener extends TcpListener
 
     @Override
     public void connectionAccepted(QuicConnection connection) {
-        new Http3ServerHandler(connection, streamHandler,
+        Http3ServerHandler handler = new Http3ServerHandler(connection, streamHandler,
                 authenticationProvider, metrics,
                 getTelemetryConfig(), addSecurityHeaders, compressResponses,
                 getStrictTransportSecurityHeaderValue());
+        handler.authLockoutFrom(this);
     }
 
     /**
@@ -722,11 +809,11 @@ public class Http3Listener extends TcpListener
 
         public Http3Listener build() {
             Http3Listener listener = new Http3Listener();
-            listener.setPort(port);
+            listener.port(port);
             if (addresses != null) {
                 listener.addresses(addresses);
             }
-            listener.setRequireRetry(requireRetry);
+            listener.requireRetry(requireRetry);
             if (tls != null) {
                 TlsConfigSupport.apply(tls, listener);
             }

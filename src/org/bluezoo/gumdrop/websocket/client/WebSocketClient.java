@@ -28,6 +28,8 @@ import java.net.InetAddress;
 import java.nio.ByteBuffer;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.EnumSet;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.List;
 import java.util.ResourceBundle;
 import java.util.logging.Level;
@@ -59,6 +61,7 @@ import org.bluezoo.gumdrop.http.client.HttpClientHandler;
 import org.bluezoo.gumdrop.http.client.HttpRequest;
 import org.bluezoo.gumdrop.tls.TlsConfig;
 import org.bluezoo.gumdrop.tls.ServerCredentials;
+import org.bluezoo.gumdrop.websocket.MessageSizeLimit;
 import org.bluezoo.gumdrop.websocket.PerMessageDeflateExtension;
 import org.bluezoo.gumdrop.websocket.WebSocketConnection;
 import org.bluezoo.gumdrop.websocket.WebSocketEventHandler;
@@ -76,7 +79,7 @@ import org.bluezoo.gumdrop.websocket.WebSocketSession;
  * <h4>Basic Usage</h4>
  * <pre>{@code
  * WebSocketClient client = new WebSocketClient("echo.example.com", 443);
- * client.setSecure(true);
+ * client.secure(true);
  * client.connect("/ws", new DefaultWebSocketEventHandler() {
  *
  *     public void opened(WebSocketSession session) {
@@ -128,9 +131,11 @@ public class WebSocketClient implements AltSvcListener {
     private boolean secure;
     private String subprotocol;
     private boolean deflateEnabled = true;
-    private boolean h3Enabled;
-    private boolean h2Enabled = true;
+    private long maxMessageSize = -1L;
+    private EnumSet<HttpVersion> versions = EnumSet.of(
+            HttpVersion.HTTP_3, HttpVersion.HTTP_2_0, HttpVersion.HTTP_1_1);
     private boolean h2WithPriorKnowledge;
+    private long quicHandshakeTimeoutMs = HttpClient.DEFAULT_QUIC_HANDSHAKE_TIMEOUT_MS;
     private boolean dnsHttpsRecordEnabled = true;
     private byte[] dnsDiscoveredEchConfigList;
     private final List<WebSocketExtension> requestedExtensions = new ArrayList<>();
@@ -216,7 +221,7 @@ public class WebSocketClient implements AltSvcListener {
      * {@link org.bluezoo.gumdrop.TcpListener#setPath} on the server side.
      *
      * <p>Uses the next available worker loop from the global {@link
-     * Gumdrop} instance. Incompatible with {@link #setH3Enabled(boolean)}
+     * Gumdrop} instance. Incompatible with a version list permitting only HTTP/3
      * -- HTTP/3 is inherently QUIC/UDP and has no filesystem-socket
      * equivalent -- and with DNS/Alt-Svc transport negotiation, both
      * skipped entirely for a path-based client.
@@ -254,86 +259,22 @@ public class WebSocketClient implements AltSvcListener {
     // Configuration (before connect)
     // ═══════════════════════════════════════════════════════════════════
 
-    /**
-     * Sets whether this client uses TLS (wss:// scheme).
-     * RFC 6455 §11.1.2 defines the "wss" URI scheme for secure WebSocket.
-     *
-     * @param secure true for TLS
-     */
-    public void setSecure(boolean secure) {
+    /** @return this client */
+    public WebSocketClient secure(boolean secure) {
         this.secure = secure;
-    }
-
-    /**
-     * Sets this client's own identity (certificate chain and private key)
-     * to present if the server requests client certificate authentication
-     * (mTLS).
-     *
-     * @param clientCredentials the client's own credentials
-     */
-    public void setClientCredentials(ServerCredentials clientCredentials) {
-        tls.serverCredentials(clientCredentials);
-    }
-
-    /**
-     * Sets whether the server's TLS certificate is verified. Verified by
-     * default; disabling this accepts any certificate (e.g. for a
-     * self-signed test server) unless a specific {@link #setTrustManager}
-     * is also set, which always takes precedence.
-     *
-     * @param verify false to accept any certificate
-     */
-    public void setVerifyPeer(boolean verify) {
-        tls.verifyPeer(verify);
-    }
-
-    /**
-     * Sets a custom trust manager for TLS certificate verification.
-     *
-     * @param trustManager the trust manager, or null to use defaults
-     * @see org.bluezoo.gumdrop.util.PinnedCertTrustManager
-     * @see org.bluezoo.gumdrop.util.EmptyX509TrustManager
-     */
-    public void setTrustManager(X509TrustManager trustManager) {
-        tls.trustManager(trustManager);
-    }
-
-    /**
-     * Sets the keystore file for client certificate authentication.
-     *
-     * @param path the keystore file path
-     */
-    public void setKeystoreFile(Path path) {
-        tls.keystoreFile(path);
-    }
-
-    /**
-     * Sets the keystore password.
-     *
-     * @param password the keystore password
-     */
-    public void setKeystorePass(String password) {
-        tls.keystorePass(password);
-    }
-
-    /**
-     * Sets the keystore format (e.g. JKS, PKCS12).
-     *
-     * @param format the keystore format
-     */
-    public void setKeystoreFormat(KeystoreFormat format) {
-        tls.keystoreFormat(format);
-    }
-
-    /** Trust the JVM default CA store (required before {@link #setSecure} enables TLS). */
-    public WebSocketClient trustJvm() {
-        tls.trustJvm();
         return this;
     }
 
-    /** @return this client */
-    public WebSocketClient secure(boolean secure) {
-        setSecure(secure);
+    /**
+     * Sets this client's TLS settings (certificates, trust, ECH and so on). The
+     * settings are copied, so later changes to {@code source} are not seen.
+     * Whether TLS is used at all is decided by {@link #secure(boolean)}.
+     *
+     * @param source the TLS configuration
+     * @return this client
+     */
+    public WebSocketClient tls(TlsConfig source) {
+        tls.copyFrom(source);
         return this;
     }
 
@@ -342,9 +283,11 @@ public class WebSocketClient implements AltSvcListener {
      * the {@code Sec-WebSocket-Protocol} header during the handshake.
      *
      * @param subprotocol the subprotocol name (e.g. "graphql-ws")
+     * @return this client
      */
-    public void setSubprotocol(String subprotocol) {
+    public WebSocketClient subprotocol(String subprotocol) {
         this.subprotocol = subprotocol;
+        return this;
     }
 
     /**
@@ -352,51 +295,69 @@ public class WebSocketClient implements AltSvcListener {
      * Enabled by default.
      *
      * @param enabled true to request permessage-deflate
+     * @return this client
      */
-    public void setDeflateEnabled(boolean enabled) {
+    public WebSocketClient deflateEnabled(boolean enabled) {
         this.deflateEnabled = enabled;
+        return this;
     }
 
     /**
-     * RFC 9220 — forces WebSocket-over-HTTP/3 (Extended CONNECT over
-     * QUIC), bypassing automatic transport negotiation.
+     * Sets the largest assembled message, in bytes, this client accepts
+     * before it closes the connection with code 1009 (RFC 6455 section
+     * 7.4.1); 0 means unlimited. Connections default to {@link
+     * WebSocketConnection#DEFAULT_MAX_MESSAGE_SIZE} (64 MB).
      *
-     * <p>By default (this not called), {@link #connect} negotiates the
-     * transport automatically: a DNS HTTPS record advertising "h3" support
-     * (see {@link #setDnsHttpsRecordEnabled(boolean)}), then a cached
-     * Alt-Svc discovery ({@link AltSvcCache}), then the RFC 6455 HTTP/1.1
-     * upgrade handshake. Calling this with {@code true} skips all of that
-     * and uses Extended CONNECT directly, with no fallback. The
-     * {@link WebSocketEventHandler}/{@link org.bluezoo.gumdrop.websocket.WebSocketSession}
-     * contract {@link #connect} hands the application is identical either
-     * way.
-     *
-     * @param enabled true to force HTTP/3
+     * @param maxBytes the limit in bytes
+     * @return this client
+     * @throws IllegalArgumentException if the size is negative
      */
-    public void setH3Enabled(boolean enabled) {
-        this.h3Enabled = enabled;
+    public WebSocketClient maxMessageSize(long maxBytes) {
+        if (maxBytes < 0) {
+            throw new IllegalArgumentException("maxBytes must not be negative");
+        }
+        this.maxMessageSize = maxBytes;
+        return this;
     }
 
     /**
-     * RFC 8441 — enables or disables attempting WebSocket-over-HTTP/2
-     * (Extended CONNECT) when the underlying TCP+TLS connection negotiates
-     * "h2" via ALPN. Enabled by default.
+     * Sets the HTTP versions this client may use for the WebSocket
+     * handshake, as {@link HttpClient#versions(HttpVersion...)} does for
+     * requests. The default is HTTP/3, HTTP/2 and HTTP/1.1, negotiated
+     * automatically: a DNS HTTPS record advertising "h3" (see {@link
+     * #dnsHttpsRecordEnabled(boolean)}), then a cached Alt-Svc discovery
+     * ({@link AltSvcCache}), then TCP, where HTTP/2 (RFC 8441 Extended
+     * CONNECT) is offered via ALPN and the RFC 6455 HTTP/1.1 upgrade
+     * handshake is the fallback. The {@link WebSocketEventHandler}/{@link
+     * org.bluezoo.gumdrop.websocket.WebSocketSession} contract {@link
+     * #connect} hands the application is identical whichever is used.
      *
-     * <p>Unlike {@link #setH3Enabled(boolean)}, this is not a forcing
-     * override: h2 rides the same TCP+TLS connection attempt as HTTP/1.1
-     * (there is no separate transport to discover in advance, unlike h3's
-     * QUIC/UDP), so this only controls whether "h2" is offered in the ALPN
-     * list at all. If the server doesn't support h2 (or this is disabled),
-     * the connection falls back to the RFC 6455 HTTP/1.1 upgrade handshake
-     * automatically. Has no effect when {@link #setH3Enabled(boolean)} is
-     * set, or for cleartext (non-secure) connections, which have no ALPN
-     * step at all -- see {@link #setH2WithPriorKnowledge(boolean)} for h2
-     * over cleartext.
+     * <p>Permitting only {@code HTTP_3} (RFC 9220) skips discovery and uses
+     * Extended CONNECT over QUIC directly. Leaving out {@code HTTP_3}
+     * means QUIC is never tried; leaving out {@code HTTP_2_0} means
+     * {@code h2} is not offered, so TCP connections use the HTTP/1.1
+     * upgrade handshake.
      *
-     * @param enabled true to allow WebSocket-over-HTTP/2
+     * @param permitted the permitted versions
+     * @return this client
+     * @throws IllegalArgumentException if the list is invalid, see {@link
+     *         HttpVersion#clientVersions}
      */
-    public void setH2Enabled(boolean enabled) {
-        this.h2Enabled = enabled;
+    public WebSocketClient versions(HttpVersion... permitted) {
+        this.versions = HttpVersion.clientVersions(permitted);
+        return this;
+    }
+
+    private boolean permitsH3() {
+        return versions.contains(HttpVersion.HTTP_3);
+    }
+
+    private boolean permitsH2() {
+        return versions.contains(HttpVersion.HTTP_2_0);
+    }
+
+    private boolean forcesH3() {
+        return permitsH3() && !permitsH2() && !versions.contains(HttpVersion.HTTP_1_1);
     }
 
     /**
@@ -404,9 +365,9 @@ public class WebSocketClient implements AltSvcListener {
      * connection with no negotiation at all: the client sends the h2
      * connection preface immediately and assumes the server already
      * speaks h2, by prior arrangement (matching
-     * {@link HttpClient#setH2WithPriorKnowledge(boolean)}, the equivalent
+     * {@link HttpClient#h2WithPriorKnowledge(boolean)}, the equivalent
      * setting for plain HTTP requests). Combined with
-     * {@link #setSecure(boolean)}{@code (false)}, this is what enables
+     * {@link #secure(boolean)}{@code (false)}, this is what enables
      * WebSocket-over-h2c: {@code onConnected} branches on the negotiated
      * version the same way as the TLS+ALPN path, so once the preface is
      * sent, RFC 8441 Extended CONNECT proceeds exactly as it would over a
@@ -425,14 +386,17 @@ public class WebSocketClient implements AltSvcListener {
      * .HttpClientProtocolHandler#setH2cUpgradeEnabled} for that reason
      * and never will; prior knowledge is the supported cleartext path.
      *
-     * <p>Has no effect when {@link #setH3Enabled(boolean)} is set, or for
-     * secure connections (which negotiate h2 via ALPN instead, see
-     * {@link #setH2Enabled(boolean)}).
+     * <p>Has no effect when only HTTP/3 is permitted, or for secure
+     * connections (which negotiate h2 via ALPN instead, see {@link
+     * #versions(HttpVersion...)}). Requires {@code HTTP_2_0} to be
+     * permitted.
      *
      * @param enabled true to force HTTP/2 over cleartext with no negotiation
+     * @return this client
      */
-    public void setH2WithPriorKnowledge(boolean enabled) {
+    public WebSocketClient h2WithPriorKnowledge(boolean enabled) {
         this.h2WithPriorKnowledge = enabled;
+        return this;
     }
 
     /**
@@ -447,18 +411,22 @@ public class WebSocketClient implements AltSvcListener {
      * {@link AltSvcCache}.
      *
      * @param enabled true to enable DNS HTTPS-record discovery
+     * @return this client
      */
-    public void setDnsHttpsRecordEnabled(boolean enabled) {
+    public WebSocketClient dnsHttpsRecordEnabled(boolean enabled) {
         this.dnsHttpsRecordEnabled = enabled;
+        return this;
     }
 
     /**
      * RFC 6455 §9 — adds a custom extension to request during the handshake.
      *
      * @param extension the extension to request
+     * @return this client
      */
-    public void addExtension(WebSocketExtension extension) {
+    public WebSocketClient addExtension(WebSocketExtension extension) {
         this.requestedExtensions.add(extension);
+        return this;
     }
 
     public WebSocketClient host(String host) {
@@ -517,7 +485,9 @@ public class WebSocketClient implements AltSvcListener {
      * @param path the request path (e.g. "/ws" or "/chat")
      * @param handler the handler to receive WebSocket events
      */
-    public void connect(Gumdrop gumdrop, String path, final WebSocketEventHandler handler) {
+    public void connect(Gumdrop gumdrop, String path, WebSocketEventHandler eventHandler) {
+        final WebSocketEventHandler handler = maxMessageSize >= 0
+                ? new MessageSizeLimit(eventHandler, maxMessageSize) : eventHandler;
         this.gumdrop = gumdrop;
         if (socketPath == null && host == null && hostAddress == null) {
             handler.error(new IllegalStateException(
@@ -525,7 +495,7 @@ public class WebSocketClient implements AltSvcListener {
             return;
         }
         if (socketPath != null) {
-            if (h3Enabled) {
+            if (forcesH3()) {
                 handler.error(new IOException(
                         "WebSocket-over-HTTP/3 is not supported over a UNIX domain socket"));
                 return;
@@ -533,8 +503,8 @@ public class WebSocketClient implements AltSvcListener {
             connectTcp(path, handler);
             return;
         }
-        if (h3Enabled) {
-            connectH3(path, handler);
+        if (forcesH3()) {
+            connectH3(path, handler, false);
             return;
         }
         discoverAndConnect(path, handler);
@@ -589,8 +559,8 @@ public class WebSocketClient implements AltSvcListener {
                     if (rr.getType() != DnsType.HTTPS || rr.isSVCBAliasForm()) {
                         continue;
                     }
-                    if (rr.getSVCBAlpnProtocols().contains("h3")) {
-                        connectH3(path, handler);
+                    if (permitsH3() && rr.getSVCBAlpnProtocols().contains("h3")) {
+                        connectH3(path, handler, true);
                         return;
                     }
                 }
@@ -605,8 +575,8 @@ public class WebSocketClient implements AltSvcListener {
     }
 
     private void connectViaAltSvcCacheOrTcp(String path, WebSocketEventHandler handler) {
-        if (AltSvcCache.get(host, port) != null) {
-            connectH3(path, handler);
+        if (permitsH3() && AltSvcCache.get(host, port) != null) {
+            connectH3(path, handler, true);
             return;
         }
         connectTcp(path, handler);
@@ -616,7 +586,7 @@ public class WebSocketClient implements AltSvcListener {
     /**
      * The TCP+TLS path, today's default behaviour before
      * {@link #discoverAndConnect} existed. Negotiates HTTP/2 via ALPN when
-     * {@link #setH2Enabled(boolean)} allows it (the default) and the
+     * {@link #versions(HttpVersion...)} permits it (the default) and the
      * connection is secure, and uses RFC 8441 Extended CONNECT over it;
      * otherwise falls back to the RFC 6455 HTTP/1.1 upgrade handshake.
      * Both outcomes are decided from {@code onConnected}, once
@@ -643,7 +613,7 @@ public class WebSocketClient implements AltSvcListener {
         // fires below, with no separate discovery tier needed the way h3
         // needs one. Prior knowledge (see setH2WithPriorKnowledge) is a
         // cleartext path and does not use ALPN.
-        if (secure && h2Enabled && !h2WithPriorKnowledge) {
+        if (secure && permitsH2() && !h2WithPriorKnowledge) {
             transportFactory.setApplicationProtocols("h2", "http/1.1");
         }
 
@@ -714,12 +684,12 @@ public class WebSocketClient implements AltSvcListener {
         protocolHandler.setWebSocketKey(key);
         protocolHandler.setRequestedExtensions(allExtensions);
 
-        protocolHandler.setH2Enabled(h2Enabled);
-        if (h2WithPriorKnowledge) {
+        protocolHandler.setH2Enabled(permitsH2());
+        if (h2WithPriorKnowledge && permitsH2()) {
             protocolHandler.setH2WithPriorKnowledge(true);
         }
         // The HTTP/1.1-Upgrade-header h2c bootstrap has no WebSocket
-        // equivalent -- always disabled, regardless of h2Enabled (which
+        // equivalent -- always disabled, regardless of the permitted versions (which
         // only governs the TLS+ALPN path above); see
         // setH2WithPriorKnowledge's javadoc for why.
         protocolHandler.setH2cUpgradeEnabled(false);
@@ -895,39 +865,80 @@ public class WebSocketClient implements AltSvcListener {
     }
 
     /**
+     * Test seam: creates the internal client used for the HTTP/3 attempt.
+     */
+    HttpClient createH3ClientForTesting() {
+        if (host != null) {
+            return (selectorLoop != null)
+                    ? new HttpClient(selectorLoop, host, port) : new HttpClient(host, port);
+        }
+        return (selectorLoop != null)
+                ? new HttpClient(selectorLoop, hostAddress, port) : new HttpClient(hostAddress, port);
+    }
+
+    /** Gives up the HTTP/3 attempt, ahead of connecting over TCP instead. */
+    private void abandonH3() {
+        HttpClient abandoned = httpClient;
+        httpClient = null;
+        if (abandoned != null) {
+            abandoned.close();
+        }
+    }
+
+    /**
+     * Sets how long an HTTP/3 attempt may take to establish. When discovery
+     * chose HTTP/3 and TCP is permitted, the client then connects over TCP
+     * instead; when only HTTP/3 is permitted, it reports an error. The
+     * default is three seconds; 0 disables the deadline.
+     *
+     * @param ms the deadline in milliseconds
+     * @return this client
+     */
+    public WebSocketClient quicHandshakeTimeoutMs(long ms) {
+        if (ms < 0) {
+            throw new IllegalArgumentException("ms must not be negative");
+        }
+        this.quicHandshakeTimeoutMs = ms;
+        return this;
+    }
+
+    /**
      * RFC 9220 — connects and initiates the WebSocket handshake over
      * HTTP/3 Extended CONNECT, via an internally-managed {@link HttpClient}.
      */
-    private void connectH3(String path, final WebSocketEventHandler handler) {
+    private void connectH3(String path, final WebSocketEventHandler handler, final boolean fallback) {
         final List<WebSocketExtension> allExtensions = buildExtensionOffers();
 
-        if (host != null) {
-            httpClient = (selectorLoop != null)
-                    ? new HttpClient(selectorLoop, host, port) : new HttpClient(host, port);
-        } else {
-            httpClient = (selectorLoop != null)
-                    ? new HttpClient(selectorLoop, hostAddress, port) : new HttpClient(hostAddress, port);
-        }
-        httpClient.setH3Enabled(true);
+        httpClient = createH3ClientForTesting();
+        httpClient.quicHandshakeTimeoutMs(quicHandshakeTimeoutMs);
+        final AtomicBoolean h3Established = new AtomicBoolean(false);
+        httpClient.versions(HttpVersion.HTTP_3);
         if (dnsResolver != null) {
             httpClient.dnsResolver(dnsResolver);
         }
-        httpClient.importTls(tls);
+        httpClient.tls(tls);
         httpClient.setDnsDiscoveredEchConfigList(dnsDiscoveredEchConfigList);
 
         httpClient.connect(gumdrop, new HttpClientHandler() {
             @Override
             public void onConnected(Endpoint endpoint) {
+                h3Established.set(true);
             }
 
             @Override
             public void onSecurityEstablished(SecurityInfo info) {
+                h3Established.set(true);
                 httpClient.connectWebSocket(path, subprotocol, allExtensions,
                         new H3WebSocketEventHandlerBridge(handler));
             }
 
             @Override
             public void onError(Exception cause) {
+                if (fallback && !h3Established.get()) {
+                    abandonH3();
+                    connectTcp(path, handler);
+                    return;
+                }
                 handler.error(cause);
             }
 
@@ -1023,7 +1034,7 @@ public class WebSocketClient implements AltSvcListener {
      *
      * @return the WebSocket connection
      */
-    private WebSocketConnection getConnection() {
+    WebSocketConnection getConnection() {
         if (h3WebSocketConnection != null) {
             return h3WebSocketConnection;
         }

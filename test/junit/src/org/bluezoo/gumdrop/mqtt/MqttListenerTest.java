@@ -54,10 +54,10 @@ public class MqttListenerTest {
     @Test
     public void settersAndFluentConfiguration() {
         MqttListener l = new MqttListener();
-        l.setMaxPacketSize(4096);
-        l.setDefaultKeepAlive(5);
+        l.maxPacketSize(4096);
+        l.defaultKeepAlive(5);
         BasicRealm realm = new BasicRealm();
-        l.setRealm(realm);
+        l.realm(realm);
         assertEquals(4096, l.getMaxPacketSize());
         assertEquals(5, l.getDefaultKeepAlive());
         assertSame(realm, l.getRealm());
@@ -73,7 +73,7 @@ public class MqttListenerTest {
     public void createHandlerUsesServer() {
         MqttListener l = new MqttListener();
         MqttServer server = new MqttServer();
-        l.setServer(server);
+        l.server(server);
         assertSame(server, l.getServer());
         ProtocolHandler h = l.createHandler();
         assertNotNull(h);

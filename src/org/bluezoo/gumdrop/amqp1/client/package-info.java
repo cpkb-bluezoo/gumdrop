@@ -23,7 +23,7 @@
  * Non-blocking AMQP 1.0 client for messaging against a broker such as
  * RabbitMQ 4 or ActiveMQ Artemis.
  *
- * <p>{@link org.bluezoo.gumdrop.amqp1.client.Amqp1ClientRecovery} is the
+ * <p>{@link org.bluezoo.gumdrop.amqp1.client.Amqp1Client} is the
  * facade most applications should use: it dials the broker (implicit TLS,
  * {@code amqps}, port 5671, with {@code setSecure}), authenticates, opens
  * the connection and a session, and, when the connection is lost,
@@ -49,7 +49,7 @@
  *
  * <p>The API is single-threaded: handler callbacks run on the connection's
  * event loop, and calls made from them are always safe. From any other
- * thread, go through {@link org.bluezoo.gumdrop.amqp1.client.Amqp1ClientRecovery#execute}.
+ * thread, go through {@link org.bluezoo.gumdrop.amqp1.client.Amqp1Client#execute}.
  *
  * <p>Every step is exposed through a typed-state interface offering only
  * the operations legal at that point, so the compiler rejects

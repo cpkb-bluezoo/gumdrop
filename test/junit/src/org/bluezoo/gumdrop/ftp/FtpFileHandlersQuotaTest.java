@@ -38,6 +38,7 @@ import org.bluezoo.gumdrop.ftp.file.RoleAwareFTPFileSystem;
 import org.bluezoo.gumdrop.ftp.file.RoleBasedFTPHandler;
 import org.bluezoo.gumdrop.ftp.file.SimpleFTPHandler;
 import org.bluezoo.gumdrop.auth.Realm;
+import org.bluezoo.gumdrop.auth.SynchronousRealm;
 import org.bluezoo.gumdrop.ftp.FtpFileHandlersTest.StubRealm;
 import org.bluezoo.gumdrop.quota.Quota;
 import org.bluezoo.gumdrop.quota.QuotaManager;
@@ -81,6 +82,7 @@ public class FtpFileHandlersQuotaTest {
 
     private FtpConnectionMetadata as(String user) {
         meta.setAuthenticatedUser(user);
+        meta.setRoles(realm.rolesOf(user));
         return meta;
     }
 
@@ -188,14 +190,15 @@ public class FtpFileHandlersQuotaTest {
     public void testSiteQuotaWithoutManagerAndNoAddress() {
         RoleBasedFTPHandler h = new RoleBasedFTPHandler(realm, base);
         noAddr.setAuthenticatedUser("admin");
+        noAddr.setRoles(realm.rolesOf("admin"));
         assertEquals(FtpFileOperationResult.NOT_SUPPORTED,
                 h.handleSiteCommand("QUOTA", noAddr));
         assertEquals(FtpFileOperationResult.NOT_SUPPORTED,
                 h.handleSiteCommand("SETQUOTA bob 1M", noAddr));
         assertEquals(FtpAuthenticationResult.INVALID_USER,
-                h.authenticate("ghost", "pw", null, noAddr));
+                FtpFileHandlersTest.auth(h, "ghost", "pw", null, noAddr));
         assertEquals(FtpAuthenticationResult.SUCCESS,
-                h.authenticate("reader", "pw", null, noAddr));
+                FtpFileHandlersTest.auth(h, "reader", "pw", null, noAddr));
     }
 
     @Test
@@ -218,8 +221,8 @@ public class FtpFileHandlersQuotaTest {
 
     @Test
     public void testRoleAwareConfinementDeniesEveryOperationOutsideHome() {
-        RoleAwareFTPFileSystem fs = new RoleAwareFTPFileSystem(base, realm);
-        fs.setHomeDirectoryConfinement(true);
+        RoleAwareFTPFileSystem fs = new RoleAwareFTPFileSystem(base);
+        fs.homeDirectoryConfinement(true);
         FtpConnectionMetadata m = as("all");
         assertNull(fs.listDirectory("/etc", m));
         assertEquals(FtpFileOperationResult.ACCESS_DENIED,
@@ -249,8 +252,8 @@ public class FtpFileHandlersQuotaTest {
     public void testRoleAwareConfinementAllowsHomeForEveryOperation() throws IOException {
         Path root = base.getRootPath();
         Files.createDirectories(root.resolve("home/all"));
-        RoleAwareFTPFileSystem fs = new RoleAwareFTPFileSystem(base, realm);
-        fs.setHomeDirectoryConfinement(true);
+        RoleAwareFTPFileSystem fs = new RoleAwareFTPFileSystem(base);
+        fs.homeDirectoryConfinement(true);
         FtpConnectionMetadata m = as("all");
         assertEquals(FtpFileOperationResult.SUCCESS,
                 fs.createDirectory("/home/all/d", m));
@@ -274,7 +277,7 @@ public class FtpFileHandlersQuotaTest {
     @Test
     public void testRoleAwareWithoutAnyRoleDeniesEveryOperation() {
         realm.addUser("nobody", "pw");
-        RoleAwareFTPFileSystem fs = new RoleAwareFTPFileSystem(base, realm);
+        RoleAwareFTPFileSystem fs = new RoleAwareFTPFileSystem(base);
         FtpConnectionMetadata m = as("nobody");
         assertNull(fs.listDirectory("/", m));
         assertNull(fs.getFileInfo("/", m));
@@ -300,7 +303,7 @@ public class FtpFileHandlersQuotaTest {
 
     @Test
     public void testRoleAwareNoUserDeniesWritesAndDeletes() {
-        RoleAwareFTPFileSystem fs = new RoleAwareFTPFileSystem(base, realm);
+        RoleAwareFTPFileSystem fs = new RoleAwareFTPFileSystem(base);
         noAddr.setAuthenticatedUser(null);
         assertNull(fs.openForWriting("/x", false, noAddr));
         assertNull(fs.resolvePathForAsyncWrite("/x", false, noAddr));
@@ -325,12 +328,12 @@ public class FtpFileHandlersQuotaTest {
         SimpleFTPHandler h = new SimpleFTPHandler(base);
         assertNull(h.connected(noAddr));
         assertEquals(FtpAuthenticationResult.SUCCESS,
-                h.authenticate("bob", "x", null, noAddr));
+                FtpFileHandlersTest.auth(h, "bob", "x", null, noAddr));
         h.disconnected(noAddr);
         SimpleFTPHandler r = new SimpleFTPHandler(base, realm);
         assertNull(r.connected(noAddr));
         assertEquals(FtpAuthenticationResult.INVALID_PASSWORD,
-                r.authenticate("admin", "wrong", null, noAddr));
+                FtpFileHandlersTest.auth(r, "admin", "wrong", null, noAddr));
     }
 
     @Test
@@ -338,7 +341,7 @@ public class FtpFileHandlersQuotaTest {
         Realm failing = new FailingRealm();
         SimpleFTPHandler h = new SimpleFTPHandler(base, failing);
         assertEquals(FtpAuthenticationResult.INVALID_PASSWORD,
-                h.authenticate("admin", "pw", null, meta));
+                FtpFileHandlersTest.auth(h, "admin", "pw", null, meta));
     }
 
     @Test
@@ -357,13 +360,8 @@ public class FtpFileHandlersQuotaTest {
                 h.handleSiteCommand("HELP", noAddr));
     }
 
-    private static final class FailingRealm implements Realm {
+    private static final class FailingRealm implements SynchronousRealm {
         private final StubRealm inner = new StubRealm();
-
-        @Override
-        public Realm forSelectorLoop(org.bluezoo.gumdrop.SelectorLoop loop) {
-            return this;
-        }
 
         @Override
         public java.util.Set<org.bluezoo.gumdrop.auth.SaslMechanism> getSupportedSASLMechanisms() {
@@ -377,11 +375,6 @@ public class FtpFileHandlersQuotaTest {
 
         @Override
         public String getDigestHA1(String username, String realmName) {
-            return null;
-        }
-
-        @Override
-        public String getPassword(String username) {
             return null;
         }
 

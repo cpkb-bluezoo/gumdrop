@@ -21,6 +21,8 @@
 
 package org.bluezoo.gumdrop.ftp;
 
+import org.bluezoo.gumdrop.util.CidrNetwork;
+import java.util.List;
 import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.ProtocolHandler;
 import org.bluezoo.gumdrop.TcpListener;
@@ -122,10 +124,6 @@ public class FtpListener extends TcpListener {
         return port;
     }
 
-    public void setPort(int port) {
-        this.port = port;
-        this.portExplicitlySet = true;
-    }
     /**
      * Sets the port. Returns {@code this} for fluent configuration.
      *
@@ -133,7 +131,8 @@ public class FtpListener extends TcpListener {
      * @return this listener
      */
     public FtpListener port(int port) {
-        setPort(port);
+        this.port = port;
+        this.portExplicitlySet = true;
         return this;
     }
 
@@ -161,8 +160,93 @@ public class FtpListener extends TcpListener {
         return this;
     }
 
-    public void setHandlerFactory(FtpConnectionHandlerFactory factory) {
+    @Override
+    public FtpListener maxConnections(int max) {
+        super.maxConnections(max);
+        return this;
+    }
+
+    @Override
+    public FtpListener maxConnectionsPerIP(int max) {
+        super.maxConnectionsPerIP(max);
+        return this;
+    }
+
+    @Override
+    public FtpListener rateLimit(String rateLimit) {
+        super.rateLimit(rateLimit);
+        return this;
+    }
+
+    @Override
+    public FtpListener maxAuthFailures(int max) {
+        super.maxAuthFailures(max);
+        return this;
+    }
+
+    @Override
+    public FtpListener authLockoutTimeMs(long lockoutMs) {
+        super.authLockoutTimeMs(lockoutMs);
+        return this;
+    }
+
+    @Override
+    public FtpListener allowedNetworks(List<CidrNetwork> allowedNetworks) {
+        super.allowedNetworks(allowedNetworks);
+        return this;
+    }
+
+    @Override
+    public FtpListener blockedNetworks(List<CidrNetwork> blockedNetworks) {
+        super.blockedNetworks(blockedNetworks);
+        return this;
+    }
+
+    @Override
+    public FtpListener name(String name) {
+        super.name(name);
+        return this;
+    }
+
+    @Override
+    public FtpListener maxNetInSize(int size) {
+        super.maxNetInSize(size);
+        return this;
+    }
+
+    @Override
+    public FtpListener maxNetOutSize(int size) {
+        super.maxNetOutSize(size);
+        return this;
+    }
+
+    @Override
+    public FtpListener idleTimeoutMs(long idleTimeoutMs) {
+        super.idleTimeoutMs(idleTimeoutMs);
+        return this;
+    }
+
+    @Override
+    public FtpListener readTimeoutMs(long readTimeoutMs) {
+        super.readTimeoutMs(readTimeoutMs);
+        return this;
+    }
+
+    @Override
+    public FtpListener connectionTimeoutMs(long connectionTimeoutMs) {
+        super.connectionTimeoutMs(connectionTimeoutMs);
+        return this;
+    }
+
+    @Override
+    public FtpListener maxDtlsPeers(int max) {
+        super.maxDtlsPeers(max);
+        return this;
+    }
+
+    public FtpListener handlerFactory(FtpConnectionHandlerFactory factory) {
         this.handlerFactory = factory;
+        return this;
     }
 
     public FtpConnectionHandlerFactory getHandlerFactory() {
@@ -174,9 +258,11 @@ public class FtpListener extends TcpListener {
      * When true, data transfers will fail unless PROT P has been issued.
      *
      * @param require true to require TLS for data connections
+     * @return this
      */
-    public void setRequireTLSForData(boolean require) {
+    public FtpListener requireTLSForData(boolean require) {
         this.requireTLSForData = require;
+        return this;
     }
 
     /**
@@ -198,9 +284,11 @@ public class FtpListener extends TcpListener {
      * for explicitly trusted deployments.
      *
      * @param allow true to permit client-supplied foreign data addresses
+     * @return this
      */
-    public void setAllowActiveModeBounce(boolean allow) {
+    public FtpListener allowActiveModeBounce(boolean allow) {
         this.allowActiveModeBounce = allow;
+        return this;
     }
 
     /**
@@ -221,9 +309,11 @@ public class FtpListener extends TcpListener {
      * ports. 0 (the default) means unrestricted, OS-assigned.
      *
      * @param port the lowest passive-mode port, or 0 for unrestricted
+     * @return this
      */
-    public void setPasvMinPort(int port) {
+    public FtpListener pasvMinPort(int port) {
         this.pasvMinPort = port;
+        return this;
     }
 
     /**
@@ -241,9 +331,11 @@ public class FtpListener extends TcpListener {
      * data listeners. See {@link #setPasvMinPort}.
      *
      * @param port the highest passive-mode port, or 0 for unrestricted
+     * @return this
      */
-    public void setPasvMaxPort(int port) {
+    public FtpListener pasvMaxPort(int port) {
         this.pasvMaxPort = port;
+        return this;
     }
 
     /**
@@ -269,9 +361,11 @@ public class FtpListener extends TcpListener {
      * Sets the authentication realm for this listener.
      *
      * @param realm the realm
+     * @return this
      */
-    public void setRealm(Realm realm) {
+    public FtpListener realm(Realm realm) {
         this.realm = realm;
+        return this;
     }
 
     /**
@@ -315,9 +409,11 @@ public class FtpListener extends TcpListener {
      * wiring.
      *
      * @param server the owning server
+     * @return this
      */
-    public void setServer(org.bluezoo.gumdrop.ftp.server.FtpServer server) {
+    public FtpListener server(org.bluezoo.gumdrop.ftp.server.FtpServer server) {
         this.server = server;
+        return this;
     }
 
     /**
@@ -329,18 +425,13 @@ public class FtpListener extends TcpListener {
         return server;
     }
 
-    public void setSessionProvider(
-            org.bluezoo.gumdrop.ftp.server.FtpServerSessionProvider sessionProvider) {
-        this.sessionProvider = sessionProvider;
-    }
-
     public org.bluezoo.gumdrop.ftp.server.FtpServerSessionProvider getSessionProvider() {
         return sessionProvider;
     }
 
     public FtpListener sessionProvider(
             org.bluezoo.gumdrop.ftp.server.FtpServerSessionProvider sessionProvider) {
-        setSessionProvider(sessionProvider);
+        this.sessionProvider = sessionProvider;
         return this;
     }
 

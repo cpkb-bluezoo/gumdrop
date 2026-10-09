@@ -57,27 +57,33 @@ public class ArcSealer {
      * Sets the authserv-id placed in {@code ARC-Authentication-Results}.
      *
      * @param authservId identifier of this server (default {@code localhost})
+     * @return this
      */
-    public void setAuthservId(String authservId) {
+    public ArcSealer authservId(String authservId) {
         this.authservId = authservId;
+        return this;
     }
 
     /**
      * Sets header canonicalization for AMS and AS ({@code simple} or {@code relaxed}).
      *
      * @param canon canonicalization name per RFC 6376
+     * @return this
      */
-    public void setHeaderCanonicalization(String canon) {
-        signer.setHeaderCanonicalization(canon);
+    public ArcSealer headerCanonicalization(String canon) {
+        signer.headerCanonicalization(canon);
+        return this;
     }
 
     /**
      * Sets body canonicalization used for the shared {@code bh=} on this hop.
      *
      * @param canon canonicalization name per RFC 6376
+     * @return this
      */
-    public void setBodyCanonicalization(String canon) {
-        signer.setBodyCanonicalization(canon);
+    public ArcSealer bodyCanonicalization(String canon) {
+        signer.bodyCanonicalization(canon);
+        return this;
     }
 
     /**

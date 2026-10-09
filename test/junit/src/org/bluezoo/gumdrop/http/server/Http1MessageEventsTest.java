@@ -118,7 +118,7 @@ public class Http1MessageEventsTest {
     public void setUp() {
         EventHandler.seen.events.clear();
         Http2Listener listener = new Http2Listener();
-        listener.setStreamHandler(new HttpStreamHandler() {
+        listener.streamHandler(new HttpStreamHandler() {
             @Override
             public HttpRequestHandler openStream(HttpResponse response) {
                 return new EventHandler();

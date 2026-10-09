@@ -27,8 +27,8 @@ ant examples-compile
 ## Run
 
 ```bash
-java -cp 'build/examples:build/*:lib/*' POP3Example
-java -cp 'build/examples:build/*:lib/*' POP3Example etc/tls/cert.pem etc/tls/key.pem
+java -cp 'build/examples:dist/*:lib/*' POP3Example
+java -cp 'build/examples:dist/*:lib/*' POP3Example etc/tls/cert.pem etc/tls/key.pem
 ```
 
 (`ant tls-certs` creates the PEM files under `etc/tls/`.)

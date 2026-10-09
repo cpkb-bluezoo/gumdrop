@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.http.server;
 
+import org.bluezoo.gumdrop.testsupport.InlineHttpAuthenticationProvider;
 import java.security.MessageDigest;
 
 import org.junit.Test;
@@ -48,7 +49,7 @@ public class HttpAuthenticationProviderDigestEdgeTest {
     private static final String REALM = "edge-realm";
     private static final String HA1 = SaslUtils.computeDigestHA1("alice", REALM, "secret");
 
-    private static final class Provider extends HttpAuthenticationProvider {
+    private static final class Provider extends InlineHttpAuthenticationProvider {
         @Override protected String getAuthMethod() {
             return HttpServletRequest.DIGEST_AUTH;
         }

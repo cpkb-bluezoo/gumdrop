@@ -1,4 +1,5 @@
 import java.nio.ByteBuffer;
+import org.bluezoo.gumdrop.http.HttpVersion;
 import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -171,9 +172,9 @@ public class H3LoadClient {
 
     static HttpClient connect(Gumdrop gumdrop, String host, int port) throws InterruptedException {
         HttpClient client = new HttpClient(host, port);
-        client.setH3Enabled(true);
-        client.setVerifyPeer(false);
-        client.setAltSvcEnabled(false);
+        client.versions(HttpVersion.HTTP_3);
+        client.verifyPeer(false);
+        client.altSvcEnabled(false);
         final CountDownLatch connected = new CountDownLatch(1);
         final AtomicReference<Exception> error = new AtomicReference<Exception>();
         client.connect(gumdrop, new HttpClientHandler() {

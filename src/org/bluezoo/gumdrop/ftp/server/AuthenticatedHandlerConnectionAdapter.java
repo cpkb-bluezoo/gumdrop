@@ -22,6 +22,7 @@
 package org.bluezoo.gumdrop.ftp.server;
 
 import org.bluezoo.gumdrop.ftp.FtpAuthenticationResult;
+import org.bluezoo.gumdrop.auth.RealmCallback;
 import org.bluezoo.gumdrop.ftp.FtpConnectionHandler;
 import org.bluezoo.gumdrop.ftp.FtpConnectionMetadata;
 import org.bluezoo.gumdrop.ftp.FtpFileOperationResult;
@@ -56,9 +57,10 @@ public final class AuthenticatedHandlerConnectionAdapter
     }
 
     @Override
-    public FtpAuthenticationResult authenticate(String username, String password,
-            String account, FtpConnectionMetadata metadata) {
-        return FtpAuthenticationResult.SUCCESS;
+    public void authenticate(String username, String password,
+            String account, FtpConnectionMetadata metadata,
+            RealmCallback<FtpAuthenticationResult> callback) {
+        callback.completed(FtpAuthenticationResult.SUCCESS);
     }
 
     @Override

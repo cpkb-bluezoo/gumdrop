@@ -22,6 +22,7 @@
 
 package org.bluezoo.gumdrop.http.server;
 
+import org.bluezoo.gumdrop.testsupport.InlineHttpAuthenticationProvider;
 import org.bluezoo.gumdrop.http.HeaderFields;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
@@ -81,7 +82,7 @@ public class HttpProtocolHandlerHttp1Test {
 
         Fixture() {
             final Recorder r = rec;
-            listener.setStreamHandler(new HttpStreamHandler() {
+            listener.streamHandler(new HttpStreamHandler() {
                 @Override
                 public HttpRequestHandler openStream(HttpResponse state) {
                     return new CollectingRequestHandler(state) {
@@ -314,7 +315,7 @@ public class HttpProtocolHandlerHttp1Test {
     @Test
     public void testChunkExceedingBodyLimitIs413() {
         Fixture f = new Fixture();
-        f.listener.setMaxRequestBodySize(4);
+        f.listener.maxRequestBodySize(4);
         f.open();
         f.feed("POST /c HTTP/1.1\r\nHost: h\r\nTransfer-Encoding: chunked\r\n\r\n10\r\n0123456789abcdef\r\n", 100);
         assertTrue(f.wire(), f.wire().startsWith("HTTP/1.1 413"));
@@ -493,7 +494,7 @@ public class HttpProtocolHandlerHttp1Test {
     @Test
     public void testMaxRequestsPerConnection() {
         Fixture f = new Fixture();
-        f.listener.setMaxRequestsPerConnection(1);
+        f.listener.maxRequestsPerConnection(1);
         f.open();
         f.feed("GET /x HTTP/1.1\r\nHost: h\r\n\r\n", 100);
         assertTrue(f.endpoint.getCloseCount() > 0);
@@ -522,7 +523,7 @@ public class HttpProtocolHandlerHttp1Test {
     @Test
     public void testTraceEnabledEchoes() {
         Fixture f = new Fixture();
-        f.listener.setTraceMethodEnabled(true);
+        f.listener.traceMethodEnabled(true);
         f.open();
         f.feed("TRACE /x HTTP/1.1\r\nHost: h\r\nX-Q: 1\r\n\r\n", 100);
         String w = f.wire();
@@ -699,7 +700,7 @@ public class HttpProtocolHandlerHttp1Test {
         f.rec.status = status;
         f.rec.extraName = extraName;
         f.rec.extraValue = extraValue;
-        f.listener.setCompressResponses(listenerCompresses);
+        f.listener.compressResponses(listenerCompresses);
         f.open();
         f.feed(method + " /z HTTP/1.1\r\nHost: h\r\nAccept-Encoding: gzip\r\n\r\n", 100);
         return f.wire().toLowerCase();
@@ -873,12 +874,12 @@ public class HttpProtocolHandlerHttp1Test {
     @Test
     public void testSecurityHeadersCanBeDisabledAndHstsAdded() {
         Fixture f = new Fixture();
-        f.listener.setAddSecurityHeaders(false);
-        f.listener.setHstsEnabled(true);
-        f.listener.setHstsMaxAge(600L);
-        f.listener.setAltSvc("h3=\":443\"");
+        f.listener.addSecurityHeaders(false);
+        f.listener.hstsEnabled(true);
+        f.listener.hstsMaxAge(600L);
+        f.listener.altSvc("h3=\":443\"");
         f.endpoint.setSecure(true);
-        f.listener.setSecure(true);
+        f.listener.secure(true);
         f.open();
         f.feed("GET /z HTTP/1.1\r\nHost: h\r\n\r\n", 100);
         String w = f.wire();
@@ -898,7 +899,7 @@ public class HttpProtocolHandlerHttp1Test {
     @Test
     public void testContentLengthOverLimitIs413() {
         Fixture f = new Fixture();
-        f.listener.setMaxRequestBodySize(10);
+        f.listener.maxRequestBodySize(10);
         f.open();
         f.feed("POST /e HTTP/1.1\r\nHost: h\r\nContent-Length: 11\r\n\r\n", 100);
         assertTrue(f.wire(), f.wire().contains(" 413 "));
@@ -936,7 +937,7 @@ public class HttpProtocolHandlerHttp1Test {
     @Test
     public void testBasicAuthenticationRequired() {
         Fixture f = new Fixture();
-        f.listener.setAuthenticationProvider(new HttpAuthenticationProvider() {
+        f.listener.authenticationProvider(new InlineHttpAuthenticationProvider() {
             @Override protected String getAuthMethod() { return "BASIC"; }
             @Override protected String getRealmName() { return "realm"; }
             @Override protected boolean passwordMatch(String r, String u, String p) {
@@ -979,7 +980,7 @@ public class HttpProtocolHandlerHttp1Test {
     @Test
     public void testIdleTimeoutClosesHttp1Connection() {
         Fixture f = new Fixture();
-        f.listener.setIdleTimeoutMs(1000L);
+        f.listener.idleTimeoutMs(1000L);
         f.open();
         f.endpoint.fireTimers();
         assertTrue(f.endpoint.getCloseCount() > 0);
@@ -999,7 +1000,7 @@ public class HttpProtocolHandlerHttp1Test {
     @Test
     public void testUnauthenticatedRequestNeverReachesApplication() {
         Fixture f = new Fixture();
-        f.listener.setAuthenticationProvider(new HttpAuthenticationProvider() {
+        f.listener.authenticationProvider(new InlineHttpAuthenticationProvider() {
             @Override protected String getAuthMethod() { return "BASIC"; }
             @Override protected String getRealmName() { return "realm"; }
             @Override protected boolean passwordMatch(String r, String u, String p) { return false; }

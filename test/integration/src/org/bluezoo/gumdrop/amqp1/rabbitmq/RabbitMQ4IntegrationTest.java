@@ -40,7 +40,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import org.bluezoo.gumdrop.Gumdrop;
-import org.bluezoo.gumdrop.amqp1.client.Amqp1ClientRecovery;
+import org.bluezoo.gumdrop.amqp1.client.Amqp1Client;
 import org.bluezoo.gumdrop.amqp1.client.Amqp1IncomingDelivery;
 import org.bluezoo.gumdrop.amqp1.client.Amqp1OutgoingDelivery;
 import org.bluezoo.gumdrop.amqp1.client.Amqp1Receiver;
@@ -80,7 +80,7 @@ public class RabbitMQ4IntegrationTest {
     private static final long TIMEOUT_SECONDS = 15;
 
     private Gumdrop gumdrop;
-    private Amqp1ClientRecovery client;
+    private Amqp1Client client;
     private String queue;
     private String containerId;
 
@@ -110,8 +110,8 @@ public class RabbitMQ4IntegrationTest {
         }
     }
 
-    private Amqp1ClientRecovery newClient() {
-        return new Amqp1ClientRecovery(RabbitMQ4TestSupport.HOST, RabbitMQ4TestSupport.PLAINTEXT_PORT)
+    private Amqp1Client newClient() {
+        return new Amqp1Client(RabbitMQ4TestSupport.HOST, RabbitMQ4TestSupport.PLAINTEXT_PORT)
                 .credentials(RabbitMQ4TestSupport.USERNAME, RabbitMQ4TestSupport.PASSWORD)
                 .hostname(RabbitMQ4TestSupport.HOST)
                 .containerId(containerId)

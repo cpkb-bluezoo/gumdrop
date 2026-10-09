@@ -46,6 +46,7 @@ import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.GumdropConfig;
 import org.bluezoo.gumdrop.TcpTransportFactory;
 import org.bluezoo.gumdrop.auth.Realm;
+import org.bluezoo.gumdrop.auth.RealmCalls;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -237,7 +238,7 @@ public class OAuthRealmIntrospectionIntegrationTest {
         replies.add(http(200, "OK",
                 "{\"active\":true,\"username\":\"alice\",\"scope\":\"  read   write \","
                 + "\"exp\":4102444800,\"client_id\":\"x\",\"nested\":{\"exp\":1}}"));
-        Realm.TokenValidationResult r = realm.validateOAuthToken("tok+en");
+        Realm.TokenValidationResult r = RealmCalls.validateOAuthToken(realm, "tok+en");
         assertNotNull(r);
         assertTrue(r.valid);
         assertEquals("alice", r.username);
@@ -245,8 +246,8 @@ public class OAuthRealmIntrospectionIntegrationTest {
         assertEquals("read", r.scopes[0]);
         assertEquals("write", r.scopes[1]);
         assertEquals(4102444800L, r.expirationTime);
-        assertTrue(realm.isUserInRole("alice", "reader"));
-        assertFalse(realm.isUserInRole("alice", "unmapped"));
+        assertTrue(RealmCalls.isUserInRole(realm, "alice", "reader"));
+        assertFalse(RealmCalls.isUserInRole(realm, "alice", "unmapped"));
         assertEquals(1, requests.size());
         String req = requests.get(0);
         assertTrue(req, req.startsWith("POST /oauth/introspect"));
@@ -258,7 +259,7 @@ public class OAuthRealmIntrospectionIntegrationTest {
     public void subjectIsUsedWhenUsernameMissing() {
         OAuthRealm realm = realm(false);
         replies.add(http(200, "OK", "{\"active\":true,\"sub\":\"subject-1\",\"scope\":\"\"}"));
-        Realm.TokenValidationResult r = realm.validateOAuthToken("t");
+        Realm.TokenValidationResult r = RealmCalls.validateOAuthToken(realm, "t");
         assertTrue(r.valid);
         assertEquals("subject-1", r.username);
         assertEquals(0, r.scopes.length);
@@ -268,7 +269,7 @@ public class OAuthRealmIntrospectionIntegrationTest {
     public void activeTokenWithoutAnyIdentityIsRejected() {
         OAuthRealm realm = realm(false);
         replies.add(http(200, "OK", "{\"active\":true,\"username\":\"\"}"));
-        assertFalse(realm.validateOAuthToken("t").valid);
+        assertFalse(RealmCalls.validateOAuthToken(realm, "t").valid);
     }
 
     @Test
@@ -277,11 +278,11 @@ public class OAuthRealmIntrospectionIntegrationTest {
         replies.add(http(200, "OK",
                 "{\"active\":false,\"ext\":{\"active\":true,\"username\":\"mallory\"},"
                 + "\"list\":[{\"active\":true}]}"));
-        assertFalse(realm.validateOAuthToken("t").valid);
+        assertFalse(RealmCalls.validateOAuthToken(realm, "t").valid);
         replies.add(http(200, "OK",
                 "{\"active\":true,\"username\":\"alice\",\"ext\":{\"username\":\"mallory\","
                 + "\"scope\":\"admin\"},\"scope\":\"read\"}"));
-        Realm.TokenValidationResult r = realm.validateOAuthToken("t2");
+        Realm.TokenValidationResult r = RealmCalls.validateOAuthToken(realm, "t2");
         assertTrue(r.valid);
         assertEquals("alice", r.username);
         assertEquals(1, r.scopes.length);
@@ -292,36 +293,36 @@ public class OAuthRealmIntrospectionIntegrationTest {
     public void inactiveTokenIsRejected() {
         OAuthRealm realm = realm(false);
         replies.add(http(200, "OK", "{\"active\":false}"));
-        assertFalse(realm.validateOAuthToken("t").valid);
+        assertFalse(RealmCalls.validateOAuthToken(realm, "t").valid);
     }
 
     @Test
     public void errorStatusIsRejected() {
         OAuthRealm realm = realm(false);
         replies.add(http(401, "Unauthorized", "{\"active\":true,\"username\":\"mallory\"}"));
-        assertFalse(realm.validateOAuthToken("t").valid);
+        assertFalse(RealmCalls.validateOAuthToken(realm, "t").valid);
     }
 
     @Test
     public void malformedJsonIsRejected() {
         OAuthRealm realm = realm(false);
         replies.add(http(200, "OK", "{\"active\": tru"));
-        assertFalse(realm.validateOAuthToken("t").valid);
+        assertFalse(RealmCalls.validateOAuthToken(realm, "t").valid);
     }
 
     @Test
     public void connectionClosedWithoutReplyIsRejected() {
         OAuthRealm realm = realm(false);
         replies.add(CLOSE);
-        assertFalse(realm.validateOAuthToken("t").valid);
+        assertFalse(RealmCalls.validateOAuthToken(realm, "t").valid);
     }
 
     @Test
     public void cachedResultAvoidsSecondRequest() {
         OAuthRealm realm = realm(true);
         replies.add(http(200, "OK", "{\"active\":true,\"username\":\"bob\",\"scope\":\"read\"}"));
-        Realm.TokenValidationResult first = realm.validateOAuthToken("same");
-        Realm.TokenValidationResult second = realm.validateOAuthToken("same");
+        Realm.TokenValidationResult first = RealmCalls.validateOAuthToken(realm, "same");
+        Realm.TokenValidationResult second = RealmCalls.validateOAuthToken(realm, "same");
         assertTrue(first.valid);
         assertTrue(second.valid);
         assertEquals(1, requests.size());
@@ -330,9 +331,9 @@ public class OAuthRealmIntrospectionIntegrationTest {
     @Test
     public void blankTokenNeverContactsServer() {
         OAuthRealm realm = realm(false);
-        assertFalse(realm.validateOAuthToken(null).valid);
-        assertFalse(realm.validateOAuthToken("   ").valid);
-        assertFalse(realm.validateBearerToken("").valid);
+        assertFalse(RealmCalls.validateOAuthToken(realm, null).valid);
+        assertFalse(RealmCalls.validateOAuthToken(realm, "   ").valid);
+        assertFalse(RealmCalls.validateBearerToken(realm, "").valid);
         assertTrue(requests.isEmpty());
     }
 
@@ -343,6 +344,6 @@ public class OAuthRealmIntrospectionIntegrationTest {
         config.setProperty("oauth.client.id", "cid");
         config.setProperty("oauth.client.secret", "sec");
         OAuthRealm unbound = new OAuthRealm(config);
-        assertFalse(unbound.validateOAuthToken("t").valid);
+        assertFalse(RealmCalls.validateOAuthToken(unbound, "t").valid);
     }
 }

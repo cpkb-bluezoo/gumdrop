@@ -36,6 +36,23 @@ import org.bluezoo.gumdrop.mqtt.codec.MqttEventHandler;
 public interface ConnectState {
 
     /**
+     * Returns the TLS session details of this connection: the negotiated
+     * protocol and cipher suite, the ALPN protocol, and the client's
+     * certificate chain when the listener asks for one (mutual TLS), which a
+     * handler can use to identify the client without a password.
+     *
+     * <p>The handshake is complete before CONNECT is read, so the details are
+     * always final here.
+     *
+     * @return the TLS session details, or {@code null} if the connection is
+     *         not encrypted. Over WebSocket they are those of the HTTP
+     *         connection the WebSocket was upgraded on.
+     */
+    default org.bluezoo.gumdrop.SecurityInfo getSecurityInfo() {
+        return null;
+    }
+
+    /**
      * Accepts the connection. Sends CONNACK with return code 0 and
      * completes session setup.
      *

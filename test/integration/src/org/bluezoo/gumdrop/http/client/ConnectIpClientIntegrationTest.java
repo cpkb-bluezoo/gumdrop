@@ -22,6 +22,8 @@
 package org.bluezoo.gumdrop.http.client;
 
 import org.bluezoo.gumdrop.AbstractServerIntegrationTest;
+import org.bluezoo.gumdrop.http.HttpVersion;
+import org.bluezoo.gumdrop.tls.TlsConfig;
 import org.bluezoo.gumdrop.Server;
 import org.bluezoo.gumdrop.TestTlsFiles;
 import org.bluezoo.gumdrop.http.ConnectIpAddress;
@@ -109,11 +111,10 @@ public class ConnectIpClientIntegrationTest extends AbstractServerIntegrationTes
     public void testCleartextH2PriorKnowledgeEchoesIpPacket() throws Exception {
         EventSink events = new EventSink();
         ConnectIpClient client = new ConnectIpClient(TEST_HOST, HTTP_PROXY_PORT);
-        client.setSecure(false);
-        client.setH3Enabled(false);
-        client.setDnsHttpsRecordEnabled(false);
-        client.setH2Enabled(true);
-        client.setH2WithPriorKnowledge(true);
+        client.secure(false);
+        client.versions(HttpVersion.HTTP_2_0, HttpVersion.HTTP_1_1);
+        client.dnsHttpsRecordEnabled(false);
+        client.h2WithPriorKnowledge(true);
         client.connect(gumdrop, ConnectIpTarget.WILDCARD, ConnectIpTarget.WILDCARD, events);
 
         assertTrue("CONNECT-IP tunnel should open", events.opened.await(TIMEOUT_SECONDS, TimeUnit.SECONDS));
@@ -173,14 +174,13 @@ public class ConnectIpClientIntegrationTest extends AbstractServerIntegrationTes
 
     private ConnectIpClient newClient(int port, boolean secure) throws Exception {
         ConnectIpClient client = new ConnectIpClient(TEST_HOST, port);
-        client.setSecure(secure);
-        client.setH3Enabled(false);
-        client.setDnsHttpsRecordEnabled(false);
+        client.secure(secure);
+        client.versions(HttpVersion.HTTP_2_0, HttpVersion.HTTP_1_1);
+        client.dnsHttpsRecordEnabled(false);
         if (secure) {
-            client.setTrustManager(TestTlsFiles.trustManager());
-            client.setH2Enabled(true);
+            client.tls(new TlsConfig().trustManager(TestTlsFiles.trustManager()));
         } else {
-            client.setH2Enabled(false);
+            client.versions(HttpVersion.HTTP_1_1);
         }
         return client;
     }

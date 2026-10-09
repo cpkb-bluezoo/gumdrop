@@ -164,20 +164,20 @@ public class SmtpValueClassesTest {
     @Test
     public void testListenerConfiguration() {
         SmtpListener listener = new SmtpListener();
-        listener.setPort(2525);
+        listener.port(2525);
         assertEquals(2525, listener.getPort());
         SmtpListener chained = listener.port(2526);
         assertSame(listener, chained);
         assertEquals(2526, listener.getPort());
         assertNotNull(listener.getDescription());
-        listener.setMaxMessageSize(12345L);
+        listener.maxMessageSize(12345L);
         assertEquals(12345L, listener.getMaxMessageSize());
-        listener.setMaxRecipients(7);
+        listener.maxRecipients(7);
         assertEquals(7, listener.getMaxRecipients());
-        listener.setMaxTransactionsPerSession(3);
+        listener.maxTransactionsPerSession(3);
         assertEquals(3, listener.getMaxTransactionsPerSession());
         assertFalse(listener.isAuthRequired());
-        listener.setAuthRequired(true);
+        listener.authRequired(true);
         assertTrue(listener.isAuthRequired());
         assertNull(listener.getRealm());
         assertNull(listener.getMailboxFactory());

@@ -22,6 +22,7 @@
 package org.bluezoo.gumdrop.http.doh;
 
 import org.bluezoo.gumdrop.dns.client.DnsClientTransport;
+import org.bluezoo.gumdrop.tls.TlsConfig;
 import org.junit.Test;
 
 import static org.junit.Assert.assertEquals;
@@ -36,7 +37,7 @@ public class DoHTransportFactoryImplTest {
     @Test
     public void testCreateTransportDefaultPath() {
         DoHTransportFactoryImpl factory = new DoHTransportFactoryImpl();
-        DnsClientTransport transport = factory.createTransport(null);
+        DnsClientTransport transport = factory.createTransport(null, null);
         assertTrue(transport instanceof DoHClientTransport);
         assertEquals("/dns-query", ((DoHClientTransport) transport).getPath());
     }
@@ -44,7 +45,7 @@ public class DoHTransportFactoryImplTest {
     @Test
     public void testCreateTransportCustomPath() {
         DoHTransportFactoryImpl factory = new DoHTransportFactoryImpl();
-        DnsClientTransport transport = factory.createTransport("/custom");
+        DnsClientTransport transport = factory.createTransport("/custom", null);
         assertEquals("/custom", ((DoHClientTransport) transport).getPath());
     }
 }

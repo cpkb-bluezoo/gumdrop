@@ -56,7 +56,7 @@ import java.util.logging.Logger;
 
 /**
  * A minimal, in-process AMQP 0-9-1 broker for testing {@link
- * AmqpClientProtocolHandler} / {@link AmqpClientRecovery} end to end over
+ * AmqpClientProtocolHandler} / {@link AmqpClient} end to end over
  * a real socket — deliberately not a real broker (issue #154 explicitly
  * asks for no real broker dependency in the test environment), just
  * enough of the protocol to exercise connect, channel open, exchange/

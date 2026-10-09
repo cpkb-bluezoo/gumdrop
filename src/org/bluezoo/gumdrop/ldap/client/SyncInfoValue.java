@@ -27,10 +27,10 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 
-import org.bluezoo.gumdrop.ldap.asn1.Asn1Element;
-import org.bluezoo.gumdrop.ldap.asn1.Asn1Exception;
-import org.bluezoo.gumdrop.ldap.asn1.Asn1Type;
-import org.bluezoo.gumdrop.ldap.asn1.BerDecoder;
+import org.bluezoo.gumdrop.asn1.Asn1Element;
+import org.bluezoo.gumdrop.asn1.Asn1Exception;
+import org.bluezoo.gumdrop.asn1.Asn1Type;
+import org.bluezoo.gumdrop.asn1.BerDecoder;
 
 /**
  * The syncInfoValue carried by an IntermediateResponse (RFC 4533 §2.5,

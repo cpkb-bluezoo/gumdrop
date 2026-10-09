@@ -21,6 +21,9 @@
 
 package org.bluezoo.gumdrop.dns.client;
 
+import org.bluezoo.gumdrop.CryptoExecutor;
+import org.bluezoo.gumdrop.Gumdrop;
+import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.dns.DnsMessage;
 import org.bluezoo.gumdrop.dns.DnsQueryCallback;
 import org.bluezoo.gumdrop.dns.DnsResourceRecord;
@@ -30,6 +33,8 @@ import org.bluezoo.gumdrop.dns.DnsType;
 import java.text.MessageFormat;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.Callable;
+import java.util.concurrent.Executor;
 import java.util.ResourceBundle;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -155,6 +160,14 @@ public final class DnssecChainValidator {
             return;
         }
 
+        // RFC 9276 section 3.2: an NSEC3 proof above the iteration limit is
+        // insecure; do not spend any further work on it
+        if (nsecRecords.isEmpty()
+                && DnssecValidator.exceedsNsec3IterationLimit(nsec3Records)) {
+            callback.onValidated(DnssecStatus.INSECURE, response);
+            return;
+        }
+
         List<DnsResourceRecord> rrsigs;
         if (!nsecRecords.isEmpty()) {
             rrsigs = DnssecValidator.findRRSIGs(
@@ -211,7 +224,48 @@ public final class DnssecChainValidator {
             return;
         }
 
-        if (!DnssecValidator.verifyRRSIG(rrset, rrsig, matchingKey)) {
+        final DnsResourceRecord key = matchingKey;
+        final List<DnsResourceRecord> signedRRset = rrset;
+        final DnsResourceRecord signature = rrsig;
+        final List<DnsResourceRecord> zoneKeys = dnskeys;
+        final String zone = signerZone;
+        final DnsMessage original = response;
+        final DnssecValidationCallback cb = callback;
+        final int level = depth;
+        offload(new Callable<Boolean>() {
+            @Override
+            public Boolean call() {
+                return Boolean.valueOf(DnssecValidator.verifyRRSIG(
+                        signedRRset, signature, key));
+            }
+        }, original, cb, new CryptoExecutor.Callback<Boolean>() {
+            @Override
+            public void completed(Boolean valid) {
+                signatureChecked(valid.booleanValue(), key, zoneKeys, zone,
+                        original, cb, level);
+            }
+
+            @Override
+            public void failed(Throwable error) {
+                poolFailed(error, original, cb);
+            }
+        });
+    }
+
+    /**
+     * Continues the chain walk once the signature over an RRset has been
+     * checked.
+     */
+    private void signatureChecked(
+            boolean valid,
+            DnsResourceRecord matchingKey,
+            List<DnsResourceRecord> dnskeys,
+            String signerZone,
+            DnsMessage response,
+            DnssecValidationCallback callback,
+            int depth) {
+
+        if (!valid) {
             if (LOGGER.isLoggable(Level.FINE)) {
                 LOGGER.fine(MessageFormat.format(
                         L10N.getString("dnssec.bad_signature"),
@@ -233,6 +287,52 @@ public final class DnssecChainValidator {
 
         fetchDS(matchingKey, dnskeys, signerZone, response,
                 callback, depth);
+    }
+
+    /**
+     * Runs a CPU-bound verification on the crypto pool and delivers the
+     * outcome on the resolver's selector loop. Verification (RSA, ECDSA,
+     * EdDSA) can take a noticeable fraction of a millisecond or more, so it
+     * does not run on the loop. Without a loop or a crypto pool (a resolver
+     * that has not been given a running Gumdrop) it runs inline.
+     */
+    private <T> void offload(Callable<T> operation, DnsMessage response,
+                             DnssecValidationCallback callback,
+                             CryptoExecutor.Callback<T> outcome) {
+        final SelectorLoop loop = resolver.getSelectorLoop();
+        Gumdrop gumdrop = (loop != null) ? loop.getGumdrop() : null;
+        CryptoExecutor pool = (gumdrop != null)
+                ? gumdrop.getCryptoExecutor() : null;
+        if (pool == null) {
+            T result;
+            try {
+                result = operation.call();
+            } catch (Exception e) {
+                outcome.failed(e);
+                return;
+            }
+            outcome.completed(result);
+            return;
+        }
+        pool.submit(new Executor() {
+            @Override
+            public void execute(Runnable command) {
+                loop.invokeLater(command);
+            }
+        }, operation, outcome);
+    }
+
+    /**
+     * The crypto pool refused or failed the work. That says nothing about
+     * the data, so the result is indeterminate rather than bogus.
+     */
+    private void poolFailed(Throwable error, DnsMessage response,
+                            DnssecValidationCallback callback) {
+        if (LOGGER.isLoggable(Level.FINE)) {
+            LOGGER.log(Level.FINE, L10N.getString("dnssec.verify_offload_failed"),
+                    error);
+        }
+        callback.onValidated(DnssecStatus.INDETERMINATE, response);
     }
 
     /**
@@ -340,14 +440,49 @@ public final class DnssecChainValidator {
             ksk = dnskey;
         }
 
-        boolean dsMatched = false;
-        for (int i = 0; i < dsRecords.size(); i++) {
-            DnsResourceRecord ds = dsRecords.get(i);
-            if (DnssecValidator.verifyDS(ksk, ds)) {
-                dsMatched = true;
-                break;
+        final DnsResourceRecord keyToCheck = ksk;
+        final List<DnsResourceRecord> candidates = dsRecords;
+        final String dsZone = zone;
+        final DnsMessage dsReply = dsResponse;
+        final DnsMessage original = originalResponse;
+        final DnssecValidationCallback cb = callback;
+        final int level = depth;
+        offload(new Callable<Boolean>() {
+            @Override
+            public Boolean call() {
+                for (int i = 0; i < candidates.size(); i++) {
+                    if (DnssecValidator.verifyDS(keyToCheck, candidates.get(i))) {
+                        return Boolean.TRUE;
+                    }
+                }
+                return Boolean.FALSE;
             }
-        }
+        }, original, cb, new CryptoExecutor.Callback<Boolean>() {
+            @Override
+            public void completed(Boolean matched) {
+                dsChecked(matched.booleanValue(), keyToCheck, candidates,
+                        dsZone, dsReply, original, cb, level);
+            }
+
+            @Override
+            public void failed(Throwable error) {
+                poolFailed(error, original, cb);
+            }
+        });
+    }
+
+    /**
+     * Continues the chain walk once the DS digest check has finished.
+     */
+    private void dsChecked(
+            boolean dsMatched,
+            DnsResourceRecord ksk,
+            List<DnsResourceRecord> dsRecords,
+            String zone,
+            DnsMessage dsResponse,
+            DnsMessage originalResponse,
+            DnssecValidationCallback callback,
+            int depth) {
 
         if (!dsMatched) {
             if (LOGGER.isLoggable(Level.FINE)) {

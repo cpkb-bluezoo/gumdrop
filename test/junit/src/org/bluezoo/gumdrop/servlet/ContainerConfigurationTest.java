@@ -161,7 +161,7 @@ public class ContainerConfigurationTest {
 
         List<Context> replacement = new ArrayList<Context>();
         replacement.add(app);
-        container.setContexts(replacement);
+        container.contexts(replacement);
         assertEquals(1, container.getContexts().size());
         assertNull(container.getContextByPath("/zzz"));
         assertSame(app, container.getContextByPath("/app/x"));
@@ -172,66 +172,66 @@ public class ContainerConfigurationTest {
         container.addRealm("a", null);
         Map<String, org.bluezoo.gumdrop.auth.Realm> realms = new LinkedHashMap<String, org.bluezoo.gumdrop.auth.Realm>();
         realms.put("b", null);
-        container.setRealms(realms);
+        container.realms(realms);
         assertEquals(1, container.realms.size());
         assertTrue(container.realms.containsKey("b"));
         container.addResource(new Probe("r1", false));
         List<Resource> list = new ArrayList<Resource>();
         list.add(new Probe("r2", false));
-        container.setResources(list);
+        container.resources(list);
         assertEquals(1, container.resources.size());
     }
 
     @Test
     public void testClusterConfigurationValidation() throws Exception {
         try {
-            container.setClusterKey(new byte[5]);
+            container.clusterKey(new byte[5]);
             fail("short key");
         } catch (IllegalArgumentException e) {
             assertNotNull(e.getMessage());
         }
         try {
-            container.setClusterKey(null);
+            container.clusterKey(null);
             fail("null key");
         } catch (IllegalArgumentException e) {
             assertNotNull(e.getMessage());
         }
         byte[] key = new byte[32];
         key[0] = 7;
-        container.setClusterKey(key);
+        container.clusterKey(key);
         key[0] = 9;
         assertEquals(7, container.getClusterKey()[0]);
-        container.setClusterPort(1234);
+        container.clusterPort(1234);
         assertEquals(1234, container.getClusterPort());
         try {
-            container.setClusterGroupAddress(InetAddress.getByAddress(new byte[] { 10, 0, 0, 1 }));
+            container.clusterGroupAddress(InetAddress.getByAddress(new byte[] { 10, 0, 0, 1 }));
             fail("unicast group");
         } catch (IllegalArgumentException e) {
             assertNotNull(e.getMessage());
         }
         InetAddress group = InetAddress.getByAddress(new byte[] { (byte) 224, 0, 5, 5 });
-        container.setClusterGroupAddress(group);
+        container.clusterGroupAddress(group);
         assertEquals(group, container.getClusterGroupAddress());
-        container.setClusterGroupAddress(null);
+        container.clusterGroupAddress(null);
         assertNull(container.getClusterGroupAddress());
         Set<String> allowed = new HashSet<String>();
         allowed.add("com.example.Safe");
-        container.setReplicationAllowedClasses(allowed);
-        container.setReplicationAllowedClasses(null);
-        container.setHotDeploy(true);
+        container.replicationAllowedClasses(allowed);
+        container.replicationAllowedClasses(null);
+        container.hotDeploy(true);
         assertTrue(container.hotDeploy);
     }
 
     @Test
     public void testWorkerPoolSettings() {
         assertEquals(8192, container.getBufferSize());
-        container.setBufferSize(10);
+        container.bufferSize(10);
         assertEquals(1024, container.getBufferSize());
-        container.setBufferSize(4096);
+        container.bufferSize(4096);
         assertEquals(4096, container.getBufferSize());
-        container.setWorkerCorePoolSize(3);
-        container.setWorkerMaximumPoolSize(9);
-        container.setWorkerKeepAlive(Duration.ofSeconds(5));
+        container.workerCorePoolSize(3);
+        container.workerMaximumPoolSize(9);
+        container.workerKeepAlive(Duration.ofSeconds(5));
         assertEquals(3, container.getWorkerThreadPool().getCorePoolSize());
         assertEquals(9, container.getWorkerThreadPool().getMaximumPoolSize());
         assertEquals(Duration.ofSeconds(5), container.getWorkerKeepAlive());
@@ -317,7 +317,7 @@ public class ContainerConfigurationTest {
                 + "<distributable/></web-app>");
         Context distributable = new Context(container, "/dist", dist);
         container.addContext(distributable);
-        container.setHotDeploy(true);
+        container.hotDeploy(true);
 
         container.init();
         container.initContexts(null);

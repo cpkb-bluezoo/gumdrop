@@ -284,7 +284,7 @@ public class TcpEndpointChannelTest {
     @Test
     public void silentPlaintextConnectionIsClosedByTheFirstByteTimeout() throws IOException {
         Counting listener = new Counting();
-        listener.setReadTimeoutMs(5000L);
+        listener.readTimeoutMs(5000L);
         endpoint.setListener(listener, REMOTE);
         endpoint.connected();
         assertEquals("connected", handler.events.get(0));
@@ -297,7 +297,7 @@ public class TcpEndpointChannelTest {
     @Test
     public void firstInboundBytesReleaseTheFirstByteTimeout() throws IOException {
         Counting listener = new Counting();
-        listener.setReadTimeoutMs(5000L);
+        listener.readTimeoutMs(5000L);
         endpoint.setListener(listener, REMOTE);
         endpoint.connected();
         ByteBuffer in = endpoint.prepareNetInForRead();
@@ -313,7 +313,7 @@ public class TcpEndpointChannelTest {
     @Test
     public void timeoutAfterCloseDoesNothingMore() throws IOException {
         Counting listener = new Counting();
-        listener.setReadTimeoutMs(5000L);
+        listener.readTimeoutMs(5000L);
         endpoint.setListener(listener, REMOTE);
         endpoint.connected();
         endpoint.close();
@@ -327,8 +327,8 @@ public class TcpEndpointChannelTest {
         endpoint.connected();
         assertTrue(loop.timer.entries().isEmpty());
         Counting listener = new Counting();
-        listener.setReadTimeoutMs(0L);
-        listener.setConnectionTimeoutMs(0L);
+        listener.readTimeoutMs(0L);
+        listener.connectionTimeoutMs(0L);
         endpoint.setListener(listener, REMOTE);
         endpoint.connected();
         assertTrue(loop.timer.entries().isEmpty());
@@ -344,7 +344,7 @@ public class TcpEndpointChannelTest {
         ep.setSelectorLoop(loop);
         ep.init();
         Counting listener = new Counting();
-        listener.setConnectionTimeoutMs(7000L);
+        listener.connectionTimeoutMs(7000L);
         ep.setListener(listener, REMOTE);
         ep.startTLS();
         assertEquals(1, loop.timer.entries().size());
@@ -358,7 +358,7 @@ public class TcpEndpointChannelTest {
         StubSocketChannel.Key key = new StubSocketChannel.Key(channel, 1);
         endpoint.setSelectionKey(key);
         Counting listener = new Counting();
-        listener.setReadTimeoutMs(5000L);
+        listener.readTimeoutMs(5000L);
         endpoint.setListener(listener, REMOTE);
         endpoint.connected();
         assertSame(channel, endpoint.takeSocketChannelForHandoff());

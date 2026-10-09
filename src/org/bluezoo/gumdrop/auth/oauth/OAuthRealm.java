@@ -23,11 +23,13 @@ package org.bluezoo.gumdrop.auth.oauth;
 
 import org.bluezoo.gumdrop.http.client.HttpResponseHandler;
 import org.bluezoo.gumdrop.auth.Realm;
+import org.bluezoo.gumdrop.auth.RealmCallback;
 import org.bluezoo.gumdrop.auth.SaslMechanism;
 import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.SelectorLoop;
+import org.bluezoo.gumdrop.TimerHandle;
 import org.bluezoo.gumdrop.http.client.DefaultHttpResponseHandler;
 import org.bluezoo.gumdrop.http.HttpClient;
 import org.bluezoo.gumdrop.http.client.HttpClientHandler;
@@ -124,14 +126,15 @@ import javax.crypto.spec.SecretKeySpec;
  * oauth.scope.mapping.user=read,write
  * }</pre>
  *
- * <h3>Gumdrop Configuration</h3>
+ * <h3>Usage</h3>
  * <pre>{@code
- * <realm id="oauth" class="org.bluezoo.gumdrop.auth.oauth.OAuthRealm"
- *        configFile="oauth.properties"/>
- * 
- * <server class="org.bluezoo.gumdrop.imap.ImapListener"
- *         port="993" secure="true"
- *         realm="#oauth"/>
+ * Properties config = new Properties();
+ * config.load(Files.newBufferedReader(Path.of("oauth.properties")));
+ * ImapServer imap = ImapServer.compose()
+ *     .listener(new ImapListener().port(993).secure(true).tls(tls))
+ *     .realm(new OAuthRealm(config))
+ *     ...
+ *     .server();
  * }</pre>
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
@@ -217,6 +220,17 @@ public class OAuthRealm implements Realm {
          * @return the request
          */
         HttpRequest post(HttpClient client, String path, HttpResponseHandler handler);
+
+        /**
+         * Starts the timer that fails an introspection the authorization
+         * server is too slow to answer. The task runs on the loop.
+         *
+         * @param loop the realm's loop
+         * @param delayMs the delay in milliseconds
+         * @param task what to run on timeout
+         * @return a handle that cancels the timer
+         */
+        TimerHandle schedule(final SelectorLoop loop, long delayMs, final Runnable task);
     }
 
     /** The real exchange: an actual HTTP client connection. */
@@ -229,6 +243,16 @@ public class OAuthRealm implements Realm {
         @Override
         public HttpRequest post(HttpClient client, String path, HttpResponseHandler handler) {
             return client.post(path, handler);
+        }
+
+        @Override
+        public TimerHandle schedule(final SelectorLoop loop, long delayMs, final Runnable task) {
+            return loop.getGumdrop().scheduleTimer(null, delayMs, new Runnable() {
+                @Override
+                public void run() {
+                    loop.invokeLater(task);
+                }
+            });
         }
     };
 
@@ -326,65 +350,103 @@ public class OAuthRealm implements Realm {
         return SUPPORTED_MECHANISMS;
     }
 
-    /** RFC 7662 §2.1 / RFC 7519 §7.2 — token validation. */
+    /**
+     * RFC 7662 §2.1 / RFC 7519 §7.2 — token validation. A cached result or a
+     * locally validated JWT completes at once; otherwise the token is
+     * introspected at the authorization server without waiting: the callback
+     * is delivered on this realm's loop when the response arrives.
+     */
     @Override
-    public TokenValidationResult validateOAuthToken(String accessToken) {
+    public void validateOAuthToken(final String accessToken,
+            final RealmCallback<TokenValidationResult> callback) {
         if (accessToken == null || accessToken.trim().isEmpty()) {
-            return TokenValidationResult.failure();
+            callback.completed(TokenValidationResult.failure());
+            return;
         }
         // Check cache first if enabled
         if (cacheEnabled && tokenCache != null) {
             CachedTokenResult cached = tokenCache.get(accessToken);
             if (cached != null && !cached.isExpired()) {
                 LOGGER.fine(L10N.getString("debug.token_result_from_cache"));
-                return cached.result;
+                callback.completed(cached.result);
+                return;
             }
         }
-        try {
-            // RFC 7519 — try local JWT validation first if enabled
-            TokenValidationResult result = null;
-            boolean attemptedJWT = jwtEnabled && looksLikeJWT(accessToken);
-            if (attemptedJWT) {
-                result = validateJWT(accessToken);
-                // Fail closed: a JWT-shaped token that fails cryptographic
-                // validation must not be retried via introspection.  Doing so
-                // would allow a token with a bad signature or unsupported
-                // algorithm to authenticate through a less-strict trust path.
-                if (result == null) {
-                    return TokenValidationResult.failure();
-                }
+        // RFC 7519 — try local JWT validation first if enabled
+        TokenValidationResult local = null;
+        boolean attemptedJWT = jwtEnabled && looksLikeJWT(accessToken);
+        if (attemptedJWT) {
+            try {
+                local = validateJWT(accessToken);
+            } catch (Exception e) {
+                events().warn("warn.oauth_token_failed").thrown(e).emit();
+                callback.completed(TokenValidationResult.failure());
+                return;
             }
-            // Only fall back to introspection for non-JWT tokens.
-            if (result == null) {
-                result = performTokenIntrospection(accessToken);
+            // Fail closed: a JWT-shaped token that fails cryptographic
+            // validation must not be retried via introspection.  Doing so
+            // would allow a token with a bad signature or unsupported
+            // algorithm to authenticate through a less-strict trust path.
+            if (local == null) {
+                callback.completed(TokenValidationResult.failure());
+                return;
             }
-            if (result.valid) {
-                if (result.username != null) {
-                    userResultCache.put(result.username, result);
-                }
-                if (cacheEnabled && tokenCache != null) {
-                    if (tokenCache.size() >= maxCacheSize) {
-                        cleanupCache();
-                    }
-                    tokenCache.put(accessToken, new CachedTokenResult(result, System.currentTimeMillis() + cacheTtl));
-                }
+            cacheValidResult(accessToken, local);
+            callback.completed(local);
+            return;
+        }
+        // Only non-JWT tokens are introspected.
+        performTokenIntrospection(accessToken,
+                new RealmCallback<TokenValidationResult>() {
+            @Override
+            public void completed(TokenValidationResult result) {
+                cacheValidResult(accessToken, result);
+                callback.completed(result);
             }
-            return result;
-        } catch (Exception e) {
-            events().warn("warn.oauth_token_failed").thrown(e).emit();
-            return TokenValidationResult.failure();
+
+            @Override
+            public void failed(Throwable cause) {
+                events().warn("warn.oauth_token_failed").thrown(cause).emit();
+                callback.failed(cause);
+            }
+        });
+    }
+
+    /** Remembers a valid result for the user and, if enabled, for the token. */
+    private void cacheValidResult(String accessToken, TokenValidationResult result) {
+        if (!result.valid) {
+            return;
+        }
+        if (result.username != null) {
+            userResultCache.put(result.username, result);
+        }
+        if (cacheEnabled && tokenCache != null) {
+            if (tokenCache.size() >= maxCacheSize) {
+                cleanupCache();
+            }
+            tokenCache.put(accessToken, new CachedTokenResult(result, System.currentTimeMillis() + cacheTtl));
         }
     }
 
     /** RFC 6750 §2.1 — bearer token validation. */
     @Override
-    public TokenValidationResult validateBearerToken(String token) {
+    public void validateBearerToken(String token,
+            RealmCallback<TokenValidationResult> callback) {
         // For OAuth realm, Bearer tokens are treated as OAuth access tokens
-        return validateOAuthToken(token);
+        validateOAuthToken(token, callback);
     }
 
+    /**
+     * Whether a user holds a role is decided by the scopes of the last token
+     * validated for them, so the answer is always in memory.
+     */
     @Override
-    public boolean isUserInRole(String username, String role) {
+    public void isUserInRole(String username, String role,
+            RealmCallback<Boolean> callback) {
+        callback.completed(Boolean.valueOf(userHasRole(username, role)));
+    }
+
+    private boolean userHasRole(String username, String role) {
         String[] requiredScopes = roleScopeMapping.get(role);
         if (requiredScopes == null || requiredScopes.length == 0) {
             String msg = MessageFormat.format(L10N.getString("debug.no_scope_mapping"), role);
@@ -402,7 +464,7 @@ public class OAuthRealm implements Realm {
         }
         return hasRequiredScopes(cached.scopes, requiredScopes);
     }
-    
+
     /**
      * RFC 6749 §3.3 — checks if a user has any of the required scopes.
      * 
@@ -436,24 +498,20 @@ public class OAuthRealm implements Realm {
         return hasRequiredScopes(userScopes, requiredScopes);
     }
 
+    /** The OAuth realm does not support password authentication. */
     @Override
-    public boolean passwordMatch(String username, String password) {
-        // OAuth realm doesn't support password authentication
-        return false;
+    public void passwordMatch(String username, String password,
+            RealmCallback<Boolean> callback) {
+        callback.completed(Boolean.FALSE);
     }
 
+    /** The OAuth realm does not support digest authentication. */
     @Override
-    public String getDigestHA1(String username, String realmName) {
-        // OAuth realm doesn't support digest authentication
-        return null;
+    public void getDigestHA1(String username, String realmName,
+            RealmCallback<String> callback) {
+        callback.completed(null);
     }
 
-    @Override
-    @SuppressWarnings("deprecation") // mandated override of a deprecated interface method
-    public String getPassword(String username) throws UnsupportedOperationException {
-        throw new UnsupportedOperationException("OAuth realm does not support password retrieval");
-    }
-    
     // ─────────────────────────────────────────────────────────────────────────────
     // RFC 7519 — Local JWT Validation
     // ─────────────────────────────────────────────────────────────────────────────
@@ -663,148 +721,199 @@ public class OAuthRealm implements Realm {
     // ─────────────────────────────────────────────────────────────────────────────
     
     /**
-     * Performs OAuth 2.0 token introspection (RFC 7662) using Gumdrop HTTP client.
-     * 
+     * Performs OAuth 2.0 token introspection (RFC 7662) using the Gumdrop HTTP
+     * client, without waiting: the callback is called on this realm's loop when
+     * the response has been parsed, or with a failure if the authorization
+     * server cannot be reached, answers with an error, or is too slow.
+     *
      * <p>Uses event-driven streaming JSON parsing - the response body is parsed
      * incrementally as it arrives, without intermediate buffering.
      */
-    private TokenValidationResult performTokenIntrospection(String accessToken) throws Exception {
-        
-        // Prepare request body for token introspection
-        String requestBody = "token=" + URLEncoder.encode(accessToken, StandardCharsets.UTF_8.name()) +
-                           "&token_type_hint=access_token";
-        byte[] bodyBytes = requestBody.getBytes(StandardCharsets.UTF_8);
+    private void performTokenIntrospection(String accessToken,
+            RealmCallback<TokenValidationResult> callback) {
         if (selectorLoop == null) {
-            throw new IllegalStateException(
+            callback.failed(new IllegalStateException(
                     "OAuthRealm.performTokenIntrospection requires a SelectorLoop "
-                            + "(bind via forSelectorLoop) to obtain a runtime");
+                            + "(bind via forSelectorLoop) to obtain a runtime"));
+            return;
         }
-        // Create HTTP client
-        HttpClient client = new HttpClient(selectorLoop, serverHost, serverPort);
-        client.setSecure(useHttps);
-        // Use credentials for automatic authentication
-        client.credentials(clientId, clientSecret);
-        // Synchronization for async response
-        final CountDownLatch latch = new CountDownLatch(1);
-        final AtomicReference<TokenValidationResult> result = new AtomicReference<TokenValidationResult>();
-        // Create response handler with streaming JSON parsing
-        DefaultHttpResponseHandler responseHandler = new DefaultHttpResponseHandler() {
-            private final IntrospectionResponseHandler jsonHandler = new IntrospectionResponseHandler();
-            private final JSONParser jsonParser = new JSONParser();
-            private boolean parserInitialized = false;
-            private Exception parseError = null;
-            private int statusCode = 0;
-            
-            @Override
-            public void status(int code) {
-                statusCode = code;
-                if (HttpStatus.fromCode(code).isSuccess()) {
-                    initParser();
-                } else {
-                    events().warn("err.oauth_token_introspection_error")
-                            .attr("status_code", statusCode).emit();
+        byte[] bodyBytes;
+        try {
+            // Prepare request body for token introspection
+            String requestBody = "token=" + URLEncoder.encode(accessToken, StandardCharsets.UTF_8.name()) +
+                               "&token_type_hint=access_token";
+            bodyBytes = requestBody.getBytes(StandardCharsets.UTF_8);
+        } catch (java.io.UnsupportedEncodingException e) {
+            callback.failed(e);
+            return;
+        }
+        new Introspection(bodyBytes, callback).start();
+    }
+
+    /** One introspection request; completes its callback exactly once. */
+    private final class Introspection {
+
+        private final byte[] bodyBytes;
+        private final RealmCallback<TokenValidationResult> callback;
+        private final HttpClient client;
+        private boolean done;
+        private TimerHandle timeoutHandle;
+
+        Introspection(byte[] bodyBytes, RealmCallback<TokenValidationResult> callback) {
+            this.bodyBytes = bodyBytes;
+            this.callback = callback;
+            this.client = new HttpClient(selectorLoop, serverHost, serverPort);
+            client.secure(useHttps);
+            // Use credentials for automatic authentication
+            client.credentials(clientId, clientSecret);
+        }
+
+        void start() {
+            final SelectorLoop loop = selectorLoop;
+            Gumdrop gumdrop = loop.getGumdrop();
+            timeoutHandle = exchange.schedule(loop, httpTimeoutMs, new Runnable() {
+                @Override
+                public void run() {
+                    events().warn("err.oauth_timeout").emit();
+                    fail(new java.io.IOException(
+                            "token introspection timed out"));
                 }
-            }
-            
-            private void initParser() {
-                if (!parserInitialized) {
-                    jsonParser.setContentHandler(jsonHandler);
-                    parserInitialized = true;
-                }
-            }
-            
-            @Override
-            public void bodyContent(ByteBuffer data) {
-                if (parseError != null) {
-                    return;
-                }
-                
-                initParser();
-                
-                try {
-                    jsonParser.receive(data);
-                } catch (JSONException e) {
-                    events().warn("err.json_parse_streaming").thrown(e).emit();
-                    parseError = e;
-                }
-            }
-            
-            @Override
-            public void endMessage() {
-                // Close the JSON parser to finalize parsing
-                try {
-                    if (parserInitialized) {
-                        jsonParser.close();
+            });
+            // Create response handler with streaming JSON parsing
+            final DefaultHttpResponseHandler responseHandler = new DefaultHttpResponseHandler() {
+                private final IntrospectionResponseHandler jsonHandler = new IntrospectionResponseHandler();
+                private final JSONParser jsonParser = new JSONParser();
+                private boolean parserInitialized = false;
+                private Exception parseError = null;
+                private int statusCode = 0;
+
+                @Override
+                public void status(int code) {
+                    statusCode = code;
+                    if (HttpStatus.fromCode(code).isSuccess()) {
+                        initParser();
+                    } else {
+                        events().warn("err.oauth_token_introspection_error")
+                                .attr("status_code", statusCode).emit();
                     }
-                } catch (JSONException e) {
-                    events().warn("err.json_parse_close").thrown(e).emit();
-                    if (parseError == null) {
+                }
+
+                private void initParser() {
+                    if (!parserInitialized) {
+                        jsonParser.setContentHandler(jsonHandler);
+                        parserInitialized = true;
+                    }
+                }
+
+                @Override
+                public void bodyContent(ByteBuffer data) {
+                    if (parseError != null) {
+                        return;
+                    }
+
+                    initParser();
+
+                    try {
+                        jsonParser.receive(data);
+                    } catch (JSONException e) {
+                        events().warn("err.json_parse_streaming").thrown(e).emit();
                         parseError = e;
                     }
                 }
-                
-                // Check for errors
-                if (parseError != null || statusCode != 200) {
-                    result.set(TokenValidationResult.failure());
-                } else {
-                    result.set(extractValidationResult(jsonHandler));
+
+                @Override
+                public void endMessage() {
+                    // Close the JSON parser to finalize parsing
+                    try {
+                        if (parserInitialized) {
+                            jsonParser.close();
+                        }
+                    } catch (JSONException e) {
+                        events().warn("err.json_parse_close").thrown(e).emit();
+                        if (parseError == null) {
+                            parseError = e;
+                        }
+                    }
+
+                    if (parseError != null) {
+                        fail(parseError);
+                    } else if (statusCode != 200) {
+                        fail(new java.io.IOException(
+                                "token introspection answered " + statusCode));
+                    } else {
+                        succeed(extractValidationResult(jsonHandler));
+                    }
                 }
-                latch.countDown();
-            }
-            
-            @Override
-            public void failed(Exception ex) {
-                events().warn("err.http_request_failed").thrown(ex).emit();
-                result.set(TokenValidationResult.failure());
-                latch.countDown();
-            }
-        };
-        
-        // Connect and make request
-        exchange.connect(client, selectorLoop.getGumdrop(), new HttpClientHandler() {
-            @Override
-            public void onConnected(Endpoint endpoint) {
-                LOGGER.fine(L10N.getString("debug.oauth_connected"));
-                
-                // Create and send the POST request
-                HttpRequest request = exchange.post(client, introspectionEndpoint, responseHandler);
-                request.header("Content-Type", "application/x-www-form-urlencoded");
-                request.header("Accept", "application/json");
-                request.header("Authorization", basicAuthHeader);
-                
-                // Send request with body
-                request.bodyContent(ByteBuffer.wrap(bodyBytes));
-                request.endMessage();
-            }
-            
-            @Override
-            public void onError(Exception cause) {
-                events().warn("err.connection").thrown(cause).emit();
-                result.set(TokenValidationResult.failure());
-                latch.countDown();
-            }
-            
-            @Override
-            public void onDisconnected() {
-                LOGGER.fine(L10N.getString("debug.oauth_disconnected"));
-            }
-            
-            @Override
-            public void onSecurityEstablished(SecurityInfo info) {
-                String msg = MessageFormat.format(L10N.getString("debug.oauth_tls_started"), info.getProtocol());
-                LOGGER.fine(msg);
-            }
-        });
-        // Wait for response with timeout
-        boolean completed = latch.await(httpTimeoutMs, TimeUnit.MILLISECONDS);
-        if (!completed) {
-            events().warn("err.oauth_timeout").emit();
-            return TokenValidationResult.failure();
+
+                @Override
+                public void failed(Exception ex) {
+                    events().warn("err.http_request_failed").thrown(ex).emit();
+                    fail(ex);
+                }
+            };
+
+            // Connect and make request
+            exchange.connect(client, gumdrop, new HttpClientHandler() {
+                @Override
+                public void onConnected(Endpoint endpoint) {
+                    LOGGER.fine(L10N.getString("debug.oauth_connected"));
+
+                    // Create and send the POST request
+                    HttpRequest request = exchange.post(client, introspectionEndpoint, responseHandler);
+                    request.header("Content-Type", "application/x-www-form-urlencoded");
+                    request.header("Accept", "application/json");
+                    request.header("Authorization", basicAuthHeader);
+
+                    // Send request with body
+                    request.bodyContent(ByteBuffer.wrap(bodyBytes));
+                    request.endMessage();
+                }
+
+                @Override
+                public void onError(Exception cause) {
+                    events().warn("err.connection").thrown(cause).emit();
+                    fail(cause);
+                }
+
+                @Override
+                public void onDisconnected() {
+                    LOGGER.fine(L10N.getString("debug.oauth_disconnected"));
+                    fail(new java.io.IOException("connection closed before the response"));
+                }
+
+                @Override
+                public void onSecurityEstablished(SecurityInfo info) {
+                    String msg = MessageFormat.format(L10N.getString("debug.oauth_tls_started"), info.getProtocol());
+                    LOGGER.fine(msg);
+                }
+            });
         }
-        TokenValidationResult validationResult = result.get();
-        return validationResult != null ? validationResult : TokenValidationResult.failure();
+
+        private void succeed(TokenValidationResult result) {
+            if (done) {
+                return;
+            }
+            finish();
+            callback.completed(result);
+        }
+
+        private void fail(Throwable cause) {
+            if (done) {
+                return;
+            }
+            finish();
+            callback.failed(cause);
+        }
+
+        private void finish() {
+            done = true;
+            if (timeoutHandle != null) {
+                timeoutHandle.cancel();
+            }
+            client.close();
+        }
     }
-    
+
     /**
      * Extracts the token validation result from the parsed JSON handler.
      * 

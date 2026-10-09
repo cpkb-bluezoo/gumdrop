@@ -22,6 +22,7 @@
 package org.bluezoo.gumdrop.http.client;
 
 import org.bluezoo.gumdrop.http.HttpMethod;
+import org.bluezoo.gumdrop.http.HttpVersion;
 import org.bluezoo.gumdrop.AbstractServerIntegrationTest;
 import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.SecurityInfo;
@@ -71,7 +72,7 @@ public class HTTPClientFacadeIntegrationTest extends AbstractServerIntegrationTe
                 .port(HTTP_PORT)
                 .addresses(InetAddress.getByName(TEST_HOST));
         // RFC 9110 section 9.3.8: TRACE is off by default; this test exercises TRACE.
-        listener.setTraceMethodEnabled(true);
+        listener.traceMethodEnabled(true);
         HttpServer server = HttpServer.compose()
                 .listener(listener)
                 .streamHandler(new EchoHandlerFactory())
@@ -122,8 +123,7 @@ public class HTTPClientFacadeIntegrationTest extends AbstractServerIntegrationTe
     public void testCredentialsFluentBuilderDoesNotBreakConnect() throws Exception {
         HttpClient client = new HttpClient(TEST_HOST, HTTP_PORT)
                 .credentials("user", "pass")
-                .h2Enabled(false)
-                .h2cUpgradeEnabled(false);
+                .versions(HttpVersion.HTTP_1_1);
         CountDownLatch connected = new CountDownLatch(1);
         AtomicReference<Exception> error = new AtomicReference<Exception>();
         client.connect(gumdrop, new HttpClientHandler() {
@@ -169,9 +169,8 @@ public class HTTPClientFacadeIntegrationTest extends AbstractServerIntegrationTe
 
     private HttpClient connectPlainHttp11() throws Exception {
         HttpClient client = new HttpClient(TEST_HOST, HTTP_PORT);
-        client.setH2Enabled(false);
-        client.setH2cUpgradeEnabled(false);
-        client.setAltSvcEnabled(false);
+        client.versions(HttpVersion.HTTP_1_1);
+        client.altSvcEnabled(false);
 
         CountDownLatch connected = new CountDownLatch(1);
         AtomicReference<Exception> error = new AtomicReference<Exception>();

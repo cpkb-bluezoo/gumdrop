@@ -67,7 +67,7 @@ import org.bluezoo.gumdrop.ftp.FtpFileSystem;
  * <pre>{@code
  * FtpFileSystem base = new BasicFTPFileSystem(rootPath);
  * RoleAwareFTPFileSystem secured =
- *         new RoleAwareFTPFileSystem(base, realm);
+ *         new RoleAwareFTPFileSystem(base);
  * secured.setHomeDirectoryConfinement(true);
  * }</pre>
  *
@@ -84,7 +84,6 @@ public class RoleAwareFTPFileSystem implements FtpFileSystem {
             ResourceBundle.getBundle("org.bluezoo.gumdrop.ftp.L10N");
 
     private final FtpFileSystem delegate;
-    private final Realm realm;
 
     private String readRole = "ftp-read";
     private String writeRole = "ftp-write";
@@ -95,17 +94,12 @@ public class RoleAwareFTPFileSystem implements FtpFileSystem {
      * Creates a role-aware file system wrapping the given delegate.
      *
      * @param delegate the underlying file system
-     * @param realm    the realm for role checks
      */
-    public RoleAwareFTPFileSystem(FtpFileSystem delegate, Realm realm) {
+    public RoleAwareFTPFileSystem(FtpFileSystem delegate) {
         if (delegate == null) {
             throw new NullPointerException("delegate");
         }
-        if (realm == null) {
-            throw new NullPointerException("realm");
-        }
         this.delegate = delegate;
-        this.realm = realm;
     }
 
     // ── Configuration ──
@@ -114,27 +108,33 @@ public class RoleAwareFTPFileSystem implements FtpFileSystem {
      * Sets the role required for read operations.
      *
      * @param role the read role name (default {@code "ftp-read"})
+     * @return this
      */
-    public void setReadRole(String role) {
+    public RoleAwareFTPFileSystem readRole(String role) {
         this.readRole = role;
+        return this;
     }
 
     /**
      * Sets the role required for write operations.
      *
      * @param role the write role name (default {@code "ftp-write"})
+     * @return this
      */
-    public void setWriteRole(String role) {
+    public RoleAwareFTPFileSystem writeRole(String role) {
         this.writeRole = role;
+        return this;
     }
 
     /**
      * Sets the role required for delete operations.
      *
      * @param role the delete role name (default {@code "ftp-delete"})
+     * @return this
      */
-    public void setDeleteRole(String role) {
+    public RoleAwareFTPFileSystem deleteRole(String role) {
         this.deleteRole = role;
+        return this;
     }
 
     /**
@@ -144,9 +144,11 @@ public class RoleAwareFTPFileSystem implements FtpFileSystem {
      * {@code /home/<username>/} and its descendants.
      *
      * @param enabled true to confine users to their home directory
+     * @return this
      */
-    public void setHomeDirectoryConfinement(boolean enabled) {
+    public RoleAwareFTPFileSystem homeDirectoryConfinement(boolean enabled) {
         this.homeDirectoryConfinement = enabled;
+        return this;
     }
 
     // ── Read operations ──
@@ -287,7 +289,7 @@ public class RoleAwareFTPFileSystem implements FtpFileSystem {
         if (user == null) {
             return false;
         }
-        if (realm.isUserInRole(user, role)) {
+        if (metadata.hasRole(role)) {
             return true;
         }
         if (LOGGER.isLoggable(Level.FINE)) {

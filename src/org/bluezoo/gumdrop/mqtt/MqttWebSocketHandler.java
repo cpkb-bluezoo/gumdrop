@@ -185,12 +185,12 @@ public class MqttWebSocketHandler implements WebSocketEventHandler {
 
         @Override
         public boolean isSecure() {
-            return false; // TLS is handled at the HTTP layer
+            return session.isSecure(); // TLS belongs to the HTTP layer
         }
 
         @Override
         public SecurityInfo getSecurityInfo() {
-            return null;
+            return session.getSecurityInfo();
         }
 
         @Override

@@ -33,7 +33,7 @@ import java.nio.file.Path;
 import org.junit.Test;
 
 /**
- * Integration test for {@link BasicRealm#setHref(String)}, which resolves a
+ * Integration test for {@link BasicRealm#href(String)}, which resolves a
  * URL string against the real working directory and opens it with the JDK
  * URL machinery, so it needs the real file system.
  *
@@ -48,7 +48,7 @@ public class BasicRealmHrefIntegrationTest {
         try {
             Files.write(file, xml.getBytes(StandardCharsets.UTF_8));
             BasicRealm realm = new BasicRealm();
-            realm.setHref(file.toUri().toString());
+            realm.href(file.toUri().toString());
             assertTrue(realm.userExists("zed"));
         } finally {
             Files.deleteIfExists(file);
@@ -61,7 +61,7 @@ public class BasicRealmHrefIntegrationTest {
         Files.delete(file);
         BasicRealm realm = new BasicRealm();
         try {
-            realm.setHref(file.toUri().toString());
+            realm.href(file.toUri().toString());
             fail("expected RuntimeException");
         } catch (RuntimeException expected) {
             assertNotNull(expected.getCause());

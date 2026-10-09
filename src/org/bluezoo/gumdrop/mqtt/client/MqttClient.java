@@ -55,7 +55,7 @@ import org.bluezoo.gumdrop.tls.ServerCredentials;
  * MqttClient client = new MqttClient()
  *         .host("broker.example.com")
  *         .port(1883);
- * client.setClientId("myClient");
+ * client.clientId("myClient");
  * client.connect(new MqttClientCallback() {
  *     public void connected(boolean sessionPresent, int returnCode) {
  *         client.subscribe("sensors/#", QoS.AT_LEAST_ONCE);
@@ -128,86 +128,62 @@ public class MqttClient {
 
     // ── Configuration ──
 
-    public void setSecure(boolean secure) {
-        this.secure = secure;
-    }
-
-    public void setClientCredentials(ServerCredentials clientCredentials) {
-        tls.serverCredentials(clientCredentials);
-    }
-
-    public void setTrustManager(X509TrustManager trustManager) {
-        tls.trustManager(trustManager);
-    }
-
-    public void setKeystoreFile(Path path) {
-        tls.keystoreFile(path);
-    }
-
-    public void setKeystorePass(String pass) {
-        tls.keystorePass(pass);
-    }
-
-    public void setVersion(MqttVersion version) {
+    public MqttClient version(MqttVersion version) {
         this.version = version;
+        return this;
     }
 
-    public void setClientId(String clientId) {
+    public MqttClient clientId(String clientId) {
         this.clientId = clientId;
+        return this;
     }
 
-    public void setCleanSession(boolean cleanSession) {
+    public MqttClient cleanSession(boolean cleanSession) {
         this.cleanSession = cleanSession;
+        return this;
     }
 
-    public void setKeepAlive(int keepAlive) {
+    public MqttClient keepAlive(int keepAlive) {
         this.keepAlive = keepAlive;
+        return this;
     }
 
-    public void setCredentials(String username, String password) {
+    public MqttClient credentials(String username, String password) {
         this.username = username;
         this.password = password != null
                 ? password.getBytes(StandardCharsets.UTF_8) : null;
+        return this;
     }
 
-    public void setMessageStore(MqttMessageStore messageStore) {
+    public MqttClient messageStore(MqttMessageStore messageStore) {
         this.messageStore = messageStore;
+        return this;
     }
 
-    public void setWill(String topic, byte[] payload, QoS qos, boolean retain) {
+    public MqttClient will(String topic, byte[] payload, QoS qos, boolean retain) {
         this.willTopic = topic;
         this.willPayload = payload;
         this.willQoS = qos;
         this.willRetain = retain;
+        return this;
     }
 
     /** @return this client */
     public MqttClient secure(boolean secure) {
-        setSecure(secure);
+        this.secure = secure;
         return this;
     }
 
-    /** @return this client */
-    public MqttClient clientCredentials(ServerCredentials clientCredentials) {
-        setClientCredentials(clientCredentials);
-        return this;
-    }
-
-    /** @return this client */
-    public MqttClient trustManager(X509TrustManager trustManager) {
-        setTrustManager(trustManager);
-        return this;
-    }
-
-    /** @return this client */
-    public MqttClient keystoreFile(Path path) {
-        setKeystoreFile(path);
-        return this;
-    }
-
-    /** @return this client */
-    public MqttClient keystorePass(String pass) {
-        setKeystorePass(pass);
+    /**
+     * Sets this client's TLS settings (certificates, trust, ECH and so on). The
+     * settings are copied, so later changes to {@code source} are not seen.
+     * Whether TLS is used at all is decided by {@link #secure(boolean)}.
+     *
+     * @param source the TLS configuration
+     * @return this client
+     */
+    public MqttClient tls(TlsConfig source) {
+        tls.copyFrom(source);
         return this;
     }
 

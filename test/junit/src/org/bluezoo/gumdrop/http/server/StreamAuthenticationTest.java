@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.http.server;
 
+import org.bluezoo.gumdrop.testsupport.InlineHttpAuthenticationProvider;
 import java.util.List;
 import org.bluezoo.gumdrop.http.HeaderFields;
 import org.bluezoo.gumdrop.http.Header;
@@ -59,7 +60,7 @@ public class StreamAuthenticationTest {
     private static final String PASSWORD = "secret";
 
     /** Simple HTTP Basic provider, accepting only USERNAME/PASSWORD. */
-    private static final class TestBasicProvider extends HttpAuthenticationProvider {
+    private static final class TestBasicProvider extends InlineHttpAuthenticationProvider {
         @Override protected String getAuthMethod() {
             return HttpServletRequest.BASIC_AUTH;
         }
@@ -136,6 +137,12 @@ public class StreamAuthenticationTest {
         @Override public int getMaxHeaderListSize() { return 8192; }
         @Override public long getMaxRequestBodySize() { return maxRequestBodySize; }
         @Override public HttpAuthenticationProvider getAuthenticationProvider() { return authProvider; }
+        boolean lockedOut;
+        int failures;
+        String successUser;
+        @Override boolean isAuthLockedOut() { return lockedOut; }
+        @Override void recordAuthFailure() { failures++; }
+        @Override void recordAuthSuccess(String username) { successUser = username; }
         @Override public void onWritable(int streamId, Runnable callback) { }
         @Override public void pauseRead(int streamId) { }
         @Override public void resumeRead(int streamId) { }
@@ -189,5 +196,138 @@ public class StreamAuthenticationTest {
         assertNotNull("a successfully authenticated request must expose a principal",
                 stream.getPrincipal());
         assertEquals(USERNAME, stream.getPrincipal().getName());
+    }
+
+    /** Basic provider whose realm answers only when the test says so. */
+    private static final class DeferredBasicProvider extends HttpAuthenticationProvider {
+        org.bluezoo.gumdrop.auth.RealmCallback<Boolean> pending;
+
+        @Override protected String getAuthMethod() {
+            return HttpServletRequest.BASIC_AUTH;
+        }
+        @Override protected String getRealmName() {
+            return REALM;
+        }
+        @Override protected void passwordMatch(SelectorLoop loop, String realm, String username,
+                String password, org.bluezoo.gumdrop.auth.RealmCallback<Boolean> callback) {
+            pending = callback;
+        }
+        @Override protected void getDigestHA1(SelectorLoop loop, String realm, String username,
+                org.bluezoo.gumdrop.auth.RealmCallback<String> callback) {
+            callback.completed(null);
+        }
+        @Override protected void validateBearerToken(SelectorLoop loop, String token,
+                org.bluezoo.gumdrop.auth.RealmCallback<Realm.TokenValidationResult> callback) {
+            callback.completed(null);
+        }
+        @Override protected void validateOAuthToken(SelectorLoop loop, String token,
+                org.bluezoo.gumdrop.auth.RealmCallback<Realm.TokenValidationResult> callback) {
+            callback.completed(null);
+        }
+    }
+
+    private Stream pendingStream(StubConnection conn, DeferredBasicProvider provider) throws Exception {
+        conn.authProvider = provider;
+        Stream stream = new Stream(conn, 1);
+        stream.addHeader(new Header(":method", "PUT"));
+        stream.addHeader(new Header("Authorization", basicHeader(USERNAME, PASSWORD)));
+        stream.streamEndHeaders();
+        return stream;
+    }
+
+    @Test
+    public void testSlowRealmHoldsTheRequestUntilItAnswers() throws Exception {
+        StubConnection conn = new StubConnection();
+        DeferredBasicProvider provider = new DeferredBasicProvider();
+        Stream stream = pendingStream(conn, provider);
+        assertNotNull("the realm was asked", provider.pending);
+        assertEquals("nothing is answered while the realm is thinking", -1, conn.lastStatusCode);
+        assertNull(stream.getPrincipal());
+    }
+
+    @Test
+    public void testSlowRealmSuccessAdmitsTheRequest() throws Exception {
+        StubConnection conn = new StubConnection();
+        DeferredBasicProvider provider = new DeferredBasicProvider();
+        Stream stream = pendingStream(conn, provider);
+        provider.pending.completed(Boolean.TRUE);
+        assertNotEquals(401, conn.lastStatusCode);
+        assertNotNull(stream.getPrincipal());
+        assertEquals(USERNAME, stream.getPrincipal().getName());
+    }
+
+    @Test
+    public void testSlowRealmRejectionAnswers401() throws Exception {
+        StubConnection conn = new StubConnection();
+        DeferredBasicProvider provider = new DeferredBasicProvider();
+        Stream stream = pendingStream(conn, provider);
+        provider.pending.completed(Boolean.FALSE);
+        assertEquals(401, conn.lastStatusCode);
+        assertNull(stream.getPrincipal());
+    }
+
+    @Test
+    public void testRealmFailureFailsClosed() throws Exception {
+        StubConnection conn = new StubConnection();
+        DeferredBasicProvider provider = new DeferredBasicProvider();
+        Stream stream = pendingStream(conn, provider);
+        provider.pending.failed(new java.io.IOException("directory down"));
+        assertEquals(401, conn.lastStatusCode);
+        assertNull(stream.getPrincipal());
+    }
+
+    @Test
+    public void testFailedCredentialsAreCountedTowardsLockout() throws Exception {
+        StubConnection conn = new StubConnection();
+        conn.authProvider = new TestBasicProvider();
+        Stream stream = new Stream(conn, 1);
+        stream.addHeader(new Header(":method", "PUT"));
+        stream.addHeader(new Header("Authorization", basicHeader(USERNAME, "wrong")));
+        stream.streamEndHeaders();
+        assertEquals(1, conn.failures);
+    }
+
+    @Test
+    public void testMissingCredentialsAreAChallengeNotAFailure() throws Exception {
+        StubConnection conn = new StubConnection();
+        conn.authProvider = new TestBasicProvider();
+        Stream stream = new Stream(conn, 1);
+        stream.addHeader(new Header(":method", "PUT"));
+        stream.streamEndHeaders();
+        assertEquals(401, conn.lastStatusCode);
+        assertEquals(0, conn.failures);
+    }
+
+    @Test
+    public void testSuccessIsReportedToClearTheCount() throws Exception {
+        StubConnection conn = new StubConnection();
+        conn.authProvider = new TestBasicProvider();
+        Stream stream = new Stream(conn, 1);
+        stream.addHeader(new Header(":method", "PUT"));
+        stream.addHeader(new Header("Authorization", basicHeader(USERNAME, PASSWORD)));
+        stream.streamEndHeaders();
+        assertEquals(USERNAME, conn.successUser);
+        assertEquals(0, conn.failures);
+    }
+
+    @Test
+    public void testLockedOutClientIsRefusedWithoutAskingTheRealm() throws Exception {
+        StubConnection conn = new StubConnection();
+        DeferredBasicProvider provider = new DeferredBasicProvider();
+        conn.lockedOut = true;
+        Stream stream = pendingStream(conn, provider);
+        assertEquals(429, conn.lastStatusCode);
+        assertNull("the realm was not consulted", provider.pending);
+    }
+
+    @Test
+    public void testLockedOutClientWithoutCredentialsStillGetsTheChallenge() throws Exception {
+        StubConnection conn = new StubConnection();
+        conn.authProvider = new TestBasicProvider();
+        conn.lockedOut = true;
+        Stream stream = new Stream(conn, 1);
+        stream.addHeader(new Header(":method", "PUT"));
+        stream.streamEndHeaders();
+        assertEquals(401, conn.lastStatusCode);
     }
 }

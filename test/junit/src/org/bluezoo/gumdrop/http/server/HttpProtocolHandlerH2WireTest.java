@@ -140,7 +140,7 @@ public class HttpProtocolHandlerH2WireTest {
         Conn() {
             endpoint.setSecure(true);
             final App a = app;
-            listener.setStreamHandler(new HttpStreamHandler() {
+            listener.streamHandler(new HttpStreamHandler() {
                 @Override
                 public HttpRequestHandler openStream(HttpResponse state) {
                     return new CollectingRequestHandler(state) {
@@ -901,7 +901,7 @@ public class HttpProtocolHandlerH2WireTest {
     @Test
     public void testPingKeepAliveTimerAndSettingsTimeout() {
         Conn c = new Conn();
-        c.listener.setPingIntervalMs(1000);
+        c.listener.pingIntervalMs(1000);
         c.handshake();
         byte[] ack = frame(4, 1, 0, new byte[0]);
         c.send(ack);
@@ -1182,7 +1182,7 @@ public class HttpProtocolHandlerH2WireTest {
     @Test
     public void testIdleTimeoutSendsGracefulGoaway() {
         Conn c = new Conn();
-        c.listener.setIdleTimeoutMs(1000L);
+        c.listener.idleTimeoutMs(1000L);
         c.handshake();
         byte[] ack = frame(4, 1, 0, new byte[0]);
         c.send(ack);
@@ -1232,6 +1232,89 @@ public class HttpProtocolHandlerH2WireTest {
         assertTrue(wire, wire.startsWith("HTTP/1.1 101"));
         c.request(3, "GET", "/after", true);
         assertTrue(c.app.events.contains("complete"));
+    }
+
+    // ── h2c upgrade: the request reaches the application only as HTTP/2 stream 1 ──
+
+    private static final String UPGRADE_HEAD = "Host: h\r\nConnection: Upgrade, HTTP2-Settings\r\n"
+            + "Upgrade: h2c\r\nHTTP2-Settings: AAMAAABkAAQAAP__\r\n";
+
+    private Conn cleartextUpgrade(String request) {
+        Conn c = new Conn();
+        c.endpoint.setSecure(false);
+        c.handler = new HttpProtocolHandler(c.listener);
+        c.handler.connected(c.endpoint);
+        c.send(request.getBytes(StandardCharsets.ISO_8859_1));
+        return c;
+    }
+
+    /** The bytes the server sent after its HTTP/1.1 101 response. */
+    private static byte[] afterTheSwitch(Conn c) {
+        byte[] wire = c.endpoint.getAllBytes();
+        String text = new String(wire, StandardCharsets.ISO_8859_1);
+        int end = text.indexOf("\r\n\r\n");
+        assertTrue(text, text.startsWith("HTTP/1.1 101") && end > 0);
+        byte[] rest = new byte[wire.length - (end + 4)];
+        System.arraycopy(wire, end + 4, rest, 0, rest.length);
+        return rest;
+    }
+
+    private void establishHttp2(Conn c) {
+        c.send(PREFACE);
+        c.send(frame(4, 0, 0, new byte[0]));
+    }
+
+    @Test
+    public void testH2cUpgradeRequestWaitsForHttp2ThenAnswersOnStreamOne() {
+        Conn c = cleartextUpgrade("GET /up HTTP/1.1\r\n" + UPGRADE_HEAD + "\r\n");
+        c.app.respondInHeaders = true;
+        // switched, but the application has not been given the request: a
+        // response now would be HTTP/1.1, after the 101
+        assertTrue(c.app.events.toString(), c.app.events.isEmpty());
+        c.send(PREFACE);
+        assertTrue(c.app.events.toString(), c.app.events.isEmpty());
+        c.send(frame(4, 0, 0, new byte[0]));
+        assertEquals("[headers]", c.app.events.toString());
+
+        String wire = new String(c.endpoint.getAllBytes(), StandardCharsets.ISO_8859_1);
+        assertFalse(wire, wire.contains("HTTP/1.1 200"));
+        assertEquals(2, dataBytes(parse(afterTheSwitch(c)), 1));
+    }
+
+    @Test
+    public void testH2cUpgradeResponseBodyIsHttp2FramedNotChunked() {
+        Conn c = cleartextUpgrade("GET /up HTTP/1.1\r\n" + UPGRADE_HEAD + "\r\n");
+        assertTrue(c.app.events.toString(), c.app.events.isEmpty());
+        establishHttp2(c);
+        assertEquals("[headers, complete]", c.app.events.toString());
+        List<Frame> frames = parse(afterTheSwitch(c));
+        // the whole body, and nothing else, is the DATA of stream 1
+        assertEquals(2, dataBytes(frames, 1));
+        Frame headers = first(frames, 1);
+        assertNotNull(headers);
+        assertEquals(1, headers.streamId);
+        assertTrue("the response ends the stream", count(frames, 0) >= 1);
+    }
+
+    @Test
+    public void testH2cUpgradeRequestWithABodyIsDeliveredWholeOnceHttp2IsEstablished() {
+        Conn c = cleartextUpgrade("POST /up HTTP/1.1\r\n" + UPGRADE_HEAD
+                + "Content-Length: 3\r\n\r\nabc");
+        assertTrue(c.app.events.toString(), c.app.events.isEmpty());
+        establishHttp2(c);
+        assertEquals("[headers, startBody, endBody, complete]", c.app.events.toString());
+        assertEquals("abc", new String(c.app.body.toByteArray(), StandardCharsets.ISO_8859_1));
+        String wire = new String(c.endpoint.getAllBytes(), StandardCharsets.ISO_8859_1);
+        assertFalse(wire, wire.contains("HTTP/1.1 200"));
+        assertEquals(2, dataBytes(parse(afterTheSwitch(c)), 1));
+    }
+
+    @Test
+    public void testH2cUpgradeAbandonedBeforeHttp2NeverShowsTheApplicationARequest() {
+        Conn c = cleartextUpgrade("GET /up HTTP/1.1\r\n" + UPGRADE_HEAD + "\r\n");
+        c.handler.disconnected();
+        assertFalse(c.app.events.toString(), c.app.events.contains("headers"));
+        assertFalse(c.app.events.toString(), c.app.events.contains("complete"));
     }
 
     @Test

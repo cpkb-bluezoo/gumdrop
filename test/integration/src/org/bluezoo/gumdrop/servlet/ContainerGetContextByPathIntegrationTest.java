@@ -149,7 +149,7 @@ public class ContainerGetContextByPathIntegrationTest {
 
         List<Context> replacementList = new ArrayList<Context>();
         replacementList.add(replacement);
-        container.setContexts(replacementList);
+        container.contexts(replacementList);
 
         assertNull("a context removed by setContexts must no longer be found",
                 container.getContextByPath("/old"));

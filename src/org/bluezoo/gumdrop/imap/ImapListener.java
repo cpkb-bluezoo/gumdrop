@@ -21,6 +21,8 @@
 
 package org.bluezoo.gumdrop.imap;
 
+import org.bluezoo.gumdrop.util.CidrNetwork;
+import java.util.List;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.Map;
@@ -137,21 +139,13 @@ public class ImapListener extends TcpListener {
     }
 
     /**
-     * Sets the port number this endpoint should bind to.
-     *
-     * @param port the port number
-     */
-    public void setPort(int port) {
-        this.port = port;
-    }
-    /**
      * Sets the port. Returns {@code this} for fluent configuration.
      *
      * @param port the port number
      * @return this listener
      */
     public ImapListener port(int port) {
-        setPort(port);
+        this.port = port;
         return this;
     }
 
@@ -179,6 +173,90 @@ public class ImapListener extends TcpListener {
         return this;
     }
 
+    @Override
+    public ImapListener maxConnections(int max) {
+        super.maxConnections(max);
+        return this;
+    }
+
+    @Override
+    public ImapListener maxConnectionsPerIP(int max) {
+        super.maxConnectionsPerIP(max);
+        return this;
+    }
+
+    @Override
+    public ImapListener rateLimit(String rateLimit) {
+        super.rateLimit(rateLimit);
+        return this;
+    }
+
+    @Override
+    public ImapListener maxAuthFailures(int max) {
+        super.maxAuthFailures(max);
+        return this;
+    }
+
+    @Override
+    public ImapListener authLockoutTimeMs(long lockoutMs) {
+        super.authLockoutTimeMs(lockoutMs);
+        return this;
+    }
+
+    @Override
+    public ImapListener allowedNetworks(List<CidrNetwork> allowedNetworks) {
+        super.allowedNetworks(allowedNetworks);
+        return this;
+    }
+
+    @Override
+    public ImapListener blockedNetworks(List<CidrNetwork> blockedNetworks) {
+        super.blockedNetworks(blockedNetworks);
+        return this;
+    }
+
+    @Override
+    public ImapListener name(String name) {
+        super.name(name);
+        return this;
+    }
+
+    @Override
+    public ImapListener maxNetInSize(int size) {
+        super.maxNetInSize(size);
+        return this;
+    }
+
+    @Override
+    public ImapListener maxNetOutSize(int size) {
+        super.maxNetOutSize(size);
+        return this;
+    }
+
+    @Override
+    public ImapListener idleTimeoutMs(long idleTimeoutMs) {
+        super.idleTimeoutMs(idleTimeoutMs);
+        return this;
+    }
+
+    @Override
+    public ImapListener readTimeoutMs(long readTimeoutMs) {
+        super.readTimeoutMs(readTimeoutMs);
+        return this;
+    }
+
+    @Override
+    public ImapListener connectionTimeoutMs(long connectionTimeoutMs) {
+        super.connectionTimeoutMs(connectionTimeoutMs);
+        return this;
+    }
+
+    @Override
+    public ImapListener maxDtlsPeers(int max) {
+        super.maxDtlsPeers(max);
+        return this;
+    }
+
     /**
      * Returns the authentication realm.
      *
@@ -192,9 +270,11 @@ public class ImapListener extends TcpListener {
      * Sets the authentication realm for IMAP authentication.
      *
      * @param realm the realm to use for authentication
+     * @return this
      */
-    public void setRealm(Realm realm) {
+    public ImapListener realm(Realm realm) {
         this.realm = realm;
+        return this;
     }
 
     /**
@@ -211,9 +291,11 @@ public class ImapListener extends TcpListener {
      * Sets the GSSAPI server for Kerberos authentication (RFC 4752).
      *
      * @param gssapiServer the GSSAPI server
+     * @return this
      */
-    public void setGSSAPIServer(GssapiServer gssapiServer) {
+    public ImapListener gssapiServer(GssapiServer gssapiServer) {
         this.gssapiServer = gssapiServer;
+        return this;
     }
 
     /**
@@ -230,9 +312,10 @@ public class ImapListener extends TcpListener {
      * @throws IOException if the keytab cannot be read or credentials
      *         cannot be acquired
      */
-    public void configureGSSAPI(Path keytabPath, String servicePrincipal)
+    public ImapListener configureGSSAPI(Path keytabPath, String servicePrincipal)
             throws IOException {
         this.gssapiServer = new GssapiServer(keytabPath, servicePrincipal);
+        return this;
     }
 
     /**
@@ -250,9 +333,11 @@ public class ImapListener extends TcpListener {
      * for the authenticated user.
      *
      * @param mailboxFactory the factory to create mailbox instances
+     * @return this
      */
-    public void setMailboxFactory(MailboxFactory mailboxFactory) {
+    public ImapListener mailboxFactory(MailboxFactory mailboxFactory) {
         this.mailboxFactory = mailboxFactory;
+        return this;
     }
 
     /**
@@ -275,9 +360,11 @@ public class ImapListener extends TcpListener {
      * </ul>
      *
      * @param quotaManager the quota manager
+     * @return this
      */
-    public void setQuotaManager(QuotaManager quotaManager) {
+    public ImapListener quotaManager(QuotaManager quotaManager) {
         this.quotaManager = quotaManager;
+        return this;
     }
 
     /**
@@ -294,9 +381,11 @@ public class ImapListener extends TcpListener {
      * This is the maximum time allowed for authentication.
      *
      * @param loginTimeoutMs the timeout in milliseconds
+     * @return this
      */
-    public void setLoginTimeoutMs(long loginTimeoutMs) {
+    public ImapListener loginTimeoutMs(long loginTimeoutMs) {
         this.loginTimeoutMs = loginTimeoutMs;
+        return this;
     }
 
     /**
@@ -313,9 +402,11 @@ public class ImapListener extends TcpListener {
      * This is the maximum time for a single command to complete.
      *
      * @param commandTimeoutMs the timeout in milliseconds
+     * @return this
      */
-    public void setCommandTimeoutMs(long commandTimeoutMs) {
+    public ImapListener commandTimeoutMs(long commandTimeoutMs) {
         this.commandTimeoutMs = commandTimeoutMs;
+        return this;
     }
 
     /**
@@ -332,9 +423,11 @@ public class ImapListener extends TcpListener {
      * IDLE provides push notification for mailbox changes.
      *
      * @param enableIDLE true to enable IDLE
+     * @return this
      */
-    public void setEnableIDLE(boolean enableIDLE) {
+    public ImapListener enableIDLE(boolean enableIDLE) {
         this.enableIDLE = enableIDLE;
+        return this;
     }
 
     /**
@@ -350,9 +443,11 @@ public class ImapListener extends TcpListener {
      * Sets whether the NAMESPACE extension is enabled.
      *
      * @param enableNAMESPACE true to enable NAMESPACE
+     * @return this
      */
-    public void setEnableNAMESPACE(boolean enableNAMESPACE) {
+    public ImapListener enableNAMESPACE(boolean enableNAMESPACE) {
         this.enableNAMESPACE = enableNAMESPACE;
+        return this;
     }
 
     /**
@@ -368,9 +463,11 @@ public class ImapListener extends TcpListener {
      * Sets whether the QUOTA extension is enabled.
      *
      * @param enableQUOTA true to enable QUOTA
+     * @return this
      */
-    public void setEnableQUOTA(boolean enableQUOTA) {
+    public ImapListener enableQUOTA(boolean enableQUOTA) {
         this.enableQUOTA = enableQUOTA;
+        return this;
     }
 
     /**
@@ -386,9 +483,11 @@ public class ImapListener extends TcpListener {
      * Sets whether the MOVE extension is enabled.
      *
      * @param enableMOVE true to enable MOVE
+     * @return this
      */
-    public void setEnableMOVE(boolean enableMOVE) {
+    public ImapListener enableMOVE(boolean enableMOVE) {
         this.enableMOVE = enableMOVE;
+        return this;
     }
 
     /**
@@ -404,9 +503,11 @@ public class ImapListener extends TcpListener {
      * Sets whether the COMPRESS=DEFLATE extension is enabled (RFC 4978).
      *
      * @param enableCOMPRESS true to allow {@code COMPRESS DEFLATE}
+     * @return this
      */
-    public void setEnableCOMPRESS(boolean enableCOMPRESS) {
+    public ImapListener enableCOMPRESS(boolean enableCOMPRESS) {
         this.enableCOMPRESS = enableCOMPRESS;
+        return this;
     }
 
     /**
@@ -422,9 +523,11 @@ public class ImapListener extends TcpListener {
      * Sets whether the UTF8=ACCEPT extension is enabled (RFC 6855).
      *
      * @param enableUTF8ACCEPT true to advertise and allow ENABLE UTF8=ACCEPT
+     * @return this
      */
-    public void setEnableUTF8ACCEPT(boolean enableUTF8ACCEPT) {
+    public ImapListener enableUTF8ACCEPT(boolean enableUTF8ACCEPT) {
         this.enableUTF8ACCEPT = enableUTF8ACCEPT;
+        return this;
     }
 
     /**
@@ -440,9 +543,11 @@ public class ImapListener extends TcpListener {
      * Sets whether the SORT extension (RFC 5256) is enabled.
      *
      * @param enableSORT true to advertise SORT and I18NLEVEL=1
+     * @return this
      */
-    public void setEnableSORT(boolean enableSORT) {
+    public ImapListener enableSORT(boolean enableSORT) {
         this.enableSORT = enableSORT;
+        return this;
     }
 
     /**
@@ -458,9 +563,11 @@ public class ImapListener extends TcpListener {
      * Sets whether CONDSTORE (RFC 7162) is enabled.
      *
      * @param enableCONDSTORE true to enable CONDSTORE
+     * @return this
      */
-    public void setEnableCONDSTORE(boolean enableCONDSTORE) {
+    public ImapListener enableCONDSTORE(boolean enableCONDSTORE) {
         this.enableCONDSTORE = enableCONDSTORE;
+        return this;
     }
 
     /**
@@ -476,9 +583,11 @@ public class ImapListener extends TcpListener {
      * Sets whether QRESYNC (RFC 7162) is enabled.
      *
      * @param enableQRESYNC true to enable QRESYNC
+     * @return this
      */
-    public void setEnableQRESYNC(boolean enableQRESYNC) {
+    public ImapListener enableQRESYNC(boolean enableQRESYNC) {
         this.enableQRESYNC = enableQRESYNC;
+        return this;
     }
 
     /**
@@ -494,9 +603,11 @@ public class ImapListener extends TcpListener {
      * Sets whether OBJECTID (RFC 8474) is enabled.
      *
      * @param enableOBJECTID true to enable OBJECTID
+     * @return this
      */
-    public void setEnableOBJECTID(boolean enableOBJECTID) {
+    public ImapListener enableOBJECTID(boolean enableOBJECTID) {
         this.enableOBJECTID = enableOBJECTID;
+        return this;
     }
 
     /**
@@ -512,9 +623,11 @@ public class ImapListener extends TcpListener {
      * Sets whether RFC 5465 NOTIFY is enabled.
      *
      * @param enableNOTIFY true to enable NOTIFY
+     * @return this
      */
-    public void setEnableNOTIFY(boolean enableNOTIFY) {
+    public ImapListener enableNOTIFY(boolean enableNOTIFY) {
         this.enableNOTIFY = enableNOTIFY;
+        return this;
     }
 
     /**
@@ -530,9 +643,11 @@ public class ImapListener extends TcpListener {
      * Sets whether RFC 5464 METADATA is enabled.
      *
      * @param enableMETADATA true to enable METADATA
+     * @return this
      */
-    public void setEnableMETADATA(boolean enableMETADATA) {
+    public ImapListener enableMETADATA(boolean enableMETADATA) {
         this.enableMETADATA = enableMETADATA;
+        return this;
     }
 
     /**
@@ -552,9 +667,11 @@ public class ImapListener extends TcpListener {
      * "vendor"). Pass {@code null} to use defaults.
      *
      * @param fields the key-value pairs to advertise
+     * @return this
      */
-    public void setServerIdFields(Map<String, String> fields) {
+    public ImapListener serverIdFields(Map<String, String> fields) {
         this.serverIdFields = fields;
+        return this;
     }
 
     /**
@@ -572,9 +689,11 @@ public class ImapListener extends TcpListener {
      * Enabling this in production exposes passwords to network eavesdropping.
      *
      * @param allowPlaintextLogin true to allow plaintext login
+     * @return this
      */
-    public void setAllowPlaintextLogin(boolean allowPlaintextLogin) {
+    public ImapListener allowPlaintextLogin(boolean allowPlaintextLogin) {
         this.allowPlaintextLogin = allowPlaintextLogin;
+        return this;
     }
 
     /**
@@ -590,9 +709,11 @@ public class ImapListener extends TcpListener {
      * Sets the maximum command line length.
      *
      * @param maxLineLength the max line length in bytes
+     * @return this
      */
-    public void setMaxLineLength(int maxLineLength) {
+    public ImapListener maxLineLength(int maxLineLength) {
         this.maxLineLength = maxLineLength;
+        return this;
     }
 
     /**
@@ -608,9 +729,11 @@ public class ImapListener extends TcpListener {
      * Sets the maximum literal size.
      *
      * @param maxLiteralSize the max literal size in bytes
+     * @return this
      */
-    public void setMaxLiteralSize(int maxLiteralSize) {
+    public ImapListener maxLiteralSize(int maxLiteralSize) {
         this.maxLiteralSize = maxLiteralSize;
+        return this;
     }
 
     /**
@@ -625,7 +748,7 @@ public class ImapListener extends TcpListener {
 
         // Set IMAP-specific idle timeout default (30 minutes per RFC 9051)
         if (getIdleTimeoutMs() == DEFAULT_IDLE_TIMEOUT_MS) {
-            setIdleTimeoutMs(30 * 60 * 1000); // 30 minutes
+            idleTimeoutMs(30 * 60 * 1000); // 30 minutes
         }
 
         if (realm == null) {
@@ -660,9 +783,11 @@ public class ImapListener extends TcpListener {
      * wiring.
      *
      * @param server the owning server
+     * @return this
      */
-    public void setServer(org.bluezoo.gumdrop.imap.server.ImapServer server) {
+    public ImapListener server(org.bluezoo.gumdrop.imap.server.ImapServer server) {
         this.server = server;
+        return this;
     }
 
     /**
@@ -674,18 +799,13 @@ public class ImapListener extends TcpListener {
         return server;
     }
 
-    public void setSessionProvider(
-            org.bluezoo.gumdrop.imap.server.ImapServerSessionProvider sessionProvider) {
-        this.sessionProvider = sessionProvider;
-    }
-
     public org.bluezoo.gumdrop.imap.server.ImapServerSessionProvider getSessionProvider() {
         return sessionProvider;
     }
 
     public ImapListener sessionProvider(
             org.bluezoo.gumdrop.imap.server.ImapServerSessionProvider sessionProvider) {
-        setSessionProvider(sessionProvider);
+        this.sessionProvider = sessionProvider;
         return this;
     }
 
@@ -784,7 +904,9 @@ public class ImapListener extends TcpListener {
     protected String getCapabilities(boolean authenticated, boolean secure,
             boolean compressionActive) {
         StringBuilder caps = new StringBuilder();
-        caps.append("IMAP4rev2");
+        // RFC 9051 section 6.1.1: IMAP4rev1 is also named so that clients
+        // that look only for it will connect
+        caps.append("IMAP4rev1 IMAP4rev2");
 
         // RFC 9051 section 6.2.1 — advertise STARTTLS only pre-auth on cleartext
         if (!authenticated && !secure && isSTARTTLSAvailable()) {

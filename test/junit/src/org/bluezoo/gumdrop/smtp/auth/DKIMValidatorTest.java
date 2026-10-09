@@ -107,7 +107,7 @@ public class DKIMValidatorTest {
         KeyPair kp = gen.generateKeyPair();
 
         DkimSigner signer = new DkimSigner(kp.getPrivate(), "example.com", "sel1");
-        signer.setSignedHeaders(signedHeaderNames);
+        signer.signedHeaders(signedHeaderNames);
 
         byte[] body = "Hello world\r\n".getBytes(StandardCharsets.US_ASCII);
         signer.bodyLine(body, 0, body.length);

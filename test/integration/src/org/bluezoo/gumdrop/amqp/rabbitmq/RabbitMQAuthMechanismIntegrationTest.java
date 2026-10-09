@@ -22,7 +22,7 @@
 package org.bluezoo.gumdrop.amqp.rabbitmq;
 
 import org.bluezoo.gumdrop.Gumdrop;
-import org.bluezoo.gumdrop.amqp.client.AmqpClientRecovery;
+import org.bluezoo.gumdrop.amqp.client.AmqpClient;
 import org.bluezoo.gumdrop.amqp.client.RecoveryPolicy;
 import org.bluezoo.gumdrop.amqp.client.ClientChannel;
 import org.bluezoo.gumdrop.amqp.client.ClientConnection;
@@ -55,7 +55,7 @@ public class RabbitMQAuthMechanismIntegrationTest {
 
     private static final long TIMEOUT_SECONDS = 10;
 
-    private AmqpClientRecovery client;
+    private AmqpClient client;
     private Gumdrop gumdrop;
 
     @Before
@@ -82,7 +82,7 @@ public class RabbitMQAuthMechanismIntegrationTest {
 
     @Test
     public void testPlainMechanismConnects() throws Exception {
-        client = new AmqpClientRecovery(RabbitMQTestSupport.HOST, RabbitMQTestSupport.PLAINTEXT_PORT)
+        client = new AmqpClient(RabbitMQTestSupport.HOST, RabbitMQTestSupport.PLAINTEXT_PORT)
                 .credentials(RabbitMQTestSupport.USERNAME, RabbitMQTestSupport.PASSWORD)
                 .virtualHost(RabbitMQTestSupport.VHOST)
                 .mechanism("PLAIN");
@@ -108,7 +108,7 @@ public class RabbitMQAuthMechanismIntegrationTest {
     /** RabbitMQ implements AMQPLAIN itself (it's a RabbitMQ extension) -- a real cross-implementation check. */
     @Test
     public void testAmqplainMechanismConnects() throws Exception {
-        client = new AmqpClientRecovery(RabbitMQTestSupport.HOST, RabbitMQTestSupport.PLAINTEXT_PORT)
+        client = new AmqpClient(RabbitMQTestSupport.HOST, RabbitMQTestSupport.PLAINTEXT_PORT)
                 .credentials(RabbitMQTestSupport.USERNAME, RabbitMQTestSupport.PASSWORD)
                 .virtualHost(RabbitMQTestSupport.VHOST)
                 .mechanism("AMQPLAIN");
@@ -133,7 +133,7 @@ public class RabbitMQAuthMechanismIntegrationTest {
 
     @Test
     public void testWrongPasswordIsRejectedNotSilentlyAccepted() throws Exception {
-        client = new AmqpClientRecovery(RabbitMQTestSupport.HOST, RabbitMQTestSupport.PLAINTEXT_PORT)
+        client = new AmqpClient(RabbitMQTestSupport.HOST, RabbitMQTestSupport.PLAINTEXT_PORT)
                 .credentials(RabbitMQTestSupport.USERNAME, "definitely-the-wrong-password")
                 .virtualHost(RabbitMQTestSupport.VHOST)
                 .recoveryPolicy(new RecoveryPolicy().withMaxAttempts(1));
@@ -164,7 +164,7 @@ public class RabbitMQAuthMechanismIntegrationTest {
         // over a plain, non-mTLS listener -- requesting one must fail
         // fast (mechanism-not-offered) rather than silently falling back
         // to PLAIN or hanging waiting for a challenge that never comes.
-        client = new AmqpClientRecovery(RabbitMQTestSupport.HOST, RabbitMQTestSupport.PLAINTEXT_PORT)
+        client = new AmqpClient(RabbitMQTestSupport.HOST, RabbitMQTestSupport.PLAINTEXT_PORT)
                 .credentials(RabbitMQTestSupport.USERNAME, RabbitMQTestSupport.PASSWORD)
                 .virtualHost(RabbitMQTestSupport.VHOST)
                 .mechanism("EXTERNAL")

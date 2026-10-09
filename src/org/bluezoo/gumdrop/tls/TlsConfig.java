@@ -22,6 +22,9 @@
 package org.bluezoo.gumdrop.tls;
 
 import java.nio.file.Path;
+import java.util.Collections;
+import java.util.LinkedHashMap;
+import java.util.Map;
 
 import javax.net.ssl.X509TrustManager;
 
@@ -65,6 +68,14 @@ public final class TlsConfig {
     private KeystoreFormat keystoreFormat;
     private ServerCredentials serverCredentials;
     private boolean verifyPeer = true;
+    private boolean earlyData;
+    private String cipherSuites;
+    private String namedGroups;
+    private TlsVersion tlsVersion;
+    private DtlsVersion dtlsVersion;
+    private final Map<String, String> sniHostnames = new LinkedHashMap<String, String>();
+    private String sniDefaultAlias;
+    private boolean requireClientAuth;
     private X509TrustManager trustManager;
     private Path echConfigListFile;
     private Path echPrivateKeyFile;
@@ -73,6 +84,9 @@ public final class TlsConfig {
     private boolean clientEchGreaseEnabled;
     private boolean clientEchDnsDiscovery;
     private boolean clientEchRequired;
+    private boolean requireCookie;
+    private byte[] cookieSecret;
+    private int maxFragmentSize;
 
     /**
      * Creates an empty config for fluent configuration.
@@ -125,6 +139,192 @@ public final class TlsConfig {
         TlsConfig config = new TlsConfig();
         config.serverCredentials = serverCredentials;
         return config;
+    }
+
+    /**
+     * Enables TLS 1.3 early data (0-RTT) where the transport supports it
+     * (QUIC). Early data is replayable, so it is off by default.
+     *
+     * @param earlyData whether to send or accept early data
+     * @return this config
+     */
+    public TlsConfig earlyData(boolean earlyData) {
+        this.earlyData = earlyData;
+        return this;
+    }
+
+    /**
+     * Restricts the TLS 1.3 cipher suites (colon-separated IANA names).
+     *
+     * @param cipherSuites the suites, or null for the default set
+     * @return this config
+     */
+    public TlsConfig cipherSuites(String cipherSuites) {
+        this.cipherSuites = cipherSuites;
+        return this;
+    }
+
+    /**
+     * Restricts the key exchange groups (colon-separated names, for example
+     * {@code X25519:SECP256R1}).
+     *
+     * @param namedGroups the groups, or null for the default set
+     * @return this config
+     */
+    public TlsConfig namedGroups(String namedGroups) {
+        this.namedGroups = namedGroups;
+        return this;
+    }
+
+    /**
+     * Pins the TLS protocol version of a TCP listener. Not negotiated per
+     * connection: to serve both TLS 1.2 and TLS 1.3 peers use two listeners.
+     * QUIC is always TLS 1.3.
+     *
+     * @param tlsVersion the version, or null to negotiate
+     * @return this config
+     */
+    public TlsConfig tlsVersion(TlsVersion tlsVersion) {
+        this.tlsVersion = tlsVersion;
+        return this;
+    }
+
+    /**
+     * Pins the DTLS protocol version of a UDP listener.
+     *
+     * @param dtlsVersion the version, or null to negotiate
+     * @return this config
+     */
+    public TlsConfig dtlsVersion(DtlsVersion dtlsVersion) {
+        this.dtlsVersion = dtlsVersion;
+        return this;
+    }
+
+    /**
+     * Presents a different server certificate for a host name, by Server Name
+     * Indication. The alias names an entry in the keystore, so SNI needs a
+     * keystore identity.
+     *
+     * @param hostname an exact host name or a {@code *.example.com} wildcard
+     * @param alias the keystore alias to present
+     * @return this config
+     */
+    public TlsConfig sni(String hostname, String alias) {
+        if (hostname == null || alias == null) {
+            throw new NullPointerException("hostname and alias are required");
+        }
+        sniHostnames.put(hostname, alias);
+        return this;
+    }
+
+    /**
+     * The keystore alias presented when no SNI host name matches.
+     *
+     * @param alias the alias, or null
+     * @return this config
+     */
+    public TlsConfig sniDefaultAlias(String alias) {
+        this.sniDefaultAlias = alias;
+        return this;
+    }
+
+    /**
+     * Requires connecting clients to present a certificate (mutual TLS),
+     * verified against {@link #trustManager(X509TrustManager)}.
+     *
+     * @param required whether client certificates are required
+     * @return this config
+     */
+    public TlsConfig requireClientAuth(boolean required) {
+        this.requireClientAuth = required;
+        return this;
+    }
+
+    /**
+     * Makes a DTLS server demand a valid cookie (RFC 6347 section 4.2.1, and
+     * the HelloRetryRequest cookie of RFC 9147) before it allocates any
+     * handshake state for a peer, so that a spoofed source address cannot make
+     * it do work or reflect traffic. Only meaningful on a UDP listener; TCP
+     * and QUIC ignore it. If no {@link #cookieSecret(byte[])} is set, the
+     * listener generates a random one when it starts.
+     *
+     * @param required whether to require the cookie exchange
+     * @return this config
+     */
+    public TlsConfig requireCookie(boolean required) {
+        this.requireCookie = required;
+        return this;
+    }
+
+    /**
+     * Sets the secret the DTLS cookies are computed from. Give every server
+     * instance behind one address the same secret so that a cookie issued by
+     * one is accepted by another; leave it unset to use a random secret per
+     * listener.
+     *
+     * @param secret the secret (copied), or null for a random one
+     * @return this config
+     */
+    public TlsConfig cookieSecret(byte[] secret) {
+        this.cookieSecret = secret != null ? secret.clone() : null;
+        return this;
+    }
+
+    /**
+     * Sets the largest handshake message fragment a DTLS server or client
+     * sends in one datagram, which bounds memory and keeps flights under the
+     * path MTU.
+     *
+     * @param bytes the size in bytes, or 0 for the default (1024)
+     * @return this config
+     */
+    public TlsConfig maxFragmentSize(int bytes) {
+        this.maxFragmentSize = bytes;
+        return this;
+    }
+
+    public boolean isRequireCookie() {
+        return requireCookie;
+    }
+
+    public byte[] getCookieSecret() {
+        return cookieSecret != null ? cookieSecret.clone() : null;
+    }
+
+    public int getMaxFragmentSize() {
+        return maxFragmentSize;
+    }
+
+    public String getCipherSuites() {
+        return cipherSuites;
+    }
+
+    public String getNamedGroups() {
+        return namedGroups;
+    }
+
+    public TlsVersion getTlsVersion() {
+        return tlsVersion;
+    }
+
+    public DtlsVersion getDtlsVersion() {
+        return dtlsVersion;
+    }
+
+    public Map<String, String> getSniHostnames() {
+        return Collections.unmodifiableMap(sniHostnames);
+    }
+
+    public String getSniDefaultAlias() {
+        return sniDefaultAlias;
+    }
+
+    public boolean isClientAuthRequired() {
+        return requireClientAuth;
+    }
+
+    public boolean isEarlyDataEnabled() {
+        return earlyData;
     }
 
     public TlsConfig verifyPeer(boolean verifyPeer) {
@@ -352,6 +552,15 @@ public final class TlsConfig {
         TlsConfig out = new TlsConfig();
         out.verifyPeer = local.hasMaterial() ? local.verifyPeer
                 : (fallback.hasMaterial() ? fallback.verifyPeer : true);
+        out.earlyData = local.earlyData || fallback.earlyData;
+        out.cipherSuites = coalesce(local.cipherSuites, fallback.cipherSuites);
+        out.namedGroups = coalesce(local.namedGroups, fallback.namedGroups);
+        out.tlsVersion = coalesce(local.tlsVersion, fallback.tlsVersion);
+        out.dtlsVersion = coalesce(local.dtlsVersion, fallback.dtlsVersion);
+        out.sniHostnames.putAll(fallback.sniHostnames);
+        out.sniHostnames.putAll(local.sniHostnames);
+        out.sniDefaultAlias = coalesce(local.sniDefaultAlias, fallback.sniDefaultAlias);
+        out.requireClientAuth = local.requireClientAuth || fallback.requireClientAuth;
         out.serverCredentials = coalesce(local.serverCredentials, fallback.serverCredentials);
         out.trustManager = coalesce(local.trustManager, fallback.trustManager);
         out.keystoreFile = coalesce(local.keystoreFile, fallback.keystoreFile);
@@ -370,6 +579,9 @@ public final class TlsConfig {
                 : fallback.clientEchGreaseEnabled;
         out.clientEchDnsDiscovery = local.clientEchDnsDiscovery || fallback.clientEchDnsDiscovery;
         out.clientEchRequired = local.clientEchRequired || fallback.clientEchRequired;
+        out.requireCookie = local.requireCookie || fallback.requireCookie;
+        out.cookieSecret = coalesce(local.cookieSecret, fallback.cookieSecret);
+        out.maxFragmentSize = local.maxFragmentSize != 0 ? local.maxFragmentSize : fallback.maxFragmentSize;
         return out;
     }
 
@@ -391,6 +603,15 @@ public final class TlsConfig {
             return this;
         }
         this.verifyPeer = source.verifyPeer;
+        this.earlyData = source.earlyData;
+        this.cipherSuites = source.cipherSuites;
+        this.namedGroups = source.namedGroups;
+        this.tlsVersion = source.tlsVersion;
+        this.dtlsVersion = source.dtlsVersion;
+        this.sniHostnames.clear();
+        this.sniHostnames.putAll(source.sniHostnames);
+        this.sniDefaultAlias = source.sniDefaultAlias;
+        this.requireClientAuth = source.requireClientAuth;
         this.serverCredentials = source.serverCredentials;
         this.trustManager = source.trustManager;
         this.keystoreFile = source.keystoreFile;
@@ -405,6 +626,9 @@ public final class TlsConfig {
         this.clientEchGreaseEnabled = source.clientEchGreaseEnabled;
         this.clientEchDnsDiscovery = source.clientEchDnsDiscovery;
         this.clientEchRequired = source.clientEchRequired;
+        this.requireCookie = source.requireCookie;
+        this.cookieSecret = source.cookieSecret != null ? source.cookieSecret.clone() : null;
+        this.maxFragmentSize = source.maxFragmentSize;
         return this;
     }
 

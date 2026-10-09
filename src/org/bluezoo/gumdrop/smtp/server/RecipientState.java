@@ -21,6 +21,8 @@
 
 package org.bluezoo.gumdrop.smtp.server;
 
+import org.bluezoo.gumdrop.smtp.DsnRecipientParameters;
+
 /**
  * Operations for responding to RCPT TO.
  * 
@@ -42,6 +44,19 @@ package org.bluezoo.gumdrop.smtp.server;
  * @see <a href="https://www.rfc-editor.org/rfc/rfc5321#section-4.1.1.3">RFC 5321 §4.1.1.3</a>
  */
 public interface RecipientState {
+
+    /**
+     * Returns the RFC 3461 per-recipient parameters given on this RCPT TO
+     * command (NOTIFY and ORCPT).
+     *
+     * <p>The handler keeps them with the recipient it accepts, since they
+     * decide when and how a delivery status notification is generated.
+     *
+     * @return the parameters, or null if the command gave none
+     */
+    default DsnRecipientParameters getRecipientDsnParameters() {
+        return null;
+    }
 
     /**
      * Accepts the recipient (250 response).

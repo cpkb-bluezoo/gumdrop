@@ -57,6 +57,35 @@ public enum HttpVersion {
     }
 
     /**
+     * Validates the permitted-versions list of an HTTP client: at least one
+     * of {@link #HTTP_1_1}, {@link #HTTP_2_0} and {@link #HTTP_3}, none
+     * null. {@link #HTTP_1_0} and {@link #UNKNOWN} are not versions a
+     * client can speak.
+     *
+     * @param permitted the versions given to a client's {@code versions}
+     * @return the versions as a set
+     * @throws IllegalArgumentException if the list is invalid
+     */
+    public static java.util.EnumSet<HttpVersion> clientVersions(HttpVersion... permitted) {
+        if (permitted == null || permitted.length == 0) {
+            throw new IllegalArgumentException("at least one version is required");
+        }
+        java.util.EnumSet<HttpVersion> set = java.util.EnumSet.noneOf(HttpVersion.class);
+        for (int i = 0; i < permitted.length; i++) {
+            HttpVersion v = permitted[i];
+            if (v == null) {
+                throw new IllegalArgumentException("version " + i + " is null");
+            }
+            if (v != HTTP_1_1 && v != HTTP_2_0 && v != HTTP_3) {
+                throw new IllegalArgumentException(
+                        v + " is not supported by clients; use HTTP_1_1, HTTP_2_0 or HTTP_3");
+            }
+            set.add(v);
+        }
+        return set;
+    }
+
+    /**
      * Returns the HTTP version string (e.g., "HTTP/1.1").
      * 
      * @return the version string, or "(unknown)" for UNKNOWN

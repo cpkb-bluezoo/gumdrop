@@ -21,6 +21,8 @@
 
 package org.bluezoo.gumdrop.dns;
 
+import org.bluezoo.gumdrop.util.CidrNetwork;
+import java.util.List;
 import org.bluezoo.gumdrop.ProtocolHandler;
 import org.bluezoo.gumdrop.TcpListener;
 import java.net.InetAddress;
@@ -67,21 +69,13 @@ public class DoTListener extends TcpListener {
     }
 
     /**
-     * Sets the port number this endpoint should bind to.
-     *
-     * @param port the port number (default 853)
-     */
-    public void setPort(int port) {
-        this.port = port;
-    }
-    /**
      * Sets the port. Returns {@code this} for fluent configuration.
      *
      * @param port the port number
      * @return this listener
      */
     public DoTListener port(int port) {
-        setPort(port);
+        this.port = port;
         return this;
     }
 
@@ -109,6 +103,90 @@ public class DoTListener extends TcpListener {
         return this;
     }
 
+    @Override
+    public DoTListener maxConnections(int max) {
+        super.maxConnections(max);
+        return this;
+    }
+
+    @Override
+    public DoTListener maxConnectionsPerIP(int max) {
+        super.maxConnectionsPerIP(max);
+        return this;
+    }
+
+    @Override
+    public DoTListener rateLimit(String rateLimit) {
+        super.rateLimit(rateLimit);
+        return this;
+    }
+
+    @Override
+    public DoTListener maxAuthFailures(int max) {
+        super.maxAuthFailures(max);
+        return this;
+    }
+
+    @Override
+    public DoTListener authLockoutTimeMs(long lockoutMs) {
+        super.authLockoutTimeMs(lockoutMs);
+        return this;
+    }
+
+    @Override
+    public DoTListener allowedNetworks(List<CidrNetwork> allowedNetworks) {
+        super.allowedNetworks(allowedNetworks);
+        return this;
+    }
+
+    @Override
+    public DoTListener blockedNetworks(List<CidrNetwork> blockedNetworks) {
+        super.blockedNetworks(blockedNetworks);
+        return this;
+    }
+
+    @Override
+    public DoTListener name(String name) {
+        super.name(name);
+        return this;
+    }
+
+    @Override
+    public DoTListener maxNetInSize(int size) {
+        super.maxNetInSize(size);
+        return this;
+    }
+
+    @Override
+    public DoTListener maxNetOutSize(int size) {
+        super.maxNetOutSize(size);
+        return this;
+    }
+
+    @Override
+    public DoTListener idleTimeoutMs(long idleTimeoutMs) {
+        super.idleTimeoutMs(idleTimeoutMs);
+        return this;
+    }
+
+    @Override
+    public DoTListener readTimeoutMs(long readTimeoutMs) {
+        super.readTimeoutMs(readTimeoutMs);
+        return this;
+    }
+
+    @Override
+    public DoTListener connectionTimeoutMs(long connectionTimeoutMs) {
+        super.connectionTimeoutMs(connectionTimeoutMs);
+        return this;
+    }
+
+    @Override
+    public DoTListener maxDtlsPeers(int max) {
+        super.maxDtlsPeers(max);
+        return this;
+    }
+
 
     @Override
     public String getDescription() {
@@ -119,9 +197,11 @@ public class DoTListener extends TcpListener {
      * Sets the owning DNS server.
      *
      * @param server the owning server
+     * @return this
      */
-    public void setServer(org.bluezoo.gumdrop.dns.server.DnsServer server) {
+    public DoTListener server(org.bluezoo.gumdrop.dns.server.DnsServer server) {
         this.server = server;
+        return this;
     }
 
     /**

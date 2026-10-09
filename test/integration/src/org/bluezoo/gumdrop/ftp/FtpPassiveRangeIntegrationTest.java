@@ -92,8 +92,8 @@ public class FtpPassiveRangeIntegrationTest {
         try {
             int port = busy.getLocalPort();
             FtpListener listener = listener();
-            listener.setPasvMinPort(port);
-            listener.setPasvMaxPort(port);
+            listener.pasvMinPort(port);
+            listener.pasvMaxPort(port);
             try {
                 new SocketFtpDataTransport().listenPassive(listener, 0, IGNORE);
                 fail("expected IOException");
@@ -113,8 +113,8 @@ public class FtpPassiveRangeIntegrationTest {
             int top = busy.getLocalPort();
             int bottom = top - 32;
             FtpListener listener = listener();
-            listener.setPasvMinPort(bottom);
-            listener.setPasvMaxPort(top);
+            listener.pasvMinPort(bottom);
+            listener.pasvMaxPort(top);
             FtpDataTransport.PassiveListener passive =
                     new SocketFtpDataTransport().listenPassive(listener, 0, IGNORE);
             try {

@@ -34,8 +34,9 @@ import java.util.Set;
 import org.junit.Before;
 import org.junit.Test;
 
-import org.bluezoo.gumdrop.SelectorLoop;
-import org.bluezoo.gumdrop.auth.Realm;
+import org.bluezoo.gumdrop.auth.CapturedCallback;
+import org.bluezoo.gumdrop.auth.RealmCallback;
+import org.bluezoo.gumdrop.auth.SynchronousRealm;
 import org.bluezoo.gumdrop.auth.SaslMechanism;
 import org.bluezoo.gumdrop.ftp.file.AnonymousFTPHandler;
 import org.bluezoo.gumdrop.ftp.file.BasicFTPFileSystem;
@@ -76,9 +77,20 @@ public class FtpFileHandlersTest {
                 false, null, null, null, 0L, "ftp");
     }
 
+    /** Connection metadata for a user whose roles were resolved at login. */
     private FtpConnectionMetadata as(String user) {
         meta.setAuthenticatedUser(user);
+        meta.setRoles(realm.rolesOf(user));
         return meta;
+    }
+
+    /** Runs the handler's login; the stub realm answers inline. */
+    public static FtpAuthenticationResult auth(FtpConnectionHandler h, String user,
+            String password, String account, FtpConnectionMetadata metadata) {
+        CapturedCallback<FtpAuthenticationResult> cb =
+                new CapturedCallback<FtpAuthenticationResult>();
+        h.authenticate(user, password, account, metadata, cb);
+        return cb.get();
     }
 
     // RoleBasedFTPHandler
@@ -97,19 +109,19 @@ public class FtpFileHandlersTest {
     public void testRoleHandlerAuthenticate() {
         RoleBasedFTPHandler h = new RoleBasedFTPHandler(realm, base);
         assertEquals(FtpAuthenticationResult.INVALID_USER,
-                h.authenticate(null, "pw", null, meta));
+                auth(h, null, "pw", null, meta));
         assertEquals(FtpAuthenticationResult.INVALID_USER,
-                h.authenticate(" ", "pw", null, meta));
+                auth(h, " ", "pw", null, meta));
         assertEquals(FtpAuthenticationResult.NEED_PASSWORD,
-                h.authenticate("admin", null, null, meta));
+                auth(h, "admin", null, null, meta));
         assertEquals(FtpAuthenticationResult.INVALID_USER,
-                h.authenticate("ghost", "pw", null, meta));
+                auth(h, "ghost", "pw", null, meta));
         assertEquals(FtpAuthenticationResult.INVALID_PASSWORD,
-                h.authenticate("admin", "bad", null, meta));
+                auth(h, "admin", "bad", null, meta));
         assertEquals(FtpAuthenticationResult.INVALID_USER,
-                h.authenticate("norole", "pw", null, meta));
+                auth(h, "norole", "pw", null, meta));
         assertEquals(FtpAuthenticationResult.SUCCESS,
-                h.authenticate(" reader ", "pw", null, meta));
+                auth(h, " reader ", "pw", null, meta));
     }
 
     @Test
@@ -175,15 +187,15 @@ public class FtpFileHandlersTest {
         h.setWelcomeMessage("custom");
         assertEquals("custom", h.connected(meta));
         assertEquals(FtpAuthenticationResult.INVALID_USER,
-                h.authenticate(null, "x", null, meta));
+                auth(h, null, "x", null, meta));
         assertEquals(FtpAuthenticationResult.INVALID_USER,
-                h.authenticate("bob", "x", null, meta));
+                auth(h, "bob", "x", null, meta));
         assertEquals(FtpAuthenticationResult.NEED_PASSWORD,
-                h.authenticate("Anonymous", null, null, meta));
+                auth(h, "Anonymous", null, null, meta));
         assertEquals(FtpAuthenticationResult.INVALID_PASSWORD,
-                h.authenticate("ftp", "  ", null, meta));
+                auth(h, "ftp", "  ", null, meta));
         assertEquals(FtpAuthenticationResult.SUCCESS,
-                h.authenticate("ftp", "me@example.org", null, meta));
+                auth(h, "ftp", "me@example.org", null, meta));
         assertSame(base, h.getFileSystem(meta));
         h.transferStarting("/a", true, 1, meta);
         h.transferStarting("/a", false, 5, meta);
@@ -202,13 +214,13 @@ public class FtpFileHandlersTest {
         SimpleFTPHandler h = new SimpleFTPHandler(base, realm);
         assertNull(h.connected(meta));
         assertEquals(FtpAuthenticationResult.INVALID_USER,
-                h.authenticate(" ", "x", null, meta));
+                auth(h, " ", "x", null, meta));
         assertEquals(FtpAuthenticationResult.NEED_PASSWORD,
-                h.authenticate("admin", null, null, meta));
+                auth(h, "admin", null, null, meta));
         assertEquals(FtpAuthenticationResult.SUCCESS,
-                h.authenticate("admin", "pw", null, meta));
+                auth(h, "admin", "pw", null, meta));
         assertEquals(FtpAuthenticationResult.INVALID_PASSWORD,
-                h.authenticate("admin", "no", null, meta));
+                auth(h, "admin", "no", null, meta));
         assertSame(base, h.getFileSystem(meta));
         h.transferStarting("/a", true, 3, as("admin"));
         h.transferStarting("/a", false, -1, meta);
@@ -227,27 +239,60 @@ public class FtpFileHandlersTest {
     public void testSimpleHandlerWithoutRealm() {
         SimpleFTPHandler h = new SimpleFTPHandler(base);
         assertEquals(FtpAuthenticationResult.INVALID_PASSWORD,
-                h.authenticate("bob", "  ", null, meta));
+                auth(h, "bob", "  ", null, meta));
         assertEquals(FtpAuthenticationResult.SUCCESS,
-                h.authenticate("bob", "x", null, meta));
+                auth(h, "bob", "x", null, meta));
+    }
+
+    // Login resolves roles once; authorisation then reads the cache
+
+    @Test
+    public void testLoginCachesRolesAndLaterChecksDoNotAskTheRealm() throws IOException {
+        RoleBasedFTPHandler h = new RoleBasedFTPHandler(realm, base);
+        assertEquals(FtpAuthenticationResult.SUCCESS, auth(h, "writer", "pw", null, meta));
+        meta.setAuthenticatedUser("writer");
+        assertTrue(meta.hasRole(FtpRoles.WRITE));
+        assertFalse(meta.hasRole(FtpRoles.ADMIN));
+        int asked = realm.roleChecks;
+        assertTrue(asked > 0);
+        RoleAwareFTPFileSystem fs = new RoleAwareFTPFileSystem(base);
+        assertEquals(FtpFileOperationResult.SUCCESS, fs.createDirectory("/cached", meta));
+        assertNull("a writer without the read role", fs.listDirectory("/", meta));
+        assertEquals("authorisation must not consult the realm", asked, realm.roleChecks);
+    }
+
+    @Test
+    public void testLoginWaitsForSlowRealmRoles() {
+        RoleBasedFTPHandler h = new RoleBasedFTPHandler(realm, base);
+        realm.deferRoles = true;
+        CapturedCallback<FtpAuthenticationResult> cb = new CapturedCallback<FtpAuthenticationResult>();
+        h.authenticate("reader", "pw", null, meta, cb);
+        for (int i = 0; i < 10 && !cb.isDone(); i++) {
+            realm.answerRoles();
+        }
+        assertEquals(FtpAuthenticationResult.SUCCESS, cb.get());
+        assertTrue(meta.hasRole(FtpRoles.READ));
+    }
+
+    @Test
+    public void testNoRoleCacheMeansNoAccess() {
+        RoleAwareFTPFileSystem fs = new RoleAwareFTPFileSystem(base);
+        meta.setAuthenticatedUser("admin");
+        meta.setRoles(new HashSet<String>());
+        assertNull("roles never resolved: fail closed", fs.listDirectory("/", meta));
     }
 
     // RoleAwareFTPFileSystem
 
     @Test(expected = NullPointerException.class)
     public void testRoleAwareNullDelegate() {
-        new RoleAwareFTPFileSystem(null, realm);
-    }
-
-    @Test(expected = NullPointerException.class)
-    public void testRoleAwareNullRealm() {
-        new RoleAwareFTPFileSystem(base, null);
+        new RoleAwareFTPFileSystem(null);
     }
 
     @Test
     public void testRoleAwareReadOnlyUser() throws IOException {
         Files.createFile(root.resolve("f.txt"));
-        RoleAwareFTPFileSystem fs = new RoleAwareFTPFileSystem(base, realm);
+        RoleAwareFTPFileSystem fs = new RoleAwareFTPFileSystem(base);
         FtpConnectionMetadata m = as("reader");
         assertNotNull(fs.listDirectory("/", m));
         assertNotNull(fs.getFileInfo("/f.txt", m));
@@ -272,8 +317,9 @@ public class FtpFileHandlersTest {
 
     @Test
     public void testRoleAwareNoUser() {
-        RoleAwareFTPFileSystem fs = new RoleAwareFTPFileSystem(base, realm);
+        RoleAwareFTPFileSystem fs = new RoleAwareFTPFileSystem(base);
         meta.setAuthenticatedUser(null);
+        meta.setRoles(new HashSet<String>());
         assertNull(fs.listDirectory("/", meta));
         assertNull(fs.getFileInfo("/", meta));
         assertNull(fs.openForReading("/", 0, meta));
@@ -286,7 +332,7 @@ public class FtpFileHandlersTest {
 
     @Test
     public void testRoleAwareWriterAndDeleter() throws IOException {
-        RoleAwareFTPFileSystem fs = new RoleAwareFTPFileSystem(base, realm);
+        RoleAwareFTPFileSystem fs = new RoleAwareFTPFileSystem(base);
         FtpConnectionMetadata m = as("writer");
         assertEquals(FtpFileOperationResult.SUCCESS, fs.createDirectory("/d", m));
         assertNotNull(fs.generateUniqueName("/", "n", m));
@@ -298,15 +344,15 @@ public class FtpFileHandlersTest {
 
     @Test
     public void testRoleAwareCustomRolesAndConfinement() throws IOException {
-        RoleAwareFTPFileSystem fs = new RoleAwareFTPFileSystem(base, realm);
-        fs.setReadRole("custom-read");
-        fs.setWriteRole("custom-write");
-        fs.setDeleteRole("custom-delete");
+        RoleAwareFTPFileSystem fs = new RoleAwareFTPFileSystem(base);
+        fs.readRole("custom-read");
+        fs.writeRole("custom-write");
+        fs.deleteRole("custom-delete");
         realm.addUser("cust", "pw", "custom-read");
         assertNotNull(fs.listDirectory("/", as("cust")));
         assertNull(fs.openForWriting("/x", false, meta));
         Files.createDirectories(root.resolve("home/cust"));
-        fs.setHomeDirectoryConfinement(true);
+        fs.homeDirectoryConfinement(true);
         assertNotNull(fs.listDirectory("/home/cust", as("cust")));
         assertNotNull(fs.listDirectory("/home/cust/", meta));
         assertNull(fs.listDirectory("/home/other", meta));
@@ -319,10 +365,15 @@ public class FtpFileHandlersTest {
 
     // Stub realm
 
-    static class StubRealm implements Realm {
+    static class StubRealm implements SynchronousRealm {
         private final Map<String, String> passwords = new HashMap<String, String>();
         private final Map<String, Set<String>> roles =
                 new HashMap<String, Set<String>>();
+
+        Set<String> rolesOf(String user) {
+            Set<String> set = roles.get(user);
+            return set != null ? set : new HashSet<String>();
+        }
 
         void addUser(String user, String pw, String... userRoles) {
             passwords.put(user, pw);
@@ -331,11 +382,6 @@ public class FtpFileHandlersTest {
                 set.add(userRoles[i]);
             }
             roles.put(user, set);
-        }
-
-        @Override
-        public Realm forSelectorLoop(SelectorLoop loop) {
-            return this;
         }
 
         @Override
@@ -354,9 +400,33 @@ public class FtpFileHandlersTest {
             return null;
         }
 
+        /** When set, role answers are held until {@link #answerRoles}. */
+        boolean deferRoles;
+        int roleChecks;
+        final java.util.List<Runnable> heldAnswers = new java.util.ArrayList<Runnable>();
+
         @Override
-        public String getPassword(String username) {
-            return passwords.get(username);
+        public void isUserInRole(final String username, final String role,
+                final RealmCallback<Boolean> callback) {
+            roleChecks++;
+            if (!deferRoles) {
+                SynchronousRealm.super.isUserInRole(username, role, callback);
+                return;
+            }
+            heldAnswers.add(new Runnable() {
+                @Override
+                public void run() {
+                    callback.completed(Boolean.valueOf(isUserInRole(username, role)));
+                }
+            });
+        }
+
+        void answerRoles() {
+            java.util.List<Runnable> now = new java.util.ArrayList<Runnable>(heldAnswers);
+            heldAnswers.clear();
+            for (Runnable r : now) {
+                r.run();
+            }
         }
 
         @Override

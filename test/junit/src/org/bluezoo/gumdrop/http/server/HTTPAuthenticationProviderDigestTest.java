@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.http.server;
 
+import org.bluezoo.gumdrop.testsupport.InlineHttpAuthenticationProvider;
 import org.bluezoo.gumdrop.auth.Realm;
 import org.bluezoo.gumdrop.auth.SaslUtils;
 import org.bluezoo.util.ByteArrays;
@@ -46,7 +47,7 @@ public class HTTPAuthenticationProviderDigestTest {
     private static final String HA1 = SaslUtils.computeDigestHA1(
             USERNAME, REALM, PASSWORD);
 
-    private static final class TestProvider extends HttpAuthenticationProvider {
+    private static final class TestProvider extends InlineHttpAuthenticationProvider {
         @Override protected String getAuthMethod() {
             return HttpServletRequest.DIGEST_AUTH;
         }

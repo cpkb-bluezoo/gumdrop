@@ -89,7 +89,7 @@ public class PyGrpcClientIntegrationTest {
 
     private HttpClient newHttpClient() {
         HttpClient client = new HttpClient(PyGrpcTestSupport.HOST, PyGrpcTestSupport.PORT);
-        client.setH2WithPriorKnowledge(true);
+        client.h2WithPriorKnowledge(true);
         return client;
     }
 
@@ -130,7 +130,7 @@ public class PyGrpcClientIntegrationTest {
             public void onConnected(Endpoint endpoint) {
                 try {
                     ByteBuffer request = encodeEchoRequest("ab", 3);
-                    grpcClient.unaryCall(httpClient, "/gumdroptest.Echo/SayEcho", request,
+                    grpcClient.call(httpClient, "/gumdroptest.Echo/SayEcho", request,
                             new GrpcResponseHandler() {
                                 @Override
                                 public ProtoMessageHandler startMessage(String messageTypeName) {
@@ -172,7 +172,7 @@ public class PyGrpcClientIntegrationTest {
             public void onConnected(Endpoint endpoint) {
                 try {
                     ByteBuffer request = encodeFailRequest("integration test");
-                    grpcClient.unaryCall(httpClient, "/gumdroptest.Echo/AlwaysFail", request,
+                    grpcClient.call(httpClient, "/gumdroptest.Echo/AlwaysFail", request,
                             new GrpcResponseHandler() {
                                 @Override
                                 public ProtoMessageHandler startMessage(String messageTypeName) {

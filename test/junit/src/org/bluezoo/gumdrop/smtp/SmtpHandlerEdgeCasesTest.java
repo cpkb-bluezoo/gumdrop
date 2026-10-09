@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.smtp;
 
+import org.bluezoo.gumdrop.auth.SynchronousRealm;
 import java.io.IOException;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
@@ -185,7 +186,7 @@ public class SmtpHandlerEdgeCasesTest {
 
     @Test
     public void testInvalidEncodingInsideAuthContinuation() {
-        listener.setRealm(new EdgeRealm());
+        listener.realm(new EdgeRealm());
         endpoint.secure = true;
         handler.connected(endpoint);
         expect("EHLO c.example.com", "250");
@@ -303,8 +304,8 @@ public class SmtpHandlerEdgeCasesTest {
 
     @Test
     public void testEhloOmitsLimitsWhenUnbounded() {
-        listener.setMaxRecipients(0);
-        listener.setMaxTransactionsPerSession(0);
+        listener.maxRecipients(0);
+        listener.maxTransactionsPerSession(0);
         connect();
         send("EHLO c.example.com");
         List<String> responses = endpoint.getResponses();
@@ -316,7 +317,7 @@ public class SmtpHandlerEdgeCasesTest {
     @Test
     public void testEhloAuthLineHidesTlsOnlyMechanismsBeforeTls() {
         TlsListener tls = new TlsListener();
-        tls.setRealm(new EdgeRealm());
+        tls.realm(new EdgeRealm());
         handler = new SmtpProtocolHandler(tls, null);
         connect();
         send("EHLO c.example.com");
@@ -337,7 +338,7 @@ public class SmtpHandlerEdgeCasesTest {
     @Test
     public void testEhloAuthLineOffersExternalOverTls() {
         EdgeRealm realm = new EdgeRealm();
-        listener.setRealm(realm);
+        listener.realm(realm);
         endpoint.secure = true;
         handler.connected(endpoint);
         endpoint.sentData.clear();
@@ -351,14 +352,14 @@ public class SmtpHandlerEdgeCasesTest {
 
     @Test
     public void testAuthRequiresEncryptionWhenNoStarttls() {
-        listener.setRealm(new EdgeRealm());
+        listener.realm(new EdgeRealm());
         ehlo();
         expect("AUTH PLAIN", "538");
     }
 
     @Test
     public void testAuthEmptyArgumentIsSyntaxError() {
-        listener.setRealm(new EdgeRealm());
+        listener.realm(new EdgeRealm());
         endpoint.secure = true;
         handler.connected(endpoint);
         expect("EHLO c.example.com", "250");
@@ -367,7 +368,7 @@ public class SmtpHandlerEdgeCasesTest {
 
     @Test
     public void testAuthTabSeparatedInitialResponse() {
-        listener.setRealm(new EdgeRealm());
+        listener.realm(new EdgeRealm());
         endpoint.secure = true;
         handler.connected(endpoint);
         expect("EHLO c.example.com", "250");
@@ -376,7 +377,7 @@ public class SmtpHandlerEdgeCasesTest {
 
     @Test
     public void testEqualsInitialResponseRequestsContinuation() {
-        listener.setRealm(new EdgeRealm());
+        listener.realm(new EdgeRealm());
         endpoint.secure = true;
         handler.connected(endpoint);
         expect("EHLO c.example.com", "250");
@@ -392,7 +393,7 @@ public class SmtpHandlerEdgeCasesTest {
 
     @Test
     public void testLoginEmptyContinuationFields() {
-        listener.setRealm(new EdgeRealm());
+        listener.realm(new EdgeRealm());
         endpoint.secure = true;
         handler.connected(endpoint);
         expect("EHLO c.example.com", "250");
@@ -405,7 +406,7 @@ public class SmtpHandlerEdgeCasesTest {
 
     @Test
     public void testLoginSuccessNotifiesMetrics() {
-        listener.setRealm(new EdgeRealm());
+        listener.realm(new EdgeRealm());
         endpoint.secure = true;
         handler.connected(endpoint);
         expect("EHLO c.example.com", "250");
@@ -418,7 +419,7 @@ public class SmtpHandlerEdgeCasesTest {
 
     @Test
     public void testPlainFailureNotifiesMetrics() {
-        listener.setRealm(new EdgeRealm());
+        listener.realm(new EdgeRealm());
         endpoint.secure = true;
         handler.connected(endpoint);
         expect("EHLO c.example.com", "250");
@@ -428,7 +429,7 @@ public class SmtpHandlerEdgeCasesTest {
 
     @Test
     public void testCramMd5UnknownUserFails() {
-        listener.setRealm(new EdgeRealm());
+        listener.realm(new EdgeRealm());
         endpoint.secure = true;
         handler.connected(endpoint);
         expect("EHLO c.example.com", "250");
@@ -439,7 +440,7 @@ public class SmtpHandlerEdgeCasesTest {
 
     @Test
     public void testDigestMd5ResponseWithoutRealmParameterFails() {
-        listener.setRealm(new EdgeRealm());
+        listener.realm(new EdgeRealm());
         endpoint.secure = true;
         handler.connected(endpoint);
         expect("EHLO c.example.com", "250");
@@ -452,7 +453,7 @@ public class SmtpHandlerEdgeCasesTest {
 
     @Test
     public void testOAuthUserMismatchIsRejected() {
-        listener.setRealm(new EdgeRealm());
+        listener.realm(new EdgeRealm());
         endpoint.secure = true;
         handler.connected(endpoint);
         expect("EHLO c.example.com", "250");
@@ -462,7 +463,7 @@ public class SmtpHandlerEdgeCasesTest {
 
     @Test
     public void testOAuthExpiredTokenIssuesErrorChallenge() {
-        listener.setRealm(new EdgeRealm());
+        listener.realm(new EdgeRealm());
         endpoint.secure = true;
         handler.connected(endpoint);
         expect("EHLO c.example.com", "250");
@@ -473,7 +474,7 @@ public class SmtpHandlerEdgeCasesTest {
 
     @Test
     public void testOAuthMatchingUserAccepted() {
-        listener.setRealm(new EdgeRealm());
+        listener.realm(new EdgeRealm());
         endpoint.secure = true;
         handler.connected(endpoint);
         expect("EHLO c.example.com", "250");
@@ -486,7 +487,7 @@ public class SmtpHandlerEdgeCasesTest {
     @Test
     public void testExternalWithCertificateSucceeds() throws Exception {
         EdgeRealm realm = new EdgeRealm();
-        listener.setRealm(realm);
+        listener.realm(realm);
         endpoint.secure = true;
         endpoint.securityInfo = new CertInfo(TestCertificates.ec256().getCertificate());
         handler.connected(endpoint);
@@ -498,7 +499,7 @@ public class SmtpHandlerEdgeCasesTest {
     @Test
     public void testExternalWithAuthzidAndInvalidBase64() throws Exception {
         EdgeRealm realm = new EdgeRealm();
-        listener.setRealm(realm);
+        listener.realm(realm);
         endpoint.secure = true;
         endpoint.securityInfo = new CertInfo(TestCertificates.ec256().getCertificate());
         handler.connected(endpoint);
@@ -509,7 +510,7 @@ public class SmtpHandlerEdgeCasesTest {
 
     @Test
     public void testExternalWithoutCertificateFails() {
-        listener.setRealm(new EdgeRealm());
+        listener.realm(new EdgeRealm());
         endpoint.secure = true;
         endpoint.securityInfo = new CertInfo(null);
         handler.connected(endpoint);
@@ -522,7 +523,7 @@ public class SmtpHandlerEdgeCasesTest {
     public void testExternalRejectedByRealmFails() throws Exception {
         EdgeRealm realm = new EdgeRealm();
         realm.rejectCertificates = true;
-        listener.setRealm(realm);
+        listener.realm(realm);
         endpoint.secure = true;
         endpoint.securityInfo = new CertInfo(TestCertificates.ec256().getCertificate());
         handler.connected(endpoint);
@@ -534,7 +535,7 @@ public class SmtpHandlerEdgeCasesTest {
 
     @Test
     public void testAuthenticatedLocalPartMaySendFromItsDomain() {
-        listener.setRealm(new EdgeRealm());
+        listener.realm(new EdgeRealm());
         endpoint.secure = true;
         handler.connected(endpoint);
         expect("EHLO c.example.com", "250");
@@ -546,7 +547,7 @@ public class SmtpHandlerEdgeCasesTest {
     public void testAdministratorMaySendAsAnyone() {
         EdgeRealm realm = new EdgeRealm();
         realm.adminUsers = true;
-        listener.setRealm(realm);
+        listener.realm(realm);
         endpoint.secure = true;
         handler.connected(endpoint);
         expect("EHLO c.example.com", "250");
@@ -556,8 +557,8 @@ public class SmtpHandlerEdgeCasesTest {
 
     @Test
     public void testAuthRequiredAcceptsAuthenticatedSender() {
-        listener.setRealm(new EdgeRealm());
-        listener.setAuthRequired(true);
+        listener.realm(new EdgeRealm());
+        listener.authRequired(true);
         endpoint.secure = true;
         handler.connected(endpoint);
         expect("EHLO c.example.com", "250");
@@ -619,7 +620,7 @@ public class SmtpHandlerEdgeCasesTest {
 
     @Test
     public void testMailDeclaredSizeAllowedWhenUnbounded() {
-        listener.setMaxMessageSize(0);
+        listener.maxMessageSize(0);
         ehlo();
         expect("MAIL FROM:<a@example.com> SIZE=99999999999", "250");
     }
@@ -753,7 +754,7 @@ public class SmtpHandlerEdgeCasesTest {
 
     @Test
     public void testSessionSpanRecordsCommandsAndEndsInErrorOnAbruptClose() {
-        listener.setRealm(new EdgeRealm());
+        listener.realm(new EdgeRealm());
         endpoint.secure = false;
         connect();
         assertEquals(1, config.traces.size());
@@ -787,7 +788,7 @@ public class SmtpHandlerEdgeCasesTest {
     @Test
     public void testAuthSuccessRecordedInSpan() {
         TlsListener tls = new TlsListener();
-        tls.setRealm(new EdgeRealm());
+        tls.realm(new EdgeRealm());
         handler = new SmtpProtocolHandler(tls, null);
         handler.connected(endpoint);
         expect("EHLO c.example.com", "250");
@@ -802,7 +803,7 @@ public class SmtpHandlerEdgeCasesTest {
     @Test
     public void testConnectionWithRealLoopUsesPerLoopRealm() {
         EdgeRealm realm = new EdgeRealm();
-        listener.setRealm(realm);
+        listener.realm(realm);
         endpoint.secure = true;
         endpoint.loop = new InlineSelectorLoop();
         handler.connected(endpoint);
@@ -1044,7 +1045,7 @@ public class SmtpHandlerEdgeCasesTest {
     }
 
     /** Realm with user u/p, bearer tokens good (valid) and old (expired), and certificate login. */
-    private static final class EdgeRealm implements Realm {
+    private static final class EdgeRealm implements SynchronousRealm {
         boolean rejectCertificates;
         boolean adminUsers;
         String lastCertUser;
@@ -1074,11 +1075,6 @@ public class SmtpHandlerEdgeCasesTest {
             return null;
         }
 
-        @Override
-        @SuppressWarnings("deprecation")
-        public String getPassword(String username) {
-            return null;
-        }
 
         @Override
         public boolean isUserInRole(String username, String role) {

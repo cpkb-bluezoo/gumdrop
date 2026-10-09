@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.http.server;
 
+import org.bluezoo.gumdrop.testsupport.InlineHttpAuthenticationProvider;
 import org.junit.Test;
 
 import java.util.HashSet;
@@ -45,7 +46,7 @@ import static org.junit.Assert.*;
 public class HTTPAuthenticationProviderNonceTest {
 
     /** Minimal Digest provider for exercising challenge/nonce generation. */
-    private static final class TestProvider extends HttpAuthenticationProvider {
+    private static final class TestProvider extends InlineHttpAuthenticationProvider {
         @Override protected String getAuthMethod() {
             return HttpServletRequest.DIGEST_AUTH;
         }

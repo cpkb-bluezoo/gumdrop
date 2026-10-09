@@ -89,12 +89,12 @@ public class Pop3ServerComposeTest {
     @Test
     public void settersRoundTrip() {
         Pop3Server s = new Pop3Server();
-        s.setLoginDelayMs(5L);
-        s.setTransactionTimeoutMs(7L);
-        s.setEnableAPOP(false);
-        s.setEnableUTF8(false);
-        s.setEnablePipelining(true);
-        s.setRealm(null);
+        s.loginDelayMs(5L);
+        s.transactionTimeoutMs(7L);
+        s.enableAPOP(false);
+        s.enableUTF8(false);
+        s.enablePipelining(true);
+        s.realm(null);
         assertEquals(5L, s.getLoginDelayMs());
         assertEquals(7L, s.getTransactionTimeoutMs());
         assertFalse(s.isEnableAPOP());
@@ -105,7 +105,7 @@ public class Pop3ServerComposeTest {
     @Test
     public void greetingCreatesMailboxProvider() {
         Pop3Server s = new Pop3Server();
-        s.setGreeting("welcome");
+        s.greeting("welcome");
         assertEquals("welcome", s.getGreeting());
         assertNotNull(s.openSession(new Pop3Listener()));
     }
@@ -114,20 +114,20 @@ public class Pop3ServerComposeTest {
     public void mailboxFactoryCreatesAndUpdatesProvider() {
         Pop3Server s = new Pop3Server();
         MailboxFactory f1 = factory();
-        s.setMailboxFactory(f1);
+        s.mailboxFactory(f1);
         assertSame(f1, s.getMailboxFactory());
         MailboxFactory f2 = factory();
-        s.setMailboxFactory(f2);
+        s.mailboxFactory(f2);
         assertSame(f2, s.getMailboxFactory());
-        s.setMailboxFactory(null);
+        s.mailboxFactory(null);
         assertNull(s.getMailboxFactory());
     }
 
     @Test
     public void greetingAfterFactoryReusesProvider() {
         Pop3Server s = new Pop3Server();
-        s.setMailboxFactory(factory());
-        s.setGreeting("hello");
+        s.mailboxFactory(factory());
+        s.greeting("hello");
         assertEquals("hello", s.getGreeting());
     }
 
@@ -138,7 +138,7 @@ public class Pop3ServerComposeTest {
                 .sessionProvider(new Counting())
                 .server();
         try {
-            composed.setGreeting("x");
+            composed.greeting("x");
             fail("expected IllegalStateException");
         } catch (IllegalStateException expected) {
             assertNotNull(expected.getMessage());
@@ -149,19 +149,8 @@ public class Pop3ServerComposeTest {
     @Test
     public void deprecatedCreateHandlerDelegates() {
         Pop3Server s = new Pop3Server();
-        s.setGreeting("g");
+        s.greeting("g");
         assertNotNull(s.createHandler(new Pop3Listener()));
-    }
-
-    @Test
-    @SuppressWarnings({"rawtypes", "unchecked"})
-    public void setListenersFiltersNonListeners() {
-        Pop3Server s = new Pop3Server();
-        List items = new ArrayList();
-        items.add(new Pop3Listener());
-        items.add("junk");
-        s.setListeners(items);
-        assertEquals(1, s.getListeners().size());
     }
 
     @Test
@@ -266,7 +255,7 @@ public class Pop3ServerComposeTest {
                 .listener(l)
                 .sessionProvider(provider)
                 .server();
-        s.setMailboxFactory(null);
+        s.mailboxFactory(null);
         s.start(null);
         assertEquals(1, provider.started);
         s.stop();
@@ -277,7 +266,7 @@ public class Pop3ServerComposeTest {
     public void startWithoutProvider() {
         Pop3Server s = new Pop3Server();
         s.addListener(new Pop3Listener());
-        s.setMailboxFactory(factory());
+        s.mailboxFactory(factory());
         s.start(null);
         s.stop();
     }

@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.servlet;
 
+import org.bluezoo.gumdrop.auth.SynchronousRealm;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -631,7 +632,7 @@ public class ContextLifecycleTest {
             assertNull(e.getMessage());
         }
         try {
-            context.setDistributable(true);
+            context.distributable(true);
             fail("expected IllegalStateException");
         } catch (IllegalStateException e) {
             assertNull(e.getMessage());
@@ -860,11 +861,7 @@ public class ContextLifecycleTest {
     @Test
     public void testRealmDelegation() throws Exception {
         context.load();
-        Realm realm = new Realm() {
-            @Override
-            public Realm forSelectorLoop(SelectorLoop loop) {
-                return this;
-            }
+        Realm realm = new SynchronousRealm() {
 
             @Override
             public Set<SaslMechanism> getSupportedSASLMechanisms() {
@@ -881,10 +878,6 @@ public class ContextLifecycleTest {
                 return "ha1-" + username;
             }
 
-            @Override
-            public String getPassword(String username) {
-                return "pw-" + username;
-            }
 
             @Override
             public boolean isUserInRole(String username, String role) {
@@ -898,8 +891,6 @@ public class ContextLifecycleTest {
         assertFalse(context.passwordMatch("missing", "u", "p"));
         assertEquals("ha1-u", context.getDigestHA1("r", "u"));
         assertNull(context.getDigestHA1("missing", "u"));
-        assertEquals("pw-u", context.getPassword("r", "u"));
-        assertNull(context.getPassword("missing", "u"));
         assertTrue(context.isUserInRole("r", "u", "admin"));
         assertFalse(context.isUserInRole("r", "u", "user"));
         assertFalse(context.isUserInRole("missing", "u", "admin"));
@@ -910,36 +901,7 @@ public class ContextLifecycleTest {
     // ===== construction =====
 
     @Test
-    public void testPathAndRootValidation() {
-        Context c = new Context();
-        try {
-            c.setPath("/trailing/");
-            fail("expected IllegalArgumentException");
-        } catch (IllegalArgumentException e) {
-            assertTrue(e.getMessage().contains("/trailing/"));
-        }
-        c.setPath("/ok");
-        try {
-            c.setPath("/again");
-            fail("expected IllegalStateException");
-        } catch (IllegalStateException e) {
-            assertNotNull(e.getMessage());
-        }
-        c.setRoot(root);
-        try {
-            c.setRoot(root);
-            fail("expected IllegalStateException");
-        } catch (IllegalStateException e) {
-            assertNotNull(e.getMessage());
-        }
-        c.setContainer(container);
-        c.setContainer(container);
-        try {
-            c.setContainer(new Container());
-            fail("expected IllegalStateException");
-        } catch (IllegalStateException e) {
-            assertNotNull(e.getMessage());
-        }
+    public void testPathValidation() {
         try {
             new Context(container, "/bad/", root);
             fail("expected IllegalArgumentException");
@@ -949,17 +911,19 @@ public class ContextLifecycleTest {
     }
 
     @Test
-    public void testNoArgContextLoadsLazily() throws Exception {
-        Context c = new Context();
-        c.setContainer(container);
-        c.setPath("/lazy");
-        c.setRoot(root);
-        c.setSecureHost("h");
-        c.setCommonDir("d");
+    public void testContextLoadsFromConstructorArguments() throws Exception {
+        Context c = new Context(container, "/lazy", root);
+        c.secureHost("h");
         c.load();
         assertEquals("Lifecycle", c.getServletContextName());
         assertNotNull(c.getContainer());
         assertNotNull(c.getWorkerThreadPool());
         assertNotNull(c.getWorkerKeepAlive());
+    }
+
+    @Test
+    public void testConfigurationMethodsChain() {
+        Context c = new Context(container, "/chain", root);
+        assertSame(c, c.distributable(true).secureHost("h"));
     }
 }

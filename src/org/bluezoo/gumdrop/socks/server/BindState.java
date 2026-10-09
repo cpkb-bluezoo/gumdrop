@@ -38,6 +38,18 @@ package org.bluezoo.gumdrop.socks.server;
 public interface BindState {
 
     /**
+     * Returns the TLS session details of the client's connection (protocol,
+     * cipher suite, and the client's certificate chain under mutual TLS),
+     * for a decision that depends on how the client connected.
+     *
+     * @return the TLS session details, or {@code null} if the client is not
+     *         connected over TLS
+     */
+    default org.bluezoo.gumdrop.SecurityInfo getSecurityInfo() {
+        return null;
+    }
+
+    /**
      * Allows the BIND request. The SOCKS server will proceed to
      * bind a listening port and wait for an incoming connection.
      */

@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.smtp;
 
+import org.bluezoo.gumdrop.auth.SynchronousRealm;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.util.Base64;
@@ -58,7 +59,7 @@ public class SmtpAuthFlowTest {
     @Before
     public void setUp() {
         listener = new SmtpListener();
-        listener.setRealm(new StubRealm());
+        listener.realm(new StubRealm());
         handler = new SmtpProtocolHandler(listener, null);
         endpoint = new SMTPProtocolHandlerTest.StubEndpoint();
         endpoint.secure = true;
@@ -95,6 +96,33 @@ public class SmtpAuthFlowTest {
 
     private static String plain(String user, String password) {
         return b64("\0" + user + "\0" + password);
+    }
+
+    @Test
+    public void testRepeatedFailuresLockTheClientOut() {
+        listener.maxAuthFailures(2);
+        ehlo();
+        expect("AUTH PLAIN " + plain(USER, "wrong"), "535");
+        expect("AUTH PLAIN " + plain(USER, "wrong"), "535");
+        expect("AUTH PLAIN " + plain(USER, PASSWORD), "454");
+    }
+
+    @Test
+    public void testLockoutNeedsConfiguring() {
+        ehlo();
+        for (int i = 0; i < 8; i++) {
+            expect("AUTH PLAIN " + plain(USER, "wrong"), "535");
+        }
+        expect("AUTH PLAIN " + plain(USER, PASSWORD), "235");
+    }
+
+    @Test
+    public void testSuccessClearsTheFailureCount() {
+        listener.maxAuthFailures(2);
+        ehlo();
+        expect("AUTH PLAIN " + plain(USER, "wrong"), "535");
+        expect("AUTH PLAIN " + plain(USER, PASSWORD), "235");
+        assertFalse(listener.isAuthLockedOut(endpoint.getRemoteAddress()));
     }
 
     @Test
@@ -322,7 +350,7 @@ public class SmtpAuthFlowTest {
     @Test
     public void testAuthWithoutTlsRejected() {
         SmtpListener plainListener = new SmtpListener();
-        plainListener.setRealm(new StubRealm());
+        plainListener.realm(new StubRealm());
         SmtpProtocolHandler h = new SmtpProtocolHandler(plainListener, null);
         SMTPProtocolHandlerTest.StubEndpoint ep = new SMTPProtocolHandlerTest.StubEndpoint();
         h.connected(ep);
@@ -372,16 +400,12 @@ public class SmtpAuthFlowTest {
     }
 
     /** Realm accepting one user with fixed credentials and one token. */
-    private static final class StubRealm implements Realm {
+    private static final class StubRealm implements SynchronousRealm {
         private final Set<SaslMechanism> supported = Collections.unmodifiableSet(
                 EnumSet.of(SaslMechanism.PLAIN, SaslMechanism.LOGIN,
                         SaslMechanism.CRAM_MD5, SaslMechanism.SCRAM_SHA_256,
                         SaslMechanism.OAUTHBEARER));
 
-        @Override
-        public Realm forSelectorLoop(SelectorLoop loop) {
-            return this;
-        }
 
         @Override
         public Set<SaslMechanism> getSupportedSASLMechanisms() {
@@ -401,11 +425,6 @@ public class SmtpAuthFlowTest {
             return null;
         }
 
-        @Override
-        @SuppressWarnings("deprecation")
-        public String getPassword(String username) {
-            return null;
-        }
 
         @Override
         public boolean isUserInRole(String username, String role) {

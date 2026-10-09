@@ -28,6 +28,7 @@ import java.nio.file.Paths;
 import org.junit.Test;
 
 import org.bluezoo.gumdrop.SelectorLoop;
+import org.bluezoo.gumdrop.tls.TlsConfig;
 import org.bluezoo.gumdrop.dns.client.DnsResolver;
 import org.bluezoo.gumdrop.testsupport.InlineSelectorLoop;
 import org.bluezoo.gumdrop.tls.KeystoreFormat;
@@ -67,12 +68,7 @@ public class SmtpClientConfigTest {
         assertSame(client, client.socketPath("/tmp/smtp.sock"));
         assertSame(client, client.selectorLoop(null));
         assertSame(client, client.secure(true));
-        assertSame(client, client.trustJvm());
-        assertSame(client, client.clientCredentials(null));
-        assertSame(client, client.trustManager(null));
-        assertSame(client, client.keystoreFile(keystore));
-        assertSame(client, client.keystorePass("secret"));
-        assertSame(client, client.keystoreFormat(KeystoreFormat.values()[0]));
+        assertSame(client, client.tls(new TlsConfig()));
         assertSame(client, client.daneResolver(resolver));
         assertSame(client, client.dnsResolver(resolver));
     }
@@ -81,14 +77,11 @@ public class SmtpClientConfigTest {
     public void testSetters() {
         SmtpClient client = new SmtpClient("mx.example.com", 25);
         DnsResolver resolver = new DnsResolver();
-        client.setSecure(true);
-        client.setClientCredentials(null);
-        client.setTrustManager(null);
-        client.setDaneResolver(resolver);
-        client.setDnsResolver(resolver);
-        client.setKeystoreFile(Paths.get("keystore.p12"));
-        client.setKeystorePass("secret");
-        client.setKeystoreFormat(KeystoreFormat.values()[0]);
+        client.secure(true);
+        client.tls(new TlsConfig());
+        client.daneResolver(resolver);
+        client.dnsResolver(resolver);
+        client.tls(new TlsConfig());
     }
 
     @Test
@@ -99,53 +92,4 @@ public class SmtpClientConfigTest {
         assertFalse(client.isOpen());
     }
 
-    @Test
-    public void testBuilderHostName() {
-        SmtpClient client = SmtpClient.builder()
-                .host("mx.example.com")
-                .port(2525)
-                .secure(true)
-                .clientCredentials(null)
-                .trustManager(null)
-                .keystoreFile(Paths.get("ks.p12"))
-                .keystorePass("pw")
-                .keystoreFormat(KeystoreFormat.values()[0])
-                .daneResolver(new DnsResolver())
-                .build();
-        assertNotNull(client);
-    }
-
-    @Test
-    public void testBuilderAddressAndLoop() {
-        InetAddress loopback = InetAddress.getLoopbackAddress();
-        SelectorLoop loop = new InlineSelectorLoop();
-        assertNotNull(SmtpClient.builder().host(loopback).build());
-        assertNotNull(SmtpClient.builder().selectorLoop(loop).host(loopback).build());
-        assertNotNull(SmtpClient.builder().selectorLoop(loop).host("h.example.com").build());
-    }
-
-    @Test
-    public void testBuilderSocketPath() {
-        SelectorLoop loop = new InlineSelectorLoop();
-        assertNotNull(SmtpClient.builder().socketPath("/tmp/s.sock").build());
-        assertNotNull(SmtpClient.builder().selectorLoop(loop).socketPath("/tmp/s.sock").build());
-    }
-
-    @Test
-    public void testBuilderHostSettersAreMutuallyExclusive() {
-        InetAddress loopback = InetAddress.getLoopbackAddress();
-        assertNotNull(SmtpClient.builder().host("a.example.com").host(loopback).build());
-        assertNotNull(SmtpClient.builder().host(loopback).socketPath("/tmp/x").build());
-        assertNotNull(SmtpClient.builder().socketPath("/tmp/x").host("b.example.com").build());
-    }
-
-    @Test
-    public void testBuilderRequiresTarget() {
-        try {
-            SmtpClient.builder().port(25).build();
-            fail("target required");
-        } catch (IllegalStateException expected) {
-            assertNotNull(expected);
-        }
-    }
 }

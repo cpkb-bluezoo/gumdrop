@@ -49,7 +49,7 @@ Applications no longer subclass a server to customise behaviour. They
 implement the protocol's handler interfaces and compose them with the server.
 See [web/configuration.html](../web/configuration.html).
 
-## Runtime and configuration
+## The Gumdrop instance and configuration
 
 | 2.x | 3.0 |
 |-----|-----|
@@ -60,6 +60,19 @@ See [web/configuration.html](../web/configuration.html).
 | `TlsConfig` and `ClientTlsConfig` | a single material-only `TlsConfig` |
 | JSSE `SSLEngine` integration | the in-tree TLS engine; see [web/tls.html](../web/tls.html) |
 | `org.bluezoo.gumdrop.telemetry.protobuf` | the jprotobuf library, package `org.bluezoo.protobuf` |
+
+## Configuration methods, realms and clients
+
+| 2.x | 3.0 |
+|-----|-----|
+| `setXxx` wiring methods on listeners, servers, clients and policy objects | fluent methods named for the setting that return the object: `setRealm(r)` to `realm(r)`, `setEnableIDLE(true)` to `enableIDLE(true)`, `setMaxConnections(n)` to `maxConnections(n)`; the protocol listeners return their own type, so settings chain after `port()` |
+| `setPort(int)`, `setWildcard(boolean)` on listeners | `port(int)`, `bindWildcard()` |
+| `setListeners(List)` on servers, `RoleBasedQuotaManager.setRoleQuota` | `addListener(...)`, `addRoleQuota(...)` |
+| `Realm` methods that return their answer (`passwordMatch`, `isUserInRole`, ...) and `getPassword` | every lookup takes a `RealmCallback` and never blocks; a realm with in-memory answers implements `SynchronousRealm` |
+| `AmqpClientRecovery`, `Amqp1ClientRecovery` | `AmqpClient`, `Amqp1Client` |
+| `ldap.asn1` package | `asn1` |
+| `h2Enabled`, `h2cUpgradeEnabled`, `h3Enabled` on `HttpClient`, `WebSocketClient`, `ConnectIpClient`, `ConnectUdpClient` | `versions(HttpVersion...)`, the set of permitted versions (default HTTP/3, HTTP/2 and HTTP/1.1; the highest is tried first). `h3Enabled(true)` is `versions(HTTP_3)`, `h3Enabled(false)` is `versions(HTTP_2_0, HTTP_1_1)`, `h2Enabled(false)` is leaving out `HTTP_2_0`. `h2WithPriorKnowledge` is unchanged and needs `HTTP_2_0` permitted |
+| `setSecure`, `setPinnedSPKIFingerprints`, `setDefaultPort` on `TcpDnsClientTransport`; `setPinnedCertFingerprint`, `setCaFile` on `DoQClientTransport`; `setPath` on `DoHClientTransport`; `tls(...)` on all three | `secure`, `pinnedSpkiFingerprints`, `defaultPort`, `pinnedCertFingerprint`, `caFile`, `path`, all returning the transport, so `TcpDnsClientTransport.createDoT().pinnedSpkiFingerprints(pins).tls(tls)` chains |
 
 ## Moved to new packages
 

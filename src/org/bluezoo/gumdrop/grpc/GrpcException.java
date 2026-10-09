@@ -22,7 +22,8 @@
 package org.bluezoo.gumdrop.grpc;
 
 /**
- * Exception for gRPC errors.
+ * Exception for gRPC errors, carrying the {@linkplain GrpcStatus gRPC status}
+ * the call ended with, or that Gumdrop assigned to a failure.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
@@ -30,22 +31,43 @@ public class GrpcException extends RuntimeException {
 
     private static final long serialVersionUID = 1L;
 
+    private final int status;
+
     /**
-     * Creates a new exception with the given message.
+     * Creates a new exception.
      *
+     * @param status the gRPC status, see {@link GrpcStatus}
      * @param message the error message
      */
-    public GrpcException(String message) {
-        super(message);
+    public GrpcException(int status, String message) {
+        super(describe(status, message));
+        this.status = status;
     }
 
     /**
-     * Creates a new exception with the given message and cause.
+     * Creates a new exception with a cause.
      *
+     * @param status the gRPC status, see {@link GrpcStatus}
      * @param message the error message
      * @param cause the cause
      */
-    public GrpcException(String message, Throwable cause) {
-        super(message, cause);
+    public GrpcException(int status, String message, Throwable cause) {
+        super(describe(status, message), cause);
+        this.status = status;
+    }
+
+    /**
+     * Returns the gRPC status.
+     *
+     * @return the status, see {@link GrpcStatus}
+     */
+    public int getStatus() {
+        return status;
+    }
+
+    private static String describe(int status, String message) {
+        String name = GrpcStatus.name(status);
+        String prefix = "gRPC " + (name != null ? name : "status " + status);
+        return (message == null || message.isEmpty()) ? prefix : prefix + ": " + message;
     }
 }

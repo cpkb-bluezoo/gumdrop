@@ -27,7 +27,7 @@ import java.util.ResourceBundle;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
-import org.bluezoo.gumdrop.ldap.asn1.Asn1Exception;
+import org.bluezoo.gumdrop.asn1.Asn1Exception;
 
 /**
  * Adapts a {@link SyncReplHandler} to the raw {@link SearchResultHandler}/

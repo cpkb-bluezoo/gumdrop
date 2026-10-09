@@ -188,7 +188,6 @@ public class BasicRealmHashAndXmlTest {
         assertNull(realm.getCramMD5Response("u", "<c>"));
         assertNull(realm.getApopResponse("u", "<t>"));
         assertNull(realm.getScramCredentials("u"));
-        assertEquals("{SHA}AAAAAAAAAAAAAAAAAAAAAAAAAAA=", realm.getPassword("u"));
     }
 
     @Test
@@ -233,7 +232,7 @@ public class BasicRealmHashAndXmlTest {
         try {
             Files.write(file, xml.getBytes(StandardCharsets.UTF_8));
             BasicRealm realm = new BasicRealm();
-            realm.setHref(file);
+            realm.href(file);
             assertTrue(realm.passwordMatch("alice", "pw1"));
             assertTrue(realm.isUserInRole("alice", "admin"));
             assertTrue(realm.isUserInRole("alice", "g-only"));
@@ -256,7 +255,7 @@ public class BasicRealmHashAndXmlTest {
         Files.delete(file);
         BasicRealm realm = new BasicRealm();
         try {
-            realm.setHref(file);
+            realm.href(file);
             fail("expected RuntimeException");
         } catch (RuntimeException expected) {
             assertNotNull(expected.getCause());
@@ -270,7 +269,7 @@ public class BasicRealmHashAndXmlTest {
             Files.write(file, "<realm><user".getBytes(StandardCharsets.UTF_8));
             BasicRealm realm = new BasicRealm();
             try {
-                realm.setHref(file);
+                realm.href(file);
                 fail("expected RuntimeException");
             } catch (RuntimeException expected) {
                 assertNotNull(expected.getCause());

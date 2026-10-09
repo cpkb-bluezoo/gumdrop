@@ -85,14 +85,21 @@ class StubEndpoint implements Endpoint {
         return remoteAddress;
     }
 
+    private SecurityInfo securityInfo;
+
+    /** Makes this endpoint report a TLS session; null makes it cleartext. */
+    public void setSecurityInfo(SecurityInfo securityInfo) {
+        this.securityInfo = securityInfo;
+    }
+
     @Override
     public boolean isSecure() {
-        return false;
+        return securityInfo != null;
     }
 
     @Override
     public SecurityInfo getSecurityInfo() {
-        return null;
+        return securityInfo;
     }
 
     @Override

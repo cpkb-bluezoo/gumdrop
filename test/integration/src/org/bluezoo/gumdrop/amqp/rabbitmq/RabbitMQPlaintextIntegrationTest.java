@@ -22,7 +22,7 @@
 package org.bluezoo.gumdrop.amqp.rabbitmq;
 
 import org.bluezoo.gumdrop.Gumdrop;
-import org.bluezoo.gumdrop.amqp.client.AmqpClientRecovery;
+import org.bluezoo.gumdrop.amqp.client.AmqpClient;
 import org.bluezoo.gumdrop.amqp.BasicProperties;
 import org.bluezoo.gumdrop.amqp.client.ClientChannel;
 import org.bluezoo.gumdrop.amqp.client.ClientConnection;
@@ -72,7 +72,7 @@ public class RabbitMQPlaintextIntegrationTest {
 
     private static final long TIMEOUT_SECONDS = 10;
 
-    private AmqpClientRecovery client;
+    private AmqpClient client;
     private Gumdrop gumdrop;
 
     @Before
@@ -92,8 +92,8 @@ public class RabbitMQPlaintextIntegrationTest {
         }
     }
 
-    private AmqpClientRecovery newClient() {
-        return new AmqpClientRecovery(RabbitMQTestSupport.HOST, RabbitMQTestSupport.PLAINTEXT_PORT)
+    private AmqpClient newClient() {
+        return new AmqpClient(RabbitMQTestSupport.HOST, RabbitMQTestSupport.PLAINTEXT_PORT)
                 .credentials(RabbitMQTestSupport.USERNAME, RabbitMQTestSupport.PASSWORD)
                 .virtualHost(RabbitMQTestSupport.VHOST);
     }

@@ -42,6 +42,8 @@ import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.Callable;
+import java.util.concurrent.Executor;
 import java.util.ResourceBundle;
 import java.util.logging.Logger;
 
@@ -118,7 +120,7 @@ import org.xml.sax.SAXException;
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see <a href="https://www.rfc-editor.org/rfc/rfc4422">RFC 4422: SASL Framework</a>
  */
-public class BasicRealm extends AbstractXMLHandler implements Realm {
+public class BasicRealm extends AbstractXMLHandler implements SynchronousRealm {
 
     static final ResourceBundle L10N = ResourceBundle.getBundle("org.bluezoo.gumdrop.auth.L10N");
     static final Logger LOGGER = Logger.getLogger(BasicRealm.class.getName());
@@ -340,12 +342,6 @@ public class BasicRealm extends AbstractXMLHandler implements Realm {
     }
 
     @Override
-    @Deprecated
-    public String getPassword(String username) {
-        return passwords.get(username);
-    }
-
-    @Override
     public boolean isUserInRole(String username, String role) {
         Set<String> roles = userRoles.get(username);
         return (roles != null && roles.contains(role));
@@ -379,10 +375,178 @@ public class BasicRealm extends AbstractXMLHandler implements Realm {
         return SUPPORTED_MECHANISMS;
     }
 
+    /**
+     * Returns a view of this realm for a connection's loop. Lookups are in
+     * memory and complete at once, except a password check against a hashed
+     * password and the first derivation of a user's SCRAM credentials, which
+     * run a deliberately slow key derivation: those run on the
+     * {@link org.bluezoo.gumdrop.StorageExecutor} and complete on the loop,
+     * so the loop thread never does the work. Used directly, without a
+     * loop, they run on the calling thread.
+     */
     @Override
     public Realm forSelectorLoop(SelectorLoop loop) {
-        // BasicRealm is synchronous and doesn't need client connections
-        return this;
+        if (loop == null) {
+            return this;
+        }
+        return new LoopBound(loop);
+    }
+
+    /** True if checking this user's password runs a slow hash. */
+    private boolean passwordCheckIsSlow(String username) {
+        String stored = passwords.get(username);
+        return stored != null && isHashedPassword(stored);
+    }
+
+    /** True if this user's SCRAM credentials are plaintext-derived and not yet cached. */
+    private boolean scramDerivationIsPending(String username) {
+        String password = passwords.get(username);
+        return password != null && !isHashedPassword(password)
+                && !scramCache.containsKey(username);
+    }
+
+    /** This realm as seen from one loop; see {@link #forSelectorLoop}. */
+    private final class LoopBound implements Realm {
+
+        private final SelectorLoop loop;
+
+        LoopBound(SelectorLoop loop) {
+            this.loop = loop;
+        }
+
+        /** Runs {@code work} on the storage executor and completes on the loop. */
+        private <T> void offload(Callable<T> work, final RealmCallback<T> callback) {
+            org.bluezoo.gumdrop.Gumdrop gumdrop = loop.getGumdrop();
+            org.bluezoo.gumdrop.StorageExecutor executor =
+                    (gumdrop != null) ? gumdrop.getStorageExecutor() : null;
+            if (executor == null) {
+                T result;
+                try {
+                    result = work.call();
+                } catch (Exception e) {
+                    callback.failed(e);
+                    return;
+                }
+                callback.completed(result);
+                return;
+            }
+            executor.submit(new Executor() {
+                @Override
+                public void execute(Runnable task) {
+                    loop.invokeLater(task);
+                }
+            }, work, new org.bluezoo.gumdrop.StorageExecutor.Callback<T>() {
+                @Override
+                public void completed(T result) {
+                    callback.completed(result);
+                }
+
+                @Override
+                public void failed(Throwable cause) {
+                    callback.failed(cause);
+                }
+            });
+        }
+
+        @Override
+        public Realm forSelectorLoop(SelectorLoop other) {
+            return BasicRealm.this.forSelectorLoop(other);
+        }
+
+        @Override
+        public Set<SaslMechanism> getSupportedSASLMechanisms() {
+            return BasicRealm.this.getSupportedSASLMechanisms();
+        }
+
+        @Override
+        public void passwordMatch(final String username, final String password,
+                RealmCallback<Boolean> callback) {
+            if (!passwordCheckIsSlow(username)) {
+                BasicRealm.this.passwordMatch(username, password, callback);
+                return;
+            }
+            offload(new Callable<Boolean>() {
+                @Override
+                public Boolean call() {
+                    return Boolean.valueOf(
+                            BasicRealm.this.passwordMatch(username, password));
+                }
+            }, callback);
+        }
+
+        @Override
+        public void getScramCredentials(final String username,
+                RealmCallback<Realm.ScramCredentials> callback) {
+            if (!scramDerivationIsPending(username)) {
+                BasicRealm.this.getScramCredentials(username, callback);
+                return;
+            }
+            offload(new Callable<Realm.ScramCredentials>() {
+                @Override
+                public Realm.ScramCredentials call() {
+                    return BasicRealm.this.getScramCredentials(username);
+                }
+            }, callback);
+        }
+
+        @Override
+        public void getDigestHA1(String username, String realmName,
+                RealmCallback<String> callback) {
+            BasicRealm.this.getDigestHA1(username, realmName, callback);
+        }
+
+        @Override
+        public void isUserInRole(String username, String role,
+                RealmCallback<Boolean> callback) {
+            BasicRealm.this.isUserInRole(username, role, callback);
+        }
+
+        @Override
+        public void userExists(String username, RealmCallback<Boolean> callback) {
+            BasicRealm.this.userExists(username, callback);
+        }
+
+        @Override
+        public void getCramMD5Response(String username, String challenge,
+                RealmCallback<String> callback) {
+            BasicRealm.this.getCramMD5Response(username, challenge, callback);
+        }
+
+        @Override
+        public void getApopResponse(String username, String timestamp,
+                RealmCallback<String> callback) {
+            BasicRealm.this.getApopResponse(username, timestamp, callback);
+        }
+
+        @Override
+        public void validateBearerToken(String token,
+                RealmCallback<Realm.TokenValidationResult> callback) {
+            BasicRealm.this.validateBearerToken(token, callback);
+        }
+
+        @Override
+        public void validateOAuthToken(String accessToken,
+                RealmCallback<Realm.TokenValidationResult> callback) {
+            BasicRealm.this.validateOAuthToken(accessToken, callback);
+        }
+
+        @Override
+        public void authenticateCertificate(X509Certificate certificate,
+                RealmCallback<Realm.CertificateAuthenticationResult> callback) {
+            BasicRealm.this.authenticateCertificate(certificate, callback);
+        }
+
+        @Override
+        public void authorizeAs(String authenticatedUser, String requestedUser,
+                RealmCallback<Boolean> callback) {
+            BasicRealm.this.authorizeAs(authenticatedUser, requestedUser, callback);
+        }
+
+        @Override
+        public void mapKerberosPrincipal(String gssName,
+                RealmCallback<String> callback) {
+            BasicRealm.this.mapKerberosPrincipal(gssName, callback);
+        }
     }
 
     @Override
@@ -467,7 +631,7 @@ public class BasicRealm extends AbstractXMLHandler implements Realm {
         }
     }
 
-    public void setHref(String href) {
+    public BasicRealm href(String href) {
         pendingGroupRefs = new LinkedHashMap<String, String>();
         try {
             URL cwd = new File(".").toURI().toURL();
@@ -486,9 +650,10 @@ public class BasicRealm extends AbstractXMLHandler implements Realm {
             currentGroupName = null;
             pendingGroupRefs = null;
         }
+        return this;
     }
 
-    public void setHref(Path path) {
+    public BasicRealm href(Path path) {
         pendingGroupRefs = new LinkedHashMap<String, String>();
         try {
             try (InputStream in = Files.newInputStream(path)) {
@@ -504,6 +669,7 @@ public class BasicRealm extends AbstractXMLHandler implements Realm {
             currentGroupName = null;
             pendingGroupRefs = null;
         }
+        return this;
     }
 
     public void startElement(String uri, String localName, String qName, Attributes atts)

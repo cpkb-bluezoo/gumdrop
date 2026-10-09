@@ -76,7 +76,7 @@ public class POP3ServerSmallTypesTest {
         Pop3Listener same = listener.port(1110);
         assertSame(listener, same);
         assertEquals(1110, listener.getPort());
-        listener.setPort(2110);
+        listener.port(2110);
         assertEquals(2110, listener.getPort());
         Pop3Listener secured = listener.secure(true);
         assertSame(listener, secured);
@@ -89,16 +89,16 @@ public class POP3ServerSmallTypesTest {
         assertSame(listener, listener.bindWildcard());
         InetAddress loopback = InetAddress.getLoopbackAddress();
         assertSame(listener, listener.addresses(loopback));
-        listener.setTransactionTimeoutMs(1234L);
+        listener.transactionTimeoutMs(1234L);
         assertEquals(1234L, listener.getTransactionTimeoutMs());
-        listener.setEnableAPOP(false);
+        listener.enableAPOP(false);
         assertFalse(listener.isEnableAPOP());
-        listener.setEnableUTF8(false);
+        listener.enableUTF8(false);
         assertFalse(listener.isEnableUTF8());
         assertNull(listener.getRealm());
         assertNull(listener.getMailboxFactory());
         assertNull(listener.getGSSAPIServer());
-        listener.setGSSAPIServer(null);
+        listener.gssapiServer(null);
         assertNull(listener.getMetrics());
         assertNull(listener.getServer());
         assertNull(listener.getSessionProvider());
@@ -135,21 +135,21 @@ public class POP3ServerSmallTypesTest {
     @Test
     public void testOpenApplicationSessionFallsBackToServerWhenProviderFails() {
         Pop3Listener listener = new Pop3Listener();
-        listener.setSessionProvider(new Pop3ServerSessionProvider() {
+        listener.sessionProvider(new Pop3ServerSessionProvider() {
             @Override
             public ClientConnected openSession(TcpListener l) {
                 throw new IllegalStateException("provider broke");
             }
         });
         final ClientConnected expected = new POP3ProtocolHandlerTest.RecordingClientHandler();
-        listener.setServer(new POP3ProtocolHandlerTest.TestPOP3Service(expected));
+        listener.server(new POP3ProtocolHandlerTest.TestPOP3Service(expected));
         assertSame(expected, listener.openApplicationSession());
     }
 
     @Test
     public void testOpenApplicationSessionReturnsNullWhenServerFails() {
         Pop3Listener listener = new Pop3Listener();
-        listener.setServer(new Pop3Server() {
+        listener.server(new Pop3Server() {
             @Override
             public ClientConnected openSession(TcpListener l) {
                 throw new IllegalStateException("server broke");

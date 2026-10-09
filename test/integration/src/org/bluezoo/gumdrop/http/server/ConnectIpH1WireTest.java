@@ -117,7 +117,7 @@ public class ConnectIpH1WireTest {
             @Override public void closed(ConnectIpSession session) { }
             @Override public void failed(ConnectIpSession session, Exception cause) { }
         };
-        listener.setStreamHandler(new HttpStreamHandler() {
+        listener.streamHandler(new HttpStreamHandler() {
             @Override
             public HttpRequestHandler openStream(HttpResponse state) {
                 return new ConnectIpRequestHandler(state, permissive, noopPacketHandler);

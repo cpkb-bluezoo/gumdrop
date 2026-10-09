@@ -22,9 +22,10 @@
 package org.bluezoo.gumdrop.amqp.rabbitmq;
 
 import org.bluezoo.gumdrop.amqp.BasicProperties;
+import org.bluezoo.gumdrop.tls.TlsConfig;
 
 import org.bluezoo.gumdrop.Gumdrop;
-import org.bluezoo.gumdrop.amqp.client.AmqpClientRecovery;
+import org.bluezoo.gumdrop.amqp.client.AmqpClient;
 import org.bluezoo.gumdrop.amqp.client.ClientChannel;
 import org.bluezoo.gumdrop.amqp.client.ClientConnection;
 import org.bluezoo.gumdrop.amqp.client.DeliveryHandler;
@@ -79,7 +80,7 @@ public class RabbitMQTlsIntegrationTest {
 
     private static final long TIMEOUT_SECONDS = 10;
 
-    private AmqpClientRecovery client;
+    private AmqpClient client;
     private Gumdrop gumdrop;
 
     @Before
@@ -136,12 +137,12 @@ public class RabbitMQTlsIntegrationTest {
         }
     }
 
-    private AmqpClientRecovery newTlsClient() throws IOException, CertificateException {
-        return new AmqpClientRecovery(RabbitMQTestSupport.HOST, RabbitMQTestSupport.TLS_PORT)
+    private AmqpClient newTlsClient() throws IOException, CertificateException {
+        return new AmqpClient(RabbitMQTestSupport.HOST, RabbitMQTestSupport.TLS_PORT)
                 .credentials(RabbitMQTestSupport.USERNAME, RabbitMQTestSupport.PASSWORD)
                 .virtualHost(RabbitMQTestSupport.VHOST)
-                .setSecure(true)
-                .setTrustManager(loadCaTrustManager());
+                .secure(true)
+                .tls(new TlsConfig().trustManager(loadCaTrustManager()));
     }
 
     private static <T> T await(CountDownLatch latch, AtomicReference<T> value) throws InterruptedException {

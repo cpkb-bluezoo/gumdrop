@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.pop3;
 
+import org.bluezoo.gumdrop.auth.SynchronousRealm;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.net.InetSocketAddress;
@@ -99,11 +100,11 @@ public class POP3ProtocolHandlerPerformanceTest {
         mailboxFactory = new StubMailboxFactory();
 
         listener = new TestPOP3Listener();
-        listener.setRealm(realm);
-        listener.setMailboxFactory(mailboxFactory);
-        listener.setEnableAPOP(false);
-        listener.setEnableUTF8(true);
-        listener.setEnablePipelining(false);
+        listener.realm(realm);
+        listener.mailboxFactory(mailboxFactory);
+        listener.enableAPOP(false);
+        listener.enableUTF8(true);
+        listener.enablePipelining(false);
 
         handler = new Pop3ProtocolHandler(listener);
         endpoint = new StubEndpoint();
@@ -716,14 +717,10 @@ public class POP3ProtocolHandlerPerformanceTest {
         @Override public boolean isSessionResumed() { return false; }
     }
 
-    static class StubRealm implements Realm {
+    static class StubRealm implements SynchronousRealm {
         Set<SaslMechanism> supportedMechanisms =
                 new HashSet<SaslMechanism>();
 
-        @Override
-        public Realm forSelectorLoop(SelectorLoop loop) {
-            return this;
-        }
 
         @Override
         public Set<SaslMechanism> getSupportedSASLMechanisms() {
@@ -741,14 +738,6 @@ public class POP3ProtocolHandlerPerformanceTest {
             return null;
         }
 
-        @Override
-        @SuppressWarnings("deprecation")
-        public String getPassword(String username) {
-            if ("testuser".equals(username)) {
-                return "testpass";
-            }
-            return null;
-        }
 
         @Override
         public boolean isUserInRole(String username, String role) {

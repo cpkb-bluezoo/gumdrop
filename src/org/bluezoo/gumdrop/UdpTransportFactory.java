@@ -152,6 +152,14 @@ public class UdpTransportFactory extends TransportFactory {
         this.maxFragmentSize = maxFragmentSize;
     }
 
+    public boolean isRequireCookie() {
+        return requireCookie;
+    }
+
+    public int getMaxFragmentSize() {
+        return maxFragmentSize;
+    }
+
     /**
      * Maximum number of concurrent DTLS peers tracked on one server-mode
      * {@link UdpEndpoint}. {@code 0} means unlimited.
@@ -278,9 +286,24 @@ public class UdpTransportFactory extends TransportFactory {
         }
     }
 
+    /**
+     * The cookie secret to build handshake configurations with: the one
+     * configured, or, when cookies are required and none was given, a random
+     * one generated once for this factory (without it every handshake would
+     * fail for want of a secret).
+     */
+    synchronized byte[] effectiveCookieSecret() {
+        if (requireCookie && cookieSecret == null) {
+            byte[] generated = new byte[32];
+            new java.security.SecureRandom().nextBytes(generated);
+            cookieSecret = generated;
+        }
+        return cookieSecret;
+    }
+
     private void applyDtlsSettings13(Dtls13HandshakeConfig config) {
         config.setRequireCookie(requireCookie);
-        config.setCookieSecret(cookieSecret);
+        config.setCookieSecret(effectiveCookieSecret());
         config.setMaxFragmentSize(maxFragmentSize);
     }
 
@@ -312,7 +335,7 @@ public class UdpTransportFactory extends TransportFactory {
 
     private void applyDtlsSettings(Dtls12HandshakeConfig config) {
         config.setRequireCookie(requireCookie);
-        config.setCookieSecret(cookieSecret);
+        config.setCookieSecret(effectiveCookieSecret());
         config.setMaxFragmentSize(maxFragmentSize);
     }
 

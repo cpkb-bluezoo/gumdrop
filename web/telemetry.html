@@ -114,7 +114,7 @@ OTLP/gRPC to any OpenTelemetry Collector, or to JSONL files for local analysis;
 uses W3C Trace Context and familiar span kinds and attributes</li>
 <li><b>Never on the I/O thread's critical path</b> - every exporter queues
 records and delivers them from a thread of its own</li>
-<li><b>Zero-dependency</b> - self-contained protobuf serialization; no
+<li><b>Zero-dependency</b> - self-contained protobuf serialisation; no
 OpenTelemetry Java SDK or agent on the application classpath (see
 <a href="#api-design">why Gumdrop does not use the OpenTelemetry SDK</a>)</li>
 </ul>
@@ -192,7 +192,7 @@ objects (for example HTTP streams), not on an implicit thread slot.</li>
 <code>Trace</code> instance. Scopes restore the previous span on the same
 trace when closed; they do not claim the whole thread for unrelated work.</li>
 <li><b>Explicit outbound propagation</b> - the HTTP client propagates
-<code>traceparent</code> when you call <code>HttpClient.setTrace(...)</code>
+<code>traceparent</code> when you call <code>HttpClient.trace(...)</code>
 (or set the header yourself). There is no hidden reliance on thread-local
 state at send time.</li>
 <li><b>Async-friendly discipline</b> - continuations should receive the
@@ -263,7 +263,7 @@ API and implicit context is unsupported and likely to produce incorrect traces
 on Gumdrop.</li>
 <li><b>Prefer explicit propagation for outbound calls</b> - pass
 <code>state.getTrace()</code> (or the relevant trace) into
-<code>HttpClient.setTrace()</code> before outbound requests so client spans
+<code>HttpClient.trace()</code> before outbound requests so client spans
 stay on the same distributed trace; see
 <a href="#distributed">Distributed Tracing</a>.</li>
 </ul>
@@ -1059,7 +1059,7 @@ and metrics</li>
 <li>Separate <code>.jsonl</code> files for each signal type (traces, logs,
 metrics) as required by the specification</li>
 <li>A signal with no path is written to stdout</li>
-<li>A background thread handles serialization and flushing, avoiding blocking the
+<li>A background thread handles serialisation and flushing, avoiding blocking the
 caller</li>
 <li>Buffered I/O with configurable buffer size (<code>fileBufferSize</code>,
 default 8KB)</li>
@@ -1817,19 +1817,19 @@ Example: <code>00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01</code>
 
 <p>
 When making outbound requests with the HTTP client, call
-<code>client.setTrace(state.getTrace())</code> before
+<code>client.trace(state.getTrace())</code> before
 <code>connect()</code>. The traceparent header is then added automatically
 to every request, so the distributed trace remains connected without
 manual header handling:
 </p>
 
 <p>
-In the client examples on this page, <code>gumdrop</code> is the runtime returned by <code>Gumdrop.boot()</code>; a client is given it when it connects.
+In the client examples on this page, <code>gumdrop</code> is the <code>Gumdrop</code> instance returned by <code>Gumdrop.boot()</code>; a client is given it when it connects.
 </p>
 
 <pre>
 HttpClient client = new HttpClient(loop, downstreamHost, downstreamPort);
-client.setTrace(state.getTrace());  // Propagates traceparent automatically
+client.trace(state.getTrace());  // Propagates traceparent automatically
 client.connect(gumdrop, new HttpClientHandler() {
     public void onConnected(Endpoint endpoint) {
         HttpRequest request = client.post("/api", responseHandler);
@@ -1849,7 +1849,7 @@ if needed, but automatic propagation is preferred.
 
 <p>
 This creates a connected chain of spans across services, visible in trace
-visualization tools.
+visualisation tools.
 </p>
 
 <h4>SpanKind for Distributed Calls</h4>

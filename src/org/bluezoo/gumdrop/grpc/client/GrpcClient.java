@@ -27,6 +27,7 @@ import org.bluezoo.gumdrop.grpc.GrpcEventHandler;
 import org.bluezoo.gumdrop.grpc.GrpcFrameParser;
 import org.bluezoo.gumdrop.grpc.GrpcFraming;
 import org.bluezoo.gumdrop.grpc.GrpcException;
+import org.bluezoo.gumdrop.grpc.GrpcStatus;
 import org.bluezoo.gumdrop.grpc.proto.ProtoFile;
 import org.bluezoo.gumdrop.grpc.proto.ProtoMessageHandler;
 import org.bluezoo.gumdrop.grpc.proto.ProtoModelAdapter;
@@ -57,11 +58,28 @@ public class GrpcClient {
         this.protoFile = protoFile;
     }
 
-    public void unaryCall(HttpClient httpClient, String path,
-                          ByteBuffer requestMessage,
-                          String responseTypeName,
-                          ProtoMessageHandler messageHandler) {
-        unaryCall(httpClient, path, requestMessage, new GrpcResponseHandler() {
+    /**
+     * Makes a call, delivering the response message to a
+     * {@link ProtoMessageHandler}.
+     *
+     * <p>Errors are not reported on this form; use
+     * {@link #call(HttpClient, String, ByteBuffer, GrpcResponseHandler)} to
+     * receive them.
+     *
+     * @param httpClient a connected HTTP client
+     * @param path the gRPC path ({@code /package.Service/Method})
+     * @param requestMessage the serialised request message
+     * @param responseTypeName the fully qualified response message type
+     * @param messageHandler receives the response message's events
+     * @return the call
+     * @throws GrpcException with {@code UNIMPLEMENTED} if the RPC streams,
+     *         which is not supported yet
+     */
+    public GrpcClientCall call(HttpClient httpClient, String path,
+                               ByteBuffer requestMessage,
+                               String responseTypeName,
+                               final ProtoMessageHandler messageHandler) {
+        return call(httpClient, path, requestMessage, new GrpcResponseHandler() {
             @Override
             public ProtoMessageHandler startMessage(String typeName) {
                 return messageHandler;
@@ -73,10 +91,11 @@ public class GrpcClient {
         }, responseTypeName);
     }
 
-    private void unaryCall(HttpClient httpClient, String path,
-                           ByteBuffer requestMessage,
-                           GrpcResponseHandler handler,
-                           String responseTypeName) {
+    private GrpcClientCall call(HttpClient httpClient, String path,
+                                ByteBuffer requestMessage,
+                                GrpcResponseHandler handler,
+                                String responseTypeName) {
+        rejectStreaming(path);
         ByteBuffer framed = GrpcFraming.frame(requestMessage);
 
         HttpRequest request = httpClient.post(path,
@@ -86,17 +105,74 @@ public class GrpcClient {
 
         request.bodyContent(framed);
         request.endMessage();
+        return new CallHandle(request);
     }
 
     /**
-     * Performs a unary gRPC call with a pre-serialized request message.
+     * Makes a call with a pre-serialised request message, delivering the
+     * response to a {@link GrpcResponseHandler}.
+     *
+     * @param httpClient a connected HTTP client
+     * @param path the gRPC path ({@code /package.Service/Method})
+     * @param requestMessage the serialised request message
+     * @param handler receives the response message's events, and any error
+     * @return the call
+     * @throws GrpcException with {@code UNIMPLEMENTED} if the RPC streams,
+     *         which is not supported yet
      */
-    public void unaryCall(HttpClient httpClient, String path,
-                          ByteBuffer requestMessage,
-                          GrpcResponseHandler handler) {
+    public GrpcClientCall call(HttpClient httpClient, String path,
+                               ByteBuffer requestMessage,
+                               GrpcResponseHandler handler) {
         RpcDescriptor rpc = protoFile.getRpcByPath(path);
         String responseTypeName = rpc != null ? rpc.getOutputTypeName() : null;
-        unaryCall(httpClient, path, requestMessage, handler, responseTypeName);
+        return call(httpClient, path, requestMessage, handler, responseTypeName);
+    }
+
+    /** Only unary RPCs can be called for now. */
+    private void rejectStreaming(String path) {
+        RpcDescriptor rpc = protoFile.getRpcByPath(path);
+        if (rpc != null && (rpc.isClientStreaming() || rpc.isServerStreaming())) {
+            throw new GrpcException(GrpcStatus.UNIMPLEMENTED,
+                    "streaming RPCs are not supported: " + path);
+        }
+    }
+
+    private static final class CallHandle implements GrpcClientCall {
+
+        private final HttpRequest request;
+
+        CallHandle(HttpRequest request) {
+            this.request = request;
+        }
+
+        @Override
+        public void cancel() {
+            request.cancel();
+        }
+    }
+
+    /**
+     * The gRPC status for an HTTP status that came back without one, as the
+     * gRPC HTTP/2 protocol specification maps them.
+     */
+    private static int statusForHttp(int httpStatus) {
+        switch (httpStatus) {
+            case 400:
+                return GrpcStatus.INTERNAL;
+            case 401:
+                return GrpcStatus.UNAUTHENTICATED;
+            case 403:
+                return GrpcStatus.PERMISSION_DENIED;
+            case 404:
+                return GrpcStatus.UNIMPLEMENTED;
+            case 429:
+            case 502:
+            case 503:
+            case 504:
+                return GrpcStatus.UNAVAILABLE;
+            default:
+                return GrpcStatus.UNKNOWN;
+        }
     }
 
     private static final class StreamingResponseHandler implements HttpResponseHandler {
@@ -124,7 +200,7 @@ public class GrpcClient {
         public void status(int code) {
             HttpStatus status = HttpStatus.fromCode(code);
             if (!status.isSuccess()) {
-                fail(new GrpcException("gRPC error: " + status));
+                fail(new GrpcException(statusForHttp(code), "HTTP " + code + " " + status));
             }
         }
 
@@ -166,7 +242,7 @@ public class GrpcClient {
             String typeName = defaultResponseTypeName;
             messageHandler = handler.startMessage(typeName);
             if (messageHandler == null) {
-                fail(new GrpcException("No response handler"));
+                fail(new GrpcException(GrpcStatus.INTERNAL, "no response handler"));
                 return;
             }
             protoAdapter = new ProtoModelAdapter(protoFile, messageHandler);
@@ -207,13 +283,12 @@ public class GrpcClient {
             // that check waits for grpc-status to have arrived, rather
             // than being treated as a framing error.
             if (frameParser != null && frameParser.hasPartialFrame()) {
-                fail(new GrpcException("Incomplete gRPC response frame"));
+                fail(new GrpcException(GrpcStatus.INTERNAL, "incomplete response frame"));
                 return;
             }
             if (grpcStatus != null && !"0".equals(grpcStatus)) {
                 String message = grpcMessage != null ? decodeGrpcMessage(grpcMessage) : null;
-                fail(new GrpcException("gRPC error " + grpcStatus
-                        + (message != null && !message.isEmpty() ? ": " + message : "")));
+                fail(new GrpcException(parseStatus(grpcStatus), message));
                 return;
             }
             // frameParser is null for a "Trailers-Only" response (gRPC
@@ -228,7 +303,15 @@ public class GrpcClient {
             // gRPC client only handles unary calls today and a well-behaved
             // server won't produce this combination.
             if (frameParser != null && !frameParser.isMessageCompleted()) {
-                fail(new GrpcException("Incomplete gRPC response frame"));
+                fail(new GrpcException(GrpcStatus.INTERNAL, "incomplete response frame"));
+            }
+        }
+
+        private int parseStatus(String value) {
+            try {
+                return Integer.parseInt(value.trim());
+            } catch (NumberFormatException e) {
+                return GrpcStatus.UNKNOWN;
             }
         }
 
@@ -293,7 +376,7 @@ public class GrpcClient {
 
             @Override
             public void parseError(String message) {
-                fail(new GrpcException(message));
+                fail(new GrpcException(GrpcStatus.INTERNAL, message));
             }
         }
     }

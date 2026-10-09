@@ -229,8 +229,8 @@ public class ImapAppendBranchTest extends ImapSessionHarness {
     public void appendBeyondQuotaIsRefused() throws Exception {
         login();
         RoleBasedQuotaManager quota = new RoleBasedQuotaManager();
-        quota.setDefaultQuota("10");
-        listener.setQuotaManager(quota);
+        quota.defaultQuota("10");
+        listener.quotaManager(quota);
         tagCounter++;
         String tag = "t" + tagCounter;
         endpoint.clearResponses();

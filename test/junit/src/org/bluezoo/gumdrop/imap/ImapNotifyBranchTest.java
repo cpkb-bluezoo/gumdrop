@@ -45,7 +45,7 @@ public class ImapNotifyBranchTest extends ImapSessionHarness {
 
     @Test(timeout = 30000)
     public void disabledNotifyIsUnknown() throws Exception {
-        listener.setEnableNOTIFY(false);
+        listener.enableNOTIFY(false);
         reconnect();
         login();
         bad("NOTIFY NONE");

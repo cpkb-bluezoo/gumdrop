@@ -214,7 +214,7 @@ public class MqttProtocolHandlerEdgeTest {
 
     @Before
     public void setUp() {
-        listener = new MqttListener();
+        listener = new MqttListener().defaultKeepAlive(0);
         subs = new SubscriptionManager();
         wills = new WillManager();
         handler = newHandler(new InMemoryMessageStore());
@@ -463,7 +463,7 @@ public class MqttProtocolHandlerEdgeTest {
 
     @Test
     public void tooLargePacketsAreRejectedWhenALimitIsConfigured() {
-        listener.setMaxPacketSize(20);
+        listener.maxPacketSize(20);
         MqttProtocolHandler h = newHandler(new InMemoryMessageStore());
         BinaryRecordingEndpoint ep = new BinaryRecordingEndpoint();
         h.connected(ep);
@@ -647,6 +647,49 @@ public class MqttProtocolHandlerEdgeTest {
         assertEquals(0x90, w.get(w.size() - 1)[0] & 0xff);
     }
 
+    private long armedKeepAliveMs() {
+        long armed = -1;
+        for (BinaryRecordingEndpoint.StubTimer t : endpoint.getTimers()) {
+            if (!t.isCancelled()) {
+                armed = t.getDelayMs();
+            }
+        }
+        return armed;
+    }
+
+    @Test
+    public void listenerDefaultKeepAliveAppliesToAClientThatAsksForNone() {
+        listener.defaultKeepAlive(30);
+        connect("c1");
+        assertEquals("1.5 x the default, in milliseconds", 45000L, armedKeepAliveMs());
+    }
+
+    @Test
+    public void clientKeepAliveWinsOverTheListenerDefault() {
+        listener.defaultKeepAlive(30);
+        handler.connected(endpoint);
+        handler.receive(MqttPacketEncoder.encodeConnect(
+                connectPacket("c1", true, 10, MqttVersion.V3_1_1)));
+        assertEquals(15000L, armedKeepAliveMs());
+    }
+
+    @Test
+    public void mqtt5ClientIsToldTheServerKeepAlive() {
+        listener.defaultKeepAlive(30);
+        handler.connected(endpoint);
+        handler.receive(MqttPacketEncoder.encodeConnect(
+                connectPacket("v5", true, 0, MqttVersion.V5_0)));
+        byte[] connack = endpoint.getWrites().get(0);
+        // property 0x13 (Server Keep Alive), a two byte integer: 30
+        boolean found = false;
+        for (int i = 0; i + 2 < connack.length; i++) {
+            if (connack[i] == 0x13 && connack[i + 1] == 0 && connack[i + 2] == 30) {
+                found = true;
+            }
+        }
+        assertTrue("CONNACK carries Server Keep Alive", found);
+    }
+
     @Test
     public void keepAliveTimerIsNotArmedForSessionsWithoutKeepAlive() {
         connect("c1");
@@ -677,7 +720,7 @@ public class MqttProtocolHandlerEdgeTest {
 
     @Test
     public void unlimitedPacketSizeIsHonoured() {
-        listener.setMaxPacketSize(0);
+        listener.maxPacketSize(0);
         MqttProtocolHandler h = newHandler(new InMemoryMessageStore());
         BinaryRecordingEndpoint ep = new BinaryRecordingEndpoint();
         h.connected(ep);
@@ -694,7 +737,7 @@ public class MqttProtocolHandlerEdgeTest {
                 return true;
             }
         };
-        listener.setRealm(realm);
+        listener.realm(realm);
         TelemetryConfig tc = new TelemetryConfig();
         tc.metricsEnabled(true);
         Gumdrop g = TestGumdrop.create();

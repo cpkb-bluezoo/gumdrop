@@ -120,21 +120,6 @@ public abstract class SmtpServer implements Server, SmtpServerSessionProvider {
         listeners.add(endpoint);
     }
 
-    /**
-     * Sets the listeners from a configuration list. Each item in the
-     * list must be an {@link SmtpListener}.
-     *
-     * @param list the list of listener endpoints
-     */
-    public void setListeners(List<?> list) {
-        for (int i = 0; i < list.size(); i++) {
-            Object item = list.get(i);
-            if (item instanceof SmtpListener) {
-                addListener((SmtpListener) item);
-            }
-        }
-    }
-
     @Override
     public List<Listener> getListeners() {
         return Collections.unmodifiableList(listeners);
@@ -146,48 +131,54 @@ public abstract class SmtpServer implements Server, SmtpServerSessionProvider {
         return realm;
     }
 
-    public void setRealm(Realm realm) {
+    public SmtpServer realm(Realm realm) {
         this.realm = realm;
+        return this;
     }
 
     public MailboxFactory getMailboxFactory() {
         return mailboxFactory;
     }
 
-    public void setMailboxFactory(MailboxFactory factory) {
+    public SmtpServer mailboxFactory(MailboxFactory factory) {
         this.mailboxFactory = factory;
+        return this;
     }
 
     public long getMaxMessageSize() {
         return maxMessageSize;
     }
 
-    public void setMaxMessageSize(long maxMessageSize) {
+    public SmtpServer maxMessageSize(long maxMessageSize) {
         this.maxMessageSize = maxMessageSize;
+        return this;
     }
 
     public int getMaxRecipients() {
         return maxRecipients;
     }
 
-    public void setMaxRecipients(int maxRecipients) {
+    public SmtpServer maxRecipients(int maxRecipients) {
         this.maxRecipients = maxRecipients;
+        return this;
     }
 
     public int getMaxTransactionsPerSession() {
         return maxTransactionsPerSession;
     }
 
-    public void setMaxTransactionsPerSession(int max) {
+    public SmtpServer maxTransactionsPerSession(int max) {
         this.maxTransactionsPerSession = max;
+        return this;
     }
 
     public boolean isAuthRequired() {
         return authRequired;
     }
 
-    public void setAuthRequired(boolean authRequired) {
+    public SmtpServer authRequired(boolean authRequired) {
         this.authRequired = authRequired;
+        return this;
     }
 
     // ── Handler creation ──
@@ -269,9 +260,9 @@ public abstract class SmtpServer implements Server, SmtpServerSessionProvider {
             wireEndpoint(ep);
             SmtpServerSessionProvider provider = getSessionProvider();
             if (provider != null) {
-                ep.setSessionProvider(provider);
+                ep.sessionProvider(provider);
             }
-            ep.setServer(this);
+            ep.server(this);
             startListener(gumdrop, ep);
         }
     }
@@ -292,15 +283,15 @@ public abstract class SmtpServer implements Server, SmtpServerSessionProvider {
      */
     private void wireEndpoint(SmtpListener ep) {
         if (realm != null) {
-            ep.setRealm(realm);
+            ep.realm(realm);
         }
         if (mailboxFactory != null) {
-            ep.setMailboxFactory(mailboxFactory);
+            ep.mailboxFactory(mailboxFactory);
         }
-        ep.setMaxMessageSize(maxMessageSize);
-        ep.setMaxRecipients(maxRecipients);
-        ep.setMaxTransactionsPerSession(maxTransactionsPerSession);
-        ep.setAuthRequired(authRequired);
+        ep.maxMessageSize(maxMessageSize);
+        ep.maxRecipients(maxRecipients);
+        ep.maxTransactionsPerSession(maxTransactionsPerSession);
+        ep.authRequired(authRequired);
     }
 
     private void startListener(Gumdrop gumdrop, Listener listener) {
@@ -426,15 +417,15 @@ public abstract class SmtpServer implements Server, SmtpServerSessionProvider {
             }
             ComposedSmtpServer server = new ComposedSmtpServer(provider);
             if (realm != null) {
-                server.setRealm(realm);
+                server.realm(realm);
             }
             if (mailboxFactory != null) {
-                server.setMailboxFactory(mailboxFactory);
+                server.mailboxFactory(mailboxFactory);
             }
-            server.setMaxMessageSize(maxMessageSize);
-            server.setMaxRecipients(maxRecipients);
-            server.setMaxTransactionsPerSession(maxTransactionsPerSession);
-            server.setAuthRequired(authRequired);
+            server.maxMessageSize(maxMessageSize);
+            server.maxRecipients(maxRecipients);
+            server.maxTransactionsPerSession(maxTransactionsPerSession);
+            server.authRequired(authRequired);
             for (int i = 0; i < listeners.size(); i++) {
                 server.addListener(listeners.get(i));
             }

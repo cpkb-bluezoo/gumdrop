@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.imap;
 
+import org.bluezoo.gumdrop.auth.SynchronousRealm;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -70,9 +71,9 @@ public class IMAPNotifyDeliveryTest {
         Files.createDirectories(userDir.resolve("new"));
         Files.createDirectories(userDir.resolve("tmp"));
         listener = new ImapListener();
-        listener.setRealm(new AcceptingRealm("editor", "editor"));
-        listener.setMailboxFactory(new MaildirMailboxFactory(mailRoot));
-        listener.setAllowPlaintextLogin(true);
+        listener.realm(new AcceptingRealm("editor", "editor"));
+        listener.mailboxFactory(new MaildirMailboxFactory(mailRoot));
+        listener.allowPlaintextLogin(true);
         handler = new ImapProtocolHandler(listener);
         endpoint = new RecordingStubEndpoint(143);
         endpoint.setSelectorLoop(gumdrop.nextWorkerLoop());
@@ -214,7 +215,7 @@ public class IMAPNotifyDeliveryTest {
         assertEquals(0, endpoint.fireTimers());
     }
 
-    private static final class AcceptingRealm implements Realm {
+    private static final class AcceptingRealm implements SynchronousRealm {
         private final String user;
         private final String pass;
         private static final Set<SaslMechanism> SUPPORTED =
@@ -226,10 +227,6 @@ public class IMAPNotifyDeliveryTest {
             this.pass = pass;
         }
 
-        @Override
-        public Realm forSelectorLoop(SelectorLoop loop) {
-            return this;
-        }
 
         @Override
         public Set<SaslMechanism> getSupportedSASLMechanisms() {
@@ -246,11 +243,6 @@ public class IMAPNotifyDeliveryTest {
             return null;
         }
 
-        @Override
-        @SuppressWarnings("deprecation")
-        public String getPassword(String username) {
-            return user.equals(username) ? pass : null;
-        }
 
         @Override
         public boolean isUserInRole(String username, String role) {

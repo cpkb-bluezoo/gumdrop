@@ -22,6 +22,7 @@
 package org.bluezoo.gumdrop.webdav;
 
 import org.bluezoo.gumdrop.Endpoint;
+import org.bluezoo.gumdrop.http.HttpVersion;
 import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.GumdropConfig;
 import org.bluezoo.gumdrop.SecurityInfo;
@@ -172,9 +173,8 @@ public class WebDAVRequestHandlerCompositionTest {
 
     private static HttpClient connect(Gumdrop gumdrop, int port) throws Exception {
         HttpClient client = new HttpClient(TEST_HOST, port);
-        client.setAltSvcEnabled(false);
-        client.setH2Enabled(false);
-        client.setH2cUpgradeEnabled(false);
+        client.altSvcEnabled(false);
+        client.versions(HttpVersion.HTTP_1_1);
 
         CountDownLatch connected = new CountDownLatch(1);
         AtomicReference<Exception> error = new AtomicReference<Exception>();

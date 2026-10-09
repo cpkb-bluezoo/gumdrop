@@ -29,6 +29,7 @@ import java.util.logging.Logger;
 import org.bluezoo.gumdrop.grpc.GrpcEventHandler;
 import org.bluezoo.gumdrop.grpc.GrpcFrameParser;
 import org.bluezoo.gumdrop.grpc.GrpcFraming;
+import org.bluezoo.gumdrop.grpc.GrpcStatus;
 import org.bluezoo.gumdrop.grpc.proto.ProtoFile;
 import org.bluezoo.gumdrop.grpc.proto.ProtoMessageHandler;
 import org.bluezoo.gumdrop.grpc.proto.ProtoModelAdapter;
@@ -67,17 +68,18 @@ public class GrpcHandler extends DefaultHttpRequestHandler {
         return telemetry.getLogger(GrpcHandler.class, L10N);
     }
     private static final String CONTENT_TYPE_GRPC = "application/grpc";
-    private static final int GRPC_STATUS_UNIMPLEMENTED = 12;
+    
 
     private final ProtoFile protoFile;
     private final GrpcServer server;
     private final String path;
     private final long maxMessageSize;
+    private final RpcDescriptor rpc;
     private final String requestTypeName;
     private final String responseTypeName;
 
     private final HttpResponse response;
-    private GrpcResponseSenderImpl responseSender;
+    private GrpcCallImpl responseSender;
     private ProtoMessageHandler requestHandler;
     private ProtoModelAdapter protoAdapter;
     private ProtobufParser protobufParser;
@@ -92,6 +94,7 @@ public class GrpcHandler extends DefaultHttpRequestHandler {
         this.server = server;
         this.path = path;
         this.maxMessageSize = maxMessageSize;
+        this.rpc = rpc;
         this.requestTypeName = rpc != null ? rpc.getInputTypeName() : null;
         this.responseTypeName = rpc != null ? rpc.getOutputTypeName() : null;
     }
@@ -106,10 +109,18 @@ public class GrpcHandler extends DefaultHttpRequestHandler {
             return;
         }
 
-        responseSender = new GrpcResponseSenderImpl(response);
-        requestHandler = server.startUnaryCall(path, responseSender);
+        if (rpc.isClientStreaming() || rpc.isServerStreaming()) {
+            // Only unary RPCs are served for now; the caller is told so, in a
+            // trailers-only response, and the server never sees the call
+            new GrpcCallImpl(response).sendError(GrpcStatus.UNIMPLEMENTED,
+                    "Streaming RPCs are not supported");
+            bodyRejected = true;
+            return;
+        }
+        responseSender = new GrpcCallImpl(response);
+        requestHandler = server.startCall(path, responseSender);
         if (requestHandler == null) {
-            responseSender.sendError(GRPC_STATUS_UNIMPLEMENTED, "Unimplemented");
+            responseSender.sendError(GrpcStatus.UNIMPLEMENTED, "Unimplemented");
             bodyRejected = true;
             return;
         }
@@ -202,13 +213,18 @@ public class GrpcHandler extends DefaultHttpRequestHandler {
         response.endMessage();
     }
 
-    private final class GrpcResponseSenderImpl implements GrpcResponseSender {
+    private final class GrpcCallImpl implements GrpcCall {
 
         private final HttpResponse responseState;
         private boolean sent;
 
-        GrpcResponseSenderImpl(HttpResponse responseState) {
+        GrpcCallImpl(HttpResponse responseState) {
             this.responseState = responseState;
+        }
+
+        @Override
+        public RpcDescriptor getRpc() {
+            return rpc;
         }
 
         @Override
@@ -233,8 +249,32 @@ public class GrpcHandler extends DefaultHttpRequestHandler {
             responseState.status(HttpStatus.OK.code);
             responseState.header("content-type", CONTENT_TYPE_GRPC);
             responseState.header("grpc-status", String.valueOf(status));
-            responseState.header("grpc-message", message != null ? message : "");
+            responseState.header("grpc-message", encodeGrpcMessage(message));
             responseState.endMessage();
+        }
+
+        /**
+         * Percent-encodes a grpc-message value (gRPC HTTP/2 protocol spec
+         * "Percent-Encoding"): printable ASCII other than '%' is sent as it
+         * is, every other byte of the UTF-8 form as %XX.
+         */
+        private String encodeGrpcMessage(String message) {
+            if (message == null) {
+                return "";
+            }
+            StringBuilder out = new StringBuilder(message.length());
+            byte[] octets = message.getBytes(java.nio.charset.StandardCharsets.UTF_8);
+            for (int i = 0; i < octets.length; i++) {
+                int b = octets[i] & 0xff;
+                if (b >= 0x20 && b <= 0x7e && b != '%') {
+                    out.append((char) b);
+                } else {
+                    out.append('%');
+                    out.append(Character.toUpperCase(Character.forDigit(b >> 4, 16)));
+                    out.append(Character.toUpperCase(Character.forDigit(b & 0xf, 16)));
+                }
+            }
+            return out.toString();
         }
 
         @Override
@@ -245,7 +285,7 @@ public class GrpcHandler extends DefaultHttpRequestHandler {
             if (cause != null) {
                 events().error("log.grpc_internal_error").thrown(cause).emit();
             }
-            sendError(13, "Internal error");
+            sendError(GrpcStatus.INTERNAL, "Internal error");
         }
 
         private void sendFramedBody(ByteBuffer framed) {
@@ -257,6 +297,9 @@ public class GrpcHandler extends DefaultHttpRequestHandler {
             responseState.status(HttpStatus.OK.code);
             responseState.header("content-type", CONTENT_TYPE_GRPC);
             responseState.bodyContent(framed);
+            // the call's outcome is carried in trailers; a gRPC client that
+            // does not see grpc-status treats the call as failed
+            responseState.header("grpc-status", "0");
             responseState.endMessage();
         }
 

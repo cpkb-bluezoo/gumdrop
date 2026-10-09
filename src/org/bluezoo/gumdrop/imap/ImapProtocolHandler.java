@@ -81,6 +81,7 @@ import org.bluezoo.gumdrop.util.Tokens;
 import org.bluezoo.util.ByteArrays;
 import org.bluezoo.gumdrop.auth.GssapiServer;
 import org.bluezoo.gumdrop.auth.Realm;
+import org.bluezoo.gumdrop.auth.RealmCallback;
 import org.bluezoo.gumdrop.util.JulWarnings;
 import org.bluezoo.gumdrop.auth.SaslMechanism;
 import org.bluezoo.gumdrop.auth.SaslUtils;
@@ -1626,6 +1627,10 @@ public final class ImapProtocolHandler
             sendTaggedBad(tag, L10N.getString("imap.err.login_syntax"));
             return;
         }
+        if (server.isAuthLockedOut(endpoint.getRemoteAddress())) {
+            sendTaggedNo(tag, "[UNAVAILABLE] " + L10N.getString("imap.err.auth_locked"));
+            return;
+        }
 
         final String username = parts[0];
         final String password = parts[1];
@@ -1669,6 +1674,7 @@ public final class ImapProtocolHandler
     }
 
     private void sendLoginFailed(String tag) {
+        server.recordAuthFailure(endpoint.getRemoteAddress(), null);
         try {
             sendTaggedNo(tag, "[AUTHENTICATIONFAILED] "
                     + L10N.getString("imap.err.auth_failed"));
@@ -1691,6 +1697,11 @@ public final class ImapProtocolHandler
             }
         } else {
             mechanism = args.toUpperCase(Locale.ENGLISH);
+        }
+
+        if (server.isAuthLockedOut(endpoint.getRemoteAddress())) {
+            sendTaggedNo(tag, "[UNAVAILABLE] " + L10N.getString("imap.err.auth_locked"));
+            return;
         }
 
         pendingAuthTag = tag;
@@ -1904,24 +1915,56 @@ public final class ImapProtocolHandler
             byte[] wrapped = SaslUtils.decodeBase64(line);
             String gssName =
                     gssapiExchange.validateSecurityLayerResponse(wrapped);
+            final String principal = gssName;
             Realm realm = getRealm();
-            String localUser = null;
-            if (realm != null) {
-                localUser = realm.mapKerberosPrincipal(gssName);
+            if (realm == null) {
+                gssapiAuthenticated(null, principal);
+                return;
             }
-            if (localUser == null) {
-                localUser = gssName;
-                int atIndex = localUser.indexOf('@');
-                if (atIndex > 0) {
-                    localUser = localUser.substring(0, atIndex);
+            realm.mapKerberosPrincipal(gssName,
+                    awaiting(new StorageExecutor.Callback<String>() {
+                @Override
+                public void completed(String localUser) {
+                    gssapiAuthenticated(localUser, principal);
                 }
-            }
-            openMailStoreThenAuthOk(localUser, "GSSAPI");
+
+                @Override
+                public void failed(Throwable cause) {
+                    LOGGER.log(Level.FINE, L10N.getString("debug.gssapi_security_layer_failed"), cause);
+                    authFailedQuietly();
+                }
+            }));
         } catch (IOException e) {
             LOGGER.log(Level.FINE, L10N.getString("debug.gssapi_security_layer_failed"), e);
             authFailed();
         } catch (IllegalArgumentException e) {
             authFailed();
+        }
+    }
+
+    /** GSSAPI succeeded; {@code localUser} is the realm's mapping, or null to strip the Kerberos realm. */
+    private void gssapiAuthenticated(String localUser, String gssName) {
+        if (localUser == null) {
+            localUser = gssName;
+            int atIndex = localUser.indexOf('@');
+            if (atIndex > 0) {
+                localUser = localUser.substring(0, atIndex);
+            }
+        }
+        try {
+            openMailStoreThenAuthOk(localUser, "GSSAPI");
+        } catch (IOException e) {
+            events().warn("warn.failed_complete_gssapi").thrown(e).emit();
+            authFailedQuietly();
+        }
+    }
+
+    /** {@link #authFailed()} for callbacks, which cannot throw. */
+    private void authFailedQuietly() {
+        try {
+            authFailed();
+        } catch (IOException e) {
+            events().warn("warn.failed_send_auth_failed").thrown(e).emit();
         }
     }
 
@@ -1944,15 +1987,28 @@ public final class ImapProtocolHandler
             }
         }
 
-        Realm.CertificateAuthenticationResult result =
-                SaslUtils.authenticateExternal(
-                        endpoint, getRealm(), authzid);
-        if (result == null || !result.valid) {
-            authFailed();
-            return;
-        }
+        SaslUtils.authenticateExternal(endpoint, getRealm(), authzid,
+                new RealmCallback<Realm.CertificateAuthenticationResult>() {
+            @Override
+            public void completed(Realm.CertificateAuthenticationResult result) {
+                if (result == null || !result.valid) {
+                    authFailedQuietly();
+                    return;
+                }
+                try {
+                    openMailStoreThenAuthOk(result.username, "EXTERNAL");
+                } catch (IOException e) {
+                    events().warn("warn.failed_complete_external").thrown(e).emit();
+                    authFailedQuietly();
+                }
+            }
 
-        openMailStoreThenAuthOk(result.username, "EXTERNAL");
+            @Override
+            public void failed(Throwable cause) {
+                events().warn("warn.auth_external_error").thrown(cause).emit();
+                authFailedQuietly();
+            }
+        });
     }
 
     // ── SASL response processing ──
@@ -2094,19 +2150,32 @@ public final class ImapProtocolHandler
             String username = response.substring(0, spaceIndex);
             String digest = response.substring(spaceIndex + 1);
 
-            Realm realm = getRealm();
-            try {
-                String expected = realm.getCramMD5Response(username, authChallenge);
-                if (expected != null && ByteArrays.equalsConstantTime(
-                        ByteArrays.toByteArray(expected),
-                        ByteArrays.toByteArray(digest.toLowerCase()))) {
-                    openMailStoreThenAuthOk(username, "CRAM-MD5");
-                } else {
-                    authFailed();
+            final String cramUser = username;
+            final String cramDigest = digest;
+            getRealm().getCramMD5Response(username, authChallenge,
+                    awaiting(new StorageExecutor.Callback<String>() {
+                @Override
+                public void completed(String expected) {
+                    try {
+                        if (expected != null && ByteArrays.equalsConstantTime(
+                                ByteArrays.toByteArray(expected),
+                                ByteArrays.toByteArray(cramDigest.toLowerCase()))) {
+                            openMailStoreThenAuthOk(cramUser, "CRAM-MD5");
+                        } else {
+                            authFailed();
+                        }
+                    } catch (IOException e) {
+                        events().warn("warn.failed_complete_cram_md5").thrown(e).emit();
+                        authFailedQuietly();
+                    }
                 }
-            } catch (UnsupportedOperationException e) {
-                authFailed();
-            }
+
+                @Override
+                public void failed(Throwable cause) {
+                    // includes UnsupportedOperationException: not offered
+                    authFailedQuietly();
+                }
+            }));
         } catch (Exception e) {
             authFailed();
         }
@@ -2130,28 +2199,44 @@ public final class ImapProtocolHandler
                         .getLocalAddress();
                 realmName = addr.getHostString();
             }
-            String ha1 = realm.getDigestHA1(username, realmName);
-            String rspAuth = SaslUtils.verifyDigestMD5ClientResponse(
-                    ha1, authNonce, params);
-
-            if (rspAuth != null) {
-                final String digestRspAuth = rspAuth;
-                openMailStoreAsync(username, "DIGEST-MD5", pendingAuthTag,
-                        new Runnable() {
-                    @Override
-                    public void run() {
-                        try {
-                            sendContinuation(SaslUtils.encodeBase64(
-                                    "rspauth=" + digestRspAuth));
-                            authSucceeded();
-                        } catch (IOException e) {
-                            events().warn("warn.failed_complete_digest_md5").thrown(e).emit();
+            final Map<String, String> digestParams = params;
+            final String digestUser = username;
+            realm.getDigestHA1(username, realmName,
+                    awaiting(new StorageExecutor.Callback<String>() {
+                @Override
+                public void completed(String ha1) {
+                    try {
+                        String rspAuth = SaslUtils.verifyDigestMD5ClientResponse(
+                                ha1, authNonce, digestParams);
+                        if (rspAuth == null) {
+                            authFailed();
+                            return;
                         }
+                        final String digestRspAuth = rspAuth;
+                        openMailStoreAsync(digestUser, "DIGEST-MD5", pendingAuthTag,
+                                new Runnable() {
+                            @Override
+                            public void run() {
+                                try {
+                                    sendContinuation(SaslUtils.encodeBase64(
+                                            "rspauth=" + digestRspAuth));
+                                    authSucceeded();
+                                } catch (IOException e) {
+                                    events().warn("warn.failed_complete_digest_md5").thrown(e).emit();
+                                }
+                            }
+                        });
+                    } catch (IOException e) {
+                        events().warn("warn.failed_complete_digest_md5").thrown(e).emit();
+                        authFailedQuietly();
                     }
-                });
-            } else {
-                authFailed();
-            }
+                }
+
+                @Override
+                public void failed(Throwable cause) {
+                    authFailedQuietly();
+                }
+            }));
         } catch (Exception e) {
             authFailed();
         }
@@ -2316,14 +2401,30 @@ public final class ImapProtocolHandler
                 return;
             }
 
-            Realm realm = getRealm();
-            Realm.TokenValidationResult result = realm.validateBearerToken(token);
-            if (result != null && result.valid
-                    && user.equals(result.username)) {
-                openMailStoreThenAuthOk(user, "OAUTHBEARER");
-            } else {
-                authFailed();
-            }
+            final String expectedUser = user;
+            getRealm().validateBearerToken(token,
+                    awaiting(new StorageExecutor.Callback<Realm.TokenValidationResult>() {
+                @Override
+                public void completed(Realm.TokenValidationResult result) {
+                    try {
+                        if (result != null && result.valid
+                                && expectedUser.equals(result.username)) {
+                            openMailStoreThenAuthOk(expectedUser, "OAUTHBEARER");
+                        } else {
+                            authFailed();
+                        }
+                    } catch (IOException e) {
+                        events().warn("warn.failed_complete_oauthbearer").thrown(e).emit();
+                        authFailedQuietly();
+                    }
+                }
+
+                @Override
+                public void failed(Throwable cause) {
+                    events().warn("warn.auth_oauthbearer_error").thrown(cause).emit();
+                    authFailedQuietly();
+                }
+            }));
         } catch (Exception e) {
             authFailed();
         }
@@ -2355,6 +2456,7 @@ public final class ImapProtocolHandler
     }
 
     private void authFailed() throws IOException {
+        server.recordAuthFailure(endpoint.getRemoteAddress(), null);
         addSessionEvent("AUTH_FAILED");
         sendTaggedNo(pendingAuthTag, "[AUTHENTICATIONFAILED] "
                 + L10N.getString("imap.err.auth_failed"));
@@ -2374,20 +2476,9 @@ public final class ImapProtocolHandler
     }
 
     /**
-     * Verifies a username/password off the SelectorLoop thread.
-     *
-     * <p>{@link Realm#passwordMatch} blocks synchronously for LDAP/OAuth
-     * realms (it waits on the network round trip to the directory/token
-     * server). Calling it directly from the loop thread previously both
-     * stalled every other connection multiplexed on this loop for the
-     * duration, and — because {@link #getRealm()} binds the realm's
-     * client connection to this same loop via {@code forSelectorLoop} —
-     * could self-deadlock outright: the loop thread would block waiting
-     * for a response that can only be delivered by that same (blocked)
-     * loop thread. Running the check on {@link StorageExecutor} instead
-     * means the loop thread is never the one waiting, so it stays free to
-     * process the realm's own network I/O and deliver the response
-     * (issue #122).
+     * Verifies a username/password with the realm, without waiting for it.
+     * The realm, bound to this connection's loop, calls back on that loop
+     * when it has answered.
      *
      * @param callback receives the result on the loop thread
      */
@@ -2399,28 +2490,93 @@ public final class ImapProtocolHandler
             callback.completed(Boolean.FALSE);
             return;
         }
-        submitStorage(new Callable<Boolean>() {
-            @Override
-            public Boolean call() {
-                return realm.passwordMatch(username, password);
-            }
-        }, callback);
+        realm.passwordMatch(username, password, awaiting(callback));
     }
 
     /**
-     * Derives (or fetches already-cached) SCRAM credentials off the
-     * SelectorLoop thread. For {@link org.bluezoo.gumdrop.auth.BasicRealm},
-     * a cache miss here runs a 210,000-iteration PBKDF2-HMAC-SHA256
-     * derivation -- genuinely CPU-bound work, but this still goes through
-     * {@link StorageExecutor} rather than the CPU-tuned {@code
-     * CryptoExecutor} (see issues #262/#274), since {@link
-     * Realm#getScramCredentials} is a generic {@link Realm} method that an
-     * LDAP/OAuth-backed realm could equally implement with a blocking
-     * network round trip; routing that onto a small, CPU-sized pool shared
-     * with TLS/QUIC handshake crypto would let a slow directory server
-     * starve unrelated connections' handshakes. This mirrors {@link
-     * #authenticateUserAsync}, which makes the same call for {@link
-     * Realm#passwordMatch}.
+     * Pauses reads while the realm answers, so that a pipelined command
+     * cannot race the result, and resumes them before the callback runs. The
+     * realm calls back on this connection's loop without having made the
+     * loop wait.
+     */
+    private <T> RealmCallback<T> awaiting(final StorageExecutor.Callback<T> callback) {
+        endpoint.pauseRead();
+        return new RealmCallback<T>() {
+            @Override
+            public void completed(T result) {
+                endpoint.resumeRead();
+                callback.completed(result);
+            }
+
+            @Override
+            public void failed(Throwable cause) {
+                endpoint.resumeRead();
+                callback.failed(cause);
+            }
+        };
+    }
+
+    /**
+     * Asks the realm whether the authenticated user is an administrator and,
+     * if so, runs {@code ifAdmin}; otherwise answers the command with a
+     * tagged NO carrying {@code deniedKey}. A realm that cannot answer is
+     * treated as a refusal.
+     */
+    private void requireAdmin(final String tag, final String deniedKey,
+            final Runnable ifAdmin) {
+        Realm realm = getRealm();
+        if (realm == null) {
+            sendTaggedNoQuietly(tag, deniedKey);
+            return;
+        }
+        realm.isUserInRole(authenticatedUser, "admin",
+                awaiting(new StorageExecutor.Callback<Boolean>() {
+            @Override
+            public void completed(Boolean admin) {
+                if (admin != null && admin.booleanValue()) {
+                    ifAdmin.run();
+                } else {
+                    sendTaggedNoQuietly(tag, deniedKey);
+                }
+            }
+
+            @Override
+            public void failed(Throwable cause) {
+                events().warn("warn.admin_role_check_failed").thrown(cause).emit();
+                sendTaggedNoQuietly(tag, deniedKey);
+            }
+        }));
+    }
+
+    /**
+     * Asks the quota manager to load whatever it needs about the user, which
+     * for a role-based manager means asking the realm for the user's roles,
+     * and then continues. Quota calls made by the session afterwards are
+     * plain in-memory lookups.
+     */
+    private void prepareQuotaThen(String username, final Runnable next) {
+        QuotaManager quotaManager = server.getQuotaManager();
+        if (quotaManager == null) {
+            if (next != null) {
+                next.run();
+            }
+            return;
+        }
+        quotaManager.prepare(username, endpoint.getSelectorLoop(), new Runnable() {
+            @Override
+            public void run() {
+                if (next != null) {
+                    next.run();
+                }
+            }
+        });
+    }
+
+    /**
+     * Fetches the user's SCRAM credentials from the realm without waiting
+     * for it. For {@link org.bluezoo.gumdrop.auth.BasicRealm}, a cache miss
+     * runs a 210,000-iteration PBKDF2-HMAC-SHA256 derivation, which the
+     * realm moves off the loop itself.
      *
      * @param callback receives the result (or the failure, e.g. an
      *                 {@link UnsupportedOperationException} if this realm
@@ -2433,12 +2589,7 @@ public final class ImapProtocolHandler
             callback.completed(null);
             return;
         }
-        submitStorage(new Callable<Realm.ScramCredentials>() {
-            @Override
-            public Realm.ScramCredentials call() {
-                return realm.getScramCredentials(username);
-            }
-        }, callback);
+        realm.getScramCredentials(username, awaiting(callback));
     }
 
     /**
@@ -2459,6 +2610,7 @@ public final class ImapProtocolHandler
             final String mechanism, final String tag,
             final Runnable onSuccess) throws IOException {
         authenticatedUser = username;
+        server.recordAuthSuccess(endpoint.getRemoteAddress(), username);
 
         if (notAuthenticatedHandler != null) {
             Principal principal = createPrincipal(username);
@@ -2484,9 +2636,7 @@ public final class ImapProtocolHandler
         if (factory == null) {
             state = ImapState.AUTHENTICATED;
             startAuthenticatedSpan(username, mechanism);
-            if (onSuccess != null) {
-                onSuccess.run();
-            }
+            prepareQuotaThen(username, onSuccess);
             return;
         }
 
@@ -2504,9 +2654,7 @@ public final class ImapProtocolHandler
                 metadataFileStore = createMetadataStore(s);
                 state = ImapState.AUTHENTICATED;
                 startAuthenticatedSpan(username, mechanism);
-                if (onSuccess != null) {
-                    onSuccess.run();
-                }
+                prepareQuotaThen(username, onSuccess);
             }
 
             @Override
@@ -4156,12 +4304,29 @@ public final class ImapProtocolHandler
             targetUser = authenticatedUser;
         }
 
-        if (!targetUser.equals(authenticatedUser)
-                && !getRealm().isUserInRole(authenticatedUser, "admin")) {
-            sendTaggedNo(tag, L10N.getString("imap.err.quota_access_denied"));
-            return;
+        final String quotaTarget = targetUser;
+        final String root = quotaRoot;
+        final QuotaManager manager = quotaManager;
+        Runnable proceed = new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    getQuotaAuthorized(tag, root, quotaTarget, manager);
+                } catch (IOException e) {
+                    events().warn("warn.failed_send_quota").thrown(e).emit();
+                }
+            }
+        };
+        if (targetUser.equals(authenticatedUser)) {
+            proceed.run();
+        } else {
+            requireAdmin(tag, "imap.err.quota_access_denied", proceed);
         }
+    }
 
+    /** GETQUOTA once the user is allowed to see {@code targetUser}'s quota. */
+    private void getQuotaAuthorized(String tag, String quotaRoot,
+            String targetUser, QuotaManager quotaManager) throws IOException {
         if (state == ImapState.SELECTED && selectedHandler != null) {
             selectedHandler.getQuota(
                     new QuotaStateImpl(tag, QuotaStateImpl.Command.GET_QUOTA,
@@ -4243,12 +4408,23 @@ public final class ImapProtocolHandler
             return;
         }
 
-        if (!getRealm().isUserInRole(authenticatedUser, "admin")) {
-            sendTaggedNo(tag,
-                    L10N.getString("imap.err.quota_permission_denied"));
-            return;
-        }
+        final String setArgs = args;
+        final QuotaManager manager = quotaManager;
+        requireAdmin(tag, "imap.err.quota_permission_denied", new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    setQuotaAuthorized(tag, setArgs, manager);
+                } catch (IOException e) {
+                    events().warn("warn.failed_send_quota").thrown(e).emit();
+                }
+            }
+        });
+    }
 
+    /** SETQUOTA once the user is known to be an administrator. */
+    private void setQuotaAuthorized(String tag, String args,
+            QuotaManager quotaManager) throws IOException {
         int parenStart = args.indexOf('(');
         if (parenStart < 0) {
             sendTaggedBad(tag, L10N.getString("imap.err.invalid_arguments"));

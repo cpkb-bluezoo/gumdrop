@@ -49,49 +49,49 @@ public class HTTP3ListenerTest {
     @Test
     public void testSetQuicMaxIdleTimeout() throws Exception {
         Http3Listener listener = new Http3Listener();
-        listener.setQuicMaxIdleTimeout(60000);
+        listener.quicMaxIdleTimeout(60000);
         assertEquals(60000L, getField(listener, "quicMaxIdleTimeout"));
     }
 
     @Test
     public void testSetQuicMaxData() throws Exception {
         Http3Listener listener = new Http3Listener();
-        listener.setQuicMaxData(10_000_000);
+        listener.quicMaxData(10_000_000);
         assertEquals(10_000_000L, getField(listener, "quicMaxData"));
     }
 
     @Test
     public void testSetQuicMaxStreamDataBidiLocal() throws Exception {
         Http3Listener listener = new Http3Listener();
-        listener.setQuicMaxStreamDataBidiLocal(1_000_000);
+        listener.quicMaxStreamDataBidiLocal(1_000_000);
         assertEquals(1_000_000L, getField(listener, "quicMaxStreamDataBidiLocal"));
     }
 
     @Test
     public void testSetQuicMaxStreamDataBidiRemote() throws Exception {
         Http3Listener listener = new Http3Listener();
-        listener.setQuicMaxStreamDataBidiRemote(2_000_000);
+        listener.quicMaxStreamDataBidiRemote(2_000_000);
         assertEquals(2_000_000L, getField(listener, "quicMaxStreamDataBidiRemote"));
     }
 
     @Test
     public void testSetQuicMaxStreamDataUni() throws Exception {
         Http3Listener listener = new Http3Listener();
-        listener.setQuicMaxStreamDataUni(500_000);
+        listener.quicMaxStreamDataUni(500_000);
         assertEquals(500_000L, getField(listener, "quicMaxStreamDataUni"));
     }
 
     @Test
     public void testSetQuicMaxStreamsBidi() throws Exception {
         Http3Listener listener = new Http3Listener();
-        listener.setQuicMaxStreamsBidi(128);
+        listener.quicMaxStreamsBidi(128);
         assertEquals(128L, getField(listener, "quicMaxStreamsBidi"));
     }
 
     @Test
     public void testSetQuicMaxStreamsUni() throws Exception {
         Http3Listener listener = new Http3Listener();
-        listener.setQuicMaxStreamsUni(64);
+        listener.quicMaxStreamsUni(64);
         assertEquals(64L, getField(listener, "quicMaxStreamsUni"));
     }
 
@@ -104,7 +104,7 @@ public class HTTP3ListenerTest {
     @Test
     public void testSetPort() {
         Http3Listener listener = new Http3Listener();
-        listener.setPort(8443);
+        listener.port(8443);
         assertEquals(8443, listener.getPort());
     }
 
@@ -117,7 +117,7 @@ public class HTTP3ListenerTest {
     @Test
     public void testSetRequireRetry() {
         Http3Listener listener = new Http3Listener();
-        listener.setRequireRetry(false);
+        listener.requireRetry(false);
         assertFalse(listener.isRequireRetry());
     }
 
@@ -131,7 +131,7 @@ public class HTTP3ListenerTest {
     @Test
     public void testCreateTransportFactoryHonoursRetryOptOut() throws Exception {
         Http3Listener listener = new Http3Listener();
-        listener.setRequireRetry(false);
+        listener.requireRetry(false);
         QuicTransportFactory factory = invokeCreateTransportFactory(listener);
         assertFalse(factory.isRequireRetry());
     }

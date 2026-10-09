@@ -75,7 +75,7 @@ Loopback-only integration coverage (no wide-area network) can be run with:
 ant integration-test-loopback
 ```
 
-### Unit test synchronization
+### Unit test synchronisation
 
 Async unit tests must **not** use `Thread.sleep` or deadline loops that poll mutable state to wait for work to finish. Block on an explicit cross-thread signal instead:
 
@@ -83,7 +83,7 @@ Async unit tests must **not** use `Thread.sleep` or deadline loops that poll mut
 - `RecordingStubEndpoint` for protocol offload tests (`awaitLineStartingWith`, etc.)
 - Production test-only observers where no callback exists yet (see existing QUIC/mailbox hooks)
 
-Use `@Test(timeout=…)` only as a hang guard, not as the synchronization mechanism.
+Use `@Test(timeout=…)` only as a hang guard, not as the synchronisation mechanism.
 
 `NoThreadSleepGuardTest` (a guard test, see `test/guard/src`) enforces this across `test/junit/src`, `test/integration/src` **and** `test/guard/src`. The unit allowlist is empty: time-dependent production code exposes a package-private clock or time seam so tests advance time themselves (see the rate limiters, `HttpDateCache`, `QuicConnection`), and timers are captured and fired by hand. The integration allowlist is limited to polling infrastructure outside the JVM that offers no hook to wait on (a RabbitMQ management API, a Postfix or danted container), each entry with its reason; the guard also fails if an allowlist entry no longer sleeps. Integration tests must synchronise on latches, callbacks and lifecycle hooks like unit tests do, and may be nondeterministic only through infrastructure that may be absent, never through parallelism or the clock.
 
@@ -254,7 +254,7 @@ This prevents a common source of programmer error when modifying code later.
 
 - Use proper import statements for all classes
 - No fully qualified class names in code unless there is a genuine name clash
-- Organize imports logically (java.*, javax.*, then project packages)
+- Organise imports logically (java.*, javax.*, then project packages)
 
 **Good:**
 ```java
@@ -373,7 +373,7 @@ array[index++] = value;
 
 ### No Future/Promise
 
-Avoid `Future`, `CompletableFuture`, `ScheduledFuture`, and similar constructs (including `ExecutorService.submit` when the return value is used to wait on or cancel work). Use traditional callback patterns instead, similar to SAX or JavaScript XMLHttpRequest. Tests must use `CountDownLatch` or handler callbacks for synchronization, not `CompletableFuture` or `Future.get()`.
+Avoid `Future`, `CompletableFuture`, `ScheduledFuture`, and similar constructs (including `ExecutorService.submit` when the return value is used to wait on or cancel work). Use traditional callback patterns instead, similar to SAX or JavaScript XMLHttpRequest. Tests must use `CountDownLatch` or handler callbacks for synchronisation, not `CompletableFuture` or `Future.get()`.
 
 **Good:**
 ```java

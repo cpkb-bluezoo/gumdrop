@@ -419,12 +419,12 @@ public class ImapMetadataCoverageTest {
     public void testSupportDisabledAndSyntaxErrors() throws Exception {
         StubHost h = host();
         ImapMetadataSupport s = new ImapMetadataSupport(h);
-        h.listener.setEnableMETADATA(false);
+        h.listener.enableMETADATA(false);
         s.handleGetMetadata("a1", "INBOX /private/x");
         assertTrue(last(h), last(h).startsWith("a1 BAD"));
         s.handleSetMetadata("a2", "INBOX (/private/x \"v\")");
         assertTrue(last(h), last(h).startsWith("a2 BAD"));
-        h.listener.setEnableMETADATA(true);
+        h.listener.enableMETADATA(true);
         s.handleGetMetadata("a3", "INBOX");
         assertTrue(last(h), last(h).startsWith("a3 BAD"));
         s.handleSetMetadata("a4", "INBOX");

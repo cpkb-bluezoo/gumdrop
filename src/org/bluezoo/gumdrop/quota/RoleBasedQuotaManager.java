@@ -24,6 +24,8 @@ package org.bluezoo.gumdrop.quota;
 import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.StorageExecutor;
 import org.bluezoo.gumdrop.auth.Realm;
+import org.bluezoo.gumdrop.auth.RealmCallback;
+import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.telemetry.EventLogger;
 import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
 
@@ -36,6 +38,8 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.text.MessageFormat;
 import java.util.Map;
+import java.util.HashSet;
+import java.util.ArrayList;
 import java.util.Properties;
 import java.util.ResourceBundle;
 import java.util.Set;
@@ -61,17 +65,14 @@ import java.util.logging.Logger;
  * 
  * <h4>Configuration Example</h4>
  * <pre>{@code
- * <component id="quotaManager" class="org.bluezoo.gumdrop.quota.RoleBasedQuotaManager">
- *   <property name="realm" ref="#mainRealm"/>
- *   <property name="storage-dir">/var/gumdrop/quota</property>
- *   <property name="default-quota">1GB</property>
- *   
- *   <!-- Role-based quotas -->
- *   <property name="role-quota.admin">unlimited</property>
- *   <property name="role-quota.premium">10GB</property>
- *   <property name="role-quota.standard">1GB</property>
- *   <property name="role-quota.guest">100MB</property>
- * </component>
+ * RoleBasedQuotaManager quotas = new RoleBasedQuotaManager();
+ * quotas.setRealm(mainRealm);
+ * quotas.setStorageDir(Path.of("/var/gumdrop/quota"));
+ * quotas.setDefaultQuota("1GB");
+ * quotas.addRoleQuota("admin", "unlimited");
+ * quotas.addRoleQuota("premium", "10GB");
+ * quotas.addRoleQuota("standard", "1GB");
+ * quotas.addRoleQuota("guest", "100MB");
  * }</pre>
  * 
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
@@ -100,6 +101,12 @@ public class RoleBasedQuotaManager implements QuotaManager {
     
     // Username -> Quota (cached quotas with usage data)
     private final Map<String, Quota> userQuotas;
+
+    // Username -> the configured roles the realm said the user holds, filled
+    // by prepare() when the user authenticates so that getQuota() never has
+    // to ask the realm and wait
+    private final Map<String, Set<String>> resolvedRoles =
+            new ConcurrentHashMap<String, Set<String>>();
 
     // Usernames with a usage save currently running on the StorageExecutor
     // pool, and usernames whose usage changed again while that save was
@@ -148,17 +155,20 @@ public class RoleBasedQuotaManager implements QuotaManager {
      * Sets the realm for role membership checks.
      *
      * @param realm the realm
+     * @return this
      */
-    public void setRealm(Realm realm) {
+    public RoleBasedQuotaManager realm(Realm realm) {
         this.realm = realm;
+        return this;
     }
     
     /**
      * Sets the directory for storing quota usage data.
      * 
      * @param storageDir the storage directory path
+     * @return this
      */
-    public void setStorageDir(Path storageDir) {
+    public RoleBasedQuotaManager storageDir(Path storageDir) {
         this.storageDir = storageDir;
         if (!Files.exists(storageDir)) {
             try {
@@ -167,25 +177,30 @@ public class RoleBasedQuotaManager implements QuotaManager {
                 events().warn("quota.err.save_policy_failed").thrown(e).emit();
             }
         }
+        return this;
     }
     
     /**
      * Sets the default quota for users without role-based quotas.
      * 
      * @param quota the default quota (e.g., "1GB", "unlimited")
+     * @return this
      */
-    public void setDefaultQuota(String quota) {
+    public RoleBasedQuotaManager defaultQuota(String quota) {
         long limit = QuotaPolicy.parseSize(quota);
         this.defaultPolicy = new QuotaPolicy("default", limit);
+        return this;
     }
     
     /**
      * Sets the default quota policy.
      * 
      * @param policy the default quota policy
+     * @return this
      */
-    public void setDefaultPolicy(QuotaPolicy policy) {
+    public RoleBasedQuotaManager defaultPolicy(QuotaPolicy policy) {
         this.defaultPolicy = policy;
+        return this;
     }
     
     /**
@@ -216,16 +231,55 @@ public class RoleBasedQuotaManager implements QuotaManager {
         }
     }
     
-    /**
-     * Sets a role quota (for DI property injection like roleQuota.admin=10GB).
-     * 
-     * @param role the role name
-     * @param quota the quota value
-     */
-    public void setRoleQuota(String role, String quota) {
-        addRoleQuota(role, quota);
-    }
     
+    /**
+     * Asks the realm which of the configured roles the user holds, one at a
+     * time and without waiting, and remembers the answer for
+     * {@link #getQuota(String)}. A role the realm cannot answer for is treated
+     * as not held. Nothing is asked if the user has a quota already, a policy
+     * of their own, or there is no realm or role policy.
+     */
+    @Override
+    public void prepare(final String username, final SelectorLoop loop,
+            final Runnable done) {
+        if (realm == null || rolePolicies.isEmpty()
+                || userQuotas.containsKey(username)
+                || userPolicies.containsKey(username)
+                || resolvedRoles.containsKey(username)) {
+            done.run();
+            return;
+        }
+        final Realm bound = realm.forSelectorLoop(loop);
+        final java.util.Iterator<String> roles = new ArrayList<String>(rolePolicies.keySet()).iterator();
+        final Set<String> held = new HashSet<String>();
+        new Object() {
+            void next() {
+                if (!roles.hasNext()) {
+                    resolvedRoles.put(username, held);
+                    done.run();
+                    return;
+                }
+                final String role = roles.next();
+                bound.isUserInRole(username, role, new RealmCallback<Boolean>() {
+                    @Override
+                    public void completed(Boolean has) {
+                        if (has != null && has.booleanValue()) {
+                            held.add(role);
+                        }
+                        next();
+                    }
+
+                    @Override
+                    public void failed(Throwable cause) {
+                        LOGGER.log(Level.WARNING,
+                                MessageFormat.format(L10N.getString("quota.log.role_lookup_failed"), username), cause);
+                        next();
+                    }
+                });
+            }
+        }.next();
+    }
+
     @Override
     public Quota getQuota(String username) {
         // Check cache first
@@ -288,9 +342,13 @@ public class RoleBasedQuotaManager implements QuotaManager {
         String bestRole = null;
         boolean foundAny = false;
         
+        Set<String> userRoles = resolvedRoles.get(username);
+        if (userRoles == null) {
+            return null;
+        }
         for (Map.Entry<String, QuotaPolicy> entry : rolePolicies.entrySet()) {
             String role = entry.getKey();
-            if (realm.isUserInRole(username, role)) {
+            if (userRoles.contains(role)) {
                 QuotaPolicy policy = entry.getValue();
                 foundAny = true;
                 

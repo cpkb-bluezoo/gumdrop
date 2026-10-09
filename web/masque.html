@@ -1,0 +1,428 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.1//EN" "xhtml11.dtd">
+<!--
+  This file is part of gumdrop.
+
+  gumdrop is free software; you can redistribute it and/or modify
+  it under the terms of the GNU Lesser General Public License as published by
+  the Free Software Foundation; either version 2 of the License, or
+  (at your option) any later version.
+
+  gumdrop is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+  GNU Lesser General Public License for more details.
+
+  You should have received a copy of the GNU Lesser General Public License
+  along with gumdrop; if not, write to the Free Software
+  Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
+-->
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8"/>
+<link href="main.css" rel="stylesheet" type="text/css"/>
+<link rel="icon" href="favicon.ico"/>
+<link rel="SHORTCUT ICON" href="favicon.ico"/>
+<title>MASQUE - Gumdrop</title>
+</head>
+<body>
+
+<header>
+<img src="gumdrop.png" alt="Gumdrop" />
+<h1>Gumdrop MASQUE: proxying UDP and IP over HTTP</h1>
+</header>
+
+<p class="back-link"><a href="index.html">&larr; Back to Main Page</a></p>
+
+<p>
+MASQUE (Multiplexed Application Substrate over QUIC Encryption) is the family
+of IETF standards that turns an HTTP server into a proxy for traffic that is not
+HTTP: UDP datagrams, or whole IP packets. A client asks for a tunnel with an
+Extended CONNECT request, and the tunnel's contents travel as HTTP Datagrams
+alongside the request, over QUIC datagrams on HTTP/3 or as capsules on HTTP/2 and
+HTTP/1.1. Because it all looks like ordinary HTTPS to the network, it passes where
+VPN protocols and raw UDP are blocked, and it is what privacy relays and
+browser-based VPNs are built on.
+</p>
+
+<p>
+Gumdrop implements both ends: a <a href="#connect-udp-server">server</a> that
+accepts and relays tunnels, and <a href="#clients">clients</a> that open them. Both
+are plain HTTP handlers and clients, so they share the transports, TLS and
+connection management described on the <a href="http.html">HTTP page</a>.
+</p>
+
+<h3>Contents</h3>
+<ul>
+<li><a href="#standards">What is supported</a></li>
+<li><a href="#security">Policies: why there is no default</a></li>
+<li><a href="#connect-udp-server">CONNECT-UDP server</a></li>
+<li><a href="#connect-ip-server">CONNECT-IP server</a></li>
+<li><a href="#clients">Clients</a>
+<ul>
+<li><a href="#connect-udp-client">CONNECT-UDP client</a></li>
+<li><a href="#connect-ip-client">CONNECT-IP client</a></li>
+<li><a href="#client-configuration">Client configuration</a></li>
+</ul></li>
+<li><a href="#transports">Transports</a></li>
+<li><a href="#low-level">Lower-level building blocks</a></li>
+</ul>
+
+<h3 id="standards">What is supported</h3>
+
+<table border="1" cellpadding="5">
+<tr><th>Standard</th><th>What</th><th>In Gumdrop</th></tr>
+<tr><td>RFC 9297</td><td>HTTP Datagrams and the Capsule Protocol</td>
+<td><code>HttpResponse.sendDatagram</code>, <code>sendCapsule</code>,
+<code>HttpRequestHandler.datagramReceived</code>, <code>capsuleReceived</code>;
+<code>Capsule</code>, <code>CapsuleParser</code>, <code>HttpDatagramContext</code></td></tr>
+<tr><td>RFC 9298</td><td>Proxying UDP in HTTP (CONNECT-UDP)</td>
+<td><code>ConnectUdpRequestHandler</code>, <code>ConnectUdpClient</code></td></tr>
+<tr><td>RFC 9484</td><td>Proxying IP in HTTP (CONNECT-IP)</td>
+<td><code>ConnectIpRequestHandler</code>, <code>ConnectIpClient</code></td></tr>
+<tr><td>RFC 8441, RFC 9220</td><td>Extended CONNECT on HTTP/2 and HTTP/3</td>
+<td>used by both of the above, as for <a href="websocket.html">WebSocket</a></td></tr>
+</table>
+
+<p>
+A tunnel works the same way over HTTP/3, HTTP/2 and HTTP/1.1 (where the request is
+an <code>Upgrade: connect-udp</code> or <code>Upgrade: connect-ip</code>). The
+tunnels are addressed by the URI templates in the RFCs, under
+<code>/.well-known/masque/udp/{host}/{port}/</code> and
+<code>/.well-known/masque/ip/{target}/{ipproto}/</code>.
+<code>ConnectUdpTarget</code> and <code>ConnectIpTarget</code> parse and build those
+paths.
+</p>
+
+<h3 id="security">Policies: why there is no default</h3>
+
+<p>
+A CONNECT-UDP server forwards datagrams to an address chosen by the client, and a
+CONNECT-IP server forwards arbitrary IP packets. Without checks, either is an open
+relay into your network and an amplifier for abuse. Gumdrop therefore has
+<b>no permissive default</b>: the request handlers will not even construct without a
+policy, and you decide what is allowed. Always combine a policy with
+authentication (the <a href="http.html#server-handler">server's
+<code>Realm</code></a>) when the endpoint is reachable from the internet.
+</p>
+
+<h3 id="connect-udp-server">CONNECT-UDP server</h3>
+
+<p>
+<code>ConnectUdpRequestHandler</code> is a ready-made <code>HttpRequestHandler</code>.
+It checks that the request is a well-formed CONNECT-UDP request, resolves the target
+host with the asynchronous <code>DnsResolver</code>, asks your
+<code>ConnectUdpPolicy</code> about each resolved address in turn, and relays
+datagrams between the tunnel and the first allowed address over one UDP socket for the
+life of the request. The request must be Extended CONNECT with
+<code>:protocol</code> <code>connect-udp</code> (or an HTTP/1.1 <code>Upgrade:
+connect-udp</code>), carry <code>Capsule-Protocol: ?1</code> and use the URI template path.
+A malformed request gets 400, a target the policy refuses gets
+403 and a name that does not resolve gets 502.
+</p>
+
+<pre>
+ConnectUdpPolicy policy = new ConnectUdpPolicy() {
+    public boolean isTargetAllowed(InetAddress address, int port) {
+        if (address.isLoopbackAddress() || address.isLinkLocalAddress()
+                || address.isSiteLocalAddress() || address.isAnyLocalAddress()
+                || address.isMulticastAddress()) {
+            return false;
+        }
+        byte[] a = address.getAddress();
+        if (a.length == 16 &amp;&amp; (a[0] &amp; 0xfe) == 0xfc) {
+            return false;                  // IPv6 unique local, fc00::/7
+        }
+        return port == 53 || port == 443;  // only what this relay is for
+    }
+};
+
+HttpServer server = HttpServer.compose()
+    .secureEndpoint(443, TlsConfig.pem(Path.of("cert.pem"), Path.of("key.pem")))
+    .realm(realm)
+    .streamHandler(new HttpStreamHandler() {
+        public HttpRequestHandler openStream(HttpResponse response) {
+            return new ConnectUdpRequestHandler(response, policy);
+        }
+    })
+    .server();
+
+Gumdrop gumdrop = Gumdrop.boot();
+gumdrop.addServer(server);
+</pre>
+
+<p>
+The policy is called once per request, after resolution, on the request's own
+connection thread, so it must not block. The relay closes after five minutes with no
+datagrams in either direction; pass a different idle timeout, in milliseconds, as a
+third constructor argument (0 disables it). Only Context ID 0 (UDP payloads) is
+relayed; datagrams with other context IDs are ignored, as RFC 9298 requires.
+</p>
+
+<p>
+A stream handler that returns this handler serves only tunnels. To share a port with
+ordinary requests, route in your own handler, which receives the request events first
+and decides which delegate to create; the
+<a href="http.html#server-handler">HTTP request routing</a> pattern applies, and
+<code>HttpMessageRecorder</code> can replay the events already seen to the delegate, as
+<a href="websocket.html">WebSocketRequestHandler</a> does.
+</p>
+
+<h3 id="connect-ip-server">CONNECT-IP server</h3>
+
+<p>
+CONNECT-IP carries whole IP packets, so the server needs somewhere to send them.
+Gumdrop's core has no kernel network stack and deliberately does not bind a TUN device:
+<code>ConnectIpRequestHandler</code> accepts and manages the tunnel, and hands the
+packets to an <code>IpPacketHandler</code> that you supply. That can be a userspace
+forwarder or NAT table, a TUN or raw-socket adapter from outside Gumdrop, or an echo for
+testing. Two things are needed:
+</p>
+
+<ul>
+<li>a <code>ConnectIpPolicy</code>, deciding from the request's
+<code>ConnectIpTarget</code> (the target and IP protocol it is scoped to) whether to
+accept the tunnel. Most deployments accept only the unspecified target
+(<code>isTargetUnspecified()</code>) and enforce finer limits in the packet handler;</li>
+<li>an <code>IpPacketHandler</code>, called with each event of an accepted tunnel
+through a <code>ConnectIpSession</code>.</li>
+</ul>
+
+<pre>
+public class AssigningHandler implements IpPacketHandler {
+
+    public void opened(ConnectIpSession session) {
+        // routes reachable through this tunnel: everything
+        session.sendRouteAdvertisement(Collections.singletonList(
+            new ConnectIpRoute(InetAddress.getByName("0.0.0.0"),
+                               InetAddress.getByName("255.255.255.255"), 0)));
+    }
+
+    public void addressRequested(ConnectIpSession session,
+                                 List&lt;ConnectIpAddress&gt; requested) {
+        // assign the client an address from your pool, echoing the request ID
+        List&lt;ConnectIpAddress&gt; assigned = new ArrayList&lt;ConnectIpAddress&gt;();
+        assigned.add(new ConnectIpAddress(requested.get(0).getRequestId(),
+                InetAddress.getByName("10.8.0.2"), 32));
+        session.sendAddressAssign(assigned);
+    }
+
+    public void packetReceived(ConnectIpSession session, ByteBuffer packet) {
+        // forward to your backend; send replies with session.sendPacket(...)
+        // the buffer is only valid during this call: copy it to keep it
+    }
+
+    public void closed(ConnectIpSession session) {
+    }
+
+    public void failed(ConnectIpSession session, Exception cause) {
+    }
+}
+
+ConnectIpPolicy policy = new ConnectIpPolicy() {
+    public boolean isRequestAllowed(ConnectIpTarget target) {
+        return target.isTargetUnspecified();
+    }
+};
+
+HttpServer server = HttpServer.compose()
+    .secureEndpoint(443, tls)
+    .realm(realm)
+    .streamHandler(new HttpStreamHandler() {
+        public HttpRequestHandler openStream(HttpResponse response) {
+            return new ConnectIpRequestHandler(response, policy, new AssigningHandler());
+        }
+    })
+    .server();
+</pre>
+
+<p>
+(Address literals are shown for brevity; <code>InetAddress.getByName</code> throws
+<code>UnknownHostException</code>, which real code handles.)
+</p>
+
+<p>
+<code>ConnectIpSession</code> sends IP packets (<code>sendPacket</code>), the
+<code>ADDRESS_ASSIGN</code> and <code>ROUTE_ADVERTISEMENT</code> capsules
+(<code>sendAddressAssign</code>, <code>sendRouteAdvertisement</code>) and closes the
+tunnel (<code>close</code>). The client's <code>ADDRESS_REQUEST</code> capsule arrives
+as <code>addressRequested</code>. Each send returns false if the packet or capsule could
+not be queued.
+</p>
+
+<h3 id="clients">Clients</h3>
+
+<p>
+In the client examples on this page, <code>gumdrop</code> is the <code>Gumdrop</code>
+instance returned by <code>Gumdrop.boot()</code>; a client is given it when it connects.
+Both clients are asynchronous and deliver their events on the connection's selector loop.
+</p>
+
+<h4 id="connect-udp-client">CONNECT-UDP client</h4>
+
+<p>
+<code>ConnectUdpClient</code> connects to a MASQUE proxy and asks it to open a UDP flow
+to a target host and port. Once the proxy accepts, <code>opened</code> gives you a
+session to send datagrams on, and datagrams from the target arrive in
+<code>datagramReceived</code>.
+</p>
+
+<pre>
+ConnectUdpClient client = new ConnectUdpClient("proxy.example.com", 443)
+        .secure(true);
+
+client.connect(gumdrop, "dns.example.net", 53, new ConnectUdpEventHandler() {
+    public void opened(ConnectUdpSession session) {
+        try {
+            session.sendDatagram(query);          // a UDP payload
+        } catch (IOException e) {
+            // the tunnel closed
+        }
+    }
+    public void datagramReceived(ByteBuffer payload) {
+        // a UDP payload from dns.example.net:53; valid only during this call
+    }
+    public void closed() {
+    }
+    public void error(Throwable cause) {
+        cause.printStackTrace();
+    }
+});
+</pre>
+
+<p>
+<code>session.close()</code> ends the tunnel. The target host can be a name or an address
+literal; a name is resolved by the proxy.
+</p>
+
+<h4 id="connect-ip-client">CONNECT-IP client</h4>
+
+<p>
+<code>ConnectIpClient</code> opens an IP tunnel. The target and IP protocol scope what
+the tunnel may carry; use <code>ConnectIpTarget.WILDCARD</code> for both to ask for an
+unrestricted one. After <code>opened</code> the client can ask the proxy for an address,
+then exchange packets.
+</p>
+
+<pre>
+ConnectIpClient client = new ConnectIpClient("proxy.example.com", 443)
+        .secure(true);
+
+client.connect(gumdrop, ConnectIpTarget.WILDCARD, ConnectIpTarget.WILDCARD,
+        new ConnectIpEventHandler() {
+    public void opened(ConnectIpClientSession session) {
+        try {
+            session.sendAddressRequest(Collections.singletonList(
+                new ConnectIpAddress(1, InetAddress.getByName("0.0.0.0"), 0)));
+        } catch (IOException e) {
+            // the tunnel closed
+        }
+    }
+    public void addressAssigned(List&lt;ConnectIpAddress&gt; assignments) {
+        // configure your side of the tunnel with these addresses
+    }
+    public void routeAdvertised(List&lt;ConnectIpRoute&gt; routes) {
+        // the ranges the proxy will carry
+    }
+    public void packetReceived(ByteBuffer packet) {
+        // a full IP packet from the proxy; valid only during this call
+    }
+    public void closed() {
+    }
+    public void error(Throwable cause) {
+        cause.printStackTrace();
+    }
+});
+</pre>
+
+<p>
+<code>session.sendPacket(packet)</code> sends an IP packet into the tunnel and
+<code>session.close()</code> ends it.
+</p>
+
+<h4 id="client-configuration">Client configuration</h4>
+
+<p>
+Both clients are configured like <code>HttpClient</code> and take the same fluent
+settings:
+</p>
+
+<ul>
+<li><code>secure(boolean)</code>, <code>tls(TlsConfig)</code> &ndash; TLS to the proxy
+and its trust material and client certificate</li>
+<li><code>versions(HttpVersion...)</code> &ndash; which HTTP versions may carry the tunnel
+(see <a href="http.html#client-versions">Permitted versions</a>)</li>
+<li><code>h2WithPriorKnowledge(boolean)</code> &ndash; HTTP/2 over cleartext with no
+negotiation, for a proxy known to speak it</li>
+<li><code>quicHandshakeTimeoutMs(long)</code> &ndash; how long an HTTP/3 attempt may take
+before falling back to TCP</li>
+<li><code>dnsResolver(DnsResolver)</code>, <code>dnsHttpsRecordEnabled(boolean)</code>
+&ndash; how the proxy's host name is resolved and HTTP/3 discovered</li>
+<li><code>selectorLoop(SelectorLoop)</code>, <code>host</code>, <code>port</code>,
+<code>socketPath</code> &ndash; where to run and what to connect to</li>
+</ul>
+
+<p>
+As with every Gumdrop client, the proxy's host name is resolved asynchronously through
+<code>DnsResolver</code>, with no blocking <code>InetAddress</code> lookup; see
+<a href="dns.html#resolver-default">DNS: hostname resolution in every Gumdrop client</a>.
+</p>
+
+<h3 id="transports">Transports</h3>
+
+<p>
+The client chooses the transport the way <code>HttpClient</code> does: HTTP/3 if a DNS
+HTTPS record or a cached <code>Alt-Svc</code> advertises it, falling back to TCP if the
+QUIC attempt fails or takes longer than three seconds, and otherwise HTTP/2 by ALPN, with
+the HTTP/1.1 upgrade as the last resort. See
+<a href="http.html#client-discovery">Choosing HTTP/3 or TCP</a>. Permitting only
+<code>HTTP_3</code> forces QUIC with no discovery and no fallback, and is not available
+over a UNIX domain socket.
+</p>
+
+<ul>
+<li><b>HTTP/3</b> carries datagrams as QUIC DATAGRAM frames, which are unreliable and
+unordered like the traffic inside them. This is what makes a MASQUE tunnel behave well
+for UDP and IP, and is the transport to prefer.</li>
+<li><b>HTTP/2 and HTTP/1.1</b> carry datagrams as <code>DATAGRAM</code> capsules inside
+the request stream (RFC 9297), so they are reliable and ordered, and suffer
+the head-of-line blocking of the underlying TCP connection. They work wherever HTTPS does,
+which is the point of the fallback.</li>
+</ul>
+
+<h3 id="low-level">Lower-level building blocks</h3>
+
+<p>
+The handlers and clients above are built on a small set of public pieces, which you can
+use directly for other protocols that ride on HTTP Datagrams:
+</p>
+
+<ul>
+<li><code>HttpRequestHandler.wantsDatagrams()</code> opts a request in to datagrams, and
+<code>datagramReceived(response, data)</code> and
+<code>capsuleReceived(response, type, value)</code> deliver them. Without opting in, an
+HTTP/3 datagram on the request aborts its stream.</li>
+<li><code>HttpResponse.acceptConnectUdp()</code> and <code>acceptConnectIp()</code> send
+the success response that accepts a tunnel (2xx on HTTP/2 and HTTP/3, 101 on HTTP/1.1) and
+leave the request open for datagrams;
+<code>sendDatagram(data)</code>, <code>sendDatagram(contextId, payload)</code> and
+<code>sendCapsule(type, value)</code> send on it.</li>
+<li><code>HttpDatagramContext</code> encodes and decodes the Context ID that starts every
+CONNECT-UDP and CONNECT-IP datagram; Context ID 0 is the registered payload.</li>
+<li><code>ConnectIpAddress</code> and <code>ConnectIpRoute</code> encode the
+address-assign, address-request and route-advertisement capsules.</li>
+</ul>
+
+<hr/>
+
+<p>
+<a href="index.html">&larr; Back to Main Page</a> |
+<a href="http.html">HTTP Server &amp; Client</a> |
+<a href="websocket.html">WebSocket service and client</a> |
+<a href="dns.html">DNS</a> |
+<a href="tls.html">TLS, DTLS and QUIC</a>
+</p>
+
+<p class='server-info'>Gumdrop MASQUE</p>
+
+</body>
+</html>

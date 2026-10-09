@@ -194,71 +194,6 @@ public class Pop3Client {
     // Configuration (before connect)
     // ═══════════════════════════════════════════════════════════════════
 
-    /**
-     * Sets whether this client uses implicit TLS (POP3S).
-     *
-     * <p>When true, the connection starts with TLS immediately (port 995).
-     * When false, the connection starts plaintext and STLS can be used
-     * to upgrade if client credentials are configured.
-     *
-     * @param secure true for implicit TLS
-     */
-    public void setSecure(boolean secure) {
-        this.secure = secure;
-    }
-
-    /**
-     * Sets client certificate credentials for TLS connections.
-     *
-     * <p>Required for both implicit TLS ({@code setSecure(true)}) and
-     * explicit TLS via STLS. When set without {@code setSecure(true)},
-     * the in-tree TLS engine is configured but not started until the
-     * handler calls {@code endpoint.startTLS()}.
-     *
-     * @param clientCredentials the client certificate credentials, if any
-     */
-    public void setClientCredentials(ServerCredentials clientCredentials) {
-        tls.serverCredentials(clientCredentials);
-    }
-
-    /**
-     * Sets a custom trust manager for TLS certificate verification.
-     *
-     * @param trustManager the trust manager, or null to use defaults
-     * @see org.bluezoo.gumdrop.util.PinnedCertTrustManager
-     * @see org.bluezoo.gumdrop.util.EmptyX509TrustManager
-     */
-    public void setTrustManager(X509TrustManager trustManager) {
-        tls.trustManager(trustManager);
-    }
-
-    /**
-     * Sets the keystore file for client certificate authentication.
-     *
-     * @param path the keystore file path
-     */
-    public void setKeystoreFile(Path path) {
-        tls.keystoreFile(path);
-    }
-
-    /**
-     * Sets the keystore password.
-     *
-     * @param password the keystore password
-     */
-    public void setKeystorePass(String password) {
-        tls.keystorePass(password);
-    }
-
-    /**
-     * Sets the keystore format (e.g. JKS, PKCS12).
-     *
-     * @param format the keystore format
-     */
-    public void setKeystoreFormat(KeystoreFormat format) {
-        tls.keystoreFormat(format);
-    }
-
 
     /** @return this client */
     public Pop3Client secure(boolean secure) {
@@ -266,38 +201,16 @@ public class Pop3Client {
         return this;
     }
 
-    public Pop3Client trustJvm() {
-        tls.trustJvm();
-        return this;
-    }
-
-    /** @return this client */
-    public Pop3Client clientCredentials(ServerCredentials clientCredentials) {
-        tls.serverCredentials(clientCredentials);
-        return this;
-    }
-
-    /** @return this client */
-    public Pop3Client trustManager(X509TrustManager trustManager) {
-        tls.trustManager(trustManager);
-        return this;
-    }
-
-    /** @return this client */
-    public Pop3Client keystoreFile(Path path) {
-        tls.keystoreFile(path);
-        return this;
-    }
-
-    /** @return this client */
-    public Pop3Client keystorePass(String password) {
-        tls.keystorePass(password);
-        return this;
-    }
-
-    /** @return this client */
-    public Pop3Client keystoreFormat(KeystoreFormat format) {
-        tls.keystoreFormat(format);
+    /**
+     * Sets this client's TLS settings (certificates, trust, ECH and so on). The
+     * settings are copied, so later changes to {@code source} are not seen.
+     * Whether TLS is used at all is decided by {@link #secure(boolean)}.
+     *
+     * @param source the TLS configuration
+     * @return this client
+     */
+    public Pop3Client tls(TlsConfig source) {
+        tls.copyFrom(source);
         return this;
     }
 

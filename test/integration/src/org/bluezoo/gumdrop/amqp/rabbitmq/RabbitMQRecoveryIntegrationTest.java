@@ -24,7 +24,7 @@ package org.bluezoo.gumdrop.amqp.rabbitmq;
 import org.bluezoo.gumdrop.amqp.BasicProperties;
 
 import org.bluezoo.gumdrop.Gumdrop;
-import org.bluezoo.gumdrop.amqp.client.AmqpClientRecovery;
+import org.bluezoo.gumdrop.amqp.client.AmqpClient;
 import org.bluezoo.gumdrop.amqp.client.RecoveryPolicy;
 import org.bluezoo.gumdrop.amqp.client.ClientChannel;
 import org.bluezoo.gumdrop.amqp.client.ClientConnection;
@@ -51,7 +51,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import static org.junit.Assert.*;
 
 /**
- * Exercises {@link AmqpClientRecovery}'s reconnect and topology-replay
+ * Exercises {@link AmqpClient}'s reconnect and topology-replay
  * logic against an unexpected disconnect from a real RabbitMQ broker --
  * not run in CI, see {@link RabbitMQTestSupport}.
  *
@@ -73,7 +73,7 @@ public class RabbitMQRecoveryIntegrationTest {
     // counting down on the recovery wait itself (see its own comment).
     private static final long TIMEOUT_SECONDS = 20;
 
-    private AmqpClientRecovery client;
+    private AmqpClient client;
     private Gumdrop gumdrop;
 
     @Before
@@ -96,7 +96,7 @@ public class RabbitMQRecoveryIntegrationTest {
     @Test
     public void testForcedDisconnectTriggersReconnectAndTopologyReplay() throws Exception {
         String queue = "gumdrop-recovery-test-" + UUID.randomUUID();
-        client = new AmqpClientRecovery(RabbitMQTestSupport.HOST, RabbitMQTestSupport.PLAINTEXT_PORT)
+        client = new AmqpClient(RabbitMQTestSupport.HOST, RabbitMQTestSupport.PLAINTEXT_PORT)
                 .credentials(RabbitMQTestSupport.USERNAME, RabbitMQTestSupport.PASSWORD)
                 .virtualHost(RabbitMQTestSupport.VHOST)
                 .recoveryPolicy(new RecoveryPolicy().withInitialDelayMs(200L).withMaxDelayMs(1000L));
@@ -104,7 +104,7 @@ public class RabbitMQRecoveryIntegrationTest {
         CountDownLatch firstConsumeOk = new CountDownLatch(1);
         AtomicReference<ClientChannel> channelRef = new AtomicReference<>();
 
-        // Registered once, up front, and never cancelled: AmqpClientRecovery
+        // Registered once, up front, and never cancelled: AmqpClient
         // auto-replays it against the reconnected channel (see
         // RecoverableChannelImpl.rebind()), so re-registering a *second*
         // consumer on the same queue post-recovery (as an earlier version

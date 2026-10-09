@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.imap;
 
+import org.bluezoo.gumdrop.auth.SynchronousRealm;
 import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.testsupport.TestGumdrop;
 import org.bluezoo.gumdrop.ProtocolHandler;
@@ -80,9 +81,9 @@ public class IMAPNotifyTest {
         Files.createDirectories(userDir.resolve("Other/tmp"));
 
         ImapListener listener = new ImapListener();
-        listener.setRealm(new AcceptingRealm("editor", "editor"));
-        listener.setMailboxFactory(new MaildirMailboxFactory(mailRoot));
-        listener.setAllowPlaintextLogin(true);
+        listener.realm(new AcceptingRealm("editor", "editor"));
+        listener.mailboxFactory(new MaildirMailboxFactory(mailRoot));
+        listener.allowPlaintextLogin(true);
 
         ImapProtocolHandler handler = new ImapProtocolHandler(listener);
         RecordingStubEndpoint endpoint = new RecordingStubEndpoint(143);
@@ -121,7 +122,7 @@ public class IMAPNotifyTest {
         handler.receive(ByteBuffer.wrap(data));
     }
 
-    private static final class AcceptingRealm implements Realm {
+    private static final class AcceptingRealm implements SynchronousRealm {
         private final String user;
         private final String pass;
         private static final Set<SaslMechanism> SUPPORTED =
@@ -133,10 +134,6 @@ public class IMAPNotifyTest {
             this.pass = pass;
         }
 
-        @Override
-        public Realm forSelectorLoop(SelectorLoop loop) {
-            return this;
-        }
 
         @Override
         public Set<SaslMechanism> getSupportedSASLMechanisms() {
@@ -153,11 +150,6 @@ public class IMAPNotifyTest {
             return null;
         }
 
-        @Override
-        @SuppressWarnings("deprecation")
-        public String getPassword(String username) {
-            return user.equals(username) ? pass : null;
-        }
 
         @Override
         public boolean isUserInRole(String username, String role) {

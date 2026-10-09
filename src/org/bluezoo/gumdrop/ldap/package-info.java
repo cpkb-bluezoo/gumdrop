@@ -34,12 +34,12 @@
  *
  * <ul>
  *   <li>{@link org.bluezoo.gumdrop.ldap.client} - asynchronous LDAP client</li>
- *   <li>{@link org.bluezoo.gumdrop.ldap.asn1} - ASN.1 BER/DER codec</li>
+ *   <li>{@link org.bluezoo.gumdrop.asn1} - ASN.1 BER/DER codec</li>
  * </ul>
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see org.bluezoo.gumdrop.ldap.client
- * @see org.bluezoo.gumdrop.ldap.asn1
+ * @see org.bluezoo.gumdrop.asn1
  * @see org.bluezoo.gumdrop.auth.Realm
  * @see <a href="https://www.rfc-editor.org/rfc/rfc4511">RFC 4511 - LDAP Protocol</a>
  */

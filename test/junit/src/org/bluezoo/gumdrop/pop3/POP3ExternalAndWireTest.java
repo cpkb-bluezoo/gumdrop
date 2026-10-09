@@ -91,9 +91,9 @@ public class POP3ExternalAndWireTest {
         realm.supportedMechanisms.add(SaslMechanism.EXTERNAL);
         realm.supportedMechanisms.add(SaslMechanism.PLAIN);
         listener = new POP3ProtocolHandlerTest.TestPOP3Listener();
-        listener.setRealm(realm);
-        listener.setMailboxFactory(new POP3ProtocolHandlerTest.StubMailboxFactory());
-        listener.setEnableAPOP(false);
+        listener.realm(realm);
+        listener.mailboxFactory(new POP3ProtocolHandlerTest.StubMailboxFactory());
+        listener.enableAPOP(false);
         endpoint = new CertEndpoint();
         endpoint.secure = true;
         TestCertificates.Identity id = TestCertificates.ec256();

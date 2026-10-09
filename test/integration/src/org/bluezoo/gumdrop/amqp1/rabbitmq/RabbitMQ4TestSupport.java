@@ -127,7 +127,7 @@ final class RabbitMQ4TestSupport {
      * client's links are not thread-safe, so a test thread must not call them
      * directly; this is the supported way to do so from another thread.
      */
-    static void onLoop(org.bluezoo.gumdrop.amqp1.client.Amqp1ClientRecovery client,
+    static void onLoop(org.bluezoo.gumdrop.amqp1.client.Amqp1Client client,
             final Runnable task) throws InterruptedException {
         final java.util.concurrent.CountDownLatch done = new java.util.concurrent.CountDownLatch(1);
         final java.util.concurrent.atomic.AtomicReference<Throwable> failure =

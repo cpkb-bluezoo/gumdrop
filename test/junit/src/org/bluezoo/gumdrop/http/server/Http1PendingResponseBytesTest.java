@@ -46,7 +46,7 @@ public class Http1PendingResponseBytesTest {
     public void reportsUnsentBytesHeldByTheConnection() {
         final AtomicReference<HttpResponse> opened = new AtomicReference<HttpResponse>();
         Http2Listener listener = new Http2Listener();
-        listener.setStreamHandler(new HttpStreamHandler() {
+        listener.streamHandler(new HttpStreamHandler() {
             @Override
             public HttpRequestHandler openStream(HttpResponse state) {
                 opened.set(state);

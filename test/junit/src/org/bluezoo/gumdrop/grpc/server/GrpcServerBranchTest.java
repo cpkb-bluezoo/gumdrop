@@ -77,11 +77,11 @@ public class GrpcServerBranchTest {
 
     /** Server that records the sender and optionally ends the message with a failure. */
     private static final class RecordingServer implements GrpcServer {
-        GrpcResponseSender sender;
+        GrpcCall sender;
         boolean failOnEnd;
 
         @Override
-        public ProtoMessageHandler startUnaryCall(String path, GrpcResponseSender response) {
+        public ProtoMessageHandler startCall(String path, GrpcCall response) {
             sender = response;
             return new ProtoDefaultHandler() {
                 @Override
@@ -177,7 +177,7 @@ public class GrpcServerBranchTest {
         CapturingState state = new CapturingState();
         GrpcServer none = new GrpcServer() {
             @Override
-            public ProtoMessageHandler startUnaryCall(String path, GrpcResponseSender response) {
+            public ProtoMessageHandler startCall(String path, GrpcCall response) {
                 return null;
             }
         };
@@ -205,7 +205,7 @@ public class GrpcServerBranchTest {
         RecordingServer server = new RecordingServer();
         GrpcHandler handler = handlerFor(state, server, GrpcFraming.DEFAULT_MAX_MESSAGE_SIZE);
         handler.endHeaders();
-        GrpcResponseSender first = server.sender;
+        GrpcCall first = server.sender;
         handler.endHeaders();
         assertNotNull(first);
         assertNotSame(first, server.sender);
@@ -217,7 +217,7 @@ public class GrpcServerBranchTest {
         RecordingServer server = new RecordingServer();
         GrpcHandler handler = handlerFor(state, server, GrpcFraming.DEFAULT_MAX_MESSAGE_SIZE);
         handler.endHeaders();
-        GrpcResponseSender sender = server.sender;
+        GrpcCall sender = server.sender;
         GrpcResponseMessage message = sender.openMessage("gumdroptest.EchoResponse");
         assertNotNull(message.getSerializer());
         ProtobufWriter writer = message.getWriter();

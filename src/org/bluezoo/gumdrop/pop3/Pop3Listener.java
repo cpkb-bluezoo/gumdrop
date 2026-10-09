@@ -21,6 +21,8 @@
 
 package org.bluezoo.gumdrop.pop3;
 
+import org.bluezoo.gumdrop.util.CidrNetwork;
+import java.util.List;
 import java.io.IOException;
 import java.nio.file.Path;
 
@@ -111,21 +113,13 @@ public class Pop3Listener extends TcpListener {
     }
 
     /**
-     * Sets the port number this endpoint should bind to.
-     *
-     * @param port the port number
-     */
-    public void setPort(int port) {
-        this.port = port;
-    }
-    /**
      * Sets the port. Returns {@code this} for fluent configuration.
      *
      * @param port the port number
      * @return this listener
      */
     public Pop3Listener port(int port) {
-        setPort(port);
+        this.port = port;
         return this;
     }
 
@@ -153,6 +147,90 @@ public class Pop3Listener extends TcpListener {
         return this;
     }
 
+    @Override
+    public Pop3Listener maxConnections(int max) {
+        super.maxConnections(max);
+        return this;
+    }
+
+    @Override
+    public Pop3Listener maxConnectionsPerIP(int max) {
+        super.maxConnectionsPerIP(max);
+        return this;
+    }
+
+    @Override
+    public Pop3Listener rateLimit(String rateLimit) {
+        super.rateLimit(rateLimit);
+        return this;
+    }
+
+    @Override
+    public Pop3Listener maxAuthFailures(int max) {
+        super.maxAuthFailures(max);
+        return this;
+    }
+
+    @Override
+    public Pop3Listener authLockoutTimeMs(long lockoutMs) {
+        super.authLockoutTimeMs(lockoutMs);
+        return this;
+    }
+
+    @Override
+    public Pop3Listener allowedNetworks(List<CidrNetwork> allowedNetworks) {
+        super.allowedNetworks(allowedNetworks);
+        return this;
+    }
+
+    @Override
+    public Pop3Listener blockedNetworks(List<CidrNetwork> blockedNetworks) {
+        super.blockedNetworks(blockedNetworks);
+        return this;
+    }
+
+    @Override
+    public Pop3Listener name(String name) {
+        super.name(name);
+        return this;
+    }
+
+    @Override
+    public Pop3Listener maxNetInSize(int size) {
+        super.maxNetInSize(size);
+        return this;
+    }
+
+    @Override
+    public Pop3Listener maxNetOutSize(int size) {
+        super.maxNetOutSize(size);
+        return this;
+    }
+
+    @Override
+    public Pop3Listener idleTimeoutMs(long idleTimeoutMs) {
+        super.idleTimeoutMs(idleTimeoutMs);
+        return this;
+    }
+
+    @Override
+    public Pop3Listener readTimeoutMs(long readTimeoutMs) {
+        super.readTimeoutMs(readTimeoutMs);
+        return this;
+    }
+
+    @Override
+    public Pop3Listener connectionTimeoutMs(long connectionTimeoutMs) {
+        super.connectionTimeoutMs(connectionTimeoutMs);
+        return this;
+    }
+
+    @Override
+    public Pop3Listener maxDtlsPeers(int max) {
+        super.maxDtlsPeers(max);
+        return this;
+    }
+
     /**
      * Returns the authentication realm.
      *
@@ -166,9 +244,11 @@ public class Pop3Listener extends TcpListener {
      * Sets the authentication realm for POP3 authentication.
      *
      * @param realm the realm to use for authentication
+     * @return this
      */
-    public void setRealm(Realm realm) {
+    public Pop3Listener realm(Realm realm) {
         this.realm = realm;
+        return this;
     }
 
     /**
@@ -185,9 +265,11 @@ public class Pop3Listener extends TcpListener {
      * Sets the GSSAPI server for Kerberos authentication (RFC 4752).
      *
      * @param gssapiServer the GSSAPI server
+     * @return this
      */
-    public void setGSSAPIServer(GssapiServer gssapiServer) {
+    public Pop3Listener gssapiServer(GssapiServer gssapiServer) {
         this.gssapiServer = gssapiServer;
+        return this;
     }
 
     /**
@@ -201,9 +283,10 @@ public class Pop3Listener extends TcpListener {
      * @throws IOException if the keytab cannot be read or credentials
      *         cannot be acquired
      */
-    public void configureGSSAPI(Path keytabPath, String servicePrincipal)
+    public Pop3Listener configureGSSAPI(Path keytabPath, String servicePrincipal)
             throws IOException {
         this.gssapiServer = new GssapiServer(keytabPath, servicePrincipal);
+        return this;
     }
 
     /**
@@ -221,9 +304,11 @@ public class Pop3Listener extends TcpListener {
      * for the authenticated user.
      *
      * @param mailboxFactory the factory to create mailbox instances
+     * @return this
      */
-    public void setMailboxFactory(MailboxFactory mailboxFactory) {
+    public Pop3Listener mailboxFactory(MailboxFactory mailboxFactory) {
         this.mailboxFactory = mailboxFactory;
+        return this;
     }
 
     /**
@@ -242,9 +327,11 @@ public class Pop3Listener extends TcpListener {
      * This is enforced after failed authentication attempts.
      *
      * @param loginDelayMs the delay in milliseconds (0 to disable)
+     * @return this
      */
-    public void setLoginDelayMs(long loginDelayMs) {
+    public Pop3Listener loginDelayMs(long loginDelayMs) {
         this.loginDelayMs = loginDelayMs;
+        return this;
     }
 
     /**
@@ -261,9 +348,11 @@ public class Pop3Listener extends TcpListener {
      * Sets the transaction timeout in milliseconds.
      *
      * @param transactionTimeoutMs the timeout in milliseconds
+     * @return this
      */
-    public void setTransactionTimeoutMs(long transactionTimeoutMs) {
+    public Pop3Listener transactionTimeoutMs(long transactionTimeoutMs) {
         this.transactionTimeoutMs = transactionTimeoutMs;
+        return this;
     }
 
     /**
@@ -281,9 +370,11 @@ public class Pop3Listener extends TcpListener {
      * sending passwords in cleartext.
      *
      * @param enableAPOP true to enable APOP
+     * @return this
      */
-    public void setEnableAPOP(boolean enableAPOP) {
+    public Pop3Listener enableAPOP(boolean enableAPOP) {
         this.enableAPOP = enableAPOP;
+        return this;
     }
 
     /**
@@ -300,9 +391,11 @@ public class Pop3Listener extends TcpListener {
      * When enabled, the endpoint advertises UTF8 capability.
      *
      * @param enableUTF8 true to enable UTF-8
+     * @return this
      */
-    public void setEnableUTF8(boolean enableUTF8) {
+    public Pop3Listener enableUTF8(boolean enableUTF8) {
         this.enableUTF8 = enableUTF8;
+        return this;
     }
 
     /**
@@ -321,9 +414,11 @@ public class Pop3Listener extends TcpListener {
      * waiting for responses.
      *
      * @param enablePipelining true to enable pipelining
+     * @return this
      */
-    public void setEnablePipelining(boolean enablePipelining) {
+    public Pop3Listener enablePipelining(boolean enablePipelining) {
         this.enablePipelining = enablePipelining;
+        return this;
     }
 
     /**
@@ -343,9 +438,11 @@ public class Pop3Listener extends TcpListener {
      *
      * @param days retention days (0+), {@code Integer.MAX_VALUE} for
      *             NEVER, or -1 to suppress the capability
+     * @return this
      */
-    public void setExpireDays(int days) {
+    public Pop3Listener expireDays(int days) {
         this.expireDays = days;
+        return this;
     }
 
     /**
@@ -386,9 +483,11 @@ public class Pop3Listener extends TcpListener {
      * wiring.
      *
      * @param server the owning server
+     * @return this
      */
-    public void setServer(org.bluezoo.gumdrop.pop3.server.Pop3Server server) {
+    public Pop3Listener server(org.bluezoo.gumdrop.pop3.server.Pop3Server server) {
         this.server = server;
+        return this;
     }
 
     /**
@@ -400,18 +499,13 @@ public class Pop3Listener extends TcpListener {
         return server;
     }
 
-    public void setSessionProvider(
-            org.bluezoo.gumdrop.pop3.server.Pop3ServerSessionProvider sessionProvider) {
-        this.sessionProvider = sessionProvider;
-    }
-
     public org.bluezoo.gumdrop.pop3.server.Pop3ServerSessionProvider getSessionProvider() {
         return sessionProvider;
     }
 
     public Pop3Listener sessionProvider(
             org.bluezoo.gumdrop.pop3.server.Pop3ServerSessionProvider sessionProvider) {
-        setSessionProvider(sessionProvider);
+        this.sessionProvider = sessionProvider;
         return this;
     }
 

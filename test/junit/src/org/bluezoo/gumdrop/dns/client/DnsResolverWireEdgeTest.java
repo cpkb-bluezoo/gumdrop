@@ -153,7 +153,7 @@ public class DnsResolverWireEdgeTest {
         udp = new Mock();
         tcp = new Mock();
         resolver = new TestResolver(tcp);
-        resolver.setTransport(udp);
+        resolver.transport(udp);
         resolver.addServer("127.0.0.1");
         resolver.open();
     }

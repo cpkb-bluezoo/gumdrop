@@ -31,7 +31,8 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
 import org.bluezoo.gumdrop.Gumdrop;
-import org.bluezoo.gumdrop.amqp1.client.Amqp1ClientRecovery;
+import org.bluezoo.gumdrop.tls.TlsConfig;
+import org.bluezoo.gumdrop.amqp1.client.Amqp1Client;
 import org.bluezoo.gumdrop.amqp1.client.Amqp1RecoverableSession;
 import org.bluezoo.gumdrop.amqp1.client.Amqp1RecoveryHandler;
 import org.bluezoo.gumdrop.amqp1.codec.DeliveryState;
@@ -58,7 +59,7 @@ public class RabbitMQ4TlsIntegrationTest {
     private static final long TIMEOUT_SECONDS = 15;
 
     private Gumdrop gumdrop;
-    private Amqp1ClientRecovery client;
+    private Amqp1Client client;
     private String queue;
 
     @Before
@@ -91,11 +92,11 @@ public class RabbitMQ4TlsIntegrationTest {
 
     @Test
     public void testMessageRoundTripOverTls() throws Exception {
-        client = new Amqp1ClientRecovery(RabbitMQ4TestSupport.HOST, RabbitMQ4TestSupport.TLS_PORT)
+        client = new Amqp1Client(RabbitMQ4TestSupport.HOST, RabbitMQ4TestSupport.TLS_PORT)
                 .credentials(RabbitMQ4TestSupport.USERNAME, RabbitMQ4TestSupport.PASSWORD)
                 .hostname(RabbitMQ4TestSupport.HOST)
-                .setSecure(true)
-                .setTrustManager(RabbitMQ4TestSupport.loadCaTrustManager());
+                .secure(true)
+                .tls(new TlsConfig().trustManager(RabbitMQ4TestSupport.loadCaTrustManager()));
         final RabbitMQ4IntegrationTest.Receiving receiving = new RabbitMQ4IntegrationTest.Receiving(5);
         final RabbitMQ4IntegrationTest.Sending sending = new RabbitMQ4IntegrationTest.Sending();
         final String address = RabbitMQ4TestSupport.queueAddress(queue);

@@ -22,6 +22,7 @@
 package org.bluezoo.gumdrop.dns.client;
 
 import org.bluezoo.gumdrop.Endpoint;
+import org.bluezoo.gumdrop.tls.TlsConfig;
 import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.GumdropConfig;
 import org.bluezoo.gumdrop.SecurityInfo;
@@ -85,8 +86,8 @@ public class DNSResolutionIntegrationTest {
     @Test
     public void testHTTPSGetWithDNSResolution() throws Exception {
         HttpClient client = new HttpClient(TEST_HOST, TEST_PORT);
-        client.setSecure(true);
-        client.setTrustManager(new EmptyX509TrustManager());
+        client.secure(true);
+        client.tls(new TlsConfig().trustManager(new EmptyX509TrustManager()));
 
         CountDownLatch readyLatch = new CountDownLatch(1);
         CountDownLatch responseLatch = new CountDownLatch(1);

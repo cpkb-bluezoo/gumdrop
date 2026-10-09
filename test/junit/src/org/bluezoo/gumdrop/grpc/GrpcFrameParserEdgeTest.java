@@ -212,8 +212,8 @@ public class GrpcFrameParserEdgeTest {
     @Test
     public void exceptionKeepsItsCause() {
         Exception cause = new IllegalStateException("root");
-        GrpcException e = new GrpcException("wrapped", cause);
-        assertEquals("wrapped", e.getMessage());
+        GrpcException e = new GrpcException(GrpcStatus.INTERNAL, "wrapped", cause);
+        assertTrue(e.getMessage(), e.getMessage().endsWith("wrapped"));
         assertEquals(cause, e.getCause());
     }
 }
